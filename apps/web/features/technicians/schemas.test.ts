@@ -28,13 +28,33 @@ describe("sensitiveSchema", () => {
 });
 
 describe("profileSchema", () => {
-  it("requires the operational booleans + status", () => {
-    const r = profileSchema.safeParse({
-      callMaskingEnabled: false,
-      gpsTrackingEnabled: false,
-      mobileAppInstalled: false,
-      status: "active",
-    });
-    expect(r.success).toBe(true);
+  // Everything the card always carries: the operational booleans and status,
+  // and — since 2026-09-17 — the user record's half (name, field team), the
+  // user type and the list of additional numbers. Each has a default from the
+  // record, so a save never has to invent one.
+  const base = {
+    firstName: "Riley",
+    lastName: "Santos",
+    fieldTeamMember: true,
+    technicianType: "regular",
+    additionalPhones: [],
+    callMaskingEnabled: false,
+    gpsTrackingEnabled: false,
+    mobileAppInstalled: false,
+    status: "active",
+  };
+
+  it("accepts the card's own fields with nothing optional filled in", () => {
+    expect(profileSchema.safeParse(base).success).toBe(true);
+  });
+
+  it("knows two user types and no third", () => {
+    expect(profileSchema.safeParse({ ...base, technicianType: "subcontractor" }).success).toBe(true);
+    expect(profileSchema.safeParse({ ...base, technicianType: "owner" }).success).toBe(false);
+  });
+
+  it("caps the additional numbers where the API does", () => {
+    expect(profileSchema.safeParse({ ...base, additionalPhones: ["1", "2", "3", "4", "5"] }).success).toBe(true);
+    expect(profileSchema.safeParse({ ...base, additionalPhones: ["1", "2", "3", "4", "5", "6"] }).success).toBe(false);
   });
 });

@@ -14,6 +14,8 @@ describe('DealsController', () => {
       create: jest.fn(),
       findById: jest.fn(),
       list: jest.fn(),
+      // The names side-loaded with a page of jobs (see deals.list-included.spec).
+      includedFor: jest.fn().mockResolvedValue({ technicians: [], clients: [] }),
       update: jest.fn(),
       softDelete: jest.fn(),
       moveStatus: jest.fn(),
@@ -30,6 +32,7 @@ describe('DealsController', () => {
       getTechDeals: jest.fn(),
       updatePaymentStatus: jest.fn(),
       findAll: jest.fn(),
+      stats: jest.fn(),
     };
 
     const module = await Test.createTestingModule({
@@ -307,7 +310,7 @@ describe('DealsController', () => {
     it('should call service.updatePaymentStatus', async () => {
       service.updatePaymentStatus.mockResolvedValue(undefined);
 
-      const dto = { paymentId: 'pay-1', amount: 250, paidAt: '2026-04-20' };
+      const dto = { paymentStatus: 'paid', amountPaid: 250, invoiceTotal: 250, paymentId: 'pay-1' };
       const result = await controller.updatePaymentStatus('deal-1', dto as any);
 
       expect(result).toEqual({ success: true, data: { updated: true } });
@@ -371,6 +374,32 @@ describe('DealsController', () => {
       await expect(controller.getByIdInternal('missing')).rejects.toBeInstanceOf(
         NotFoundException,
       );
+    });
+  });
+
+  describe('stats', () => {
+    const query = { createdFrom: '2026-09-01' } as any;
+    const caller = createMockJwtUser();
+
+    it('shows the money only to a caller with financials.view', async () => {
+      service.stats.mockResolvedValue({ jobs: { total: 0 } });
+
+      await controller.stats(query, caller, {
+        dataScope: { deals: 'all' },
+        permissions: { financials: { view: true } },
+      } as any);
+      await controller.stats(query, caller, { dataScope: { deals: 'assigned_only' }, permissions: {} } as any);
+
+      expect(service.stats).toHaveBeenNthCalledWith(1, query, caller, 'all', { money: true });
+      expect(service.stats).toHaveBeenNthCalledWith(2, query, caller, 'assigned_only', { money: false });
+    });
+
+    it('wraps the result', async () => {
+      service.stats.mockResolvedValue({ jobs: { total: 3 } });
+      await expect(controller.stats(query, caller, { permissions: {} } as any)).resolves.toEqual({
+        success: true,
+        data: { jobs: { total: 3 } },
+      });
     });
   });
 });

@@ -7,6 +7,8 @@ import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { PasswordResetRequestDto } from './dto/password-reset-request.dto';
 import { PasswordResetConfirmDto } from './dto/password-reset-confirm.dto';
+import { MfaVerifyDto } from './dto/mfa-verify.dto';
+import { MfaResendDto } from './dto/mfa-resend.dto';
 
 @ApiTags('Auth')
 @Controller('auth')
@@ -22,6 +24,31 @@ export class AuthController {
   async login(@Body() dto: LoginDto) {
     const data = await this.authService.login(dto);
     return { success: true, data };
+  }
+
+  @Post('mfa')
+  @Public()
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Finish a two-step sign-in with the texted code',
+    description:
+      '**Guard:** Public (no auth required). Answers an `SMS_MFA` login challenge: the right code ' +
+      'returns the tokens the password step earned; a wrong one is 401, and five of them burn the ' +
+      'challenge (sign in again). The challenge lasts five minutes.',
+  })
+  async verifyMfa(@Body() dto: MfaVerifyDto) {
+    return { success: true, data: await this.authService.verifyMfa(dto) };
+  }
+
+  @Post('mfa/resend')
+  @Public()
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Text the two-step sign-in code again',
+    description: '**Guard:** Public (no auth required). Same number, same challenge; 401 once it has expired.',
+  })
+  async resendMfa(@Body() dto: MfaResendDto) {
+    return { success: true, data: await this.authService.resendMfa(dto) };
   }
 
   @Post('refresh')

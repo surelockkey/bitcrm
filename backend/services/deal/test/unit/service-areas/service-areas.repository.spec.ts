@@ -46,6 +46,41 @@ describe('ServiceAreasRepository', () => {
     expect(areas).toHaveLength(1);
   });
 
+  it('round-trips tax and defaultBusinessProfileId (a full-Put update would otherwise drop them)', async () => {
+    dynamoDb.client.send.mockResolvedValue({
+      Item: {
+        ...createMockServiceArea({ id: 'a-9' }),
+        tax: { name: 'CT Sales Tax', ratePercent: 6.35 },
+        defaultBusinessProfileId: 'bp-2',
+      },
+    });
+    const area = await repository.get('a-9');
+    expect(area?.tax).toEqual({ name: 'CT Sales Tax', ratePercent: 6.35 });
+    expect(area?.defaultBusinessProfileId).toBe('bp-2');
+
+    dynamoDb.client.send.mockResolvedValue({ Item: createMockServiceArea({ id: 'a-9' }) });
+    const bare = await repository.get('a-9');
+    expect(bare).not.toHaveProperty('tax');
+    expect(bare).not.toHaveProperty('defaultBusinessProfileId');
+  });
+
+  it('does not surface the legacy defaultTaxRateId attribute', async () => {
+    dynamoDb.client.send.mockResolvedValue({
+      Item: { ...createMockServiceArea({ id: 'a-9' }), defaultTaxRateId: 'tax-1' },
+    });
+    expect(await repository.get('a-9')).not.toHaveProperty('defaultTaxRateId');
+  });
+
+  it('writes tax and defaultBusinessProfileId on put', async () => {
+    dynamoDb.client.send.mockResolvedValue({});
+    await repository.put(
+      createMockServiceArea({ id: 'a-1', tax: { name: 'T', ratePercent: 1 }, defaultBusinessProfileId: 'bp-1' }),
+    );
+    const input = dynamoDb.client.send.mock.calls[0][0].input;
+    expect(input.Item.tax).toEqual({ name: 'T', ratePercent: 1 });
+    expect(input.Item.defaultBusinessProfileId).toBe('bp-1');
+  });
+
   it('deletes by id', async () => {
     dynamoDb.client.send.mockResolvedValue({});
     await repository.remove('a-3');

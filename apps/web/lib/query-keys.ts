@@ -31,11 +31,18 @@ export const queryKeys = {
     list: () => ["call-tags", "list"] as const,
   },
 
+  dashboard: {
+    all: () => ["dashboard"] as const,
+    jobsByStatus: (window?: unknown) => ["dashboard", "jobs-by-status", window] as const,
+    /** Any other widget: its name and whatever window or day it reads. */
+    widget: (name: string, params?: unknown) => ["dashboard", name, params] as const,
+  },
   calls: {
     all: () => ["calls"] as const,
     /** Prefix for every filtered list — use for invalidation. */
     lists: () => ["calls", "list"] as const,
     list: (filters?: unknown) => ["calls", "list", filters] as const,
+    count: (filters?: unknown) => ["calls", "count", filters] as const,
     detail: (id: string) => ["calls", "detail", id] as const,
     byParty: (kind: string, id: string) =>
       ["calls", "party", kind, id] as const,
@@ -50,6 +57,14 @@ export const queryKeys = {
   deals: {
     all: () => ["deals"] as const,
     list: (filters?: unknown) => ["deals", "list", filters] as const,
+    /** One server-paged list (the jobs page); invalidated with the rest of `all()`. */
+    page: (params?: unknown) => ["deals", "page", params] as const,
+    /** A bounded window a board / schedule holds whole (dispatch, schedule). */
+    window: (window?: unknown) => ["deals", "window", window] as const,
+    counts: (params?: unknown) => ["deals", "counts", params] as const,
+    /** A period at a glance (dashboard); under `deals` so the live stream refreshes it. */
+    stats: (params?: unknown) => ["deals", "stats", params] as const,
+    byIds: (ids: string[]) => ["deals", "by-ids", ids] as const,
     detail: (id: string) => ["deals", "detail", id] as const,
     timeline: (id: string) => ["deals", id, "timeline"] as const,
     qualifiedTechs: (id: string) => ["deals", id, "qualified-techs"] as const,
@@ -71,12 +86,16 @@ export const queryKeys = {
   jobTypes: {
     all: () => ["job-types"] as const,
     list: () => ["job-types", "list"] as const,
+    /** Only what a picker can offer — cached apart from the full catalog. */
+    active: () => ["job-types", "list", "active"] as const,
     detail: (id: string) => ["job-types", "detail", id] as const,
   },
 
   jobSources: {
     all: () => ["job-sources"] as const,
     list: () => ["job-sources", "list"] as const,
+    /** Only what a picker can offer — cached apart from the full catalog. */
+    active: () => ["job-sources", "list", "active"] as const,
     detail: (id: string) => ["job-sources", "detail", id] as const,
   },
 
@@ -107,14 +126,19 @@ export const queryKeys = {
   contacts: {
     all: () => ["contacts"] as const,
     list: (filters?: unknown) => ["contacts", "list", filters] as const,
+    count: (filters?: unknown) => ["contacts", "count", filters] as const,
     detail: (id: string) => ["contacts", "detail", id] as const,
     byPhone: (phone: string) => ["contacts", "by-phone", phone] as const,
+    byIds: (ids: string[]) => ["contacts", "by-ids", ids] as const,
+    /** The server-paged Contacts list (optionally one company's people). */
+    page: (companyId?: string) => ["contacts", "page", companyId] as const,
   },
 
   companies: {
     all: () => ["companies"] as const,
     list: (filters?: unknown) => ["companies", "list", filters] as const,
     detail: (id: string) => ["companies", "detail", id] as const,
+    byIds: (ids: string[]) => ["companies", "by-ids", ids] as const,
     contacts: (id: string) => ["companies", id, "contacts"] as const,
     documents: (id: string) => ["companies", id, "documents"] as const,
   },
@@ -129,29 +153,69 @@ export const queryKeys = {
     products: {
       all: () => ["products"] as const,
       list: (filters?: unknown) => ["products", "list", filters] as const,
+      count: (filters?: unknown) => ["products", "count", filters] as const,
       detail: (id: string) => ["products", "detail", id] as const,
       bySku: (sku: string) => ["products", "by-sku", sku] as const,
       photo: (id: string) => ["products", id, "photo"] as const,
+      /** Under `products`: a stock movement refreshes it with the list and the detail. */
+      stock: (id: string) => ["products", id, "stock"] as const,
+      /** The whole catalog as a list, for the job and estimate item pickers. */
       map: () => ["products", "all-map"] as const,
     },
     warehouses: {
       all: () => ["warehouses"] as const,
-      list: () => ["warehouses", "list"] as const,
+      list: (filters?: unknown) => ["warehouses", "list", filters] as const,
+      count: (filters?: unknown) => ["warehouses", "count", filters] as const,
+      /** Every page, for pickers. */
+      everything: () => ["warehouses", "everything"] as const,
       detail: (id: string) => ["warehouses", "detail", id] as const,
       stock: (id: string) => ["warehouses", id, "stock"] as const,
-      transfers: (id: string) => ["warehouses", id, "transfers"] as const,
     },
     containers: {
       all: () => ["containers"] as const,
       list: (filters?: unknown) => ["containers", "list", filters] as const,
+      count: (filters?: unknown) => ["containers", "count", filters] as const,
+      /** Every page, for pickers. */
+      everything: () => ["containers", "everything"] as const,
       mine: () => ["containers", "mine"] as const,
       detail: (id: string) => ["containers", "detail", id] as const,
       stock: (id: string) => ["containers", id, "stock"] as const,
-      transfers: (id: string) => ["containers", id, "transfers"] as const,
     },
+    /** Item categories catalog (`GET /inventory/categories`). */
+    categories: {
+      all: () => ["item-categories"] as const,
+      list: () => ["item-categories", "list"] as const,
+    },
+    brands: {
+      all: () => ["brands"] as const,
+      list: () => ["brands", "list"] as const,
+    },
+    /** Workiz "User containers": which van each user works from. */
+    userContainers: {
+      all: () => ["user-containers"] as const,
+      list: () => ["user-containers", "list"] as const,
+      /** The caller's own row. */
+      mine: () => ["user-containers", "me"] as const,
+    },
+    /** A van's ideal loadout, and how a van compares with it. */
+    containerTemplates: {
+      all: () => ["container-templates"] as const,
+      list: (status?: string) => ["container-templates", "list", status] as const,
+      detail: (id: string) => ["container-templates", "detail", id] as const,
+      diff: (id: string, containerId: string, warehouseId?: string) =>
+        ["container-templates", id, "diff", containerId, warehouseId] as const,
+    },
+    /**
+     * One location's stock (`GET /stock/locations/:type/:id`), under the
+     * location's own root — a movement, which refreshes both locations,
+     * refreshes it too.
+     */
+    locationStock: (type: "warehouse" | "container", id: string) =>
+      [type === "container" ? "containers" : "warehouses", id, "location-stock"] as const,
     transfers: {
       all: () => ["transfers"] as const,
       list: (filters?: unknown) => ["transfers", "list", filters] as const,
+      count: (filters?: unknown) => ["transfers", "count", filters] as const,
       detail: (id: string) => ["transfers", "detail", id] as const,
     },
   },
@@ -159,6 +223,7 @@ export const queryKeys = {
   users: {
     all: () => ["users"] as const,
     list: (filters?: unknown) => ["users", "list", filters] as const,
+    count: (filters?: unknown) => ["users", "count", filters] as const,
     detail: (id: string) => ["users", "detail", id] as const,
     permissions: (id: string) => ["users", id, "permissions"] as const,
   },
@@ -174,6 +239,7 @@ export const queryKeys = {
   technicians: {
     all: () => ["technicians"] as const,
     list: (filters?: unknown) => ["technicians", "list", filters] as const,
+    count: (filters?: unknown) => ["technicians", "count", filters] as const,
     profile: (id: string) => ["technicians", id, "profile"] as const,
     onboarding: (id: string) => ["technicians", id, "onboarding"] as const,
     assignments: (id: string) => ["technicians", id, "assignments"] as const,
@@ -209,6 +275,10 @@ export const queryKeys = {
       ["messaging", "conversations", "by-address", address] as const,
     textLookups: () => ["messaging", "text-lookup"] as const,
     textLookup: (params?: unknown) => ["messaging", "text-lookup", params] as const,
+    /** Prefix for every thread's send options — an opt-out anywhere invalidates the lot. */
+    sendOptionsAll: () => ["messaging", "send-options"] as const,
+    sendOptions: (conversationId: string) =>
+      ["messaging", "send-options", conversationId] as const,
     messages: (conversationId: string) =>
       ["messaging", "messages", "conversation", conversationId] as const,
     messagesByJob: (dealId: string) => ["messaging", "messages", "by-job", dealId] as const,
@@ -229,5 +299,69 @@ export const queryKeys = {
     list: () => ["automations", "list"] as const,
     detail: (id: string) => ["automations", "detail", id] as const,
     runs: (id: string) => ["automations", "runs", id] as const,
+    runsCount: (filters?: unknown) => ["automations", "runs", "count", filters] as const,
+    /** Every rule's firings in one stream (`GET /automations/runs`). */
+    runsFeed: (params?: unknown) => ["automations", "runs-feed", params] as const,
+  },
+
+  taxRates: {
+    all: () => ["tax-rates"] as const,
+    list: () => ["tax-rates", "list"] as const,
+  },
+
+  dealTotals: (dealId: string) => ["deals", dealId, "totals"] as const,
+
+  invoices: {
+    all: () => ["invoices"] as const,
+    list: (params?: unknown) => ["invoices", "list", params] as const,
+    count: (params?: unknown) => ["invoices", "count", params] as const,
+    detail: (id: string) => ["invoices", "detail", id] as const,
+    byDeal: (dealId: string) => ["invoices", "by-deal", dealId] as const,
+    byContact: (contactId: string) => ["invoices", "by-contact", contactId] as const,
+    summary: () => ["invoices", "summary"] as const,
+    needingInvoice: () => ["invoices", "needing-invoice"] as const,
+  },
+
+  /**
+   * The payment ledger (billing service). `byInvoice` is the rows + summary
+   * behind one invoice; `list` is the /payments report; `settings` is the
+   * account-level singleton the settings page and the send dialog share.
+   */
+  payments: {
+    all: () => ["payments"] as const,
+    list: (params?: unknown) => ["payments", "list", params] as const,
+    /** Workiz Reports → Payments: `["payments", "report"]` is the prefix to invalidate. */
+    report: (params?: unknown) => ["payments", "report", params] as const,
+    byInvoice: (invoiceId: string) => ["payments", "by-invoice", invoiceId] as const,
+    /** The job's ledger (Payments tab) — with or without an invoice. */
+    byDeal: (dealId: string) => ["payments", "by-deal", dealId] as const,
+    settings: () => ["payments", "settings"] as const,
+  },
+
+  estimates: {
+    all: () => ["estimates"] as const,
+    list: (params?: unknown) => ["estimates", "list", params] as const,
+    count: (params?: unknown) => ["estimates", "count", params] as const,
+    detail: (id: string) => ["estimates", "detail", id] as const,
+    byDeal: (dealId: string) => ["estimates", "by-deal", dealId] as const,
+    byContact: (contactId: string) => ["estimates", "by-contact", contactId] as const,
+    summary: () => ["estimates", "summary"] as const,
+  },
+
+  documentTemplates: {
+    all: () => ["document-templates"] as const,
+    list: () => ["document-templates", "list"] as const,
+    detail: (id: string) => ["document-templates", "detail", id] as const,
+  },
+
+  /** Companies (business profiles). The old singleton key is gone — read the default company from this list. */
+  businessProfiles: {
+    all: () => ["business-profiles"] as const,
+    list: () => ["business-profiles", "list"] as const,
+    detail: (id: string) => ["business-profiles", "detail", id] as const,
+  },
+
+  portal: {
+    link: (contactId: string) => ["portal", "link", contactId] as const,
   },
 } as const;

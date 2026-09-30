@@ -17,6 +17,7 @@ import {
   isAssignable,
   statusLabel,
   formatPct,
+  technicianEditRights,
 } from "./lib";
 
 describe("onboardingPct", () => {
@@ -114,6 +115,60 @@ describe("assignment approvals + assignability", () => {
   });
   it("is not assignable without an approved area", () => {
     expect(isAssignable(jobTypes, [])).toBe(false);
+  });
+});
+
+describe("technicianEditRights — the API's split, drawn on the page", () => {
+  it("lets a manager edit both halves", () => {
+    expect(technicianEditRights({ canEdit: true, isTechnician: false, canEditUser: true })).toEqual({
+      contact: true,
+      operational: true,
+      identity: true,
+    });
+  });
+
+  it("gives the name and the field-team flag only to someone who may edit users", () => {
+    // Those two live on the user record, behind `users.edit` — a manager with
+    // technicians.edit alone can set the labor cost but not rename the person.
+    expect(technicianEditRights({ canEdit: true, isTechnician: false, canEditUser: false })).toEqual({
+      contact: true,
+      operational: true,
+      identity: false,
+    });
+  });
+
+  it("opens the name and the switch only alongside the card itself", () => {
+    // `users.edit` without technicians.edit is the user sheet's business, not
+    // this page's: the card stays read-only, Save bar and all.
+    expect(technicianEditRights({ canEdit: false, isTechnician: false, canEditUser: true })).toEqual({
+      contact: false,
+      operational: false,
+      identity: false,
+    });
+  });
+
+  it("gives a technician their own details but not the operational fields", () => {
+    // The Technician role carries technicians.edit — it is how they save their
+    // own address — so the operational half must be closed by role, not by
+    // permission, exactly as TechniciansService.updateProfile does it.
+    expect(technicianEditRights({ canEdit: true, isTechnician: true, canEditUser: false })).toEqual({
+      contact: true,
+      operational: false,
+      identity: false,
+    });
+  });
+
+  it("gives a viewer without technicians.edit nothing", () => {
+    expect(technicianEditRights({ canEdit: false, isTechnician: false, canEditUser: false })).toEqual({
+      contact: false,
+      operational: false,
+      identity: false,
+    });
+    expect(technicianEditRights({ canEdit: false, isTechnician: true, canEditUser: false })).toEqual({
+      contact: false,
+      identity: false,
+      operational: false,
+    });
   });
 });
 

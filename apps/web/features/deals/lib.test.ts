@@ -27,6 +27,7 @@ import {
   scheduleRelative,
   JOB_TABS,
   jobTabLabel,
+  tabCount,
   matchesTab,
   tabCounts,
   dealDraftFromDeal,
@@ -86,6 +87,7 @@ function cfDef(over: Partial<CustomFieldDefinition> = {}): CustomFieldDefinition
 
 function product(over: Partial<DealProduct> = {}): DealProduct {
   return {
+    lineId: "line-1",
     productId: "p1",
     name: "Deadbolt",
     sku: "LOCK-1",
@@ -185,6 +187,10 @@ describe("filterDeals", () => {
   it("filters by super-status and priority", () => {
     expect(filterDeals(list, { superStatus: JobSuperStatus.SUBMITTED }, contacts).map((d) => d.id)).toEqual(["a"]);
     expect(filterDeals(list, { priority: DealPriority.URGENT }, contacts).map((d) => d.id)).toEqual(["a"]);
+  });
+  it("filters by company", () => {
+    const withCompany = [deal({ id: "x", businessProfileId: "bp-2" }), ...list];
+    expect(filterDeals(withCompany, { businessProfileId: "bp-2" }, contacts).map((d) => d.id)).toEqual(["x"]);
   });
   it("searches by deal number and client name", () => {
     expect(filterDeals(list, { search: "1040" }, contacts).map((d) => d.id)).toEqual(["b"]);
@@ -318,6 +324,28 @@ describe("status tabs", () => {
     ]);
     expect(jobTabLabel(JobSuperStatus.IN_PROGRESS)).toBe("In Progress");
     expect(jobTabLabel("unscheduled")).toBe("Unscheduled");
+  });
+
+  describe("tabCount — число на вкладці", () => {
+    const counts = {
+      submitted: 207,
+      done: 10_000,
+      canceled: null,
+      atLeast: ["done", "total"],
+    } as never;
+
+    it("reads a counted status as the number it is", () => {
+      expect(tabCount(counts, JobSuperStatus.SUBMITTED)).toBe("207");
+    });
+
+    it("marks a number the server stopped counting", () => {
+      // «10,000» читалось би як підсумок, а це лише стеля лічильника.
+      expect(tabCount(counts, JobSuperStatus.DONE)).toBe("10,000+");
+    });
+
+    it("keeps the dash where the server counted nothing", () => {
+      expect(tabCount(counts, JobSuperStatus.CANCELED)).toBe("—");
+    });
   });
 
   it("matchesTab: super-status by status, unscheduled by missing date", () => {
@@ -476,12 +504,42 @@ describe("buildDealPatch", () => {
     expect(JSON.parse(JSON.stringify(cleared))).toEqual({ externalCompanyId: null });
   });
 
+  it("sends a changed company as businessProfileId (null when cleared)", () => {
+    const d = deal({ businessProfileId: "bp-default", businessProfileName: "SureLock" });
+    expect(buildDealPatch(d, dealDraftFromDeal(d))).toBeNull();
+    const set = buildDealPatch(d, { ...dealDraftFromDeal(d), businessProfileId: "bp-2" });
+    expect(set).toEqual({ businessProfileId: "bp-2" });
+    const cleared = buildDealPatch(d, { ...dealDraftFromDeal(d), businessProfileId: "" });
+    expect(cleared).toEqual({ businessProfileId: null });
+  });
+
   it("returns only the changed key", () => {
     const d = deal();
-    const patch = buildDealPatch(d, { ...dealDraftFromDeal(d), serviceArea: "North GA" });
+    const patch = buildDealPatch(d, { ...dealDraftFromDeal(d), serviceAreaId: "sa-north" });
     expect(patch).not.toBeNull();
-    expect(Object.keys(patch!)).toEqual(["serviceArea"]);
-    expect(patch!.serviceArea).toBe("North GA");
+    expect(Object.keys(patch!)).toEqual(["serviceAreaId"]);
+    expect(patch!.serviceAreaId).toBe("sa-north");
+  });
+
+  it("sends the picked service area by id — the server names it from the catalog", () => {
+    // На створенні площу обирають зі списку; на вже створеній роботі це було
+    // вільне поле, і назва могла розійтися з довідником.
+    const d = deal();
+    const patch = buildDealPatch(d, { ...dealDraftFromDeal(d), serviceAreaId: "sa-north" });
+
+    expect(patch).toEqual({ serviceAreaId: "sa-north" });
+  });
+
+  it("says nothing about the area when the pick did not change", () => {
+    const d = deal({ serviceAreaId: "sa-north" });
+
+    expect(buildDealPatch(d, dealDraftFromDeal(d))).toBeNull();
+  });
+
+  it("never sends an empty area — an address with no answer leaves the job as it is", () => {
+    const d = deal({ serviceAreaId: "sa-north" });
+
+    expect(buildDealPatch(d, { ...dealDraftFromDeal(d), serviceAreaId: "" })).toBeNull();
   });
 
   it("clears an emptied optional field with undefined (today's commit semantics)", () => {
@@ -571,8 +629,8 @@ describe("custom fields (single-save draft)", () => {
 
   it("keeps customFields out of the patch when only a plain field changed", () => {
     const d = deal({ customFields: { "cf-a": "x" } });
-    const patch = buildDealPatch(d, { ...dealDraftFromDeal(d), serviceArea: "North GA" });
-    expect(Object.keys(patch!)).toEqual(["serviceArea"]);
+    const patch = buildDealPatch(d, { ...dealDraftFromDeal(d), serviceAreaId: "sa-north" });
+    expect(Object.keys(patch!)).toEqual(["serviceAreaId"]);
   });
 });
 

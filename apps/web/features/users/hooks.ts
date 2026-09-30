@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  keepPreviousData,
   useInfiniteQuery,
   useMutation,
   useQuery,
@@ -18,10 +19,28 @@ import { useMe } from "@/features/auth/use-me";
 import * as api from "./api";
 import type { UserFilter } from "./api";
 
-export function useUsers(filter: UserFilter) {
+/**
+ * Скільки всього рядків під тими самими фільтрами — з цього панель робить
+ * «Page 2 of 7». Сервер тримає число тридцять секунд, тож і тут стільки ж.
+ */
+export function useUsersCount(filter: UserFilter) {
+  return useQuery({
+    queryKey: queryKeys.users.count(filter),
+    queryFn: () => api.countUsers(filter),
+    staleTime: 30_000,
+  });
+}
+
+/**
+ * `keepPrevious`: under a new filter or page size, hold the page already on
+ * screen (as a placeholder) until the new one lands — for a list that dims
+ * its rows rather than swapping them for a skeleton.
+ */
+export function useUsers(filter: UserFilter, limit = 50, options: { keepPrevious?: boolean } = {}) {
   return useInfiniteQuery({
-    queryKey: queryKeys.users.list(filter),
-    queryFn: ({ pageParam }) => api.listUsers(filter, pageParam),
+    placeholderData: options.keepPrevious ? keepPreviousData : undefined,
+    queryKey: queryKeys.users.list({ ...filter, limit }),
+    queryFn: ({ pageParam }) => api.listUsers(filter, pageParam, limit),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.pagination.nextCursor,
   });
@@ -187,6 +206,54 @@ export function useReactivateUser() {
     onSuccess: () => {
       invalidate();
       toast.success("User reactivated");
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+}
+
+/* ---------------------------------------------------- two-step sign-in */
+
+/** Your own switch: text a code to the phone on your profile. */
+export function useStartMyMfa() {
+  return useMutation({ mutationFn: () => api.startMyMfa() });
+}
+
+/** Your own switch: the code came back, so it goes on. */
+export function useConfirmMyMfa() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (code: string) => api.confirmMyMfa(code),
+    onSuccess: (user) => {
+      qc.setQueryData(queryKeys.me(), user);
+      qc.invalidateQueries({ queryKey: queryKeys.users.all() });
+      toast.success("Two-step sign-in is on");
+    },
+  });
+}
+
+export function useDisableMyMfa() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.disableMyMfa(),
+    onSuccess: (user) => {
+      qc.setQueryData(queryKeys.me(), user);
+      qc.invalidateQueries({ queryKey: queryKeys.users.all() });
+      toast.success("Two-step sign-in is off");
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+}
+
+/** An admin's switch for someone else. */
+export function useSetUserMfa() {
+  const qc = useQueryClient();
+  const { data: me } = useMe();
+  return useMutation({
+    mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) => api.setUserMfa(id, enabled),
+    onSuccess: (user, { enabled }) => {
+      qc.invalidateQueries({ queryKey: queryKeys.users.all() });
+      if (user.id === me?.id) qc.setQueryData(queryKeys.me(), user);
+      toast.success(enabled ? "Two-step sign-in switched on" : "Two-step sign-in switched off");
     },
     onError: (e) => toast.error(getApiErrorMessage(e)),
   });

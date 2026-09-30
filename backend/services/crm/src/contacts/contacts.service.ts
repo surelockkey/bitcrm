@@ -6,8 +6,22 @@ import {
   BadRequestException,
   Optional,
 } from '@nestjs/common';
-import { SnsPublisherService, BusinessMetricsService } from '@bitcrm/shared';
-import { ContactSource, ContactType, CrmStatus, type Address, type Contact, type JwtUser } from '@bitcrm/types';
+import {
+  SnsPublisherService,
+  BusinessMetricsService,
+  RedisService,
+  cachedCount,
+  countCacheKey,
+} from '@bitcrm/shared';
+import {
+  ContactSource,
+  ContactType,
+  CrmStatus,
+  type Address,
+  type Contact,
+  type JwtUser,
+  type ListCount,
+} from '@bitcrm/types';
 import { randomUUID } from 'crypto';
 import { ContactsRepository } from './contacts.repository';
 import { CompaniesRepository } from '../companies/companies.repository';
@@ -36,6 +50,9 @@ export interface ContactPhoneMatch {
   companyId?: string;
 }
 
+/** How long a list count stays good enough. Matches the deals tab counts. */
+const COUNT_TTL_SECONDS = 30;
+
 @Injectable()
 export class ContactsService {
   private readonly logger = new Logger(ContactsService.name);
@@ -48,9 +65,45 @@ export class ContactsService {
     @Optional() private readonly companies?: CompaniesRepository,
     @Optional() private readonly snsPublisher?: SnsPublisherService,
     @Optional() private readonly businessMetrics?: BusinessMetricsService,
+    @Optional() private readonly redis?: RedisService,
   ) {}
 
+  /**
+   * Shape-check the billing tax-exemption fields. CRM registers no global
+   * ValidationPipe, so the DTO decorators are documentation only — without
+   * this a string "false" would be stored and read back as truthy.
+   * Returns the normalized pair (reason trimmed); absent fields stay absent.
+   */
+  private normalizeTaxExemption(dto: {
+    taxExempt?: unknown;
+    taxExemptReason?: unknown;
+  }): { taxExempt?: boolean; taxExemptReason?: string } {
+    const out: { taxExempt?: boolean; taxExemptReason?: string } = {};
+    if (dto.taxExempt !== undefined) {
+      if (typeof dto.taxExempt !== 'boolean') {
+        throw new BadRequestException('taxExempt must be a boolean');
+      }
+      out.taxExempt = dto.taxExempt;
+    }
+    if (dto.taxExemptReason !== undefined && dto.taxExemptReason !== null) {
+      if (typeof dto.taxExemptReason !== 'string') {
+        throw new BadRequestException('taxExemptReason must be a string');
+      }
+      const reason = dto.taxExemptReason.trim();
+      if (reason.length > 200) {
+        throw new BadRequestException('taxExemptReason must be at most 200 characters');
+      }
+      out.taxExemptReason = reason;
+    } else if (dto.taxExemptReason === null) {
+      // The update builder only SETs, so "clear" is stored as an empty string.
+      out.taxExemptReason = '';
+    }
+    return out;
+  }
+
   async create(dto: CreateContactDto, caller: JwtUser): Promise<Contact> {
+    const taxExemption = this.normalizeTaxExemption(dto);
+
     // De-duplicate: a repeated phone would write the same PHONE# index item
     // twice in one transaction, which DynamoDB rejects.
     const phones = [...new Set(normalizePhones(dto.phones))];
@@ -86,6 +139,8 @@ export class ContactsService {
       title: dto.title,
       source: dto.source,
       notes: dto.notes,
+      taxExempt: taxExemption.taxExempt ?? false,
+      ...(taxExemption.taxExemptReason && { taxExemptReason: taxExemption.taxExemptReason }),
       status: CrmStatus.ACTIVE,
       createdBy: caller.id,
       createdAt: now,
@@ -147,8 +202,29 @@ export class ContactsService {
     return this.repository.findAll(limit, cursor);
   }
 
+  /**
+   * How many contacts the list holds — the number behind "Page 2 of 7".
+   * It branches as `list` does, so the panel sizes itself against the rows
+   * actually under it.
+   */
+  async count(query: { companyId?: string }): Promise<ListCount> {
+    const take = () =>
+      query.companyId
+        ? this.repository.countByCompany(query.companyId)
+        : this.repository.countAll();
+
+    if (!this.redis) return take();
+    return cachedCount(
+      this.redis.client,
+      countCacheKey('contacts', { companyId: query.companyId }),
+      COUNT_TTL_SECONDS,
+      take,
+    );
+  }
+
   async update(id: string, dto: UpdateContactDto): Promise<Contact> {
     const existing = await this.findById(id);
+    const taxExemption = this.normalizeTaxExemption(dto);
 
     let normalizedPhones: string[] | undefined;
     if (dto.phones) {
@@ -171,7 +247,7 @@ export class ContactsService {
       await this.repository.updatePhoneIndex(id, existing.phones, normalizedPhones);
     }
 
-    const updateData: Partial<Contact> & UpdateContactDto = { ...dto };
+    const updateData: Partial<Contact> & UpdateContactDto = { ...dto, ...taxExemption };
     if (normalizedPhones) {
       updateData.phones = normalizedPhones;
     }
@@ -349,6 +425,14 @@ export class ContactsService {
       if (entry) out[entry.key] = entry.value;
     }
     return out;
+  }
+
+  /** The contacts a page of some list shows, in the order asked, duplicates folded. */
+  async findByIds(ids: string[]): Promise<Contact[]> {
+    const unique = [...new Set(ids)];
+    const found = await this.repository.findByIds(unique);
+    const byId = new Map(found.map((c) => [c.id, c]));
+    return unique.map((id) => byId.get(id)).filter((c): c is Contact => Boolean(c));
   }
 
   async findManyByPhone(

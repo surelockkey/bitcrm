@@ -1,5 +1,8 @@
 import {
+  isAutomationConditionGroup,
   type AutomationCondition,
+  type AutomationConditionGroup,
+  type AutomationConditionNode,
   type AutomationSpec,
   type AutomationTrigger,
   type AutomationTriggerKind,
@@ -22,7 +25,8 @@ import { entityOf, occurrenceOf, type AutomationEvent } from './trigger-event';
  *     first time the whole combination holds. The occurrence key is then
  *     the *state*, not the edit, so a dozen later edits fire nothing.
  *   • conditions are ANDed; `in` / `not_in` compare sets (a job carries
- *     many tags and many technicians).
+ *     many tags and many technicians). A `{any: [...]}` entry is Workiz's
+ *     OR — one of its own holding is enough for that entry.
  */
 
 export interface TriggerMiss {
@@ -146,9 +150,30 @@ export function matchesCondition(condition: AutomationCondition, facts: Automati
   }
 }
 
-export function matchesConditions(conditions: AutomationCondition[], facts: AutomationFacts): TriggerResult {
-  for (const condition of conditions ?? []) {
+/**
+ * An OR group: one alternative holding is enough. An empty group holds for
+ * nothing — it is not a rule that fires for everything, which is the whole
+ * point of carrying groups at all.
+ */
+export function matchesConditionGroup(group: AutomationConditionGroup, facts: AutomationFacts): TriggerResult {
+  const misses: string[] = [];
+  for (const condition of group.any ?? []) {
     const result = matchesCondition(condition, facts);
+    if (result.matched) return HIT;
+    misses.push(result.reason);
+  }
+  return miss(misses.length ? `no alternative holds: ${misses.join('; ')}` : 'an empty condition group never holds');
+}
+
+/** The top level is AND; a `{any: [...]}` entry is OR inside it. */
+export function matchesConditions(
+  conditions: AutomationConditionNode[] | undefined,
+  facts: AutomationFacts,
+): TriggerResult {
+  for (const node of conditions ?? []) {
+    const result = isAutomationConditionGroup(node)
+      ? matchesConditionGroup(node, facts)
+      : matchesCondition(node, facts);
     if (!result.matched) return result;
   }
   return HIT;

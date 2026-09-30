@@ -1,6 +1,7 @@
 import type {
   TechnicianProfile,
   TechnicianProfileStatus,
+  TechnicianType,
   TechnicianHomeAddress,
   TechnicianLocation,
   OnboardingStatus,
@@ -11,6 +12,7 @@ import type {
   DocumentType,
   User,
   PaginatedResponse,
+  ListCount,
 } from "@bitcrm/types";
 import { http, apiFetchPaginated } from "@/lib/api/http";
 
@@ -39,8 +41,10 @@ export interface AuditRecord {
 }
 export interface UpdateProfileBody {
   phone?: string;
+  additionalPhones?: string[];
   homeAddress?: TechnicianHomeAddress;
   profilePhotoUrl?: string;
+  technicianType?: TechnicianType;
   laborCostPerHour?: number;
   callMaskingEnabled?: boolean;
   gpsTrackingEnabled?: boolean;
@@ -83,11 +87,20 @@ export interface SetSensitiveBody {
 export function listTechnicians(
   status?: string,
   cursor?: string,
+  limit = 100,
 ): Promise<PaginatedResponse<TechnicianProfile>> {
-  const q = new URLSearchParams({ limit: "100" });
+  const q = new URLSearchParams({ limit: String(limit) });
   if (status) q.set("status", status);
   if (cursor) q.set("cursor", cursor);
   return apiFetchPaginated<TechnicianProfile>(`${BASE}?${q}`);
+}
+
+/** Скільки техніків під цим фільтром — число для «Page 2 of 7». */
+export function countTechnicians(status?: string): Promise<ListCount> {
+  const q = new URLSearchParams();
+  if (status) q.set("status", status);
+  const s = q.toString();
+  return http.get<ListCount>(`${BASE}/count${s ? `?${s}` : ""}`);
 }
 
 export function getProfile(id: string): Promise<TechnicianProfile> {
@@ -192,6 +205,26 @@ export function getDocumentUploadUrl(
 
 export function deleteDocument(id: string, docType: DocumentType): Promise<null> {
   return http.delete<null>(`${BASE}/${id}/documents/${docType}`);
+}
+
+/* ---- The card's photo ----
+ * Stored as the `profile_photo` document, but reachable to whoever may edit
+ * the card — a manager as well as the technician — where the documents route
+ * is the technician's alone. The profile then serves a short-lived link to it.
+ */
+
+export function requestPhotoUpload(
+  id: string,
+  contentType: string,
+): Promise<{ uploadUrl: string; s3Key: string; headers?: Record<string, string> }> {
+  return http.post<{ uploadUrl: string; s3Key: string; headers?: Record<string, string> }>(
+    `${BASE}/${id}/photo`,
+    { contentType },
+  );
+}
+
+export function deletePhoto(id: string): Promise<null> {
+  return http.delete<null>(`${BASE}/${id}/photo`);
 }
 
 export async function uploadDocumentBytes(

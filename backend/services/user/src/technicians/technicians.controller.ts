@@ -24,6 +24,21 @@ export class TechniciansController {
     return this.techniciansService.list(query, user);
   }
 
+  // Before any `:id` route, or the parameter swallows it.
+  @Get('count')
+  @RequirePermission('technicians', 'view')
+  @ApiOperation({
+    summary: 'How many technicians the list holds',
+    description:
+      '**Guard:** `technicians.view` permission required. Manager+ only, exactly as the list — ' +
+      'a field technician is denied here too. Takes the same `status` filter and answers ' +
+      '`{ total, atLeast }`, the row count behind "Page 2 of 7". Cached for thirty seconds.',
+  })
+  async count(@Query() query: ListTechniciansQueryDto, @CurrentUser() user: JwtUser) {
+    const data = await this.techniciansService.count(query, user);
+    return { success: true, data };
+  }
+
   @Get(':id/profile')
   @RequirePermission('technicians', 'view')
   @ApiOperation({
@@ -43,8 +58,8 @@ export class TechniciansController {
     summary: 'Update a technician profile',
     description:
       '**Guard:** `technicians.edit` permission required. ' +
-      'Self (technician) may set profile fields (phone, home address, photo). ' +
-      'Operational fields (labor cost, status, call masking, GPS, mobile app) require Manager+. ' +
+      'Self (technician) may set profile fields (phone, additional phones, home address). ' +
+      'Operational fields (user type, labor cost, status, call masking, GPS, mobile app) require Manager+. ' +
       'Publishes a `tech.updated` event.',
   })
   async updateProfile(

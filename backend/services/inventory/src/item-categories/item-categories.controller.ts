@@ -46,7 +46,11 @@ export class ItemCategoriesController {
   @RequirePermission('product_categories', 'edit')
   @ApiOperation({
     summary: 'Update an item category',
-    description: '**Guard:** `product_categories.edit`. Renaming re-checks name uniqueness (409).',
+    description:
+      '**Guard:** `product_categories.edit`. Renaming re-checks name uniqueness (409) and moves ' +
+      'every item filed under the old name to the new one (items store the category by name; a ' +
+      'change of case or padding is a rename too) before the category is saved — `movedItems` in ' +
+      'the answer says how many. `Uncategorized` cannot be renamed, nor anything renamed to it (400).',
   })
   async update(
     @Param('id') id: string,

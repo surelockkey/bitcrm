@@ -23,10 +23,23 @@ import type {
 
 /* ---- Queries ---- */
 
-export function useTechnicians(status?: string, enabled = true) {
+/**
+ * Скільки всього рядків під тими самими фільтрами — з цього панель робить
+ * «Page 2 of 7». Сервер тримає число тридцять секунд, тож і тут стільки ж.
+ */
+export function useTechniciansCount(status?: string, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.technicians.count(status ?? "all"),
+    queryFn: () => api.countTechnicians(status),
+    staleTime: 30_000,
+    enabled,
+  });
+}
+
+export function useTechnicians(status?: string, enabled = true, limit = 100) {
   return useInfiniteQuery({
-    queryKey: queryKeys.technicians.list(status ?? "all"),
-    queryFn: ({ pageParam }) => api.listTechnicians(status, pageParam),
+    queryKey: queryKeys.technicians.list(`${status ?? "all"}:${limit}`),
+    queryFn: ({ pageParam }) => api.listTechnicians(status, pageParam, limit),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.pagination.nextCursor,
     enabled,
@@ -308,6 +321,38 @@ export function useDeleteDocument() {
       qc.invalidateQueries({ queryKey: queryKeys.technicians.documents(id) });
       qc.invalidateQueries({ queryKey: queryKeys.technicians.audit(id) });
       toast.success("Document deleted");
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+}
+
+/**
+ * The photo on the card. One invalidation for the whole technicians cache:
+ * the link is minted with the profile, and the header, the list and the
+ * Documents tab all draw it.
+ */
+export function useUploadPhoto() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, file }: { id: string; file: File }) => {
+      const { uploadUrl, headers } = await api.requestPhotoUpload(id, file.type);
+      await api.uploadDocumentBytes(uploadUrl, file, headers);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.technicians.all() });
+      toast.success("Photo updated");
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+}
+
+export function useDeletePhoto() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id }: { id: string }) => api.deletePhoto(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.technicians.all() });
+      toast.success("Photo removed");
     },
     onError: (e) => toast.error(getApiErrorMessage(e)),
   });

@@ -25,3 +25,9 @@ variable "domain_name" {
   description = "Public domain served by ALB (must already exist as a Route 53 zone or subdomain)"
   type        = string
 }
+
+variable "portal_domain" {
+  description = "Public domain of the client portal (the separate apps/portal frontend). Only published to billing as PORTAL_BASE_URL — DNS/hosting for it is set up where the frontends are hosted."
+  type        = string
+  default     = "portal.bitcrm.tech-slk.com"
+}

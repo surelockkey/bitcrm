@@ -2,8 +2,9 @@ import { InventoryTabs } from "@/features/inventory/components/inventory-tabs";
 
 /**
  * Shared header for the inventory list screens: one "Inventory" title with
- * Workiz-style tabs. Detail pages ([id], new) live outside this group and
- * render without it.
+ * Workiz-style tabs. Nothing in Inventory has a page of its own any more —
+ * items, vans and warehouses open as popups over their tab; the old [id] and
+ * new routes outside this group only redirect to those popups.
  */
 export default function InventoryTabsLayout({
   children,

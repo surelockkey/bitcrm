@@ -21,7 +21,8 @@ describe('DealProductsRepository', () => {
       const command = dynamoDb.client.send.mock.calls[0][0];
       const item = command.input.Item;
       expect(item.PK).toBe('DEAL#deal-1');
-      expect(item.SK).toBe('PRODUCT#product-1');
+      // The line's own id is the key, not the product it names.
+      expect(item.SK).toBe('PRODUCT#line-1');
     });
   });
 
@@ -46,6 +47,18 @@ describe('DealProductsRepository', () => {
       const command = dynamoDb.client.send.mock.calls[0][0];
       expect(command.input.ExpressionAttributeValues[':pk']).toBe('DEAL#deal-1');
       expect(command.input.ExpressionAttributeValues[':sk']).toBe('PRODUCT#');
+    });
+
+    it('reads every page, strongly consistent when asked', async () => {
+      dynamoDb.client.send
+        .mockResolvedValueOnce({ Items: [{ ...createMockDealProduct({ lineId: 'a' }) }], LastEvaluatedKey: { k: 1 } })
+        .mockResolvedValueOnce({ Items: [{ ...createMockDealProduct({ lineId: 'b' }) }] });
+
+      const lines = await repository.findByDeal('deal-1', { consistent: true });
+
+      expect(lines.map((l) => l.lineId)).toEqual(['a', 'b']);
+      expect(dynamoDb.client.send.mock.calls[0][0].input.ConsistentRead).toBe(true);
+      expect(dynamoDb.client.send.mock.calls[1][0].input.ExclusiveStartKey).toEqual({ k: 1 });
     });
   });
 
@@ -172,6 +185,60 @@ describe('DealProductsRepository', () => {
     });
   });
 
+  describe('billing fields', () => {
+    it('maps taxable (absent ⇒ true) and description', async () => {
+      const base = { PK: 'DEAL#deal-1', SK: 'PRODUCT#product-1', ...createMockDealProduct() };
+      dynamoDb.client.send
+        .mockResolvedValueOnce({ Item: base })
+        .mockResolvedValueOnce({ Item: { ...base, taxable: false, description: 'Rekey 2 locks' } });
+
+      const legacy = await repository.findProduct('deal-1', 'product-1');
+      const flagged = await repository.findProduct('deal-1', 'product-1');
+
+      expect(legacy!.taxable).toBe(true);
+      expect(flagged!.taxable).toBe(false);
+      expect(flagged!.description).toBe('Rekey 2 locks');
+    });
+
+    it('carries discountable only when a line is kept out of the discount', async () => {
+      const base = { PK: 'DEAL#deal-1', SK: 'PRODUCT#product-1', ...createMockDealProduct() };
+      dynamoDb.client.send
+        .mockResolvedValueOnce({ Item: base })
+        .mockResolvedValueOnce({ Item: { ...base, discountable: false } });
+
+      const plain = await repository.findProduct('deal-1', 'product-1');
+      const fee = await repository.findProduct('deal-1', 'product-1');
+
+      expect(plain).not.toHaveProperty('discountable');
+      expect(fee!.discountable).toBe(false);
+    });
+
+    it('setTaxable updates the flag on an existing line and returns it', async () => {
+      const item = { PK: 'DEAL#deal-1', SK: 'PRODUCT#product-1', ...createMockDealProduct(), taxable: false };
+      dynamoDb.client.send.mockResolvedValue({ Attributes: item });
+
+      const line = await repository.setTaxable('deal-1', 'product-1', false);
+
+      const input = dynamoDb.client.send.mock.calls[0][0].input;
+      expect(input.Key).toEqual({ PK: 'DEAL#deal-1', SK: 'PRODUCT#product-1' });
+      expect(input.UpdateExpression).toContain('taxable = :t');
+      expect(input.ExpressionAttributeValues[':t']).toBe(false);
+      expect(input.ConditionExpression).toBe('attribute_exists(PK)');
+      expect(line.taxable).toBe(false);
+    });
+
+    it('countByDeal counts PRODUCT# rows across pages', async () => {
+      dynamoDb.client.send
+        .mockResolvedValueOnce({ Count: 2, LastEvaluatedKey: { PK: 'x' } })
+        .mockResolvedValueOnce({ Count: 1 });
+
+      expect(await repository.countByDeal('deal-1')).toBe(3);
+      const input = dynamoDb.client.send.mock.calls[0][0].input;
+      expect(input.Select).toBe('COUNT');
+      expect(input.ExpressionAttributeValues[':sk']).toBe('PRODUCT#');
+    });
+  });
+
   describe('setOrderedAt', () => {
     it('sets orderedAt with a value', async () => {
       dynamoDb.client.send.mockResolvedValue({});
@@ -207,9 +274,10 @@ describe('DealProductsRepository', () => {
 
       const rows = await repository.listRowsMissingFulfillment();
 
+      // The key each row actually lives under — so the stamp lands on it.
       expect(rows).toEqual([
-        { dealId: 'deal-1', productId: 'a' },
-        { dealId: 'deal-2', productId: 'b' },
+        { dealId: 'deal-1', lineKey: 'a' },
+        { dealId: 'deal-2', lineKey: 'b' },
       ]);
       expect(dynamoDb.client.send).toHaveBeenCalledTimes(2);
       const command = dynamoDb.client.send.mock.calls[0][0];

@@ -30,10 +30,12 @@ vi.mock("@/components/ui/sheet", () => ({
 }));
 
 vi.mock("@/features/auth/use-permissions", () => ({
+  useDenied: () => () => false,
   usePermissions: () => ({ can: () => true }),
 }));
 
 vi.mock("@/features/job-types/lib", () => ({
+  useJobTypesLoading: () => false,
   useJobTypeName: () => (id: string | undefined) => id ?? "—",
 }));
 
@@ -86,13 +88,17 @@ const deal: Deal = {
   createdBy: "u1",
   createdAt: "",
   updatedAt: "",
+  businessProfileId: "bp-2",
+  businessProfileName: "KeyPro",
 };
 
+vi.mock("@/features/clients/hooks", () => ({
+  useContact: (id: string) => ({ data: id === contact.id ? contact : undefined, isLoading: false }),
+}));
 vi.mock("../hooks", () => ({
   useDeal: () => ({ data: deal, isLoading: false }),
   useDealProducts: () => ({ data: [] }),
-  useContactMap: () => ({ map: new Map([[contact.id, contact]]) }),
-  useUserMap: () => ({ map: new Map() }),
+  useUserMap: () => ({ map: new Map(), isLoading: false }),
   useUpdateDeal: () => ({ mutate: vi.fn() }),
   useSetDealTags: () => ({ mutate: vi.fn() }),
   useMoveStatus: () => ({ mutate: vi.fn() }),
@@ -120,5 +126,11 @@ describe("DealQuickView", () => {
 
     const link = screen.getByRole("link", { name: "Jane Smith" });
     expect(link).toHaveAttribute("href", "/contacts/c1");
+  });
+
+  it("shows the job's company", () => {
+    render(<DealQuickView dealId="d1" open onOpenChange={() => {}} />);
+    expect(screen.getByText("Company")).toBeInTheDocument();
+    expect(screen.getByText("KeyPro")).toBeInTheDocument();
   });
 });

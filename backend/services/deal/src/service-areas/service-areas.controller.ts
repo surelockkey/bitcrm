@@ -92,6 +92,9 @@ export class ServiceAreasController {
         name: a.name,
         active: a.active,
         callerId: a.callerId,
+        timezone: a.timezone,
+        tax: a.tax,
+        defaultBusinessProfileId: a.defaultBusinessProfileId,
       })),
     };
   }

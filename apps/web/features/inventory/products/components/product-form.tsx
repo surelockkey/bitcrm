@@ -3,8 +3,6 @@
 import type { ReactNode } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Loader2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -17,16 +15,21 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ProductType } from "@bitcrm/types";
+import type { Brand, ProductCategory } from "@bitcrm/types";
 import { cn } from "@/lib/utils";
 import {
   createProductSchema,
   updateProductSchemaFor,
   type CreateProductValues,
+  type PatchProductValues,
   type UpdateProductValues,
 } from "../schemas";
 import { formatMargin } from "../lib";
 
 export type ProductFormValues = CreateProductValues & { sku?: string };
+
+/** What an edit changed. An emptied optional field is `null`, which clears it on the server. */
+export type ProductFormChanges = PatchProductValues & { sku?: string };
 
 const EMPTY: ProductFormValues = {
   name: "",
@@ -40,35 +43,52 @@ const EMPTY: ProductFormValues = {
   priceClient: 0,
   supplier: "",
   serialTracking: false,
+  taxable: true,
   minimumStockLevel: 0,
+  manageStock: true,
+  brandId: "",
+  reorderLevel: 0,
 };
 
+/** Radix Select can't hold "" as an item value, so "No brand" gets a word of its own. */
+const NO_BRAND = "none";
+
 export function ProductForm({
+  formId,
   mode,
   defaults,
   readOnly = false,
   showCompanyCost,
   categories,
-  submitting,
-  submitLabel,
+  brands,
+  catalogsPending = false,
   onSubmit,
-  onCancel,
 }: {
+  /**
+   * The form renders no buttons: it sits in a popup whose footer submits it
+   * with `<Button type="submit" form={formId}>`.
+   */
+  formId: string;
   mode: "create" | "edit";
   defaults?: Partial<ProductFormValues>;
   readOnly?: boolean;
   showCompanyCost: boolean;
-  categories: string[];
-  submitting: boolean;
-  submitLabel: string;
+  /** The item categories catalog. Empty (none yet, or no access) ⇒ free text. */
+  categories: Pick<ProductCategory, "name" | "active">[];
+  /** The brands catalog. Empty ⇒ the field is not shown. */
+  brands: Pick<Brand, "id" | "name" | "active">[];
+  /**
+   * The catalogs are still loading: Category and Brand hold their places as
+   * disabled selects instead of appearing (or changing shape) when they land.
+   */
+  catalogsPending?: boolean;
   /**
    * `changed` carries only the fields whose value the user actually edited —
    * send that as the PUT body so an imported item with an out-of-range value
    * somewhere else in the form still saves (the API validates only the fields
    * present in the body). `values` is the whole form, as before.
    */
-  onSubmit: (values: ProductFormValues, changed: Partial<ProductFormValues>) => void;
-  onCancel: () => void;
+  onSubmit: (values: ProductFormValues, changed: ProductFormChanges) => void;
 }) {
   // In edit mode the caps are waived for values the user leaves untouched —
   // imported items break them and must stay editable (see updateProductSchemaFor).
@@ -89,7 +109,7 @@ export function ProductForm({
   >;
 
   const submit = (values: ProductFormValues) => {
-    const changed: Partial<ProductFormValues> = {};
+    const changed: ProductFormChanges = {};
     for (const key of Object.keys(values) as (keyof ProductFormValues)[]) {
       if (dirtyFields[key]) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -101,10 +121,24 @@ export function ProductForm({
 
   const type = useWatch({ control, name: "type" });
   const serialTracking = useWatch({ control, name: "serialTracking" });
+  const taxable = useWatch({ control, name: "taxable" });
+  const manageStock = useWatch({ control, name: "manageStock" });
+  const category = useWatch({ control, name: "category" });
+  const brandId = useWatch({ control, name: "brandId" });
   const costCompany = Number(useWatch({ control, name: "costCompany" }) || 0);
   const costTech = Number(useWatch({ control, name: "costTech" }) || 0);
   const priceClient = Number(useWatch({ control, name: "priceClient" }) || 0);
   const isService = type === ProductType.SERVICE;
+
+  // Archived entries leave the pickers, but an item that already has one keeps
+  // seeing it — otherwise its value would render as blank.
+  const categoryOptions = [
+    ...new Set([
+      ...categories.filter((c) => c.active).map((c) => c.name),
+      ...(defaults?.category ? [defaults.category] : []),
+    ]),
+  ].sort((a, b) => a.localeCompare(b));
+  const brandOptions = brands.filter((b) => b.active || b.id === defaults?.brandId);
 
   const err = (name: keyof ProductFormValues) =>
     errors[name] ? (
@@ -112,7 +146,7 @@ export function ProductForm({
     ) : null;
 
   return (
-    <form onSubmit={handleSubmit(submit)} className="space-y-7" noValidate>
+    <form id={formId} onSubmit={handleSubmit(submit)} className="space-y-7" noValidate>
       {/* Identity */}
       <Group label="Identity">
         <Field label="Name" error={err("name")}>
@@ -131,21 +165,38 @@ export function ProductForm({
           </Field>
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Category" error={err("category")} hint="e.g. Locks > Residential > Deadbolts">
-            <Input className="h-10" list="product-categories" disabled={readOnly} {...register("category")} />
-            <datalist id="product-categories">
-              {categories.map((c) => (
-                <option key={c} value={c} />
-              ))}
-            </datalist>
-          </Field>
+          {catalogsPending || categories.length > 0 ? (
+            <Field label="Category" error={err("category")}>
+              <Select
+                value={category}
+                disabled={readOnly || catalogsPending}
+                onValueChange={(v) => setValue("category", v, { shouldDirty: true, shouldValidate: true })}
+              >
+                <SelectTrigger className="h-10 w-full" aria-label="Category">
+                  <SelectValue placeholder="Select a category" />
+                </SelectTrigger>
+                <SelectContent>
+                  {categoryOptions.map((c) => (
+                    <SelectItem key={c} value={c}>
+                      {c}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+          ) : (
+            // No catalog to pick from (none set up, or no access to it).
+            <Field label="Category" error={err("category")} hint="e.g. Locks > Residential > Deadbolts">
+              <Input className="h-10" disabled={readOnly} {...register("category")} />
+            </Field>
+          )}
           <Field label="Type">
             <Select
               value={type}
               disabled={readOnly}
               onValueChange={(v) => setValue("type", v as ProductType, { shouldDirty: true })}
             >
-              <SelectTrigger className="h-10 w-full">
+              <SelectTrigger className="h-10 w-full" aria-label="Type">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -155,6 +206,29 @@ export function ProductForm({
             </Select>
           </Field>
         </div>
+        {catalogsPending || brandOptions.length > 0 ? (
+          <Field label="Brand" error={err("brandId")}>
+            <Select
+              value={brandId || NO_BRAND}
+              disabled={readOnly || catalogsPending}
+              onValueChange={(v) =>
+                setValue("brandId", v === NO_BRAND ? "" : v, { shouldDirty: true })
+              }
+            >
+              <SelectTrigger className="h-10 w-full" aria-label="Brand">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NO_BRAND}>No brand</SelectItem>
+                {brandOptions.map((b) => (
+                  <SelectItem key={b.id} value={b.id}>
+                    {b.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+        ) : null}
       </Group>
 
       {/* Pricing */}
@@ -172,6 +246,20 @@ export function ProductForm({
             <Input type="number" step="0.01" min="0" className="h-10 tabular-nums" disabled={readOnly} {...register("priceClient")} />
           </Field>
         </div>
+        <label className="flex items-center justify-between gap-3">
+          <span>
+            <span className="block text-sm font-medium">Taxable</span>
+            <span className="text-xs text-muted-foreground">
+              New job and estimate lines for this item charge tax by default.
+            </span>
+          </span>
+          <Switch
+            checked={taxable !== false}
+            disabled={readOnly}
+            aria-label="Taxable"
+            onCheckedChange={(c) => setValue("taxable", c, { shouldDirty: true })}
+          />
+        </label>
         <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted-foreground">
           {showCompanyCost ? (
             <span>
@@ -192,6 +280,20 @@ export function ProductForm({
           <>
             <label className="flex items-center justify-between gap-3">
               <span>
+                <span className="block text-sm font-medium">Track stock</span>
+                <span className="text-xs text-muted-foreground">
+                  Manage stock: count units on hand in warehouses and vans.
+                </span>
+              </span>
+              <Switch
+                checked={manageStock !== false}
+                disabled={readOnly}
+                aria-label="Track stock"
+                onCheckedChange={(c) => setValue("manageStock", c, { shouldDirty: true })}
+              />
+            </label>
+            <label className="flex items-center justify-between gap-3">
+              <span>
                 <span className="block text-sm font-medium">Serial tracking</span>
                 <span className="text-xs text-muted-foreground">Track each unit by serial number.</span>
               </span>
@@ -201,9 +303,12 @@ export function ProductForm({
                 onCheckedChange={(c) => setValue("serialTracking", c, { shouldDirty: true })}
               />
             </label>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
               <Field label="Min stock level" error={err("minimumStockLevel")}>
                 <Input type="number" min="0" className="h-10 tabular-nums" disabled={readOnly} {...register("minimumStockLevel")} />
+              </Field>
+              <Field label="Reorder level" error={err("reorderLevel")}>
+                <Input type="number" min="0" step="1" className="h-10 tabular-nums" disabled={readOnly} {...register("reorderLevel")} />
               </Field>
               <Field label="Supplier" error={err("supplier")}>
                 <Input className="h-10" disabled={readOnly} {...register("supplier")} />
@@ -221,18 +326,6 @@ export function ProductForm({
       <Group label="Description">
         <Textarea rows={3} disabled={readOnly} placeholder="Optional notes about this item" {...register("description")} />
       </Group>
-
-      {!readOnly ? (
-        <div className="flex justify-end gap-2">
-          <Button type="button" variant="outline" onClick={onCancel}>
-            Cancel
-          </Button>
-          <Button type="submit" variant="brand" disabled={submitting} className="gap-1.5">
-            {submitting ? <Loader2 className="size-4 animate-spin" /> : null}
-            {submitLabel}
-          </Button>
-        </div>
-      ) : null}
     </form>
   );
 }

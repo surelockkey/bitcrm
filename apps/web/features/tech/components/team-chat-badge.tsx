@@ -34,7 +34,7 @@ export function TeamChatBadge({ className }: { className?: string }) {
         {unread > 0 ? (
           <span
             data-testid="team-chat-unread"
-            className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive px-1.5 text-[11px] font-semibold leading-none text-white tabular-nums"
+            className="inline-flex h-5 min-w-5 items-center justify-center rounded-chip bg-destructive px-1.5 text-[11px] font-semibold leading-none text-white tabular-nums"
           >
             {formatBadgeCount(unread)}
           </span>

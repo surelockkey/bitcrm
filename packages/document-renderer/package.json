@@ -1,0 +1,40 @@
+{
+  "name": "@bitcrm/document-renderer",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Pure TypeScript renderer for BitCRM document templates (HTML for editor preview and PDF).",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.build.json --watch",
+    "test": "../../backend/node_modules/.bin/jest",
+    "test:update": "../../backend/node_modules/.bin/jest -u"
+  },
+  "dependencies": {
+    "@bitcrm/types": "*"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  },
+  "jest": {
+    "rootDir": ".",
+    "testEnvironment": "node",
+    "testMatch": [
+      "<rootDir>/test/**/*.spec.ts"
+    ],
+    "moduleFileExtensions": [
+      "ts",
+      "js",
+      "json"
+    ],
+    "transform": {
+      "^.+\\.ts$": [
+        "<rootDir>/../../backend/node_modules/ts-jest",
+        {
+          "tsconfig": "<rootDir>/tsconfig.spec.json"
+        }
+      ]
+    }
+  }
+}

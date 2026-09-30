@@ -77,6 +77,28 @@ describe('UsersRepository', () => {
       expect(result?.phone).toBe('+380958601427');
     });
 
+    it('reads the field-team flag back, and leaves it absent on a record from before it', async () => {
+      const user = createMockUser();
+      dbClient.send.mockResolvedValue({
+        Item: { PK: 'USER#user-1', SK: 'METADATA', ...user, fieldTeamMember: false },
+      });
+      expect((await repository.findById('user-1'))?.fieldTeamMember).toBe(false);
+
+      dbClient.send.mockResolvedValue({
+        Item: { PK: 'USER#user-1', SK: 'METADATA', ...user },
+      });
+      // Absent, not defaulted: the role answers for these, in `isFieldTeamMember`.
+      expect((await repository.findById('user-1'))?.fieldTeamMember).toBeUndefined();
+    });
+
+    it('reads the two-step sign-in flag back', async () => {
+      const user = createMockUser();
+      dbClient.send.mockResolvedValue({
+        Item: { PK: 'USER#user-1', SK: 'METADATA', ...user, smsMfaEnabled: true },
+      });
+      expect((await repository.findById('user-1'))?.smsMfaEnabled).toBe(true);
+    });
+
     it('leaves the phone undefined for somebody who has not set one', async () => {
       const user = createMockUser();
       dbClient.send.mockResolvedValue({
@@ -152,6 +174,48 @@ describe('UsersRepository', () => {
     });
   });
 
+  /**
+   * Unlike `findByRole`, this one has no cursor to hand back — the caller gets
+   * "everyone in the role" or a wrong answer. deal-service reconciles its
+   * dispatch projection against this list and DELETES the technicians missing
+   * from it, so a page-one-only read takes every technician past the first 1MB
+   * out of the job's technician picker.
+   */
+  describe('findByRoleId', () => {
+    it('follows LastEvaluatedKey until the role is exhausted', async () => {
+      const page1 = createMockUser({ id: 'tech-1' });
+      const page2 = createMockUser({ id: 'tech-2' });
+      dbClient.send
+        .mockResolvedValueOnce({
+          Items: [{ PK: 'USER#tech-1', SK: 'METADATA', ...page1 }],
+          LastEvaluatedKey: { PK: 'USER#tech-1', SK: 'METADATA' },
+        })
+        .mockResolvedValueOnce({
+          Items: [{ PK: 'USER#tech-2', SK: 'METADATA', ...page2 }],
+        });
+
+      const result = await repository.findByRoleId('role-technician');
+
+      expect(result.map((u) => u.id)).toEqual(['tech-1', 'tech-2']);
+      expect(dbClient.send).toHaveBeenCalledTimes(2);
+      expect(dbClient.send.mock.calls[1][0].input.ExclusiveStartKey).toEqual({
+        PK: 'USER#tech-1',
+        SK: 'METADATA',
+      });
+    });
+
+    it('queries GSI1 for the role and stops on a single page', async () => {
+      dbClient.send.mockResolvedValue({ Items: [] });
+
+      await repository.findByRoleId('role-technician');
+
+      const input = dbClient.send.mock.calls[0][0].input;
+      expect(input.IndexName).toBe('RoleIndex');
+      expect(input.ExpressionAttributeValues[':pk']).toBe('ROLE_USER#role-technician');
+      expect(dbClient.send).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe('findByDepartment', () => {
     it('should query GSI2 with correct key', async () => {
       dbClient.send.mockResolvedValue({ Items: [] });
@@ -186,7 +250,29 @@ describe('UsersRepository', () => {
       const input = dbClient.send.mock.calls[0][0].input;
       expect(input.FilterExpression).toContain('begins_with(PK, :pk)');
       expect(input.ExpressionAttributeValues[':pk']).toBe('USER#');
-      expect(input.Limit).toBe(20);
+    });
+
+    it('reads more rows than the page, because the filter throws most of them away', async () => {
+      dbClient.send.mockResolvedValue({ Items: [] });
+
+      await repository.findAll(20);
+
+      // The table also holds job types, service areas, commissions and tech
+      // profiles; asking for exactly 20 rows once returned a handful of users.
+      expect(dbClient.send.mock.calls[0][0].input.Limit).toBeGreaterThan(20);
+    });
+
+    it('keeps reading until the page is full', async () => {
+      const user = (id: string) => ({ PK: `USER#${id}`, SK: 'METADATA', id });
+      dbClient.send
+        .mockResolvedValueOnce({ Items: [user('a')], LastEvaluatedKey: { PK: 'p1' } })
+        .mockResolvedValueOnce({ Items: [user('b')], LastEvaluatedKey: { PK: 'p2' } })
+        .mockResolvedValueOnce({ Items: [user('c')] });
+
+      const result = await repository.findAll(3);
+
+      expect(result.items.map((u) => u.id)).toEqual(['a', 'b', 'c']);
+      expect(result.nextCursor).toBeUndefined();
     });
   });
 
@@ -269,6 +355,48 @@ describe('UsersRepository', () => {
       const input = dbClient.send.mock.calls[0][0].input;
       expect(input.UpdateExpression).not.toContain('GSI1PK');
       expect(input.UpdateExpression).not.toContain('GSI2PK');
+    });
+  });
+
+  /**
+   * Скільки всього користувачів — число для «Page 2 of 7».
+   *
+   * Таблиця користувачів спільна: типи робіт техніка, зони, комісії та профіль
+   * лежать поруч із самими записами, тому після імпорту Workiz у ній було
+   * 6787 рядків на 585 користувачів. Прохід обмежений саме через це.
+   */
+  describe('countAll / countByStatus / countByDepartment', () => {
+    it('counts users without pulling bodies back', async () => {
+      dbClient.send.mockResolvedValue({ Count: 585 });
+
+      expect(await repository.countAll()).toEqual({ total: 585, atLeast: false });
+      expect(dbClient.send.mock.calls[0][0].input.Select).toBe('COUNT');
+    });
+
+    it('counts under the list’s status filter', async () => {
+      dbClient.send.mockResolvedValue({ Count: 12 });
+
+      await repository.countByStatus(UserStatus.ACTIVE);
+
+      const sent = dbClient.send.mock.calls[0][0];
+      expect(sent.input.FilterExpression).toContain('#status = :status');
+      expect(sent.input.ExpressionAttributeValues[':status']).toBe(UserStatus.ACTIVE);
+    });
+
+    it('counts a department on the department index', async () => {
+      dbClient.send.mockResolvedValue({ Count: 4 });
+
+      expect(await repository.countByDepartment('HQ')).toEqual({ total: 4, atLeast: false });
+      expect(dbClient.send.mock.calls[0][0].input.ExpressionAttributeValues[':pk']).toBe('DEPT#HQ');
+    });
+
+    it('gives up on an exact answer rather than walk the whole table', async () => {
+      dbClient.send.mockResolvedValue({
+        Count: 1,
+        LastEvaluatedKey: { PK: 'X#1', SK: 'METADATA' },
+      });
+
+      expect((await repository.countAll()).atLeast).toBe(true);
     });
   });
 });

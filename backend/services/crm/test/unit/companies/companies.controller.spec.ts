@@ -26,6 +26,7 @@ describe('CompaniesController', () => {
     service = {
       create: jest.fn(),
       findById: jest.fn(),
+      findByIds: jest.fn(),
       list: jest.fn(),
       update: jest.fn(),
       delete: jest.fn(),
@@ -229,6 +230,22 @@ describe('CompaniesController', () => {
       expect(service.update).toHaveBeenCalledWith('company-1', {
         title: 'New Name',
       });
+    });
+  });
+
+  describe('findByIds', () => {
+    it('answers the companies of a page of rows, masked like any company', async () => {
+      const acme = createMockCompany({ id: 'co-1', phones: ['+14045559999'] });
+      service.findByIds.mockResolvedValue([acme]);
+
+      const masked = await controller.findByIds({ ids: ['co-1'] } as any, {
+        ...GRANTED,
+        permissions: { companies: { view: true } },
+      } as any);
+
+      expect(service.findByIds).toHaveBeenCalledWith(['co-1']);
+      // Без `view_numbers` номер не їде на сторінку списку.
+      expect(masked.data[0].phones[0]).not.toBe('+14045559999');
     });
   });
 });

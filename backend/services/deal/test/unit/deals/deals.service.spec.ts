@@ -176,6 +176,15 @@ describe('DealsService', () => {
       expect(repo.create).toHaveBeenCalled();
     });
 
+    it('announces the new deal like any other write', async () => {
+      repo.reserveDealNumber.mockResolvedValue('K4T9ZW');
+      repo.create.mockResolvedValue(undefined);
+
+      const result = await service.create(dto as any, caller);
+
+      expect(cache.invalidate).toHaveBeenCalledWith(result.id);
+    });
+
     it('persists a platinum work-order link and PO number', async () => {
       repo.reserveDealNumber.mockResolvedValue('K4T9ZW');
       repo.create.mockResolvedValue(undefined);
@@ -413,6 +422,8 @@ describe('DealsService', () => {
 
     it('should parse a "#K4T9ZW" search into a code dealNumber filter', async () => {
       repo.findAll.mockResolvedValue(mockResult);
+      // A reservation from before the link: the filtered read is the fallback.
+      repo.findIdByNumber.mockResolvedValue(undefined);
       await service.list({ search: '#K4T9ZW' } as any, caller);
       expect(repo.findAll).toHaveBeenCalledWith(
         20,
@@ -423,6 +434,7 @@ describe('DealsService', () => {
 
     it('should uppercase a bare lowercase code search', async () => {
       repo.findAll.mockResolvedValue(mockResult);
+      repo.findIdByNumber.mockResolvedValue(undefined);
       await service.list({ search: 'k4t9zw' } as any, caller);
       expect(repo.findAll).toHaveBeenCalledWith(
         20,
@@ -431,14 +443,12 @@ describe('DealsService', () => {
       );
     });
 
-    it('should NOT treat a pure-letter word as a dealNumber filter', async () => {
-      repo.findAll.mockResolvedValue(mockResult);
-      await service.list({ search: 'SMITHS' } as any, caller);
-      expect(repo.findAll).toHaveBeenCalledWith(
-        20,
-        undefined,
-        expect.objectContaining({ dealNumber: undefined }),
-      );
+    it('a six-letter word is looked up as a code first — Workiz codes can be letters only', async () => {
+      repo.findIdByNumber.mockResolvedValue(null);
+      const result = await service.list({ search: 'SMITHS' } as any, caller);
+      expect(repo.findIdByNumber).toHaveBeenCalledWith('SMITHS');
+      expect(result.items).toEqual([]);
+      expect(repo.findAll).not.toHaveBeenCalled();
     });
 
     it('should pass cursor', async () => {
@@ -1094,6 +1104,61 @@ describe('DealsService', () => {
       expect(result[0].eligible).toBe(false);
       expect(result[0].reasons).toContain('outside_area');
     });
+
+    /**
+     * A row user-service does not vouch for is normally gone by now — the
+     * event handler removes it, the boot reconcile sweeps up what no event
+     * covers. While one is still here it has to arrive saying so: the picker
+     * renders an unexplained row as just another technician, which is how
+     * people who are not technicians came to be offered on a job.
+     */
+    describe('a row the projection cannot vouch for', () => {
+      const dealForMatch = () =>
+        createMockDeal({
+          jobTypeId: 'jt-x',
+          serviceAreaId: 'sa-y',
+          address: createMockAddress({ lat: 33.749, lng: -84.388 }),
+        });
+
+      const notATech = {
+        technicianId: 'not-a-tech',
+        jobTypeIds: ['jt-x'],
+        serviceAreaIds: ['sa-y'],
+        assignable: false,
+        homeAddress: { lat: 33.75, lng: -84.39 },
+        updatedAt: '2026-04-16T10:00:00.000Z',
+      };
+
+      it('never comes back eligible, however well its catalog ids match', async () => {
+        mockFindById(dealForMatch());
+        eligibility.listAll.mockResolvedValue([notATech]);
+
+        const result = await service.getQualifiedTechs('deal-1');
+
+        expect(result[0].eligible).toBe(false);
+        expect(result[0].reasons).toContain('not_assignable');
+      });
+
+      it('sorts below a real technician who merely cannot take this job', async () => {
+        mockFindById(dealForMatch());
+        eligibility.listAll.mockResolvedValue([
+          // Nearest of the three, so distance alone would have put it first.
+          notATech,
+          {
+            technicianId: 'real-tech',
+            jobTypeIds: ['jt-other'],
+            serviceAreaIds: ['sa-y'],
+            assignable: true,
+            homeAddress: { lat: 34.3, lng: -84.9 },
+            updatedAt: '2026-04-16T10:00:00.000Z',
+          },
+        ]);
+
+        const result = await service.getQualifiedTechs('deal-1');
+
+        expect(result.map((t) => t.id)).toEqual(['real-tech', 'not-a-tech']);
+      });
+    });
   });
 
   describe('assignTechs', () => {
@@ -1406,10 +1471,11 @@ describe('DealsService', () => {
         containerId: 'tech-1',
         items: [expect.objectContaining({ productId: 'product-2', quantity: 2 })],
       }));
-      // …and the row moves to the new product id.
-      expect(products.removeProduct).toHaveBeenCalledWith('deal-1', 'product-1');
+      // …and the same line now names the new product: it is keyed by its own
+      // id, so nothing is removed and nothing pointing at it is orphaned.
+      expect(products.removeProduct).not.toHaveBeenCalled();
       expect(products.addProduct).toHaveBeenCalledWith('deal-1', expect.objectContaining({
-        productId: 'product-2', sourceTechId: 'tech-1', quantity: 2, priceClient: 60,
+        lineId: 'line-1', productId: 'product-2', sourceTechId: 'tech-1', quantity: 2, priceClient: 60,
       }));
       expect(sns.publish).toHaveBeenCalledWith('deal-events', 'deal.product_updated', expect.any(Object));
     });
@@ -1517,17 +1583,19 @@ describe('DealsService', () => {
       expect(http.restoreStock).not.toHaveBeenCalled();
     });
 
-    it('rejects swapping onto a product that is already a line on the deal', async () => {
+    it('allows a product that is already on another line — a job may carry it twice', async () => {
+      // Under the old key (one line per product) this was refused; a Workiz
+      // job routinely carries the same part on two lines, at two prices.
       mockFindById(createMockDeal({ assignedTechIds: ['tech-1'] }));
-      products.findProduct.mockImplementation(async (_d: string, productId: string) =>
-        createMockDealProduct({ productId, sourceTechId: 'tech-1' }),
+      products.findProduct.mockImplementation(async (_d: string, lineKey: string) =>
+        createMockDealProduct({ lineId: lineKey, productId: 'product-9', sourceTechId: 'tech-1' }),
       );
 
-      await expect(
-        service.replaceProduct('deal-1', 'product-1', dto as any, caller),
-      ).rejects.toThrow(BadRequestException);
-      expect(http.restoreStock).not.toHaveBeenCalled();
-      expect(products.addProduct).not.toHaveBeenCalled();
+      await service.replaceProduct('deal-1', 'line-7', dto as any, caller);
+
+      expect(products.addProduct).toHaveBeenCalledWith('deal-1', expect.objectContaining({
+        lineId: 'line-7', productId: 'product-2',
+      }));
     });
 
     it('rejects a sourced replacement whose tech is not on the deal', async () => {
@@ -1771,23 +1839,62 @@ describe('DealsService', () => {
     });
   });
 
-  describe('updatePaymentStatus', () => {
-    it('should update deal and add timeline entry', async () => {
+  describe('updatePaymentStatus (billing owns the ledger; the job keeps the flag)', () => {
+    const partial = {
+      paymentStatus: 'partial' as const,
+      amountPaid: 60,
+      invoiceTotal: 250,
+      paidAt: '2026-04-20T15:00:00.000Z',
+      paymentId: 'pay-1',
+    };
+
+    it('records the status billing reports, not a hardcoded `paid`', async () => {
       repo.update.mockResolvedValue(createMockDeal());
 
-      await service.updatePaymentStatus('deal-1', {
-        paymentId: 'pay-1', amount: 250, paidAt: '2026-04-20T15:00:00.000Z',
-      } as any);
+      await service.updatePaymentStatus('deal-1', partial);
 
       expect(repo.update).toHaveBeenCalledWith('deal-1', {
-        paymentStatus: 'paid', actualTotal: 250,
+        paymentStatus: 'partial',
+        amountPaid: 60,
+        actualTotal: 250,
       });
       expect(cache.invalidate).toHaveBeenCalledWith('deal-1');
+    });
+
+    it('writes `actualTotal` as the INVOICE total, never the payment amount', async () => {
+      repo.update.mockResolvedValue(createMockDeal());
+      await service.updatePaymentStatus('deal-1', { ...partial, amountPaid: 60, invoiceTotal: 250 });
+      expect(repo.update).toHaveBeenCalledWith('deal-1', expect.objectContaining({ actualTotal: 250 }));
+    });
+
+    it('leaves `actualTotal` alone when billing does not send the invoice total', async () => {
+      repo.update.mockResolvedValue(createMockDeal());
+      await service.updatePaymentStatus('deal-1', {
+        paymentStatus: 'paid',
+        amountPaid: 250,
+        paymentId: 'pay-1',
+      });
+      expect(repo.update).toHaveBeenCalledWith('deal-1', { paymentStatus: 'paid', amountPaid: 250 });
+    });
+
+    it('lets a reversal push the job back to unpaid', async () => {
+      repo.update.mockResolvedValue(createMockDeal());
+      await service.updatePaymentStatus('deal-1', { paymentStatus: 'unpaid', amountPaid: 0, invoiceTotal: 250 });
+      expect(repo.update).toHaveBeenCalledWith('deal-1', {
+        paymentStatus: 'unpaid',
+        amountPaid: 0,
+        actualTotal: 250,
+      });
+    });
+
+    it('adds a timeline entry naming the payment', async () => {
+      repo.update.mockResolvedValue(createMockDeal());
+      await service.updatePaymentStatus('deal-1', partial);
       expect(timeline.addEntry).toHaveBeenCalledWith(
         expect.objectContaining({
           actorId: 'system',
-          actorName: 'Payment Service',
-          details: expect.objectContaining({ paymentId: 'pay-1', amount: 250 }),
+          actorName: 'Billing',
+          details: expect.objectContaining({ paymentId: 'pay-1', amountPaid: 60, newValue: 'partial' }),
         }),
       );
     });
@@ -1795,9 +1902,7 @@ describe('DealsService', () => {
     it('publishes deal.updated so payment status reaches the search index', async () => {
       repo.update.mockResolvedValue(createMockDeal());
 
-      await service.updatePaymentStatus('deal-1', {
-        paymentId: 'pay-1', amount: 250, paidAt: '2026-04-20T15:00:00.000Z',
-      } as any);
+      await service.updatePaymentStatus('deal-1', partial);
 
       expect(sns.publish).toHaveBeenCalledWith(
         'deal-events',

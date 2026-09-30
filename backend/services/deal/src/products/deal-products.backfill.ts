@@ -20,7 +20,7 @@ export class DealProductsBackfill implements OnModuleInit {
       const rows = await this.repository.listRowsMissingFulfillment();
       let healed = 0;
       for (const row of rows) {
-        await this.repository.setFulfillment(row.dealId, row.productId, 'sourced');
+        await this.repository.setFulfillment(row.dealId, row.lineKey, 'sourced');
         healed++;
       }
       if (healed > 0) {

@@ -93,7 +93,7 @@ export function DealMessagesTab({ deal }: { deal: Deal }) {
             const u = techMap.get(id);
             const name = u ? `${u.firstName} ${u.lastName}`.trim() : id;
             return (
-              <span key={id} className="inline-flex items-center gap-1.5 rounded-full border bg-muted/50 py-0.5 pl-0.5 pr-1">
+              <span key={id} className="inline-flex items-center gap-1.5 rounded-chip border bg-muted/50 py-0.5 pl-0.5 pr-1">
                 <span className="grid size-5 place-items-center rounded-full bg-muted text-[9px] font-bold text-muted-foreground">
                   {initials(u?.firstName ?? name, u?.lastName ?? "")}
                 </span>

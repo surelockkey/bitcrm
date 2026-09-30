@@ -2,7 +2,7 @@
 # Render an ECS task definition for the given service.
 #
 # Required env vars (typically provided by the GH Actions workflow):
-#   SERVICE              - user | crm | deal | inventory | search | telephony | messaging
+#   SERVICE              - user | crm | deal | inventory | search | telephony | messaging | billing
 #   IMAGE                - full ECR image URI with tag
 #   EXECUTION_ROLE_ARN   - ECS task execution role ARN
 #   TASK_ROLE_ARN        - per-service task role ARN
@@ -21,6 +21,14 @@
 #   TWILIO_MESSAGING_SERVICE_SID / MESSAGING_DEFAULT_SENDER
 #                        - messaging only: the Messaging Service (MG…) every
 #                          outbound SMS goes through, and the fallback sender
+#   TWILIO_VERIFY_SERVICE_SID - user only: the Verify Service (VA…) that texts
+#                          the two-step sign-in codes
+#   STRIPE_SECRET_KEY / STRIPE_WEBHOOK_SECRET / STRIPE_PUBLISHABLE_KEY
+#                        - billing only. Without them billing boots and serves
+#                          the OFFLINE payment ledger normally; online payments
+#                          simply report unavailable. An empty GitHub secret
+#                          emits nothing, so it can never overwrite a value
+#                          with "".
 #   GIT_SHA              - commit SHA for /health version reporting
 #
 # All non-secret runtime config is read from SSM Parameter Store under /bitcrm/dev/.
@@ -33,7 +41,7 @@
 
 set -euo pipefail
 
-: "${SERVICE:?SERVICE is required (user|crm|deal|inventory|search|telephony|messaging)}"
+: "${SERVICE:?SERVICE is required (user|crm|deal|inventory|search|telephony|messaging|billing)}"
 : "${IMAGE:?IMAGE is required}"
 : "${EXECUTION_ROLE_ARN:?EXECUTION_ROLE_ARN is required}"
 : "${TASK_ROLE_ARN:?TASK_ROLE_ARN is required}"
@@ -46,6 +54,7 @@ case "$SERVICE" in
   search)    PORT=4005; PORT_ENV=SEARCH_SERVICE_PORT;    PREFIX=api/search ;;
   telephony) PORT=4006; PORT_ENV=TELEPHONY_SERVICE_PORT; PREFIX=api/telephony ;;
   messaging) PORT=4007; PORT_ENV=MESSAGING_SERVICE_PORT; PREFIX=api/messaging ;;
+  billing)   PORT=4008; PORT_ENV=BILLING_SERVICE_PORT;   PREFIX=api/billing ;;
   *) echo "unknown service: $SERVICE" >&2; exit 1 ;;
 esac
 
@@ -97,6 +106,16 @@ if [[ -n "$APP_DOMAIN" && "$APP_DOMAIN" != "null" ]]; then
   API_GATEWAY_URL="https://${APP_DOMAIN}"
 fi
 
+# The client portal has its OWN domain (not the API host, which serves no pages),
+# published to SSM by infra/dev/ssm_params.tf as /bitcrm/dev/app/portal-domain.
+APP_PORTAL_DOMAIN=$(echo "$SSM_ENV_JSON" | jq -r '.[] | select(.name == "APP_PORTAL_DOMAIN") | .value')
+PORTAL_BASE_URL=""
+if [[ -n "$APP_PORTAL_DOMAIN" && "$APP_PORTAL_DOMAIN" != "null" ]]; then
+  PORTAL_BASE_URL="https://${APP_PORTAL_DOMAIN}"
+elif [[ "$SERVICE" == "billing" ]]; then
+  echo "warning: SSM /bitcrm/dev/app/portal-domain is not set (terraform apply infra/dev) — billing will build portal links for localhost" >&2
+fi
+
 EXTRA_ENV_JSON=$(jq -n \
   --arg port "$PORT" \
   --arg port_env "$PORT_ENV" \
@@ -106,6 +125,7 @@ EXTRA_ENV_JSON=$(jq -n \
   --arg cognito_secret "${COGNITO_CLIENT_SECRET:-}" \
   --arg internal_token "${INTERNAL_SERVICE_TOKEN:-}" \
   --arg api_gateway_url "$API_GATEWAY_URL" \
+  --arg portal_base_url "$PORTAL_BASE_URL" \
   --arg twilio_account_sid "${TWILIO_ACCOUNT_SID:-}" \
   --arg twilio_auth_token "${TWILIO_AUTH_TOKEN:-}" \
   --arg twilio_api_key "${TWILIO_API_KEY:-}" \
@@ -115,6 +135,10 @@ EXTRA_ENV_JSON=$(jq -n \
   --arg telephony_default_area_caller_id "${TELEPHONY_DEFAULT_AREA_CALLER_ID:-}" \
   --arg twilio_messaging_service_sid "${TWILIO_MESSAGING_SERVICE_SID:-}" \
   --arg messaging_default_sender "${MESSAGING_DEFAULT_SENDER:-}" \
+  --arg twilio_verify_service_sid "${TWILIO_VERIFY_SERVICE_SID:-}" \
+  --arg stripe_secret_key "${STRIPE_SECRET_KEY:-}" \
+  --arg stripe_webhook_secret "${STRIPE_WEBHOOK_SECRET:-}" \
+  --arg stripe_publishable_key "${STRIPE_PUBLISHABLE_KEY:-}" \
   '
   [
     {name: "NODE_ENV",      value: "production"},
@@ -128,7 +152,8 @@ EXTRA_ENV_JSON=$(jq -n \
     {name: "DEAL_SERVICE_URL",      value: "http://deal:4003"},
     {name: "INVENTORY_SERVICE_URL", value: "http://inventory:4004"},
     {name: "TELEPHONY_SERVICE_URL", value: "http://telephony:4006"},
-    {name: "MESSAGING_SERVICE_URL", value: "http://messaging:4007"}
+    {name: "MESSAGING_SERVICE_URL", value: "http://messaging:4007"},
+    {name: "BILLING_SERVICE_URL",   value: "http://billing:4008"}
   ]
   + (if $api_gateway_url != "" then [{name: "API_GATEWAY_URL",        value: $api_gateway_url}] else [] end)
   + (if $jwt_key         != "" then [{name: "JWT_SIGNING_KEY",        value: $jwt_key}]         else [] end)
@@ -158,8 +183,29 @@ EXTRA_ENV_JSON=$(jq -n \
       (if $twilio_messaging_service_sid != "" then [{name: "TWILIO_MESSAGING_SERVICE_SID", value: $twilio_messaging_service_sid}] else [] end)
       + (if $messaging_default_sender   != "" then [{name: "MESSAGING_DEFAULT_SENDER",     value: $messaging_default_sender}]     else [] end)
     else [] end)
+  # Two-step sign-in texts its codes through Twilio Verify on the same
+  # account: user-service gets the account credentials and the Verify
+  # Service and nothing more from Twilio.
+  + (if $service == "user" then
+      (if $twilio_account_sid        != "" then [{name: "TWILIO_ACCOUNT_SID",        value: $twilio_account_sid}]        else [] end)
+      + (if $twilio_auth_token       != "" then [{name: "TWILIO_AUTH_TOKEN",         value: $twilio_auth_token}]         else [] end)
+      + (if $twilio_verify_service_sid != "" then [{name: "TWILIO_VERIFY_SERVICE_SID", value: $twilio_verify_service_sid}] else [] end)
+    else [] end)
+  # Billing renders PDFs with the Alpine chromium the Dockerfile installs for
+  # it, links clients to the portal on its own domain, and takes card / ACH
+  # payments through Stripe. The webhook lands on the existing
+  # /api/billing/* ALB rule, so no new routing is needed — but the signing
+  # secret must be here or every delivery is rejected as unsigned. With none
+  # of the three set, billing still boots and the offline ledger works.
+  + (if $service == "billing" then
+      [{name: "PUPPETEER_EXECUTABLE_PATH", value: "/usr/bin/chromium-browser"}]
+      + (if $portal_base_url != "" then [{name: "PORTAL_BASE_URL", value: $portal_base_url}] else [] end)
+      + (if $stripe_secret_key      != "" then [{name: "STRIPE_SECRET_KEY",      value: $stripe_secret_key}]      else [] end)
+      + (if $stripe_webhook_secret  != "" then [{name: "STRIPE_WEBHOOK_SECRET",  value: $stripe_webhook_secret}]  else [] end)
+      + (if $stripe_publishable_key != "" then [{name: "STRIPE_PUBLISHABLE_KEY", value: $stripe_publishable_key}] else [] end)
+    else [] end)
   # SQS consumers only poll when explicitly enabled.
-  + (if ($service == "deal" or $service == "inventory" or $service == "search" or $service == "messaging") then [{name: "ENABLE_SQS_CONSUMER", value: "true"}] else [] end)
+  + (if ($service == "deal" or $service == "inventory" or $service == "search" or $service == "messaging" or $service == "billing") then [{name: "ENABLE_SQS_CONSUMER", value: "true"}] else [] end)
   # search runs an idempotent index backfill on boot.
   + (if ($service == "search") then [{name: "ENABLE_SEARCH_BACKFILL", value: "true"}] else [] end)
   # messaging runs the automation minute poller: without it a rule with a

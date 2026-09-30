@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import {
   ArrowRight,
+  BadgeDollarSign,
   CheckCheck,
   Eye,
   FilePlus2,
@@ -16,12 +17,17 @@ import {
   PackagePlus,
   Paperclip,
   Pencil,
+  Percent,
+  Receipt,
+  FileCheck2,
+  FileText,
+  Send,
   PhoneCall,
   PhoneOff,
   Search,
-  Send,
   Sparkles,
   Trash2,
+  Undo2,
   UserMinus,
   UserPlus,
   X,
@@ -53,12 +59,12 @@ import { useJobTags } from "@/features/job-tags/hooks";
 import { SEND_TO_TECH_CHANNEL_LABEL, stageLabel, superStatusLabel } from "../lib";
 import {
   useAddNote,
-  useContactMap,
   useDealTimeline,
   useDeleteNote,
   useUpdateNote,
   useUserMap,
 } from "../hooks";
+import { useContactsByIds } from "@/features/clients/hooks";
 
 /* ----------------------------------------------------------- event meta */
 
@@ -83,6 +89,24 @@ const META: Record<TimelineEventType, { icon: typeof Sparkles; label: string }> 
   // Workiz "Sent to tech by SMS / In App / Email" and "Viewed job in app".
   [TimelineEventType.SENT_TO_TECH]: { icon: Send, label: "Sent to tech" },
   [TimelineEventType.SEEN_BY_TECH]: { icon: Eye, label: "Viewed job in app" },
+  [TimelineEventType.TAX_CHANGED]: { icon: Percent, label: "Tax changed" },
+  [TimelineEventType.DISCOUNT_CHANGED]: { icon: Percent, label: "Discount changed" },
+  [TimelineEventType.INVOICE_CREATED]: { icon: Receipt, label: "Invoice created" },
+  [TimelineEventType.INVOICE_UPDATED]: { icon: Receipt, label: "Invoice updated" },
+  [TimelineEventType.INVOICE_SENT]: { icon: Send, label: "Invoice sent" },
+  [TimelineEventType.INVOICE_DELETED]: { icon: FileX, label: "Invoice deleted" },
+  [TimelineEventType.ESTIMATE_CREATED]: { icon: FileText, label: "Estimate created" },
+  [TimelineEventType.ESTIMATE_STATUS_CHANGED]: { icon: FileText, label: "Estimate status changed" },
+  [TimelineEventType.ESTIMATE_SENT]: { icon: Send, label: "Estimate sent" },
+  [TimelineEventType.ESTIMATE_SYNCED]: { icon: FileCheck2, label: "Estimate synced to job" },
+  [TimelineEventType.ESTIMATE_DELETED]: { icon: FileX, label: "Estimate deleted" },
+  [TimelineEventType.PAYMENT_RECEIVED]: { icon: BadgeDollarSign, label: "Payment received" },
+  // Taken but not landed yet — an ACH debit in transit.
+  [TimelineEventType.PAYMENT_PENDING]: { icon: BadgeDollarSign, label: "Payment clearing" },
+  [TimelineEventType.PAYMENT_FAILED]: { icon: X, label: "Payment failed" },
+  [TimelineEventType.PAYMENT_REFUNDED]: { icon: Undo2, label: "Payment refunded" },
+  // Settled money pulled back afterwards (ACH return, dispute lost).
+  [TimelineEventType.PAYMENT_REVERSED]: { icon: Undo2, label: "Payment reversed" },
 };
 
 const FIELD_LABEL: Record<string, string> = {
@@ -140,9 +164,10 @@ interface Lookups {
   tags: Map<string, string>;
 }
 
-function useTimelineLookups(): Lookups {
+function useTimelineLookups(contactIds: string[]): Lookups {
   const { map: userMap } = useUserMap();
-  const { map: contactMap } = useContactMap();
+  // Only the clients the entries mention — a "Client" change names two.
+  const { map: contactMap } = useContactsByIds(contactIds);
   const jobTypes = useJobTypes().data;
   const sources = useJobSources().data;
   const externalCompanies = useExternalCompanies().data;
@@ -361,7 +386,7 @@ function detail(entry: TimelineEntry, lk: Lookups): string | null {
     const channels = Array.isArray(d.channels) ? (d.channels as SendToTechChannel[]) : [];
     const via = channels.map((c) => SEND_TO_TECH_CHANNEL_LABEL[c] ?? c).join(" & ");
     const who = Array.isArray(d.techIds)
-      ? (d.techIds as string[]).map((id) => lk.userName(id) ?? id).join(", ")
+      ? (d.techIds as string[]).map((id) => lk.userName(id) ?? "…").join(", ")
       : "";
     return [via ? `by ${via}` : "", who].filter(Boolean).join(" · ") || null;
   }
@@ -479,7 +504,16 @@ function PanelBody({
   const updateNote = useUpdateNote(dealId);
   const deleteNote = useDeleteNote(dealId);
   const { map: userMap } = useUserMap();
-  const lookups = useTimelineLookups();
+  const mentionedContactIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const e of query.data?.pages.flatMap((p) => p.data) ?? []) {
+      const d = e.details as Record<string, unknown> | undefined;
+      if (d?.field !== "contactId") continue;
+      for (const v of [d.oldValue, d.newValue]) if (typeof v === "string") ids.add(v);
+    }
+    return [...ids];
+  }, [query.data]);
+  const lookups = useTimelineLookups(mentionedContactIds);
   const [note, setNote] = useState("");
   const [filter, setFilter] = useState<TimelineFilter>("all");
   const [search, setSearch] = useState("");
@@ -543,7 +577,7 @@ function PanelBody({
               aria-pressed={filter === f.key}
               onClick={() => setFilter(f.key)}
               className={cn(
-                "rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
+                "rounded-chip border px-2.5 py-1 text-xs font-medium transition-colors",
                 filter === f.key
                   ? "border-brand bg-brand/10 text-brand"
                   : "border-transparent bg-muted text-muted-foreground hover:text-foreground",

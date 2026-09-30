@@ -5,8 +5,16 @@ import {
   QueryCommand,
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
-import { DynamoDbService } from '@bitcrm/shared';
-import { type TechnicianProfile, type TechnicianProfileStatus } from '@bitcrm/types';
+import {
+  DynamoDbService,
+  countRows,
+  type CountRowsResult,
+} from '@bitcrm/shared';
+import {
+  type TechnicianProfile,
+  type TechnicianProfileStatus,
+  type TechnicianType,
+} from '@bitcrm/types';
 import {
   TECHNICIANS_TABLE,
   GSI3_NAME,
@@ -118,6 +126,47 @@ export class TechniciansRepository {
     };
   }
 
+  /**
+   * How many technicians the list holds — the number behind "Page 2 of 7".
+   *
+   * A Query on the technician index with `Select: 'COUNT'`: the key already
+   * selects the rows, so nothing is filtered after the read and no bodies come
+   * back. This is the cheap end of counting.
+   */
+  async countAll(): Promise<CountRowsResult> {
+    return countRows((input) =>
+      this.dynamoDb.client.send(
+        new QueryCommand({
+          TableName: TECHNICIANS_TABLE,
+          IndexName: GSI3_NAME,
+          KeyConditionExpression: 'GSI3PK = :pk',
+          ExpressionAttributeValues: { ':pk': TECHNICIAN_GSI_PK },
+          Select: 'COUNT',
+          ...input,
+        }),
+      ),
+    );
+  }
+
+  /** The same count under the list's status filter, still key-only. */
+  async countByStatus(status: TechnicianProfileStatus): Promise<CountRowsResult> {
+    return countRows((input) =>
+      this.dynamoDb.client.send(
+        new QueryCommand({
+          TableName: TECHNICIANS_TABLE,
+          IndexName: GSI3_NAME,
+          KeyConditionExpression: 'GSI3PK = :pk AND begins_with(GSI3SK, :sk)',
+          ExpressionAttributeValues: {
+            ':pk': TECHNICIAN_GSI_PK,
+            ':sk': `${status}#`,
+          },
+          Select: 'COUNT',
+          ...input,
+        }),
+      ),
+    );
+  }
+
   async listByStatus(
     status: TechnicianProfileStatus,
     limit: number,
@@ -148,7 +197,11 @@ export class TechniciansRepository {
       userId: item.userId as string,
       phone: item.phone as string | undefined,
       homeAddress: item.homeAddress as TechnicianProfile['homeAddress'],
+      additionalPhones: item.additionalPhones as string[] | undefined,
       profilePhotoUrl: item.profilePhotoUrl as string | undefined,
+      // A profile from before the field is an employee — that is what every
+      // technician was, and what "no type" meant.
+      technicianType: (item.technicianType as TechnicianType | undefined) ?? 'regular',
       laborCostPerHour: item.laborCostPerHour as number | undefined,
       callMaskingEnabled: Boolean(item.callMaskingEnabled),
       gpsTrackingEnabled: Boolean(item.gpsTrackingEnabled),

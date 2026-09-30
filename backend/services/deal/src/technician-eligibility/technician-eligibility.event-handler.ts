@@ -1,6 +1,7 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { BusinessMetricsService } from '@bitcrm/shared';
 import {
+  affectsEligibility,
   UserEventType,
   type TechApprovedEvent,
   type TechUpdatedEvent,
@@ -10,9 +11,6 @@ import {
   InternalHttpService,
   type TechnicianEligibilityInfo,
 } from '../common/services/internal-http.service';
-
-/** `changedFields` value that means "job types or service areas moved". */
-export const ASSIGNMENTS_CHANGED = 'assignments';
 
 @Injectable()
 export class TechnicianEligibilityEventHandler {
@@ -25,9 +23,15 @@ export class TechnicianEligibilityEventHandler {
   ) {}
 
   /**
-   * Both events converge here: the projection now stores display fields that
-   * `tech.approved` doesn't carry, so either way we re-read the authoritative
-   * record from user-service rather than trusting the payload alone.
+   * Both events converge here: the projection stores display fields that
+   * `tech.approved` doesn't carry, and the payload cannot be trusted about
+   * whether its subject is a technician at all, so either way we re-read the
+   * authoritative record from user-service.
+   *
+   * A lookup that fails throws rather than reporting "not assignable" — see
+   * `InternalHttpService.getTechnicianEligibility`. The throw reaches SQS,
+   * which redelivers; removing the row on a failed read would drop a working
+   * technician out of dispatch.
    */
   private async refresh(technicianId: string): Promise<TechnicianEligibilityInfo> {
     const e = await this.http.getTechnicianEligibility(technicianId);
@@ -71,8 +75,10 @@ export class TechnicianEligibilityEventHandler {
   }
 
   async handleTechUpdated(payload: TechUpdatedEvent): Promise<void> {
-    // Only job-type / service-area changes affect eligibility.
-    if (!payload.changedFields?.includes(ASSIGNMENTS_CHANGED)) return;
+    // Approvals, the technician role, and the account being switched off are
+    // the three things that move someone in or out of dispatch; the shared
+    // predicate is what keeps this list honest with the publisher's.
+    if (!affectsEligibility(payload.changedFields)) return;
     await this.track(UserEventType.TECH_UPDATED, () => this.refresh(payload.technicianId));
   }
 }

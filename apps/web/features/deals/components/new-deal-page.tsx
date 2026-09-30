@@ -44,6 +44,9 @@ import { CallsToLink } from "@/features/calls/components/calls-to-link";
 import { dealJobSchema, type DealJobValues } from "../schemas";
 import { JobTypeSelect } from "@/features/job-types/components/job-type-select";
 import { JobSourceSelect } from "@/features/job-sources/components/job-source-select";
+import { BusinessProfileSelect } from "@/features/business-profiles/components/business-profile-select";
+import { useBusinessProfiles } from "@/features/business-profiles/hooks";
+import { pickPrefillCompanyId } from "@/features/business-profiles/lib";
 import { ExternalCompanySelect } from "@/features/external-companies/components/external-company-select";
 import { JobTagCombobox } from "@/features/job-tags/components/job-tag-combobox";
 import { ServiceAreaField } from "@/features/service-areas/components/service-area-field";
@@ -74,6 +77,8 @@ export function NewDealPage() {
   const prefillContactId = params.get("contactId") ?? undefined;
   const prefillPhone = params.get("phone") ?? undefined;
   const prefillSourceId = params.get("sourceId") ?? undefined;
+  // …and a company (business profile) from the number / call flow.
+  const prefillCompanyId = params.get("companyId") ?? undefined;
 
   const [callsToLink, setCallsToLink] = useState<string[]>(
     callSid ? [callSid] : [],
@@ -123,6 +128,7 @@ export function NewDealPage() {
           createdHere={!!contact && contact.id === createdId}
           prefillPhone={prefillPhone}
           prefillSourceId={prefillSourceId}
+          prefillCompanyId={prefillCompanyId}
           callSid={callSid}
           callsToLink={callsToLink}
           onCallsToLink={setCallsToLink}
@@ -151,6 +157,7 @@ function DealForm({
   createdHere,
   prefillPhone,
   prefillSourceId,
+  prefillCompanyId,
   callSid,
   callsToLink,
   onCallsToLink,
@@ -163,6 +170,8 @@ function DealForm({
   prefillPhone?: string;
   /** Job source the referring call was attributed to. */
   prefillSourceId?: string;
+  /** Company the referring call was attributed to. */
+  prefillCompanyId?: string;
   callSid?: string;
   callsToLink: string[];
   onCallsToLink: (sids: string[]) => void;
@@ -274,6 +283,18 @@ function DealForm({
     v.serviceAreaId || undefined,
   );
   const jobTz = effectiveArea.area?.timezone ?? DEFAULT_TZ;
+
+  // Company: a hand pick sticks; until then it follows ?companyId= → the
+  // effective area's default company → the account default.
+  const { data: companies } = useBusinessProfiles();
+  const [companyTouched, setCompanyTouched] = useState(false);
+  const companyId = companyTouched
+    ? v.businessProfileId || undefined
+    : pickPrefillCompanyId({
+        queryId: prefillCompanyId,
+        areaDefaultId: effectiveArea.area?.defaultBusinessProfileId,
+        companies,
+      });
 
   /** Details differ from what's on file. */
   const clientChanged =
@@ -480,6 +501,7 @@ function DealForm({
         scheduledTimeSlot: values.allDay ? undefined : values.scheduledTimeSlot || undefined,
         allDay: values.allDay || undefined,
         sourceId: values.sourceId || undefined,
+        businessProfileId: companyId,
         // Manual pick or the nearest-area fallback; absent, the backend
         // resolves from the address — its answer is the authoritative one.
         serviceAreaId: effectiveArea.submitId,
@@ -611,6 +633,18 @@ function DealForm({
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2.5">
+              <Label htmlFor="new-job-company">Company</Label>
+              <BusinessProfileSelect
+                id="new-job-company"
+                value={companyId}
+                showDefaultHint
+                onChange={(val) => {
+                  setCompanyTouched(true);
+                  form.setValue("businessProfileId", val ?? "");
+                }}
+              />
+            </div>
+            <div className="space-y-2.5">
               <Label>External company{req("externalCompany")}</Label>
               <ExternalCompanySelect
                 value={v.externalCompanyId}
@@ -622,7 +656,7 @@ function DealForm({
             <Sel label="Client type" value={v.clientType} onChange={(val) => form.setValue("clientType", val as ClientType)} options={Object.values(ClientType).map((t) => ({ value: t, label: clientTypeLabel(t) }))} />
           </div>
           <div className="space-y-2.5" data-missing={missingNow?.builtinIds.includes("description") || undefined}>
-            <Label>Job description{req("description")}</Label>
+            <Label>Job note{req("description")}</Label>
             <Textarea rows={4} placeholder="What needs doing…" {...form.register("notes")} />
             {missingNow?.builtinIds.includes("description") ? <p className="text-xs text-destructive">Required</p> : null}
           </div>

@@ -49,6 +49,31 @@ describe('TechniciansRepository (unit)', () => {
       expect((result as unknown as Record<string, unknown>).PK).toBeUndefined();
     });
 
+    it('maps the card fields, and defaults the ones an item written before them lacks', async () => {
+      client.send.mockResolvedValue({
+        Item: {
+          PK: 'USER#tech-1',
+          SK: 'TECH_PROFILE',
+          ...makeProfile(),
+          technicianType: 'subcontractor',
+          additionalPhones: ['+14045550100'],
+        },
+      });
+      expect(await repo.getProfile('tech-1')).toMatchObject({
+        technicianType: 'subcontractor',
+        additionalPhones: ['+14045550100'],
+      });
+
+      // A profile from before the field is a regular employee — that is what
+      // every technician was, and what "no type" meant.
+      client.send.mockResolvedValue({
+        Item: { PK: 'USER#tech-1', SK: 'TECH_PROFILE', ...makeProfile() },
+      });
+      const legacy = await repo.getProfile('tech-1');
+      expect(legacy?.technicianType).toBe('regular');
+      expect(legacy?.additionalPhones).toBeUndefined();
+    });
+
     it('returns null when absent', async () => {
       client.send.mockResolvedValue({});
       expect(await repo.getProfile('nope')).toBeNull();

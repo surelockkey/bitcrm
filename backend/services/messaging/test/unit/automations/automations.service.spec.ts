@@ -1,7 +1,12 @@
 import { type AutomationRule } from '@bitcrm/types';
 import { bitcrmId } from '../../../src/automations/translator/workiz-ids';
-import { AutomationsService, RuleNotRunnableException } from '../../../src/automations/automations.service';
+import {
+  AutomationsService,
+  BuiltinRuleNotDeletableException,
+  RuleNotRunnableException,
+} from '../../../src/automations/automations.service';
 import { BUILTIN_RULES, BUILTIN_RULES_SINCE } from '../../../src/automations/builtin-rules';
+import { TRANSLATOR_VERSION } from '../../../src/automations/translator/workiz-translator';
 import { T0 } from '../mocks';
 
 const workizRule = (overrides: Partial<AutomationRule> = {}): AutomationRule => ({
@@ -23,6 +28,9 @@ function makeService(stored: AutomationRule[] = []) {
     put: jest.fn(async (rule: AutomationRule) => {
       rows.set(rule.id, rule);
       return rule;
+    }),
+    delete: jest.fn(async (id: string) => {
+      rows.delete(id);
     }),
   };
   return { service: new AutomationsService(repo as any), repo, rows };
@@ -190,6 +198,174 @@ describe('AutomationsService', () => {
     expect((await service.update('w3', { enabled: true }, caller)).enabled).toBe(true);
   });
 
+  // --- the Automation Center writes rules of its own (create)
+
+  const smsSpec = {
+    version: 1,
+    trigger: { kind: 'deal.status_changed', to: ['canceled'] },
+    conditions: [],
+    actions: [{ type: 'send_sms', to: 'assigned_techs', body: 'Job {{job_id}} was canceled' }],
+  } as never;
+
+  it('creates a rule off, owned here, with a uuid the translator will never touch', async () => {
+    const { service, rows } = makeService();
+    const created = await service.create({ name: '  Job canceled — techs  ', spec: smsSpec }, caller);
+
+    expect(created.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    expect(created).toMatchObject({
+      name: 'Job canceled — techs',
+      enabled: false,
+      source: 'bitcrm',
+      specSource: 'user',
+      runnable: true,
+      createdBy: 'u1',
+      updatedBy: 'u1',
+    });
+    expect(created.notRunnableReason).toBeUndefined();
+    expect(created.createdAt).toBe(created.updatedAt);
+    expect(rows.get(created.id)!.spec!.trigger.kind).toBe('deal.status_changed');
+
+    // Read back: a `user` spec is never re-translated, even with no Workiz data on the row.
+    expect((await service.get(created.id)).specSource).toBe('user');
+  });
+
+  it('creates a rule switched on when asked, and carries the library section and blurb', async () => {
+    const { service } = makeService();
+    const created = await service.create(
+      { name: 'Missed call text', spec: smsSpec, enabled: true, category: 'phone', description: 'Texts back' },
+      caller,
+    );
+    expect(created).toMatchObject({ enabled: true, category: 'phone', description: 'Texts back' });
+  });
+
+  it('refuses to create an enabled rule the engine cannot act on, with the same 422 as PATCH', async () => {
+    const { service, repo } = makeService();
+    const emailOnly = {
+      version: 1,
+      trigger: { kind: 'deal.created' },
+      conditions: [],
+      actions: [{ type: 'send_email', to: 'client', body: 'Hi' }],
+    } as never;
+
+    const err = await service.create({ name: 'Email only', spec: emailOnly, enabled: true }, caller).catch((e) => e);
+    expect(err).toBeInstanceOf(RuleNotRunnableException);
+    expect(err.getStatus()).toBe(422);
+    expect(err.message).toMatch(/^RULE_NOT_RUNNABLE/);
+    expect(err.message).toMatch(/email/i);
+    expect(repo.put).not.toHaveBeenCalled();
+
+    // The same rule created off is stored, and says why it cannot be switched on.
+    const off = await service.create({ name: 'Email only', spec: emailOnly }, caller);
+    expect(off).toMatchObject({ enabled: false, runnable: false });
+    expect(off.notRunnableReason).toMatch(/email/i);
+    await expect(service.update(off.id, { enabled: true }, caller)).rejects.toBeInstanceOf(RuleNotRunnableException);
+  });
+
+  // --- duplicate
+
+  it('copies what describes the rule and none of what describes its life', async () => {
+    const { service } = makeService([
+      translatable({
+        category: 'job',
+        description: 'Texts the techs when the client cancels',
+        notifyMedium: 'sms',
+        externalId: 'workiz:automation:619585cd235c17000843d4e1',
+        workizTriggered: 5411,
+        workizEnabled: true,
+        firedCount: 12,
+        lastFiredAt: T0,
+        enabled: true,
+      }),
+    ]);
+    const copy = await service.duplicate('w3', undefined, caller);
+
+    expect(copy).toMatchObject({
+      name: 'Canceled job & techs (copy)',
+      enabled: false,
+      category: 'job',
+      description: 'Texts the techs when the client cancels',
+      notifyMedium: 'sms',
+      source: 'bitcrm',
+      specSource: 'user',
+      runnable: true,
+      createdBy: 'u1',
+      updatedBy: 'u1',
+    });
+    expect(copy.id).not.toBe('w3');
+    // The spec is the one the original evaluates to today, frozen as ours.
+    expect(copy.spec).toEqual((await service.get('w3')).spec);
+    for (const gone of ['externalId', 'workizTriggered', 'workizEnabled', 'firedCount', 'lastFiredAt']) {
+      expect(copy).not.toHaveProperty(gone);
+    }
+    // The original is untouched.
+    expect(await service.get('w3')).toMatchObject({ enabled: true, firedCount: 12, source: 'workiz' });
+  });
+
+  it('numbers the copies, takes a name when given, and never collides with an existing one', async () => {
+    const { service } = makeService([translatable()]);
+    expect((await service.duplicate('w3', undefined, caller)).name).toBe('Canceled job & techs (copy)');
+    expect((await service.duplicate('w3', undefined, caller)).name).toBe('Canceled job & techs (copy 2)');
+    expect((await service.duplicate('w3', undefined, caller)).name).toBe('Canceled job & techs (copy 3)');
+    // A copy of a copy starts its own run.
+    const copyOfCopy = await service.duplicate(
+      (await service.list()).find((r) => r.name === 'Canceled job & techs (copy)')!.id,
+      undefined,
+      caller,
+    );
+    expect(copyOfCopy.name).toBe('Canceled job & techs (copy) (copy)');
+
+    const named = await service.duplicate('w3', '  Bronx cancellations  ', caller);
+    expect(named.name).toBe('Bronx cancellations');
+  });
+
+  it('keeps a copy inside the 120 characters a name may have', async () => {
+    const { service } = makeService([translatable({ name: 'C'.repeat(120) })]);
+    const copy = await service.duplicate('w3', undefined, caller);
+    expect(copy.name).toHaveLength(120);
+    expect(copy.name.endsWith(' (copy)')).toBe(true);
+  });
+
+  it('a copy of a rule the engine cannot run keeps the original reason and cannot be switched on', async () => {
+    const { service } = makeService([workizRule({ id: 'w4', name: 'Invoice due', entities: ['invoice'], events: [] })]);
+    const copy = await service.duplicate('w4', undefined, caller);
+    expect(copy).toMatchObject({ name: 'Invoice due (copy)', enabled: false, runnable: false });
+    expect(copy.notRunnableReason).toMatch(/invoice/i);
+    await expect(service.update(copy.id, { enabled: true }, caller)).rejects.toBeInstanceOf(RuleNotRunnableException);
+  });
+
+  it('404s duplicating a rule that is not there', async () => {
+    const { service } = makeService();
+    await expect(service.duplicate('nope', undefined, caller)).rejects.toMatchObject({ status: 404 });
+  });
+
+  // --- delete
+
+  it('deletes a rule of ours and an imported Workiz one, and 404s an unknown id', async () => {
+    const { service, repo, rows } = makeService([workizRule()]);
+    const mine = await service.create({ name: 'Mine', spec: smsSpec }, caller);
+
+    expect(await service.remove(mine.id, caller)).toEqual({ id: mine.id });
+    expect(rows.has(mine.id)).toBe(false);
+    expect(await service.remove('w1', caller)).toEqual({ id: 'w1' });
+    expect(repo.delete).toHaveBeenCalledWith('w1');
+    expect(await service.list()).toHaveLength(3); // only the built-ins are left
+
+    await expect(service.remove('nope', caller)).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('refuses to delete a built-in rule, stored or not — switching it off is the way to stop it', async () => {
+    const { service, repo } = makeService([{ ...BUILTIN_RULES.late, enabled: false, updatedAt: T0 }]);
+
+    for (const id of ['new-job-sms', 'late']) {
+      const err = await service.remove(id, caller).catch((e) => e);
+      expect(err).toBeInstanceOf(BuiltinRuleNotDeletableException);
+      expect(err.getStatus()).toBe(422);
+      expect(err.message).toMatch(/^BUILTIN_RULE_NOT_DELETABLE/);
+      expect(err.message).toMatch(/switch it off/);
+    }
+    expect(repo.delete).not.toHaveBeenCalled();
+  });
+
   it('migrate writes the specs once and reports the coverage table', async () => {
     const { service, repo, rows } = makeService([
       translatable({ workizTriggered: 5411 }),
@@ -210,6 +386,68 @@ describe('AutomationsService', () => {
     repo.put.mockClear();
     const again = await service.migrate(caller);
     expect(again.every((r) => !r.written)).toBe(true);
+    expect(repo.put).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The bug this guards: reading OR groups changed what the translator makes
+   * of 25 rules, but a row `migrate()` had already written is stamped with the
+   * version it was written at, and both the read path and `migrate()` read
+   * that as "done". Without a version bump the fix reaches only the rules
+   * nobody had migrated yet; the migrated ones keep the wider spec for good.
+   */
+  it('re-translates and rewrites a row migrated by an older translator', async () => {
+    const stale: AutomationRule = {
+      ...translatable(),
+      specSource: 'workiz-translator',
+      specVersion: TRANSLATOR_VERSION - 1,
+      runnable: true,
+      spec: { version: 1, trigger: { kind: 'deal.created' }, conditions: [], actions: [] },
+    };
+    const { service, repo, rows } = makeService([stale]);
+
+    // The read path does not trust a spec written by an older translator.
+    const read = await service.get('w3');
+    expect(read.specVersion).toBe(TRANSLATOR_VERSION);
+    expect(read.spec).not.toEqual(stale.spec);
+    expect(read.spec?.trigger.kind).toBe('deal.status_changed');
+
+    const table = await service.migrate(caller);
+    expect(table.map((r) => r.written)).toEqual([true]);
+    expect(repo.put).toHaveBeenCalled();
+    expect(rows.get('w3')!.specVersion).toBe(TRANSLATOR_VERSION);
+  });
+
+  /**
+   * A Notification Center row (Workiz's other automation page) is imported
+   * with a spec the importer wrote and no Workiz rule structure behind it.
+   * Translating such a row would replace a rule that runs with one built from
+   * fields it does not have, so it is left alone on read and by `migrate`.
+   */
+  it('leaves an imported Notification Center rule exactly as it was stored', async () => {
+    const notification: AutomationRule = {
+      ...translatable({ id: 'note_row_2', name: 'Notify client by SMS 1 Hours before appointment' }),
+      // What the import writes: its own spec, and no Workiz rule structure.
+      conditions: undefined,
+      events: undefined,
+      specSource: 'workiz-notification',
+      runnable: true,
+      spec: {
+        version: 1,
+        trigger: { kind: 'schedule.relative', anchor: 'scheduledStart', offsetMinutes: -60 },
+        actions: [{ type: 'send_sms', to: 'client', body: 'Reminder: {{job_date}}' }],
+        timing: { quietHours: 'hold' },
+      },
+    };
+    const { service, repo } = makeService([notification]);
+
+    const read = await service.get('note_row_2');
+    expect(read.specSource).toBe('workiz-notification');
+    expect(read.spec).toEqual(notification.spec);
+    expect(read.runnable).toBe(true);
+
+    const table = await service.migrate(caller);
+    expect(table.map((r) => r.id)).not.toContain('note_row_2');
     expect(repo.put).not.toHaveBeenCalled();
   });
 

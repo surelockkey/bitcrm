@@ -1,6 +1,9 @@
 import type {
   Deal,
   DealProduct,
+  DocumentDiscount,
+  DocumentTotals,
+  JobsListIncluded,
   JobSuperStatus,
   SendToTechChannel,
   TimelineEntry,
@@ -8,6 +11,19 @@ import type {
 } from "@bitcrm/types";
 import { http, apiFetchPaginated } from "@/lib/api/http";
 import type { CreateDealValues, UpdateDealValues, AddProductValues } from "./schemas";
+import type { DealCountsParams, DealsListParams } from "./query-params";
+
+/** One number per super-status plus the undated open jobs; `null` where the server would not count. */
+export type DealCounts = Record<JobSuperStatus, number | null> & {
+  unscheduled: number;
+  /** Every status summed — `null` when any of them was not counted. */
+  total: number | null;
+  /**
+   * Statuses whose number is a floor: the server stopped counting at its
+   * ceiling. Shown as "10,000+", because "10,000" would be a claim.
+   */
+  atLeast?: (JobSuperStatus | "total")[];
+};
 
 const PAGE = 100;
 
@@ -37,24 +53,61 @@ export interface QualifiedTech {
 
 /* -------------------------------------------------------------------- list */
 
-export function listDeals(
-  params: { superStatus?: JobSuperStatus; techId?: string; cursor?: string } = {},
-): Promise<PaginatedResponse<Deal>> {
-  const q = new URLSearchParams({ limit: String(PAGE) });
-  if (params.superStatus) q.set("superStatus", params.superStatus);
-  if (params.techId) q.set("techId", params.techId);
-  if (params.cursor) q.set("cursor", params.cursor);
-  return apiFetchPaginated<Deal>(`/deals?${q}`);
+/**
+ * A page of the jobs list: the rows, the cursor, and — beside them — the
+ * names those rows refer to.
+ *
+ * `included` is the side-load (`JobsListIncluded`): the technicians assigned
+ * on this page and the clients of its jobs, **names only**. It exists so the
+ * grid can print a name without a second request per kind of person; the one
+ * for clients could not even start until the jobs came back. Numbers and
+ * emails are deliberately not in it and must not be read from here — crm
+ * masks a contact's numbers per caller, and this envelope does not.
+ *
+ * Optional, because a server that has not shipped it yet simply omits it and
+ * the page falls back to the lookups it always had.
+ */
+export interface DealsListPage extends PaginatedResponse<Deal> {
+  included?: JobsListIncluded;
 }
 
 /**
- * Walk every page. The list barely filters server-side and has no text search,
- * so we load the active set and filter/search/group client-side. A scan page
- * can be empty while a cursor still exists — loop until `nextCursor` is gone.
+ * One page of the jobs list, as the server orders it. Every parameter is
+ * optional and only the ones given travel; the server refuses a visit-date
+ * window wider than 31 days.
  */
-export async function fetchAllDeals(
-  params: { superStatus?: JobSuperStatus; techId?: string } = {},
-): Promise<Deal[]> {
+export function listDeals(params: DealsListParams = {}): Promise<DealsListPage> {
+  const q = toSearchParams({ limit: PAGE, ...params });
+  return apiFetchPaginated<Deal, DealsListPage>(`/deals?${q}`);
+}
+
+/** The numbers on the jobs-list tabs, under the list's filters. A closed status without a window is `null`. */
+export const getDealCounts = (params: DealCountsParams = {}): Promise<DealCounts> => {
+  const q = toSearchParams(params);
+  return http.get<DealCounts>(q.size ? `/deals/counts?${q}` : "/deals/counts");
+};
+
+/** Hydrate a set of ids (a search result) in one call; the ones the caller may not see are absent. */
+export const getDealsByIds = (ids: string[]): Promise<Deal[]> =>
+  ids.length ? http.post<Deal[]>("/deals/by-ids", { ids }) : Promise.resolve([]);
+
+/** Only the parameters that carry a value make it onto the wire. */
+function toSearchParams(params: Record<string, string | number | boolean | undefined>): URLSearchParams {
+  const q = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v === undefined || v === "" || v === false) continue;
+    q.set(k, String(v));
+  }
+  return q;
+}
+
+/**
+ * Walk every page of one bounded list — a window of days, or one open
+ * status. Never call it for an unbounded query: after the import a closed
+ * status is hundreds of thousands of rows. A scan page can be empty while a
+ * cursor still exists — loop until `nextCursor` is gone.
+ */
+export async function fetchAllDeals(params: DealsListParams = {}): Promise<Deal[]> {
   const out: Deal[] = [];
   let cursor: string | undefined;
   do {
@@ -247,24 +300,50 @@ export const addDealProduct = (id: string, body: AddProductValues): Promise<{ ad
  */
 export const replaceDealProduct = (
   id: string,
-  productId: string,
+  lineId: string,
   body: AddProductValues,
 ): Promise<{ updated: true }> =>
-  http.put<{ updated: true }>(`/deals/${id}/products/${productId}`, body);
+  http.put<{ updated: true }>(`/deals/${id}/products/${lineId}`, body);
 
 export const removeDealProduct = (
   id: string,
-  productId: string,
+  lineId: string,
 ): Promise<{ removed: true }> =>
-  http.delete<{ removed: true }>(`/deals/${id}/products/${productId}`);
+  http.delete<{ removed: true }>(`/deals/${id}/products/${lineId}`);
 
 /** Mark a to-order line as ordered (or clear it). */
 export const markDealProductOrdered = (
   id: string,
-  productId: string,
+  lineId: string,
   ordered: boolean,
 ): Promise<{ ordered: boolean }> =>
   http.patch<{ ordered: boolean }>(
-    `/deals/${id}/products/${productId}/ordered`,
+    `/deals/${id}/products/${lineId}/ordered`,
     { ordered },
   );
+
+/* ------------------------------------------------------------ tax/totals */
+
+/** Server-computed totals (subtotal → discount → tax → total) for a job. */
+export const getDealTotals = (id: string): Promise<DocumentTotals> =>
+  http.get<DocumentTotals>(`/deals/${id}/totals`);
+
+/** Pick the job's tax rate by hand (`null` = no tax); taxSource → `manual`. */
+export const setDealTax = (id: string, taxRateId: string | null): Promise<Deal> =>
+  http.patch<Deal>(`/deals/${id}/tax`, { taxRateId });
+
+/** Re-resolve the tax automatically: exempt → service area → default → none. */
+export const resetDealTaxAuto = (id: string): Promise<Deal> =>
+  http.post<Deal>(`/deals/${id}/tax/auto`);
+
+/** Set (or clear with `null`) the job-level discount. */
+export const setDealDiscount = (id: string, discount: DocumentDiscount | null): Promise<Deal> =>
+  http.patch<Deal>(`/deals/${id}/discount`, { discount });
+
+/** Toggle whether the job's tax applies to one line. */
+export const setDealProductTaxable = (
+  id: string,
+  lineId: string,
+  taxable: boolean,
+): Promise<DealProduct> =>
+  http.patch<DealProduct>(`/deals/${id}/products/${lineId}/taxable`, { taxable });

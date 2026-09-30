@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -13,6 +14,7 @@ import { type AuditEntryWithActor } from './audit.types';
 import { RolesService } from '../../roles/roles.service';
 import { UsersRepository } from '../../users/users.repository';
 import { UploadDocumentDto } from './dto/upload-document.dto';
+import { PHOTO_CONTENT_TYPE } from './dto/upload-photo.dto';
 import { documentS3Key } from '../constants/dynamo.constants';
 
 const TECHNICIAN_ROLE_ID = 'role-technician';
@@ -44,29 +46,63 @@ export class DocumentsService {
     if (caller.id !== userId) {
       throw new ForbiddenException('You can only upload your own documents');
     }
-    const s3Key = documentS3Key(userId, dto.docType);
+    return this.presignUpload(userId, dto.docType, dto.contentType, caller);
+  }
+
+  private async presignUpload(
+    userId: string,
+    docType: DocumentType,
+    contentType: string,
+    caller: JwtUser,
+  ): Promise<{ uploadUrl: string; s3Key: string; headers: Record<string, string> }> {
+    const s3Key = documentS3Key(userId, docType);
     // The SSE-KMS headers are part of the signature — the client MUST send them
     // back on the PUT, so hand them over rather than leaving the browser to
     // guess (and 403).
     const { url: uploadUrl, headers } = await this.s3.getPresignedUpload(s3Key, {
-      contentType: dto.contentType,
+      contentType,
       kmsKeyId: process.env.DOCUMENTS_KMS_KEY_ID || 'alias/bitcrm-documents',
     });
 
     const now = new Date().toISOString();
     await this.repository.upsert({
       userId,
-      docType: dto.docType,
+      docType,
       s3Key,
-      contentType: dto.contentType,
+      contentType,
       uploadedBy: caller.id,
       uploadedAt: now,
     });
 
-    await this.writeAudit(userId, caller.id, 'document.uploaded', dto.docType);
-    this.publish('document.uploaded', { technicianId: userId, docType: dto.docType });
-    this.logger.log(`Document upload requested: ${userId}/${dto.docType} by ${caller.id}`);
+    await this.writeAudit(userId, caller.id, 'document.uploaded', docType);
+    this.publish('document.uploaded', { technicianId: userId, docType });
+    this.logger.log(`Document upload requested: ${userId}/${docType} by ${caller.id}`);
     return { uploadUrl, s3Key, headers };
+  }
+
+  /**
+   * The card's photo is the one document a manager puts up for someone else:
+   * an avatar is not a licence or a bank letter. It is stored as the
+   * `profile_photo` document — same bucket, same key, same audit row — so the
+   * Documents tab still lists it and the profile can link to it; only who may
+   * write it differs from `requestUpload`.
+   */
+  async requestPhotoUpload(
+    userId: string,
+    contentType: string,
+    caller: JwtUser,
+  ): Promise<{ uploadUrl: string; s3Key: string; headers: Record<string, string> }> {
+    await this.assertCanEditCard(caller, userId);
+    if (!PHOTO_CONTENT_TYPE.test(contentType)) {
+      throw new BadRequestException('A profile photo must be a JPEG, PNG or WebP image');
+    }
+    return this.presignUpload(userId, 'profile_photo', contentType, caller);
+  }
+
+  /** Takes the photo off the card: the object, the record, and an audit row. */
+  async deletePhoto(userId: string, caller: JwtUser): Promise<void> {
+    await this.assertCanEditCard(caller, userId);
+    await this.removeDocument(userId, 'profile_photo', caller);
   }
 
   async getDownloadUrl(
@@ -93,6 +129,10 @@ export class DocumentsService {
 
   async delete(userId: string, docType: DocumentType, caller: JwtUser): Promise<void> {
     await this.assertAdmin(caller);
+    await this.removeDocument(userId, docType, caller);
+  }
+
+  private async removeDocument(userId: string, docType: DocumentType, caller: JwtUser): Promise<void> {
     const doc = await this.repository.getByType(userId, docType);
     if (!doc) throw new NotFoundException('Document not found');
 
@@ -138,6 +178,13 @@ export class DocumentsService {
     if (caller.id === userId) return;
     if (await this.isPrivileged(caller)) return;
     throw new ForbiddenException('You can only access your own documents');
+  }
+
+  /** The card is the person's own, or a manager's to fill in. */
+  private async assertCanEditCard(caller: JwtUser, userId: string): Promise<void> {
+    if (caller.id === userId) return;
+    if (await this.isPrivileged(caller)) return;
+    throw new ForbiddenException("You can only change your own card's photo");
   }
 
   private async assertAdmin(caller: JwtUser): Promise<void> {

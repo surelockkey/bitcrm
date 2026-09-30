@@ -1,24 +1,31 @@
 import { Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
-import { SnsPublisherService } from '@bitcrm/shared';
+import {
+  SnsPublisherService,
+  RedisService,
+  cachedCount,
+  countCacheKey,
+} from '@bitcrm/shared';
 import { randomUUID } from 'crypto';
 import { publishInventoryEvent } from '../common/events/publish-inventory-event';
 import {
   type Warehouse,
+  type Transfer,
   type TransferItem,
   type StockItem,
   type JwtUser,
+  type ListCount,
   InventoryStatus,
-  TransferType,
   LocationType,
 } from '@bitcrm/types';
 import { WarehousesRepository } from './warehouses.repository';
-import { StockService } from '../stock/stock.service';
 import { StockRepository } from '../stock/stock.repository';
-import { TransfersRepository } from '../transfers/transfers.repository';
-import { ProductsService } from '../products/products.service';
+import { TransfersService } from '../transfers/transfers.service';
 import { CreateWarehouseDto } from './dto/create-warehouse.dto';
 import { UpdateWarehouseDto } from './dto/update-warehouse.dto';
 import { ListWarehousesQueryDto } from './dto/list-warehouses-query.dto';
+
+/** How long a list count stays good enough. Matches the containers count. */
+const COUNT_TTL_SECONDS = 30;
 
 @Injectable()
 export class WarehousesService {
@@ -26,11 +33,10 @@ export class WarehousesService {
 
   constructor(
     private readonly repository: WarehousesRepository,
-    private readonly stockService: StockService,
     private readonly stockRepository: StockRepository,
-    private readonly transfersRepository: TransfersRepository,
-    private readonly productsService: ProductsService,
+    private readonly transfersService: TransfersService,
     @Optional() private readonly snsPublisher?: SnsPublisherService,
+    @Optional() private readonly redis?: RedisService,
   ) {}
 
   async create(dto: CreateWarehouseDto): Promise<Warehouse> {
@@ -39,6 +45,9 @@ export class WarehousesService {
       id: randomUUID(),
       ...dto,
       status: InventoryStatus.ACTIVE,
+      // Empty, and kept by every stock write from here on.
+      totalUnits: 0,
+      uniqueItems: 0,
       createdAt: now,
       updatedAt: now,
     };
@@ -63,7 +72,24 @@ export class WarehousesService {
   }
 
   async list(query: ListWarehousesQueryDto) {
-    return this.repository.findAll(query.limit || 20, query.cursor);
+    return this.repository.findAll(query.limit || 20, query.cursor, {
+      search: query.search,
+      status: query.status,
+    });
+  }
+
+  /** How many warehouses the list holds — the number behind "Page 2 of 7". */
+  async count(query: ListWarehousesQueryDto): Promise<ListCount> {
+    const filters = { search: query.search, status: query.status };
+
+    const take = () => this.repository.countAll(filters);
+    if (!this.redis) return take();
+    return cachedCount(
+      this.redis.client,
+      countCacheKey('warehouses', filters),
+      COUNT_TTL_SECONDS,
+      take,
+    );
   }
 
   async update(id: string, dto: UpdateWarehouseDto): Promise<Warehouse> {
@@ -90,26 +116,19 @@ export class WarehousesService {
     return this.stockRepository.getStockLevels(`WAREHOUSE#${warehouseId}`);
   }
 
+  /**
+   * One receive path: the same checks, journal row and audit log as a receive
+   * into a container. An unknown warehouse is its 404; the transfer comes
+   * back with the items that moved and the ones that did not.
+   */
   async receiveStock(
     warehouseId: string,
     items: TransferItem[],
     user: JwtUser,
-  ): Promise<void> {
-    await this.findById(warehouseId);
-    await this.productsService.assertStockable(items.map((i) => i.productId));
-    await this.stockService.receive(`WAREHOUSE#${warehouseId}`, items);
-
-    await this.transfersRepository.create({
-      id: randomUUID(),
-      type: TransferType.RECEIVE,
-      fromType: LocationType.SUPPLIER,
-      fromId: null,
-      toType: LocationType.WAREHOUSE,
-      toId: warehouseId,
-      items,
-      performedBy: user.id,
-      performedByName: user.email,
-      createdAt: new Date().toISOString(),
-    });
+  ): Promise<Transfer> {
+    return this.transfersService.receiveStock(
+      { toType: LocationType.WAREHOUSE, toId: warehouseId, items },
+      user,
+    );
   }
 }

@@ -69,11 +69,17 @@ vi.mock("../hooks", () => ({
   useUpdateNote: () => ({ mutate: updateNoteMutate, isPending: false }),
   useDeleteNote: () => ({ mutate: deleteNoteMutate, isPending: false }),
   useUserMap: () => ({ map: new Map([[roman.id, roman], [olha.id, olha]]) }),
-  useContactMap: () => ({
-    map: new Map([
-      ["c-old", { id: "c-old", firstName: "Jane", lastName: "Smith" }],
-      ["c-new", { id: "c-new", firstName: "Janet", lastName: "Poole" }],
-    ]),
+}));
+vi.mock("@/features/clients/hooks", () => ({
+  // Only the clients the entries mention are asked for.
+  useContactsByIds: (ids: string[]) => ({
+    map: new Map(
+      [
+        ["c-old", { id: "c-old", firstName: "Jane", lastName: "Smith" }],
+        ["c-new", { id: "c-new", firstName: "Janet", lastName: "Poole" }],
+      ].filter(([id]) => ids.includes(id as string)) as [string, unknown][],
+    ),
+    isLoading: false,
   }),
 }));
 

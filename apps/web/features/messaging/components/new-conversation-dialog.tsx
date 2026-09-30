@@ -13,9 +13,8 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { usePermissions } from "@/features/auth/use-permissions";
-import { useCompanyMap } from "@/features/clients/hooks";
+import { useCompanyMap, useContactSearch } from "@/features/clients/hooks";
 import { contactName, searchContacts } from "@/features/clients/lib";
-import { useContactMap } from "@/features/deals/hooks";
 import { formatPhone, normalizePhone } from "@/lib/phone";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import type { SendMessageBody } from "../api";
@@ -49,11 +48,12 @@ export function NewConversationDialog({
   const [query, setQuery] = useState("");
   const [target, setTarget] = useState<Target | null>(null);
   const debounced = useDebouncedValue(query, 200);
-  const { map: contactMap } = useContactMap();
   const { map: companyMap } = useCompanyMap();
   const send = useSendToParty();
 
-  const contacts = useMemo(() => [...contactMap.values()], [contactMap]);
+  // The search service finds the people; the same ranking orders them.
+  const found = useContactSearch(can("contacts") ? debounced : "", MAX_HITS * 2);
+  const contacts = found.data;
   const companyNames = useMemo(
     () => new Map([...companyMap.values()].map((co) => [co.id, co.title] as const)),
     [companyMap],

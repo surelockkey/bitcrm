@@ -3,7 +3,7 @@ import {
   ServiceAreaType,
   type Deal, type DealProduct, type TimelineEntry, type JwtUser, type Address,
   type ServiceArea, type JobType, type JobSource, type JobTag, type ExternalCompany,
-  type CustomFieldDefinition,
+  type CustomFieldDefinition, type TaxRate,
 } from '@bitcrm/types';
 
 // ---------------------------------------------------------------------------
@@ -49,6 +49,7 @@ export function createMockDeal(overrides?: Partial<Deal>): Deal {
 
 export function createMockDealProduct(overrides?: Partial<DealProduct>): DealProduct {
   return {
+    lineId: 'line-1',
     productId: 'product-1',
     name: 'Kwikset Deadbolt',
     sku: 'KW-DB-001',
@@ -172,6 +173,22 @@ export function createMockCustomField(
   };
 }
 
+export function createMockTaxRate(overrides?: Partial<TaxRate>): TaxRate {
+  return {
+    id: 'tax-1',
+    name: 'GA Sales Tax',
+    ratePercent: 7,
+    isDefault: false,
+    active: true,
+    isGroup: false,
+    componentIds: [],
+    createdBy: 'admin-1',
+    createdAt: '2026-04-16T10:00:00.000Z',
+    updatedAt: '2026-04-16T10:00:00.000Z',
+    ...overrides,
+  };
+}
+
 export function createMockJwtUser(overrides?: Partial<JwtUser>): JwtUser {
   return {
     id: 'admin-1',
@@ -196,6 +213,8 @@ export function createMockDealsRepository() {
     findByTech: jest.fn().mockResolvedValue({ items: [], nextCursor: undefined }),
     findByContact: jest.fn(),
     findByDispatcher: jest.fn(),
+    findByCreated: jest.fn().mockResolvedValue({ items: [], nextCursor: undefined }),
+    findByClosed: jest.fn().mockResolvedValue({ items: [], nextCursor: undefined }),
     findAll: jest.fn(),
     update: jest.fn(),
     reassignContact: jest.fn(),
@@ -217,13 +236,17 @@ export function createMockDealsRepository() {
     // Echoes the given time — "this open was the first" — unless a test says otherwise.
     markAssignmentSeen: jest.fn().mockImplementation(async (_d: string, _t: string, at: string) => at),
     recordAssignmentDelivery: jest.fn().mockResolvedValue(undefined),
+    findIdByNumber: jest.fn(),
+    findByIds: jest.fn(),
+    findBySchedule: jest.fn(),
+    countBySchedule: jest.fn(),
   };
 }
 
 export function createMockTimelineRepository() {
   return {
     addEntry: jest.fn(),
-    findByDeal: jest.fn(),
+    findByDeal: jest.fn().mockResolvedValue([]),
     getEntry: jest.fn(),
     updateNote: jest.fn(),
     deleteEntry: jest.fn(),
@@ -234,9 +257,11 @@ export function createMockDealProductsRepository() {
   return {
     addProduct: jest.fn(),
     removeProduct: jest.fn(),
-    findByDeal: jest.fn(),
+    findByDeal: jest.fn().mockResolvedValue([]),
     findProduct: jest.fn(),
     setOrderedAt: jest.fn(),
+    setTaxable: jest.fn(),
+    countByDeal: jest.fn().mockResolvedValue(0),
   };
 }
 
@@ -261,6 +286,10 @@ export function createMockInternalHttpService() {
       .mockResolvedValue({ technicianId: '', assignable: false, jobTypeIds: [], serviceAreaIds: [] }),
     deductStock: jest.fn().mockResolvedValue(undefined),
     restoreStock: jest.fn().mockResolvedValue(undefined),
+    getContact: jest.fn().mockResolvedValue(null),
+    getCompany: jest.fn().mockResolvedValue(null),
+    // Jobs-list side-load: names of the clients on the page (never numbers).
+    getContactNames: jest.fn().mockResolvedValue([]),
     // Default: the referenced product exists and is a stockable product-type.
     getProduct: jest.fn().mockResolvedValue({
       id: 'product-1',
@@ -282,6 +311,26 @@ export function createMockServiceAreasRepository() {
     get: jest.fn(),
     listAll: jest.fn().mockResolvedValue([]),
     remove: jest.fn(),
+  };
+}
+
+/** The derived (service-area backed) tax-rate reader. */
+export function createMockTaxRatesService() {
+  return {
+    list: jest.fn().mockResolvedValue([]),
+    listAll: jest.fn().mockResolvedValue([]),
+    findById: jest.fn(),
+    findOptional: jest.fn().mockResolvedValue(null),
+  };
+}
+
+/** The deal-side client of billing's company list. */
+export function createMockBusinessProfilesClient() {
+  return {
+    list: jest.fn().mockResolvedValue([]),
+    findDefault: jest.fn().mockResolvedValue(null),
+    resolve: jest.fn(async (id: string): Promise<{ id: string; name?: string }> => ({ id, name: `Company ${id}` })),
+    clearCache: jest.fn(),
   };
 }
 
@@ -355,6 +404,8 @@ export function createMockTechnicianEligibilityRepository() {
   return {
     upsert: jest.fn(),
     get: jest.fn(),
+    // Batched read behind the jobs-list side-load.
+    getMany: jest.fn().mockResolvedValue([]),
     remove: jest.fn(),
     listAll: jest.fn().mockResolvedValue([]),
   };

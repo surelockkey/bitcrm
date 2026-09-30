@@ -1,6 +1,23 @@
 // DynamoDB
 export { DynamoDbModule } from './dynamodb/dynamodb.module';
 export { DynamoDbService } from './dynamodb/dynamodb.service';
+export { scanPage } from './dynamodb/scan-page';
+export { countRows } from './dynamodb/count-rows';
+export { cachedCount, countCacheKey } from './dynamodb/count-cache';
+export { compressionMiddleware, shouldCompress, COMPRESSION_THRESHOLD } from './http/compression';
+export type {
+  ScanPageOptions,
+  ScanPageResult,
+  ScanReadInput,
+  ScanReadOutput,
+} from './dynamodb/scan-page';
+export type {
+  CountReadInput,
+  CountReadOutput,
+  CountRowsOptions,
+  CountRowsResult,
+} from './dynamodb/count-rows';
+export type { CountCacheClient } from './dynamodb/count-cache';
 
 // Redis
 export { RedisModule } from './redis/redis.module';
@@ -17,7 +34,11 @@ export type {
 // Storage (S3 documents + KMS field encryption)
 export { StorageModule } from './storage/storage.module';
 export { S3Service } from './storage/s3.service';
-export type { PresignedUploadOptions, PutObjectOptions } from './storage/s3.service';
+export type {
+  PresignedUploadOptions,
+  PresignedDownloadOptions,
+  PutObjectOptions,
+} from './storage/s3.service';
 export { KmsService } from './storage/kms.service';
 
 // Auth

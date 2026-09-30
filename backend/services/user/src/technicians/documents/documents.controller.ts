@@ -14,6 +14,7 @@ import { Internal } from '../../common/decorators/internal.decorator';
 import { DocumentsService } from './documents.service';
 import { SensitiveService } from './sensitive.service';
 import { UploadDocumentDto } from './dto/upload-document.dto';
+import { UploadPhotoDto } from './dto/upload-photo.dto';
 import { SetSensitiveDto } from './dto/set-sensitive.dto';
 
 @ApiTags('Technician Documents')
@@ -37,6 +38,36 @@ export class DocumentsController {
   async internalBankAccount(@Param('id') id: string) {
     const bankAccount = await this.sensitive.getBankAccountInternal(id);
     return { success: true, data: { bankAccount } };
+  }
+
+  // --- The card's photo (a document, but the card's to change) ---
+  @Post(':id/photo')
+  @RequirePermission('technicians', 'edit')
+  @ApiOperation({
+    summary: 'Request a presigned (SSE-KMS) upload URL for the profile photo',
+    description:
+      '**Guard:** `technicians.edit` permission required. Self, or Manager+ — the photo ' +
+      'is the one document a manager may put up for someone else. Images only. ' +
+      'Stored as the `profile_photo` document; the profile then serves a short-lived link to it.',
+  })
+  async requestPhotoUpload(
+    @Param('id') id: string,
+    @Body() dto: UploadPhotoDto,
+    @CurrentUser() user: JwtUser,
+  ) {
+    const data = await this.documents.requestPhotoUpload(id, dto.contentType, user);
+    return { success: true, data };
+  }
+
+  @Delete(':id/photo')
+  @RequirePermission('technicians', 'edit')
+  @ApiOperation({
+    summary: 'Remove the profile photo',
+    description: '**Guard:** `technicians.edit` permission required. Self, or Manager+. Audited.',
+  })
+  async deletePhoto(@Param('id') id: string, @CurrentUser() user: JwtUser) {
+    await this.documents.deletePhoto(id, user);
+    return { success: true, data: null };
   }
 
   // --- Documents (files in S3) ---

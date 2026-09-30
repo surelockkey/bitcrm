@@ -20,6 +20,7 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
 const contactData = vi.hoisted(() => ({ value: undefined as Contact | undefined }));
 vi.mock("@/features/clients/hooks", () => ({ useContact: () => ({ data: contactData.value }) }));
 vi.mock("@/features/job-types/lib", () => ({
+  useJobTypesLoading: () => false,
   useJobTypeName: () => (id: string | undefined) => (id === "jt1" ? "Lockout" : "—"),
 }));
 vi.mock("@/features/job-statuses/lib", () => ({

@@ -2,7 +2,9 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ProductType } from "@bitcrm/types";
-import { ProductForm, type ProductFormValues } from "./product-form";
+import { ProductForm, type ProductFormChanges, type ProductFormValues } from "./product-form";
+
+type FormProps = Parameters<typeof ProductForm>[0];
 
 /**
  * Editing an item the Workiz importer wrote. 262 of the 15 832 price-book
@@ -20,26 +22,38 @@ const imported: ProductFormValues = {
   costCompany: 0,
   costTech: 0,
   priceClient: -35,
+  taxable: true,
   supplier: "",
   serialTracking: false,
   minimumStockLevel: 0,
+  manageStock: true,
 };
 
+/**
+ * The form sits in a popup whose footer holds the buttons, so it has none of
+ * its own: the footer's Save submits it through `form={formId}`.
+ */
 function renderForm(
-  defaults: ProductFormValues,
-  onSubmit: (v: ProductFormValues, changed: Partial<ProductFormValues>) => void,
+  defaults: ProductFormValues | undefined,
+  onSubmit: (v: ProductFormValues, changed: ProductFormChanges) => void,
+  over: Partial<FormProps> = {},
 ) {
   const utils = render(
-    <ProductForm
-      mode="edit"
-      defaults={defaults}
-      showCompanyCost
-      categories={[]}
-      submitting={false}
-      submitLabel="Save changes"
-      onSubmit={onSubmit}
-      onCancel={() => {}}
-    />,
+    <>
+      <ProductForm
+        formId="product-form"
+        mode="edit"
+        defaults={defaults}
+        showCompanyCost
+        categories={[]}
+        brands={[]}
+        onSubmit={onSubmit}
+        {...over}
+      />
+      <button type="submit" form="product-form">
+        Save changes
+      </button>
+    </>,
   );
   // The form's <Label>s are not wired to their inputs, so address fields by
   // the name react-hook-form registers.
@@ -113,14 +127,250 @@ describe("ProductForm (edit mode)", () => {
       onSubmit,
     );
 
-    const trigger = container.querySelector(
-      'button[role="combobox"]',
-    ) as HTMLElement;
-    await user.click(trigger);
+    void container;
+    await user.click(screen.getByRole("combobox", { name: "Type" }));
     await user.click(await screen.findByRole("option", { name: "Service" }));
     await user.click(save());
 
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
     expect(onSubmit.mock.calls[0][1]).toEqual({ type: ProductType.SERVICE });
+  });
+});
+
+describe("ProductForm — buttons live in the popup's footer", () => {
+  it("renders no Save or Cancel of its own", () => {
+    renderForm(imported, vi.fn());
+    expect(screen.queryByRole("button", { name: /cancel/i })).toBeNull();
+    // The only Save is the harness's footer button.
+    expect(screen.getAllByRole("button", { name: /save/i })).toHaveLength(1);
+  });
+});
+
+const item: ProductFormValues = {
+  ...imported,
+  name: "Deadbolt",
+  description: "",
+  category: "Locks",
+  priceClient: 45,
+  manageStock: true,
+  brandId: "b1",
+  reorderLevel: 2,
+};
+
+const brands = [
+  { id: "b1", name: "Schlage", active: true },
+  { id: "b2", name: "Kwikset", active: true },
+  { id: "b3", name: "Old Brand", active: false },
+];
+
+const categories = [
+  { name: "Locks", active: true },
+  { name: "Keys", active: true },
+  { name: "Retired", active: false },
+];
+
+describe("ProductForm — Track stock (Workiz Manage stock)", () => {
+  it("is on for a new product and gone for a service", async () => {
+    const user = userEvent.setup();
+    renderForm(undefined, vi.fn(), { mode: "create" });
+
+    expect(screen.getByRole("switch", { name: "Track stock" })).toBeChecked();
+
+    await user.click(screen.getByRole("combobox", { name: "Type" }));
+    await user.click(await screen.findByRole("option", { name: "Service" }));
+    expect(screen.queryByRole("switch", { name: "Track stock" })).toBeNull();
+  });
+
+  it("sends manageStock: false when it is switched off", async () => {
+    const onSubmit = vi.fn();
+    const user = userEvent.setup();
+    const { save } = renderForm(item, onSubmit);
+
+    await user.click(screen.getByRole("switch", { name: "Track stock" }));
+    await user.click(save());
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(onSubmit.mock.calls[0][1]).toEqual({ manageStock: false });
+  });
+
+  it("sends a Taxable change too (the edit schema used to strip it)", async () => {
+    const onSubmit = vi.fn();
+    const user = userEvent.setup();
+    const { save } = renderForm(item, onSubmit);
+
+    await user.click(screen.getByRole("switch", { name: "Taxable" }));
+    await user.click(save());
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(onSubmit.mock.calls[0][1]).toEqual({ taxable: false });
+  });
+});
+
+describe("ProductForm — Brand", () => {
+  it("offers No brand, the active brands, and the item's own archived one", async () => {
+    const user = userEvent.setup();
+    renderForm({ ...item, brandId: "b3" }, vi.fn(), { brands });
+
+    await user.click(screen.getByRole("combobox", { name: "Brand" }));
+    const names = (await screen.findAllByRole("option")).map((o) => o.textContent);
+    expect(names).toEqual(["No brand", "Schlage", "Kwikset", "Old Brand"]);
+  });
+
+  it("leaves an archived brand out for an item that doesn't have it", async () => {
+    const user = userEvent.setup();
+    renderForm(item, vi.fn(), { brands });
+
+    await user.click(screen.getByRole("combobox", { name: "Brand" }));
+    const names = (await screen.findAllByRole("option")).map((o) => o.textContent);
+    expect(names).not.toContain("Old Brand");
+  });
+
+  // PUT /products/:id clears a field sent as null; "" would be stored as a brand id.
+  it("sends the picked brand, and null for No brand", async () => {
+    const onSubmit = vi.fn();
+    const user = userEvent.setup();
+    const { save } = renderForm(item, onSubmit, { brands });
+
+    await user.click(screen.getByRole("combobox", { name: "Brand" }));
+    await user.click(await screen.findByRole("option", { name: "No brand" }));
+    await user.click(save());
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(onSubmit.mock.calls[0][1]).toStrictEqual({ brandId: null });
+  });
+
+  it("is not shown when there is no brand catalog to pick from", () => {
+    renderForm(item, vi.fn(), { brands: [] });
+    expect(screen.queryByRole("combobox", { name: "Brand" })).toBeNull();
+  });
+});
+
+describe("ProductForm — Reorder level", () => {
+  it("sends a whole number", async () => {
+    const onSubmit = vi.fn();
+    const user = userEvent.setup();
+    const { field, save } = renderForm(item, onSubmit);
+
+    await user.clear(field("reorderLevel"));
+    await user.type(field("reorderLevel"), "4");
+    await user.click(save());
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(onSubmit.mock.calls[0][1]).toEqual({ reorderLevel: 4 });
+  });
+
+  // A blank must not be dropped (a missing key changes nothing behind an
+  // "Item saved"), and 0 is a reorder point, not "none": null clears it.
+  it("clears the reorder level with null — not 0, and not a dropped key", async () => {
+    const onSubmit = vi.fn();
+    const user = userEvent.setup();
+    const { field, save } = renderForm(item, onSubmit);
+
+    await user.clear(field("reorderLevel"));
+    await user.click(save());
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(onSubmit.mock.calls[0][1]).toStrictEqual({ reorderLevel: null });
+  });
+
+  it("rejects a negative one", async () => {
+    const onSubmit = vi.fn();
+    const user = userEvent.setup();
+    const { field, save } = renderForm(item, onSubmit);
+
+    await user.clear(field("reorderLevel"));
+    await user.type(field("reorderLevel"), "-1");
+    await user.click(save());
+
+    expect(await screen.findByText("Must be 0 or more")).toBeInTheDocument();
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("is not asked for a service", () => {
+    const { field } = renderForm({ ...item, type: ProductType.SERVICE }, vi.fn());
+    expect(field("reorderLevel")).toBeNull();
+  });
+});
+
+describe("ProductForm — clearing an optional text field", () => {
+  const filled: ProductFormValues = {
+    ...item,
+    supplier: "Acme",
+    barcode: "0123456789",
+    description: "Grade 2 deadbolt",
+  };
+
+  for (const name of ["supplier", "barcode", "description"] as const) {
+    it(`sends ${name}: null when it is emptied`, async () => {
+      const onSubmit = vi.fn();
+      const user = userEvent.setup();
+      const { field, save } = renderForm(filled, onSubmit);
+
+      await user.clear(field(name));
+      await user.click(save());
+
+      await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+      expect(onSubmit.mock.calls[0][1]).toStrictEqual({ [name]: null });
+    });
+  }
+
+  it("still sends a new value as text", async () => {
+    const onSubmit = vi.fn();
+    const user = userEvent.setup();
+    const { field, save } = renderForm(filled, onSubmit);
+
+    await user.clear(field("supplier"));
+    await user.type(field("supplier"), "Lockwood");
+    await user.click(save());
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(onSubmit.mock.calls[0][1]).toStrictEqual({ supplier: "Lockwood" });
+  });
+});
+
+describe("ProductForm — Category from the catalog", () => {
+  it("is a select of the active categories plus the item's own", async () => {
+    const user = userEvent.setup();
+    renderForm({ ...item, category: "Retired" }, vi.fn(), { categories });
+
+    await user.click(screen.getByRole("combobox", { name: "Category" }));
+    const names = (await screen.findAllByRole("option")).map((o) => o.textContent);
+    expect(names).toEqual(["Keys", "Locks", "Retired"]);
+  });
+
+  it("sends the picked category", async () => {
+    const onSubmit = vi.fn();
+    const user = userEvent.setup();
+    const { save } = renderForm(item, onSubmit, { categories });
+
+    await user.click(screen.getByRole("combobox", { name: "Category" }));
+    await user.click(await screen.findByRole("option", { name: "Keys" }));
+    await user.click(save());
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(onSubmit.mock.calls[0][1]).toEqual({ category: "Keys" });
+  });
+
+  it("falls back to free text when the catalog is empty", () => {
+    const { field } = renderForm(item, vi.fn(), { categories: [] });
+    expect(field("category").tagName).toBe("INPUT");
+  });
+});
+
+/**
+ * The catalogs arrive after the form. The Brand field used to appear with
+ * them, and Category turned from a text box with a hint into a select —
+ * every section under them moved down or up by a line.
+ */
+describe("ProductForm — while the catalogs load", () => {
+  it("holds the Brand field in place, disabled", () => {
+    renderForm(imported, vi.fn(), { brands: [], catalogsPending: true });
+    expect(screen.getByRole("combobox", { name: "Brand" })).toBeDisabled();
+  });
+
+  it("holds Category as the select it will most likely be, without the free-text hint", () => {
+    renderForm(imported, vi.fn(), { categories: [], catalogsPending: true });
+    expect(screen.getByRole("combobox", { name: "Category" })).toBeDisabled();
+    expect(screen.queryByText("e.g. Locks > Residential > Deadbolts")).toBeNull();
   });
 });

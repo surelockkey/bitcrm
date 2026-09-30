@@ -1,4 +1,5 @@
 import {
+  IsBoolean,
   IsOptional,
   IsString,
   MinLength,
@@ -33,4 +34,15 @@ export class UpdateUserDto {
   @IsOptional()
   @IsString()
   phone?: string;
+
+  @ApiPropertyOptional({
+    example: true,
+    description:
+      'Workiz "Field team member": whether this person goes out on jobs and may ' +
+      'be put on one, whatever their role. Switching it on provisions a ' +
+      'technician profile; dispatch is told either way.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  fieldTeamMember?: boolean;
 }

@@ -87,6 +87,17 @@ export class CreateDealDto {
   sourceId?: string;
 
   @ApiPropertyOptional({
+    example: 'bp-default',
+    nullable: true,
+    description:
+      'Company (billing business profile) the job belongs to — must be active. ' +
+      'Absent → the service area\'s default company → the billing default company.',
+  })
+  @IsOptional()
+  @IsString()
+  businessProfileId?: string | null;
+
+  @ApiPropertyOptional({
     example: 'c7d2e9f1-3b4a-4c8d-9e2f-6a1b5c0d7e34',
     description:
       'Catalog external-company id (GET /api/deals/external-companies) — the partner that referred this job. Must be enabled.',

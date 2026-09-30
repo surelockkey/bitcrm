@@ -5,7 +5,13 @@ import { z } from "zod";
  *  lat/lng are set by the address autocomplete and carry the technician onto the
  *  dispatch map; typed-by-hand addresses are geocoded server-side instead. */
 export const profileSchema = z.object({
+  // The user record's half: saved through the users API, only when changed.
+  firstName: z.string().trim().max(80),
+  lastName: z.string().trim().max(80),
+  fieldTeamMember: z.boolean(),
+  technicianType: z.enum(["regular", "subcontractor"]),
   phone: z.string().trim().max(30).optional(),
+  additionalPhones: z.array(z.string().trim().max(30)).max(5),
   line1: z.string().trim().max(120).optional(),
   line2: z.string().trim().max(120).optional(),
   city: z.string().trim().max(80).optional(),

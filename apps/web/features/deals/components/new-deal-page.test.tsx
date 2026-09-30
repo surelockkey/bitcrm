@@ -23,6 +23,11 @@ const mocks = vi.hoisted(() => ({
   createCompany: vi.fn(),
   companyMap: new Map<string, { id: string; title: string }>(),
   effectiveArea: null as null | Record<string, unknown>,
+  companies: [
+    { id: "bp-default", name: "SureLock", isDefault: true, active: true },
+    { id: "bp-2", name: "KeyPro", isDefault: false, active: true },
+    { id: "bp-area", name: "Area Co", isDefault: false, active: true },
+  ] as unknown[],
 }));
 
 vi.mock("next/navigation", () => ({
@@ -54,6 +59,7 @@ const contact: Contact = {
 
 vi.mock("@/features/clients/hooks", () => ({
   useContact: (id: string) => ({ data: id ? contact : undefined }),
+  useContactSearch: () => ({ data: [], isLoading: false }),
   useContactByPhone: () => ({ data: null, isFetching: false }),
   useCreateContact: () => ({ mutate: mocks.createContact, isPending: false }),
   useUpdateContact: () => ({ mutate: mocks.updateContact, isPending: false }),
@@ -63,7 +69,6 @@ vi.mock("@/features/clients/hooks", () => ({
 vi.mock("../hooks", () => ({
   useCreateDeal: () => ({ mutate: mocks.createDeal, isPending: false }),
   // The extracted ClientPicker searches the loaded contact book.
-  useContactMap: () => ({ map: new Map() }),
 }));
 vi.mock("@/features/calls/hooks", () => ({
   useLinkCallToDeal: () => ({ mutate: mocks.linkCall, isPending: false }),
@@ -109,6 +114,17 @@ vi.mock("@/features/service-areas/components/service-area-field", () => ({
 vi.mock("@/features/job-sources/components/job-source-select", () => ({
   JobSourceSelect: ({ value }: { value?: string }) => (
     <div data-testid="job-source-select">{value ?? ""}</div>
+  ),
+}));
+vi.mock("@/features/business-profiles/hooks", () => ({
+  useBusinessProfiles: () => ({ data: mocks.companies }),
+}));
+vi.mock("@/features/business-profiles/components/business-profile-select", () => ({
+  BusinessProfileSelect: ({ value, onChange }: { value?: string | null; onChange: (v: string) => void }) => (
+    <div>
+      <span data-testid="company-select">{value ?? ""}</span>
+      <button type="button" onClick={() => onChange("bp-picked")}>pick company</button>
+    </div>
   ),
 }));
 vi.mock("@/features/external-companies/components/external-company-select", () => ({
@@ -170,7 +186,9 @@ describe("NewDealPage — admin-required fields", () => {
     expect(mocks.createDeal).not.toHaveBeenCalled();
     // One always-visible summary in the footer…
     expect(
-      screen.getByText(/Missing required: Job source, Job description/),
+      // "Job note" is what Workiz calls this field, and what people ask for by
+      // name; "Job description" sent them looking for a field that was there.
+      screen.getByText(/Missing required: Job source, Job note/),
     ).toBeInTheDocument();
     // …and an inline "Required" mark on each offending field.
     expect(screen.getAllByText("Required")).toHaveLength(2);
@@ -641,5 +659,77 @@ describe("NewDealPage — client details", () => {
     await u.click(screen.getByRole("button", { name: /save job/i }));
 
     expect(mocks.updateContact.mock.calls[0][0].body.addresses).toHaveLength(2);
+  });
+});
+
+describe("NewDealPage — company", () => {
+  beforeEach(() => {
+    mocks.searchParams = "contactId=c1";
+    mocks.customFieldDefs = [];
+    mocks.requiredFields = {};
+    mocks.createDeal.mockReset();
+    mocks.effectiveArea = null;
+  });
+
+  const areaWith = (defaultBusinessProfileId?: string) => ({
+    submitId: undefined,
+    source: "resolved",
+    area: { id: "a1", name: "Hartford", defaultBusinessProfileId },
+    isFetching: false,
+  });
+
+  it("starts with the default company and sends it on create", async () => {
+    const u = user();
+    render(<NewDealPage />);
+    expect(screen.getByText("Company")).toBeInTheDocument();
+    expect(screen.getByTestId("company-select")).toHaveTextContent("bp-default");
+    await u.click(screen.getByRole("button", { name: /pick job type/i }));
+    await u.click(submit());
+    await waitFor(() =>
+      expect(mocks.createDeal).toHaveBeenCalledWith(
+        expect.objectContaining({ businessProfileId: "bp-default" }),
+        expect.anything(),
+      ),
+    );
+  });
+
+  it("uses the service area's default company", () => {
+    mocks.effectiveArea = areaWith("bp-area");
+    render(<NewDealPage />);
+    expect(screen.getByTestId("company-select")).toHaveTextContent("bp-area");
+  });
+
+  it("?companyId= (from a call) wins over the area default", async () => {
+    mocks.searchParams = "contactId=c1&companyId=bp-2";
+    mocks.effectiveArea = areaWith("bp-area");
+    const u = user();
+    render(<NewDealPage />);
+    expect(screen.getByTestId("company-select")).toHaveTextContent("bp-2");
+    await u.click(screen.getByRole("button", { name: /pick job type/i }));
+    await u.click(submit());
+    await waitFor(() =>
+      expect(mocks.createDeal).toHaveBeenCalledWith(
+        expect.objectContaining({ businessProfileId: "bp-2" }),
+        expect.anything(),
+      ),
+    );
+  });
+
+  it("a hand-picked company isn't overwritten when the area changes", async () => {
+    const u = user();
+    const { rerender } = render(<NewDealPage />);
+    await u.click(screen.getByRole("button", { name: /pick company/i }));
+    expect(screen.getByTestId("company-select")).toHaveTextContent("bp-picked");
+    mocks.effectiveArea = areaWith("bp-area");
+    rerender(<NewDealPage />);
+    expect(screen.getByTestId("company-select")).toHaveTextContent("bp-picked");
+    await u.click(screen.getByRole("button", { name: /pick job type/i }));
+    await u.click(submit());
+    await waitFor(() =>
+      expect(mocks.createDeal).toHaveBeenCalledWith(
+        expect.objectContaining({ businessProfileId: "bp-picked" }),
+        expect.anything(),
+      ),
+    );
   });
 });

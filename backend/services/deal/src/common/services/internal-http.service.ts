@@ -7,13 +7,31 @@ import {
 } from '@nestjs/common';
 import axios, { type AxiosInstance } from 'axios';
 import { BusinessMetricsService } from '@bitcrm/shared';
-import { type Product } from '@bitcrm/types';
+import {
+  type Company,
+  type Contact,
+  type PersonName,
+  type Product,
+} from '@bitcrm/types';
 import {
   CRM_SERVICE_URL,
   USER_SERVICE_URL,
   INVENTORY_SERVICE_URL,
   INTERNAL_SERVICE_SECRET,
 } from '../constants/services.constants';
+
+/** What crm's names endpoint accepts in one body, and a page of jobs holds. */
+const CONTACT_NAMES_MAX_IDS = 100;
+/** The jobs list renders without the names, so it never waits long for them. */
+const CONTACT_NAMES_TIMEOUT_MS = 3_000;
+/** A scoreboard's rows — more than that is not a glance. */
+const USER_NAMES_MAX_IDS = 20;
+const USER_NAMES_TIMEOUT_MS = 3_000;
+/** user-service's batch names route takes this many ids in one body. */
+const USER_NAMES_BATCH_MAX_IDS = 200;
+/** crm's `POST /contacts/by-ids` takes this many ids in one body. */
+const CONTACTS_BY_IDS_MAX = 100;
+const CONTACTS_BY_IDS_TIMEOUT_MS = 5_000;
 
 /**
  * A technician's eligibility as user-service reports it. Carries the display
@@ -51,6 +69,8 @@ export interface RestoreStockDto {
 export class InternalHttpService {
   private readonly logger = new Logger(InternalHttpService.name);
   private readonly crmClient: AxiosInstance;
+  /** crm's PUBLIC routes, called with the caller's own token — never the internal secret. */
+  private readonly crmAsCallerClient: AxiosInstance;
   private readonly userClient: AxiosInstance;
   private readonly inventoryClient: AxiosInstance;
 
@@ -60,6 +80,7 @@ export class InternalHttpService {
     const headers = { 'x-internal-secret': INTERNAL_SERVICE_SECRET };
 
     this.crmClient = axios.create({ baseURL: CRM_SERVICE_URL, headers });
+    this.crmAsCallerClient = axios.create({ baseURL: CRM_SERVICE_URL });
     this.userClient = axios.create({ baseURL: USER_SERVICE_URL, headers });
     this.inventoryClient = axios.create({ baseURL: INVENTORY_SERVICE_URL, headers });
   }
@@ -81,6 +102,174 @@ export class InternalHttpService {
     }
   }
 
+  /** Full contact (tax exemption, names, addresses). Null when it doesn't exist. */
+  async getContact(contactId: string): Promise<Contact | null> {
+    return this.getCrmEntity<Contact>(`/api/crm/contacts/internal/${contactId}`, 'getContact');
+  }
+
+  /**
+   * Names for a set of contact ids — the clients of a page of jobs, side-loaded
+   * with that page instead of fetched once the browser has read the ids out of
+   * it.
+   *
+   * **Names only.** Numbers and emails are not copied out of the answer and
+   * must not be: crm masks a contact's numbers for a caller without
+   * `contacts.view_numbers`, deal-service masks nothing, so a number carried
+   * here would reach every holder of `deals.view`.
+   *
+   * Best effort, like an event publish: the list renders without it, so a crm
+   * that is down, slow or answering nonsense costs an empty array and a
+   * warning, never the page. Ids are deduped and capped at
+   * `CONTACT_NAMES_MAX_IDS`, which is also crm's own limit.
+   */
+  async getContactNames(ids: string[]): Promise<PersonName[]> {
+    const unique = [...new Set(ids.filter(Boolean))].slice(0, CONTACT_NAMES_MAX_IDS);
+    if (!unique.length) return [];
+
+    const timer = this.businessMetrics?.internalHttpDuration.startTimer({ target_service: 'crm', operation: 'getContactNames' });
+    try {
+      const response = await this.crmClient.post(
+        '/api/crm/contacts/internal/names-by-ids',
+        { ids: unique },
+        { timeout: CONTACT_NAMES_TIMEOUT_MS },
+      );
+      timer?.();
+      const rows: unknown = response.data?.data;
+      if (!Array.isArray(rows)) return [];
+      // Rebuilt field by field, never spread: whatever else crm sends stays there.
+      return rows
+        .filter((row): row is Record<string, unknown> => Boolean(row) && typeof (row as { id?: unknown }).id === 'string')
+        .map((row) => ({
+          id: row.id as string,
+          firstName: typeof row.firstName === 'string' ? row.firstName : '',
+          lastName: typeof row.lastName === 'string' ? row.lastName : '',
+        }));
+    } catch (error: any) {
+      timer?.();
+      this.businessMetrics?.internalHttpErrors.inc({ target_service: 'crm', operation: 'getContactNames' });
+      this.logger.warn(`Failed to load names for ${unique.length} contacts: ${error.message}`);
+      return [];
+    }
+  }
+
+  /**
+   * Names of a handful of users — the people on a dashboard scoreboard.
+   *
+   * One lookup each on user-service's internal route, all at once: a board
+   * holds five people, and user-service has no batch route for names. Names
+   * only, rebuilt field by field; a user it cannot fetch is left out rather
+   * than failing the board, which then shows the row without a name.
+   */
+  async getUserNames(ids: string[]): Promise<PersonName[]> {
+    const unique = [...new Set(ids.filter(Boolean))].slice(0, USER_NAMES_MAX_IDS);
+    const rows = await Promise.all(
+      unique.map(async (id): Promise<PersonName | null> => {
+        try {
+          const response = await this.userClient.get(`/api/users/internal/${id}`, {
+            timeout: USER_NAMES_TIMEOUT_MS,
+          });
+          const user = response.data?.data;
+          if (!user || typeof user.id !== 'string') return null;
+          return {
+            id: user.id,
+            firstName: typeof user.firstName === 'string' ? user.firstName : '',
+            lastName: typeof user.lastName === 'string' ? user.lastName : '',
+          };
+        } catch (error: any) {
+          this.logger.warn(`Failed to load the name of user ${id}: ${error.message}`);
+          return null;
+        }
+      }),
+    );
+    return rows.filter((row): row is PersonName => row !== null);
+  }
+
+  /**
+   * Names of many users at once — the technicians and creators across a
+   * report window. user-service's batch route (`internal/names-by-ids`,
+   * 200 ids a body), several bodies in parallel. Names only, rebuilt field by
+   * field; a batch that fails costs its names and a warning, never the report.
+   */
+  async getUserNamesBatch(ids: string[]): Promise<PersonName[]> {
+    const unique = [...new Set(ids.filter(Boolean))];
+    const batches: string[][] = [];
+    for (let i = 0; i < unique.length; i += USER_NAMES_BATCH_MAX_IDS) batches.push(unique.slice(i, i + USER_NAMES_BATCH_MAX_IDS));
+    const results = await Promise.all(
+      batches.map(async (userIds): Promise<PersonName[]> => {
+        try {
+          const response = await this.userClient.post('/api/users/internal/names-by-ids', { userIds }, { timeout: USER_NAMES_TIMEOUT_MS });
+          const rows: unknown = response.data?.data;
+          if (!Array.isArray(rows)) return [];
+          return rows
+            .filter((row): row is Record<string, unknown> => Boolean(row) && typeof (row as { id?: unknown }).id === 'string')
+            .map((row) => ({
+              id: row.id as string,
+              firstName: typeof row.firstName === 'string' ? row.firstName : '',
+              lastName: typeof row.lastName === 'string' ? row.lastName : '',
+            }));
+        } catch (error: any) {
+          this.logger.warn(`Failed to load names for ${userIds.length} users: ${error.message}`);
+          return [];
+        }
+      }),
+    );
+    return results.flat();
+  }
+
+  /**
+   * Contacts as THE CALLER may see them: crm's public `POST /contacts/by-ids`
+   * with the caller's own bearer token, so crm masks the numbers exactly as
+   * it would for them (`contacts.view_numbers`) — this service never decides
+   * that on crm's behalf. For a report's rows whose job carries no number or
+   * email of its own. At most 100 ids; best effort — a caller without
+   * `contacts.view`, or a crm that is down, gets an empty answer.
+   */
+  async getContactsAsCaller(ids: string[], authorization: string | undefined): Promise<Contact[]> {
+    const unique = [...new Set(ids.filter(Boolean))].slice(0, CONTACTS_BY_IDS_MAX);
+    if (!unique.length || !authorization) return [];
+    try {
+      const response = await this.crmAsCallerClient.post(
+        '/api/crm/contacts/by-ids',
+        { ids: unique },
+        { headers: { authorization }, timeout: CONTACTS_BY_IDS_TIMEOUT_MS },
+      );
+      const rows: unknown = response.data?.data;
+      return Array.isArray(rows) ? (rows as Contact[]) : [];
+    } catch (error: any) {
+      this.logger.warn(`Failed to load ${unique.length} contacts as the caller: ${error.message}`);
+      return [];
+    }
+  }
+
+  /** Full company (tax exemption, title). Null when it doesn't exist. */
+  async getCompany(companyId: string): Promise<Company | null> {
+    return this.getCrmEntity<Company>(`/api/crm/companies/internal/${companyId}`, 'getCompany');
+  }
+
+  private async getCrmEntity<T>(path: string, operation: string): Promise<T | null> {
+    const timer = this.businessMetrics?.internalHttpDuration.startTimer({ target_service: 'crm', operation });
+    try {
+      const response = await this.crmClient.get(path);
+      timer?.();
+      return (response.data?.data ?? null) as T | null;
+    } catch (error: any) {
+      timer?.();
+      if (error?.response?.status === 404) return null;
+      this.businessMetrics?.internalHttpErrors.inc({ target_service: 'crm', operation });
+      throw this.toHttpError(error, `CRM ${operation}`);
+    }
+  }
+
+  /**
+   * A user's eligibility as user-service sees it, or a thrown error.
+   *
+   * It used to answer "not assignable" for a failed call too, which the
+   * projection acts on by DELETING the row — one user-service hiccup and a
+   * working technician silently left the assignment dialog until the next
+   * boot. "User-service says no" (including a 404: no such user) and
+   * "user-service did not answer" are now different outcomes, and the caller
+   * lets SQS retry the second.
+   */
   async getTechnicianEligibility(technicianId: string): Promise<TechnicianEligibilityInfo> {
     const timer = this.businessMetrics?.internalHttpDuration.startTimer({ target_service: 'user', operation: 'getTechnicianEligibility' });
     try {
@@ -92,13 +281,21 @@ export class InternalHttpService {
     } catch (error: any) {
       timer?.();
       this.businessMetrics?.internalHttpErrors.inc({ target_service: 'user', operation: 'getTechnicianEligibility' });
+      if (error.response?.status === 404) {
+        return { technicianId, assignable: false, jobTypeIds: [], serviceAreaIds: [] };
+      }
       this.logger.warn(`Failed to get eligibility for ${technicianId}: ${error.message}`);
-      // Treat unknown as not assignable.
-      return { technicianId, assignable: false, jobTypeIds: [], serviceAreaIds: [] };
+      throw this.toHttpError(error, 'Technician eligibility lookup');
     }
   }
 
-  async listAssignableTechnicians(): Promise<TechnicianEligibilityInfo[]> {
+  /**
+   * The full roster of assignable technicians, or `null` when user-service
+   * could not answer. Null and empty are deliberately different: the reconcile
+   * removes projection rows that are missing from this list, and "the list is
+   * empty because the call failed" would take out every technician at once.
+   */
+  async listAssignableTechnicians(): Promise<TechnicianEligibilityInfo[] | null> {
     const timer = this.businessMetrics?.internalHttpDuration.startTimer({ target_service: 'user', operation: 'listAssignableTechnicians' });
     try {
       const response = await this.userClient.get('/api/users/internal/technicians/assignable');
@@ -108,7 +305,7 @@ export class InternalHttpService {
       timer?.();
       this.businessMetrics?.internalHttpErrors.inc({ target_service: 'user', operation: 'listAssignableTechnicians' });
       this.logger.warn(`Failed to list assignable technicians: ${error.message}`);
-      return [];
+      return null;
     }
   }
 

@@ -10,16 +10,26 @@ import { parse } from 'csv-parse/sync';
 import {
   type Product,
   type ProductWithExtras,
+  type JwtUser,
+  InventoryLogAction,
   ProductType,
   InventoryStatus,
   UNCATEGORIZED_CATEGORY,
   WORKIZ_SERVICE_TYPES,
+  type ListCount,
 } from '@bitcrm/types';
-import { ProductsRepository } from './products.repository';
+import { ProductsRepository, type ProductListFilters } from './products.repository';
 import { ProductsCacheService } from './products-cache.service';
-import { S3Service, SnsPublisherService } from '@bitcrm/shared';
+import {
+  S3Service,
+  SnsPublisherService,
+  RedisService,
+  cachedCount,
+  countCacheKey,
+} from '@bitcrm/shared';
 import { publishInventoryEvent } from '../common/events/publish-inventory-event';
 import { ItemCategoriesService } from '../item-categories/item-categories.service';
+import { InventoryLogService } from '../inventory-log/inventory-log.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { ListProductsQueryDto } from './dto/list-products-query.dto';
@@ -37,6 +47,9 @@ export function normalizeCategory(category: string): string {
 }
 
 const KNOWN_PRODUCT_TYPES: readonly string[] = Object.values(ProductType);
+
+/** How long a list count stays good enough. Matches the deals tab counts. */
+const COUNT_TTL_SECONDS = 30;
 
 /**
  * Workiz item types BitCRM has no equivalent for. Both are non-stockable, so
@@ -66,6 +79,35 @@ export interface CsvImportResult {
   errors: Array<{ row: number; message: string }>;
 }
 
+/** Who the audit log names for a change. */
+interface LogActor {
+  userId: string;
+  userName: string;
+}
+
+/** A write with no request user behind it: internal callers and scripts. */
+const SYSTEM_ACTOR: LogActor = { userId: 'system', userName: 'system' };
+/** Rows the CSV importer wrote with no signed-in user handed in. */
+const CSV_IMPORT_ACTOR: LogActor = { userId: 'system', userName: 'csv-import' };
+
+function logActor(actor: JwtUser | undefined, fallback: LogActor): LogActor {
+  return actor ? { userId: actor.id, userName: actor.email } : fallback;
+}
+
+/**
+ * The keys of `attrs` whose value differs from what the product holds — what
+ * an `item_updated` log entry lists. `null` and a missing attribute are the
+ * same absence.
+ */
+export function changedProductFields(existing: Product, attrs: Partial<Product>): string[] {
+  const record = existing as unknown as Record<string, unknown>;
+  return Object.keys(attrs).filter((key) => {
+    const before = JSON.stringify(record[key] ?? null);
+    const after = JSON.stringify((attrs as Record<string, unknown>)[key] ?? null);
+    return before !== after;
+  });
+}
+
 @Injectable()
 export class ProductsService {
   private readonly logger = new Logger(ProductsService.name);
@@ -76,7 +118,26 @@ export class ProductsService {
     private readonly s3: S3Service,
     @Optional() private readonly snsPublisher?: SnsPublisherService,
     @Optional() private readonly itemCategories?: ItemCategoriesService,
+    @Optional() private readonly redis?: RedisService,
+    @Optional() private readonly inventoryLog?: InventoryLogService,
   ) {}
+
+  /** One audit-log line for an item edit; the log itself never throws. */
+  private async recordItem(
+    action: InventoryLogAction,
+    product: Product,
+    who: LogActor,
+    extra: { changedFields?: string[] } = {},
+  ): Promise<void> {
+    await this.inventoryLog?.record({
+      action,
+      productId: product.id,
+      productName: product.name,
+      sku: product.sku,
+      ...who,
+      ...extra,
+    });
+  }
 
   /**
    * `category` stays required in the API, but the `Uncategorized` sentinel is
@@ -98,12 +159,30 @@ export class ProductsService {
     return normalized;
   }
 
-  async create(dto: CreateProductDto): Promise<Product> {
+  /**
+   * `number` is handed out by the counter and `onHand` by the stock writes;
+   * neither is ever taken from a client, whatever the body carries. A new
+   * product starts at `onHand: 0` — a row without the attribute is skipped by
+   * the stock writes (an ADD would create it as the delta), so the total would
+   * never start counting.
+   */
+  private static stripReadOnly<T extends object>(dto: T): T {
+    const { number: _number, onHand: _onHand, ...rest } = dto as T & {
+      number?: unknown;
+      onHand?: unknown;
+    };
+    return rest as T;
+  }
+
+  async create(dto: CreateProductDto, actor?: JwtUser): Promise<Product> {
     const now = new Date().toISOString();
     const product: Product = {
       id: randomUUID(),
-      ...dto,
+      number: await this.repository.nextNumber(),
+      ...ProductsService.stripReadOnly(dto),
       category: await this.prepareCategory(dto.category),
+      taxable: dto.taxable ?? true,
+      onHand: 0,
       status: InventoryStatus.ACTIVE,
       createdAt: now,
       updatedAt: now,
@@ -113,6 +192,7 @@ export class ProductsService {
     publishInventoryEvent(this.snsPublisher, this.logger, 'product.created', {
       productId: product.id,
     });
+    await this.recordItem(InventoryLogAction.ITEM_CREATED, product, logActor(actor, SYSTEM_ACTOR));
     return product;
   }
 
@@ -130,17 +210,17 @@ export class ProductsService {
   }
 
   /**
-   * One read per product for the stock guards, shared between them.
-   * `assertStockable` and `partitionStockManaged` run back to back on every
-   * deduct and every restore; without a shared read that is 2 × GetItem per
-   * distinct product. Unlike `findById` this resolves an unknown id to null
-   * instead of throwing — stock callers may pass ids this service never
-   * persisted.
+   * One read per product for the stock paths, shared between the guards and
+   * the audit log. `assertStockable` and `partitionStockManaged` run back to
+   * back on every deduct and every restore; without a shared read that is
+   * 2 × GetItem per distinct product. Unlike `findById` this resolves an
+   * unknown id to null instead of throwing — stock callers may pass ids this
+   * service never persisted.
    *
    * Cache failures degrade to a plain repository read: these paths worked with
    * no Redis dependency at all before, and must keep working if it is down.
    */
-  private async loadForStockGuard(id: string): Promise<ProductWithExtras | null> {
+  async loadForStock(id: string): Promise<ProductWithExtras | null> {
     try {
       const cached = await this.cache.get(id);
       if (cached) return cached as ProductWithExtras;
@@ -173,7 +253,7 @@ export class ProductsService {
     const uniqueIds = [...new Set(productIds)];
     const serviceNames: string[] = [];
     for (const id of uniqueIds) {
-      const product = await this.loadForStockGuard(id);
+      const product = await this.loadForStock(id);
       if (product?.type === ProductType.SERVICE) {
         serviceNames.push(product.name);
       }
@@ -198,11 +278,11 @@ export class ProductsService {
    * exactly `false`. Everything BitCRM has written carries no such attribute,
    * so this changes nothing for existing data.
    *
-   * Shares `loadForStockGuard` with `assertStockable`, which always runs
+   * Shares `loadForStock` with `assertStockable`, which always runs
    * first, so the product is fetched once per movement rather than twice.
    */
   async isStockManaged(productId: string): Promise<boolean> {
-    const product = await this.loadForStockGuard(productId);
+    const product = await this.loadForStock(productId);
     return product?.manageStock !== false;
   }
 
@@ -239,22 +319,80 @@ export class ProductsService {
     return this.repository.findAll(limit, cursor);
   }
 
+  /**
+   * Category picks the CategoryIndex; else `manageStock=true` picks the
+   * stock-managed partition (Workiz's "inventory products", name order);
+   * else the Price Book partition — every item, name order — is read. Every
+   * other given filter (type included) is applied on top, so Workiz's
+   * combinable filters ("this category, active, stock-managed") hold. The
+   * public list never Scans the shared table any more; `findAll` is left to
+   * the search indexer's internal walk.
+   */
   async list(query: ListProductsQueryDto) {
-    const { category, type, search, status, limit = 20, cursor } = query;
+    const { category, type, search, status, brandId, manageStock, limit = 20, cursor } = query;
+    const filters: ProductListFilters = { type, status, search, brandId, manageStock };
 
     if (category) {
-      return this.repository.findByCategory(category, limit, cursor);
+      return this.repository.findByCategory(category, limit, cursor, filters);
     }
-    if (type) {
-      return this.repository.findByType(type, limit, cursor);
+    if (manageStock === true) {
+      return this.repository.findStockManaged(limit, cursor, { type, status, search, brandId });
     }
-
-    return this.repository.findAll(limit, cursor, { status, search });
+    return this.repository.findCatalog(limit, cursor, filters);
   }
 
-  async update(id: string, dto: UpdateProductDto): Promise<Product> {
-    await this.findById(id); // Ensure exists
-    const attrs: Partial<Product> = { ...dto };
+  /**
+   * How many products the current filters select — the number behind
+   * "Page 2 of 7".
+   *
+   * It branches exactly as `list` does, or the panel would size itself against
+   * a different population than the rows under it. Behind a short cache: the
+   * count outlives a page load, and flipping filters back and forth should not
+   * re-walk the table.
+   */
+  async count(query: ListProductsQueryDto): Promise<ListCount> {
+    const { category, type, search, status, brandId, manageStock } = query;
+    const filters: ProductListFilters = { type, status, search, brandId, manageStock };
+
+    const take = () => {
+      if (category) return this.repository.countByCategory(category, filters);
+      if (manageStock === true) {
+        return this.repository.countStockManaged({ type, status, search, brandId });
+      }
+      return this.repository.countCatalog(filters);
+    };
+
+    if (!this.redis) return take();
+    return cachedCount(
+      this.redis.client,
+      countCacheKey('products', { category, type, search, status, brandId, manageStock }),
+      COUNT_TTL_SECONDS,
+      take,
+    );
+  }
+
+  async update(id: string, dto: UpdateProductDto, actor?: JwtUser): Promise<Product> {
+    const { product, changedFields } = await this.applyUpdate(id, dto);
+    // An edit that changed nothing is not a line in the log.
+    if (changedFields.length > 0) {
+      await this.recordItem(InventoryLogAction.ITEM_UPDATED, product, logActor(actor, SYSTEM_ACTOR), {
+        changedFields,
+      });
+    }
+    return product;
+  }
+
+  /**
+   * The write behind update, archive and reactivate, answering which of the
+   * given fields differ from what was stored — compared after the category
+   * normalisation, so "uncategorized" over "Uncategorized" is no change.
+   */
+  private async applyUpdate(
+    id: string,
+    dto: UpdateProductDto,
+  ): Promise<{ product: Product; changedFields: string[] }> {
+    const existing = await this.findById(id); // Ensure exists
+    const attrs: Partial<Product> = { ...ProductsService.stripReadOnly(dto) };
     if (typeof dto.category === 'string') {
       attrs.category = await this.prepareCategory(dto.category);
     }
@@ -263,15 +401,19 @@ export class ProductsService {
     publishInventoryEvent(this.snsPublisher, this.logger, 'product.updated', {
       productId: id,
     });
+    return { product, changedFields: changedProductFields(existing, attrs) };
+  }
+
+  async archive(id: string, actor?: JwtUser): Promise<Product> {
+    const { product } = await this.applyUpdate(id, { status: InventoryStatus.ARCHIVED } as any);
+    await this.recordItem(InventoryLogAction.ITEM_ARCHIVED, product, logActor(actor, SYSTEM_ACTOR));
     return product;
   }
 
-  async archive(id: string): Promise<Product> {
-    return this.update(id, { status: InventoryStatus.ARCHIVED } as any);
-  }
-
-  async reactivate(id: string): Promise<Product> {
-    return this.update(id, { status: InventoryStatus.ACTIVE } as any);
+  async reactivate(id: string, actor?: JwtUser): Promise<Product> {
+    const { product } = await this.applyUpdate(id, { status: InventoryStatus.ACTIVE } as any);
+    await this.recordItem(InventoryLogAction.ITEM_RESTORED, product, logActor(actor, SYSTEM_ACTOR));
+    return product;
   }
 
   async findByBarcode(barcode: string): Promise<Product> {
@@ -321,8 +463,13 @@ export class ProductsService {
     return { downloadUrl };
   }
 
-  async importFromCsv(buffer: Buffer, dryRun = false): Promise<CsvImportResult> {
+  async importFromCsv(
+    buffer: Buffer,
+    dryRun = false,
+    actor?: JwtUser,
+  ): Promise<CsvImportResult> {
     const result: CsvImportResult = { created: 0, updated: 0, errors: [] };
+    const who = logActor(actor, CSV_IMPORT_ACTOR);
 
     let records: any[];
     try {
@@ -353,10 +500,11 @@ export class ProductsService {
         const category = dryRun
           ? normalizeCategory(row.category)
           : await this.prepareCategory(row.category);
+        const taxable = this.parseCsvBoolean(row.taxable);
 
         if (existing) {
           if (!dryRun) {
-            await this.repository.update(existing.id, {
+            const attrs: Partial<Product> = {
               name: row.name,
               category,
               type,
@@ -370,18 +518,31 @@ export class ProductsService {
               priceClient: parseFloat(row.priceClient),
               serialTracking: row.serialTracking === 'true',
               minimumStockLevel: parseInt(row.minimumStockLevel, 10),
+              // A blank cell leaves the stored flag alone.
+              ...(taxable !== undefined && { taxable }),
               ...(row.supplier && { supplier: row.supplier }),
               ...(row.barcode && { barcode: row.barcode }),
               ...(row.description && { description: row.description }),
-            });
+            };
+            await this.repository.update(existing.id, attrs);
             await this.cache.invalidate(existing.id);
+            const changedFields = changedProductFields(existing, attrs);
+            if (changedFields.length > 0) {
+              await this.recordItem(
+                InventoryLogAction.ITEM_UPDATED,
+                { ...existing, ...attrs },
+                who,
+                { changedFields },
+              );
+            }
           }
           result.updated++;
         } else {
           if (!dryRun) {
             const now = new Date().toISOString();
-            await this.repository.create({
+            const product: Product = {
               id: randomUUID(),
+              number: await this.repository.nextNumber(),
               sku: row.sku,
               name: row.name,
               category,
@@ -392,13 +553,17 @@ export class ProductsService {
               priceClient: parseFloat(row.priceClient),
               serialTracking: row.serialTracking === 'true',
               minimumStockLevel: parseInt(row.minimumStockLevel, 10),
+              taxable: taxable ?? true,
               supplier: row.supplier || undefined,
               barcode: row.barcode || undefined,
               description: row.description || undefined,
+              onHand: 0,
               status: InventoryStatus.ACTIVE,
               createdAt: now,
               updatedAt: now,
-            });
+            };
+            await this.repository.create(product);
+            await this.recordItem(InventoryLogAction.ITEM_CREATED, product, who);
           }
           result.created++;
         }
@@ -441,6 +606,17 @@ export class ProductsService {
     if (!row.priceClient || isNaN(parseFloat(row.priceClient))) {
       return 'Invalid priceClient';
     }
+    if (row.taxable && this.parseCsvBoolean(row.taxable) === undefined) {
+      return 'Invalid taxable (use true/false, yes/no or 1/0)';
+    }
     return null;
+  }
+
+  /** Optional CSV boolean cell: blank/absent → undefined (also for junk; validated above). */
+  private parseCsvBoolean(value: string | undefined): boolean | undefined {
+    const v = value?.trim().toLowerCase();
+    if (v === 'true' || v === 'yes' || v === '1') return true;
+    if (v === 'false' || v === 'no' || v === '0') return false;
+    return undefined;
   }
 }

@@ -1,4 +1,4 @@
-import { Globe, Mail, Phone, PencilLine, Crown } from "lucide-react";
+import { Globe, Mail, Phone, PencilLine, Crown, ShieldCheck } from "lucide-react";
 import { ClientType, ContactSource, ContactType } from "@bitcrm/types";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -75,4 +75,17 @@ export function CoiStatusBadge({ status }: { status: CoiStatus }) {
   if (status === "none") return null;
   const s = COI_STYLE[status];
   return <Badge variant="outline" className={cn("font-normal", s.cls)}>{s.label}</Badge>;
+}
+
+export function TaxExemptBadge({ reason }: { reason?: string }) {
+  return (
+    <Badge
+      variant="outline"
+      title={reason ? `Tax exempt — ${reason}` : "Tax exempt"}
+      className="gap-1 border-emerald-500/40 font-normal text-emerald-700 dark:text-emerald-400"
+    >
+      <ShieldCheck className="size-3" />
+      Tax exempt{reason ? ` · ${reason}` : ""}
+    </Badge>
+  );
 }

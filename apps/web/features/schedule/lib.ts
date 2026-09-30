@@ -256,13 +256,18 @@ export interface TechFilter {
 /** Filter the technician roster for the schedule toolbar (status/department/name). */
 export function filterTechnicians(
   profiles: TechnicianProfile[],
-  users: Map<string, DirectoryUser>,
+  users: Map<string, DirectoryUser & { fieldTeamMember?: boolean }>,
   filter: TechFilter,
 ): TechnicianProfile[] {
   const q = filter.query?.trim().toLowerCase();
   return profiles.filter((p) => {
     if (filter.activeOnly && p.status !== "active") return false;
     const u = users.get(p.userId);
+    // Switched off the field team: the profile is still theirs (address,
+    // hours), but nothing can be put on a column for someone who no longer
+    // goes out on jobs. Only an explicit off — a profile exists because they
+    // were on the team when it was made.
+    if (u?.fieldTeamMember === false) return false;
     if (filter.department && u?.department !== filter.department) return false;
     if (q) {
       const name = `${u?.firstName ?? ""} ${u?.lastName ?? ""} ${u?.email ?? ""}`.toLowerCase();

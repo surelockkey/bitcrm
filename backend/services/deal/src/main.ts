@@ -2,10 +2,7 @@ import { config } from 'dotenv';
 import { resolve } from 'path';
 config({ path: resolve(__dirname, '../../../.env') });
 
-import { initTracing,
-  installGracefulShutdown,
-  runBootstrap,
-} from '@bitcrm/shared';
+import { compressionMiddleware, initTracing, installGracefulShutdown, runBootstrap } from '@bitcrm/shared';
 initTracing('deal-service');
 
 import { NestFactory } from '@nestjs/core';
@@ -22,6 +19,8 @@ async function bootstrap() {
 
   app.setGlobalPrefix('api/deals');
   app.enableCors();
+  // Gzip on the way out: 190 KB of catalogs was over a second of pure transfer.
+  app.use(compressionMiddleware());
   // The e2e harness has always registered this; the running service never did,
   // so every class-validator decorator on the DTOs was inert in production.
   app.useGlobalPipes(new ValidationPipe({ transform: true, whitelist: true }));

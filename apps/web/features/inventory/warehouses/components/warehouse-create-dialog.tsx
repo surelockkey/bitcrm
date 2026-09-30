@@ -1,6 +1,5 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Loader2 } from "lucide-react";
@@ -26,7 +25,6 @@ export function WarehouseCreateDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const router = useRouter();
   const create = useCreateWarehouse();
   const form = useForm<WarehouseValues>({
     resolver: zodResolver(warehouseSchema),
@@ -35,10 +33,10 @@ export function WarehouseCreateDialog({
 
   const onSubmit = (values: WarehouseValues) =>
     create.mutate(values, {
-      onSuccess: (w) => {
+      // The new warehouse shows up in the list; stock reaches it from Items.
+      onSuccess: () => {
         form.reset();
         onOpenChange(false);
-        router.push(`/inventory/warehouses/${w.id}`);
       },
     });
 

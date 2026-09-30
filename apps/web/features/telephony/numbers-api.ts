@@ -80,24 +80,32 @@ export const clearTechnicianLine = (sid: string): Promise<{ technicianLine: stri
   http.delete(`/telephony/numbers/${sid}/technician-line`);
 
 /**
- * Per-number settings — the job source calls through the number are
- * attributed to (call tracking). Numbers without an entry have none.
+ * Per-number settings — the job source and company calls through the number
+ * are attributed to (call tracking). Numbers without an entry have none; a
+ * number's company overrides the answering call flow's.
  */
 export interface NumberSettings {
   phoneNumber: string;
   sourceId?: string;
+  businessProfileId?: string;
+}
+
+/** A partial update — only the keys present are changed; null clears one. */
+export interface NumberSettingsPatch {
+  sourceId?: string | null;
+  businessProfileId?: string | null;
 }
 
 /** Every number's settings (settings.view). */
 export const listNumberSettings = (): Promise<NumberSettings[]> =>
   http.get<NumberSettings[]>("/telephony/numbers/settings");
 
-/** Assign (or clear, with null) the number's job source (settings.edit). */
+/** Assign (or clear, with null) the number's job source / company (settings.edit). */
 export const updateNumberSettings = (
   phoneNumber: string,
-  sourceId: string | null,
+  patch: NumberSettingsPatch,
 ): Promise<NumberSettings> =>
   http.put<NumberSettings>(
     `/telephony/numbers/${encodeURIComponent(phoneNumber)}/settings`,
-    { sourceId },
+    patch,
   );

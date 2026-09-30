@@ -18,7 +18,8 @@ and then override the typed fields), so importer data survives edits from the UI
 
 Every index on `BitCRM_Inventory` is **HASH + RANGE**
 (`src/scripts/setup-dynamodb.ts`: `CategoryIndex` = GSI1PK/GSI1SK,
-`TypeIndex` = GSI2PK/GSI2SK, `OwnerIndex` = GSI3PK/GSI3SK), so a row that
+`TypeIndex` = GSI2PK/GSI2SK, `OwnerIndex` = GSI3PK/GSI3SK,
+`TransferEntityIndex` = GSI4PK/GSI4SK), so a row that
 writes the partition key but **not** the matching sort key is not in that index
 at all — it silently disappears from the query. A product written without
 `GSI1SK` is invisible to `GET /products?category=` and to
@@ -28,16 +29,51 @@ hard-deleting a category 13 195 items still reference (§1).
 
 Write these exactly as `ProductsRepository.create` / the catalog repositories do:
 
-| Row | PK | SK | GSI1PK | GSI1SK | GSI2PK | GSI2SK |
-|---|---|---|---|---|---|---|
-| Product (`src/products/products.repository.ts:50-56`) | `PRODUCT#<id>` | `METADATA` | `CATEGORY#<category>` | `PRODUCT#<id>` | `TYPE#<type>` | `PRODUCT#<id>` |
-| SKU claim (§2.3) | `SKU#<sku>` | `PRODUCT` | — | — | — | — |
-| Item category (`item-categories.repository.ts:41-49`) | `ITEM_CATEGORY#<id>` | `METADATA` | `CATALOG#ITEM_CATEGORY` | `<name>.trim().toLowerCase()` | — | — |
-| Brand (`brands.repository.ts:35-40`) | `BRAND#<id>` | `METADATA` | `CATALOG#BRAND` | `<name>.toLowerCase()` | — | — |
-| Warehouse | `WAREHOUSE#<id>` | `METADATA` | — | — | — | — |
-| Container | `CONTAINER#<id>` | `METADATA` | — | — | — | — |
-| Stock | `WAREHOUSE#<id>` \| `CONTAINER#<id>` | `STOCK#<productId>` | — | — | — | — |
+| Row | PK | SK | GSI1PK | GSI1SK | GSI2PK | GSI2SK | Search attributes |
+|---|---|---|---|---|---|---|---|
+| Product (`src/products/products.repository.ts`) | `PRODUCT#<id>` | `METADATA` | `CATEGORY#<category>` | `PRODUCT#<id>` | `TYPE#<type>` | `PRODUCT#<id>` | `searchName = <name>.trim().toLowerCase()`, `searchSku = <sku>.trim().toLowerCase()` |
+| SKU claim (§2.3) | `SKU#<sku>` | `PRODUCT` | — | — | — | — | — |
+| Item category (`item-categories.repository.ts:41-49`) | `ITEM_CATEGORY#<id>` | `METADATA` | `CATALOG#ITEM_CATEGORY` | `<name>.trim().toLowerCase()` | — | — | — |
+| Brand (`brands.repository.ts:35-40`) | `BRAND#<id>` | `METADATA` | `CATALOG#BRAND` | `<name>.toLowerCase()` | — | — | — |
+| Warehouse (`warehouses.repository.ts`) | `WAREHOUSE#<id>` | `METADATA` | `LOCATION#WAREHOUSE` | `<name>.trim().toLowerCase()#<id>` | — | — | `searchName = <name>.trim().toLowerCase()` |
+| Container (`containers.repository.ts`) | `CONTAINER#<id>` | `METADATA` | `LOCATION#CONTAINER` | `<name>.trim().toLowerCase()#<id>` | — | — | `searchName = <name>.trim().toLowerCase()` |
+| Stock | `WAREHOUSE#<id>` \| `CONTAINER#<id>` | `STOCK#<productId>` | — | — | — | — | — |
+| Container template (`container-templates.repository.ts`) | `CONTAINER_TEMPLATE#<id>` | `METADATA` | `CATALOG#CONTAINER_TEMPLATE` | `<name>.trim().toLowerCase()` | — | — | — |
+| User container (`user-containers.repository.ts`) | `USER_CONTAINER#<userId>` | `METADATA` | `CATALOG#USER_CONTAINER` | `<userName>.trim().toLowerCase()#<userId>` | — | — | — |
 
+- A user container with `access: "container"` also carries the sparse
+  `OwnerIndex` pair `GSI3PK = CONTAINER_USERS#<containerId>`,
+  `GSI3SK = USER#<userId>` (who works from a van); `all` / `none` rows carry
+  neither. The importer may leave these rows to
+  `npm run backfill:user-containers -w backend/services/inventory`, which
+  derives them from the containers' `technicianId` and `accessUserIds` (§5.2);
+  the row shape is `userContainerItem` in `user-containers.constants.ts`.
+
+- The `search` filters run `contains` against the search attributes, never
+  against `name`/`sku` (case-sensitive bytes) nor against the location sort key
+  (it ends in the UUID, so "3" or "de" would match nearly every id). A row
+  without them is never found. Rows written without them are healed by
+  `npm run backfill:product-search` (products) and
+  `npm run backfill:location-index` (warehouses, containers) — both idempotent,
+  upsert-only, and **mandatory after every import** that does not write them.
+
+- A **stock-managed** product (`type: "product"`, `manageStock` absent or
+  `true`, any status) also carries the sparse `OwnerIndex` pair
+  `GSI3PK = PRODUCTS#STOCK`, `GSI3SK = <name>.trim().toLowerCase()#<id>` — the
+  partition `GET /products?manageStock=true` (no category) reads in name
+  order. Write both or neither, or leave them to
+  `npm run backfill:product-stock-index -w backend/services/inventory`
+  (idempotent, mandatory after every import that does not write them).
+- **Every** product row (any `type`, any `status`, any `manageStock`) also
+  carries the `TransferEntityIndex` pair `GSI4PK = PRODUCTS#ALL`,
+  `GSI4SK = <name>.trim().toLowerCase() (first 200 characters)#<id>` — the
+  Price Book partition `GET /products` reads in name order whenever neither
+  `category` nor `manageStock=true` picks another index. Write both or
+  neither, or leave them to
+  `npm run backfill:product-catalog-index -w backend/services/inventory`
+  (idempotent, upsert-only, **mandatory after every import** that does not
+  write them). Until it has run on an environment, the Price Book list and
+  its count are **empty** there.
 - `<type>` is the stored `type`, i.e. always `product` or `service` — the 10
   Workiz `other`/`hours` items are written `type: "service"` and therefore
   `GSI2PK: "TYPE#service"` (§4.1), never `TYPE#other`.
@@ -46,8 +82,44 @@ Write these exactly as `ProductsRepository.create` / the catalog repositories do
 - A container with a technician also needs the sparse `OwnerIndex` pair
   `GSI3PK = OWNER#<technicianId>`, `GSI3SK = CONTAINER#<id>` — both or neither
   (§5.2).
+- `GET /warehouses` and `GET /containers` are a Query over the `LOCATION#…`
+  partition of `CategoryIndex` (name order; the `#<id>` suffix keeps duplicate
+  names apart), so a location row written without `GSI1PK`/`GSI1SK` is not in
+  either list. Rows that predate the index are healed by
+  `npm run backfill:location-index -w backend/services/inventory` (idempotent,
+  upsert-only). The repositories rewrite `GSI1SK` on rename.
 - Deal line items live in the **deal** service's table, not this one:
   `PK = DEAL#<dealId>`, `SK = PRODUCT#<productId>`, no GSI (§3.0).
+- Two product attributes are derived, not copied: `number` (the short
+  "Product ID"; `POST /products` draws it from the `COUNTER#PRODUCT / METADATA`
+  row's `seq`) and `onHand` (units across every `STOCK#` row, kept in step by
+  `StockRepository` on each move, in the same TransactWrite as the stock row).
+  Write `number = <Workiz item id>` on every imported product and leave
+  `onHand` to `npm run backfill:product-onhand -w backend/services/inventory`.
+  **Run `npm run backfill:product-numbers` after EVERY import, even when every
+  row already carries a `number`:** the importer writes numbers straight to
+  DynamoDB and never raises `COUNTER#PRODUCT`, so without the run the next
+  `POST /products` draws `1` and collides with Workiz item 1, then 2, and so
+  on up to the highest imported id. The script raises the counter past the
+  highest `number` in use whether or not it had rows to number (imported rows
+  take the id in `externalId = workiz:item:<n>`, the rest draw the next
+  value). **Run `backfill:product-onhand` in the same release, before
+  traffic:** until it has, a stock write leaves an imported product's total
+  alone (never a wrong number, just none), and any later disagreement between
+  a product's `onHand` and `GET /stock/products/:id` is repaired by a re-run.
+  All three are idempotent and upsert-only.
+- Two location attributes are derived the same way: `totalUnits` (Σ
+  `quantity` of the location's `STOCK#` rows) and `uniqueItems` (how many of
+  them hold more than 0) on every `WAREHOUSE#<id>` / `CONTAINER#<id>` /
+  `METADATA` row — what the Warehouses and Containers lists show per row.
+  `StockRepository` moves both in the same TransactWrite as the stock row, but
+  only on a row that already carries `totalUnits`. Leave them unwritten and
+  run `npm run backfill:location-totals -w backend/services/inventory` **after
+  EVERY import, after the deploy** (idempotent, upsert-only, safe while stock
+  moves: it seeds missing totals with 0 so live writes start moving them, then
+  sets the counted sums conditioned on the row not having moved meanwhile).
+  Until it has run the lists show "—" for those locations. If a run is cut
+  short, run it again — a location seeded but not yet counted reads 0.
 
 ## 1. Category
 
@@ -75,6 +147,13 @@ Write these exactly as `ProductsRepository.create` / the catalog repositories do
 - Catalog rows (`ITEM_CATEGORY#`, `BRAND#`) may carry `externalId`,
   `parentId`, `description`, `workizFileId`, `workizFilePath`; a rename or
   archive from the UI now keeps them.
+- Renaming a category from the UI (`PUT /categories/:id`) moves every item
+  filed under the old name to the new one — a change of case or padding
+  included, so trimming an imported `"Tools & Accessories "` moves its items
+  too — and answers `movedItems`. `Uncategorized` is never renamed, and
+  nothing is renamed into it (400). `DELETE /brands/:id` archives a brand any
+  item still names (`brandId`) instead of deleting it; that check reads the
+  Price Book partition (§0), so it only sees rows the catalog backfill filed.
 
 ## 2. Price, quantity, SKU
 
@@ -284,8 +363,23 @@ would invent stock nobody ever counted.
   whose product says `manageStock: false` before touching stock, and leave them
   out of the transfer journal; if nothing is left, no stock call and no journal
   row happen at all. Services are still rejected first, as before.
+- The user-facing movements — `POST /transfers` (transfer), `POST /transfers/receive`
+  and `POST /warehouses/:id/receive` (Workiz "Add to stock"), `POST /transfers/return` —
+  apply the same rule: an item whose product says `manageStock: false` has no
+  counter to move, so it is dropped and listed in the answered transfer's
+  `skippedItems` (absent when nothing was dropped); a request with none left is
+  a 400 "None of the items are stock-managed". Workiz itself offers no "Add to
+  stock" for `manage = 0` items, so the web picker should not offer them either.
+  Item names on the stock row, the journal row and the audit log are always the
+  catalog's, whatever `productName` the body carried.
 - **Absent means managed** — every product BitCRM has written carries no such
   attribute, so nothing about existing data changes.
+- `GET /products?manageStock=true` is Workiz's "inventory products" view:
+  product-type rows whose flag is absent or `true` (a service is never
+  stock-managed, whatever it stores); `manageStock=false` selects the rows that
+  say so explicitly. It combines with `category`, `type`, `status`, `search`
+  and `brandId` (`manageStock`, `brandId` and `reorderLevel` are typed on
+  `Product` now and editable through `PUT /products/:id`).
 - The 35 243 historical job lines with `container_id` and `manage = 1` are
   already inside the 2026-09-11 snapshot: write them as ordinary deal lines —
   `PK = DEAL#<dealId>`, `SK = PRODUCT#<productId>` (§3.0), with
@@ -309,10 +403,26 @@ repository's own `PK`/`SK`/`GSI3` always win over anything in the payload.
 - `technicianId` is the BitCRM `User.id` and drives the sparse GSI3
   (`GSI3PK = OWNER#<technicianId>`, `GSI3SK = CONTAINER#<id>`) — write both
   keys whenever the container has a technician, and neither when it does not.
-- **One technician, one container.** The API enforces it
-  (`assertTechnicianFree`) and `findByTechnicianId` takes `Limit: 1`; a direct
-  import bypasses the check, so the importer must not give two containers the
-  same `technicianId`. The 8 secondary users in 7 containers (all inactive)
-  go in `accessUserIds`, never in `technicianId`.
+- **Who works from a van is the user containers now** (`USER_CONTAINER#<userId>`,
+  §0): one container per user, many users per container, reassigned with
+  `PUT /user-containers/:userId` and logged as `container_assigned`.
+  `technicianId` stays as the legacy link — the API no longer keeps it
+  exclusive, and it is read only for a user who has no assignment row. The
+  importer still writes the owner in `technicianId` and the 8 secondary users
+  of 7 containers (all inactive) in `accessUserIds`; `backfill:user-containers`
+  turns both into assignment rows for **active, non-placeholder** containers
+  only (archived vans and Workiz placeholders are skipped and printed); owners
+  first, then the first container by name (a user on two containers keeps
+  that one and is printed as a conflict), with `limited` taken from the
+  container's `userLimited`. `findByTechnicianId` still takes `Limit: 1`, so
+  give a user at most one container as `technicianId`.
+- **Placeholders.** A location deleted in Workiz is imported as
+  `placeholder: true`, `status: "archived"`, named "Workiz location #<n>
+  (видалено у Workiz)" (119 of the 207 containers on dev), so transfer history
+  still resolves. Keep its index keys: the lists and counts (`GET /containers`,
+  `GET /warehouses`, the Stock popup's location list) filter
+  `attribute_not_exists(placeholder) OR placeholder = false`, `findById` /
+  `findLocation` still read it, and `GET /stock/products/:id` shows one only
+  while it still holds that product.
 - Stock rows are `PK = WAREHOUSE#<id> | CONTAINER#<id>`, `SK = STOCK#<productId>`
   — write only the 13 298 non-zero rows, not all 275 722.

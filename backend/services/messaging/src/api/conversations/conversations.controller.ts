@@ -1,8 +1,9 @@
-import { Controller, Get, Param, Query } from '@nestjs/common';
+import { Controller, Get, Optional, Param, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, RequirePermission } from '@bitcrm/shared';
 import { type JwtUser, type ResolvedPermissions } from '@bitcrm/types';
 import { Internal } from '../access/internal.decorator';
+import { PartyNamesService } from '../access/party-names.service';
 import { ResolvedPerms } from '../access/resolved-permissions.decorator';
 import { CountersService } from '../counters/counters.service';
 import { ConversationsService } from './conversations.service';
@@ -23,6 +24,7 @@ export class ConversationsController {
   constructor(
     private readonly conversations: ConversationsService,
     private readonly counters: CountersService,
+    @Optional() private readonly names?: PartyNamesService,
   ) {}
 
   @Get()
@@ -34,7 +36,9 @@ export class ConversationsController {
       'sees the threads of their own jobs and their own team thread). `view` picks the tab — ' +
       'all / unread / flagged / archived / mine; `kind` and `categoryId` narrow `view=all`. ' +
       'Newest activity first, cursor pagination. Client phone numbers are withheld without ' +
-      '`contacts.view_numbers` (`phonesMasked`).',
+      '`contacts.view_numbers` (`phonesMasked`). `included` carries the names of the page\'s parties ' +
+      '(`contacts` with `contacts.view`, `companies` with `companies.view`, `users`) — names only, ' +
+      'best effort: a peer that cannot answer leaves its part empty.',
   })
   async list(
     @Query() query: ListConversationsQueryDto,
@@ -42,10 +46,13 @@ export class ConversationsController {
     @ResolvedPerms() perms?: ResolvedPermissions,
   ) {
     const result = await this.conversations.list(query, user, perms);
+    // The names go with the rows, so the inbox paints them on its first frame.
+    const included = (await this.names?.forPage(result.items, perms)) ?? { contacts: [], companies: [], users: [] };
     return {
       success: true,
       data: result.items,
       pagination: { nextCursor: result.nextCursor, count: result.items.length },
+      included,
     };
   }
 

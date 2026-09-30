@@ -8,10 +8,13 @@ Locksmith business management platform.
 .
 ├── apps/
 │   ├── web/          Next.js dispatch console (a root workspace)
+│   ├── portal/       The client portal — its own Next app on its own domain (see apps/portal/README.md)
 │   └── mobile/       Expo technician app — NOT a root workspace, see below
 ├── backend/          NestJS microservices monorepo
 ├── packages/
-│   └── types/        Shared TypeScript types (used by backend + both frontends)
+│   ├── types/        Shared TypeScript types (used by backend + both frontends)
+│   ├── document-renderer/  Invoice/estimate templates → HTML/PDF
+│   └── portal-ui/    The portal's UI, shared by apps/portal and the staff preview in apps/web
 └── package.json      Root npm workspaces config
 ```
 

@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import {
   Injectable,
   Logger,
@@ -16,6 +17,7 @@ import {
 } from '@bitcrm/shared';
 import {
   JobSuperStatus,
+  SUPER_STATUS_ORDER,
   TERMINAL_SUPER_STATUSES,
   CLOSED_SUPER_STATUSES,
   DataScope,
@@ -25,7 +27,10 @@ import {
   ProductType,
   type Address,
   type Deal,
+  type DealStats,
+  type ServiceArea,
   type DealProductFulfillment,
+  type Product,
   type TimelineEntry,
   type JwtUser,
   type CustomFieldDefinition,
@@ -33,13 +38,73 @@ import {
   type CustomFieldType,
   type DealSentToTechEvent,
   DealEventType,
+  type JobsByStatusSeries,
+  type JobsByStatusDay,
+  type JobsListIncluded,
+  type PersonName,
 } from '@bitcrm/types';
 import { randomUUID } from 'crypto';
-import { DealsRepository, type DealFilters, type DealUpdate } from './deals.repository';
+import {
+  DealsRepository,
+  type DealFilters,
+  type DealUpdate,
+  type ScheduleWindow,
+  type SortDir,
+  type DayWindow,
+} from './deals.repository';
+
+/** The jobs-list tab numbers; a closed status is `null` when no window bounds it. */
+export type DealCounts = Record<JobSuperStatus, number | null> & {
+  unscheduled: number;
+  /** Every status summed — `null` when any of them could not be counted. */
+  total: number | null;
+  /**
+   * Statuses whose number is a floor, not a total: counting stopped at the
+   * ceiling. The tab shows "10,000+" for these.
+   */
+  atLeast: (JobSuperStatus | 'total')[];
+};
+
+const COUNTS_TTL_SECONDS = 30;
+/**
+ * How far a closed status is counted without a date window. Counting the
+ * whole partition would read every Canceled job in the account (≈ 244 k
+ * after the import) on every cache miss; stopping here costs a bounded read
+ * and still answers the question the tab is asking — "how many?" — for any
+ * account small enough for the number to matter.
+ */
+const CLOSED_COUNT_CAP = 10_000;
+
+/**
+ * The longest window "Jobs By Status" will draw. A quarter of daily bars is
+ * already more than a chart can show legibly, and the cap is what stops a
+ * hand-written query from asking the index for a decade.
+ */
+const JOBS_BY_STATUS_MAX_DAYS = 92;
+
+/** Until the next nightly run, with slack — as the other dashboard snapshots. */
+const DASHBOARD_SNAPSHOT_TTL_SECONDS = 26 * 3600;
+
+/** Every day from `from` to `to` inclusive; empty when the window runs backwards. */
+function daysBetween(from: string, to: string): string[] {
+  const out: string[] = [];
+  const end = new Date(`${to}T00:00:00.000Z`);
+  for (let d = new Date(`${from}T00:00:00.000Z`); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
+    out.push(d.toISOString().slice(0, 10));
+    if (out.length > 400) break;
+  }
+  return out;
+}
+/** A report window — created or closed — spans at most a quarter. */
+const REPORT_WINDOW_MAX_DAYS = 92;
+/** 20 000 jobs — far past a quarter of this business; a guard, not a limit anyone meets. */
+const STATS_MAX_PAGES = 200;
 import { type SendToTechDto } from './dto/send-to-tech.dto';
 import { type RecordSentToTechDto } from './dto/record-sent-to-tech.dto';
 import { isDealNumberCode } from './deal-number.util';
 import { DealsCacheService } from './deals-cache.service';
+import { dealTotalsSnapshot } from './billing/deal-totals';
+import { aggregateDealStats, type DealStatsWindow } from './stats/deal-stats';
 import { TimelineRepository } from '../timeline/timeline.repository';
 import { DealProductsRepository } from '../products/deal-products.repository';
 import { InternalHttpService } from '../common/services/internal-http.service';
@@ -61,6 +126,25 @@ import { type UpdateNoteDto } from './dto/update-note.dto';
 import { JobFieldSettingsService } from '../job-field-settings/job-field-settings.service';
 import { type AddDealProductDto } from './dto/add-deal-product.dto';
 import { type UpdatePaymentStatusDto } from './dto/update-payment-status.dto';
+import { DealTaxResolver, type DealTaxSnapshot } from './billing/deal-tax.resolver';
+import { BusinessProfilesClient } from '../common/services/business-profiles.client';
+
+/**
+ * How many people one page of jobs may name per side. A page is at most 100
+ * rows and crm's names endpoint accepts 100 ids — beyond that the side-load
+ * stops asking rather than grow with the page.
+ */
+const INCLUDED_ID_CAP = 100;
+
+/** Tax snapshot fields: written by resolution, never diffed as plain field edits. */
+const TAX_KEYS = new Set(['taxSource', 'taxRateId', 'taxRateName', 'taxRatePercent']);
+/** Company fields: one FIELD_UPDATED entry (with names) instead of two raw diffs. */
+const COMPANY_KEYS = new Set(['businessProfileId', 'businessProfileName']);
+
+interface CompanyRef {
+  id: string;
+  name?: string;
+}
 
 @Injectable()
 export class DealsService {
@@ -84,6 +168,8 @@ export class DealsService {
     @Optional() private readonly snsPublisher?: SnsPublisherService,
     @Optional() private readonly businessMetrics?: BusinessMetricsService,
     @Optional() private readonly jobFieldSettings?: JobFieldSettingsService,
+    @Optional() private readonly taxResolver?: DealTaxResolver,
+    @Optional() private readonly businessProfiles?: BusinessProfilesClient,
   ) {}
 
   /**
@@ -126,7 +212,7 @@ export class DealsService {
   private async resolveServiceArea(
     address: Address,
     fallbackLabel?: string,
-  ): Promise<{ serviceAreaId?: string; serviceArea: string }> {
+  ): Promise<{ serviceAreaId?: string; serviceArea: string; area?: ServiceArea }> {
     if (address.lat === undefined || address.lng === undefined) {
       return { serviceArea: fallbackLabel ?? '' };
     }
@@ -138,20 +224,48 @@ export class DealsService {
       this.logger.log(`No service area covers deal address; leaving unassigned`);
       return { serviceArea: fallbackLabel ?? '' };
     }
-    return { serviceAreaId: area.id, serviceArea: area.name };
+    return { serviceAreaId: area.id, serviceArea: area.name, area };
   }
 
   /** A manually chosen area: must exist; archived ones may not take new jobs. */
   private async pickServiceArea(
     id: string,
-  ): Promise<{ serviceAreaId: string; serviceArea: string }> {
+  ): Promise<{ serviceAreaId: string; serviceArea: string; area: ServiceArea }> {
     const area = await this.serviceAreas.findById(id);
     if (!area.active) {
       throw new BadRequestException(
         `Service area "${area.name}" is archived and cannot be used on a new deal`,
       );
     }
-    return { serviceAreaId: area.id, serviceArea: area.name };
+    return { serviceAreaId: area.id, serviceArea: area.name, area };
+  }
+
+  /**
+   * The company a new job starts with: the one asked for (must be active) →
+   * the service area's default company (skipped if it is gone/archived) →
+   * billing's default company → none. Billing being unreachable never fails
+   * the create — an id is then accepted without a snapshot name.
+   */
+  private async companyForCreate(
+    requested: string | null | undefined,
+    area?: ServiceArea,
+  ): Promise<CompanyRef | undefined> {
+    const explicit = requested?.trim();
+    if (explicit) {
+      return this.businessProfiles ? this.businessProfiles.resolve(explicit) : { id: explicit };
+    }
+    if (!this.businessProfiles) return undefined;
+    if (area?.defaultBusinessProfileId) {
+      try {
+        return await this.businessProfiles.resolve(area.defaultBusinessProfileId);
+      } catch (err) {
+        this.logger.warn(
+          `Service area ${area.id} default company ${area.defaultBusinessProfileId} unusable: ${(err as Error).message}`,
+        );
+      }
+    }
+    const fallback = await this.businessProfiles.findDefault();
+    return fallback ? { id: fallback.id, name: fallback.name } : undefined;
   }
 
   /** An answer counts as "not filled" when it is absent, blank, or an empty list. */
@@ -307,9 +421,9 @@ export class DealsService {
       });
     }
 
-    const dealNumber = await this.repository.reserveDealNumber();
-    const now = new Date().toISOString();
     const id = randomUUID();
+    const dealNumber = await this.repository.reserveDealNumber(id);
+    const now = new Date().toISOString();
 
     // Plain object for DynamoDB marshalling, geocoded if the caller sent no coords.
     const address = await this.resolveAddress(dto.address);
@@ -319,7 +433,7 @@ export class DealsService {
     // one, auto-resolve from the geocoded location; a match is authoritative
     // for the display label, and an explicit dto.serviceArea label is a
     // fallback used only when the address falls outside every area.
-    const { serviceAreaId, serviceArea } = dto.serviceAreaId
+    const { serviceAreaId, serviceArea, area } = dto.serviceAreaId
       ? await this.pickServiceArea(dto.serviceAreaId)
       : await this.resolveServiceArea(address, dto.serviceArea);
 
@@ -365,6 +479,20 @@ export class DealsService {
     // none were supplied so a required applicable field can't be skipped.
     await this.validateCustomFields(dto.customFields ?? {}, dto.jobTypeId, { forCreate: true });
 
+    // Company: requested → area default → billing default → none.
+    const company = await this.companyForCreate(dto.businessProfileId, area);
+
+    // Tax: exempt client → service-area tax → none.
+    const tax = this.taxResolver
+      ? DealTaxResolver.forCreate(
+          await this.taxResolver.resolve({
+            contactId: dto.contactId,
+            companyId: dto.companyId,
+            serviceAreaId,
+          }),
+        )
+      : {};
+
     const deal: Deal = {
       id,
       dealNumber,
@@ -384,12 +512,16 @@ export class DealsService {
       assignedDispatcherId: caller.id,
       priority: dto.priority || DealPriority.NORMAL,
       sourceId: dto.sourceId,
+      ...(company && { businessProfileId: company.id }),
+      ...(company?.name && { businessProfileName: company.name }),
       externalCompanyId: dto.externalCompanyId,
       workOrderId: dto.workOrderId,
       poNumber: dto.poNumber,
       notes: dto.notes,
       tagIds,
       customFields: dto.customFields as Record<string, CustomFieldValue> | undefined,
+      ...tax,
+      itemCount: 0,
       status: DealStatus.ACTIVE,
       createdBy: caller.id,
       // The status clock starts with the job itself (drives "time in status").
@@ -402,6 +534,8 @@ export class DealsService {
     this.businessMetrics?.entityCreated.inc({ entity_type: 'deal' });
 
     await this.addTimelineEntry(deal.id, TimelineEventType.CREATED, caller, {});
+    // Nothing is cached yet; this is for the live boards (see invalidate).
+    await this.cache.invalidate(deal.id);
 
     this.publishEvent('deal.created', {
       dealId: deal.id,
@@ -441,36 +575,72 @@ export class DealsService {
     // coerce — a string Limit makes DynamoDB throw SerializationException.
     const limit = Math.min(Math.max(Number(query.limit) || 20, 1), 100);
 
-    // DataScope enforcement
-    if (dataScope === 'assigned_only' && !query.techId) {
-      query.techId = caller.id;
+    const filters = this.listFilters(query, caller, dataScope);
+
+    // A Job ID code is one lookup on its reservation, then the deal itself,
+    // checked against the tab and filters it was searched under. Only a
+    // reservation from before the link (or an old sequential number) still
+    // takes the filtered read below.
+    if (typeof filters.dealNumber === 'string') {
+      const dealId = await this.repository.findIdByNumber(filters.dealNumber);
+      if (dealId === null) return { items: [], nextCursor: undefined };
+      if (dealId) {
+        const deals = await this.repository.findByIds([dealId]);
+        return {
+          items: deals.filter((d) => this.matchesListQuery(d, query, filters)),
+          nextCursor: undefined,
+        };
+      }
     }
 
-    // Secondary filters applied on top of whichever index we query.
-    const search = query.search?.trim();
-    const filters: DealFilters = {
-      jobTypeId: query.jobTypeId,
-      sourceId: query.sourceId,
-      serviceArea: query.serviceArea,
-      clientType: query.clientType,
-      priority: query.priority,
-      tagIds: query.tagIds
-        ? query.tagIds.split(',').map((t) => t.trim()).filter(Boolean)
-        : undefined,
-      dealNumber: this.parseDealNumberSearch(search),
-    };
+    // The report's other two dates: a span of creation days is the status
+    // index's own sort key; a span of closing days is the sparse closed
+    // index, where a status is a filter.
+    const report = this.parseReportWindows(query);
+    if (report) {
+      const dir: SortDir = query.dir === 'asc' ? 'asc' : 'desc';
+      if (report.created) {
+        const statuses = query.superStatus ? [query.superStatus] : SUPER_STATUS_ORDER;
+        return this.repository.findByCreated(statuses, report.created, limit, query.cursor, filters, dir);
+      }
+      return this.repository.findByClosed(report.closed!, limit, query.cursor, { ...filters, superStatus: query.superStatus }, dir);
+    }
 
+    // A visit-date window, the undated tab or a schedule sort: the schedule
+    // index answers, one status or all of them merged.
+    const window = this.parseScheduleWindow(query);
+    if (window) {
+      const dir: SortDir = query.dir === 'desc' ? 'desc' : 'asc';
+      // A technician's days are a key range on the tech index — one
+      // partition, already in visit order — unless a status tab or the
+      // undated tab makes it a schedule-index question.
+      if (query.techId && window.from && !window.unscheduled && !query.superStatus && !query.contactId && !query.dispatcherId) {
+        return this.repository.findByTech(query.techId, limit, query.cursor, filters, window, dir);
+      }
+      const statuses = query.superStatus
+        ? [query.superStatus]
+        : window.unscheduled
+          // An undated closed job is not a tab anywhere — Workiz shows none.
+          ? SUPER_STATUS_ORDER.filter((s) => !CLOSED_SUPER_STATUSES.has(s))
+          : SUPER_STATUS_ORDER;
+      return this.repository.findBySchedule(statuses, window, limit, query.cursor, filters, dir);
+    }
+
+    // The most selective key picks the index; the technician, when present,
+    // rides along as a filter (see `DealFilters.techId`). The tech index is
+    // last so that a technician asking for one client's jobs gets that
+    // client's, not their whole roster.
     if (query.superStatus) {
       return this.repository.findBySuperStatus(query.superStatus, limit, query.cursor, filters);
     }
-    if (query.techId) {
-      return this.repository.findByTech(query.techId, limit, query.cursor, filters);
+    if (query.contactId) {
+      return this.repository.findByContact(query.contactId, limit, query.cursor, filters);
     }
     if (query.dispatcherId) {
       return this.repository.findByDispatcher(query.dispatcherId, limit, query.cursor, filters);
     }
-    if (query.contactId) {
-      return this.repository.findByContact(query.contactId, limit, query.cursor, filters);
+    if (query.techId) {
+      return this.repository.findByTech(query.techId, limit, query.cursor, filters);
     }
 
     return this.repository.findAll(limit, query.cursor, {
@@ -480,10 +650,376 @@ export class DealsService {
   }
 
   /**
+   * The names a page of jobs refers to, sent **with** that page.
+   *
+   * Naming the technicians and clients of a page used to cost two more round
+   * trips, and the one for clients could not even start until the jobs came
+   * back — so the grid painted, then filled in names a beat later. Both are
+   * answered here instead: technicians from deal-service's own eligibility
+   * projection (free, no cross-service hop), clients from one internal call
+   * into crm. Only the distinct ids actually on the page are asked for, and
+   * the two go out together.
+   *
+   * **Names only.** No phones, no emails, ever: crm masks a contact's numbers
+   * for a caller without `contacts.view_numbers` and deal-service masks
+   * nothing, so a number carried here would reach every holder of
+   * `deals.view`. A screen that shows numbers asks crm for them.
+   *
+   * Never fails the list, in the same spirit as an event publish: a source
+   * that is down, slow or answering nonsense costs its own array and a
+   * warning, and the page still renders.
+   */
+  async includedFor(deals: Deal[]): Promise<JobsListIncluded> {
+    const techIds = this.distinctIds(deals.flatMap((d) => d.assignedTechIds ?? []));
+    const clientIds = this.distinctIds(deals.map((d) => d.contactId));
+
+    const [technicians, clients] = await Promise.all([
+      this.includedTechnicians(techIds),
+      this.includedClients(clientIds),
+    ]);
+
+    return { technicians, clients };
+  }
+
+  /** Deduped, blank-free and capped — what either source is allowed to be asked. */
+  private distinctIds(ids: Array<string | undefined | null>): string[] {
+    return [...new Set(ids.filter((id): id is string => Boolean(id)))].slice(0, INCLUDED_ID_CAP);
+  }
+
+  private async includedTechnicians(ids: string[]): Promise<PersonName[]> {
+    if (!ids.length) return [];
+    try {
+      const rows = await this.eligibility.getMany(ids);
+      // Rebuilt field by field: the projection also holds a department and a
+      // home address, and `included` carries names and nothing else.
+      return rows.map((row) => ({
+        id: row.technicianId,
+        firstName: row.firstName ?? '',
+        lastName: row.lastName ?? '',
+      }));
+    } catch (error) {
+      this.logger.warn(`Jobs-list side-load: technician names unavailable: ${(error as Error).message}`);
+      return [];
+    }
+  }
+
+  private async includedClients(ids: string[]): Promise<PersonName[]> {
+    if (!ids.length) return [];
+    try {
+      const rows = await this.internalHttp.getContactNames(ids);
+      // Rebuilt field by field, never spread. Names only: crm masks a contact's
+      // numbers per caller and this side-load cannot, so nothing else passes.
+      return rows.map((row) => ({
+        id: row.id,
+        firstName: row.firstName ?? '',
+        lastName: row.lastName ?? '',
+      }));
+    } catch (error) {
+      this.logger.warn(`Jobs-list side-load: client names unavailable: ${(error as Error).message}`);
+      return [];
+    }
+  }
+
+  /**
+   * A window of jobs at a glance (`GET /deals/stats`): the list itself —
+   * same window, filters and data scope as the Jobs report, so the two can
+   * never disagree — read to its end and aggregated. Exactly one window.
+   */
+  async stats(
+    query: ListDealsQueryDto,
+    caller: JwtUser,
+    dataScope: string | undefined,
+    opts: { money: boolean },
+  ): Promise<DealStats> {
+    const window = this.statsWindow(query);
+    const deals: Deal[] = [];
+    let cursor: string | undefined;
+    for (let page = 0; page < STATS_MAX_PAGES; page++) {
+      const result = await this.list({ ...query, limit: 100, cursor } as ListDealsQueryDto, caller, dataScope);
+      deals.push(...result.items);
+      cursor = result.nextCursor;
+      if (!cursor) break;
+    }
+    if (cursor) this.logger.warn(`stats: window ${window.by} ${window.from}..${window.to} stopped at ${deals.length} jobs`);
+    return aggregateDealStats(deals, window, opts);
+  }
+
+  private statsWindow(query: ListDealsQueryDto): DealStatsWindow {
+    if (query.createdFrom) return { by: 'created', from: query.createdFrom, to: query.createdTo || query.createdFrom };
+    if (query.closedFrom) return { by: 'closed', from: query.closedFrom, to: query.closedTo || query.closedFrom };
+    if (query.scheduledFrom) return { by: 'scheduled', from: query.scheduledFrom, to: query.scheduledTo || query.scheduledFrom };
+    throw new BadRequestException('A window is required: createdFrom, closedFrom or scheduledFrom');
+  }
+
+  /**
    * "#1042"/"1042" → legacy sequential id (number, matches the stored numeric
    * attribute); "#K4T9ZW"/"k4t9zw" → random 6-char code, uppercased. Anything
    * else (names, partial words) is not a Job ID search.
    */
+  /**
+   * A set of deals by id — how a search result or a board delta is hydrated
+   * in one call. Deleted rows are dropped, and under `assigned_only` so is
+   * anything the caller is not assigned to.
+   */
+  async findByIds(ids: string[], caller: JwtUser, dataScope?: string): Promise<Deal[]> {
+    const unique = [...new Set(ids)];
+    const deals = await this.repository.findByIds(unique);
+    return deals.filter(
+      (d) => d.status === DealStatus.ACTIVE && (dataScope !== 'assigned_only' || d.assignedTechIds.includes(caller.id)),
+    );
+  }
+
+  /** Does one deal belong on the page this query describes — its tab, its keys, its filters? */
+  private matchesListQuery(deal: Deal, query: ListDealsQueryDto, filters: DealFilters): boolean {
+    if (deal.status !== DealStatus.ACTIVE) return false;
+    if (query.superStatus && deal.superStatus !== query.superStatus) return false;
+    if (query.contactId && deal.contactId !== query.contactId) return false;
+    if (query.dispatcherId && deal.assignedDispatcherId !== query.dispatcherId) return false;
+    if (filters.techId && !deal.assignedTechIds.includes(filters.techId)) return false;
+    if (filters.jobTypeId && deal.jobTypeId !== filters.jobTypeId) return false;
+    if (filters.sourceId && deal.sourceId !== filters.sourceId) return false;
+    if (filters.businessProfileId && deal.businessProfileId !== filters.businessProfileId) return false;
+    if (filters.serviceArea && deal.serviceArea !== filters.serviceArea) return false;
+    if (filters.clientType && deal.clientType !== filters.clientType) return false;
+    if (filters.priority && deal.priority !== filters.priority) return false;
+    if (filters.subStatusId && deal.subStatusId !== filters.subStatusId) return false;
+    if (filters.companyId && deal.companyId !== filters.companyId) return false;
+    if (filters.createdBy && deal.createdBy !== filters.createdBy) return false;
+    if (filters.tagIds?.length && !filters.tagIds.every((t) => deal.tagIds.includes(t))) return false;
+    return true;
+  }
+
+  /**
+   * The secondary filters of a list query, applied on top of whichever index
+   * answers. Shared by `list()` and `counts()` so the tabs count exactly what
+   * the table shows. Mutates `query.techId` under `assigned_only`, as the
+   * index choice in `list()` relies on it.
+   */
+  private listFilters(query: ListDealsQueryDto, caller: JwtUser, dataScope?: string): DealFilters {
+    // DataScope enforcement
+    if (dataScope === 'assigned_only' && !query.techId) {
+      query.techId = caller.id;
+    }
+
+    const search = query.search?.trim();
+    return {
+      jobTypeId: query.jobTypeId,
+      sourceId: query.sourceId,
+      businessProfileId: query.businessProfileId || undefined,
+      serviceArea: query.serviceArea,
+      clientType: query.clientType,
+      priority: query.priority,
+      tagIds: query.tagIds
+        ? query.tagIds.split(',').map((t) => t.trim()).filter(Boolean)
+        : undefined,
+      dealNumber: this.parseDealNumberSearch(search),
+      needsInvoice:
+        query.needsInvoice === true || query.needsInvoice === 'true' ? true : undefined,
+      // Carried on every index, not only the tech one: with `superStatus` the
+      // status index answers, and an `assigned_only` caller must still see
+      // just their own jobs in it.
+      techId: query.techId,
+      subStatusId: query.subStatusId || undefined,
+      companyId: query.companyId || undefined,
+      createdBy: query.createdBy || undefined,
+      hourFrom: this.parseHour(query.hourFrom, 'hourFrom'),
+      hourTo: this.parseHour(query.hourTo, 'hourTo'),
+    };
+  }
+
+  /**
+   * The numbers on the jobs-list tabs: one per super-status plus
+   * `unscheduled`, under the same filters and window as the list. A closed
+   * status without a window would count its whole partition, so it answers
+   * `null` instead. Cached thirty seconds per filter set and caller scope.
+   */
+  /**
+   * The dashboard's "Jobs By Status" series: one row per day of the window,
+   * jobs counted by the day they were created and the state they are in now.
+   *
+   * Six statuses fold into the three the chart draws — `canceled` and `done`
+   * stand alone, the other four are `open`, `done_pending_approval` among
+   * them because it is still awaiting sign-off. That is the same split
+   * `CLOSED_SUPER_STATUSES` makes.
+   *
+   * Every day of the window is present, zeros included: the axis steps evenly,
+   * and a missing day would shift every one after it.
+   */
+  async jobsByStatus(
+    window: { from: string; to: string },
+    opts: { fresh?: boolean } = {},
+  ): Promise<JobsByStatusSeries> {
+    const days = daysBetween(window.from, window.to);
+    if (!days.length) {
+      throw new BadRequestException('The window must start on or before it ends');
+    }
+    if (days.length > JOBS_BY_STATUS_MAX_DAYS) {
+      throw new BadRequestException(
+        `The window is limited to ${JOBS_BY_STATUS_MAX_DAYS} days`,
+      );
+    }
+
+    // A snapshot, like the dashboard's other widgets: built by the nightly
+    // run, kept until the next, rebuilt on `fresh` (the refresh button).
+    const cacheKey = `deal-by-day:${window.from}:${window.to}`;
+    if (!opts.fresh) {
+      const cached = await this.cache.getJson<JobsByStatusSeries>(cacheKey);
+      if (cached?.computedAt) return cached;
+    }
+
+    // One query per status, not one per cell: the created index is already
+    // partitioned by status and sorted by the moment, so a whole window comes
+    // back in six reads rather than six per day.
+    const perStatus = await Promise.all(
+      SUPER_STATUS_ORDER.map(async (status) => ({
+        status,
+        ...(await this.repository.countCreatedByDay(status, window)),
+      })),
+    );
+
+    const rows = new Map<string, JobsByStatusDay>(
+      days.map((day) => [day, { day, open: 0, done: 0, canceled: 0 }]),
+    );
+
+    for (const { status, byDay } of perStatus) {
+      const bucket =
+        status === JobSuperStatus.CANCELED
+          ? 'canceled'
+          : status === JobSuperStatus.DONE
+            ? 'done'
+            : 'open';
+      for (const [day, n] of Object.entries(byDay)) {
+        const row = rows.get(day);
+        // A row outside the window can only come from a boundary rounding
+        // difference; it is not the chart's to draw.
+        if (row) row[bucket] += n;
+      }
+    }
+
+    const result: JobsByStatusSeries = {
+      days: days.map((d) => rows.get(d)!),
+      atLeast: perStatus.some((p) => p.atLeast),
+      computedAt: new Date().toISOString(),
+    };
+    await this.cache.setJson(cacheKey, result, DASHBOARD_SNAPSHOT_TTL_SECONDS);
+    return result;
+  }
+
+  async counts(query: ListDealsQueryDto, caller: JwtUser, dataScope?: string): Promise<DealCounts> {
+    const filters = this.listFilters(query, caller, dataScope);
+    const report = this.parseReportWindows(query);
+    const window = report ? {} : (this.parseScheduleWindow({ ...query, unscheduled: undefined, sort: undefined }) ?? {});
+    const bounded = Boolean(window.from);
+    const open = SUPER_STATUS_ORDER.filter((s) => !CLOSED_SUPER_STATUSES.has(s));
+
+    const cacheKey = `deal-counts:${createHash('sha1')
+      .update(JSON.stringify({ filters, window, report, scope: dataScope === 'assigned_only' ? caller.id : null }))
+      .digest('hex')}`;
+    const cached = await this.cache.getJson<DealCounts>(cacheKey);
+    if (cached) return cached;
+
+    let byStatus: (number | null)[];
+    let undated = 0;
+    if (report?.created) {
+      byStatus = await Promise.all(SUPER_STATUS_ORDER.map((s) => this.repository.countByCreated(s, report.created!, filters)));
+    } else if (report?.closed) {
+      byStatus = await Promise.all(
+        SUPER_STATUS_ORDER.map((s) => this.repository.countByClosed(report.closed!, { ...filters, superStatus: s })),
+      );
+    } else {
+      const [statuses, undatedByStatus] = await Promise.all([
+        Promise.all(
+          SUPER_STATUS_ORDER.map(async (status) =>
+            this.repository.countBySchedule(
+              status,
+              { from: window.from, to: window.to },
+              filters,
+              // Відкриті статуси малі за визначенням — їх рахуємо до кінця;
+              // закритий без вікна — лише до стелі.
+              !bounded && CLOSED_SUPER_STATUSES.has(status) ? CLOSED_COUNT_CAP : undefined,
+            ),
+          ),
+        ),
+        Promise.all(open.map((status) => this.repository.countBySchedule(status, { unscheduled: true }, filters))),
+      ]);
+      byStatus = statuses;
+      undated = undatedByStatus.reduce((a, b) => a + b, 0);
+    }
+
+    // Число, що вперлося в стелю, — це «не менше»; сума з таким доданком теж.
+    const atLeast: (JobSuperStatus | 'total')[] = SUPER_STATUS_ORDER.filter(
+      (_, i) => (byStatus[i] ?? 0) >= CLOSED_COUNT_CAP,
+    );
+    const total = byStatus.some((n) => n === null) ? null : byStatus.reduce<number>((a, b) => a + (b ?? 0), 0);
+    const result: DealCounts = {
+      ...(Object.fromEntries(SUPER_STATUS_ORDER.map((s, i) => [s, byStatus[i]])) as Record<JobSuperStatus, number | null>),
+      unscheduled: undated,
+      total,
+      atLeast: atLeast.length && total !== null ? [...atLeast, 'total'] : atLeast,
+    };
+    await this.cache.setJson(cacheKey, result, COUNTS_TTL_SECONDS);
+    return result;
+  }
+
+  /**
+   * The schedule window of a list query, or undefined when the query does
+   * not touch the schedule index. Days are `YYYY-MM-DD`; `scheduledFrom`
+   * alone is that one day; a span is capped at 31 days so no request can
+   * page a whole status partition by accident.
+   */
+  private parseScheduleWindow(query: ListDealsQueryDto): ScheduleWindow | undefined {
+    const unscheduled = query.unscheduled === true || query.unscheduled === 'true';
+    const from = this.parseDay(query.scheduledFrom, 'scheduledFrom');
+    const to = this.parseDay(query.scheduledTo, 'scheduledTo') ?? from;
+    if (!unscheduled && !from && query.sort !== 'schedule') return undefined;
+    if (from && to) {
+      if (to < from) throw new BadRequestException('scheduledTo is before scheduledFrom');
+      const days = (Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000;
+      if (days > 30) throw new BadRequestException('The visit-date window is at most 31 days');
+    }
+    return { from, to, unscheduled };
+  }
+
+  /**
+   * The report's creation or closing window, or undefined when neither is
+   * asked for. A quarter at most: the page cost does not grow with the span,
+   * but the counts read every row in it. Two different dates at once is a
+   * contradiction and is refused.
+   */
+  private parseReportWindows(query: ListDealsQueryDto): { created?: DayWindow; closed?: DayWindow } | undefined {
+    const created = this.parseDayWindow(query.createdFrom, query.createdTo, 'created');
+    const closed = this.parseDayWindow(query.closedFrom, query.closedTo, 'closed');
+    const asked = [created && 'created', closed && 'closed', query.scheduledFrom && 'scheduled'].filter(Boolean);
+    if (asked.length > 1) throw new BadRequestException(`One date window at a time: ${asked.join(', ')} were given`);
+    if (created) return { created };
+    if (closed) return { closed };
+    return undefined;
+  }
+
+  private parseDayWindow(fromRaw: string | undefined, toRaw: string | undefined, name: string): DayWindow | undefined {
+    const from = this.parseDay(fromRaw, `${name}From`);
+    const to = this.parseDay(toRaw, `${name}To`) ?? from;
+    if (!from) return undefined;
+    if (to! < from) throw new BadRequestException(`${name}To is before ${name}From`);
+    const days = (Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000;
+    if (days > REPORT_WINDOW_MAX_DAYS - 1) throw new BadRequestException(`The ${name} window is at most ${REPORT_WINDOW_MAX_DAYS} days`);
+    return { from, to };
+  }
+
+  private parseDay(value: string | undefined, field: string): string | undefined {
+    if (!value) return undefined;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || Number.isNaN(Date.parse(`${value}T00:00:00Z`))) {
+      throw new BadRequestException(`${field} must be a YYYY-MM-DD date`);
+    }
+    return value;
+  }
+
+  private parseHour(value: string | undefined, field: string): string | undefined {
+    if (!value) return undefined;
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(value)) throw new BadRequestException(`${field} must be HH:MM`);
+    return value;
+  }
+
   private parseDealNumberSearch(search?: string): string | number | undefined {
     if (!search) return undefined;
     const token = search.replace(/^#/, '');
@@ -540,6 +1076,29 @@ export class DealsService {
     if (updates.sourceId) await this.jobSources.findById(updates.sourceId);
     // Disabled company allowed on update so an old job stays editable.
     if (updates.externalCompanyId) await this.externalCompanies.findById(updates.externalCompanyId);
+    // Company: undefined → untouched; same id → no-op; null/'' → cleared; a new
+    // id must be an active company. The name is snapshotted alongside.
+    let companyChange: { from: CompanyRef | null; to: CompanyRef | null } | undefined;
+    if (dto.businessProfileId !== undefined) {
+      const next = dto.businessProfileId?.trim() || null;
+      if ((next ?? undefined) === existing.businessProfileId) {
+        delete updates.businessProfileId;
+      } else {
+        const to: CompanyRef | null = next
+          ? this.businessProfiles
+            ? await this.businessProfiles.resolve(next)
+            : { id: next }
+          : null;
+        updates.businessProfileId = to?.id ?? null;
+        updates.businessProfileName = to?.name ?? null;
+        companyChange = {
+          from: existing.businessProfileId
+            ? { id: existing.businessProfileId, name: existing.businessProfileName }
+            : null,
+          to,
+        };
+      }
+    }
     // Tags: archived allowed on update; enforce each id exists.
     if (updates.tagIds?.length) {
       const known = new Set((await this.jobTags.list()).map((t) => t.id));
@@ -563,10 +1122,28 @@ export class DealsService {
       updates.customFields = { ...(existing.customFields ?? {}), ...customFieldsPatch };
     }
 
+    // A job that moved market picks up that market's tax (unless someone chose
+    // the tax by hand). Written in the same update; logged as TAX_CHANGED below.
+    let taxChange: { from: DealTaxSnapshot; to: DealTaxSnapshot } | undefined;
+    if (
+      updates.serviceAreaId !== undefined &&
+      (updates.serviceAreaId ?? undefined) !== existing.serviceAreaId
+    ) {
+      taxChange = await this.reresolveTax(existing, {
+        serviceAreaId: updates.serviceAreaId ?? undefined,
+      });
+      if (taxChange) Object.assign(updates, taxChange.to);
+    }
+
     const result = await this.repository.update(id, updates);
+    if (taxChange) await this.refreshTotals(id);
     await this.cache.invalidate(id);
     // Any edit must reach the search index (address, custom fields, notes…).
-    this.publishEvent('deal.updated', { dealId: id, updatedBy: caller.id });
+    this.publishEvent('deal.updated', {
+      dealId: id,
+      updatedBy: caller.id,
+      ...(companyChange && { businessProfileId: companyChange.to?.id ?? null }),
+    });
 
     // Moving the deal's date re-stamps its assignment rows (so each tech's day
     // re-sorts on the tech index) and renumbers both the old and new days.
@@ -585,12 +1162,33 @@ export class DealsService {
       if (value === undefined) continue;
       // Custom fields are diffed per-answer below, labeled by their human name.
       if (key === 'customFields') continue;
+      // Tax snapshot changes get one TAX_CHANGED entry instead.
+      if (TAX_KEYS.has(key)) continue;
+      // The company gets one labeled entry below.
+      if (COMPANY_KEYS.has(key)) continue;
       const previous = (existing as unknown as Record<string, unknown>)[key];
       if (this.valuesEqual(previous, value)) continue;
       await this.addTimelineEntry(id, TimelineEventType.FIELD_UPDATED, caller, {
         field: key,
         oldValue: previous ?? null,
         newValue: value,
+      });
+    }
+
+    if (companyChange) {
+      await this.addTimelineEntry(id, TimelineEventType.FIELD_UPDATED, caller, {
+        field: 'businessProfileId',
+        oldValue: companyChange.from?.id ?? null,
+        newValue: companyChange.to?.id ?? null,
+        oldLabel: companyChange.from?.name ?? null,
+        newLabel: companyChange.to?.name ?? null,
+      });
+    }
+
+    if (taxChange) {
+      await this.addTimelineEntry(id, TimelineEventType.TAX_CHANGED, caller, {
+        ...taxChange,
+        reason: 'service_area_changed',
       });
     }
 
@@ -629,15 +1227,62 @@ export class DealsService {
     }
 
     await this.repository.reassignContact(id, contactId);
+    // The new client may be tax-exempt (or the old one was).
+    const taxChange = await this.reresolveTax(existing, { contactId });
+    if (taxChange) {
+      await this.repository.update(id, { ...taxChange.to });
+      await this.refreshTotals(id);
+    }
     await this.cache.invalidate(id);
     await this.addTimelineEntry(id, TimelineEventType.FIELD_UPDATED, caller, {
       field: 'contactId',
       oldValue: existing.contactId,
       newValue: contactId,
     });
+    if (taxChange) {
+      await this.addTimelineEntry(id, TimelineEventType.TAX_CHANGED, caller, {
+        ...taxChange,
+        reason: 'client_changed',
+      });
+    }
     this.publishEvent('deal.updated', { dealId: id, updatedBy: caller.id });
 
     return this.findById(id);
+  }
+
+  /**
+   * Re-run tax resolution for a deal about to change market or client. Returns
+   * the before/after snapshots only when the tax actually changes, and never
+   * touches a tax a user picked by hand (`taxSource: 'manual'`).
+   */
+  private async reresolveTax(
+    existing: Deal,
+    changes: { serviceAreaId?: string; contactId?: string },
+  ): Promise<{ from: DealTaxSnapshot; to: DealTaxSnapshot } | undefined> {
+    if (!this.taxResolver || existing.taxSource === 'manual') return undefined;
+    const to = await this.taxResolver.resolve({
+      contactId: changes.contactId ?? existing.contactId,
+      companyId: existing.companyId,
+      serviceAreaId:
+        'serviceAreaId' in changes ? changes.serviceAreaId : existing.serviceAreaId,
+    });
+    const from = DealTaxResolver.fromDeal(existing);
+    return DealTaxResolver.sameTax(from, to) ? undefined : { from, to };
+  }
+
+  /**
+   * Keep `itemCount` (drives "needs invoice") and the money snapshot
+   * (`totals`, summed by the dashboards and reports) in step with the lines,
+   * tax and discount. Call after any of those change, before invalidating;
+   * both reads are strongly consistent so the write just made is priced in.
+   */
+  async refreshTotals(id: string): Promise<void> {
+    const [deal, lines] = await Promise.all([
+      this.repository.findById(id, { consistent: true }),
+      this.productsRepo.findByDeal(id, { consistent: true }),
+    ]);
+    if (!deal) return;
+    await this.repository.update(id, { itemCount: lines.length, totals: dealTotalsSnapshot(deal, lines) });
   }
 
   async softDelete(id: string, caller: JwtUser): Promise<void> {
@@ -849,6 +1494,12 @@ export class DealsService {
     return candidates
       .map((tech) => {
         const reasons: string[] = [];
+        // First, and disqualifying on its own: user-service does not call this
+        // person an assignable technician. Such a row should not be here at all
+        // — the event handler removes it and the boot reconcile sweeps up what
+        // no event covers — but for as long as one is, it reaches the UI
+        // carrying its reason, never as a bare name the dispatcher is left to
+        // read as a technician.
         if (!tech.assignable) reasons.push('not_assignable');
         // An empty job type means "any" — skip the job-type check entirely.
         if (params.jobTypeId && !tech.jobTypeIds.includes(params.jobTypeId)) {
@@ -881,6 +1532,11 @@ export class DealsService {
       .sort(
         (a, b) =>
           Number(b.eligible) - Number(a.eligible) ||
+          // Below every real technician who merely doesn't fit this job: a
+          // close home address must not float a non-technician to the top of
+          // the list a dispatcher scans.
+          Number(a.reasons.includes('not_assignable')) -
+            Number(b.reasons.includes('not_assignable')) ||
           (a.distanceMiles ?? Infinity) - (b.distanceMiles ?? Infinity),
       );
   }
@@ -1345,7 +2001,7 @@ export class DealsService {
   private async validateProductFulfillment(
     dto: { productId: string; name: string },
     fulfillment: DealProductFulfillment,
-  ): Promise<void> {
+  ): Promise<Product> {
     const product = await this.internalHttp.getProduct(dto.productId);
     if (!product) {
       throw new BadRequestException(
@@ -1363,13 +2019,14 @@ export class DealsService {
         `"${dto.name}" is a stockable product and cannot be added as a service line`,
       );
     }
+    return product;
   }
 
   async addProduct(id: string, dto: AddDealProductDto, caller: JwtUser): Promise<void> {
     const deal = await this.findById(id);
     const fulfillment: DealProductFulfillment = dto.fulfillment ?? 'sourced';
 
-    await this.validateProductFulfillment(dto, fulfillment);
+    const product = await this.validateProductFulfillment(dto, fulfillment);
 
     // Only `sourced` lines are pulled from a technician's container and deduct
     // stock. `to_order` (a part the tech doesn't carry) and `service` (labor)
@@ -1423,10 +2080,14 @@ export class DealsService {
       fulfillment,
       // Only a sourced line records which technician supplied it.
       ...(fulfillment === 'sourced' && { sourceTechId: dto.sourceTechId }),
+      // Absent on the request → the catalog product's default (itself absent → taxable).
+      taxable: dto.taxable ?? product.taxable ?? true,
+      ...(dto.description !== undefined && { description: dto.description }),
       addedBy: caller.id,
       addedAt: new Date().toISOString(),
     });
 
+    await this.refreshTotals(id);
     await this.cache.invalidate(id);
 
     await this.addTimelineEntry(id, TimelineEventType.PRODUCT_ADDED, caller, {
@@ -1466,17 +2127,12 @@ export class DealsService {
     }
 
     const fulfillment: DealProductFulfillment = dto.fulfillment ?? 'sourced';
-    const isSwap = dto.productId !== productId;
+    // "Swap" means the line now names a different product. The line itself is
+    // the same row either way — it is keyed by its own id — so a job may well
+    // end up carrying one product on two lines, as a Workiz job does.
+    const isSwap = dto.productId !== existing.productId;
 
-    // A deal keys one line per product — swapping onto a product that already
-    // has its own line would silently merge the two rows.
-    if (isSwap && (await this.productsRepo.findProduct(id, dto.productId))) {
-      throw new BadRequestException(
-        `"${dto.name}" is already on this deal — edit that line instead`,
-      );
-    }
-
-    await this.validateProductFulfillment(dto, fulfillment);
+    const product = await this.validateProductFulfillment(dto, fulfillment);
 
     if (fulfillment === 'sourced') {
       if (deal.assignedTechIds.length === 0) {
@@ -1532,10 +2188,15 @@ export class DealsService {
       }
     }
 
-    if (isSwap) {
-      await this.productsRepo.removeProduct(id, productId);
-    }
+    // An in-place edit keeps the line's own taxable/description (a user may have
+    // toggled it); a swap starts from the new catalog product's default.
+    const taxable = dto.taxable ?? (isSwap ? product.taxable : existing.taxable) ?? true;
+    const description = dto.description ?? (isSwap ? undefined : existing.description);
+
     await this.productsRepo.addProduct(id, {
+      // The same line, rewritten: a swap changes what it names, not which
+      // line it is, so every reference to it stays pointed at this row.
+      lineId: existing.lineId,
       productId: dto.productId,
       name: dto.name,
       sku: dto.sku,
@@ -1550,12 +2211,17 @@ export class DealsService {
       ...(!isSwap &&
         fulfillment === 'to_order' &&
         existing.orderedAt && { orderedAt: existing.orderedAt }),
+      taxable,
+      // A Workiz service fee edited in place stays out of the discount.
+      ...(!isSwap && existing.discountable === false && { discountable: false }),
+      ...(description !== undefined && { description }),
       addedBy: existing.addedBy,
       addedAt: existing.addedAt,
       updatedBy: caller.id,
       updatedAt: new Date().toISOString(),
     });
 
+    await this.refreshTotals(id);
     await this.cache.invalidate(id);
 
     // Money/quantity edits, old → new, so the timeline can say exactly what
@@ -1613,6 +2279,7 @@ export class DealsService {
     }
 
     await this.productsRepo.removeProduct(id, productId);
+    await this.refreshTotals(id);
     await this.cache.invalidate(id);
 
     await this.addTimelineEntry(id, TimelineEventType.PRODUCT_REMOVED, caller, {
@@ -1707,10 +2374,22 @@ export class DealsService {
     return count;
   }
 
+  /**
+   * The job board's payment flag, asserted by billing-service from the payment
+   * ledger it owns. Three things matter here:
+   *
+   *  - the status is whatever billing computed (`unpaid` / `partial` / `paid`),
+   *    never a hardcoded `paid` — a reversal or a refund arrives as a status
+   *    that has gone BACKWARDS, and that must stick;
+   *  - `actualTotal` is the amount BILLED, so it is only ever written from
+   *    `invoiceTotal`, never from the payment amount;
+   *  - nothing else on the job is touched.
+   */
   async updatePaymentStatus(id: string, dto: UpdatePaymentStatusDto): Promise<void> {
     await this.repository.update(id, {
-      paymentStatus: 'paid',
-      actualTotal: dto.amount,
+      paymentStatus: dto.paymentStatus,
+      amountPaid: dto.amountPaid,
+      ...(typeof dto.invoiceTotal === 'number' && { actualTotal: dto.invoiceTotal }),
     } as any);
     await this.cache.invalidate(id);
 
@@ -1719,13 +2398,14 @@ export class DealsService {
       dealId: id,
       eventType: TimelineEventType.FIELD_UPDATED,
       actorId: 'system',
-      actorName: 'Payment Service',
+      actorName: 'Billing',
       timestamp: new Date().toISOString(),
       details: {
         field: 'paymentStatus',
-        newValue: 'paid',
-        paymentId: dto.paymentId,
-        amount: dto.amount,
+        newValue: dto.paymentStatus,
+        amountPaid: dto.amountPaid,
+        ...(dto.paymentId && { paymentId: dto.paymentId }),
+        ...(dto.paidAt && { paidAt: dto.paidAt }),
       },
     });
     this.publishEvent('deal.updated', { dealId: id });

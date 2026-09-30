@@ -4,7 +4,8 @@ import userEvent from "@testing-library/user-event";
 import { DialerDirectory } from "./dialer-directory";
 
 vi.mock("@/features/clients/hooks", () => ({
-  useContacts: () => ({
+  // Typed text reaches the search service; these are what it answers.
+  useContactSearch: () => ({
     data: [
       {
         id: "c1",

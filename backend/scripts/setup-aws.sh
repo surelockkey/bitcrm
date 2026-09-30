@@ -24,5 +24,8 @@ run_for search
 run_for telephony setup:dynamodb
 # messaging: one table with six GSIs + TTL; topic/queues are optional (M7/M9).
 run_for messaging setup:dynamodb
+# billing: one table with three GSIs, plus billing-events and the
+# billing-deal-events queue (subscribed to deal-events) in LocalStack.
+run_for billing setup
 
 echo -e "\n${BOLD}All services provisioned.${NC}"

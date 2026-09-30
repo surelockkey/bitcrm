@@ -3,6 +3,9 @@ export { UserStatus } from './enums/user-status.enum';
 export { DataScope } from './enums/data-scope.enum';
 export { ProductType } from './enums/product-type.enum';
 export { TransferType, LocationType } from './enums/transfer-type.enum';
+export { ReturnReason } from './enums/return-reason.enum';
+export { InventoryLogAction } from './enums/inventory-log-action.enum';
+export { UserContainerAccess } from './enums/user-container-access.enum';
 export { InventoryStatus } from './enums/inventory-status.enum';
 export { ContactType } from './enums/contact-type.enum';
 export { ContactSource } from './enums/contact-source.enum';
@@ -41,7 +44,14 @@ export { WorkOrder } from './entities/work-order.entity';
 export { CompanyDocument } from './entities/company-document.entity';
 export { Address } from './entities/address.entity';
 export { Deal, SEND_TO_TECH_CHANNELS } from './entities/deal.entity';
-export type { SendToTechChannel } from './entities/deal.entity';
+export type {
+  SendToTechChannel,
+  DealTotalsSnapshot,
+  JobsByStatusDay,
+  JobsByStatusSeries,
+  PersonName,
+  JobsListIncluded,
+} from './entities/deal.entity';
 export { DealAttachment, DealAttachmentMeta } from './entities/deal-attachment.entity';
 export {
   CallGroup,
@@ -90,6 +100,7 @@ export {
   CoverageShape,
   GeoPoint,
   ZipEntry,
+  ServiceAreaTax,
   DEFAULT_TIMEZONE,
 } from './entities/service-area.entity';
 export {
@@ -106,13 +117,34 @@ export {
 } from './entities/product.entity';
 export { Warehouse } from './entities/warehouse.entity';
 export { Container } from './entities/container.entity';
+export { UserContainer } from './entities/user-container.entity';
+export {
+  ContainerTemplate,
+  ContainerTemplateItem,
+  ContainerTemplateDiff,
+  ContainerTemplateDiffLine,
+  ContainerTemplateFillResult,
+} from './entities/container-template.entity';
 export { ProductCategory, UNCATEGORIZED_CATEGORY } from './entities/product-category.entity';
 export { Brand } from './entities/brand.entity';
 export { Transfer, TransferItem } from './entities/transfer.entity';
+export { InventoryLogEntry } from './entities/inventory-log-entry.entity';
 export { StockItem } from './entities/stock-item.entity';
+export {
+  LocationSummary,
+  LocationSummaryType,
+  LocationStockTotals,
+} from './entities/location-summary.entity';
+export {
+  ProductStock,
+  ProductLocationStock,
+  LocationStock,
+  LocationStockRow,
+} from './entities/product-stock.entity';
 export {
   TechnicianProfile,
   TechnicianProfileStatus,
+  TechnicianType,
   TechnicianHomeAddress,
   OnboardingStatus,
 } from './entities/technician-profile.entity';
@@ -133,8 +165,14 @@ export {
   TechnicianJobType,
   TechnicianServiceArea,
   AssignmentStatus,
+  AssignableTechnicianSubject,
 } from './entities/technician-assignment.entity';
-export { isAssignable } from './entities/technician-assignment.entity';
+export {
+  isAssignable,
+  isAssignableTechnician,
+  isFieldTeamMember,
+  TECHNICIAN_ROLE_ID,
+} from './entities/technician-assignment.entity';
 export {
   CommissionConfig,
   CommissionBreakdown,
@@ -148,6 +186,8 @@ export {
 export {
   USER_EVENT_TOPIC,
   UserEventType,
+  TechChangedField,
+  affectsEligibility,
 } from './events/user-events';
 export type {
   UserActivatedEvent,
@@ -238,6 +278,8 @@ export type {
   ConversationMember,
   ConversationMemberRole,
   ConversationParticipant,
+  ConversationListIncluded,
+  PartyName,
 } from './entities/conversation.entity';
 export {
   MESSAGE_ATTACHMENT_LIMIT,
@@ -272,20 +314,31 @@ export {
   EMPTY_TEAM_CHAT_COUNTERS,
 } from './entities/inbox-counters.entity';
 export type { InboxCounters, InboxTotals, TeamChatCounters } from './entities/inbox-counters.entity';
+export { SEND_UNAVAILABLE_REASONS } from './entities/send-options.entity';
+export type {
+  ConversationSendOptions,
+  SendChannelOption,
+  SendUnavailableReason,
+} from './entities/send-options.entity';
 export { BUILTIN_AUTOMATION_RULE_IDS } from './entities/automation-rule.entity';
 export type { AutomationRule, BuiltinAutomationRuleId } from './entities/automation-rule.entity';
 export {
   AUTOMATION_ACTION_TYPES,
   AUTOMATION_CONDITION_FIELDS,
   AUTOMATION_CONDITION_OPS,
+  AUTOMATION_OWN_SPEC_SOURCES,
   AUTOMATION_RECIPIENTS,
+  AUTOMATION_RUN_OUTCOMES,
   AUTOMATION_TRIGGER_KINDS,
   automationActionSentence,
+  automationConditionLeaves,
   automationConditionsSentence,
   automationDelayText,
   automationSentence,
   automationSpecLabels,
   automationTriggerSentence,
+  isAutomationConditionGroup,
+  isOwnAutomationSpec,
 } from './entities/automation-spec';
 export type {
   AutomationAction,
@@ -293,6 +346,8 @@ export type {
   AutomationCallOutcome,
   AutomationCondition,
   AutomationConditionField,
+  AutomationConditionGroup,
+  AutomationConditionNode,
   AutomationConditionOp,
   AutomationLabelMap,
   AutomationQuietHoursMode,
@@ -332,6 +387,110 @@ export type {
   OptOutChangedEvent,
 } from './events/message-events';
 
+// Billing (taxes, invoices, estimates, document templates, client portal)
+export {
+  calculateDocumentTotals,
+  effectiveTaxRatePercent,
+  lineAmount,
+} from './billing/totals';
+export type {
+  DocumentDiscount,
+  DocumentTaxSource,
+  DocumentTotals,
+  TotalsInput,
+  TotalsLine,
+} from './billing/totals';
+export type { TaxRate } from './entities/tax-rate.entity';
+export { INVOICE_STATUSES } from './entities/invoice.entity';
+export type { Invoice, InvoiceStatus, InvoiceView, BillingLine } from './entities/invoice.entity';
+export { ESTIMATE_STATUSES } from './entities/estimate.entity';
+export type {
+  Estimate,
+  EstimateItem,
+  EstimateStatus,
+  EstimateWithItems,
+} from './entities/estimate.entity';
+export { DEFAULT_BUSINESS_PROFILE, DEFAULT_BUSINESS_PROFILE_ID } from './entities/business-profile.entity';
+export type { BusinessProfile, BusinessProfileView, BillingAsset } from './entities/business-profile.entity';
+export type { PortalLink, PortalDocumentSummary, PortalView } from './entities/portal.entity';
+export {
+  DOCUMENT_TEMPLATE_KINDS,
+  DOCUMENT_BLOCK_TYPES,
+  ITEMS_TABLE_COLUMNS,
+  DEFAULT_DOCUMENT_VISIBILITY,
+} from './entities/document-template.entity';
+export type {
+  DocumentTemplateKind,
+  DocumentBlockType,
+  TextAlign,
+  BlockStyle,
+  RichTextNode,
+  TextBlock,
+  ImageBlock,
+  LogoBlock,
+  DividerBlock,
+  SpacerBlock,
+  TableBlock,
+  FieldBlock,
+  ItemsTableColumn,
+  ItemsTableBlock,
+  TotalsBlock,
+  SignatureBlock,
+  NotesBlock,
+  PageBreakBlock,
+  DocumentBlock,
+  DocumentColumn,
+  DocumentRow,
+  DocumentPageSettings,
+  DocumentVisibility,
+  DocumentTemplateContent,
+  DocumentTemplate,
+  DocumentTemplateSummary,
+  DocumentRenderContext,
+} from './entities/document-template.entity';
+export { BILLING_EVENT_TOPIC, BillingEventType } from './events/billing-events';
+export type { InvoiceEvent, EstimateEvent, PaymentEvent } from './events/billing-events';
+export {
+  PAYMENT_METHODS,
+  ONLINE_PAYMENT_METHODS,
+  PAYMENT_STATUSES,
+  COUNTED_PAYMENT_STATUSES,
+  PAYMENT_SOURCES,
+  REFUND_STATUSES,
+  EMPTY_PAYMENT_SUMMARY,
+  DEFAULT_PAYMENT_SETTINGS,
+  MAX_SURCHARGE_PERCENT,
+} from './entities/payment.entity';
+export type {
+  Payment,
+  PaymentMethod,
+  OnlinePaymentMethod,
+  PaymentStatus,
+  PaymentSource,
+  PaymentRefund,
+  RefundStatus,
+  PaymentSummary,
+  JobPaymentLedger,
+  PaymentSettings,
+  PortalPaymentOptions,
+  PortalPaymentSession,
+} from './entities/payment.entity';
+export {
+  PAYMENT_REPORT_TYPES,
+  PAYMENT_REPORT_TYPE_LABELS,
+  PAYMENT_REPORT_TYPE_FILTERS,
+  PAYMENT_REPORT_ELECTRONIC_TYPES,
+  paymentReportTypeLabel,
+} from './entities/payment-report.entity';
+export type {
+  PaymentReportType,
+  PaymentReportStatus,
+  PaymentReportRow,
+  PaymentReportTotals,
+  PaymentReportPage,
+  PaymentReportQuery,
+} from './entities/payment-report.entity';
+
 // Permissions
 export {
   PermissionMatrix,
@@ -345,7 +504,7 @@ export { RESOURCE_REGISTRY, Resource, Action } from './permissions/resource-regi
 export { CreateUserRequest } from './dto/create-user.dto';
 export { UpdateUserRequest } from './dto/update-user.dto';
 export { ListUsersQuery } from './dto/list-users-query.dto';
-export { LoginRequest, LoginResponse, LoginChallengeResponse } from './dto/login.dto';
+export { LoginRequest, LoginResponse, LoginChallengeResponse, MfaVerifyRequest } from './dto/login.dto';
 export { RefreshTokenRequest, RefreshTokenResponse } from './dto/refresh-token.dto';
 export { ChangePasswordRequest, ChangePasswordResponse } from './dto/change-password.dto';
 export { CreateRoleRequest } from './dto/create-role.dto';
@@ -371,4 +530,53 @@ export {
 export { JwtUser } from './auth/jwt-user';
 
 // Responses
-export { ApiResponse, PaginatedResponse } from './responses/api-response';
+export { ApiResponse, PaginatedResponse, ListCount } from './responses/api-response';
+export type {
+  DealStats,
+  DealStatsBy,
+  DealStatsBucket,
+  DealStatsDay,
+  DealStatsMoney,
+} from './responses/deal-stats';
+export type {
+  CallFlowSeries,
+  CallsDashboardBundle,
+  DealDashboardBundle,
+  DashboardJobsNow,
+  DashboardSales,
+  DashboardSalesDay,
+  DashboardScoreboard,
+  DashboardScoreRow,
+  DashboardShare,
+  DashboardShares,
+  DashboardToday,
+} from './responses/dashboard';
+export {
+  DASHBOARD_RANGES,
+  DASHBOARD_TIMEZONE,
+  dashboardDay,
+  dashboardWindow,
+  msUntilDailyAt,
+} from './dashboard/time';
+
+// Reports — the Workiz Jobs report (`GET /deals/report`)
+export {
+  JOBS_REPORT_BY,
+  JOBS_REPORT_BY_LABEL,
+  JOBS_REPORT_COLUMNS,
+  JOBS_REPORT_COLUMN_IDS,
+  JOBS_REPORT_DEFAULT_COLUMNS,
+  JOBS_REPORT_DEFAULT_SETTINGS,
+  JOBS_REPORT_MAX_DAYS,
+  JOBS_REPORT_MAX_PAGE_SIZE,
+} from './reports/jobs-report';
+export type {
+  JobsReportBy,
+  JobsReportColumnId,
+  JobsReportFilters,
+  JobsReportOrigin,
+  JobsReportPage,
+  JobsReportPagination,
+  JobsReportRow,
+  JobsReportSettings,
+} from './reports/jobs-report';

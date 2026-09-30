@@ -1,7 +1,10 @@
 import {
+  ArrayMaxSize,
+  IsArray,
   IsOptional,
   IsString,
   IsNumber,
+  MaxLength,
   Min,
   Max,
   ValidateNested,
@@ -64,6 +67,21 @@ export class UpdateTechnicianProfileDto {
   @ValidateNested()
   @Type(() => HomeAddressDto)
   homeAddress?: HomeAddressDto;
+
+  @ApiPropertyOptional({
+    type: [String],
+    example: ['+14045550100'],
+    description:
+      'Numbers beside the one telephony rings. Send the whole list; an empty ' +
+      'list clears it.',
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(5)
+  @IsString({ each: true })
+  @MinLength(1, { each: true })
+  @MaxLength(30, { each: true })
+  additionalPhones?: string[];
 
   @ApiPropertyOptional({ example: 'https://files/photo.jpg' })
   @IsOptional()

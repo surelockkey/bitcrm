@@ -1,0 +1,53 @@
+"use client";
+
+import { useCallback, useState } from "react";
+
+/**
+ * По скільки рядків вантажити. Стеля — 100: стільки приймає `limit` у
+ * списках сервісів (`@Max(100)` у їхніх DTO), і просити більше означало б
+ * 400, а не довшу сторінку.
+ */
+export const PAGE_SIZES = [25, 50, 100] as const;
+
+export const DEFAULT_PAGE_SIZE = 50;
+
+const key = (list: string) => `bitcrm.page-size.${list}`;
+
+function stored(list: string, sizes: readonly number[]): number | null {
+  try {
+    const raw = Number(localStorage.getItem(key(list)));
+    return sizes.includes(raw) ? raw : null;
+  } catch {
+    // Приватне вікно або заблоковані дані сайту — вибір просто не переживе
+    // перезавантаження, але список має працювати.
+    return null;
+  }
+}
+
+/**
+ * Вибір «по скільки» для одного списку, з пам'яттю між візитами. Ключ — назва
+ * списку: у роботах і в дзвінках вибір свій.
+ *
+ * Список, що гортається в браузері (попапи складу — по десять, як у Workiz),
+ * може мати свої розміри й свій типовий.
+ */
+export function usePageSize(
+  list: string,
+  { sizes = PAGE_SIZES, fallback = DEFAULT_PAGE_SIZE }: { sizes?: readonly number[]; fallback?: number } = {},
+): [number, (size: number) => void] {
+  const [size, setSize] = useState(() => stored(list, sizes) ?? fallback);
+
+  const choose = useCallback(
+    (next: number) => {
+      setSize(next);
+      try {
+        localStorage.setItem(key(list), String(next));
+      } catch {
+        // Те саме: без пам'яті, але з вибором.
+      }
+    },
+    [list],
+  );
+
+  return [size, choose];
+}

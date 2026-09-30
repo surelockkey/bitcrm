@@ -3,6 +3,7 @@ import { MAIN_NAV, TECHNICIAN_HOME, TECHNICIAN_NAV, visibleNavItems } from "./na
 import type { Resource } from "@bitcrm/types";
 
 const work = MAIN_NAV.find((g) => g.label === "Work")!;
+const communications = MAIN_NAV.find((g) => g.label === "Communications")!;
 
 describe("TECHNICIAN_NAV", () => {
   it("leads with the phone-first day list, which is also the technician's home", () => {
@@ -35,6 +36,55 @@ describe("MAIN_NAV structure", () => {
       "transfers",
     ]);
   });
+
+  it("puts Price Book right after Inventory in Work, on products.view", () => {
+    const labels = work.items.map((i) => i.label);
+    expect(labels.indexOf("Price Book")).toBe(labels.indexOf("Inventory") + 1);
+    const priceBook = work.items.find((i) => i.label === "Price Book")!;
+    expect(priceBook).toMatchObject({ href: "/price-book", resource: "products" });
+    expect(priceBook.icon).toBeDefined();
+  });
+
+  it("shows Price Book to someone who can view products, hides it otherwise", () => {
+    expect(visibleNavItems(work.items, (r: Resource) => r === "products").map((i) => i.label)).toEqual([
+      "Inventory",
+      "Price Book",
+    ]);
+    expect(visibleNavItems(work.items, (r: Resource) => r === "warehouses").map((i) => i.label)).toEqual([
+      "Inventory",
+    ]);
+  });
+
+  it("puts Automations in Communications as a first-level item gated on settings", () => {
+    const automations = communications.items.find((i) => i.label === "Automations")!;
+    expect(automations).toMatchObject({ href: "/automations", resource: "settings" });
+    // It sits after the inbox: a rule that texts a client belongs next to it.
+    expect(communications.items.map((i) => i.label)).toEqual([
+      "Calls",
+      "Messages",
+      "Automations",
+    ]);
+  });
+
+  it("hides Automations from a user without settings.view", () => {
+    const items = visibleNavItems(communications.items, (r: Resource) => r === "messages");
+    expect(items.map((i) => i.label)).toEqual(["Messages"]);
+  });
+});
+
+describe("MAIN_NAV billing", () => {
+  const billing = MAIN_NAV.find((g) => g.label === "Billing")!;
+
+  it("ships the payments report gated on payments.view", () => {
+    const payments = billing.items.find((i) => i.label === "Payments")!;
+    expect(payments).toMatchObject({ href: "/payments", resource: "payments" });
+    expect(payments.status).toBeUndefined();
+  });
+
+  it("hides it from a user who cannot view payments", () => {
+    const items = visibleNavItems(billing.items, (r: Resource) => r === "invoices");
+    expect(items.map((i) => i.label)).toEqual(["Invoices"]);
+  });
 });
 
 describe("visibleNavItems", () => {
@@ -45,6 +95,7 @@ describe("visibleNavItems", () => {
       "Dispatch Map",
       "Schedule",
       "Inventory",
+      "Price Book",
     ]);
   });
 

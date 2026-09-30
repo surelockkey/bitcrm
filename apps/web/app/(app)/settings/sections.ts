@@ -15,6 +15,9 @@ import {
   Workflow,
   MessagesSquare,
   FileText,
+  Building,
+  FileStack,
+  CreditCard,
 } from "lucide-react";
 import type { Resource } from "@bitcrm/types";
 
@@ -37,9 +40,30 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
   {
     label: "Service Areas",
     href: "/settings/service-areas",
-    description: "Territories that auto-assign jobs and match technicians.",
+    description: "Territories that auto-assign jobs, match technicians and set sales tax.",
     icon: MapPin,
     resource: "service_areas",
+  },
+  {
+    label: "Companies",
+    href: "/settings/companies",
+    description: "Your business companies — names, logos and details used on jobs, invoices and estimates.",
+    icon: Building,
+    resource: "settings",
+  },
+  {
+    label: "Documents",
+    href: "/settings/documents",
+    description: "Invoice and estimate PDF templates.",
+    icon: FileStack,
+    resource: "document_templates",
+  },
+  {
+    label: "Payments",
+    href: "/settings/payments",
+    description: "How clients pay online — card and bank, part payments, surcharge and tips.",
+    icon: CreditCard,
+    resource: "settings",
   },
   {
     label: "Job Types",
@@ -133,8 +157,10 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
     resource: "message_templates",
   },
   {
+    // The module moved out to /automations; the settings index keeps the
+    // shortcut so anyone who looks for it here still lands on it.
     label: "Automations",
-    href: "/settings/automations",
+    href: "/automations",
     description: "What the system texts on its own — job status, missed calls, reminders.",
     icon: Workflow,
     resource: "settings",

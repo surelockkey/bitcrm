@@ -51,7 +51,8 @@ describe('JobTagsRepository', () => {
     expect(await repository.isReferencedByDeal('jt-1')).toBe(true);
 
     const input = dynamoDb.client.send.mock.calls[0][0].input;
-    expect(input.FilterExpression).toContain('contains(#tagIds, :id)');
+    expect(input.FilterExpression).toContain('contains(');
+    expect(Object.values(input.ExpressionAttributeNames)).toContain('tagIds');
     expect(input.ExpressionAttributeValues[':id']).toBe('jt-1');
   });
 

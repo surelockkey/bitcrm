@@ -16,6 +16,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PhoneInput } from "@/components/ui/phone-input";
+import { Switch } from "@/components/ui/switch";
+import { UserTwoStepSwitch } from "./user-two-step-switch";
 import {
   Select,
   SelectContent,
@@ -48,7 +50,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import type { User } from "@bitcrm/types";
-import { UserStatus } from "@bitcrm/types";
+import { UserStatus, isFieldTeamMember } from "@bitcrm/types";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { updateUserSchema, type UpdateUserValues } from "../schemas";
 import {
@@ -73,7 +75,7 @@ export function UserDetailSheet({
   onClose: () => void;
 }) {
   const { can } = usePermissions();
-  const { roles, canManage, assignableRoles } = useHierarchy();
+  const { roles, canManage, canEditProfile, assignableRoles } = useHierarchy();
   const manageable = canManage(user);
 
   const updateUser = useUpdateUser();
@@ -93,10 +95,15 @@ export function UserDetailSheet({
       lastName: user.lastName,
       department: user.department,
       phone: user.phone ?? "",
+      // Unset on a record from before the switch: a technician is on the field
+      // team until switched off, and nobody else is until switched on.
+      fieldTeamMember: isFieldTeamMember(user),
     },
   });
 
   const canEdit = can("users", "edit") && manageable;
+  // The profile tab alone: your own card as well as those below you.
+  const canEditProfileTab = can("users", "edit") && canEditProfile(user);
   const isActive = user.status === UserStatus.ACTIVE;
 
   return (
@@ -172,7 +179,7 @@ export function UserDetailSheet({
                       <FormItem>
                         <FormLabel>First name</FormLabel>
                         <FormControl>
-                          <Input className="h-10" disabled={!canEdit} {...field} />
+                          <Input className="h-10" disabled={!canEditProfileTab} {...field} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -185,7 +192,7 @@ export function UserDetailSheet({
                       <FormItem>
                         <FormLabel>Last name</FormLabel>
                         <FormControl>
-                          <Input className="h-10" disabled={!canEdit} {...field} />
+                          <Input className="h-10" disabled={!canEditProfileTab} {...field} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -204,7 +211,7 @@ export function UserDetailSheet({
                     <FormItem>
                       <FormLabel>Department</FormLabel>
                       <FormControl>
-                        <Input className="h-10" disabled={!canEdit} {...field} />
+                        <Input className="h-10" disabled={!canEditProfileTab} {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -219,7 +226,7 @@ export function UserDetailSheet({
                       <FormControl>
                         <PhoneInput
                           className="h-10"
-                          disabled={!canEdit}
+                          disabled={!canEditProfileTab}
                           value={field.value ?? ""}
                           onChange={field.onChange}
                           onBlur={field.onBlur}
@@ -233,7 +240,31 @@ export function UserDetailSheet({
                     </FormItem>
                   )}
                 />
-                {canEdit ? (
+                {/* Workiz's "Field team member", for everyone: the owner who
+                    still does calls is on the field team; a technician who
+                    moved into the office is not. Switching it on opens their
+                    technician card. */}
+                <FormField
+                  control={form.control}
+                  name="fieldTeamMember"
+                  render={({ field }) => (
+                    <FormItem className="flex items-center justify-between gap-3 space-y-0 rounded-lg border p-3">
+                      <div className="space-y-0.5">
+                        <FormLabel>Field team member</FormLabel>
+                        <p className="text-xs text-muted-foreground">
+                          Goes out on jobs and can be put on one, whatever their role.
+                        </p>
+                      </div>
+                      <FormControl>
+                        <Switch checked={field.value ?? false} disabled={!canEditProfileTab} onCheckedChange={field.onChange} />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+                {/* Saves on its own: an admin switching off a lost phone should
+                    not have to save the rest of the profile to do it. */}
+                <UserTwoStepSwitch user={user} canEdit={canEditProfileTab} />
+                {canEditProfileTab ? (
                   <div className="flex justify-end">
                     <Button type="submit" variant="brand" disabled={updateUser.isPending} className="gap-1.5">
                       {updateUser.isPending ? <Loader2 className="size-4 animate-spin" /> : null}

@@ -1,12 +1,16 @@
 import { Injectable } from '@nestjs/common';
 import { GetCommand, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
-import { DynamoDbService } from '@bitcrm/shared';
+import {
+  DynamoDbService,
+  type CountRowsResult,
+} from '@bitcrm/shared';
 import {
   CALLS_TABLE,
   CALLS_GSI1_NAME,
   CALLS_GSI2_NAME,
   CALLS_GSI3_NAME,
-  ALL_CALLS_PK,
+  allCallsPk,
+  monthsDescending,
   callPk,
   agentGsiPk,
   partyGsiPk,
@@ -102,6 +106,12 @@ export interface CallRecord {
    * once, so re-assigning a number later never rewrites past calls.
    */
   sourceId?: string;
+  /**
+   * Company (billing business profile) the call belongs to — the tracked
+   * number's own setting, else the flow answering that number. Stamped with
+   * `sourceId` and never rewritten once set.
+   */
+  businessProfileId?: string;
   /** Talk time (endedAt − answeredAt), seconds. */
   durationSeconds?: number;
   startedAt: string;
@@ -118,6 +128,12 @@ export interface CallRecord {
   flowPath?: CallFlowStepRecord[];
   recordingSid?: string;
   recordingDurationSeconds?: number;
+  /**
+   * Where the audio of an imported call lives in our own bucket. A call that
+   * came over from Workiz has no Twilio recording, so its sid resolves to
+   * nothing there; this is what is played instead.
+   */
+  recordingKey?: string;
   /** Secondary leg sids (customer participant / agent ring legs). */
   childSids?: string[];
   /** System users involved: who called / answered / listened / joined, when. */
@@ -217,6 +233,13 @@ const QUERY_PAGE_SIZE = 100;
  */
 const MAX_QUERY_PAGES = 20;
 
+/**
+ * The read budget of one count. Generous next to a list page — a count reads
+ * no bodies — but finite: the log reaches back years, and a page load must
+ * not walk all of it.
+ */
+const MAX_COUNT_QUERIES = 60;
+
 @Injectable()
 export class CallsRepository {
   private tableName = CALLS_TABLE;
@@ -248,7 +271,7 @@ export class CallsRepository {
       ':callSid': rec.callSid,
       ':startedAt': rec.startedAt,
       ':updatedAt': rec.updatedAt,
-      ':gsi2pk': ALL_CALLS_PK,
+      ':gsi2pk': allCallsPk(rec.startedAt),
       ':gsi2sk': allCallsSk(rec.startedAt, rec.callSid),
     };
 
@@ -265,6 +288,7 @@ export class CallsRepository {
       ['conferenceSid', rec.conferenceSid],
       ['flowName', rec.flowName],
       ['recordingSid', rec.recordingSid],
+      ['recordingKey', rec.recordingKey],
       ['recordingDurationSeconds', rec.recordingDurationSeconds],
       ['internalLegOf', rec.internalLegOf],
       // NOTE: a field added to CallRecord but forgotten here is dropped on
@@ -273,6 +297,7 @@ export class CallsRepository {
       ['origin', rec.origin],
       ['callerIdSource', rec.callerIdSource],
       ['sourceId', rec.sourceId],
+      ['businessProfileId', rec.businessProfileId],
     ];
     for (const [field, value] of optional) {
       // Empty strings guard against Twilio callbacks that report blank
@@ -589,72 +614,226 @@ export class CallsRepository {
     const { keyCondition, filterExpression, names, values } =
       this.buildListQuery(filter);
 
+    // Newest month first; a cursor says which month the last page stopped in,
+    // and the walk carries on from there into the earlier ones.
+    const resume = this.decodeListCursor(cursor);
+    const all = monthsDescending(filter.dateFrom, filter.dateTo);
+    const months = resume ? all.slice(all.indexOf(resume.month)) : all;
+
     const items: CallRecord[] = [];
-    let exclusiveStartKey = this.decodeCursor(cursor);
+    let exclusiveStartKey = resume?.key;
+    let queries = 0;
 
-    for (let pages = 1; ; pages++) {
-      const res = await this.dynamoDb.client.send(
-        new QueryCommand({
-          TableName: this.tableName,
-          IndexName: CALLS_GSI2_NAME,
-          KeyConditionExpression: keyCondition,
-          ...(filterExpression && { FilterExpression: filterExpression }),
-          ...(Object.keys(names).length && { ExpressionAttributeNames: names }),
-          ExpressionAttributeValues: values,
-          ScanIndexForward: false,
-          Limit: QUERY_PAGE_SIZE,
-          ...(exclusiveStartKey && { ExclusiveStartKey: exclusiveStartKey }),
-        }),
-      );
+    for (const month of months) {
+      for (;;) {
+        queries += 1;
+        const res = await this.dynamoDb.client.send(
+          new QueryCommand({
+            TableName: this.tableName,
+            IndexName: CALLS_GSI2_NAME,
+            KeyConditionExpression: keyCondition,
+            ...(filterExpression && { FilterExpression: filterExpression }),
+            ...(Object.keys(names).length && { ExpressionAttributeNames: names }),
+            ExpressionAttributeValues: { ...values, ':allPk': `CALL#${month}` },
+            ScanIndexForward: false,
+            Limit: QUERY_PAGE_SIZE,
+            ...(exclusiveStartKey && { ExclusiveStartKey: exclusiveStartKey }),
+          }),
+        );
 
-      const page = (res.Items ?? []).map(hydrate);
-      const room = limit - items.length;
-      items.push(...page.slice(0, room));
-      const truncatedMidPage = page.length > room;
-      const lastEvaluatedKey = res.LastEvaluatedKey;
+        const page = (res.Items ?? []).map(hydrate);
+        const room = limit - items.length;
+        items.push(...page.slice(0, room));
+        const truncatedMidPage = page.length > room;
+        const lastEvaluatedKey = res.LastEvaluatedKey;
 
-      if (items.length >= limit) {
-        // When we cut a page short, resume from the last item actually
-        // returned (not LastEvaluatedKey) so the remainder isn't skipped.
-        const resumeKey = truncatedMidPage
-          ? this.keyOf(items[items.length - 1])
-          : lastEvaluatedKey;
-        return { items, nextCursor: this.encodeCursor(resumeKey) };
+        if (items.length >= limit) {
+          // When we cut a page short, resume from the last item actually
+          // returned (not LastEvaluatedKey) so the remainder isn't skipped.
+          const resumeKey = truncatedMidPage
+            ? this.keyOf(items[items.length - 1])
+            : lastEvaluatedKey;
+          return {
+            items,
+            nextCursor: resumeKey
+              ? this.encodeListCursor({ month, key: resumeKey })
+              : this.nextMonthCursor(months, month),
+          };
+        }
+
+        if (!lastEvaluatedKey) break;
+        exclusiveStartKey = lastEvaluatedKey;
+
+        // A selective filter matches nothing for page after page; hand the
+        // caller what was found and let them decide whether to keep walking.
+        if (queries >= MAX_QUERY_PAGES) {
+          return { items, nextCursor: this.encodeListCursor({ month, key: lastEvaluatedKey }) };
+        }
       }
-      if (!lastEvaluatedKey) return { items };
-      // Budget spent with the page unfilled: hand back the resume key rather
-      // than keep walking the log inside one request.
-      if (pages >= MAX_QUERY_PAGES) {
-        return { items, nextCursor: this.encodeCursor(lastEvaluatedKey) };
+
+      exclusiveStartKey = undefined;
+      if (queries >= MAX_QUERY_PAGES) {
+        return { items, nextCursor: this.nextMonthCursor(months, month) };
       }
-      exclusiveStartKey = lastEvaluatedKey;
     }
+
+    return { items };
+  }
+
+  /** Where the walk resumes once a month is finished: the next one, or nowhere. */
+  private nextMonthCursor(months: string[], month: string): string | undefined {
+    const next = months[months.indexOf(month) + 1];
+    return next ? this.encodeListCursor({ month: next }) : undefined;
+  }
+
+  private encodeListCursor(at: { month: string; key?: Record<string, unknown> }): string {
+    return Buffer.from(JSON.stringify(at)).toString('base64url');
+  }
+
+  private decodeListCursor(
+    cursor?: string,
+  ): { month: string; key?: Record<string, unknown> } | undefined {
+    if (!cursor) return undefined;
+    const decoded = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf-8'));
+    // A cursor from before the log was partitioned by month carries only a
+    // DynamoDB key; the walk starts at the newest month with it.
+    return typeof decoded?.month === 'string' ? decoded : undefined;
+  }
+
+  /**
+   * How many calls the filter selects — the number behind "Page 2 of 7".
+   *
+   * The same month walk the list does, with `Select: 'COUNT'`: no bodies come
+   * back, only the tally per month. The log is the largest list in the app and
+   * reaches back to {@link CALLS_MIN_MONTH}, so the walk is bounded the same
+   * way `list` is. Out of budget, the answer is a floor and the panel says
+   * `7+` rather than lie or spend the page's time.
+   */
+  async count(filter: ListCallsFilter): Promise<CountRowsResult> {
+    const { keyCondition, filterExpression, names, values } =
+      this.buildListQuery(filter);
+    const months = monthsDescending(filter.dateFrom, filter.dateTo);
+
+    let total = 0;
+    let queries = 0;
+
+    for (const month of months) {
+      let exclusiveStartKey: Record<string, unknown> | undefined;
+
+      for (;;) {
+        if (queries >= MAX_COUNT_QUERIES) return { total, atLeast: true };
+        queries += 1;
+
+        const res = await this.dynamoDb.client.send(
+          new QueryCommand({
+            TableName: this.tableName,
+            IndexName: CALLS_GSI2_NAME,
+            KeyConditionExpression: keyCondition,
+            ...(filterExpression && { FilterExpression: filterExpression }),
+            ...(Object.keys(names).length && { ExpressionAttributeNames: names }),
+            ExpressionAttributeValues: { ...values, ':allPk': `CALL#${month}` },
+            Select: 'COUNT',
+            ...(exclusiveStartKey && { ExclusiveStartKey: exclusiveStartKey }),
+          }),
+        );
+
+        total += res.Count ?? 0;
+        if (!res.LastEvaluatedKey) break;
+        exclusiveStartKey = res.LastEvaluatedKey;
+      }
+    }
+
+    return { total, atLeast: false };
+  }
+
+  /**
+   * How many calls went through each call flow on each day of a window — the
+   * tally behind the dashboard's "Top Call Flows".
+   *
+   * The same month walk as `count`, but the day and the flow have to come
+   * back, so two attributes are projected rather than `Select: 'COUNT'`. Only
+   * calls that entered a flow are read (outbound calls never do), and the
+   * internal leg is left out as it is everywhere. Bounded like `count`; out of
+   * budget the tally is a floor.
+   */
+  async flowCallsByDay(window: {
+    from: string;
+    to: string;
+  }): Promise<{ byFlow: Record<string, Record<string, number>>; atLeast: boolean }> {
+    const { keyCondition, filterExpression, names, values } = this.buildListQuery({
+      dateFrom: window.from,
+      dateTo: window.to,
+    });
+    const filter = ['attribute_exists(flowName)', filterExpression].filter(Boolean).join(' AND ');
+    const byFlow: Record<string, Record<string, number>> = {};
+    let queries = 0;
+
+    for (const month of monthsDescending(window.from, window.to)) {
+      let exclusiveStartKey: Record<string, unknown> | undefined;
+
+      for (;;) {
+        if (queries >= MAX_COUNT_QUERIES) return { byFlow, atLeast: true };
+        queries += 1;
+
+        const res = await this.dynamoDb.client.send(
+          new QueryCommand({
+            TableName: this.tableName,
+            IndexName: CALLS_GSI2_NAME,
+            KeyConditionExpression: keyCondition,
+            FilterExpression: filter,
+            ProjectionExpression: 'flowName, startedAt',
+            ...(Object.keys(names).length && { ExpressionAttributeNames: names }),
+            ExpressionAttributeValues: { ...values, ':allPk': `CALL#${month}` },
+            ...(exclusiveStartKey && { ExclusiveStartKey: exclusiveStartKey }),
+          }),
+        );
+
+        for (const item of res.Items ?? []) {
+          const flow = typeof item.flowName === 'string' ? item.flowName : '';
+          const day = typeof item.startedAt === 'string' ? item.startedAt.slice(0, 10) : '';
+          if (!flow || !day) continue;
+          const row = (byFlow[flow] ??= {});
+          row[day] = (row[day] ?? 0) + 1;
+        }
+
+        if (!res.LastEvaluatedKey) break;
+        exclusiveStartKey = res.LastEvaluatedKey;
+      }
+    }
+
+    return { byFlow, atLeast: false };
   }
 
   /** Live (non-terminal) calls in the recent window, newest first. */
   async listLive(now: number = Date.now()): Promise<CallRecord[]> {
     const skFrom = new Date(now - LIVE_WINDOW_MS).toISOString();
-    const values: Record<string, unknown> = {
-      ':allPk': ALL_CALLS_PK,
-      ':skFrom': skFrom,
-    };
+    const values: Record<string, unknown> = { ':skFrom': skFrom };
     const statusKeys = LIVE_STATUSES.map((s, i) => {
       values[`:live${i}`] = s;
       return `:live${i}`;
     });
 
-    const res = await this.dynamoDb.client.send(
-      new QueryCommand({
-        TableName: this.tableName,
-        IndexName: CALLS_GSI2_NAME,
-        KeyConditionExpression: 'GSI2PK = :allPk AND GSI2SK >= :skFrom',
-        FilterExpression: `#status IN (${statusKeys.join(', ')}) AND attribute_not_exists(internalLegOf)`,
-        ExpressionAttributeNames: { '#status': 'status' },
-        ExpressionAttributeValues: values,
-        ScanIndexForward: false,
-      }),
+    // The window is short, but just after midnight on the 1st it reaches
+    // back into the previous month — so both partitions are read.
+    const pages = await Promise.all(
+      monthsDescending(skFrom, new Date(now).toISOString()).map((month) =>
+        this.dynamoDb.client.send(
+          new QueryCommand({
+            TableName: this.tableName,
+            IndexName: CALLS_GSI2_NAME,
+            KeyConditionExpression: 'GSI2PK = :allPk AND GSI2SK >= :skFrom',
+            FilterExpression: `#status IN (${statusKeys.join(', ')}) AND attribute_not_exists(internalLegOf)`,
+            ExpressionAttributeNames: { '#status': 'status' },
+            ExpressionAttributeValues: { ...values, ':allPk': `CALL#${month}` },
+            ScanIndexForward: false,
+          }),
+        ),
+      ),
     );
-    return (res.Items ?? []).map(hydrate);
+    return pages
+      .flatMap((res) => res.Items ?? [])
+      .map(hydrate)
+      .sort((a, b) => b.startedAt.localeCompare(a.startedAt));
   }
 
   /**
@@ -709,7 +888,8 @@ export class CallsRepository {
     values: Record<string, unknown>;
   } {
     const names: Record<string, string> = {};
-    const values: Record<string, unknown> = { ':allPk': ALL_CALLS_PK };
+    // `:allPk` is filled in per month by the walk in `list()`.
+    const values: Record<string, unknown> = {};
 
     let keyCondition = 'GSI2PK = :allPk';
     if (filter.dateFrom && filter.dateTo) {
@@ -794,7 +974,7 @@ export class CallsRepository {
     return {
       PK: callPk(rec.callSid),
       SK: 'METADATA',
-      GSI2PK: ALL_CALLS_PK,
+      GSI2PK: allCallsPk(rec.startedAt),
       GSI2SK: allCallsSk(rec.startedAt, rec.callSid),
     };
   }

@@ -8,10 +8,11 @@ import {
   UpdateCommand,
   BatchGetCommand,
 } from '@aws-sdk/lib-dynamodb';
-import { DynamoDbService } from '@bitcrm/shared';
+import { DynamoDbService, scanPage } from '@bitcrm/shared';
 import {
   DealStatus,
   JobSuperStatus,
+  SUPER_STATUS_ORDER,
   STAGE_TO_SUPER_STATUS,
   type Deal,
   type DealStage,
@@ -23,24 +24,185 @@ import {
   DEALS_GSI2_NAME,
   DEALS_GSI3_NAME,
   DEALS_GSI4_NAME,
+  DEALS_GSI5_NAME,
+  DEALS_GSI6_NAME,
+  DEALS_GSI7_NAME,
 } from '../common/constants/dynamo.constants';
 import { generateDealNumberCode } from './deal-number.util';
+import { dayStartUtc, jobEndAt, shiftDay, type ReportDateSource } from './report/report-dates';
 
 export interface PaginatedResult {
   items: Deal[];
   nextCursor?: string;
 }
 
+/** A window on the schedule index: a span of visit days, or the undated ones. */
+export interface ScheduleWindow {
+  /** YYYY-MM-DD, inclusive. */
+  from?: string;
+  /** YYYY-MM-DD, inclusive. */
+  to?: string;
+  /** Only deals with no `scheduledDate`. Wins over `from` / `to`. */
+  unscheduled?: boolean;
+}
+
+export type SortDir = 'asc' | 'desc';
+
+/** A span of days, inclusive, on any ISO-dated sort key. */
+export interface DayWindow {
+  from?: string;
+  to?: string;
+}
+
+/** One index read fanned over several partitions (statuses, or months). */
+interface IndexRead {
+  indexName: string;
+  pkAttr: string;
+  skAttr: string;
+  partitions: { name: string; pk: string }[];
+  /** With `#pk` / `#sk` for the attribute names and `:pk` for the partition value. */
+  keyCondition: string;
+  keyValues: Record<string, unknown>;
+}
+
+/** The `YYYY-MM` months a span of days touches, first to last (at most twenty years). */
+export function monthsOf(window: DayWindow): string[] {
+  const from = (window.from ?? '2015-01-01').slice(0, 7);
+  const to = (window.to ?? new Date().toISOString()).slice(0, 7);
+  const out: string[] = [];
+  let [y, m] = from.split('-').map(Number);
+  while (out.length < 240) {
+    const key = `${y}-${String(m).padStart(2, '0')}`;
+    out.push(key);
+    if (key >= to) break;
+    m += 1;
+    if (m > 12) {
+      m = 1;
+      y += 1;
+    }
+  }
+  return out;
+}
+
+/** `from`..`to` cut at month ends — consecutive, non-overlapping spans of whole days. */
+export function monthSlices(from: string, to: string): { from: string; to: string }[] {
+  const out: { from: string; to: string }[] = [];
+  let start = from;
+  while (start <= to && out.length < 240) {
+    const [y, m] = start.split('-').map(Number);
+    const monthEnd = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
+    const end = monthEnd < to ? monthEnd : to;
+    out.push({ from: start, to: end });
+    start = shiftDay(end, 1);
+  }
+  return out;
+}
+
+/** The sort key of an undated deal — 'U' sorts after every digit, so they come last ascending. */
+const UNSCHEDULED = 'UNSCHED';
+
+/**
+ * The read budget of one status's day series. A page of index keys is a
+ * megabyte, so this covers a window far larger than the dashboard's; past it
+ * the series is honestly a floor rather than a page load that walks years.
+ */
+const BY_DAY_MAX_READS = 20;
+
+/**
+ * The StatusScheduleIndex keys of a deal, plus `slotStart` — the `HH:MM`
+ * the visit opens with, kept as its own attribute so an hour-of-day filter
+ * is one BETWEEN. An all-day or slotless visit sorts under `~`, after the
+ * timed ones of that day. The Workiz importer writes the very same shape.
+ */
+export function statusScheduleKeys(deal: {
+  id: string;
+  superStatus: JobSuperStatus;
+  scheduledDate?: string;
+  scheduledTimeSlot?: string;
+  allDay?: boolean;
+}): { GSI5PK: string; GSI5SK: string; slotStart: string | undefined } {
+  const slotStart = !deal.allDay && deal.scheduledTimeSlot ? deal.scheduledTimeSlot.slice(0, 5) : undefined;
+  return {
+    GSI5PK: `STATUS#${deal.superStatus}`,
+    GSI5SK: `${deal.scheduledDate || UNSCHEDULED}#${slotStart ?? '~'}#DEAL#${deal.id}`,
+    slotStart,
+  };
+}
+
+/**
+ * The ClosedIndex keys of a deal — one partition a month of closing, sorted
+ * by the closing moment — or nothing at all for an open deal: the index is
+ * sparse, so the report's "By: Job closed" reads only what closed.
+ */
+export function closedIndexKeys(deal: { id: string; closedAt?: string }): { GSI6PK: string; GSI6SK: string } | undefined {
+  if (!deal.closedAt) return undefined;
+  return { GSI6PK: `CLOSED#${deal.closedAt.slice(0, 7)}`, GSI6SK: `${deal.closedAt}#DEAL#${deal.id}` };
+}
+
+/**
+ * The EndIndex keys of a deal — the visit's end on the account's clock
+ * (`jobEndAt`), one partition a month — or nothing for a row with no date
+ * at all. Every dated deal is in it: the Jobs report's "By: Job end date"
+ * reads a window of months here.
+ */
+export function endIndexKeys(deal: ReportDateSource & { id: string }): { GSI7PK: string; GSI7SK: string } | undefined {
+  const end = jobEndAt(deal);
+  if (!end) return undefined;
+  return { GSI7PK: `END#${end.slice(0, 7)}`, GSI7SK: `${end}#DEAL#${deal.id}` };
+}
+
+/** The deal attributes the date indexes are computed from. */
+const INDEX_KEY_FIELDS: ReadonlySet<string> = new Set([
+  'superStatus',
+  'scheduledDate',
+  'scheduledEndDate',
+  'scheduledTimeSlot',
+  'allDay',
+  'closedAt',
+  'jobDateUtc',
+  'jobEndDateUtc',
+  'jobTimezone',
+]);
+
+/** Which Jobs-report date a window read is on. */
+export type ReportWindowBy = 'created' | 'scheduled' | 'end';
+
+/**
+ * A whole report window is read, not paged: the report sorts on any column
+ * and prints "of N". Past this many jobs the read stops and says so — a
+ * guard, a year of this business is about 45 000.
+ */
+export const REPORT_WINDOW_MAX_ROWS = 150_000;
+
 /** Secondary (non-index) filters applied on top of the primary query/scan. */
 export interface DealFilters {
   jobTypeId?: string;
   sourceId?: string;
+  businessProfileId?: string;
   serviceArea?: string;
   clientType?: string;
   priority?: string;
   tagIds?: string[];
   /** Random 6-char code (string) or legacy sequential id (number, stored as-is). */
   dealNumber?: string | number;
+  /** Billing: jobs with at least one line item and no invoice yet. */
+  needsInvoice?: boolean;
+  /**
+   * Only deals this technician is assigned to. On the status / contact /
+   * dispatcher indexes it is a `contains(assignedTechIds)` filter; on the
+   * tech index it is the key itself and is ignored.
+   */
+  techId?: string;
+  subStatusId?: string;
+  /** The client's company (a CRM company id) — the report's "company" filter. */
+  companyId?: string;
+  /** Who created the job — the report's "creator" filter. */
+  createdBy?: string;
+  /** On an index not keyed by status (the closed index), the status is a filter. */
+  superStatus?: JobSuperStatus;
+  /** Hour-of-day window on `slotStart` (`HH:MM`, inclusive). Undated / all-day visits never match. */
+  hourFrom?: string;
+  hourTo?: string;
 }
 
 /**
@@ -117,16 +279,42 @@ export class DealsRepository {
     };
     if (filters?.jobTypeId) eq('jobTypeId', filters.jobTypeId);
     if (filters?.sourceId) eq('sourceId', filters.sourceId);
+    if (filters?.businessProfileId) eq('businessProfileId', filters.businessProfileId);
     if (filters?.serviceArea) eq('serviceArea', filters.serviceArea);
     if (filters?.clientType) eq('clientType', filters.clientType);
     if (filters?.priority) eq('priority', filters.priority);
     if (filters?.dealNumber !== undefined) eq('dealNumber', filters.dealNumber);
+    if (filters?.needsInvoice) {
+      // Legacy rows without `itemCount` don't match until the backfill runs.
+      parts.push('#itemCount > :zeroItems', 'attribute_not_exists(#invoiceId)');
+      names['#itemCount'] = 'itemCount';
+      names['#invoiceId'] = 'invoiceId';
+      values[':zeroItems'] = 0;
+    }
     if (filters?.tagIds?.length) {
       names['#tagIds'] = 'tagIds';
       filters.tagIds.forEach((t, i) => {
         parts.push(`contains(#tagIds, :tag${i})`);
         values[`:tag${i}`] = t;
       });
+    }
+    // The technician narrows any index that is not already keyed by them —
+    // this is how `assigned_only` holds on the status / contact / dispatcher
+    // queries instead of only on the tech index.
+    if (filters?.techId) {
+      parts.push('contains(#assignedTechIds, :techId)');
+      names['#assignedTechIds'] = 'assignedTechIds';
+      values[':techId'] = filters.techId;
+    }
+    if (filters?.subStatusId) eq('subStatusId', filters.subStatusId);
+    if (filters?.superStatus) eq('superStatus', filters.superStatus);
+    if (filters?.companyId) eq('companyId', filters.companyId);
+    if (filters?.createdBy) eq('createdBy', filters.createdBy);
+    if (filters?.hourFrom || filters?.hourTo) {
+      names['#slotStart'] = 'slotStart';
+      values[':hourFrom'] = filters.hourFrom ?? '00:00';
+      values[':hourTo'] = filters.hourTo ?? '23:59';
+      parts.push('#slotStart BETWEEN :hourFrom AND :hourTo');
     }
     return { expression: parts.join(' AND '), names, values };
   }
@@ -140,11 +328,23 @@ export class DealsRepository {
     if (deal.status !== status) return false;
     if (filters?.jobTypeId && deal.jobTypeId !== filters.jobTypeId) return false;
     if (filters?.sourceId && deal.sourceId !== filters.sourceId) return false;
+    if (filters?.businessProfileId && deal.businessProfileId !== filters.businessProfileId) return false;
     if (filters?.serviceArea && deal.serviceArea !== filters.serviceArea) return false;
     if (filters?.clientType && deal.clientType !== filters.clientType) return false;
     if (filters?.priority && deal.priority !== filters.priority) return false;
     if (filters?.dealNumber !== undefined && String(deal.dealNumber) !== String(filters.dealNumber)) return false;
     if (filters?.tagIds?.length && !filters.tagIds.every((t) => deal.tagIds.includes(t))) return false;
+    if (filters?.needsInvoice && (!(deal.itemCount && deal.itemCount > 0) || deal.invoiceId)) return false;
+    if (filters?.techId && !deal.assignedTechIds.includes(filters.techId)) return false;
+    if (filters?.subStatusId && deal.subStatusId !== filters.subStatusId) return false;
+    if (filters?.superStatus && deal.superStatus !== filters.superStatus) return false;
+    if (filters?.companyId && deal.companyId !== filters.companyId) return false;
+    if (filters?.createdBy && deal.createdBy !== filters.createdBy) return false;
+    if (filters?.hourFrom || filters?.hourTo) {
+      const { slotStart } = statusScheduleKeys(deal);
+      if (!slotStart) return false;
+      if (slotStart < (filters.hourFrom ?? '00:00') || slotStart > (filters.hourTo ?? '23:59')) return false;
+    }
     return true;
   }
 
@@ -162,6 +362,9 @@ export class DealsRepository {
           GSI3SK: `${deal.createdAt}#DEAL#${deal.id}`,
           GSI4PK: `DISPATCHER#${deal.assignedDispatcherId}`,
           GSI4SK: `${deal.createdAt}#DEAL#${deal.id}`,
+          ...statusScheduleKeys(deal),
+          ...closedIndexKeys(deal),
+          ...endIndexKeys(deal),
           ...deal,
         },
         ConditionExpression: 'attribute_not_exists(PK)',
@@ -169,11 +372,13 @@ export class DealsRepository {
     );
   }
 
-  async findById(id: string): Promise<Deal | null> {
+  /** `consistent` for a read right after a write that must see it (repricing). */
+  async findById(id: string, opts: { consistent?: boolean } = {}): Promise<Deal | null> {
     const result = await this.dynamoDb.client.send(
       new GetCommand({
         TableName: this.tableName,
         Key: { PK: `DEAL#${id}`, SK: 'METADATA' },
+        ...(opts.consistent && { ConsistentRead: true }),
       }),
     );
 
@@ -209,6 +414,453 @@ export class DealsRepository {
   }
 
   /**
+   * Deals in visit-date order, from the StatusScheduleIndex: one status is
+   * one query; several statuses are one query each, merged in key order
+   * with a per-partition cursor (`fanOut`).
+   */
+  async findBySchedule(
+    superStatuses: JobSuperStatus[],
+    window: ScheduleWindow,
+    limit: number,
+    cursor?: string,
+    filters?: DealFilters,
+    dir: SortDir = 'asc',
+  ): Promise<PaginatedResult> {
+    const key = this.scheduleKeyCondition(window);
+    return this.fanOut(
+      {
+        indexName: DEALS_GSI5_NAME,
+        pkAttr: 'GSI5PK',
+        skAttr: 'GSI5SK',
+        partitions: superStatuses.map((s) => ({ name: s, pk: `STATUS#${s}` })),
+        keyCondition: key.expression,
+        keyValues: key.values,
+      },
+      limit,
+      cursor,
+      filters,
+      dir,
+    );
+  }
+
+  /**
+   * Deals in creation order within a span of days — the status index's own
+   * sort key (`<createdAt>#DEAL#<id>`), one status a partition, merged.
+   */
+  async findByCreated(
+    superStatuses: JobSuperStatus[],
+    window: DayWindow,
+    limit: number,
+    cursor?: string,
+    filters?: DealFilters,
+    dir: SortDir = 'desc',
+  ): Promise<PaginatedResult> {
+    return this.fanOut(
+      {
+        indexName: DEALS_GSI1_NAME,
+        pkAttr: 'GSI1PK',
+        skAttr: 'GSI1SK',
+        partitions: superStatuses.map((s) => ({ name: s, pk: `STATUS#${s}` })),
+        keyCondition: '#pk = :pk AND #sk BETWEEN :from AND :to',
+        keyValues: this.dayRangeValues(window),
+      },
+      limit,
+      cursor,
+      filters,
+      dir,
+    );
+  }
+
+  /**
+   * Deals in closing order within a span of days, off the sparse ClosedIndex
+   * — one partition a month, so a window is one query per month it touches,
+   * merged on the closing moment. A status here is a filter, not a key.
+   */
+  async findByClosed(
+    window: DayWindow,
+    limit: number,
+    cursor?: string,
+    filters?: DealFilters,
+    dir: SortDir = 'desc',
+  ): Promise<PaginatedResult> {
+    return this.fanOut(
+      {
+        indexName: DEALS_GSI6_NAME,
+        pkAttr: 'GSI6PK',
+        skAttr: 'GSI6SK',
+        partitions: monthsOf(window).map((m) => ({ name: m, pk: `CLOSED#${m}` })),
+        keyCondition: '#pk = :pk AND #sk BETWEEN :from AND :to',
+        keyValues: this.dayRangeValues(window),
+      },
+      limit,
+      cursor,
+      filters,
+      dir,
+    );
+  }
+
+  /**
+   * How many deals of one status fall in a schedule window, with the same
+   * filters the list applies — a `Select: COUNT` walked to the end of the
+   * range. It reads every row of the range, so the caller keeps the range
+   * bounded (a closed status without a window is never counted).
+   */
+  /** `cap` — стеля: набравши стільки, лічильник спиняється, і число означає «не менше». */
+  countBySchedule(
+    superStatus: JobSuperStatus,
+    window: ScheduleWindow,
+    filters?: DealFilters,
+    cap?: number,
+  ): Promise<number> {
+    const key = this.scheduleKeyCondition(window);
+    return this.countOn(DEALS_GSI5_NAME, 'GSI5PK', 'GSI5SK', [`STATUS#${superStatus}`], key.expression, key.values, filters, cap);
+  }
+
+  /** How many deals of one status were created in a span of days, under the list's filters. */
+  countByCreated(superStatus: JobSuperStatus, window: DayWindow, filters?: DealFilters): Promise<number> {
+    return this.countOn(
+      DEALS_GSI1_NAME,
+      'GSI1PK',
+      'GSI1SK',
+      [`STATUS#${superStatus}`],
+      '#pk = :pk AND #sk BETWEEN :from AND :to',
+      this.dayRangeValues(window),
+      filters,
+    );
+  }
+
+  /** How many deals closed in a span of days, under the list's filters (a status is one of them). */
+  countByClosed(window: DayWindow, filters?: DealFilters): Promise<number> {
+    return this.countOn(
+      DEALS_GSI6_NAME,
+      'GSI6PK',
+      'GSI6SK',
+      monthsOf(window).map((m) => `CLOSED#${m}`),
+      '#pk = :pk AND #sk BETWEEN :from AND :to',
+      this.dayRangeValues(window),
+      filters,
+    );
+  }
+
+  /**
+   * Every deal of a Jobs-report window, read to its end and projected to the
+   * attributes the report uses (`projection`). The report sorts on any
+   * column and prints "of N", so it needs the whole window, never a page —
+   * but only the window: each date has an index whose sort key is that date.
+   *
+   * - `created` — the status index (`<createdAt>#DEAL#<id>`), six statuses;
+   *   the window's Eastern days become UTC instants, exact.
+   * - `scheduled` — the schedule index holds the visit's own local day, and an
+   *   Eastern day is at most one away from it, so a day either side is read
+   *   and the caller windows exactly (`reportDay`). Undated jobs report on
+   *   their creation (Workiz's hidden slot), read off the `UNSCHED` keys.
+   * - `end` — the EndIndex (`END#<YYYY-MM>` / `<jobEndAt>#…`), exact.
+   *
+   * Deleted rows never come back. Throws `ReportWindowTooLargeError` past
+   * `REPORT_WINDOW_MAX_ROWS`.
+   */
+  async readReportWindow(
+    by: ReportWindowBy,
+    from: string,
+    to: string,
+    projection: readonly string[],
+  ): Promise<Record<string, unknown>[]> {
+    const statuses = SUPER_STATUS_ORDER.map((s) => `STATUS#${s}`);
+    const range = '#pk = :pk AND #sk BETWEEN :from AND :to';
+    const read = new WindowRead(this.dynamoDb, this.tableName, projection);
+    // A status partition is read one month at a time, all months at once: a
+    // year of Canceled is ~30 000 rows, and one sequential walk of it would
+    // be a hundred-odd pages end to end.
+    if (by === 'created') {
+      await Promise.all(
+        monthSlices(from, to).map((m) =>
+          read.partitions(DEALS_GSI1_NAME, 'GSI1PK', 'GSI1SK', statuses, range, {
+            ':from': dayStartUtc(m.from),
+            ':to': dayStartUtc(shiftDay(m.to, 1)),
+          }),
+        ),
+      );
+    } else if (by === 'scheduled') {
+      await Promise.all([
+        ...monthSlices(shiftDay(from, -1), shiftDay(to, 1)).map((m) =>
+          read.partitions(DEALS_GSI5_NAME, 'GSI5PK', 'GSI5SK', statuses, range, {
+            ':from': `${m.from}#`,
+            ':to': `${m.to}#~~`,
+          }),
+        ),
+        read.partitions(
+          DEALS_GSI5_NAME,
+          'GSI5PK',
+          'GSI5SK',
+          statuses,
+          '#pk = :pk AND begins_with(#sk, :unsched)',
+          { ':unsched': `${UNSCHEDULED}#` },
+          {
+            expression: '#createdAt BETWEEN :createdFrom AND :createdTo',
+            names: { '#createdAt': 'createdAt' },
+            values: { ':createdFrom': dayStartUtc(shiftDay(from, -1)), ':createdTo': dayStartUtc(shiftDay(to, 2)) },
+          },
+        ),
+      ]);
+    } else {
+      await read.partitions(
+        DEALS_GSI7_NAME,
+        'GSI7PK',
+        'GSI7SK',
+        monthsOf({ from, to }).map((m) => `END#${m}`),
+        range,
+        { ':from': from, ':to': `${to}~` },
+      );
+    }
+    return read.items;
+  }
+
+  /** The key condition of a schedule window: a day span, the undated ones, or the whole partition. */
+  private scheduleKeyCondition(window: ScheduleWindow): { expression: string; values: Record<string, unknown> } {
+    if (window.unscheduled) {
+      return { expression: '#pk = :pk AND begins_with(#sk, :unsched)', values: { ':unsched': `${UNSCHEDULED}#` } };
+    }
+    if (window.from || window.to) {
+      // '#~~' sits above both a timed ('#09:00#…') and an all-day ('#~#…') row of that day.
+      return {
+        expression: '#pk = :pk AND #sk BETWEEN :from AND :to',
+        values: { ':from': `${window.from ?? '0000-00-00'}#`, ':to': `${window.to ?? '9999-12-31'}#~~` },
+      };
+    }
+    return { expression: '#pk = :pk', values: {} };
+  }
+
+  /**
+   * How many deals of one status were created on each day of a window — the
+   * series behind the dashboard's "Jobs By Status".
+   *
+   * The created index is already shaped like the question: partition
+   * `STATUS#<status>`, sort key `<createdAt>#DEAL#<id>`. So one Query per
+   * status answers a whole window, and the day comes off the key's own
+   * prefix — six queries for the chart, not six per day.
+   *
+   * Only the sort key is projected: days are being tallied, not rows, and a
+   * fortnight of deal bodies has no business crossing the wire. The walk is
+   * bounded like every other count here; out of budget the series is a floor
+   * and the panel says so.
+   */
+  async countCreatedByDay(
+    superStatus: JobSuperStatus,
+    window: DayWindow,
+  ): Promise<{ byDay: Record<string, number>; atLeast: boolean }> {
+    const values = this.dayRangeValues(window);
+    const byDay: Record<string, number> = {};
+    let startKey: Record<string, unknown> | undefined;
+    let reads = 0;
+
+    for (;;) {
+      if (reads >= BY_DAY_MAX_READS) return { byDay, atLeast: true };
+      reads += 1;
+
+      const res = await this.dynamoDb.client.send(
+        new QueryCommand({
+          TableName: this.tableName,
+          IndexName: DEALS_GSI1_NAME,
+          KeyConditionExpression: '#pk = :pk AND #sk BETWEEN :from AND :to',
+          ExpressionAttributeNames: { '#pk': 'GSI1PK', '#sk': 'GSI1SK' },
+          ExpressionAttributeValues: { ':pk': `STATUS#${superStatus}`, ...values },
+          ProjectionExpression: '#sk',
+          ...(startKey && { ExclusiveStartKey: startKey }),
+        }),
+      );
+
+      for (const item of res.Items ?? []) {
+        // `<createdAt>#DEAL#<id>` — the day is the first ten characters.
+        const day = String((item as { GSI1SK?: unknown }).GSI1SK ?? '').slice(0, 10);
+        if (day) byDay[day] = (byDay[day] ?? 0) + 1;
+      }
+
+      if (!res.LastEvaluatedKey) return { byDay, atLeast: false };
+      startKey = res.LastEvaluatedKey;
+    }
+  }
+
+  /** `<from>` … `<to>~` — a span of days as a range on an ISO-dated sort key. */
+  private dayRangeValues(window: DayWindow): Record<string, unknown> {
+    return { ':from': window.from ?? '0000-00-00', ':to': `${window.to ?? '9999-12-31'}~` };
+  }
+
+  /**
+   * One query per partition, merged in sort-key order, with a
+   * `{partition: lastKey}` cursor (base64url) so every partition resumes
+   * exactly after its last consumed row. Each partition is asked for a full
+   * page and only the merged head is kept — a few rows over the fetch,
+   * never a partition read past what the page needs.
+   */
+  private async fanOut(
+    read: IndexRead,
+    limit: number,
+    cursor: string | undefined,
+    filters: DealFilters | undefined,
+    dir: SortDir,
+  ): Promise<PaginatedResult> {
+    const f = this.dealFilterExpression(filters);
+    const names = read.partitions.map((p) => p.name);
+    const cursors = this.decodePartitionCursors(cursor, names);
+
+    const pages = await Promise.all(
+      read.partitions.map(async (partition) => {
+        // 'done' marks a partition already read to its end on an earlier page.
+        if (cursors[partition.name] === 'done') {
+          return {
+            name: partition.name,
+            items: [] as Record<string, unknown>[],
+            lastEvaluatedKey: undefined as Record<string, unknown> | undefined,
+          };
+        }
+        const result = await this.dynamoDb.client.send(
+          new QueryCommand({
+            TableName: this.tableName,
+            IndexName: read.indexName,
+            KeyConditionExpression: read.keyCondition,
+            FilterExpression: f.expression,
+            ExpressionAttributeNames: this.expressionNames(read.keyCondition, f.names, read.pkAttr, read.skAttr),
+            ExpressionAttributeValues: { ':pk': partition.pk, ...read.keyValues, ...f.values },
+            ScanIndexForward: dir === 'asc',
+            Limit: limit,
+            ExclusiveStartKey: cursors[partition.name] as Record<string, unknown> | undefined,
+          }),
+        );
+        return { name: partition.name, items: result.Items ?? [], lastEvaluatedKey: result.LastEvaluatedKey };
+      }),
+    );
+
+    if (pages.length === 1) {
+      const [page] = pages;
+      return {
+        items: page.items.map((i) => this.toDeal(i)),
+        nextCursor: page.lastEvaluatedKey ? this.encodePartitionCursors({ [page.name]: page.lastEvaluatedKey }) : undefined,
+      };
+    }
+
+    // k-way merge on the sort key; each partition keeps its own position.
+    const heads = pages.map((p) => ({ ...p, pos: 0 }));
+    const taken: Record<string, unknown>[] = [];
+    const before = (a: string, b: string) => (dir === 'asc' ? a < b : a > b);
+    while (taken.length < limit) {
+      let best: (typeof heads)[number] | undefined;
+      for (const h of heads) {
+        if (h.pos >= h.items.length) continue;
+        if (!best || before(h.items[h.pos][read.skAttr] as string, best.items[best.pos][read.skAttr] as string)) best = h;
+      }
+      if (!best) break;
+      taken.push(best.items[best.pos]);
+      best.pos += 1;
+    }
+
+    const next: Record<string, unknown> = {};
+    let anyLeft = false;
+    for (const h of heads) {
+      if (h.pos >= h.items.length) {
+        // Everything fetched was consumed (or nothing came back): resume where
+        // DynamoDB stopped — which also steps past a page the filter emptied —
+        // or close the partition when it read to its end.
+        if (!h.lastEvaluatedKey) {
+          next[h.name] = 'done';
+          continue;
+        }
+        next[h.name] = h.lastEvaluatedKey;
+      } else {
+        // Part of the fetch made the page: resume right after the last consumed
+        // row, or from the same start when none of this partition was taken.
+        next[h.name] = h.pos > 0 ? this.indexKeyOf(h.items[h.pos - 1], read) : (cursors[h.name] ?? null);
+      }
+      anyLeft = true;
+    }
+    return {
+      items: taken.map((i) => this.toDeal(i)),
+      nextCursor: anyLeft ? this.encodePartitionCursors(next) : undefined,
+    };
+  }
+
+  /**
+   * The names an index read declares. DynamoDB rejects the whole request
+   * when `ExpressionAttributeNames` holds a name no expression uses, and a
+   * key condition without a range (the jobs list with no date window) never
+   * mentions `#sk`.
+   */
+  private expressionNames(
+    keyCondition: string,
+    filterNames: Record<string, string>,
+    pkAttr: string,
+    skAttr: string,
+  ): Record<string, string> {
+    return {
+      ...filterNames,
+      '#pk': pkAttr,
+      ...(keyCondition.includes('#sk') ? { '#sk': skAttr } : {}),
+    };
+  }
+
+  /** A `Select: COUNT` over every partition of a read, each walked to the end of its range. */
+  private async countOn(
+    indexName: string,
+    pkAttr: string,
+    skAttr: string,
+    partitionKeys: string[],
+    keyCondition: string,
+    keyValues: Record<string, unknown>,
+    filters?: DealFilters,
+    cap?: number,
+  ): Promise<number> {
+    const f = this.dealFilterExpression(filters);
+    const counts = await Promise.all(
+      partitionKeys.map(async (pk) => {
+        let count = 0;
+        let lastKey: Record<string, unknown> | undefined;
+        do {
+          const result = await this.dynamoDb.client.send(
+            new QueryCommand({
+              TableName: this.tableName,
+              IndexName: indexName,
+              KeyConditionExpression: keyCondition,
+              FilterExpression: f.expression,
+              ExpressionAttributeNames: this.expressionNames(keyCondition, f.names, pkAttr, skAttr),
+              ExpressionAttributeValues: { ':pk': pk, ...keyValues, ...f.values },
+              Select: 'COUNT',
+              ExclusiveStartKey: lastKey,
+            }),
+          );
+          count += result.Count ?? 0;
+          lastKey = result.LastEvaluatedKey;
+          // Стеля перетнута — далі гортати нема сенсу: відповідь уже «не менше».
+          if (cap !== undefined && count >= cap) break;
+        } while (lastKey);
+        return count;
+      }),
+    );
+    return counts.reduce((a, b) => a + b, 0);
+  }
+
+  /** The ExclusiveStartKey an index row resumes from: table keys plus that index's keys. */
+  private indexKeyOf(item: Record<string, unknown>, read: IndexRead): Record<string, unknown> {
+    return { PK: item.PK, SK: item.SK, [read.pkAttr]: item[read.pkAttr], [read.skAttr]: item[read.skAttr] };
+  }
+
+  private encodePartitionCursors(cursors: Record<string, unknown>): string {
+    return Buffer.from(JSON.stringify(cursors)).toString('base64url');
+  }
+
+  /**
+   * A per-partition cursor map; a plain single-partition cursor (a raw
+   * DynamoDB key) is also accepted for a one-partition read. A `null` entry
+   * means "from the start".
+   */
+  private decodePartitionCursors(cursor: string | undefined, names: string[]): Record<string, unknown> {
+    const decoded = this.decodeCursor(cursor);
+    if (!decoded) return {};
+    if ('PK' in decoded && names.length === 1) return { [names[0]]: decoded };
+    const out: Record<string, unknown> = {};
+    for (const n of names) if (decoded[n] != null) out[n] = decoded[n];
+    return out;
+  }
+
+  /**
    * A technician's deals — every deal they're assigned to. Queries the tech
    * index for the technician's `ASSIGN#` rows, then batch-gets the deal
    * metadata. Filters run in memory since they target deal attributes, not the
@@ -219,14 +871,23 @@ export class DealsRepository {
     limit: number,
     cursor?: string,
     filters?: DealFilters,
+    window?: Pick<ScheduleWindow, 'from' | 'to'>,
+    dir: SortDir = 'desc',
   ): Promise<PaginatedResult> {
+    // GSI2SK is `<scheduledDate>#DEAL#<id>` (an ISO stamp for an undated
+    // assignment), so a span of days is a plain key range; '~' sits above
+    // any suffix of the last day.
+    const bounded = Boolean(window?.from || window?.to);
     const result = await this.dynamoDb.client.send(
       new QueryCommand({
         TableName: this.tableName,
         IndexName: DEALS_GSI2_NAME,
-        KeyConditionExpression: 'GSI2PK = :pk',
-        ExpressionAttributeValues: { ':pk': `TECH#${techId}` },
-        ScanIndexForward: false,
+        KeyConditionExpression: bounded ? 'GSI2PK = :pk AND GSI2SK BETWEEN :from AND :to' : 'GSI2PK = :pk',
+        ExpressionAttributeValues: {
+          ':pk': `TECH#${techId}`,
+          ...(bounded ? { ':from': window?.from ?? '0000-00-00', ':to': `${window?.to ?? '9999-12-31'}~` } : {}),
+        },
+        ScanIndexForward: dir === 'asc',
         Limit: limit,
         ExclusiveStartKey: this.decodeCursor(cursor),
       }),
@@ -301,20 +962,28 @@ export class DealsRepository {
   ): Promise<PaginatedResult> {
     const f = this.dealFilterExpression(filters, filters?.status || DealStatus.ACTIVE);
 
-    const result = await this.dynamoDb.client.send(
-      new ScanCommand({
-        TableName: this.tableName,
-        FilterExpression: `begins_with(PK, :pk) AND SK = :sk AND ${f.expression}`,
-        ExpressionAttributeValues: { ':pk': 'DEAL#', ':sk': 'METADATA', ...f.values },
-        ExpressionAttributeNames: f.names,
-        Limit: limit,
-        ExclusiveStartKey: this.decodeCursor(cursor),
-      }),
+    // Only a fraction of this table is jobs: a job's own partition also holds
+    // its line items, assignments and history, and every catalog lives here
+    // besides. DynamoDB caps `Limit` on rows READ and filters afterwards, so
+    // asking for 50 came back with one job. `scanPage` fills the page.
+    const page = await scanPage<Record<string, unknown>>(
+      (input) =>
+        this.dynamoDb.client.send(
+          new ScanCommand({
+            TableName: this.tableName,
+            FilterExpression: `begins_with(PK, :pk) AND SK = :sk AND ${f.expression}`,
+            ExpressionAttributeValues: { ':pk': 'DEAL#', ':sk': 'METADATA', ...f.values },
+            ExpressionAttributeNames: f.names,
+            ...input,
+          }),
+        ),
+      limit,
+      { startKey: this.decodeCursor(cursor), keyOf: (i) => ({ PK: i.PK, SK: i.SK }) },
     );
 
     return {
-      items: (result.Items || []).map((i) => this.toDeal(i)),
-      nextCursor: this.encodeCursor(result.LastEvaluatedKey),
+      items: page.items.map((i) => this.toDeal(i)),
+      nextCursor: this.encodeCursor(page.lastKey),
     };
   }
 
@@ -590,6 +1259,11 @@ export class DealsRepository {
     };
   }
 
+  /** The deals of a set of ids, in the order asked; missing ones are absent. */
+  async findByIds(ids: string[]): Promise<Deal[]> {
+    return this.batchGetDeals(ids);
+  }
+
   private async batchGetDeals(ids: string[]): Promise<Deal[]> {
     if (!ids.length) return [];
     const deals: Deal[] = [];
@@ -664,6 +1338,56 @@ export class DealsRepository {
       }),
     );
 
+    // The schedule index key is built from four attributes, and a partial
+    // update knows only the ones it carries — so it is restamped from the
+    // row as it stands after the write, in a second, cheap write that only
+    // scheduling / status changes pay for.
+    if (Object.keys(attrs).some((k) => INDEX_KEY_FIELDS.has(k))) {
+      return this.restampIndexKeys(id, result.Attributes!);
+    }
+    return this.toDeal(result.Attributes!);
+  }
+
+  /** The schedule, closed and end index keys, recomputed from the whole row. */
+  private async restampIndexKeys(id: string, row: Record<string, unknown>): Promise<Deal> {
+    const deal = this.toDeal(row);
+    const schedule = statusScheduleKeys(deal);
+    const closed = closedIndexKeys(deal);
+    // From the raw row: the imported visit instants are not on `Deal`.
+    const end = endIndexKeys({ ...(row as ReportDateSource), id });
+    const sets = ['GSI5PK = :gsi5pk', 'GSI5SK = :gsi5sk'];
+    const removes: string[] = [];
+    const values: Record<string, unknown> = { ':gsi5pk': schedule.GSI5PK, ':gsi5sk': schedule.GSI5SK };
+    if (schedule.slotStart) {
+      sets.push('#slotStart = :slotStart');
+      values[':slotStart'] = schedule.slotStart;
+    } else {
+      removes.push('#slotStart');
+    }
+    if (closed) {
+      sets.push('GSI6PK = :gsi6pk', 'GSI6SK = :gsi6sk');
+      values[':gsi6pk'] = closed.GSI6PK;
+      values[':gsi6sk'] = closed.GSI6SK;
+    } else {
+      removes.push('GSI6PK', 'GSI6SK');
+    }
+    if (end) {
+      sets.push('GSI7PK = :gsi7pk', 'GSI7SK = :gsi7sk');
+      values[':gsi7pk'] = end.GSI7PK;
+      values[':gsi7sk'] = end.GSI7SK;
+    } else {
+      removes.push('GSI7PK', 'GSI7SK');
+    }
+    const result = await this.dynamoDb.client.send(
+      new UpdateCommand({
+        TableName: this.tableName,
+        Key: { PK: `DEAL#${id}`, SK: 'METADATA' },
+        UpdateExpression: `SET ${sets.join(', ')}${removes.length ? ` REMOVE ${removes.join(', ')}` : ''}`,
+        ExpressionAttributeNames: { '#slotStart': 'slotStart' },
+        ExpressionAttributeValues: values,
+        ReturnValues: 'ALL_NEW',
+      }),
+    );
     return this.toDeal(result.Attributes!);
   }
 
@@ -698,7 +1422,7 @@ export class DealsRepository {
    * `DEALNUM#<code>` marker row guarded with attribute_not_exists. A collision
    * (the code already reserved) regenerates and retries; anything else rethrows.
    */
-  async reserveDealNumber(): Promise<string> {
+  async reserveDealNumber(dealId?: string): Promise<string> {
     const MAX_ATTEMPTS = 5;
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       const code = generateDealNumberCode();
@@ -706,7 +1430,9 @@ export class DealsRepository {
         await this.dynamoDb.client.send(
           new PutCommand({
             TableName: this.tableName,
-            Item: { PK: `DEALNUM#${code}`, SK: 'UNIQUE' },
+            // The reservation carries the deal it belongs to, so a Job ID
+            // search is one GetItem (`findIdByNumber`) and never a scan.
+            Item: { PK: `DEALNUM#${code}`, SK: 'UNIQUE', ...(dealId ? { dealId } : {}) },
             ConditionExpression: 'attribute_not_exists(PK)',
           }),
         );
@@ -717,6 +1443,19 @@ export class DealsRepository {
       }
     }
     throw new Error(`Could not reserve a unique deal number after ${MAX_ATTEMPTS} attempts`);
+  }
+
+  /**
+   * The deal a Job ID code reserves: its id; `null` when no such code was
+   * ever reserved; `undefined` when the reservation predates the link and
+   * the caller has to fall back to a filtered read.
+   */
+  async findIdByNumber(code: string): Promise<string | null | undefined> {
+    const result = await this.dynamoDb.client.send(
+      new GetCommand({ TableName: this.tableName, Key: { PK: `DEALNUM#${code.toUpperCase()}`, SK: 'UNIQUE' } }),
+    );
+    if (!result.Item) return null;
+    return (result.Item.dealId as string | undefined) ?? undefined;
   }
 
   private toDeal(item: Record<string, unknown>): Deal {
@@ -747,6 +1486,8 @@ export class DealsRepository {
       sequences: (item.sequences as Record<string, number>) || {},
       priority: item.priority as Deal['priority'],
       sourceId: item.sourceId as string | undefined,
+      businessProfileId: item.businessProfileId as string | undefined,
+      businessProfileName: item.businessProfileName as string | undefined,
       externalCompanyId: item.externalCompanyId as string | undefined,
       clientName: item.clientName as Deal['clientName'] | undefined,
       workOrderId: item.workOrderId as string | undefined,
@@ -757,6 +1498,14 @@ export class DealsRepository {
       tagIds: (item.tagIds as string[]) || [],
       customFields: item.customFields as Deal['customFields'] | undefined,
       subStatusId: (item.subStatusId as string) || undefined,
+      taxRateId: item.taxRateId as string | undefined,
+      taxRateName: item.taxRateName as string | undefined,
+      taxRatePercent: item.taxRatePercent as number | undefined,
+      taxSource: item.taxSource as Deal['taxSource'] | undefined,
+      discount: item.discount as Deal['discount'] | undefined,
+      itemCount: item.itemCount as number | undefined,
+      totals: item.totals as Deal['totals'] | undefined,
+      invoiceId: item.invoiceId as string | undefined,
       estimatedTotal: item.estimatedTotal as number | undefined,
       actualTotal: item.actualTotal as number | undefined,
       paymentStatus: item.paymentStatus as string | undefined,
@@ -767,6 +1516,25 @@ export class DealsRepository {
       // to every read path, so nothing can show when a job was closed.
       closedAt: item.closedAt as string | undefined,
       statusChangedAt: item.statusChangedAt as string | undefined,
+      closedAt: item.closedAt as string | undefined,
+      // Carried over from Workiz — see `Deal`. Money attributes the importer
+      // stores are deliberately not read until invoices are built.
+      externalId: item.externalId as string | undefined,
+      workizId: item.workizId as number | undefined,
+      jobSerial: item.jobSerial as number | undefined,
+      propId: item.propId as string | undefined,
+      jobTimezone: item.jobTimezone as string | undefined,
+      converted: item.converted as boolean | undefined,
+      conversionDate: item.conversionDate as string | undefined,
+      hasCalls: item.hasCalls as boolean | undefined,
+      seen: item.seen as boolean | undefined,
+      filesCount: item.filesCount as number | undefined,
+      lastSent: item.lastSent as string | undefined,
+      lastProgress: item.lastProgress as string | undefined,
+      emailAddress: item.emailAddress as string | undefined,
+      clientCompanyName: item.clientCompanyName as string | undefined,
+      phones: item.phones as string[] | undefined,
+      phoneExtensions: item.phoneExtensions as Record<string, string> | undefined,
       // Rows written before "Send to tech" existed simply have none of these.
       sentToTechAt: item.sentToTechAt as string | undefined,
       sentToTechVia: item.sentToTechVia as SendToTechChannel[] | undefined,
@@ -796,5 +1564,77 @@ export class DealsRepository {
   ): Record<string, unknown> | undefined {
     if (!cursor) return undefined;
     return JSON.parse(Buffer.from(cursor, 'base64url').toString('utf-8'));
+  }
+}
+
+/** A report window grew past `REPORT_WINDOW_MAX_ROWS`. */
+export class ReportWindowTooLargeError extends Error {
+  constructor(readonly limit: number) {
+    super(`The report window holds more than ${limit} jobs`);
+    this.name = 'ReportWindowTooLargeError';
+  }
+}
+
+/**
+ * One report-window read: any number of index partitions, each walked to the
+ * end of its range in parallel, projected, active rows only, with one shared
+ * row budget.
+ */
+class WindowRead {
+  readonly items: Record<string, unknown>[] = [];
+  private readonly names: Record<string, string> = { '#status': 'status' };
+  private readonly projection: string;
+
+  constructor(
+    private readonly dynamoDb: DynamoDbService,
+    private readonly tableName: string,
+    projection: readonly string[],
+  ) {
+    this.projection = projection
+      .map((attr, i) => {
+        this.names[`#p${i}`] = attr;
+        return `#p${i}`;
+      })
+      .join(', ');
+  }
+
+  async partitions(
+    indexName: string,
+    pkAttr: string,
+    skAttr: string,
+    partitionKeys: string[],
+    keyCondition: string,
+    keyValues: Record<string, unknown>,
+    extra?: { expression: string; names: Record<string, string>; values: Record<string, unknown> },
+  ): Promise<void> {
+    const names = {
+      ...this.names,
+      ...extra?.names,
+      '#pk': pkAttr,
+      ...(keyCondition.includes('#sk') ? { '#sk': skAttr } : {}),
+    };
+    const filter = ['#status = :active', extra?.expression].filter(Boolean).join(' AND ');
+    await Promise.all(
+      partitionKeys.map(async (pk) => {
+        let startKey: Record<string, unknown> | undefined;
+        do {
+          const res = await this.dynamoDb.client.send(
+            new QueryCommand({
+              TableName: this.tableName,
+              IndexName: indexName,
+              KeyConditionExpression: keyCondition,
+              FilterExpression: filter,
+              ProjectionExpression: this.projection,
+              ExpressionAttributeNames: names,
+              ExpressionAttributeValues: { ':pk': pk, ':active': DealStatus.ACTIVE, ...keyValues, ...extra?.values },
+              ExclusiveStartKey: startKey,
+            }),
+          );
+          for (const item of res.Items ?? []) this.items.push(item);
+          if (this.items.length > REPORT_WINDOW_MAX_ROWS) throw new ReportWindowTooLargeError(REPORT_WINDOW_MAX_ROWS);
+          startKey = res.LastEvaluatedKey;
+        } while (startKey);
+      }),
+    );
   }
 }

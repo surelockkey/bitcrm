@@ -12,6 +12,12 @@ export type WorkizProductType = (typeof WORKIZ_SERVICE_TYPES)[number];
 
 export interface Product {
   id: string;
+  /**
+   * Short sequential id, shown as "Product ID". Assigned by the inventory
+   * service from its counter on create; imported rows carry the Workiz item
+   * id. Never taken from a client.
+   */
+  number?: number;
   sku: string;
   barcode?: string;
   name: string;
@@ -27,10 +33,25 @@ export interface Product {
   costCompany: number;
   costTech: number;
   priceClient: number;
+  /** Default `taxable` flag copied onto job/estimate lines. Absent ⇒ `true`. */
+  taxable?: boolean;
   supplier?: string;
+  brandId?: string;
   photoKey?: string;
   serialTracking: boolean;
   minimumStockLevel: number;
+  /**
+   * Whether stock is counted for this product (Workiz `manage`). Absent ⇒
+   * `true`; services are never stock-managed whatever the flag says.
+   */
+  manageStock?: boolean;
+  /** Reorder point from the Workiz price book. */
+  reorderLevel?: number;
+  /**
+   * Units held across every warehouse and container. Maintained by the stock
+   * writes; read-only through the API and never taken from a client.
+   */
+  onHand?: number;
   status: InventoryStatus;
   createdAt: string;
   updatedAt: string;
@@ -38,9 +59,10 @@ export interface Product {
 
 /**
  * Attributes the importer adds that `Product` does not declare (`externalId`,
- * `taxable`, `manageStock`, `customAttributes`…). The inventory repository
+ * `categoryId`, `customAttributes`, `jobTypeIds`…). The inventory repository
  * carries them through reads, so an edit from the UI — which writes only the
  * fields it was given — cannot erase them. Read them off a product with a
- * cast; the typed fields always win.
+ * cast; the typed fields always win. `taxable`, `manageStock`, `brandId` and
+ * `reorderLevel` used to live here and are typed on `Product` now.
  */
 export type ProductWithExtras = Product & Record<string, unknown>;

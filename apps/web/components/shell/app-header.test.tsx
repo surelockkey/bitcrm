@@ -21,6 +21,7 @@ vi.mock("@/stores/ui-store", () => ({
 // The inbox button reads permissions and the unread counters; neither has a
 // provider here, so both are handed in.
 vi.mock("@/features/auth/use-permissions", () => ({
+  useDenied: () => () => false,
   usePermissions: () => ({ can: () => true, isTechnician: false, isLoading: false }),
 }));
 const countersMock = vi.fn(() => ({ data: undefined as { unreadConversations: number } | undefined }));
@@ -88,5 +89,17 @@ describe("AppHeader", () => {
 
     expect(screen.getByRole("link", { name: "Messages" })).toBeInTheDocument();
     expect(screen.queryByTestId("inbox-header-badge")).toBeNull();
+  });
+});
+
+describe("the header strip", () => {
+  it("sits on the grey topbar surface, not on the white content", () => {
+    // Workiz separates the chrome from the content with a light grey band
+    // (#f3f6f7 over a #dfe2e3 rule); white-on-white loses that edge.
+    const { container } = renderHeader();
+    const header = container.querySelector("header");
+    expect(header?.className).toContain("bg-topbar");
+    expect(header?.className).toContain("border-topbar-border");
+    expect(header?.className).not.toContain("bg-background");
   });
 });

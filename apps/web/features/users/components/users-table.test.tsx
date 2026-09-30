@@ -6,6 +6,7 @@ import { UserStatus } from "@bitcrm/types";
 import { UsersTable } from "./users-table";
 
 vi.mock("@/features/auth/use-permissions", () => ({
+  useDenied: () => () => false,
   usePermissions: () => ({ can: () => true }),
 }));
 vi.mock("../use-can-manage", () => ({
@@ -60,5 +61,42 @@ describe("UsersTable", () => {
   it("shows no custom badge without overrides", () => {
     render(<UsersTable users={users} roles={roles} onOpen={() => {}} />);
     expect(screen.queryByText("custom")).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * Стабільний перший кадр: ширини оголошені й тягнуться, нічого не міряється
+ * по вмісту.
+ */
+describe("UsersTable — a stable first frame", () => {
+  const render1 = () => render(<UsersTable users={users} roles={roles} onOpen={() => {}} />);
+
+  it("lays the columns out at declared widths, not by content", () => {
+    const { container } = render1();
+    expect(container.querySelector("table")?.className).toContain("table-fixed");
+  });
+
+  it("declares a width for every column", () => {
+    const { container } = render1();
+    const cols = [...container.querySelectorAll("colgroup col")];
+    expect(cols).toHaveLength(container.querySelectorAll("thead th").length);
+    for (const col of cols) expect((col as HTMLElement).style.width).not.toBe("");
+  });
+
+  it("lets no body cell set a width of its own", () => {
+    const { container } = render1();
+    for (const td of [...container.querySelectorAll("tbody td")]) {
+      for (const cls of td.className.split(/\s+/)) {
+        expect(cls).not.toMatch(/^(min-w-|max-w-|w-)/);
+      }
+      expect((td as HTMLElement).style.width).toBe("");
+    }
+  });
+
+  it("puts a resize handle on every header", () => {
+    render1();
+    for (const id of ["user", "role", "department", "status", "added", "actions"]) {
+      expect(screen.getByTestId(`resize-${id}`)).toBeInTheDocument();
+    }
   });
 });

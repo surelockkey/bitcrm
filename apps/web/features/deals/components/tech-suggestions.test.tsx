@@ -7,8 +7,12 @@ const { suggested, resolvedArea } = vi.hoisted(() => ({
   resolvedArea: { data: undefined as { id: string; name: string } | undefined },
 }));
 
+/** The directory knows everyone; the suggestion list only knows who qualifies. */
+let directory = new Map<string, { id: string; firstName: string; lastName: string }>();
+
 vi.mock("../hooks", () => ({
   useSuggestedTechs: () => suggested,
+  useUserMap: () => ({ map: directory }),
 }));
 vi.mock("@/features/service-areas/hooks", () => ({
   useResolvedServiceArea: () => resolvedArea,
@@ -72,5 +76,31 @@ describe("TechSuggestions — select", () => {
     render(<TechSuggestions jobTypeId="jt-x" address={{ lat: 41.7, lng: -72.6 }} selected={["t1"]} onChange={vi.fn()} />);
 
     expect(screen.getByLabelText("Assign team members")).toHaveTextContent("Alex Rivera");
+  });
+
+  /**
+   * A technician assigned to a job need not be eligible for it — an imported
+   * one usually is not, having no approved job types yet. The chip used to
+   * fall back to the raw uuid, which is unreadable and looks broken.
+   */
+  it("names an assigned technician the suggestion list has never heard of", () => {
+    directory = new Map([["t-away", { id: "t-away", firstName: "Reonquez", lastName: "Thompson" }]]);
+    suggested.data = [];
+
+    render(<TechSuggestions jobTypeId="jt1" address={{ lat: 41.7, lng: -72.6 }} selected={["t-away"]} onChange={() => {}} />);
+
+    expect(screen.getByLabelText("Assign team members")).toHaveTextContent("Reonquez Thompson");
+    expect(screen.getByLabelText("Assign team members")).not.toHaveTextContent("t-away");
+  });
+
+  it("waits rather than showing a uuid while the directory is still on its way", () => {
+    directory = new Map();
+    suggested.data = [];
+
+    const { container } = render(
+      <TechSuggestions jobTypeId="jt1" address={{ lat: 41.7, lng: -72.6 }} selected={["t-away"]} onChange={() => {}} />,
+    );
+
+    expect(container.textContent).not.toContain("t-away");
   });
 });

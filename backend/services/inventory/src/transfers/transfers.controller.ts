@@ -12,6 +12,8 @@ import { CurrentUser, RequirePermission } from '@bitcrm/shared';
 import { type JwtUser } from '@bitcrm/types';
 import { TransfersService } from './transfers.service';
 import { CreateTransferDto } from './dto/create-transfer.dto';
+import { ReceiveStockDto } from './dto/receive-stock.dto';
+import { ReturnStockDto } from './dto/return-stock.dto';
 import { DeductStockDto } from './dto/deduct-stock.dto';
 import { RestoreStockDto } from './dto/restore-stock.dto';
 import { ListTransfersQueryDto } from './dto/list-transfers-query.dto';
@@ -26,15 +28,62 @@ export class TransfersController {
 
   @Post()
   @RequirePermission('transfers', 'create')
-  @ApiOperation({ summary: 'Create a transfer between locations', description: '**Guard:** `transfers.create` permission required.' })
+  @ApiOperation({
+    summary: 'Create a transfer between locations',
+    description:
+      '**Guard:** `transfers.create` permission required. Both locations must exist (404 ' +
+      'otherwise) and differ (400), and the destination must not be archived (400 "… is ' +
+      'archived"; moving OUT of an archived location is allowed); services are rejected and ' +
+      'non-stock-managed items dropped ' +
+      'into `skippedItems`, a list with none left is a 400. Item names are the catalog\'s. ' +
+      'Answers the TRANSFER transfer.',
+  })
   async create(@Body() dto: CreateTransferDto, @CurrentUser() user: JwtUser) {
     const data = await this.transfersService.createTransfer(dto, user);
     return { success: true, data };
   }
 
+  @Post('receive')
+  @RequirePermission('transfers', 'create')
+  @ApiOperation({
+    summary: 'Receive stock from the supplier into a warehouse or container',
+    description:
+      '**Guard:** `transfers.create` permission required. Workiz "Add to stock": the location ' +
+      'must exist (404 otherwise) and not be archived (400 "… is archived"); services are ' +
+      'rejected and non-stock-managed items dropped ' +
+      'into `skippedItems`, a list with none left is a 400. Item names are the catalog\'s. ' +
+      'Answers the RECEIVE transfer.',
+  })
+  async receiveStock(@Body() dto: ReceiveStockDto, @CurrentUser() user: JwtUser) {
+    const data = await this.transfersService.receiveStock(dto, user);
+    return { success: true, data };
+  }
+
+  @Post('return')
+  @RequirePermission('transfers', 'create')
+  @ApiOperation({
+    summary: 'Return stock out of a location (recall, damaged, lost)',
+    description:
+      '**Guard:** `transfers.create` permission required. Stock leaves the location without a ' +
+      'job, with a reason; insufficient stock is a 400, non-stock-managed items are dropped ' +
+      'into `skippedItems`. Answers the RETURN transfer.',
+  })
+  async returnStock(@Body() dto: ReturnStockDto, @CurrentUser() user: JwtUser) {
+    const data = await this.transfersService.returnStock(dto, user);
+    return { success: true, data };
+  }
+
   @Get()
   @RequirePermission('transfers', 'view')
-  @ApiOperation({ summary: 'List all transfers', description: '**Guard:** `transfers.view` permission required.' })
+  @ApiOperation({
+    summary: 'List all transfers',
+    description:
+      '**Guard:** `transfers.view` permission required. Newest first, off the month index ' +
+      '(GSI1 `TRANSFERS#<YYYY-MM>`), never a Scan. `type` (receive | transfer | deduct | ' +
+      'restore | return) filters on the server, so a page of one type still fills; a page is ' +
+      'never longer than `limit`, and a rare type over many months may answer a short page with ' +
+      'a cursor once its read budget is spent. A cursor from before the month index is a 400.',
+  })
   async list(@Query() query: ListTransfersQueryDto) {
     const { items, nextCursor } = await this.transfersService.list(query);
     return {
@@ -42,6 +91,23 @@ export class TransfersController {
       data: items,
       pagination: { nextCursor, count: items.length },
     };
+  }
+
+  // Before `:id`, or the parameter route swallows it.
+  @Get('count')
+  @RequirePermission('transfers', 'view')
+  @ApiOperation({
+    summary: 'How many transfers the list holds',
+    description:
+      '**Guard:** `transfers.view` permission required. Takes the list\'s `type` filter ' +
+      '(`cursor` and `limit` are ignored) and answers `{ total, atLeast }` — every month from ' +
+      'the first transfer to now counted without bodies and added up — the row ' +
+      'count behind "Page 2 of 7". `atLeast` means the walk stopped on a ceiling and the real ' +
+      'number is higher, which the panel renders as `7+`. Cached for thirty seconds per type.',
+  })
+  async count(@Query() query: ListTransfersQueryDto) {
+    const data = await this.transfersService.count({ type: query.type });
+    return { success: true, data };
   }
 
   @Get(':id')
@@ -100,7 +166,13 @@ export class TransfersController {
 
   @Post('internal/stock/deduct')
   @Internal()
-  @ApiOperation({ summary: 'Internal: deduct stock from container (for deal service)', description: '**Guard:** Internal (X-Internal-Secret header required). Service-to-service only.' })
+  @ApiOperation({
+    summary: 'Internal: deduct stock from container (for deal service)',
+    description:
+      '**Guard:** Internal (X-Internal-Secret header required). Service-to-service only. ' +
+      '`containerId` may be a technician id (resolved to the container they work from); an id ' +
+      'that is no existing container is a 404 — no stock row is touched.',
+  })
   async deductStock(@Body() dto: DeductStockDto) {
     await this.transfersService.deductStock(dto);
     return { success: true };
@@ -108,9 +180,18 @@ export class TransfersController {
 
   @Post('internal/stock/restore')
   @Internal()
-  @ApiOperation({ summary: 'Internal: restore stock to container (for deal service)', description: '**Guard:** Internal (X-Internal-Secret header required). Service-to-service only.' })
+  @ApiOperation({
+    summary: 'Internal: restore stock to container (for deal service)',
+    description:
+      '**Guard:** Internal (X-Internal-Secret header required). Service-to-service only. Each line ' +
+      'goes back to the container its newest `stock_used` entry for this job names (one RESTORE ' +
+      'per container); only a line with no such entry falls back to the technician\'s current ' +
+      'container. A line for which no existing container can be found is skipped — never a ' +
+      '404, so removing a job line is never blocked — logged as `stock_restore_skipped` and ' +
+      'answered in `data.skippedItems`.',
+  })
   async restoreStock(@Body() dto: RestoreStockDto) {
-    await this.transfersService.restoreStock(dto);
-    return { success: true };
+    const data = await this.transfersService.restoreStock(dto);
+    return { success: true, data };
   }
 }

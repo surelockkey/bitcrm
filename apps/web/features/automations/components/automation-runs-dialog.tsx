@@ -1,7 +1,7 @@
 "use client";
 
+import Link from "next/link";
 import type { AutomationRule } from "@bitcrm/types";
-import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
   DialogContent,
@@ -10,17 +10,16 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
+import { getApiErrorMessage } from "@/lib/api/errors";
 import { useAutomationRuns } from "../hooks";
-import { OUTCOME_LABEL, formatFiredAt, outcomeTone, runSummary } from "../lib";
+import { formatFiredAt } from "../lib";
+import { RunActions, RunLine, RunOutcomeBadge } from "./automation-activity-run";
 
-const TONE_CLASS: Record<string, string> = {
-  ok: "border-transparent bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200",
-  warn: "border-transparent bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200",
-  bad: "border-transparent bg-red-100 text-red-900 dark:bg-red-950 dark:text-red-200",
-  muted: "",
-};
-
-/** The rule's last firings: when, for which job, what happened. Kept 30 days. */
+/**
+ * The rule's last firings: when, for which job, what each action did — and,
+ * for a firing that sent a message, the message as it went out and who it
+ * went to (§4.6 item 1). Kept 30 days.
+ */
 export function AutomationRunsDialog({
   rule,
   open,
@@ -30,7 +29,7 @@ export function AutomationRunsDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const { data: runs, isLoading } = useAutomationRuns(rule.id, open);
+  const { data: runs, isLoading, isError, error } = useAutomationRuns(rule.id, open);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -49,6 +48,11 @@ export function AutomationRunsDialog({
             <Skeleton className="h-10 w-full" />
             <Skeleton className="h-10 w-full" />
           </div>
+        ) : isError ? (
+          // A failed request is not a rule that never fired — say which it is.
+          <p className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
+            The log could not be loaded. {getApiErrorMessage(error)}
+          </p>
         ) : !runs?.length ? (
           <p className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
             It has not fired here yet.
@@ -56,20 +60,26 @@ export function AutomationRunsDialog({
         ) : (
           <ul className="space-y-2" data-testid="automation-runs">
             {runs.map((run) => (
-              <li key={run.id} className="rounded-md border p-3 text-sm">
+              <li key={run.id} data-testid={`firing-${run.id}`} className="rounded-md border p-3 text-sm">
                 <div className="flex items-center justify-between gap-2">
                   <span className="font-medium">{formatFiredAt(run.firedAt)}</span>
-                  <Badge variant="outline" className={TONE_CLASS[outcomeTone(run.outcome)]}>
-                    {OUTCOME_LABEL[run.outcome]}
-                  </Badge>
+                  <RunOutcomeBadge outcome={run.outcome} />
                 </div>
-                <p className="mt-0.5 text-xs text-muted-foreground">
-                  {run.entity} · {runSummary(run)}
-                </p>
+                <RunLine run={run} />
+                <RunActions run={run} />
               </li>
             ))}
           </ul>
         )}
+
+        <p className="text-xs text-muted-foreground">
+          <Link
+            href={`/automations/activity?rule=${encodeURIComponent(rule.id)}`}
+            className="text-primary hover:underline"
+          >
+            See every firing of this rule in Activity
+          </Link>
+        </p>
       </DialogContent>
     </Dialog>
   );

@@ -161,3 +161,13 @@ resource "aws_ssm_parameter" "app_domain" {
 
   tags = local.data_plane_tags
 }
+
+# → APP_PORTAL_DOMAIN → billing's PORTAL_BASE_URL (render-taskdef.sh): the
+# origin the links texted / copied to clients point at.
+resource "aws_ssm_parameter" "app_portal_domain" {
+  name  = "${local.ssm_prefix}/app/portal-domain"
+  type  = "String"
+  value = var.portal_domain
+
+  tags = local.data_plane_tags
+}

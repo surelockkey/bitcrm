@@ -1,6 +1,7 @@
 import { ConversationsController } from '../../../src/api/conversations/conversations.controller';
 import { ConversationsService } from '../../../src/api/conversations/conversations.service';
 import { CountersService } from '../../../src/api/counters/counters.service';
+import { PartyNamesService } from '../../../src/api/access/party-names.service';
 import { createMockConversation } from '../mocks';
 import { ADMIN, adminPerms } from './api-mocks';
 
@@ -19,7 +20,10 @@ function make() {
   const counters = {
     get: jest.fn().mockResolvedValue({ unreadConversations: 1, flaggedConversations: 0, unreadByKind: {} }),
   } as unknown as CountersService;
-  return { controller: new ConversationsController(conversations, counters), conversations, counters };
+  const names = {
+    forPage: jest.fn().mockResolvedValue({ contacts: [{ id: 'ct1', name: 'Jane Smith' }], companies: [], users: [] }),
+  } as unknown as PartyNamesService;
+  return { controller: new ConversationsController(conversations, counters, names), conversations, counters, names };
 }
 
 describe('ConversationsController', () => {
@@ -32,7 +36,21 @@ describe('ConversationsController', () => {
       success: true,
       data: [expect.objectContaining({ id: 'c1' })],
       pagination: { nextCursor: 'N1', count: 1 },
+      included: { contacts: [{ id: 'ct1', name: 'Jane Smith' }], companies: [], users: [] },
     });
+  });
+
+  // The names travel with the page: the inbox paints them on the first frame
+  // instead of the numbers, which it used to show until three more requests came back.
+  it('GET /conversations side-loads the names of the page it returns, for this caller', async () => {
+    const { controller, conversations, names } = make();
+    const perms = adminPerms();
+    const page = { items: [createMockConversation({ id: 'c7' })], nextCursor: undefined };
+    (conversations.list as jest.Mock).mockResolvedValue(page);
+
+    await controller.list({ view: 'all', limit: 50 }, ADMIN, perms);
+
+    expect(names.forPage).toHaveBeenCalledWith(page.items, perms);
   });
 
   it('GET /conversations/counters', async () => {

@@ -1,0 +1,189 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { http, HttpResponse } from "msw";
+import { PaymentTerms, type Invoice } from "@bitcrm/types";
+import { server } from "@/test/msw/server";
+import { renderWithClient } from "@/test/render-with-client";
+
+const mocks = vi.hoisted(() => ({ push: vi.fn(), canView: true }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.push, replace: vi.fn() }) }));
+vi.mock("next/link", () => ({
+  default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => (
+    <a href={href} {...rest}>{children}</a>
+  ),
+}));
+vi.mock("@/features/auth/use-permissions", () => ({
+  // This suite asserts the refusal, so `useDenied` mirrors its own `can`
+  // instead of declaring that nobody is ever refused.
+  useDenied: () => () => !mocks.canView,
+  usePermissions: () => ({ can: () => mocks.canView }),
+}));
+vi.mock("@/features/clients/hooks", () => ({
+  useContactsByIds: () => ({ map: new Map([["c1", { firstName: "Jane", lastName: "Smith" }]]), isLoading: false }),
+}));
+const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), loading: vi.fn(() => "t1") }));
+vi.mock("sonner", () => ({ toast }));
+
+import { InvoicesPage } from "./invoices-page";
+
+const totals = {
+  lineCount: 1, subtotal: 100, taxableSubtotal: 100, nonTaxableSubtotal: 0, discount: 0,
+  taxableBase: 100, taxRatePercent: 0, tax: 0, total: 100, amountPaid: 0, balanceDue: 100,
+};
+const inv = (over: Partial<Invoice>): Invoice => ({
+  id: "d1", number: "1042", dealId: "d1", contactId: "c1", invoiceDate: "2026-09-16",
+  paymentTerms: PaymentTerms.CASH, dueDate: "2026-09-16", status: "due", totals, version: 1,
+  createdBy: "u1", createdAt: "2026-09-16T10:00:00.000Z", updatedAt: "", ...over,
+});
+
+const listCalls: URLSearchParams[] = [];
+const user = () => userEvent.setup({ pointerEventsCheck: 0 });
+
+beforeEach(() => {
+  mocks.canView = true;
+  mocks.push.mockClear();
+  listCalls.length = 0;
+  server.use(
+    http.get("*/billing/invoices/summary", () =>
+      HttpResponse.json({
+        success: true,
+        data: { dueAmount: 1234.5, dueCount: 3, overdueAmount: 99, overdueCount: 1, unsentCount: 4, paidAmount: 0, paidCount: 0, needsInvoiceCount: 2 },
+      }),
+    ),
+    http.get("*/billing/invoices", ({ request }) => {
+      const params = new URL(request.url).searchParams;
+      listCalls.push(params);
+      if (params.get("cursor") === "next") {
+        return HttpResponse.json({ success: true, data: { items: [inv({ id: "d2", dealId: "d2", number: "1043" })] } });
+      }
+      return HttpResponse.json({ success: true, data: { items: [inv({})], nextCursor: "next" } });
+    }),
+    http.get("*/billing/invoices/needing-invoice", () =>
+      HttpResponse.json({
+        success: true,
+        data: [
+          { id: "j1", dealNumber: "2001", contactId: "c1", clientName: "Jane Smith", itemCount: 2, total: 50, createdAt: "2026-09-01T00:00:00Z" },
+          { id: "j2", dealNumber: "2002", contactId: "c1", clientName: "Jane Smith", itemCount: 1, total: 20, createdAt: "2026-09-02T00:00:00Z" },
+        ],
+      }),
+    ),
+  );
+});
+
+describe("InvoicesPage", () => {
+  it("shows summary widgets and the invoice table, a page at a time", async () => {
+    renderWithClient(<InvoicesPage />);
+    expect(await screen.findByText("$1,234.50")).toBeInTheDocument();
+    const row = await screen.findByRole("row", { name: /#1042/ });
+    expect(within(row).getByText("Jane Smith")).toBeInTheDocument();
+    expect(within(row).getByText("Unsent")).toBeInTheDocument();
+
+    await user().click(screen.getByRole("button", { name: "Next page" }));
+
+    // Друга сторінка заступає першу, а не доростає під нею.
+    expect(await screen.findByRole("row", { name: /#1043/ })).toBeInTheDocument();
+    expect(screen.queryByRole("row", { name: /#1042/ })).not.toBeInTheDocument();
+  });
+
+  it("filters by status when a widget is clicked and opens the job's invoice tab", async () => {
+    renderWithClient(<InvoicesPage />);
+    const u = user();
+    await u.click(await screen.findByRole("button", { name: /overdue.*\$99\.00/i }));
+    await waitFor(() => expect(listCalls.some((p) => p.get("status") === "overdue")).toBe(true));
+    await u.click(await screen.findByRole("row", { name: /#1042/ }));
+    expect(mocks.push).toHaveBeenCalledWith("/deals/d1?tab=invoice");
+  });
+
+  it("sends unsent=true from the toggle", async () => {
+    renderWithClient(<InvoicesPage />);
+    await user().click(await screen.findByRole("switch", { name: /unsent only/i }));
+    await waitFor(() => expect(listCalls.some((p) => p.get("unsent") === "true")).toBe(true));
+  });
+
+  it("bulk-creates invoices one job at a time", async () => {
+    const created: string[] = [];
+    server.use(
+      http.post("*/billing/invoices", async ({ request }) => {
+        const { dealId } = (await request.json()) as { dealId: string };
+        created.push(dealId);
+        return HttpResponse.json({ success: true, data: inv({ id: dealId }) });
+      }),
+    );
+    renderWithClient(<InvoicesPage />);
+    const u = user();
+    await u.click(await screen.findByRole("tab", { name: /needs invoice/i }));
+    await u.click(await screen.findByRole("checkbox", { name: /select all jobs/i }));
+    await u.click(screen.getByRole("button", { name: /create invoices \(2\)/i }));
+    await waitFor(() => expect(created).toEqual(["j1", "j2"]));
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Created 2 invoices", { id: "t1" }));
+  });
+
+  it("shows no-access without the view permission", () => {
+    mocks.canView = false;
+    renderWithClient(<InvoicesPage />);
+    expect(screen.getByText(/don't have permission to view invoices/i)).toBeInTheDocument();
+  });
+});
+
+/**
+ * Ширину колонок можна тягнути, і вона запам'ятовується.
+ *
+ * Розкладка фіксована: клієнти й суми доїжджають своїми запитами, і за
+ * авто-розкладки сітка переміряла б себе на кожен з них. Через те ж жодна
+ * клітинка не сміє задавати свою ширину — вона перемогла б colgroup.
+ */
+describe("InvoicesPage — resizable columns", () => {
+  const expectFixed = (table: HTMLTableElement) => {
+    expect(table.className).toContain("table-fixed");
+    const cols = [...table.querySelectorAll("colgroup col")];
+    expect(cols).toHaveLength(table.querySelectorAll("thead th").length);
+    for (const col of cols) expect((col as HTMLElement).style.width).not.toBe("");
+    for (const cell of table.querySelectorAll("tbody td")) {
+      expect(cell.className).not.toMatch(/\b(min-w|max-w|w)-/);
+    }
+  };
+
+  it("lays the invoice list out at declared widths, not by content", async () => {
+    const { container } = renderWithClient(<InvoicesPage />);
+    await screen.findByRole("row", { name: /#1042/ });
+    expectFixed(container.querySelector("table") as HTMLTableElement);
+  });
+
+  it("puts a drag handle on every invoice column", async () => {
+    renderWithClient(<InvoicesPage />);
+    await screen.findByRole("row", { name: /#1042/ });
+    for (const id of ["number", "client", "created", "due", "total", "balance", "status", "sent", "job"]) {
+      expect(screen.getByTestId(`resize-${id}`)).toBeInTheDocument();
+    }
+  });
+
+  it("does the same for the needs-invoice list", async () => {
+    const { container } = renderWithClient(<InvoicesPage />);
+    await user().click(await screen.findByRole("tab", { name: /needs invoice/i }));
+    await screen.findByText("#2001");
+    expectFixed(container.querySelector("table") as HTMLTableElement);
+    for (const id of ["select", "job", "client", "created", "items", "total", "create"]) {
+      expect(screen.getByTestId(`resize-${id}`)).toBeInTheDocument();
+    }
+  });
+});
+
+describe("InvoicesPage — partial payments", () => {
+  it("marks a part-paid invoice while its status stays Due", async () => {
+    server.use(
+      http.get("*/billing/invoices", () =>
+        HttpResponse.json({
+          success: true,
+          data: {
+            items: [inv({ totals: { ...totals, amountPaid: 40, balanceDue: 60 } })],
+          },
+        }),
+      ),
+    );
+    renderWithClient(<InvoicesPage />);
+    const row = (await screen.findByText("#1042")).closest("tr")!;
+    expect(within(row).getByText("Partially paid")).toBeInTheDocument();
+    expect(within(row).getByText("Due")).toBeInTheDocument();
+  });
+});

@@ -121,7 +121,11 @@ export function useEffectiveServiceArea(
 
 function useInvalidateServiceAreas() {
   const qc = useQueryClient();
-  return () => qc.invalidateQueries({ queryKey: queryKeys.serviceAreas.all() });
+  return () => {
+    qc.invalidateQueries({ queryKey: queryKeys.serviceAreas.all() });
+    // Tax rates are derived from areas (one per area with a tax).
+    qc.invalidateQueries({ queryKey: queryKeys.taxRates.all() });
+  };
 }
 
 export function useCreateServiceArea() {

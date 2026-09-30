@@ -5,7 +5,7 @@ import { Briefcase, Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { usePermissions } from "@/features/auth/use-permissions";
+import { useDenied } from "@/features/auth/use-permissions";
 import { NoAccess } from "@/features/clients/components/contacts-page";
 import { useMyJobs } from "../hooks";
 import { PULL_THRESHOLD_PX, usePullToRefresh } from "../use-pull-to-refresh";
@@ -20,12 +20,12 @@ import { TeamChatBadge } from "./team-chat-badge";
  * the cards are thumb-sized) but it is a plain page on a laptop too.
  */
 export function MyJobsPage() {
-  const { can } = usePermissions();
+  const denied = useDenied();
   const jobs = useMyJobs();
   const scrollRef = useRef<HTMLDivElement>(null);
   const { pull, refreshing } = usePullToRefresh(scrollRef, () => jobs.refetch());
 
-  if (!can("deals", "view")) return <NoAccess entity="jobs" />;
+  if (denied("deals", "view")) return <NoAccess entity="jobs" />;
 
   const total = jobs.groups.reduce((n, g) => n + g.deals.length, 0);
   const busy = refreshing || jobs.isRefetching;

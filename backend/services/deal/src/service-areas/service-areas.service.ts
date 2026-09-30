@@ -15,6 +15,7 @@ import {
   type CoverageShape,
   type GeoPoint,
   type ZipEntry,
+  type ServiceAreaTax,
 } from '@bitcrm/types';
 import { randomUUID } from 'crypto';
 import { ServiceAreasRepository } from './service-areas.repository';
@@ -26,6 +27,7 @@ import { type CreateServiceAreaDto } from './dto/create-service-area.dto';
 import { type UpdateServiceAreaDto } from './dto/update-service-area.dto';
 import { type PreviewServiceAreaDto } from './dto/preview-service-area.dto';
 import { type ResolveServiceAreaDto } from './dto/resolve-service-area.dto';
+import { BusinessProfilesClient } from '../common/services/business-profiles.client';
 
 interface GeometryInput {
   type: ServiceAreaType;
@@ -42,6 +44,7 @@ export class ServiceAreasService {
     private readonly geocoding: GeocodingService,
     @Optional() private readonly snsPublisher?: SnsPublisherService,
     @Optional() private readonly businessMetrics?: BusinessMetricsService,
+    @Optional() private readonly businessProfiles?: BusinessProfilesClient,
   ) {}
 
   /** ZIP → centroid via the shared geocoder (empty other fields → ZIP-only query). */
@@ -81,6 +84,8 @@ export class ServiceAreasService {
 
     const active = dto.active ?? true;
     if (active) await this.assertNoOverlap(coverage);
+    const tax = this.normalizeTax(dto.tax);
+    const defaultBusinessProfileId = await this.validateCompany(dto.defaultBusinessProfileId);
 
     const now = new Date().toISOString();
     const area: ServiceArea = {
@@ -93,6 +98,8 @@ export class ServiceAreasService {
       definition,
       coverage,
       ...(this.normalizeCallerId(dto.callerId) ?? {}),
+      ...(tax && { tax }),
+      ...(defaultBusinessProfileId && { defaultBusinessProfileId }),
       createdBy: caller.id,
       createdAt: now,
       updatedAt: now,
@@ -155,6 +162,21 @@ export class ServiceAreasService {
       else delete updated.callerId;
     }
 
+    // undefined keeps the stored tax; null clears it (jobs then carry no tax).
+    // Existing jobs keep their snapshot either way.
+    if (dto.tax !== undefined) {
+      const tax = this.normalizeTax(dto.tax);
+      if (tax) updated.tax = tax;
+      else delete updated.tax;
+    }
+
+    // undefined keeps the stored company; null / '' clears it.
+    if (dto.defaultBusinessProfileId !== undefined) {
+      const companyId = await this.validateCompany(dto.defaultBusinessProfileId);
+      if (companyId) updated.defaultBusinessProfileId = companyId;
+      else delete updated.defaultBusinessProfileId;
+    }
+
     await this.repository.put(updated);
     this.publishEvent('service-area.updated', { serviceAreaId: id, name: updated.name });
     return updated;
@@ -179,6 +201,39 @@ export class ServiceAreasService {
       );
     }
     return { callerId: normalized };
+  }
+
+  /**
+   * Validate an area's tax (the DTO decorators do most of this, but services
+   * are also called directly): name 1–60 after trimming, rate 0–100 with at
+   * most 3 decimals. Returns undefined for "no tax" (null).
+   */
+  private normalizeTax(raw: { name?: unknown; ratePercent?: unknown } | null | undefined): ServiceAreaTax | undefined {
+    if (raw === undefined || raw === null) return undefined;
+    const name = typeof raw.name === 'string' ? raw.name.trim() : '';
+    if (name.length < 1 || name.length > 60) {
+      throw new BadRequestException('tax.name must be 1–60 characters');
+    }
+    const rate = raw.ratePercent;
+    if (typeof rate !== 'number' || !Number.isFinite(rate) || rate < 0 || rate > 100) {
+      throw new BadRequestException('tax.ratePercent must be a number between 0 and 100');
+    }
+    const scaled = rate * 1000;
+    if (Math.abs(scaled - Math.round(scaled)) > 1e-6) {
+      throw new BadRequestException('tax.ratePercent may have at most 3 decimal places');
+    }
+    return { name, ratePercent: rate };
+  }
+
+  /**
+   * An area's default company must be an active billing company. Returns the
+   * id to store, or undefined for "none" (null / blank). Billing being down is
+   * not an error — the client accepts the id and logs a warning.
+   */
+  private async validateCompany(raw: string | null | undefined): Promise<string | undefined> {
+    if (raw === undefined || raw === null || raw.trim() === '') return undefined;
+    if (!this.businessProfiles) return raw;
+    return (await this.businessProfiles.resolve(raw.trim())).id;
   }
 
   async remove(id: string, caller: { id: string }): Promise<void> {

@@ -1,10 +1,12 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { InventoryStatus } from '@bitcrm/types';
-import { SnsPublisherService } from '@bitcrm/shared';
+import { SnsPublisherService , RedisService } from '@bitcrm/shared';
 import { ContainersService } from 'src/containers/containers.service';
 import { ContainersRepository } from 'src/containers/containers.repository';
 import { StockRepository } from 'src/stock/stock.repository';
+import { ContainerAssignmentResolver } from 'src/user-containers/container-assignment.resolver';
+import { ContainerTemplatesRepository } from 'src/container-templates/container-templates.repository';
 import {
   createMockContainer,
   createMockCreateContainerDto,
@@ -12,12 +14,17 @@ import {
   createMockJwtUser,
   createMockContainersRepository,
   createMockStockRepository,
+  createMockContainerAssignmentResolver,
+  createMockContainerTemplate,
+  createMockContainerTemplatesRepository,
 } from '../mocks';
 
 describe('ContainersService', () => {
   let service: ContainersService;
   let repository: ReturnType<typeof createMockContainersRepository>;
   let stockRepository: ReturnType<typeof createMockStockRepository>;
+  let assignments: ReturnType<typeof createMockContainerAssignmentResolver>;
+  let templates: ReturnType<typeof createMockContainerTemplatesRepository>;
 
   let publisher: { publish: jest.Mock };
 
@@ -25,13 +32,29 @@ describe('ContainersService', () => {
     publisher = { publish: jest.fn().mockResolvedValue(undefined) };
     repository = createMockContainersRepository();
     stockRepository = createMockStockRepository();
+    assignments = createMockContainerAssignmentResolver();
+    templates = createMockContainerTemplatesRepository();
+
+    const store = new Map<string, string>();
+    const redis = {
+      client: {
+        get: jest.fn(async (k: string) => store.get(k) ?? null),
+        set: jest.fn(async (k: string, v: string) => {
+          store.set(k, v);
+          return 'OK';
+        }),
+      },
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ContainersService,
         { provide: ContainersRepository, useValue: repository },
         { provide: StockRepository, useValue: stockRepository },
+        { provide: ContainerAssignmentResolver, useValue: assignments },
+        { provide: ContainerTemplatesRepository, useValue: templates },
         { provide: SnsPublisherService, useValue: publisher },
+        { provide: RedisService, useValue: redis },
       ],
     }).compile();
 
@@ -55,8 +78,20 @@ describe('ContainersService', () => {
       });
     });
 
-    it('should create with a technician assigned when the tech is free', async () => {
-      repository.findByTechnicianId.mockResolvedValue(null);
+    // Новий фургон порожній, і його підсумки ведуться з першого ж запису
+    // стоку — бекфіл потрібен лише рядкам, записаним до появи полів.
+    it('starts the stock totals at zero, so every stock write keeps them from the first one', async () => {
+      repository.create.mockResolvedValue(undefined);
+
+      const result = await service.create(createMockCreateContainerDto());
+
+      expect(result).toMatchObject({ totalUnits: 0, uniqueItems: 0 });
+      expect(repository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ totalUnits: 0, uniqueItems: 0 }),
+      );
+    });
+
+    it('should create with a technician assigned', async () => {
       repository.create.mockResolvedValue(undefined);
 
       const result = await service.create(
@@ -67,35 +102,103 @@ describe('ContainersService', () => {
       expect(result.technicianName).toBe('John Doe');
     });
 
-    it('should reject creating with a technician already assigned elsewhere', async () => {
+    // Фургон може мати багатьох людей (Workiz "User containers"), тож правило
+    // "один технік — один контейнер" зняте.
+    it('creates with a technician who already has another container', async () => {
       repository.findByTechnicianId.mockResolvedValue(createMockContainer({ id: 'other' }));
+      repository.create.mockResolvedValue(undefined);
 
+      const result = await service.create(createMockCreateContainerDto({ technicianId: 'tech-1' }));
+
+      expect(result.technicianId).toBe('tech-1');
+      expect(repository.create).toHaveBeenCalled();
+    });
+  });
+
+  describe('templateId', () => {
+    it('creates with an active template', async () => {
+      templates.findById.mockResolvedValue(createMockContainerTemplate({ id: 'tpl-1' }));
+
+      const result = await service.create(createMockCreateContainerDto({ templateId: 'tpl-1' }));
+
+      expect(result.templateId).toBe('tpl-1');
+      expect(templates.findById).toHaveBeenCalledWith('tpl-1');
+      expect(repository.create).toHaveBeenCalledWith(expect.objectContaining({ templateId: 'tpl-1' }));
+    });
+
+    it('404s on a template that does not exist', async () => {
       await expect(
-        service.create(createMockCreateContainerDto({ technicianId: 'tech-1' })),
-      ).rejects.toThrow(BadRequestException);
+        service.create(createMockCreateContainerDto({ templateId: 'missing' })),
+      ).rejects.toThrow(NotFoundException);
       expect(repository.create).not.toHaveBeenCalled();
+    });
+
+    it('refuses an archived template', async () => {
+      templates.findById.mockResolvedValue(
+        createMockContainerTemplate({ id: 'tpl-1', status: InventoryStatus.ARCHIVED }),
+      );
+      repository.findById.mockResolvedValue(createMockContainer());
+
+      await expect(service.update('container-1', { templateId: 'tpl-1' })).rejects.toThrow(BadRequestException);
+      expect(repository.update).not.toHaveBeenCalled();
+    });
+
+    // Діалог редагування шле форму цілком: шаблон, що вже стоїть на фургоні й
+    // тим часом пішов в архів, не має блокувати перейменування.
+    it('re-saves the template the container already has without checking it again', async () => {
+      repository.findById.mockResolvedValue(createMockContainer({ templateId: 'tpl-old' }));
+      repository.update.mockResolvedValue(createMockContainer());
+
+      await service.update('container-1', { name: 'Van 9', templateId: 'tpl-old' });
+
+      expect(templates.findById).not.toHaveBeenCalled();
+      expect(repository.update).toHaveBeenCalledWith('container-1', { name: 'Van 9', templateId: 'tpl-old' });
+    });
+
+    it('sets a template on update, and clears it with null without looking one up', async () => {
+      templates.findById.mockResolvedValue(createMockContainerTemplate({ id: 'tpl-2' }));
+      repository.findById.mockResolvedValue(createMockContainer());
+      repository.update.mockResolvedValue(createMockContainer());
+
+      await service.update('container-1', { templateId: 'tpl-2' });
+      expect(repository.update).toHaveBeenLastCalledWith('container-1', { templateId: 'tpl-2' });
+
+      templates.findById.mockClear();
+      await service.update('container-1', { templateId: null });
+      expect(repository.update).toHaveBeenLastCalledWith('container-1', { templateId: null });
+      expect(templates.findById).not.toHaveBeenCalled();
     });
   });
 
   describe('getMyContainer', () => {
-    it('should return the container assigned to the user', async () => {
-      const container = createMockContainer();
+    it('should return the container the user is assigned to', async () => {
+      const container = createMockContainer({ id: 'c-7', technicianId: undefined });
       const user = createMockJwtUser({ id: 'tech-1' });
-      repository.findByTechnicianId.mockResolvedValue(container);
+      assignments.containerIdForUser.mockResolvedValue('c-7');
+      repository.findById.mockResolvedValue(container);
 
       const result = await service.getMyContainer(user);
 
       expect(result).toEqual(container);
+      expect(assignments.containerIdForUser).toHaveBeenCalledWith('tech-1');
+      expect(repository.findById).toHaveBeenCalledWith('c-7');
     });
 
     it('should throw NotFoundException when nothing is assigned (no lazy creation)', async () => {
       const user = createMockJwtUser({ id: 'tech-1', roleId: 'role-technician' });
-      repository.findByTechnicianId.mockResolvedValue(null);
+      assignments.containerIdForUser.mockResolvedValue(undefined);
 
       await expect(service.getMyContainer(user)).rejects.toThrow(
         NotFoundException,
       );
       expect(repository.create).not.toHaveBeenCalled();
+    });
+
+    it('should throw NotFoundException when the assigned container has no row', async () => {
+      assignments.containerIdForUser.mockResolvedValue('c-gone');
+      repository.findById.mockResolvedValue(null);
+
+      await expect(service.getMyContainer(createMockJwtUser())).rejects.toThrow(NotFoundException);
     });
   });
 
@@ -139,10 +242,9 @@ describe('ContainersService', () => {
       });
     });
 
-    it('should assign a free technician', async () => {
+    it('should assign a technician', async () => {
       const container = createMockContainer({ technicianId: undefined, technicianName: undefined });
       repository.findById.mockResolvedValue(container);
-      repository.findByTechnicianId.mockResolvedValue(null);
       repository.update.mockResolvedValue(
         createMockContainer({ technicianId: 'tech-9', technicianName: 'Ann Lee' }),
       );
@@ -170,17 +272,17 @@ describe('ContainersService', () => {
       ).resolves.toBeDefined();
     });
 
-    it('should reject assigning a technician who has another container', async () => {
+    it('assigns a technician who already has another container', async () => {
       const container = createMockContainer({ technicianId: undefined });
       repository.findById.mockResolvedValue(container);
       repository.findByTechnicianId.mockResolvedValue(
         createMockContainer({ id: 'other-container', technicianId: 'tech-9' }),
       );
+      repository.update.mockResolvedValue(createMockContainer({ technicianId: 'tech-9' }));
 
-      await expect(
-        service.update('container-1', { technicianId: 'tech-9' }),
-      ).rejects.toThrow(BadRequestException);
-      expect(repository.update).not.toHaveBeenCalled();
+      await service.update('container-1', { technicianId: 'tech-9' });
+
+      expect(repository.update).toHaveBeenCalledWith('container-1', { technicianId: 'tech-9' });
     });
 
     it('should unassign the technician when technicianId is null', async () => {
@@ -246,24 +348,65 @@ describe('ContainersService', () => {
       expect(result).toEqual(paginated);
     });
 
-    it('should filter by assigned_only dataScope', async () => {
-      const container = createMockContainer();
+    it('should filter by assigned_only dataScope to the container the user is assigned to', async () => {
+      const container = createMockContainer({ id: 'c-7', technicianId: undefined });
       const user = createMockJwtUser({ id: 'tech-1' });
-      repository.findByTechnicianId.mockResolvedValue(container);
+      assignments.containerIdForUser.mockResolvedValue('c-7');
+      repository.findById.mockResolvedValue(container);
 
       const result = await service.list({ limit: 20 } as any, user, 'assigned_only');
 
       expect(result.items).toEqual([container]);
+      expect(assignments.containerIdForUser).toHaveBeenCalledWith('tech-1');
       expect(repository.findAll).not.toHaveBeenCalled();
+    });
+
+    // "All locations": assigned_only не звужує список до одного фургона.
+    it('lists every container under assigned_only for a user with "All locations"', async () => {
+      assignments.assignmentFor.mockResolvedValue({ allLocations: true });
+      const page = { items: [createMockContainer()], nextCursor: 'n' };
+      repository.findAll.mockResolvedValue(page);
+
+      const result = await service.list(
+        { limit: 20, search: 'van', status: InventoryStatus.ACTIVE } as any,
+        createMockJwtUser({ id: 'tech-1' }),
+        'assigned_only',
+      );
+
+      expect(result).toEqual(page);
+      expect(repository.findAll).toHaveBeenCalledWith(20, undefined, {
+        department: undefined,
+        search: 'van',
+        status: InventoryStatus.ACTIVE,
+      });
     });
 
     it('should return empty array for assigned_only when no container exists', async () => {
       const user = createMockJwtUser();
-      repository.findByTechnicianId.mockResolvedValue(null);
+      assignments.containerIdForUser.mockResolvedValue(undefined);
 
       const result = await service.list({ limit: 20 } as any, user, 'assigned_only');
 
       expect(result.items).toEqual([]);
+    });
+
+    // Технік бачить лише свій фургон, але фільтри мають відповідати на те саме
+    // питання, що й для всіх: "archived" або "zzz" не повертає активний фургон.
+    it('applies status and search to the technician’s own container under assigned_only', async () => {
+      const user = createMockJwtUser({ id: 'tech-1' });
+      const van = createMockContainer({ name: '(12) MIKE', status: InventoryStatus.ACTIVE });
+      assignments.containerIdForUser.mockResolvedValue(van.id);
+      repository.findById.mockResolvedValue(van);
+
+      expect(
+        (await service.list({ status: InventoryStatus.ARCHIVED } as any, user, 'assigned_only')).items,
+      ).toEqual([]);
+      expect((await service.list({ search: 'zzz' } as any, user, 'assigned_only')).items).toEqual([]);
+      expect(
+        (await service.list({ search: ' mike', status: InventoryStatus.ACTIVE } as any, user, 'assigned_only'))
+          .items,
+      ).toEqual([van]);
+      expect(repository.findAll).not.toHaveBeenCalled();
     });
 
     it('should filter by department dataScope', async () => {
@@ -274,6 +417,35 @@ describe('ContainersService', () => {
       await service.list({ limit: 20 } as any, user, 'department');
 
       expect(repository.findAll).toHaveBeenCalledWith(20, undefined, { department: 'Atlanta' });
+    });
+
+    it('passes the search term and status through', async () => {
+      repository.findAll.mockResolvedValue({ items: [], nextCursor: undefined });
+
+      await service.list({ limit: 20, search: 'mike', status: InventoryStatus.ACTIVE } as any);
+
+      expect(repository.findAll).toHaveBeenCalledWith(20, undefined, {
+        department: undefined,
+        search: 'mike',
+        status: InventoryStatus.ACTIVE,
+      });
+    });
+
+    it('keeps the search under a department scope', async () => {
+      const user = createMockJwtUser({ department: 'Atlanta' });
+      repository.findAll.mockResolvedValue({ items: [], nextCursor: undefined });
+
+      await service.list(
+        { limit: 20, department: 'other', search: 'mike' } as any,
+        user,
+        'department',
+      );
+
+      expect(repository.findAll).toHaveBeenCalledWith(20, undefined, {
+        department: 'Atlanta',
+        search: 'mike',
+        status: undefined,
+      });
     });
   });
 
@@ -296,6 +468,107 @@ describe('ContainersService', () => {
       await expect(service.getStock('nonexistent')).rejects.toThrow(
         NotFoundException,
       );
+    });
+  });
+
+  describe('count', () => {
+    it('counts the whole list when the caller sees everything', async () => {
+      repository.countAll.mockResolvedValue({ total: 12, atLeast: false });
+
+      expect(await service.count({} as never)).toEqual({ total: 12, atLeast: false });
+    });
+
+    // Технік бачить лише свій фургон — сорок сторінок йому показувати нема з чого.
+    it('counts a technician’s own container as one, without walking the table', async () => {
+      assignments.containerIdForUser.mockResolvedValue('cont-1');
+      repository.findById.mockResolvedValue(createMockContainer({ id: 'cont-1' }));
+
+      const result = await service.count({} as never, { id: 'u1' } as never, 'assigned_only');
+
+      expect(result).toEqual({ total: 1, atLeast: false });
+      expect(repository.countAll).not.toHaveBeenCalled();
+    });
+
+    it('counts every container under assigned_only for a user with "All locations"', async () => {
+      assignments.assignmentFor.mockResolvedValue({ allLocations: true });
+      repository.countAll.mockResolvedValue({ total: 88, atLeast: false });
+
+      expect(await service.count({} as never, { id: 'u1' } as never, 'assigned_only')).toEqual({
+        total: 88,
+        atLeast: false,
+      });
+    });
+
+    it('counts zero when that technician has no container', async () => {
+      assignments.containerIdForUser.mockResolvedValue(undefined);
+
+      expect(await service.count({} as never, { id: 'u1' } as never, 'assigned_only')).toEqual({
+        total: 0,
+        atLeast: false,
+      });
+    });
+
+    it('counts the technician’s container under the same status and search the list applies', async () => {
+      assignments.containerIdForUser.mockResolvedValue('container-1');
+      repository.findById.mockResolvedValue(
+        createMockContainer({ name: '(12) MIKE', status: InventoryStatus.ACTIVE }),
+      );
+      const user = { id: 'u1' } as never;
+
+      expect(await service.count({ status: InventoryStatus.ARCHIVED } as never, user, 'assigned_only')).toEqual({
+        total: 0,
+        atLeast: false,
+      });
+      expect(await service.count({ search: 'zzz' } as never, user, 'assigned_only')).toEqual({
+        total: 0,
+        atLeast: false,
+      });
+      expect(await service.count({ search: 'MIKE' } as never, user, 'assigned_only')).toEqual({
+        total: 1,
+        atLeast: false,
+      });
+    });
+
+    it('forces the caller’s own department under a department scope', async () => {
+      repository.countAll.mockResolvedValue({ total: 4, atLeast: false });
+
+      await service.count(
+        { department: 'other' } as never,
+        { id: 'u1', department: 'locksmith' } as never,
+        'department',
+      );
+
+      expect(repository.countAll).toHaveBeenCalledWith({ department: 'locksmith' });
+    });
+
+    it('counts under the same search and status the list uses', async () => {
+      repository.countAll.mockResolvedValue({ total: 2, atLeast: false });
+
+      await service.count({ search: 'mike', status: InventoryStatus.ARCHIVED } as never);
+
+      expect(repository.countAll).toHaveBeenCalledWith({
+        department: undefined,
+        search: 'mike',
+        status: InventoryStatus.ARCHIVED,
+      });
+    });
+
+    it('caches each filter combination on its own', async () => {
+      repository.countAll.mockResolvedValue({ total: 12, atLeast: false });
+
+      await service.count({} as never);
+      await service.count({ search: 'mike' } as never);
+
+      expect(repository.countAll).toHaveBeenCalledTimes(2);
+    });
+
+    it('answers a repeat from the cache', async () => {
+      repository.countAll.mockResolvedValue({ total: 12, atLeast: false });
+
+      await service.count({} as never);
+      await service.count({} as never);
+
+      expect(repository.countAll).toHaveBeenCalledTimes(1);
     });
   });
 });

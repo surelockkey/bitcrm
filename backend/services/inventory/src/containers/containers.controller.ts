@@ -42,7 +42,14 @@ export class ContainersController {
 
   @Get()
   @RequirePermission('containers', 'view')
-  @ApiOperation({ summary: 'List containers (filtered by data scope)', description: '**Guard:** `containers.view` permission required. Results filtered by data scope.' })
+  @ApiOperation({
+    summary: 'List containers (filtered by data scope)',
+    description:
+      '**Guard:** `containers.view` permission required. Results filtered by data scope. Workiz ' +
+      'placeholders (`placeholder: true`, locations deleted in Workiz — 119 of 207 on dev) are ' +
+      'never listed or counted; `GET /containers/:id` still reads them. A page is never longer ' +
+      'than `limit`. Each row carries `totalUnits` (units across its stock rows) and `uniqueItems` (products with quantity > 0), kept by every stock write — absent on a row `backfill:location-totals` has not reached yet.',
+  })
   async list(
     @Query() query: ListContainersQueryDto,
     @CurrentUser() user: JwtUser,
@@ -61,9 +68,35 @@ export class ContainersController {
     };
   }
 
+  // Before `:id`, or the parameter route swallows it.
+  @Get('count')
+  @RequirePermission('containers', 'view')
+  @ApiOperation({
+    summary: 'How many containers the list holds',
+    description:
+      '**Guard:** `containers.view` permission required. DataScope enforced, as on the list. ' +
+      'Takes the same filters (`department`; `cursor` and `limit` are ignored) and answers ' +
+      '`{ total, atLeast }` — the row count behind "Page 2 of 7". `atLeast` means the walk ' +
+      'stopped on a ceiling, which the panel renders as `7+`. Cached for thirty seconds.',
+  })
+  async count(
+    @Query() query: ListContainersQueryDto,
+    @CurrentUser() user: JwtUser,
+    @Req() req: any,
+  ) {
+    const dataScope = req.resolvedPermissions?.dataScope?.containers;
+    const data = await this.containersService.count(query, user, dataScope);
+    return { success: true, data };
+  }
+
   @Get(':id')
   @RequirePermission('containers', 'view')
-  @ApiOperation({ summary: 'Get container by ID', description: '**Guard:** `containers.view` permission required.' })
+  @ApiOperation({
+    summary: 'Get container by ID',
+    description:
+      '**Guard:** `containers.view` permission required. Carries `totalUnits` / `uniqueItems` as the ' +
+      'list does (absent until backfilled).',
+  })
   async findById(@Param('id') id: string) {
     const data = await this.containersService.findById(id);
     return { success: true, data };

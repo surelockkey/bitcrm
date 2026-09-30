@@ -6,8 +6,20 @@ import {
   NotFoundException,
   Optional,
 } from '@nestjs/common';
-import { SnsPublisherService, BusinessMetricsService } from '@bitcrm/shared';
-import { CALL_TAG_LIMITS, CallEventType } from '@bitcrm/types';
+import {
+  SnsPublisherService, BusinessMetricsService,
+  RedisService,
+  cachedCount,
+  countCacheKey,
+} from '@bitcrm/shared';
+import {
+  CALL_TAG_LIMITS,
+  CallEventType,
+  DASHBOARD_RANGES,
+  dashboardWindow,
+  type CallFlowSeries,
+  type ListCount,
+} from '@bitcrm/types';
 import {
   CallsRepository,
   CallTagsConflictError,
@@ -17,7 +29,9 @@ import {
 import { CallEventsBus } from './call-events.bus';
 import { DealLinkService } from '../common/deal-link.service';
 import { NumberSettingsRepository } from '../numbers/number-settings.repository';
+import { CallFlowsService } from '../call-flows/call-flows.service';
 import { CallTagsService } from '../call-tags/call-tags.service';
+import { callFlowSeries } from './call-flow-series';
 
 /** What `PATCH /calls/:sid/tags` carries: ids to put on, ids to take off. */
 export interface CallTagsChange {
@@ -105,6 +119,14 @@ export function isTerminalStatus(status?: CallStatus): boolean {
 /** A partial lifecycle update; callSid is the only required field. */
 export type LifecycleUpdate = Partial<CallRecord> & { callSid: string };
 
+/** How long a list count stays good enough. Matches the deals tab counts. */
+const COUNT_TTL_SECONDS = 30;
+/** The longest "Top Call Flows" window — the same quarter every report is held to. */
+const FLOW_WINDOW_MAX_DAYS = 92;
+const DAY = /^\d{4}-\d{2}-\d{2}$/;
+/** A "Top Call Flows" snapshot lives until the next nightly run, with slack. */
+const FLOW_SNAPSHOT_TTL_SECONDS = 26 * 3600;
+
 @Injectable()
 export class CallsService {
   private readonly logger = new Logger(CallsService.name);
@@ -125,20 +147,23 @@ export class CallsService {
      * collaborators a case actually needs; updateTags refuses when it is.
      */
     private readonly callTags?: CallTagsService,
+    @Optional() private readonly callFlows?: CallFlowsService,
+    @Optional() private readonly redis?: RedisService,
   ) {}
 
   /**
-   * Call-tracking attribution: the tracked number a call came through decides
-   * its job source (inbound → the number dialed, outbound → our caller id).
-   * Resolved only while the record has no source yet — a number reassigned to
-   * another campaign later must not rewrite settled history — and a lookup
-   * failure never fails the call write.
+   * Call-tracking attribution: the tracked number a call came through
+   * (inbound → the number dialed, outbound → our caller id) decides its job
+   * source and its company. Company precedence: the number's own setting →
+   * the flow that answers that number → none. Each field is resolved only
+   * while the record lacks it — a number reassigned later must not rewrite
+   * settled history — and a lookup failure never fails the call write.
    */
-  private async resolveSource(
+  private async resolveAttribution(
     update: LifecycleUpdate,
     existing: CallRecord | null,
-  ): Promise<string | undefined> {
-    if (existing?.sourceId || !this.numberSettings) return undefined;
+    want: { source: boolean; company: boolean },
+  ): Promise<{ sourceId?: string; businessProfileId?: string }> {
     const direction = update.direction ?? existing?.direction;
     const tracked =
       direction === 'inbound'
@@ -146,15 +171,34 @@ export class CallsService {
         : direction === 'outbound'
           ? (update.from ?? existing?.from)
           : undefined;
-    if (!tracked) return undefined;
-    try {
-      return (await this.numberSettings.get(tracked))?.sourceId;
-    } catch (err) {
-      this.logger.warn(
-        `Source lookup for ${tracked} failed: ${err instanceof Error ? err.message : err}`,
-      );
-      return undefined;
+    if (!tracked) return {};
+
+    let settings: { sourceId?: string; businessProfileId?: string } | null = null;
+    if (this.numberSettings) {
+      try {
+        settings = await this.numberSettings.get(tracked);
+      } catch (err) {
+        this.logger.warn(
+          `Number settings lookup for ${tracked} failed: ${err instanceof Error ? err.message : err}`,
+        );
+      }
     }
+
+    let businessProfileId = want.company ? settings?.businessProfileId : undefined;
+    if (want.company && !businessProfileId && this.callFlows) {
+      try {
+        businessProfileId = (await this.callFlows.findByNumber(tracked))?.businessProfileId;
+      } catch (err) {
+        this.logger.warn(
+          `Flow lookup for ${tracked} failed: ${err instanceof Error ? err.message : err}`,
+        );
+      }
+    }
+
+    return {
+      sourceId: want.source ? settings?.sourceId : undefined,
+      businessProfileId: businessProfileId || undefined,
+    };
   }
 
   /** Fire-and-forget SNS publish — event failures never fail a call write. */
@@ -201,18 +245,28 @@ export class CallsService {
       );
     }
 
-    // Guarded before the await: without a settings repo (or with the source
-    // already settled) the write path keeps its exact microtask profile —
+    // Guarded before the await: without a settings repo / flows (or with the
+    // source and company already settled) the write path keeps its exact microtask profile —
     // fire-and-forget callers (the stale-live heal) rely on it landing fast.
     const needSource =
       !update.sourceId && !existing?.sourceId && !!this.numberSettings;
+    const needCompany =
+      !update.businessProfileId &&
+      !existing?.businessProfileId &&
+      (!!this.numberSettings || !!this.callFlows);
+    const attribution =
+      needSource || needCompany
+        ? await this.resolveAttribution(update, existing, {
+            source: needSource,
+            company: needCompany,
+          })
+        : {};
     const record: CallRecord = {
       ...update,
       status,
       durationSeconds,
-      sourceId:
-        update.sourceId ??
-        (needSource ? await this.resolveSource(update, existing) : undefined),
+      sourceId: update.sourceId ?? attribution.sourceId,
+      businessProfileId: update.businessProfileId ?? attribution.businessProfileId,
       startedAt: update.startedAt ?? existing?.startedAt ?? now,
       updatedAt: now,
     };
@@ -489,6 +543,67 @@ export class CallsService {
     limit: number,
   ) {
     return this.repo.list(filter, cursor, limit);
+  }
+
+  /**
+   * How many calls the filter selects — the number behind "Page 2 of 7".
+   *
+   * Behind a short cache, and it earns it more than any other list: the log is
+   * the biggest table in the app, and a dispatcher changes filters constantly.
+   */
+  async count(filter: Parameters<CallsRepository['count']>[0]): Promise<ListCount> {
+    const take = () => this.repo.count(filter);
+    if (!this.redis) return take();
+    return cachedCount(
+      this.redis.client,
+      countCacheKey('calls', { ...filter }),
+      COUNT_TTL_SECONDS,
+      take,
+    );
+  }
+
+  /**
+   * The dashboard's "Top Call Flows": calls per flow per day over a window of
+   * whole days (at most a quarter).
+   *
+   * A snapshot, not a live read: walking a month of the call log is not
+   * something to do while someone waits for the dashboard. The nightly run
+   * (`warmFlows`) builds each range ahead of time and it is kept until the
+   * next; `computedAt` says when. `fresh` — the card's refresh — rebuilds it.
+   */
+  async topFlows(
+    window: { from?: string; to?: string },
+    opts: { fresh?: boolean } = {},
+  ): Promise<CallFlowSeries> {
+    const { from, to } = window;
+    if (!from || !to || !DAY.test(from) || !DAY.test(to) || Number.isNaN(Date.parse(from)) || Number.isNaN(Date.parse(to))) {
+      throw new BadRequestException('from and to are YYYY-MM-DD days');
+    }
+    if (to < from) throw new BadRequestException('The window must start on or before it ends');
+    const days = (Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000 + 1;
+    if (days > FLOW_WINDOW_MAX_DAYS) {
+      throw new BadRequestException(`The window is limited to ${FLOW_WINDOW_MAX_DAYS} days`);
+    }
+
+    const key = `calls:top-flows:${from}:${to}`;
+    if (!opts.fresh) {
+      const hit = await this.redis?.client.get(key);
+      const cached = hit ? (JSON.parse(hit) as CallFlowSeries) : null;
+      // A value from before snapshots carries no moment; rebuild it.
+      if (cached?.computedAt) return cached;
+    }
+
+    const { byFlow, atLeast } = await this.repo.flowCallsByDay({ from, to });
+    const series = { ...callFlowSeries(byFlow, { from, to }, atLeast), computedAt: new Date().toISOString() };
+    await this.redis?.client.set(key, JSON.stringify(series), 'EX', FLOW_SNAPSHOT_TTL_SECONDS);
+    return series;
+  }
+
+  /** The nightly run: every range the widget offers, ending today in New York, one at a time. */
+  async warmFlows(now: Date): Promise<void> {
+    for (const days of DASHBOARD_RANGES) {
+      await this.topFlows(dashboardWindow(days, now), { fresh: true });
+    }
   }
 
   /**

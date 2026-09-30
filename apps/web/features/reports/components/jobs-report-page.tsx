@@ -2,511 +2,401 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { ChevronLeft, ChevronRight, Download, Search } from "lucide-react";
-import { SUPER_STATUS_ORDER } from "@bitcrm/types";
-import type { Deal } from "@bitcrm/types";
+import { ChevronLeft, ChevronRight, Columns3, Download, Search } from "lucide-react";
+import { toast } from "sonner";
+import {
+  JOBS_REPORT_BY,
+  JOBS_REPORT_BY_LABEL,
+  JOBS_REPORT_DEFAULT_SETTINGS,
+  SUPER_STATUS_ORDER,
+  type JobsReportBy,
+  type JobsReportColumnId,
+  type JobsReportFilters,
+} from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DateTimeRangePicker } from "@/components/ui/date-time-range-picker";
 import { DAY_END, DAY_START, toIsoInstant, toLocalParts } from "@/lib/date-range";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { usePermissions } from "@/features/auth/use-permissions";
+import { useDebouncedValue } from "@/lib/use-debounced-value";
+import { useDenied, usePermissions } from "@/features/auth/use-permissions";
 import { NoAccess } from "@/features/clients/components/contacts-page";
-import { useCompanyMap } from "@/features/clients/hooks";
-import { formatPhone, primaryEmail, primaryPhone } from "@/features/clients/lib";
-import { useContactMap, useDeals, useUserMap } from "@/features/deals/hooks";
-import { dealClientName, formatSchedule, superStatusLabel } from "@/features/deals/lib";
-import { useCustomFields } from "@/features/custom-fields/hooks";
+import { useUserMap } from "@/features/deals/hooks";
+import { superStatusLabel } from "@/features/deals/lib";
+import { useAllTechnicians } from "@/features/technicians/hooks";
 import { useJobTypes } from "@/features/job-types/hooks";
-import { activeJobTypes, useJobTypeName } from "@/features/job-types/lib";
 import { useJobSources } from "@/features/job-sources/hooks";
-import { activeJobSources, useJobSourceName } from "@/features/job-sources/lib";
-import { useExternalCompanyName } from "@/features/external-companies/lib";
 import { useJobStatuses } from "@/features/job-statuses/hooks";
-import { activeJobStatuses, useJobStatusName } from "@/features/job-statuses/lib";
 import { useJobTags } from "@/features/job-tags/hooks";
-import { activeJobTags } from "@/features/job-tags/lib";
-import { JobTagChips } from "@/features/job-tags/components/job-tag-chips";
-import { sortJobs, type JobSort } from "@/features/deals/lib";
+import { useServiceAreas } from "@/features/service-areas/hooks";
+import { useExternalCompanies } from "@/features/external-companies/hooks";
+import { downloadJobsReportCsv } from "../jobs/api";
+import { useJobsReport, useJobsReportSettings, useSaveJobsReportSettings } from "../jobs/hooks";
 import {
-  datePresetRange,
-  filterJobsReport,
-  jobsReportCsv,
-  paginate,
-  type DatePreset,
-  type JobsReportDateField,
-} from "../lib";
+  DEFAULT_PRESET,
+  JOBS_REPORT_PAGE_SIZES,
+  JOBS_REPORT_PRESETS,
+  accountToday,
+  addFilter,
+  exportParams,
+  inReportOrder,
+  presetRange,
+  reportParams,
+  type JobsReportPreset,
+  type JobsReportState,
+} from "../jobs/lib";
+import { JobsReportFilter, type FilterGroup } from "../jobs/components/jobs-report-filter";
+import { JobsReportFields } from "../jobs/components/jobs-report-fields";
+import { JobsReportTable } from "../jobs/components/jobs-report-table";
 
-const ALL = "__all";
-const PAGE_SIZES = [10, 25, 50, 100];
+const BY_STORAGE_KEY = "bitcrm.jobs-report.by";
 
-const money = (n?: number) => (typeof n === "number" ? `$${n.toFixed(2)}` : "—");
-
-function when(ts?: string): string {
-  if (!ts) return "—";
-  const d = new Date(ts);
-  return Number.isNaN(d.getTime())
-    ? ts
-    : d.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+/** The viewer's last "By:" — a per-browser convenience over the account default. */
+function storedBy(): JobsReportBy | null {
+  try {
+    const v = localStorage.getItem(BY_STORAGE_KEY);
+    return v && (JOBS_REPORT_BY as readonly string[]).includes(v) ? (v as JobsReportBy) : null;
+  } catch {
+    return null;
+  }
 }
 
-/** Compact filter dropdown (mirrors the Jobs-page toolbar selects). */
-function FilterSelect({
-  value,
-  onChange,
-  allLabel,
-  options,
-  width = 150,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  allLabel: string;
-  options: { value: string; label: string }[];
-  width?: number;
-}) {
-  return (
-    <Select value={value} onValueChange={onChange}>
-      <SelectTrigger className="h-9" style={{ width }} aria-label={allLabel}>
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent>
-        <SelectItem value={ALL}>{allLabel}</SelectItem>
-        {options.map((o) => (
-          <SelectItem key={o.value} value={o.value}>
-            {o.label}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-  );
+function rememberBy(by: JobsReportBy): void {
+  try {
+    localStorage.setItem(BY_STORAGE_KEY, by);
+  } catch {
+    // Private mode or blocked storage: the account default still applies.
+  }
 }
 
-function Pager({
-  page,
-  pages,
-  total,
-  from,
-  to,
-  onPage,
-  size,
-  onSize,
-  right,
-}: {
-  page: number;
-  pages: number;
-  total: number;
-  from: number;
-  to: number;
-  onPage: (p: number) => void;
-  size?: number;
-  onSize?: (s: number) => void;
-  right?: React.ReactNode;
-}) {
-  return (
-    <div className="flex flex-wrap items-center gap-2">
-      {size !== undefined && onSize ? (
-        <select
-          aria-label="Rows per page"
-          className="h-8 rounded-md border bg-transparent px-2 text-sm"
-          value={size}
-          onChange={(e) => onSize(Number(e.target.value))}
-        >
-          {PAGE_SIZES.map((s) => (
-            <option key={s} value={s}>
-              {s}
-            </option>
-          ))}
-        </select>
-      ) : null}
-      <span className="text-xs tabular-nums text-muted-foreground">
-        {total === 0 ? "0 of 0" : `${from}–${to} of ${total}`}
-      </span>
-      <Button
-        variant="outline"
-        size="icon"
-        className="size-8"
-        aria-label="Previous page"
-        disabled={page <= 1}
-        onClick={() => onPage(page - 1)}
-      >
-        <ChevronLeft className="size-4" />
-      </Button>
-      <Button
-        variant="outline"
-        size="icon"
-        className="size-8"
-        aria-label="Next page"
-        disabled={page >= pages}
-        onClick={() => onPage(page + 1)}
-      >
-        <ChevronRight className="size-4" />
-      </Button>
-      <span className="flex-1" />
-      {right}
-    </div>
-  );
-}
+const personName = (u: { firstName?: string; lastName?: string; email?: string; id: string }) =>
+  `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() || u.email || u.id;
 
 /**
- * The Workiz Jobs report in our UI: the full jobs list with report filters
- * (status/sub-status, team, creator, tags, type, source, area, company), a
- * date range driven by a chosen date field, top+bottom pagination and CSV
- * export. Everything is computed client-side over the loaded jobs.
+ * The Workiz Jobs report (`/root/jobreport`): every job of a period, any
+ * status, on the date chosen under "By:" — Job created, Job date or Job end
+ * date. Workiz's multi-filter, its fifteen date presets, a column chooser
+ * saved for the account, a sort on every column and a CSV of the visible
+ * columns. The server does the work (`GET /deals/report`): it pages, sorts
+ * and names; this page only holds the toolbar.
  */
-export function JobsReportPage() {
+export function JobsReportPage({ today: todayProp }: { today?: string } = {}) {
+  const denied = useDenied();
   const { can } = usePermissions();
-  const { data: dealsData, isLoading } = useDeals();
-  const deals = useMemo(() => dealsData ?? [], [dealsData]);
-  const { map: contactMap } = useContactMap();
-  const { map: userMap } = useUserMap();
-  const { map: companyMap } = useCompanyMap();
-  const { data: customFieldDefs } = useCustomFields();
-  const jobTypesQuery = useJobTypes();
-  const jobSourcesQuery = useJobSources();
-  const jobStatusesQuery = useJobStatuses();
-  const jobTagsQuery = useJobTags();
-  const jobTypeName = useJobTypeName();
-  const sourceName = useJobSourceName();
-  const externalCompanyName = useExternalCompanyName();
-  const subStatusName = useJobStatusName();
+  // The presets count from today on the account's calendar (Eastern), not the viewer's.
+  const [today] = useState(() => todayProp ?? accountToday());
 
+  const settingsQuery = useJobsReportSettings();
+  const saveSettings = useSaveJobsReportSettings();
+  const settings = settingsQuery.data ?? JOBS_REPORT_DEFAULT_SETTINGS;
+
+  const [byChoice, setByChoice] = useState<JobsReportBy | null>(storedBy);
+  const by = byChoice ?? settings.by;
+  const [preset, setPreset] = useState<JobsReportPreset>(DEFAULT_PRESET);
+  const [custom, setCustom] = useState<{ from: string; to: string }>({ from: today, to: today });
+  const range = preset === "custom" ? custom : presetRange(preset, today);
+  const [filters, setFilters] = useState<JobsReportFilters>({});
   const [search, setSearch] = useState("");
-  const [superStatus, setSuperStatus] = useState(ALL);
-  const [subStatusId, setSubStatusId] = useState(ALL);
-  const [techId, setTechId] = useState(ALL);
-  const [createdBy, setCreatedBy] = useState(ALL);
-  const [tagId, setTagId] = useState(ALL);
-  const [jobTypeId, setJobTypeId] = useState(ALL);
-  const [sourceId, setSourceId] = useState(ALL);
-  const [serviceArea, setServiceArea] = useState(ALL);
-  const [companyId, setCompanyId] = useState(ALL);
-
-  const todayIso = new Date().toISOString().slice(0, 10);
-  const [dateField, setDateField] = useState<JobsReportDateField>("createdAt");
-  // "All time" by default — a fresh report should show everything;
-  // the Workiz-style weekly window is one click away in the presets.
-  const [preset, setPreset] = useState<DatePreset>("all");
-  const [customFrom, setCustomFrom] = useState("");
-  const [customTo, setCustomTo] = useState("");
-  const range = preset === "custom"
-    ? { from: customFrom || undefined, to: customTo || undefined }
-    : datePresetRange(preset, todayIso);
-
+  const q = useDebouncedValue(search, 400);
+  const [sort, setSort] = useState<{ column: JobsReportColumnId; dir: "asc" | "desc" }>({ column: "created", dir: "desc" });
   const [page, setPage] = useState(1);
-  const [size, setSize] = useState(50);
-  const [sortSel, setSortSel] = useState("none");
-  // Time-of-day window, matched against the slot start on any date.
-  const [hourFrom, setHourFrom] = useState("");
-  const [hourTo, setHourTo] = useState("");
+  const [pageSize, setPageSize] = useState(50);
+  const [localColumns, setLocalColumns] = useState<JobsReportColumnId[] | null>(null);
+  const [fieldsOpen, setFieldsOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
-  const searchableFields = useMemo(
-    () => (customFieldDefs ?? []).filter((f) => f.searchable),
-    [customFieldDefs],
-  );
+  const state: JobsReportState = {
+    by,
+    from: range.from,
+    to: range.to,
+    filters,
+    search: q,
+    sort: sort.column,
+    dir: sort.dir,
+    page,
+    pageSize,
+  };
+  // The account's "By:" decides the first request — do not ask for the wrong window first.
+  const ready = settingsQuery.isFetched || byChoice !== null;
+  const report = useJobsReport(reportParams(state), ready);
+  const data = report.data;
 
-  const filtered = useMemo(
-    () =>
-      filterJobsReport(
-        deals,
-        {
-          search: search || undefined,
-          superStatus: superStatus === ALL ? undefined : (superStatus as Deal["superStatus"]),
-          subStatusId: subStatusId === ALL ? undefined : subStatusId,
-          techId: techId === ALL ? undefined : techId,
-          createdBy: createdBy === ALL ? undefined : createdBy,
-          tagId: tagId === ALL ? undefined : tagId,
-          jobTypeId: jobTypeId === ALL ? undefined : jobTypeId,
-          sourceId: sourceId === ALL ? undefined : sourceId,
-          serviceArea: serviceArea === ALL ? undefined : serviceArea,
-          companyId: companyId === ALL ? undefined : companyId,
-          dateField,
-          dateFrom: range.from,
-          dateTo: range.to,
-          hourFrom: hourFrom || undefined,
-          hourTo: hourTo || undefined,
-          // The hour window reads the same timestamp as the "By:" switch.
-          hourBasis: dateField,
-        },
-        contactMap,
-        searchableFields,
-      ),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- range derives from preset/custom values
-    [deals, search, superStatus, subStatusId, techId, createdBy, tagId, jobTypeId, sourceId, serviceArea, companyId, dateField, preset, customFrom, customTo, hourFrom, hourTo, contactMap, searchableFields],
-  );
+  const money = data?.money ?? can("financials");
+  const columns = inReportOrder(localColumns ?? settings.columns).filter((c) => money || c !== "total");
 
-  const sorted = useMemo(() => {
-    if (sortSel === "none") return filtered;
-    const [key, dir] = sortSel.split("_") as [JobSort["key"], JobSort["dir"]];
-    return sortJobs(filtered, { key, dir }, dateField);
-  }, [filtered, sortSel, dateField]);
+  const groups = useFilterGroups();
 
-  const p = paginate(sorted, page, size);
-  const from = p.total === 0 ? 0 : (p.page - 1) * size + 1;
-  const to = Math.min(p.page * size, p.total);
+  if (denied("reports", "view")) return <NoAccess entity="reports" />;
 
-  if (!can("reports", "view")) return <NoAccess entity="reports" />;
+  const resetPage = <T,>(set: (v: T) => void) => (v: T) => {
+    set(v);
+    setPage(1);
+  };
+  const changeFilters = resetPage(setFilters);
 
-  const personName = (id?: string) => {
-    const u = id ? userMap.get(id) : undefined;
-    return u ? `${u.firstName} ${u.lastName}`.trim() : "—";
+  const onSort = (column: JobsReportColumnId) => {
+    setSort((cur) => (cur.column === column ? { column, dir: cur.dir === "asc" ? "desc" : "asc" } : { column, dir: column === "created" ? "desc" : "asc" }));
+    setPage(1);
   };
 
-  const areas = [...new Set(deals.map((d) => d.serviceArea).filter(Boolean))].sort();
-  const users = [...userMap.values()].map((u) => ({
-    value: u.id,
-    label: `${u.firstName} ${u.lastName}`.trim() || u.id,
-  }));
-
-  const exportCsv = () => {
-    const csv = jobsReportCsv(
-      sorted.map((d) => {
-        const c = contactMap.get(d.contactId);
-        return {
-          "Job #": String(d.dealNumber),
-          Client: dealClientName(d, c),
-          Type: jobTypeName(d.jobTypeId),
-          Created: d.createdAt,
-          Scheduled: d.scheduledDate ?? "",
-          Phone: c ? (primaryPhone(c) ?? "") : "",
-          Email: c ? (primaryEmail(c) ?? "") : "",
-          Status: superStatusLabel(d.superStatus),
-          "Sub-status": d.subStatusId ? subStatusName(d.subStatusId) : "",
-          Tech: d.assignedTechIds.map((t) => personName(t)).join("; "),
-          Address: d.address?.street ?? "",
-          City: d.address?.city ?? "",
-          State: d.address?.state ?? "",
-          "Service area": d.serviceArea,
-          Total: money(d.actualTotal ?? d.estimatedTotal),
-          Source: sourceName(d.sourceId),
-          "External company": d.externalCompanyId ? externalCompanyName(d.externalCompanyId) : "",
-        };
-      }),
-    );
-    if (typeof URL.createObjectURL !== "function") return;
-    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `jobs-report-${todayIso}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+  const exportCsv = async () => {
+    setExporting(true);
+    try {
+      const blob = await downloadJobsReportCsv(exportParams(state, columns));
+      if (typeof URL.createObjectURL !== "function") return;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `jobs-report-${state.from}_${state.to}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Export failed");
+    } finally {
+      setExporting(false);
+    }
   };
 
-  const pager = (withSize: boolean) => (
-    <Pager
-      page={p.page}
-      pages={p.pages}
-      total={p.total}
-      from={from}
-      to={to}
-      onPage={setPage}
-      size={withSize ? size : undefined}
-      onSize={withSize ? (s) => { setSize(s); setPage(1); } : undefined}
-      right={
-        withSize ? (
-          <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={exportCsv}>
-            <Download className="size-3.5" /> Export
-          </Button>
-        ) : undefined
-      }
-    />
-  );
+  const pagination = data?.pagination;
+  const pager = pagination ? <Pager page={pagination.page} pages={pagination.pages} onPage={setPage} /> : null;
+  const showing = pagination ? (
+    <span className="text-xs tabular-nums text-muted-foreground">
+      {pagination.total === 0
+        ? "No results"
+        : `Showing ${pagination.from.toLocaleString()} to ${pagination.to.toLocaleString()} of ${pagination.total.toLocaleString()} results`}
+    </span>
+  ) : null;
 
   return (
     <div className="flex min-w-0 flex-1 flex-col">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b px-6 py-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <Link href="/reports" className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
-              <ChevronLeft className="size-4" /> Reports
-            </Link>
-            <h1 className="text-lg font-semibold tracking-tight">Jobs Report</h1>
-          </div>
-          <p className="text-sm text-muted-foreground">Every job, filterable and exportable.</p>
-        </div>
+      <div className="flex flex-wrap items-center gap-2 border-b px-4 py-3 sm:px-6">
+        <Link href="/reports" className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
+          <ChevronLeft className="size-4" /> Reports
+        </Link>
+        <span className="text-muted-foreground">/</span>
+        <h1 className="text-lg font-semibold tracking-tight">Jobs report</h1>
+      </div>
 
-        {/* Date range — Workiz's "This week (Mon–Today) / By: field" corner. */}
-        <div className="flex flex-wrap items-center gap-2">
-          <select
-            aria-label="Date field"
-            className="h-9 rounded-md border bg-transparent px-2 text-sm"
-            value={dateField}
-            onChange={(e) => { setDateField(e.target.value as JobsReportDateField); setPage(1); }}
-          >
-            <option value="createdAt">By: Job created</option>
-            <option value="scheduledDate">By: Job date</option>
-            <option value="closedAt">By: Job closed</option>
-          </select>
+      {/* Workiz's top band: the multi-filter, and the period box with its "By:". */}
+      <div className="flex flex-col gap-3 border-b px-4 py-4 sm:px-6 lg:flex-row lg:items-start">
+        <div className="min-w-0 flex-1">
+          <JobsReportFilter groups={groups} filters={filters} onChange={changeFilters} />
+        </div>
+        <div className="flex w-full flex-col gap-2 rounded-md border p-2 lg:w-[22rem]">
           <select
             aria-label="Date preset"
             className="h-9 rounded-md border bg-transparent px-2 text-sm"
             value={preset}
-            onChange={(e) => { setPreset(e.target.value as DatePreset); setPage(1); }}
+            onChange={(e) => resetPage(setPreset)(e.target.value as JobsReportPreset)}
           >
-            <option value="today">Today</option>
-            <option value="yesterday">Yesterday</option>
-            <option value="this_week">This week (Mon–Today)</option>
-            <option value="last_week">Last week</option>
-            <option value="this_month">This month</option>
-            <option value="last_month">Last month</option>
-            <option value="all">All time</option>
-            <option value="custom">Custom</option>
+            {JOBS_REPORT_PRESETS.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.label}
+              </option>
+            ))}
           </select>
           <DateTimeRangePicker
             dateOnly
             label="Days"
-            value={{
-              from: range.from ? toIsoInstant(range.from, DAY_START) : undefined,
-              to: range.to ? toIsoInstant(range.to, DAY_END) : undefined,
-            }}
+            value={{ from: toIsoInstant(range.from, DAY_START), to: toIsoInstant(range.to, DAY_END) }}
             onChange={(r) => {
+              const from = toLocalParts(r.from)?.date ?? range.from;
+              const to = toLocalParts(r.to)?.date ?? from;
+              setCustom({ from, to });
               setPreset("custom");
-              setCustomFrom(toLocalParts(r.from)?.date ?? "");
-              setCustomTo(toLocalParts(r.to)?.date ?? "");
               setPage(1);
             }}
           />
-          <Input type="time" aria-label="From hour" className="h-9 w-28" value={hourFrom} onChange={(e) => { setHourFrom(e.target.value); setPage(1); }} />
-          <Input type="time" aria-label="To hour" className="h-9 w-28" value={hourTo} onChange={(e) => { setHourTo(e.target.value); setPage(1); }} />
+          <select
+            aria-label="By"
+            className="h-9 rounded-md border bg-transparent px-2 text-sm"
+            value={by}
+            onChange={(e) => {
+              const next = e.target.value as JobsReportBy;
+              setByChoice(next);
+              rememberBy(next);
+              setPage(1);
+            }}
+          >
+            {JOBS_REPORT_BY.map((b) => (
+              <option key={b} value={b}>
+                By: {JOBS_REPORT_BY_LABEL[b]}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="flex flex-wrap items-center gap-2 border-b px-6 py-3">
-        <div className="relative w-full max-w-xs">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            className="h-9 pl-8"
-            placeholder="Search job #, client, area…"
-            value={search}
-            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-          />
+      <div className="flex min-w-0 flex-1 flex-col gap-3 bg-muted/30 px-4 py-4 sm:px-6">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative w-full sm:max-w-sm">
+            <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              aria-label="Search"
+              className="h-9 bg-background pl-8"
+              placeholder="Search"
+              value={search}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setPage(1);
+              }}
+            />
+          </div>
+          <span className="flex-1" />
+          <select
+            aria-label="Rows per page"
+            className="h-9 rounded-md border bg-background px-2 text-sm"
+            value={pageSize}
+            onChange={(e) => resetPage(setPageSize)(Number(e.target.value))}
+          >
+            {JOBS_REPORT_PAGE_SIZES.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+          <Button variant="outline" size="sm" className="h-9 gap-1.5 bg-background" onClick={() => void exportCsv()} disabled={exporting || !data}>
+            <Download className="size-3.5" /> {exporting ? "Exporting…" : "Export"}
+          </Button>
+          <Button variant="outline" size="sm" className="h-9 gap-1.5 bg-background" onClick={() => setFieldsOpen(true)}>
+            <Columns3 className="size-3.5" /> Fields
+          </Button>
         </div>
-        <FilterSelect value={superStatus} onChange={(v) => { setSuperStatus(v); setPage(1); }} allLabel="All statuses" options={SUPER_STATUS_ORDER.map((s) => ({ value: s, label: superStatusLabel(s) }))} />
-        <FilterSelect value={subStatusId} onChange={(v) => { setSubStatusId(v); setPage(1); }} allLabel="All sub-statuses" width={170} options={activeJobStatuses(jobStatusesQuery.data).map((s) => ({ value: s.id, label: s.name }))} />
-        <FilterSelect value={techId} onChange={(v) => { setTechId(v); setPage(1); }} allLabel="All techs" options={users} />
-        <FilterSelect value={createdBy} onChange={(v) => { setCreatedBy(v); setPage(1); }} allLabel="All creators" options={users} />
-        <FilterSelect value={tagId} onChange={(v) => { setTagId(v); setPage(1); }} allLabel="All tags" options={activeJobTags(jobTagsQuery.data).map((t) => ({ value: t.id, label: t.name }))} />
-        <FilterSelect value={jobTypeId} onChange={(v) => { setJobTypeId(v); setPage(1); }} allLabel="All job types" width={160} options={activeJobTypes(jobTypesQuery.data).map((t) => ({ value: t.id, label: t.name }))} />
-        <FilterSelect value={sourceId} onChange={(v) => { setSourceId(v); setPage(1); }} allLabel="All sources" options={activeJobSources(jobSourcesQuery.data).map((s) => ({ value: s.id, label: s.name }))} />
-        <FilterSelect value={serviceArea} onChange={(v) => { setServiceArea(v); setPage(1); }} allLabel="All areas" options={areas.map((a) => ({ value: a, label: a }))} />
-        <FilterSelect value={companyId} onChange={(v) => { setCompanyId(v); setPage(1); }} allLabel="All companies" width={170} options={[...companyMap.values()].map((co) => ({ value: co.id, label: co.title }))} />
-        <select
-          aria-label="Sort jobs"
-          className="h-9 rounded-md border bg-transparent px-2 text-sm"
-          value={sortSel}
-          onChange={(e) => { setSortSel(e.target.value); setPage(1); }}
-        >
-          <option value="none">Sort: default</option>
-          <option value="day_asc">Day &#8593;</option>
-          <option value="day_desc">Day &#8595;</option>
-          <option value="hour_asc">Hour &#8593;</option>
-          <option value="hour_desc">Hour &#8595;</option>
-        </select>
+
+        {report.error ? (
+          <p role="alert" className="text-sm text-destructive">
+            {report.error instanceof Error ? report.error.message : "Could not load the report."}
+          </p>
+        ) : !data ? (
+          <div role="status" aria-label="Loading jobs" className="space-y-2">
+            <Skeleton className="h-10 w-full" />
+            {Array.from({ length: 8 }, (_, i) => (
+              <Skeleton key={i} className="h-12 w-full" />
+            ))}
+          </div>
+        ) : (
+          <>
+            <JobsReportTable
+              rows={data.rows}
+              columns={columns}
+              sort={data.sort.column}
+              dir={data.sort.dir}
+              onSort={onSort}
+              addFilter={(key, value) => changeFilters(addFilter(filters, key, value))}
+              busy={report.isFetching}
+            />
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              {showing}
+              {pager}
+            </div>
+          </>
+        )}
       </div>
 
-      {isLoading ? (
-        <div
-          role="status"
-          aria-label="Loading jobs"
-          className="min-w-0 space-y-3 p-6"
-        >
-          <Skeleton className="h-8 w-64" />
-          <Skeleton className="h-10 w-full" />
-          {Array.from({ length: 8 }, (_, i) => (
-            <Skeleton key={i} className="h-12 w-full" />
-          ))}
-        </div>
-      ) : (
-      <div className="min-w-0 space-y-3 p-6">
-        {pager(true)}
-
-        <div className="overflow-x-auto rounded-xl border">
-          <Table>
-            <TableHeader>
-              <TableRow className="hover:bg-transparent">
-                <TableHead>Job #</TableHead>
-                <TableHead>Client</TableHead>
-                <TableHead>Tags</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead>Created</TableHead>
-                <TableHead>Scheduled</TableHead>
-                <TableHead>Phone</TableHead>
-                <TableHead>Email</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Tech</TableHead>
-                <TableHead>Address</TableHead>
-                <TableHead>City</TableHead>
-                <TableHead>State</TableHead>
-                <TableHead>Service area</TableHead>
-                <TableHead>Total</TableHead>
-                <TableHead>Source</TableHead>
-                <TableHead>External company</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {p.rows.map((d) => {
-                const c = contactMap.get(d.contactId);
-                const phone = c ? primaryPhone(c) : undefined;
-                return (
-                  <TableRow key={d.id} className="align-top">
-                    <TableCell className="font-mono text-xs">
-                      <Link href={`/deals/${d.id}`} target="_blank" rel="noopener noreferrer" className="hover:underline">
-                        {d.dealNumber}
-                      </Link>
-                    </TableCell>
-                    <TableCell className="text-sm font-medium">{dealClientName(d, c)}</TableCell>
-                    <TableCell>{d.tagIds?.length ? <JobTagChips ids={d.tagIds} max={2} /> : "—"}</TableCell>
-                    <TableCell className="text-sm">{jobTypeName(d.jobTypeId)}</TableCell>
-                    <TableCell className="text-sm">{when(d.createdAt)}</TableCell>
-                    <TableCell className="text-sm">{formatSchedule(d.scheduledDate, d.scheduledTimeSlot)}</TableCell>
-                    <TableCell className="text-sm">{phone ? formatPhone(phone) : "—"}</TableCell>
-                    <TableCell className="text-sm">{c ? (primaryEmail(c) ?? "—") : "—"}</TableCell>
-                    <TableCell className="text-sm">
-                      {superStatusLabel(d.superStatus)}
-                      {d.subStatusId ? (
-                        <div className="text-xs text-muted-foreground">{subStatusName(d.subStatusId)}</div>
-                      ) : null}
-                    </TableCell>
-                    <TableCell className="text-sm">
-                      {d.assignedTechIds.length ? d.assignedTechIds.map((t) => personName(t)).join(", ") : "—"}
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{d.address?.street ?? "—"}</TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{d.address?.city ?? "—"}</TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{d.address?.state ?? "—"}</TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{d.serviceArea || "—"}</TableCell>
-                    <TableCell className="text-sm tabular-nums">{money(d.actualTotal ?? d.estimatedTotal)}</TableCell>
-                    <TableCell className="text-sm">{sourceName(d.sourceId)}</TableCell>
-                    <TableCell className="text-sm">
-                      {d.externalCompanyId ? externalCompanyName(d.externalCompanyId) : "—"}
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-          {p.rows.length === 0 ? (
-            <p className="py-10 text-center text-sm text-muted-foreground">No jobs match the filters.</p>
-          ) : null}
-        </div>
-
-        {pager(false)}
-      </div>
-      )}
+      <JobsReportFields
+        open={fieldsOpen}
+        onOpenChange={setFieldsOpen}
+        columns={columns}
+        money={money}
+        canSave={can("reports", "edit")}
+        saving={saveSettings.isPending}
+        onApply={(next, persist) => {
+          if (!persist) {
+            setLocalColumns(next);
+            setFieldsOpen(false);
+            return;
+          }
+          saveSettings.mutate(
+            { columns: next },
+            {
+              onSuccess: () => {
+                setLocalColumns(null);
+                setFieldsOpen(false);
+              },
+              onError: (err) => toast.error(err instanceof Error ? err.message : "Could not save the fields"),
+            },
+          );
+        }}
+      />
     </div>
   );
+}
+
+/** Previous / a window of page numbers / Next — the server knows the total, so every page is reachable. */
+function Pager({ page, pages, onPage }: { page: number; pages: number; onPage: (p: number) => void }) {
+  if (pages <= 1) return null;
+  const first = Math.max(1, Math.min(page - 2, pages - 4));
+  const numbers = Array.from({ length: Math.min(5, pages) }, (_, i) => first + i);
+  return (
+    <nav aria-label="Pages" className="flex items-center gap-1">
+      <Button variant="outline" size="icon" className="size-8" aria-label="Previous page" disabled={page <= 1} onClick={() => onPage(page - 1)}>
+        <ChevronLeft className="size-4" />
+      </Button>
+      {numbers.map((n) => (
+        <Button
+          key={n}
+          variant={n === page ? "default" : "ghost"}
+          size="sm"
+          className="h-8 min-w-8 px-2 tabular-nums"
+          aria-current={n === page ? "page" : undefined}
+          onClick={() => onPage(n)}
+        >
+          {n}
+        </Button>
+      ))}
+      <Button variant="outline" size="icon" className="size-8" aria-label="Next page" disabled={page >= pages} onClick={() => onPage(page + 1)}>
+        <ChevronRight className="size-4" />
+      </Button>
+    </nav>
+  );
+}
+
+/**
+ * The filter's groups, in Workiz's order, from the catalogs the app already
+ * holds: statuses with their sub-statuses, the field team, everyone who can
+ * create a job, tags, job types, origin, sources, service areas, external
+ * companies. Archived entries stay: last year's jobs still carry them.
+ */
+function useFilterGroups(): FilterGroup[] {
+  const { can } = usePermissions();
+  const { users } = useUserMap();
+  // Who is on the field team; without the grant to list them, Team offers everyone.
+  const { profiles } = useAllTechnicians(can("technicians", "view"));
+  const statuses = useJobStatuses().data;
+  const tags = useJobTags().data;
+  const types = useJobTypes().data;
+  const sources = useJobSources().data;
+  const areas = useServiceAreas().data;
+  const companies = useExternalCompanies().data;
+
+  return useMemo(() => {
+    const byName = <T extends { label: string }>(a: T, b: T) => a.label.localeCompare(b.label);
+    const people = users.map((u) => ({ value: u.id, label: personName(u) })).sort(byName);
+    const field = new Set(profiles.map((p) => p.userId));
+    const team = field.size ? people.filter((p) => field.has(p.value)) : people;
+    const status = SUPER_STATUS_ORDER.flatMap((s) => [
+      { value: s, label: superStatusLabel(s) },
+      ...(statuses ?? [])
+        .filter((sub) => sub.group === s)
+        .map((sub) => ({ value: `${s}:${sub.id}`, label: `${superStatusLabel(s)} - ${sub.name}` })),
+    ]);
+    return [
+      { key: "status", label: "Status", options: status },
+      { key: "techId", label: "Team", options: team },
+      { key: "createdBy", label: "Created by", options: people },
+      { key: "tagId", label: "Tags", options: (tags ?? []).map((t) => ({ value: t.id, label: t.name, color: t.color })) },
+      { key: "jobTypeId", label: "Job type", options: (types ?? []).map((t) => ({ value: t.id, label: t.name })) },
+      {
+        key: "origin",
+        label: "Job origin",
+        options: [
+          { value: "lead", label: "Lead" },
+          { value: "new", label: "New" },
+        ],
+      },
+      { key: "sourceId", label: "Source", options: (sources ?? []).map((s) => ({ value: s.id, label: s.name })).sort(byName) },
+      { key: "serviceAreaId", label: "Service areas", options: (areas ?? []).map((a) => ({ value: a.id, label: a.name })).sort(byName) },
+      { key: "externalCompanyId", label: "Companies", options: (companies ?? []).map((c) => ({ value: c.id, label: c.name })).sort(byName) },
+    ] satisfies FilterGroup[];
+  }, [users, profiles, statuses, tags, types, sources, areas, companies]);
 }

@@ -1,13 +1,14 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import type { ConversationKind } from "@bitcrm/types";
 import { CONVERSATION_KINDS } from "@bitcrm/types";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import { INBOX_VIEWS, type InboxView } from "../api";
 import { useConversation, useMessagingAccess, usePartyNames } from "../hooks";
+import { useInboxNavigate } from "../inbox-url";
 import { conversationTitle, type ListState } from "../lib";
 import { ConversationList } from "./conversation-list";
 import { ConversationThread } from "./conversation-thread";
@@ -28,9 +29,8 @@ const isKind = (v: string | null): v is ConversationKind =>
  * contact opens the right conversation, and the back button behaves.
  */
 export function InboxPage() {
-  const router = useRouter();
-  const pathname = usePathname();
   const params = useSearchParams();
+  const navigate = useInboxNavigate();
   const { canView, isLoading } = useMessagingAccess();
 
   const selectedId = params.get("c") ?? undefined;
@@ -43,19 +43,6 @@ export function InboxPage() {
   /** A message being forwarded: the New message dialog opens with its text. */
   const [forwardBody, setForwardBody] = useState<string | undefined>(undefined);
   const [collapsed, toggleCollapsed] = useCategoriesCollapsed();
-
-  const navigate = useCallback(
-    (next: { c?: string; view?: InboxView; kind?: ConversationKind }) => {
-      const qs = new URLSearchParams(params.toString());
-      const apply = (key: string, value?: string) => (value ? qs.set(key, value) : qs.delete(key));
-      if ("c" in next) apply("c", next.c);
-      if ("view" in next) apply("view", next.view === "all" ? undefined : next.view);
-      if ("kind" in next) apply("kind", next.kind);
-      const s = qs.toString();
-      router.replace(s ? `${pathname}?${s}` : pathname, { scroll: false });
-    },
-    [params, pathname, router],
-  );
 
   const listState: ListState = useMemo(() => ({ view, kind, search }), [view, kind, search]);
   const onListState = (next: ListState) => {

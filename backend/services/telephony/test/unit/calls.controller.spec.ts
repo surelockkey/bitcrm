@@ -23,7 +23,10 @@ const record = (over: Partial<CallRecord> = {}): CallRecord => ({
   ...over,
 });
 
-function makeController(over: Partial<Record<string, unknown>> = {}) {
+function makeController(
+  over: Partial<Record<string, unknown>> = {},
+  s3Over: Partial<Record<string, unknown>> = {},
+) {
   const subject = new Subject<CallEvent>();
   const calls = {
     list: jest.fn().mockResolvedValue({ items: [record()], nextCursor: 'cur2' }),
@@ -80,6 +83,10 @@ function makeController(over: Partial<Record<string, unknown>> = {}) {
     listOnline: jest.fn().mockResolvedValue([]),
     ...(over.presence as object),
   } as unknown as import('../../src/presence/presence.service').PresenceService;
+  const s3 = {
+    getObjectBuffer: jest.fn().mockResolvedValue(null),
+    ...s3Over,
+  } as unknown as import('@bitcrm/shared').S3Service;
   const controller = new CallsController(
     calls,
     bus,
@@ -92,6 +99,7 @@ function makeController(over: Partial<Record<string, unknown>> = {}) {
     bridge,
     presence,
     CONFIG,
+    s3,
   );
   return {
     controller,
@@ -639,6 +647,50 @@ describe('CallsController.recording proxy', () => {
     jest.restoreAllMocks();
   });
 
+  /**
+   * A call migrated from Workiz has no Twilio recording: asking Twilio for its
+   * sid gets nothing back, which is why imported calls played silence. Its
+   * audio was pulled out of Workiz into our own bucket, and `recordingKey` is
+   * where it lives.
+   */
+  it('serves an imported recording from our bucket, not from Twilio', async () => {
+    const get = jest.fn().mockResolvedValue({ body: Buffer.from([1, 2, 3]), contentType: 'audio/wav' });
+    const { controller } = makeController(
+      { getBySid: jest.fn().mockResolvedValue(record({ recordingKey: 'calls/CA1/recording.wav' })) },
+      { getObjectBuffer: get },
+    );
+    const fetchMock = jest.spyOn(global, 'fetch');
+    const { res } = makeRes();
+
+    await controller.recording('CA1', res as never);
+
+    expect(get).toHaveBeenCalledWith('calls/CA1/recording.wav');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('still goes to Twilio for a call we made ourselves', async () => {
+    const get = jest.fn();
+    const { controller } = makeController(
+      { getBySid: jest.fn().mockResolvedValue(record({ recordingSid: 'RE123' })) },
+      { getObjectBuffer: get },
+    );
+    jest.spyOn(global, 'fetch').mockResolvedValue({
+      ok: true,
+      body: new ReadableStream({ start: (c) => c.close() }),
+      headers: new Headers({ 'content-type': 'audio/mpeg' }),
+    } as never);
+    const { res } = makeRes();
+    // The Twilio branch pipes a stream into the response; the fake needs the
+    // stream hooks `pipe` looks for.
+    (res as any).emit = jest.fn();
+    (res as any).once = jest.fn();
+    (res as any).removeListener = jest.fn();
+
+    await controller.recording('CA1', res as never);
+
+    expect(get).not.toHaveBeenCalled();
+  });
+
   it('404s when the call has no recording', async () => {
     const { controller } = makeController(); // record without recordingSid
     const { res } = makeRes();
@@ -1014,5 +1066,94 @@ describe('CallsController.startBridge — choosing which end rings', () => {
     await expect(
       controller.startBridge({ ...req, via: 'carrier-pigeon' } as never, user),
     ).rejects.toThrow(BadRequestException);
+  });
+});
+
+/**
+ * Два віджети дашборда в телефонії. Кожен — за своїм грантом
+ * `dashboard.view_*`, а не `calls.view`: прихований від ролі віджет не має
+ * віддавати дані й через DevTools (US-03-03).
+ */
+describe('CallsController — dashboard widgets', () => {
+  const { PERMISSION_KEY } = jest.requireActual('@bitcrm/shared') as { PERMISSION_KEY: string };
+
+  it.each([
+    ['topFlows', 'view_top_call_flows'],
+    ['recentForDashboard', 'view_recent_calls'],
+  ])('%s is guarded by dashboard.%s', (method, action) => {
+    const handler = (CallsController.prototype as unknown as Record<string, object>)[method];
+
+    expect(Reflect.getMetadata(PERMISSION_KEY, handler)).toEqual({ resource: 'dashboard', action });
+  });
+
+  it('top flows hands the window to the service', async () => {
+    const topFlows = jest.fn().mockResolvedValue({ days: [], flows: [], atLeast: false });
+    const { controller } = makeController({ topFlows });
+
+    const res = await controller.topFlows('2026-09-14', '2026-09-28');
+    await controller.topFlows('2026-09-14', '2026-09-28', '1');
+
+    expect(topFlows).toHaveBeenNthCalledWith(1, { from: '2026-09-14', to: '2026-09-28' }, { fresh: false });
+    expect(topFlows).toHaveBeenNthCalledWith(2, { from: '2026-09-14', to: '2026-09-28' }, { fresh: true });
+    expect(res).toEqual({ success: true, data: { days: [], flows: [], atLeast: false } });
+  });
+
+  it('recent calls are the newest four of the whole log, named', async () => {
+    const { controller, calls } = makeController();
+
+    const res = await controller.recentForDashboard(USER);
+
+    expect(calls.list).toHaveBeenCalledWith({}, undefined, 4);
+    expect(res.data).toHaveLength(1);
+  });
+
+  it('recent calls mask client numbers for a viewer without contacts.view_numbers', async () => {
+    const { controller } = makeController({
+      list: jest.fn().mockResolvedValue({ items: [record({ from: '+14045551234', direction: 'inbound' })] }),
+      permissions: { maySeeClientNumbers: jest.fn().mockResolvedValue(false) },
+    });
+
+    const res = await controller.recentForDashboard(USER);
+
+    expect(JSON.stringify(res.data)).not.toContain('4045551234');
+  });
+});
+
+/**
+ * Пакет дзвінкових віджетів — одним запитом, щоб картки з'являлись разом із
+ * рештою дашборда. Кожен віджет усередині — лише з власним грантом.
+ */
+describe('CallsController — the dashboard bundle', () => {
+  const { PERMISSION_KEY } = jest.requireActual('@bitcrm/shared') as { PERMISSION_KEY: string };
+  const req = (dashboard: Record<string, boolean>) =>
+    ({ resolvedPermissions: { isSystemRole: false, roleName: 'Dispatcher', permissions: { dashboard } } }) as never;
+
+  it('is guarded by the dashboard itself', () => {
+    const handler = (CallsController.prototype as unknown as Record<string, object>).dashboardBundle;
+    expect(Reflect.getMetadata(PERMISSION_KEY, handler)).toEqual({ resource: 'dashboard', action: 'view' });
+  });
+
+  it('carries both call widgets for a role holding both', async () => {
+    const topFlows = jest.fn().mockResolvedValue({ days: [], flows: [], atLeast: false });
+    const { controller, calls } = makeController({ topFlows });
+
+    const res = await controller.dashboardBundle(
+      '2026-09-14', '2026-09-28', USER, req({ view_top_call_flows: true, view_recent_calls: true }),
+    );
+
+    expect(topFlows).toHaveBeenCalledWith({ from: '2026-09-14', to: '2026-09-28' });
+    expect(calls.list).toHaveBeenCalledWith({}, undefined, 4);
+    expect(Object.keys(res.data).sort()).toEqual(['recentCalls', 'topCallFlows']);
+  });
+
+  it('leaves out a widget the role does not hold, and never reads for it', async () => {
+    const topFlows = jest.fn();
+    const { controller, calls } = makeController({ topFlows });
+
+    const res = await controller.dashboardBundle('2026-09-14', '2026-09-28', USER, req({ view_recent_calls: true }));
+
+    expect(topFlows).not.toHaveBeenCalled();
+    expect(Object.keys(res.data)).toEqual(['recentCalls']);
+    expect(calls.list).toHaveBeenCalled();
   });
 });

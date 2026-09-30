@@ -17,7 +17,7 @@ on:
       service:
         description: 'Service to deploy (or "all")'
         type: choice
-        options: [all, user, crm, deal, inventory, search, telephony, messaging]
+        options: [all, user, crm, deal, inventory, search, telephony, messaging, billing]
         default: all
 
 env:
@@ -61,6 +61,8 @@ jobs:
               - 'backend/services/telephony/**'
             messaging:
               - 'backend/services/messaging/**'
+            billing:
+              - 'backend/services/billing/**'
 
       - name: Decide service matrix
         id: set
@@ -74,6 +76,7 @@ jobs:
           SEARCH:    ${{ steps.filter.outputs.search }}
           TELEPHONY: ${{ steps.filter.outputs.telephony }}
           MESSAGING: ${{ steps.filter.outputs.messaging }}
+          BILLING:   ${{ steps.filter.outputs.billing }}
         run: |
           set -euo pipefail
           # "all" means every service that has a taskdef in this checkout. The
@@ -81,7 +84,7 @@ jobs:
           # shared-path change must not then spawn a build job for code that
           # is not there yet.
           all=()
-          for svc in user crm deal inventory search telephony messaging; do
+          for svc in user crm deal inventory search telephony messaging billing; do
             [[ -f "backend/services/${svc}/taskdef.json" ]] && all+=("$svc")
           done
           ALL=$(printf '%s\n' "${all[@]}" | jq -R . | jq -s -c .)
@@ -111,6 +114,7 @@ jobs:
           [[ "$SEARCH"    == "true" ]] && changed+=("search")
           [[ "$TELEPHONY" == "true" ]] && changed+=("telephony")
           [[ "$MESSAGING" == "true" ]] && changed+=("messaging")
+          [[ "$BILLING"   == "true" ]] && changed+=("billing")
 
           if [[ ${#changed[@]} -eq 0 ]]; then
             echo "services=[]" >> "$GITHUB_OUTPUT"
@@ -186,12 +190,19 @@ jobs:
           JWT_SIGNING_KEY:        ${{ secrets.JWT_SIGNING_KEY }}
           COGNITO_CLIENT_SECRET:  ${{ secrets.COGNITO_CLIENT_SECRET }}
           INTERNAL_SERVICE_TOKEN: ${{ secrets.INTERNAL_SERVICE_TOKEN }}
-          # Twilio — consumed only when SERVICE is telephony or messaging.
+          # Twilio — consumed by telephony and messaging, and (account SID +
+          # auth token only) by user for the two-step sign-in codes.
           TWILIO_ACCOUNT_SID:     ${{ secrets.TWILIO_ACCOUNT_SID }}
           TWILIO_AUTH_TOKEN:      ${{ secrets.TWILIO_AUTH_TOKEN }}
           TWILIO_API_KEY:         ${{ secrets.TWILIO_API_KEY }}
           TWILIO_API_SECRET:      ${{ secrets.TWILIO_API_SECRET }}
           TWILIO_TWIML_APP_SID:   ${{ secrets.TWILIO_TWIML_APP_SID }}
+          # Stripe — billing only. Absent secrets emit nothing, so billing
+          # still boots and serves the offline payment ledger; online payments
+          # simply report unavailable.
+          STRIPE_SECRET_KEY:      ${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_WEBHOOK_SECRET:  ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
           TWILIO_CALLER_ID:       ${{ vars.TWILIO_CALLER_ID }}
           # Fallback caller id for server-placed masked legs; per-market numbers
           # live on the service area itself and need no deploy variable.
@@ -200,6 +211,8 @@ jobs:
           # through, and the E.164 fallback sender. Neither is secret.
           TWILIO_MESSAGING_SERVICE_SID: ${{ vars.TWILIO_MESSAGING_SERVICE_SID }}
           MESSAGING_DEFAULT_SENDER:     ${{ vars.MESSAGING_DEFAULT_SENDER }}
+          # User only: the Verify Service (VA…) that texts two-step sign-in codes.
+          TWILIO_VERIFY_SERVICE_SID:    ${{ vars.TWILIO_VERIFY_SERVICE_SID }}
           # Turns telemetry shipping on. Unset, render-taskdef.sh emits exactly
           # the task definition it always did — which is what happened on the
           # first deploy of this feature: the secret existed but was never

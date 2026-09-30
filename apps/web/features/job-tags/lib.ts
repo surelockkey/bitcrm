@@ -58,3 +58,22 @@ export const TAG_SWATCH_CLASSES: Record<JobTagColor, string> = {
 
 export const tagColorClasses = (color: JobTagColor): string =>
   TAG_COLOR_CLASSES[color] ?? TAG_COLOR_CLASSES.slate;
+
+/**
+ * The solid form Workiz uses in the jobs list: the tag's colour fills the
+ * chip and the words are white capitals. A dispatcher scanning a long list
+ * reads the colour first, so the outlined form recedes too far there.
+ */
+const TAG_SOLID_CLASSES: Record<JobTagColor, string> = {
+  slate: "bg-slate-500 text-white",
+  red: "bg-red-600 text-white",
+  amber: "bg-amber-600 text-white",
+  green: "bg-green-600 text-white",
+  teal: "bg-teal-600 text-white",
+  blue: "bg-blue-600 text-white",
+  violet: "bg-violet-600 text-white",
+  pink: "bg-pink-600 text-white",
+};
+
+export const tagSolidClasses = (color: JobTagColor): string =>
+  TAG_SOLID_CLASSES[color] ?? TAG_SOLID_CLASSES.slate;

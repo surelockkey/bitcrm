@@ -7,6 +7,7 @@ const TONE: Record<TransferType, string> = {
   [TransferType.TRANSFER]: "border-brand/22 bg-brand/10 text-brand",
   [TransferType.DEDUCT]: "border-destructive/22 bg-destructive/10 text-destructive",
   [TransferType.RESTORE]: "border-amber-500/24 bg-amber-500/10 text-amber-700 dark:text-amber-500",
+  [TransferType.RETURN]: "border-neutral/24 bg-neutral/10 text-neutral-text",
 };
 
 export function TransferTypeBadge({ type }: { type: TransferType }) {
@@ -21,7 +22,7 @@ export function TransferTypeBadge({ type }: { type: TransferType }) {
         {transferTypeLabel(type)}
       </span>
       {isAutoType(type) ? (
-        <span className="rounded-full border px-1.5 text-[10px] text-muted-foreground">auto</span>
+        <span className="rounded-chip border px-1.5 text-[10px] text-muted-foreground">auto</span>
       ) : null}
     </span>
   );

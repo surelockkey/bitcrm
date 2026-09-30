@@ -6,6 +6,7 @@ import type {
   PaginatedResponse,
   ResolvedPermissions,
   UserPermissionOverrides,
+  ListCount,
 } from "@bitcrm/types";
 import { http, apiFetchPaginated } from "@/lib/api/http";
 
@@ -28,10 +29,16 @@ function toQuery(params: Record<string, string | undefined>): string {
 export function listUsers(
   filter: UserFilter,
   cursor?: string,
+  limit = 50,
 ): Promise<PaginatedResponse<User>> {
   return apiFetchPaginated<User>(
-    `/users${toQuery({ ...filter, cursor, limit: "50" })}`,
+    `/users${toQuery({ ...filter, cursor, limit: String(limit) })}`,
   );
+}
+
+/** Скільки користувачів під цим фільтром — число для «Page 2 of 7». */
+export function countUsers(filter: UserFilter): Promise<ListCount> {
+  return http.get<ListCount>(`/users/count${toQuery({ ...filter })}`);
 }
 
 export function getUser(id: string): Promise<User> {
@@ -52,6 +59,25 @@ export function updateUser(id: string, body: UpdateUserRequest): Promise<User> {
  */
 export function updateMyPhone(phone: string): Promise<User> {
   return http.put<User>("/users/me", { phone });
+}
+
+/** Two-step sign-in, step one: text a code to the phone on your profile. */
+export function startMyMfa(): Promise<{ destination: string }> {
+  return http.post<{ destination: string }>("/users/me/mfa/start");
+}
+
+/** Step two: the code came back — switch it on. */
+export function confirmMyMfa(code: string): Promise<User> {
+  return http.post<User>("/users/me/mfa/confirm", { code });
+}
+
+export function disableMyMfa(): Promise<User> {
+  return http.delete<User>("/users/me/mfa");
+}
+
+/** An admin's switch for someone else (`users.edit`). */
+export function setUserMfa(id: string, enabled: boolean): Promise<User> {
+  return http.put<User>(`/users/${id}/mfa`, { enabled });
 }
 
 export function assignRole(id: string, roleId: string): Promise<User> {

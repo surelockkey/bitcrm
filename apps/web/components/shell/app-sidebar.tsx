@@ -65,7 +65,9 @@ export function AppSidebar() {
             wordmark clips (overflow-hidden) and fades instead of popping. */}
         <Link
           href="/"
-          className="flex items-center gap-2 overflow-hidden px-0.5 py-1.5"
+          // h-12 + the sidebar header's p-2 puts the rule below on the same
+          // line as the app header's bottom border (h-14 = 56px).
+          className="flex h-12 items-center gap-2 overflow-hidden px-0.5"
           aria-label="BitCRM home"
         >
           <Image
@@ -79,16 +81,29 @@ export function AppSidebar() {
             BitCRM
           </span>
         </Link>
+        {/* Workiz rules a line under its logo, so the brand reads as a header
+            and not as the first row of the menu. Full width in both states:
+            a margin that changed with the sidebar would make the line jump
+            while the width animates. */}
+        <div data-slot="brand-rule" className="-mx-2 border-b" />
         {can("deals", "create") ? (
+          // Workiz's: a yellow dot with a plus and a label on a plain white
+          // row, which becomes a bordered oval under the cursor. The yellow
+          // stays in the dot — the row itself carries none of it.
           <Button
             asChild
-            variant="brand"
-            className="h-9 w-30 justify-start gap-1.5 overflow-hidden px-2 transition-[width,height] duration-200 ease-linear group-data-[collapsible=icon]:h-8 group-data-[collapsible=icon]:w-8"
+            variant="ghost"
+            className="h-9 w-full justify-start gap-2 overflow-hidden border border-transparent px-1.5 transition-[width,height,border-radius] duration-200 ease-linear hover:rounded-full hover:border-border hover:bg-card group-data-[collapsible=icon]:h-8 group-data-[collapsible=icon]:w-8"
           >
             <Link href="/deals/new">
-              <Plus className="size-4 shrink-0" />
+              <span
+                data-slot="new-job-dot"
+                className="grid size-6 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground"
+              >
+                <Plus className="size-4" />
+              </span>
               <span className="whitespace-nowrap transition-opacity duration-200 ease-linear group-data-[collapsible=icon]:opacity-0">
-                New Job
+                Create New Job
               </span>
             </Link>
           </Button>

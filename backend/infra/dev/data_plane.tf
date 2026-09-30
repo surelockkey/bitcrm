@@ -6,6 +6,7 @@ locals {
     # users table also holds role items (ROLES_TABLE == USERS_TABLE) and
     # technician profile items (indexed by TechnicianIndex / GSI3).
     users = {
+      enable_pitr = true
       gsis = [
         { name = "RoleIndex", n = 1 },
         { name = "DepartmentIndex", n = 2 },
@@ -19,22 +20,37 @@ locals {
       # hours, and payroll outlives a month.
       ttl_attribute = "expiresAt"
     }
-    companies = { gsis = [
+    companies = { enable_pitr = true, gsis = [
       { name = "ClientTypeIndex", n = 1 },
     ] }
-    contacts = { gsis = [
+    contacts = { enable_pitr = true, gsis = [
       { name = "CompanyIndex", n = 1 },
     ] }
-    deals = { gsis = [
+    # StatusScheduleIndex keys the visit date under each status
+    # (STATUS#<s> / <date|UNSCHED>#<slot|~>#DEAL#<id>), so the jobs list, the
+    # board and the schedule read a window of days instead of the whole table.
+    # PITR on every table the Workiz import writes to. The import is one
+    # bulk write of millions of rows; without a restore point, a bad run
+    # leaves no way back except regenerating and reloading everything.
+    deals = { enable_pitr = true, gsis = [
       { name = "StageIndex", n = 1 },
       { name = "TechIndex", n = 2 },
       { name = "ContactIndex", n = 3 },
       { name = "DispatcherIndex", n = 4 },
+      { name = "StatusScheduleIndex", n = 5 },
+      # ClosedIndex is sparse — closed deals only, one partition a month
+      # (CLOSED#<YYYY-MM> / <closedAt>#DEAL#<id>) — for the report's "By: Job closed".
+      { name = "ClosedIndex", n = 6 },
+      # EndIndex keys the visit's END on the account's clock, one partition a
+      # month (END#<YYYY-MM> / <YYYY-MM-DDTHH:MM>#DEAL#<id>) — the Jobs report's
+      # "By: Job end date" (Workiz report_by=3). Rows written before it existed
+      # need `npm run backfill:end-index -w backend/services/deal -- --apply`.
+      { name = "EndIndex", n = 7 },
     ] }
     # One item per call (PK=CALL#<sid>, SK=METADATA). AgentIndex is an agent's
     # own history; AllCallsIndex is the global time-ordered log the calls page
     # pages through (GSI2PK is the constant 'CALL#ALL').
-    calls = { gsis = [
+    calls = { enable_pitr = true, gsis = [
       { name = "AgentIndex", n = 1 },
       { name = "AllCallsIndex", n = 2 },
       # PartyIndex: every call with one client, company or teammate, without
@@ -70,6 +86,25 @@ locals {
       # First TTL use in BitCRM: CLIENTMSG# idempotency rows expire after 7 days.
       ttl_attribute = "expiresAt"
       # 2.3M imported messages with no other copy once the Workiz account closes.
+      enable_pitr = true
+    }
+    # Billing (billing-service): invoices INVOICE#<dealId>, estimates
+    # ESTIMATE#<id> (+ ITEM#<lineId> rows), the payment ledger
+    # (PAYMENT#<id>/METADATA + an INVOICE#<dealId>/PAYMENT#<createdAt>#<id>
+    # adjacency row, REFUND# rows, STRIPE#<objectId>/POINTER lookups and
+    # WEBHOOK#<eventId> dedupe rows), document templates, business profile,
+    # template image assets, portal tokens (PORTAL#<sha256>) and per-deal
+    # estimate counters. GSI3 is sparse (estimates only).
+    billing = {
+      gsis = [
+        { name = "ListIndex", n = 1 },    # INVOICES | ESTIMATES | TEMPLATES | PAYMENTS / <createdAt>
+        { name = "ContactIndex", n = 2 }, # CONTACT#<contactId> / INVOICE# | ESTIMATE# | PAYMENT#<createdAt>
+        { name = "DealIndex", n = 3 },    # DEAL#<dealId> / ESTIMATE#<createdAt>
+      ]
+      # Stripe webhook dedupe rows (WEBHOOK#<eventId>) expire after 30 days.
+      # Nothing in the payment ledger itself ever carries `expiresAt`.
+      ttl_attribute = "expiresAt"
+      # Invoices, estimates and payments are client-facing financial records.
       enable_pitr = true
     }
   }
@@ -149,6 +184,10 @@ module "ddb_inventory" {
     { name = "TransferEntityIndex", hash_key = "GSI4PK", range_key = "GSI4SK", projection_type = "ALL" },
   ]
 
+  # The Workiz price book and stock land here in one bulk write; PITR is the
+  # only way back from a bad run.
+  enable_pitr = true
+
   tags = local.data_plane_tags
 }
 
@@ -220,6 +259,8 @@ module "sns_sqs" {
     # conversation.updated / opt_out.changed from messaging-service. Search
     # consumes conversation.updated; the inbox UI itself is fed by SSE.
     message-events = {}
+    # invoice.* / estimate.* from billing-service. No consumers yet.
+    billing-events = {}
   }
 
   queues = {
@@ -280,6 +321,14 @@ module "sns_sqs" {
     # automations consume this.
     call-events-to-messaging = {
       topic_subscriptions = ["call-events"]
+    }
+
+    # ---- billing-service ----
+    # deal.product_* / deal.updated refresh an invoice's totals snapshot,
+    # deal.status_changed (canceled) archives open estimates, deal.deleted
+    # removes the job's invoice and estimates.
+    billing-deal-events = {
+      topic_subscriptions = ["deal-events"]
     }
   }
 }

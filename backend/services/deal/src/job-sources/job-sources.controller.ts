@@ -1,6 +1,5 @@
 import {
-  Controller, Get, Post, Put, Delete, Body, Param,
-} from '@nestjs/common';
+  Controller, Get, Post, Put, Delete, Body, Param, Query } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { RequirePermission, CurrentUser } from '@bitcrm/shared';
 import { type JwtUser } from '@bitcrm/types';
@@ -32,8 +31,8 @@ export class JobSourcesController {
     summary: 'List all job sources',
     description: '**Guard:** `job_sources.view`. Includes archived types; filter on `active` for pickers.',
   })
-  async list() {
-    const data = await this.service.list();
+  async list(@Query('active') active?: string) {
+    const data = await this.service.list({ activeOnly: active === 'true' });
     return { success: true, data };
   }
 

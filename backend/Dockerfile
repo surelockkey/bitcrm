@@ -11,6 +11,9 @@ ARG NODE_VERSION=20
 FROM node:${NODE_VERSION}-alpine AS builder
 ARG SERVICE
 WORKDIR /repo
+# puppeteer-core never downloads a browser, but be explicit so no transitive
+# install script tries to.
+ENV PUPPETEER_SKIP_DOWNLOAD=1
 RUN apk add --no-cache libc6-compat \
     && npm install -g npm@10.9.3
 
@@ -27,6 +30,11 @@ RUN npm ci --no-audit --no-fund
 WORKDIR /repo/packages/types
 RUN npm run build
 
+# @bitcrm/document-renderer (billing PDFs) is also a root package and imports
+# @bitcrm/types, so it builds right after it.
+WORKDIR /repo/packages/document-renderer
+RUN npm run build
+
 # Now turbo can resolve @bitcrm/types and build shared -> service in order
 WORKDIR /repo/backend
 RUN npx turbo run build --filter=${SERVICE}-service
@@ -37,6 +45,15 @@ ARG SERVICE
 ENV NODE_ENV=production
 WORKDIR /app
 RUN addgroup -S app && adduser -S app -G app
+
+# billing-service renders PDFs with headless Chromium (puppeteer-core); no
+# other service pays for the ~250 MB of browser + fonts.
+RUN if [ "$SERVICE" = "billing" ]; then \
+      apk add --no-cache chromium nss freetype harfbuzz ttf-freefont font-noto; \
+    fi
+ENV PUPPETEER_SKIP_DOWNLOAD=1
+# Only billing reads this; harmless elsewhere (the path simply doesn't exist).
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 
 # Copy entire built monorepo so workspace symlinks resolve at runtime
 COPY --from=builder --chown=app:app /repo/ ./
@@ -53,7 +70,7 @@ RUN apk add --no-cache --virtual .cp-deps coreutils \
 USER app
 WORKDIR /app/backend/services/${SERVICE}
 
-# Services listen on 4001-4006; the ECS task def picks the right port via PORT env
-EXPOSE 4001 4002 4003 4004 4005 4006
+# Services listen on 4001-4008; the ECS task def picks the right port via PORT env
+EXPOSE 4001 4002 4003 4004 4005 4006 4007 4008
 
 CMD ["node", "dist/main.js"]

@@ -12,6 +12,7 @@ import { TechActions } from "./tech-actions";
 
 const can = vi.fn((resource: string) => Boolean(resource));
 vi.mock("@/features/auth/use-permissions", () => ({
+  useDenied: () => () => false,
   usePermissions: () => ({ can, isTechnician: true, isLoading: false }),
 }));
 

@@ -1,5 +1,7 @@
 import { NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
+import { PERMISSION_KEY } from '@bitcrm/shared';
+import { LocationType, ReturnReason, TransferType } from '@bitcrm/types';
 import { TransfersController } from 'src/transfers/transfers.controller';
 import { TransfersService } from 'src/transfers/transfers.service';
 import {
@@ -16,11 +18,14 @@ describe('TransfersController', () => {
     service = {
       createTransfer: jest.fn(),
       list: jest.fn(),
+      count: jest.fn(),
       findAll: jest.fn(),
       findById: jest.fn(),
       findByEntity: jest.fn(),
       deductStock: jest.fn(),
       restoreStock: jest.fn(),
+      receiveStock: jest.fn(),
+      returnStock: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -115,11 +120,12 @@ describe('TransfersController', () => {
         performedBy: 'tech-1',
         performedByName: 'tech@test.com',
       };
-      service.restoreStock.mockResolvedValue(undefined);
+      const skipped = [{ productId: 'prod-9', productName: 'Old', quantity: 1 }];
+      service.restoreStock.mockResolvedValue({ skippedItems: skipped });
 
       const result = await controller.restoreStock(dto as any);
 
-      expect(result).toEqual({ success: true });
+      expect(result).toEqual({ success: true, data: { skippedItems: skipped } });
       expect(service.restoreStock).toHaveBeenCalledWith(dto);
     });
   });
@@ -172,6 +178,61 @@ describe('TransfersController', () => {
       await expect(controller.findByIdInternal('missing')).rejects.toThrow(
         NotFoundException,
       );
+    });
+  });
+
+  describe('count', () => {
+    it('answers the list total in the envelope', async () => {
+      service.count.mockResolvedValue({ total: 18, atLeast: false });
+
+      expect(await controller.count({ type: TransferType.RECEIVE } as any)).toEqual({
+        success: true,
+        data: { total: 18, atLeast: false },
+      });
+      expect(service.count).toHaveBeenCalledWith({ type: TransferType.RECEIVE });
+    });
+  });
+
+  /** Кнопки Workiz на рядку товару: отримати в локацію, повернути з неї. */
+  describe('receiveStock', () => {
+    it('returns the receive transfer in the envelope', async () => {
+      const transfer = createMockTransfer({ type: TransferType.RECEIVE, fromType: LocationType.SUPPLIER, fromId: null });
+      const dto = { toType: LocationType.WAREHOUSE, toId: 'wh-1', items: transfer.items };
+      const user = createMockJwtUser();
+      service.receiveStock.mockResolvedValue(transfer);
+
+      const result = await controller.receiveStock(dto as never, user);
+
+      expect(result).toEqual({ success: true, data: transfer });
+      expect(service.receiveStock).toHaveBeenCalledWith(dto, user);
+    });
+
+    it('needs transfers.create', () => {
+      expect(Reflect.getMetadata(PERMISSION_KEY, controller.receiveStock)).toEqual({
+        resource: 'transfers',
+        action: 'create',
+      });
+    });
+  });
+
+  describe('returnStock', () => {
+    it('returns the return transfer in the envelope', async () => {
+      const transfer = createMockTransfer({ type: TransferType.RETURN, toType: null, toId: null, reason: ReturnReason.LOST });
+      const dto = { fromType: LocationType.CONTAINER, fromId: 'container-1', items: transfer.items, reason: ReturnReason.LOST };
+      const user = createMockJwtUser();
+      service.returnStock.mockResolvedValue(transfer);
+
+      const result = await controller.returnStock(dto as never, user);
+
+      expect(result).toEqual({ success: true, data: transfer });
+      expect(service.returnStock).toHaveBeenCalledWith(dto, user);
+    });
+
+    it('needs transfers.create', () => {
+      expect(Reflect.getMetadata(PERMISSION_KEY, controller.returnStock)).toEqual({
+        resource: 'transfers',
+        action: 'create',
+      });
     });
   });
 });

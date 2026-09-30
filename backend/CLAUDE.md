@@ -1,6 +1,6 @@
 # BitCRM Backend
 
-Locksmith business-management platform. Seven NestJS 11 microservices behind an
+Locksmith business-management platform. Eight NestJS 11 microservices behind an
 nginx gateway, DynamoDB single-table storage, SNS/SQS events, an OpenSearch
 read model, Cognito auth. This file is the map; `EVENTS.md` is the event
 contract and `monitoring/README.md` the observability detail.
@@ -11,9 +11,9 @@ contract and `monitoring/README.md` the observability detail.
 
 ```
 backend/
-  services/{user,crm,deal,inventory,search,telephony,messaging}/   one NestJS app each
+  services/{user,crm,deal,inventory,search,telephony,messaging,billing}/   one NestJS app each
   packages/shared/            @bitcrm/shared — every cross-cutting concern
-  gateway/nginx.conf          :4000 → the seven services
+  gateway/nginx.conf          :4000 → the eight services
   infra/                      Terraform (bootstrap, dev, modules/*)
   monitoring/                 prometheus, grafana, tempo, loki, promtail, blackbox
   scripts/                    test.sh, setup-aws.sh, verify-monitoring.mjs, render-taskdef.sh
@@ -39,11 +39,12 @@ documented surface; keep it in sync when you add a variable.
 | --------- | ---- | ---------------- | ---- |
 | user      | 4001 | `api/users`      | users, roles/permissions, technicians (assignments, commission, documents, calendar, location) |
 | crm       | 4002 | `api/crm`        | contacts, companies, company documents, work orders |
-| deal      | 4003 | `api/deals`      | deals/jobs, line items, timeline, attachments + the catalogs (job types/sources/tags/statuses, service areas, custom fields, external companies) and the technician-eligibility projection |
+| deal      | 4003 | `api/deals`      | deals/jobs, line items, timeline, attachments + the catalogs (job types/sources/tags/statuses, service areas — each with its own sales `tax` and default company —, custom fields, external companies), the read-only tax rates derived from the areas, and the technician-eligibility projection |
 | inventory | 4004 | `api/inventory`  | products, brands, item categories, warehouses, containers, stock, transfers |
 | search    | 4005 | `api/search`     | global search — OpenSearch read model + indexer (CQRS) |
 | telephony | 4006 | `api/telephony`  | Twilio softphone: tokens, TwiML, call records, presence, call groups/flows, numbers, job dial-in codes |
 | messaging | 4007 | `api/messaging`  | client inbox + team chat (Workiz Inbox model): conversations, messages (SMS/MMS, email, in-app), templates, opt-outs, settings — Twilio Messages API traffic; telephony stays the owner of the numbers |
+| billing   | 4008 | `api/billing`    | job invoices + estimates (Workiz model), **the payment ledger + Stripe** (offline payments, portal card/ACH, refunds, webhook), document templates + headless-Chromium PDF rendering (`@bitcrm/document-renderer`), companies (many business profiles, one default — jobs pick one), template images, client-portal API (`/public/portal/:token`, `@Public` + Redis rate limit; the pages are `apps/portal`, see §10) |
 
 ---
 
@@ -53,8 +54,8 @@ documented surface; keep it in sync when you add a variable.
 npm install                # from the REPO ROOT (workspaces)
 npm run docker:up          # dynamodb :8000, redis :6379, opensearch :9200, localstack :4566, gateway :4000
 npm run setup:aws          # per-service DynamoDB tables + SNS topics/SQS queues in LocalStack
-npm run dev                # all seven services via turbo
-npm run dev:deal           # or one (dev:user, dev:crm, dev:inventory, dev:search, dev:telephony, dev:messaging)
+npm run dev                # all eight services via turbo
+npm run dev:deal           # or one (dev:user, dev:crm, dev:inventory, dev:search, dev:telephony, dev:messaging, dev:billing)
 
 npm run docker:monitoring  # + prometheus/grafana/tempo/loki/exporters (Grafana :3001, admin/admin)
 npm run check:monitoring   # fails if a service exists that nothing scrapes or probes
@@ -200,13 +201,19 @@ display names per table.
 | `BitCRM_Calls` (also job dial-in codes) | `CALLS_TABLE` | AgentIndex | AllCallsIndex | PartyIndex | |
 | `BitCRM_CallGroups`, `BitCRM_CallFlows` | `CALL_GROUPS_TABLE`, `CALL_FLOWS_TABLE` | — | | | |
 | `BitCRM_Messaging` (conversations, messages, pointers, opt-outs, templates, settings, counters) | `MESSAGING_TABLE` | InboxIndex | UnreadIndex | CategoryIndex | JobIndex (+ GSI5 FlagIndex, GSI6 AccountCategoryIndex; TTL on `expiresAt`) |
+| `BitCRM_Billing` (invoices, estimates + lines, **payments + refunds + Stripe pointers**, templates, companies (business profiles), assets, portal tokens, per-job counters; TTL on `expiresAt` for webhook dedupe rows) | `BILLING_TABLE` | ListIndex | ContactIndex | DealIndex | |
 
 Item shapes are prefix-encoded, e.g.
 
 ```
 USER#<id>          / METADATA        GSI1 ROLE_USER#<roleId>, GSI2 DEPT#<dept>
 PHONE#<e164>       / USER            phone → user index item (not a GSI)
-DEAL#<id>          / METADATA
+DEAL#<id>          / METADATA        GSI1 STATUS#<s> / <createdAt>#…, GSI5 STATUS#<s> / <visit day>#<slot>#…, sparse GSI6
+                                     CLOSED#<YYYY-MM> / <closedAt>#…, GSI7 END#<YYYY-MM> / <visit end, Eastern clock>#… —
+                                     the Jobs report's three "By:" dates. GSI7 (EndIndex) is written on create and on
+                                     every scheduling update; rows older than it (every Workiz import) need
+                                     `npm run backfill:end-index -w backend/services/deal -- --apply`, or "By: Job end
+                                     date" does not list them
 DEAL#<id>          / ASSIGN#<techId> assignment adjacency, on TechIndex — what findByTech reads
 DEAL#<id>          / PRODUCT#<id>    line item; fulfillment: sourced | to_order | service
 DEAL#<id>          / ATTACH#<id>
@@ -215,9 +222,60 @@ TECH_ELIGIBILITY#<id> / …            read model rebuilt from user-events
 CALL#<sid>         / METADATA        GSI2 CALL#ALL for the global time-ordered log; optional `tagIds` (call tags)
 CALLTAG#ALL        / CALLTAG#<id>    call-tag catalog — one partition, no GSI keys (never in the log); archive, don't delete
 EXT#<code> / EXTOF#<dealId>          job dial-in codes (both directions, for idempotent minting)
+INVLOG#<YYYY-MM>   / <createdAt>#<id> inventory audit log (item edits + stock moves), one partition per UTC month —
+                                     never one constant key (the CALL#ALL lesson); walked newest-first, filters on top
+                                     … GSI4 INVLOG#PRODUCT#<productId> / <createdAt>#<id> — one item's history on TransferEntityIndex
+                                     (sparse: `container_assigned` names no item and lives in the month walk only)
+PRODUCT#<id>       / METADATA        an inventory item; GSI1 CATEGORY#<category>, GSI2 TYPE#<type>, GSI4 PRODUCTS#ALL /
+                                     <name lowercased, first 200 chars>#<id> on EVERY product (any type, any status — the
+                                     Price Book list, name order, one ~16k-row partition), and a sparse GSI3
+                                     PRODUCTS#STOCK / <name lowercased>#<id> on every stock-managed product (type product,
+                                     manageStock not false, any status) — the "inventory products" list reads that ~3k-row
+                                     partition, never a Scan of the ~46k-row table (whose read budget returned empty pages)
+TRANSFER#<id>      / METADATA        a stock movement; GSI1 TRANSFERS#<YYYY-MM> / <createdAt>#<id> — the list, one
+                                     partition per UTC month walked newest first down to `firstMonth` on
+                                     TRANSFERS#INDEX / METADATA (only ever moves down), `type` filtered on top, never a
+                                     Scan; GSI4 ENTITY#<type>#<id> for one location's movements (+ ENTITY_REF# rows)
+WAREHOUSE#<id> | CONTAINER#<id> / METADATA   a location; GSI1 LOCATION#WAREHOUSE | LOCATION#CONTAINER /
+                                     <name lowercased>#<id>. `totalUnits` / `uniqueItems` (Σ quantity, rows > 0 of
+                                     its STOCK# rows) move in the SAME TransactWrite as every stock write — the
+                                     stock row carries a condition on its old quantity so `uniqueItems` changes
+                                     exactly on a 0 ↔ >0 crossing (`stock/stock-row-variant.ts`)
+WAREHOUSE#<id> | CONTAINER#<id> / STOCK#<productId>   { productId, productName, quantity }
+USER_CONTAINER#<userId> / METADATA   a user's container assignment (Workiz "User containers": one container, `all` or
+                                     `none`); GSI1 CATALOG#USER_CONTAINER / <name>#<userId>, sparse GSI3
+                                     CONTAINER_USERS#<containerId> / USER#<userId> for `access: container` only — who works
+                                     from a van (OwnerIndex, beside the legacy OWNER#<technicianId> container rows)
+CONTAINER_TEMPLATE#<id> / METADATA   a van's "ideal loadout" (`items` list on the row); GSI1 CATALOG#CONTAINER_TEMPLATE /
+                                     <name lowercased> — the uniqueness check is a key condition on it, never Scan+Limit 1;
+                                     archived, not deleted (`Container.templateId` points at it)
+IDEMPOTENCY#TEMPLATE_FILL#<requestId> / METADATA   one "Fill from warehouse" request: claimed (conditional Put)
+                                     before any stock moves, completed with the answer, released if the fill failed;
+                                     `expiresAt` epoch seconds (+7 d) — the inventory table has no TTL configured yet
 CONV#<id>          / METADATA        GSI1 INBOX#<open|archived>#<YYYY> — inbox split by year AND filter, never a
                                      constant key + FilterExpression (the CALL#ALL lesson); sparse GSI2 UNREAD#<YYYY>,
                                      GSI3 CAT#<kind>#<YYYY>, GSI5 FLAG#conversation, GSI6 ACCTCAT#<cat>#<YYYY>
+INVOICE#<dealId>   / METADATA        one per job; GSI1 INVOICES, GSI2 CONTACT#<contactId> (status filtered, not keyed)
+ESTIMATE#<id>      / METADATA | ITEM#<lineId>   GSI1 ESTIMATES, GSI2 CONTACT#…, GSI3 DEAL#<dealId>; DEAL#<id>/COUNTERS estimateSeq
+PORTAL#<sha256>    / METADATA        portal token → contactId; CONTACT#<id>/PORTAL_LINK holds the link metadata
+BUSINESS_PROFILE#<id> / METADATA     a company; GSI1 BUSINESS_PROFILES. The legacy SETTINGS/BUSINESS_PROFILE
+                                     singleton is migrated lazily into BUSINESS_PROFILE#bp-default on first read
+PAYMENT#<id>       / METADATA        a payment; GSI1 PAYMENTS, GSI2 CONTACT#<id>/PAYMENT#<createdAt>#<id>
+INVOICE#<dealId>   / PAYMENT#<createdAt>#<id>   the SAME payment, adjacent to its invoice — one Query reads a
+                                     job's ledger. Both copies are written in one TransactWrite
+PAYMENT#<id>       / REFUND#<createdAt>#<id>    refunds under their payment (Stripe allows several partials)
+PAYMENT#<id>       / REPORT          the Payments report's pointer: which PAYLINE rows the payment has and what each
+                                     added to its bucket (the delta base); `rev`-guarded
+PAYLINE#<YYYY-MM>  / <at>#<lineId>   one line of the Payments report — a payment on its PAYMENT date (tip included),
+                                     a refund as a negative line on its own date, a reversal as "Dispute"; month and
+                                     day on the business clock (America/New_York). No GSI keys
+PAYAGG#<YYYY>      / D#<day>#<type>#<tech|->#<area|->  and  M#<YYYY-MM>#…   ADDed counters (n, amountCents,
+                                     tipsCents, feesCents): the report's totals for any range, "All time" included,
+                                     without reading the payments; PAYREPORT / INDEX holds its first and last month
+STRIPE#<objectId>  / POINTER         → {paymentId}; one per session / intent / charge id, so a webhook finds
+                                     its payment in ONE read
+WEBHOOK#<eventId>  / METADATA        Stripe event dedupe; `expiresAt` TTL, 30 days
+SETTINGS           / PAYMENTS        the PaymentSettings singleton (never holds a Stripe key)
 CONV#<id>          / MSG#<createdAt>#<msgId>   the feed, paged in the partition; GSI4 JOB#<dealId> when job-linked
 CONVOF#<kind>#<id> / ADDR#<e164|email> / PSID#<sid> / CLIENTMSG#<uuid>   pointers: find-or-create, inbound routing,
                                      webhook dedup, double-submit guard (the last one carries the TTL)
@@ -244,6 +302,12 @@ Rules:
   filling new attributes, `migrate-*` for reshaping keys, `seed-*` for catalog
   data — wired as an npm script in that service's `package.json`. Backfills must
   be idempotent and upsert-only.
+- A **derived projection** is the exception, and it reconciles rather than
+  backfills: rows the source of truth no longer lists must be removed, or a row
+  that got in wrongly can never leave (see `TechnicianEligibilityReconciler`).
+  Never author its rows with a `seed-*` script — the reconcile deletes them.
+  Safety comes from refusing to act on an answer that could mean "the source is
+  down": a failed call and an empty list both change nothing.
 
 ---
 
@@ -255,8 +319,8 @@ payload interfaces plus `UserEventType` constants, with `event-contract.spec.ts`
 locking the string values. Publishers and consumers both import them.
 
 Topics: `user-events`, `deal-events`, `contact-events`, `inventory-events`,
-`call-events`, `message-events`. Consumers: deal-service (`payment.received`,
-`contact.merged`, `tech.approved`, `tech.updated`), messaging-service
+`call-events`, `message-events`, `billing-events`. Consumers: deal-service
+(`contact.merged`, `tech.approved`, `tech.updated`), messaging-service
 (`contact.merged`, `contact.updated` — handlers land with the inbound webhook)
 and search-service (every topic, one `search-index` queue). DLQ
 `maxReceiveCount = 5`.
@@ -368,6 +432,14 @@ Harness conventions:
   makes a network call.
 - e2e specs assert authorization explicitly: a read-only role gets 403, no
   header gets 401. Do that for every new resource.
+- **billing's e2e is cross-service** (`services/billing/test/e2e/`): it boots the
+  real crm, inventory, deal and billing `AppModule`s on 4002/4004/4003/4008 in
+  one Jest process, swapping only `AuthModule` (bearer → super admin or an
+  `assigned_only` technician; the real `PermissionGuard` reads Redis DB 15).
+  Needs `dynamodb-local` :8000, LocalStack and `npm run setup:aws`; it clones the
+  dev tables' schemas into `*_E2E` tables and drops them afterwards. Not part of
+  `scripts/test.sh`. `npm run test:e2e -w billing-service` (`E2E_SLOW_MS=300`
+  logs slow calls).
 - Unit tests construct services with `new Service(mockRepo as any, ...)` — that
   is why collaborators are `@Optional()`.
 
@@ -442,6 +514,112 @@ tests, and — if it emits events — the types in `@bitcrm/types` plus a row in
 - **Events are fire-and-forget.** Never let a publish failure fail a write.
 - **The search index is derived.** Never treat it as a source of truth; fix data
   in the owning service and let the indexer or backfill catch up.
+- **Inventory reads its lists off derived attributes, and a deploy is not done
+  until the backfills have run.** `GET /containers` / `GET /warehouses` Query
+  GSI1 `LOCATION#…` (rows without the keys are invisible), the `search`
+  filters match `searchName` / `searchSku` (rows without them are never found),
+  and `Product.onHand` is moved by the stock writes only where it already
+  exists. In the same release, before traffic — and again after every Workiz
+  import — run in `backend/services/inventory`: `backfill:location-index`,
+  `backfill:product-search`, `backfill:product-onhand`, `backfill:product-numbers`
+  (it raises `COUNTER#PRODUCT` past the imported numbers even when
+  every row is numbered; skip it and the next `POST /products` gets "Product
+  ID 1"), `backfill:user-containers` (turns the containers' `technicianId` and
+  imported `accessUserIds` into `USER_CONTAINER#` rows; until it has run, a
+  user with no row falls back to the container that names them as
+  `technicianId`, and the secondary users have no van at all),
+  `backfill:product-stock-index` (files stock-managed products on the GSI3
+  `PRODUCTS#STOCK` partition; until it has run, `GET /products?manageStock=true`
+  without a category is empty), `backfill:location-totals` (sums each
+  warehouse's and container's STOCK# rows into `totalUnits` / `uniqueItems` on
+  its METADATA row; stock writes move them only where they exist, so until it
+  has run the lists show "—" for every imported location — run it AFTER the
+  deploy, it is safe while stock moves), `backfill:transfer-index` (files
+  every transfer row on the GSI1 month partitions and sets the walk's floor;
+  until it has run, `GET /transfers` and its count show none of the transfers
+  written before it). All eight are idempotent and upsert-only;
+  `WORKIZ_IMPORT.md` §0 has the row shapes.
+  `backfill:product-catalog-index` belongs to the same list (idempotent,
+  upsert-only on the index keys): it files every product on the GSI4
+  `PRODUCTS#ALL` partition, and until it has run on an environment the Price
+  Book — `GET /products` and `/products/count` without `category` and without
+  `manageStock=true` — is EMPTY there.
 - **Redis DB 0 is dev, DB 15 is tests.** Don't flush the wrong one.
+- **Taxes live on service areas.** There is no tax-rate catalog: `ServiceArea.tax`
+  (`{name, ratePercent}`) is the rate, exposed read-only as a `TaxRate` whose id is
+  the area id (`GET /api/deals/tax-rates`). Job resolution is exempt client → the
+  job's area tax → none. Jobs, estimates and invoices snapshot name + percent, so
+  never "fix" a job by editing its area. Old `TAX_RATE#` rows / `defaultTaxRateId`
+  pointers are converted by `npm run backfill:area-taxes -w backend/services/deal`.
+- **Companies are billing's.** A job's `businessProfileId` is validated against
+  billing's internal list (cached 60s in deal, non-fatal when billing is down) and
+  its name snapshotted; documents and the portal render the job's company (fallback:
+  the default). Telephony stamps `CallRecord.businessProfileId` next to `sourceId`
+  (number setting → the flow answering the number).
+- **The client portal is its own frontend.** `apps/portal` (own Next app, own domain —
+  `PORTAL_BASE_URL`, from SSM `/app/portal-domain`) serves `<PORTAL_BASE_URL>/<token>`
+  and only calls billing's `@Public` `/public/portal/:token[/:kind/:id/(html|pdf)]`
+  routes; the document is shown as `…/html` (the renderer's screen mode, in a
+  sandboxed iframe) and the PDF is a download. Tokens are `HMAC(PORTAL_TOKEN_SECRET ||
+  INTERNAL_SERVICE_SECRET, contactId:nonce)` — only the sha256 and the nonce are
+  stored — so `POST /portal-links/:contactId/url` can hand out the SAME link again
+  (copy, SMS) without killing the one the client already has; only
+  `POST /portal-links/:contactId` regenerates. Rotating the secret orphans links
+  (the next `…/url` replaces them). `GET /portal/:token` (outside the `api/billing`
+  prefix, ALB rule `portal_legacy`) 302s links sent before the split to the portal.
+- **Texting a document = messaging's `POST /messages`** (Twilio, the client's thread),
+  driven by the web app's "Send by text" dialog: mark the document sent FIRST (the
+  portal shows sent documents only), then send.
+- **Payments live in billing, and `amountPaid` is a SUM, not a flag.** An
+  invoice's `totals.amountPaid` is the gross of every payment in
+  `COUNTED_PAYMENT_STATUSES` (`settled` + `refunded`) minus `refundedAmount`;
+  `pending` (ACH in transit) never counts. Invoice status stays derived, so a
+  partial payment leaves it `due`/`overdue` and a reversal pushes a `paid`
+  invoice back on its own. Deal keeps only a denormalised `paymentStatus` for
+  the job board, pushed over `PUT /deals/internal/:id/payment-status`.
+- **A payment belongs to the JOB, not to the invoice (Workiz).** A job can have
+  payments and no invoice at all (most imported Workiz jobs do): the ledger rows
+  still sit under `INVOICE#<dealId>` with `invoiceId === dealId`, just without
+  an `INVOICE#<dealId>/METADATA` row. `GET/POST /deals/:dealId/payments` (the job's
+  Payments tab) work either way and measure the balance against the job's own
+  total; refund / delete / receipt fall back to the job too. The
+  `/invoices/:id/payments` routes still 404 without an invoice, and an invoice
+  created later starts from the existing ledger (`ledgerAmountPaid(deal.id)`).
+- **The Payments report is a projection, and a deploy is not done until it is rebuilt.**
+  `GET /payments/report[/totals|/export]` (Workiz Reports → Payments) read only
+  the `PAYLINE#` / `PAYAGG#` rows, never the ledger's `PAYMENTS` list index
+  (keyed by `createdAt`, and summed with a 20k-row cap). `PaymentReportProjector`
+  keeps them current from `syncLedger` (every ledger path) and the `refund.*`
+  webhook: it re-reads the payment strongly consistent and writes the line +
+  bucket DIFFERENCE in one `rev`-guarded transaction — never throws, never a
+  delta it was told about. Rows written before the projection existed (every
+  Workiz import) are invisible until `npm run rebuild:payment-report -w
+  billing-service` has run (reconciles: overwrites with absolute values,
+  deletes what the ledger no longer explains; `--dry-run` compares, `--jsonl
+  <billing dir>` computes the report from an import package with no AWS). Run
+  it after the deploy that ships the report and after every Workiz import.
+- **Stripe webhook handlers ASSERT a state, they never apply a delta.** Stripe
+  gives no ordering guarantee and re-delivers freely, so every status move goes
+  through `canTransition` (`payments/payment-rules.ts`) and `reversed` is a
+  one-way door: a late `payment_intent.succeeded` cannot resurrect a payment the
+  bank already took back. Dedupe is a `WEBHOOK#<event.id>` row, released again
+  if processing throws so the retry lands.
+- **An ACH return arrives as `charge.dispute.created`, not as a failure.** The
+  PaymentIntent stays `succeeded` forever. Reasons `insufficient_funds` /
+  `incorrect_account_details` / `bank_cannot_process` mean the money left:
+  mark the payment `reversed` and say so loudly.
+- **billing's `main.ts` needs `{ rawBody: true }`** and `app.useBodyParser(...)`
+  rather than `app.use(json(...))`, or the Stripe signature cannot be verified.
+  Nest middleware runs AFTER the body parsers, so a `MiddlewareConsumer` cannot
+  recover the bytes. `test/unit/stripe-webhook.http.spec.ts` posts really-signed
+  bytes through a real app to keep that honest.
+- **Money is dollars (2dp) in our types and cents at the Stripe boundary**,
+  converted only in `payments/payment-rules.ts` (`toCents`/`fromCents`). Never
+  round twice. A card surcharge is a payment-time charge on the `Payment` row —
+  it never enters `DocumentTotals`, and it ships OFF (US card-network rules).
+- **Billing boots and works with no Stripe keys.** The `STRIPE_CLIENT` token
+  resolves to `null`, the portal offers no methods, and the offline ledger
+  (cash, cheque, card taken in person) is unaffected. Guard every online path
+  on `StripeService.available` / `.onlineReady`.
 - Plan documents belong in the gitignored `claude-plans/` at the repo root, not
   in `project-info/`.

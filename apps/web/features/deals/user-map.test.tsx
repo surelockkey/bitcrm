@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/features/auth/use-permissions", () => ({
+  useDenied: () => () => false,
   usePermissions: () => ({
     can: (resource: string, action?: string) =>
       resource === "users" && action === "view" ? mocks.canListUsers : true,

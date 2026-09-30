@@ -1,5 +1,6 @@
-import { ProductCreatePage } from "@/features/inventory/products/components/product-create-page";
+import { redirect } from "next/navigation";
 
+/** New items are created in a popup on the Items tab now. */
 export default function Page() {
-  return <ProductCreatePage />;
+  redirect("/inventory/items?new=1");
 }

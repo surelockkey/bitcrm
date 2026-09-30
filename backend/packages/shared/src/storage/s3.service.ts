@@ -4,6 +4,7 @@ import {
   PutObjectCommand,
   GetObjectCommand,
   DeleteObjectCommand,
+  HeadObjectCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
@@ -21,6 +22,13 @@ export interface PutObjectOptions {
   kmsKeyId?: string;
   /** Free-form `x-amz-meta-*` pairs (provenance: source URL, provider sid…). */
   metadata?: Record<string, string>;
+}
+
+/** Options for a presigned GET. */
+export interface PresignedDownloadOptions {
+  expiresIn?: number;
+  /** Sets `response-content-disposition`, e.g. `attachment; filename="Invoice-1.pdf"`. */
+  contentDisposition?: string;
 }
 
 @Injectable()
@@ -121,9 +129,55 @@ export class S3Service {
     );
   }
 
-  async getPresignedDownloadUrl(key: string, expiresIn = 3600): Promise<string> {
-    const command = new GetObjectCommand({ Bucket: this.bucket, Key: key });
-    return getSignedUrl(this.client, command, { expiresIn });
+  /**
+   * A presigned GET. The second argument is either the lifetime in seconds
+   * (the original signature) or options that can also force a download
+   * filename through `response-content-disposition`.
+   */
+  async getPresignedDownloadUrl(
+    key: string,
+    expiresInOrOpts: number | PresignedDownloadOptions = 3600,
+  ): Promise<string> {
+    const opts: PresignedDownloadOptions =
+      typeof expiresInOrOpts === 'number' ? { expiresIn: expiresInOrOpts } : expiresInOrOpts;
+    const command = new GetObjectCommand({
+      Bucket: this.bucket,
+      Key: key,
+      ...(opts.contentDisposition && { ResponseContentDisposition: opts.contentDisposition }),
+    });
+    return getSignedUrl(this.client, command, { expiresIn: opts.expiresIn ?? 3600 });
+  }
+
+  /**
+   * Reads a whole object into memory — for small server-side reads only
+   * (template images inlined into a PDF). `null` when the key doesn't exist.
+   */
+  async getObjectBuffer(
+    key: string,
+  ): Promise<{ body: Buffer; contentType?: string } | null> {
+    try {
+      const res = await this.client.send(
+        new GetObjectCommand({ Bucket: this.bucket, Key: key }),
+      );
+      const body = res.Body as { transformToByteArray?: () => Promise<Uint8Array> } | undefined;
+      if (!body?.transformToByteArray) return null;
+      const bytes = await body.transformToByteArray();
+      return { body: Buffer.from(bytes), contentType: res.ContentType };
+    } catch (err) {
+      if (isNotFound(err)) return null;
+      throw err;
+    }
+  }
+
+  /** True when the key exists (HEAD). */
+  async objectExists(key: string): Promise<boolean> {
+    try {
+      await this.client.send(new HeadObjectCommand({ Bucket: this.bucket, Key: key }));
+      return true;
+    } catch (err) {
+      if (isNotFound(err)) return false;
+      throw err;
+    }
   }
 
   async deleteObject(key: string): Promise<void> {
@@ -131,4 +185,13 @@ export class S3Service {
       new DeleteObjectCommand({ Bucket: this.bucket, Key: key }),
     );
   }
+}
+
+function isNotFound(err: unknown): boolean {
+  const e = err as { name?: string; $metadata?: { httpStatusCode?: number } } | undefined;
+  return (
+    e?.name === 'NoSuchKey' ||
+    e?.name === 'NotFound' ||
+    e?.$metadata?.httpStatusCode === 404
+  );
 }

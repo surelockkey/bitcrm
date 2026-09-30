@@ -1,11 +1,12 @@
 import {
-  IsString, IsOptional, IsEnum, IsArray, IsObject,
+  IsString, IsOptional, IsBoolean, MaxLength, IsEnum, IsArray, IsObject,
   ArrayMinSize, ArrayMaxSize, MinLength, ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { ContactType } from '@bitcrm/types';
 import { ContactAddressDto } from './address.dto';
+import { MAX_CONTACT_ADDRESSES } from './create-contact.dto';
 
 export class UpdateContactDto {
   @ApiPropertyOptional({ example: 'Jane' })
@@ -48,7 +49,9 @@ export class UpdateContactDto {
   @ApiPropertyOptional({ type: [ContactAddressDto] })
   @IsOptional()
   @IsArray()
-  @ArrayMaxSize(10)
+  @ArrayMaxSize(MAX_CONTACT_ADDRESSES, {
+    message: `A contact can hold at most ${MAX_CONTACT_ADDRESSES} addresses`,
+  })
   @ValidateNested({ each: true })
   @Type(() => ContactAddressDto)
   addresses?: ContactAddressDto[];
@@ -72,4 +75,18 @@ export class UpdateContactDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @ApiPropertyOptional({
+    example: false,
+    description: 'Tax-exempt client: new jobs and estimates carry no tax.' + (''),
+  })
+  @IsOptional()
+  @IsBoolean()
+  taxExempt?: boolean;
+
+  @ApiPropertyOptional({ example: 'Registered non-profit', maxLength: 200 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  taxExemptReason?: string;
 }

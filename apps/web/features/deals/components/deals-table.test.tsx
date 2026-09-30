@@ -12,10 +12,11 @@ import {
 } from "@bitcrm/types";
 import type { Contact, Deal, User } from "@bitcrm/types";
 import { DEFAULT_VISIBLE, JOB_FIELDS, type VisibleFields } from "../fields";
-import { DealsTable } from "./deals-table";
+import { DealsTable, DealsTableSkeleton } from "./deals-table";
 
 // Resolve job-type ids to names without a QueryClient/live catalog.
 vi.mock("@/features/job-types/lib", () => ({
+  useJobTypesLoading: () => false,
   useJobTypeName: () => (id: string | undefined) =>
     id === "jt-lockout" ? "Lockout" : (id ?? "—"),
 }));
@@ -221,6 +222,20 @@ describe("DealsTable", () => {
     expect(screen.getByText("Allied Dispatch Solutions")).toBeInTheDocument();
   });
 
+  it("can show the job's company (hidden by default)", () => {
+    const props = {
+      deals: [deal({ businessProfileId: "bp-2", businessProfileName: "KeyPro" })],
+      contactMap,
+      userMap,
+      onOpen: vi.fn(),
+    };
+    const { rerender } = render(<DealsTable {...props} visibleFields={DEFAULT_VISIBLE} />);
+    expect(screen.queryByRole("columnheader", { name: "Company" })).not.toBeInTheDocument();
+    rerender(<DealsTable {...props} visibleFields={{ ...DEFAULT_VISIBLE, company: true }} />);
+    expect(screen.getByRole("columnheader", { name: "Company" })).toBeInTheDocument();
+    expect(screen.getByText("KeyPro")).toBeInTheDocument();
+  });
+
   it("renders an enabled custom field as a column with the deal's answer", () => {
     render(
       <DealsTable
@@ -273,7 +288,14 @@ describe("DealsTable", () => {
    * before they existed is unchanged.
    */
   describe("Sent / Seen columns", () => {
-    const at = (h: number, m: number) => new Date(2026, 8, 16, h, m).toISOString();
+    // Today at that clock time. The stamp a dispatcher reads is the time alone
+    // only while it happened today (`formatStamp`), so a fixture pinned to a
+    // calendar date stops matching the day after it was written.
+    const at = (h: number, m: number) => {
+      const d = new Date();
+      d.setHours(h, m, 0, 0);
+      return d.toISOString();
+    };
     const sentSeen: VisibleFields = { ...DEFAULT_VISIBLE, sent: true, seen: true };
 
     it("is off by default", () => {
@@ -332,5 +354,249 @@ describe("DealsTable", () => {
       <DealsTable deals={[deal()]} contactMap={withExtension} userMap={userMap} onOpen={vi.fn()} />,
     );
     expect(screen.getByText("(404) 555-1234 ext. 102")).toBeInTheDocument();
+  });
+});
+
+/**
+ * Імена приїжджають разом із рядками (`included`), а не окремим запитом.
+ *
+ * Клієнта таблиця називає навіть тоді, коли контакт не завантажений зовсім:
+ * контакти тепер тягнуться лише під колонки, які показують їхні дані.
+ */
+describe("DealsTable — names that came with the rows", () => {
+  const sideloaded = new Map([["c1", { id: "c1", firstName: "Jane", lastName: "Smith" }]]);
+
+  it("names the client from the side-loaded names, with no contact in hand", () => {
+    render(
+      <DealsTable
+        deals={[deal()]}
+        contactMap={new Map()}
+        clientNames={sideloaded}
+        userMap={userMap}
+        onOpen={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("Jane Smith")).toBeInTheDocument();
+  });
+
+  it("still prefers the name the job itself carries", () => {
+    render(
+      <DealsTable
+        deals={[deal({ clientName: { firstName: "Ivan", lastName: "Koval" } })]}
+        contactMap={new Map()}
+        clientNames={sideloaded}
+        userMap={userMap}
+        onOpen={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("Ivan Koval")).toBeInTheDocument();
+    expect(screen.queryByText("Jane Smith")).toBeNull();
+  });
+
+  /**
+   * Side-loaded names are names and nothing else: a number still comes from
+   * the contact, which crm masks per caller.
+   */
+  it("carries no number of its own — the sub-line stays empty without a contact", () => {
+    const { container } = render(
+      <DealsTable
+        deals={[{ ...deal(), phones: ["+14045550199"] }]}
+        contactMap={new Map()}
+        clientNames={sideloaded}
+        userMap={userMap}
+        onOpen={vi.fn()}
+        visibleFields={{ client: true, phone: true }}
+      />,
+    );
+    expect(container.querySelector("tbody")?.textContent).not.toContain("0199");
+  });
+});
+
+describe("zebra striping", () => {
+  it("greys every other job row, the way the Workiz grid does", () => {
+    const rows = [deal(), { ...deal(), id: "d2" }, { ...deal(), id: "d3" }];
+    const { container } = render(
+      <DealsTable deals={rows} contactMap={contactMap} userMap={userMap} onOpen={vi.fn()} />,
+    );
+    const bodyRows = Array.from(
+      container.querySelectorAll("tbody tr"),
+    ) as HTMLElement[];
+    expect(bodyRows).toHaveLength(3);
+    // The striping lives on the primitive's tbody, so every table gets it.
+    expect(container.querySelector("tbody")?.className).toContain(
+      "[&>tr:nth-child(odd)]:bg-muted",
+    );
+  });
+});
+
+describe("the Workiz grid", () => {
+  function grid() {
+    return render(
+      <DealsTable
+        deals={[deal(), { ...deal(), id: "d2" }]}
+        contactMap={contactMap}
+        userMap={userMap}
+        onOpen={vi.fn()}
+      />,
+    ).container;
+  }
+
+  it("rules every column, the way their grid does", () => {
+    // Sampled off their jobs screenshot: a #cfcfcf vertical rule between every
+    // column, in the body and in the header alike.
+    const container = grid();
+    const heads = Array.from(container.querySelectorAll("thead th"));
+    const cells = Array.from(container.querySelectorAll("tbody tr:first-child td"));
+    expect(heads.length).toBeGreaterThan(1);
+    expect(cells.length).toBeGreaterThan(1);
+    for (const el of [...heads, ...cells]) {
+      expect(el.className).toContain("border-r");
+      expect(el.className).toContain("border-table-border");
+      // …except the outer edge, which the wrapper already draws.
+      expect(el.className).toContain("last:border-r-0");
+    }
+  });
+
+  it("sits the header on the grey strip", () => {
+    const container = grid();
+    expect(container.querySelector("thead")?.className).toMatch(
+      /(^|\s)bg-muted(\s|$)/,
+    );
+  });
+});
+
+/**
+ * Сітка не має смикатись між першим і другим кадром.
+ *
+ * Дві причини були: авто-розкладка таблиці переміряла колонки, коли приїжджали
+ * імена техніків і клієнтів, а клітинки з іменами показували «—», яке потім
+ * ставало текстом. Обидві — видимий стрибок під курсором.
+ */
+describe("DealsTable — a stable first frame", () => {
+  it("lays the columns out at declared widths, not by content", () => {
+    const { container } = render(
+      <DealsTable deals={[deal()]} contactMap={contactMap} userMap={userMap} onOpen={() => {}} />,
+    );
+    expect(container.querySelector("table")?.className).toContain("table-fixed");
+  });
+
+  it("declares a width for the job number and every visible column", () => {
+    const { container } = render(
+      <DealsTable deals={[deal()]} contactMap={contactMap} userMap={userMap} onOpen={() => {}} />,
+    );
+    const cols = [...container.querySelectorAll("colgroup col")];
+    const headers = container.querySelectorAll("thead th");
+    expect(cols).toHaveLength(headers.length);
+    for (const col of cols) expect((col as HTMLElement).style.width).not.toBe("");
+  });
+
+  // «—» — це відповідь, і хибна: поставити її, а через кадр замінити іменем,
+  // і є той самий стрибок.
+  it("holds a line for a dispatcher whose name has not landed yet", () => {
+    const { container } = render(
+      <DealsTable
+        deals={[deal()]}
+        contactMap={contactMap}
+        userMap={new Map()}
+        namesLoading
+        onOpen={() => {}}
+        visibleFields={{ dispatcher: true }}
+      />,
+    );
+    expect(container.querySelector("tbody .animate-pulse")).toBeTruthy();
+  });
+
+  it("says “—” once the lookup is done and there is genuinely nobody", () => {
+    const { container } = render(
+      <DealsTable
+        deals={[deal()]}
+        contactMap={contactMap}
+        userMap={new Map()}
+        onOpen={() => {}}
+        visibleFields={{ dispatcher: true }}
+      />,
+    );
+    expect(container.querySelector("tbody .animate-pulse")).toBeNull();
+    expect(container.querySelector("tbody")?.textContent).toContain("—");
+  });
+});
+
+describe("DealsTableSkeleton", () => {
+  it("has the same header and column widths as the table it stands in for", () => {
+    const { container: real } = render(
+      <DealsTable deals={[deal()]} contactMap={contactMap} userMap={userMap} onOpen={() => {}} />,
+    );
+    const { container: shell } = render(<DealsTableSkeleton />);
+
+    const widths = (c: Element) =>
+      [...c.querySelectorAll("colgroup col")].map((x) => (x as HTMLElement).style.width);
+    expect(widths(shell)).toEqual(widths(real));
+    expect(shell.querySelectorAll("thead th")).toHaveLength(real.querySelectorAll("thead th").length);
+  });
+
+  it("fills the space with rows rather than one short block", () => {
+    const { container } = render(<DealsTableSkeleton rows={12} />);
+    expect(container.querySelectorAll("tbody tr")).toHaveLength(12);
+  });
+});
+
+/**
+ * Маскування номерів.
+ *
+ * `contacts.view_numbers` ховає клієнтські номери всюди, де вони спливають, —
+ * і на сторінці роботи теж. Маскування — це ВІДСУТНІСТЬ гранту: crm віддає
+ * контакт уже без номерів тому, хто його не має.
+ *
+ * Робота несе власну копію номерів (`deal.phones`), і deal-сервіс їх не
+ * маскує взагалі. Читати їх у цій таблиці означало б роздати номери кожному,
+ * хто має `deals.view`, — тобто обійти грант. Тому джерело тут лише контакт.
+ */
+describe("DealsTable — client numbers", () => {
+  const withJobPhones = () => ({
+    ...deal(),
+    phones: ["+14045550199"],
+    phoneExtensions: { "+14045550199": "77" },
+  });
+
+  it("shows nothing when the contact came back without numbers", () => {
+    // crm already stripped them: this viewer lacks `contacts.view_numbers`.
+    const masked = { ...contact, phones: [] };
+    const { container } = render(
+      <DealsTable
+        deals={[withJobPhones()]}
+        contactMap={new Map([[masked.id, masked]])}
+        userMap={userMap}
+        onOpen={() => {}}
+        visibleFields={{ phone: true }}
+      />,
+    );
+    expect(container.querySelector("tbody")?.textContent).not.toContain("0199");
+    expect(container.querySelector("tbody")?.textContent).toContain("—");
+  });
+
+  it("never falls back to the copy the job carries", () => {
+    const { container } = render(
+      <DealsTable
+        deals={[withJobPhones()]}
+        contactMap={new Map()}
+        userMap={userMap}
+        onOpen={() => {}}
+        visibleFields={{ phone: true }}
+      />,
+    );
+    expect(container.querySelector("tbody")?.textContent).not.toContain("0199");
+  });
+
+  it("shows the number when the contact does carry it", () => {
+    const { container } = render(
+      <DealsTable
+        deals={[withJobPhones()]}
+        contactMap={contactMap}
+        userMap={userMap}
+        onOpen={() => {}}
+        visibleFields={{ phone: true }}
+      />,
+    );
+    expect(container.querySelector("tbody")?.textContent).toContain("555");
   });
 });

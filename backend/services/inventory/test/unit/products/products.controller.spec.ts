@@ -5,21 +5,32 @@ import { ProductsService } from 'src/products/products.service';
 import {
   createMockProduct,
   createMockCreateProductDto,
+  createMockJwtUser,
+  createMockResolvedPermissions,
 } from '../mocks';
 
 describe('ProductsController', () => {
   let controller: ProductsController;
   let service: Record<string, jest.Mock>;
+  const user = createMockJwtUser();
+  /** A caller who may see money: the product answers keep `costCompany`. */
+  const money = {
+    resolvedPermissions: createMockResolvedPermissions({
+      permissions: { products: { view: true, edit: true }, financials: { view: true } },
+    }),
+  };
 
   beforeEach(async () => {
     service = {
       create: jest.fn(),
       list: jest.fn(),
+      count: jest.fn(),
       findAll: jest.fn(),
       findById: jest.fn(),
       findBySku: jest.fn(),
       update: jest.fn(),
       archive: jest.fn(),
+      reactivate: jest.fn(),
       importFromCsv: jest.fn(),
       getPhotoUploadUrl: jest.fn(),
       getPhotoDownloadUrl: jest.fn(),
@@ -33,16 +44,69 @@ describe('ProductsController', () => {
     controller = module.get<ProductsController>(ProductsController);
   });
 
+  /**
+   * Правило власника: гроші — за financials.view. Собівартість компанії
+   * (`costCompany`) у відповідях про товар лише для того, хто її бачить (Super
+   * Admin — завжди); `costTech` лишається — технік бачить свою ціну.
+   */
+  describe('company cost follows financials.view', () => {
+    const product = createMockProduct({ costCompany: 10, costTech: 15, priceClient: 25 });
+    const noMoney = { resolvedPermissions: createMockResolvedPermissions() };
+    const superAdmin = {
+      resolvedPermissions: createMockResolvedPermissions({ isSystemRole: true, roleName: 'Super Admin', permissions: {} }),
+    };
+
+    beforeEach(() => {
+      service.findById.mockResolvedValue(product);
+      service.findBySku.mockResolvedValue(product);
+      service.findByBarcode = jest.fn().mockResolvedValue(product);
+      service.list.mockResolvedValue({ items: [product], nextCursor: undefined });
+      service.update.mockResolvedValue(product);
+      service.create.mockResolvedValue(product);
+      service.archive.mockResolvedValue(product);
+      service.reactivate.mockResolvedValue(product);
+    });
+
+    it('leaves costCompany out of every product answer without financials.view, keeping costTech', async () => {
+      const answers = [
+        (await controller.findById('prod-1', noMoney)).data,
+        (await controller.findBySku('SKU-001', noMoney)).data,
+        (await controller.findByBarcode('123', noMoney)).data,
+        (await controller.list({ limit: 20 } as any, noMoney)).data[0],
+        (await controller.update('prod-1', { name: 'x' } as any, user, noMoney)).data,
+        (await controller.create(createMockCreateProductDto(), user, noMoney)).data,
+        (await controller.archive('prod-1', user, noMoney)).data,
+        (await controller.reactivate('prod-1', user, noMoney)).data,
+      ];
+
+      for (const answer of answers) {
+        expect(answer).not.toHaveProperty('costCompany');
+        expect(answer.costTech).toBe(15);
+        expect(answer.priceClient).toBe(25);
+      }
+    });
+
+    it('keeps it for financials.view and for the Super Admin', async () => {
+      expect((await controller.findById('prod-1', money)).data.costCompany).toBe(10);
+      expect((await controller.findById('prod-1', superAdmin)).data.costCompany).toBe(10);
+    });
+
+    it('keeps it on the internal read, which services use', async () => {
+      expect((await controller.findByIdInternal('prod-1')).data.costCompany).toBe(10);
+    });
+  });
+
+  // Every write hands the caller to the service: the audit log names who did it.
   describe('create', () => {
     it('should return success with created product', async () => {
       const product = createMockProduct();
       const dto = createMockCreateProductDto();
       service.create.mockResolvedValue(product);
 
-      const result = await controller.create(dto);
+      const result = await controller.create(dto, user, money);
 
       expect(result).toEqual({ success: true, data: product });
-      expect(service.create).toHaveBeenCalledWith(dto);
+      expect(service.create).toHaveBeenCalledWith(dto, user);
     });
   });
 
@@ -51,7 +115,7 @@ describe('ProductsController', () => {
       const product = createMockProduct();
       service.list.mockResolvedValue({ items: [product], nextCursor: 'abc' });
 
-      const result = await controller.list({ limit: 20 } as any);
+      const result = await controller.list({ limit: 20 } as any, money);
 
       expect(result).toEqual({
         success: true,
@@ -66,7 +130,7 @@ describe('ProductsController', () => {
       const product = createMockProduct();
       service.findById.mockResolvedValue(product);
 
-      const result = await controller.findById('prod-1');
+      const result = await controller.findById('prod-1', money);
 
       expect(result).toEqual({ success: true, data: product });
       expect(service.findById).toHaveBeenCalledWith('prod-1');
@@ -78,7 +142,7 @@ describe('ProductsController', () => {
       const product = createMockProduct();
       service.findBySku.mockResolvedValue(product);
 
-      const result = await controller.findBySku('SKU-001');
+      const result = await controller.findBySku('SKU-001', money);
 
       expect(result).toEqual({ success: true, data: product });
       expect(service.findBySku).toHaveBeenCalledWith('SKU-001');
@@ -90,10 +154,10 @@ describe('ProductsController', () => {
       const product = createMockProduct({ name: 'Updated' });
       service.update.mockResolvedValue(product);
 
-      const result = await controller.update('prod-1', { name: 'Updated' } as any);
+      const result = await controller.update('prod-1', { name: 'Updated' } as any, user, money);
 
       expect(result).toEqual({ success: true, data: product });
-      expect(service.update).toHaveBeenCalledWith('prod-1', { name: 'Updated' });
+      expect(service.update).toHaveBeenCalledWith('prod-1', { name: 'Updated' }, user);
     });
   });
 
@@ -102,10 +166,22 @@ describe('ProductsController', () => {
       const product = createMockProduct({ status: 'archived' as any });
       service.archive.mockResolvedValue(product);
 
-      const result = await controller.archive('prod-1');
+      const result = await controller.archive('prod-1', user, money);
 
       expect(result).toEqual({ success: true, data: product });
-      expect(service.archive).toHaveBeenCalledWith('prod-1');
+      expect(service.archive).toHaveBeenCalledWith('prod-1', user);
+    });
+  });
+
+  describe('reactivate', () => {
+    it('should return success with the restored product', async () => {
+      const product = createMockProduct();
+      service.reactivate.mockResolvedValue(product);
+
+      const result = await controller.reactivate('prod-1', user, money);
+
+      expect(result).toEqual({ success: true, data: product });
+      expect(service.reactivate).toHaveBeenCalledWith('prod-1', user);
     });
   });
 
@@ -115,19 +191,19 @@ describe('ProductsController', () => {
       service.importFromCsv.mockResolvedValue(importResult);
       const file = { buffer: Buffer.from('csv-data') } as Express.Multer.File;
 
-      const result = await controller.importCsv(file);
+      const result = await controller.importCsv(file, undefined, user);
 
       expect(result).toEqual({ success: true, data: importResult });
-      expect(service.importFromCsv).toHaveBeenCalledWith(file.buffer, false);
+      expect(service.importFromCsv).toHaveBeenCalledWith(file.buffer, false, user);
     });
 
     it('should pass dryRun=true through when requested', async () => {
       service.importFromCsv.mockResolvedValue({ created: 0, updated: 0, errors: [] });
       const file = { buffer: Buffer.from('csv-data') } as Express.Multer.File;
 
-      await controller.importCsv(file, '1');
+      await controller.importCsv(file, '1', user);
 
-      expect(service.importFromCsv).toHaveBeenCalledWith(file.buffer, true);
+      expect(service.importFromCsv).toHaveBeenCalledWith(file.buffer, true, user);
     });
   });
 
@@ -212,6 +288,26 @@ describe('ProductsController', () => {
       await expect(controller.findByIdInternal('missing')).rejects.toThrow(
         NotFoundException,
       );
+    });
+  });
+
+  describe('count', () => {
+    it('answers the list total in the envelope', async () => {
+      service.count.mockResolvedValue({ total: 47, atLeast: false });
+
+      expect(await controller.count({} as never)).toEqual({
+        success: true,
+        data: { total: 47, atLeast: false },
+      });
+    });
+
+    it('passes the list filters through, so the number matches the rows', async () => {
+      service.count.mockResolvedValue({ total: 9, atLeast: false });
+      const query = { category: 'locks', status: 'active' };
+
+      await controller.count(query as never);
+
+      expect(service.count).toHaveBeenCalledWith(query);
     });
   });
 });

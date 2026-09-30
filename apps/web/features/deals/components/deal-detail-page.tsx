@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, ExternalLink, Loader2, Lock, Trash2, UserCog, X } from "lucide-react";
+import { Building, ChevronLeft, ExternalLink, Loader2, Lock, Trash2, UserCog, X } from "lucide-react";
 import { DealPriority, type Contact, type Deal } from "@bitcrm/types";
 import type { UpdateDealValues } from "../schemas";
 import { Button } from "@/components/ui/button";
@@ -45,6 +45,7 @@ import {
 import { PhoneInput } from "@/components/ui/phone-input";
 import { isValidPhone, MAX_EXTENSION_LENGTH, normalizeExtension } from "@/lib/phone";
 import { JobTypeSelect } from "@/features/job-types/components/job-type-select";
+import { BusinessProfileSelect } from "@/features/business-profiles/components/business-profile-select";
 import { JobSourceSelect } from "@/features/job-sources/components/job-source-select";
 import { ExternalCompanySelect } from "@/features/external-companies/components/external-company-select";
 import { JobTagCombobox } from "@/features/job-tags/components/job-tag-combobox";
@@ -79,42 +80,111 @@ import { DealNotesCard } from "./deal-notes-card";
 import { DealProductsTab } from "./deal-products-tab";
 import { DealTimelinePanel } from "./deal-timeline-panel";
 import { DealAttachmentsTab } from "./deal-attachments-tab";
+import { useJobPageCatalogs } from "../job-page-catalogs";
 import { useAttachments } from "../attachments-hooks";
 import { AssignedTechs } from "./assigned-techs";
 import { SendToTechCard } from "./send-to-tech-card";
-import { TechSuggestions } from "./tech-suggestions";
+import { TeamSection } from "./team-section";
 import { DealAddressFields, type DealAddressValue } from "./deal-address-fields";
 import { ScheduledBlock } from "./scheduled-block";
-import { useResolvedServiceArea } from "@/features/service-areas/hooks";
+import { useEffectiveServiceArea, useResolvedServiceArea } from "@/features/service-areas/hooks";
+import { ServiceAreaField } from "@/features/service-areas/components/service-area-field";
 import { DEFAULT_TZ } from "@/lib/timezone";
 import { useUnsavedChanges } from "./use-unsaved-changes";
 import { usePageHistoryLabel } from "@/components/shell/page-history";
 import { DealMessagesTab } from "@/features/messaging/components/deal-messages-tab";
+import { DealEstimatesTab } from "@/features/estimates/components/deal-estimates-tab";
+import { DealInvoiceTab } from "@/features/invoices/components/deal-invoice-tab";
+import { DealPaymentsTab, paymentsTabCaption } from "@/features/payments/components/deal-payments-tab";
+import { useDealPayments } from "@/features/payments/hooks";
+import { InvoiceStatusBadge } from "@/features/invoices/components/invoice-status-badge";
+import { useInvoiceByDeal } from "@/features/invoices/hooks";
+import { dealTabHref, visibleDealTabs, type DealTab } from "../deal-tabs";
 
-type Tab = "details" | "items" | "attachments" | "messages";
+type Tab = DealTab;
 
-export function DealDetailPage({ dealId }: { dealId: string }) {
+export function DealDetailPage({
+  dealId,
+  initialTab = null,
+  initialEstimateId = null,
+}: {
+  dealId: string;
+  /** From `?tab=` — the tab to open first. */
+  initialTab?: DealTab | null;
+  /** From `?estimate=` — the estimate to open on the Estimates tab. */
+  initialEstimateId?: string | null;
+}) {
   const router = useRouter();
   const { can, me } = usePermissions();
   const { data: deal, isLoading } = useDeal(dealId);
   const del = useDeleteDeal();
   const setTags = useSetDealTags(dealId);
   const moveStatus = useMoveStatus(dealId);
-  const [tab, setTab] = useState<Tab>("details");
+  const [selectedTab, setSelectedTab] = useState<Tab>(initialTab ?? "details");
+  const [estimateId, setEstimateId] = useState<string | null>(initialEstimateId);
+  const canInvoices = can("invoices");
+  const { data: invoice } = useInvoiceByDeal(dealId, canInvoices);
+  const canPayments = can("payments");
+  // The Payments tab's caption ("$0.00 balance", as in Workiz) — the same
+  // query the tab itself reads, so opening it costs nothing more.
+  const { data: jobLedger } = useDealPayments(dealId, canPayments);
+  const tabs = visibleDealTabs({
+    estimates: can("estimates"),
+    invoices: canInvoices,
+    messages: can("messages"),
+    payments: canPayments,
+  });
+  // A deep link to a tab the viewer can't see lands on Details.
+  const tab: Tab = tabs.includes(selectedTab) ? selectedTab : "details";
+
+  // Keep the URL shareable without a server round-trip: the App Router picks
+  // up native history updates (shallow, no refetch of the page).
+  const syncUrl = (nextTab: Tab, nextEstimate: string | null) => {
+    if (typeof window === "undefined") return;
+    const href = dealTabHref(`${window.location.pathname}${window.location.search}`, nextTab, nextEstimate);
+    window.history.replaceState(window.history.state, "", href);
+  };
+  const setTab = (next: Tab) => {
+    setSelectedTab(next);
+    syncUrl(next, estimateId);
+  };
+  const openEstimate = (id: string | null) => {
+    setEstimateId(id);
+    syncUrl("estimates", id);
+  };
   const { data: attachments } = useAttachments(dealId);
+  // Every catalog the job's fields need, asked for together with the job
+  // itself rather than by each select once the job is already in. Without
+  // this the page filled in waves and a dispatcher watched the fields arrive.
+  const catalogs = useJobPageCatalogs();
   const attachmentCount = attachments?.length ?? 0;
   usePageHistoryLabel(deal ? `Job (${deal.dealNumber})` : undefined);
   // Workiz "Viewed job in app": an assigned technician opening the job is what
   // marks it seen — the dispatcher who sent it then sees the eye light up.
   useMarkSeenOnOpen(deal, me?.id);
 
-  if (isLoading || !deal) return <div className="p-6"><Skeleton className="h-64 w-full" /></div>;
+  // One skeleton, then the page: showing each field the moment its own data
+  // lands is what made the job look like it was still loading.
+  if (isLoading || !deal || !catalogs.ready)
+    return <div className="p-6"><Skeleton className="h-64 w-full" /></div>;
 
   const canEdit = can("deals", "edit");
   const canDelete = can("deals", "delete");
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
+      {/* The page scrolls as one, as Workiz's does: the header, the status
+          bar and the tabs ride up with the fields rather than standing over a
+          window that scrolls on its own. Only the Save bar stays pinned.
+          `relative`: the containing block for absolutely-positioned children
+          (Radix's hidden form <select>s) must sit inside the clip chain, or
+          they stretch the document past the viewport — see new-deal-page.
+          The scroller itself is a plain block: were it the flex column, a page
+          taller than the screen would shrink the rows above the fields, and
+          the tab bar (overflow-x) would collapse to nothing. The column inside
+          grows with its content and fills the screen when there is little. */}
+      <div data-testid="job-page-scroll" className="relative min-h-0 flex-1 overflow-y-auto">
+      <div className="flex min-h-full flex-col">
       {/* Only while a call is actually happening — that's the one moment
           "link this call" has a subject. */}
       <LiveCallStrip dealId={dealId} />
@@ -126,6 +196,25 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
         <span className="font-mono text-base font-semibold">#{deal.dealNumber}</span>
         <StageBadge status={deal.superStatus} />
         {isUrgent(deal) ? <PriorityFlag /> : null}
+        {deal.businessProfileName ? (
+          <span
+            title="Company"
+            className="inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs text-muted-foreground"
+          >
+            <Building className="size-3" />
+            {deal.businessProfileName}
+          </span>
+        ) : null}
+        {canInvoices && invoice ? (
+          <button
+            type="button"
+            onClick={() => setTab("invoice")}
+            className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+            aria-label={`Invoice ${invoice.status.replace("_", " ")} — open invoice`}
+          >
+            Invoice <InvoiceStatusBadge status={invoice.status} />
+          </button>
+        ) : null}
         <span className="flex-1" />
         <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
           {canEdit ? <UserCog className="size-3.5" /> : <Lock className="size-3.5" />}
@@ -182,19 +271,24 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 border-b px-6">
-        {(["details", "items", "attachments", ...(can("messages") ? (["messages"] as Tab[]) : [])] as Tab[]).map((t) => (
+      <div className="flex gap-1 overflow-x-auto border-b px-6">
+        {tabs.map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
             className={cn(
-              "flex items-center gap-1.5 border-b-2 px-3 py-2.5 text-sm font-medium capitalize transition-colors",
+              "flex items-center gap-1.5 border-b-2 px-3 py-2.5 text-sm font-medium whitespace-nowrap capitalize transition-colors",
               t === tab ? "border-brand text-foreground" : "border-transparent text-muted-foreground hover:text-foreground",
             )}
           >
             {t}
+            {t === "payments" && paymentsTabCaption(jobLedger?.balanceDue) ? (
+              <span className="text-xs font-normal normal-case text-muted-foreground tabular-nums">
+                {paymentsTabCaption(jobLedger?.balanceDue)}
+              </span>
+            ) : null}
             {t === "attachments" && attachmentCount > 0 ? (
-              <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-muted px-1.5 text-xs font-medium tabular-nums">
+              <span className="inline-flex min-w-5 items-center justify-center rounded-chip bg-muted px-1.5 text-xs font-medium tabular-nums">
                 {attachmentCount}
               </span>
             ) : null}
@@ -202,28 +296,56 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
         ))}
       </div>
 
-      <div className="flex flex-1 flex-col overflow-hidden">
+      <div className="flex flex-1 flex-col">
         {/* Details stays mounted (just hidden) so its unsaved draft survives a
-            hop to the other tabs. It owns its own scroll region so the Save bar
-            can live in a footer that never scrolls. */}
-        <div className={cn("flex flex-1 flex-col overflow-hidden", tab !== "details" && "hidden")}>
+            hop to the other tabs. It spans the whole height of its content, so
+            the sticky Save bar at its foot stays on screen all the way down. */}
+        <div className={cn("flex flex-1 flex-col", tab !== "details" && "hidden")}>
           <DetailsTab deal={deal} canEdit={canEdit} />
         </div>
         {tab === "items" ? (
-          <div className="relative flex-1 overflow-y-auto p-6">
+          <div className="relative flex-1 p-6">
             <div className="mx-auto max-w-3xl"><DealProductsTab deal={deal} canEdit={canEdit} /></div>
           </div>
         ) : null}
+        {tab === "payments" ? (
+          <div className="relative flex-1 p-6">
+            <div className="mx-auto max-w-4xl">
+              <DealPaymentsTab
+                deal={deal}
+                // "Create invoice" stays its own action (Workiz): it opens the
+                // Invoice tab, where the invoice is made.
+                onCreateInvoice={
+                  canInvoices && can("invoices", "create") && !invoice ? () => setTab("invoice") : undefined
+                }
+              />
+            </div>
+          </div>
+        ) : null}
+        {tab === "estimates" ? (
+          <div className="relative flex-1 p-6">
+            <div className="mx-auto max-w-4xl">
+              <DealEstimatesTab deal={deal} estimateId={estimateId} onEstimateChange={openEstimate} />
+            </div>
+          </div>
+        ) : null}
+        {tab === "invoice" ? (
+          <div className="relative flex-1 p-6">
+            <div className="mx-auto max-w-4xl"><DealInvoiceTab deal={deal} canEditItems={canEdit} /></div>
+          </div>
+        ) : null}
         {tab === "attachments" ? (
-          <div className="relative flex-1 overflow-y-auto p-6">
+          <div className="relative flex-1 p-6">
             <div className="mx-auto max-w-5xl"><DealAttachmentsTab dealId={dealId} canEdit={canEdit} /></div>
           </div>
         ) : null}
         {tab === "messages" ? (
-          <div className="relative flex-1 overflow-y-auto p-6">
+          <div className="relative flex-1 p-6">
             <div className="mx-auto max-w-3xl"><DealMessagesTab deal={deal} /></div>
           </div>
         ) : null}
+      </div>
+      </div>
       </div>
 
       {/* Workiz-style hanging history: handle on the right edge, opens the
@@ -296,6 +418,8 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
 
   // The job's timezone: its resolved service area's, else Connecticut.
   const { data: jobArea } = useResolvedServiceArea(dealDraft.address.lat, dealDraft.address.lng);
+  // Що дала б адреса, якби площу не обирали руками — відповідь для «Авто».
+  const autoArea = useEffectiveServiceArea(dealDraft.address.lat, dealDraft.address.lng, undefined);
   const jobTz = jobArea?.timezone ?? DEFAULT_TZ;
 
   const dealPatch = buildDealPatch(deal, dealDraft);
@@ -381,10 +505,9 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
 
   return (
     <>
-    {/* `relative`: the containing block for absolutely-positioned children
-        (Radix's hidden form <select>s) must sit inside the clip chain, or they
-        stretch the document past the viewport — see new-deal-page. */}
-    <div className="relative flex-1 overflow-y-auto p-6">
+    {/* The page's own scroll region carries these fields; nothing here
+        scrolls on its own. */}
+    <div className="relative flex-1 p-6">
     <div className="grid max-w-5xl grid-cols-1 gap-x-8 gap-y-6 lg:grid-cols-2">
       {/* Client */}
       <Section
@@ -411,10 +534,18 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
           clientAddresses={contact?.addresses}
           canEdit={canEdit}
         />
-        <Field label="Service area">
-          <Input className="h-9" value={dealDraft.serviceArea} disabled={!canEdit}
-            onChange={(e) => setDeal({ serviceArea: e.target.value })} />
-        </Field>
+        {/* Той самий вибір, що й на створенні роботи: площа — запис довідника,
+            а не текст. Вільне поле пускало назву, якої в довіднику немає, і
+            робота випадала з фільтрів і звітів за площею. */}
+        <ServiceAreaField
+          lat={dealDraft.address.lat}
+          lng={dealDraft.address.lng}
+          value={dealDraft.serviceAreaId || undefined}
+          disabled={!canEdit}
+          // «Авто» на вже створеній роботі — це конкретна площа, яку дає
+          // адреса: id мусить бути, інакше збереження нічого не змінить.
+          onChange={(id) => setDeal({ serviceAreaId: id ?? autoArea.submitId ?? "" })}
+        />
       </Section>
 
       {/* Schedule */}
@@ -439,9 +570,21 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
 
       {/* Job */}
       <Section title="Job">
-        <Field label="Job type">
-          <JobTypeSelect value={dealDraft.jobTypeId} onChange={(val) => setDeal({ jobTypeId: val })} disabled={!canEdit} />
-        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Job type">
+            <JobTypeSelect value={dealDraft.jobTypeId} onChange={(val) => setDeal({ jobTypeId: val })} disabled={!canEdit} />
+          </Field>
+          <Field label="Company">
+            <BusinessProfileSelect
+              className="h-9"
+              value={dealDraft.businessProfileId}
+              fallbackName={deal.businessProfileName}
+              placeholder="Default company"
+              onChange={(val) => setDeal({ businessProfileId: val ?? "" })}
+              disabled={!canEdit}
+            />
+          </Field>
+        </div>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Source">
             <JobSourceSelect value={dealDraft.sourceId} onChange={(val) => setDeal({ sourceId: val })} disabled={!canEdit} />
@@ -463,21 +606,30 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
             </Select>
           </Field>
         </div>
+
+        {/* The job's note belongs with the job, the way Workiz shows it —
+            a dispatcher reads what the job is about without scrolling past
+            the schedule and the team. Saved by the page's single Save. */}
+        <DealNotesCard
+          notes={dealDraft.notes}
+          editable={canEdit && !isTechnician}
+          onNotesChange={(v) => setDeal({ notes: v })}
+        />
       </Section>
 
       {/* Team — inline assign (Workiz-style): pick techs who can do the job,
           then hand them the job over the channels they use. */}
       <Section title="Team">
-        {canEdit ? (
-          <TechSuggestions
-            jobTypeId={dealDraft.jobTypeId}
-            address={{ lat: dealDraft.address.lat, lng: dealDraft.address.lng }}
-            selected={deal.assignedTechIds}
-            onChange={(ids) => assignTechs.mutate(ids)}
-          />
-        ) : (
-          <AssignedTechs techIds={deal.assignedTechIds} emptyText="Unassigned" />
-        )}
+        {/* One technician per row, as Workiz lists them: the row has somewhere
+            to put what a dispatcher does with that person. */}
+        <TeamSection
+          techIds={deal.assignedTechIds}
+          canEdit={canEdit}
+          onChange={(ids) => assignTechs.mutate(ids)}
+          address={{ lat: dealDraft.address.lat, lng: dealDraft.address.lng }}
+          jobTypeId={dealDraft.jobTypeId}
+          dealId={deal.id}
+        />
         <div className="border-t pt-3">
           <SendToTechCard deal={deal} canEdit={canEdit} />
         </div>
@@ -498,17 +650,6 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
         </Section>
       ))}
 
-      {/* Notes — directly editable; the single Save below persists them */}
-      <div className="lg:col-span-2">
-        <DealNotesCard
-          notes={dealDraft.notes}
-          internalNotes={dealDraft.internalNotes}
-          editable={canEdit && !isTechnician}
-          onNotesChange={(v) => setDeal({ notes: v })}
-          onInternalNotesChange={(v) => setDeal({ internalNotes: v })}
-        />
-      </div>
-
       </div>
 
       {confirm}
@@ -525,10 +666,10 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
       ) : null}
       </div>
 
-      {/* One Save for the whole page — a real footer outside the scroll region,
-          so it's always pinned to the bottom; the fields scroll under it. */}
+      {/* One Save for the whole page — sticky to the bottom of the page's
+          scroll region, so it stays on screen while the fields scroll under it. */}
       {canEdit || canEditClient ? (
-        <div className="flex items-center justify-center gap-2 border-t bg-background px-6 py-4 shadow-[0_-6px_16px_-8px_rgba(0,0,0,0.15)]">
+        <div className="sticky bottom-0 z-10 flex items-center justify-center gap-2 border-t bg-background px-6 py-4 shadow-[0_-6px_16px_-8px_rgba(0,0,0,0.15)]">
           <Button variant="ghost" size="sm" disabled={!dirty || pending} onClick={reset}>Reset</Button>
           <Button variant="brand" size="sm" className="gap-1.5" disabled={!dirty || pending || !phonesOk} onClick={save}>
             {pending ? <Loader2 className="size-3.5 animate-spin" /> : null} Save
@@ -712,7 +853,7 @@ function ClientEditor({
 
 function PrimaryBadge() {
   return (
-    <span className="rounded-full bg-brand/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand">
+    <span className="rounded-chip bg-brand/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand">
       Primary
     </span>
   );

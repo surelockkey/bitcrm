@@ -14,13 +14,14 @@ import {
   Post,
   Put,
   Query,
-  Res,
+  Res, Optional,
+  Req,
 } from '@nestjs/common';
 import { type Response } from 'express';
 import { Readable } from 'stream';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
-import { CurrentUser, RequirePermission } from '@bitcrm/shared';
-import { type JwtUser } from '@bitcrm/types';
+import { CurrentUser, hasPermission, RequirePermission, S3Service } from '@bitcrm/shared';
+import { type CallsDashboardBundle, type JwtUser, type ResolvedPermissions } from '@bitcrm/types';
 import { Inject } from '@nestjs/common';
 import { CallsService } from './calls.service';
 import { CallEventsBus } from './call-events.bus';
@@ -126,6 +127,9 @@ class UpdateCallTagsDto {
   remove?: string[];
 }
 
+/** Rows on the dashboard's "Recent Calls" — Workiz shows four. */
+const DASHBOARD_RECENT_CALLS = 4;
+
 @ApiTags('Telephony')
 @ApiBearerAuth()
 @Controller('calls')
@@ -144,6 +148,9 @@ export class CallsController {
     private readonly bridge: BridgeService,
     private readonly presence: PresenceService,
     @Inject(TELEPHONY_CONFIG) private readonly config: TelephonyConfig,
+    // Optional: only imported calls keep their audio here, and a service
+    // without storage configured must still boot.
+    @Optional() private readonly s3?: S3Service,
   ) {}
 
   /**
@@ -333,6 +340,48 @@ export class CallsController {
     };
   }
 
+  @Get('count')
+  @RequirePermission('calls', 'view')
+  @ApiOperation({
+    summary: 'How many calls the filter selects',
+    description:
+      '**Guard:** `calls.view` permission required. Takes the same filters as the list ' +
+      '(`direction`, `status`, `agentId`, `number`, `numbers`, `dateFrom`/`dateTo`, `origin`, ' +
+      '`tagId`; `cursor` and `limit` are ignored) and answers `{ total, atLeast }` — the row ' +
+      'count behind "Page 2 of 7". The log reaches back years, so the walk is bounded: ' +
+      '`atLeast` means it stopped on that budget and the real number is higher, which the ' +
+      'panel renders as `7+`. Narrow with `dateFrom`/`dateTo` for an exact one. ' +
+      'Cached for thirty seconds.',
+  })
+  async count(
+    @Query('direction') direction?: string,
+    @Query('status') status?: string,
+    @Query('agentId') agentId?: string,
+    @Query('number') number?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+    @Query('numbers') numbers?: string,
+    @Query('origin') origin?: string,
+    @Query('tagId') tagId?: string,
+  ) {
+    const parsedNumbers = numbers
+      ? numbers.split(',').map((n) => n.trim()).filter(Boolean).slice(0, 20)
+      : undefined;
+    const data = await this.callsService.count({
+      direction,
+      status,
+      agentId,
+      number,
+      numbers: parsedNumbers,
+      dateFrom,
+      dateTo,
+      origin,
+      tagId,
+    });
+    return { success: true, data };
+  }
+
+
   @Get('by-party/:kind/:id')
   @RequirePermission('calls', 'view')
   @ApiOperation({
@@ -497,6 +546,72 @@ export class CallsController {
     };
   }
 
+  @Get('stats/top-flows')
+  // The widget's own grant, not `calls.view`: hiding a dashboard widget from
+  // a role has to mean its endpoint refuses that role (US-03-03).
+  @RequirePermission('dashboard', 'view_top_call_flows')
+  @ApiOperation({
+    summary: '"Top Call Flows" — calls per call flow per day',
+    description:
+      '**Guard:** `dashboard.view_top_call_flows`. `from`..`to` are whole days (YYYY-MM-DD, inclusive, at ' +
+      'most 92). Every day of the window is present, zeros included; the eight busiest flows come back, ' +
+      'busiest first. Only calls that entered a flow count — outbound calls never do. `atLeast` means the ' +
+      'walk stopped on its read budget. Served from a snapshot built nightly at 3 AM Eastern and kept ' +
+      'until the next (`computedAt`); `refresh=1` rebuilds it.',
+  })
+  async topFlows(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('refresh') refresh?: string,
+  ) {
+    const fresh = refresh === '1' || refresh === 'true';
+    return { success: true, data: await this.callsService.topFlows({ from, to }, { fresh }) };
+  }
+
+  @Get('stats/dashboard')
+  @RequirePermission('dashboard', 'view')
+  @ApiOperation({
+    summary: 'The call widgets the caller may see, in one answer',
+    description:
+      '**Guard:** `dashboard.view`, and then **each widget\'s own grant** inside — ' +
+      '`dashboard.view_top_call_flows` for `topCallFlows`, `dashboard.view_recent_calls` for ' +
+      '`recentCalls`; a widget the role does not hold is absent. `from`..`to` is the opening window. ' +
+      'What the dashboard loads first, so its cards paint together.',
+  })
+  async dashboardBundle(
+    @Query('from') from: string | undefined,
+    @Query('to') to: string | undefined,
+    @CurrentUser() user: JwtUser,
+    // PermissionGuard has already resolved the caller's grants for this route.
+    @Req() req: { resolvedPermissions?: ResolvedPermissions },
+  ) {
+    const may = (action: string) => hasPermission(req.resolvedPermissions, 'dashboard', action);
+    const data: CallsDashboardBundle = {};
+    const [flows, recent] = await Promise.all([
+      may('view_top_call_flows') ? this.callsService.topFlows({ from, to }) : undefined,
+      may('view_recent_calls') ? this.recentForDashboard(user) : undefined,
+    ]);
+    if (flows) data.topCallFlows = flows;
+    if (recent) data.recentCalls = recent.data;
+    return { success: true, data };
+  }
+
+  @Get('stats/recent')
+  @RequirePermission('dashboard', 'view_recent_calls')
+  @ApiOperation({
+    summary: '"Recent Calls" — the newest four calls of the whole log',
+    description:
+      '**Guard:** `dashboard.view_recent_calls`. The global log\'s first four rows, named the way the ' +
+      'log names them; client numbers are masked without `contacts.view_numbers`, as in the log.',
+  })
+  async recentForDashboard(@CurrentUser() user: JwtUser) {
+    const { items } = await this.callsService.list({}, undefined, DASHBOARD_RECENT_CALLS);
+    return {
+      success: true,
+      data: maskCalls(await this.withNames(items), await this.maySeeNumbers(user)),
+    };
+  }
+
   @Get(':sid')
   @RequirePermission('calls', 'view')
   @ApiOperation({
@@ -523,6 +638,17 @@ export class CallsController {
   })
   async recording(@Param('sid') sid: string, @Res() res: Response) {
     const call = await this.callsService.getBySid(sid);
+
+    // A call imported from Workiz has no Twilio recording — its audio was
+    // pulled into our own bucket, and that is what gets played.
+    if (call?.recordingKey) {
+      const object = await this.s3?.getObjectBuffer(call.recordingKey);
+      if (!object) throw new NotFoundException('No recording for this call');
+      res.set({ 'Content-Type': object.contentType ?? 'audio/wav', 'Content-Length': String(object.body.length) });
+      res.end(object.body);
+      return;
+    }
+
     if (!call?.recordingSid) {
       throw new NotFoundException('No recording for this call');
     }

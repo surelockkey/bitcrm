@@ -1,0 +1,180 @@
+"use client";
+
+import { useCallback, useState } from "react";
+
+/**
+ * Сторінки поверх курсорного списку.
+ *
+ * DynamoDB віддає наступну сторінку лише за курсором попередньої, тож «одразу
+ * на сьому» не буває: вперед — це довантаження, назад — миттєво, бо пройдене
+ * вже в руках. Звідси й вигляд: номери рівно тих сторінок, куди можна
+ * потрапити, а не порожня обіцянка з тисячею номерів.
+ */
+export interface PagedSource<T> {
+  /** Сторінки, як їх склав `useInfiniteQuery`: кожна — вже готовий рядок таблиці. */
+  pages: T[][];
+  hasNextPage: boolean;
+  isFetchingNextPage: boolean;
+  isLoading: boolean;
+  /**
+   * The rows are the previous filter's, held on screen by `keepPreviousData`
+   * while the new set loads. Shown dimmed, never walked: their cursors belong
+   * to a set that is no longer asked for.
+   */
+  isPlaceholderData?: boolean;
+  fetchNextPage: () => Promise<unknown>;
+}
+
+export interface PagerOptions {
+  /**
+   * Скільки всього рядків, якщо сервер це знає (напр. `/deals/counts`).
+   * `null` — сервер відповів, що для цього викликача числа немає: інвойси й
+   * естімейти фільтрують сторінку після запиту для техніка, і жоден обхід
+   * індексу на питання не відповідає.
+   */
+  total?: number | null;
+  /** `total` — це «не менше»: лічильник сервера спинився на стелі. */
+  totalIsFloor?: boolean;
+  /** Рядків на сторінці — те, на що ділять `total`, щоб дістати сторінки. */
+  pageSize?: number;
+  /** Змінився — фільтри під списком інші, гортання починається спочатку. */
+  resetKey?: string;
+}
+
+export interface Pager<T> {
+  page: number;
+  items: T[];
+  /** Номер першого рядка сторінки в наскрізній нумерації, з одиниці. */
+  from: number;
+  to: number;
+  total?: number | null;
+  totalIsFloor?: boolean;
+  /**
+   * Скільки всього сторінок: `ceil(total / pageSize)`. `undefined`, коли
+   * сервер не знає загальної кількості — панель тоді пише «Page 2» без «of N».
+   */
+  totalPages?: number;
+  /** Сторінок «не менше»: лічильник, з якого їх порахували, спинився на стелі. */
+  totalPagesIsFloor?: boolean;
+  canPrev: boolean;
+  canNext: boolean;
+  isLoading: boolean;
+  /** Також `true`, поки на екрані заглушка: кнопки панелі тоді неактивні. */
+  isFetching: boolean;
+  /** На екрані рядки попереднього набору — таблиця їх притемнює, а не ховає. */
+  isStale: boolean;
+  /** Сторінки, які можна натиснути: завантажені плюс та, що за курсором. */
+  window: (number | "…")[];
+  next: () => Promise<void>;
+  prev: () => void;
+  /** Асинхронний: сусідня сторінка за краєм спершу довантажується. */
+  goto: (page: number) => Promise<void>;
+}
+
+export function usePager<T>(src: PagedSource<T>, options: PagerOptions): Pager<T> {
+  const { total, totalIsFloor, pageSize, resetKey } = options;
+  const [page, setPage] = useState(1);
+
+  // Фільтри під списком змінились — сторінки старого набору більше ні про що
+  // не свідчать. Скидання під час рендера, а не в ефекті: інакше кадр
+  // показував би третю сторінку нового набору, якої ще немає. Попереднє
+  // значення тримає стан, а не ref: під час рендера ref читати не можна.
+  const [seenKey, setSeenKey] = useState(resetKey);
+  if (seenKey !== resetKey) {
+    setSeenKey(resetKey);
+    if (page !== 1) setPage(1);
+  }
+
+  const loaded = src.pages.length;
+  const current = Math.min(page, Math.max(loaded, 1));
+  const items = src.pages[current - 1] ?? [];
+
+  const stale = !!src.isPlaceholderData;
+
+  const goto = useCallback(
+    async (target: number) => {
+      if (target < 1 || stale) return;
+      if (target <= loaded) {
+        setPage(target);
+        return;
+      }
+      // Рівно одна сторінка за краєм — її відкриє курсор тієї, що вже є.
+      // Далі не сягнути: восьма без сьомої не існує, і клік у порожнечу
+      // краще не робити виглядом переходу.
+      if (target > loaded + 1 || !src.hasNextPage || src.isFetchingNextPage) return;
+      // Спершу сторінка в руках, потім перехід: якщо запит упаде, гортання
+      // лишиться там, де було, а не на порожнечі.
+      await src.fetchNextPage();
+      setPage(target);
+    },
+    [loaded, src, stale],
+  );
+
+  const next = useCallback(() => goto(current + 1), [current, goto]);
+
+  const prev = useCallback(() => setPage((p) => Math.max(1, Math.min(p, loaded) - 1)), [loaded]);
+
+  // Нумерація — за тим, що вже пройдено, а не за розміром сторінки: сервіс,
+  // який фільтрує після читання, віддає коротку сторінку з курсором, і
+  // «номер × розмір» показав би чужі числа.
+  const before = src.pages.slice(0, current - 1).reduce((n, page) => n + page.length, 0);
+  const from = items.length ? before + 1 : 0;
+
+  // «Page 2 of 7» — рядки, поділені на розмір сторінки. Порожній список — це
+  // одна сторінка, а не нуль: «Page 1 of 0» не читається як число.
+  const totalPages =
+    typeof total === 'number' && pageSize && pageSize > 0
+      ? Math.max(1, Math.ceil(total / pageSize))
+      : undefined;
+
+  return {
+    page: current,
+    items,
+    from,
+    to: items.length ? from + items.length - 1 : 0,
+    total,
+    totalIsFloor,
+    totalPages,
+    totalPagesIsFloor: totalPages === undefined ? undefined : Boolean(totalIsFloor),
+    canPrev: current > 1,
+    canNext: current < loaded || src.hasNextPage,
+    isLoading: src.isLoading,
+    isFetching: src.isFetchingNextPage || stale,
+    isStale: stale,
+    window: pageWindow({ loaded, hasNext: src.hasNextPage, page: current }),
+    next,
+    prev,
+    goto,
+  };
+}
+
+/** Скільки номерів показати підряд, перш ніж середину згорнути в «…». */
+const WINDOW_MAX = 7;
+
+/**
+ * Номери сторінок для панелі: всі завантажені плюс та, яку відкриє курсор.
+ * Довгий прохід згортається — лишаються краї й сусіди поточної.
+ */
+export function pageWindow({
+  loaded,
+  hasNext,
+  page,
+}: {
+  loaded: number;
+  hasNext: boolean;
+  page: number;
+}): (number | "…")[] {
+  const last = Math.max(loaded, 1) + (hasNext ? 1 : 0);
+  if (last <= WINDOW_MAX) return Array.from({ length: last }, (_, i) => i + 1);
+
+  const keep = new Set([1, last, page - 1, page, page + 1]);
+  const out: (number | "…")[] = [];
+  for (let i = 1; i <= last; i += 1) {
+    if (keep.has(i)) {
+      out.push(i);
+    } else if (out[out.length - 1] !== "…") {
+      out.push("…");
+    }
+  }
+  return out;
+}

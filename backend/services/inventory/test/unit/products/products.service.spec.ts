@@ -9,15 +9,18 @@ import {
 import { ProductsRepository } from 'src/products/products.repository';
 import { ProductsCacheService } from 'src/products/products-cache.service';
 import { ItemCategoriesService } from 'src/item-categories/item-categories.service';
-import { S3Service, SnsPublisherService } from '@bitcrm/shared';
-import { InventoryStatus, ProductType, UNCATEGORIZED_CATEGORY } from '@bitcrm/types';
+import { InventoryLogService } from 'src/inventory-log/inventory-log.service';
+import { RedisService, S3Service, SnsPublisherService } from '@bitcrm/shared';
+import { InventoryLogAction, InventoryStatus, ProductType, UNCATEGORIZED_CATEGORY } from '@bitcrm/types';
 import {
   createMockProduct,
   createMockCreateProductDto,
+  createMockJwtUser,
   createMockProductsRepository,
   createMockProductsCacheService,
   createMockS3Service,
   createMockItemCategoriesService,
+  createMockInventoryLogService,
 } from '../mocks';
 
 describe('ProductsService', () => {
@@ -27,6 +30,8 @@ describe('ProductsService', () => {
   let s3: ReturnType<typeof createMockS3Service>;
   let publisher: { publish: jest.Mock };
   let categories: ReturnType<typeof createMockItemCategoriesService>;
+  let inventoryLog: ReturnType<typeof createMockInventoryLogService>;
+  let redisStore: Map<string, string>;
 
   beforeEach(async () => {
     repository = createMockProductsRepository();
@@ -34,6 +39,17 @@ describe('ProductsService', () => {
     s3 = createMockS3Service();
     publisher = { publish: jest.fn().mockResolvedValue(undefined) };
     categories = createMockItemCategoriesService();
+    inventoryLog = createMockInventoryLogService();
+    redisStore = new Map<string, string>();
+    const redis = {
+      client: {
+        get: jest.fn(async (k: string) => redisStore.get(k) ?? null),
+        set: jest.fn(async (k: string, v: string) => {
+          redisStore.set(k, v);
+          return 'OK';
+        }),
+      },
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -43,6 +59,8 @@ describe('ProductsService', () => {
         { provide: S3Service, useValue: s3 },
         { provide: SnsPublisherService, useValue: publisher },
         { provide: ItemCategoriesService, useValue: categories },
+        { provide: RedisService, useValue: redis },
+        { provide: InventoryLogService, useValue: inventoryLog },
       ],
     }).compile();
 
@@ -125,6 +143,60 @@ describe('ProductsService', () => {
       expect(normalizeCategory(' Uncategorized ')).toBe('Uncategorized');
       expect(normalizeCategory('Door Hardware')).toBe('Door Hardware');
       expect(normalizeCategory('Locks > Residential ')).toBe('Locks > Residential ');
+    });
+  });
+
+  /**
+   * "Product ID" у Workiz — короткий послідовний номер. Його видає лічильник
+   * репозиторію, а не клієнт: надісланий у тілі number чи onHand ігнорується.
+   */
+  describe('create — product number', () => {
+    it('takes the next number from the counter and stores it on the product', async () => {
+      repository.nextNumber.mockResolvedValue(101);
+
+      const result = await service.create(createMockCreateProductDto());
+
+      expect(result.number).toBe(101);
+      expect(repository.create).toHaveBeenCalledWith(expect.objectContaining({ number: 101 }));
+    });
+
+    // Новий товар нічого не тримає: onHand = 0 від початку, і кожен рух
+    // потім його веде. Без атрибута сума б не велася (ADD створює її як дельту).
+    it('ignores a number or onHand a client tries to send and starts onHand at zero', async () => {
+      repository.nextNumber.mockResolvedValue(7);
+
+      const result = await service.create({
+        ...createMockCreateProductDto(),
+        number: 999,
+        onHand: 50,
+      } as any);
+
+      expect(result.number).toBe(7);
+      expect(result.onHand).toBe(0);
+      expect(repository.create).toHaveBeenCalledWith(expect.objectContaining({ onHand: 0 }));
+    });
+
+    it('keeps manageStock, brandId and reorderLevel from the request', async () => {
+      repository.nextNumber.mockResolvedValue(1);
+
+      const result = await service.create(
+        createMockCreateProductDto({ manageStock: false, brandId: 'brand-1', reorderLevel: 2 }),
+      );
+
+      expect(result).toMatchObject({ manageStock: false, brandId: 'brand-1', reorderLevel: 2 });
+    });
+  });
+
+  describe('create — taxable', () => {
+    it('defaults taxable to true', async () => {
+      const result = await service.create(createMockCreateProductDto());
+      expect(result.taxable).toBe(true);
+      expect(repository.create.mock.calls[0][0].taxable).toBe(true);
+    });
+
+    it('keeps an explicit taxable=false', async () => {
+      const result = await service.create({ ...createMockCreateProductDto(), taxable: false });
+      expect(result.taxable).toBe(false);
     });
   });
 
@@ -269,27 +341,172 @@ describe('ProductsService', () => {
       const result = await service.list({ category: 'Locks', limit: 20 } as any);
 
       expect(result).toEqual(paginated);
-      expect(repository.findByCategory).toHaveBeenCalledWith('Locks', 20, undefined);
+      expect(repository.findByCategory).toHaveBeenCalledWith('Locks', 20, undefined, {
+        type: undefined,
+        status: undefined,
+        search: undefined,
+        brandId: undefined,
+        manageStock: undefined,
+      });
     });
 
-    it('should delegate to findByType when type is provided', async () => {
+    // Price Book: тип — фільтр на розділі всіх позицій у порядку назви, а не
+    // TypeIndex (там порядок за id).
+    it('reads the Price Book partition with the type on top when only a type is given', async () => {
       const paginated = { items: [createMockProduct()], nextCursor: undefined };
-      repository.findByType.mockResolvedValue(paginated);
+      repository.findCatalog.mockResolvedValue(paginated);
 
       const result = await service.list({ type: 'product', limit: 20 } as any);
 
       expect(result).toEqual(paginated);
-      expect(repository.findByType).toHaveBeenCalledWith('product', 20, undefined);
+      expect(repository.findCatalog).toHaveBeenCalledWith(20, undefined, {
+        type: 'product',
+        status: undefined,
+        search: undefined,
+        brandId: undefined,
+        manageStock: undefined,
+      });
+      expect(repository.findByType).not.toHaveBeenCalled();
     });
 
-    it('should delegate to findAll when no category or type', async () => {
-      const paginated = { items: [createMockProduct()], nextCursor: undefined };
-      repository.findAll.mockResolvedValue(paginated);
+    // Без фільтрів — весь каталог (16 142 позиції) в порядку назви, не Scan
+    // по спільній таблиці з 46 тис. рядків.
+    it('reads the Price Book partition when no category or type is given — never the Scan', async () => {
+      const paginated = { items: [createMockProduct()], nextCursor: 'c-2' };
+      repository.findCatalog.mockResolvedValue(paginated);
 
-      const result = await service.list({ limit: 20 } as any);
+      const result = await service.list({ limit: 20, cursor: 'c-1' } as any);
 
       expect(result).toEqual(paginated);
-      expect(repository.findAll).toHaveBeenCalledWith(20, undefined, { status: undefined, search: undefined });
+      expect(repository.findCatalog).toHaveBeenCalledWith(20, 'c-1', {
+        type: undefined,
+        status: undefined,
+        search: undefined,
+        brandId: undefined,
+        manageStock: undefined,
+      });
+      expect(repository.findAll).not.toHaveBeenCalled();
+    });
+
+    /**
+     * Фільтри Workiz складаються: категорія обирає індекс, а статус, пошук,
+     * бренд і "керується запасом" ідуть поверх нього. Без категорії
+     * manageStock=true читає складський розділ, а все інше — розділ Price Book.
+     */
+    it('category + status: the category index, status on top', async () => {
+      repository.findByCategory.mockResolvedValue({ items: [] });
+
+      await service.list({ category: 'Locks', status: 'active', limit: 20 } as any);
+
+      expect(repository.findByCategory).toHaveBeenCalledWith(
+        'Locks',
+        20,
+        undefined,
+        expect.objectContaining({ status: 'active' }),
+      );
+      expect(repository.findAll).not.toHaveBeenCalled();
+    });
+
+    it('category + type: the category index, type on top', async () => {
+      repository.findByCategory.mockResolvedValue({ items: [] });
+
+      await service.list({ category: 'Locks', type: 'service', limit: 20 } as any);
+
+      expect(repository.findByCategory).toHaveBeenCalledWith(
+        'Locks',
+        20,
+        undefined,
+        expect.objectContaining({ type: 'service' }),
+      );
+      expect(repository.findByType).not.toHaveBeenCalled();
+    });
+
+    it('type + search: the Price Book partition, both on top', async () => {
+      repository.findCatalog.mockResolvedValue({ items: [] });
+
+      await service.list({ type: 'product', search: 'lock', limit: 20 } as any);
+
+      expect(repository.findCatalog).toHaveBeenCalledWith(
+        20,
+        undefined,
+        expect.objectContaining({ type: 'product', search: 'lock' }),
+      );
+    });
+
+    // "Inventory products" без категорії — власна партиція складських товарів,
+    // а не Scan по всій таблиці (перша сторінка приходила порожньою з курсором).
+    it('manageStock=true without a category reads the stock-managed partition, the rest on top', async () => {
+      repository.findStockManaged.mockResolvedValue({ items: [] });
+
+      await service.list({
+        manageStock: true,
+        brandId: 'brand-1',
+        search: 'chain guard',
+        status: 'active',
+        type: 'product',
+        limit: 50,
+        cursor: 'c',
+      } as any);
+
+      expect(repository.findStockManaged).toHaveBeenCalledWith(50, 'c', {
+        type: 'product',
+        status: 'active',
+        search: 'chain guard',
+        brandId: 'brand-1',
+      });
+      expect(repository.findAll).not.toHaveBeenCalled();
+      expect(repository.findByType).not.toHaveBeenCalled();
+      expect(repository.findCatalog).not.toHaveBeenCalled();
+    });
+
+    it('manageStock=true with a category stays on the category index', async () => {
+      repository.findByCategory.mockResolvedValue({ items: [] });
+
+      await service.list({ manageStock: true, category: 'Locks', limit: 20 } as any);
+
+      expect(repository.findByCategory).toHaveBeenCalledWith(
+        'Locks',
+        20,
+        undefined,
+        expect.objectContaining({ manageStock: true }),
+      );
+      expect(repository.findStockManaged).not.toHaveBeenCalled();
+    });
+
+    it('brandId alone goes to the Price Book partition', async () => {
+      repository.findCatalog.mockResolvedValue({ items: [] });
+
+      await service.list({ brandId: 'brand-1', limit: 20 } as any);
+
+      expect(repository.findCatalog).toHaveBeenCalledWith(20, undefined, {
+        type: undefined,
+        status: undefined,
+        search: undefined,
+        brandId: 'brand-1',
+        manageStock: undefined,
+      });
+    });
+
+    it('manageStock=false rides along on the Price Book partition, with every other filter', async () => {
+      repository.findCatalog.mockResolvedValue({ items: [] });
+
+      await service.list({
+        type: 'service',
+        manageStock: false,
+        status: 'archived',
+        search: 'rekey',
+        brandId: 'b-1',
+        limit: 50,
+      } as any);
+
+      expect(repository.findCatalog).toHaveBeenCalledWith(50, undefined, {
+        type: 'service',
+        status: 'archived',
+        search: 'rekey',
+        brandId: 'b-1',
+        manageStock: false,
+      });
+      expect(repository.findStockManaged).not.toHaveBeenCalled();
     });
   });
 
@@ -305,6 +522,15 @@ describe('ProductsService', () => {
       expect(result).toEqual(updated);
       expect(repository.update).toHaveBeenCalledWith('prod-1', { name: 'Updated' });
       expect(cache.invalidate).toHaveBeenCalledWith('prod-1');
+    });
+
+    it('drops number and onHand from the attributes written', async () => {
+      cache.get.mockResolvedValue(createMockProduct());
+      repository.update.mockResolvedValue(createMockProduct());
+
+      await service.update('prod-1', { name: 'Renamed', number: 5, onHand: 9 } as any);
+
+      expect(repository.update).toHaveBeenCalledWith('prod-1', { name: 'Renamed' });
     });
 
     it('accepts moving a product to "Uncategorized" and seeds the catalog row', async () => {
@@ -401,6 +627,46 @@ describe('ProductsService', () => {
       expect(repository.create).toHaveBeenCalledTimes(1);
     });
 
+    it('assigns a product number to each created row', async () => {
+      const csv = Buffer.from(
+        'name,sku,category,type,costCompany,costTech,priceClient,serialTracking,minimumStockLevel\n' +
+        'Lock A,SKU-100,Locks,product,10,15,25,false,5\n' +
+        'Lock B,SKU-101,Locks,product,10,15,25,false,5',
+      );
+      repository.findBySku.mockResolvedValue(null);
+      repository.nextNumber.mockResolvedValueOnce(11).mockResolvedValueOnce(12);
+
+      await service.importFromCsv(csv);
+
+      expect(repository.create).toHaveBeenNthCalledWith(1, expect.objectContaining({ sku: 'SKU-100', number: 11 }));
+      expect(repository.create).toHaveBeenNthCalledWith(2, expect.objectContaining({ sku: 'SKU-101', number: 12 }));
+    });
+
+    it('starts each created row at onHand zero', async () => {
+      const csv = Buffer.from(
+        'name,sku,category,type,costCompany,costTech,priceClient,serialTracking,minimumStockLevel\n' +
+        'Lock A,SKU-100,Locks,product,10,15,25,false,5',
+      );
+      repository.findBySku.mockResolvedValue(null);
+
+      await service.importFromCsv(csv);
+
+      expect(repository.create).toHaveBeenCalledWith(expect.objectContaining({ onHand: 0 }));
+    });
+
+    it('does not spend a number on an update or a dry run', async () => {
+      const csv = Buffer.from(
+        'name,sku,category,type,costCompany,costTech,priceClient,serialTracking,minimumStockLevel\n' +
+        'Lock A,SKU-100,Locks,product,10,15,25,false,5',
+      );
+      repository.findBySku.mockResolvedValue(createMockProduct({ id: 'prod-1', sku: 'SKU-100' }));
+      await service.importFromCsv(csv);
+      repository.findBySku.mockResolvedValue(null);
+      await service.importFromCsv(csv, true);
+
+      expect(repository.nextNumber).not.toHaveBeenCalled();
+    });
+
     it('should update existing products matched by SKU', async () => {
       const csv = Buffer.from(
         'name,sku,category,type,costCompany,costTech,priceClient,serialTracking,minimumStockLevel\n' +
@@ -416,6 +682,47 @@ describe('ProductsService', () => {
       expect(result.updated).toBe(1);
       expect(repository.update).toHaveBeenCalledTimes(1);
       expect(cache.invalidate).toHaveBeenCalledWith(existing.id);
+    });
+
+    it('reads the optional taxable column (default true on create)', async () => {
+      const csv = Buffer.from(
+        'name,sku,category,type,costCompany,costTech,priceClient,serialTracking,minimumStockLevel,taxable\n' +
+        'Lock A,SKU-100,Locks,product,10,15,25,false,5,false\n' +
+        'Lock B,SKU-101,Locks,product,10,15,25,false,5,',
+      );
+      repository.findBySku.mockResolvedValue(null);
+
+      const result = await service.importFromCsv(csv);
+
+      expect(result.created).toBe(2);
+      expect(repository.create.mock.calls[0][0].taxable).toBe(false);
+      expect(repository.create.mock.calls[1][0].taxable).toBe(true);
+    });
+
+    it('updates taxable only when the column has a value', async () => {
+      const csv = Buffer.from(
+        'name,sku,category,type,costCompany,costTech,priceClient,serialTracking,minimumStockLevel,taxable\n' +
+        'Lock A,SKU-001,Locks,product,10,15,25,false,5,no\n' +
+        'Lock B,SKU-002,Locks,product,10,15,25,false,5,',
+      );
+      repository.findBySku.mockResolvedValue(createMockProduct());
+      repository.update.mockResolvedValue(createMockProduct());
+
+      await service.importFromCsv(csv);
+
+      expect(repository.update.mock.calls[0][1].taxable).toBe(false);
+      expect(repository.update.mock.calls[1][1]).not.toHaveProperty('taxable');
+    });
+
+    it('rejects an unreadable taxable value', async () => {
+      const csv = Buffer.from(
+        'name,sku,category,type,costCompany,costTech,priceClient,taxable\n' +
+        'Lock A,SKU-100,Locks,product,10,15,25,maybe',
+      );
+
+      const result = await service.importFromCsv(csv);
+
+      expect(result.errors[0].message).toContain('taxable');
     });
 
     it('should report errors for invalid rows', async () => {
@@ -683,6 +990,306 @@ describe('ProductsService', () => {
       expect(managed).toEqual([items[0]]);
       expect(unmanaged).toEqual([items[1], items[2]]);
       expect(repository.findById).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  /**
+   * Скільки всього товарів під поточними фільтрами — число для «Page 2 of 7».
+   * Розвилка мусить бути та сама, що в `list`, інакше панель показала б
+   * сторінки іншого набору.
+   */
+  describe('count', () => {
+    it('counts the Price Book partition when neither category nor manageStock=true is set', async () => {
+      repository.countCatalog.mockResolvedValue({ total: 47, atLeast: false });
+
+      expect(await service.count({ status: 'active', search: 'lock' } as never)).toEqual({
+        total: 47,
+        atLeast: false,
+      });
+      expect(repository.countCatalog).toHaveBeenCalledWith({
+        type: undefined,
+        status: 'active',
+        search: 'lock',
+        brandId: undefined,
+        manageStock: undefined,
+      });
+      expect(repository.countAll).not.toHaveBeenCalled();
+    });
+
+    it('counts on the category index when a category is given, as the list does', async () => {
+      repository.countByCategory.mockResolvedValue({ total: 9, atLeast: false });
+
+      expect(await service.count({ category: 'locks' } as never)).toEqual({ total: 9, atLeast: false });
+      expect(repository.countByCategory).toHaveBeenCalledWith(
+        'locks',
+        expect.objectContaining({ status: undefined, search: undefined }),
+      );
+      expect(repository.countCatalog).not.toHaveBeenCalled();
+    });
+
+    it('counts a type on the Price Book partition, as the list reads it', async () => {
+      repository.countCatalog.mockResolvedValue({ total: 4, atLeast: false });
+
+      expect(await service.count({ type: 'service' } as never)).toEqual({ total: 4, atLeast: false });
+      expect(repository.countCatalog).toHaveBeenCalledWith(expect.objectContaining({ type: 'service' }));
+      expect(repository.countByType).not.toHaveBeenCalled();
+    });
+
+    it('counts on the category index under the other filters, as the list does', async () => {
+      repository.countByCategory.mockResolvedValue({ total: 2, atLeast: false });
+
+      await service.count({ category: 'locks', type: 'product', status: 'active', brandId: 'b-1' } as never);
+
+      expect(repository.countByCategory).toHaveBeenCalledWith('locks', {
+        type: 'product',
+        status: 'active',
+        search: undefined,
+        brandId: 'b-1',
+        manageStock: undefined,
+      });
+    });
+
+    it('counts the stock-managed partition under manageStock=true, as the list reads it', async () => {
+      repository.countStockManaged.mockResolvedValue({ total: 3102, atLeast: false });
+
+      expect(await service.count({ manageStock: true, brandId: 'b-1', search: 'lock' } as never)).toEqual({
+        total: 3102,
+        atLeast: false,
+      });
+      expect(repository.countStockManaged).toHaveBeenCalledWith({
+        type: undefined,
+        status: undefined,
+        search: 'lock',
+        brandId: 'b-1',
+      });
+      expect(repository.countCatalog).not.toHaveBeenCalled();
+    });
+
+    it('counts the Price Book partition under manageStock=false and brandId', async () => {
+      repository.countCatalog.mockResolvedValue({ total: 2, atLeast: false });
+
+      await service.count({ manageStock: false, brandId: 'b-1' } as never);
+
+      expect(repository.countCatalog).toHaveBeenCalledWith({
+        type: undefined,
+        status: undefined,
+        search: undefined,
+        brandId: 'b-1',
+        manageStock: false,
+      });
+    });
+
+    it('carries the floor flag through', async () => {
+      repository.countCatalog.mockResolvedValue({ total: 10_000, atLeast: true });
+
+      expect(await service.count({} as never)).toEqual({ total: 10_000, atLeast: true });
+    });
+
+    // Той самий екран з тими самими фільтрами не має перечитувати індекс.
+    it('answers a repeat of the same question from the cache', async () => {
+      repository.countCatalog.mockResolvedValue({ total: 47, atLeast: false });
+
+      await service.count({ status: 'active' } as never);
+      await service.count({ status: 'active' } as never);
+
+      expect(repository.countCatalog).toHaveBeenCalledTimes(1);
+    });
+
+    it('counts again when the filters change', async () => {
+      repository.countCatalog.mockResolvedValue({ total: 47, atLeast: false });
+
+      await service.count({ status: 'active' } as never);
+      await service.count({ status: 'archived' } as never);
+
+      expect(repository.countCatalog).toHaveBeenCalledTimes(2);
+    });
+
+    it('a different manageStock or brandId is a different question', async () => {
+      repository.countCatalog.mockResolvedValue({ total: 47, atLeast: false });
+      repository.countStockManaged.mockResolvedValue({ total: 3102, atLeast: false });
+
+      await service.count({ manageStock: true } as never);
+      await service.count({ manageStock: false } as never);
+      await service.count({ brandId: 'b-1' } as never);
+      await service.count({ brandId: 'b-2' } as never);
+
+      expect(repository.countStockManaged).toHaveBeenCalledTimes(1);
+      expect(repository.countCatalog).toHaveBeenCalledTimes(3);
+    });
+  });
+
+  /**
+   * Кожна зміна товару лишає рядок у журналі інвентарю — його читає звіт
+   * "Inventory usage". Хто змінив — з JwtUser контролера; без нього 'system'.
+   */
+  describe('audit log', () => {
+    const actor = createMockJwtUser({ id: 'user-7', email: 'tamir@test.com' });
+
+    it('records item_created with the actor', async () => {
+      const result = await service.create(createMockCreateProductDto(), actor);
+
+      expect(inventoryLog.record).toHaveBeenCalledWith({
+        action: InventoryLogAction.ITEM_CREATED,
+        productId: result.id,
+        productName: 'Test Product',
+        sku: 'SKU-001',
+        userId: 'user-7',
+        userName: 'tamir@test.com',
+      });
+    });
+
+    it("falls back to 'system' when no actor is given", async () => {
+      await service.create(createMockCreateProductDto());
+
+      expect(inventoryLog.record).toHaveBeenCalledWith(
+        expect.objectContaining({ action: InventoryLogAction.ITEM_CREATED, userId: 'system', userName: 'system' }),
+      );
+    });
+
+    it('records item_updated with the fields that actually changed', async () => {
+      cache.get.mockResolvedValue(createMockProduct({ name: 'Old', priceClient: 25, costCompany: 10 }));
+      repository.update.mockResolvedValue(createMockProduct({ name: 'New', priceClient: 30, costCompany: 10 }));
+
+      await service.update('prod-1', { name: 'New', priceClient: 30, costCompany: 10 } as any, actor);
+
+      expect(inventoryLog.record).toHaveBeenCalledWith({
+        action: InventoryLogAction.ITEM_UPDATED,
+        productId: 'prod-1',
+        productName: 'New',
+        sku: 'SKU-001',
+        changedFields: ['name', 'priceClient'],
+        userId: 'user-7',
+        userName: 'tamir@test.com',
+      });
+    });
+
+    it('passes null through to clear a field, and lists it as changed', async () => {
+      cache.get.mockResolvedValue(createMockProduct({ brandId: 'brand-1' }));
+      repository.update.mockResolvedValue(createMockProduct());
+
+      await service.update('prod-1', { brandId: null } as any, actor);
+
+      expect(repository.update).toHaveBeenCalledWith('prod-1', { brandId: null });
+      expect(inventoryLog.record).toHaveBeenCalledWith(
+        expect.objectContaining({ action: InventoryLogAction.ITEM_UPDATED, changedFields: ['brandId'] }),
+      );
+    });
+
+    it('records nothing when the update changes nothing, comparing the normalised category', async () => {
+      cache.get.mockResolvedValue(createMockProduct({ category: 'Uncategorized' }));
+      repository.update.mockResolvedValue(createMockProduct({ category: 'Uncategorized' }));
+
+      await service.update('prod-1', { name: 'Test Product', category: 'uncategorized' } as any, actor);
+
+      expect(repository.update).toHaveBeenCalledTimes(1);
+      expect(inventoryLog.record).not.toHaveBeenCalled();
+    });
+
+    it('records item_archived and item_restored rather than a plain update', async () => {
+      cache.get.mockResolvedValue(createMockProduct());
+      repository.update.mockResolvedValue(createMockProduct({ status: InventoryStatus.ARCHIVED }));
+      await service.archive('prod-1', actor);
+      repository.update.mockResolvedValue(createMockProduct({ status: InventoryStatus.ACTIVE }));
+      await service.reactivate('prod-1', actor);
+
+      expect(inventoryLog.record.mock.calls.map((c) => c[0])).toEqual([
+        expect.objectContaining({ action: InventoryLogAction.ITEM_ARCHIVED, productId: 'prod-1', userId: 'user-7' }),
+        expect.objectContaining({ action: InventoryLogAction.ITEM_RESTORED, productId: 'prod-1', userId: 'user-7' }),
+      ]);
+    });
+
+    it('still writes the product when there is no log service to tell', async () => {
+      const bare = new ProductsService(repository as any, cache as any, s3 as any);
+
+      await bare.create(createMockCreateProductDto(), actor);
+
+      expect(repository.create).toHaveBeenCalledTimes(1);
+    });
+
+    describe('CSV import', () => {
+      const csv = Buffer.from(
+        'name,sku,category,type,costCompany,costTech,priceClient,serialTracking,minimumStockLevel\n' +
+        'Lock A,SKU-100,Locks,product,10,15,25,false,5',
+      );
+
+      it("records item_created per created row as 'csv-import'", async () => {
+        repository.findBySku.mockResolvedValue(null);
+
+        await service.importFromCsv(csv);
+
+        expect(inventoryLog.record).toHaveBeenCalledTimes(1);
+        expect(inventoryLog.record).toHaveBeenCalledWith(
+          expect.objectContaining({
+            action: InventoryLogAction.ITEM_CREATED,
+            productName: 'Lock A',
+            sku: 'SKU-100',
+            userId: 'system',
+            userName: 'csv-import',
+          }),
+        );
+      });
+
+      it('records under the actor when one is given', async () => {
+        repository.findBySku.mockResolvedValue(null);
+
+        await service.importFromCsv(csv, false, actor);
+
+        expect(inventoryLog.record).toHaveBeenCalledWith(
+          expect.objectContaining({ userId: 'user-7', userName: 'tamir@test.com' }),
+        );
+      });
+
+      it('records item_updated for a row matched by SKU, with the changed fields', async () => {
+        const existing = createMockProduct({ id: 'prod-9', sku: 'SKU-100', name: 'Lock A', priceClient: 20 });
+        repository.findBySku.mockResolvedValue(existing);
+        repository.update.mockResolvedValue({ ...existing, priceClient: 25 });
+
+        await service.importFromCsv(csv);
+
+        expect(inventoryLog.record).toHaveBeenCalledWith(
+          expect.objectContaining({
+            action: InventoryLogAction.ITEM_UPDATED,
+            productId: 'prod-9',
+            changedFields: ['priceClient'],
+            userName: 'csv-import',
+          }),
+        );
+      });
+
+      it('records nothing when the row matches the stored product', async () => {
+        const existing = createMockProduct({ id: 'prod-9', sku: 'SKU-100', name: 'Lock A' });
+        repository.findBySku.mockResolvedValue(existing);
+        repository.update.mockResolvedValue(existing);
+
+        await service.importFromCsv(csv);
+
+        expect(inventoryLog.record).not.toHaveBeenCalled();
+      });
+
+      it('records nothing on a dry run', async () => {
+        repository.findBySku.mockResolvedValue(null);
+
+        await service.importFromCsv(csv, true);
+
+        expect(inventoryLog.record).not.toHaveBeenCalled();
+      });
+    });
+  });
+
+  /** The stock paths' product read, shared with the guards: null for an unknown id, never a throw. */
+  describe('loadForStock', () => {
+    it('returns null for an unknown id', async () => {
+      cache.get.mockResolvedValue(null);
+      repository.findById.mockResolvedValue(null);
+
+      await expect(service.loadForStock('ghost')).resolves.toBeNull();
+    });
+
+    it('serves a cached product without a repository read', async () => {
+      cache.get.mockResolvedValue(createMockProduct({ priceClient: 40 }));
+
+      await expect(service.loadForStock('prod-1')).resolves.toMatchObject({ priceClient: 40 });
+      expect(repository.findById).not.toHaveBeenCalled();
     });
   });
 });

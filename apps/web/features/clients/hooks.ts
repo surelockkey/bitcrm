@@ -1,10 +1,11 @@
 "use client";
 
 import { useMemo } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import type { ClientType, Company, Contact, CompanyDocumentType } from "@bitcrm/types";
 import { queryKeys } from "@/lib/query-keys";
+import { useGlobalSearch } from "@/features/search/use-global-search";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import * as api from "./api";
 import type {
@@ -18,11 +19,77 @@ import { contactName } from "./lib";
 /* ---------------------------------------------------------------- contacts */
 
 /** All contacts (optionally scoped to a company) — loaded for client-side search. */
-export function useContacts(companyId?: string) {
+
+/**
+ * The contacts list a page at a time — the CRM pages it by cursor, and the
+ * Contacts page asks for the next page on request. Never the whole table.
+ */
+/**
+ * Скільки всього рядків під тими самими фільтрами — з цього панель робить
+ * «Page 2 of 7». Сервер тримає число тридцять секунд, тож і тут стільки ж.
+ */
+export function useContactsCount(companyId?: string, enabled = true) {
   return useQuery({
-    queryKey: queryKeys.contacts.list({ companyId }),
-    queryFn: () => api.fetchAllContacts(companyId),
+    queryKey: queryKeys.contacts.count(companyId ?? null),
+    queryFn: () => api.countContacts(companyId),
+    staleTime: 30_000,
+    enabled,
   });
+}
+
+export function useContactsPage(companyId?: string, enabled = true, limit?: number) {
+  return useInfiniteQuery({
+    // Розмір сторінки в ключі: сторінки по 25 і по 100 — різні набори.
+    queryKey: [...queryKeys.contacts.page(companyId), limit ?? null],
+    queryFn: ({ pageParam }) => api.listContacts(companyId, pageParam, limit),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.pagination.nextCursor,
+    enabled,
+  });
+}
+
+/**
+ * Contacts matching typed text — a name, a phone, an email — answered by
+ * the search service and hydrated in one call, masked like any contact
+ * route. Idle (empty data, not loading) below two characters.
+ */
+export function useContactSearch(query: string, limit = 50) {
+  const found = useGlobalSearch(query, { types: ["contact"], mode: "full", limit });
+  const ids = (found.data?.hits ?? []).map((h) => h.entityId);
+  const hydrated = useContactsByIds(ids);
+  const data = useMemo(() => ids.map((id) => hydrated.map.get(id)).filter((c): c is Contact => Boolean(c)), [ids, hydrated.map]);
+  return {
+    data,
+    isLoading: found.isSearching || (ids.length > 0 && hydrated.isLoading),
+    /** True while the text is too short to search. */
+    tooShort: found.tooShort,
+  };
+}
+
+/**
+ * The contacts behind the rows on screen — a jobs page, a calls page — as a
+ * map by id. Sorted and de-duplicated so the key is stable; nothing is asked
+ * for an empty list.
+ *
+ * `enabled` is for a list that only sometimes needs them. The jobs grid names
+ * its clients from the names that came with the rows, so it asks crm for the
+ * contacts themselves only when a column shows their numbers or emails —
+ * a round trip that cannot even start until the rows come back.
+ */
+export function useContactsByIds(ids: string[], enabled = true) {
+  const wanted = useMemo(() => [...new Set(ids)].filter(Boolean).sort(), [ids]);
+  const q = useQuery({
+    queryKey: queryKeys.contacts.byIds(wanted),
+    queryFn: () => api.getContactsByIds(wanted),
+    enabled: enabled && wanted.length > 0,
+    staleTime: 60_000,
+  });
+  const map = useMemo(() => {
+    const m = new Map<string, Contact>();
+    for (const c of q.data ?? []) m.set(c.id, c);
+    return m;
+  }, [q.data]);
+  return { map, isLoading: q.isLoading };
 }
 
 export function useContact(id: string) {
@@ -119,6 +186,8 @@ export function useCompany(id: string) {
   return useQuery({
     queryKey: queryKeys.companies.detail(id),
     queryFn: () => api.getCompany(id),
+    // Порожній id — це «компанії немає», а не запит на `/crm/companies/`.
+    enabled: !!id,
   });
 }
 
@@ -127,6 +196,28 @@ export function useCompanyContacts(id: string) {
     queryKey: queryKeys.companies.contacts(id),
     queryFn: () => api.getCompanyContacts(id),
   });
+}
+
+/**
+ * The companies behind the rows on screen, as a map by id. Sorted and
+ * de-duplicated so the key is stable; nothing is asked for an empty list.
+ * A list screen names its companies with this — `useCompanyMap` reads every
+ * company in the account, which after the import is nine thousand of them.
+ */
+export function useCompaniesByIds(ids: string[]) {
+  const wanted = useMemo(() => [...new Set(ids)].filter(Boolean).sort(), [ids]);
+  const q = useQuery({
+    queryKey: queryKeys.companies.byIds(wanted),
+    queryFn: () => api.getCompaniesByIds(wanted),
+    enabled: wanted.length > 0,
+    staleTime: 60_000,
+  });
+  const map = useMemo(() => {
+    const m = new Map<string, Company>();
+    for (const c of q.data ?? []) m.set(c.id, c);
+    return m;
+  }, [q.data]);
+  return { map, isLoading: wanted.length > 0 && q.isLoading };
 }
 
 /** id → Company, for resolving a contact's company name/type across the UI. */

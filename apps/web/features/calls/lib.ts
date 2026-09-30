@@ -61,6 +61,11 @@ export interface CallRecord {
    * carries none; changed through `PATCH /calls/:sid/tags`, never by a webhook.
    */
   tagIds?: string[];
+  /**
+   * Company (business profile) the call is attributed to — the number's own
+   * setting, else the answering call flow's.
+   */
+  businessProfileId?: string;
   /** How the party was decided — a manual choice is never re-derived. */
   partySource?: "auto" | "manual";
   /** The call flow that answered, and where it took the caller. */
@@ -342,6 +347,21 @@ export function isInternalCall(call: CallRecord): boolean {
 export function counterparty(call: CallRecord): CallParty {
   const from = callParty(call, "from");
   return from.kind === "user" ? callParty(call, "to") : from;
+}
+
+/**
+ * The New Job page prewired with everything the call knows: the call itself
+ * (linked on save), the client — or at least their number — and the job
+ * source and company the call was attributed to.
+ */
+export function newJobHref(call: CallRecord): string {
+  const client = counterparty(call);
+  const params = new URLSearchParams({ callSid: call.callSid });
+  if (client.kind === "contact" && client.id) params.set("contactId", client.id);
+  else if (client.number) params.set("phone", client.number);
+  if (call.sourceId) params.set("sourceId", call.sourceId);
+  if (call.businessProfileId) params.set("companyId", call.businessProfileId);
+  return `/deals/new?${params.toString()}`;
 }
 
 /** Filter → querystring params for GET /calls (drops empty values). */

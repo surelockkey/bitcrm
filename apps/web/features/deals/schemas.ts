@@ -43,6 +43,8 @@ export const dealJobSchema = z.object({
   allDay: z.boolean().optional(),
   priority: z.nativeEnum(DealPriority),
   sourceId: z.string().trim().optional(),
+  // The business company the job is issued under (business profile id).
+  businessProfileId: z.string().trim().optional(),
   externalCompanyId: z.string().trim().optional(),
   notes: z.string().trim().optional(),
   tagIds: z.array(z.string()).default([]),
@@ -69,12 +71,14 @@ export type CreateDealValues = DealJobValues & {
 /** API update body (subset of deal fields the PUT accepts). */
 export type UpdateDealValues = Partial<
   // externalCompanyId is re-declared below because the PUT also accepts null.
-  Omit<DealJobValues, "clientType" | "externalCompanyId"> & {
+  Omit<DealJobValues, "clientType" | "externalCompanyId" | "businessProfileId"> & {
     internalNotes: string;
     /** Per-job client display name ("Just here" rename); null clears it. */
     clientName: { firstName: string; lastName: string } | null;
     /** Referring partner; null clears it (undefined would be dropped by JSON). */
     externalCompanyId: string | null;
+    /** The job's company; null falls back to the default company. */
+    businessProfileId: string | null;
   }
 >;
 
@@ -97,6 +101,10 @@ export const addProductSchema = z
     costCompany: z.number(),
     costForTech: z.number(),
     priceClient: z.coerce.number().min(0),
+    // Whether the job's tax applies to this line (absent ⇒ taxable).
+    taxable: z.boolean().optional(),
+    // Optional client-facing description shown on estimates/invoices.
+    description: z.string().trim().max(1000).optional(),
   })
   .refine((v) => v.fulfillment !== "sourced" || !!v.sourceTechId, {
     message: "Pick a technician",

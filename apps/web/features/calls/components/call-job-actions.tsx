@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Briefcase, Link2, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { usePermissions } from "@/features/auth/use-permissions";
-import { callParty, counterparty, type CallRecord } from "../lib";
+import { callParty, newJobHref, type CallRecord } from "../lib";
 import { LinkJobDialog } from "./link-job-dialog";
 
 /**
@@ -25,17 +25,10 @@ export function CallJobActions({ call }: { call: CallRecord | null }) {
   if (!call?.callSid || !can("deals", "view")) return null;
 
   const linked = !!call.dealId;
-  const client = counterparty(call);
   const canCreate = can("deals", "create");
 
-  const createJob = () => {
-    const params = new URLSearchParams({ callSid: call.callSid });
-    // Prefill the client when we know who they are; otherwise the page still
-    // gets the number so a new client can be created from it.
-    if (client.kind === "contact" && client.id) params.set("contactId", client.id);
-    else if (client.number) params.set("phone", client.number);
-    router.push(`/deals/new?${params.toString()}`);
-  };
+  // Prefills the client (or their number), the call's job source and company.
+  const createJob = () => router.push(newJobHref(call));
 
   return (
     <>

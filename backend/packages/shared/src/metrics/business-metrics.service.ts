@@ -36,6 +36,9 @@ export class BusinessMetricsService {
   public readonly callsCompleted: Counter;
   public readonly callDuration: Histogram;
 
+  public readonly pdfRenders: Counter;
+  public readonly pdfRenderDuration: Histogram;
+
   constructor(metricsService: MetricsService) {
     const p = BUSINESS_METRIC_PREFIX;
 
@@ -156,6 +159,20 @@ export class BusinessMetricsService {
       'Call talk time in seconds',
       ['direction'],
       [5, 15, 30, 60, 120, 300, 600, 1800, 3600],
+    );
+
+    // billing-service: headless-Chromium document renders. A cold browser
+    // launch alone takes seconds, so the defaults would lump everything in +Inf.
+    this.pdfRenders = metricsService.createCounter(
+      `${p}_pdf_renders_total`,
+      'Document PDF renders',
+      ['kind', 'status'],
+    );
+    this.pdfRenderDuration = metricsService.createHistogram(
+      `${p}_pdf_render_duration_seconds`,
+      'Document PDF render duration',
+      ['kind'],
+      [0.25, 0.5, 1, 2, 5, 10, 20, 30],
     );
   }
 }

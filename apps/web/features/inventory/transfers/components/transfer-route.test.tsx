@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { LocationType, TransferType } from "@bitcrm/types";
+import { LocationType, ReturnReason, TransferType } from "@bitcrm/types";
 import type { Transfer } from "@bitcrm/types";
 import { TransferRoute } from "./transfer-route";
 
@@ -26,6 +26,25 @@ function transfer(over: Partial<Transfer>): Transfer {
 }
 
 describe("TransferRoute", () => {
+  it("while the names load, a location end waits instead of reading 'Warehouse'", () => {
+    render(<TransferRoute transfer={transfer({})} locationMap={new Map()} pending />);
+    expect(screen.queryByText("Warehouse")).toBeNull();
+    expect(screen.queryByText("Container")).toBeNull();
+    expect(screen.getAllByTestId("route-name-pending")).toHaveLength(2);
+  });
+
+  it("a job end never waits — it is named on the transfer itself", () => {
+    render(
+      <TransferRoute
+        transfer={transfer({ type: TransferType.DEDUCT, toType: null, toId: null, dealId: "DEAL-7" })}
+        locationMap={new Map()}
+        pending
+      />,
+    );
+    expect(screen.getByText("DEAL-7")).toBeInTheDocument();
+    expect(screen.getAllByTestId("route-name-pending")).toHaveLength(1);
+  });
+
   it("resolves warehouse and container names from the map", () => {
     render(<TransferRoute transfer={transfer({})} locationMap={map} />);
     expect(screen.getByText("Central Warehouse")).toBeInTheDocument();
@@ -47,5 +66,41 @@ describe("TransferRoute", () => {
       />,
     );
     expect(screen.getByText("DEAL-1042")).toBeInTheDocument();
+  });
+
+  it("links the job side of a deduct to the job", () => {
+    render(
+      <TransferRoute
+        transfer={transfer({
+          type: TransferType.DEDUCT,
+          fromType: LocationType.CONTAINER,
+          fromId: "c1",
+          toType: null,
+          toId: null,
+          dealId: "deal-uuid-1",
+        })}
+        locationMap={map}
+      />,
+    );
+    expect(screen.getByRole("link")).toHaveAttribute("href", "/deals/deal-uuid-1");
+  });
+
+  it("shows why a return took the stock out, with no job link", () => {
+    render(
+      <TransferRoute
+        transfer={transfer({
+          type: TransferType.RETURN,
+          fromType: LocationType.CONTAINER,
+          fromId: "c1",
+          toType: null,
+          toId: null,
+          reason: ReturnReason.RECALL,
+        })}
+        locationMap={map}
+      />,
+    );
+    expect(screen.getByText("Riley Santos")).toBeInTheDocument();
+    expect(screen.getByText("Recall")).toBeInTheDocument();
+    expect(screen.queryByRole("link")).toBeNull();
   });
 });

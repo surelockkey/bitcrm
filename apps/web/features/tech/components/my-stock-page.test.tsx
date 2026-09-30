@@ -7,6 +7,9 @@ import { MyStockPage } from "./my-stock-page";
 
 const can = vi.fn((resource: string) => resource === "containers");
 vi.mock("@/features/auth/use-permissions", () => ({
+  // This suite asserts the refusal, so `useDenied` mirrors its own `can`
+  // instead of declaring that nobody is ever refused.
+  useDenied: () => (r: never) => !can(r),
   usePermissions: () => ({ can, isTechnician: true, isLoading: false }),
 }));
 
@@ -38,7 +41,6 @@ function stock(over: Record<string, unknown> = {}) {
     summary: { skuCount: 2, totalUnits: 122, totalValue: 0, lowCount: 1 },
     isLoading: false,
     isError: false,
-    joinReady: true,
     ...over,
   };
 }

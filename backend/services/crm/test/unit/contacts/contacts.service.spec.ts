@@ -3,7 +3,7 @@ import { NotFoundException, ConflictException } from '@nestjs/common';
 import { ContactsService } from 'src/contacts/contacts.service';
 import { ContactsRepository } from 'src/contacts/contacts.repository';
 import { ContactsCacheService } from 'src/contacts/contacts-cache.service';
-import { SnsPublisherService } from '@bitcrm/shared';
+import { SnsPublisherService , RedisService } from '@bitcrm/shared';
 import { ContactType, ContactSource, CrmStatus } from '@bitcrm/types';
 import {
   createMockContact,
@@ -22,6 +22,16 @@ describe('ContactsService', () => {
     repository = createMockContactsRepository();
     cache = createMockContactsCacheService();
     snsPublisher = createMockSnsPublisherService();
+    const store = new Map<string, string>();
+    const redis = {
+      client: {
+        get: jest.fn(async (k: string) => store.get(k) ?? null),
+        set: jest.fn(async (k: string, v: string) => {
+          store.set(k, v);
+          return 'OK';
+        }),
+      },
+    };
 
     const module = await Test.createTestingModule({
       providers: [
@@ -29,6 +39,7 @@ describe('ContactsService', () => {
         { provide: ContactsRepository, useValue: repository },
         { provide: ContactsCacheService, useValue: cache },
         { provide: SnsPublisherService, useValue: snsPublisher },
+        { provide: RedisService, useValue: redis },
       ],
     }).compile();
 
@@ -325,6 +336,30 @@ describe('ContactsService', () => {
       expect(result.contact.firstName).toBe('John');
       expect(result.contact.phones).toEqual(['+14045551234']);
       expect(repository.create).toHaveBeenCalled();
+    });
+  });
+
+  describe('count', () => {
+    it('counts the whole list when no company is picked', async () => {
+      repository.countAll.mockResolvedValue({ total: 585, atLeast: false });
+
+      expect(await service.count({})).toEqual({ total: 585, atLeast: false });
+    });
+
+    it('counts on the company index when a company is picked, as the list does', async () => {
+      repository.countByCompany.mockResolvedValue({ total: 7, atLeast: false });
+
+      expect(await service.count({ companyId: 'comp-1' })).toEqual({ total: 7, atLeast: false });
+      expect(repository.countAll).not.toHaveBeenCalled();
+    });
+
+    it('answers a repeat from the cache', async () => {
+      repository.countAll.mockResolvedValue({ total: 585, atLeast: false });
+
+      await service.count({});
+      await service.count({});
+
+      expect(repository.countAll).toHaveBeenCalledTimes(1);
     });
   });
 });

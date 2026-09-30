@@ -1,5 +1,6 @@
 import { Test } from '@nestjs/testing';
 import { CognitoAdminService, PermissionCacheReader } from '@bitcrm/shared';
+import { UserStatus } from '@bitcrm/types';
 import { UsersService } from '../../../src/users/users.service';
 import { UsersRepository } from '../../../src/users/users.repository';
 import { UsersCacheService } from '../../../src/users/users-cache.service';
@@ -56,7 +57,9 @@ describe('UsersService — assignable technicians (dispatch)', () => {
     techRepo = createMockTechniciansRepository();
     assignmentsRepo = createMockTechnicianAssignmentsRepository();
 
-    usersRepo.findByRoleId.mockResolvedValue([ada, grace]);
+    // The roster is every user, not every technician: the flag that puts
+    // someone on the field team sits on the user record, whatever the role.
+    usersRepo.findAll.mockResolvedValue({ items: [ada, grace], nextCursor: undefined });
     assignmentsRepo.listAllApproved.mockImplementation((kind: string) =>
       Promise.resolve(kind === 'job_type' ? jobTypes : serviceAreas),
     );
@@ -113,21 +116,113 @@ describe('UsersService — assignable technicians (dispatch)', () => {
     expect(second.homeAddress).toBeUndefined();
   });
 
-  it('excludes a technician missing an approved service area', async () => {
+  /**
+   * Approvals stopped gating the roster when the field-team flag arrived: a
+   * missing job type or area makes someone a poorer fit for a job, which the
+   * assignment dialog shows and ranks by — it does not make them unassignable.
+   * The owner who wants a job sent to their phone holds no approvals at all.
+   */
+  it('keeps a technician with a missing approval on the roster, with what they do hold', async () => {
     assignmentsRepo.listAllApproved.mockImplementation((kind: string) =>
       Promise.resolve(kind === 'job_type' ? jobTypes : [serviceAreas[0]]),
     );
 
     const result = await service.listAssignableTechnicians();
-    expect(result.map((t) => t.technicianId)).toEqual(['tech-1']);
+    expect(result.map((t) => t.technicianId).sort()).toEqual(['tech-1', 'tech-2']);
+    expect(result.find((t) => t.technicianId === 'tech-2')).toMatchObject({
+      assignable: true,
+      jobTypeIds: ['jt-rekey'],
+      serviceAreaIds: [],
+    });
   });
 
-  it('excludes a technician missing an approved job type', async () => {
-    assignmentsRepo.listAllApproved.mockImplementation((kind: string) =>
-      Promise.resolve(kind === 'job_type' ? [jobTypes[0]] : serviceAreas),
-    );
+  /**
+   * The bug this pins: these two paths both write deal-service's eligibility
+   * projection — the roster on boot, the single answer on `tech.approved` /
+   * `tech.updated` — and they used to apply different rules. The single answer
+   * never looked at the role, so a dispatcher with an approved job type and
+   * service area was projected as an assignable technician and offered in the
+   * job's technician picker. Every case below therefore runs through BOTH.
+   */
+  describe('one definition of assignable, whichever path answers', () => {
+    const inRoster = async (userId: string) =>
+      (await service.listAssignableTechnicians()).some((t) => t.technicianId === userId);
 
-    const result = await service.listAssignableTechnicians();
-    expect(result.map((t) => t.technicianId)).toEqual(['tech-1']);
+    const askedDirectly = async (userId: string) =>
+      (await service.getTechnicianEligibility(userId)).assignable;
+
+    /** `ada` holds an approved job type and service area throughout. */
+    const setUser = (user: ReturnType<typeof createMockUser>) => {
+      usersRepo.findAll.mockResolvedValue({ items: [user], nextCursor: undefined });
+      usersRepo.findById.mockResolvedValue(user);
+      assignmentsRepo.listByUser.mockResolvedValue([
+        { userId: user.id, kind: 'job_type', catalogId: 'jt-lockout', status: 'approved' },
+        { userId: user.id, kind: 'service_area', catalogId: 'sa-atl', status: 'approved' },
+      ]);
+    };
+
+    it('accepts an active technician with both approvals', async () => {
+      setUser(ada);
+      expect(await inRoster('tech-1')).toBe(true);
+      expect(await askedDirectly('tech-1')).toBe(true);
+    });
+
+    it('rejects a user who is not a technician, however well approved', async () => {
+      const dispatcher = createMockUser({ id: 'tech-1', roleId: 'role-dispatcher' });
+      setUser(dispatcher);
+
+      expect(await inRoster('tech-1')).toBe(false);
+      expect(await askedDirectly('tech-1')).toBe(false);
+    });
+
+    it('rejects a deactivated technician — not available for tomorrow’s work', async () => {
+      setUser(createMockUser({ id: 'tech-1', roleId: 'role-technician', status: UserStatus.INACTIVE }));
+
+      expect(await inRoster('tech-1')).toBe(false);
+      expect(await askedDirectly('tech-1')).toBe(false);
+    });
+
+    it('accepts anyone switched onto the field team, whatever their role', async () => {
+      // The owner who still does calls: full access, and on the roster.
+      setUser(createMockUser({ id: 'owner-1', roleId: 'role-super-admin', fieldTeamMember: true }));
+
+      expect(await inRoster('owner-1')).toBe(true);
+      expect(await askedDirectly('owner-1')).toBe(true);
+    });
+
+    it('rejects a technician switched off the field team — in the office now', async () => {
+      setUser(createMockUser({ id: 'tech-1', roleId: 'role-technician', fieldTeamMember: false }));
+
+      expect(await inRoster('tech-1')).toBe(false);
+      expect(await askedDirectly('tech-1')).toBe(false);
+    });
+
+    it('rejects an id with no user record behind it', async () => {
+      usersRepo.findAll.mockResolvedValue({ items: [], nextCursor: undefined });
+      usersRepo.findById.mockResolvedValue(null);
+      assignmentsRepo.listByUser.mockResolvedValue([
+        { userId: 'ghost', kind: 'job_type', catalogId: 'jt-lockout', status: 'approved' },
+        { userId: 'ghost', kind: 'service_area', catalogId: 'sa-atl', status: 'approved' },
+      ]);
+
+      expect(await inRoster('ghost')).toBe(false);
+      expect(await askedDirectly('ghost')).toBe(false);
+    });
+
+    it('keeps a technician whose approvals are still pending — with none of them counted', async () => {
+      setUser(ada);
+      assignmentsRepo.listAllApproved.mockResolvedValue([]);
+      assignmentsRepo.listByUser.mockResolvedValue([
+        { userId: 'tech-1', kind: 'job_type', catalogId: 'jt-lockout', status: 'pending' },
+        { userId: 'tech-1', kind: 'service_area', catalogId: 'sa-atl', status: 'approved' },
+      ]);
+
+      expect(await inRoster('tech-1')).toBe(true);
+      expect(await service.getTechnicianEligibility('tech-1')).toMatchObject({
+        assignable: true,
+        jobTypeIds: [],
+        serviceAreaIds: ['sa-atl'],
+      });
+    });
   });
 });

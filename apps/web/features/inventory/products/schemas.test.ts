@@ -46,6 +46,17 @@ describe("updateProductSchema", () => {
   });
 });
 
+describe("taxable flag", () => {
+  it("defaults to taxable when omitted", () => {
+    const parsed = createProductSchema.parse(base);
+    expect(parsed.taxable).toBe(true);
+  });
+  it("keeps an explicit non-taxable choice on create and update", () => {
+    expect(createProductSchema.parse({ ...base, taxable: false }).taxable).toBe(false);
+    expect(updateProductSchema.parse({ ...base, taxable: false }).taxable).toBe(false);
+  });
+});
+
 describe("updateProductSchemaFor (imported items)", () => {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { sku: _sku, ...editable } = base;
@@ -114,5 +125,75 @@ describe("updateProductSchemaFor (imported items)", () => {
   it("accepts a price of exactly 0 — the price book is full of them", () => {
     const schema = updateProductSchemaFor();
     expect(schema.safeParse({ ...editable, priceClient: 0 }).success).toBe(true);
+  });
+});
+
+/**
+ * Workiz's price-book fields the item popup edits: whether stock is counted
+ * (`manage`), the brand (catalog id) and the reorder point.
+ */
+describe("stock, brand and reorder fields", () => {
+  it("creates a stock-managed item unless told otherwise", () => {
+    expect(createProductSchema.parse(base).manageStock).toBe(true);
+    expect(createProductSchema.parse({ ...base, manageStock: false }).manageStock).toBe(false);
+  });
+
+  it("takes a whole, non-negative reorder level", () => {
+    expect(createProductSchema.parse({ ...base, reorderLevel: "4" }).reorderLevel).toBe(4);
+    expect(createProductSchema.safeParse({ ...base, reorderLevel: -1 }).success).toBe(false);
+    expect(createProductSchema.safeParse({ ...base, reorderLevel: 1.5 }).success).toBe(false);
+  });
+
+  it("leaves an empty brand out of a new item — '' is 'No brand', not an id", () => {
+    // Undefined never reaches the wire: JSON drops it.
+    expect(createProductSchema.parse({ ...base, brandId: "" }).brandId).toBeUndefined();
+    expect(createProductSchema.parse({ ...base, brandId: "b1" }).brandId).toBe("b1");
+  });
+
+  it("keeps all three (and taxable) through the edit schema, so a change to them is sent", () => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { sku: _sku, ...editable } = base;
+    const parsed = updateProductSchemaFor(editable).parse({
+      ...editable,
+      manageStock: false,
+      brandId: "b2",
+      reorderLevel: 3,
+      taxable: false,
+    });
+    expect(parsed).toMatchObject({
+      manageStock: false,
+      brandId: "b2",
+      reorderLevel: 3,
+      taxable: false,
+    });
+  });
+
+  // PUT /products/:id clears an optional field sent as null.
+  it("turns an emptied optional field into null on edit, so the server clears it", () => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { sku: _sku, ...editable } = base;
+    const parsed = updateProductSchemaFor(editable).parse({
+      ...editable,
+      brandId: "",
+      reorderLevel: "",
+      supplier: "  ",
+      barcode: "",
+      description: "",
+    });
+    expect(parsed).toMatchObject({
+      brandId: null,
+      reorderLevel: null,
+      supplier: null,
+      barcode: null,
+      description: null,
+    });
+  });
+
+  it("still rejects a negative reorder level on edit", () => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { sku: _sku, ...editable } = base;
+    expect(
+      updateProductSchemaFor(editable).safeParse({ ...editable, reorderLevel: -2 }).success,
+    ).toBe(false);
   });
 });

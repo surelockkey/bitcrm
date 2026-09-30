@@ -29,6 +29,9 @@ export interface Contact {
   title?: string;
   source: ContactSource;
   notes?: string;
+  /** Tax-exempt client: new jobs/estimates carry no tax. */
+  taxExempt?: boolean;
+  taxExemptReason?: string;
   status: CrmStatus;
   createdBy: string;
   createdAt: string;

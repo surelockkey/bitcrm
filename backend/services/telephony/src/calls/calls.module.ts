@@ -14,23 +14,28 @@ import { PresenceModule } from '../presence/presence.module';
 import { TelephonyModule } from '../telephony/telephony.module';
 import { NumbersModule } from '../numbers/numbers.module';
 import { VoiceModule } from '../voice/voice.module';
+import { CallFlowsModule } from '../call-flows/call-flows.module';
 import { CallTagsModule } from '../call-tags/call-tags.module';
 
+import { FlowSnapshotScheduler } from './flow-snapshot.scheduler';
 @Module({
   // VoiceModule provides ConferenceService (monitor grants) and itself imports
   // CallsModule for the record writer — hence the forwardRef pair.
-  // NumbersModule: per-number source assignments for call attribution.
+  // NumbersModule: per-number source/company assignments for call attribution.
   // CallTagsModule: the catalog PATCH /calls/:sid/tags validates against.
+  // CallFlowsModule: the flow answering a number (company fallback).
   imports: [
     TelephonyModule,
     PresenceModule,
     NumbersModule,
     CallTagsModule,
+    CallFlowsModule,
     forwardRef(() => VoiceModule),
   ],
   controllers: [CallsController],
   providers: [
     CallsService,
+    FlowSnapshotScheduler,
     CallsRepository,
     CallEventsBus,
     UserNamesService,

@@ -12,14 +12,13 @@ import {
   type QueryKey,
 } from "@tanstack/react-query";
 import { toast } from "sonner";
-import type { Contact, InboxCounters, PaginatedResponse } from "@bitcrm/types";
+import type { InboxCounters, PaginatedResponse } from "@bitcrm/types";
 import { queryKeys } from "@/lib/query-keys";
 import { ApiError, getApiErrorMessage } from "@/lib/api/errors";
 import { usePermissions } from "@/features/auth/use-permissions";
-import { fetchAllContacts } from "@/features/clients/api";
-import { useCompanyMap } from "@/features/clients/hooks";
+import { useCompaniesByIds, useContactsByIds } from "@/features/clients/hooks";
 import { contactName } from "@/features/clients/lib";
-import { useUserMap } from "@/features/deals/hooks";
+import { getUserNames } from "@/features/users/api";
 import * as api from "./api";
 import type {
   ConversationListFilter,
@@ -37,6 +36,7 @@ import { applyConversation, applyMessage } from "./cache";
 import {
   describeResendError,
   describeSendError,
+  mergeIncludedNames,
   patchMessageInPages,
   removeMessageFromPages,
   replacePendingMessage,
@@ -171,6 +171,26 @@ export function useTextLookup(params: TextLookupParams | undefined, enabled = tr
   });
 }
 
+/**
+ * Which channels this thread can actually send on, and to whom (design §4.4,
+ * §5, §6). Answered by the send rules themselves, so it goes stale the way
+ * they do: a STOP or an unsubscribe arrives as `opt_out.changed` and
+ * invalidates it, and the rest (a number added to the contact, a teammate's
+ * profile) is caught by the refetch on focus.
+ */
+export function useSendOptions(conversationId: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.messaging.sendOptions(conversationId ?? ""),
+    queryFn: () => api.getSendOptions(conversationId as string),
+    enabled: enabled && !!conversationId,
+    staleTime: 60_000,
+    refetchOnWindowFocus: true,
+    // A thread the caller may read but not send in answers 403; the composer
+    // falls back to what the conversation itself proves, and the send speaks.
+    retry: false,
+  });
+}
+
 export function useMessagesByJob(dealId: string | undefined) {
   const connected = useMessagingStreamStore((s) => s.connected);
   return useInfiniteQuery({
@@ -197,44 +217,58 @@ export function useFlaggedMessages(enabled = true) {
 
 /**
  * Names for the other side of each conversation. The conversation stores
- * only `partyKind` / `partyId`; contacts and companies come from CRM (the
- * catalogs every client screen already caches) and employees from the
- * user directory, through the same restricted-viewer path the job roster
- * uses. Nothing is fetched the viewer may not list.
+ * only `partyKind` / `partyId`; the names come with the inbox pages
+ * themselves (`included`), so whatever a page in the cache has named is
+ * named at once — the rows, the open thread's header, the group menu.
+ *
+ * Only a party no page has named yet (a thread that arrived live over the
+ * stream) is looked up the old way: contacts and companies from CRM, a
+ * teammate by id through `POST /users/by-ids` — never the whole directory.
+ * Nothing is fetched the viewer may not list.
  */
 export function usePartyNames(conversations: InboxConversation[]): PartyNames {
   const { can } = usePermissions();
-  const userIds = useMemo(
-    () =>
-      conversations
-        .filter((c) => c.partyKind === "user" && c.partyId)
-        .map((c) => c.partyId as string),
-    [conversations],
-  );
-  const needContacts = conversations.some((c) => c.partyKind === "contact");
-  const needCompanies = conversations.some((c) => c.partyKind === "company");
+  const qc = useQueryClient();
 
-  const contacts = useQuery({
-    queryKey: queryKeys.contacts.list({ companyId: undefined }),
-    queryFn: () => fetchAllContacts(),
-    enabled: needContacts && can("contacts"),
-    staleTime: 60_000,
+  // Read at render: a component re-renders when its own list lands, and by
+  // then the cache holds that list's `included`.
+  const known = mergeIncludedNames(
+    qc
+      .getQueriesData<InfiniteData<api.ConversationListPage>>({
+        queryKey: queryKeys.messaging.conversationLists(),
+      })
+      .flatMap(([, data]) => data?.pages ?? []),
+  );
+
+  const missing = (kind: InboxConversation["partyKind"], named: Map<string, string>) => [
+    ...new Set(
+      conversations
+        .filter((c) => c.partyKind === kind && c.partyId && !named.has(c.partyId))
+        .map((c) => c.partyId as string),
+    ),
+  ];
+  const contactIds = missing("contact", known.contacts);
+  const companyIds = missing("company", known.companies);
+  const userIds = missing("user", known.users).sort();
+
+  const contacts = useContactsByIds(can("contacts") ? contactIds : []);
+  const companies = useCompaniesByIds(companyIds);
+  const users = useQuery({
+    // The key `useUserMap` uses for the same lookup, so the two share a cache.
+    queryKey: ["user-names", userIds],
+    queryFn: () => getUserNames(userIds),
+    enabled: userIds.length > 0,
+    staleTime: 5 * 60 * 1000,
   });
-  const companies = useCompanyMap();
-  const users = useUserMap(userIds);
 
   // Small maps rebuilt per render — the inbox holds at most a few pages.
-  const contactMap = new Map<string, string>();
-  for (const c of (contacts.data as Contact[] | undefined) ?? []) {
-    contactMap.set(c.id, contactName(c));
+  for (const [id, c] of contacts.map) known.contacts.set(id, contactName(c));
+  for (const [id, co] of companies.map) known.companies.set(id, co.title);
+  for (const u of users.data ?? []) {
+    const name = `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim();
+    if (name) known.users.set(u.id, name);
   }
-  const companyMap = new Map<string, string>();
-  if (needCompanies) for (const [id, co] of companies.map) companyMap.set(id, co.title);
-  const userMap = new Map<string, string>();
-  for (const [id, u] of users.map) {
-    userMap.set(id, `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() || u.email || id);
-  }
-  return { contacts: contactMap, companies: companyMap, users: userMap };
+  return known;
 }
 
 /* ------------------------------------------------------------ mutations */

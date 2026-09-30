@@ -12,11 +12,17 @@ import { queryKeys } from "@/lib/query-keys";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import * as api from "./api";
 
-export function useRoles() {
+/**
+ * `enabled` is for screens a technician can open: they hold no `roles.view`, so
+ * firing the list anyway earns a 403 and leaves a failed query behind on a page
+ * that only wanted to name their role.
+ */
+export function useRoles(enabled = true) {
   return useQuery({
     queryKey: queryKeys.roles.list(),
     queryFn: api.listRoles,
     staleTime: 5 * 60 * 1000,
+    enabled,
   });
 }
 

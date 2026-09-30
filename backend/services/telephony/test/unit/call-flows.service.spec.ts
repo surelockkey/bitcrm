@@ -66,6 +66,36 @@ describe('CallFlowsService', () => {
     });
   });
 
+  describe('company (business profile)', () => {
+    it('is stored on create, kept on unrelated edits, changed and cleared', async () => {
+      const { service, store } = build();
+      const flow = await service.createSimple({ ...simple, businessProfileId: 'bp-2' }, caller);
+      expect(flow.businessProfileId).toBe('bp-2');
+
+      const renamed = await service.update(flow.id, { name: 'Renamed' }, caller);
+      expect(renamed.businessProfileId).toBe('bp-2');
+
+      const moved = await service.update(flow.id, { businessProfileId: ' bp-3 ' }, caller);
+      expect(moved.businessProfileId).toBe('bp-3');
+
+      const cleared = await service.update(flow.id, { businessProfileId: null }, caller);
+      expect(cleared).not.toHaveProperty('businessProfileId');
+      expect(store.get(flow.id)).not.toHaveProperty('businessProfileId');
+    });
+
+    it('is optional on the full create too, and the simple update keeps or sets it', async () => {
+      const { service } = build();
+      const flow = await service.create({ name: 'Bare', numbers: [], nodes: {}, active: false }, caller);
+      expect(flow).not.toHaveProperty('businessProfileId');
+      const withCo = await service.create({ name: 'Co', numbers: [], nodes: {}, active: false, businessProfileId: 'bp-9' }, caller);
+      expect(withCo.businessProfileId).toBe('bp-9');
+
+      const simpleFlow = await service.createSimple({ ...simple, businessProfileId: 'bp-2' }, caller);
+      expect((await service.updateSimple(simpleFlow.id, { ...simple }, caller)).businessProfileId).toBe('bp-2');
+      expect((await service.updateSimple(simpleFlow.id, { ...simple, businessProfileId: 'bp-4' }, caller)).businessProfileId).toBe('bp-4');
+    });
+  });
+
   describe('what it refuses to save', () => {
     it('a second flow with the same name', async () => {
       const { service } = build();

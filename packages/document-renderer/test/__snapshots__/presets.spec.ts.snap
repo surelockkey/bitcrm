@@ -1,0 +1,708 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`preset snapshots custom renders (pdf) 1`] = `
+"<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Document 1042</title>
+<style>
+:root{--accent:#1e3a8a;--text:#1f2937;--muted:#6b7280;--border:#e5e7eb}
+body{font-family:"Helvetica Neue", Helvetica, Arial, sans-serif;font-size:10px;color:#1f2937}
+
+*,*::before,*::after{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{-webkit-print-color-adjust: exact;print-color-adjust: exact;line-height:1.45;-webkit-font-smoothing:antialiased;word-wrap:break-word}
+img{max-width:100%}
+.row{display:grid;grid-template-columns:repeat(12, minmax(0, 1fr));align-items:start}
+.col{min-width:0}
+.blk{min-width:0}
+.blk + .blk{margin-top:6px}
+p{margin:0 0 .35em}
+h1,h2,h3{margin:0 0 .3em;line-height:1.2}
+h1{font-size:2.2em;font-weight:800}
+h2{font-size:1.6em;font-weight:700}
+h3{font-size:1.2em;font-weight:700}
+.rt>:last-child,.rt li>:last-child{margin-bottom:0}
+ul,ol{margin:0 0 .35em;padding-left:1.4em}
+a{color:var(--accent)}
+hr{border:0;margin:4px 0;height:0}
+.img,.logo{display:inline-block;vertical-align:top;height:auto}
+.logo{width:auto;max-width:100%}
+.tbl{width:100%;border-collapse:collapse}
+.tbl th,.tbl td{padding:4px 6px;text-align:left;vertical-align:top}
+.tbl th{font-weight:700}
+.tbl p{margin:0}
+.tbl.bordered th,.tbl.bordered td{border:1px solid var(--border)}
+.field{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+.field-label{color:var(--muted)}
+.field-value{font-weight:600;text-align:right;margin-left:auto}
+.items{width:100%;border-collapse:collapse}
+.items thead{display:table-header-group}
+.items tr{break-inside:avoid;page-break-inside:avoid}
+.items th{padding:6px 8px;text-align:left;font-weight:600;font-size:.92em;white-space:nowrap}
+.items td{padding:7px 8px;border-bottom:1px solid var(--border);vertical-align:top}
+.items .num{text-align:right;white-space:nowrap}
+.items .col-taxable{text-align:center;width:1%}
+.items.striped tbody tr:nth-child(even) td{background:#f6f6f7;box-shadow:1px 0 0 #f6f6f7}
+.items td.empty{text-align:center;color:var(--muted);padding:16px}
+.item-name{font-weight:600}
+.item-desc{color:var(--muted);font-size:.9em;margin-top:2px;white-space:pre-line}
+.tax-mark{color:var(--accent);font-weight:700}
+.totals{width:100%;border-collapse:collapse;break-inside:avoid;page-break-inside:avoid}
+.totals td{padding:4px 8px}
+.totals .t-value{text-align:right;white-space:nowrap}
+.totals .t-label{color:var(--muted)}
+.totals .t-total td{font-weight:800;font-size:1.15em;color:inherit;border-top:2px solid var(--accent);padding-top:7px}
+.totals .t-balance td{font-weight:700;color:var(--accent)}
+.sig{break-inside:avoid;page-break-inside:avoid;padding-top:8px}
+.sig-img{display:block;max-height:64px;max-width:100%}
+.sig-line{border-bottom:1px solid currentColor;height:40px;opacity:.7}
+.sig-img + .sig-line{height:4px}
+.sig-meta{display:flex;justify-content:space-between;gap:8px;margin-top:4px;color:var(--muted);font-size:.9em}
+.sig-name{color:var(--text)}
+.sig-date{margin-top:10px;color:var(--muted);font-size:.9em}
+.date-line{display:inline-block;width:120px;border-bottom:1px solid currentColor;vertical-align:bottom}
+.notes-title{font-weight:700;margin-bottom:4px;color:var(--accent)}
+.notes-body{color:var(--text)}
+.doc-footer{color:var(--muted)}
+
+@page { size: letter; margin: 15mm 15mm 15mm 15mm; }
+
+.doc-layout{width:100%;border-collapse:collapse;border-spacing:0}
+.doc-layout > thead{display: table-header-group}
+.doc-layout > tfoot{display: table-footer-group}
+.doc-layout > thead > tr > td,.doc-layout > tfoot > tr > td,.doc-layout > tbody > tr > td{padding:0;vertical-align:top}
+.doc-layout > thead > tr > td{padding-bottom:4mm}
+.doc-layout > tfoot > tr > td{padding-top:4mm}
+.page-break{break-after: page;page-break-after:always;height:0}
+.row-break{break-after: page;page-break-after:always}
+html,body{background:#ffffff}
+</style>
+</head>
+<body>
+<table class="doc-layout">
+<thead><tr><td><div class="doc-header" data-section="header"><div class="row" style="column-gap:16px"><div class="col" style="grid-column:span 6;align-self:center"></div><div class="col" style="grid-column:span 6"><div class="blk blk-text" style="text-align:right;font-size:9px"><div class="rt"><h3>SureLock Key Services</h3><p>120 Main St, Hartford, CT 06103</p><p>(860) 555-0142</p><p>office@surelockkey.com</p><p>www.surelockkey.com</p><p>LCK.0001234</p></div></div></div></div>
+<div class="row" style="column-gap:16px"><div class="col" style="grid-column:span 12"><div class="blk blk-divider"><hr style="border-top:1px solid var(--border)"></div></div></div></div></td></tr></thead>
+<tfoot><tr><td><div class="doc-footer" data-section="footer"><div class="row" style="column-gap:16px"><div class="col" style="grid-column:span 12"><div class="blk blk-text" style="text-align:center;color:#6b7280;font-size:8px"><div class="rt"><p>SureLock Key Services · 120 Main St, Hartford, CT 06103 · (860) 555-0142</p></div></div></div></div></div></td></tr></tfoot>
+<tbody><tr><td><div class="doc-body" data-section="body"><div class="row" style="column-gap:16px"><div class="col" style="grid-column:span 12"><div class="blk blk-spacer"><div style="height:16px"></div></div></div></div>
+<div class="row" style="column-gap:16px"><div class="col" style="grid-column:span 12"><div class="blk blk-text"><div class="rt"><p>Sep 16, 2026</p><p><br></p><p>Emily Carter</p><p>Carter Dental Group</p><p>45 Oak Ave, West Hartford, CT 06107</p></div></div></div></div>
+<div class="row" style="column-gap:16px"><div class="col" style="grid-column:span 12"><div class="blk blk-spacer"><div style="height:16px"></div></div></div></div>
+<div class="row" style="column-gap:16px"><div class="col" style="grid-column:span 12"><div class="blk blk-text"><div class="rt"><h2>Document title</h2></div></div></div></div>
+<div class="row" style="column-gap:16px"><div class="col" style="grid-column:span 12"><div class="blk blk-text"><div class="rt"><p>Dear Emily,</p><p>Write your document here. Merge tags such as Emily Carter or 45 Oak Ave, West Hartford, CT 06107 are filled in automatically when the document is generated for a job.</p><p><br></p><p>Sincerely,</p><p>SureLock Key Services</p></div></div></div></div>
+<div class="row" style="column-gap:16px"><div class="col" style="grid-column:span 12"><div class="blk blk-spacer"><div style="height:24px"></div></div></div></div>
+<div class="row" style="column-gap:16px"><div class="col" style="grid-column:span 6"><div class="blk blk-signature"><div class="sig"><div class="sig-line"></div><div class="sig-meta"><span class="sig-label">Signature</span></div><div class="sig-date">Date: <span class="date-line"></span></div></div></div></div><div class="col" style="grid-column:span 6"></div></div></div></td></tr></tbody>
+</table>
+</body>
+</html>
+"
+`;
+
+exports[`preset snapshots estimate/classic renders (pdf) 1`] = `
+"<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Estimate 1042-1</title>
+<style>
+:root{--accent:#1e3a8a;--text:#1f2937;--muted:#6b7280;--border:#e5e7eb}
+body{font-family:"Helvetica Neue", Helvetica, Arial, sans-serif;font-size:10px;color:#1f2937}
+
+*,*::before,*::after{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{-webkit-print-color-adjust: exact;print-color-adjust: exact;line-height:1.45;-webkit-font-smoothing:antialiased;word-wrap:break-word}
+img{max-width:100%}
+.row{display:grid;grid-template-columns:repeat(12, minmax(0, 1fr));align-items:start}
+.col{min-width:0}
+.blk{min-width:0}
+.blk + .blk{margin-top:6px}
+p{margin:0 0 .35em}
+h1,h2,h3{margin:0 0 .3em;line-height:1.2}
+h1{font-size:2.2em;font-weight:800}
+h2{font-size:1.6em;font-weight:700}
+h3{font-size:1.2em;font-weight:700}
+.rt>:last-child,.rt li>:last-child{margin-bottom:0}
+ul,ol{margin:0 0 .35em;padding-left:1.4em}
+a{color:var(--accent)}
+hr{border:0;margin:4px 0;height:0}
+.img,.logo{display:inline-block;vertical-align:top;height:auto}
+.logo{width:auto;max-width:100%}
+.tbl{width:100%;border-collapse:collapse}
+.tbl th,.tbl td{padding:4px 6px;text-align:left;vertical-align:top}
+.tbl th{font-weight:700}
+.tbl p{margin:0}
+.tbl.bordered th,.tbl.bordered td{border:1px solid var(--border)}
+.field{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+.field-label{color:var(--muted)}
+.field-value{font-weight:600;text-align:right;margin-left:auto}
+.items{width:100%;border-collapse:collapse}
+.items thead{display:table-header-group}
+.items tr{break-inside:avoid;page-break-inside:avoid}
+.items th{padding:6px 8px;text-align:left;font-weight:600;font-size:.92em;white-space:nowrap}
+.items td{padding:7px 8px;border-bottom:1px solid var(--border);vertical-align:top}
+.items .num{text-align:right;white-space:nowrap}
+.items .col-taxable{text-align:center;width:1%}
+.items.striped tbody tr:nth-child(even) td{background:#f6f6f7;box-shadow:1px 0 0 #f6f6f7}
+.items td.empty{text-align:center;color:var(--muted);padding:16px}
+.item-name{font-weight:600}
+.item-desc{color:var(--muted);font-size:.9em;margin-top:2px;white-space:pre-line}
+.tax-mark{color:var(--accent);font-weight:700}
+.totals{width:100%;border-collapse:collapse;break-inside:avoid;page-break-inside:avoid}
+.totals td{padding:4px 8px}
+.totals .t-value{text-align:right;white-space:nowrap}
+.totals .t-label{color:var(--muted)}
+.totals .t-total td{font-weight:800;font-size:1.15em;color:inherit;border-top:2px solid var(--accent);padding-top:7px}
+.totals .t-balance td{font-weight:700;color:var(--accent)}
+.sig{break-inside:avoid;page-break-inside:avoid;padding-top:8px}
+.sig-img{display:block;max-height:64px;max-width:100%}
+.sig-line{border-bottom:1px solid currentColor;height:40px;opacity:.7}
+.sig-img + .sig-line{height:4px}
+.sig-meta{display:flex;justify-content:space-between;gap:8px;margin-top:4px;color:var(--muted);font-size:.9em}
+.sig-name{color:var(--text)}
+.sig-date{margin-top:10px;color:var(--muted);font-size:.9em}
+.date-line{display:inline-block;width:120px;border-bottom:1px solid currentColor;vertical-align:bottom}
+.notes-title{font-weight:700;margin-bottom:4px;color:var(--accent)}
+.notes-body{color:var(--text)}
+.doc-footer{color:var(--muted)}
+
+@page { size: letter; margin: 15mm 15mm 15mm 15mm; }
+
+.doc-layout{width:100%;border-collapse:collapse;border-spacing:0}
+.doc-layout > thead{display: table-header-group}
+.doc-layout > tfoot{display: table-footer-group}
+.doc-layout > thead > tr > td,.doc-layout > tfoot > tr > td,.doc-layout > tbody > tr > td{padding:0;vertical-align:top}
+.doc-layout > thead > tr > td{padding-bottom:4mm}
+.doc-layout > tfoot > tr > td{padding-top:4mm}
+.page-break{break-after: page;page-break-after:always;height:0}
+.row-break{break-after: page;page-break-after:always}
+html,body{background:#ffffff}
+</style>
+</head>
+<body>
+<table class="doc-layout">
+<thead><tr><td><div class="doc-header" data-section="header"><div class="row" style="column-gap:16px"><div class="col" style="grid-column:span 6;align-self:center"></div><div class="col" style="grid-column:span 6"><div class="blk blk-text" style="text-align:right;font-size:9px"><div class="rt"><h3>SureLock Key Services</h3><p>120 Main St, Hartford, CT 06103</p><p>(860) 555-0142</p><p>office@surelockkey.com</p><p>www.surelockkey.com</p><p>LCK.0001234</p></div></div></div></div>
+<div class="row" style="column-gap:16px"><div class="col" style="grid-column:span 12"><div class="blk blk-divider" style="color:#1e3a8a"><hr style="border-top:2px solid #1e3a8a"></div></div></div></div></td></tr></thead>
+<tfoot><tr><td><div class="doc-footer" data-section="footer"><div class="row" style="column-gap:16px"><div class="col" style="grid-column:span 12"><div class="blk blk-divider"><hr style="border-top:1px solid var(--border)"></div><div class="blk blk-text" style="text-align:center;color:#6b7280;font-size:8px"><div class="rt"><p><strong>Thank you for your business!</strong></p><p>SureLock Key Services · (860) 555-0142 · www.surelockkey.com</p><p>Estimate #1042-1 · Sep 12, 2026</p></div></div></div></div></div></td></tr></tfoot>
+<tbody><tr><td><div class="doc-body" data-section="body"><div class="row" style="column-gap:16px"><div class="col" style="grid-column:span 7"><div class="blk blk-text" style="color:#1e3a8a"><div class="rt"><h1>ESTIMATE</h1><p>Option A – High-security upgrade</p></div></div></div><div class="col" style="grid-column:span 5"><div class="blk blk-field"><div class="field"><span class="field-label">Estimate #</span><span class="field-value">1042-1</span></div></div><div class="blk blk-field"><div class="field"><span class="field-label">Date</span><span class="field-value">Sep 12, 2026</span></div></div><div class="blk blk-field"><div class="field"><span class="field-label">Status</span><span class="field-value">Pending</span></div></div><div class="blk blk-field"><div class="field"><span class="field-label">Job #</span><span class="field-value">1042</span></div></div><div class="blk blk-field"><div class="field"><span class="field-label">PO #</span><span class="field-value">PO-7781</span></div></div></div></div>
+<div class="row" style="column-gap:16px"><div class="col" style="grid-column:span 12"><div class="blk blk-spacer"><div style="height:12px"></div></div></div></div>
+<div class="row" style="column-gap:24px"><div class="col" style="grid-column:span 6"><div class="blk blk-text"><div class="rt"><p><span style="color:#1e3a8a"><strong>BILL TO</strong></span></p><p><strong>Emily Carter</strong></p><p>Carter Dental Group</p><p>PO Box 311, West Hartford, CT 06127</p><p>(860) 555-0199</p><p>emily.carter@example.com</p></div></div></div><div class="col" style="grid-column:span 6"><div class="blk blk-text"><div class="rt"><p><span style="color:#1e3a8a"><strong>SERVICE ADDRESS</strong></span></p><p>45 Oak Ave, West Hartford, CT 06107</p><p>Job type: Rekey &amp; lock upgrade</p><p>Technician: Mike Rivera</p><p>Scheduled: Sep 12, 2026 10:00 AM</p></div></div></div></div>
+<div class="row" style="column-gap:16px"><div class="col" style="grid-column:span 12"><div class="blk blk-spacer"><div style="height:16px"></div></div></div></div>
+<div class="row" style="column-gap:16px"><div class="col" style="grid-column:span 12"><div class="blk blk-itemsTable"><table class="items striped"><thead><tr style="background:#1e3a8a;color:#ffffff"><th class="col-name">Item</th><th class="col-quantity num">Qty</th><th class="col-unitPrice num">Price</th><th class="col-amount num">Amount</th></tr></thead><tbody><tr><td class="col-name"><div class="item-name">Rekey lock cylinder</div><div class="item-desc">Rekey existing cylinders to a new key, 2 keys included</div></td><td class="col-quantity num">4</td><td class="col-unitPrice num">$35.00</td><td class="col-amount num">$140.00</td></tr><tr><td class="col-name"><div class="item-name">Schlage B60N deadbolt</div><div class="item-desc">Grade 1 single-cylinder deadbolt, satin nickel</div></td><td class="col-quantity num">2</td><td class="col-unitPrice num">$89.00</td><td class="col-amount num">$178.00</td></tr><tr><td class="col-name"><div class="item-name">Emergency service call</div><div class="item-desc">After-hours dispatch fee</div></td><td class="col-quantity num">1</td><td class="col-unitPrice num">$125.00</td><td class="col-amount num">$125.00</td></tr><tr><td class="col-name"><div class="item-name">Key duplication</div><div class="item-desc">Standard KW1/SC1 key copies</div></td><td class="col-quantity num">6</td><td class="col-unitPrice num">$4.50</td><td class="col-amount num">$27.00</td></tr></tbody></table></div></div></div>
+<div class="row" style="column-gap:24px;padding-top:12px"><div class="col" style="grid-column:span 6"><div class="blk blk-notes"><div class="notes-title">Notes</div><div class="notes-body">Gate code 4471. Please call on arrival.<br>All hardware carries a 1-year warranty.</div></div></div><div class="col" style="grid-column:span 6"><div class="blk blk-totals"><table class="totals"><tbody><tr class="t-subtotal"><td class="t-label">Subtotal</td><td class="t-value">$470.00</td></tr><tr class="t-discount"><td class="t-label">Discount</td><td class="t-value">-$25.00</td></tr><tr class="t-tax"><td class="t-label">Tax (CT Sales Tax 6.35%)</td><td class="t-value">$20.74</td></tr><tr class="t-total"><td class="t-label">Estimate total</td><td class="t-value">$465.74</td></tr></tbody></table></div></div></div>
+<div class="row" style="column-gap:16px"><div class="col" style="grid-column:span 12"><div class="blk blk-spacer"><div style="height:16px"></div></div></div></div>
+<div class="row" style="column-gap:16px"><div class="col" style="grid-column:span 12"><div class="blk blk-text" style="font-size:9px"><div class="rt"><p><span style="color:#1e3a8a"><strong>Terms &amp; conditions</strong></span></p><p>This estimate is valid for 30 days from Sep 12, 2026. Prices include labor and the listed hardware; additional work will be quoted before it is performed. Sign below to approve.</p></div></div></div></div>
+<div class="row" style="column-gap:16px"><div class="col" style="grid-column:span 12"><div class="blk blk-spacer"><div style="height:16px"></div></div></div></div>
+<div class="row" style="column-gap:16px"><div class="col" style="grid-column:span 6"><div class="blk blk-signature"><div class="sig"><div class="sig-line"></div><div class="sig-meta"><span class="sig-label">Client approval</span></div><div class="sig-date">Date: <span class="date-line"></span></div></div></div></div><div class="col" style="grid-column:span 6"></div></div></div></td></tr></tbody>
+</table>
+</body>
+</html>
+"
+`;
+
+exports[`preset snapshots estimate/minimal renders (pdf) 1`] = `
+"<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Estimate 1042-1</title>
+<style>
+:root{--accent:#111827;--text:#111827;--muted:#6b7280;--border:#e5e7eb}
+body{font-family:"Helvetica Neue", Helvetica, Arial, sans-serif;font-size:10px;color:#111827}
+
+*,*::before,*::after{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{-webkit-print-color-adjust: exact;print-color-adjust: exact;line-height:1.45;-webkit-font-smoothing:antialiased;word-wrap:break-word}
+img{max-width:100%}
+.row{display:grid;grid-template-columns:repeat(12, minmax(0, 1fr));align-items:start}
+.col{min-width:0}
+.blk{min-width:0}
+.blk + .blk{margin-top:6px}
+p{margin:0 0 .35em}
+h1,h2,h3{margin:0 0 .3em;line-height:1.2}
+h1{font-size:2.2em;font-weight:800}
+h2{font-size:1.6em;font-weight:700}
+h3{font-size:1.2em;font-weight:700}
+.rt>:last-child,.rt li>:last-child{margin-bottom:0}
+ul,ol{margin:0 0 .35em;padding-left:1.4em}
+a{color:var(--accent)}
+hr{border:0;margin:4px 0;height:0}
+.img,.logo{display:inline-block;vertical-align:top;height:auto}
+.logo{width:auto;max-width:100%}
+.tbl{width:100%;border-collapse:collapse}
+.tbl th,.tbl td{padding:4px 6px;text-align:left;vertical-align:top}
+.tbl th{font-weight:700}
+.tbl p{margin:0}
+.tbl.bordered th,.tbl.bordered td{border:1px solid var(--border)}
+.field{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+.field-label{color:var(--muted)}
+.field-value{font-weight:600;text-align:right;margin-left:auto}
+.items{width:100%;border-collapse:collapse}
+.items thead{display:table-header-group}
+.items tr{break-inside:avoid;page-break-inside:avoid}
+.items th{padding:6px 8px;text-align:left;font-weight:600;font-size:.92em;white-space:nowrap}
+.items td{padding:7px 8px;border-bottom:1px solid var(--border);vertical-align:top}
+.items .num{text-align:right;white-space:nowrap}
+.items .col-taxable{text-align:center;width:1%}
+.items.striped tbody tr:nth-child(even) td{background:#f6f6f7;box-shadow:1px 0 0 #f6f6f7}
+.items td.empty{text-align:center;color:var(--muted);padding:16px}
+.item-name{font-weight:600}
+.item-desc{color:var(--muted);font-size:.9em;margin-top:2px;white-space:pre-line}
+.tax-mark{color:var(--accent);font-weight:700}
+.totals{width:100%;border-collapse:collapse;break-inside:avoid;page-break-inside:avoid}
+.totals td{padding:4px 8px}
+.totals .t-value{text-align:right;white-space:nowrap}
+.totals .t-label{color:var(--muted)}
+.totals .t-total td{font-weight:800;font-size:1.15em;color:inherit;border-top:2px solid var(--accent);padding-top:7px}
+.totals .t-balance td{font-weight:700;color:var(--accent)}
+.sig{break-inside:avoid;page-break-inside:avoid;padding-top:8px}
+.sig-img{display:block;max-height:64px;max-width:100%}
+.sig-line{border-bottom:1px solid currentColor;height:40px;opacity:.7}
+.sig-img + .sig-line{height:4px}
+.sig-meta{display:flex;justify-content:space-between;gap:8px;margin-top:4px;color:var(--muted);font-size:.9em}
+.sig-name{color:var(--text)}
+.sig-date{margin-top:10px;color:var(--muted);font-size:.9em}
+.date-line{display:inline-block;width:120px;border-bottom:1px solid currentColor;vertical-align:bottom}
+.notes-title{font-weight:700;margin-bottom:4px;color:var(--accent)}
+.notes-body{color:var(--text)}
+.doc-footer{color:var(--muted)}
+
+@page { size: letter; margin: 20mm 20mm 20mm 20mm; }
+
+.doc-layout{width:100%;border-collapse:collapse;border-spacing:0}
+.doc-layout > thead{display: table-header-group}
+.doc-layout > tfoot{display: table-footer-group}
+.doc-layout > thead > tr > td,.doc-layout > tfoot > tr > td,.doc-layout > tbody > tr > td{padding:0;vertical-align:top}
+.doc-layout > thead > tr > td{padding-bottom:4mm}
+.doc-layout > tfoot > tr > td{padding-top:4mm}
+.page-break{break-after: page;page-break-after:always;height:0}
+.row-break{break-after: page;page-break-after:always}
+html,body{background:#ffffff}
+</style>
+</head>
+<body>
+<table class="doc-layout">
+<tfoot><tr><td><div class="doc-footer" data-section="footer"><div class="row" style="column-gap:16px"><div class="col" style="grid-column:span 12"><div class="blk blk-text" style="text-align:center;color:#6b7280;font-size:8px"><div class="rt"><p>SureLock Key Services · www.surelockkey.com · Thank you</p></div></div></div></div></div></td></tr></tfoot>
+<tbody><tr><td><div class="doc-body" data-section="body"><div class="row" style="column-gap:16px"><div class="col" style="grid-column:span 6"><div class="blk blk-text" style="color:#6b7280;font-size:9px"><div class="rt"><p><strong>SureLock Key Services</strong></p><p>120 Main St, Hartford, CT 06103</p><p>(860) 555-0142</p><p>office@surelockkey.com</p><p>www.surelockkey.com</p><p>LCK.0001234</p></div></div></div><div class="col" style="grid-column:span 6"><div class="blk blk-text" style="text-align:right"><div class="rt"><h2>Estimate</h2><p>No. 1042-1</p><p>Sep 12, 2026</p><p>Option A – High-security upgrade</p></div></div></div></div>
+<div class="row" style="column-gap:16px"><div class="col" style="grid-column:span 12"><div class="blk blk-spacer"><div style="height:32px"></div></div></div></div>
+<div class="row" style="column-gap:32px"><div class="col" style="grid-column:span 6"><div class="blk blk-text"><div class="rt"><p><span style="color:#6b7280">Billed to</span></p><p><strong>Emily Carter</strong></p><p>Carter Dental Group</p><p>PO Box 311, West Hartford, CT 06127</p><p>emily.carter@example.com</p></div></div></div><div class="col" style="grid-column:span 6"><div class="blk blk-text"><div class="rt"><p><span style="color:#6b7280">Service address</span></p><p>45 Oak Ave, West Hartford, CT 06107</p><p>Job #1042</p></div></div><div class="blk blk-field"><div class="field"><span class="field-label">PO #</span><span class="field-value">PO-7781</span></div></div></div></div>
+<div class="row" style="column-gap:16px"><div class="col" style="grid-column:span 12"><div class="blk blk-spacer"><div style="height:32px"></div></div></div></div>
+<div class="row" style="column-gap:16px"><div class="col" style="grid-column:span 12"><div class="blk blk-itemsTable"><table class="items"><thead><tr style="background:transparent;color:#6b7280"><th class="col-name">Item</th><th class="col-quantity num">Qty</th><th class="col-unitPrice num">Price</th><th class="col-amount num">Amount</th></tr></thead><tbody><tr><td class="col-name"><div class="item-name">Rekey lock cylinder</div><div class="item-desc">Rekey existing cylinders to a new key, 2 keys included</div></td><td class="col-quantity num">4</td><td class="col-unitPrice num">$35.00</td><td class="col-amount num">$140.00</td></tr><tr><td class="col-name"><div class="item-name">Schlage B60N deadbolt</div><div class="item-desc">Grade 1 single-cylinder deadbolt, satin nickel</div></td><td class="col-quantity num">2</td><td class="col-unitPrice num">$89.00</td><td class="col-amount num">$178.00</td></tr><tr><td class="col-name"><div class="item-name">Emergency service call</div><div class="item-desc">After-hours dispatch fee</div></td><td class="col-quantity num">1</td><td class="col-unitPrice num">$125.00</td><td class="col-amount num">$125.00</td></tr><tr><td class="col-name"><div class="item-name">Key duplication</div><div class="item-desc">Standard KW1/SC1 key copies</div></td><td class="col-quantity num">6</td><td class="col-unitPrice num">$4.50</td><td class="col-amount num">$27.00</td></tr></tbody></table></div></div></div>
+<div class="row" style="column-gap:16px"><div class="col" style="grid-column:span 6"></div><div class="col" style="grid-column:span 6"><div class="blk blk-totals"><table class="totals"><tbody><tr class="t-subtotal"><td class="t-label">Subtotal</td><td class="t-value">$470.00</td></tr><tr class="t-discount"><td class="t-label">Discount</td><td class="t-value">-$25.00</td></tr><tr class="t-tax"><td class="t-label">Tax (CT Sales Tax 6.35%)</td><td class="t-value">$20.74</td></tr><tr class="t-total"><td class="t-label">Total</td><td class="t-value">$465.74</td></tr></tbody></table></div></div></div>
+<div class="row" style="column-gap:16px"><div class="col" style="grid-column:span 12"><div class="blk blk-spacer"><div style="height:28px"></div></div></div></div>
+<div class="row" style="column-gap:32px"><div class="col" style="grid-column:span 6"><div class="blk blk-notes"><div class="notes-title">Notes</div><div class="notes-body">Gate code 4471. Please call on arrival.<br>All hardware carries a 1-year warranty.</div></div></div><div class="col" style="grid-column:span 6"><div class="blk blk-signature"><div class="sig"><div class="sig-line"></div><div class="sig-meta"><span class="sig-label">Client approval</span></div><div class="sig-date">Date: <span class="date-line"></span></div></div></div></div></div></div></td></tr></tbody>
+</table>
+</body>
+</html>
+"
+`;
+
+exports[`preset snapshots estimate/modern renders (pdf) 1`] = `
+"<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Estimate 1042-1</title>
+<style>
+:root{--accent:#4f46e5;--text:#111827;--muted:#6b7280;--border:#e5e7eb}
+body{font-family:"Inter", "Helvetica Neue", Helvetica, Arial, sans-serif;font-size:10px;color:#111827}
+
+*,*::before,*::after{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{-webkit-print-color-adjust: exact;print-color-adjust: exact;line-height:1.45;-webkit-font-smoothing:antialiased;word-wrap:break-word}
+img{max-width:100%}
+.row{display:grid;grid-template-columns:repeat(12, minmax(0, 1fr));align-items:start}
+.col{min-width:0}
+.blk{min-width:0}
+.blk + .blk{margin-top:6px}
+p{margin:0 0 .35em}
+h1,h2,h3{margin:0 0 .3em;line-height:1.2}
+h1{font-size:2.2em;font-weight:800}
+h2{font-size:1.6em;font-weight:700}
+h3{font-size:1.2em;font-weight:700}
+.rt>:last-child,.rt li>:last-child{margin-bottom:0}
+ul,ol{margin:0 0 .35em;padding-left:1.4em}
+a{color:var(--accent)}
+hr{border:0;margin:4px 0;height:0}
+.img,.logo{display:inline-block;vertical-align:top;height:auto}
+.logo{width:auto;max-width:100%}
+.tbl{width:100%;border-collapse:collapse}
+.tbl th,.tbl td{padding:4px 6px;text-align:left;vertical-align:top}
+.tbl th{font-weight:700}
+.tbl p{margin:0}
+.tbl.bordered th,.tbl.bordered td{border:1px solid var(--border)}
+.field{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+.field-label{color:var(--muted)}
+.field-value{font-weight:600;text-align:right;margin-left:auto}
+.items{width:100%;border-collapse:collapse}
+.items thead{display:table-header-group}
+.items tr{break-inside:avoid;page-break-inside:avoid}
+.items th{padding:6px 8px;text-align:left;font-weight:600;font-size:.92em;white-space:nowrap}
+.items td{padding:7px 8px;border-bottom:1px solid var(--border);vertical-align:top}
+.items .num{text-align:right;white-space:nowrap}
+.items .col-taxable{text-align:center;width:1%}
+.items.striped tbody tr:nth-child(even) td{background:#f6f6f7;box-shadow:1px 0 0 #f6f6f7}
+.items td.empty{text-align:center;color:var(--muted);padding:16px}
+.item-name{font-weight:600}
+.item-desc{color:var(--muted);font-size:.9em;margin-top:2px;white-space:pre-line}
+.tax-mark{color:var(--accent);font-weight:700}
+.totals{width:100%;border-collapse:collapse;break-inside:avoid;page-break-inside:avoid}
+.totals td{padding:4px 8px}
+.totals .t-value{text-align:right;white-space:nowrap}
+.totals .t-label{color:var(--muted)}
+.totals .t-total td{font-weight:800;font-size:1.15em;color:inherit;border-top:2px solid var(--accent);padding-top:7px}
+.totals .t-balance td{font-weight:700;color:var(--accent)}
+.sig{break-inside:avoid;page-break-inside:avoid;padding-top:8px}
+.sig-img{display:block;max-height:64px;max-width:100%}
+.sig-line{border-bottom:1px solid currentColor;height:40px;opacity:.7}
+.sig-img + .sig-line{height:4px}
+.sig-meta{display:flex;justify-content:space-between;gap:8px;margin-top:4px;color:var(--muted);font-size:.9em}
+.sig-name{color:var(--text)}
+.sig-date{margin-top:10px;color:var(--muted);font-size:.9em}
+.date-line{display:inline-block;width:120px;border-bottom:1px solid currentColor;vertical-align:bottom}
+.notes-title{font-weight:700;margin-bottom:4px;color:var(--accent)}
+.notes-body{color:var(--text)}
+.doc-footer{color:var(--muted)}
+
+@page { size: letter; margin: 15mm 15mm 15mm 15mm; }
+
+.doc-layout{width:100%;border-collapse:collapse;border-spacing:0}
+.doc-layout > thead{display: table-header-group}
+.doc-layout > tfoot{display: table-footer-group}
+.doc-layout > thead > tr > td,.doc-layout > tfoot > tr > td,.doc-layout > tbody > tr > td{padding:0;vertical-align:top}
+.doc-layout > thead > tr > td{padding-bottom:4mm}
+.doc-layout > tfoot > tr > td{padding-top:4mm}
+.page-break{break-after: page;page-break-after:always;height:0}
+.row-break{break-after: page;page-break-after:always}
+html,body{background:#ffffff}
+</style>
+</head>
+<body>
+<table class="doc-layout">
+<thead><tr><td><div class="doc-header" data-section="header"><div class="row" style="column-gap:16px;color:#ffffff;background:#4f46e5;padding-top:16px;padding-right:18px;padding-bottom:16px;padding-left:18px;border-radius:8px"><div class="col" style="grid-column:span 8;align-self:center"><div class="blk blk-text" style="color:#ffffff"><div class="rt"><h2>SureLock Key Services</h2><p>(860) 555-0142 · office@surelockkey.com · www.surelockkey.com</p></div></div></div><div class="col" style="grid-column:span 4;align-self:center"></div></div></div></td></tr></thead>
+<tfoot><tr><td><div class="doc-footer" data-section="footer"><div class="row" style="column-gap:16px"><div class="col" style="grid-column:span 12"><div class="blk blk-text" style="text-align:center;color:#ffffff;background:#4f46e5;font-size:8px;padding-top:6px;padding-bottom:6px;border-radius:6px"><div class="rt"><p>Thank you for choosing SureLock Key Services · (860) 555-0142 · office@surelockkey.com</p></div></div></div></div></div></td></tr></tfoot>
+<tbody><tr><td><div class="doc-body" data-section="body"><div class="row" style="column-gap:16px"><div class="col" style="grid-column:span 12"><div class="blk blk-spacer"><div style="height:8px"></div></div></div></div>
+<div class="row" style="column-gap:32px"><div class="col" style="grid-column:span 6;align-self:end"><div class="blk blk-text" style="font-weight:700"><div class="rt"><h1>Estimate</h1><p><span style="color:#4f46e5"><strong>#1042-1</strong></span></p><p>Option A – High-security upgrade</p></div></div></div><div class="col" style="grid-column:span 6;align-self:end"><div class="blk blk-field"><div class="field"><span class="field-label">Estimate #</span><span class="field-value">1042-1</span></div></div><div class="blk blk-field"><div class="field"><span class="field-label">Date</span><span class="field-value">Sep 12, 2026</span></div></div><div class="blk blk-field"><div class="field"><span class="field-label">Status</span><span class="field-value">Pending</span></div></div><div class="blk blk-field"><div class="field"><span class="field-label">Job #</span><span class="field-value">1042</span></div></div><div class="blk blk-field"><div class="field"><span class="field-label">PO #</span><span class="field-value">PO-7781</span></div></div></div></div>
+<div class="row" style="column-gap:16px"><div class="col" style="grid-column:span 12"><div class="blk blk-spacer"><div style="height:12px"></div></div></div></div>
+<div class="row" style="column-gap:24px;background:#f3f4f6;padding-top:12px;padding-right:14px;padding-bottom:12px;padding-left:14px;border-radius:8px"><div class="col" style="grid-column:span 6"><div class="blk blk-text"><div class="rt"><p><span style="color:#4f46e5"><strong>BILL TO</strong></span></p><p><strong>Emily Carter</strong></p><p>Carter Dental Group</p><p>PO Box 311, West Hartford, CT 06127</p><p>(860) 555-0199</p><p>emily.carter@example.com</p></div></div></div><div class="col" style="grid-column:span 6"><div class="blk blk-text"><div class="rt"><p><span style="color:#4f46e5"><strong>SERVICE ADDRESS</strong></span></p><p>45 Oak Ave, West Hartford, CT 06107</p><p>Job type: Rekey &amp; lock upgrade</p><p>Technician: Mike Rivera</p><p>Scheduled: Sep 12, 2026 10:00 AM</p></div></div></div></div>
+<div class="row" style="column-gap:16px"><div class="col" style="grid-column:span 12"><div class="blk blk-spacer"><div style="height:16px"></div></div></div></div>
+<div class="row" style="column-gap:16px"><div class="col" style="grid-column:span 12"><div class="blk blk-itemsTable"><table class="items striped"><thead><tr style="background:#111827;color:#ffffff"><th class="col-name">Item</th><th class="col-quantity num">Qty</th><th class="col-unitPrice num">Price</th><th class="col-amount num">Amount</th></tr></thead><tbody><tr><td class="col-name"><div class="item-name">Rekey lock cylinder</div><div class="item-desc">Rekey existing cylinders to a new key, 2 keys included</div></td><td class="col-quantity num">4</td><td class="col-unitPrice num">$35.00</td><td class="col-amount num">$140.00</td></tr><tr><td class="col-name"><div class="item-name">Schlage B60N deadbolt</div><div class="item-desc">Grade 1 single-cylinder deadbolt, satin nickel</div></td><td class="col-quantity num">2</td><td class="col-unitPrice num">$89.00</td><td class="col-amount num">$178.00</td></tr><tr><td class="col-name"><div class="item-name">Emergency service call</div><div class="item-desc">After-hours dispatch fee</div></td><td class="col-quantity num">1</td><td class="col-unitPrice num">$125.00</td><td class="col-amount num">$125.00</td></tr><tr><td class="col-name"><div class="item-name">Key duplication</div><div class="item-desc">Standard KW1/SC1 key copies</div></td><td class="col-quantity num">6</td><td class="col-unitPrice num">$4.50</td><td class="col-amount num">$27.00</td></tr></tbody></table></div></div></div>
+<div class="row" style="column-gap:24px;padding-top:12px"><div class="col" style="grid-column:span 7"><div class="blk blk-notes"><div class="notes-title">Notes</div><div class="notes-body">Gate code 4471. Please call on arrival.<br>All hardware carries a 1-year warranty.</div></div></div><div class="col" style="grid-column:span 5"><div class="blk blk-totals" style="font-size:11px"><table class="totals"><tbody><tr class="t-subtotal"><td class="t-label">Subtotal</td><td class="t-value">$470.00</td></tr><tr class="t-discount"><td class="t-label">Discount</td><td class="t-value">-$25.00</td></tr><tr class="t-tax"><td class="t-label">Tax (CT Sales Tax 6.35%)</td><td class="t-value">$20.74</td></tr><tr class="t-total"><td class="t-label">Estimate total</td><td class="t-value">$465.74</td></tr></tbody></table></div></div></div>
+<div class="row" style="column-gap:16px"><div class="col" style="grid-column:span 12"><div class="blk blk-spacer"><div style="height:20px"></div></div></div></div>
+<div class="row" style="column-gap:24px"><div class="col" style="grid-column:span 7"><div class="blk blk-text" style="color:#374151;font-size:9px"><div class="rt"><p><span style="color:#4f46e5"><strong>Terms &amp; conditions</strong></span></p><p>This estimate is valid for 30 days from Sep 12, 2026. Prices include labor and the listed hardware; additional work will be quoted before it is performed. Sign below to approve.</p></div></div></div><div class="col" style="grid-column:span 5"><div class="blk blk-signature"><div class="sig"><div class="sig-line"></div><div class="sig-meta"><span class="sig-label">Client approval</span></div><div class="sig-date">Date: <span class="date-line"></span></div></div></div></div></div></div></td></tr></tbody>
+</table>
+</body>
+</html>
+"
+`;
+
+exports[`preset snapshots invoice/classic renders (screen) 1`] = `
+"<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Invoice 1042</title>
+<style>
+:root{--accent:#1e3a8a;--text:#1f2937;--muted:#6b7280;--border:#e5e7eb}
+body{font-family:"Helvetica Neue", Helvetica, Arial, sans-serif;font-size:10px;color:#1f2937}
+
+*,*::before,*::after{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{-webkit-print-color-adjust: exact;print-color-adjust: exact;line-height:1.45;-webkit-font-smoothing:antialiased;word-wrap:break-word}
+img{max-width:100%}
+.row{display:grid;grid-template-columns:repeat(12, minmax(0, 1fr));align-items:start}
+.col{min-width:0}
+.blk{min-width:0}
+.blk + .blk{margin-top:6px}
+p{margin:0 0 .35em}
+h1,h2,h3{margin:0 0 .3em;line-height:1.2}
+h1{font-size:2.2em;font-weight:800}
+h2{font-size:1.6em;font-weight:700}
+h3{font-size:1.2em;font-weight:700}
+.rt>:last-child,.rt li>:last-child{margin-bottom:0}
+ul,ol{margin:0 0 .35em;padding-left:1.4em}
+a{color:var(--accent)}
+hr{border:0;margin:4px 0;height:0}
+.img,.logo{display:inline-block;vertical-align:top;height:auto}
+.logo{width:auto;max-width:100%}
+.tbl{width:100%;border-collapse:collapse}
+.tbl th,.tbl td{padding:4px 6px;text-align:left;vertical-align:top}
+.tbl th{font-weight:700}
+.tbl p{margin:0}
+.tbl.bordered th,.tbl.bordered td{border:1px solid var(--border)}
+.field{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+.field-label{color:var(--muted)}
+.field-value{font-weight:600;text-align:right;margin-left:auto}
+.items{width:100%;border-collapse:collapse}
+.items thead{display:table-header-group}
+.items tr{break-inside:avoid;page-break-inside:avoid}
+.items th{padding:6px 8px;text-align:left;font-weight:600;font-size:.92em;white-space:nowrap}
+.items td{padding:7px 8px;border-bottom:1px solid var(--border);vertical-align:top}
+.items .num{text-align:right;white-space:nowrap}
+.items .col-taxable{text-align:center;width:1%}
+.items.striped tbody tr:nth-child(even) td{background:#f6f6f7;box-shadow:1px 0 0 #f6f6f7}
+.items td.empty{text-align:center;color:var(--muted);padding:16px}
+.item-name{font-weight:600}
+.item-desc{color:var(--muted);font-size:.9em;margin-top:2px;white-space:pre-line}
+.tax-mark{color:var(--accent);font-weight:700}
+.totals{width:100%;border-collapse:collapse;break-inside:avoid;page-break-inside:avoid}
+.totals td{padding:4px 8px}
+.totals .t-value{text-align:right;white-space:nowrap}
+.totals .t-label{color:var(--muted)}
+.totals .t-total td{font-weight:800;font-size:1.15em;color:inherit;border-top:2px solid var(--accent);padding-top:7px}
+.totals .t-balance td{font-weight:700;color:var(--accent)}
+.sig{break-inside:avoid;page-break-inside:avoid;padding-top:8px}
+.sig-img{display:block;max-height:64px;max-width:100%}
+.sig-line{border-bottom:1px solid currentColor;height:40px;opacity:.7}
+.sig-img + .sig-line{height:4px}
+.sig-meta{display:flex;justify-content:space-between;gap:8px;margin-top:4px;color:var(--muted);font-size:.9em}
+.sig-name{color:var(--text)}
+.sig-date{margin-top:10px;color:var(--muted);font-size:.9em}
+.date-line{display:inline-block;width:120px;border-bottom:1px solid currentColor;vertical-align:bottom}
+.notes-title{font-weight:700;margin-bottom:4px;color:var(--accent)}
+.notes-body{color:var(--text)}
+.doc-footer{color:var(--muted)}
+
+
+html{background:#e5e7eb}
+body{padding:24px 16px}
+.paper{margin:0 auto;box-shadow:0 1px 3px rgba(0,0,0,0.12),0 12px 32px rgba(0,0,0,0.10);display:flex;flex-direction:column;border-radius:2px}
+.doc-body{flex:1 0 auto}
+.doc-header,.doc-body{padding-bottom:12px}
+.doc-footer{padding-top:12px}
+.placeholder{border:1px dashed #cbd5e1;background:#f8fafc;color:#94a3b8;display:flex;align-items:center;justify-content:center;padding:10px;font-size:11px;border-radius:4px;min-height:32px;text-align:center}
+.logo-ph{width:160px;max-width:100%}
+.img-ph{min-height:80px}
+.page-break{border-top:1px dashed #94a3b8;margin:14px 0;height:0;text-align:center}
+.page-break span{position:relative;top:-0.75em;background:#ffffff;padding:0 6px;color:#94a3b8;font-size:10px;text-transform:uppercase;letter-spacing:.06em}
+.paper{width:8.5in;max-width:100%;min-height:11in;padding:15mm 15mm 15mm 15mm;background:#ffffff}
+</style>
+</head>
+<body>
+<div class="paper">
+<div class="doc-header" data-section="header"><div class="row" style="column-gap:16px"><div class="col" style="grid-column:span 6;align-self:center"><div class="blk blk-logo"><div class="placeholder logo-ph" style="height:70px">Logo</div></div></div><div class="col" style="grid-column:span 6"><div class="blk blk-text" style="text-align:right;font-size:9px"><div class="rt"><h3>SureLock Key Services</h3><p>120 Main St, Hartford, CT 06103</p><p>(860) 555-0142</p><p>office@surelockkey.com</p><p>www.surelockkey.com</p><p>LCK.0001234</p></div></div></div></div>
+<div class="row" style="column-gap:16px"><div class="col" style="grid-column:span 12"><div class="blk blk-divider" style="color:#1e3a8a"><hr style="border-top:2px solid #1e3a8a"></div></div></div></div>
+<div class="doc-body" data-section="body"><div class="row" style="column-gap:16px"><div class="col" style="grid-column:span 7"><div class="blk blk-text" style="color:#1e3a8a"><div class="rt"><h1>INVOICE</h1></div></div></div><div class="col" style="grid-column:span 5"><div class="blk blk-field"><div class="field"><span class="field-label">Invoice #</span><span class="field-value">1042</span></div></div><div class="blk blk-field"><div class="field"><span class="field-label">Date</span><span class="field-value">Sep 12, 2026</span></div></div><div class="blk blk-field"><div class="field"><span class="field-label">Due date</span><span class="field-value">Sep 26, 2026</span></div></div><div class="blk blk-field"><div class="field"><span class="field-label">Terms</span><span class="field-value">Net 14</span></div></div><div class="blk blk-field"><div class="field"><span class="field-label">Job #</span><span class="field-value">1042</span></div></div><div class="blk blk-field"><div class="field"><span class="field-label">PO #</span><span class="field-value">PO-7781</span></div></div></div></div>
+<div class="row" style="column-gap:16px"><div class="col" style="grid-column:span 12"><div class="blk blk-spacer"><div style="height:12px"></div></div></div></div>
+<div class="row" style="column-gap:24px"><div class="col" style="grid-column:span 6"><div class="blk blk-text"><div class="rt"><p><span style="color:#1e3a8a"><strong>BILL TO</strong></span></p><p><strong>Emily Carter</strong></p><p>Carter Dental Group</p><p>PO Box 311, West Hartford, CT 06127</p><p>(860) 555-0199</p><p>emily.carter@example.com</p></div></div></div><div class="col" style="grid-column:span 6"><div class="blk blk-text"><div class="rt"><p><span style="color:#1e3a8a"><strong>SERVICE ADDRESS</strong></span></p><p>45 Oak Ave, West Hartford, CT 06107</p><p>Job type: Rekey &amp; lock upgrade</p><p>Technician: Mike Rivera</p><p>Scheduled: Sep 12, 2026 10:00 AM</p></div></div></div></div>
+<div class="row" style="column-gap:16px"><div class="col" style="grid-column:span 12"><div class="blk blk-spacer"><div style="height:16px"></div></div></div></div>
+<div class="row" style="column-gap:16px"><div class="col" style="grid-column:span 12"><div class="blk blk-itemsTable"><table class="items striped"><thead><tr style="background:#1e3a8a;color:#ffffff"><th class="col-name">Item</th><th class="col-quantity num">Qty</th><th class="col-unitPrice num">Price</th><th class="col-amount num">Amount</th></tr></thead><tbody><tr><td class="col-name"><div class="item-name">Rekey lock cylinder</div><div class="item-desc">Rekey existing cylinders to a new key, 2 keys included</div></td><td class="col-quantity num">4</td><td class="col-unitPrice num">$35.00</td><td class="col-amount num">$140.00</td></tr><tr><td class="col-name"><div class="item-name">Schlage B60N deadbolt</div><div class="item-desc">Grade 1 single-cylinder deadbolt, satin nickel</div></td><td class="col-quantity num">2</td><td class="col-unitPrice num">$89.00</td><td class="col-amount num">$178.00</td></tr><tr><td class="col-name"><div class="item-name">Emergency service call</div><div class="item-desc">After-hours dispatch fee</div></td><td class="col-quantity num">1</td><td class="col-unitPrice num">$125.00</td><td class="col-amount num">$125.00</td></tr><tr><td class="col-name"><div class="item-name">Key duplication</div><div class="item-desc">Standard KW1/SC1 key copies</div></td><td class="col-quantity num">6</td><td class="col-unitPrice num">$4.50</td><td class="col-amount num">$27.00</td></tr></tbody></table></div></div></div>
+<div class="row" style="column-gap:24px;padding-top:12px"><div class="col" style="grid-column:span 6"><div class="blk blk-notes"><div class="notes-title">Notes</div><div class="notes-body">Gate code 4471. Please call on arrival.<br>All hardware carries a 1-year warranty.</div></div></div><div class="col" style="grid-column:span 6"><div class="blk blk-totals"><table class="totals"><tbody><tr class="t-subtotal"><td class="t-label">Subtotal</td><td class="t-value">$470.00</td></tr><tr class="t-discount"><td class="t-label">Discount</td><td class="t-value">-$25.00</td></tr><tr class="t-tax"><td class="t-label">Tax (CT Sales Tax 6.35%)</td><td class="t-value">$20.74</td></tr><tr class="t-total"><td class="t-label">Total</td><td class="t-value">$465.74</td></tr><tr class="t-paid"><td class="t-label">Paid</td><td class="t-value">-$100.00</td></tr><tr class="t-balance"><td class="t-label">Balance due</td><td class="t-value">$365.74</td></tr></tbody></table></div></div></div>
+<div class="row" style="column-gap:16px"><div class="col" style="grid-column:span 12"><div class="blk blk-spacer"><div style="height:16px"></div></div></div></div>
+<div class="row" style="column-gap:16px"><div class="col" style="grid-column:span 12"><div class="blk blk-text" style="font-size:9px"><div class="rt"><p><span style="color:#1e3a8a"><strong>Terms &amp; conditions</strong></span></p><p>Payment is due by Sep 26, 2026. Please reference invoice #1042 with your payment. All hardware carries a 1-year limited warranty; labor is warranted for 90 days.</p></div></div></div></div>
+<div class="row" style="column-gap:16px"><div class="col" style="grid-column:span 12"><div class="blk blk-spacer"><div style="height:16px"></div></div></div></div>
+<div class="row" style="column-gap:16px"><div class="col" style="grid-column:span 6"><div class="blk blk-signature"><div class="sig"><div class="sig-line"></div><div class="sig-meta"><span class="sig-label">Client signature</span></div><div class="sig-date">Date: <span class="date-line"></span></div></div></div></div><div class="col" style="grid-column:span 6"></div></div></div>
+<div class="doc-footer" data-section="footer"><div class="row" style="column-gap:16px"><div class="col" style="grid-column:span 12"><div class="blk blk-divider"><hr style="border-top:1px solid var(--border)"></div><div class="blk blk-text" style="text-align:center;color:#6b7280;font-size:8px"><div class="rt"><p><strong>Thank you for your business!</strong></p><p>SureLock Key Services · (860) 555-0142 · www.surelockkey.com</p><p>Invoice #1042 · Sep 12, 2026</p></div></div></div></div></div>
+</div>
+</body>
+</html>
+"
+`;
+
+exports[`preset snapshots invoice/minimal renders (screen) 1`] = `
+"<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Invoice 1042</title>
+<style>
+:root{--accent:#111827;--text:#111827;--muted:#6b7280;--border:#e5e7eb}
+body{font-family:"Helvetica Neue", Helvetica, Arial, sans-serif;font-size:10px;color:#111827}
+
+*,*::before,*::after{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{-webkit-print-color-adjust: exact;print-color-adjust: exact;line-height:1.45;-webkit-font-smoothing:antialiased;word-wrap:break-word}
+img{max-width:100%}
+.row{display:grid;grid-template-columns:repeat(12, minmax(0, 1fr));align-items:start}
+.col{min-width:0}
+.blk{min-width:0}
+.blk + .blk{margin-top:6px}
+p{margin:0 0 .35em}
+h1,h2,h3{margin:0 0 .3em;line-height:1.2}
+h1{font-size:2.2em;font-weight:800}
+h2{font-size:1.6em;font-weight:700}
+h3{font-size:1.2em;font-weight:700}
+.rt>:last-child,.rt li>:last-child{margin-bottom:0}
+ul,ol{margin:0 0 .35em;padding-left:1.4em}
+a{color:var(--accent)}
+hr{border:0;margin:4px 0;height:0}
+.img,.logo{display:inline-block;vertical-align:top;height:auto}
+.logo{width:auto;max-width:100%}
+.tbl{width:100%;border-collapse:collapse}
+.tbl th,.tbl td{padding:4px 6px;text-align:left;vertical-align:top}
+.tbl th{font-weight:700}
+.tbl p{margin:0}
+.tbl.bordered th,.tbl.bordered td{border:1px solid var(--border)}
+.field{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+.field-label{color:var(--muted)}
+.field-value{font-weight:600;text-align:right;margin-left:auto}
+.items{width:100%;border-collapse:collapse}
+.items thead{display:table-header-group}
+.items tr{break-inside:avoid;page-break-inside:avoid}
+.items th{padding:6px 8px;text-align:left;font-weight:600;font-size:.92em;white-space:nowrap}
+.items td{padding:7px 8px;border-bottom:1px solid var(--border);vertical-align:top}
+.items .num{text-align:right;white-space:nowrap}
+.items .col-taxable{text-align:center;width:1%}
+.items.striped tbody tr:nth-child(even) td{background:#f6f6f7;box-shadow:1px 0 0 #f6f6f7}
+.items td.empty{text-align:center;color:var(--muted);padding:16px}
+.item-name{font-weight:600}
+.item-desc{color:var(--muted);font-size:.9em;margin-top:2px;white-space:pre-line}
+.tax-mark{color:var(--accent);font-weight:700}
+.totals{width:100%;border-collapse:collapse;break-inside:avoid;page-break-inside:avoid}
+.totals td{padding:4px 8px}
+.totals .t-value{text-align:right;white-space:nowrap}
+.totals .t-label{color:var(--muted)}
+.totals .t-total td{font-weight:800;font-size:1.15em;color:inherit;border-top:2px solid var(--accent);padding-top:7px}
+.totals .t-balance td{font-weight:700;color:var(--accent)}
+.sig{break-inside:avoid;page-break-inside:avoid;padding-top:8px}
+.sig-img{display:block;max-height:64px;max-width:100%}
+.sig-line{border-bottom:1px solid currentColor;height:40px;opacity:.7}
+.sig-img + .sig-line{height:4px}
+.sig-meta{display:flex;justify-content:space-between;gap:8px;margin-top:4px;color:var(--muted);font-size:.9em}
+.sig-name{color:var(--text)}
+.sig-date{margin-top:10px;color:var(--muted);font-size:.9em}
+.date-line{display:inline-block;width:120px;border-bottom:1px solid currentColor;vertical-align:bottom}
+.notes-title{font-weight:700;margin-bottom:4px;color:var(--accent)}
+.notes-body{color:var(--text)}
+.doc-footer{color:var(--muted)}
+
+
+html{background:#e5e7eb}
+body{padding:24px 16px}
+.paper{margin:0 auto;box-shadow:0 1px 3px rgba(0,0,0,0.12),0 12px 32px rgba(0,0,0,0.10);display:flex;flex-direction:column;border-radius:2px}
+.doc-body{flex:1 0 auto}
+.doc-header,.doc-body{padding-bottom:12px}
+.doc-footer{padding-top:12px}
+.placeholder{border:1px dashed #cbd5e1;background:#f8fafc;color:#94a3b8;display:flex;align-items:center;justify-content:center;padding:10px;font-size:11px;border-radius:4px;min-height:32px;text-align:center}
+.logo-ph{width:160px;max-width:100%}
+.img-ph{min-height:80px}
+.page-break{border-top:1px dashed #94a3b8;margin:14px 0;height:0;text-align:center}
+.page-break span{position:relative;top:-0.75em;background:#ffffff;padding:0 6px;color:#94a3b8;font-size:10px;text-transform:uppercase;letter-spacing:.06em}
+.paper{width:8.5in;max-width:100%;min-height:11in;padding:20mm 20mm 20mm 20mm;background:#ffffff}
+</style>
+</head>
+<body>
+<div class="paper">
+<div class="doc-header" data-section="header"></div>
+<div class="doc-body" data-section="body"><div class="row" style="column-gap:16px"><div class="col" style="grid-column:span 6"><div class="blk blk-logo"><div class="placeholder logo-ph" style="height:48px">Logo</div></div><div class="blk blk-text" style="color:#6b7280;font-size:9px"><div class="rt"><p><strong>SureLock Key Services</strong></p><p>120 Main St, Hartford, CT 06103</p><p>(860) 555-0142</p><p>office@surelockkey.com</p><p>www.surelockkey.com</p><p>LCK.0001234</p></div></div></div><div class="col" style="grid-column:span 6"><div class="blk blk-text" style="text-align:right"><div class="rt"><h2>Invoice</h2><p>No. 1042</p><p>Sep 12, 2026</p><p>Due Sep 26, 2026</p></div></div></div></div>
+<div class="row" style="column-gap:16px"><div class="col" style="grid-column:span 12"><div class="blk blk-spacer"><div style="height:32px"></div></div></div></div>
+<div class="row" style="column-gap:32px"><div class="col" style="grid-column:span 6"><div class="blk blk-text"><div class="rt"><p><span style="color:#6b7280">Billed to</span></p><p><strong>Emily Carter</strong></p><p>Carter Dental Group</p><p>PO Box 311, West Hartford, CT 06127</p><p>emily.carter@example.com</p></div></div></div><div class="col" style="grid-column:span 6"><div class="blk blk-text"><div class="rt"><p><span style="color:#6b7280">Service address</span></p><p>45 Oak Ave, West Hartford, CT 06107</p><p>Job #1042</p></div></div><div class="blk blk-field"><div class="field"><span class="field-label">Terms</span><span class="field-value">Net 14</span></div></div><div class="blk blk-field"><div class="field"><span class="field-label">PO #</span><span class="field-value">PO-7781</span></div></div></div></div>
+<div class="row" style="column-gap:16px"><div class="col" style="grid-column:span 12"><div class="blk blk-spacer"><div style="height:32px"></div></div></div></div>
+<div class="row" style="column-gap:16px"><div class="col" style="grid-column:span 12"><div class="blk blk-itemsTable"><table class="items"><thead><tr style="background:transparent;color:#6b7280"><th class="col-name">Item</th><th class="col-quantity num">Qty</th><th class="col-unitPrice num">Price</th><th class="col-amount num">Amount</th></tr></thead><tbody><tr><td class="col-name"><div class="item-name">Rekey lock cylinder</div><div class="item-desc">Rekey existing cylinders to a new key, 2 keys included</div></td><td class="col-quantity num">4</td><td class="col-unitPrice num">$35.00</td><td class="col-amount num">$140.00</td></tr><tr><td class="col-name"><div class="item-name">Schlage B60N deadbolt</div><div class="item-desc">Grade 1 single-cylinder deadbolt, satin nickel</div></td><td class="col-quantity num">2</td><td class="col-unitPrice num">$89.00</td><td class="col-amount num">$178.00</td></tr><tr><td class="col-name"><div class="item-name">Emergency service call</div><div class="item-desc">After-hours dispatch fee</div></td><td class="col-quantity num">1</td><td class="col-unitPrice num">$125.00</td><td class="col-amount num">$125.00</td></tr><tr><td class="col-name"><div class="item-name">Key duplication</div><div class="item-desc">Standard KW1/SC1 key copies</div></td><td class="col-quantity num">6</td><td class="col-unitPrice num">$4.50</td><td class="col-amount num">$27.00</td></tr></tbody></table></div></div></div>
+<div class="row" style="column-gap:16px"><div class="col" style="grid-column:span 6"></div><div class="col" style="grid-column:span 6"><div class="blk blk-totals"><table class="totals"><tbody><tr class="t-subtotal"><td class="t-label">Subtotal</td><td class="t-value">$470.00</td></tr><tr class="t-discount"><td class="t-label">Discount</td><td class="t-value">-$25.00</td></tr><tr class="t-tax"><td class="t-label">Tax (CT Sales Tax 6.35%)</td><td class="t-value">$20.74</td></tr><tr class="t-total"><td class="t-label">Total</td><td class="t-value">$465.74</td></tr><tr class="t-paid"><td class="t-label">Paid</td><td class="t-value">-$100.00</td></tr><tr class="t-balance"><td class="t-label">Balance due</td><td class="t-value">$365.74</td></tr></tbody></table></div></div></div>
+<div class="row" style="column-gap:16px"><div class="col" style="grid-column:span 12"><div class="blk blk-spacer"><div style="height:28px"></div></div></div></div>
+<div class="row" style="column-gap:32px"><div class="col" style="grid-column:span 6"><div class="blk blk-notes"><div class="notes-title">Notes</div><div class="notes-body">Gate code 4471. Please call on arrival.<br>All hardware carries a 1-year warranty.</div></div></div><div class="col" style="grid-column:span 6"><div class="blk blk-signature"><div class="sig"><div class="sig-line"></div><div class="sig-meta"><span class="sig-label">Client signature</span></div><div class="sig-date">Date: <span class="date-line"></span></div></div></div></div></div></div>
+<div class="doc-footer" data-section="footer"><div class="row" style="column-gap:16px"><div class="col" style="grid-column:span 12"><div class="blk blk-text" style="text-align:center;color:#6b7280;font-size:8px"><div class="rt"><p>SureLock Key Services · www.surelockkey.com · Thank you</p></div></div></div></div></div>
+</div>
+</body>
+</html>
+"
+`;
+
+exports[`preset snapshots invoice/modern renders (screen) 1`] = `
+"<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Invoice 1042</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;display=swap">
+<style>
+:root{--accent:#4f46e5;--text:#111827;--muted:#6b7280;--border:#e5e7eb}
+body{font-family:"Inter", "Helvetica Neue", Helvetica, Arial, sans-serif;font-size:10px;color:#111827}
+
+*,*::before,*::after{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{-webkit-print-color-adjust: exact;print-color-adjust: exact;line-height:1.45;-webkit-font-smoothing:antialiased;word-wrap:break-word}
+img{max-width:100%}
+.row{display:grid;grid-template-columns:repeat(12, minmax(0, 1fr));align-items:start}
+.col{min-width:0}
+.blk{min-width:0}
+.blk + .blk{margin-top:6px}
+p{margin:0 0 .35em}
+h1,h2,h3{margin:0 0 .3em;line-height:1.2}
+h1{font-size:2.2em;font-weight:800}
+h2{font-size:1.6em;font-weight:700}
+h3{font-size:1.2em;font-weight:700}
+.rt>:last-child,.rt li>:last-child{margin-bottom:0}
+ul,ol{margin:0 0 .35em;padding-left:1.4em}
+a{color:var(--accent)}
+hr{border:0;margin:4px 0;height:0}
+.img,.logo{display:inline-block;vertical-align:top;height:auto}
+.logo{width:auto;max-width:100%}
+.tbl{width:100%;border-collapse:collapse}
+.tbl th,.tbl td{padding:4px 6px;text-align:left;vertical-align:top}
+.tbl th{font-weight:700}
+.tbl p{margin:0}
+.tbl.bordered th,.tbl.bordered td{border:1px solid var(--border)}
+.field{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+.field-label{color:var(--muted)}
+.field-value{font-weight:600;text-align:right;margin-left:auto}
+.items{width:100%;border-collapse:collapse}
+.items thead{display:table-header-group}
+.items tr{break-inside:avoid;page-break-inside:avoid}
+.items th{padding:6px 8px;text-align:left;font-weight:600;font-size:.92em;white-space:nowrap}
+.items td{padding:7px 8px;border-bottom:1px solid var(--border);vertical-align:top}
+.items .num{text-align:right;white-space:nowrap}
+.items .col-taxable{text-align:center;width:1%}
+.items.striped tbody tr:nth-child(even) td{background:#f6f6f7;box-shadow:1px 0 0 #f6f6f7}
+.items td.empty{text-align:center;color:var(--muted);padding:16px}
+.item-name{font-weight:600}
+.item-desc{color:var(--muted);font-size:.9em;margin-top:2px;white-space:pre-line}
+.tax-mark{color:var(--accent);font-weight:700}
+.totals{width:100%;border-collapse:collapse;break-inside:avoid;page-break-inside:avoid}
+.totals td{padding:4px 8px}
+.totals .t-value{text-align:right;white-space:nowrap}
+.totals .t-label{color:var(--muted)}
+.totals .t-total td{font-weight:800;font-size:1.15em;color:inherit;border-top:2px solid var(--accent);padding-top:7px}
+.totals .t-balance td{font-weight:700;color:var(--accent)}
+.sig{break-inside:avoid;page-break-inside:avoid;padding-top:8px}
+.sig-img{display:block;max-height:64px;max-width:100%}
+.sig-line{border-bottom:1px solid currentColor;height:40px;opacity:.7}
+.sig-img + .sig-line{height:4px}
+.sig-meta{display:flex;justify-content:space-between;gap:8px;margin-top:4px;color:var(--muted);font-size:.9em}
+.sig-name{color:var(--text)}
+.sig-date{margin-top:10px;color:var(--muted);font-size:.9em}
+.date-line{display:inline-block;width:120px;border-bottom:1px solid currentColor;vertical-align:bottom}
+.notes-title{font-weight:700;margin-bottom:4px;color:var(--accent)}
+.notes-body{color:var(--text)}
+.doc-footer{color:var(--muted)}
+
+
+html{background:#e5e7eb}
+body{padding:24px 16px}
+.paper{margin:0 auto;box-shadow:0 1px 3px rgba(0,0,0,0.12),0 12px 32px rgba(0,0,0,0.10);display:flex;flex-direction:column;border-radius:2px}
+.doc-body{flex:1 0 auto}
+.doc-header,.doc-body{padding-bottom:12px}
+.doc-footer{padding-top:12px}
+.placeholder{border:1px dashed #cbd5e1;background:#f8fafc;color:#94a3b8;display:flex;align-items:center;justify-content:center;padding:10px;font-size:11px;border-radius:4px;min-height:32px;text-align:center}
+.logo-ph{width:160px;max-width:100%}
+.img-ph{min-height:80px}
+.page-break{border-top:1px dashed #94a3b8;margin:14px 0;height:0;text-align:center}
+.page-break span{position:relative;top:-0.75em;background:#ffffff;padding:0 6px;color:#94a3b8;font-size:10px;text-transform:uppercase;letter-spacing:.06em}
+.paper{width:8.5in;max-width:100%;min-height:11in;padding:15mm 15mm 15mm 15mm;background:#ffffff}
+</style>
+</head>
+<body>
+<div class="paper">
+<div class="doc-header" data-section="header"><div class="row" style="column-gap:16px;color:#ffffff;background:#4f46e5;padding-top:16px;padding-right:18px;padding-bottom:16px;padding-left:18px;border-radius:8px"><div class="col" style="grid-column:span 8;align-self:center"><div class="blk blk-text" style="color:#ffffff"><div class="rt"><h2>SureLock Key Services</h2><p>(860) 555-0142 · office@surelockkey.com · www.surelockkey.com</p></div></div></div><div class="col" style="grid-column:span 4;align-self:center"><div class="blk blk-logo" style="text-align:right"><div class="placeholder logo-ph" style="height:56px">Logo</div></div></div></div></div>
+<div class="doc-body" data-section="body"><div class="row" style="column-gap:16px"><div class="col" style="grid-column:span 12"><div class="blk blk-spacer"><div style="height:8px"></div></div></div></div>
+<div class="row" style="column-gap:32px"><div class="col" style="grid-column:span 6;align-self:end"><div class="blk blk-text" style="font-weight:700"><div class="rt"><h1>Invoice</h1><p><span style="color:#4f46e5"><strong>#1042</strong></span></p></div></div></div><div class="col" style="grid-column:span 6;align-self:end"><div class="blk blk-field"><div class="field"><span class="field-label">Invoice #</span><span class="field-value">1042</span></div></div><div class="blk blk-field"><div class="field"><span class="field-label">Date</span><span class="field-value">Sep 12, 2026</span></div></div><div class="blk blk-field"><div class="field"><span class="field-label">Due date</span><span class="field-value">Sep 26, 2026</span></div></div><div class="blk blk-field"><div class="field"><span class="field-label">Terms</span><span class="field-value">Net 14</span></div></div><div class="blk blk-field"><div class="field"><span class="field-label">Job #</span><span class="field-value">1042</span></div></div><div class="blk blk-field"><div class="field"><span class="field-label">PO #</span><span class="field-value">PO-7781</span></div></div></div></div>
+<div class="row" style="column-gap:16px"><div class="col" style="grid-column:span 12"><div class="blk blk-spacer"><div style="height:12px"></div></div></div></div>
+<div class="row" style="column-gap:24px;background:#f3f4f6;padding-top:12px;padding-right:14px;padding-bottom:12px;padding-left:14px;border-radius:8px"><div class="col" style="grid-column:span 6"><div class="blk blk-text"><div class="rt"><p><span style="color:#4f46e5"><strong>BILL TO</strong></span></p><p><strong>Emily Carter</strong></p><p>Carter Dental Group</p><p>PO Box 311, West Hartford, CT 06127</p><p>(860) 555-0199</p><p>emily.carter@example.com</p></div></div></div><div class="col" style="grid-column:span 6"><div class="blk blk-text"><div class="rt"><p><span style="color:#4f46e5"><strong>SERVICE ADDRESS</strong></span></p><p>45 Oak Ave, West Hartford, CT 06107</p><p>Job type: Rekey &amp; lock upgrade</p><p>Technician: Mike Rivera</p><p>Scheduled: Sep 12, 2026 10:00 AM</p></div></div></div></div>
+<div class="row" style="column-gap:16px"><div class="col" style="grid-column:span 12"><div class="blk blk-spacer"><div style="height:16px"></div></div></div></div>
+<div class="row" style="column-gap:16px"><div class="col" style="grid-column:span 12"><div class="blk blk-itemsTable"><table class="items striped"><thead><tr style="background:#111827;color:#ffffff"><th class="col-name">Item</th><th class="col-quantity num">Qty</th><th class="col-unitPrice num">Price</th><th class="col-amount num">Amount</th></tr></thead><tbody><tr><td class="col-name"><div class="item-name">Rekey lock cylinder</div><div class="item-desc">Rekey existing cylinders to a new key, 2 keys included</div></td><td class="col-quantity num">4</td><td class="col-unitPrice num">$35.00</td><td class="col-amount num">$140.00</td></tr><tr><td class="col-name"><div class="item-name">Schlage B60N deadbolt</div><div class="item-desc">Grade 1 single-cylinder deadbolt, satin nickel</div></td><td class="col-quantity num">2</td><td class="col-unitPrice num">$89.00</td><td class="col-amount num">$178.00</td></tr><tr><td class="col-name"><div class="item-name">Emergency service call</div><div class="item-desc">After-hours dispatch fee</div></td><td class="col-quantity num">1</td><td class="col-unitPrice num">$125.00</td><td class="col-amount num">$125.00</td></tr><tr><td class="col-name"><div class="item-name">Key duplication</div><div class="item-desc">Standard KW1/SC1 key copies</div></td><td class="col-quantity num">6</td><td class="col-unitPrice num">$4.50</td><td class="col-amount num">$27.00</td></tr></tbody></table></div></div></div>
+<div class="row" style="column-gap:24px;padding-top:12px"><div class="col" style="grid-column:span 7"><div class="blk blk-notes"><div class="notes-title">Notes</div><div class="notes-body">Gate code 4471. Please call on arrival.<br>All hardware carries a 1-year warranty.</div></div></div><div class="col" style="grid-column:span 5"><div class="blk blk-totals" style="font-size:11px"><table class="totals"><tbody><tr class="t-subtotal"><td class="t-label">Subtotal</td><td class="t-value">$470.00</td></tr><tr class="t-discount"><td class="t-label">Discount</td><td class="t-value">-$25.00</td></tr><tr class="t-tax"><td class="t-label">Tax (CT Sales Tax 6.35%)</td><td class="t-value">$20.74</td></tr><tr class="t-total"><td class="t-label">Total</td><td class="t-value">$465.74</td></tr><tr class="t-paid"><td class="t-label">Paid</td><td class="t-value">-$100.00</td></tr><tr class="t-balance"><td class="t-label">Balance due</td><td class="t-value">$365.74</td></tr></tbody></table></div></div></div>
+<div class="row" style="column-gap:16px"><div class="col" style="grid-column:span 12"><div class="blk blk-spacer"><div style="height:20px"></div></div></div></div>
+<div class="row" style="column-gap:24px"><div class="col" style="grid-column:span 7"><div class="blk blk-text" style="color:#374151;font-size:9px"><div class="rt"><p><span style="color:#4f46e5"><strong>Terms &amp; conditions</strong></span></p><p>Payment is due by Sep 26, 2026. Please reference invoice #1042 with your payment. All hardware carries a 1-year limited warranty; labor is warranted for 90 days.</p></div></div></div><div class="col" style="grid-column:span 5"><div class="blk blk-signature"><div class="sig"><div class="sig-line"></div><div class="sig-meta"><span class="sig-label">Client signature</span></div><div class="sig-date">Date: <span class="date-line"></span></div></div></div></div></div></div>
+<div class="doc-footer" data-section="footer"><div class="row" style="column-gap:16px"><div class="col" style="grid-column:span 12"><div class="blk blk-text" style="text-align:center;color:#ffffff;background:#4f46e5;font-size:8px;padding-top:6px;padding-bottom:6px;border-radius:6px"><div class="rt"><p>Thank you for choosing SureLock Key Services · (860) 555-0142 · office@surelockkey.com</p></div></div></div></div></div>
+</div>
+</body>
+</html>
+"
+`;

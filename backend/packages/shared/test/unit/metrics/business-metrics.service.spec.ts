@@ -101,6 +101,27 @@ describe('BusinessMetricsService', () => {
     });
   });
 
+  describe('pdf metrics (billing)', () => {
+    it('counts renders by kind and status', async () => {
+      business.pdfRenders.inc({ kind: 'invoice', status: 'success' });
+
+      expect(
+        sample(await scrape(), 'bitcrm_pdf_renders_total', {
+          kind: 'invoice',
+          status: 'success',
+        }),
+      ).toMatch(/ 1$/);
+    });
+
+    it('records render duration with multi-second buckets', async () => {
+      business.pdfRenderDuration.observe({ kind: 'estimate' }, 4);
+
+      const out = await scrape();
+      expect(out).toContain('bitcrm_pdf_render_duration_seconds_bucket');
+      expect(out).toContain('le="20"');
+    });
+  });
+
   it('keeps the pre-existing metrics registered', async () => {
     business.entityCreated.inc({ entity_type: 'deal' });
     business.eventsPublished.inc({ event_type: 'deal.created' });

@@ -463,13 +463,22 @@ data "aws_iam_policy_document" "task_messaging" {
   # inbound mail SES writes under messaging/inbound-email/ is already readable
   # through S3MessagingObjects (messaging/*), and the two email queues are
   # SNS-fed, so the task only consumes them.
+  #
+  # The address identities matter too: once someone verifies a single address
+  # on the domain (system@, office@ — the owner did, for the sandbox), SES
+  # authorises a send from it against that address's own identity ARN, not the
+  # domain's, and a policy naming only the domain answers AccessDenied.
   dynamic "statement" {
     for_each = local.email_enabled ? [1] : []
     content {
-      sid       = "SESSendEmail"
-      effect    = "Allow"
-      actions   = ["ses:SendEmail", "ses:SendRawEmail"]
-      resources = [local.email_identity_arn, local.email_config_set_arn]
+      sid     = "SESSendEmail"
+      effect  = "Allow"
+      actions = ["ses:SendEmail", "ses:SendRawEmail"]
+      resources = [
+        local.email_identity_arn,
+        "${local.email_identity_arn_prefix}*@${local.email_domain}",
+        local.email_config_set_arn,
+      ]
     }
   }
 
@@ -487,6 +496,73 @@ data "aws_iam_policy_document" "task_messaging" {
   }
 }
 
+# billing-svc: DDB billing + S3 billing/* (SSE-KMS: rendered PDFs + template
+# images) + SNS billing-events publish + SQS consume billing-deal-events
+data "aws_iam_policy_document" "task_billing" {
+  source_policy_documents = [data.aws_iam_policy_document.ssm_read_dev.json]
+
+  statement {
+    sid    = "DDBBilling"
+    effect = "Allow"
+    actions = [
+      "dynamodb:DescribeTable",
+      "dynamodb:GetItem",
+      "dynamodb:PutItem",
+      "dynamodb:UpdateItem",
+      "dynamodb:DeleteItem",
+      "dynamodb:Query",
+      "dynamodb:BatchGetItem",
+      "dynamodb:BatchWriteItem",
+      "dynamodb:ConditionCheckItem",
+    ]
+    resources = [
+      module.ddb["billing"].arn,
+      "${module.ddb["billing"].arn}/index/*",
+    ]
+  }
+
+  statement {
+    sid       = "S3BillingObjects"
+    effect    = "Allow"
+    actions   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
+    resources = ["${module.s3_app.arn}/billing/*"]
+  }
+
+  statement {
+    sid       = "S3BillingList"
+    effect    = "Allow"
+    actions   = ["s3:ListBucket"]
+    resources = [module.s3_app.arn]
+
+    condition {
+      test     = "StringLike"
+      variable = "s3:prefix"
+      values   = ["billing/*"]
+    }
+  }
+
+  statement {
+    sid       = "KMSDocuments"
+    effect    = "Allow"
+    actions   = ["kms:GenerateDataKey", "kms:Decrypt", "kms:DescribeKey"]
+    resources = [module.kms_documents.key_arn]
+  }
+
+  statement {
+    sid       = "PublishBillingEvents"
+    effect    = "Allow"
+    actions   = ["sns:Publish", "sns:GetTopicAttributes"]
+    resources = [module.sns_sqs.topic_arns["billing-events"]]
+  }
+
+  statement {
+    sid       = "ConsumeDealEvents"
+    effect    = "Allow"
+    actions   = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"]
+    resources = [module.sns_sqs.queue_arns["billing-deal-events"]]
+  }
+}
+
 locals {
   task_role_policies = {
     user      = data.aws_iam_policy_document.task_user.json
@@ -496,6 +572,7 @@ locals {
     search    = data.aws_iam_policy_document.task_search.json
     telephony = data.aws_iam_policy_document.task_telephony.json
     messaging = data.aws_iam_policy_document.task_messaging.json
+    billing   = data.aws_iam_policy_document.task_billing.json
   }
 }
 

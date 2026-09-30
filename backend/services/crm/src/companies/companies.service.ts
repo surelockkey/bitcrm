@@ -88,6 +88,19 @@ export class CompaniesService {
     return company;
   }
 
+  /**
+   * The companies of a set of ids, in the order asked for. A page of rows
+   * names its companies with this instead of reading the whole table; ids
+   * that no longer exist are absent rather than an error.
+   */
+  async findByIds(ids: string[]): Promise<Company[]> {
+    const unique = [...new Set(ids)];
+    if (!unique.length) return [];
+    const found = await this.repository.findByIds(unique);
+    const byId = new Map(found.map((c) => [c.id, c]));
+    return unique.map((id) => byId.get(id)).filter((c): c is Company => Boolean(c));
+  }
+
   async list(query: { clientType?: string; limit?: number; cursor?: string }) {
     // Query params arrive as strings (no global ValidationPipe/transform), so
     // coerce to a number — DynamoDB's `Limit` rejects a string with a

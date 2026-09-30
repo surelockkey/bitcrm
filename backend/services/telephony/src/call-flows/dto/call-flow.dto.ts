@@ -10,6 +10,7 @@ import {
   Max,
   MaxLength,
   Min,
+  ValidateIf,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { CALL_FLOW_LIMITS, type CallFlowNode } from '@bitcrm/types';
@@ -53,6 +54,18 @@ export class CreateCallFlowDto {
   @IsOptional()
   @IsBoolean()
   active?: boolean;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    example: 'bp-default',
+    description:
+      'Company (billing business profile) a job created from a call on this flow\'s numbers ' +
+      'is pre-filled with; a per-number setting overrides it. null clears it.',
+  })
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsString()
+  businessProfileId?: string | null;
 }
 
 /** Everything optional — an omitted field keeps its stored value. */
@@ -90,6 +103,18 @@ export class UpdateCallFlowDto {
   @IsOptional()
   @IsBoolean()
   active?: boolean;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    example: 'bp-default',
+    description:
+      'Company (billing business profile) a job created from a call on this flow\'s numbers ' +
+      'is pre-filled with; a per-number setting overrides it. null clears it.',
+  })
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsString()
+  businessProfileId?: string | null;
 }
 
 /**
@@ -144,4 +169,16 @@ export class SimpleCallFlowDto {
   @IsOptional()
   @IsBoolean()
   active?: boolean;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    example: 'bp-default',
+    description:
+      'Company (billing business profile) a job created from a call on this flow\'s numbers ' +
+      'is pre-filled with; a per-number setting overrides it. null clears it.',
+  })
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsString()
+  businessProfileId?: string | null;
 }

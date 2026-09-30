@@ -6,8 +6,14 @@ import {
   UpdateCommand,
   TransactWriteCommand,
   DeleteCommand,
+  BatchGetCommand,
 } from '@aws-sdk/lib-dynamodb';
-import { DynamoDbService } from '@bitcrm/shared';
+import {
+  DynamoDbService,
+  scanPage,
+  countRows,
+  type CountRowsResult,
+} from '@bitcrm/shared';
 import { CrmStatus, type Contact, type Address } from '@bitcrm/types';
 import {
   CONTACTS_TABLE,
@@ -85,6 +91,26 @@ export class ContactsRepository {
     return this.toContact(result.Item);
   }
 
+  /**
+   * The contacts of a set of ids, in whatever order DynamoDB answers; ids
+   * that no longer exist are simply absent. BatchGet takes 100 keys a call,
+   * and keys it leaves unprocessed under load are asked again.
+   */
+  async findByIds(ids: string[]): Promise<Contact[]> {
+    const out: Contact[] = [];
+    for (let i = 0; i < ids.length; i += 100) {
+      let keys = ids.slice(i, i + 100).map((id) => ({ PK: `CONTACT#${id}`, SK: 'METADATA' }));
+      while (keys.length) {
+        const res = await this.dynamoDb.client.send(
+          new BatchGetCommand({ RequestItems: { [this.tableName]: { Keys: keys } } }),
+        );
+        for (const item of res.Responses?.[this.tableName] ?? []) out.push(this.toContact(item));
+        keys = (res.UnprocessedKeys?.[this.tableName]?.Keys ?? []) as typeof keys;
+      }
+    }
+    return out;
+  }
+
   async findByPhone(normalizedPhone: string): Promise<Contact | null> {
     const result = await this.dynamoDb.client.send(
       new QueryCommand({
@@ -136,25 +162,78 @@ export class ContactsRepository {
   ): Promise<PaginatedResult> {
     const statusFilter = filters?.status || CrmStatus.ACTIVE;
 
-    const result = await this.dynamoDb.client.send(
-      new ScanCommand({
-        TableName: this.tableName,
-        FilterExpression: 'begins_with(PK, :pk) AND SK = :sk AND #status = :status',
-        ExpressionAttributeValues: {
-          ':pk': 'CONTACT#',
-          ':sk': 'METADATA',
-          ':status': statusFilter,
-        },
-        ExpressionAttributeNames: { '#status': 'status' },
-        Limit: limit,
-        ExclusiveStartKey: this.decodeCursor(cursor),
-      }),
+    const page = await scanPage<Record<string, unknown>>(
+      (input) =>
+        this.dynamoDb.client.send(
+          new ScanCommand({
+            TableName: this.tableName,
+            FilterExpression: 'begins_with(PK, :pk) AND SK = :sk AND #status = :status',
+            ExpressionAttributeValues: {
+              ':pk': 'CONTACT#',
+              ':sk': 'METADATA',
+              ':status': statusFilter,
+            },
+            ExpressionAttributeNames: { '#status': 'status' },
+            ...input,
+          }),
+        ),
+      limit,
+      { startKey: this.decodeCursor(cursor), keyOf: (i) => ({ PK: i.PK, SK: i.SK }) },
     );
 
     return {
-      items: (result.Items || []).map(this.toContact),
-      nextCursor: this.encodeCursor(result.LastEvaluatedKey),
+      items: page.items.map(this.toContact),
+      nextCursor: this.encodeCursor(page.lastKey),
     };
+  }
+
+  /**
+   * How many contacts the list holds — the number behind "Page 2 of 7".
+   *
+   * The same Scan the list runs, with `Select: 'COUNT'` so no bodies travel.
+   * Bounded, because the contacts table is shared with the PHONE# index items
+   * and a count must not walk all of it on every page load.
+   */
+  async countAll(filters?: { status?: string }): Promise<CountRowsResult> {
+    const statusFilter = filters?.status || CrmStatus.ACTIVE;
+
+    return countRows((input) =>
+      this.dynamoDb.client.send(
+        new ScanCommand({
+          TableName: this.tableName,
+          FilterExpression: 'begins_with(PK, :pk) AND SK = :sk AND #status = :status',
+          ExpressionAttributeValues: {
+            ':pk': 'CONTACT#',
+            ':sk': 'METADATA',
+            ':status': statusFilter,
+          },
+          ExpressionAttributeNames: { '#status': 'status' },
+          Select: 'COUNT',
+          ...input,
+        }),
+      ),
+    );
+  }
+
+  /** The same count for one company's contacts — a Query, so the cheap end. */
+  async countByCompany(companyId: string): Promise<CountRowsResult> {
+    return countRows((input) =>
+      this.dynamoDb.client.send(
+        new QueryCommand({
+          TableName: this.tableName,
+          IndexName: CONTACTS_GSI1_NAME,
+          KeyConditionExpression: 'GSI1PK = :pk',
+          FilterExpression: '#status = :active',
+          ExpressionAttributeValues: {
+            ':pk': `COMPANY#${companyId}`,
+            ':active': CrmStatus.ACTIVE,
+          },
+          ExpressionAttributeNames: { '#status': 'status' },
+          Select: 'COUNT',
+          ...input,
+        }),
+      ),
+    );
   }
 
   async update(id: string, attrs: Partial<Contact>): Promise<Contact> {
@@ -259,6 +338,8 @@ export class ContactsRepository {
       title: item.title as string | undefined,
       source: item.source as Contact['source'],
       notes: item.notes as string | undefined,
+      taxExempt: item.taxExempt as boolean | undefined,
+      taxExemptReason: item.taxExemptReason as string | undefined,
       status: item.status as Contact['status'],
       createdBy: item.createdBy as string,
       createdAt: item.createdAt as string,

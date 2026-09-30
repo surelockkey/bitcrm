@@ -99,7 +99,7 @@ export function JobStatusesPage() {
                     <li key={status.id} className="flex items-center gap-3 px-4 py-2.5">
                       <span
                         className={cn(
-                          "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium",
+                          "inline-flex items-center rounded-chip border px-2.5 py-0.5 text-xs font-medium",
                           statusColorClasses(status.color),
                         )}
                       >

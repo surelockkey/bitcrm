@@ -8,34 +8,87 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { toast } from "sonner";
-import type { Contact, Deal, JobSuperStatus, User } from "@bitcrm/types";
+import type {
+  Deal,
+  DealProduct,
+  DocumentDiscount,
+  User,
+} from "@bitcrm/types";
 import { queryKeys } from "@/lib/query-keys";
 import { getApiErrorMessage, getMissingCloseFields } from "@/lib/api/errors";
-import { fetchAllContacts } from "@/features/clients/api";
 import { getUserNames } from "@/features/users/api";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { fetchAllUsers } from "@/features/technicians/api";
 import * as api from "./api";
 import { SEND_TO_TECH_CHANNEL_LABEL } from "./lib";
 import type { CreateDealValues, UpdateDealValues, AddProductValues } from "./schemas";
+import type { DealCountsParams, DealsListParams } from "./query-params";
+import { windowRequests, type DealsWindow } from "./window";
+import { useDealsStreamStore } from "./stream-store";
 
 /* ------------------------------------------------------------- queries */
 
-/** Dispatch board polls so the map stays live (story 4.01). */
+/** Dispatch board polls so the map stays live (story 4.01) — while the live stream is down. */
 export const DEALS_POLL_MS = 30_000;
 
-export function useDeals(
-  params: { superStatus?: JobSuperStatus; techId?: string } = {},
-  options: { poll?: boolean; enabled?: boolean } = {},
-) {
+/**
+ * A board or a schedule: the whole of a bounded window, kept fresh by
+ * polling. The window is a handful of bounded requests (`windowRequests`),
+ * drained and merged — a deal reached from two of them is kept once.
+ */
+export function useDealsWindow(window: DealsWindow, options: { poll?: boolean; enabled?: boolean } = {}) {
+  const live = useDealsStreamStore((s) => s.connected);
   return useQuery({
-    queryKey: queryKeys.deals.list(params),
-    queryFn: () => api.fetchAllDeals(params),
-    refetchInterval: options.poll ? DEALS_POLL_MS : false,
-    // Opt-in only — every existing caller omits it and still fetches on mount.
-    // "My jobs" waits for the signed-in technician's id, so it never asks for
-    // the whole board on its way to asking for one technician's.
+    queryKey: queryKeys.deals.window(window),
+    queryFn: async () => {
+      const pages = await Promise.all(windowRequests(window).map((req) => api.fetchAllDeals(req)));
+      const seen = new Set<string>();
+      const out: Deal[] = [];
+      for (const d of pages.flat()) {
+        if (seen.has(d.id)) continue;
+        seen.add(d.id);
+        out.push(d);
+      }
+      return out;
+    },
+    refetchInterval: options.poll && !live ? DEALS_POLL_MS : false,
     enabled: options.enabled ?? true,
+  });
+}
+
+/**
+ * The jobs page: one server-ordered page at a time, the next one on
+ * request. Fifty rows a page, as Workiz shows them; the toolbar state is the
+ * key, so a filter change starts a fresh first page.
+ */
+export function useDealsPage(params: DealsListParams, enabled = true) {
+  return useInfiniteQuery({
+    queryKey: queryKeys.deals.page(params),
+    queryFn: ({ pageParam }) => api.listDeals({ ...params, cursor: pageParam }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.pagination.nextCursor,
+    enabled,
+  });
+}
+
+/** A set of deals by id — a search result hydrated in one call. Nothing is asked for an empty list. */
+export function useDealsByIds(ids: string[], enabled = true) {
+  const wanted = useMemo(() => [...new Set(ids)].filter(Boolean), [ids]);
+  return useQuery({
+    queryKey: queryKeys.deals.byIds(wanted),
+    queryFn: () => api.getDealsByIds(wanted),
+    enabled: enabled && wanted.length > 0,
+    staleTime: 30_000,
+  });
+}
+
+/** The tab numbers, under the same filters as the page; the server caches them thirty seconds. */
+export function useDealCounts(params: DealCountsParams, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.deals.counts(params),
+    queryFn: () => api.getDealCounts(params),
+    staleTime: 30_000,
+    enabled,
   });
 }
 
@@ -50,6 +103,15 @@ export function useDealProducts(id: string) {
   return useQuery({
     queryKey: queryKeys.deals.products(id),
     queryFn: () => api.getDealProducts(id),
+  });
+}
+
+/** Server totals for the job's items (discount + tax applied). */
+export function useDealTotals(id: string, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.dealTotals(id),
+    queryFn: () => api.getDealTotals(id),
+    enabled: enabled && !!id,
   });
 }
 
@@ -96,20 +158,6 @@ export function useSuggestedTechs(
 }
 
 /* --------------------------------------------------------------- joins */
-
-/** contactId → Contact, shared with the Clients cache. */
-export function useContactMap() {
-  const q = useQuery({
-    queryKey: queryKeys.contacts.list({ companyId: undefined }),
-    queryFn: () => fetchAllContacts(),
-  });
-  const map = useMemo(() => {
-    const m = new Map<string, Contact>();
-    for (const c of q.data ?? []) m.set(c.id, c);
-    return m;
-  }, [q.data]);
-  return { map, isLoading: q.isLoading };
-}
 
 /** userId → User (technicians + dispatchers), shared with the Technicians cache. */
 /**
@@ -198,6 +246,20 @@ function useInvalidateDeal(id?: string) {
       qc.invalidateQueries({ queryKey: queryKeys.deals.timeline(id) });
       qc.invalidateQueries({ queryKey: queryKeys.deals.assignments(id) });
     }
+  };
+}
+
+/**
+ * Anything that changes what a job charges: the deal (tax snapshot, discount,
+ * itemCount), its items, its totals and the invoice mirrored from it.
+ */
+function useInvalidateDealBilling(id: string) {
+  const qc = useQueryClient();
+  const invalidateDeal = useInvalidateDeal(id);
+  return () => {
+    invalidateDeal();
+    qc.invalidateQueries({ queryKey: queryKeys.dealTotals(id) });
+    qc.invalidateQueries({ queryKey: queryKeys.invoices.byDeal(id) });
   };
 }
 
@@ -454,7 +516,7 @@ export function useDeleteNote(id: string) {
 }
 
 export function useAddProduct(id: string) {
-  const invalidate = useInvalidateDeal(id);
+  const invalidate = useInvalidateDealBilling(id);
   return useMutation({
     mutationFn: (body: AddProductValues) => api.addDealProduct(id, body),
     onSuccess: () => {
@@ -466,10 +528,10 @@ export function useAddProduct(id: string) {
 }
 
 export function useReplaceProduct(id: string) {
-  const invalidate = useInvalidateDeal(id);
+  const invalidate = useInvalidateDealBilling(id);
   return useMutation({
-    mutationFn: ({ productId, body }: { productId: string; body: AddProductValues }) =>
-      api.replaceDealProduct(id, productId, body),
+    mutationFn: ({ lineId, body }: { lineId: string; body: AddProductValues }) =>
+      api.replaceDealProduct(id, lineId, body),
     onSuccess: () => {
       invalidate();
       toast.success("Item updated");
@@ -479,9 +541,9 @@ export function useReplaceProduct(id: string) {
 }
 
 export function useRemoveProduct(id: string) {
-  const invalidate = useInvalidateDeal(id);
+  const invalidate = useInvalidateDealBilling(id);
   return useMutation({
-    mutationFn: (productId: string) => api.removeDealProduct(id, productId),
+    mutationFn: (lineId: string) => api.removeDealProduct(id, lineId),
     onSuccess: () => {
       invalidate();
       toast.success("Product removed");
@@ -493,12 +555,74 @@ export function useRemoveProduct(id: string) {
 export function useMarkProductOrdered(id: string) {
   const invalidate = useInvalidateDeal(id);
   return useMutation({
-    mutationFn: ({ productId, ordered }: { productId: string; ordered: boolean }) =>
-      api.markDealProductOrdered(id, productId, ordered),
+    mutationFn: ({ lineId, ordered }: { lineId: string; ordered: boolean }) =>
+      api.markDealProductOrdered(id, lineId, ordered),
     onSuccess: (_data, { ordered }) => {
       invalidate();
       toast.success(ordered ? "Marked as ordered" : "Marked as not ordered");
     },
     onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+}
+
+/* ------------------------------------------------------ tax / discount */
+
+export function useSetDealTax(id: string) {
+  const invalidate = useInvalidateDealBilling(id);
+  return useMutation({
+    mutationFn: (taxRateId: string | null) => api.setDealTax(id, taxRateId),
+    onSuccess: (deal) => {
+      invalidate();
+      toast.success(deal.taxRateId ? `Tax set to ${deal.taxRateName ?? "rate"}` : "Tax removed");
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+}
+
+export function useResetDealTax(id: string) {
+  const invalidate = useInvalidateDealBilling(id);
+  return useMutation({
+    mutationFn: () => api.resetDealTaxAuto(id),
+    onSuccess: () => {
+      invalidate();
+      toast.success("Tax reset to automatic");
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+}
+
+export function useSetDealDiscount(id: string) {
+  const invalidate = useInvalidateDealBilling(id);
+  return useMutation({
+    mutationFn: (discount: DocumentDiscount | null) => api.setDealDiscount(id, discount),
+    onSuccess: (_deal, discount) => {
+      invalidate();
+      toast.success(discount ? "Discount applied" : "Discount removed");
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+}
+
+/** Flip a line's `taxable` flag; the checkbox updates before the server answers. */
+export function useSetProductTaxable(id: string) {
+  const qc = useQueryClient();
+  const invalidate = useInvalidateDealBilling(id);
+  const key = queryKeys.deals.products(id);
+  return useMutation({
+    mutationFn: ({ lineId, taxable }: { lineId: string; taxable: boolean }) =>
+      api.setDealProductTaxable(id, lineId, taxable),
+    onMutate: async ({ lineId, taxable }) => {
+      await qc.cancelQueries({ queryKey: key });
+      const previous = qc.getQueryData<DealProduct[]>(key);
+      qc.setQueryData<DealProduct[]>(key, (old) =>
+        old?.map((p) => (p.lineId === lineId ? { ...p, taxable } : p)),
+      );
+      return { previous };
+    },
+    onError: (e, _vars, ctx) => {
+      if (ctx?.previous) qc.setQueryData(key, ctx.previous);
+      toast.error(getApiErrorMessage(e));
+    },
+    onSettled: () => invalidate(),
   });
 }

@@ -1,22 +1,45 @@
 import type {
   Warehouse,
   StockItem,
-  Transfer,
-  TransferItem,
-  Container,
   Product,
   PaginatedResponse,
+  InventoryStatus,
+  ListCount,
 } from "@bitcrm/types";
-import { LocationType } from "@bitcrm/types";
 import { http, apiFetchPaginated } from "@/lib/api/http";
 import type { WarehouseValues } from "./schemas";
 
 /* --- Warehouses --- */
 
-export function listWarehouses(cursor?: string): Promise<PaginatedResponse<Warehouse>> {
-  const q = new URLSearchParams({ limit: "100" });
+/** Narrowed on the server, before the page is cut. */
+export interface WarehouseFilter {
+  /** Matched against the name, case-insensitive. */
+  search?: string;
+  status?: InventoryStatus;
+}
+
+function filterQuery(filter: WarehouseFilter): URLSearchParams {
+  const q = new URLSearchParams();
+  if (filter.search) q.set("search", filter.search);
+  if (filter.status) q.set("status", filter.status);
+  return q;
+}
+
+export function listWarehouses(
+  filter: WarehouseFilter = {},
+  cursor?: string,
+  limit = 100,
+): Promise<PaginatedResponse<Warehouse>> {
+  const q = filterQuery(filter);
   if (cursor) q.set("cursor", cursor);
+  q.set("limit", String(limit));
   return apiFetchPaginated<Warehouse>(`/inventory/warehouses?${q}`);
+}
+
+/** Скільки складів під цим фільтром — число для «Page 2 of 7». */
+export function countWarehouses(filter: WarehouseFilter = {}): Promise<ListCount> {
+  const s = filterQuery(filter).toString();
+  return http.get<ListCount>(`/inventory/warehouses/count${s ? `?${s}` : ""}`);
 }
 
 export function getWarehouse(id: string): Promise<Warehouse> {
@@ -39,58 +62,23 @@ export function getWarehouseStock(id: string): Promise<StockItem[]> {
   return http.get<StockItem[]>(`/inventory/warehouses/${id}/stock`);
 }
 
-/** Supplier → warehouse. Bumps stock and writes a Receive record. */
-export function receiveStock(id: string, items: TransferItem[]): Promise<null> {
-  return http.post<null>(`/inventory/warehouses/${id}/receive`, { items });
-}
+/* --- Product catalog --- */
 
-/* --- Transfers --- */
-
-export interface CreateTransferBody {
-  fromType: LocationType;
-  fromId: string;
-  toType: LocationType;
-  toId: string;
-  items: TransferItem[];
-  notes?: string;
-}
-
-export function createTransfer(body: CreateTransferBody): Promise<Transfer> {
-  return http.post<Transfer>("/inventory/transfers", body);
-}
-
-/** Movement history for one warehouse. */
-export function listWarehouseTransfers(
-  id: string,
-  cursor?: string,
-): Promise<PaginatedResponse<Transfer>> {
-  const q = new URLSearchParams({ limit: "50" });
-  if (cursor) q.set("cursor", cursor);
-  return apiFetchPaginated<Transfer>(
-    `/inventory/transfers/entity/${LocationType.WAREHOUSE}/${id}?${q}`,
-  );
-}
-
-/* --- Containers (transfer targets) --- */
-
-export function listContainers(cursor?: string): Promise<PaginatedResponse<Container>> {
-  const q = new URLSearchParams({ limit: "100" });
-  if (cursor) q.set("cursor", cursor);
-  return apiFetchPaginated<Container>(`/inventory/containers?${q}`);
-}
-
-/* --- Product catalog (for the stock join) --- */
-
-/** Page through the whole catalog once; cached and reused for the join. */
-export async function fetchAllProducts(): Promise<Product[]> {
+async function fetchProducts(filter: Record<string, string>, cap: number): Promise<Product[]> {
   const all: Product[] = [];
   let cursor: string | undefined;
   do {
-    const q = new URLSearchParams({ limit: "100" });
+    const q = new URLSearchParams({ ...filter, limit: "100" });
     if (cursor) q.set("cursor", cursor);
     const page = await apiFetchPaginated<Product>(`/inventory/products?${q}`);
     all.push(...page.data);
     cursor = page.pagination.nextCursor;
-  } while (cursor && all.length < 5000);
-  return all;
+  } while (cursor && all.length < cap);
+  return all.slice(0, cap);
 }
+
+/** The whole catalog, services included — what the job and estimate item pickers offer. */
+export function fetchAllProducts(): Promise<Product[]> {
+  return fetchProducts({}, 5000);
+}
+

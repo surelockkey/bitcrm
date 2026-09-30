@@ -11,6 +11,8 @@ describe('AuthController', () => {
       login: jest.fn(),
       refreshToken: jest.fn(),
       changePassword: jest.fn(),
+      verifyMfa: jest.fn(),
+      resendMfa: jest.fn(),
     };
 
     const module = await Test.createTestingModule({
@@ -19,6 +21,28 @@ describe('AuthController', () => {
     }).compile();
 
     controller = module.get(AuthController);
+  });
+
+  describe('POST /auth/mfa', () => {
+    it('trades the texted code for the tokens', async () => {
+      const tokens = { accessToken: 'a', refreshToken: 'r', idToken: 'i', expiresIn: 3600 };
+      service.verifyMfa.mockResolvedValue(tokens);
+
+      await expect(controller.verifyMfa({ session: 's1', code: '123456' } as never)).resolves.toEqual({
+        success: true,
+        data: tokens,
+      });
+      expect(service.verifyMfa).toHaveBeenCalledWith({ session: 's1', code: '123456' });
+    });
+
+    it('resends the code', async () => {
+      service.resendMfa.mockResolvedValue({ destination: '•••• 1234' });
+
+      await expect(controller.resendMfa({ session: 's1' } as never)).resolves.toEqual({
+        success: true,
+        data: { destination: '•••• 1234' },
+      });
+    });
   });
 
   describe('POST /auth/login', () => {

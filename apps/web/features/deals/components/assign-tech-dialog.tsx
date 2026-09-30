@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { ChevronDown, Loader2, MapPin, Package, Search } from "lucide-react";
 import {
   Dialog,
@@ -18,11 +18,14 @@ import { cn } from "@/lib/utils";
 import { initials } from "@/features/clients/lib";
 import { useAssignTechs, useQualifiedTechs } from "../hooks";
 import { useTechStock } from "../tech-stock";
-import { useProductMap } from "@/features/inventory/warehouses/hooks";
 import type { IneligibilityReason, QualifiedTech } from "../api";
 
 const REASON_LABEL: Record<IneligibilityReason, string> = {
-  not_assignable: "Not yet assignable",
+  // Not "not yet assignable": the row is here because the projection still
+  // holds it, and since the field-team flag it means exactly one thing — the
+  // switch is off for this person, whatever their role. Reading that as
+  // "still onboarding" is what let a dispatcher assign them.
+  not_assignable: "Not a field team member",
   missing_job_type: "Missing job type",
   outside_area: "Outside service area",
 };
@@ -48,12 +51,15 @@ export function AssignTechDialog({
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<string[]>(assignedTechIds);
 
-  // Re-seed whenever the dialog reopens against a changed roster.
-  useEffect(() => {
+  // Re-seed whenever the dialog reopens against a changed roster — during
+  // render, not in an effect, so the first open frame already shows it.
+  const [seed, setSeed] = useState({ open, ids: assignedTechIds });
+  if (seed.open !== open || seed.ids !== assignedTechIds) {
+    setSeed({ open, ids: assignedTechIds });
     if (open) setSelected(assignedTechIds);
-  }, [open, assignedTechIds]);
+  }
 
-  const techs = qualified.data ?? [];
+  const techs = useMemo(() => qualified.data ?? [], [qualified.data]);
   const filtered = useMemo(() => {
     const s = search.trim().toLowerCase();
     if (!s) return techs;
@@ -63,7 +69,13 @@ export function AssignTechDialog({
   }, [techs, search]);
 
   const eligible = filtered.filter((t) => t.eligible);
-  const others = filtered.filter((t) => !t.eligible);
+  // Three groups, not two. "Other technicians" used to swallow anyone the
+  // backend couldn't vouch for as on the field team at all, which is how
+  // people who aren't came to be offered here as if they were.
+  const others = filtered.filter(
+    (t) => !t.eligible && !t.reasons.includes("not_assignable"),
+  );
+  const notTechs = filtered.filter((t) => t.reasons.includes("not_assignable"));
 
   const toggle = (id: string) =>
     setSelected((prev) => (prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id]));
@@ -82,6 +94,13 @@ export function AssignTechDialog({
       checked={selected.includes(t.id)}
       onToggle={() => toggle(t.id)}
       open={open}
+      // A dispatcher may override "wrong job type" or "wrong area" — those are
+      // judgement calls about a technician. "Off the field team" is not, so
+      // the row is only unlocked to take someone already on the job back off it.
+      // Keyed to who is on the job, not to the tick: keyed to the tick, the box
+      // disabled itself the instant it was cleared, so a mis-click could only
+      // be undone by closing the dialog.
+      locked={t.reasons.includes("not_assignable") && !assignedTechIds.includes(t.id)}
     />
   );
 
@@ -92,7 +111,7 @@ export function AssignTechDialog({
           <DialogTitle>Assign technicians</DialogTitle>
           <DialogDescription>
             Pick everyone working this job. Technicians approved for its job type and area come
-            first, ranked by proximity — you can still assign anyone.
+            first, ranked by proximity — you can still assign any technician.
           </DialogDescription>
         </DialogHeader>
 
@@ -128,6 +147,19 @@ export function AssignTechDialog({
                   {others.map(row)}
                 </div>
               ) : null}
+
+              {notTechs.length > 0 ? (
+                <div className="space-y-2 border-t pt-3">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Not on the field team
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Listed here because dispatch still holds a record for them. They can&apos;t be
+                    assigned — switch Field team member on for them first.
+                  </p>
+                  {notTechs.map(row)}
+                </div>
+              ) : null}
             </>
           )}
         </div>
@@ -152,11 +184,13 @@ function TechRow({
   checked,
   onToggle,
   open,
+  locked = false,
 }: {
   tech: QualifiedTech;
   checked: boolean;
   onToggle: () => void;
   open: boolean;
+  locked?: boolean;
 }) {
   const [showItems, setShowItems] = useState(false);
   const name = `${tech.firstName ?? ""} ${tech.lastName ?? ""}`.trim() || tech.id;
@@ -165,9 +199,20 @@ function TechRow({
     typeof tech.distanceMiles === "number" ? `${tech.distanceMiles.toFixed(1)} mi from home` : null;
 
   return (
-    <div className={cn("rounded-lg border", checked && "border-primary/40 bg-primary/5")}>
-      <label className="flex cursor-pointer items-center gap-2.5 p-2">
-        <Checkbox checked={checked} onCheckedChange={onToggle} />
+    <div
+      className={cn(
+        "rounded-lg border",
+        checked && "border-primary/40 bg-primary/5",
+        locked && "opacity-70",
+      )}
+    >
+      <label className={cn("flex items-center gap-2.5 p-2", locked ? "cursor-not-allowed" : "cursor-pointer")}>
+        <Checkbox
+          checked={checked}
+          disabled={locked}
+          aria-label={locked ? `${name} can't be assigned` : `Assign ${name}`}
+          onCheckedChange={onToggle}
+        />
         <span className="grid size-7 flex-none place-items-center rounded-full bg-muted text-[10px] font-bold text-muted-foreground">
           {initials(parts[0] ?? name, parts[1] ?? "")}
         </span>
@@ -203,8 +248,8 @@ function TechRow({
 /** What this technician currently carries, from their inventory container. */
 function TechItems({ techId, enabled }: { techId: string; enabled: boolean }) {
   const stock = useTechStock(techId, enabled);
-  const { data: productMap } = useProductMap(enabled);
-  const rows = useMemo(() => [...(stock.data?.entries() ?? [])].filter(([, q]) => q > 0), [stock.data]);
+  // Only what the van holds, named by the server.
+  const rows = stock.data ?? [];
 
   if (stock.isLoading) {
     return (
@@ -222,12 +267,10 @@ function TechItems({ techId, enabled }: { techId: string; enabled: boolean }) {
 
   return (
     <ul className="max-h-32 space-y-0.5 overflow-y-auto border-t px-3 py-2 text-xs">
-      {rows.map(([productId, qty]) => (
-        <li key={productId} className="flex justify-between gap-2">
-          <span className="truncate text-muted-foreground">
-            {productMap?.get(productId)?.name ?? productId}
-          </span>
-          <span className="font-mono">{qty}</span>
+      {rows.map((r) => (
+        <li key={r.productId} className="flex justify-between gap-2">
+          <span className="truncate text-muted-foreground">{r.productName}</span>
+          <span className="font-mono">{r.quantity}</span>
         </li>
       ))}
     </ul>

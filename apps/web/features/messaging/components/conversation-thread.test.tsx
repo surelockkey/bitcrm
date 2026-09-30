@@ -10,6 +10,7 @@ import { ConversationThread } from "./conversation-thread";
 
 const perms = vi.hoisted(() => ({ canSend: true }));
 vi.mock("@/features/auth/use-permissions", () => ({
+  useDenied: () => () => false,
   usePermissions: () => ({
     can: (resource: string, action?: string) =>
       resource === "messages" && action === "send" ? perms.canSend : true,

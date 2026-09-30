@@ -15,11 +15,15 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import type { User } from "@bitcrm/types";
 import { usePermissions } from "@/features/auth/use-permissions";
-import { useRoles, useUser, useUsers } from "../hooks";
+import { useRoles, useUser, useUsers , useUsersCount } from "../hooks";
 import type { UserFilter } from "../api";
 import { CreateUserSheet } from "./create-user-sheet";
 import { UserDetailSheet } from "./user-detail-sheet";
 import { UsersTable } from "./users-table";
+import { ListPagination } from "@/components/ui/list-pagination";
+import { pagedSource } from "@/lib/paging/paged-source";
+import { usePageSize } from "@/lib/paging/use-page-size";
+import { usePager } from "@/lib/paging/use-pager";
 
 function matches(u: User, q: string): boolean {
   const hay = `${u.firstName} ${u.lastName} ${u.email} ${u.department}`.toLowerCase();
@@ -37,13 +41,18 @@ export function UsersPage() {
     null,
   );
 
-  const usersQuery = useUsers(filter);
+  const [pageSize, setPageSize] = usePageSize("users");
+  const usersQuery = useUsers(filter, pageSize);
   const { data: roles } = useRoles();
 
-  const users = useMemo(
-    () => usersQuery.data?.pages.flatMap((p) => p.data) ?? [],
-    [usersQuery.data],
-  );
+  const count = useUsersCount(filter);
+  const pager = usePager(pagedSource(usersQuery), {
+    total: count.data?.total,
+    totalIsFloor: count.data?.atLeast,
+    pageSize,
+    resetKey: JSON.stringify({ filter, pageSize }),
+  });
+  const users = pager.items;
   const visible = search ? users.filter((u) => matches(u, search)) : users;
 
   // Deep link (`?user=<id>`, e.g. from a name in the call log): open that
@@ -161,21 +170,7 @@ export function UsersPage() {
         ) : (
           <>
             <UsersTable users={visible} roles={roles ?? []} onOpen={openUser} />
-            {usersQuery.hasNextPage ? (
-              <div className="mt-4 flex justify-center">
-                <Button
-                  variant="outline"
-                  onClick={() => usersQuery.fetchNextPage()}
-                  disabled={usersQuery.isFetchingNextPage}
-                  className="gap-1.5"
-                >
-                  {usersQuery.isFetchingNextPage ? (
-                    <Loader2 className="size-4 animate-spin" />
-                  ) : null}
-                  Load more
-                </Button>
-              </div>
-            ) : null}
+            <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} />
           </>
         )}
       </div>

@@ -99,6 +99,9 @@ export function applyRealtimeEvent(
       // The banner reads the text-lookup; let it refetch rather than guess
       // which party the (possibly masked) address belongs to.
       void qc.invalidateQueries({ queryKey: queryKeys.messaging.textLookups() });
+      // The composer's channel list carries both opt-out ledgers, so a STOP
+      // or an unsubscribe must reach the send control too, not just the banner.
+      void qc.invalidateQueries({ queryKey: queryKeys.messaging.sendOptionsAll() });
       if (event.address) {
         void qc.invalidateQueries({ queryKey: queryKeys.messaging.optOuts(event.address) });
       }

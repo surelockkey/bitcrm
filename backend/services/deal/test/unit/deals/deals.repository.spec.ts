@@ -98,6 +98,43 @@ describe('DealsRepository', () => {
       expect(result!.clientName).toEqual({ firstName: 'Janet', lastName: 'Poole' });
     });
 
+    it('reads back the billing fields (tax snapshot, discount, itemCount, invoiceId)', async () => {
+      const deal = createMockDeal({
+        taxRateId: 'tax-1',
+        taxRateName: 'GA',
+        taxRatePercent: 7.25,
+        taxSource: 'service_area',
+        discount: { type: 'percent', value: 10 },
+        itemCount: 3,
+        invoiceId: 'deal-1',
+        totals: { subtotal: 100, discount: 10, tax: 6.53, total: 96.53, cost: 30 },
+      });
+      dynamoDb.client.send.mockResolvedValue({ Item: { PK: 'DEAL#deal-1', SK: 'METADATA', ...deal } });
+
+      const result = await repository.findById('deal-1');
+
+      expect(result).toMatchObject({
+        taxRateId: 'tax-1',
+        taxRateName: 'GA',
+        taxRatePercent: 7.25,
+        taxSource: 'service_area',
+        discount: { type: 'percent', value: 10 },
+        itemCount: 3,
+        invoiceId: 'deal-1',
+        totals: { subtotal: 100, discount: 10, tax: 6.53, total: 96.53, cost: 30 },
+      });
+    });
+
+    it('reads strongly consistent when asked — a reprice right after a write must see it', async () => {
+      dynamoDb.client.send.mockResolvedValue({ Item: { PK: 'DEAL#deal-1', SK: 'METADATA', ...createMockDeal() } });
+
+      await repository.findById('deal-1', { consistent: true });
+      await repository.findById('deal-1');
+
+      expect(dynamoDb.client.send.mock.calls[0][0].input.ConsistentRead).toBe(true);
+      expect(dynamoDb.client.send.mock.calls[1][0].input.ConsistentRead).toBeUndefined();
+    });
+
     it('reads back the technician flow stamps — and their absence on older rows', async () => {
       // Same whitelist-mapper trap: a stamp toDeal() forgets is written and
       // then invisible to every read path.
@@ -232,6 +269,23 @@ describe('DealsRepository', () => {
       expect(result.items.map((d) => d.id)).toEqual(['deal-1']);
       const batch = dynamoDb.client.send.mock.calls[1][0];
       expect(batch.input.RequestItems[TABLE].Keys).toEqual([{ PK: 'DEAL#deal-1', SK: 'METADATA' }]);
+    });
+
+    it('applies needsInvoice in memory to the batch-got deals', async () => {
+      dynamoDb.client.send
+        .mockResolvedValueOnce({ Items: [{ dealId: 'a' }, { dealId: 'b' }, { dealId: 'c' }] })
+        .mockResolvedValueOnce({
+          Responses: {
+            [TABLE]: [
+              createMockDeal({ id: 'a', itemCount: 2 }),
+              createMockDeal({ id: 'b', itemCount: 2, invoiceId: 'b' }),
+              createMockDeal({ id: 'c' }),
+            ],
+          },
+        });
+
+      const result = await repository.findByTech('tech-1', 20, undefined, { needsInvoice: true });
+      expect(result.items.map((d) => d.id)).toEqual(['a']);
     });
 
     it('returns empty without a BatchGet when the tech has no assignments', async () => {
@@ -403,6 +457,30 @@ describe('DealsRepository', () => {
       expect(command.input.ExpressionAttributeValues[':active']).toBe(DealStatus.ACTIVE);
     });
 
+    it('reads more rows than the page, because the table is mostly not deals', async () => {
+      dynamoDb.client.send.mockResolvedValue({ Items: [] });
+
+      await repository.findAll(20);
+
+      // A job's partition also holds its line items, assignments and history,
+      // and the table holds every catalog besides. Asking DynamoDB for 50 rows
+      // came back with one job.
+      expect(dynamoDb.client.send.mock.calls[0][0].input.Limit).toBeGreaterThan(20);
+    });
+
+    it('keeps reading until the page is full', async () => {
+      const row = (id: string) => ({ ...createMockDeal(), id, PK: `DEAL#${id}`, SK: 'METADATA' });
+      dynamoDb.client.send
+        .mockResolvedValueOnce({ Items: [row('d1')], LastEvaluatedKey: { PK: 'p1' } })
+        .mockResolvedValueOnce({ Items: [row('d2')], LastEvaluatedKey: { PK: 'p2' } })
+        .mockResolvedValueOnce({ Items: [row('d3')] });
+
+      const result = await repository.findAll(3);
+
+      expect(result.items.map((d) => d.id)).toEqual(['d1', 'd2', 'd3']);
+      expect(result.nextCursor).toBeUndefined();
+    });
+
     it('should return mapped deal items', async () => {
       const deal = createMockDeal();
       dynamoDb.client.send.mockResolvedValue({
@@ -433,6 +511,17 @@ describe('DealsRepository', () => {
       expect(command.input.FilterExpression).toContain('contains(#tagIds, :tag0)');
       expect(command.input.ExpressionAttributeValues[':jobTypeId']).toBe('jobtype-1');
       expect(command.input.ExpressionAttributeValues[':tag0']).toBe('tag-1');
+    });
+
+    it('filters to jobs needing an invoice (items, no invoice)', async () => {
+      dynamoDb.client.send.mockResolvedValue({ Items: [] });
+
+      await repository.findAll(20, undefined, { needsInvoice: true });
+
+      const input = dynamoDb.client.send.mock.calls[0][0].input;
+      expect(input.FilterExpression).toContain('#itemCount > :zeroItems');
+      expect(input.FilterExpression).toContain('attribute_not_exists(#invoiceId)');
+      expect(input.ExpressionAttributeValues[':zeroItems']).toBe(0);
     });
 
     it('should pass cursor', async () => {

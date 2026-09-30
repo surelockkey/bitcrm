@@ -137,3 +137,95 @@ describe("market caller id", () => {
     expect(body).toMatchObject({ callerId: "+14045550100" });
   });
 });
+
+describe("sales tax", () => {
+  const zipForm = {
+    name: "Hartford",
+    priority: 0,
+    active: true,
+    type: ServiceAreaType.ZIPS,
+    zips: [{ zip: "06101" }],
+    vertices: [],
+  };
+
+  it("sends tax: null when the switch is off (clears it)", () => {
+    const body = toServiceAreaBody(
+      serviceAreaFormSchema.parse({ ...zipForm, taxEnabled: false, taxName: "Old", taxRatePercent: "5" }),
+    );
+    expect(body).toHaveProperty("tax", null);
+  });
+
+  it("defaults to no tax when the form omits it", () => {
+    const body = toServiceAreaBody(serviceAreaFormSchema.parse(zipForm));
+    expect(body).toHaveProperty("tax", null);
+  });
+
+  it("sends {name, ratePercent} when enabled", () => {
+    const body = toServiceAreaBody(
+      serviceAreaFormSchema.parse({
+        ...zipForm,
+        taxEnabled: true,
+        taxName: "  CT Sales Tax ",
+        taxRatePercent: "6.35",
+      }),
+    );
+    expect(body.tax).toEqual({ name: "CT Sales Tax", ratePercent: 6.35 });
+  });
+
+  it("accepts a 0% and a 3-decimal rate", () => {
+    expect(
+      serviceAreaFormSchema.safeParse({ ...zipForm, taxEnabled: true, taxName: "Zero", taxRatePercent: 0 }).success,
+    ).toBe(true);
+    expect(
+      serviceAreaFormSchema.safeParse({ ...zipForm, taxEnabled: true, taxName: "NY", taxRatePercent: "8.875" }).success,
+    ).toBe(true);
+  });
+
+  it("requires a name (≤60) and a 0–100 rate with ≤3 decimals when enabled", () => {
+    const bad = (over: Record<string, unknown>) =>
+      serviceAreaFormSchema.safeParse({
+        ...zipForm,
+        taxEnabled: true,
+        taxName: "Tax",
+        taxRatePercent: "5",
+        ...over,
+      }).success;
+    expect(bad({ taxName: "  " })).toBe(false);
+    expect(bad({ taxName: "x".repeat(61) })).toBe(false);
+    expect(bad({ taxRatePercent: "" })).toBe(false);
+    expect(bad({ taxRatePercent: "-1" })).toBe(false);
+    expect(bad({ taxRatePercent: "100.5" })).toBe(false);
+    expect(bad({ taxRatePercent: "6.3551" })).toBe(false);
+    expect(bad({})).toBe(true);
+  });
+
+  it("ignores invalid tax fields while the switch is off", () => {
+    expect(
+      serviceAreaFormSchema.safeParse({ ...zipForm, taxEnabled: false, taxName: "", taxRatePercent: "abc" }).success,
+    ).toBe(true);
+  });
+});
+
+describe("default company", () => {
+  const zipForm = {
+    name: "Atlanta",
+    priority: 0,
+    active: true,
+    type: ServiceAreaType.ZIPS,
+    zips: [{ zip: "30301" }],
+    vertices: [],
+  };
+
+  it("carries the chosen company id", () => {
+    const body = toServiceAreaBody(
+      serviceAreaFormSchema.parse({ ...zipForm, defaultBusinessProfileId: "bp-2" }),
+    );
+    expect(body).toMatchObject({ defaultBusinessProfileId: "bp-2" });
+  });
+
+  it("sends null to clear it and never sends defaultTaxRateId", () => {
+    const body = toServiceAreaBody(serviceAreaFormSchema.parse(zipForm));
+    expect(body).toHaveProperty("defaultBusinessProfileId", null);
+    expect(body).not.toHaveProperty("defaultTaxRateId");
+  });
+});

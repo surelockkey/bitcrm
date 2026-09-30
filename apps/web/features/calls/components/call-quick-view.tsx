@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   ExternalLink,
-  Loader2,
   PhoneIncoming,
   PhoneOutgoing,
   Plus,
@@ -23,6 +23,7 @@ import {
   formatCallTime,
   formatDuration,
   formatEndpoint,
+  newJobHref,
   type CallRecord,
 } from "../lib";
 import { CallAssociations } from "./call-associations";
@@ -38,10 +39,13 @@ import { RecordingPlayer } from "./recording-player";
  */
 export function CallQuickView({
   callSid,
+  call,
   open,
   onOpenChange,
 }: {
   callSid: string | null;
+  /** The row this was opened from, drawn immediately while the detail loads. */
+  call?: CallRecord;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
@@ -52,7 +56,7 @@ export function CallQuickView({
         className="flex w-[440px] max-w-[94vw] flex-col gap-0 p-0 sm:max-w-[440px]"
       >
         {open && callSid ? (
-          <QuickViewBody callSid={callSid} />
+          <QuickViewBody callSid={callSid} seed={call} />
         ) : (
           <SheetTitle className="sr-only">Call</SheetTitle>
         )}
@@ -78,31 +82,31 @@ function Row({
   );
 }
 
-/**
- * Prewire the New Job page with everything the call already knows: the call
- * itself (it gets linked to the created job), the client — or at least their
- * number — and the job source the tracked number attributed the call to.
- */
-function createJobHref(call: CallRecord): string {
-  const counterpart = counterparty(call);
-  const params = new URLSearchParams({ callSid: call.callSid });
-  if (counterpart.kind === "contact" && counterpart.id) {
-    params.set("contactId", counterpart.id);
-  } else if (counterpart.number) {
-    params.set("phone", counterpart.number);
-  }
-  if (call.sourceId) params.set("sourceId", call.sourceId);
-  return `/deals/new?${params.toString()}`;
-}
-
-function QuickViewBody({ callSid }: { callSid: string }) {
-  const { data: call, isLoading } = useCallDetail(callSid);
+function QuickViewBody({ callSid, seed }: { callSid: string; seed?: CallRecord }) {
+  const { data: call } = useCallDetail(callSid, seed);
   const sourceName = useJobSourceName();
 
-  if (isLoading || !call) {
+  // Only when there is nothing to draw. A refresh in flight over a call we
+  // already have is not a reason to take it off the screen — the seed from the
+  // row is a real answer, and `isLoading` alone would throw it away.
+  if (!call) {
+    // The panel's own shape, not a spinner in the middle of it: the header
+    // sits where the header will sit, so the title does not drop into place
+    // from the centre of the sheet when the call answers.
     return (
-      <div className="flex flex-1 items-center justify-center">
-        <Loader2 className="size-5 animate-spin text-muted-foreground" />
+      <div role="status" aria-label="Loading call" aria-busy>
+        <SheetHeader className="space-y-0 border-b py-3.5 pl-5 pr-12">
+          <div className="flex items-center gap-2">
+            <Skeleton className="size-4 shrink-0 rounded-full" />
+            <Skeleton className="h-5 w-44" />
+          </div>
+          <Skeleton className="mt-1.5 h-4 w-56" />
+        </SheetHeader>
+        <div className="space-y-3 px-5 py-4">
+          {Array.from({ length: 6 }, (_, i) => (
+            <Skeleton key={i} className="h-4 w-full" />
+          ))}
+        </div>
       </div>
     );
   }
@@ -178,7 +182,7 @@ function QuickViewBody({ callSid }: { callSid: string }) {
             is linked to the job on create. Hidden once a job is linked. */}
         {!call.dealId ? (
           <Button asChild variant="brand" className="w-full gap-1.5">
-            <Link href={createJobHref(call)}>
+            <Link href={newJobHref(call)}>
               <Plus className="size-4" /> Create job
             </Link>
           </Button>

@@ -1,140 +1,204 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { Package, Wrench } from "lucide-react";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { Checkbox } from "@/components/ui/checkbox";
+import { Boxes, Pencil } from "lucide-react";
+import type { ReactNode } from "react";
+import { TableCell, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { InventoryStatus } from "@bitcrm/types";
 import type { Product } from "@bitcrm/types";
 import { cn } from "@/lib/utils";
-import { formatMargin, formatMoney, isService } from "../lib";
-import { ProductTypeBadge } from "./product-type-badge";
-import { ProductRowActions } from "./product-row-actions";
+import { formatMoney } from "../lib";
+import { RowIconAction } from "@/features/inventory/components/row-icon-action";
+import {
+  INVENTORY_ROW,
+  InventoryTable,
+  type InventoryColumn,
+} from "@/features/inventory/components/inventory-table";
+import { useProductRowActions } from "./product-row-actions";
+
+type ColumnId =
+  | "productId"
+  | "name"
+  | "description"
+  | "price"
+  | "cost"
+  | "quantity"
+  | "sku"
+  | "category"
+  | "actions";
+
+/**
+ * The Workiz item grid, in its order, with the width each column starts at.
+ *
+ * One place, read by both the `<colgroup>` and the headers: a width written
+ * twice is a width that drifts. From here on the reader owns it — the drag
+ * handle writes their own into `useColumnWidths`. Everything is left-aligned,
+ * money and counts included: that is how Workiz lays the grid out.
+ *
+ * Together they fit the ~1250px a 1600px screen leaves beside the sidebar —
+ * at 1430 the Actions column was cut to "Actio" and Manage stock went missing.
+ */
+export const PRODUCT_COLUMNS: (InventoryColumn & { id: ColumnId })[] = [
+  { id: "productId", label: "Product ID", width: 100 },
+  { id: "name", label: "Name", width: 260 },
+  { id: "description", label: "Description", width: 220 },
+  { id: "price", label: "Price", width: 95 },
+  { id: "cost", label: "Cost", width: 95 },
+  { id: "quantity", label: "Quantity", width: 90 },
+  { id: "sku", label: "SKU", width: 130 },
+  { id: "category", label: "Category", width: 130 },
+  // Three 32px buttons, their gaps and the cell's padding.
+  { id: "actions", label: "Actions", width: 120 },
+];
+
+const WITHOUT_COST = PRODUCT_COLUMNS.filter((c) => c.id !== "cost");
+
+/** The list's own key: the same name its page-size preference is saved under. */
+export const PRODUCTS_TABLE_KEY = "inventory-items";
 
 export function ProductsTable({
   products,
-  selected,
-  onToggle,
-  onToggleAll,
+  showCost,
+  onEdit,
+  onStock,
+  loading = false,
+  skeletonRows = 0,
+  stale = false,
 }: {
   products: Product[];
-  selected: Set<string>;
-  onToggle: (id: string) => void;
-  onToggleAll: (checked: boolean) => void;
+  /**
+   * Company cost is money: only for `financials.view`. `"pending"` while the
+   * permissions load — the column keeps its place and its cells wait, so it
+   * neither appears late nor shows money it may not.
+   */
+  showCost: boolean | "pending";
+  onEdit: (product: Product) => void;
+  onStock: (product: Product) => void;
+  /** First load: the same table, a page of skeleton rows. */
+  loading?: boolean;
+  skeletonRows?: number;
+  /** The previous filter's rows, held while the new ones load. */
+  stale?: boolean;
 }) {
-  const router = useRouter();
-  const allSelected = products.length > 0 && products.every((p) => selected.has(p.id));
+  const columns = showCost ? PRODUCT_COLUMNS : WITHOUT_COST;
+  const actions = useProductRowActions();
 
   return (
-    <div className="overflow-hidden rounded-lg border">
-      <Table>
-        <TableHeader>
-          <TableRow className="hover:bg-transparent">
-            <TableHead className="w-9">
-              <Checkbox
-                checked={allSelected}
-                onCheckedChange={(c) => onToggleAll(c === true)}
-                aria-label="Select all"
-              />
-            </TableHead>
-            <TableHead>Item</TableHead>
-            <TableHead>Category</TableHead>
-            <TableHead>Type</TableHead>
-            <TableHead className="text-right">Client price</TableHead>
-            <TableHead className="text-right">Min stock</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead className="w-8" />
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {products.map((p) => {
-            const archived = p.status === InventoryStatus.ARCHIVED;
-            return (
-              <TableRow
-                key={p.id}
-                className={cn("cursor-pointer", archived && "opacity-55")}
-                onClick={() => router.push(`/inventory/items/${p.id}`)}
-              >
-                <TableCell onClick={(e) => e.stopPropagation()}>
-                  <Checkbox
-                    checked={selected.has(p.id)}
-                    onCheckedChange={() => onToggle(p.id)}
-                    aria-label={`Select ${p.name}`}
-                  />
-                </TableCell>
-                <TableCell>
-                  <div className="flex items-center gap-2.5">
-                    <span className="flex size-8 flex-none items-center justify-center rounded-lg border bg-muted text-muted-foreground">
-                      {isService(p) ? (
-                        <Wrench className="size-4" />
-                      ) : (
-                        <Package className="size-4" />
-                      )}
-                    </span>
-                    <div className="min-w-0">
-                      <div className="truncate font-medium">{p.name}</div>
-                      <div className="truncate font-mono text-[11px] text-muted-foreground">
-                        {p.sku}
-                        {p.barcode ? ` · ${p.barcode}` : ""}
-                      </div>
-                    </div>
-                  </div>
-                </TableCell>
-                <TableCell className="max-w-[200px] truncate text-sm text-muted-foreground">
-                  {p.category || "—"}
-                </TableCell>
-                <TableCell>
-                  <ProductTypeBadge product={p} />
-                </TableCell>
-                <TableCell className="text-right">
-                  <div className="font-medium tabular-nums">{formatMoney(p.priceClient)}</div>
-                  {isService(p) ? (
-                    <div className="text-[11px] text-muted-foreground">no stock</div>
-                  ) : (
-                    <div className="text-[11px] text-muted-foreground tabular-nums">
-                      tech {formatMoney(p.costTech)} ·{" "}
-                      <span className="text-green-600 dark:text-green-500">
-                        {formatMargin(p.priceClient, p.costTech)}
-                      </span>
-                    </div>
-                  )}
-                </TableCell>
-                <TableCell className="text-right tabular-nums text-muted-foreground">
-                  {isService(p) ? "—" : p.minimumStockLevel}
-                </TableCell>
-                <TableCell>
-                  <Badge
-                    variant="outline"
-                    className={cn(
-                      "gap-1.5 font-normal",
-                      archived ? "text-muted-foreground" : "text-foreground",
-                    )}
-                  >
-                    <span
-                      className={cn(
-                        "size-1.5 rounded-full",
-                        archived ? "bg-muted-foreground/50" : "bg-green-500",
-                      )}
-                    />
-                    {archived ? "Archived" : "Active"}
-                  </Badge>
-                </TableCell>
-                <TableCell onClick={(e) => e.stopPropagation()}>
-                  <ProductRowActions product={p} />
-                </TableCell>
-              </TableRow>
-            );
-          })}
-        </TableBody>
-      </Table>
-    </div>
+    <>
+      {/*
+        `table-fixed` with a declared width per column: a 70-character product
+        name used to take 739px of the 1182 available. Now the column decides,
+        not the name — and the reader can drag the edge if they want more.
+      */}
+      <InventoryTable
+        tableKey={PRODUCTS_TABLE_KEY}
+        columns={columns}
+        loading={loading}
+        skeletonRows={skeletonRows}
+        stale={stale}
+      >
+        {products.map((p) => {
+          const archived = p.status === InventoryStatus.ARCHIVED;
+          return (
+            <TableRow
+              key={p.id}
+              className={cn(INVENTORY_ROW, "cursor-pointer", archived && "opacity-55")}
+              onClick={() => onEdit(p)}
+            >
+              {columns.map((c) => (
+                <Cell
+                  key={c.id}
+                  column={c.id as ColumnId}
+                  product={p}
+                  archived={archived}
+                  costPending={showCost === "pending"}
+                  menu={actions.menu}
+                  onEdit={onEdit}
+                  onStock={onStock}
+                />
+              ))}
+            </TableRow>
+          );
+        })}
+      </InventoryTable>
+      {actions.dialog}
+    </>
   );
+}
+
+/* Under fixed layout a cell that doesn't clip doesn't widen its column — it
+   spills over the next one. So every cell truncates or hides overflow. */
+function Cell({
+  column,
+  product: p,
+  archived,
+  costPending,
+  menu,
+  onEdit,
+  onStock,
+}: {
+  column: ColumnId;
+  product: Product;
+  archived: boolean;
+  costPending: boolean;
+  menu: (product: Product) => ReactNode;
+  onEdit: (product: Product) => void;
+  onStock: (product: Product) => void;
+}) {
+  switch (column) {
+    case "productId":
+      return (
+        <TableCell className="truncate tabular-nums text-muted-foreground">
+          {p.number ?? "—"}
+        </TableCell>
+      );
+    case "name":
+      return (
+        <TableCell className="overflow-hidden">
+          <div className="flex items-center gap-2">
+            <span className="truncate font-medium">{p.name}</span>
+            {archived ? (
+              <Badge variant="outline" className="flex-none font-normal text-muted-foreground">
+                Archived
+              </Badge>
+            ) : null}
+          </div>
+        </TableCell>
+      );
+    case "description":
+      return (
+        <TableCell className="truncate text-muted-foreground" title={p.description || undefined}>
+          {p.description || "—"}
+        </TableCell>
+      );
+    case "price":
+      return <TableCell className="truncate tabular-nums">{formatMoney(p.priceClient)}</TableCell>;
+    case "cost":
+      return (
+        <TableCell className="truncate tabular-nums">
+          {costPending ? <Skeleton className="h-4 w-12" /> : formatMoney(p.costCompany)}
+        </TableCell>
+      );
+    case "quantity":
+      return <TableCell className="truncate tabular-nums">{p.onHand ?? 0}</TableCell>;
+    case "sku":
+      return <TableCell className="truncate font-mono text-xs">{p.sku}</TableCell>;
+    case "category":
+      return <TableCell className="truncate text-muted-foreground">{p.category || "—"}</TableCell>;
+    case "actions":
+      return (
+        <TableCell className="overflow-hidden" onClick={(e) => e.stopPropagation()}>
+          <div className="flex items-center gap-0.5">
+            <RowIconAction label={`Edit ${p.name}`} tip="Edit" onClick={() => onEdit(p)}>
+              <Pencil />
+            </RowIconAction>
+            <RowIconAction label={`Manage stock for ${p.name}`} tip="Manage stock" onClick={() => onStock(p)}>
+              <Boxes />
+            </RowIconAction>
+            {menu(p)}
+          </div>
+        </TableCell>
+      );
+  }
 }

@@ -1,0 +1,78 @@
+import { describe, it, expect } from "vitest";
+import {
+  allNotConnected,
+  AVAILABILITY_NOT_CONNECTED,
+  NOT_CONNECTED_BANNER,
+  SETTINGS_NOT_CONNECTED,
+  WORK_NOT_CONNECTED,
+} from "./not-connected";
+
+describe("the Workiz fields we draw dead", () => {
+  it("covers every field the parity doc lists as theirs and not ours", () => {
+    // WORKIZ_USER_PAGE_PARITY.md §1, minus what has since gone live — user
+    // type, additional phone numbers, field team member, the photo — and minus
+    // four that never belonged here: the phone country code (our phone control
+    // carries it), the working hours themselves (live), user skills (a second
+    // catalog we hold nothing for and are not building — the owner struck it),
+    // and the schedule colour, which is a real picker that simply saves
+    // nothing yet.
+    expect(allNotConnected().map((f) => f.key).sort()).toEqual(
+      [
+        "allowed-ips",
+        "availability-same-as-business",
+        "notes",
+        "notify-incoming-messages",
+        "notify-outgoing-messages",
+        "notify-sms-all-numbers",
+        "sync-email",
+        "two-factor",
+        "user-signature",
+      ].sort(),
+    );
+  });
+
+  it("gives every one of them a label and a line saying why it is dead", () => {
+    for (const field of allNotConnected()) {
+      expect(field.label.trim().length).toBeGreaterThan(0);
+      expect(field.note.trim().length).toBeGreaterThan(0);
+      expect(field.note).not.toBe(field.label);
+    }
+  });
+
+  it("names each field once", () => {
+    const keys = allNotConnected().map((f) => f.key);
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  it("carries no value, ever — the spec has nowhere to put one", () => {
+    for (const field of allNotConnected()) {
+      expect(Object.keys(field).sort()).toEqual(["key", "kind", "label", "note"]);
+    }
+  });
+
+  it("keeps the availability toggle out of the dead-settings block, above the live hours", () => {
+    expect(SETTINGS_NOT_CONNECTED).not.toContain(AVAILABILITY_NOT_CONNECTED);
+    expect(AVAILABILITY_NOT_CONNECTED.note).toMatch(/hours below/);
+  });
+
+  it("holds the settings block in Workiz's order", () => {
+    expect(SETTINGS_NOT_CONNECTED.map((f) => f.key)).toEqual([
+      "sync-email",
+      "allowed-ips",
+      "notify-sms-all-numbers",
+      "notify-incoming-messages",
+      "notify-outgoing-messages",
+      "user-signature",
+    ]);
+  });
+
+  it("says once, at the top of that block, that nothing in it saves", () => {
+    expect(NOT_CONNECTED_BANNER).toMatch(/nothing/i);
+    expect(NOT_CONNECTED_BANNER).toMatch(/save/i);
+  });
+
+  it("keeps Workiz's own labels for the fields the owner will look for", () => {
+    expect(WORK_NOT_CONNECTED.twoFactor.label).toBe("Two-factor authentication");
+    expect(WORK_NOT_CONNECTED.notes.label).toBe("Notes");
+  });
+});

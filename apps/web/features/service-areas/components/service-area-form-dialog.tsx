@@ -21,6 +21,7 @@ import { useCreateServiceArea, useUpdateServiceArea } from "../hooks";
 import { serviceAreaFormSchema, toServiceAreaBody } from "../schemas";
 import { useNumbers } from "@/features/telephony/numbers-hooks";
 import { formatPhone } from "@/lib/phone";
+import { BusinessProfileSelect } from "@/features/business-profiles/components/business-profile-select";
 import { ZipListEditor, type ZipRow } from "./zip-list-editor";
 import { PolygonMapEditor } from "./polygon-map-editor";
 
@@ -59,6 +60,14 @@ export function ServiceAreaFormDialog({
   const [zips, setZips] = useState<ZipRow[]>(initialZips(area));
   const [vertices, setVertices] = useState<GeoPoint[]>(initialVertices(area));
   const [callerId, setCallerId] = useState(area?.callerId ?? "");
+  const [taxEnabled, setTaxEnabled] = useState(Boolean(area?.tax));
+  const [taxName, setTaxName] = useState(area?.tax?.name ?? "");
+  const [taxRatePercent, setTaxRatePercent] = useState(
+    area?.tax ? String(area.tax.ratePercent) : "",
+  );
+  const [defaultBusinessProfileId, setDefaultBusinessProfileId] = useState<string | null>(
+    area?.defaultBusinessProfileId ?? null,
+  );
   const [error, setError] = useState<string | null>(null);
 
   const parsed = useMemo(
@@ -72,9 +81,30 @@ export function ServiceAreaFormDialog({
         zips: type === ServiceAreaType.ZIPS ? zips : [],
         vertices: type === ServiceAreaType.POLYGON ? vertices : [],
         callerId,
+        taxEnabled,
+        taxName,
+        taxRatePercent,
+        defaultBusinessProfileId,
       }),
-    [name, priority, active, timezone, type, zips, vertices, callerId],
+    [
+      name,
+      priority,
+      active,
+      timezone,
+      type,
+      zips,
+      vertices,
+      callerId,
+      taxEnabled,
+      taxName,
+      taxRatePercent,
+      defaultBusinessProfileId,
+    ],
   );
+  const issueFor = (field: string) =>
+    parsed.success ? undefined : parsed.error.issues.find((i) => i.path[0] === field)?.message;
+  const taxNameError = taxEnabled && taxName !== "" ? issueFor("taxName") : undefined;
+  const taxRateError = taxEnabled && taxRatePercent !== "" ? issueFor("taxRatePercent") : undefined;
 
   const submit = () => {
     setError(null);
@@ -149,6 +179,76 @@ export function ServiceAreaFormDialog({
                 </option>
               ))}
             </select>
+          </div>
+
+          <div className="space-y-3 rounded-md border px-3 py-2.5">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <Label htmlFor="service-area-tax-enabled">Sales tax</Label>
+                <p className="text-xs text-muted-foreground">
+                  Applied automatically to jobs in this area unless the client is tax exempt.
+                </p>
+              </div>
+              <Switch
+                id="service-area-tax-enabled"
+                aria-label="Charge sales tax in this area"
+                checked={taxEnabled}
+                onCheckedChange={setTaxEnabled}
+              />
+            </div>
+            {taxEnabled ? (
+              <div className="grid grid-cols-[2fr_1fr] gap-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="service-area-tax-name">Tax name</Label>
+                  <Input
+                    id="service-area-tax-name"
+                    className="h-9"
+                    value={taxName}
+                    maxLength={60}
+                    onChange={(e) => setTaxName(e.target.value)}
+                    placeholder="e.g. CT Sales Tax"
+                    aria-invalid={taxNameError ? true : undefined}
+                  />
+                  {taxNameError ? <p className="text-xs text-destructive">{taxNameError}</p> : null}
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="service-area-tax-rate">Tax rate (%)</Label>
+                  <Input
+                    id="service-area-tax-rate"
+                    className="h-9"
+                    type="number"
+                    inputMode="decimal"
+                    min={0}
+                    max={100}
+                    step={0.001}
+                    value={taxRatePercent}
+                    onChange={(e) => setTaxRatePercent(e.target.value)}
+                    placeholder="6.35"
+                    aria-invalid={taxRateError ? true : undefined}
+                  />
+                  {taxRateError ? <p className="text-xs text-destructive">{taxRateError}</p> : null}
+                </div>
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">No tax is charged on jobs in this area.</p>
+            )}
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="service-area-default-company">Default company</Label>
+            <BusinessProfileSelect
+              id="service-area-default-company"
+              aria-label="Default company"
+              className="h-9"
+              value={defaultBusinessProfileId}
+              onChange={setDefaultBusinessProfileId}
+              allowNone
+              noneLabel="Account default company"
+              placeholder="Account default company"
+            />
+            <p className="text-xs text-muted-foreground">
+              New jobs in this area start with this company.
+            </p>
           </div>
 
           <div className="flex items-center justify-between rounded-md border px-3 py-2.5">

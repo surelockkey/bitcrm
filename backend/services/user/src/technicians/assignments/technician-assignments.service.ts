@@ -9,6 +9,8 @@ import {
 import { SnsPublisherService } from '@bitcrm/shared';
 import {
   isAssignable,
+  TechChangedField,
+  TECHNICIAN_ROLE_ID,
   UserEventType,
   type JwtUser,
   type TechnicianJobType,
@@ -22,11 +24,7 @@ import {
 import { RolesService } from '../../roles/roles.service';
 import { ReviewAssignmentDto } from './dto/assignment.dto';
 
-const TECHNICIAN_ROLE_ID = 'role-technician';
 const USER_EVENTS_TOPIC = 'user-events';
-
-/** `changedFields` marker consumed by the deal-service eligibility projection. */
-const ASSIGNMENTS_CHANGED = 'assignments';
 
 export interface TechnicianAssignments {
   jobTypes: TechnicianJobType[];
@@ -236,6 +234,11 @@ export class TechnicianAssignmentsService {
    * Publishes tech.approved only on the not-assignable → assignable transition,
    * so downstream consumers see one event per technician rather than one per
    * approval. `before` is the state prior to the write.
+   *
+   * Nothing here checks that `userId` holds the technician role — a manager may
+   * legitimately clear someone's job types before promoting them. The event
+   * therefore claims approvals, not a role: the consumer re-reads eligibility
+   * and decides (see `isAssignableTechnician`).
    */
   private async publishIfNewlyAssignable(
     userId: string,
@@ -266,7 +269,7 @@ export class TechnicianAssignmentsService {
   private publishUpdated(userId: string): void {
     this.publish(UserEventType.TECH_UPDATED, {
       technicianId: userId,
-      changedFields: [ASSIGNMENTS_CHANGED],
+      changedFields: [TechChangedField.ASSIGNMENTS],
     });
   }
 

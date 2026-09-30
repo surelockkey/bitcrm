@@ -1,6 +1,7 @@
 import {
   IsString,
   IsEnum,
+  IsInt,
   IsNumber,
   IsBoolean,
   IsOptional,
@@ -51,10 +52,23 @@ export class CreateProductDto {
   @Min(0)
   priceClient!: number;
 
+  @ApiPropertyOptional({
+    default: true,
+    description: 'Default `taxable` flag copied onto job/estimate lines. Defaults to true.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  taxable?: boolean;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
   supplier?: string;
+
+  @ApiPropertyOptional({ description: 'Brand catalog id.' })
+  @IsOptional()
+  @IsString()
+  brandId?: string;
 
   @ApiProperty({ default: false })
   @IsBoolean()
@@ -64,4 +78,22 @@ export class CreateProductDto {
   @IsNumber()
   @Min(0)
   minimumStockLevel!: number;
+
+  // `number` and `onHand` are deliberately not declared: the ValidationPipe
+  // whitelist strips them, so a client can neither pick a product number nor
+  // set a stock total.
+
+  @ApiPropertyOptional({
+    default: true,
+    description: 'Whether stock is counted for this product. Absent ⇒ true; services never are.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  manageStock?: boolean;
+
+  @ApiPropertyOptional({ description: 'Reorder point.' })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  reorderLevel?: number;
 }

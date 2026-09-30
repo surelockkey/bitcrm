@@ -6,6 +6,7 @@ jest.mock('@aws-sdk/client-s3', () => ({
   PutObjectCommand: jest.fn().mockImplementation((input) => ({ input, _type: 'PutObject' })),
   GetObjectCommand: jest.fn().mockImplementation((input) => ({ input, _type: 'GetObject' })),
   DeleteObjectCommand: jest.fn().mockImplementation((input) => ({ input, _type: 'DeleteObject' })),
+  HeadObjectCommand: jest.fn().mockImplementation((input) => ({ input, _type: 'HeadObject' })),
 }));
 
 const mockGetSignedUrl = jest.fn();
@@ -92,6 +93,46 @@ describe('S3Service', () => {
       const result = await service.getPresignedDownloadUrl('k');
       expect(result).toBe('https://s3/download');
       expect(mockGetSignedUrl).toHaveBeenCalledWith(expect.anything(), expect.anything(), { expiresIn: 3600 });
+    });
+  });
+
+  describe('getPresignedDownloadUrl with options', () => {
+    it('sets ResponseContentDisposition when a disposition is given', async () => {
+      mockGetSignedUrl.mockResolvedValue('https://s3/dl');
+      await service.getPresignedDownloadUrl('billing/pdfs/a.pdf', {
+        expiresIn: 600,
+        contentDisposition: 'attachment; filename="Invoice-1.pdf"',
+      });
+      const { GetObjectCommand } = require('@aws-sdk/client-s3');
+      expect(GetObjectCommand).toHaveBeenLastCalledWith({
+        Bucket: 'test-bucket',
+        Key: 'billing/pdfs/a.pdf',
+        ResponseContentDisposition: 'attachment; filename="Invoice-1.pdf"',
+      });
+      expect(mockGetSignedUrl.mock.calls[0][2]).toEqual({ expiresIn: 600 });
+    });
+  });
+
+  describe('getObjectBuffer / objectExists', () => {
+    it('returns the object body as a Buffer', async () => {
+      mockSend.mockResolvedValueOnce({
+        Body: { transformToByteArray: async () => new Uint8Array([1, 2, 3]) },
+        ContentType: 'image/png',
+      });
+      const result = await service.getObjectBuffer('billing/assets/x');
+      expect(result).toEqual({ body: Buffer.from([1, 2, 3]), contentType: 'image/png' });
+    });
+
+    it('returns null for a missing key', async () => {
+      mockSend.mockRejectedValueOnce(Object.assign(new Error('nope'), { name: 'NoSuchKey' }));
+      await expect(service.getObjectBuffer('missing')).resolves.toBeNull();
+    });
+
+    it('objectExists answers from a HEAD request', async () => {
+      mockSend.mockResolvedValueOnce({});
+      await expect(service.objectExists('k')).resolves.toBe(true);
+      mockSend.mockRejectedValueOnce(Object.assign(new Error('nf'), { name: 'NotFound', $metadata: { httpStatusCode: 404 } }));
+      await expect(service.objectExists('k')).resolves.toBe(false);
     });
   });
 

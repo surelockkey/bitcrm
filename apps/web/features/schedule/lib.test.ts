@@ -237,6 +237,19 @@ describe("filterTechnicians", () => {
     expect(ids).toEqual(["t2"]);
   });
 
+  it("drops someone switched off the field team, and keeps everyone else", () => {
+    // The flag lives on the user record. A profile still exists for them —
+    // their address and hours are theirs — but a column for someone who no
+    // longer goes out on jobs is a column nothing can be dragged into.
+    const withFlags = new Map<string, User>([
+      ["t1", { ...users.get("t1")!, fieldTeamMember: false }],
+      ["t2", { ...users.get("t2")!, fieldTeamMember: true }],
+      ["t3", users.get("t3")!],
+    ]);
+    const ids = filterTechnicians(profiles, withFlags, { activeOnly: false }).map((p) => p.userId);
+    expect(ids).toEqual(["t2", "t3"]);
+  });
+
   it("combines filters", () => {
     const ids = filterTechnicians(profiles, users, { activeOnly: true, department: "East", query: "sam" }).map((p) => p.userId);
     expect(ids).toEqual(["t1"]);

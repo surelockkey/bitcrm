@@ -1,146 +1,99 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
-import { Package, Pencil, Trash2 } from "lucide-react";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
+import { Boxes, Pencil } from "lucide-react";
+import { TableCell, TableRow } from "@/components/ui/table";
 import { InventoryStatus } from "@bitcrm/types";
 import type { Warehouse } from "@bitcrm/types";
-import { usePermissions } from "@/features/auth/use-permissions";
 import { cn } from "@/lib/utils";
-import { useArchiveWarehouse, useWarehouseStockView } from "../hooks";
+import { RowIconAction } from "@/features/inventory/components/row-icon-action";
+import {
+  INVENTORY_ROW,
+  InventoryTable,
+  type InventoryColumn,
+} from "@/features/inventory/components/inventory-table";
+import { formatTotal, type LocationTotals } from "@/features/inventory/stock/lib";
 
-export function WarehousesTable({ warehouses }: { warehouses: Warehouse[] }) {
+/**
+ * The columns, with the width each one starts at — read by both the
+ * `<colgroup>` and the headers, so there is one number to change. All
+ * left-aligned, counts included, as Workiz lays its grids out.
+ */
+export const WAREHOUSE_COLUMNS: InventoryColumn[] = [
+  { id: "name", label: "Name", width: 260 },
+  { id: "description", label: "Description", width: 340 },
+  { id: "items", label: "Items", width: 120 },
+  { id: "skus", label: "SKUs", width: 90 },
+  { id: "actions", label: "Actions", width: 100 },
+];
+
+/** Its own key: warehouses keep their widths apart from vans and items. */
+export const WAREHOUSES_TABLE_KEY = "inventory-warehouses";
+
+export function WarehousesTable({
+  warehouses,
+  onEdit,
+  onStock,
+  loading = false,
+  skeletonRows = 0,
+  stale = false,
+}: {
+  warehouses: Warehouse[];
+  onEdit: (warehouse: Warehouse) => void;
+  onStock: (warehouse: Warehouse) => void;
+  /** First load: the same table, a page of skeleton rows. */
+  loading?: boolean;
+  skeletonRows?: number;
+  /** The previous filter's rows, held while the new ones load. */
+  stale?: boolean;
+}) {
   return (
-    <div className="overflow-hidden rounded-lg border">
-      <Table>
-        <TableHeader>
-          <TableRow className="hover:bg-transparent">
-            <TableHead>Name</TableHead>
-            <TableHead>Description</TableHead>
-            <TableHead>Items</TableHead>
-            <TableHead className="w-32 text-right">Actions</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {warehouses.map((w) => (
-            <WarehouseRow key={w.id} warehouse={w} />
-          ))}
-        </TableBody>
-      </Table>
-    </div>
+    <InventoryTable
+      tableKey={WAREHOUSES_TABLE_KEY}
+      columns={WAREHOUSE_COLUMNS}
+      loading={loading}
+      skeletonRows={skeletonRows}
+      stale={stale}
+    >
+      {warehouses.map((w) => (
+        <WarehouseRow key={w.id} warehouse={w} onEdit={onEdit} onStock={onStock} />
+      ))}
+    </InventoryTable>
   );
 }
 
-function WarehouseRow({ warehouse: w }: { warehouse: Warehouse }) {
-  const router = useRouter();
-  const { can } = usePermissions();
-  const { summary, isLoading } = useWarehouseStockView(w.id);
-  const archive = useArchiveWarehouse();
-  const [confirm, setConfirm] = useState(false);
+function WarehouseRow({
+  warehouse: w,
+  onEdit,
+  onStock,
+}: {
+  warehouse: Warehouse & LocationTotals;
+  onEdit: (warehouse: Warehouse) => void;
+  onStock: (warehouse: Warehouse) => void;
+}) {
   const archived = w.status === InventoryStatus.ARCHIVED;
+  const description = w.description || w.address;
 
   return (
-    <TableRow
-      className={cn("cursor-pointer", archived && "opacity-55")}
-      onClick={() => router.push(`/inventory/warehouses/${w.id}`)}
-    >
-      <TableCell>
-        <div className="font-medium">{w.name}</div>
-        {!isLoading && summary.lowCount > 0 ? (
-          <Badge
-            variant="outline"
-            className="mt-1 gap-1 border-amber-500/30 font-normal text-amber-600 dark:text-amber-500"
-          >
-            Low stock
-          </Badge>
-        ) : null}
+    <TableRow className={cn(INVENTORY_ROW, "cursor-pointer", archived && "opacity-55")} onClick={() => onStock(w)}>
+      {/* Every cell clips: under fixed layout one that doesn't spills over
+          the next column instead of widening its own. */}
+      <TableCell className="truncate font-medium">{w.name}</TableCell>
+      <TableCell className="truncate text-sm text-muted-foreground" title={description || undefined}>
+        {description || "—"}
       </TableCell>
-      <TableCell className="max-w-[340px] truncate text-sm text-muted-foreground">
-        {w.description || w.address || "—"}
-      </TableCell>
-      <TableCell className="tabular-nums">
-        {isLoading ? (
-          <Skeleton className="h-4 w-12" />
-        ) : (
-          summary.totalUnits.toLocaleString()
-        )}
-      </TableCell>
-      <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
-        <div className="flex justify-end gap-0.5">
-          {can("warehouses", "edit") ? (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-8"
-              aria-label="Edit"
-              onClick={() => router.push(`/inventory/warehouses/${w.id}?tab=settings`)}
-            >
-              <Pencil />
-            </Button>
-          ) : null}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-8"
-            aria-label="View stock"
-            onClick={() => router.push(`/inventory/warehouses/${w.id}`)}
-          >
-            <Package />
-          </Button>
-          {!archived && can("warehouses", "delete") ? (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-8 text-destructive hover:text-destructive"
-              aria-label="Archive"
-              onClick={() => setConfirm(true)}
-            >
-              <Trash2 />
-            </Button>
-          ) : null}
+      {/* The server keeps both on the row; there is nothing to wait for. */}
+      <TableCell className="truncate tabular-nums">{formatTotal(w.totalUnits)}</TableCell>
+      <TableCell className="truncate tabular-nums">{formatTotal(w.uniqueItems)}</TableCell>
+      {/* The popups these open sit over the row; their clicks must not reach it. */}
+      <TableCell className="overflow-hidden" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-0.5">
+          <RowIconAction label={`Edit ${w.name}`} tip="Edit" onClick={() => onEdit(w)}>
+            <Pencil />
+          </RowIconAction>
+          <RowIconAction label={`Stock in ${w.name}`} tip="Stock" onClick={() => onStock(w)}>
+            <Boxes />
+          </RowIconAction>
         </div>
-
-        <AlertDialog open={confirm} onOpenChange={setConfirm}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Archive “{w.name}”?</AlertDialogTitle>
-              <AlertDialogDescription>
-                Its stock history is kept, but it disappears from active lists
-                and transfer targets.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction
-                className="bg-destructive text-white hover:bg-destructive/90"
-                onClick={() => archive.mutate(w.id)}
-              >
-                Archive warehouse
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
       </TableCell>
     </TableRow>
   );

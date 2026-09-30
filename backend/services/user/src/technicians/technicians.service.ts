@@ -11,7 +11,11 @@ import {
   SnsPublisherService,
   BusinessMetricsService,
   GeocodingService,
+  S3Service,
   formatAddress,
+  RedisService,
+  cachedCount,
+  countCacheKey,
 } from '@bitcrm/shared';
 import {
   type JwtUser,
@@ -19,6 +23,7 @@ import {
   type TechnicianHomeAddress,
   type OnboardingStatus,
   UserEventType,
+  type ListCount,
 } from '@bitcrm/types';
 import { TechniciansRepository } from './technicians.repository';
 import { TechniciansCacheService } from './technicians-cache.service';
@@ -26,12 +31,22 @@ import { RolesService } from '../roles/roles.service';
 import { UsersService } from '../users/users.service';
 import { TechnicianAssignmentsRepository, type TechnicianAssignment } from './assignments/technician-assignments.repository';
 import { CommissionRepository } from './commission/commission.repository';
+import { DocumentsRepository } from './documents/documents.repository';
 import { UpdateTechnicianDto, OPERATIONAL_FIELDS } from './dto/update-technician.dto';
 import { ListTechniciansQueryDto } from './dto/list-technicians-query.dto';
 import { deriveOnboardingStatus } from './onboarding.util';
 
 const TECHNICIAN_ROLE_ID = 'role-technician';
 const USER_EVENTS_TOPIC = 'user-events';
+/**
+ * How long the photo link handed out with a profile stays good. The card
+ * refetches its profile on every open, so an hour is plenty, and a link that
+ * outlived the person's access would be the only thing wrong with a longer one.
+ */
+const PHOTO_URL_TTL_SECONDS = 3600;
+
+/** How long a list count stays good enough. Matches the deals tab counts. */
+const COUNT_TTL_SECONDS = 30;
 
 @Injectable()
 export class TechniciansService {
@@ -48,6 +63,9 @@ export class TechniciansService {
     @Optional() private readonly businessMetrics?: BusinessMetricsService,
     @Optional() private readonly assignmentsRepository?: TechnicianAssignmentsRepository,
     @Optional() private readonly commissionRepository?: CommissionRepository,
+    @Optional() private readonly documentsRepository?: DocumentsRepository,
+    @Optional() private readonly s3?: S3Service,
+    @Optional() private readonly redis?: RedisService,
   ) {}
 
   async getProfile(id: string, caller: JwtUser): Promise<TechnicianProfile> {
@@ -56,7 +74,7 @@ export class TechniciansService {
     const cached = await this.cache.getProfile(id);
     if (cached) {
       this.businessMetrics?.cacheHits.inc({ entity_type: 'technician' });
-      return this.withPhone(cached);
+      return this.resolve(cached);
     }
     this.businessMetrics?.cacheMisses.inc({ entity_type: 'technician' });
 
@@ -64,10 +82,32 @@ export class TechniciansService {
     if (!profile) {
       throw new NotFoundException('Technician profile not found');
     }
-    // Cached as stored — the phone is resolved after every read, cache hit
-    // included, so changing it elsewhere is never five minutes stale here.
+    // Cached as stored — the phone and the photo link are resolved after
+    // every read, cache hit included, so changing the phone elsewhere is
+    // never five minutes stale here, and a link that expires in an hour is
+    // never handed out from a cache entry that outlives it.
     await this.cache.setProfile(profile);
-    return this.withPhone(profile);
+    return this.resolve(profile);
+  }
+
+  /** What a stored profile becomes on its way out: the phone joined, the photo linked. */
+  private async resolve(profile: TechnicianProfile): Promise<TechnicianProfile> {
+    return this.withPhoto(await this.withPhone(profile));
+  }
+
+  /**
+   * The photo is the `profile_photo` document: same private, encrypted bucket
+   * as the licence and the bank letter, so the profile cannot carry a plain
+   * URL to it. It carries a short-lived link instead, minted on every read.
+   * Not audited the way a document view is — an avatar drawn on every open of
+   * the card is not someone reading a licence.
+   */
+  private async withPhoto(profile: TechnicianProfile): Promise<TechnicianProfile> {
+    if (!this.documentsRepository || !this.s3) return profile;
+    const doc = await this.documentsRepository.getByType(profile.userId, 'profile_photo');
+    if (!doc) return profile;
+    const profilePhotoUrl = await this.s3.getPresignedDownloadUrl(doc.s3Key, PHOTO_URL_TTL_SECONDS);
+    return { ...profile, profilePhotoUrl };
   }
 
   /**
@@ -193,6 +233,7 @@ export class TechniciansService {
       const now = new Date().toISOString();
       const created: TechnicianProfile = {
         userId: id,
+        technicianType: 'regular',
         callMaskingEnabled: false,
         gpsTrackingEnabled: false,
         mobileAppInstalled: false,
@@ -216,7 +257,7 @@ export class TechniciansService {
 
     await this.cache.invalidateProfile(id);
     this.publishTechEvent(UserEventType.TECH_UPDATED, id, changedFields);
-    return this.withPhone(result);
+    return this.resolve(result);
   }
 
   async getOnboardingStatus(
@@ -227,9 +268,10 @@ export class TechniciansService {
 
     const stored =
       (await this.cache.getProfile(id)) ?? (await this.repository.getProfile(id));
-    // "Profile complete" asks whether we can reach this technician, so it has
-    // to read the phone from where reaching them reads it.
-    const profile = stored ? await this.withPhone(stored) : null;
+    // "Profile complete" asks whether we can reach this technician and put a
+    // face to them, so it reads the phone and the photo from where the card
+    // reads them.
+    const profile = stored ? await this.resolve(stored) : null;
 
     const assignmentsApproved = await this.hasApprovedAssignments(id);
     const commissionSet = this.commissionRepository
@@ -237,6 +279,32 @@ export class TechniciansService {
       : false;
 
     return deriveOnboardingStatus(profile, { assignmentsApproved, commissionSet });
+  }
+
+  /**
+   * How many technicians the list holds — the number behind "Page 2 of 7".
+   * Same permission gate as the list: a count is a fact about the roster, and
+   * a field technician may not have it either.
+   */
+  async count(query: ListTechniciansQueryDto, caller: JwtUser): Promise<ListCount> {
+    if (!(await this.isPrivilegedCaller(caller))) {
+      throw new ForbiddenException(
+        'You do not have permission to list technicians',
+      );
+    }
+
+    const take = () =>
+      query.status
+        ? this.repository.countByStatus(query.status)
+        : this.repository.countAll();
+
+    if (!this.redis) return take();
+    return cachedCount(
+      this.redis.client,
+      countCacheKey('technicians', { status: query.status }),
+      COUNT_TTL_SECONDS,
+      take,
+    );
   }
 
   async list(query: ListTechniciansQueryDto, caller: JwtUser) {

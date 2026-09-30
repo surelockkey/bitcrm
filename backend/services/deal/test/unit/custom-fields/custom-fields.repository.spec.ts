@@ -93,10 +93,13 @@ describe('CustomFieldsRepository', () => {
     expect(await repository.isReferencedByDeal('cf-1')).toBe(true);
 
     const input = dynamoDb.client.send.mock.calls[0][0].input;
-    expect(input.FilterExpression).toContain('attribute_exists(#cf.#fid)');
-    expect(input.ExpressionAttributeNames['#cf']).toBe('customFields');
-    expect(input.ExpressionAttributeNames['#fid']).toBe('cf-1');
-    expect(input.Limit).toBe(1);
+    expect(input.FilterExpression).toContain('attribute_exists(');
+    expect(Object.values(input.ExpressionAttributeNames)).toEqual(
+      expect.arrayContaining(['customFields', 'cf-1']),
+    );
+    // A page, not a single row: `Limit: 1` read one row of the table and
+    // called the field unused.
+    expect(input.Limit).toBeGreaterThan(1);
   });
 
   it('reports no reference when the scan is empty', async () => {

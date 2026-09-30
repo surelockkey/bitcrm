@@ -1,11 +1,14 @@
-import { ProductEditorPage } from "@/features/inventory/products/components/product-editor-page";
+import { redirect } from "next/navigation";
 
-/** Full-page product editor. `params` is a Promise in Next 16. */
+/**
+ * Items open as a popup on the Items tab now; an old link to an item's page
+ * lands on that popup. `params` is a Promise in Next 16.
+ */
 export default async function Page({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  return <ProductEditorPage productId={id} />;
+  redirect(`/inventory/items?edit=${encodeURIComponent(id)}`);
 }

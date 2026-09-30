@@ -11,6 +11,6 @@ import { TechniciansModule } from '../technicians/technicians.module';
   controllers: [UsersController],
   providers: [
     UsersService, UsersRepository, UsersCacheService],
-  exports: [UsersService, UsersRepository],
+  exports: [UsersService, UsersRepository, UsersCacheService],
 })
 export class UsersModule {}

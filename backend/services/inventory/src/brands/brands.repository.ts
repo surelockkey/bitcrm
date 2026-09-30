@@ -7,8 +7,12 @@ import {
 } from '@aws-sdk/lib-dynamodb';
 import { DynamoDbService } from '@bitcrm/shared';
 import { type Brand } from '@bitcrm/types';
-import { INVENTORY_TABLE, GSI1_NAME } from '../common/constants/dynamo.constants';
+import { INVENTORY_TABLE, GSI1_NAME, GSI4_NAME } from '../common/constants/dynamo.constants';
 import { BRAND_PK_PREFIX, BRAND_SK, BRAND_GSI1PK } from './brands.constants';
+import {
+  PRODUCT_CATALOG_INDEX_PK,
+  CATALOG_INDEX_MAX_READS,
+} from '../products/product-catalog-index';
 
 /** Key attributes that must never leak into an entity or be re-put verbatim. */
 const KEY_ATTRIBUTES = new Set([
@@ -69,16 +73,24 @@ export class BrandsRepository {
     return result.Item ? this.toEntity(result.Item) : null;
   }
 
+  /** The whole catalog, in name order — read to the end of the partition, never cut at one 1 MB page. */
   async listAll(): Promise<Brand[]> {
-    const result = await this.dynamoDb.client.send(
-      new QueryCommand({
-        TableName: INVENTORY_TABLE,
-        IndexName: GSI1_NAME,
-        KeyConditionExpression: 'GSI1PK = :pk',
-        ExpressionAttributeValues: { ':pk': BRAND_GSI1PK },
-      }),
-    );
-    return (result.Items || []).map((i) => this.toEntity(i));
+    const rows: Record<string, unknown>[] = [];
+    let key: Record<string, unknown> | undefined;
+    do {
+      const result = await this.dynamoDb.client.send(
+        new QueryCommand({
+          TableName: INVENTORY_TABLE,
+          IndexName: GSI1_NAME,
+          KeyConditionExpression: 'GSI1PK = :pk',
+          ExpressionAttributeValues: { ':pk': BRAND_GSI1PK },
+          ...(key ? { ExclusiveStartKey: key } : {}),
+        }),
+      );
+      rows.push(...(result.Items ?? []));
+      key = result.LastEvaluatedKey;
+    } while (key);
+    return rows.map((i) => this.toEntity(i));
   }
 
   async remove(id: string): Promise<void> {
@@ -89,6 +101,36 @@ export class BrandsRepository {
       }),
     );
     this.logger.log(`Deleted brand ${id}`);
+  }
+
+  /**
+   * Whether any product still names this brand (`Product.brandId`). There is
+   * no brand index, so this reads the Price Book partition (GSI4
+   * `PRODUCTS#ALL`, every product) with a filter and stops at the first page
+   * holding a match — `Select: 'COUNT'`, no bodies. A walk that runs out of
+   * reads before the end answers true: archiving a brand nobody uses is
+   * harmless, deleting one items still point at leaves them dangling. Rows
+   * not yet filed by `backfill:product-catalog-index` are not seen.
+   */
+  async isReferencedByProduct(brandId: string): Promise<boolean> {
+    let key: Record<string, unknown> | undefined;
+    for (let reads = 0; reads < CATALOG_INDEX_MAX_READS; reads += 1) {
+      const result = await this.dynamoDb.client.send(
+        new QueryCommand({
+          TableName: INVENTORY_TABLE,
+          IndexName: GSI4_NAME,
+          KeyConditionExpression: 'GSI4PK = :pk',
+          FilterExpression: 'brandId = :brandId',
+          ExpressionAttributeValues: { ':pk': PRODUCT_CATALOG_INDEX_PK, ':brandId': brandId },
+          Select: 'COUNT',
+          ...(key ? { ExclusiveStartKey: key } : {}),
+        }),
+      );
+      if ((result.Count ?? 0) > 0) return true;
+      key = result.LastEvaluatedKey;
+      if (!key) return false;
+    }
+    return true;
   }
 
   private toEntity(item: Record<string, unknown>): Brand {

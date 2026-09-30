@@ -5,8 +5,10 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { CognitoAdminService, PermissionCacheReader } from '@bitcrm/shared';
+import { plainToInstance } from 'class-transformer';
 import { UserStatus } from '@bitcrm/types';
 import { UsersService } from '../../../src/users/users.service';
+import { UpdateUserDto } from '../../../src/users/dto/update-user.dto';
 import { UsersRepository } from '../../../src/users/users.repository';
 import { UsersCacheService } from '../../../src/users/users-cache.service';
 import { RolesService } from '../../../src/roles/roles.service';
@@ -304,6 +306,23 @@ describe('UsersService', () => {
         'cognito-sub-1',
         { 'custom:department': 'Plumbing' },
       );
+    });
+
+    /**
+     * What `ValidationPipe({ transform: true })` hands the controller is a
+     * class instance, and an ES2022 class field that was never sent is still
+     * an own property — holding undefined. The repository reads an explicit
+     * undefined as "remove this attribute", so spreading the instance turned
+     * every field a partial update did not mention into a REMOVE: one
+     * `PUT { fieldTeamMember }` wiped a person's name, department and phone.
+     */
+    it('leaves the fields a partial update does not mention alone', async () => {
+      const dto = plainToInstance(UpdateUserDto, { fieldTeamMember: true });
+      expect(Object.keys(dto)).toContain('firstName'); // the instance really carries them
+
+      await service.update('user-1', dto, caller);
+
+      expect(Object.keys(repository.update.mock.calls[0][1])).toEqual(['fieldTeamMember']);
     });
 
     it('should NOT call Cognito when only name fields change', async () => {

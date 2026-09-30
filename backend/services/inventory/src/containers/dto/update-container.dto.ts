@@ -34,7 +34,12 @@ export class UpdateContainerDto {
   status?: InventoryStatus;
 
   /** A technician id to (re)assign, or null to unassign. */
-  @ApiPropertyOptional({ nullable: true, description: 'Technician to assign; null unassigns' })
+  @ApiPropertyOptional({
+    nullable: true,
+    description:
+      'Legacy single-technician link; null unassigns. No longer exclusive — who works from ' +
+      'the van is `PUT /user-containers/:userId`.',
+  })
   @IsOptional()
   @IsString()
   technicianId?: string | null;
@@ -44,4 +49,13 @@ export class UpdateContainerDto {
   @IsString()
   @MaxLength(200)
   technicianName?: string | null;
+
+  /** A template id to compare the van against, or null to clear it. */
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'Container template (ideal loadout); must exist and be active. null clears it.',
+  })
+  @IsOptional()
+  @IsString()
+  templateId?: string | null;
 }

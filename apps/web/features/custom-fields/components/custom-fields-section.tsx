@@ -32,6 +32,7 @@ import {
 import { useAttachmentUrl } from "@/features/deals/attachments-hooks";
 import { useCustomFields } from "../hooks";
 import { applicableFields, groupFields } from "../lib";
+import { useFilePreviewStore } from "@/features/files/preview-store";
 
 interface CustomFieldsSectionProps {
   jobTypeId: string;
@@ -330,7 +331,7 @@ function OptionsCombobox({
       {value.map((opt) => (
         <span
           key={opt}
-          className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium"
+          className="inline-flex items-center gap-1 rounded-chip border px-2 py-0.5 text-xs font-medium"
         >
           {opt}
           {!disabled ? (
@@ -354,7 +355,7 @@ function OptionsCombobox({
             type="button"
             onClick={() => setOpen((o) => !o)}
             aria-expanded={open}
-            className="inline-flex items-center gap-1 rounded-full border border-dashed px-2 py-0.5 text-xs font-medium text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+            className="inline-flex items-center gap-1 rounded-chip border border-dashed px-2 py-0.5 text-xs font-medium text-muted-foreground hover:bg-muted/50 hover:text-foreground"
           >
             <Plus className="size-3" /> Add {label}
           </button>
@@ -424,6 +425,7 @@ function FileControl({
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
+  const preview = useFilePreviewStore((st) => st.preview);
 
   // Stored value may be a single legacy id or a list.
   const ids = Array.isArray(value) ? value.map(String) : typeof value === "string" && value ? [value] : [];
@@ -440,21 +442,13 @@ function FileControl({
     );
   }
 
-  /** Open a stored attachment — popup-safe: the tab opens inside the click. */
-  const view = (attachmentId: string) => {
+  /** Відкрити збережений файл у вікні перегляду, як і решту вкладень. */
+  const view = (attachmentId: string, name: string) => {
     if (!dealId) return;
-    const tab = window.open("", "_blank");
-    if (tab) tab.opener = null;
-    void (async () => {
-      try {
-        const { downloadUrl } = await getAttachmentDownloadUrl(dealId, attachmentId);
-        if (tab) tab.location.replace(downloadUrl);
-        else window.open(downloadUrl, "_blank", "noopener,noreferrer");
-      } catch (e) {
-        tab?.close();
-        toast.error(getApiErrorMessage(e));
-      }
-    })();
+    preview({
+      name,
+      load: async () => (await getAttachmentDownloadUrl(dealId, attachmentId)).downloadUrl,
+    });
   };
 
   const uploadNow = async (files: File[]) => {
@@ -518,7 +512,7 @@ function FileControl({
                 attachmentId={id}
                 dealId={dealId!}
                 disabled={disabled}
-                onView={() => view(id)}
+                onView={() => view(id, `File ${i + 1}`)}
                 onRemove={() => {
                   const next = ids.filter((x) => x !== id);
                   onChange(next.length ? next : undefined);

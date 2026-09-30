@@ -9,6 +9,7 @@ import {
 import { DynamoDbService } from '@bitcrm/shared';
 import { type JobSource } from '@bitcrm/types';
 import { DEALS_TABLE, DEALS_GSI1_NAME } from '../common/constants/dynamo.constants';
+import { isReferencedByDeal, equals } from '../common/utils/is-referenced';
 import {
   JOB_SOURCE_PK_PREFIX,
   JOB_SOURCE_SK,
@@ -68,13 +69,23 @@ export class JobSourcesRepository {
     return result.Item ? this.toEntity(result.Item) : null;
   }
 
-  async listAll(): Promise<JobSource[]> {
+  /**
+   * `activeOnly` is what a picker needs: 690 sources came over from Workiz and
+   * 239 are still offered, so the rest are weight on every job page.
+   */
+  async listAll(options: { activeOnly?: boolean } = {}): Promise<JobSource[]> {
     const result = await this.dynamoDb.client.send(
       new QueryCommand({
         TableName: DEALS_TABLE,
         IndexName: DEALS_GSI1_NAME,
         KeyConditionExpression: 'GSI1PK = :pk',
-        ExpressionAttributeValues: { ':pk': JOB_SOURCE_GSI1PK },
+        ...(options.activeOnly
+          ? {
+              FilterExpression: '#active = :true',
+              ExpressionAttributeNames: { '#active': 'active' },
+              ExpressionAttributeValues: { ':pk': JOB_SOURCE_GSI1PK, ':true': true },
+            }
+          : { ExpressionAttributeValues: { ':pk': JOB_SOURCE_GSI1PK } }),
       }),
     );
     return (result.Items || []).map((i) => this.toEntity(i));
@@ -85,16 +96,7 @@ export class JobSourcesRepository {
    * `Limit: 1` because only existence matters, never the count.
    */
   async isReferencedByDeal(id: string): Promise<boolean> {
-    const result = await this.dynamoDb.client.send(
-      new ScanCommand({
-        TableName: DEALS_TABLE,
-        FilterExpression: '#sourceId = :id',
-        ExpressionAttributeNames: { '#sourceId': 'sourceId' },
-        ExpressionAttributeValues: { ':id': id },
-        Limit: 1,
-      }),
-    );
-    return (result.Items?.length ?? 0) > 0;
+    return isReferencedByDeal(this.dynamoDb.client, DEALS_TABLE, equals('sourceId', id));
   }
 
   async remove(id: string): Promise<void> {

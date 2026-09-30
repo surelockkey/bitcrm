@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Merge, Plus, Search, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ListPagination } from "@/components/ui/list-pagination";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Dialog,
@@ -12,29 +13,53 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { usePermissions } from "@/features/auth/use-permissions";
-import { useContacts, useCompanyMap } from "../hooks";
-import { searchContacts } from "../lib";
+import { pagedSource } from "@/lib/paging/paged-source";
+import { usePageSize } from "@/lib/paging/use-page-size";
+import { usePager } from "@/lib/paging/use-pager";
+import { usePermissions, useDenied } from "@/features/auth/use-permissions";
+import { useContactsPage, useContactSearch, useCompaniesByIds , useContactsCount } from "../hooks";
 import { ContactsTable } from "./contacts-table";
 import { ContactForm } from "./contact-form";
 import { MergeContactsDialog } from "./merge-contacts-dialog";
 
 export function ContactsPage() {
   const router = useRouter();
-  const { can } = usePermissions();
+  const { can  } = usePermissions();
+  const denied = useDenied();
   const [search, setSearch] = useState("");
   const [creating, setCreating] = useState(false);
   const [merging, setMerging] = useState(false);
 
-  const contactsQuery = useContacts();
-  const { map: companyMap } = useCompanyMap();
+  // Untyped: the list a page at a time, as the CRM pages it. Typed: the
+  // search service answers, hydrated in one call — never the whole table.
+  const searching = search.trim().length >= 2;
+  const [pageSize, setPageSize] = usePageSize("contacts");
+  const pageQuery = useContactsPage(undefined, !searching, pageSize);
+  const found = useContactSearch(searching ? search : "");
 
-  const filtered = useMemo(
-    () => searchContacts(contactsQuery.data ?? [], search),
-    [contactsQuery.data, search],
+  // Пошук відповідає сервісом пошуку, не сторінками CRM — тоді лічильник
+  // списку ні до чого.
+  const count = useContactsCount(undefined, !searching);
+  const pager = usePager(pagedSource(pageQuery), {
+    total: count.data?.total,
+    totalIsFloor: count.data?.atLeast,
+    pageSize,
+    resetKey: String(pageSize),
+  });
+  const filtered = searching ? found.data : pager.items;
+  // Назви компаній — лише тих, що в рядках на екрані.
+  const { map: companyMap } = useCompaniesByIds(
+    useMemo(() => filtered.map((c) => c.companyId).filter((id): id is string => !!id), [filtered]),
   );
+  // Пошук дублікатів дивиться на все, що встигли погортати, а не на одну
+  // сторінку: два записи однієї людини рідко стоять поруч.
+  const loaded = useMemo(
+    () => pageQuery.data?.pages.flatMap((p) => p.data) ?? [],
+    [pageQuery.data],
+  );
+  const isLoading = searching ? found.isLoading : pageQuery.isLoading;
 
-  if (!can("contacts", "view")) return <NoAccess entity="contacts" />;
+  if (denied("contacts", "view")) return <NoAccess entity="contacts" />;
 
   return (
     <div className="flex flex-1 flex-col">
@@ -71,12 +96,14 @@ export function ContactsPage() {
           />
         </div>
         <span className="ml-auto text-sm text-muted-foreground">
-          {filtered.length} {filtered.length === 1 ? "contact" : "contacts"}
+          {searching
+            ? `${filtered.length} ${filtered.length === 1 ? "match" : "matches"}`
+            : `Showing ${filtered.length}`}
         </span>
       </div>
 
       <div className="flex-1 overflow-y-auto p-6">
-        {contactsQuery.isLoading ? (
+        {isLoading ? (
           <Skeleton className="h-64 w-full" />
         ) : filtered.length === 0 ? (
           <EmptyState
@@ -85,14 +112,21 @@ export function ContactsPage() {
             hint={search ? "Try a different search." : "Create your first contact to get started."}
           />
         ) : (
-          <ContactsTable contacts={filtered} companyMap={companyMap} />
+          <>
+            <ContactsTable contacts={filtered} companyMap={companyMap} />
+            {/* Знайдене пошуковим сервісом приходить одним набором — там
+                гортати нема чого. */}
+            {searching ? null : (
+              <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} />
+            )}
+          </>
         )}
       </div>
 
       <MergeContactsDialog
         open={merging}
         onOpenChange={setMerging}
-        contacts={contactsQuery.data ?? []}
+        contacts={loaded}
       />
 
       <Dialog open={creating} onOpenChange={setCreating}>

@@ -350,6 +350,185 @@ describe('Transfers E2E', () => {
       .expect(400);
   });
 
+  // ---- LOCATIONS MUST EXIST AND DIFFER ----
+
+  it('POST /transfers - unknown destination is 404 and stock stays put', async () => {
+    const product = await createProduct(app, adminUser);
+    const warehouse = await createWarehouse(app, adminUser);
+    await receiveStock(app, adminUser, warehouse.id, [
+      { productId: product.id, productName: product.name, quantity: 10 },
+    ]);
+
+    await request(app.getHttpServer())
+      .post(TRANSFERS_BASE)
+      .set('x-test-user', createTestUserHeader(adminUser))
+      .send({
+        fromType: 'warehouse',
+        fromId: warehouse.id,
+        toType: 'container',
+        toId: 'typo',
+        items: [{ productId: product.id, productName: product.name, quantity: 4 }],
+      })
+      .expect(404);
+
+    const stock = await getStockLevels(app, adminUser, WAREHOUSES_BASE, warehouse.id);
+    expect(stock.body.data.find((s: any) => s.productId === product.id).quantity).toBe(10);
+  });
+
+  it('POST /transfers - the same location on both sides is 400', async () => {
+    const product = await createProduct(app, adminUser);
+    const warehouse = await createWarehouse(app, adminUser);
+
+    await request(app.getHttpServer())
+      .post(TRANSFERS_BASE)
+      .set('x-test-user', createTestUserHeader(adminUser))
+      .send({
+        fromType: 'warehouse',
+        fromId: warehouse.id,
+        toType: 'warehouse',
+        toId: warehouse.id,
+        items: [{ productId: product.id, productName: product.name, quantity: 1 }],
+      })
+      .expect(400);
+  });
+
+  // ---- RECEIVE (Workiz "Add to stock") ----
+
+  it('POST /transfers/receive - no header gets 401, technician gets 403', async () => {
+    await request(app.getHttpServer())
+      .post(`${TRANSFERS_BASE}/receive`)
+      .send({ toType: 'warehouse', toId: 'wh1', items: [{ productId: 'p1', productName: 'P', quantity: 1 }] })
+      .expect(401);
+    await request(app.getHttpServer())
+      .post(`${TRANSFERS_BASE}/receive`)
+      .set('x-test-user', createTestUserHeader(techUser))
+      .send({ toType: 'warehouse', toId: 'wh1', items: [{ productId: 'p1', productName: 'P', quantity: 1 }] })
+      .expect(403);
+  });
+
+  it('POST /transfers/receive - receives into a container, journals it, drops non-stock-managed items', async () => {
+    const tracked = await createProduct(app, adminUser);
+    const untracked = await createProduct(app, adminUser, { name: 'Shop rag', manageStock: false });
+    const container = await ensureContainer(app, 'tech-recv', 'Recv Tech', 'HQ');
+
+    const res = await request(app.getHttpServer())
+      .post(`${TRANSFERS_BASE}/receive`)
+      .set('x-test-user', createTestUserHeader(adminUser))
+      .send({
+        toType: 'container',
+        toId: container.id,
+        items: [
+          { productId: tracked.id, productName: 'anything', quantity: 5 },
+          { productId: untracked.id, productName: untracked.name, quantity: 1 },
+        ],
+        notes: 'PO 12',
+      })
+      .expect(201);
+
+    expect(res.body.success).toBe(true);
+    expect(res.body.data).toMatchObject({
+      type: 'receive',
+      fromType: 'supplier',
+      fromId: null,
+      toType: 'container',
+      toId: container.id,
+      items: [{ productId: tracked.id, productName: tracked.name, quantity: 5 }],
+      skippedItems: [{ productId: untracked.id, productName: untracked.name, quantity: 1 }],
+      notes: 'PO 12',
+    });
+
+    const stock = await getStockLevels(app, adminUser, CONTAINERS_BASE, container.id);
+    expect(stock.body.data.map((s: any) => [s.productId, s.quantity])).toEqual([[tracked.id, 5]]);
+
+    const journal = await request(app.getHttpServer())
+      .get(`${TRANSFERS_BASE}/${res.body.data.id}`)
+      .set('x-test-user', createTestUserHeader(adminUser))
+      .expect(200);
+    expect(journal.body.data.type).toBe('receive');
+  });
+
+  it('POST /transfers/receive - unknown location is 404, only untracked items is 400, fractions are 400', async () => {
+    const untracked = await createProduct(app, adminUser, { manageStock: false });
+    const warehouse = await createWarehouse(app, adminUser);
+    const item = { productId: untracked.id, productName: untracked.name, quantity: 1 };
+
+    await request(app.getHttpServer())
+      .post(`${TRANSFERS_BASE}/receive`)
+      .set('x-test-user', createTestUserHeader(adminUser))
+      .send({ toType: 'warehouse', toId: 'nope', items: [item] })
+      .expect(404);
+    await request(app.getHttpServer())
+      .post(`${TRANSFERS_BASE}/receive`)
+      .set('x-test-user', createTestUserHeader(adminUser))
+      .send({ toType: 'warehouse', toId: warehouse.id, items: [item] })
+      .expect(400);
+    await request(app.getHttpServer())
+      .post(`${TRANSFERS_BASE}/receive`)
+      .set('x-test-user', createTestUserHeader(adminUser))
+      .send({ toType: 'warehouse', toId: warehouse.id, items: [{ ...item, quantity: 1.5 }] })
+      .expect(400);
+  });
+
+  // ---- RETURN ----
+
+  it('POST /transfers/return - no header gets 401, technician gets 403', async () => {
+    const body = {
+      fromType: 'container',
+      fromId: 'c1',
+      items: [{ productId: 'p1', productName: 'P', quantity: 1 }],
+      reason: 'lost',
+    };
+    await request(app.getHttpServer()).post(`${TRANSFERS_BASE}/return`).send(body).expect(401);
+    await request(app.getHttpServer())
+      .post(`${TRANSFERS_BASE}/return`)
+      .set('x-test-user', createTestUserHeader(techUser))
+      .send(body)
+      .expect(403);
+  });
+
+  it('POST /transfers/return - takes stock out with a reason; insufficient stock is 400', async () => {
+    const product = await createProduct(app, adminUser);
+    const warehouse = await createWarehouse(app, adminUser);
+    await receiveStock(app, adminUser, warehouse.id, [
+      { productId: product.id, productName: product.name, quantity: 3 },
+    ]);
+
+    const res = await request(app.getHttpServer())
+      .post(`${TRANSFERS_BASE}/return`)
+      .set('x-test-user', createTestUserHeader(adminUser))
+      .send({
+        fromType: 'warehouse',
+        fromId: warehouse.id,
+        items: [{ productId: product.id, productName: product.name, quantity: 2 }],
+        reason: 'damaged',
+        notes: 'bent',
+      })
+      .expect(201);
+
+    expect(res.body.data).toMatchObject({
+      type: 'return',
+      fromType: 'warehouse',
+      fromId: warehouse.id,
+      toType: null,
+      toId: null,
+      reason: 'damaged',
+      notes: 'bent',
+    });
+    const stock = await getStockLevels(app, adminUser, WAREHOUSES_BASE, warehouse.id);
+    expect(stock.body.data.find((s: any) => s.productId === product.id).quantity).toBe(1);
+
+    await request(app.getHttpServer())
+      .post(`${TRANSFERS_BASE}/return`)
+      .set('x-test-user', createTestUserHeader(adminUser))
+      .send({
+        fromType: 'warehouse',
+        fromId: warehouse.id,
+        items: [{ productId: product.id, productName: product.name, quantity: 5 }],
+        reason: 'lost',
+      })
+      .expect(400);
+  });
+
   it('POST /transfers/internal/stock/deduct - deducting a service-type product returns 400', async () => {
     const service = await createProduct(app, adminUser, { type: 'service' });
     const container = await ensureContainer(app, 'tech-svc-deduct', 'Svc Deduct', 'HQ');
@@ -619,5 +798,100 @@ describe('Transfers E2E', () => {
       .expect(200);
 
     expect(res.body.success).toBe(true);
+  });
+
+  // ---- TYPE FILTER (server side, list and count) ----
+
+  it('GET /transfers?type= - filters the list and the count on the server', async () => {
+    const product = await createProduct(app, adminUser);
+    const warehouse = await createWarehouse(app, adminUser);
+    const container = await ensureContainer(app, 'tech-type', 'Type Tech', 'Atlanta');
+    await receiveStock(app, adminUser, warehouse.id, [
+      { productId: product.id, productName: product.name, quantity: 5 },
+    ]);
+    await request(app.getHttpServer())
+      .post(TRANSFERS_BASE)
+      .set('x-test-user', createTestUserHeader(adminUser))
+      .send({
+        fromType: 'warehouse',
+        fromId: warehouse.id,
+        toType: 'container',
+        toId: container.id,
+        items: [{ productId: product.id, productName: product.name, quantity: 2 }],
+      })
+      .expect(201);
+
+    const receives = await request(app.getHttpServer())
+      .get(`${TRANSFERS_BASE}?type=receive&limit=1`)
+      .set('x-test-user', createTestUserHeader(adminUser))
+      .expect(200);
+    expect(receives.body.data.map((t: { type: string }) => t.type)).toEqual(['receive']);
+
+    const moves = await request(app.getHttpServer())
+      .get(`${TRANSFERS_BASE}/count?type=transfer`)
+      .set('x-test-user', createTestUserHeader(adminUser))
+      .expect(200);
+    expect(moves.body.data).toEqual({ total: 1, atLeast: false });
+
+    await request(app.getHttpServer())
+      .get(`${TRANSFERS_BASE}?type=teleport`)
+      .set('x-test-user', createTestUserHeader(adminUser))
+      .expect(400);
+  });
+
+  // ---- ARCHIVED LOCATIONS ----
+
+  it('refuses stock INTO an archived location but still moves it OUT', async () => {
+    const product = await createProduct(app, adminUser);
+    const warehouse = await createWarehouse(app, adminUser);
+    const container = await ensureContainer(app, 'tech-arch', 'Arch Tech', 'Atlanta');
+    await receiveStock(app, adminUser, warehouse.id, [
+      { productId: product.id, productName: product.name, quantity: 5 },
+    ]);
+    // Archiving a warehouse asks warehouses.delete, which only the super admin has here.
+    const superAdmin: JwtUser = {
+      id: 'sa-1', cognitoSub: 'sub-sa', email: 'sa@test.com',
+      roleId: 'role-super-admin', department: 'HQ',
+    };
+    await request(app.getHttpServer())
+      .delete(`${WAREHOUSES_BASE}/${warehouse.id}`)
+      .set('x-test-user', createTestUserHeader(superAdmin))
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .post(`${TRANSFERS_BASE}/receive`)
+      .set('x-test-user', createTestUserHeader(adminUser))
+      .send({
+        toType: 'warehouse',
+        toId: warehouse.id,
+        items: [{ productId: product.id, productName: product.name, quantity: 1 }],
+      })
+      .expect(400);
+
+    // Out of the archived store into an active van: allowed.
+    await request(app.getHttpServer())
+      .post(TRANSFERS_BASE)
+      .set('x-test-user', createTestUserHeader(adminUser))
+      .send({
+        fromType: 'warehouse',
+        fromId: warehouse.id,
+        toType: 'container',
+        toId: container.id,
+        items: [{ productId: product.id, productName: product.name, quantity: 2 }],
+      })
+      .expect(201);
+
+    // Back into the archived store: refused.
+    await request(app.getHttpServer())
+      .post(TRANSFERS_BASE)
+      .set('x-test-user', createTestUserHeader(adminUser))
+      .send({
+        fromType: 'container',
+        fromId: container.id,
+        toType: 'warehouse',
+        toId: warehouse.id,
+        items: [{ productId: product.id, productName: product.name, quantity: 1 }],
+      })
+      .expect(400);
   });
 });

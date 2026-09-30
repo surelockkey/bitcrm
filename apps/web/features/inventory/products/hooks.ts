@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  keepPreviousData,
   useInfiniteQuery,
   useMutation,
   useQuery,
@@ -10,23 +11,81 @@ import { toast } from "sonner";
 import type { Product } from "@bitcrm/types";
 import { queryKeys } from "@/lib/query-keys";
 import { getApiErrorMessage } from "@/lib/api/errors";
+import { rowFromLists } from "@/features/inventory/seed-from-lists";
 import * as api from "./api";
 import type { CreateProductValues, PatchProductValues } from "./schemas";
 import type { ProductFilter } from "./lib";
 
-export function useProducts(filter: ProductFilter) {
+export function useProducts(filter: ProductFilter, limit = 50) {
   return useInfiniteQuery({
-    queryKey: queryKeys.inventory.products.list(filter),
-    queryFn: ({ pageParam }) => api.listProducts(filter, pageParam),
+    // The previous page stays on screen (dimmed) while a new filter or size loads.
+    placeholderData: keepPreviousData,
+    queryKey: queryKeys.inventory.products.list({ ...filter, limit }),
+    queryFn: ({ pageParam }) => api.listProducts(filter, pageParam, limit),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.pagination.nextCursor,
+    // A quick return to the tab reads nothing; a stock write refreshes it explicitly.
+    staleTime: 30_000,
   });
 }
 
-export function useProduct(id: string) {
+/**
+ * Скільки всього товарів під тими самими фільтрами — з цього панель робить
+ * «Page 2 of 7». Сервер тримає число тридцять секунд, тож і тут стільки ж.
+ */
+export function useProductsCount(filter: ProductFilter) {
+  return useQuery({
+    // The previous page stays on screen (dimmed) while a new filter or size loads.
+    placeholderData: keepPreviousData,
+    queryKey: queryKeys.inventory.products.count(filter),
+    queryFn: () => api.countProducts(filter),
+    staleTime: 30_000,
+  });
+}
+
+/**
+ * One item. `seed`: start from its row in the Items list while the item is
+ * read — for a view that only shows it (the stock popup's title and prices).
+ * The Edit form does not: it waits for the item itself.
+ */
+export function useProduct(id: string, { seed = false }: { seed?: boolean } = {}) {
+  const qc = useQueryClient();
   return useQuery({
     queryKey: queryKeys.inventory.products.detail(id),
     queryFn: () => api.getProduct(id),
+    placeholderData: seed ? () => rowFromLists<Product>(qc, "products", id) : undefined,
+  });
+}
+
+/** One item's stock in every location the caller may see (the "Manage stock" popup). */
+export function useProductStock(id: string, enabled: boolean) {
+  return useQuery({
+    queryKey: queryKeys.inventory.products.stock(id),
+    queryFn: () => api.getProductStock(id),
+    enabled,
+  });
+}
+
+/**
+ * Item categories and brands, archived ones included (`active: false`) — a
+ * picker offers the active ones and still names an archived one an item has.
+ * `enabled: false` for a caller without the catalog's view permission.
+ */
+export function useItemCategories(enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.inventory.categories.list(),
+    queryFn: api.listItemCategories,
+    enabled,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useBrands(enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.inventory.brands.list(),
+    queryFn: api.listBrands,
+    enabled,
+    staleTime: 5 * 60 * 1000,
   });
 }
 

@@ -60,6 +60,7 @@ vi.mock("../hooks", () => ({
 }));
 
 vi.mock("@/features/auth/use-permissions", () => ({
+  useDenied: () => () => false,
   usePermissions: () => ({ can: canMock }),
 }));
 

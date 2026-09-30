@@ -1,13 +1,28 @@
 "use client";
 
-import { useState } from "react";
-import { Check, Loader2, Plus, X } from "lucide-react";
-import type { Deal, DealProduct } from "@bitcrm/types";
+import { useMemo, useState } from "react";
+import { Check, Loader2, Plus, ShieldCheck, X } from "lucide-react";
+import { calculateDocumentTotals } from "@bitcrm/types";
+import type { Deal, DealProduct, PaymentSummary } from "@bitcrm/types";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { useDealProducts, useRemoveProduct, useMarkProductOrdered } from "../hooks";
-import { dealTotal, formatMoney } from "../lib";
+import { useContact } from "@/features/clients/hooks";
+import { DocumentSummaryPanel } from "@/features/billing/components/document-summary-panel";
+import { applyAmountPaid } from "@/features/payments/lib";
+import {
+  useDealProducts,
+  useDealTotals,
+  useMarkProductOrdered,
+  useRemoveProduct,
+  useResetDealTax,
+  useSetDealDiscount,
+  useSetDealTax,
+  useSetProductTaxable,
+} from "../hooks";
+import { formatMoney } from "../lib";
 import { AddProductDialog } from "./add-product-dialog";
 
 function FulfillmentBadge({ product }: { product: DealProduct }) {
@@ -16,25 +31,25 @@ function FulfillmentBadge({ product }: { product: DealProduct }) {
     // Carried over from Workiz: it never moved BitCRM stock, and its price is
     // whatever Workiz recorded (so the ±15% band leaves it alone).
     return (
-      <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
+      <span className="rounded-chip bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
         Imported
       </span>
     );
   }
   if (f === "service") {
     return (
-      <span className="rounded-full bg-sky-100 px-1.5 py-0.5 text-[10px] font-semibold text-sky-700 dark:bg-sky-950/60 dark:text-sky-300">
+      <span className="rounded-chip bg-sky-100 px-1.5 py-0.5 text-[10px] font-semibold text-sky-700 dark:bg-sky-950/60 dark:text-sky-300">
         Service
       </span>
     );
   }
   if (f === "to_order") {
     return product.orderedAt ? (
-      <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300">
+      <span className="rounded-chip bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300">
         Ordered
       </span>
     ) : (
-      <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-950/60 dark:text-amber-300">
+      <span className="rounded-chip bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-950/60 dark:text-amber-300">
         To order
       </span>
     );
@@ -42,41 +57,87 @@ function FulfillmentBadge({ product }: { product: DealProduct }) {
   return null; // `sourced` is the default — no badge needed.
 }
 
-export function DealProductsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
+export function DealProductsTab({
+  deal,
+  canEdit,
+  showPayments = false,
+  paymentSummary,
+}: {
+  deal: Deal;
+  canEdit: boolean;
+  /** Add Paid / Balance due to the summary (the Invoice tab reuses this view). */
+  showPayments?: boolean;
+  /**
+   * The invoice's payment ledger, when the Invoice tab has it. It is the
+   * authority on what has been collected — the job snapshot can lag a payment
+   * by a beat.
+   */
+  paymentSummary?: PaymentSummary;
+}) {
   const { data: products, isLoading } = useDealProducts(deal.id);
+  const totalsQuery = useDealTotals(deal.id);
   const remove = useRemoveProduct(deal.id);
   const markOrdered = useMarkProductOrdered(deal.id);
+  const setTaxable = useSetProductTaxable(deal.id);
+  const setTax = useSetDealTax(deal.id);
+  const resetTax = useResetDealTax(deal.id);
+  const setDiscount = useSetDealDiscount(deal.id);
+  const exempt = deal.taxSource === "exempt";
+  const { data: contact } = useContact(exempt ? deal.contactId : "");
   const [adding, setAdding] = useState(false);
   // Clicking a row edits that line in the same dialog (change qty/price or
   // swap the item for another catalog product).
   const [editing, setEditing] = useState<DealProduct | null>(null);
 
+  const items = useMemo(() => products ?? [], [products]);
+  // Server totals are authoritative; until they arrive (or while a line edit
+  // is refetching) the same shared formula runs on the local items.
+  const localTotals = useMemo(
+    () =>
+      calculateDocumentTotals({
+        lines: items,
+        taxRatePercent: deal.taxRatePercent,
+        discount: deal.discount,
+      }),
+    [items, deal.taxRatePercent, deal.discount],
+  );
+  const snapshot = totalsQuery.data && !totalsQuery.isFetching ? totalsQuery.data : localTotals;
+  // The ledger, when the Invoice tab has it, restates Paid / Balance due.
+  const totals = paymentSummary ? applyAmountPaid(snapshot, paymentSummary.settled) : snapshot;
+
   if (isLoading) return <Skeleton className="h-40 w-full" />;
-  const items = products ?? [];
-  const total = dealTotal(items);
 
   return (
     <div className="space-y-3">
+      {exempt ? (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <Badge variant="outline" className="gap-1 border-emerald-500/40 font-normal text-emerald-700 dark:text-emerald-400">
+            <ShieldCheck /> Tax exempt
+          </Badge>
+          {contact?.taxExemptReason ? <span>{contact.taxExemptReason}</span> : null}
+        </div>
+      ) : null}
       {items.length === 0 ? (
         <div className="rounded-lg border border-dashed py-10 text-center text-sm text-muted-foreground">
           No products on this job yet.
         </div>
       ) : (
-        <div className="overflow-hidden rounded-lg border">
-          <table className="w-full text-sm">
+        <div className="overflow-x-auto rounded-lg border">
+          <table className="w-full min-w-[28rem] text-sm">
             <thead>
               <tr className="border-b bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
                 <th className="px-3 py-2 text-left font-semibold">Item</th>
                 <th className="px-3 py-2 text-right font-semibold">Qty</th>
                 <th className="px-3 py-2 text-right font-semibold">Client</th>
                 <th className="px-3 py-2 text-right font-semibold">Line</th>
+                <th className="px-2 py-2 text-center font-semibold">Taxable</th>
                 {canEdit ? <th className="w-8" /> : null}
               </tr>
             </thead>
             <tbody>
               {items.map((p) => (
                 <tr
-                  key={p.productId}
+                  key={p.lineId}
                   className={cn("border-b last:border-0", canEdit && "cursor-pointer hover:bg-accent/30")}
                   onClick={canEdit ? () => setEditing(p) : undefined}
                 >
@@ -96,13 +157,16 @@ export function DealProductsTab({ deal, canEdit }: { deal: Deal; canEdit: boolea
                       )}
                       <FulfillmentBadge product={p} />
                     </div>
+                    {p.description ? (
+                      <p className="mt-0.5 line-clamp-2 text-xs whitespace-pre-line text-muted-foreground">{p.description}</p>
+                    ) : null}
                     <div className="font-mono text-[11px] text-muted-foreground">{p.sku} · tech {formatMoney(p.costForTech)}</div>
                     {canEdit && (p.fulfillment ?? "sourced") === "to_order" ? (
                       <button
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          markOrdered.mutate({ productId: p.productId, ordered: !p.orderedAt });
+                          markOrdered.mutate({ lineId: p.lineId, ordered: !p.orderedAt });
                         }}
                         disabled={markOrdered.isPending}
                         className={cn(
@@ -118,11 +182,21 @@ export function DealProductsTab({ deal, canEdit }: { deal: Deal; canEdit: boolea
                   <td className="px-3 py-2 text-right tabular-nums">{p.quantity}</td>
                   <td className="px-3 py-2 text-right font-mono tabular-nums">{formatMoney(p.priceClient)}</td>
                   <td className="px-3 py-2 text-right font-mono tabular-nums">{formatMoney(p.priceClient * p.quantity)}</td>
+                  <td className="px-2 py-2 text-center" onClick={(e) => e.stopPropagation()}>
+                    <Checkbox
+                      checked={p.taxable !== false}
+                      disabled={!canEdit}
+                      onCheckedChange={(v) =>
+                        setTaxable.mutate({ lineId: p.lineId, taxable: v === true })
+                      }
+                      aria-label={`${p.name} is taxable`}
+                    />
+                  </td>
                   {canEdit ? (
                     <td className="px-2 py-2 text-right">
                       <button
                         type="button"
-                        onClick={(e) => { e.stopPropagation(); remove.mutate(p.productId); }}
+                        onClick={(e) => { e.stopPropagation(); remove.mutate(p.lineId); }}
                         disabled={remove.isPending}
                         className="text-muted-foreground hover:text-destructive"
                         aria-label={`Remove ${p.name}`}
@@ -138,7 +212,7 @@ export function DealProductsTab({ deal, canEdit }: { deal: Deal; canEdit: boolea
         </div>
       )}
 
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         {canEdit ? (
           <div className="flex flex-col items-start gap-1">
             <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setAdding(true)}>
@@ -146,7 +220,21 @@ export function DealProductsTab({ deal, canEdit }: { deal: Deal; canEdit: boolea
             </Button>
           </div>
         ) : <span />}
-        <span className="font-mono text-sm font-semibold tabular-nums">Total {formatMoney(total)}</span>
+        <DocumentSummaryPanel
+          totals={totals}
+          taxRateId={deal.taxRateId}
+          taxRateName={deal.taxRateName}
+          taxSource={deal.taxSource}
+          discount={deal.discount}
+          canEdit={canEdit}
+          pending={setTax.isPending || resetTax.isPending || setDiscount.isPending}
+          onTaxChange={(taxRateId) => setTax.mutate(taxRateId)}
+          onResetTaxAuto={() => resetTax.mutate()}
+          onDiscountChange={(d) => setDiscount.mutate(d)}
+          exemptLabel={contact?.taxExemptReason}
+          showPayments={showPayments}
+          paymentSummary={paymentSummary}
+        />
       </div>
 
       <AddProductDialog

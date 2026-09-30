@@ -32,6 +32,13 @@ export type DealProductFulfillment =
 export type DealProductPriceSource = 'catalog' | 'override' | 'imported';
 
 export interface DealProduct {
+  /**
+   * The line's own id — what its row is keyed by, so one job can carry the
+   * same product on two lines (a Workiz job routinely does: 19 506 such
+   * lines in 8 765 pairs). Rows written before this field read it back as
+   * their `productId`, which is exactly the key they were stored under.
+   */
+  lineId: string;
   productId: string;
   name: string;
   sku: string;
@@ -50,6 +57,20 @@ export interface DealProduct {
   priceSource?: DealProductPriceSource;
   /** For `to_order` lines: ISO timestamp set when the line is marked ordered. */
   orderedAt?: string;
+  /**
+   * Whether the job's tax rate applies to this line. Missing on legacy rows —
+   * readers must treat an absent value as `true` (Workiz default).
+   */
+  taxable?: boolean;
+  /**
+   * Whether the job's discount reaches this line. Absent ⇒ `true`; only the
+   * Workiz importer writes `false` today — for Workiz's card service fee and
+   * its non-discountable lines, which Workiz leaves out of the discount (see
+   * `calculateDocumentTotals`).
+   */
+  discountable?: boolean;
+  /** Optional client-facing description shown on estimates/invoices. */
+  description?: string;
   addedBy: string;
   addedAt: string;
   /** Set when the line was last edited (quantity/price change or product swap). */

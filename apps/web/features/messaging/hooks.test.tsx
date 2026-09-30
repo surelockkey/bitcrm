@@ -14,6 +14,7 @@ import { useResendMessage, useResendingMessageIds } from "./hooks";
 const toast = vi.hoisted(() => ({ error: vi.fn(), success: vi.fn() }));
 vi.mock("sonner", () => ({ toast }));
 vi.mock("@/features/auth/use-permissions", () => ({
+  useDenied: () => () => false,
   usePermissions: () => ({ can: () => true, me: { id: "me" }, isLoading: false, isTechnician: false }),
 }));
 vi.mock("./api", async (importOriginal) => ({

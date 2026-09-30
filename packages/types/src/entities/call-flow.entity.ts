@@ -196,6 +196,11 @@ export interface CallFlow {
   /** A flow can be drafted without answering calls. */
   active: boolean;
   /**
+   * Company (business profile) a job created from a call on this flow's
+   * numbers is pre-filled with. A per-number setting overrides it.
+   */
+  businessProfileId?: string;
+  /**
    * Bumped on every save. A call already in flight keeps the version it
    * started on, so editing a flow can't teleport a live caller.
    */

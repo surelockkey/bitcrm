@@ -60,4 +60,14 @@ describe('AutomationsRepository', () => {
     });
     expect(sent[0].input.Item).not.toHaveProperty('description');
   });
+
+  it('deletes only the rule row, leaving its firing history to its own TTL', async () => {
+    const { dynamo, sent } = mockDynamo();
+    await new AutomationsRepository(dynamo).delete('r1');
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({
+      name: 'DeleteCommand',
+      input: { Key: { PK: 'AUTOMATION#r1', SK: 'METADATA' } },
+    });
+  });
 });

@@ -6,6 +6,35 @@ const money = z.coerce
   .number({ message: "Enter an amount" })
   .min(0, "Must be 0 or more");
 
+/** An empty number input is "not set", not 0 — z.coerce would read it as 0. */
+const blankAsUnset = (v: unknown) => (v === "" || v === null ? undefined : v);
+
+const wholeCount = z.coerce
+  .number({ message: "Enter a number" })
+  .int("Whole number")
+  .min(0, "Must be 0 or more");
+
+const reorderLevel = z.preprocess(blankAsUnset, wholeCount.optional());
+
+/**
+ * Editing, a cleared field is `null`: PUT /products/:id clears an optional
+ * field sent as null. A blank that parsed to "not set" would be a missing key
+ * — the old value kept behind an "Item saved" — and 0 is a reorder point of
+ * its own, not "none".
+ */
+const editedReorderLevel = z.preprocess(
+  (v) => (v === "" || v === null ? null : v),
+  wholeCount.nullable().optional(),
+);
+
+/** Editing, an emptied optional text field is `null`, which clears it on the server. */
+const clearableText = z
+  .string()
+  .trim()
+  .nullable()
+  .optional()
+  .transform((v) => (v === "" ? null : v));
+
 const baseFields = {
   name: z.string().trim().min(1, "Name is required").max(120),
   barcode: z.string().trim().max(64).optional(),
@@ -17,16 +46,25 @@ const baseFields = {
   priceClient: money,
   supplier: z.string().trim().max(120).optional(),
   serialTracking: z.boolean(),
+  /** Default `taxable` flag copied onto job/estimate lines (absent ⇒ true). */
+  taxable: z.boolean().default(true),
   minimumStockLevel: z.coerce
     .number({ message: "Enter a number" })
     .int("Whole number")
     .min(0, "Must be 0 or more"),
+  /** Whether stock is counted (Workiz "Manage stock"). Absent ⇒ true on the server too. */
+  manageStock: z.boolean().default(true),
+  /** Brand catalog id; "" is "No brand". */
+  brandId: z.string().trim().max(64).optional(),
+  reorderLevel,
 };
 
 /** Create requires a SKU (unique, immutable once set). */
 export const createProductSchema = z.object({
   ...baseFields,
   sku: z.string().trim().min(1, "SKU is required").max(64),
+  // A new item with no brand sends none — "" would be stored as a brand id.
+  brandId: baseFields.brandId.transform((v) => v || undefined),
 });
 
 /** Update omits SKU — the backend ignores changes to it. */
@@ -34,8 +72,15 @@ export const updateProductSchema = z.object(baseFields);
 
 export type CreateProductValues = z.infer<typeof createProductSchema>;
 export type UpdateProductValues = z.infer<typeof updateProductSchema>;
-/** A PUT body carrying only the fields the user actually changed. */
-export type PatchProductValues = Partial<UpdateProductValues>;
+/** The optional fields PUT /products/:id clears when they arrive as `null`. */
+type ClearableField = "brandId" | "reorderLevel" | "supplier" | "barcode" | "description";
+
+/** A PUT body carrying only the fields the user actually changed; `null` clears. */
+export type PatchProductValues = {
+  [K in keyof UpdateProductValues]?: K extends ClearableField
+    ? UpdateProductValues[K] | null
+    : UpdateProductValues[K];
+};
 
 /* ------------------------------------------------------------------ *
  * Editing an imported item
@@ -60,16 +105,23 @@ const MONEY_FIELDS = ["costCompany", "costTech", "priceClient"] as const;
 /** Same shape, without the caps — they are re-applied per field below. */
 const looseFields = {
   name: z.string().trim().min(1, "Name is required"),
-  barcode: z.string().trim().optional(),
-  description: z.string().trim().optional(),
+  barcode: clearableText,
+  description: clearableText,
   category: z.string().trim().min(1, "Category is required"),
   type: z.nativeEnum(ProductType),
   costCompany: z.coerce.number({ message: "Enter an amount" }),
   costTech: z.coerce.number({ message: "Enter an amount" }),
   priceClient: z.coerce.number({ message: "Enter an amount" }),
-  supplier: z.string().trim().optional(),
+  supplier: clearableText,
   serialTracking: z.boolean(),
+  // Without these the resolver strips them and a change to them is never sent.
+  taxable: z.boolean().default(true),
+  manageStock: z.boolean().default(true),
+  // "No brand" is null: a missing key would keep the old brand, and "" would
+  // be stored as a brand id.
+  brandId: clearableText,
   minimumStockLevel: z.coerce.number({ message: "Enter a number" }).int("Whole number"),
+  reorderLevel: editedReorderLevel,
 };
 
 /**

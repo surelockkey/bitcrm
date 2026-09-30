@@ -39,6 +39,13 @@ export type CoverageShape =
 /** Default business timezone (Connecticut) when an area doesn't set its own. */
 export const DEFAULT_TIMEZONE = 'America/New_York';
 
+export interface ServiceAreaTax {
+  /** e.g. "CT Sales Tax" */
+  name: string;
+  /** Percent, up to 3 decimals, e.g. 6.35 */
+  ratePercent: number;
+}
+
 export interface ServiceArea {
   id: string;
   name: string;
@@ -63,6 +70,14 @@ export interface ServiceArea {
    * call is never refused for want of a caller id.
    */
   callerId?: string;
+  /**
+   * The area's sales tax, configured on the area itself and applied
+   * automatically to jobs resolved into it. Absent ⇒ jobs in this area carry
+   * no tax. Exposed to jobs/estimates as a `TaxRate` whose id is the area id.
+   */
+  tax?: ServiceAreaTax;
+  /** Company (business profile) new jobs in this area default to. */
+  defaultBusinessProfileId?: string;
   createdBy: string;
   createdAt: string;
   updatedAt: string;

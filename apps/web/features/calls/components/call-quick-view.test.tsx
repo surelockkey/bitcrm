@@ -4,7 +4,14 @@ import type { CallRecord } from "../lib";
 import { CallQuickView } from "./call-quick-view";
 
 const detail = vi.fn<() => { data?: CallRecord; isLoading: boolean }>();
-vi.mock("../hooks", () => ({ useCallDetail: () => detail() }));
+/** The seed the popup handed the query — the row it was opened from. */
+const seedsSeen: Array<CallRecord | undefined> = [];
+vi.mock("../hooks", () => ({
+  useCallDetail: (_sid: string, seed?: CallRecord) => {
+    seedsSeen.push(seed);
+    return detail();
+  },
+}));
 
 vi.mock("./call-associations", () => ({
   CallAssociations: () => <div>associations</div>,
@@ -111,10 +118,11 @@ describe("CallQuickView", () => {
     expect(screen.getByText("SURE CT GOOGLE ADS")).toBeInTheDocument();
   });
 
-  it("offers Create job with the client, source and call prewired", () => {
+  it("offers Create job with the client, source, company and call prewired", () => {
     detail.mockReturnValue({
       data: call({
         sourceId: "src-1",
+        businessProfileId: "bp-2",
         fromParty: { kind: "contact", id: "c9", name: "Jane Roe" },
       }),
       isLoading: false,
@@ -127,6 +135,7 @@ describe("CallQuickView", () => {
     expect(href).toContain("callSid=CA1");
     expect(href).toContain("contactId=c9");
     expect(href).toContain("sourceId=src-1");
+    expect(href).toContain("companyId=bp-2");
   });
 
   it("passes the caller's number when they aren't a client yet", () => {
@@ -151,5 +160,50 @@ describe("CallQuickView", () => {
     expect(
       screen.queryByRole("link", { name: /create job/i }),
     ).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * Відкриття попапа має бути миттєвим.
+ *
+ * Рядок, на який клікнули, уже несе весь запис — список резолвить імена сам
+ * (`withNames` на сервері). Детальний запит питає по суті те саме для одного
+ * дзвінка, тож чекати на нього, маючи відповідь у руках, нема за чим.
+ */
+describe("CallQuickView — opens from the row it was clicked on", () => {
+  const row = {
+    callSid: "CA9",
+    direction: "inbound",
+    status: "completed",
+    from: "+14045550111",
+    to: "+14045550222",
+    startedAt: "2026-09-28T10:00:00.000Z",
+  } as CallRecord;
+
+  beforeEach(() => {
+    seedsSeen.length = 0;
+  });
+
+  it("hands the row it was opened from to the query as a seed", () => {
+    detail.mockReturnValue({ data: row, isLoading: false });
+    render(<CallQuickView callSid="CA9" call={row} open onOpenChange={() => {}} />);
+
+    expect(seedsSeen.at(-1)).toBe(row);
+  });
+
+  it("shows the call straight away, without the loading shell", () => {
+    // The query is still in flight; the seed is what the panel draws.
+    detail.mockReturnValue({ data: row, isLoading: true });
+    render(<CallQuickView callSid="CA9" call={row} open onOpenChange={() => {}} />);
+
+    expect(screen.queryByRole("status", { name: "Loading call" })).toBeNull();
+  });
+
+  // Прямий лінк на дзвінок, без списку за спиною.
+  it("still shows the shell when it was opened without a row", () => {
+    detail.mockReturnValue({ data: undefined, isLoading: true });
+    render(<CallQuickView callSid="CA9" open onOpenChange={() => {}} />);
+
+    expect(screen.getByRole("status", { name: "Loading call" })).toBeInTheDocument();
   });
 });

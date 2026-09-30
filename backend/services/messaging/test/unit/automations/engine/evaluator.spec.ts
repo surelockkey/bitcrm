@@ -1,7 +1,13 @@
-import { type AutomationSpec, type AutomationTrigger } from '@bitcrm/types';
+import {
+  type AutomationConditionGroup,
+  type AutomationConditionNode,
+  type AutomationSpec,
+  type AutomationTrigger,
+} from '@bitcrm/types';
 import {
   evaluateRule,
   matchesCondition,
+  matchesConditionGroup,
   matchesConditions,
   matchesTrigger,
 } from '../../../../src/automations/engine/evaluator';
@@ -186,6 +192,48 @@ describe('automation condition matrix', () => {
     );
     expect(result.matched).toBe(false);
     expect(result.matched === false && result.reason).toContain('tag');
+  });
+
+  // --- OR groups: the Workiz "only one of these must be true" (25 imported rules)
+
+  const sourceGroup: AutomationConditionGroup = {
+    any: [
+      { field: 'source', op: 'in', values: ['src-gmb'], labels: ['GMB'] },
+      { field: 'source', op: 'in', values: ['src-1'], labels: ['Yelp'] },
+      { field: 'source', op: 'in', values: ['src-fb'], labels: ['Facebook'] },
+    ],
+  };
+
+  it('a group holds when one alternative does, and names every miss when none do', () => {
+    expect(matchesConditionGroup(sourceGroup, facts()).matched).toBe(true);
+
+    const missed = matchesConditionGroup(sourceGroup, facts({ sourceId: 'src-other' }));
+    expect(missed.matched).toBe(false);
+    expect(missed.matched === false && missed.reason).toContain('src-gmb');
+    expect(missed.matched === false && missed.reason).toContain('src-fb');
+  });
+
+  it('an empty group holds for nothing — never for everything', () => {
+    expect(matchesConditionGroup({ any: [] }, facts()).matched).toBe(false);
+    expect(matchesConditions([{ any: [] }], facts()).matched).toBe(false);
+  });
+
+  it('the top level stays AND around a group, and a flat list is untouched', () => {
+    const conditions: AutomationConditionNode[] = [{ field: 'status', op: 'in', values: ['submitted'] }, sourceGroup];
+    expect(matchesConditions(conditions, facts()).matched).toBe(true);
+    // The group holds, the flat condition next to it does not.
+    expect(matchesConditions(conditions, facts({ superStatus: 'done' })).matched).toBe(false);
+    // The flat condition holds, the group does not: still no firing.
+    expect(matchesConditions(conditions, facts({ sourceId: 'src-other' })).matched).toBe(false);
+  });
+
+  it('a job that moves from one alternative to another is a new state to act on', () => {
+    const conditions: AutomationConditionNode[] = [sourceGroup];
+    const keyFor = (over: Partial<AutomationDealFacts>) =>
+      occurrenceOf(statusEvent('done'), conditions, facts(over), 'deal.updated');
+
+    expect(keyFor({})).toBe(keyFor({ tagIds: ['tag-z'] })); // a field the group never asked about
+    expect(keyFor({})).not.toBe(keyFor({ sourceId: 'src-fb' })); // Yelp → Facebook
   });
 });
 

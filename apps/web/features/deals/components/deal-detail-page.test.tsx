@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => ({
   // Per-resource so a deals-editor without contacts.edit can be simulated.
   perms: { deals: false, contacts: false },
   attachments: [] as { id: string }[],
+  invoice: null as { status: string } | null,
 }));
 
 vi.mock("next/navigation", () => ({
@@ -43,6 +44,7 @@ vi.mock("next/link", () => ({
 // Permissions flip per describe: read-only proves the client link is not gated
 // behind edit permissions; editable exercises the single-save flow.
 vi.mock("@/features/auth/use-permissions", () => ({
+  useDenied: () => () => false,
   usePermissions: () => ({
     can: (resource: string) => (resource === "contacts" ? mocks.perms.contacts : mocks.perms.deals),
     isTechnician: false,
@@ -51,6 +53,16 @@ vi.mock("@/features/auth/use-permissions", () => ({
 
 // Catalog widgets fetch via react-query; stub them so the page renders without
 // a QueryClient. None are relevant to the single-save flow.
+// The catalogs the page now asks for up front have their own test; here they
+// are simply in, so the page renders.
+vi.mock("../job-page-catalogs", () => ({ useJobPageCatalogs: () => ({ ready: true }) }));
+// The note is a rich-text editor with its own tests; here it stands in as a
+// plain box, because what these tests are about is the single Save.
+vi.mock("./deal-notes-card", () => ({
+  DealNotesCard: ({ notes, onNotesChange }: { notes: string; onNotesChange: (v: string) => void }) => (
+    <textarea placeholder="What needs doing…" value={notes} onChange={(e) => onNotesChange(e.target.value)} />
+  ),
+}));
 vi.mock("@/features/job-statuses/components/job-status-select", () => ({ JobStatusSelect: () => null }));
 vi.mock("@/features/job-tags/components/job-tag-combobox", () => ({ JobTagCombobox: () => null }));
 // Interactive stubs: a click drives the field's onChange so a test can prove the
@@ -70,6 +82,11 @@ vi.mock("@/features/external-companies/components/external-company-select", () =
     <button type="button" onClick={() => onChange("ec-1")}>pick external company</button>
   ),
 }));
+vi.mock("@/features/business-profiles/components/business-profile-select", () => ({
+  BusinessProfileSelect: ({ onChange }: { onChange: (v: string) => void }) => (
+    <button type="button" onClick={() => onChange("bp-2")}>pick company</button>
+  ),
+}));
 vi.mock("./scheduled-block", () => ({
   ScheduledBlock: ({ onChange }: { onChange: (v: { date: string; endDate: string; slot: string; allDay: boolean }) => void }) => (
     <button type="button" onClick={() => onChange({ date: "2026-09-01", endDate: "2026-09-01", slot: "", allDay: false })}>set date</button>
@@ -77,6 +94,10 @@ vi.mock("./scheduled-block", () => ({
 }));
 vi.mock("@/features/service-areas/hooks", () => ({
   useResolvedServiceArea: () => ({ data: undefined }),
+  // Площа на сторінці — той самий вибір зі списку, що й на створенні.
+  useServiceAreas: () => ({ data: [{ id: "sa-north", name: "North GA", active: true, priority: 1 }] }),
+  useEffectiveServiceArea: () => ({ submitId: "sa-north", source: "auto", area: null, resolvedArea: null, isFetching: false }),
+  useNearestServiceArea: () => ({ data: undefined }),
 }));
 vi.mock("./assigned-techs", () => ({ AssignedTechs: () => null, TechChips: () => null }));
 // The Team section assigns inline via TechSuggestions, which fetches eligible
@@ -201,6 +222,28 @@ vi.mock("@/features/clients/hooks", () => ({
   useCreateContact: () => ({ mutate: mocks.createContact, isPending: false }),
 }));
 
+// Billing tabs fetch through react-query; their own tests cover them. The
+// header's invoice badge reads the by-deal invoice.
+vi.mock("@/features/invoices/hooks", () => ({
+  useInvoiceByDeal: () => ({ data: mocks.invoice }),
+}));
+// The Payments tab's caption reads the job ledger; the tab has its own tests.
+vi.mock("@/features/payments/hooks", () => ({
+  useDealPayments: () => ({ data: undefined }),
+}));
+vi.mock("@/features/payments/components/deal-payments-tab", () => ({
+  DealPaymentsTab: () => <div data-testid="payments-tab" />,
+  paymentsTabCaption: () => null,
+}));
+vi.mock("@/features/invoices/components/deal-invoice-tab", () => ({
+  DealInvoiceTab: () => <div data-testid="invoice-tab" />,
+}));
+vi.mock("@/features/estimates/components/deal-estimates-tab", () => ({
+  DealEstimatesTab: ({ estimateId }: { estimateId: string | null }) => (
+    <div data-testid="estimates-tab" data-estimate={estimateId ?? ""} />
+  ),
+}));
+
 // The attachments catalog feeds the tab-bar count; mutable so tests vary it.
 vi.mock("../attachments-hooks", () => ({
   useAttachments: () => ({ data: mocks.attachments, isLoading: false }),
@@ -216,6 +259,7 @@ beforeEach(() => {
   mocks.perms.contacts = false;
   dealState = deal;
   mocks.attachments = [];
+  mocks.invoice = null;
   mocks.push.mockClear();
   mocks.updateDeal.mockClear();
   mocks.updateContact.mockClear();
@@ -224,7 +268,7 @@ beforeEach(() => {
 // Radix dialogs set pointer-events on <body> while open; skip the check in jsdom.
 const user = () => userEvent.setup({ pointerEventsCheck: 0 });
 
-const poInput = () => screen.getByPlaceholderText(/notes visible to the team/i);
+const poInput = () => screen.getByPlaceholderText(/what needs doing/i);
 const firstNameInput = () => screen.getByDisplayValue("Jane");
 const saveButton = () => screen.getByRole("button", { name: "Save" });
 const jobsLink = () => screen.getByRole("link", { name: /jobs/i });
@@ -236,6 +280,37 @@ function fireBeforeUnload(): Event {
   window.dispatchEvent(e);
   return e;
 }
+
+// The job page scrolls as one page, the way Workiz's does: the header, the
+// status/tags bar and the tabs ride up with the content instead of standing
+// over a scrolling window. Only the Save bar stays put.
+describe("DealDetailPage — scrolling", () => {
+  it("scrolls the header, the status bar and the tabs with the content", () => {
+    render(<DealDetailPage dealId="d1" />);
+
+    const page = screen.getByTestId("job-page-scroll");
+    expect(page.className).toMatch(/overflow-y-auto/);
+    expect(page).toContainElement(jobsLink());
+    expect(page).toContainElement(screen.getByRole("button", { name: /^details$/i }));
+    expect(page).toContainElement(screen.getByRole("link", { name: /view client/i }));
+  });
+
+  it("gives the details no scroll region of their own", () => {
+    render(<DealDetailPage dealId="d1" />);
+
+    const inner = screen.getByRole("link", { name: /view client/i }).closest(".overflow-y-auto");
+    expect(inner).toBe(screen.getByTestId("job-page-scroll"));
+  });
+
+  it("keeps the Save bar pinned to the bottom while the page scrolls", () => {
+    mocks.perms.deals = true;
+    render(<DealDetailPage dealId="d1" />);
+
+    const bar = saveButton().parentElement as HTMLElement;
+    expect(bar.className).toMatch(/sticky/);
+    expect(bar.className).toMatch(/bottom-0/);
+  });
+});
 
 describe("DealDetailPage (read only)", () => {
   it("links from the job to the client page", () => {
@@ -257,6 +332,12 @@ describe("DealDetailPage (read only)", () => {
       "data-variant",
       "prominent",
     );
+  });
+
+  it("shows the job's company in the header", () => {
+    dealState = { ...deal, businessProfileId: "bp-2", businessProfileName: "KeyPro" };
+    render(<DealDetailPage dealId="d1" />);
+    expect(screen.getByTitle("Company")).toHaveTextContent("KeyPro");
   });
 
   it("upgrades the visit-history label to the job number", () => {
@@ -336,11 +417,13 @@ describe("DealDetailPage (editable, single save)", () => {
     expect(screen.queryAllByRole("button", { name: /save/i })).toHaveLength(1);
   });
 
-  it("notes are directly editable — textareas immediately, no Edit button", () => {
+  it("the note is directly editable — one textarea immediately, no Edit button", () => {
     render(<DealDetailPage dealId="d1" />);
 
-    expect(screen.getByPlaceholderText(/notes visible to the team/i)).toBeInTheDocument();
-    expect(screen.getByPlaceholderText(/internal dispatcher notes/i)).toBeInTheDocument();
+    // One note, as Workiz has it: the second, dispatcher-only box was ours
+    // alone and empty on every imported job.
+    expect(screen.getByPlaceholderText(/what needs doing/i)).toBeInTheDocument();
+    expect(screen.queryByPlaceholderText(/internal dispatcher notes/i)).toBeNull();
     expect(screen.queryByRole("button", { name: /edit/i })).toBeNull();
   });
 
@@ -389,6 +472,17 @@ describe("DealDetailPage (editable, single save)", () => {
 
     expect(mocks.updateDeal).toHaveBeenCalledTimes(1);
     expect(mocks.updateDeal.mock.calls[0][0]).toEqual({ externalCompanyId: "ec-1" });
+  });
+
+  it("saves the company picked on the job", async () => {
+    const u = user();
+    render(<DealDetailPage dealId="d1" />);
+
+    await u.click(screen.getByRole("button", { name: /pick company/i }));
+    await u.click(saveButton());
+
+    expect(mocks.updateDeal).toHaveBeenCalledTimes(1);
+    expect(mocks.updateDeal.mock.calls[0][0]).toEqual({ businessProfileId: "bp-2" });
   });
 
   it("locks the number the job was created with — no editing, no removing it", () => {
@@ -475,7 +569,9 @@ describe("DealDetailPage (editable, single save)", () => {
     const u = user();
     render(<DealDetailPage dealId="d1" />);
 
-    await u.type(screen.getByDisplayValue("West Valley"), " North");
+    // Площа — вибір зі списку, той самий, що й на створенні роботи.
+    await u.click(screen.getByRole("combobox", { name: /service area/i }));
+    await u.click(screen.getByRole("option", { name: "North GA" }));
     await u.click(screen.getByRole("button", { name: /set date/i }));
     await u.click(screen.getByRole("button", { name: /pick job type/i }));
     await u.click(screen.getByRole("button", { name: /pick source/i }));
@@ -486,7 +582,8 @@ describe("DealDetailPage (editable, single save)", () => {
     await u.click(saveButton());
     expect(mocks.updateDeal).toHaveBeenCalledTimes(1);
     expect(mocks.updateDeal.mock.calls[0][0]).toEqual({
-      serviceArea: "West Valley North",
+      // Ідентифікатор, а не назва: назву сервер бере з довідника.
+      serviceAreaId: "sa-north",
       scheduledDate: "2026-09-01",
       scheduledEndDate: "2026-09-01",
       jobTypeId: "jt-rekey",
@@ -595,5 +692,36 @@ describe("DealDetailPage (editable, single save)", () => {
 
     await u.type(poInput(), "PO-2");
     expect(fireBeforeUnload().defaultPrevented).toBe(true);
+  });
+});
+
+describe("DealDetailPage — billing tabs and deep links", () => {
+  it("opens the tab named in the URL and keeps the URL in sync", async () => {
+    mocks.perms.deals = true;
+    window.history.replaceState(null, "", "/deals/d1?tab=estimates&estimate=e1");
+    render(<DealDetailPage dealId="d1" initialTab="estimates" initialEstimateId="e1" />);
+
+    expect(screen.getByTestId("estimates-tab")).toHaveAttribute("data-estimate", "e1");
+
+    await user().click(screen.getByRole("button", { name: /^invoice$/i }));
+    expect(screen.getByTestId("invoice-tab")).toBeInTheDocument();
+    expect(`${window.location.pathname}${window.location.search}`).toBe("/deals/d1?tab=invoice");
+
+    await user().click(screen.getByRole("button", { name: /^details$/i }));
+    expect(`${window.location.pathname}${window.location.search}`).toBe("/deals/d1");
+  });
+
+  it("falls back to Details when the linked tab isn't permitted", () => {
+    mocks.perms.deals = false;
+    render(<DealDetailPage dealId="d1" initialTab="invoice" />);
+    expect(screen.queryByRole("button", { name: /^invoice$/i })).toBeNull();
+    expect(screen.queryByTestId("invoice-tab")).toBeNull();
+  });
+
+  it("shows the invoice status in the header", () => {
+    mocks.perms.deals = true;
+    mocks.invoice = { status: "overdue" };
+    render(<DealDetailPage dealId="d1" />);
+    expect(screen.getByRole("button", { name: /invoice overdue/i })).toHaveTextContent("Overdue");
   });
 });

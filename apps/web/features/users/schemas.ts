@@ -25,6 +25,8 @@ export const updateUserSchema = z.object({
   lastName: z.string().min(1, "Last name is required"),
   department: z.string().min(1, "Department is required"),
   phone,
+  /** Workiz "Field team member": on or off the roster that may be put on a job. Omitted = unchanged. */
+  fieldTeamMember: z.boolean().optional(),
 });
 
 export type CreateUserValues = z.infer<typeof createUserSchema>;

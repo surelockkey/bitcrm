@@ -53,19 +53,7 @@ export function isService(p: Pick<Product, "type">): boolean {
 }
 
 /* ------------------------------------------------------------------ *
- * Categories (free-text, hierarchical) — typeahead source
- * ------------------------------------------------------------------ */
-
-export function collectCategories(products: Pick<Product, "category">[]): string[] {
-  const set = new Set<string>();
-  for (const p of products) if (p.category) set.add(p.category);
-  return [...set].sort((a, b) => a.localeCompare(b));
-}
-
-/* ------------------------------------------------------------------ *
- * Filtering — mirror the backend's mutually-exclusive precedence so the
- * UI only ever sends filters the server actually honors.
- *   category  ▸  type  ▸  (status + search)
+ * Filtering — the server combines every filter it is given.
  * ------------------------------------------------------------------ */
 
 export interface ProductFilter {
@@ -73,17 +61,9 @@ export interface ProductFilter {
   type?: ProductType;
   status?: InventoryStatus;
   search?: string;
-}
-
-export function effectiveProductQuery(
-  filter: ProductFilter,
-): Record<string, string> {
-  if (filter.category) return { category: filter.category };
-  if (filter.type) return { type: filter.type };
-  const out: Record<string, string> = {};
-  if (filter.status) out.status = filter.status;
-  if (filter.search) out.search = filter.search;
-  return out;
+  /** `true` — stock-managed items only; `false` — the ones that opted out. */
+  manageStock?: boolean;
+  brandId?: string;
 }
 
 /* ------------------------------------------------------------------ *
@@ -125,11 +105,21 @@ function csvCell(value: unknown): string {
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
-/** Serialize products to a CSV that round-trips through the import endpoint. */
-export function productsToCsv(products: Product[]): string {
-  const header = EXPORT_COLUMNS.join(",");
+/**
+ * Serialize products to a CSV that round-trips through the import endpoint.
+ *
+ * `withCost: false` (no `financials.view`) drops the company-cost column. A
+ * file without it fails the import's required-column check; a blank one would
+ * read back as a cost of 0.
+ */
+export function productsToCsv(
+  products: Product[],
+  { withCost = true }: { withCost?: boolean } = {},
+): string {
+  const columns = withCost ? EXPORT_COLUMNS : EXPORT_COLUMNS.filter((c) => c !== "costCompany");
+  const header = columns.join(",");
   const rows = products.map((p) =>
-    EXPORT_COLUMNS.map((c) => csvCell((p as unknown as Record<string, unknown>)[c])).join(","),
+    columns.map((c) => csvCell((p as unknown as Record<string, unknown>)[c])).join(","),
   );
   return [header, ...rows].join("\n");
 }

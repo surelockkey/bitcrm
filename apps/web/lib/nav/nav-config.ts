@@ -1,6 +1,7 @@
 import type { LucideIcon } from "lucide-react";
 import {
   BarChart3,
+  BookOpen,
   Briefcase,
   Building2,
   Calendar,
@@ -18,6 +19,7 @@ import {
   Truck,
   UserRound,
   UsersRound,
+  Workflow,
   Wrench,
 } from "lucide-react";
 import type { Resource } from "@bitcrm/types";
@@ -67,6 +69,9 @@ export const MAIN_NAV: NavGroup[] = [
         icon: Package,
         resources: ["products", "warehouses", "containers", "transfers"],
       },
+      // Workiz "Services & Products": every item, stock-managed or not, and
+      // the categories and brands they're filed under. Inventory is the stock.
+      { label: "Price Book", href: "/price-book", icon: BookOpen, resource: "products" },
     ],
   },
   {
@@ -90,13 +95,17 @@ export const MAIN_NAV: NavGroup[] = [
       { label: "Calls", href: "/calls", icon: Phone, resource: "calls" },
       // The client inbox (SMS today; email and in-app land on the same page).
       { label: "Messages", href: "/messages", icon: MessagesSquare, resource: "messages" },
+      // A rule that texts a client on its own belongs next to the inbox, not
+      // buried in settings — Workiz puts its Automation Center at this level too.
+      { label: "Automations", href: "/automations", icon: Workflow, resource: "settings" },
     ],
   },
   {
     label: "Billing",
     items: [
-      { label: "Invoices", href: "/invoices", icon: FileText, status: "coming-soon" },
-      { label: "Payments", href: "/payments", icon: CreditCard, status: "coming-soon" },
+      { label: "Estimates", href: "/estimates", icon: FileText, resource: "estimates" },
+      { label: "Invoices", href: "/invoices", icon: FileText, resource: "invoices" },
+      { label: "Payments", href: "/payments", icon: CreditCard, resource: "payments" },
       { label: "Work Orders", href: "/work-orders", icon: ClipboardCheck, resource: "work_orders" },
     ],
   },

@@ -19,6 +19,9 @@ vi.mock("@/features/telephony/components/softphone-provider", () => ({
 vi.mock("@/features/messaging/components/messaging-stream-provider", () => ({
   MessagingStreamProvider: () => null,
 }));
+vi.mock("@/features/deals/components/deals-stream-provider", () => ({
+  DealsStreamProvider: () => null,
+}));
 vi.mock("@/features/messaging/components/inbox-sidebar-collapse", () => ({
   InboxSidebarCollapse: () => null,
 }));

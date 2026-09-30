@@ -7,6 +7,7 @@ import {
   formatCustomFieldValue,
   jobFieldOptions,
   sanitizeVisibleFields,
+  CUSTOM_FIELD_WIDTH,
 } from "./fields";
 
 const ids = JOB_FIELDS.map((f) => f.id) as string[];
@@ -32,6 +33,7 @@ describe("JOB_FIELDS registry", () => {
       "jobType",
       "source",
       "externalCompany",
+      "company",
       "poNumber",
       "total",
       "paymentStatus",
@@ -47,7 +49,7 @@ describe("JOB_FIELDS registry", () => {
     for (const id of ["client", "tech", "tags", "city", "state", "scheduled", "jobType"]) {
       expect(DEFAULT_VISIBLE[id]).toBe(true);
     }
-    for (const id of ["phone", "source", "externalCompany", "poNumber", "createdAt"]) {
+    for (const id of ["phone", "source", "externalCompany", "company", "poNumber", "createdAt"]) {
       expect(DEFAULT_VISIBLE[id]).toBe(false);
     }
   });
@@ -62,8 +64,8 @@ describe("JOB_FIELDS registry", () => {
     const options = jobFieldOptions(defs);
     const tail = options.slice(-2);
     expect(tail).toEqual([
-      { id: "cf:cf-b", label: "Alarm" },
-      { id: "cf:cf-a", label: "Gate Code" },
+      { id: "cf:cf-b", label: "Alarm", width: CUSTOM_FIELD_WIDTH },
+      { id: "cf:cf-a", label: "Gate Code", width: CUSTOM_FIELD_WIDTH },
     ]);
     expect(options.map((o) => o.id)).not.toContain("cf:cf-c");
   });

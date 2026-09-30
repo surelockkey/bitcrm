@@ -65,6 +65,18 @@ describe('ContactsRepository', () => {
       expect(result!.firstName).toBe('John');
     });
 
+    it('maps taxExempt and taxExemptReason', async () => {
+      const contact = createMockContact({ taxExempt: true, taxExemptReason: 'Non-profit' });
+      dynamoDb.client.send.mockResolvedValue({
+        Item: { ...contact, PK: `CONTACT#${contact.id}`, SK: 'METADATA' },
+      });
+
+      const result = await repository.findById('contact-1');
+
+      expect(result!.taxExempt).toBe(true);
+      expect(result!.taxExemptReason).toBe('Non-profit');
+    });
+
     it('should return null when not found', async () => {
       dynamoDb.client.send.mockResolvedValue({ Item: undefined });
 
@@ -249,6 +261,40 @@ describe('ContactsRepository', () => {
       );
 
       expect(dynamoDb.client.send).not.toHaveBeenCalled();
+    });
+  });
+
+  /**
+   * Скільки всього контактів — число для «Page 2 of 7». Той самий фільтр, що
+   * й у списку, але без тіл рядків; прохід обмежений, бо таблиця контактів
+   * тримає ще й PHONE#-індексні рядки.
+   */
+  describe('countAll / countByCompany', () => {
+    it('counts active contacts without pulling bodies back', async () => {
+      dynamoDb.client.send.mockResolvedValue({ Count: 585 });
+
+      expect(await repository.countAll()).toEqual({ total: 585, atLeast: false });
+      const sent = dynamoDb.client.send.mock.calls[0][0];
+      expect(sent.input.Select).toBe('COUNT');
+      expect(sent.input.ExpressionAttributeValues[':status']).toBe('active');
+    });
+
+    it('counts one company’s contacts on the company index', async () => {
+      dynamoDb.client.send.mockResolvedValue({ Count: 7 });
+
+      expect(await repository.countByCompany('comp-1')).toEqual({ total: 7, atLeast: false });
+      const sent = dynamoDb.client.send.mock.calls[0][0];
+      expect(sent.input.Select).toBe('COUNT');
+      expect(sent.input.ExpressionAttributeValues[':pk']).toBe('COMPANY#comp-1');
+    });
+
+    it('gives up on an exact answer rather than walk the whole table', async () => {
+      dynamoDb.client.send.mockResolvedValue({
+        Count: 1,
+        LastEvaluatedKey: { PK: 'X#1', SK: 'METADATA' },
+      });
+
+      expect((await repository.countAll()).atLeast).toBe(true);
     });
   });
 });

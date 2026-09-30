@@ -5,7 +5,6 @@ import { Briefcase, Search, TriangleAlert } from "lucide-react";
 import type { Deal } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
   SelectContent,
@@ -14,20 +13,20 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { usePermissions } from "@/features/auth/use-permissions";
+import { usePermissions, useDenied } from "@/features/auth/use-permissions";
 import { EmptyState, NoAccess } from "@/features/clients/components/contacts-page";
-import { useContactMap, useDeals, useUserMap } from "../hooks";
-import {
-  filterDeals,
-  jobTabLabel,
-  matchesTab,
-  tabCounts,
-  JOB_TABS,
-  type DealFilter,
-  type JobTab,
-  sortJobs,
-  type JobSort,
-} from "../lib";
+import { ListPagination } from "@/components/ui/list-pagination";
+import { pagedSource } from "@/lib/paging/paged-source";
+import { usePageSize } from "@/lib/paging/use-page-size";
+import { usePager } from "@/lib/paging/use-pager";
+import { useDealCounts, useDealsPage, useUserMap, type DirectoryUser } from "../hooks";
+import { mergeIncluded } from "../included";
+import { useContactsByIds } from "@/features/clients/hooks";
+import { useAllTechnicians } from "@/features/technicians/hooks";
+import { useServiceAreas } from "@/features/service-areas/hooks";
+import { toCountsParams, toListParams, type JobsListState, type JobsSort } from "../query-params";
+import { filterDeals, jobTabLabel, JOB_TABS, type JobTab, sortJobs, tabCount } from "../lib";
+import { useBusinessProfiles } from "@/features/business-profiles/hooks";
 import { useJobTypes } from "@/features/job-types/hooks";
 import { activeJobTypes } from "@/features/job-types/lib";
 import { useJobTags } from "@/features/job-tags/hooks";
@@ -36,24 +35,15 @@ import { useCustomFields } from "@/features/custom-fields/hooks";
 import { DateTimeRangePicker } from "@/components/ui/date-time-range-picker";
 import { toLocalParts, type DateTimeRange } from "@/lib/date-range";
 import { useJobFieldsStore } from "../fields-store";
-import { DealsTable } from "./deals-table";
+import { DealsTable, DealsTableSkeleton } from "./deals-table";
 import { DealQuickView } from "./deal-quick-view";
 import { FieldsMenu } from "./fields-menu";
 
 const ALL = "all";
 
 export function DealsPage() {
-  const { can, isTechnician } = usePermissions();
-  const dealsQuery = useDeals();
-  const { map: contactMap } = useContactMap();
-  // The technicians actually on these deals. A viewer who may not list users
-  // resolves exactly these ids rather than getting an empty map and uuids.
-  const techIdsOnDeals = useMemo(() => {
-    const ids = new Set<string>();
-    for (const d of dealsQuery.data ?? []) d.assignedTechIds.forEach((t) => ids.add(t));
-    return [...ids];
-  }, [dealsQuery.data]);
-  const { map: userMap } = useUserMap(techIdsOnDeals);
+  const { isTechnician  } = usePermissions();
+  const denied = useDenied();
   const jobTypesQuery = useJobTypes();
   const jobTagsQuery = useJobTags();
   const customFieldsQuery = useCustomFields();
@@ -64,7 +54,9 @@ export function DealsPage() {
   const [jobTypeId, setJobTypeId] = useState(ALL);
   const [serviceArea, setServiceArea] = useState(ALL);
   const [tagId, setTagId] = useState(ALL);
-  const [sortSel, setSortSel] = useState("none");
+  const [companyId, setCompanyId] = useState(ALL);
+  const { data: companies } = useBusinessProfiles();
+  const [sortSel, setSortSel] = useState<JobsSort>("none");
   // Range filters: one calendar range for the days, plus a time-of-day window.
   const [dayRange, setDayRange] = useState<DateTimeRange>({});
   const [hourFrom, setHourFrom] = useState("");
@@ -74,41 +66,90 @@ export function DealsPage() {
   const [openId, setOpenId] = useState<string | null>(null);
   const visibleFields = useJobFieldsStore((s) => s.visible);
 
-  const deals = dealsQuery.data ?? [];
-
-  // Techs that actually appear on deals, resolved to names — the tech filter.
-  const techOptions = useMemo(() => {
-    const ids = new Set<string>();
-    deals.forEach((d) => d.assignedTechIds.forEach((t) => ids.add(t)));
-    return [...ids]
-      .map((id) => {
-        const u = userMap.get(id);
-        return { value: id, label: u ? `${u.firstName} ${u.lastName}`.trim() : id };
-      })
-      .sort((a, b) => a.label.localeCompare(b.label));
-  }, [deals, userMap]);
-
-  // Distinct service areas present on deals — the area filter.
-  const areaOptions = useMemo(() => {
-    const set = new Set<string>();
-    deals.forEach((d) => d.serviceArea && set.add(d.serviceArea));
-    return [...set].sort().map((a) => ({ value: a, label: a }));
-  }, [deals]);
-
-  // Everything except the status tab — so tab counts reflect the active filters.
-  const baseFilter: DealFilter = useMemo(
+  // The toolbar, as the server is asked for it: the tab picks the status (or
+  // the undated jobs), the rest are filters, the sort is the visit order.
+  const listState: JobsListState = useMemo(
     () => ({
-      search: search || undefined,
-      dateFrom: dateFrom || undefined,
-      dateTo: dateTo || undefined,
-      hourFrom: hourFrom || undefined,
-      hourTo: hourTo || undefined,
+      tab,
+      search,
       techId: techId === ALL ? undefined : techId,
       jobTypeId: jobTypeId === ALL ? undefined : jobTypeId,
       serviceArea: serviceArea === ALL ? undefined : serviceArea,
       tagId: tagId === ALL ? undefined : tagId,
+      businessProfileId: companyId === ALL ? undefined : companyId,
+      dateFrom: dateFrom || undefined,
+      dateTo: dateTo || undefined,
+      hourFrom: hourFrom || undefined,
+      hourTo: hourTo || undefined,
+      sort: sortSel,
     }),
-    [search, techId, jobTypeId, serviceArea, tagId, dateFrom, dateTo, hourFrom, hourTo],
+    [tab, search, techId, jobTypeId, serviceArea, tagId, companyId, dateFrom, dateTo, hourFrom, hourTo, sortSel],
+  );
+  const [pageSize, setPageSize] = usePageSize("jobs");
+  const listParams = useMemo(() => toListParams(listState, pageSize), [listState, pageSize]);
+  const countsParams = useMemo(() => toCountsParams(listState), [listState]);
+
+  const dealsQuery = useDealsPage(listParams);
+  const countsQuery = useDealCounts(countsParams);
+  // Одна сторінка, а не все пройдене: таблиця показує рівно те, що просили,
+  // і клієнтів під неї резолвимо теж лише на цю сторінку.
+  const pager = usePager(pagedSource(dealsQuery), {
+    total: countsQuery.data?.[tab] ?? undefined,
+    totalIsFloor: tab !== "unscheduled" && countsQuery.data?.atLeast?.includes(tab),
+    pageSize,
+    resetKey: JSON.stringify(listParams),
+  });
+  const deals = pager.items;
+
+  // The names the rows refer to travel with them (`included`): the
+  // technicians assigned on the page and the clients of its jobs, names only.
+  // The pager holds several pages at once, so the lookup spans all of them.
+  const names = useMemo(() => mergeIncluded(dealsQuery.data?.pages), [dealsQuery.data]);
+
+  // The contacts are a second round trip that cannot even start until the
+  // jobs come back — and the grid no longer needs one to print a name. So
+  // they are asked for only where a contact is genuinely read: the columns
+  // that show a number or an email, and free text, which is matched against
+  // a client's number and email as well as their name.
+  const contactIds = useMemo(() => deals.map((d) => d.contactId), [deals]);
+  const narrowsOnPage = search.trim().length > 0 && !listParams.search;
+  const needsContacts = Boolean(visibleFields.phone || visibleFields.email || narrowsOnPage);
+  const { map: contactMap } = useContactsByIds(contactIds, needsContacts);
+
+  // The tech filter lists the roster, not whoever happens to be on this page
+  // — and it is the only thing left on this page that wants the directory.
+  const { profiles: technicians } = useAllTechnicians();
+  const rosterIds = useMemo(() => technicians.map((t) => t.userId), [technicians]);
+  const { map: directory, isLoading: directoryLoading } = useUserMap(rosterIds);
+  const techOptions = useMemo(
+    () =>
+      technicians
+        .map(({ userId }) => {
+          const u = directory.get(userId);
+          return { value: userId, label: u ? `${u.firstName} ${u.lastName}`.trim() : userId };
+        })
+        .sort((a, b) => a.label.localeCompare(b.label)),
+    [technicians, directory],
+  );
+
+  // What the table prints for a person. The technicians came with the rows,
+  // so the Tech column is named on the first frame and never waits for the
+  // 564-row directory; the directory — already in hand for the filter above
+  // — only fills the two opt-in columns `included` does not carry,
+  // Dispatcher and Created by. An id the side-load has no row for (a
+  // technician deal-service has not reconciled yet) resolves to nothing, and
+  // the chip waits rather than printing a uuid.
+  const tableNames = useMemo(() => {
+    const m = new Map<string, DirectoryUser>(directory);
+    for (const [id, person] of names.technicians) m.set(id, person);
+    return m;
+  }, [directory, names]);
+
+  // The area filter is the catalog, as Workiz offers it.
+  const { data: serviceAreas } = useServiceAreas();
+  const areaOptions = useMemo(
+    () => (serviceAreas ?? []).filter((a) => a.active).map((a) => ({ value: a.name, label: a.name })),
+    [serviceAreas],
   );
 
   // Searchable custom-field definitions let free-text search match their answers.
@@ -117,20 +158,42 @@ export function DealsPage() {
     [customFieldsQuery.data],
   );
 
-  const base = useMemo(
-    () => filterDeals(deals, baseFilter, contactMap, searchableFields),
-    [deals, baseFilter, contactMap, searchableFields],
-  );
-  const counts = useMemo(() => tabCounts(base), [base]);
+  // A job code went to the server; any other text narrows the rows on screen
+  // (name, area, custom answers) until the search service takes it over.
   const visible = useMemo(() => {
-    const rows = base.filter((d) => matchesTab(d, tab));
-    // Default: the board reads soonest upcoming → latest (unscheduled last).
-    if (sortSel === "none") return sortJobs(rows, { key: "schedule", dir: "asc" });
-    const [key, dir] = sortSel.split("_") as [JobSort["key"], JobSort["dir"]];
-    return sortJobs(rows, { key, dir });
-  }, [base, tab, sortSel]);
+    const q = search.trim();
+    const rows = q && !listParams.search ? filterDeals(deals, { search: q }, contactMap, searchableFields) : deals;
+    // The server already orders by day; the hour sorts are settled here.
+    if (sortSel === "hour_asc" || sortSel === "hour_desc") {
+      return sortJobs(rows, { key: "hour", dir: sortSel === "hour_asc" ? "asc" : "desc" });
+    }
+    return rows;
+  }, [deals, search, listParams.search, contactMap, searchableFields, sortSel]);
 
-  if (!can("deals", "view")) return <NoAccess entity="deals" />;
+  const counts = countsQuery.data;
+
+  // Hold the first paint for the jobs, and for nothing else.
+  //
+  // It used to wait for the names too: the whole user directory, and the
+  // contacts, whose request could not even be sent until the jobs said which
+  // ids to ask for. Both were on the critical path, and a grid that paints in
+  // four partial frames reads as twitching — so the page waited, and the
+  // first frame cost a serial round trip. The names come with the rows now,
+  // so there is nothing left to wait for: the jobs answer, and the frame they
+  // paint is already complete.
+  //
+  // Latched per list, and set during render rather than in an effect (as
+  // `usePager` does with its reset). Per list, not once per mount: every tab
+  // and every filter set is its own query key and so starts with no rows at
+  // all. A latch that survived a tab switch sent the page straight past the
+  // skeleton into "No jobs", which then filled in a moment later — the empty
+  // state is an answer, and it was the wrong one.
+  const listKey = JSON.stringify(listParams);
+  const [painted, setPainted] = useState<string | null>(null);
+  if (painted !== listKey && !dealsQuery.isLoading) setPainted(listKey);
+  const firstPaintPending = painted !== listKey;
+
+  if (denied("deals", "view")) return <NoAccess entity="deals" />;
 
   return (
     <div className="flex flex-1 flex-col">
@@ -159,11 +222,15 @@ export function DealsPage() {
         <FilterSelect value={jobTypeId} onChange={setJobTypeId} allLabel="All job types" options={activeJobTypes(jobTypesQuery.data).map((t) => ({ value: t.id, label: t.name }))} width={160} />
         <FilterSelect value={serviceArea} onChange={setServiceArea} allLabel="All areas" options={areaOptions} width={150} />
         <FilterSelect value={tagId} onChange={setTagId} allLabel="Any tag" options={activeJobTags(jobTagsQuery.data).map((t) => ({ value: t.id, label: t.name }))} width={130} />
+        {/* Only worth a control once there's more than one company. */}
+        {(companies?.length ?? 0) > 1 ? (
+          <FilterSelect value={companyId} onChange={setCompanyId} allLabel="All companies" ariaLabel="Company filter" options={(companies ?? []).map((c) => ({ value: c.id, label: c.active ? c.name : `${c.name} (archived)` }))} width={150} />
+        ) : null}
         <select
           aria-label="Sort jobs"
           className="h-9 rounded-md border bg-transparent px-2 text-sm"
           value={sortSel}
-          onChange={(e) => setSortSel(e.target.value)}
+          onChange={(e) => setSortSel(e.target.value as JobsSort)}
         >
           <option value="none">Sort: Soonest first</option>
           <option value="day_asc">Day &#8593;</option>
@@ -200,13 +267,18 @@ export function DealsPage() {
               )}
             >
               {jobTabLabel(t)}
+              {/*
+                The counts arrive after the tabs are painted. A chip that grows
+                from "…" to a number nudges every tab to its right, so it holds
+                room for a four-digit count from the first frame.
+              */}
               <span
                 className={cn(
-                  "rounded-full px-1.5 py-0.5 text-[11px] font-semibold tabular-nums",
+                  "inline-flex min-w-7 justify-center rounded-chip px-1.5 py-0.5 text-[11px] font-semibold tabular-nums",
                   active ? "bg-brand/10 text-brand" : "bg-muted text-muted-foreground",
                 )}
               >
-                {counts[t]}
+                {counts ? tabCount(counts, t) : "\u00a0"}
               </span>
             </button>
           );
@@ -215,8 +287,8 @@ export function DealsPage() {
 
       {/* Body */}
       <div className="flex-1 overflow-auto p-6">
-        {dealsQuery.isLoading ? (
-          <Skeleton className="h-64 w-full" />
+        {firstPaintPending ? (
+          <DealsTableSkeleton visibleFields={visibleFields} />
         ) : dealsQuery.isError ? (
           <DealsError onRetry={() => dealsQuery.refetch()} isRetrying={dealsQuery.isFetching} />
         ) : visible.length === 0 ? (
@@ -232,7 +304,18 @@ export function DealsPage() {
             }
           />
         ) : (
-          <DealsTable deals={visible} contactMap={contactMap} userMap={userMap} onOpen={(d: Deal) => setOpenId(d.id)} visibleFields={visibleFields} />
+          <>
+            <DealsTable
+              deals={visible}
+              contactMap={contactMap}
+              clientNames={names.clients}
+              userMap={tableNames}
+              namesLoading={directoryLoading}
+              onOpen={(d: Deal) => setOpenId(d.id)}
+              visibleFields={visibleFields}
+            />
+            <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} />
+          </>
         )}
       </div>
 
@@ -264,16 +347,18 @@ function FilterSelect({
   allLabel,
   options,
   width,
+  ariaLabel,
 }: {
   value: string;
   onChange: (v: string) => void;
   allLabel: string;
   options: { value: string; label: string }[];
   width: number;
+  ariaLabel?: string;
 }) {
   return (
     <Select value={value} onValueChange={onChange}>
-      <SelectTrigger className="h-9" style={{ width }}><SelectValue /></SelectTrigger>
+      <SelectTrigger className="h-9" style={{ width }} aria-label={ariaLabel}><SelectValue /></SelectTrigger>
       <SelectContent>
         <SelectItem value={ALL}>{allLabel}</SelectItem>
         {options.map((o) => (
