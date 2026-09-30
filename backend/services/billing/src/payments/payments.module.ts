@@ -12,6 +12,10 @@ import {
 import { PaymentsService } from './payments.service';
 import { PortalPaymentsService } from './portal-payments.service';
 import { PublicPaymentsController } from './public-payments.controller';
+import { PaymentReportController } from './report/payment-report.controller';
+import { PaymentReportProjector } from './report/payment-report.projector';
+import { PaymentReportRepository } from './report/payment-report.repository';
+import { PaymentReportService } from './report/payment-report.service';
 import { StripeEventsHandler } from './stripe/stripe-events.handler';
 import { StripeWebhookController } from './stripe/stripe-webhook.controller';
 
@@ -27,12 +31,22 @@ import { StripeWebhookController } from './stripe/stripe-webhook.controller';
   controllers: [
     InvoicePaymentsController,
     DealPaymentsController,
+    // Static `/payments/report` paths, before the ledger's `/payments/:paymentId/...`.
+    PaymentReportController,
     PaymentsController,
     PaymentSettingsController,
     PublicPaymentsController,
     StripeWebhookController,
   ],
-  providers: [PaymentsService, PortalPaymentsService, StripeEventsHandler, PaymentReconcileScheduler],
+  providers: [
+    PaymentsService,
+    PortalPaymentsService,
+    StripeEventsHandler,
+    PaymentReconcileScheduler,
+    PaymentReportRepository,
+    PaymentReportProjector,
+    PaymentReportService,
+  ],
   exports: [PaymentsService],
 })
 export class PaymentsModule {}
