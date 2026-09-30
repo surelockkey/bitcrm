@@ -11,6 +11,7 @@ import {
   createMockDynamoDbService,
   createMockJwtUser,
   createMockResolvedPermissions,
+  createMockContainerAssignmentResolver,
 } from '../mocks';
 
 /**
@@ -23,6 +24,7 @@ describe('ProductStockService', () => {
   let productsRepository: ReturnType<typeof createMockProductsRepository>;
   let locationsRepository: ReturnType<typeof createMockLocationsRepository>;
   let dynamoDb: ReturnType<typeof createMockDynamoDbService>;
+  let assignments: ReturnType<typeof createMockContainerAssignmentResolver>;
 
   const stockRow = (pk: string, quantity: number) => ({
     PK: pk,
@@ -37,10 +39,12 @@ describe('ProductStockService', () => {
     productsRepository = createMockProductsRepository();
     locationsRepository = createMockLocationsRepository();
     dynamoDb = createMockDynamoDbService();
+    assignments = createMockContainerAssignmentResolver();
     service = new ProductStockService(
       productsRepository as any,
       locationsRepository as any,
       new StockRepository(dynamoDb as any),
+      assignments as any,
     );
     productsRepository.findById.mockResolvedValue(createMockProduct({ id: 'prod-1' }));
   });
@@ -165,8 +169,19 @@ describe('ProductStockService', () => {
       });
     });
 
+    const technicianScope = () =>
+      createMockResolvedPermissions({
+        permissions: {
+          products: { view: true },
+          warehouses: { view: false },
+          containers: { view: true },
+        },
+        dataScope: { warehouses: DataScope.ASSIGNED_ONLY, containers: DataScope.ASSIGNED_ONLY },
+      });
+
     it('shows a technician their own van only, and no warehouse without warehouses.view', async () => {
       const user = createMockJwtUser({ id: 'tech-1', department: 'Atlanta' });
+      assignments.containerIdForUser.mockResolvedValue('c-mine');
       const permissions = createMockResolvedPermissions({
         permissions: {
           products: { view: true },
@@ -184,6 +199,40 @@ describe('ProductStockService', () => {
       expect(dynamoDb.client.send.mock.calls[0][0].input.RequestItems[INVENTORY_TABLE].Keys).toEqual([
         { PK: 'CONTAINER#c-mine', SK: 'STOCK#prod-1' },
       ]);
+    });
+
+    // Технік узяв чужий фургон: бачить той, до якого його призначено, а не
+    // той, що досі називає його `technicianId`.
+    it('shows the van the user is assigned to, not the one that still names them as technician', async () => {
+      const user = createMockJwtUser({ id: 'tech-1' });
+      assignments.containerIdForUser.mockResolvedValue('c-other');
+
+      const result = await service.forProduct('prod-1', { user, permissions: technicianScope() });
+
+      expect(assignments.containerIdForUser).toHaveBeenCalledWith('tech-1');
+      expect(result.locations.map((l) => l.locationId)).toEqual(['c-other']);
+      expect(result.onHand).toBe(3);
+    });
+
+    // "All locations" в Workiz: технік бачить усі фургони навіть під assigned_only.
+    it('shows every van to a technician with "All locations"', async () => {
+      assignments.assignmentFor.mockResolvedValue({ allLocations: true });
+
+      const result = await service.forProduct('prod-1', {
+        user: createMockJwtUser({ id: 'tech-1' }),
+        permissions: technicianScope(),
+      });
+
+      expect(result.locations.map((l) => l.locationId)).toEqual(['c-mine', 'c-other', 'c-else']);
+    });
+
+    it('shows no van to a technician with no container', async () => {
+      const user = createMockJwtUser({ id: 'tech-1' });
+      assignments.containerIdForUser.mockResolvedValue(undefined);
+
+      const result = await service.forProduct('prod-1', { user, permissions: technicianScope() });
+
+      expect(result).toEqual({ productId: 'prod-1', onHand: 0, locations: [] });
     });
 
     it('shows a department-scoped caller the vans of their department, and the warehouses they may view', async () => {
@@ -215,6 +264,60 @@ describe('ProductStockService', () => {
       const result = await service.forProduct('prod-1', { user: createMockJwtUser(), permissions });
 
       expect(result.locations).toHaveLength(4);
+    });
+  });
+
+  /**
+   * Заглушки Workiz (119 з 207 контейнерів) не в попапі — 91 локація замість
+   * 210, — але одиниці на заглушці не мають ставати невидимими: така показується,
+   * поки тримає цей товар.
+   */
+  describe('Workiz placeholders', () => {
+    const store = createMockLocationSummary({ type: 'warehouse', id: 'wh-1', name: '(1) STORE' });
+    const van = createMockLocationSummary({ type: 'container', id: 'c-1', name: '(2) VAN', technicianId: 'tech-1' });
+    const holding = createMockLocationSummary({
+      type: 'container', id: 'c-ph1', name: 'Workiz location #6142', placeholder: true, status: InventoryStatus.ARCHIVED,
+    });
+    const empty = createMockLocationSummary({
+      type: 'container', id: 'c-ph2', name: 'Workiz location #7000', placeholder: true, status: InventoryStatus.ARCHIVED,
+    });
+
+    beforeEach(() => {
+      locationsRepository.listAll.mockImplementation(async (type: LocationType) =>
+        type === LocationType.WAREHOUSE ? [store] : [van],
+      );
+      locationsRepository.listPlaceholders.mockImplementation(async (type: LocationType) =>
+        type === LocationType.WAREHOUSE ? [] : [holding, empty],
+      );
+      dynamoDb.client.send.mockResolvedValue({
+        Responses: { [INVENTORY_TABLE]: [stockRow('CONTAINER#c-ph1', 3), stockRow('WAREHOUSE#wh-1', 5)] },
+      });
+    });
+
+    it('shows a placeholder only while it still holds the item, flagged, after the real locations', async () => {
+      const result = await service.forProduct('prod-1');
+
+      expect(result.locations.map((l) => [l.locationId, l.quantity, l.placeholder])).toEqual([
+        ['wh-1', 5, undefined],
+        ['c-1', 0, undefined],
+        ['c-ph1', 3, true],
+      ]);
+      expect(result.onHand).toBe(8);
+      const keys = dynamoDb.client.send.mock.calls[0][0].input.RequestItems[INVENTORY_TABLE].Keys;
+      expect(keys).toContainEqual({ PK: 'CONTAINER#c-ph1', SK: 'STOCK#prod-1' });
+      expect(keys).toContainEqual({ PK: 'CONTAINER#c-ph2', SK: 'STOCK#prod-1' });
+    });
+
+    it('keeps a technician’s scope over the placeholders too', async () => {
+      assignments.containerIdForUser.mockResolvedValue('c-1');
+      const permissions = createMockResolvedPermissions({
+        permissions: { products: { view: true }, warehouses: { view: false }, containers: { view: true } },
+        dataScope: { containers: DataScope.ASSIGNED_ONLY },
+      });
+
+      const result = await service.forProduct('prod-1', { user: createMockJwtUser({ id: 'tech-1' }), permissions });
+
+      expect(result.locations.map((l) => l.locationId)).toEqual(['c-1']);
     });
   });
 

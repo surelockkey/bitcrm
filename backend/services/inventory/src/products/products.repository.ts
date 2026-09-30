@@ -16,8 +16,17 @@ import {
   INVENTORY_TABLE,
   GSI1_NAME,
   GSI2_NAME,
+  GSI3_NAME,
 } from '../common/constants/dynamo.constants';
 import { productSearchName, productSearchSku } from './products.constants';
+import {
+  PRODUCT_STOCK_INDEX_PK,
+  expectedStockIndexKeys,
+  stockIndexWrite,
+  type StockIndexRow,
+} from './product-stock-index';
+import { decodeIndexCursor, encodeIndexCursor } from '../common/utils/index-cursor';
+import { batchGetAll } from '../common/utils/batch-get';
 
 export interface PaginatedResult {
   items: Product[];
@@ -51,6 +60,19 @@ const KEY_ATTRIBUTES = new Set([
 
 const KNOWN_TYPES = new Set<string>(Object.values(ProductType));
 
+/** A cursor of the stock-managed Query names the table keys and the GSI3 keys. */
+const STOCK_CURSOR_KEYS = ['PK', 'SK', 'GSI3PK', 'GSI3SK'] as const;
+
+/**
+ * Rows a filtered read of the stock-managed partition may walk in one request.
+ * The partition is ~3 100 products; the budget covers it at any page size, so
+ * a search that matches only its last rows still answers on the first page.
+ */
+const STOCK_INDEX_READ_BUDGET_ROWS = 6000;
+
+/** The filters the stock-managed partition takes — manageStock is the partition itself. */
+export type StockManagedFilters = Omit<ProductListFilters, 'manageStock'>;
+
 /** The product-number counter row. */
 const COUNTER_KEY = { PK: 'COUNTER#PRODUCT', SK: 'METADATA' };
 
@@ -63,6 +85,10 @@ const COUNTER_KEY = { PK: 'COUNTER#PRODUCT', SK: 'METADATA' };
  *   PK = COUNTER#PRODUCT, SK = METADATA                   { seq } — the last
  *     product `number` handed out; `nextNumber` ADDs one atomically and
  *     `raiseCounterTo` moves it past imported (Workiz) numbers.
+ *   GSI3PK = PRODUCTS#STOCK, GSI3SK = <name lowercased>#<id>  (OwnerIndex, sparse:
+ *     stock-managed products only — type `product`, `manageStock` not false,
+ *     any status; the "inventory products" list, name order.
+ *     `backfill:product-stock-index` fills older rows; every update re-files one)
  *   searchName = <name lowercased>, searchSku = <sku lowercased>  (what the
  *     search filter matches; `backfill:product-search` fills older rows)
  * `onHand` on the product row is kept by StockRepository, not here.
@@ -134,6 +160,11 @@ export class ProductsRepository {
                   GSI1SK: `PRODUCT#${product.id}`,
                   GSI2PK: `TYPE#${product.type}`,
                   GSI2SK: `PRODUCT#${product.id}`,
+                  ...expectedStockIndexKeys({
+                    ...product,
+                    PK: `PRODUCT#${product.id}`,
+                    SK: 'METADATA',
+                  }),
                   searchName: productSearchName(product.name),
                   searchSku: productSearchSku(product.sku),
                   ...product,
@@ -178,6 +209,17 @@ export class ProductsRepository {
 
     if (!result.Item) return null;
     return this.toProduct(result.Item);
+  }
+
+  /**
+   * The products these ids name, each read once, 100 keys a BatchGet (with
+   * the shared bounded retry of unprocessed keys). An id with no row is
+   * simply absent; order is not kept.
+   */
+  async findByIds(ids: string[]): Promise<Product[]> {
+    const keys = [...new Set(ids)].map((id) => ({ PK: `PRODUCT#${id}`, SK: 'METADATA' }));
+    const rows = await batchGetAll(this.dynamoDb.client, keys);
+    return rows.map((row) => this.toProduct(row));
   }
 
   async findBySku(sku: string): Promise<Product | null> {
@@ -381,6 +423,78 @@ export class ProductsRepository {
   }
 
   /**
+   * The Query on the stock-managed partition, shared by the list and its count
+   * so the two can never answer about different populations.
+   */
+  private stockManagedQuery(filters?: StockManagedFilters) {
+    const f = this.filterParts(filters);
+    return {
+      TableName: INVENTORY_TABLE,
+      IndexName: GSI3_NAME,
+      KeyConditionExpression: 'GSI3PK = :pk',
+      ExpressionAttributeValues: { ':pk': PRODUCT_STOCK_INDEX_PK, ...f.values },
+      ...(f.parts.length > 0 && { FilterExpression: f.parts.join(' AND ') }),
+      ...(Object.keys(f.names).length > 0 && { ExpressionAttributeNames: f.names }),
+      hasFilter: f.parts.length > 0,
+    };
+  }
+
+  /**
+   * Workiz's "inventory products": the stock-managed partition in name order,
+   * the other filters on top. Unfiltered it is one Query per page; filtered,
+   * the page is filled across reads within a budget that covers the whole
+   * partition, so a rare search term never answers an empty page with a
+   * cursor — which the Scan over the shared table did.
+   */
+  async findStockManaged(
+    limit: number,
+    cursor?: string,
+    filters?: StockManagedFilters,
+  ): Promise<PaginatedResult> {
+    const { hasFilter, ...query } = this.stockManagedQuery(filters);
+    // Decoded before any read: a Scan-era or foreign cursor is a 400, not a 500.
+    const startKey = decodeIndexCursor(cursor, STOCK_CURSOR_KEYS);
+
+    if (!hasFilter) {
+      const result = await this.dynamoDb.client.send(
+        new QueryCommand({
+          ...query,
+          ScanIndexForward: true,
+          Limit: limit,
+          ...(startKey ? { ExclusiveStartKey: startKey } : {}),
+        }),
+      );
+      return {
+        items: (result.Items || []).map(this.toProduct),
+        nextCursor: encodeIndexCursor(result.LastEvaluatedKey),
+      };
+    }
+
+    const page = await scanPage<Record<string, unknown>>(
+      (input) =>
+        this.dynamoDb.client.send(new QueryCommand({ ...query, ScanIndexForward: true, ...input })),
+      limit,
+      {
+        startKey,
+        maxReads: Math.max(20, Math.ceil(STOCK_INDEX_READ_BUDGET_ROWS / (limit * 10))),
+        keyOf: (i) => ({ PK: i.PK, SK: i.SK, GSI3PK: i.GSI3PK, GSI3SK: i.GSI3SK }),
+      },
+    );
+    return {
+      items: page.items.map(this.toProduct),
+      nextCursor: encodeIndexCursor(page.lastKey),
+    };
+  }
+
+  /** How many stock-managed products the filters select — the count of `findStockManaged`. */
+  countStockManaged(filters?: StockManagedFilters): Promise<CountRowsResult> {
+    const { hasFilter: _hasFilter, ...query } = this.stockManagedQuery(filters);
+    return countRows((input) =>
+      this.dynamoDb.client.send(new QueryCommand({ ...query, Select: 'COUNT', ...input })),
+    );
+  }
+
+  /**
    * A count over one index partition, under the same filters the list applies
    * on top of it. Unfiltered, the key already selects the rows and this is the
    * cheap end of counting.
@@ -442,7 +556,15 @@ export class ProductsRepository {
     );
   }
 
-  async update(id: string, attrs: Partial<Product>): Promise<Product> {
+  /**
+   * Writes only the attributes it is given. One given as `null` (a field the
+   * API cleared) or as an explicit `undefined` (the CSV re-import) is
+   * REMOVEd — never stored as a DynamoDB NULL.
+   */
+  async update(
+    id: string,
+    attrs: Partial<{ [K in keyof Product]: Product[K] | null }>,
+  ): Promise<Product> {
     const setParts: string[] = [];
     const removeParts: string[] = [];
     const expressionNames: Record<string, string> = {};
@@ -470,7 +592,7 @@ export class ProductsRepository {
       if (immutableKeys.has(key)) continue;
       const attrName = `#${key}`;
       expressionNames[attrName] = key;
-      if (value === undefined && key in attrs) {
+      if (value === null || (value === undefined && key in attrs)) {
         removeParts.push(attrName);
       } else if (value !== undefined) {
         const attrValue = `:${key}`;
@@ -502,7 +624,29 @@ export class ProductsRepository {
       }),
     );
 
-    return this.toProduct(result.Attributes!);
+    const row = result.Attributes!;
+    await this.syncStockIndex(row as StockIndexRow);
+    return this.toProduct(row);
+  }
+
+  /**
+   * Whatever an update changed — the name, the type, the `manageStock` flag
+   * (a `null` clearing it means managed) — the row leaves filed correctly on
+   * the stock-managed partition, or taken off it. A row written before the
+   * partition existed is filed by any edit. The write is conditioned on the
+   * row still being what this update produced; if another write landed in
+   * between, that one files the row, so a refusal is not an error.
+   */
+  private async syncStockIndex(row: StockIndexRow): Promise<void> {
+    const write = stockIndexWrite(row);
+    if (!write) return;
+    const { kind: _kind, ...input } = write;
+    try {
+      await this.dynamoDb.client.send(new UpdateCommand({ TableName: INVENTORY_TABLE, ...input }));
+    } catch (error: unknown) {
+      if (error instanceof Error && error.name === 'ConditionalCheckFailedException') return;
+      throw error;
+    }
   }
 
   /**

@@ -35,6 +35,8 @@ import { TransfersModule } from 'src/transfers/transfers.module';
 import { ItemCategoriesModule } from 'src/item-categories/item-categories.module';
 import { BrandsModule } from 'src/brands/brands.module';
 import { InventoryLogModule } from 'src/inventory-log/inventory-log.module';
+import { UserContainersModule } from 'src/user-containers/user-containers.module';
+import { ContainerTemplatesModule } from 'src/container-templates/container-templates.module';
 import {
   createTestTable,
   clearTestTable,
@@ -111,6 +113,8 @@ export function createTestUserHeader(user: JwtUser): string {
 // ---------------------------------------------------------------------------
 const superAdminPermissions = {
   permissions: {
+    // Money (company costs) is shown only with financials.view.
+    financials: { view: true },
     products: { view: true, create: true, edit: true, delete: true },
     product_categories: { view: true, create: true, edit: true, delete: true },
     brands: { view: true, create: true, edit: true, delete: true },
@@ -293,6 +297,8 @@ export async function setupApp(): Promise<INestApplication> {
       StockModule,
       ProductsModule,
       WarehousesModule,
+      UserContainersModule,
+      ContainerTemplatesModule,
       ContainersModule,
       TransfersModule,
       ItemCategoriesModule,

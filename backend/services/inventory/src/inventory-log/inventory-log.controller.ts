@@ -1,6 +1,6 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Controller, Get, Query, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { RequirePermission } from '@bitcrm/shared';
+import { RequirePermission, hasPermission } from '@bitcrm/shared';
 import { InventoryLogService } from './inventory-log.service';
 import { ListInventoryLogQueryDto } from './dto/list-inventory-log-query.dto';
 
@@ -15,14 +15,17 @@ export class InventoryLogController {
   @ApiOperation({
     summary: 'List the inventory audit log',
     description:
-      '**Guard:** `reports.view` permission required. Item edits and stock movements, newest ' +
+      '**Guard:** `reports.view` permission required. Item edits, stock movements and user ' +
+      'container assignments (`container_assigned`: no product, `subjectUser*`, `access`), newest ' +
       'first, inside `from`/`to` (default: the current UTC month up to now; at most 24 months; ' +
       'a date-only `to` is the whole day). `productId` reads ' +
       "one item's history; `userId`, `action` and `search` (product name / SKU) filter on top. " +
-      'Pages with `cursor`, which pins the window page one was read under.',
+      'Pages with `cursor`, which pins the window page one was read under. `unitCost` is left out ' +
+      'without `financials.view` (`unitPrice` stays).',
   })
-  async list(@Query() query: ListInventoryLogQueryDto) {
-    const { items, nextCursor } = await this.inventoryLogService.list(query);
+  async list(@Query() query: ListInventoryLogQueryDto, @Req() req: any) {
+    const money = hasPermission(req.resolvedPermissions, 'financials', 'view');
+    const { items, nextCursor } = await this.inventoryLogService.list(query, { money });
     return {
       success: true,
       data: items,

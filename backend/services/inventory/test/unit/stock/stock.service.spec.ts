@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { BadRequestException, Logger } from '@nestjs/common';
 import { DynamoDbService } from '@bitcrm/shared';
 import { StockService } from 'src/stock/stock.service';
 import { StockRepository } from 'src/stock/stock.repository';
@@ -118,6 +119,67 @@ describe('StockService', () => {
       ).rejects.toThrow('Insufficient stock');
 
       expect(stockRepository.moveStock).toHaveBeenCalledTimes(1);
+    });
+
+    /**
+     * Позиція 3 з 4 не проходить: 1 і 2 уже переїхали, а переміщення не
+     * записане. Невдале переміщення не має рухати нічого — перші позиції
+     * повертаються назад (у зворотному порядку), і летить початкова помилка.
+     */
+    describe('a failure part-way', () => {
+      const items = [1, 2, 3, 4].map((n) => ({ productId: `prod-${n}`, productName: `P${n}`, quantity: n }));
+      const insufficient = new BadRequestException('Insufficient stock for product prod-3');
+
+      it('moves the items that already moved back, then rethrows the original error', async () => {
+        stockRepository.moveStock
+          .mockResolvedValueOnce(undefined)
+          .mockResolvedValueOnce(undefined)
+          .mockRejectedValueOnce(insufficient)
+          .mockResolvedValue(undefined);
+
+        await expect(service.transfer('WAREHOUSE#wh-1', 'CONTAINER#c-1', items)).rejects.toBe(insufficient);
+
+        expect(stockRepository.moveStock.mock.calls).toEqual([
+          ['WAREHOUSE#wh-1', 'CONTAINER#c-1', 'prod-1', 'P1', 1],
+          ['WAREHOUSE#wh-1', 'CONTAINER#c-1', 'prod-2', 'P2', 2],
+          ['WAREHOUSE#wh-1', 'CONTAINER#c-1', 'prod-3', 'P3', 3],
+          ['CONTAINER#c-1', 'WAREHOUSE#wh-1', 'prod-2', 'P2', 2],
+          ['CONTAINER#c-1', 'WAREHOUSE#wh-1', 'prod-1', 'P1', 1],
+        ]);
+      });
+
+      it('logs loudly when an undo fails, keeps undoing the rest, and still rethrows the original', async () => {
+        const errorLog = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+        stockRepository.moveStock
+          .mockResolvedValueOnce(undefined)
+          .mockResolvedValueOnce(undefined)
+          .mockRejectedValueOnce(insufficient)
+          .mockRejectedValueOnce(new Error('throttled'))
+          .mockResolvedValue(undefined);
+
+        await expect(service.transfer('WAREHOUSE#wh-1', 'CONTAINER#c-1', items)).rejects.toBe(insufficient);
+
+        expect(stockRepository.moveStock).toHaveBeenCalledTimes(5);
+        expect(errorLog).toHaveBeenCalledWith(expect.stringContaining('prod-2'));
+        errorLog.mockRestore();
+      });
+    });
+
+    /** Те саме для списання кількох позицій (повернення, списання на роботу). */
+    it('adds back what a deduct already took when a later item fails', async () => {
+      const items = [1, 2, 3].map((n) => ({ productId: `prod-${n}`, productName: `P${n}`, quantity: n }));
+      const insufficient = new BadRequestException('Insufficient stock for product prod-3');
+      stockRepository.decrementStock
+        .mockResolvedValueOnce(undefined)
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(insufficient);
+
+      await expect(service.deduct('CONTAINER#c-1', items)).rejects.toBe(insufficient);
+
+      expect(stockRepository.incrementStock.mock.calls).toEqual([
+        ['CONTAINER#c-1', 'prod-2', 'P2', 2],
+        ['CONTAINER#c-1', 'prod-1', 'P1', 1],
+      ]);
     });
   });
 });

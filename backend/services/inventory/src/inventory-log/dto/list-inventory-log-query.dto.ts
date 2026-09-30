@@ -46,7 +46,11 @@ export class ListInventoryLogQueryDto {
   @IsEnum(InventoryLogAction)
   action?: InventoryLogAction;
 
-  @ApiPropertyOptional({ description: 'Matched against the product name and SKU.' })
+  @ApiPropertyOptional({
+    description:
+      'Matched against the product name and SKU — on a `container_assigned` entry, which ' +
+      'names no item, against the name of the user whose container changed.',
+  })
   @IsOptional()
   @IsString()
   search?: string;

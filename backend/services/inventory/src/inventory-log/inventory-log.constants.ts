@@ -26,9 +26,12 @@ export function invlogProductPartition(productId: string): string {
   return `${INVLOG_PRODUCT_PK_PREFIX}${productId}`;
 }
 
-/** What the `search` filter runs `contains` against. */
-export function invlogSearchText(productName: string, sku?: string): string {
-  return [productName, sku].filter(Boolean).join(' ').toLowerCase();
+/**
+ * What the `search` filter runs `contains` against: the item's name and SKU,
+ * or — on an item-less entry (`container_assigned`) — the subject user's name.
+ */
+export function invlogSearchText(name: string | undefined, sku?: string): string {
+  return [name, sku].filter(Boolean).join(' ').toLowerCase();
 }
 
 export function previousMonth(month: string): string {

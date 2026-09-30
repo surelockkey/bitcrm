@@ -88,6 +88,33 @@ describe('TransfersRepository.findAll', () => {
     });
   });
 
+  // Фільтр типу — у FilterExpression того самого Scan: сторінка дочитується,
+  // а не фільтрується в браузері, як робили чіпи на вебі.
+  it('filters by type inside the Scan, so the page still fills', async () => {
+    dynamoDb.client.send.mockResolvedValue({ Items: [row('t1')] });
+
+    await repository.findAll(20, undefined, { type: TransferType.RECEIVE });
+
+    const input = dynamoDb.client.send.mock.calls[0][0].input;
+    expect(input.FilterExpression).toBe('begins_with(PK, :pk) AND SK = :sk AND #type = :type');
+    expect(input.ExpressionAttributeNames).toEqual({ '#type': 'type' });
+    expect(input.ExpressionAttributeValues).toEqual({
+      ':pk': 'TRANSFER#',
+      ':sk': 'METADATA',
+      ':type': TransferType.RECEIVE,
+    });
+  });
+
+  it('leaves the Scan bare without a type', async () => {
+    dynamoDb.client.send.mockResolvedValue({ Items: [] });
+
+    await repository.findAll(20);
+
+    const input = dynamoDb.client.send.mock.calls[0][0].input;
+    expect(input.FilterExpression).toBe('begins_with(PK, :pk) AND SK = :sk');
+    expect(input.ExpressionAttributeNames).toBeUndefined();
+  });
+
   /**
    * Скільки всього трансферів — число для «Page 2 of 7». Той самий Scan, що
    * й у списку, але без тіл рядків і з обмеженим проходом: таблиця інвентарю
@@ -116,6 +143,16 @@ describe('TransfersRepository.findAll', () => {
       });
 
       expect((await repository.countAll()).atLeast).toBe(true);
+    });
+
+    it('counts under the same type filter the list applies', async () => {
+      dynamoDb.client.send.mockResolvedValue({ Count: 4 });
+
+      await repository.countAll({ type: TransferType.RETURN });
+
+      const input = dynamoDb.client.send.mock.calls[0][0].input;
+      expect(input.FilterExpression).toBe('begins_with(PK, :pk) AND SK = :sk AND #type = :type');
+      expect(input.ExpressionAttributeValues[':type']).toBe(TransferType.RETURN);
     });
   });
 });

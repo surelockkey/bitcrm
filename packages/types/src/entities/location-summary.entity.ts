@@ -12,9 +12,15 @@ export interface LocationSummary {
   id: string;
   name: string;
   description?: string;
-  /** The container's assigned technician — what an `assigned_only` scope keys on. Containers only. */
+  /**
+   * The container's legacy single technician. The `assigned_only` scope keys
+   * on the user containers (`UserContainer`) now, and on this only for a user
+   * who has no assignment row yet. Containers only.
+   */
   technicianId?: string;
   /** What a `department` scope keys on. Containers only. */
   department?: string;
   status: InventoryStatus;
+  /** A Workiz placeholder (a location deleted in Workiz): left out of every list. */
+  placeholder?: boolean;
 }

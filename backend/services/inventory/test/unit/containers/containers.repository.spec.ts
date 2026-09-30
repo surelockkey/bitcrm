@@ -212,6 +212,22 @@ describe('ContainersRepository (imported rows)', () => {
     expect(container.department).toBe('Marietta');
     expect(container.accessUserIds).toEqual(['user-4', 'user-9']);
   });
+
+  it('reads the template the container is compared against', async () => {
+    dynamoDb.client.send.mockResolvedValue({ Item: { ...importedRow, templateId: 'tpl-1' } });
+
+    expect((await repository.findById('container-1'))!.templateId).toBe('tpl-1');
+  });
+
+  it('update() removes the template when it is cleared with null', async () => {
+    dynamoDb.client.send.mockResolvedValue({ Attributes: importedRow });
+
+    await repository.update('container-1', { templateId: null });
+
+    const input = dynamoDb.client.send.mock.calls[0][0].input;
+    expect(input.UpdateExpression).toMatch(/REMOVE .*#templateId/);
+    expect(input.ExpressionAttributeValues).not.toHaveProperty(':templateId');
+  });
 });
 
 describe('ContainersRepository.findAll', () => {
@@ -246,8 +262,19 @@ describe('ContainersRepository.findAll', () => {
     expect(input.KeyConditionExpression).toBe('GSI1PK = :pk');
     expect(input.ExpressionAttributeValues[':pk']).toBe('LOCATION#CONTAINER');
     expect(input.ScanIndexForward).toBe(true);
-    expect(input.FilterExpression).toBeUndefined();
     expect(input.ExpressionAttributeNames).toBeUndefined();
+  });
+
+  // 119 з 207 контейнерів — заглушки Workiz ("Workiz location #6142 (видалено у
+  // Workiz)"); Workiz показує ~88 справжніх фургонів. Лишаються доступними за id.
+  it('leaves the Workiz placeholders out of the list, by filter rather than by index keys', async () => {
+    dynamoDb.client.send.mockResolvedValue({ Items: [] });
+
+    await repository.findAll(20);
+
+    const input = dynamoDb.client.send.mock.calls[0][0].input;
+    expect(input.FilterExpression).toBe('(attribute_not_exists(placeholder) OR placeholder = :false)');
+    expect(input.ExpressionAttributeValues).toEqual({ ':pk': 'LOCATION#CONTAINER', ':false': false });
   });
 
   // Термін шукається у назві, а не в ключі сортування: той несе UUID, і
@@ -270,8 +297,10 @@ describe('ContainersRepository.findAll', () => {
       '#department': 'department',
       '#status': 'status',
     });
+    expect(input.FilterExpression).toContain('(attribute_not_exists(placeholder) OR placeholder = :false)');
     expect(input.ExpressionAttributeValues).toEqual({
       ':pk': 'LOCATION#CONTAINER',
+      ':false': false,
       ':dept': 'Atlanta',
       ':status': 'active',
       ':search': 'mike',
@@ -350,6 +379,7 @@ describe('ContainersRepository.findAll', () => {
       expect(input.IndexName).toBe('CategoryIndex');
       expect(input.KeyConditionExpression).toBe('GSI1PK = :pk');
       expect(input.ExpressionAttributeValues[':pk']).toBe('LOCATION#CONTAINER');
+      expect(input.FilterExpression).toBe('(attribute_not_exists(placeholder) OR placeholder = :false)');
     });
 
     it('counts under the same department filter the list uses', async () => {

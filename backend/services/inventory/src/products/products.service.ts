@@ -320,10 +320,12 @@ export class ProductsService {
   }
 
   /**
-   * Category picks the CategoryIndex, else type picks the TypeIndex, else the
-   * list is a Scan; every other given filter is applied on top, so Workiz's
-   * combinable filters ("this category, active, stock-managed") hold. `type`
-   * rides along as a filter only when category took the index.
+   * Category picks the CategoryIndex; else `manageStock=true` picks the
+   * stock-managed partition (Workiz's "inventory products", name order);
+   * else type picks the TypeIndex; else the list is a Scan. Every other given
+   * filter is applied on top, so Workiz's combinable filters ("this category,
+   * active, stock-managed") hold. `type` rides along as a filter only when
+   * category or the stock partition took the index.
    */
   async list(query: ListProductsQueryDto) {
     const { category, type, search, status, brandId, manageStock, limit = 20, cursor } = query;
@@ -331,6 +333,9 @@ export class ProductsService {
 
     if (category) {
       return this.repository.findByCategory(category, limit, cursor, { type, ...filters });
+    }
+    if (manageStock === true) {
+      return this.repository.findStockManaged(limit, cursor, { type, status, search, brandId });
     }
     if (type) {
       return this.repository.findByType(type, limit, cursor, filters);
@@ -354,6 +359,9 @@ export class ProductsService {
 
     const take = () => {
       if (category) return this.repository.countByCategory(category, { type, ...filters });
+      if (manageStock === true) {
+        return this.repository.countStockManaged({ type, status, search, brandId });
+      }
       if (type) return this.repository.countByType(type, filters);
       return this.repository.countAll(filters);
     };

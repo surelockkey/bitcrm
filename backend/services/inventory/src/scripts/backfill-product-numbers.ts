@@ -12,6 +12,9 @@
  *
  * Idempotent and upsert-only: a row with a `number` is skipped, the counter is
  * only ever raised, and nothing is removed. Running it twice changes nothing.
+ * A row numbered between the scan and its write — an overlapping run, or a
+ * product the service created mid-run — is skipped and counted, not fatal
+ * (a counter value drawn for it stays unused).
  *
  * Usage:
  *   npm run backfill:product-numbers -w backend/services/inventory
@@ -30,6 +33,7 @@ import type { DynamoDbService } from '@bitcrm/shared';
 import { ProductsRepository } from '../products/products.repository';
 import {
   planProductNumbers,
+  writeNumberUnlessTaken,
   type ProductNumberRow,
 } from '../products/product-number.backfill';
 
@@ -87,10 +91,17 @@ async function main() {
       }),
     );
 
+  let skipped = 0;
+  const numberRow = async (PK: string, number: number): Promise<boolean> => {
+    if ((await writeNumberUnlessTaken(() => setNumber(PK, number))) === 'written') return true;
+    skipped += 1;
+    console.log(`  - ${PK}: numbered or removed since the scan, skipped`);
+    return false;
+  };
+
   let imported = 0;
   for (const { PK, number } of plan.imported) {
-    await setNumber(PK, number);
-    imported += 1;
+    if (await numberRow(PK, number)) imported += 1;
   }
 
   await repository.raiseCounterTo(plan.max);
@@ -98,11 +109,13 @@ async function main() {
   let assigned = 0;
   for (const PK of plan.pending) {
     const number = await repository.nextNumber();
-    await setNumber(PK, number);
-    assigned += 1;
+    if (await numberRow(PK, number)) assigned += 1;
   }
 
-  console.log(`\n${imported} imported number(s) written, ${assigned} assigned from the counter.`);
+  console.log(
+    `\n${imported} imported number(s) written, ${assigned} assigned from the counter, ` +
+      `${skipped} skipped (numbered or removed since the scan).`,
+  );
 }
 
 main()

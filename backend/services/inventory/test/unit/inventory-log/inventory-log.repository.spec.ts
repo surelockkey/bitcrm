@@ -31,6 +31,7 @@ describe('inventory-log key helpers', () => {
   it('lowercases name and sku into the search text', () => {
     expect(invlogSearchText('Kwikset Deadbolt', 'WZ-10707')).toBe('kwikset deadbolt wz-10707');
     expect(invlogSearchText('Rekey')).toBe('rekey');
+    expect(invlogSearchText(undefined)).toBe('');
   });
 
   it('steps back a month across the year boundary', () => {
@@ -92,6 +93,33 @@ describe('InventoryLogRepository', () => {
       await repository.create(createMockInventoryLogEntry({ sku: undefined, productName: 'Rekey' }));
 
       expect(dynamoDb.client.send.mock.calls[0][0].input.Item.searchText).toBe('rekey');
+    });
+
+    // Призначення фургона не має товару: жодного ключа GSI4 (інакше рядок ліг
+    // би в партицію `INVLOG#PRODUCT#undefined`), а пошук іде за ім'ям людини.
+    it('writes an item-less entry under its month only, searchable by the subject user', async () => {
+      const entry = createMockInventoryLogEntry({
+        id: 'log-2',
+        createdAt: '2026-09-30T08:00:00.000Z',
+        action: InventoryLogAction.CONTAINER_ASSIGNED,
+        productId: undefined,
+        productName: undefined,
+        sku: undefined,
+        quantity: undefined,
+        subjectUserId: 'tech-1',
+        subjectUserName: 'Mike Ross',
+        toId: 'c-1',
+        toName: '(12) MIKE',
+      });
+
+      await repository.create(entry);
+
+      const item = dynamoDb.client.send.mock.calls[0][0].input.Item;
+      expect(item.PK).toBe('INVLOG#2026-09');
+      expect(item.SK).toBe('2026-09-30T08:00:00.000Z#log-2');
+      expect(item).not.toHaveProperty('GSI4PK');
+      expect(item).not.toHaveProperty('GSI4SK');
+      expect(item.searchText).toBe('mike ross');
     });
   });
 
@@ -285,6 +313,47 @@ describe('InventoryLogRepository', () => {
       });
       expect(input.FilterExpression).toBe('#action = :action');
       expect(result).toEqual({ total: 3, atLeast: false });
+    });
+  });
+
+  /**
+   * Повернення на роботу має йти туди, звідки одиниці списали: останній запис
+   * stock_used цього товару для цієї роботи — з історії товару на GSI4, від
+   * найновішого, з обмеженою кількістю читань.
+   */
+  describe('findLatestStockUse', () => {
+    it('reads the item history newest first, filtered to stock_used of that job', async () => {
+      const used = { ...row('log-9'), action: InventoryLogAction.STOCK_USED, dealId: 'deal-1', fromId: 'c-A' };
+      dynamoDb.client.send.mockResolvedValue({ Items: [used] });
+
+      const entry = await repository.findLatestStockUse('prod-1', 'deal-1');
+
+      const input = dynamoDb.client.send.mock.calls[0][0].input;
+      expect(input).toMatchObject({
+        IndexName: 'TransferEntityIndex',
+        KeyConditionExpression: 'GSI4PK = :pk',
+        FilterExpression: '#action = :action AND dealId = :dealId',
+        ExpressionAttributeNames: { '#action': 'action' },
+        ExpressionAttributeValues: { ':pk': 'INVLOG#PRODUCT#prod-1', ':action': 'stock_used', ':dealId': 'deal-1' },
+        ScanIndexForward: false,
+      });
+      expect(entry?.fromId).toBe('c-A');
+      expect(entry).not.toHaveProperty('GSI4PK');
+    });
+
+    it('reads on past pages with no match, and gives up after a bounded number of reads', async () => {
+      dynamoDb.client.send.mockResolvedValue({ Items: [], LastEvaluatedKey: { PK: 'x' } });
+
+      expect(await repository.findLatestStockUse('prod-1', 'deal-1')).toBeNull();
+      expect(dynamoDb.client.send).toHaveBeenCalledTimes(5);
+      expect(dynamoDb.client.send.mock.calls[1][0].input.ExclusiveStartKey).toEqual({ PK: 'x' });
+    });
+
+    it('answers null when the history ends without a match', async () => {
+      dynamoDb.client.send.mockResolvedValue({ Items: [] });
+
+      expect(await repository.findLatestStockUse('prod-1', 'deal-1')).toBeNull();
+      expect(dynamoDb.client.send).toHaveBeenCalledTimes(1);
     });
   });
 });

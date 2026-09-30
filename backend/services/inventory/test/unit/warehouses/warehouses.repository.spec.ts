@@ -182,7 +182,16 @@ describe('WarehousesRepository.findAll', () => {
     expect(input.KeyConditionExpression).toBe('GSI1PK = :pk');
     expect(input.ExpressionAttributeValues[':pk']).toBe('LOCATION#WAREHOUSE');
     expect(input.ScanIndexForward).toBe(true);
-    expect(input.FilterExpression).toBeUndefined();
+  });
+
+  it('leaves the Workiz placeholders out of the list', async () => {
+    dynamoDb.client.send.mockResolvedValue({ Items: [] });
+
+    await repository.findAll(20);
+
+    const input = dynamoDb.client.send.mock.calls[0][0].input;
+    expect(input.FilterExpression).toBe('(attribute_not_exists(placeholder) OR placeholder = :false)');
+    expect(input.ExpressionAttributeValues).toEqual({ ':pk': 'LOCATION#WAREHOUSE', ':false': false });
   });
 
   it('filters by status and a trimmed, lowercased search term against the name alone', async () => {
@@ -197,6 +206,7 @@ describe('WarehousesRepository.findAll', () => {
     expect(input.ExpressionAttributeNames).toEqual({ '#status': 'status' });
     expect(input.ExpressionAttributeValues).toEqual({
       ':pk': 'LOCATION#WAREHOUSE',
+      ':false': false,
       ':status': 'archived',
       ':search': 'store',
     });
@@ -257,6 +267,7 @@ describe('WarehousesRepository.findAll', () => {
       expect(input.IndexName).toBe('CategoryIndex');
       expect(input.KeyConditionExpression).toBe('GSI1PK = :pk');
       expect(input.ExpressionAttributeValues[':pk']).toBe('LOCATION#WAREHOUSE');
+      expect(input.FilterExpression).toBe('(attribute_not_exists(placeholder) OR placeholder = :false)');
     });
 
     it('counts under the same filter the list uses', async () => {

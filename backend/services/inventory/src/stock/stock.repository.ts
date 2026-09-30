@@ -3,10 +3,8 @@ import {
   Injectable,
   Logger,
   Optional,
-  ServiceUnavailableException,
 } from '@nestjs/common';
 import {
-  BatchGetCommand,
   GetCommand,
   QueryCommand,
   TransactWriteCommand,
@@ -17,20 +15,12 @@ import { DynamoDbService, RedisService } from '@bitcrm/shared';
 import { type StockItem } from '@bitcrm/types';
 import { INVENTORY_TABLE } from '../common/constants/dynamo.constants';
 import { productCacheKey } from '../products/products-cache.service';
+import { batchGetAll } from '../common/utils/batch-get';
 
 /** One `Update` of a TransactWrite — the same shape an UpdateCommand takes. */
 type UpdateSpec = NonNullable<
   NonNullable<TransactWriteCommandInput['TransactItems']>[number]['Update']
 >;
-
-/**
- * BatchGet hands keys back unprocessed when the table is throttled, and the
- * SDK does not retry them (the call succeeded). A few attempts with a doubling
- * pause, then the request fails instead of hammering the table until the
- * load balancer times it out.
- */
-const BATCH_GET_ATTEMPTS = 5;
-const BATCH_GET_BACKOFF_MS = 50;
 
 /** The per-item reasons DynamoDB attaches to a cancelled TransactWrite, or null for any other error. */
 function cancellationReasons(error: unknown): string[] | null {
@@ -75,51 +65,80 @@ export class StockRepository {
     return this.toStockItem(result.Item);
   }
 
+  /**
+   * Every stock row of one location, read to the end of the partition: a
+   * warehouse with thousands of products is more than the 1 MB one Query page
+   * holds, and a single read silently dropped the rest.
+   */
   async getStockLevels(entityPK: string): Promise<StockItem[]> {
-    const result = await this.dynamoDb.client.send(
-      new QueryCommand({
-        TableName: INVENTORY_TABLE,
-        KeyConditionExpression: 'PK = :pk AND begins_with(SK, :prefix)',
-        ExpressionAttributeValues: {
-          ':pk': entityPK,
-          ':prefix': 'STOCK#',
-        },
-      }),
-    );
-
-    return (result.Items || []).map((item) => this.toStockItem(item));
+    const items: StockItem[] = [];
+    let key: Record<string, unknown> | undefined;
+    do {
+      const result = await this.dynamoDb.client.send(
+        new QueryCommand({
+          TableName: INVENTORY_TABLE,
+          KeyConditionExpression: 'PK = :pk AND begins_with(SK, :prefix)',
+          ExpressionAttributeValues: {
+            ':pk': entityPK,
+            ':prefix': 'STOCK#',
+          },
+          ...(key ? { ExclusiveStartKey: key } : {}),
+        }),
+      );
+      for (const item of result.Items || []) items.push(this.toStockItem(item));
+      key = result.LastEvaluatedKey;
+    } while (key);
+    return items;
   }
 
   /**
    * How many of one product each of the given locations holds, keyed by the
-   * location PK; a location with no stock row is simply absent. BatchGet takes
-   * 100 keys a call; keys it leaves unprocessed under load are asked again
-   * with a backoff, a bounded number of times.
+   * location PK; a location with no stock row is simply absent.
    */
   async getProductQuantities(
     productId: string,
     entityPKs: string[],
   ): Promise<Map<string, number>> {
     const quantities = new Map<string, number>();
-    for (let i = 0; i < entityPKs.length; i += 100) {
-      let keys = entityPKs
-        .slice(i, i + 100)
-        .map((pk) => ({ PK: pk, SK: `STOCK#${productId}` }));
-      for (let attempt = 0; keys.length; attempt++) {
-        if (attempt >= BATCH_GET_ATTEMPTS) {
-          throw new ServiceUnavailableException('Stock read throttled; try again');
-        }
-        if (attempt > 0) await this.pause(BATCH_GET_BACKOFF_MS * 2 ** (attempt - 1));
-        const res = await this.dynamoDb.client.send(
-          new BatchGetCommand({ RequestItems: { [INVENTORY_TABLE]: { Keys: keys } } }),
-        );
-        for (const item of res.Responses?.[INVENTORY_TABLE] ?? []) {
-          quantities.set(item.PK as string, Number(item.quantity) || 0);
-        }
-        keys = (res.UnprocessedKeys?.[INVENTORY_TABLE]?.Keys ?? []) as typeof keys;
-      }
+    const rows = await this.batchGetStockRows(
+      entityPKs.map((pk) => ({ PK: pk, SK: `STOCK#${productId}` })),
+    );
+    for (const item of rows) {
+      quantities.set(item.PK as string, Number(item.quantity) || 0);
     }
     return quantities;
+  }
+
+  /**
+   * How many of each product each location holds — every (location, product)
+   * pair is one BatchGet key, so comparing a van template of a few dozen lines
+   * against a van and a warehouse is one or two calls, never a Query over a
+   * warehouse's thousands of stock rows. Keyed by location PK, then product
+   * id; a pair with no stock row is simply absent.
+   */
+  async getQuantities(
+    entityPKs: string[],
+    productIds: string[],
+  ): Promise<Map<string, Map<string, number>>> {
+    const quantities = new Map<string, Map<string, number>>();
+    const keys = entityPKs.flatMap((pk) =>
+      productIds.map((productId) => ({ PK: pk, SK: `STOCK#${productId}` })),
+    );
+    for (const item of await this.batchGetStockRows(keys)) {
+      const pk = item.PK as string;
+      const productId =
+        (item.productId as string | undefined) ?? String(item.SK).slice('STOCK#'.length);
+      if (!quantities.has(pk)) quantities.set(pk, new Map());
+      quantities.get(pk)!.set(productId, Number(item.quantity) || 0);
+    }
+    return quantities;
+  }
+
+  /** Stock rows by key — the shared BatchGet loop (100 keys a call, bounded retries, 503). */
+  private batchGetStockRows(
+    allKeys: Array<{ PK: string; SK: string }>,
+  ): Promise<Record<string, unknown>[]> {
+    return batchGetAll(this.dynamoDb.client, allKeys);
   }
 
   async incrementStock(
@@ -278,10 +297,6 @@ export class StockRepository {
       }
       throw error;
     }
-  }
-
-  private pause(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   private toStockItem(item: Record<string, any>): StockItem {

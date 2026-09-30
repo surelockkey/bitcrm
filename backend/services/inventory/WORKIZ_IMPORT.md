@@ -37,6 +37,16 @@ Write these exactly as `ProductsRepository.create` / the catalog repositories do
 | Warehouse (`warehouses.repository.ts`) | `WAREHOUSE#<id>` | `METADATA` | `LOCATION#WAREHOUSE` | `<name>.trim().toLowerCase()#<id>` | — | — | `searchName = <name>.trim().toLowerCase()` |
 | Container (`containers.repository.ts`) | `CONTAINER#<id>` | `METADATA` | `LOCATION#CONTAINER` | `<name>.trim().toLowerCase()#<id>` | — | — | `searchName = <name>.trim().toLowerCase()` |
 | Stock | `WAREHOUSE#<id>` \| `CONTAINER#<id>` | `STOCK#<productId>` | — | — | — | — | — |
+| Container template (`container-templates.repository.ts`) | `CONTAINER_TEMPLATE#<id>` | `METADATA` | `CATALOG#CONTAINER_TEMPLATE` | `<name>.trim().toLowerCase()` | — | — | — |
+| User container (`user-containers.repository.ts`) | `USER_CONTAINER#<userId>` | `METADATA` | `CATALOG#USER_CONTAINER` | `<userName>.trim().toLowerCase()#<userId>` | — | — | — |
+
+- A user container with `access: "container"` also carries the sparse
+  `OwnerIndex` pair `GSI3PK = CONTAINER_USERS#<containerId>`,
+  `GSI3SK = USER#<userId>` (who works from a van); `all` / `none` rows carry
+  neither. The importer may leave these rows to
+  `npm run backfill:user-containers -w backend/services/inventory`, which
+  derives them from the containers' `technicianId` and `accessUserIds` (§5.2);
+  the row shape is `userContainerItem` in `user-containers.constants.ts`.
 
 - The `search` filters run `contains` against the search attributes, never
   against `name`/`sku` (case-sensitive bytes) nor against the location sort key
@@ -46,6 +56,13 @@ Write these exactly as `ProductsRepository.create` / the catalog repositories do
   `npm run backfill:location-index` (warehouses, containers) — both idempotent,
   upsert-only, and **mandatory after every import** that does not write them.
 
+- A **stock-managed** product (`type: "product"`, `manageStock` absent or
+  `true`, any status) also carries the sparse `OwnerIndex` pair
+  `GSI3PK = PRODUCTS#STOCK`, `GSI3SK = <name>.trim().toLowerCase()#<id>` — the
+  partition `GET /products?manageStock=true` (no category) reads in name
+  order. Write both or neither, or leave them to
+  `npm run backfill:product-stock-index -w backend/services/inventory`
+  (idempotent, mandatory after every import that does not write them).
 - `<type>` is the stored `type`, i.e. always `product` or `service` — the 10
   Workiz `other`/`hours` items are written `type: "service"` and therefore
   `GSI2PK: "TYPE#service"` (§4.1), never `TYPE#other`.
@@ -356,10 +373,26 @@ repository's own `PK`/`SK`/`GSI3` always win over anything in the payload.
 - `technicianId` is the BitCRM `User.id` and drives the sparse GSI3
   (`GSI3PK = OWNER#<technicianId>`, `GSI3SK = CONTAINER#<id>`) — write both
   keys whenever the container has a technician, and neither when it does not.
-- **One technician, one container.** The API enforces it
-  (`assertTechnicianFree`) and `findByTechnicianId` takes `Limit: 1`; a direct
-  import bypasses the check, so the importer must not give two containers the
-  same `technicianId`. The 8 secondary users in 7 containers (all inactive)
-  go in `accessUserIds`, never in `technicianId`.
+- **Who works from a van is the user containers now** (`USER_CONTAINER#<userId>`,
+  §0): one container per user, many users per container, reassigned with
+  `PUT /user-containers/:userId` and logged as `container_assigned`.
+  `technicianId` stays as the legacy link — the API no longer keeps it
+  exclusive, and it is read only for a user who has no assignment row. The
+  importer still writes the owner in `technicianId` and the 8 secondary users
+  of 7 containers (all inactive) in `accessUserIds`; `backfill:user-containers`
+  turns both into assignment rows for **active, non-placeholder** containers
+  only (archived vans and Workiz placeholders are skipped and printed); owners
+  first, then the first container by name (a user on two containers keeps
+  that one and is printed as a conflict), with `limited` taken from the
+  container's `userLimited`. `findByTechnicianId` still takes `Limit: 1`, so
+  give a user at most one container as `technicianId`.
+- **Placeholders.** A location deleted in Workiz is imported as
+  `placeholder: true`, `status: "archived"`, named "Workiz location #<n>
+  (видалено у Workiz)" (119 of the 207 containers on dev), so transfer history
+  still resolves. Keep its index keys: the lists and counts (`GET /containers`,
+  `GET /warehouses`, the Stock popup's location list) filter
+  `attribute_not_exists(placeholder) OR placeholder = false`, `findById` /
+  `findLocation` still read it, and `GET /stock/products/:id` shows one only
+  while it still holds that product.
 - Stock rows are `PK = WAREHOUSE#<id> | CONTAINER#<id>`, `SK = STOCK#<productId>`
   — write only the 13 298 non-zero rows, not all 275 722.

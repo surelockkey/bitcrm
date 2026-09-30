@@ -15,6 +15,8 @@ import { type Warehouse, type InventoryStatus } from '@bitcrm/types';
 import { INVENTORY_TABLE, GSI1_NAME } from '../common/constants/dynamo.constants';
 import {
   LOCATION_INDEX_PK,
+  NOT_PLACEHOLDER_FILTER,
+  NOT_PLACEHOLDER_VALUES,
   locationSearchName,
   locationSortKey,
 } from '../common/constants/locations.constants';
@@ -49,6 +51,8 @@ const LIST_CURSOR_KEYS = ['PK', 'SK', 'GSI1PK', 'GSI1SK'] as const;
  *   PK = WAREHOUSE#<id>, SK = METADATA
  *   GSI1PK = LOCATION#WAREHOUSE, GSI1SK = <name lowercased>#<id>   (list index, name order)
  *   searchName = <name lowercased>                                  (what the search filter matches)
+ * Workiz placeholders (`placeholder: true`) keep their keys but are filtered
+ * out of the list and the count; `findById` still reads them.
  */
 @Injectable()
 export class WarehousesRepository {
@@ -90,8 +94,12 @@ export class WarehousesRepository {
    * two can never answer about different populations.
    */
   private listQuery(filters?: WarehouseListFilters) {
-    const filterParts: string[] = [];
-    const values: Record<string, unknown> = { ':pk': LOCATION_INDEX_PK.warehouse };
+    // Workiz placeholders never reach a list or a count.
+    const filterParts: string[] = [NOT_PLACEHOLDER_FILTER];
+    const values: Record<string, unknown> = {
+      ':pk': LOCATION_INDEX_PK.warehouse,
+      ...NOT_PLACEHOLDER_VALUES,
+    };
     const names: Record<string, string> = {};
 
     if (filters?.status) {
@@ -111,7 +119,7 @@ export class WarehousesRepository {
       IndexName: GSI1_NAME,
       KeyConditionExpression: 'GSI1PK = :pk',
       ExpressionAttributeValues: values,
-      ...(filterParts.length > 0 && { FilterExpression: filterParts.join(' AND ') }),
+      FilterExpression: filterParts.join(' AND '),
       ...(Object.keys(names).length > 0 && { ExpressionAttributeNames: names }),
     };
   }

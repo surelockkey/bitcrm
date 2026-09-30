@@ -6,6 +6,8 @@ export interface Warehouse {
   address?: string;
   description?: string;
   status: InventoryStatus;
+  /** A Workiz placeholder for a location deleted in Workiz. Never listed; still readable by id. */
+  placeholder?: boolean;
   createdAt: string;
   updatedAt: string;
 }

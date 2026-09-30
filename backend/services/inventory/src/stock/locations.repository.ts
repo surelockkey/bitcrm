@@ -8,7 +8,11 @@ import {
   type LocationSummaryType,
 } from '@bitcrm/types';
 import { INVENTORY_TABLE, GSI1_NAME } from '../common/constants/dynamo.constants';
-import { LOCATION_INDEX_PK } from '../common/constants/locations.constants';
+import {
+  LOCATION_INDEX_PK,
+  NOT_PLACEHOLDER_FILTER,
+  NOT_PLACEHOLDER_VALUES,
+} from '../common/constants/locations.constants';
 
 /** The key prefix and index partition of each kind that can hold stock. */
 const KINDS: Record<LocationSummaryType, { prefix: string; indexPk: string }> = {
@@ -21,6 +25,8 @@ const KINDS: Record<LocationSummaryType, { prefix: string; indexPk: string }> = 
  * modules into StockModule. Same rows as those repositories:
  *   PK = WAREHOUSE#<id> | CONTAINER#<id>, SK = METADATA
  *   GSI1PK = LOCATION#WAREHOUSE | LOCATION#CONTAINER, GSI1SK = <name lowercased>#<id>
+ * Workiz placeholders (`placeholder: true`) are left out of `listAll`, read
+ * on their own by `listPlaceholders`, and found by `findLocation` like any row.
  */
 @Injectable()
 export class LocationsRepository {
@@ -39,8 +45,24 @@ export class LocationsRepository {
     return this.toSummary(kind, result.Item);
   }
 
-  /** Every location of that kind, whatever its status, in name order. */
+  /** Every real location of that kind, whatever its status, in name order — no Workiz placeholders. */
   async listAll(type: LocationType): Promise<LocationSummary[]> {
+    return this.queryKind(type, NOT_PLACEHOLDER_FILTER, { ...NOT_PLACEHOLDER_VALUES });
+  }
+
+  /**
+   * The Workiz placeholders of that kind, in name order — only for the views
+   * that must not let units on one become invisible.
+   */
+  async listPlaceholders(type: LocationType): Promise<LocationSummary[]> {
+    return this.queryKind(type, 'placeholder = :true', { ':true': true });
+  }
+
+  private async queryKind(
+    type: LocationType,
+    filter: string,
+    filterValues: Record<string, unknown>,
+  ): Promise<LocationSummary[]> {
     const kind = this.kindOf(type);
     const locations: LocationSummary[] = [];
     let key: Record<string, unknown> | undefined;
@@ -51,7 +73,8 @@ export class LocationsRepository {
           TableName: INVENTORY_TABLE,
           IndexName: GSI1_NAME,
           KeyConditionExpression: 'GSI1PK = :pk',
-          ExpressionAttributeValues: { ':pk': KINDS[kind].indexPk },
+          FilterExpression: filter,
+          ExpressionAttributeValues: { ':pk': KINDS[kind].indexPk, ...filterValues },
           ...(key ? { ExclusiveStartKey: key } : {}),
         }),
       );
@@ -87,6 +110,7 @@ export class LocationsRepository {
       technicianId: item.technicianId as string | undefined,
       department: item.department as string | undefined,
       status: item.status as InventoryStatus,
+      ...(item.placeholder === true && { placeholder: true }),
     };
   }
 }

@@ -6,7 +6,7 @@ import {
   countRows,
   type CountRowsResult,
 } from '@bitcrm/shared';
-import { type InventoryLogAction, type InventoryLogEntry } from '@bitcrm/types';
+import { InventoryLogAction, type InventoryLogEntry } from '@bitcrm/types';
 import { INVENTORY_TABLE, GSI4_NAME } from '../common/constants/dynamo.constants';
 import {
   invlogMonth,
@@ -35,6 +35,10 @@ export interface InventoryLogPage {
   reads: number;
 }
 
+/** Rows read per page, and pages at most, when looking up where a job's units came from. */
+const LATEST_USE_PAGE = 100;
+const LATEST_USE_MAX_READS = 5;
+
 /** Key attributes that must never leak into an entry. */
 const KEY_ATTRIBUTES = new Set(['PK', 'SK', 'GSI4PK', 'GSI4SK', 'searchText']);
 
@@ -42,8 +46,11 @@ const KEY_ATTRIBUTES = new Set(['PK', 'SK', 'GSI4PK', 'GSI4SK', 'searchText']);
  * Inventory audit-log rows in the single BitCRM_Inventory table:
  *   PK = INVLOG#<YYYY-MM> (UTC month of createdAt), SK = <createdAt ISO>#<id>
  *   GSI4PK = INVLOG#PRODUCT#<productId>, GSI4SK = <createdAt ISO>#<id>
- *     (one item's history, on TransferEntityIndex)
- *   searchText = lowercased "<productName> <sku>", for the contains filter
+ *     (one item's history, on TransferEntityIndex; sparse — an item-less
+ *     entry such as `container_assigned` has neither key and lives in the
+ *     month walk only)
+ *   searchText = lowercased "<productName> <sku>", for the contains filter;
+ *     the subject user's name on an item-less entry
  *
  * Rows are written once and never updated. A month is read with one Query;
  * the service walks months to fill a page across them.
@@ -59,9 +66,12 @@ export class InventoryLogRepository {
         Item: {
           PK: invlogPartition(invlogMonth(entry.createdAt)),
           SK: invlogSortKey(entry.createdAt, entry.id),
-          GSI4PK: invlogProductPartition(entry.productId),
-          GSI4SK: invlogSortKey(entry.createdAt, entry.id),
-          searchText: invlogSearchText(entry.productName, entry.sku),
+          // An item-less entry has no item history to join.
+          ...(entry.productId && {
+            GSI4PK: invlogProductPartition(entry.productId),
+            GSI4SK: invlogSortKey(entry.createdAt, entry.id),
+          }),
+          searchText: invlogSearchText(entry.productName ?? entry.subjectUserName, entry.sku),
           ...entry,
         },
       }),
@@ -116,6 +126,40 @@ export class InventoryLogRepository {
       startKey,
       (item) => ({ PK: item.PK, SK: item.SK, GSI4PK: item.GSI4PK, GSI4SK: item.GSI4SK }),
     );
+  }
+
+  /**
+   * The newest `stock_used` entry of one item for one job — where a job line's
+   * units were taken from, so a restore puts them back there. Walks the item's
+   * GSI4 history newest first, a bounded number of reads; null when none of
+   * them holds one (a deduct older than the log, or a very busy item).
+   */
+  async findLatestStockUse(productId: string, dealId: string): Promise<InventoryLogEntry | null> {
+    let key: Record<string, unknown> | undefined;
+    for (let read = 0; read < LATEST_USE_MAX_READS; read++) {
+      const page = await this.dynamoDb.client.send(
+        new QueryCommand({
+          TableName: INVENTORY_TABLE,
+          IndexName: GSI4_NAME,
+          KeyConditionExpression: 'GSI4PK = :pk',
+          FilterExpression: '#action = :action AND dealId = :dealId',
+          ExpressionAttributeNames: { '#action': 'action' },
+          ExpressionAttributeValues: {
+            ':pk': invlogProductPartition(productId),
+            ':action': InventoryLogAction.STOCK_USED,
+            ':dealId': dealId,
+          },
+          ScanIndexForward: false,
+          Limit: LATEST_USE_PAGE,
+          ...(key ? { ExclusiveStartKey: key } : {}),
+        }),
+      );
+      const match = page.Items?.[0];
+      if (match) return this.toEntry(match);
+      key = page.LastEvaluatedKey;
+      if (!key) return null;
+    }
+    return null;
   }
 
   /** How many rows one month holds under the window and filters, without bodies. */

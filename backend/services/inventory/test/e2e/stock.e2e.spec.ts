@@ -209,4 +209,96 @@ describe('Stock E2E', () => {
 
     expect(res.body.data.onHand).toBe(9);
   });
+
+  // ---- STOCK OF ONE LOCATION ----
+
+  describe('GET /stock/locations/:type/:id', () => {
+    it('answers what a location holds (quantity > 0), enriched and sorted by name', async () => {
+      const zeta = await createProduct(app, { name: 'Zeta hinge' });
+      const alpha = await createProduct(app, { name: 'Alpha lock' });
+      const unused = await createProduct(app, { name: 'Middle part' });
+      const warehouse = await createWarehouse(app, '(1) STORE');
+      await receive(app, 'warehouse', warehouse.id, zeta.id, 2);
+      await receive(app, 'warehouse', warehouse.id, alpha.id, 5);
+      await receive(app, 'warehouse', warehouse.id, unused.id, 1);
+      await request(app.getHttpServer())
+        .post(`${TRANSFERS_BASE}/return`)
+        .set('x-test-user', createTestUserHeader(adminUser))
+        .send({
+          fromType: 'warehouse',
+          fromId: warehouse.id,
+          items: [{ productId: unused.id, productName: unused.name, quantity: 1 }],
+          reason: 'damaged',
+        })
+        .expect(201);
+
+      const res = await request(app.getHttpServer())
+        .get(`${STOCK_BASE}/locations/warehouse/${warehouse.id}`)
+        .set('x-test-user', createTestUserHeader(adminUser))
+        .expect(200);
+
+      expect(res.body.data).toMatchObject({
+        locationType: 'warehouse',
+        locationId: warehouse.id,
+        name: '(1) STORE',
+        status: 'active',
+      });
+      // The admin role has no financials.view: the company cost is left out.
+      expect(res.body.data.rows).toEqual([
+        {
+          productId: alpha.id,
+          productName: 'Alpha lock',
+          number: alpha.number,
+          sku: alpha.sku,
+          category: 'Locks',
+          quantity: 5,
+          priceClient: 50,
+        },
+        expect.objectContaining({ productId: zeta.id, productName: 'Zeta hinge', quantity: 2 }),
+      ]);
+
+      const superAdmin: JwtUser = {
+        id: 'sa-1', cognitoSub: 'sub-sa', email: 'sa@test.com', roleId: 'role-super-admin', department: 'HQ',
+      };
+      const withMoney = await request(app.getHttpServer())
+        .get(`${STOCK_BASE}/locations/warehouse/${warehouse.id}`)
+        .set('x-test-user', createTestUserHeader(superAdmin))
+        .expect(200);
+      expect(withMoney.body.data.rows[0].costCompany).toBe(25);
+    });
+
+    it('404s on an unknown location', async () => {
+      await request(app.getHttpServer())
+        .get(`${STOCK_BASE}/locations/container/missing`)
+        .set('x-test-user', createTestUserHeader(adminUser))
+        .expect(404);
+    });
+
+    it('401s without a user and 403s without the view permission', async () => {
+      await request(app.getHttpServer()).get(`${STOCK_BASE}/locations/warehouse/w`).expect(401);
+      await request(app.getHttpServer())
+        .get(`${STOCK_BASE}/locations/container/c`)
+        .set('x-test-user', createTestUserHeader(noAccessUser))
+        .expect(403);
+      // The technician role has no warehouses.view.
+      await request(app.getHttpServer())
+        .get(`${STOCK_BASE}/locations/warehouse/w`)
+        .set('x-test-user', createTestUserHeader(techUser))
+        .expect(403);
+    });
+
+    it('keeps a technician to their own van (403 on another)', async () => {
+      const mine = await createContainer(app, 'Mine', techUser.id, 'Atlanta');
+      const other = await createContainer(app, 'Other', 'tech-2', 'Atlanta');
+
+      await request(app.getHttpServer())
+        .get(`${STOCK_BASE}/locations/container/${mine.id}`)
+        .set('x-test-user', createTestUserHeader(techUser))
+        .expect(200);
+      await request(app.getHttpServer())
+        .get(`${STOCK_BASE}/locations/container/${other.id}`)
+        .set('x-test-user', createTestUserHeader(techUser))
+        .expect(403);
+    });
+  });
 });

@@ -42,7 +42,13 @@ export class ContainersController {
 
   @Get()
   @RequirePermission('containers', 'view')
-  @ApiOperation({ summary: 'List containers (filtered by data scope)', description: '**Guard:** `containers.view` permission required. Results filtered by data scope.' })
+  @ApiOperation({
+    summary: 'List containers (filtered by data scope)',
+    description:
+      '**Guard:** `containers.view` permission required. Results filtered by data scope. Workiz ' +
+      'placeholders (`placeholder: true`, locations deleted in Workiz — 119 of 207 on dev) are ' +
+      'never listed or counted; `GET /containers/:id` still reads them.',
+  })
   async list(
     @Query() query: ListContainersQueryDto,
     @CurrentUser() user: JwtUser,

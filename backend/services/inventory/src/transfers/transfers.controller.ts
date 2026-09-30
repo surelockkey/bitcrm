@@ -32,7 +32,9 @@ export class TransfersController {
     summary: 'Create a transfer between locations',
     description:
       '**Guard:** `transfers.create` permission required. Both locations must exist (404 ' +
-      'otherwise) and differ (400); services are rejected and non-stock-managed items dropped ' +
+      'otherwise) and differ (400), and the destination must not be archived (400 "… is ' +
+      'archived"; moving OUT of an archived location is allowed); services are rejected and ' +
+      'non-stock-managed items dropped ' +
       'into `skippedItems`, a list with none left is a 400. Item names are the catalog\'s. ' +
       'Answers the TRANSFER transfer.',
   })
@@ -47,7 +49,8 @@ export class TransfersController {
     summary: 'Receive stock from the supplier into a warehouse or container',
     description:
       '**Guard:** `transfers.create` permission required. Workiz "Add to stock": the location ' +
-      'must exist (404 otherwise); services are rejected and non-stock-managed items dropped ' +
+      'must exist (404 otherwise) and not be archived (400 "… is archived"); services are ' +
+      'rejected and non-stock-managed items dropped ' +
       'into `skippedItems`, a list with none left is a 400. Item names are the catalog\'s. ' +
       'Answers the RECEIVE transfer.',
   })
@@ -72,7 +75,12 @@ export class TransfersController {
 
   @Get()
   @RequirePermission('transfers', 'view')
-  @ApiOperation({ summary: 'List all transfers', description: '**Guard:** `transfers.view` permission required.' })
+  @ApiOperation({
+    summary: 'List all transfers',
+    description:
+      '**Guard:** `transfers.view` permission required. `type` (receive | transfer | deduct | ' +
+      'restore | return) filters on the server, so a page of one type still fills.',
+  })
   async list(@Query() query: ListTransfersQueryDto) {
     const { items, nextCursor } = await this.transfersService.list(query);
     return {
@@ -88,12 +96,13 @@ export class TransfersController {
   @ApiOperation({
     summary: 'How many transfers the list holds',
     description:
-      '**Guard:** `transfers.view` permission required. Answers `{ total, atLeast }` — the row ' +
+      '**Guard:** `transfers.view` permission required. Takes the list\'s `type` filter ' +
+      '(`cursor` and `limit` are ignored) and answers `{ total, atLeast }` — the row ' +
       'count behind "Page 2 of 7". `atLeast` means the walk stopped on a ceiling and the real ' +
-      'number is higher, which the panel renders as `7+`. Cached for thirty seconds.',
+      'number is higher, which the panel renders as `7+`. Cached for thirty seconds per type.',
   })
-  async count() {
-    const data = await this.transfersService.count();
+  async count(@Query() query: ListTransfersQueryDto) {
+    const data = await this.transfersService.count({ type: query.type });
     return { success: true, data };
   }
 
@@ -153,7 +162,13 @@ export class TransfersController {
 
   @Post('internal/stock/deduct')
   @Internal()
-  @ApiOperation({ summary: 'Internal: deduct stock from container (for deal service)', description: '**Guard:** Internal (X-Internal-Secret header required). Service-to-service only.' })
+  @ApiOperation({
+    summary: 'Internal: deduct stock from container (for deal service)',
+    description:
+      '**Guard:** Internal (X-Internal-Secret header required). Service-to-service only. ' +
+      '`containerId` may be a technician id (resolved to the container they work from); an id ' +
+      'that is no existing container is a 404 — no stock row is touched.',
+  })
   async deductStock(@Body() dto: DeductStockDto) {
     await this.transfersService.deductStock(dto);
     return { success: true };
@@ -161,9 +176,18 @@ export class TransfersController {
 
   @Post('internal/stock/restore')
   @Internal()
-  @ApiOperation({ summary: 'Internal: restore stock to container (for deal service)', description: '**Guard:** Internal (X-Internal-Secret header required). Service-to-service only.' })
+  @ApiOperation({
+    summary: 'Internal: restore stock to container (for deal service)',
+    description:
+      '**Guard:** Internal (X-Internal-Secret header required). Service-to-service only. Each line ' +
+      'goes back to the container its newest `stock_used` entry for this job names (one RESTORE ' +
+      'per container); only a line with no such entry falls back to the technician\'s current ' +
+      'container. A line for which no existing container can be found is skipped — never a ' +
+      '404, so removing a job line is never blocked — logged as `stock_restore_skipped` and ' +
+      'answered in `data.skippedItems`.',
+  })
   async restoreStock(@Body() dto: RestoreStockDto) {
-    await this.transfersService.restoreStock(dto);
-    return { success: true };
+    const data = await this.transfersService.restoreStock(dto);
+    return { success: true, data };
   }
 }

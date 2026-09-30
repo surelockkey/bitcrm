@@ -36,7 +36,12 @@ export class WarehousesController {
 
   @Get()
   @RequirePermission('warehouses', 'view')
-  @ApiOperation({ summary: 'List warehouses', description: '**Guard:** `warehouses.view` permission required.' })
+  @ApiOperation({
+    summary: 'List warehouses',
+    description:
+      '**Guard:** `warehouses.view` permission required. Workiz placeholders (`placeholder: true`, ' +
+      'locations deleted in Workiz) are never listed or counted; `GET /warehouses/:id` still reads them.',
+  })
   async list(@Query() query: ListWarehousesQueryDto) {
     const { items, nextCursor } = await this.warehousesService.list(query);
     return {

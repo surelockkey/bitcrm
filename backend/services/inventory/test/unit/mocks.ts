@@ -1,4 +1,4 @@
-import { ProductType, InventoryStatus, TransferType, LocationType, InventoryLogAction, DataScope, type Product, type Warehouse, type Container, type Transfer, type TransferItem, type StockItem, type LocationSummary, type InventoryLogEntry, type JwtUser, type ResolvedPermissions } from '@bitcrm/types';
+import { ProductType, InventoryStatus, TransferType, LocationType, InventoryLogAction, DataScope, UserContainerAccess, type UserContainer, type ContainerTemplate, type Product, type Warehouse, type Container, type Transfer, type TransferItem, type StockItem, type LocationSummary, type InventoryLogEntry, type JwtUser, type ResolvedPermissions } from '@bitcrm/types';
 import type { CreateProductDto } from 'src/products/dto/create-product.dto';
 import type { CreateWarehouseDto } from 'src/warehouses/dto/create-warehouse.dto';
 import type { CreateTransferDto } from 'src/transfers/dto/create-transfer.dto';
@@ -57,6 +57,75 @@ export function createMockInventoryLogEntry(overrides?: Partial<InventoryLogEntr
   };
 }
 
+export function createMockUserContainer(overrides?: Partial<UserContainer>): UserContainer {
+  return {
+    userId: 'tech-1', userName: 'Mike Ross',
+    access: UserContainerAccess.CONTAINER, containerId: 'container-1', containerName: 'Van 1',
+    limited: false, updatedAt: '2026-09-30T08:00:00.000Z',
+    updatedBy: 'admin-1', updatedByName: 'admin@test.com',
+    ...overrides,
+  };
+}
+
+export function createMockContainerTemplate(overrides?: Partial<ContainerTemplate>): ContainerTemplate {
+  return {
+    id: 'tpl-1', name: 'Standard van', description: 'What every van carries',
+    items: [
+      { productId: 'prod-1', productName: 'Deadbolt', sku: 'SKU-001', quantity: 5 },
+      { productId: 'prod-2', productName: 'Rekey kit', sku: 'SKU-002', quantity: 2 },
+    ],
+    status: InventoryStatus.ACTIVE,
+    createdAt: '2026-09-30T08:00:00.000Z', updatedAt: '2026-09-30T08:00:00.000Z',
+    ...overrides,
+  };
+}
+
+export function createMockContainerTemplatesRepository() {
+  return {
+    create: jest.fn().mockResolvedValue(undefined),
+    put: jest.fn().mockResolvedValue(undefined),
+    findById: jest.fn().mockResolvedValue(null),
+    findByName: jest.fn().mockResolvedValue([]),
+    listAll: jest.fn().mockResolvedValue([]),
+  };
+}
+
+/** Default: every request id is new, so a fill runs. */
+export function createMockTemplateFillClaimsRepository() {
+  return {
+    claim: jest.fn().mockResolvedValue(true),
+    find: jest.fn().mockResolvedValue(null),
+    complete: jest.fn().mockResolvedValue(undefined),
+    release: jest.fn().mockResolvedValue(undefined),
+  };
+}
+
+export function createMockUserContainersRepository() {
+  return {
+    put: jest.fn().mockResolvedValue(undefined),
+    findByUser: jest.fn().mockResolvedValue(null),
+    listAll: jest.fn().mockResolvedValue([]),
+    listByContainer: jest.fn().mockResolvedValue([]),
+  };
+}
+
+/**
+ * Default: nobody has a container, as for a user with no row and no legacy van.
+ * `assignmentFor` follows whatever `containerIdForUser` is mocked to, with
+ * "All locations" off, so a spec only overrides it to test that.
+ */
+export function createMockContainerAssignmentResolver() {
+  const resolver = {
+    containerIdForUser: jest.fn().mockResolvedValue(undefined),
+    assignmentFor: jest.fn(),
+  };
+  resolver.assignmentFor.mockImplementation(async (userId: string) => ({
+    allLocations: false,
+    containerId: await resolver.containerIdForUser(userId),
+  }));
+  return resolver;
+}
+
 export function createMockStockItem(overrides?: Partial<StockItem>): StockItem {
   return {
     productId: 'prod-1', productName: 'Test Product', quantity: 10,
@@ -98,7 +167,13 @@ export function createMockCreateTransferDto(overrides?: Partial<CreateTransferDt
 
 // Service/Repository mocks
 export function createMockProductsRepository() {
-  return { create: jest.fn(), findById: jest.fn(), findBySku: jest.fn(), findByBarcode: jest.fn(), findAll: jest.fn(), findByCategory: jest.fn(), findByType: jest.fn(), update: jest.fn(), countAll: jest.fn(), countByCategory: jest.fn(), countByType: jest.fn(), nextNumber: jest.fn().mockResolvedValue(1), raiseCounterTo: jest.fn() };
+  return {
+    create: jest.fn(), findById: jest.fn(), findBySku: jest.fn(), findByBarcode: jest.fn(), findAll: jest.fn(),
+    findByCategory: jest.fn(), findByType: jest.fn(), findStockManaged: jest.fn(), update: jest.fn(),
+    countAll: jest.fn(), countByCategory: jest.fn(), countByType: jest.fn(), countStockManaged: jest.fn(),
+    findByIds: jest.fn().mockResolvedValue([]),
+    nextNumber: jest.fn().mockResolvedValue(1), raiseCounterTo: jest.fn(),
+  };
 }
 
 export function createMockProductsService() {
@@ -142,6 +217,7 @@ export function createMockTransfersRepository() {
 export function createMockStockRepository() {
   return {
     getStockLevel: jest.fn(), getStockLevels: jest.fn(), getProductQuantities: jest.fn(),
+    getQuantities: jest.fn().mockResolvedValue(new Map()),
     incrementStock: jest.fn(), decrementStock: jest.fn(), moveStock: jest.fn(),
   };
 }
@@ -171,7 +247,11 @@ export function createMockLocationSummary(overrides?: Partial<LocationSummary>):
 }
 
 export function createMockLocationsRepository() {
-  return { findLocation: jest.fn(), listAll: jest.fn().mockResolvedValue([]) };
+  return {
+    findLocation: jest.fn(),
+    listAll: jest.fn().mockResolvedValue([]),
+    listPlaceholders: jest.fn().mockResolvedValue([]),
+  };
 }
 
 export function createMockStockService() {
@@ -193,6 +273,7 @@ export function createMockInventoryLogRepository() {
     queryProduct: jest.fn().mockResolvedValue({ items: [], lastKey: undefined, reads: 1 }),
     countMonth: jest.fn().mockResolvedValue({ total: 0, atLeast: false }),
     countProduct: jest.fn().mockResolvedValue({ total: 0, atLeast: false }),
+    findLatestStockUse: jest.fn().mockResolvedValue(null),
   };
 }
 
@@ -200,6 +281,8 @@ export function createMockInventoryLogRepository() {
 export function createMockInventoryLogService() {
   return {
     record: jest.fn().mockResolvedValue(undefined),
+    // Default: no stock_used entry for the job — the restore falls back to the resolver.
+    lastStockUse: jest.fn().mockResolvedValue(null),
     list: jest.fn().mockResolvedValue({ items: [], nextCursor: undefined }),
     count: jest.fn().mockResolvedValue({ total: 0, atLeast: false }),
   };

@@ -219,7 +219,14 @@ describe('ProductsRepository', () => {
     it('should build correct SET expression and return updated product', async () => {
       const updated = createMockProduct({ name: 'Updated Product' });
       dynamoDb.client.send.mockResolvedValue({
-        Attributes: { ...updated, PK: 'PRODUCT#prod-1', SK: 'METADATA' },
+        // Already filed on the stock-managed partition under its name: one write.
+        Attributes: {
+          ...updated,
+          PK: 'PRODUCT#prod-1',
+          SK: 'METADATA',
+          GSI3PK: 'PRODUCTS#STOCK',
+          GSI3SK: 'updated product#prod-1',
+        },
       });
 
       const result = await repository.update('prod-1', { name: 'Updated Product' });
@@ -282,6 +289,23 @@ describe('ProductsRepository', () => {
       expect(input.UpdateExpression).toContain('REMOVE #workizType');
       expect(input.UpdateExpression).toContain('#name = :name');
       expect(input.ExpressionAttributeValues).not.toHaveProperty(':workizType');
+    });
+
+    // `null` з API означає "очистити поле": атрибут видаляється, а не
+    // зберігається як DynamoDB NULL.
+    it('REMOVEs a key handed in as null', async () => {
+      dynamoDb.client.send.mockResolvedValue({
+        Attributes: { ...createMockProduct(), PK: 'PRODUCT#prod-1', SK: 'METADATA' },
+      });
+
+      await repository.update('prod-1', { brandId: null, reorderLevel: null, name: 'Kept' } as any);
+
+      const input = dynamoDb.client.send.mock.calls[0][0].input;
+      expect(input.UpdateExpression).toMatch(/REMOVE .*#brandId/);
+      expect(input.UpdateExpression).toMatch(/REMOVE .*#reorderLevel/);
+      expect(input.UpdateExpression).toContain('#name = :name');
+      expect(input.ExpressionAttributeValues).not.toHaveProperty(':brandId');
+      expect(input.ExpressionAttributeValues).not.toHaveProperty(':reorderLevel');
     });
 
     it('rewrites the search name when the name changes, and leaves it alone otherwise', async () => {

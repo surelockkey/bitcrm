@@ -19,6 +19,8 @@ import {
 } from '../common/constants/dynamo.constants';
 import {
   LOCATION_INDEX_PK,
+  NOT_PLACEHOLDER_FILTER,
+  NOT_PLACEHOLDER_VALUES,
   locationSearchName,
   locationSortKey,
 } from '../common/constants/locations.constants';
@@ -53,8 +55,13 @@ const LIST_CURSOR_KEYS = ['PK', 'SK', 'GSI1PK', 'GSI1SK'] as const;
  * Container rows in the single BitCRM_Inventory table:
  *   PK = CONTAINER#<id>, SK = METADATA
  *   GSI1PK = LOCATION#CONTAINER, GSI1SK = <name lowercased>#<id>   (list index, name order)
- *   GSI3PK = OWNER#<technicianId>, GSI3SK = CONTAINER#<id>          (sparse: assigned containers only)
+ *   GSI3PK = OWNER#<technicianId>, GSI3SK = CONTAINER#<id>          (sparse: the legacy single-technician
+ *                                                                    link; who works from a van is
+ *                                                                    USER_CONTAINER# rows on
+ *                                                                    CONTAINER_USERS#<id>, same index)
  *   searchName = <name lowercased>                                   (what the search filter matches)
+ * Workiz placeholders (`placeholder: true`) keep their keys but are filtered
+ * out of the list and the count; `findById` still reads them.
  */
 @Injectable()
 export class ContainersRepository {
@@ -120,8 +127,12 @@ export class ContainersRepository {
    * two can never answer about different populations.
    */
   private listQuery(filters?: ContainerListFilters) {
-    const filterParts: string[] = [];
-    const values: Record<string, unknown> = { ':pk': LOCATION_INDEX_PK.container };
+    // Workiz placeholders never reach a list or a count.
+    const filterParts: string[] = [NOT_PLACEHOLDER_FILTER];
+    const values: Record<string, unknown> = {
+      ':pk': LOCATION_INDEX_PK.container,
+      ...NOT_PLACEHOLDER_VALUES,
+    };
     const names: Record<string, string> = {};
 
     if (filters?.department) {
@@ -146,7 +157,7 @@ export class ContainersRepository {
       IndexName: GSI1_NAME,
       KeyConditionExpression: 'GSI1PK = :pk',
       ExpressionAttributeValues: values,
-      ...(filterParts.length > 0 && { FilterExpression: filterParts.join(' AND ') }),
+      FilterExpression: filterParts.join(' AND '),
       ...(Object.keys(names).length > 0 && { ExpressionAttributeNames: names }),
     };
   }
@@ -303,6 +314,7 @@ export class ContainersRepository {
       technicianId: item.technicianId as string | undefined,
       technicianName,
       department: item.department as string | undefined,
+      templateId: item.templateId as string | undefined,
       status: item.status as Container['status'],
       createdAt: item.createdAt as string,
       updatedAt: item.updatedAt as string,

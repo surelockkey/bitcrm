@@ -120,11 +120,12 @@ describe('TransfersController', () => {
         performedBy: 'tech-1',
         performedByName: 'tech@test.com',
       };
-      service.restoreStock.mockResolvedValue(undefined);
+      const skipped = [{ productId: 'prod-9', productName: 'Old', quantity: 1 }];
+      service.restoreStock.mockResolvedValue({ skippedItems: skipped });
 
       const result = await controller.restoreStock(dto as any);
 
-      expect(result).toEqual({ success: true });
+      expect(result).toEqual({ success: true, data: { skippedItems: skipped } });
       expect(service.restoreStock).toHaveBeenCalledWith(dto);
     });
   });
@@ -184,10 +185,11 @@ describe('TransfersController', () => {
     it('answers the list total in the envelope', async () => {
       service.count.mockResolvedValue({ total: 18, atLeast: false });
 
-      expect(await controller.count()).toEqual({
+      expect(await controller.count({ type: TransferType.RECEIVE } as any)).toEqual({
         success: true,
         data: { total: 18, atLeast: false },
       });
+      expect(service.count).toHaveBeenCalledWith({ type: TransferType.RECEIVE });
     });
   });
 

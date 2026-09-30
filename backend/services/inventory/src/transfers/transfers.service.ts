@@ -22,13 +22,14 @@ import {
   type Transfer,
   type TransferItem,
   InventoryLogAction,
+  InventoryStatus,
   TransferType,
   LocationType,
 } from '@bitcrm/types';
 import { TransfersRepository } from './transfers.repository';
 import { StockService } from '../stock/stock.service';
 import { LocationsRepository } from '../stock/locations.repository';
-import { ContainersRepository } from '../containers/containers.repository';
+import { ContainerAssignmentResolver } from '../user-containers/container-assignment.resolver';
 import { ProductsService } from '../products/products.service';
 import { InventoryLogService } from '../inventory-log/inventory-log.service';
 import { CreateTransferDto } from './dto/create-transfer.dto';
@@ -70,7 +71,7 @@ export class TransfersService {
   constructor(
     private readonly repository: TransfersRepository,
     private readonly stockService: StockService,
-    private readonly containersRepository: ContainersRepository,
+    private readonly assignments: ContainerAssignmentResolver,
     private readonly productsService: ProductsService,
     private readonly locationsRepository: LocationsRepository,
     @Optional() private readonly inventoryLog?: InventoryLogService,
@@ -82,17 +83,16 @@ export class TransfersService {
   /**
    * Deal-service callers identify a technician's container by the *technician's*
    * id, but stock is keyed by the container's own id. Resolve a technician id
-   * to their container id; an id that matches no technician (e.g. a container id
-   * passed directly by the transfers UI) is returned as-is so those callers keep
-   * working unchanged.
+   * to the container they are assigned to (user containers, else the legacy
+   * `technicianId` link); an id that names no user with a container (e.g. a
+   * container id passed directly by the transfers UI) is returned as-is so
+   * those callers keep working unchanged.
    */
   private async resolveContainerId(
     containerOrTechnicianId: string,
   ): Promise<string> {
-    const container = await this.containersRepository.findByTechnicianId(
-      containerOrTechnicianId,
-    );
-    return container ? container.id : containerOrTechnicianId;
+    const containerId = await this.assignments.containerIdForUser(containerOrTechnicianId);
+    return containerId ?? containerOrTechnicianId;
   }
 
   /**
@@ -112,7 +112,7 @@ export class TransfersService {
     }
 
     const from = await this.requireLocation(dto.fromType, dto.fromId);
-    const to = await this.requireLocation(dto.toType, dto.toId);
+    const to = await this.requireDestination(dto.toType, dto.toId);
     const { items, skipped } = await this.stockableItems(dto.items, 'stock transfer');
 
     await this.stockService.transfer(
@@ -159,7 +159,7 @@ export class TransfersService {
    * stock. The one receive path — POST /warehouses/:id/receive lands here too.
    */
   async receiveStock(dto: ReceiveStockDto, user: JwtUser): Promise<Transfer> {
-    const location = await this.requireLocation(dto.toType, dto.toId);
+    const location = await this.requireDestination(dto.toType, dto.toId);
     const { items, skipped } = await this.stockableItems(dto.items, 'stock receive');
 
     await this.stockService.receive(locationPK(dto.toType, dto.toId), items);
@@ -303,6 +303,8 @@ export class TransfersService {
     if (items.length === 0) return;
 
     const containerId = await this.resolveContainerId(dto.containerId);
+    // Never a phantom row: an id that is no container is a 404, not a deduct.
+    const container = await this.requireLocation(LocationType.CONTAINER, containerId);
     await this.stockService.deduct(`CONTAINER#${containerId}`, items);
     this.businessMetrics?.stockDeductions.inc();
 
@@ -327,7 +329,7 @@ export class TransfersService {
       {
         fromType: LocationType.CONTAINER,
         fromId: containerId,
-        fromName: await this.locationName(LocationType.CONTAINER, containerId),
+        fromName: container.name,
         dealId: dto.dealId,
         userId: dto.performedBy,
         userName: dto.performedByName,
@@ -336,15 +338,78 @@ export class TransfersService {
     );
   }
 
-  async restoreStock(dto: RestoreStockDto) {
+  /**
+   * Units go back where the job took them from. deal-service names the
+   * technician again, and by now they may work from another van — or have
+   * "All locations" — so each line is restored into the container of its
+   * newest `stock_used` entry for this job; a line the log has no entry for
+   * (or whose van no longer exists) falls back to the technician's current
+   * container. Lines used from different vans become one RESTORE per van.
+   *
+   * Never a 404: deal-service awaits this when a dispatcher removes a job
+   * line, and a failure would block the removal. A line no existing container
+   * can be found for is skipped — no stock row is written, a warning is
+   * logged, a `stock_restore_skipped` entry records it — and answered in
+   * `skippedItems`.
+   */
+  async restoreStock(dto: RestoreStockDto): Promise<{ skippedItems: TransferItem[] }> {
     await this.productsService.assertStockable(dto.items.map((i) => i.productId));
     // Symmetrical with deductStock: what was never deducted is never restored.
     const items = await this.withCatalogNames(
       await this.onlyStockManaged(dto.items, 'stock restore'),
     );
-    if (items.length === 0) return;
+    if (items.length === 0) return { skippedItems: [] };
 
-    const containerId = await this.resolveContainerId(dto.containerId);
+    const found = new Map<string, LocationSummary | null>();
+    const existing = async (id: string) => {
+      if (!found.has(id)) found.set(id, await this.locationsRepository.findLocation(LocationType.CONTAINER, id));
+      return found.get(id) ?? null;
+    };
+    let current: string | undefined;
+
+    const targets = new Map<string, { container: LocationSummary; items: TransferItem[] }>();
+    const skippedItems: TransferItem[] = [];
+    for (const item of items) {
+      const usedFrom = (await this.inventoryLog?.lastStockUse(item.productId, dto.dealId))?.fromId;
+      let container = usedFrom ? await existing(usedFrom) : null;
+      if (!container) {
+        current ??= await this.resolveContainerId(dto.containerId);
+        container = await existing(current);
+      }
+      if (!container) {
+        skippedItems.push(item);
+        continue;
+      }
+      const target = targets.get(container.id) ?? { container, items: [] };
+      target.items.push(item);
+      targets.set(container.id, target);
+    }
+
+    for (const target of targets.values()) {
+      await this.restoreInto(target.container, target.items, dto);
+    }
+
+    if (skippedItems.length > 0) {
+      this.logger.warn(
+        `Restore for deal ${dto.dealId}: no existing container for ` +
+          skippedItems.map((i) => `${i.quantity} × ${i.productId}`).join(', ') +
+          ` (technician ${dto.containerId}); skipped, nothing written`,
+      );
+      await this.recordMovement(InventoryLogAction.STOCK_RESTORE_SKIPPED, skippedItems, {
+        dealId: dto.dealId,
+        userId: dto.performedBy,
+        userName: dto.performedByName,
+      });
+    }
+    return { skippedItems };
+  }
+
+  private async restoreInto(
+    container: LocationSummary,
+    items: TransferItem[],
+    dto: RestoreStockDto,
+  ): Promise<void> {
+    const containerId = container.id;
     await this.stockService.receive(`CONTAINER#${containerId}`, items);
     this.businessMetrics?.stockTransfers.inc({ type: 'restore' });
 
@@ -368,7 +433,7 @@ export class TransfersService {
       {
         toType: LocationType.CONTAINER,
         toId: containerId,
-        toName: await this.locationName(LocationType.CONTAINER, containerId),
+        toName: container.name,
         dealId: dto.dealId,
         userId: dto.performedBy,
         userName: dto.performedByName,
@@ -387,17 +452,18 @@ export class TransfersService {
   }
 
   /**
-   * The name the log shows for a location on the internal deduct/restore
-   * paths — its id when it has no row to name it (deal-service may name a
-   * container this service never persisted).
+   * A location stock may move INTO: it exists and is not archived. Moving or
+   * returning stock OUT of an archived location stays allowed — that is how a
+   * retired van is emptied. (The deal-service deduct/restore paths only ask
+   * that the container exists: units go back to a van even if it was archived.)
    */
-  private async locationName(type: LocationType, id: string): Promise<string> {
-    try {
-      const location = await this.locationsRepository.findLocation(type, id);
-      return location?.name || id;
-    } catch {
-      return id;
+  private async requireDestination(type: LocationType, id: string): Promise<LocationSummary> {
+    const location = await this.requireLocation(type, id);
+    if (location.status === InventoryStatus.ARCHIVED) {
+      const label = type === LocationType.WAREHOUSE ? 'Warehouse' : 'Container';
+      throw new BadRequestException(`${label} "${location.name}" is archived`);
     }
+    return location;
   }
 
   /**
@@ -445,19 +511,20 @@ export class TransfersService {
   }
 
   async list(query: ListTransfersQueryDto) {
-    return this.repository.findAll(query.limit || 20, query.cursor);
+    return this.repository.findAll(query.limit || 20, query.cursor, { type: query.type });
   }
 
   /**
-   * How many transfers the list holds, behind a short cache — the number the
-   * panel turns into "Page 2 of 7".
+   * How many transfers the list holds under the same `type` filter, behind a
+   * short cache keyed on it — the number the panel turns into "Page 2 of 7".
    */
-  async count(): Promise<ListCount> {
-    const take = () => this.repository.countAll();
+  async count(query: Pick<ListTransfersQueryDto, 'type'> = {}): Promise<ListCount> {
+    const filters = query.type ? { type: query.type } : {};
+    const take = () => this.repository.countAll(filters);
     if (!this.redis) return take();
     return cachedCount(
       this.redis.client,
-      countCacheKey('transfers', {}),
+      countCacheKey('transfers', filters),
       COUNT_TTL_SECONDS,
       take,
     );
