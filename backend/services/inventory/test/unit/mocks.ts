@@ -1,4 +1,4 @@
-import { ProductType, InventoryStatus, TransferType, LocationType, InventoryLogAction, DataScope, type Product, type Warehouse, type Container, type Transfer, type TransferItem, type StockItem, type LocationSummary, type InventoryLogEntry, type JwtUser, type ResolvedPermissions } from '@bitcrm/types';
+import { ProductType, InventoryStatus, TransferType, LocationType, InventoryLogAction, DataScope, UserContainerAccess, type UserContainer, type Product, type Warehouse, type Container, type Transfer, type TransferItem, type StockItem, type LocationSummary, type InventoryLogEntry, type JwtUser, type ResolvedPermissions } from '@bitcrm/types';
 import type { CreateProductDto } from 'src/products/dto/create-product.dto';
 import type { CreateWarehouseDto } from 'src/warehouses/dto/create-warehouse.dto';
 import type { CreateTransferDto } from 'src/transfers/dto/create-transfer.dto';
@@ -55,6 +55,30 @@ export function createMockInventoryLogEntry(overrides?: Partial<InventoryLogEntr
     createdAt: '2026-09-10T10:00:00.000Z',
     ...overrides,
   };
+}
+
+export function createMockUserContainer(overrides?: Partial<UserContainer>): UserContainer {
+  return {
+    userId: 'tech-1', userName: 'Mike Ross',
+    access: UserContainerAccess.CONTAINER, containerId: 'container-1', containerName: 'Van 1',
+    limited: false, updatedAt: '2026-09-30T08:00:00.000Z',
+    updatedBy: 'admin-1', updatedByName: 'admin@test.com',
+    ...overrides,
+  };
+}
+
+export function createMockUserContainersRepository() {
+  return {
+    put: jest.fn().mockResolvedValue(undefined),
+    findByUser: jest.fn().mockResolvedValue(null),
+    listAll: jest.fn().mockResolvedValue([]),
+    listByContainer: jest.fn().mockResolvedValue([]),
+  };
+}
+
+/** Default: nobody has a container, as for a user with no row and no legacy van. */
+export function createMockContainerAssignmentResolver() {
+  return { containerIdForUser: jest.fn().mockResolvedValue(undefined) };
 }
 
 export function createMockStockItem(overrides?: Partial<StockItem>): StockItem {

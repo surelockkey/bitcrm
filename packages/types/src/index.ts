@@ -5,6 +5,7 @@ export { ProductType } from './enums/product-type.enum';
 export { TransferType, LocationType } from './enums/transfer-type.enum';
 export { ReturnReason } from './enums/return-reason.enum';
 export { InventoryLogAction } from './enums/inventory-log-action.enum';
+export { UserContainerAccess } from './enums/user-container-access.enum';
 export { InventoryStatus } from './enums/inventory-status.enum';
 export { ContactType } from './enums/contact-type.enum';
 export { ContactSource } from './enums/contact-source.enum';
@@ -116,6 +117,7 @@ export {
 } from './entities/product.entity';
 export { Warehouse } from './entities/warehouse.entity';
 export { Container } from './entities/container.entity';
+export { UserContainer } from './entities/user-container.entity';
 export { ProductCategory, UNCATEGORIZED_CATEGORY } from './entities/product-category.entity';
 export { Brand } from './entities/brand.entity';
 export { Transfer, TransferItem } from './entities/transfer.entity';

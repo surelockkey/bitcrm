@@ -31,6 +31,7 @@ describe('inventory-log key helpers', () => {
   it('lowercases name and sku into the search text', () => {
     expect(invlogSearchText('Kwikset Deadbolt', 'WZ-10707')).toBe('kwikset deadbolt wz-10707');
     expect(invlogSearchText('Rekey')).toBe('rekey');
+    expect(invlogSearchText(undefined)).toBe('');
   });
 
   it('steps back a month across the year boundary', () => {
@@ -92,6 +93,33 @@ describe('InventoryLogRepository', () => {
       await repository.create(createMockInventoryLogEntry({ sku: undefined, productName: 'Rekey' }));
 
       expect(dynamoDb.client.send.mock.calls[0][0].input.Item.searchText).toBe('rekey');
+    });
+
+    // Призначення фургона не має товару: жодного ключа GSI4 (інакше рядок ліг
+    // би в партицію `INVLOG#PRODUCT#undefined`), а пошук іде за ім'ям людини.
+    it('writes an item-less entry under its month only, searchable by the subject user', async () => {
+      const entry = createMockInventoryLogEntry({
+        id: 'log-2',
+        createdAt: '2026-09-30T08:00:00.000Z',
+        action: InventoryLogAction.CONTAINER_ASSIGNED,
+        productId: undefined,
+        productName: undefined,
+        sku: undefined,
+        quantity: undefined,
+        subjectUserId: 'tech-1',
+        subjectUserName: 'Mike Ross',
+        toId: 'c-1',
+        toName: '(12) MIKE',
+      });
+
+      await repository.create(entry);
+
+      const item = dynamoDb.client.send.mock.calls[0][0].input.Item;
+      expect(item.PK).toBe('INVLOG#2026-09');
+      expect(item.SK).toBe('2026-09-30T08:00:00.000Z#log-2');
+      expect(item).not.toHaveProperty('GSI4PK');
+      expect(item).not.toHaveProperty('GSI4SK');
+      expect(item.searchText).toBe('mike ross');
     });
   });
 

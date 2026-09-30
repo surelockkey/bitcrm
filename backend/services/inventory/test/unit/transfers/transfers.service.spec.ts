@@ -6,7 +6,7 @@ import { TransfersService } from 'src/transfers/transfers.service';
 import { TransfersRepository } from 'src/transfers/transfers.repository';
 import { StockService } from 'src/stock/stock.service';
 import { LocationsRepository } from 'src/stock/locations.repository';
-import { ContainersRepository } from 'src/containers/containers.repository';
+import { ContainerAssignmentResolver } from 'src/user-containers/container-assignment.resolver';
 import { ProductsService } from 'src/products/products.service';
 import { InventoryLogService } from 'src/inventory-log/inventory-log.service';
 import {
@@ -20,13 +20,14 @@ import {
   createMockProductsService,
   createMockLocationsRepository,
   createMockInventoryLogService,
+  createMockContainerAssignmentResolver,
 } from '../mocks';
 
 describe('TransfersService', () => {
   let service: TransfersService;
   let repository: ReturnType<typeof createMockTransfersRepository>;
   let stockService: ReturnType<typeof createMockStockService>;
-  let containersRepository: { findByTechnicianId: jest.Mock };
+  let assignments: ReturnType<typeof createMockContainerAssignmentResolver>;
   let productsService: ReturnType<typeof createMockProductsService>;
   let locationsRepository: ReturnType<typeof createMockLocationsRepository>;
   let inventoryLog: ReturnType<typeof createMockInventoryLogService>;
@@ -40,8 +41,8 @@ describe('TransfersService', () => {
     productsService = createMockProductsService();
     locationsRepository = createMockLocationsRepository();
     inventoryLog = createMockInventoryLogService();
-    // Default: the id is not a technician id, so it's treated as a container id.
-    containersRepository = { findByTechnicianId: jest.fn().mockResolvedValue(null) };
+    // Default: the id is not a user with a container, so it's treated as a container id.
+    assignments = createMockContainerAssignmentResolver();
     // Default: every location named in a request exists.
     locationsRepository.findLocation.mockImplementation(async (type: LocationType, id: string) =>
       createMockLocationSummary({
@@ -66,7 +67,7 @@ describe('TransfersService', () => {
         TransfersService,
         { provide: TransfersRepository, useValue: repository },
         { provide: StockService, useValue: stockService },
-        { provide: ContainersRepository, useValue: containersRepository },
+        { provide: ContainerAssignmentResolver, useValue: assignments },
         { provide: ProductsService, useValue: productsService },
         { provide: LocationsRepository, useValue: locationsRepository },
         { provide: InventoryLogService, useValue: inventoryLog },
@@ -364,10 +365,10 @@ describe('TransfersService', () => {
       expect(repository.create).not.toHaveBeenCalled();
     });
 
-    it('should resolve a technician id to their container id before deducting', async () => {
+    it('should resolve a technician id to the container they are assigned to before deducting', async () => {
       // The deal service passes the technician's user id; stock lives under the
-      // container's own id.
-      containersRepository.findByTechnicianId.mockResolvedValue({ id: 'container-xyz' });
+      // container's own id — whichever van the user containers assign them.
+      assignments.containerIdForUser.mockResolvedValue('container-xyz');
       const dto = {
         containerId: 'tech-user-1',
         items: [{ productId: 'prod-1', productName: 'Test Product', quantity: 2 }],
@@ -380,7 +381,7 @@ describe('TransfersService', () => {
 
       await service.deductStock(dto as any);
 
-      expect(containersRepository.findByTechnicianId).toHaveBeenCalledWith('tech-user-1');
+      expect(assignments.containerIdForUser).toHaveBeenCalledWith('tech-user-1');
       expect(stockService.deduct).toHaveBeenCalledWith('CONTAINER#container-xyz', dto.items);
       expect(repository.create).toHaveBeenCalledWith(
         expect.objectContaining({ fromId: 'container-xyz' }),
@@ -473,6 +474,33 @@ describe('TransfersService', () => {
           unitCost: 10,
         }),
       );
+    });
+
+    it('restores into the container the technician is assigned to', async () => {
+      assignments.containerIdForUser.mockResolvedValue('container-xyz');
+
+      await service.restoreStock({
+        containerId: 'tech-user-1',
+        items: [{ productId: 'prod-1', productName: 'Test Product', quantity: 1 }],
+        dealId: 'deal-1',
+        performedBy: 'tech-user-1',
+        performedByName: 'tech@test.com',
+      } as any);
+
+      expect(assignments.containerIdForUser).toHaveBeenCalledWith('tech-user-1');
+      expect(stockService.receive).toHaveBeenCalledWith('CONTAINER#container-xyz', expect.any(Array));
+    });
+
+    it('keeps an id that names no user with a container as a container id', async () => {
+      await service.restoreStock({
+        containerId: 'container-1',
+        items: [{ productId: 'prod-1', productName: 'Test Product', quantity: 1 }],
+        dealId: 'deal-1',
+        performedBy: 'tech-1',
+        performedByName: 'tech@test.com',
+      } as any);
+
+      expect(stockService.receive).toHaveBeenCalledWith('CONTAINER#container-1', expect.any(Array));
     });
 
     it('should call StockService.receive and create RESTORE transfer', async () => {

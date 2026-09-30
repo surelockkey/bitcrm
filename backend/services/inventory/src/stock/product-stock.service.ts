@@ -10,6 +10,7 @@ import {
 import { ProductsRepository } from '../products/products.repository';
 import { LocationsRepository } from './locations.repository';
 import { StockRepository } from './stock.repository';
+import { ContainerAssignmentResolver } from '../user-containers/container-assignment.resolver';
 
 const PK_PREFIX: Record<LocationSummary['type'], string> = {
   warehouse: 'WAREHOUSE#',
@@ -26,14 +27,18 @@ export interface StockViewer {
  * The locations the caller's own list routes would show them, so the popup
  * and `GET /warehouses` / `GET /containers` agree: a warehouse needs
  * `warehouses.view`, a container `containers.view` plus the containers data
- * scope (`assigned_only` — their own van; `department` — their department's).
- * No resolved permissions means the guard did not run (unit tests) and the
- * Super Admin bypasses the matrix the way the guard lets them.
+ * scope (`assigned_only` — the van they are assigned to, `ownContainerId`;
+ * `department` — their department's). No resolved permissions means the guard
+ * did not run (unit tests) and the Super Admin bypasses the matrix the way
+ * the guard lets them.
  */
-function visibleLocations(viewer?: StockViewer): {
+async function visibleLocations(
+  viewer: StockViewer | undefined,
+  ownContainerId: (userId: string) => Promise<string | undefined>,
+): Promise<{
   warehouses: boolean;
   containers: (location: LocationSummary) => boolean;
-} {
+}> {
   const resolved = viewer?.permissions;
   if (!viewer || !resolved || (resolved.isSystemRole && resolved.roleName === 'Super Admin')) {
     return { warehouses: true, containers: () => true };
@@ -44,8 +49,10 @@ function visibleLocations(viewer?: StockViewer): {
     return { warehouses, containers: () => false };
   }
   switch (resolved.dataScope.containers) {
-    case DataScope.ASSIGNED_ONLY:
-      return { warehouses, containers: (l) => l.technicianId === viewer.user.id };
+    case DataScope.ASSIGNED_ONLY: {
+      const own = await ownContainerId(viewer.user.id);
+      return { warehouses, containers: (l) => own !== undefined && l.id === own };
+    }
     case DataScope.DEPARTMENT:
       return { warehouses, containers: (l) => l.department === viewer.user.department };
     default:
@@ -65,6 +72,7 @@ export class ProductStockService {
     private readonly productsRepository: ProductsRepository,
     private readonly locationsRepository: LocationsRepository,
     private readonly stockRepository: StockRepository,
+    private readonly assignments: ContainerAssignmentResolver,
   ) {}
 
   async forProduct(productId: string, viewer?: StockViewer): Promise<ProductStock> {
@@ -73,7 +81,9 @@ export class ProductStockService {
       throw new NotFoundException(`Product "${productId}" not found`);
     }
 
-    const visible = visibleLocations(viewer);
+    const visible = await visibleLocations(viewer, (userId) =>
+      this.assignments.containerIdForUser(userId),
+    );
     // Warehouses first, then containers; each list arrives in name order.
     const locations = [
       ...(visible.warehouses ? await this.locationsRepository.listAll(LocationType.WAREHOUSE) : []),

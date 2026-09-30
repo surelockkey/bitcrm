@@ -1,18 +1,25 @@
 import { InventoryLogAction } from '../enums/inventory-log-action.enum';
 import { LocationType } from '../enums/transfer-type.enum';
 import { ReturnReason } from '../enums/return-reason.enum';
+import { UserContainerAccess } from '../enums/user-container-access.enum';
 
 /**
  * One line of the inventory audit log — what the "Inventory usage" report
  * reads. The web renders the human description from these fields; the names
  * are snapshots taken when the entry was written, and a report may re-resolve
  * them against the catalog.
+ *
+ * Every action names an item except `container_assigned`, which names the
+ * user whose container changed (`subjectUser*`), the container they left
+ * (`from*`) and the one they got (`to*`, absent for "All locations" / "No
+ * access"), with the new `access`.
  */
 export interface InventoryLogEntry {
   id: string;
   action: InventoryLogAction;
-  productId: string;
-  productName: string;
+  /** Absent on item-less actions (`container_assigned`). */
+  productId?: string;
+  productName?: string;
   sku?: string;
   quantity?: number;
   fromType?: LocationType;
@@ -31,6 +38,12 @@ export interface InventoryLogEntry {
   unitCost?: number;
   /** The product fields an `item_updated` entry changed. */
   changedFields?: string[];
+  /** `container_assigned`: whose container changed. */
+  subjectUserId?: string;
+  subjectUserName?: string;
+  /** `container_assigned`: the access the user was given. */
+  access?: UserContainerAccess;
+  /** Who did it. */
   userId: string;
   userName: string;
   createdAt: string;

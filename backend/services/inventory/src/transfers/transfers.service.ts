@@ -28,7 +28,7 @@ import {
 import { TransfersRepository } from './transfers.repository';
 import { StockService } from '../stock/stock.service';
 import { LocationsRepository } from '../stock/locations.repository';
-import { ContainersRepository } from '../containers/containers.repository';
+import { ContainerAssignmentResolver } from '../user-containers/container-assignment.resolver';
 import { ProductsService } from '../products/products.service';
 import { InventoryLogService } from '../inventory-log/inventory-log.service';
 import { CreateTransferDto } from './dto/create-transfer.dto';
@@ -70,7 +70,7 @@ export class TransfersService {
   constructor(
     private readonly repository: TransfersRepository,
     private readonly stockService: StockService,
-    private readonly containersRepository: ContainersRepository,
+    private readonly assignments: ContainerAssignmentResolver,
     private readonly productsService: ProductsService,
     private readonly locationsRepository: LocationsRepository,
     @Optional() private readonly inventoryLog?: InventoryLogService,
@@ -82,17 +82,16 @@ export class TransfersService {
   /**
    * Deal-service callers identify a technician's container by the *technician's*
    * id, but stock is keyed by the container's own id. Resolve a technician id
-   * to their container id; an id that matches no technician (e.g. a container id
-   * passed directly by the transfers UI) is returned as-is so those callers keep
-   * working unchanged.
+   * to the container they are assigned to (user containers, else the legacy
+   * `technicianId` link); an id that names no user with a container (e.g. a
+   * container id passed directly by the transfers UI) is returned as-is so
+   * those callers keep working unchanged.
    */
   private async resolveContainerId(
     containerOrTechnicianId: string,
   ): Promise<string> {
-    const container = await this.containersRepository.findByTechnicianId(
-      containerOrTechnicianId,
-    );
-    return container ? container.id : containerOrTechnicianId;
+    const containerId = await this.assignments.containerIdForUser(containerOrTechnicianId);
+    return containerId ?? containerOrTechnicianId;
   }
 
   /**

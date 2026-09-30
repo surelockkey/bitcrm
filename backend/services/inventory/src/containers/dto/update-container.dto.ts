@@ -34,7 +34,12 @@ export class UpdateContainerDto {
   status?: InventoryStatus;
 
   /** A technician id to (re)assign, or null to unassign. */
-  @ApiPropertyOptional({ nullable: true, description: 'Technician to assign; null unassigns' })
+  @ApiPropertyOptional({
+    nullable: true,
+    description:
+      'Legacy single-technician link; null unassigns. No longer exclusive — who works from ' +
+      'the van is `PUT /user-containers/:userId`.',
+  })
   @IsOptional()
   @IsString()
   technicianId?: string | null;

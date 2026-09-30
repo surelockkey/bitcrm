@@ -20,7 +20,11 @@ export class CreateContainerDto {
   @MaxLength(100)
   department?: string;
 
-  @ApiPropertyOptional({ description: 'Technician to assign right away' })
+  @ApiPropertyOptional({
+    description:
+      'Legacy single-technician link, kept for back-compat and no longer exclusive. Who ' +
+      'works from the van is `PUT /user-containers/:userId`.',
+  })
   @IsOptional()
   @IsString()
   technicianId?: string;

@@ -42,8 +42,11 @@ const KEY_ATTRIBUTES = new Set(['PK', 'SK', 'GSI4PK', 'GSI4SK', 'searchText']);
  * Inventory audit-log rows in the single BitCRM_Inventory table:
  *   PK = INVLOG#<YYYY-MM> (UTC month of createdAt), SK = <createdAt ISO>#<id>
  *   GSI4PK = INVLOG#PRODUCT#<productId>, GSI4SK = <createdAt ISO>#<id>
- *     (one item's history, on TransferEntityIndex)
- *   searchText = lowercased "<productName> <sku>", for the contains filter
+ *     (one item's history, on TransferEntityIndex; sparse — an item-less
+ *     entry such as `container_assigned` has neither key and lives in the
+ *     month walk only)
+ *   searchText = lowercased "<productName> <sku>", for the contains filter;
+ *     the subject user's name on an item-less entry
  *
  * Rows are written once and never updated. A month is read with one Query;
  * the service walks months to fill a page across them.
@@ -59,9 +62,12 @@ export class InventoryLogRepository {
         Item: {
           PK: invlogPartition(invlogMonth(entry.createdAt)),
           SK: invlogSortKey(entry.createdAt, entry.id),
-          GSI4PK: invlogProductPartition(entry.productId),
-          GSI4SK: invlogSortKey(entry.createdAt, entry.id),
-          searchText: invlogSearchText(entry.productName, entry.sku),
+          // An item-less entry has no item history to join.
+          ...(entry.productId && {
+            GSI4PK: invlogProductPartition(entry.productId),
+            GSI4SK: invlogSortKey(entry.createdAt, entry.id),
+          }),
+          searchText: invlogSearchText(entry.productName ?? entry.subjectUserName, entry.sku),
           ...entry,
         },
       }),

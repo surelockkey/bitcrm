@@ -113,7 +113,9 @@ describe('Containers E2E', () => {
     expect(unassigned.body.data.technicianName).toBeUndefined();
   });
 
-  it('PUT /containers/:id - rejects assigning a technician who already has a container', async () => {
+  // The legacy link is no longer exclusive: who works from a van is the user
+  // containers now (many users per container).
+  it('PUT /containers/:id - accepts a technician who is already linked to another container', async () => {
     const first = await createVan(app, { name: 'Van A' }).expect(201);
     const second = await createVan(app, { name: 'Van B' }).expect(201);
 
@@ -127,7 +129,7 @@ describe('Containers E2E', () => {
       .put(`${BASE}/${second.body.data.id}`)
       .set('x-test-user', createTestUserHeader(adminUser))
       .send({ technicianId: techUser.id, technicianName: 'Tech One' })
-      .expect(400);
+      .expect(200);
   });
 
   // ---- GET MY CONTAINER ----

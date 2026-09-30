@@ -53,7 +53,10 @@ const LIST_CURSOR_KEYS = ['PK', 'SK', 'GSI1PK', 'GSI1SK'] as const;
  * Container rows in the single BitCRM_Inventory table:
  *   PK = CONTAINER#<id>, SK = METADATA
  *   GSI1PK = LOCATION#CONTAINER, GSI1SK = <name lowercased>#<id>   (list index, name order)
- *   GSI3PK = OWNER#<technicianId>, GSI3SK = CONTAINER#<id>          (sparse: assigned containers only)
+ *   GSI3PK = OWNER#<technicianId>, GSI3SK = CONTAINER#<id>          (sparse: the legacy single-technician
+ *                                                                    link; who works from a van is
+ *                                                                    USER_CONTAINER# rows on
+ *                                                                    CONTAINER_USERS#<id>, same index)
  *   searchName = <name lowercased>                                   (what the search filter matches)
  */
 @Injectable()

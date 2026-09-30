@@ -94,7 +94,8 @@ export class InventoryLogService {
       await this.repository.create(entry);
     } catch (err) {
       this.logger.warn(
-        `Inventory log entry dropped (${input.action} ${input.productId}): ${(err as Error).message}`,
+        `Inventory log entry dropped (${input.action} ${input.productId ?? input.subjectUserId}): ` +
+          (err as Error).message,
       );
     }
   }
