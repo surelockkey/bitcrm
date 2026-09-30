@@ -1,5 +1,5 @@
 import { InventoryStatus, ProductType, UNCATEGORIZED_CATEGORY } from "@bitcrm/types";
-import type { Product } from "@bitcrm/types";
+import type { Product, ProductWithExtras } from "@bitcrm/types";
 import type { CreateProductValues, PatchProductValues, ProductExtrasBody } from "@/features/inventory/products/schemas";
 import { customAttributesPatch } from "@/features/inventory/item-attributes/lib";
 
@@ -44,12 +44,32 @@ function countText(n: number | undefined | null): string {
   return typeof n === "number" && Number.isFinite(n) ? String(n) : "";
 }
 
+/**
+ * The SKU / Model # as Workiz shows it. An item saved without one carries an
+ * internal SKU (`skuGenerated`) — shown empty. The importer's `WZ-<id>`
+ * stands in for a Workiz serial that was empty, duplicated or too long; the
+ * serial itself (if any) is in `workizSerial`, and that is what Workiz shows.
+ */
+export function displaySku(p: Pick<Product, "sku" | "skuGenerated">): string {
+  if (p.skuGenerated) return "";
+  const serial = (p as ProductWithExtras).workizSerial as string | null | undefined;
+  if (p.sku?.startsWith("WZ-") && serial !== p.sku) return serial ?? "";
+  return p.sku ?? "";
+}
+
+/** No category, as Workiz shows it: BitCRM's "Uncategorized" is an empty field. */
+export function displayCategory(category: string | undefined): string {
+  return !category || category.trim().toLowerCase() === UNCATEGORIZED_CATEGORY.toLowerCase()
+    ? ""
+    : category;
+}
+
 export function valuesFromProduct(p: Product): ItemFormValues {
   return {
     name: p.name ?? "",
-    sku: p.sku ?? "",
+    sku: displaySku(p),
     brandId: p.brandId ?? "",
-    category: p.category ?? "",
+    category: displayCategory(p.category),
     type: p.type ?? ProductType.PRODUCT,
     description: p.description ?? "",
     reorderLevel: countText(p.reorderLevel),
@@ -136,10 +156,9 @@ export function validateItem(v: ItemFormValues, o: ValidateOptions): ItemFormErr
     errors.name = `Must be ${CAPS.name} characters or fewer`;
   }
 
-  if (changed("sku")) {
-    // BitCRM finds an item by its SKU (one per item), so it can't be emptied.
-    if (!v.sku.trim()) errors.sku = "Required";
-    else if (v.sku.trim().length > CAPS.sku) errors.sku = `Must be ${CAPS.sku} characters or fewer`;
+  // Optional, as in Workiz: left empty, the item keeps (or gets) an internal SKU.
+  if (changed("sku") && v.sku.trim().length > CAPS.sku) {
+    errors.sku = `Must be ${CAPS.sku} characters or fewer`;
   }
 
   if (changed("description") && v.description.trim().length > CAPS.description) {
@@ -202,7 +221,10 @@ export function toUpdateBody(
   const changed = (k: keyof ItemFormValues) => before[k] !== v[k];
 
   if (changed("name")) body.name = v.name.trim();
-  if (changed("sku") && v.sku.trim() !== product.sku) body.sku = v.sku.trim();
+  // Measured against what the field showed, so an untouched field never sends
+  // the importer's WZ- SKU or an internal one. Emptied, it goes as "" — the
+  // item then keeps (or gets) an internal SKU.
+  if (v.sku.trim() !== before.sku.trim()) body.sku = v.sku.trim();
   if (changed("brandId")) body.brandId = v.brandId || null;
   if (changed("category")) body.category = v.category || UNCATEGORIZED_CATEGORY;
   if (changed("description")) body.description = v.description.trim() === "" ? null : v.description;
@@ -228,16 +250,16 @@ export function toUpdateBody(
   return body;
 }
 
+/** A new item's POST body: the SKU may be left out — the API then makes an internal one. */
+export type CreateItemBody = Omit<CreateProductValues, "sku"> & { sku?: string } & ProductExtrasBody;
+
 /**
  * The POST body for a new item. The fields the Workiz popup has no place for
  * get what an import gives them: tech cost = cost, no serial tracking, and
  * "Uncategorized" when no category was chosen (BitCRM files every item under
- * one).
+ * one). An empty SKU / Model # is left out, as Workiz allows.
  */
-export function toCreateBody(
-  v: ItemFormValues,
-  o: BodyOptions,
-): CreateProductValues & ProductExtrasBody {
+export function toCreateBody(v: ItemFormValues, o: BodyOptions): CreateItemBody {
   const cost = o.showCost ? (parseMoney(v.cost) ?? 0) : 0;
   const inventory = o.variant === "inventory";
   const type = inventory ? ProductType.PRODUCT : v.type;
@@ -248,7 +270,7 @@ export function toCreateBody(
   }
   return {
     name: v.name.trim(),
-    sku: v.sku.trim(),
+    ...(v.sku.trim() ? { sku: v.sku.trim() } : {}),
     category: v.category || UNCATEGORIZED_CATEGORY,
     type,
     description: v.description.trim() ? v.description : undefined,

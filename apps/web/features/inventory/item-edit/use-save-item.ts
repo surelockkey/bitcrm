@@ -4,14 +4,19 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import type { Product } from "@bitcrm/types";
 import { queryKeys } from "@/lib/query-keys";
-import { getApiErrorMessage } from "@/lib/api/errors";
+import { ApiError, getApiErrorMessage } from "@/lib/api/errors";
 import * as api from "@/features/inventory/products/api";
-import type {
-  CreateProductValues,
-  PatchProductValues,
-  ProductExtrasBody,
-} from "@/features/inventory/products/schemas";
+import type { CreateProductValues, PatchProductValues } from "@/features/inventory/products/schemas";
+import type { CreateItemBody } from "./item-form";
 import type { PhotoChange } from "./photo-field";
+
+/** The API refused the SKU because another item has it (409). */
+export function isSkuTaken(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 409 && /\bSKU\b/i.test(error.message);
+}
+
+/** What the SKU field says when the SKU is taken. */
+export const SKU_TAKEN = "Another item already uses this SKU";
 
 export type SaveItemJob =
   | {
@@ -24,7 +29,7 @@ export type SaveItemJob =
     }
   | {
       kind: "create";
-      body: CreateProductValues & ProductExtrasBody;
+      body: CreateItemBody;
       photo: PhotoChange;
     };
 
@@ -47,7 +52,8 @@ export function useSaveItem() {
   return useMutation({
     mutationFn: async (job: SaveItemJob): Promise<Product> => {
       if (job.kind === "create") {
-        const created = await api.createProduct(job.body);
+        // The SKU may be left out: the API gives the item an internal one.
+        const created = await api.createProduct(job.body as CreateProductValues);
         await applyPhoto(created.id, job.photo, false);
         return created;
       }
@@ -63,7 +69,10 @@ export function useSaveItem() {
       qc.invalidateQueries({ queryKey: queryKeys.inventory.products.all() });
       toast.success(job.kind === "create" ? `Item “${saved.name}” created` : "Item saved");
     },
-    onError: (e) => toast.error(getApiErrorMessage(e)),
+    // A taken SKU is said under the SKU field (the popup shows it), not in a toast.
+    onError: (e) => {
+      if (!isSkuTaken(e)) toast.error(getApiErrorMessage(e));
+    },
   });
 }
 

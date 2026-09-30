@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { InventoryStatus, ProductType } from "@bitcrm/types";
 import type { Brand, ItemAttribute, Product, ProductCategory } from "@bitcrm/types";
 import { renderWithClient } from "@/test/render-with-client";
+import { ApiError } from "@/lib/api/errors";
 
 const mocks = vi.hoisted(() => ({
   denied: new Set<string>(),
@@ -385,6 +386,40 @@ describe("Edit Item (Price Book layout)", () => {
     ).toBeInTheDocument();
   });
 
+  it("shows Model # and category the way Workiz does: the importer's WZ- SKU and Uncategorized are empty", async () => {
+    const user = userEvent.setup();
+    open("p2", { variant: "price-book" });
+    await screen.findByDisplayValue("6.00");
+    expect(screen.getByLabelText("Model #")).toHaveValue("");
+    expect(screen.getByText("Model #", { selector: "label" })).not.toHaveAttribute("data-floated");
+    const category = screen.getByTestId("category-field");
+    expect(category).toHaveTextContent("Choose category (optional)");
+    expect(category).not.toHaveTextContent("Uncategorized");
+    expect(within(category).getAllByText("Choose category (optional)")).toHaveLength(1);
+
+    // Left alone, neither is sent.
+    await user.click(screen.getByRole("switch", { name: "Taxable item" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(mocks.update).toHaveBeenCalledWith("p2", { taxable: false }));
+  });
+
+  it("the Workiz serial behind a WZ- SKU is what Model # shows", async () => {
+    mocks.product = { ...keyCopy(), workizSerial: "KW1" };
+    open("p2", { variant: "price-book" });
+    expect(await screen.findByLabelText("Model #")).toHaveValue("KW1");
+  });
+
+  it("a taken SKU on an edit is said under the field", async () => {
+    const user = userEvent.setup();
+    mocks.update.mockRejectedValue(new ApiError(409, 'Product with SKU "KC-1" already exists'));
+    const { onOpenChange } = open("p2", { variant: "price-book" });
+    await user.type(await screen.findByLabelText("Model #"), "KC-1");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Another item already uses this SKU");
+    expect(mocks.update).toHaveBeenCalledWith("p2", { sku: "KC-1" });
+    expect(onOpenChange).not.toHaveBeenCalledWith(false);
+  });
+
   it("Delete Item asks first, then archives the item and closes", async () => {
     const user = userEvent.setup();
     const { onOpenChange } = open("p2", { variant: "price-book" });
@@ -478,7 +513,8 @@ describe("New item", () => {
     expect(screen.getByRole("switch", { name: "Taxable item" })).toHaveAttribute("aria-checked", "true");
 
     await user.click(screen.getByRole("button", { name: "Save" }));
-    expect(screen.getAllByRole("alert").map((a) => a.textContent)).toEqual(["Required", "Required"]);
+    expect(screen.getAllByRole("alert").map((a) => a.textContent)).toEqual(["Required"]);
+    expect(screen.getByLabelText("Product name")).toHaveAttribute("aria-invalid", "true");
     expect(mocks.create).not.toHaveBeenCalled();
 
     await user.type(screen.getByLabelText("Product name"), "Deadbolt");
@@ -508,6 +544,27 @@ describe("New item", () => {
       }),
     );
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith(expect.objectContaining({ id: "new-1" })));
+  });
+
+  it("an empty SKU / Model # is allowed, as in Workiz: the body leaves it out", async () => {
+    const user = userEvent.setup();
+    open(null, { variant: "price-book" });
+    await user.type(screen.getByLabelText("Title"), "Rekey");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(mocks.create).toHaveBeenCalled());
+    expect("sku" in mocks.create.mock.calls[0][0]).toBe(false);
+  });
+
+  it("a taken SKU is said under the field and the popup stays open", async () => {
+    const user = userEvent.setup();
+    mocks.create.mockRejectedValue(new ApiError(409, 'Product with SKU "DB-1" already exists'));
+    const { onCreated } = open(null);
+    await user.type(screen.getByLabelText("Product name"), "Deadbolt");
+    await user.type(screen.getByLabelText("SKU"), "DB-1");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Another item already uses this SKU");
+    expect(screen.getByLabelText("SKU")).toHaveAttribute("aria-invalid", "true");
+    expect(onCreated).not.toHaveBeenCalled();
   });
 
   it("“Add New Item”: a service by default — no Brand, Manage Inventory, Enable, Show or Delete", async () => {

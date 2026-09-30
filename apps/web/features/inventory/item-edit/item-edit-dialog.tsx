@@ -15,6 +15,7 @@ import { useItemAttributes } from "@/features/inventory/item-attributes/hooks";
 import { CustomFields } from "@/features/inventory/item-attributes/components/custom-fields";
 import { cn } from "@/lib/utils";
 import {
+  displayCategory,
   newItemValues,
   toCreateBody,
   toUpdateBody,
@@ -26,7 +27,7 @@ import {
 } from "./item-form";
 import { CategoryPicker } from "./category-picker";
 import { PhotoField, type PhotoChange } from "./photo-field";
-import { useDeleteItem, useSaveItem } from "./use-save-item";
+import { SKU_TAKEN, isSkuTaken, useDeleteItem, useSaveItem } from "./use-save-item";
 import {
   CategoryField,
   FloatingInput,
@@ -282,15 +283,33 @@ function ItemEditor({
         .map((b) => ({ value: b.id, label: b.name })),
     [catalogs.brands, original],
   );
+  // "Uncategorized" is BitCRM's word for none — Workiz has no such category, so
+  // it is not offered; an item in it shows the field empty.
   const categoryNames = useMemo(
-    () => [
-      ...new Set([
-        ...catalogs.categories.filter((c) => c.active).map((c) => c.name),
-        ...(original?.category ? [original.category] : []),
-      ]),
-    ],
+    () =>
+      [
+        ...new Set([
+          ...catalogs.categories.filter((c) => c.active).map((c) => c.name),
+          ...(original?.category ? [original.category] : []),
+        ]),
+      ].filter((name) => displayCategory(name) !== ""),
     [catalogs.categories, original],
   );
+
+  /** Mark the fields and bring the first into view — unless the user has moved on. */
+  const showErrors = (found: ItemFormErrors) => {
+    setErrors(found);
+    const from = document.activeElement;
+    requestAnimationFrame(() => {
+      if (document.activeElement !== from) return;
+      const first = scrollRef.current?.querySelector<HTMLElement>("[aria-invalid=true]");
+      first?.focus();
+      first?.scrollIntoView?.({ block: "center" });
+    });
+  };
+  const onSaveError = (e: unknown) => {
+    if (isSkuTaken(e)) showErrors({ sku: SKU_TAKEN });
+  };
 
   const submit = () => {
     const money = can("financials", "view");
@@ -301,22 +320,13 @@ function ItemEditor({
     };
     const found = validateItem(values, { mode, original, showCost: money, variant });
     if (Object.keys(found).length > 0) {
-      setErrors(found);
-      // Bring the first bad field into view — unless the user has already
-      // moved on to a field of their own by the time it renders.
-      const from = document.activeElement;
-      requestAnimationFrame(() => {
-        if (document.activeElement !== from) return;
-        const first = scrollRef.current?.querySelector<HTMLElement>("[aria-invalid=true]");
-        first?.focus();
-        first?.scrollIntoView?.({ block: "center" });
-      });
+      showErrors(found);
       return;
     }
     if (mode === "create") {
       save.mutate(
         { kind: "create", body: toCreateBody(values, options), photo },
-        { onSuccess: (created) => onCreated?.(created) },
+        { onSuccess: (created) => onCreated?.(created), onError: onSaveError },
       );
       return;
     }
@@ -327,7 +337,10 @@ function ItemEditor({
       onClose();
       return;
     }
-    save.mutate({ kind: "update", product: snapshot!, body, photo, active }, { onSuccess: onClose });
+    save.mutate(
+      { kind: "update", product: snapshot!, body, photo, active },
+      { onSuccess: onClose, onError: onSaveError },
+    );
   };
 
   const inventory = variant === "inventory";
@@ -563,7 +576,7 @@ function ItemEditor({
           value={values.category}
           onOpenChange={setBrowsing}
           onApply={(category) => {
-            set("category")(category);
+            set("category")(displayCategory(category));
             setBrowsing(false);
           }}
         />

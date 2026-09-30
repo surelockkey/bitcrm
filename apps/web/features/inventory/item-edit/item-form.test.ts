@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { InventoryStatus, ProductType } from "@bitcrm/types";
 import type { Product } from "@bitcrm/types";
 import {
+  displayCategory,
+  displaySku,
   moneyText,
   newItemValues,
   toCreateBody,
@@ -66,6 +68,28 @@ describe("valuesFromProduct", () => {
   });
 });
 
+describe("displaySku / displayCategory — what Workiz shows", () => {
+  it("the importer's WZ- stand-in shows the Workiz serial (empty when there was none)", () => {
+    expect(displaySku({ sku: "WZ-2475" })).toBe("");
+    expect(displaySku({ sku: "WZ-2475", workizSerial: null } as never)).toBe("");
+    expect(displaySku({ sku: "WZ-9", workizSerial: "KW1" } as never)).toBe("KW1");
+    expect(displaySku({ sku: "WZ-OWN", workizSerial: "WZ-OWN" } as never)).toBe("WZ-OWN");
+  });
+
+  it("an internal SKU shows empty; a typed one shows as it is", () => {
+    expect(displaySku({ sku: "ITEM-42", skuGenerated: true })).toBe("");
+    expect(displaySku({ sku: "1607-625 (SLK-3551)" })).toBe("1607-625 (SLK-3551)");
+  });
+
+  it("Uncategorized (any case) or none is an empty category", () => {
+    expect(displayCategory("Uncategorized")).toBe("");
+    expect(displayCategory("uncategorized")).toBe("");
+    expect(displayCategory(undefined)).toBe("");
+    expect(displayCategory("Door Hardware")).toBe("Door Hardware");
+    expect(valuesFromProduct(chainGuard({ sku: "WZ-1", category: "Uncategorized" }))).toMatchObject({ sku: "", category: "" });
+  });
+});
+
 describe("newItemValues", () => {
   it("Inventory adds a stocked product; Price Book a service, as Workiz opens them", () => {
     expect(newItemValues("inventory")).toMatchObject({ type: ProductType.PRODUCT, manageStock: true, priceClient: "0.00", cost: "0.00", taxable: true });
@@ -74,10 +98,9 @@ describe("newItemValues", () => {
 });
 
 describe("validateItem", () => {
-  it("a new item needs a name and a SKU", () => {
+  it("a new item needs a name; the SKU may stay empty, as in Workiz", () => {
     expect(validateItem(newItemValues("inventory"), { mode: "create", showCost: true, variant: "inventory" })).toEqual({
       name: "Required",
-      sku: "Required",
     });
   });
 
@@ -152,11 +175,18 @@ describe("toUpdateBody", () => {
     expect(toUpdateBody(p, { ...valuesFromProduct(p), sku: `${p.sku} ` }, inventory)).toEqual({});
   });
 
-  it("an emptied SKU is refused", () => {
-    const original = valuesFromProduct(chainGuard());
-    expect(validateItem({ ...original, sku: " " }, { mode: "edit", original, showCost: true, variant: "inventory" })).toEqual({
-      sku: "Required",
-    });
+  it("an emptied SKU is allowed and goes as \"\" (the item keeps / gets an internal one)", () => {
+    const p = chainGuard();
+    const v = { ...valuesFromProduct(p), sku: " " };
+    expect(validateItem(v, { mode: "edit", original: valuesFromProduct(p), showCost: true, variant: "inventory" })).toEqual({});
+    expect(toUpdateBody(p, v, inventory)).toEqual({ sku: "" });
+  });
+
+  it("never sends the importer's WZ- SKU or an internal one when the field was left alone", () => {
+    const imported = chainGuard({ sku: "WZ-2475", category: "Uncategorized" });
+    expect(toUpdateBody(imported, valuesFromProduct(imported), inventory)).toEqual({});
+    const typed = { ...valuesFromProduct(imported), sku: "KC-1" };
+    expect(toUpdateBody(imported, typed, inventory)).toEqual({ sku: "KC-1" });
   });
 
   it("custom fields go as a patch of the changed names only (orphans untouched)", () => {
@@ -226,6 +256,11 @@ describe("toCreateBody", () => {
       priceBook,
     );
     expect(body).toMatchObject({ type: ProductType.SERVICE, manageStock: false, availableInBooking: true, bookingPrice: 30 });
+  });
+
+  it("an empty SKU is left out — the API makes an internal one", () => {
+    const body = toCreateBody({ ...newItemValues("inventory"), name: "A", sku: "  " }, inventory);
+    expect("sku" in body).toBe(false);
   });
 
   it("without financials.view both costs are 0", () => {
