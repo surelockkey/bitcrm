@@ -11,6 +11,11 @@ export const queryKeys = {
 
   jobFieldSettings: () => ["job-field-settings"] as const,
 
+  /** Reports with an endpoint of their own (the job reports ride on `deals`). */
+  reports: {
+    commissions: (params?: unknown) => ["reports", "commissions", params] as const,
+  },
+
   telephony: {
     numbers: () => ["telephony", "numbers"] as const,
     available: (params?: unknown) =>
@@ -331,6 +336,8 @@ export const queryKeys = {
     all: () => ["payments"] as const,
     list: (params?: unknown) => ["payments", "list", params] as const,
     byInvoice: (invoiceId: string) => ["payments", "by-invoice", invoiceId] as const,
+    /** The job's ledger (Payments tab) — with or without an invoice. */
+    byDeal: (dealId: string) => ["payments", "by-deal", dealId] as const,
     settings: () => ["payments", "settings"] as const,
   },
 

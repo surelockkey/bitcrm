@@ -5,12 +5,29 @@ import { type JwtUser } from '@bitcrm/types';
 import { CommissionService } from './commission.service';
 import { SetCommissionDto } from './dto/set-commission.dto';
 import { CalculateCommissionQueryDto } from './dto/calculate-commission-query.dto';
+import { LookupCommissionHistoriesDto } from './dto/lookup-commission-histories.dto';
+import { Internal } from '../../common/decorators/internal.decorator';
 
 @ApiTags('Technician Commission')
 @ApiBearerAuth()
 @Controller('technicians')
 export class CommissionController {
   constructor(private readonly commissionService: CommissionService) {}
+
+  // Static path, two segments: `POST :id/commission` never matches it.
+  @Post('internal/commissions')
+  @Internal()
+  @ApiOperation({
+    summary: 'Internal: commission version histories of several technicians',
+    description:
+      '**Guard:** Internal only (`x-internal-secret` required). deal-service\'s commissions report takes the ' +
+      'version in force on each job\'s day from these. Up to 200 ids; `{ [userId]: CommissionConfig[] }`, ' +
+      'newest first, `[]` for a technician without one.',
+  })
+  async internalHistories(@Body() dto: LookupCommissionHistoriesDto) {
+    const data = await this.commissionService.histories(dto.userIds ?? []);
+    return { success: true, data };
+  }
 
   @Get(':id/commission')
   @RequirePermission('commission', 'view')

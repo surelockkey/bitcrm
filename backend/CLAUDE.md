@@ -39,7 +39,7 @@ documented surface; keep it in sync when you add a variable.
 | --------- | ---- | ---------------- | ---- |
 | user      | 4001 | `api/users`      | users, roles/permissions, technicians (assignments, commission, documents, calendar, location) |
 | crm       | 4002 | `api/crm`        | contacts, companies, company documents, work orders |
-| deal      | 4003 | `api/deals`      | deals/jobs, line items, timeline, attachments + the catalogs (job types/sources/tags/statuses, service areas — each with its own sales `tax` and default company —, custom fields, external companies), the read-only tax rates derived from the areas, and the technician-eligibility projection |
+| deal      | 4003 | `api/deals`      | deals/jobs, line items, timeline, attachments + the catalogs (job types/sources/tags/statuses, service areas — each with its own sales `tax` and default company —, custom fields, external companies), the read-only tax rates derived from the areas, the technician-eligibility projection, and the commissions report (`reports/commissions`, read-only) |
 | inventory | 4004 | `api/inventory`  | products, brands, item categories, warehouses, containers, stock, transfers |
 | search    | 4005 | `api/search`     | global search — OpenSearch read model + indexer (CQRS) |
 | telephony | 4006 | `api/telephony`  | Twilio softphone: tokens, TwiML, call records, presence, call groups/flows, numbers, job dial-in codes |
@@ -543,6 +543,20 @@ tests, and — if it emits events — the types in `@bitcrm/types` plus a row in
   job's area tax → none. Jobs, estimates and invoices snapshot name + percent, so
   never "fix" a job by editing its area. Old `TAX_RATE#` rows / `defaultTaxRateId`
   pointers are converted by `npm run backfill:area-taxes -w backend/services/deal`.
+- **The commissions report owns no rows.** `GET /api/deals/reports/commissions`
+  (+ `/export`, CSV) is Workiz's "Commissions (Legacy)": Done jobs of a period,
+  read off EXISTING keys — GSI5 `STATUS#done` by visit start for Closed /
+  Scheduled (Workiz's "Closed" is the END of the visit window,
+  `scheduledEndDate`, so the start range reaches 31 days back and the end day is
+  filtered on), GSI1 `STATUS#done` by `createdAt` for Created (the local day in
+  `jobTimezone`), the tech index for an `assigned_only` caller. It never reads
+  GSI6: `closedAt` is when the job turned Done, not Workiz's "Closed". An
+  imported job shows Workiz's frozen `commissionSnapshot`; a job done here is
+  computed by `calculateWorkizCommission` (`commission-report/`) from billing's
+  `POST /payments/internal/by-deals` and the technician's commission version in
+  force on the job's day (user's `POST /technicians/internal/commissions`) —
+  versions are never rewritten, which is what freezes a job's rate. The old
+  `calculateCommission` in user-service (EPIC-6) is a different formula; leave it.
 - **Companies are billing's.** A job's `businessProfileId` is validated against
   billing's internal list (cached 60s in deal, non-fatal when billing is down) and
   its name snapshotted; documents and the portal render the job's company (fallback:
@@ -569,6 +583,14 @@ tests, and — if it emits events — the types in `@bitcrm/types` plus a row in
   partial payment leaves it `due`/`overdue` and a reversal pushes a `paid`
   invoice back on its own. Deal keeps only a denormalised `paymentStatus` for
   the job board, pushed over `PUT /deals/internal/:id/payment-status`.
+- **A payment belongs to the JOB, not to the invoice (Workiz).** A job can have
+  payments and no invoice at all (most imported Workiz jobs do): the ledger rows
+  still sit under `INVOICE#<dealId>` with `invoiceId === dealId`, just without
+  an `INVOICE#<dealId>/METADATA` row. `GET/POST /deals/:dealId/payments` (the job's
+  Payments tab) work either way and measure the balance against the job's own
+  total; refund / delete / receipt fall back to the job too. The
+  `/invoices/:id/payments` routes still 404 without an invoice, and an invoice
+  created later starts from the existing ledger (`ledgerAmountPaid(deal.id)`).
 - **Stripe webhook handlers ASSERT a state, they never apply a delta.** Stripe
   gives no ordering guarantee and re-delivers freely, so every status move goes
   through `canTransition` (`payments/payment-rules.ts`) and `reversed` is a

@@ -3,7 +3,13 @@ import { InvoicesModule } from '../invoices/invoices.module';
 import { PortalModule } from '../portal/portal.module';
 import { PaymentReconcileScheduler } from './payment-reconcile.scheduler';
 import { PaymentsLedgerModule } from './payments-ledger.module';
-import { InvoicePaymentsController, PaymentSettingsController, PaymentsController } from './payments.controller';
+import {
+  DealPaymentsController,
+  InvoicePaymentsController,
+  PaymentSettingsController,
+  PaymentsController,
+  PaymentsInternalController,
+} from './payments.controller';
 import { PaymentsService } from './payments.service';
 import { PortalPaymentsService } from './portal-payments.service';
 import { PublicPaymentsController } from './public-payments.controller';
@@ -20,7 +26,10 @@ import { StripeWebhookController } from './stripe/stripe-webhook.controller';
 @Module({
   imports: [PaymentsLedgerModule, InvoicesModule, PortalModule],
   controllers: [
+    // Static `/payments/internal/...` paths first, ahead of any `/payments/:paymentId/...`.
+    PaymentsInternalController,
     InvoicePaymentsController,
+    DealPaymentsController,
     PaymentsController,
     PaymentSettingsController,
     PublicPaymentsController,

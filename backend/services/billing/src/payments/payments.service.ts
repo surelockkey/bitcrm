@@ -12,6 +12,7 @@ import {
   TimelineEventType,
   type Deal,
   type Invoice,
+  type JobPaymentLedger,
   type OnlinePaymentMethod,
   type Payment,
   type PaymentMethod,
@@ -23,7 +24,8 @@ import {
 import { assertDealAccess, isAssignedOnly, type Caller } from '../common/access';
 import { BillingEventsPublisher } from '../integrations/billing-events.publisher';
 import { CrmClient } from '../integrations/crm.client';
-import { DealClient } from '../integrations/deal.client';
+import { DealClient, type DealBillingView } from '../integrations/deal.client';
+import { computeInvoiceTotals } from '../invoices/invoice-rules';
 import { MessagingClient } from '../integrations/messaging.client';
 import { InvoicesService } from '../invoices/invoices.service';
 import { PaymentSettingsService } from './payment-settings.service';
@@ -69,12 +71,35 @@ interface PaymentContext {
 }
 
 /**
+ * The job a ledger hangs off, after the caller's scope was checked — with its
+ * invoice when it has one. In Workiz a payment belongs to the JOB; an invoice
+ * is a separate document, so `invoice` is legitimately `null` here.
+ */
+interface JobContext {
+  invoice: Invoice | null;
+  view: DealBillingView;
+}
+
+/** Who a new payment row belongs to. `invoiceId` is always the job id. */
+interface PaymentOwner {
+  invoiceId: string;
+  dealId: string;
+  contactId: string;
+  companyId?: string;
+}
+
+/**
  * The payment ledger. Every path in and out of it ends in `syncLedger`, which
  * is the single place the money is re-totalled: re-read the ledger, hand the
  * sum to the invoice (which re-derives its own status), tell the job board,
  * write the job timeline and publish the event. Nothing anywhere applies a
  * delta to a stored total.
  */
+/** Ledgers read at once by `ledgersByDeals`. */
+const LEDGER_READ_CONCURRENCY = 10;
+/** The DTO's cap, held here too: the body is not validated on every deployment. */
+const LEDGERS_MAX_DEALS = 100;
+
 @Injectable()
 export class PaymentsService {
   private readonly logger = new Logger(PaymentsService.name);
@@ -102,6 +127,45 @@ export class PaymentsService {
     const rows = await this.repo.listByInvoice(invoiceId);
     const payments = [...rows].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     return { payments, summary: summarizePayments(rows) };
+  }
+
+  /**
+   * Several jobs' ledgers at once, keyed by job id (`[]` for a job with no
+   * payments) — deal-service's commissions report splits them into Workiz's
+   * Cash / Credit / Check columns. Internal only, so no access check; a few
+   * jobs are read at a time so a page of a report cannot flood the table.
+   */
+  async ledgersByDeals(dealIds: string[]): Promise<Record<string, Payment[]>> {
+    const ids = Array.isArray(dealIds) ? dealIds.filter((id) => typeof id === 'string' && id) : [];
+    const unique = [...new Set(ids)].slice(0, LEDGERS_MAX_DEALS);
+    const out: Record<string, Payment[]> = {};
+    for (let i = 0; i < unique.length; i += LEDGER_READ_CONCURRENCY) {
+      const batch = unique.slice(i, i + LEDGER_READ_CONCURRENCY);
+      const ledgers = await Promise.all(batch.map((id) => this.repo.listByInvoice(id)));
+      batch.forEach((id, n) => (out[id] = ledgers[n]));
+    }
+    return out;
+  }
+
+  /**
+   * The job's Payments tab (Workiz). Works with or without an invoice: the
+   * ledger is keyed by the job id (invoice id === deal id), so a job that was
+   * never invoiced still has its payments, and an invoice created for it later
+   * picks them up as its `amountPaid`.
+   */
+  async listForDeal(dealId: string, caller: Caller): Promise<JobPaymentLedger> {
+    const ctx = await this.jobContext(dealId, caller);
+    const { payments, summary } = await this.ledger(ctx.view.deal.id);
+    const total = jobTotal(ctx.view, summary.settled);
+    return {
+      dealId: ctx.view.deal.id,
+      ...(ctx.invoice && { invoiceId: ctx.invoice.id }),
+      payments,
+      summary,
+      total,
+      amountPaid: summary.settled,
+      balanceDue: balanceOf(total, summary.settled),
+    };
   }
 
   /**
@@ -139,7 +203,7 @@ export class PaymentsService {
     authorization?: string,
   ): Promise<{ sent: boolean; sentTo?: string }> {
     const payment = await this.require(paymentId);
-    const { invoice } = await this.context(payment.invoiceId, caller);
+    const { invoice, view } = await this.paymentContext(payment, caller);
     if (payment.status !== 'settled' && payment.status !== 'refunded') {
       throw new ConflictException('There is no receipt to send until the payment has been collected');
     }
@@ -152,18 +216,23 @@ export class PaymentsService {
     if (!sentTo) return { sent: false };
 
     const refunded = (payment.refundedAmount ?? 0) > 0;
+    // A job without an invoice (Workiz: payments belong to the job) is named by its number.
+    const what = invoice ? `invoice ${invoice.number}` : `job ${view.deal.dealNumber}`;
+    const balanceDue = invoice
+      ? invoice.totals?.balanceDue ?? 0
+      : await this.jobBalance(view, payment.invoiceId);
     const body =
-      `Receipt for invoice ${invoice.number}: $${payment.amount.toFixed(2)} received ` +
+      `Receipt for ${what}: $${payment.amount.toFixed(2)} received ` +
       `(${payment.method}) on ${payment.takenAt.slice(0, 10)}.` +
       (refunded ? ` $${(payment.refundedAmount ?? 0).toFixed(2)} of it has been refunded.` : '') +
-      ` Balance due: $${(invoice.totals?.balanceDue ?? 0).toFixed(2)}.`;
+      ` Balance due: $${balanceDue.toFixed(2)}.`;
 
     await this.messaging.sendToContact(
       {
         contactId: payment.contactId,
         channel: phone ? 'sms' : 'email',
         body,
-        ...(phone ? {} : { subject: `Payment receipt — invoice ${invoice.number}` }),
+        ...(phone ? {} : { subject: `Payment receipt — ${what}` }),
       },
       authorization,
     );
@@ -175,21 +244,45 @@ export class PaymentsService {
   /** Cash, a cheque, a card taken in person. Settled the moment it is recorded. */
   async recordOffline(invoiceId: string, input: RecordPaymentInput, caller: Caller): Promise<Payment> {
     const { invoice } = await this.context(invoiceId, caller);
-    if (!OFFLINE_PAYMENT_METHODS.includes(input.method)) {
-      throw new BadRequestException(
-        `Record a payment as one of: ${OFFLINE_PAYMENT_METHODS.join(', ')} (bank payments settle through the portal)`,
-      );
+    assertOfflineMethod(input.method);
+    return this.writeOffline(invoiceOwner(invoice), await this.amountDue(invoice), input, caller);
+  }
+
+  /**
+   * The job's "Add payment" (Workiz). With an invoice it is exactly
+   * `recordOffline`; without one the payment still lands in the job's ledger
+   * (invoice id === deal id) and the balance is the job's own total.
+   */
+  async recordOfflineForDeal(dealId: string, input: RecordPaymentInput, caller: Caller): Promise<Payment> {
+    const ctx = await this.jobContext(dealId, caller);
+    assertOfflineMethod(input.method);
+    if (ctx.invoice) {
+      return this.writeOffline(invoiceOwner(ctx.invoice), await this.amountDue(ctx.invoice), input, caller);
     }
-    const amount = this.clamp(input.amount, await this.amountDue(invoice));
+    const deal = ctx.view.deal;
+    const paid = amountPaidFrom(await this.repo.listByInvoice(deal.id));
+    const owner: PaymentOwner = {
+      invoiceId: deal.id,
+      dealId: deal.id,
+      contactId: deal.contactId,
+      ...(deal.companyId && { companyId: deal.companyId }),
+    };
+    return this.writeOffline(owner, balanceOf(jobTotal(ctx.view, paid), paid), input, caller);
+  }
+
+  private async writeOffline(
+    owner: PaymentOwner,
+    amountDue: number,
+    input: RecordPaymentInput,
+    caller: Caller,
+  ): Promise<Payment> {
+    const amount = this.clamp(input.amount, amountDue);
     const now = new Date().toISOString();
     const takenInTheField = isAssignedOnly(caller, 'payments');
 
     const payment: Payment = {
       id: randomUUID(),
-      invoiceId: invoice.id,
-      dealId: invoice.dealId,
-      contactId: invoice.contactId,
-      ...(invoice.companyId && { companyId: invoice.companyId }),
+      ...owner,
       amount,
       currency: 'usd',
       method: input.method,
@@ -218,7 +311,7 @@ export class PaymentsService {
   /** Removes a mis-keyed OFFLINE payment. A Stripe payment is refunded, never deleted. */
   async remove(paymentId: string, caller: Caller): Promise<void> {
     const payment = await this.require(paymentId);
-    await this.context(payment.invoiceId, caller);
+    await this.paymentContext(payment, caller);
     if (isStripeBacked(payment)) {
       throw new ConflictException('This payment went through Stripe — refund it instead of deleting it');
     }
@@ -236,7 +329,7 @@ export class PaymentsService {
 
   async refund(paymentId: string, input: RefundInput, caller: Caller): Promise<PaymentRefund> {
     const payment = await this.require(paymentId);
-    await this.context(payment.invoiceId, caller);
+    await this.paymentContext(payment, caller);
 
     const remaining = refundableAmount(payment);
     if (remaining <= 0) {
@@ -358,8 +451,20 @@ export class PaymentsService {
       this.logger.error(`invoice ${payment.invoiceId} could not be re-derived: ${err.message}`);
       return null;
     });
-    const total = invoice?.totals?.total ?? 0;
-    const balanceDue = invoice?.totals?.balanceDue ?? 0;
+    let total = invoice?.totals?.total ?? 0;
+    let balanceDue = invoice?.totals?.balanceDue ?? 0;
+    if (!invoice) {
+      // No invoice (Workiz: the payment belongs to the job) — the job's own
+      // total is what the payment is measured against.
+      const view = await this.deal.getBillingView(payment.dealId).catch((err: Error) => {
+        this.logger.warn(`deal ${payment.dealId} billing view unavailable: ${err.message}`);
+        return null;
+      });
+      if (view) {
+        total = jobTotal(view, amountPaid);
+        balanceDue = balanceOf(total, amountPaid);
+      }
+    }
 
     await this.deal
       .setPaymentStatus(payment.dealId, {
@@ -422,6 +527,35 @@ export class PaymentsService {
     return { invoice, deal: view.deal };
   }
 
+  /**
+   * The job + its invoice if it has one, with the caller's `assigned_only`
+   * scope enforced. The job-level twin of `context`, which insists on an invoice.
+   */
+  private async jobContext(dealId: string, caller: Caller): Promise<JobContext> {
+    const view = await this.deal.getBillingView(dealId);
+    if (!view) throw new NotFoundException('Job not found');
+    assertDealAccess(caller, 'payments', view.deal);
+    const invoice = await this.invoices.getStored(view.deal.id);
+    return { invoice, view };
+  }
+
+  /**
+   * The scope check for a payment that already exists. Its invoice may never
+   * have existed (a job paid without one, as in Workiz), so the job decides.
+   */
+  private async paymentContext(payment: Payment, caller: Caller): Promise<JobContext> {
+    const invoice = await this.invoices.getStored(payment.invoiceId);
+    const view = await this.deal.getBillingView(invoice?.dealId ?? payment.dealId);
+    if (!view) throw new NotFoundException(invoice ? 'Job not found' : 'Invoice not found');
+    assertDealAccess(caller, 'payments', view.deal);
+    return { invoice, view };
+  }
+
+  private async jobBalance(view: DealBillingView, ledgerId: string): Promise<number> {
+    const paid = amountPaidFrom(await this.repo.listByInvoice(ledgerId));
+    return balanceOf(jobTotal(view, paid), paid);
+  }
+
   private clamp(requested: unknown, amountDue: number): number {
     try {
       return clampPaymentAmount({
@@ -443,6 +577,28 @@ export class PaymentsService {
       throw new ConflictException('This payment changed meanwhile — reload and try again');
     }
     throw err;
+  }
+}
+
+/** The job's total, by the same formula its invoice would use. */
+function jobTotal(view: DealBillingView, amountPaid: number): number {
+  return computeInvoiceTotals(view, { amountPaid }).total ?? 0;
+}
+
+const balanceOf = (total: number, amountPaid: number): number => round2(Math.max(0, total - amountPaid));
+
+const invoiceOwner = (invoice: Invoice): PaymentOwner => ({
+  invoiceId: invoice.id,
+  dealId: invoice.dealId,
+  contactId: invoice.contactId,
+  ...(invoice.companyId && { companyId: invoice.companyId }),
+});
+
+function assertOfflineMethod(method: PaymentMethod): void {
+  if (!OFFLINE_PAYMENT_METHODS.includes(method)) {
+    throw new BadRequestException(
+      `Record a payment as one of: ${OFFLINE_PAYMENT_METHODS.join(', ')} (bank payments settle through the portal)`,
+    );
   }
 }
 
