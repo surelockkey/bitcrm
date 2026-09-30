@@ -296,3 +296,13 @@ describe("TemplateDialog — editing one", () => {
     expect(screen.getByRole("dialog", { name: "Template not found" })).toBeInTheDocument();
   });
 });
+
+describe("TemplateDialog — loading", () => {
+  // Opened and then filled in, the popup grew by its footer.
+  it("has its footer in place while the template loads", () => {
+    mocks.template = { isLoading: true, isError: false };
+    open("t1");
+    expect(screen.getByTestId("template-loading")).toBeInTheDocument();
+    expect(screen.getByTestId("dialog-footer-placeholder")).toBeInTheDocument();
+  });
+});

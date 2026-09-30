@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { Skeleton } from "@/components/ui/skeleton";
+import { DialogLoadingBody } from "@/features/inventory/components/dialog-loading";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { usePermissions } from "@/features/auth/use-permissions";
@@ -70,11 +70,7 @@ export function AssignContainerDialog({
     content = (
       <>
         <Header name={name} />
-        <div data-testid="assign-container-loading" className="space-y-3 p-4">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-10 w-full" />
-          ))}
-        </div>
+        <DialogLoadingBody testId="assign-container-loading" fields={["input", "input", "switch"]} />
       </>
     );
   } else if (!user && (lookup.isError || !lookup.data)) {

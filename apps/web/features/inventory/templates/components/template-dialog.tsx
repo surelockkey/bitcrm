@@ -17,7 +17,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Skeleton } from "@/components/ui/skeleton";
+import { DialogLoadingBody } from "@/features/inventory/components/dialog-loading";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
@@ -63,11 +63,7 @@ export function TemplateDialog({
     content = (
       <>
         <Header title="Template" />
-        <div data-testid="template-loading" className="space-y-3 p-4">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-10 w-full" />
-          ))}
-        </div>
+        <DialogLoadingBody testId="template-loading" fields={["input", "area", "panel"]} />
       </>
     );
   } else if (query.isError || !query.data) {

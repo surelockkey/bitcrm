@@ -13,7 +13,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Skeleton } from "@/components/ui/skeleton";
+import { DialogLoadingBody } from "@/features/inventory/components/dialog-loading";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { InventoryStatus } from "@bitcrm/types";
@@ -54,11 +54,10 @@ export function ContainerEditDialog({
     content = (
       <>
         <Header title={canEdit ? "Edit container" : "Container"} />
-        <div data-testid="container-edit-loading" className="space-y-3 p-4">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-10 w-full" />
-          ))}
-        </div>
+        <DialogLoadingBody
+          testId="container-edit-loading"
+          fields={["input", "area", "input", "input", "input", "switch"]}
+        />
       </>
     );
   } else if (query.isError || !query.data) {

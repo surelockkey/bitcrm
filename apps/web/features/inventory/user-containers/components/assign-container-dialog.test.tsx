@@ -9,6 +9,7 @@ import type { StockLocation } from "@/features/inventory/stock/lib";
 type Mutate = (vars: unknown, opts?: { onSuccess?: () => void }) => void;
 
 const mocks = vi.hoisted(() => ({
+  rowsLoading: false,
   denied: new Set<string>(),
   rows: [] as UserContainer[],
   locations: [] as StockLocation[],
@@ -25,7 +26,7 @@ vi.mock("@/features/auth/use-permissions", () => ({
 }));
 
 vi.mock("../hooks", () => ({
-  useUserContainers: () => ({ data: mocks.rows, isLoading: false, isError: false }),
+  useUserContainers: () => ({ data: mocks.rows, isLoading: mocks.rowsLoading, isError: false }),
   useUserNames: () => ({ names: new Map([["u2", "Pavlo Bondar"]]), isLoading: false }),
   useAssignUserContainer: () => ({
     isPending: false,
@@ -70,6 +71,7 @@ const row = (over: Partial<UserContainer>): UserContainer => ({
 
 beforeEach(() => {
   mocks.denied = new Set();
+  mocks.rowsLoading = false;
   mocks.assign.mockReset();
   mocks.userLookups = [];
   mocks.user = undefined;
@@ -221,5 +223,14 @@ describe("AssignContainerDialog — without containers.edit", () => {
     expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
     // The footer's Close, besides the corner ✕.
     expect(screen.getAllByRole("button", { name: "Close" }).some((b) => b.textContent === "Close")).toBe(true);
+  });
+});
+
+describe("AssignContainerDialog — loading", () => {
+  it("has its footer in place while it loads", () => {
+    mocks.rowsLoading = true;
+    renderWithClient(<AssignContainerDialog userId="u1" open onOpenChange={vi.fn()} />);
+    expect(screen.getByTestId("assign-container-loading")).toBeInTheDocument();
+    expect(screen.getByTestId("dialog-footer-placeholder")).toBeInTheDocument();
   });
 });

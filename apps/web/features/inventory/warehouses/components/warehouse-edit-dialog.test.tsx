@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   denied: new Set<string>(),
   query: undefined as unknown as Query<Warehouse>,
   stock: undefined as unknown as Query<StockItem[]>,
+  stockAsked: [] as boolean[],
   queried: [] as string[],
   update: vi.fn(),
   archive: vi.fn(),
@@ -35,7 +36,10 @@ vi.mock("../hooks", () => ({
     mocks.queried.push(id);
     return mocks.query;
   },
-  useWarehouseStock: () => mocks.stock,
+  useWarehouseStock: (_id: string, enabled: boolean) => {
+    mocks.stockAsked.push(enabled);
+    return mocks.stock;
+  },
   useUpdateWarehouse: () => answering(mocks.update),
   useArchiveWarehouse: () => answering(mocks.archive),
 }));
@@ -59,6 +63,7 @@ beforeEach(() => {
   mocks.query = { isLoading: false, isError: false, data: SHOP };
   mocks.stock = { isLoading: false, isError: false, data: [held(700), held(58), held(0)] };
   mocks.queried = [];
+  mocks.stockAsked = [];
   mocks.update.mockReset();
   mocks.archive.mockReset();
 });
@@ -157,9 +162,35 @@ describe("WarehouseEditDialog — loading and missing", () => {
     expect(screen.getByTestId("warehouse-edit-loading")).toBeInTheDocument();
   });
 
+  // Opened and then filled in, the popup grew by its footer.
+  it("has its footer in place while it loads", () => {
+    mocks.query = { isLoading: true, isError: false, data: undefined };
+    open();
+    expect(screen.getByTestId("dialog-footer-placeholder")).toBeInTheDocument();
+  });
+
   it("says the warehouse is gone when it can't be read", () => {
     mocks.query = { isLoading: false, isError: true, data: undefined };
     open();
     expect(screen.getByRole("dialog", { name: "Warehouse not found" })).toBeInTheDocument();
+  });
+});
+
+/**
+ * The archive warning names the units still on the shelf. The row carries
+ * them now (`totalUnits`): no stock request for a number the list already has.
+ */
+describe("WarehouseEditDialog — the units on the shelf", () => {
+  it("takes them from the warehouse's own total, asking for no stock", async () => {
+    mocks.query = { isLoading: false, isError: false, data: { ...SHOP, totalUnits: 1234 } as Warehouse };
+    open();
+    expect(mocks.stockAsked.every((asked) => !asked)).toBe(true);
+    await userEvent.click(screen.getByRole("button", { name: "Archive" }));
+    expect(screen.getByText(/still holds/)).toHaveTextContent("1,234 units");
+  });
+
+  it("reads the stock only for a warehouse the backfill has not reached", () => {
+    open();
+    expect(mocks.stockAsked.at(-1)).toBe(true);
   });
 });
