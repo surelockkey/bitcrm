@@ -213,7 +213,7 @@ function ItemJobs({ item, state, money: showMoney }: { item: ItemsReportRow; sta
   const { pagination } = data;
   return (
     <div className="space-y-2" aria-label={`Jobs of ${item.name}`}>
-      <div className="overflow-x-auto rounded-md border">
+      <div className="overflow-x-auto border">
         <Table contained={false} className="min-w-[56rem]">
           <TableHeader>
             <TableRow className="hover:bg-transparent">
