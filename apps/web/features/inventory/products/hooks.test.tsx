@@ -12,6 +12,7 @@ import {
   useProductStock,
   useProducts,
   useProductsCount,
+  useUploadPhoto,
 } from "./hooks";
 import type { ProductFilter } from "./lib";
 
@@ -162,5 +163,59 @@ describe("items list + count hooks", () => {
     });
     expect(lists[1]).toEqual({ ...expected, search: "knob", limit: "25" });
     expect(counts[1]).toEqual({ ...expected, search: "knob" });
+  });
+});
+
+/**
+ * A photo goes presign → PUT to S3 → "complete": the last step tells the
+ * server the bytes are there, and it makes the list's thumbnail from them.
+ */
+describe("useUploadPhoto", () => {
+  function captureUpload(complete: 200 | 404 = 200) {
+    const calls: string[] = [];
+    server.use(
+      http.post("*/inventory/products/:id/photo/upload-url", ({ params }) => {
+        calls.push(`presign ${params.id}`);
+        return HttpResponse.json({ success: true, data: { uploadUrl: "https://s3.test/put", key: "k" } });
+      }),
+      http.put("https://s3.test/put", () => {
+        calls.push("put");
+        return new HttpResponse(null, { status: 200 });
+      }),
+      http.post("*/inventory/products/:id/photo/complete", ({ params }) => {
+        calls.push(`complete ${params.id}`);
+        return complete === 404
+          ? HttpResponse.json({ success: false, error: { code: "NOT_FOUND", message: "Not found" } }, { status: 404 })
+          : HttpResponse.json({ success: true, data: { id: params.id } });
+      }),
+    );
+    return calls;
+  }
+  const file = () => new File(["x"], "lock.jpg", { type: "image/jpeg" });
+
+  it("tells the server the upload is done, so it makes the thumbnail", async () => {
+    const calls = captureUpload();
+    const { result } = renderHook(() => useUploadPhoto(), { wrapper: wrapper(new QueryClient()) });
+    await result.current.mutateAsync({ id: "p1", file: file() });
+    expect(calls).toEqual(["presign p1", "put", "complete p1"]);
+  });
+
+  it("takes a 404 from an older server — one that makes no thumbnails — as done", async () => {
+    const calls = captureUpload(404);
+    const { result } = renderHook(() => useUploadPhoto(), { wrapper: wrapper(new QueryClient()) });
+    await result.current.mutateAsync({ id: "p1", file: file() });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(calls).toEqual(["presign p1", "put", "complete p1"]);
+  });
+
+  it("refreshes the lists too — their rows carry the thumbnail", async () => {
+    captureUpload();
+    const client = new QueryClient();
+    client.setQueryData(queryKeys.inventory.products.list({ limit: 50 }), { pages: [], pageParams: [] });
+    const { result } = renderHook(() => useUploadPhoto(), { wrapper: wrapper(client) });
+    await result.current.mutateAsync({ id: "p1", file: file() });
+    await waitFor(() =>
+      expect(client.getQueryState(queryKeys.inventory.products.list({ limit: 50 }))?.isInvalidated).toBe(true),
+    );
   });
 });

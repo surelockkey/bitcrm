@@ -7,6 +7,7 @@ import type {
   ProductStock,
 } from "@bitcrm/types";
 import { http, apiFetchPaginated } from "@/lib/api/http";
+import { ApiError } from "@/lib/api/errors";
 import type { CreateProductValues, PatchProductValues } from "./schemas";
 import type { ProductFilter } from "./lib";
 
@@ -125,6 +126,19 @@ export function getPhotoUploadUrl(
     `/inventory/products/${id}/photo/upload-url`,
     { contentType },
   );
+}
+
+/**
+ * The bytes are in S3: the server makes the list's thumbnail from them. An
+ * older server has no such step and answers 404 — the upload is done anyway.
+ */
+export async function completePhotoUpload(id: string): Promise<void> {
+  try {
+    await http.post<unknown>(`/inventory/products/${id}/photo/complete`);
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) return;
+    throw e;
+  }
 }
 
 export function getPhotoDownloadUrl(id: string): Promise<{ downloadUrl: string }> {
