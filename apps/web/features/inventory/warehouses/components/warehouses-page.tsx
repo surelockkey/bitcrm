@@ -22,7 +22,7 @@ import { pagedSource } from "@/lib/paging/paged-source";
 import { usePageSize } from "@/lib/paging/use-page-size";
 import { usePager } from "@/lib/paging/use-pager";
 import { LocationStockDialog } from "@/features/inventory/stock/components/location-stock-dialog";
-import { useUrlPopups } from "@/features/inventory/use-url-popups";
+import { useLinkedPopup, usePopup, type LegacyPopupQuery } from "@/features/inventory/use-popup";
 import { useWarehousesList, useWarehousesCount } from "../hooks";
 import type { WarehouseFilter } from "../api";
 import { WarehousesTable } from "./warehouses-table";
@@ -31,13 +31,28 @@ import { WarehouseEditDialog } from "./warehouse-edit-dialog";
 
 const WAREHOUSES_PATH = "/inventory/warehouses";
 
-/** The URL params that open a popup — one at a time. */
-const POPUPS = ["stock", "edit"] as const;
+/** The popup over the list — one at a time: a warehouse's stock or its settings. */
+export type WarehousesPopup = { kind: "stock"; id: string } | { kind: "edit"; id: string };
+
+/** Old links carried the popup in the query (`?stock=<id>`, `?edit=<id>`). */
+const LEGACY: LegacyPopupQuery<WarehousesPopup> = {
+  params: ["stock", "edit"],
+  parse: (q) => {
+    const stock = q.get("stock");
+    if (stock) return { kind: "stock", id: stock };
+    const edit = q.get("edit");
+    return edit ? { kind: "edit", id: edit } : null;
+  },
+};
 
 /** The list's own key: its page size and its skeleton's height are saved under it. */
 const TABLE_KEY = "inventory-warehouses";
 
-export function WarehousesPage() {
+/**
+ * Inventory's Warehouses tab. `initialPopup` is a link's:
+ * `/inventory/warehouses/<id>` renders this list with that warehouse's stock open.
+ */
+export function WarehousesPage({ initialPopup }: { initialPopup?: WarehousesPopup } = {}) {
   const { can, isLoading: permsLoading } = usePermissions();
   const denied = useDenied();
   const [pageSize, setPageSize] = usePageSize(TABLE_KEY);
@@ -46,10 +61,10 @@ export function WarehousesPage() {
   const [createOpen, setCreateOpen] = useState(false);
 
   // A warehouse has no page of its own: its stock and its settings open over
-  // the list, from the URL, so an old /inventory/warehouses/<id> link lands here.
-  const popups = useUrlPopups(WAREHOUSES_PATH, POPUPS);
-  const stockId = popups.param("stock");
-  const editId = stockId ? null : popups.param("edit");
+  // the list as state; a link (/inventory/warehouses/<id>) opens its stock.
+  const { popup, open, close } = usePopup(useLinkedPopup(initialPopup, LEGACY), WAREHOUSES_PATH);
+  const stockId = popup?.kind === "stock" ? popup.id : null;
+  const editId = popup?.kind === "edit" ? popup.id : null;
 
   // The server searches and filters; the browser shows the page it got.
   const term = useDebouncedValue(search.trim(), 300);
@@ -171,8 +186,8 @@ export function WarehousesPage() {
                 loading={loading}
                 skeletonRows={skeletonRows}
                 stale={pager.isStale}
-                onEdit={(w) => popups.open("edit", w.id)}
-                onStock={(w) => popups.open("stock", w.id)}
+                onEdit={(w) => open({ kind: "edit", id: w.id })}
+                onStock={(w) => open({ kind: "stock", id: w.id })}
               />
             </>
           )}
@@ -180,20 +195,20 @@ export function WarehousesPage() {
       </div>
 
       <WarehouseCreateDialog open={createOpen} onOpenChange={setCreateOpen} />
-      {/* Mounted only while their param is set, so each opening reads fresh. */}
+      {/* Mounted only while open, so each opening reads fresh. */}
       {stockId ? (
         <LocationStockDialog
           type="warehouse"
           locationId={stockId}
           open
-          onOpenChange={(open) => (open ? undefined : popups.close())}
+          onOpenChange={(next) => (next ? undefined : close())}
         />
       ) : null}
       {editId ? (
         <WarehouseEditDialog
           warehouseId={editId}
           open
-          onOpenChange={(open) => (open ? undefined : popups.close())}
+          onOpenChange={(next) => (next ? undefined : close())}
         />
       ) : null}
     </div>

@@ -14,7 +14,6 @@ const mocks = vi.hoisted(() => ({
   userFilters: [] as unknown[],
   rows: [] as UserContainer[],
   locations: [] as StockLocation[],
-  params: new URLSearchParams(),
   push: vi.fn(),
   replace: vi.fn(),
   permsLoading: false,
@@ -28,7 +27,6 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mocks.push, replace: mocks.replace, back: vi.fn() }),
-  useSearchParams: () => mocks.params,
   usePathname: () => "/inventory/user-containers",
 }));
 vi.mock("@/features/auth/use-permissions", () => ({
@@ -123,7 +121,6 @@ beforeEach(() => {
     { type: "container", id: "c1", name: "Van 1", status: InventoryStatus.ACTIVE },
     { type: "container", id: "c3", name: "Van 3", status: InventoryStatus.ACTIVE, technicianId: "u3" },
   ];
-  mocks.params = new URLSearchParams();
   mocks.push.mockReset();
   mocks.permsLoading = false;
   mocks.usersLoading = false;
@@ -187,22 +184,30 @@ describe("UserContainersPage — the users and their vans", () => {
 });
 
 describe("UserContainersPage — the Assign popup", () => {
-  it("opens from a row, in the URL", async () => {
+  const address = () => `${window.location.pathname}${window.location.search}`;
+  beforeEach(() => window.history.replaceState(null, "", "/inventory/user-containers"));
+
+  it("opens from a row, handing over the row it has — the address untouched", async () => {
     renderWithClient(<UserContainersPage />);
     await userEvent.click(screen.getByText("Olha Melnyk"));
-    expect(mocks.push).toHaveBeenCalledWith("/inventory/user-containers?assign=u2", { scroll: false });
+    const popup = screen.getByTestId("assign-popup");
+    expect(popup).toHaveAttribute("data-user", "u2");
+    expect(popup).toHaveAttribute("data-name", "Olha Melnyk");
+    expect(address()).toBe("/inventory/user-containers");
+    expect(mocks.push).not.toHaveBeenCalled();
   });
 
-  it("opens for the user the URL names, handing over the row it has", () => {
-    mocks.params = new URLSearchParams("assign=u1");
+  it("still opens for the user an old ?assign= link names, then takes it out of the address", () => {
+    window.history.replaceState(null, "", "/inventory/user-containers?assign=u1");
     renderWithClient(<UserContainersPage />);
     const popup = screen.getByTestId("assign-popup");
     expect(popup).toHaveAttribute("data-user", "u1");
     expect(popup).toHaveAttribute("data-name", "Taras Koval");
+    expect(address()).toBe("/inventory/user-containers");
   });
 
   it("opens for a user who isn't on this page — the popup looks them up", () => {
-    mocks.params = new URLSearchParams("assign=u9");
+    window.history.replaceState(null, "", "/inventory/user-containers?assign=u9");
     renderWithClient(<UserContainersPage />);
     expect(screen.getByTestId("assign-popup")).toHaveAttribute("data-name", "");
   });

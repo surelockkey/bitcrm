@@ -23,7 +23,7 @@ import { fetchAllUsers } from "@/features/technicians/api";
 import { useUsers, useUsersCount } from "@/features/users/hooks";
 import type { UserFilter } from "@/features/users/api";
 import { useAllLocations } from "@/features/inventory/stock/hooks";
-import { useUrlPopups } from "@/features/inventory/use-url-popups";
+import { useLinkedPopup, usePopup, type LegacyPopupQuery } from "@/features/inventory/use-popup";
 import { useUserContainers } from "../hooks";
 import { assignmentOf } from "../lib";
 import {
@@ -34,7 +34,16 @@ import {
 import { AssignContainerDialog } from "./assign-container-dialog";
 
 const PATH = "/inventory/user-containers";
-const POPUPS = ["assign"] as const;
+/** The popup over the list: one user's container assignment. */
+type AssignPopup = { kind: "assign"; userId: string };
+/** Old links carried it in the query (`?assign=<userId>`). */
+const LEGACY: LegacyPopupQuery<AssignPopup> = {
+  params: ["assign"],
+  parse: (q) => {
+    const userId = q.get("assign");
+    return userId ? { kind: "assign", userId } : null;
+  },
+};
 /** The list's own key: its page size, column widths and skeleton height are saved under it. */
 const TABLE_KEY = USER_CONTAINERS_TABLE_KEY;
 
@@ -132,8 +141,8 @@ function Assignments() {
     loading || stale ? undefined : rows.length,
   );
 
-  const popups = useUrlPopups(PATH, POPUPS);
-  const assignId = popups.param("assign");
+  const { popup, open, close } = usePopup(useLinkedPopup(null, LEGACY), PATH);
+  const assignId = popup?.userId ?? null;
 
   const failed = searching ? directory.isError : usersQ.isError && !usersQ.data;
   const empty = !failed && !loading && !stale && rows.length === 0;
@@ -195,20 +204,20 @@ function Assignments() {
                 loading={loading}
                 skeletonRows={skeletonRows}
                 stale={stale}
-                onAssign={(id) => popups.open("assign", id)}
+                onAssign={(id) => open({ kind: "assign", userId: id })}
               />
             </>
           )}
         </ListBody>
       </div>
 
-      {/* Mounted only while the param is set, so each opening reads fresh. */}
+      {/* Mounted only while open, so each opening reads fresh. */}
       {assignId ? (
         <AssignContainerDialog
           userId={assignId}
           user={rows.find((r) => r.userId === assignId)}
           open
-          onOpenChange={(open) => (open ? undefined : popups.close())}
+          onOpenChange={(next) => (next ? undefined : close())}
         />
       ) : null}
     </div>

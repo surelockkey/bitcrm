@@ -2,12 +2,11 @@ import { Suspense } from "react";
 import { TabFallback } from "@/features/inventory/components/tab-fallback";
 import { ProductsPage } from "@/features/inventory/products/components/products-page";
 
-// A popup is the list's state; a link to one is its own page (items/[id], items/new).
+/** An old "New item" link: the Items tab with the New item popup open. */
 export default function Page() {
   return (
-    // The tab's own frame, not a blank body, while anything under it suspends.
     <Suspense fallback={<TabFallback tab="items" />}>
-      <ProductsPage />
+      <ProductsPage initialPopup={{ kind: "new" }} />
     </Suspense>
   );
 }

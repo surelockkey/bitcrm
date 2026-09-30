@@ -13,14 +13,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { DataScope, InventoryStatus } from "@bitcrm/types";
-import { useSearchParams } from "next/navigation";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { useAllLocations } from "@/features/inventory/stock/hooks";
 import { LocationStockDialog } from "@/features/inventory/stock/components/location-stock-dialog";
 import { ContainerTemplateBar } from "@/features/inventory/templates/components/container-template-bar";
 import { ApplyTemplateDialog } from "@/features/inventory/templates/components/apply-template-dialog";
-import { useUrlPopups } from "@/features/inventory/use-url-popups";
+import { useLinkedPopup, usePopup, type LegacyPopupQuery } from "@/features/inventory/use-popup";
 import { useUserContainers, useUserNames } from "@/features/inventory/user-containers/hooks";
 import {
   containerUserNames,
@@ -46,17 +45,39 @@ const CONTAINERS_PATH = "/inventory/containers";
 /** The list's own key: its page size and its skeleton's height are saved under it. */
 const TABLE_KEY = "inventory-vans";
 
-/** The URL params that open a popup — one at a time; Apply also names the van. */
-const POPUPS = ["stock", "edit", "apply"] as const;
-const EXTRAS = ["container"] as const;
+/**
+ * The popup over the fleet — one at a time: a van's stock, its settings, or a
+ * template applied to it.
+ */
+export type ContainersPopup =
+  | { kind: "stock"; id: string }
+  | { kind: "edit"; id: string }
+  | { kind: "apply"; templateId: string; containerId: string | null };
 
-export function ContainersPage() {
+/** Old links carried the popup in the query (`?stock=<id>`, `?edit=<id>`, `?apply=<id>&container=<id>`). */
+const LEGACY: LegacyPopupQuery<ContainersPopup> = {
+  params: ["stock", "edit", "apply", "container"],
+  parse: (q) => {
+    const stock = q.get("stock");
+    if (stock) return { kind: "stock", id: stock };
+    const edit = q.get("edit");
+    if (edit) return { kind: "edit", id: edit };
+    const apply = q.get("apply");
+    return apply ? { kind: "apply", templateId: apply, containerId: q.get("container") } : null;
+  },
+};
+
+/**
+ * Inventory's Containers tab. `initialPopup` is a link's:
+ * `/inventory/containers/<id>` renders the fleet with that van's stock open.
+ */
+export function ContainersPage({ initialPopup }: { initialPopup?: ContainersPopup } = {}) {
   const { can, scopeOf, isLoading } = usePermissions();
+  const linked = useLinkedPopup(initialPopup, LEGACY);
   // A van's stock popup opened by link needs no permission to be asked for
   // (the server guards it): its reads start now, beside the permissions',
   // instead of after them and the page.
-  const linked = useSearchParams().get("stock");
-  usePrefetchVanStock(isLoading ? linked : null);
+  usePrefetchVanStock(isLoading && linked?.kind === "stock" ? linked.id : null);
 
   // Which screen this is — the fleet or a technician's own van — is the
   // permissions' to say. Until they do: the fleet's frame, asking for
@@ -72,10 +93,10 @@ export function ContainersPage() {
   if (scopeOf("containers") === DataScope.ASSIGNED_ONLY) {
     return <MyContainerView />;
   }
-  return <Fleet />;
+  return <Fleet linked={linked} />;
 }
 
-function Fleet() {
+function Fleet({ linked }: { linked: ContainersPopup | null }) {
   const { can } = usePermissions();
   const [pageSize, setPageSize] = usePageSize(TABLE_KEY);
   const [search, setSearch] = useState("");
@@ -84,11 +105,10 @@ function Fleet() {
   const [createOpen, setCreateOpen] = useState(false);
 
   // A van has no page of its own: its stock and its settings open over the
-  // list, from the URL, so an old /inventory/containers/<id> link lands here.
-  const popups = useUrlPopups(CONTAINERS_PATH, POPUPS, EXTRAS);
-  const stockId = popups.param("stock");
-  const editId = stockId ? null : popups.param("edit");
-  const applyId = stockId || editId ? null : popups.param("apply");
+  // list as state; a link (/inventory/containers/<id>) opens its stock.
+  const { popup, open, close } = usePopup(linked, CONTAINERS_PATH);
+  const stockId = popup?.kind === "stock" ? popup.id : null;
+  const editId = popup?.kind === "edit" ? popup.id : null;
 
   // The server filters before it cuts the page — filtering a page in the
   // browser is what made every page show a different number of vans.
@@ -196,8 +216,8 @@ function Fleet() {
                 loading={loading}
                 skeletonRows={skeletonRows}
                 stale={pager.isStale}
-                onEdit={(c) => popups.open("edit", c.id)}
-                onStock={(c) => popups.open("stock", c.id)}
+                onEdit={(c) => open({ kind: "edit", id: c.id })}
+                onStock={(c) => open({ kind: "stock", id: c.id })}
               />
             </>
           )}
@@ -205,37 +225,36 @@ function Fleet() {
       </div>
 
       <ContainerCreateDialog open={createOpen} onOpenChange={setCreateOpen} />
-      {/* Mounted only while their param is set, so each opening reads fresh. */}
+      {/* Mounted only while open, so each opening reads fresh. */}
       {stockId ? (
         <LocationStockDialog
           type="container"
           locationId={stockId}
           open
-          onOpenChange={(open) => (open ? undefined : popups.close())}
+          onOpenChange={(next) => (next ? undefined : close())}
           aside={
             <ContainerTemplateBar
               containerId={stockId}
               // Swapped, not stacked: closing Apply goes back to the list.
-              onApply={(templateId) => popups.replace("apply", templateId, { container: stockId })}
-              onSetTemplate={() => popups.replace("edit", stockId)}
+              onApply={(templateId) => open({ kind: "apply", templateId, containerId: stockId })}
+              onSetTemplate={() => open({ kind: "edit", id: stockId })}
             />
           }
         />
       ) : null}
-      {applyId ? (
+      {popup?.kind === "apply" ? (
         <ApplyTemplateDialog
-          templateId={applyId}
-          containerId={popups.param("container")}
+          templateId={popup.templateId}
+          containerId={popup.containerId}
           open
-          onOpenChange={(open) => (open ? undefined : popups.close())}
-          onContainerChange={(id) => popups.replace("apply", applyId, { container: id })}
+          onOpenChange={(next) => (next ? undefined : close())}
         />
       ) : null}
       {editId ? (
         <ContainerEditDialog
           containerId={editId}
           open
-          onOpenChange={(open) => (open ? undefined : popups.close())}
+          onOpenChange={(next) => (next ? undefined : close())}
         />
       ) : null}
     </div>

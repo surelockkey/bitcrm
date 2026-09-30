@@ -10,7 +10,6 @@ const mocks = vi.hoisted(() => ({
   listFilters: [] as WarehouseFilter[],
   countFilters: [] as WarehouseFilter[],
   rows: [] as Warehouse[],
-  params: new URLSearchParams(),
   push: vi.fn(),
   replace: vi.fn(),
   /** What the list hook answers beyond its rows: first load, or a held-over page. */
@@ -20,7 +19,6 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mocks.push, replace: mocks.replace }),
-  useSearchParams: () => mocks.params,
   usePathname: () => "/inventory/warehouses",
 }));
 vi.mock("@/features/auth/use-permissions", () => ({
@@ -55,7 +53,7 @@ vi.mock("../hooks", () => ({
   }),
 }));
 vi.mock("./warehouse-create-dialog", () => ({ WarehouseCreateDialog: () => null }));
-// The popups have suites of their own; here only which one the URL opens matters.
+// The popups have suites of their own; here only which one opens matters.
 vi.mock("./warehouse-edit-dialog", () => ({
   WarehouseEditDialog: (props: { warehouseId: string; open: boolean; onOpenChange: (o: boolean) => void }) =>
     props.open ? (
@@ -85,7 +83,6 @@ function warehouse(over: Partial<Warehouse>): Warehouse {
 }
 
 beforeEach(() => {
-  mocks.params = new URLSearchParams();
   mocks.push.mockReset();
   mocks.replace.mockReset();
   mocks.listFilters = [];
@@ -134,37 +131,44 @@ describe("WarehousesPage — the server filters, the page shows what it got", ()
   });
 });
 
-const noScroll = { scroll: false };
+/**
+ * The owner's rule: a popup is the page's state, never the address. A link to
+ * a warehouse is its own page (`/inventory/warehouses/<id>` → `initialPopup`);
+ * an old link with the popup in its query still opens it.
+ */
+describe("WarehousesPage — popups are state, not the URL", () => {
+  const address = () => `${window.location.pathname}${window.location.search}`;
+  beforeEach(() => window.history.replaceState(null, "", "/inventory/warehouses"));
 
-describe("WarehousesPage — popups are driven by the URL", () => {
-  it("opens the warehouse's stock from ?stock=<id>", () => {
-    mocks.params = new URLSearchParams("stock=w9");
-    renderWithClient(<WarehousesPage />);
-    const popup = screen.getByTestId("stock-popup");
-    expect(popup).toHaveAttribute("data-type", "warehouse");
-    expect(popup).toHaveAttribute("data-id", "w9");
-  });
-
-  it("opens the Edit popup from ?edit=<id>", () => {
-    mocks.params = new URLSearchParams("edit=w9");
-    renderWithClient(<WarehousesPage />);
-    expect(screen.getByTestId("edit-popup")).toHaveAttribute("data-id", "w9");
-    expect(screen.queryByTestId("stock-popup")).toBeNull();
-  });
-
-  it("puts ?stock=<id> in the URL from a row click, ?edit=<id> from the pencil", async () => {
+  it("opens the stock from a row click and Edit from the pencil, the address untouched", async () => {
     renderWithClient(<WarehousesPage />);
     await userEvent.click(screen.getByText("Dallas"));
-    expect(mocks.push).toHaveBeenCalledWith("/inventory/warehouses?stock=w1", noScroll);
+    const popup = screen.getByTestId("stock-popup");
+    expect(popup).toHaveAttribute("data-type", "warehouse");
+    expect(popup).toHaveAttribute("data-id", "w1");
+    await userEvent.click(screen.getByText("close stock"));
     await userEvent.click(screen.getByRole("button", { name: "Edit Austin" }));
-    expect(mocks.push).toHaveBeenCalledWith("/inventory/warehouses?edit=w2", noScroll);
+    expect(screen.getByTestId("edit-popup")).toHaveAttribute("data-id", "w2");
+    expect(screen.queryByTestId("stock-popup")).toBeNull();
+    expect(address()).toBe("/inventory/warehouses");
+    expect(mocks.push).not.toHaveBeenCalled();
+    expect(mocks.replace).not.toHaveBeenCalled();
   });
 
-  it("closing a popup replaces the URL, so Back doesn't reopen it", async () => {
-    mocks.params = new URLSearchParams("edit=w9");
-    renderWithClient(<WarehousesPage />);
+  it("opens a link's popup from the first frame and closes it to the list's address", async () => {
+    window.history.replaceState(null, "", "/inventory/warehouses/w9");
+    renderWithClient(<WarehousesPage initialPopup={{ kind: "edit", id: "w9" }} />);
+    expect(screen.getByTestId("edit-popup")).toHaveAttribute("data-id", "w9");
     await userEvent.click(screen.getByText("close edit"));
-    expect(mocks.replace).toHaveBeenCalledWith("/inventory/warehouses", noScroll);
+    expect(screen.queryByTestId("edit-popup")).toBeNull();
+    expect(address()).toBe("/inventory/warehouses");
+  });
+
+  it("still opens an old ?stock= link, then takes it out of the address", () => {
+    window.history.replaceState(null, "", "/inventory/warehouses?stock=w9");
+    renderWithClient(<WarehousesPage />);
+    expect(screen.getByTestId("stock-popup")).toHaveAttribute("data-id", "w9");
+    expect(address()).toBe("/inventory/warehouses");
   });
 });
 

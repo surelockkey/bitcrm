@@ -19,7 +19,7 @@ import { NoAccess } from "@/features/inventory/components/no-access";
 import { useSkeletonRows } from "@/features/inventory/components/use-skeleton-rows";
 import { ManageStockDialog } from "@/features/inventory/stock/components/manage-stock-dialog";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
-import { useUrlPopups } from "@/features/inventory/use-url-popups";
+import { useLinkedPopup, usePopup, type LegacyPopupQuery } from "@/features/inventory/use-popup";
 import { useItemCategories, useProducts, useProductsCount } from "../hooks";
 import { productsToCsv, type ProductFilter } from "../lib";
 import { ProductsTable } from "./products-table";
@@ -35,11 +35,26 @@ const ITEMS_PATH = "/inventory/items";
 /** The list's own key: its page size and its skeleton's height are saved under it. */
 const TABLE_KEY = "inventory-items";
 
-/** The URL params that open a popup — one at a time. */
-type Popup = "edit" | "stock" | "new";
-const POPUPS: Popup[] = ["edit", "stock", "new"];
+/** The popup over the list — one at a time. */
+export type ItemsPopup = { kind: "edit"; id: string } | { kind: "stock"; id: string } | { kind: "new" };
 
-export function ProductsPage() {
+/** Old links carried the popup in the query (`?edit=<id>`, `?stock=<id>`, `?new=1`). */
+const LEGACY: LegacyPopupQuery<ItemsPopup> = {
+  params: ["edit", "stock", "new"],
+  parse: (q) => {
+    const edit = q.get("edit");
+    if (edit) return { kind: "edit", id: edit };
+    const stock = q.get("stock");
+    if (stock) return { kind: "stock", id: stock };
+    return q.get("new") === "1" ? { kind: "new" } : null;
+  },
+};
+
+/**
+ * Inventory's Items tab. `initialPopup` is a link's: `/inventory/items/<id>`
+ * renders this list with that item's Edit popup open.
+ */
+export function ProductsPage({ initialPopup }: { initialPopup?: ItemsPopup } = {}) {
   const { can, isLoading: permsLoading } = usePermissions();
   const denied = useDenied();
   const money = can("financials", "view");
@@ -92,12 +107,12 @@ export function ProductsPage() {
     [catalog.data],
   );
 
-  // Popups live in the URL, so a link to an item (or an old /inventory/items/<id>
-  // bookmark, redirected here) opens it.
-  const popups = useUrlPopups(ITEMS_PATH, POPUPS);
-  const editId = popups.param("edit");
-  const stockId = popups.param("stock");
-  const creating = !editId && popups.param("new") === "1";
+  // Popups are state: a row opens one and the address stays. A link's page
+  // (/inventory/items/<id>) or an old ?edit= link opens it from the first frame.
+  const { popup, open, close } = usePopup(useLinkedPopup(initialPopup, LEGACY), ITEMS_PATH);
+  const editId = popup?.kind === "edit" ? popup.id : null;
+  const stockId = popup?.kind === "stock" ? popup.id : null;
+  const creating = popup?.kind === "new";
 
   // Refused only once the permissions are known — never a flash of "No access".
   if (denied("products", "view")) {
@@ -184,7 +199,7 @@ export function ProductsPage() {
           </Button>
         ) : null}
         {canCreate ? (
-          <Button className="h-9 gap-1.5 px-3.5" disabled={permsLoading} onClick={() => popups.open("new")}>
+          <Button className="h-9 gap-1.5 px-3.5" disabled={permsLoading} onClick={() => open({ kind: "new" })}>
             <PackagePlus className="size-4" />
             New item
           </Button>
@@ -208,7 +223,7 @@ export function ProductsPage() {
             <EmptyState
               filtered={!!filter.search || !!filter.category || status !== InventoryStatus.ACTIVE}
               canCreate={can("products", "create")}
-              onCreate={() => popups.open("new")}
+              onCreate={() => open({ kind: "new" })}
             />
           ) : (
             // Loading, loaded or holding the last filter's rows — one table,
@@ -219,29 +234,29 @@ export function ProductsPage() {
               loading={loading}
               skeletonRows={skeletonRows}
               stale={pager.isStale}
-              onEdit={(p: Product) => popups.open("edit", p.id)}
-              onStock={(p: Product) => popups.open("stock", p.id)}
+              onEdit={(p: Product) => open({ kind: "edit", id: p.id })}
+              onStock={(p: Product) => open({ kind: "stock", id: p.id })}
             />
           )}
         </ListBody>
       </div>
 
       <ImportProductsDialog open={importOpen} onOpenChange={setImportOpen} />
-      {/* Mounted only while their param is set: a popup closing must not
-          flash into another mode as the param clears under it. */}
+      {/* Mounted only while open: a popup closing must not flash into
+          another mode as its state clears under it. */}
       {editId || creating ? (
         <ProductDialog
           productId={editId}
           open
-          onOpenChange={(open) => (open ? undefined : popups.close())}
-          onCreated={(p) => popups.replace("edit", p.id)}
+          onOpenChange={(next) => (next ? undefined : close())}
+          onCreated={(p) => open({ kind: "edit", id: p.id })}
         />
       ) : null}
       {stockId ? (
         <ManageStockDialog
           productId={stockId}
           open
-          onOpenChange={(open) => (open ? undefined : popups.close())}
+          onOpenChange={(next) => (next ? undefined : close())}
         />
       ) : null}
     </div>

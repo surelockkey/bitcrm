@@ -19,7 +19,6 @@ const mocks = vi.hoisted(() => ({
   categoriesEnabled: [] as boolean[],
   brandsEnabled: [] as boolean[],
   denied: new Set<string>(),
-  params: new URLSearchParams(),
   push: vi.fn(),
   replace: vi.fn(),
   csv: vi.fn<(...args: unknown[]) => string>(() => "csv"),
@@ -27,7 +26,6 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mocks.push, replace: mocks.replace }),
-  useSearchParams: () => mocks.params,
   usePathname: () => "/price-book/items",
 }));
 vi.mock("@/features/auth/use-permissions", () => ({
@@ -134,8 +132,6 @@ const row = (id: string, name: string, active = true) => ({
   updatedAt: "",
 });
 
-const noScroll = { scroll: false };
-
 async function pick(combobox: string, option: string) {
   await userEvent.click(screen.getByRole("combobox", { name: combobox }));
   await userEvent.click(await screen.findByRole("option", { name: option }));
@@ -154,7 +150,7 @@ beforeEach(() => {
   mocks.categoriesEnabled = [];
   mocks.brandsEnabled = [];
   mocks.denied = new Set();
-  mocks.params = new URLSearchParams();
+  window.history.replaceState(null, "", "/");
   mocks.push.mockReset();
   mocks.replace.mockReset();
   mocks.csv.mockClear();
@@ -312,11 +308,18 @@ describe("ItemsPage — the table", () => {
   });
 });
 
-describe("ItemsPage — popups are driven by the URL", () => {
-  it("opens the Edit popup on a row click", async () => {
+/** The owner's rule: a popup is the page's state, never the address. */
+describe("ItemsPage — popups are state, not the URL", () => {
+  const address = () => `${window.location.pathname}${window.location.search}`;
+  beforeEach(() => window.history.replaceState(null, "", "/price-book/items"));
+
+  it("opens the Edit popup on a row click, the address untouched", async () => {
     renderWithClient(<ItemsPage />);
     await userEvent.click(screen.getByText("LOCK-001"));
-    expect(mocks.push).toHaveBeenCalledWith("/price-book/items?edit=p1", noScroll);
+    expect(screen.getByTestId("product-dialog")).toHaveAttribute("data-product-id", "p1");
+    expect(address()).toBe("/price-book/items");
+    expect(mocks.push).not.toHaveBeenCalled();
+    expect(mocks.replace).not.toHaveBeenCalled();
   });
 
   it("opens the New item popup from the one yellow button", async () => {
@@ -324,7 +327,8 @@ describe("ItemsPage — popups are driven by the URL", () => {
     const newItem = screen.getByRole("button", { name: "New item" });
     expect(newItem).toHaveAttribute("data-variant", "default");
     await userEvent.click(newItem);
-    expect(mocks.push).toHaveBeenCalledWith("/price-book/items?new=1", noScroll);
+    expect(screen.getByTestId("product-dialog")).toHaveAttribute("data-product-id", "new");
+    expect(address()).toBe("/price-book/items");
   });
 
   it("paints nothing else in the toolbar yellow", () => {
@@ -336,28 +340,30 @@ describe("ItemsPage — popups are driven by the URL", () => {
     expect(yellow.map((b) => b.textContent)).toEqual(["New item"]);
   });
 
-  it("renders the Edit popup for ?edit=<id> and the New one for ?new=1", () => {
-    mocks.params = new URLSearchParams("edit=p9");
+  it("still opens an old ?edit= / ?new=1 link's popup, then takes it out of the address", () => {
+    window.history.replaceState(null, "", "/price-book/items?edit=p9");
     const { unmount } = renderWithClient(<ItemsPage />);
     expect(screen.getByTestId("product-dialog")).toHaveAttribute("data-product-id", "p9");
+    expect(address()).toBe("/price-book/items");
     unmount();
-    mocks.params = new URLSearchParams("new=1");
+    window.history.replaceState(null, "", "/price-book/items?new=1");
     renderWithClient(<ItemsPage />);
     expect(screen.getByTestId("product-dialog")).toHaveAttribute("data-product-id", "new");
   });
 
   it("moves a just-created item into its Edit popup", async () => {
-    mocks.params = new URLSearchParams("new=1");
     renderWithClient(<ItemsPage />);
+    await userEvent.click(screen.getByRole("button", { name: "New item" }));
     await userEvent.click(screen.getByRole("button", { name: "created" }));
-    expect(mocks.replace).toHaveBeenCalledWith("/price-book/items?edit=new-1", noScroll);
+    expect(screen.getByTestId("product-dialog")).toHaveAttribute("data-product-id", "new-1");
   });
 
-  it("clears the param when the popup closes", async () => {
-    mocks.params = new URLSearchParams("edit=p9");
+  it("closes the popup back to the list", async () => {
     renderWithClient(<ItemsPage />);
+    await userEvent.click(screen.getByText("LOCK-001"));
     await userEvent.click(screen.getByRole("button", { name: "close popup" }));
-    expect(mocks.replace).toHaveBeenCalledWith("/price-book/items", noScroll);
+    expect(screen.queryByTestId("product-dialog")).toBeNull();
+    expect(address()).toBe("/price-book/items");
   });
 
   it("hides New item and Import CSV without products.create", () => {

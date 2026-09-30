@@ -67,7 +67,7 @@ export function useContainer(id: string, enabled = true) {
 /**
  * What a van's stock popup shows — its stock, the van, and how it compares
  * with its template — asked for at once, for a popup opened by link
- * (`?stock=<id>`) while the page still waits for the permissions. None of it
+ * (`/inventory/containers/<id>`) while the page still waits for the permissions. None of it
  * needs them to be asked for: the server guards each read. Asked after them,
  * the popup's stock was the third request in a row.
  */

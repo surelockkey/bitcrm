@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { InventoryStatus } from "@bitcrm/types";
@@ -11,7 +11,6 @@ const mocks = vi.hoisted(() => ({
   templates: [] as ContainerTemplate[],
   statuses: [] as string[],
   locations: [] as StockLocation[],
-  params: new URLSearchParams(),
   push: vi.fn(),
   replace: vi.fn(),
   permsLoading: false,
@@ -21,7 +20,6 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mocks.push, replace: mocks.replace, back: vi.fn() }),
-  useSearchParams: () => mocks.params,
   usePathname: () => "/inventory/templates",
 }));
 vi.mock("@/features/auth/use-permissions", () => ({
@@ -97,15 +95,12 @@ beforeEach(() => {
   mocks.templates = [tpl("t1", "Standard van"), tpl("t2", "Lockout van")];
   mocks.statuses = [];
   mocks.locations = [van("c1", "t1"), van("c2", "t1"), van("c3", "t2"), van("c4")];
-  mocks.params = new URLSearchParams();
   mocks.push.mockReset();
   mocks.replace.mockReset();
   mocks.permsLoading = false;
   mocks.templatesLoading = false;
   mocks.locationsLoading = false;
 });
-
-const noScroll = { scroll: false };
 
 describe("TemplatesPage", () => {
   // A new search holds the area the rows are drawn in, so the pager under it
@@ -133,12 +128,14 @@ describe("TemplatesPage", () => {
     expect(mocks.statuses.at(-1)).toBe(InventoryStatus.ARCHIVED);
   });
 
-  it("opens New template from the yellow button, in the URL", async () => {
+  it("opens New template from the yellow button — as state, the address untouched", async () => {
     renderWithClient(<TemplatesPage />);
     const button = screen.getByRole("button", { name: "New template" });
     expect(button).toHaveAttribute("data-variant", "default");
     await userEvent.click(button);
-    expect(mocks.push).toHaveBeenCalledWith("/inventory/templates?template=new", noScroll);
+    expect(screen.getByTestId("template-popup")).toHaveAttribute("data-id", "new");
+    expect(mocks.push).not.toHaveBeenCalled();
+    expect(window.location.search).toBe("");
   });
 
   it("offers no New template without containers.create", () => {
@@ -150,9 +147,11 @@ describe("TemplatesPage", () => {
   it("opens a template from its row and Apply from its button", async () => {
     renderWithClient(<TemplatesPage />);
     await userEvent.click(screen.getByText("Lockout van"));
-    expect(mocks.push).toHaveBeenLastCalledWith("/inventory/templates?template=t2", noScroll);
+    expect(screen.getByTestId("template-popup")).toHaveAttribute("data-id", "t2");
     await userEvent.click(screen.getByRole("button", { name: "Apply Standard van" }));
-    expect(mocks.push).toHaveBeenLastCalledWith("/inventory/templates?apply=t1", noScroll);
+    expect(screen.getByTestId("apply-popup")).toHaveAttribute("data-id", "t1");
+    expect(screen.queryByTestId("template-popup")).toBeNull();
+    expect(mocks.push).not.toHaveBeenCalled();
   });
 
   it("says so when there are none", () => {
@@ -168,27 +167,31 @@ describe("TemplatesPage", () => {
   });
 });
 
-describe("TemplatesPage — popups from the URL", () => {
+/** Before popups were state, links carried them in the query; those still open them. */
+describe("TemplatesPage — old links with a popup in the query", () => {
+  const address = () => `${window.location.pathname}${window.location.search}`;
+  afterEach(() => window.history.replaceState(null, "", "/inventory/templates"));
+
   it("opens a new template from ?template=new", () => {
-    mocks.params = new URLSearchParams("template=new");
+    window.history.replaceState(null, "", "/inventory/templates?template=new");
     renderWithClient(<TemplatesPage />);
     expect(screen.getByTestId("template-popup")).toHaveAttribute("data-id", "new");
+    expect(address()).toBe("/inventory/templates");
   });
 
   it("opens one template from ?template=<id>", () => {
-    mocks.params = new URLSearchParams("template=t2");
+    window.history.replaceState(null, "", "/inventory/templates?template=t2");
     renderWithClient(<TemplatesPage />);
     expect(screen.getByTestId("template-popup")).toHaveAttribute("data-id", "t2");
   });
 
-  it("opens Apply for a template and a van, and keeps the van in the URL", async () => {
-    mocks.params = new URLSearchParams("apply=t1&container=c3");
+  it("opens Apply for a template and a van from ?apply=<id>&container=<van>", () => {
+    window.history.replaceState(null, "", "/inventory/templates?apply=t1&container=c3");
     renderWithClient(<TemplatesPage />);
     const popup = screen.getByTestId("apply-popup");
     expect(popup).toHaveAttribute("data-id", "t1");
     expect(popup).toHaveAttribute("data-container", "c3");
-    await userEvent.click(screen.getByText("pick van 2"));
-    expect(mocks.replace).toHaveBeenCalledWith("/inventory/templates?apply=t1&container=c2", noScroll);
+    expect(address()).toBe("/inventory/templates");
   });
 });
 

@@ -30,7 +30,7 @@ import { addLine, checkLineQuantity, type DraftLine } from "../lib";
 /**
  * A template — a van's ideal loadout — in a popup: its name, a description,
  * and the products with the quantity of each a van should carry. `null` is a
- * new one (`?template=new`); otherwise `?template=<id>`.
+ * new one.
  */
 export function TemplateDialog({
   templateId,

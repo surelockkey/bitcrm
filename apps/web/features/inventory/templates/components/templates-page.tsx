@@ -20,16 +20,31 @@ import { NoAccess } from "@/features/inventory/components/no-access";
 import { ListBody } from "@/features/inventory/components/list-body";
 import { useSkeletonRows } from "@/features/inventory/components/use-skeleton-rows";
 import { useAllLocations } from "@/features/inventory/stock/hooks";
-import { useUrlPopups } from "@/features/inventory/use-url-popups";
+import { useLinkedPopup, usePopup, type LegacyPopupQuery } from "@/features/inventory/use-popup";
 import { useContainerTemplates } from "../hooks";
 import { TEMPLATES_TABLE_KEY, TemplatesTable } from "./templates-table";
 import { TemplateDialog } from "./template-dialog";
 import { ApplyTemplateDialog } from "./apply-template-dialog";
 
 const PATH = "/inventory/templates";
-/** The URL params that open a popup — one at a time; Apply also names a van. */
-const POPUPS = ["template", "apply"] as const;
-const EXTRAS = ["container"] as const;
+/**
+ * The popup over the list — one at a time: a template (`id: null` a new one),
+ * or a template applied to a van.
+ */
+export type TemplatesPopup =
+  | { kind: "template"; id: string | null }
+  | { kind: "apply"; templateId: string; containerId: string | null };
+
+/** Old links carried the popup in the query (`?template=<id|new>`, `?apply=<id>&container=<id>`). */
+const LEGACY: LegacyPopupQuery<TemplatesPopup> = {
+  params: ["template", "apply", "container"],
+  parse: (q) => {
+    const template = q.get("template");
+    if (template) return { kind: "template", id: template === "new" ? null : template };
+    const apply = q.get("apply");
+    return apply ? { kind: "apply", templateId: apply, containerId: q.get("container") } : null;
+  },
+};
 
 /**
  * Container templates: a van's ideal loadout, made once and applied to any
@@ -78,9 +93,7 @@ function Templates() {
     return counts;
   }, [locations.data]);
 
-  const popups = useUrlPopups(PATH, POPUPS, EXTRAS);
-  const templateParam = popups.param("template");
-  const applyId = templateParam ? null : popups.param("apply");
+  const { popup, open, close } = usePopup(useLinkedPopup(null, LEGACY), PATH);
 
   return (
     <div className="flex flex-1 flex-col">
@@ -99,7 +112,7 @@ function Templates() {
           <Button
             className="h-9 gap-1.5 px-3.5"
             disabled={permsLoading}
-            onClick={() => popups.open("template", "new")}
+            onClick={() => open({ kind: "template", id: null })}
           >
             <Plus className="size-4" />
             New template
@@ -151,29 +164,28 @@ function Templates() {
                 usedByPending={locations.isLoading}
                 loading={loading}
                 skeletonRows={skeletonRows}
-                onEdit={(t) => popups.open("template", t.id)}
-                onApply={(t) => popups.open("apply", t.id)}
+                onEdit={(t) => open({ kind: "template", id: t.id })}
+                onApply={(t) => open({ kind: "apply", templateId: t.id, containerId: null })}
               />
             </>
           )}
         </ListBody>
       </div>
 
-      {/* Mounted only while their param is set, so each opening reads fresh. */}
-      {templateParam ? (
+      {/* Mounted only while open, so each opening reads fresh. */}
+      {popup?.kind === "template" ? (
         <TemplateDialog
-          templateId={templateParam === "new" ? null : templateParam}
+          templateId={popup.id}
           open
-          onOpenChange={(open) => (open ? undefined : popups.close())}
+          onOpenChange={(next) => (next ? undefined : close())}
         />
       ) : null}
-      {applyId ? (
+      {popup?.kind === "apply" ? (
         <ApplyTemplateDialog
-          templateId={applyId}
-          containerId={popups.param("container")}
+          templateId={popup.templateId}
+          containerId={popup.containerId}
           open
-          onOpenChange={(open) => (open ? undefined : popups.close())}
-          onContainerChange={(id) => popups.replace("apply", applyId, { container: id })}
+          onOpenChange={(next) => (next ? undefined : close())}
         />
       ) : null}
     </div>
