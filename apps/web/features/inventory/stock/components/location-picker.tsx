@@ -2,6 +2,7 @@
 
 import { useId } from "react";
 import { ChevronsUpDown } from "lucide-react";
+import { Popover } from "radix-ui";
 import {
   Command,
   CommandEmpty,
@@ -54,36 +55,39 @@ export function LocationPicker({
   const listId = useId();
 
   return (
-    <div className="relative">
-      <button
-        type="button"
-        role="combobox"
-        aria-labelledby={labelId}
-        aria-expanded={open}
-        aria-controls={listId}
-        aria-haspopup="listbox"
-        disabled={disabled}
-        onClick={() => onOpenChange(!open)}
-        className="flex h-10 w-full items-center justify-between gap-2 rounded-md border border-input bg-card px-2.5 text-left text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30"
-      >
-        <span className={cn("truncate", !value && "text-muted-foreground")}>
-          {value ? value.name : placeholder}
-        </span>
-        <ChevronsUpDown className="size-4 shrink-0 opacity-50" />
-      </button>
+    <Popover.Root open={open && !disabled} onOpenChange={onOpenChange}>
+      <Popover.Trigger asChild>
+        <button
+          type="button"
+          role="combobox"
+          aria-labelledby={labelId}
+          aria-expanded={open}
+          aria-controls={listId}
+          aria-haspopup="listbox"
+          disabled={disabled}
+          className="flex h-10 w-full items-center justify-between gap-2 rounded-md border border-input bg-card px-2.5 text-left text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30"
+        >
+          <span className={cn("truncate", !value && "text-muted-foreground")}>
+            {value ? value.name : placeholder}
+          </span>
+          <ChevronsUpDown className="size-4 shrink-0 opacity-50" />
+        </button>
+      </Popover.Trigger>
 
-      {open && !disabled ? (
-        <>
-          {/* Inside the dialog a click anywhere else closes the list; outside
-              it the dialog's own dismissal takes over. */}
-          <div aria-hidden className="fixed inset-0 z-10" onClick={() => onOpenChange(false)} />
-          <div
-            id={listId}
-            className="absolute inset-x-0 top-full z-20 mt-1 overflow-hidden rounded-lg border bg-popover shadow-md"
-          >
+      {/* Portalled: the popups hold the picker in a body that scrolls, and a
+          list drawn inside it was cut off by that body and the footer — one
+          van visible out of ninety. */}
+      <Popover.Portal>
+        <Popover.Content
+          id={listId}
+          align="start"
+          sideOffset={4}
+          collisionPadding={8}
+          className="z-50 w-(--radix-popover-trigger-width) overflow-hidden rounded-lg border bg-popover text-popover-foreground shadow-md"
+        >
             <Command loop>
               <CommandInput autoFocus placeholder={searchPlaceholder} className="h-9" />
-              <CommandList className="max-h-60">
+              <CommandList className="max-h-[min(18rem,var(--radix-popover-content-available-height))]">
                 {loading ? (
                   <div className="py-6 text-center text-sm text-muted-foreground">Loading locations…</div>
                 ) : empty ? (
@@ -97,10 +101,9 @@ export function LocationPicker({
                 )}
               </CommandList>
             </Command>
-          </div>
-        </>
-      ) : null}
-    </div>
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
   );
 }
 
