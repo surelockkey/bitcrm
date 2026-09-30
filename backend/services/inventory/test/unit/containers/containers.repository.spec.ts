@@ -337,6 +337,38 @@ describe('ContainersRepository.findAll', () => {
     });
   });
 
+  // limit=50 на розділі з 207 рядків: одне читання (500) і переповнює
+  // сторінку, і доходить до кінця — раніше верталися всі 88 фургонів без
+  // курсора, і "Rows per page 50" показувало "1–88 of 88".
+  it('cuts the page to the limit even when the read that overshot was the last one', async () => {
+    dynamoDb.client.send.mockResolvedValue({ Items: [row('v1'), row('v2'), row('v3')] });
+
+    const result = await repository.findAll(2);
+
+    expect(result.items.map((c) => c.id)).toEqual(['v1', 'v2']);
+    expect(decodeCursor(result.nextCursor!)).toEqual({
+      PK: 'CONTAINER#v2',
+      SK: 'METADATA',
+      GSI1PK: 'LOCATION#CONTAINER',
+      GSI1SK: 'van 1#v2',
+    });
+  });
+
+  // Список фургонів показує "скільки всього" з рядка, а не 88 запитів
+  // GET /stock/locations/container/:id з браузера.
+  it('carries the stock totals the stock writes keep on the row', async () => {
+    dynamoDb.client.send.mockResolvedValue({
+      Items: [{ ...row('v1'), totalUnits: 126, uniqueItems: 14 }, row('v2')],
+    });
+
+    const result = await repository.findAll(20);
+
+    expect(result.items[0]).toMatchObject({ totalUnits: 126, uniqueItems: 14 });
+    // A row the backfill has not reached yet simply has none.
+    expect(result.items[1].totalUnits).toBeUndefined();
+    expect(result.items[1].uniqueItems).toBeUndefined();
+  });
+
   it('resumes from the cursor it handed out', async () => {
     const key = { PK: 'CONTAINER#v2', SK: 'METADATA', GSI1PK: 'LOCATION#CONTAINER', GSI1SK: 'van 1#v2' };
     dynamoDb.client.send.mockResolvedValue({ Items: [row('v3')] });

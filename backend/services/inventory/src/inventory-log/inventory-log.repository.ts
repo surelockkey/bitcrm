@@ -2,10 +2,10 @@ import { Injectable } from '@nestjs/common';
 import { PutCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
 import {
   DynamoDbService,
-  scanPage,
   countRows,
   type CountRowsResult,
 } from '@bitcrm/shared';
+import { fillPage } from '../common/utils/fill-page';
 import { InventoryLogAction, type InventoryLogEntry } from '@bitcrm/types';
 import { INVENTORY_TABLE, GSI4_NAME } from '../common/constants/dynamo.constants';
 import {
@@ -270,7 +270,7 @@ export class InventoryLogRepository {
       };
     }
 
-    const page = await scanPage<Record<string, unknown>>(read, limit, {
+    const page = await fillPage<Record<string, unknown>>(read, limit, {
       startKey,
       keyOf,
       ...(maxReads !== undefined && { maxReads }),

@@ -10,7 +10,7 @@ import {
   DynamoDBClient,
 } from '@aws-sdk/client-dynamodb';
 import { marshall } from '@aws-sdk/util-dynamodb';
-import { DynamoDbService, scanPage, countRows, type CountRowsResult } from '@bitcrm/shared';
+import { DynamoDbService, countRows, type CountRowsResult } from '@bitcrm/shared';
 import { type Product, ProductType } from '@bitcrm/types';
 import {
   INVENTORY_TABLE,
@@ -27,6 +27,7 @@ import {
 } from './product-stock-index';
 import { decodeIndexCursor, encodeIndexCursor } from '../common/utils/index-cursor';
 import { batchGetAll } from '../common/utils/batch-get';
+import { fillPage } from '../common/utils/fill-page';
 
 export interface PaginatedResult {
   items: Product[];
@@ -341,7 +342,7 @@ export class ProductsRepository {
     }
 
     const skAttr = keyAttr === 'GSI1PK' ? 'GSI1SK' : 'GSI2SK';
-    const page = await scanPage<Record<string, unknown>>(
+    const page = await fillPage<Record<string, unknown>>(
       (input) => this.dynamoDb.client.send(new QueryCommand({ ...query, ...input })),
       limit,
       {
@@ -397,9 +398,9 @@ export class ProductsRepository {
     // and WAREHOUSE# row shares it — so a filtered Scan reads mostly rows it
     // throws away, and `Limit` counts what was read, not what survived. Asking
     // for fifty returned four products (two with a status filter), so the
-    // inventory page opened nearly empty. `scanPage` keeps reading until the
+    // inventory page opened nearly empty. `fillPage` keeps reading until the
     // page is full.
-    const page = await scanPage<Record<string, unknown>>(
+    const page = await fillPage<Record<string, unknown>>(
       (input) =>
         this.dynamoDb.client.send(
           new ScanCommand({
@@ -470,7 +471,7 @@ export class ProductsRepository {
       };
     }
 
-    const page = await scanPage<Record<string, unknown>>(
+    const page = await fillPage<Record<string, unknown>>(
       (input) =>
         this.dynamoDb.client.send(new QueryCommand({ ...query, ScanIndexForward: true, ...input })),
       limit,

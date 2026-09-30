@@ -240,6 +240,32 @@ describe('WarehousesRepository.findAll', () => {
     });
   });
 
+  // Бекенд ігнорував `limit`: limit=1 віддавав усі 3 склади.
+  it('cuts the page to the limit even when the read that overshot was the last one', async () => {
+    dynamoDb.client.send.mockResolvedValue({ Items: [row('w1'), row('w2'), row('w3')] });
+
+    const result = await repository.findAll(1);
+
+    expect(result.items.map((w) => w.id)).toEqual(['w1']);
+    expect(decodeCursor(result.nextCursor!)).toEqual({
+      PK: 'WAREHOUSE#w1',
+      SK: 'METADATA',
+      GSI1PK: 'LOCATION#WAREHOUSE',
+      GSI1SK: 'main warehouse#w1',
+    });
+  });
+
+  it('carries the stock totals the stock writes keep on the row', async () => {
+    dynamoDb.client.send.mockResolvedValue({
+      Items: [{ ...row('w1'), totalUnits: 36498, uniqueItems: 1310 }, row('w2')],
+    });
+
+    const result = await repository.findAll(20);
+
+    expect(result.items[0]).toMatchObject({ totalUnits: 36498, uniqueItems: 1310 });
+    expect(result.items[1].totalUnits).toBeUndefined();
+  });
+
   it('resumes from the cursor it handed out', async () => {
     const key = { PK: 'WAREHOUSE#w2', SK: 'METADATA', GSI1PK: 'LOCATION#WAREHOUSE', GSI1SK: 'main warehouse#w2' };
     dynamoDb.client.send.mockResolvedValue({ Items: [row('w3')] });

@@ -7,10 +7,10 @@ import {
 } from '@aws-sdk/lib-dynamodb';
 import {
   DynamoDbService,
-  scanPage,
   countRows,
   type CountRowsResult,
 } from '@bitcrm/shared';
+import { fillPage } from '../common/utils/fill-page';
 import { type Transfer, type TransferType } from '@bitcrm/types';
 import {
   INVENTORY_TABLE,
@@ -175,7 +175,7 @@ export class TransfersRepository {
     // короткою — як було на сторінці інвентарю, де з п'ятдесяти
     // просимих поверталось кілька.
     const filter = this.listFilter(filters);
-    const page = await scanPage<Record<string, unknown>>(
+    const page = await fillPage<Record<string, unknown>>(
       (input) =>
         this.dynamoDb.client.send(
           new ScanCommand({

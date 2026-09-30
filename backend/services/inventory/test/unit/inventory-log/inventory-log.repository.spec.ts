@@ -234,6 +234,17 @@ describe('InventoryLogRepository', () => {
       expect(page.items.map((i) => i.id)).toEqual(['log-1', 'log-2']);
       expect(page.lastKey).toEqual({ PK: 'INVLOG#2026-09', SK: '2026-09-10T10:00:00.000Z#log-2' });
     });
+
+    // Той самий випадок, коли переповнене читання ще й дочитало місяць:
+    // без обрізання сторінка журналу виходила довшою за `limit`.
+    it('cuts the page even when the read that overshot ended the month', async () => {
+      dynamoDb.client.send.mockResolvedValueOnce({ Items: [row('log-1'), row('log-2'), row('log-3')] });
+
+      const page = await repository.queryMonth('2026-09', window, { userId: 'user-1' }, 2);
+
+      expect(page.items.map((i) => i.id)).toEqual(['log-1', 'log-2']);
+      expect(page.lastKey).toEqual({ PK: 'INVLOG#2026-09', SK: '2026-09-10T10:00:00.000Z#log-2' });
+    });
   });
 
   describe('queryProduct', () => {

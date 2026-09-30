@@ -190,6 +190,23 @@ describe('ProductsRepository — stock-managed index', () => {
       expect(dynamoDb.client.send.mock.calls[1][0].input.ExclusiveStartKey).toEqual(cursor);
     });
 
+    // Пошук "mortise" знаходить 110: коли останнє читання, що дійшло до
+    // кінця партиції, переповнювало сторінку, вона приходила довшою за
+    // `limit` — 70 рядків під "Rows per page 50".
+    it('never answers more than the limit, even when the last read ends the partition', async () => {
+      dynamoDb.client.send.mockResolvedValueOnce({ Items: [row(1), row(2), row(3)] });
+
+      const page = await repository.findStockManaged(2, undefined, { search: 'item' });
+
+      expect(page.items.map((p: { id: string }) => p.id)).toEqual(['p-1', 'p-2']);
+      expect(JSON.parse(Buffer.from(page.nextCursor!, 'base64url').toString())).toEqual({
+        PK: 'PRODUCT#p-2',
+        SK: 'METADATA',
+        GSI3PK: 'PRODUCTS#STOCK',
+        GSI3SK: 'item 2#p-2',
+      });
+    });
+
     it('refuses a cursor from the Scan-era list with a 400', async () => {
       await expect(
         repository.findStockManaged(50, encode({ PK: 'PRODUCT#p-1', SK: 'METADATA' })),
