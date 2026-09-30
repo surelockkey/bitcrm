@@ -64,7 +64,9 @@ async function visibleLocations(
  * The "Stock" popup on an inventory item: every warehouse and van the caller
  * may see, with how many of the item each holds. Inactive locations are
  * listed too — Workiz shows its "N/A" vans — and a location the item never
- * reached shows zero. `onHand` is the sum over the rows shown.
+ * reached shows zero. Workiz placeholders (locations deleted in Workiz) are
+ * listed only while they still hold the item. `onHand` is the sum over the
+ * rows shown.
  */
 @Injectable()
 export class ProductStockService {
@@ -84,10 +86,23 @@ export class ProductStockService {
     const visible = await visibleLocations(viewer, (userId) =>
       this.assignments.containerIdForUser(userId),
     );
-    // Warehouses first, then containers; each list arrives in name order.
+    // Warehouses first, then containers; each list arrives in name order, the
+    // Workiz placeholders of a kind after its real locations.
+    const [warehouses, warehousePlaceholders] = visible.warehouses
+      ? await Promise.all([
+          this.locationsRepository.listAll(LocationType.WAREHOUSE),
+          this.locationsRepository.listPlaceholders(LocationType.WAREHOUSE),
+        ])
+      : [[], []];
+    const [containers, containerPlaceholders] = await Promise.all([
+      this.locationsRepository.listAll(LocationType.CONTAINER),
+      this.locationsRepository.listPlaceholders(LocationType.CONTAINER),
+    ]);
     const locations = [
-      ...(visible.warehouses ? await this.locationsRepository.listAll(LocationType.WAREHOUSE) : []),
-      ...(await this.locationsRepository.listAll(LocationType.CONTAINER)).filter(visible.containers),
+      ...warehouses,
+      ...warehousePlaceholders,
+      ...containers.filter(visible.containers),
+      ...containerPlaceholders.filter(visible.containers),
     ];
     const pkOf = (location: LocationSummary) => `${PK_PREFIX[location.type]}${location.id}`;
 
@@ -96,17 +111,23 @@ export class ProductStockService {
       : new Map<string, number>();
 
     let onHand = 0;
-    const rows = locations.map((location) => {
+    const rows = locations.flatMap((location) => {
       const quantity = quantities.get(pkOf(location)) ?? 0;
+      // A placeholder is listed only while it still holds the item, so no
+      // units become invisible — and 119 empty ones stay out of the popup.
+      if (location.placeholder && quantity <= 0) return [];
       onHand += quantity;
-      return {
-        locationType: location.type,
-        locationId: location.id,
-        name: location.name,
-        description: location.description,
-        status: location.status,
-        quantity,
-      };
+      return [
+        {
+          locationType: location.type,
+          locationId: location.id,
+          name: location.name,
+          description: location.description,
+          status: location.status,
+          quantity,
+          ...(location.placeholder && { placeholder: true }),
+        },
+      ];
     });
 
     return { productId, onHand, locations: rows };

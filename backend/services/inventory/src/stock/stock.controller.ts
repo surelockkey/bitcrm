@@ -19,7 +19,9 @@ export class StockController {
       'every warehouse (with `warehouses.view`), then every container the containers data scope ' +
       'allows (`assigned_only`: the caller\'s own van; `department`: their department\'s vans), ' +
       'each group in name order and inactive ones included, with the quantity held there (0 when ' +
-      'the item never reached it). `onHand` sums the rows shown. 404 when the product does not exist.',
+      'the item never reached it). A Workiz placeholder location is listed (flagged `placeholder: ' +
+      'true`, after the real ones of its kind) only while it still holds the item. `onHand` sums ' +
+      'the rows shown. 404 when the product does not exist.',
   })
   async getProductStock(
     @Param('id') id: string,

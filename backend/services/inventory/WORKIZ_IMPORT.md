@@ -384,5 +384,13 @@ repository's own `PK`/`SK`/`GSI3` always win over anything in the payload.
   keeps the first and is printed as a conflict), with `limited` taken from the
   container's `userLimited`. `findByTechnicianId` still takes `Limit: 1`, so
   give a user at most one container as `technicianId`.
+- **Placeholders.** A location deleted in Workiz is imported as
+  `placeholder: true`, `status: "archived"`, named "Workiz location #<n>
+  (видалено у Workiz)" (119 of the 207 containers on dev), so transfer history
+  still resolves. Keep its index keys: the lists and counts (`GET /containers`,
+  `GET /warehouses`, the Stock popup's location list) filter
+  `attribute_not_exists(placeholder) OR placeholder = false`, `findById` /
+  `findLocation` still read it, and `GET /stock/products/:id` shows one only
+  while it still holds that product.
 - Stock rows are `PK = WAREHOUSE#<id> | CONTAINER#<id>`, `SK = STOCK#<productId>`
   — write only the 13 298 non-zero rows, not all 275 722.

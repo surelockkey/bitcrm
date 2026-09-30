@@ -21,4 +21,6 @@ export interface LocationSummary {
   /** What a `department` scope keys on. Containers only. */
   department?: string;
   status: InventoryStatus;
+  /** A Workiz placeholder (a location deleted in Workiz): left out of every list. */
+  placeholder?: boolean;
 }

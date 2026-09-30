@@ -255,6 +255,60 @@ describe('ProductStockService', () => {
     });
   });
 
+  /**
+   * Заглушки Workiz (119 з 207 контейнерів) не в попапі — 91 локація замість
+   * 210, — але одиниці на заглушці не мають ставати невидимими: така показується,
+   * поки тримає цей товар.
+   */
+  describe('Workiz placeholders', () => {
+    const store = createMockLocationSummary({ type: 'warehouse', id: 'wh-1', name: '(1) STORE' });
+    const van = createMockLocationSummary({ type: 'container', id: 'c-1', name: '(2) VAN', technicianId: 'tech-1' });
+    const holding = createMockLocationSummary({
+      type: 'container', id: 'c-ph1', name: 'Workiz location #6142', placeholder: true, status: InventoryStatus.ARCHIVED,
+    });
+    const empty = createMockLocationSummary({
+      type: 'container', id: 'c-ph2', name: 'Workiz location #7000', placeholder: true, status: InventoryStatus.ARCHIVED,
+    });
+
+    beforeEach(() => {
+      locationsRepository.listAll.mockImplementation(async (type: LocationType) =>
+        type === LocationType.WAREHOUSE ? [store] : [van],
+      );
+      locationsRepository.listPlaceholders.mockImplementation(async (type: LocationType) =>
+        type === LocationType.WAREHOUSE ? [] : [holding, empty],
+      );
+      dynamoDb.client.send.mockResolvedValue({
+        Responses: { [INVENTORY_TABLE]: [stockRow('CONTAINER#c-ph1', 3), stockRow('WAREHOUSE#wh-1', 5)] },
+      });
+    });
+
+    it('shows a placeholder only while it still holds the item, flagged, after the real locations', async () => {
+      const result = await service.forProduct('prod-1');
+
+      expect(result.locations.map((l) => [l.locationId, l.quantity, l.placeholder])).toEqual([
+        ['wh-1', 5, undefined],
+        ['c-1', 0, undefined],
+        ['c-ph1', 3, true],
+      ]);
+      expect(result.onHand).toBe(8);
+      const keys = dynamoDb.client.send.mock.calls[0][0].input.RequestItems[INVENTORY_TABLE].Keys;
+      expect(keys).toContainEqual({ PK: 'CONTAINER#c-ph1', SK: 'STOCK#prod-1' });
+      expect(keys).toContainEqual({ PK: 'CONTAINER#c-ph2', SK: 'STOCK#prod-1' });
+    });
+
+    it('keeps a technician’s scope over the placeholders too', async () => {
+      assignments.containerIdForUser.mockResolvedValue('c-1');
+      const permissions = createMockResolvedPermissions({
+        permissions: { products: { view: true }, warehouses: { view: false }, containers: { view: true } },
+        dataScope: { containers: DataScope.ASSIGNED_ONLY },
+      });
+
+      const result = await service.forProduct('prod-1', { user: createMockJwtUser({ id: 'tech-1' }), permissions });
+
+      expect(result.locations.map((l) => l.locationId)).toEqual(['c-1']);
+    });
+  });
+
   // BatchGet takes 100 keys a call and may hand some back unprocessed under load.
   it('chunks the batch at 100 keys and asks again for the keys DynamoDB left unprocessed', async () => {
     const containers = Array.from({ length: 120 }, (_, i) =>

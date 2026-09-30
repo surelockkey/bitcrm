@@ -9,6 +9,17 @@ export const LOCATION_INDEX_PK = {
 } as const;
 
 /**
+ * The Workiz import writes a row for every location Workiz ever had — 119 of
+ * the 207 containers are placeholders for locations deleted in Workiz
+ * (`placeholder: true`, archived, "Workiz location #6142 (видалено у Workiz)").
+ * Every list and count leaves them out with this filter, rather than by
+ * dropping their index keys, so they still resolve by id (transfer history,
+ * a placeholder that still holds units).
+ */
+export const NOT_PLACEHOLDER_FILTER = '(attribute_not_exists(placeholder) OR placeholder = :false)';
+export const NOT_PLACEHOLDER_VALUES = { ':false': false } as const;
+
+/**
  * What the `search` filter runs `contains` against: the trimmed, lowercased
  * name and nothing else. The sort key below carries the id too, and a UUID
  * has 32 hex digits — a search for "3" or "de" would match nearly every row

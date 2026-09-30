@@ -10,6 +10,11 @@ export interface ProductLocationStock {
   status: InventoryStatus;
   /** 0 when the item was never moved into this location. */
   quantity: number;
+  /**
+   * A Workiz placeholder location: listed only while it still holds this item
+   * (quantity > 0), so no units become invisible.
+   */
+  placeholder?: boolean;
 }
 
 /**

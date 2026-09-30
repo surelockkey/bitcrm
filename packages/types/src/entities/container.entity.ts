@@ -18,6 +18,11 @@ export interface Container {
   /** The container template describing this van's ideal loadout, if one is chosen. */
   templateId?: string;
   status: InventoryStatus;
+  /**
+   * A Workiz placeholder for a location deleted in Workiz (archived, imported
+   * so history resolves). Never listed; still readable by id.
+   */
+  placeholder?: boolean;
   createdAt: string;
   updatedAt: string;
 }
