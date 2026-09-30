@@ -5,6 +5,7 @@ interface InfiniteQueryLike<P> {
   hasNextPage: boolean;
   isFetchingNextPage: boolean;
   isLoading: boolean;
+  isPlaceholderData?: boolean;
   fetchNextPage: () => Promise<unknown>;
 }
 
@@ -30,6 +31,7 @@ export function pagedSource<T, P>(
     hasNextPage: query.hasNextPage,
     isFetchingNextPage: query.isFetchingNextPage,
     isLoading: query.isLoading,
+    isPlaceholderData: !!query.isPlaceholderData,
     fetchNextPage: query.fetchNextPage,
   };
 }

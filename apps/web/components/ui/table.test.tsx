@@ -92,6 +92,28 @@ function sources(roots: string[]): string[] {
   return out;
 }
 
+/**
+ * A table inside a frame that already scrolls sideways (the inventory lists)
+ * leaves the scrolling to the frame: two nested scrollers meant the inner one
+ * scrolled and would clip anything drawn in a cell that isn't portalled.
+ */
+describe("a table in a frame of its own", () => {
+  it("keeps its own sideways scroller by default", () => {
+    const { container } = render(<Table><tbody /></Table>);
+    expect(container.querySelector("[data-slot=table-container]")).not.toBeNull();
+  });
+
+  it("drops it when the frame around it scrolls", () => {
+    const { container } = render(
+      <div data-testid="frame" className="overflow-x-auto">
+        <Table contained={false}><tbody /></Table>
+      </div>,
+    );
+    expect(container.querySelector("[data-slot=table-container]")).toBeNull();
+    expect(container.querySelector("table")?.parentElement?.className).toBe("overflow-x-auto");
+  });
+});
+
 describe("no table is wrapped in rounded corners", () => {
   it("finds no rounded scroll wrapper in any feature", () => {
     const root = join(__dirname, "..", "..");

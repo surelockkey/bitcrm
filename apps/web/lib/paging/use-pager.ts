@@ -16,6 +16,12 @@ export interface PagedSource<T> {
   hasNextPage: boolean;
   isFetchingNextPage: boolean;
   isLoading: boolean;
+  /**
+   * The rows are the previous filter's, held on screen by `keepPreviousData`
+   * while the new set loads. Shown dimmed, never walked: their cursors belong
+   * to a set that is no longer asked for.
+   */
+  isPlaceholderData?: boolean;
   fetchNextPage: () => Promise<unknown>;
 }
 
@@ -53,7 +59,10 @@ export interface Pager<T> {
   canPrev: boolean;
   canNext: boolean;
   isLoading: boolean;
+  /** Також `true`, поки на екрані заглушка: кнопки панелі тоді неактивні. */
   isFetching: boolean;
+  /** На екрані рядки попереднього набору — таблиця їх притемнює, а не ховає. */
+  isStale: boolean;
   /** Сторінки, які можна натиснути: завантажені плюс та, що за курсором. */
   window: (number | "…")[];
   next: () => Promise<void>;
@@ -80,9 +89,11 @@ export function usePager<T>(src: PagedSource<T>, options: PagerOptions): Pager<T
   const current = Math.min(page, Math.max(loaded, 1));
   const items = src.pages[current - 1] ?? [];
 
+  const stale = !!src.isPlaceholderData;
+
   const goto = useCallback(
     async (target: number) => {
-      if (target < 1) return;
+      if (target < 1 || stale) return;
       if (target <= loaded) {
         setPage(target);
         return;
@@ -96,7 +107,7 @@ export function usePager<T>(src: PagedSource<T>, options: PagerOptions): Pager<T
       await src.fetchNextPage();
       setPage(target);
     },
-    [loaded, src],
+    [loaded, src, stale],
   );
 
   const next = useCallback(() => goto(current + 1), [current, goto]);
@@ -128,7 +139,8 @@ export function usePager<T>(src: PagedSource<T>, options: PagerOptions): Pager<T
     canPrev: current > 1,
     canNext: current < loaded || src.hasNextPage,
     isLoading: src.isLoading,
-    isFetching: src.isFetchingNextPage,
+    isFetching: src.isFetchingNextPage || stale,
+    isStale: stale,
     window: pageWindow({ loaded, hasNext: src.hasNextPage, page: current }),
     next,
     prev,
