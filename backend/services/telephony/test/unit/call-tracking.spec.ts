@@ -44,9 +44,12 @@ describe('Call Tracking — which calls are answered, missed or neither', () => 
     expect(answerClassOf(call({ dialCallStatus: 'completed' }))).toBe('answered');
     // Nobody picked up: the dial status is empty.
     expect(answerClassOf(call({ dialCallStatus: undefined, status: 'no-answer' }))).toBe('missed');
-    // A dial that ended no-answer / busy is in neither column — Workiz's 9,893 ≠ 8,554 + 1,335.
-    expect(answerClassOf(call({ dialCallStatus: 'no-answer', status: 'no-answer' }))).toBe('neither');
+    expect(answerClassOf(call({ dialCallStatus: 'no-answer', status: 'no-answer' }))).toBe('missed');
+    // Busy, and the flow's voicemail box taking an unanswered call, are in
+    // neither column — Workiz's 9,893 ≠ 8,554 + 1,335.
     expect(answerClassOf(call({ dialCallStatus: 'busy', status: 'busy' }))).toBe('neither');
+    expect(answerClassOf(call({ dialCallStatus: undefined, voicemail: 2, status: 'no-answer' }))).toBe('neither');
+    expect(answerClassOf(call({ dialCallStatus: undefined, voicemail: 1, status: 'no-answer' }))).toBe('missed');
   });
 
   it('reads our own calls by whether somebody picked up', () => {
@@ -121,15 +124,32 @@ describe('Call Tracking — the tally', () => {
     expect(row.jobsConversionRate).toBe(60);
   });
 
-  it('splits answered, missed and neither, and averages answered talk time', () => {
+  it('splits answered, missed and neither', () => {
     const snap = tally([
       call({ dialCallStatus: 'completed', durationSeconds: 100 }),
       call({ dialCallStatus: 'completed', durationSeconds: 51 }),
       call({ dialCallStatus: undefined, durationSeconds: 0 }),
-      call({ dialCallStatus: 'no-answer', durationSeconds: 0 }),
+      call({ dialCallStatus: 'busy', durationSeconds: 0 }),
     ]).snapshot({ totals: new Map() });
     const [row] = snap.flows;
-    expect(row).toMatchObject({ calls: 4, completed: 2, missed: 1, avgDurationSeconds: 76 });
+    expect(row).toMatchObject({ calls: 4, completed: 2, missed: 1, avgDurationSeconds: 75 });
+  });
+
+  it("averages Workiz's way: all the row's talk time over its answered calls, rounded down", () => {
+    // "UP & DOWN GARAGE DOORS TX", 1–27 Sep 2026: four voicemails and one answered
+    // call of 6 s — Workiz shows 00:07:22 (442 s) for it.
+    const snap = tally([
+      call({ dialCallStatus: undefined, voicemail: 2, durationSeconds: 215 }),
+      call({ dialCallStatus: undefined, voicemail: 2, durationSeconds: 208 }),
+      call({ dialCallStatus: undefined, voicemail: 2, durationSeconds: 6 }),
+      call({ dialCallStatus: undefined, voicemail: 2, durationSeconds: 7 }),
+      call({ dialCallStatus: 'completed', durationSeconds: 6 }),
+    ]).snapshot({ totals: new Map() });
+    // …and Workiz calls none of those voicemails missed.
+    expect(snap.flows[0]).toMatchObject({ calls: 5, completed: 1, missed: 0, avgDurationSeconds: 442 });
+    // Nobody answered: 0, whatever the voicemails ran to.
+    const none = tally([call({ dialCallStatus: undefined, durationSeconds: 90 })]).snapshot({ totals: new Map() });
+    expect(none.flows[0].avgDurationSeconds).toBe(0);
   });
 
   it('orders rows busiest first and names flows by the catalog', () => {

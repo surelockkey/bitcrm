@@ -8,7 +8,9 @@
  * live report (docs/reports/call-tracking.md, «Перевірено наживо 2026-09-29»):
  *
  * - answered = Workiz `dial_call_status` completed (our own calls: somebody picked up);
- *   missed = nobody picked up; a dial that ended no-answer / busy is neither;
+ *   missed = nobody picked up (empty dial status, or no-answer); busy, and an
+ *   empty dial the flow's voicemail box took (`voicemail` 2), are neither;
+ * - avg duration = Σ talk time of all the row's calls ÷ its answered calls;
  * - callers = distinct caller numbers WITHIN a row, so the card (a sum of rows)
  *   is bigger in the number view than in the flow view;
  * - jobs = distinct jobs of the row's calls, whatever their status (canceled too);
@@ -42,7 +44,7 @@ export interface CallTrackingRow {
   callers: number;
   completed: number;
   missed: number;
-  /** Mean talk time of the row's answered calls, whole seconds. */
+  /** Σ talk time of all the row's calls ÷ its answered calls, rounded down (Workiz's formula). */
   avgDurationSeconds: number;
   jobs: number;
   /** Always 0 here — leads are not a record of their own in this CRM. */

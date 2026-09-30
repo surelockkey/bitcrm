@@ -22,14 +22,22 @@ import {
  *
  *  - only INBOUND calls count, the hidden internal leg never;
  *  - answered = Workiz `dial_call_status` completed; missed = the dial status
- *    is empty (nobody picked up). A dial that ended no-answer / busy is a call
- *    but neither answered nor missed. Our own calls carry no dial status:
+ *    is empty (nobody picked up) or no-answer — except an empty dial that went
+ *    to the flow's voicemail box (`voicemail` 2), which Workiz counts in
+ *    neither column, like a busy dial. Checked per flow on 1–27 Sep 2026:
+ *    107 of 110 flows and 240 of 243 numbers to the call (the rest are calls
+ *    whose state moved between the dump and the live capture). Our own calls
+ *    carry no dial status:
  *    answered = somebody picked up (`answeredAt`, or a completed status);
  *  - callers = distinct caller numbers within the row;
  *  - jobs = distinct jobs of the row's calls, WHATEVER their status — 2,038 of
  *    Workiz's 3,073 jobs in the check period were Canceled. An imported call
  *    whose job never became a deal (deleted, or a lead) still counts, by its
  *    Workiz job id; it just brings no revenue;
+ *  - avg duration = Σ talk time of ALL the row's calls ÷ its answered calls,
+ *    rounded down — Workiz's own formula, which a voicemail-heavy row pushes
+ *    up (4 voicemails + 1 answer of 6 s = "7 min 22 sec"); it reproduces every
+ *    one of the 110 flows of the check period to the second;
  *  - conversion = jobs / callers × 100, two decimals;
  *  - the cards are sums of the rows, except Avg Duration and Conversion —
  *    plain means of the rows — and Top Flow, the first row (N/A by number).
@@ -58,6 +66,8 @@ export interface TrackedCall {
   externalId?: string;
   /** Imported calls: Workiz's raw answer state — the one its report counts by. */
   dialCallStatus?: string;
+  /** Imported calls: Workiz's voicemail flag (2 = the flow's voicemail box took it). */
+  voicemail?: number;
   internalLegOf?: string;
 }
 
@@ -78,6 +88,7 @@ export const TRACKED_CALL_ATTRIBUTES: (keyof TrackedCall)[] = [
   'sourceId',
   'externalId',
   'dialCallStatus',
+  'voicemail',
 ];
 
 export type AnswerClass = 'answered' | 'missed' | 'neither';
@@ -93,7 +104,9 @@ export function answerClassOf(call: TrackedCall): AnswerClass {
   if (isImportedCall(call)) {
     const dial = (call.dialCallStatus ?? '').trim().toLowerCase();
     if (dial === 'completed') return 'answered';
-    return dial ? 'neither' : 'missed';
+    if (dial === 'no-answer') return 'missed';
+    if (!dial) return Number(call.voicemail) === 2 ? 'neither' : 'missed';
+    return 'neither';
   }
   if (call.answeredAt || call.status === 'completed') return 'answered';
   // Still ringing: not missed yet.
@@ -159,7 +172,6 @@ class RowTally {
   completed = 0;
   missed = 0;
   durationSum = 0;
-  durationN = 0;
   readonly callers = new Set<string>();
   readonly jobs = new Set<string>();
   readonly sources = new Votes();
@@ -169,14 +181,10 @@ class RowTally {
   add(call: TrackedCall): void {
     this.calls += 1;
     const cls = answerClassOf(call);
-    if (cls === 'answered') {
-      this.completed += 1;
-      if (typeof call.durationSeconds === 'number' && Number.isFinite(call.durationSeconds)) {
-        this.durationSum += call.durationSeconds;
-        this.durationN += 1;
-      }
-    } else if (cls === 'missed') {
-      this.missed += 1;
+    if (cls === 'answered') this.completed += 1;
+    else if (cls === 'missed') this.missed += 1;
+    if (typeof call.durationSeconds === 'number' && Number.isFinite(call.durationSeconds)) {
+      this.durationSum += call.durationSeconds;
     }
     this.callers.add(call.from ?? '');
     const job = jobKeyOf(call);
@@ -204,7 +212,7 @@ class RowTally {
       callers,
       completed: this.completed,
       missed: this.missed,
-      avgDurationSeconds: this.durationN ? Math.round(this.durationSum / this.durationN) : 0,
+      avgDurationSeconds: this.completed ? Math.floor(this.durationSum / this.completed) : 0,
       jobs: this.jobs.size,
       leads: 0,
       jobsConversionRate: callers ? round2((this.jobs.size / callers) * 100) : 0,
