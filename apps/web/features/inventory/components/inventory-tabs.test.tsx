@@ -97,4 +97,46 @@ describe("InventoryTabs", () => {
       screen.queryByRole("link", { name: "Transfers" }),
     ).not.toBeInTheDocument();
   });
+
+  // Before the permissions answered the row was empty; when they did, the
+  // tabs appeared and pushed every Inventory screen down by 30px.
+  it("holds every tab's place while permissions load, without linking anywhere yet", () => {
+    permissionsMock.mockReturnValue({ can: () => false, isLoading: true });
+    render(<InventoryTabs />);
+
+    const nav = screen.getByRole("navigation", { name: "Inventory sections" });
+    expect(nav).toHaveAttribute("aria-busy", "true");
+    expect(screen.queryAllByRole("link")).toHaveLength(0);
+    expect(nav.querySelectorAll("[data-tab-placeholder]")).toHaveLength(6);
+  });
+
+  it("a placeholder is a tab's own shape — same padding and underline", () => {
+    permissionsMock.mockReturnValue({ can: () => true });
+    const { unmount } = render(<InventoryTabs />);
+    const tab = screen.getByRole("link", { name: "Items" }).className;
+    unmount();
+
+    permissionsMock.mockReturnValue({ can: () => false, isLoading: true });
+    render(<InventoryTabs />);
+    const placeholder = document.querySelector("[data-tab-placeholder]") as HTMLElement;
+    for (const cls of ["border-b-2", "pb-2", "text-sm", "whitespace-nowrap"]) {
+      expect(tab.split(" ")).toContain(cls);
+      expect(placeholder.className.split(" ")).toContain(cls);
+    }
+  });
+
+  // On a 390px phone the six tabs made the page 510px wide: every popup was
+  // laid out that wide and cut off on the right.
+  it("scrolls its own row sideways on a narrow screen instead of widening the page", () => {
+    permissionsMock.mockReturnValue({ can: () => true });
+    render(<InventoryTabs />);
+
+    const nav = screen.getByRole("navigation", { name: "Inventory sections" });
+    expect(nav.className).toMatch(/overflow-x-auto/);
+    expect(nav.className).toMatch(/max-w-full/);
+    for (const link of screen.getAllByRole("link")) {
+      expect(link.className).toMatch(/whitespace-nowrap/);
+      expect(link.className).toMatch(/flex-none/);
+    }
+  });
 });
