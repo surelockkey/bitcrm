@@ -66,6 +66,7 @@ export const REPORT_PROJECTION: readonly string[] = [
   'externalCompanyId',
   'converted',
   'leadCreatedAt',
+  'isStub',
 ];
 
 /** A job as the report holds it between the read and the page — compact, dates on the account clock. */
@@ -107,6 +108,11 @@ export interface ReportDeal {
   externalCompanyId?: string;
   origin: JobsReportOrigin;
   leadCreated?: string;
+  /**
+   * A Workiz "stub" job (`is_stub`): the service job an estimate hangs on,
+   * with no status and no serial. Workiz never lists one in its report.
+   */
+  stub?: boolean;
 }
 
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v !== '' ? v : undefined);
@@ -158,8 +164,12 @@ export function toReportDeal(item: Record<string, unknown>): ReportDeal {
     externalCompanyId: str(item.externalCompanyId),
     origin: item.converted === true ? 'lead' : 'new',
     leadCreated: str(item.leadCreatedAt),
+    ...(item.isStub === true && { stub: true }),
   };
 }
+
+/** A job the report lists at all — everything but Workiz's estimate stubs. */
+export const isReportable = (d: ReportDeal): boolean => !d.stub;
 
 /** The account-calendar day a compact job is reported on. */
 export function dayOfReport(d: ReportDeal, by: JobsReportBy): string | undefined {
