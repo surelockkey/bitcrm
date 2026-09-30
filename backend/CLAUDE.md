@@ -264,6 +264,14 @@ PAYMENT#<id>       / METADATA        a payment; GSI1 PAYMENTS, GSI2 CONTACT#<id>
 INVOICE#<dealId>   / PAYMENT#<createdAt>#<id>   the SAME payment, adjacent to its invoice — one Query reads a
                                      job's ledger. Both copies are written in one TransactWrite
 PAYMENT#<id>       / REFUND#<createdAt>#<id>    refunds under their payment (Stripe allows several partials)
+PAYMENT#<id>       / REPORT          the Payments report's pointer: which PAYLINE rows the payment has and what each
+                                     added to its bucket (the delta base); `rev`-guarded
+PAYLINE#<YYYY-MM>  / <at>#<lineId>   one line of the Payments report — a payment on its PAYMENT date (tip included),
+                                     a refund as a negative line on its own date, a reversal as "Dispute"; month and
+                                     day on the business clock (America/New_York). No GSI keys
+PAYAGG#<YYYY>      / D#<day>#<type>#<tech|->#<area|->  and  M#<YYYY-MM>#…   ADDed counters (n, amountCents,
+                                     tipsCents, feesCents): the report's totals for any range, "All time" included,
+                                     without reading the payments; PAYREPORT / INDEX holds its first and last month
 STRIPE#<objectId>  / POINTER         → {paymentId}; one per session / intent / charge id, so a webhook finds
                                      its payment in ONE read
 WEBHOOK#<eventId>  / METADATA        Stripe event dedupe; `expiresAt` TTL, 30 days
@@ -569,6 +577,27 @@ tests, and — if it emits events — the types in `@bitcrm/types` plus a row in
   partial payment leaves it `due`/`overdue` and a reversal pushes a `paid`
   invoice back on its own. Deal keeps only a denormalised `paymentStatus` for
   the job board, pushed over `PUT /deals/internal/:id/payment-status`.
+- **A payment belongs to the JOB, not to the invoice (Workiz).** A job can have
+  payments and no invoice at all (most imported Workiz jobs do): the ledger rows
+  still sit under `INVOICE#<dealId>` with `invoiceId === dealId`, just without
+  an `INVOICE#<dealId>/METADATA` row. `GET/POST /deals/:dealId/payments` (the job's
+  Payments tab) work either way and measure the balance against the job's own
+  total; refund / delete / receipt fall back to the job too. The
+  `/invoices/:id/payments` routes still 404 without an invoice, and an invoice
+  created later starts from the existing ledger (`ledgerAmountPaid(deal.id)`).
+- **The Payments report is a projection, and a deploy is not done until it is rebuilt.**
+  `GET /payments/report[/totals|/export]` (Workiz Reports → Payments) read only
+  the `PAYLINE#` / `PAYAGG#` rows, never the ledger's `PAYMENTS` list index
+  (keyed by `createdAt`, and summed with a 20k-row cap). `PaymentReportProjector`
+  keeps them current from `syncLedger` (every ledger path) and the `refund.*`
+  webhook: it re-reads the payment strongly consistent and writes the line +
+  bucket DIFFERENCE in one `rev`-guarded transaction — never throws, never a
+  delta it was told about. Rows written before the projection existed (every
+  Workiz import) are invisible until `npm run rebuild:payment-report -w
+  billing-service` has run (reconciles: overwrites with absolute values,
+  deletes what the ledger no longer explains; `--dry-run` compares, `--jsonl
+  <billing dir>` computes the report from an import package with no AWS). Run
+  it after the deploy that ships the report and after every Workiz import.
 - **Stripe webhook handlers ASSERT a state, they never apply a delta.** Stripe
   gives no ordering guarantee and re-delivers freely, so every status move goes
   through `canTransition` (`payments/payment-rules.ts`) and `reversed` is a

@@ -30,7 +30,8 @@ import { useDenied } from "@/features/auth/use-permissions";
 export const REPORT_TILES: { name: string; icon: LucideIcon; href?: string }[] = [
   { name: "Jobs", icon: Briefcase, href: "/reports/jobs" },
   { name: "Job Statistics", icon: BarChart3, href: "/reports/job-statistics" },
-  { name: "Payments", icon: CreditCard },
+  // Workiz's `/root/payments` — our sidebar's Payments page is the report.
+  { name: "Payments", icon: CreditCard, href: "/payments" },
   { name: "Activity", icon: Activity },
   // Workiz opens these two on the pages of the same name.
   { name: "Estimates", icon: Paperclip, href: "/estimates" },
