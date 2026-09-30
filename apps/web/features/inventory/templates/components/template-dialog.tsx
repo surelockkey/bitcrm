@@ -3,7 +3,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Popover } from "radix-ui";
-import { Info, Loader2, PackageSearch, Search, X } from "lucide-react";
+import { CopyPlus, Info, Loader2, PackageSearch, Search, X } from "lucide-react";
 import { InventoryStatus } from "@bitcrm/types";
 import type { ContainerTemplate } from "@bitcrm/types";
 import {
@@ -25,7 +25,8 @@ import { usePermissions } from "@/features/auth/use-permissions";
 import { listProducts } from "@/features/inventory/products/api";
 import type { UpdateTemplateBody } from "../api";
 import { useContainerTemplate, useCreateTemplate, useUpdateTemplate } from "../hooks";
-import { addLine, checkLineQuantity, type DraftLine } from "../lib";
+import { MAX_TEMPLATE_LINES, addLine, checkLineQuantity, copyLines, type DraftLine } from "../lib";
+import { CopyFromLocationDialog } from "./copy-from-location-dialog";
 
 /**
  * A template — a van's ideal loadout — in a popup: its name, a description,
@@ -151,8 +152,14 @@ function TemplateForm({
     input?.select();
   }, [focus]);
 
+  // "Copy from location" — open while the copy popup is.
+  const [copying, setCopying] = useState(false);
+
   const checks = lines.map((l) => checkLineQuantity(l.quantity));
-  const valid = name.trim().length > 0 && lines.length > 0 && checks.every((c) => c.quantity !== null);
+  // The server takes MAX_TEMPLATE_LINES lines at most; a copied store may hold more.
+  const tooMany = lines.length > MAX_TEMPLATE_LINES;
+  const valid =
+    name.trim().length > 0 && lines.length > 0 && !tooMany && checks.every((c) => c.quantity !== null);
   const items = lines.map((l, i) => ({ productId: l.productId, quantity: checks[i].quantity ?? 0 }));
 
   // Nothing to press or type into until the permissions answer.
@@ -225,9 +232,30 @@ function TemplateForm({
         </div>
 
         <div className="space-y-2 rounded-lg bg-muted/60 p-3">
-          <div className="text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
-            Products · target quantity
+          <div className="flex min-h-7 items-center justify-between gap-2">
+            <div className="text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
+              Products · target quantity
+            </div>
+            {!readOnly ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7 gap-1.5 bg-background"
+                disabled={pending}
+                onClick={() => setCopying(true)}
+              >
+                <CopyPlus className="size-3.5" />
+                Copy from location
+              </Button>
+            ) : null}
           </div>
+          {tooMany ? (
+            <p role="alert" className="text-xs text-destructive">
+              A template holds {MAX_TEMPLATE_LINES} products at most — remove {lines.length - MAX_TEMPLATE_LINES} to
+              save it.
+            </p>
+          ) : null}
           {!readOnly ? (
             <ProductSearch
               disabled={pending}
@@ -295,6 +323,15 @@ function TemplateForm({
           )}
         </div>
       </div>
+
+      {copying ? (
+        <CopyFromLocationDialog
+          open
+          onOpenChange={setCopying}
+          current={lines}
+          onCopy={(incoming, mode) => setLines((all) => copyLines(all, incoming, mode))}
+        />
+      ) : null}
 
       <Footer>
         {readOnly ? (
