@@ -149,18 +149,19 @@ export function exportParams(state: JobsReportState, columns: readonly JobsRepor
   return p.toString();
 }
 
-/** Tick or untick one value of a filter group; an emptied group is dropped. */
-export function toggleFilter(
-  filters: JobsReportFilters,
-  key: keyof JobsReportFilters,
-  value: string,
-): JobsReportFilters {
-  const current = (filters[key] ?? []) as string[];
+/**
+ * Tick or untick one value of a filter group; an emptied group is dropped.
+ * Any report's filter groups (the Sales report's too), the Jobs report's by default.
+ */
+export function toggleFilter(filters: JobsReportFilters, key: keyof JobsReportFilters, value: string): JobsReportFilters;
+export function toggleFilter<F extends object>(filters: F, key: keyof F, value: string): F;
+export function toggleFilter(filters: object, key: PropertyKey, value: string): object {
+  const current = ((filters as Record<string, unknown>)[key as string] ?? []) as string[];
   const next = current.includes(value) ? current.filter((v) => v !== value) : [...current, value];
   const out = { ...filters } as Record<string, string[] | undefined>;
-  if (next.length) out[key] = next;
-  else delete out[key];
-  return out as JobsReportFilters;
+  if (next.length) out[key as string] = next;
+  else delete out[key as string];
+  return out;
 }
 
 /** Add a value to a group (a click on a cell): never removes, never duplicates. */

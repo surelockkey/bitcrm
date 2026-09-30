@@ -322,8 +322,8 @@ export function JobsReportPage({ today: todayProp }: { today?: string } = {}) {
   );
 }
 
-/** Previous / a window of page numbers / Next — the server knows the total, so every page is reachable. */
-function Pager({ page, pages, onPage }: { page: number; pages: number; onPage: (p: number) => void }) {
+/** Previous / a window of page numbers / Next — the server knows the total, so every page is reachable. Also the Sales report's. */
+export function Pager({ page, pages, onPage }: { page: number; pages: number; onPage: (p: number) => void }) {
   if (pages <= 1) return null;
   const first = Math.max(1, Math.min(page - 2, pages - 4));
   const numbers = Array.from({ length: Math.min(5, pages) }, (_, i) => first + i);
