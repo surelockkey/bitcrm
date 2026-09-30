@@ -40,18 +40,29 @@ const inv = (over: Partial<Invoice>): Invoice => ({
 const listCalls: URLSearchParams[] = [];
 const user = () => userEvent.setup({ pointerEventsCheck: 0 });
 
+const summaryCalls: URLSearchParams[] = [];
+const exportCalls: URLSearchParams[] = [];
+
 beforeEach(() => {
   mocks.canView = true;
   mocks.push.mockClear();
   listCalls.length = 0;
+  summaryCalls.length = 0;
+  exportCalls.length = 0;
   server.use(
-    http.get("*/billing/invoices/summary", () =>
-      HttpResponse.json({
+    http.get("*/billing/invoices/report/summary", ({ request }) => {
+      summaryCalls.push(new URL(request.url).searchParams);
+      return HttpResponse.json({
         success: true,
-        data: { dueAmount: 1234.5, dueCount: 3, overdueAmount: 99, overdueCount: 1, unsentCount: 4, paidAmount: 0, paidCount: 0, needsInvoiceCount: 2 },
-      }),
-    ),
-    http.get("*/billing/invoices", ({ request }) => {
+        data: { due: { count: 3, amount: 1234.5 }, overdue: { count: 1, amount: 99 }, unsent: { count: 4 }, needInvoices: { count: 2 }, indexReady: true },
+      });
+    }),
+    http.get("*/billing/invoices/report/count", () => HttpResponse.json({ success: true, data: { total: 2, atLeast: false } })),
+    http.get("*/billing/invoices/report/export", ({ request }) => {
+      exportCalls.push(new URL(request.url).searchParams);
+      return HttpResponse.json({ success: true, data: { filename: "invoices-all-time.csv", csv: "Invoice NO.", count: 0, truncated: false } });
+    }),
+    http.get("*/billing/invoices/report", ({ request }) => {
       const params = new URL(request.url).searchParams;
       listCalls.push(params);
       if (params.get("cursor") === "next") {
@@ -72,12 +83,17 @@ beforeEach(() => {
 });
 
 describe("InvoicesPage", () => {
-  it("shows summary widgets and the invoice table, a page at a time", async () => {
+  it("shows Workiz's cards and the invoice table, a page at a time", async () => {
     renderWithClient(<InvoicesPage />);
-    expect(await screen.findByText("$1,234.50")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /\$1,234\.50 Due from 3 invoices/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /4 invoices Unsent/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /2 jobs Need invoices/ })).toBeInTheDocument();
     const row = await screen.findByRole("row", { name: /#1042/ });
     expect(within(row).getByText("Jane Smith")).toBeInTheDocument();
-    expect(within(row).getByText("Unsent")).toBeInTheDocument();
+    expect(within(row).getByText("Not sent")).toBeInTheDocument();
+    // All time by default: no created window on either request.
+    expect(summaryCalls[0].has("from")).toBe(false);
+    expect(listCalls[0].has("from")).toBe(false);
 
     await user().click(screen.getByRole("button", { name: "Next page" }));
 
@@ -86,19 +102,32 @@ describe("InvoicesPage", () => {
     expect(screen.queryByRole("row", { name: /#1042/ })).not.toBeInTheDocument();
   });
 
-  it("filters by status when a widget is clicked and opens the job's invoice tab", async () => {
+  it("filters by status when a card is clicked and opens the job's invoice tab", async () => {
     renderWithClient(<InvoicesPage />);
     const u = user();
-    await u.click(await screen.findByRole("button", { name: /overdue.*\$99\.00/i }));
-    await waitFor(() => expect(listCalls.some((p) => p.get("status") === "overdue")).toBe(true));
+    await u.click(await screen.findByRole("button", { name: /\$99\.00 Overdue from 1 invoices/ }));
+    await waitFor(() => expect(listCalls.some((p) => p.get("statuses") === "overdue")).toBe(true));
     await u.click(await screen.findByRole("row", { name: /#1042/ }));
     expect(mocks.push).toHaveBeenCalledWith("/deals/d1?tab=invoice");
   });
 
-  it("sends unsent=true from the toggle", async () => {
+  it("filters Unsent from its card, and windows the cards on the chosen dates", async () => {
     renderWithClient(<InvoicesPage />);
-    await user().click(await screen.findByRole("switch", { name: /unsent only/i }));
-    await waitFor(() => expect(listCalls.some((p) => p.get("unsent") === "true")).toBe(true));
+    const u = user();
+    await u.click(await screen.findByRole("button", { name: /4 invoices Unsent/ }));
+    await waitFor(() => expect(listCalls.some((p) => p.get("sent") === "unsent")).toBe(true));
+    await u.selectOptions(screen.getByLabelText("Date range"), "this_month");
+    await waitFor(() => expect(summaryCalls.some((p) => /-01$/.test(p.get("from") ?? ""))).toBe(true));
+    expect(listCalls.some((p) => /-01$/.test(p.get("from") ?? ""))).toBe(true);
+  });
+
+  it("exports the filtered list as Workiz's CSV", async () => {
+    renderWithClient(<InvoicesPage />);
+    const u = user();
+    await u.click(await screen.findByRole("button", { name: /\$99\.00 Overdue/ }));
+    await u.click(screen.getByRole("button", { name: /export/i }));
+    await waitFor(() => expect(exportCalls).toHaveLength(1));
+    expect(exportCalls[0].get("statuses")).toBe("overdue");
   });
 
   it("bulk-creates invoices one job at a time", async () => {
@@ -153,7 +182,7 @@ describe("InvoicesPage — resizable columns", () => {
   it("puts a drag handle on every invoice column", async () => {
     renderWithClient(<InvoicesPage />);
     await screen.findByRole("row", { name: /#1042/ });
-    for (const id of ["number", "client", "created", "due", "total", "balance", "status", "sent", "job"]) {
+    for (const id of ["number", "name", "client", "created", "subtotal", "tax", "discount", "total", "balance", "status", "job", "jobName"]) {
       expect(screen.getByTestId(`resize-${id}`)).toBeInTheDocument();
     }
   });
@@ -172,7 +201,7 @@ describe("InvoicesPage — resizable columns", () => {
 describe("InvoicesPage — partial payments", () => {
   it("marks a part-paid invoice while its status stays Due", async () => {
     server.use(
-      http.get("*/billing/invoices", () =>
+      http.get("*/billing/invoices/report", () =>
         HttpResponse.json({
           success: true,
           data: {

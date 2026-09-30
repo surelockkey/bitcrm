@@ -161,3 +161,14 @@ export function workizDate(value: string | undefined, tz = "America/New_York"): 
   const md = d.toLocaleDateString("en-US", { timeZone: zone, month: "short", day: "2-digit", year: "numeric" });
   return `${wd} ${md}`;
 }
+
+/** "Fri Sep 11, 2026 03:39 am" — Workiz's Created cell, on the business clock. */
+export function workizDateTime(iso: string | undefined, tz = "America/New_York"): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const time = d
+    .toLocaleTimeString("en-US", { timeZone: tz, hour: "2-digit", minute: "2-digit", hour12: true })
+    .toLowerCase();
+  return `${workizDate(iso, tz)} ${time}`;
+}
