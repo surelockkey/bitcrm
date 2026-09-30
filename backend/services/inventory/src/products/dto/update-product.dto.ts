@@ -2,6 +2,7 @@ import { ApiPropertyOptional, OmitType, PartialType } from '@nestjs/swagger';
 import { IsBoolean, IsEnum, IsNumber, IsString, Min, ValidateIf } from 'class-validator';
 import { ProductType } from '@bitcrm/types';
 import { CreateProductDto } from './create-product.dto';
+import { IsCustomAttributes } from './custom-attributes.validator';
 
 /**
  * Validate a field only when the body carries it — and `null` counts as
@@ -26,10 +27,18 @@ const REQUIRED_FIELDS = [
 /**
  * Partial: only the fields a request carries are validated and written.
  * An optional field (`brandId`, `reorderLevel`, `supplier`, `barcode`,
- * `description`, `taxable`, `manageStock`) sent as `null` is cleared — the
+ * `description`, `taxable`, `manageStock`, `availableInBooking`,
+ * `bookingPrice`, `priceBookEnabled`) sent as `null` is cleared — the
  * repository REMOVEs the attribute. A required field refuses `null`.
+ *
+ * `customAttributes` is a patch, not a replacement: each name sent is set (or
+ * cleared by `null` / `""`), every other value the item has is kept. The map
+ * itself refuses `null`, so one request can never wipe all of them.
  */
-export class UpdateProductDto extends PartialType(OmitType(CreateProductDto, REQUIRED_FIELDS)) {
+/** Redeclared below with `whenSent`: `null` must fail them, not skip them. */
+const REDECLARED_FIELDS = [...REQUIRED_FIELDS, 'customAttributes'] as const;
+
+export class UpdateProductDto extends PartialType(OmitType(CreateProductDto, REDECLARED_FIELDS)) {
   @ApiPropertyOptional()
   @whenSent
   @IsString()
@@ -79,4 +88,16 @@ export class UpdateProductDto extends PartialType(OmitType(CreateProductDto, REQ
   @IsNumber()
   @Min(0)
   minimumStockLevel?: number;
+
+  @ApiPropertyOptional({
+    type: 'object',
+    additionalProperties: { type: 'string', nullable: true },
+    example: { 'In Store Location': 'Aisle 4', Link_UHS: null },
+    description:
+      'Custom field values to set, keyed by the field NAME; `null` or "" clears that one. ' +
+      'Values not named are kept. Only names in the catalog are accepted (400 otherwise).',
+  })
+  @whenSent
+  @IsCustomAttributes()
+  customAttributes?: Record<string, string | null>;
 }

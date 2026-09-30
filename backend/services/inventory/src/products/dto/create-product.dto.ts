@@ -9,6 +9,7 @@ import {
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { ProductType } from '@bitcrm/types';
+import { IsCustomAttributes } from './custom-attributes.validator';
 
 export class CreateProductDto {
   @ApiProperty()
@@ -96,4 +97,32 @@ export class CreateProductDto {
   @IsInt()
   @Min(0)
   reorderLevel?: number;
+
+  @ApiPropertyOptional({
+    type: 'object',
+    additionalProperties: { type: 'string' },
+    example: { 'In Store Location': 'Aisle 4' },
+    description:
+      'Custom field values keyed by the field NAME (GET /item-attributes). Only names in the ' +
+      'catalog are accepted (400 otherwise); an empty value is not stored.',
+  })
+  @IsOptional()
+  @IsCustomAttributes()
+  customAttributes?: Record<string, string | null>;
+
+  @ApiPropertyOptional({ description: 'Workiz "Add to booking items". Absent ⇒ false.' })
+  @IsOptional()
+  @IsBoolean()
+  availableInBooking?: boolean;
+
+  @ApiPropertyOptional({ description: 'Workiz "Booking Price".' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  bookingPrice?: number;
+
+  @ApiPropertyOptional({ description: 'Workiz "Show item on price book". Absent ⇒ true.' })
+  @IsOptional()
+  @IsBoolean()
+  priceBookEnabled?: boolean;
 }

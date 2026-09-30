@@ -10,6 +10,7 @@ import { ContainersModule } from 'src/containers/containers.module';
 import { TransfersModule } from 'src/transfers/transfers.module';
 import { ItemCategoriesModule } from 'src/item-categories/item-categories.module';
 import { BrandsModule } from 'src/brands/brands.module';
+import { ItemAttributesModule } from 'src/item-attributes/item-attributes.module';
 import { ContainersService } from 'src/containers/containers.service';
 import { TransfersService } from 'src/transfers/transfers.service';
 import { ProductStockService } from 'src/stock/product-stock.service';
@@ -18,6 +19,8 @@ import { UserContainersService } from 'src/user-containers/user-containers.servi
 import { ContainerTemplatesService } from 'src/container-templates/container-templates.service';
 import { ItemCategoriesService } from 'src/item-categories/item-categories.service';
 import { BrandsService } from 'src/brands/brands.service';
+import { ItemAttributesService } from 'src/item-attributes/item-attributes.service';
+import { ProductsService } from 'src/products/products.service';
 
 /**
  * The service specs build each class with mocks, so none of them would notice
@@ -42,6 +45,7 @@ describe('inventory module graph', () => {
         TransfersModule,
         ItemCategoriesModule,
         BrandsModule,
+        ItemAttributesModule,
       ],
     })
       .overrideProvider(DynamoDbService)
@@ -64,6 +68,9 @@ describe('inventory module graph', () => {
       // A category rename moves its products: the mover must resolve inside ItemCategoriesModule.
       ItemCategoriesService,
       BrandsService,
+      // Custom fields: their own module, which ProductsModule imports to check an edit's names.
+      ItemAttributesService,
+      ProductsService,
     ]) {
       expect(moduleRef.get(provider, { strict: false })).toBeInstanceOf(provider);
     }

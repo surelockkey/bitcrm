@@ -30,6 +30,7 @@ import {
 import { publishInventoryEvent } from '../common/events/publish-inventory-event';
 import { ItemCategoriesService } from '../item-categories/item-categories.service';
 import { InventoryLogService } from '../inventory-log/inventory-log.service';
+import { ItemAttributesRepository } from '../item-attributes/item-attributes.repository';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { ListProductsQueryDto } from './dto/list-products-query.dto';
@@ -108,6 +109,41 @@ export function changedProductFields(existing: Product, attrs: Partial<Product>)
   });
 }
 
+/** A custom-field patch as the API takes it: name → value, `null` clears. */
+export type CustomAttributesPatch = Record<string, string | null>;
+
+/**
+ * An item's custom field values after a patch: each name sent is set, or
+ * cleared by `null` / a blank value; every other value the item holds is kept
+ * (an imported `workiz_attr_<id>` no definition names any more included).
+ * `null` when nothing is left — the attribute is then removed, never stored
+ * as an empty map.
+ */
+export function mergeCustomAttributes(
+  current: Record<string, unknown> | null | undefined,
+  patch: CustomAttributesPatch,
+): Record<string, string> | null {
+  const merged: Record<string, string> = {};
+  for (const [name, value] of Object.entries(current ?? {})) {
+    if (value !== null && value !== undefined) merged[name] = String(value);
+  }
+  for (const [name, value] of Object.entries(patch)) {
+    if (value === null || value.trim() === '') delete merged[name];
+    else merged[name] = value;
+  }
+  return Object.keys(merged).length > 0 ? merged : null;
+}
+
+/** Same values whatever the key order; an absent map and an empty one are the same. */
+export function sameCustomAttributes(
+  a: Record<string, unknown> | null | undefined,
+  b: Record<string, unknown> | null | undefined,
+): boolean {
+  const entries = (m: Record<string, unknown> | null | undefined) =>
+    JSON.stringify(Object.entries(m ?? {}).sort(([x], [y]) => (x < y ? -1 : x > y ? 1 : 0)));
+  return entries(a) === entries(b);
+}
+
 @Injectable()
 export class ProductsService {
   private readonly logger = new Logger(ProductsService.name);
@@ -120,7 +156,25 @@ export class ProductsService {
     @Optional() private readonly itemCategories?: ItemCategoriesService,
     @Optional() private readonly redis?: RedisService,
     @Optional() private readonly inventoryLog?: InventoryLogService,
+    @Optional() private readonly itemAttributes?: ItemAttributesRepository,
   ) {}
+
+  /**
+   * Every name a custom-field patch carries must be a field of the catalog
+   * (`GET /item-attributes`) — an item edit cannot invent keys. A 400 names
+   * the ones that are not.
+   */
+  private async assertKnownCustomAttributes(patch: CustomAttributesPatch): Promise<void> {
+    const names = Object.keys(patch);
+    if (names.length === 0 || !this.itemAttributes) return;
+    const known = new Set((await this.itemAttributes.listAll()).map((a) => a.name));
+    const unknown = names.filter((name) => !known.has(name));
+    if (unknown.length > 0) {
+      throw new BadRequestException(
+        `Unknown custom field${unknown.length > 1 ? 's' : ''}: ${unknown.map((n) => `"${n}"`).join(', ')}`,
+      );
+    }
+  }
 
   /** One audit-log line for an item edit; the log itself never throws. */
   private async recordItem(
@@ -175,11 +229,15 @@ export class ProductsService {
   }
 
   async create(dto: CreateProductDto, actor?: JwtUser): Promise<Product> {
+    const { customAttributes: patch, ...fields } = ProductsService.stripReadOnly(dto);
+    if (patch) await this.assertKnownCustomAttributes(patch);
+    const customAttributes = patch ? mergeCustomAttributes(undefined, patch) : null;
     const now = new Date().toISOString();
     const product: Product = {
       id: randomUUID(),
       number: await this.repository.nextNumber(),
-      ...ProductsService.stripReadOnly(dto),
+      ...fields,
+      ...(customAttributes ? { customAttributes } : {}),
       category: await this.prepareCategory(dto.category),
       taxable: dto.taxable ?? true,
       onHand: 0,
@@ -392,7 +450,18 @@ export class ProductsService {
     dto: UpdateProductDto,
   ): Promise<{ product: Product; changedFields: string[] }> {
     const existing = await this.findById(id); // Ensure exists
-    const attrs: Partial<Product> = { ...ProductsService.stripReadOnly(dto) };
+    const { customAttributes: patch, ...fields } = ProductsService.stripReadOnly(dto);
+    const attrs: Partial<Product> = { ...fields };
+    if (patch !== undefined) {
+      // A patch, merged over what the item holds: the values it does not name
+      // are kept. Written only when something actually changes; nothing left
+      // is `null`, which removes the attribute.
+      await this.assertKnownCustomAttributes(patch);
+      const merged = mergeCustomAttributes(existing.customAttributes, patch);
+      if (!sameCustomAttributes(existing.customAttributes, merged)) {
+        attrs.customAttributes = merged as Product['customAttributes'];
+      }
+    }
     if (typeof dto.category === 'string') {
       attrs.category = await this.prepareCategory(dto.category);
     }

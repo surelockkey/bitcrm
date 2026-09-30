@@ -48,6 +48,18 @@ export interface Product {
   /** Reorder point from the Workiz price book. */
   reorderLevel?: number;
   /**
+   * Custom field values, keyed by the field's NAME (see `ItemAttribute`).
+   * Only non-empty values are kept; a key no definition names any more (an
+   * imported `workiz_attr_<id>`) is carried through untouched.
+   */
+  customAttributes?: Record<string, string>;
+  /** Workiz "Add to booking items" (`in_booking`). Absent ⇒ false. */
+  availableInBooking?: boolean;
+  /** Workiz "Booking Price", used while `availableInBooking` is on. */
+  bookingPrice?: number;
+  /** Workiz "Show item on price book" (`price_book_enabled`). Absent ⇒ true. */
+  priceBookEnabled?: boolean;
+  /**
    * Units held across every warehouse and container. Maintained by the stock
    * writes; read-only through the API and never taken from a client.
    */
@@ -59,10 +71,11 @@ export interface Product {
 
 /**
  * Attributes the importer adds that `Product` does not declare (`externalId`,
- * `categoryId`, `customAttributes`, `jobTypeIds`…). The inventory repository
+ * `categoryId`, `jobTypeIds`…). The inventory repository
  * carries them through reads, so an edit from the UI — which writes only the
  * fields it was given — cannot erase them. Read them off a product with a
- * cast; the typed fields always win. `taxable`, `manageStock`, `brandId` and
- * `reorderLevel` used to live here and are typed on `Product` now.
+ * cast; the typed fields always win. `taxable`, `manageStock`, `brandId`,
+ * `reorderLevel`, `customAttributes`, `availableInBooking`, `bookingPrice`
+ * and `priceBookEnabled` used to live here and are typed on `Product` now.
  */
 export type ProductWithExtras = Product & Record<string, unknown>;

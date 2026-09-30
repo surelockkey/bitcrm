@@ -123,9 +123,13 @@ export class ProductsController {
     description:
       '**Guard:** `products.edit` permission required. Partial: only the fields sent are ' +
       'validated and written. An optional field (`brandId`, `reorderLevel`, `supplier`, ' +
-      '`barcode`, `description`, `taxable`, `manageStock`) sent as `null` is cleared; a ' +
+      '`barcode`, `description`, `taxable`, `manageStock`, `availableInBooking`, ' +
+      '`bookingPrice`, `priceBookEnabled`) sent as `null` is cleared; a ' +
       'required one (`name`, `category`, `type`, the prices, …) refuses `null` with a 400. A ' +
-      'field left out is kept, so a caller who never sees `costCompany` never clears it.' + MONEY_NOTE,
+      'field left out is kept, so a caller who never sees `costCompany` never clears it. ' +
+      '`customAttributes` is a patch keyed by custom field name (`GET /item-attributes`): ' +
+      'each name sent is set, `null` or "" clears it, the item\'s other values are kept; a ' +
+      'name not in the catalog is a 400.' + MONEY_NOTE,
   })
   async update(
     @Param('id') id: string,
