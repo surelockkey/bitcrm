@@ -28,7 +28,8 @@
     "backfill:status-schedule-index": "ts-node src/scripts/backfill-status-schedule-index.ts",
     "backfill:end-index": "ts-node src/scripts/backfill-end-index.ts",
     "backfill:deal-number-links": "ts-node src/scripts/backfill-deal-number-links.ts",
-    "verify:jobs-report": "ts-node src/scripts/verify-jobs-report.ts"
+    "verify:jobs-report": "ts-node src/scripts/verify-jobs-report.ts",
+    "verify:items-report": "ts-node src/scripts/verify-items-report.ts"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.700.0",
