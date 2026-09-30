@@ -1,10 +1,11 @@
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
-import { LocationType, ReturnReason } from '@bitcrm/types';
+import { LocationType, ReturnReason, TransferType } from '@bitcrm/types';
 import { ReceiveStockDto } from 'src/transfers/dto/receive-stock.dto';
 import { ReturnStockDto } from 'src/transfers/dto/return-stock.dto';
 import { CreateTransferDto } from 'src/transfers/dto/create-transfer.dto';
 import { ReceiveWarehouseStockDto } from 'src/warehouses/dto/receive-stock.dto';
+import { ListTransfersQueryDto } from 'src/transfers/dto/list-transfers-query.dto';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const errorsFor = async (cls: any, payload: unknown) =>
@@ -95,5 +96,17 @@ describe('movement quantities are whole numbers', () => {
   it('on a warehouse receive', async () => {
     expect(await errorsFor(ReceiveWarehouseStockDto, { items: fractional })).toEqual(['items']);
     expect(await errorsFor(ReceiveWarehouseStockDto, { items })).toEqual([]);
+  });
+});
+
+/** Тип фільтрує на сервері — список і лічильник. */
+describe('ListTransfersQueryDto', () => {
+  it('takes a known transfer type', async () => {
+    expect(await errorsFor(ListTransfersQueryDto, {})).toEqual([]);
+    expect(await errorsFor(ListTransfersQueryDto, { type: TransferType.RETURN })).toEqual([]);
+  });
+
+  it('rejects an unknown type', async () => {
+    expect(await errorsFor(ListTransfersQueryDto, { type: 'teleport' })).toEqual(['type']);
   });
 });

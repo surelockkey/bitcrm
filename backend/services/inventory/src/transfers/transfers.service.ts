@@ -444,19 +444,20 @@ export class TransfersService {
   }
 
   async list(query: ListTransfersQueryDto) {
-    return this.repository.findAll(query.limit || 20, query.cursor);
+    return this.repository.findAll(query.limit || 20, query.cursor, { type: query.type });
   }
 
   /**
-   * How many transfers the list holds, behind a short cache — the number the
-   * panel turns into "Page 2 of 7".
+   * How many transfers the list holds under the same `type` filter, behind a
+   * short cache keyed on it — the number the panel turns into "Page 2 of 7".
    */
-  async count(): Promise<ListCount> {
-    const take = () => this.repository.countAll();
+  async count(query: Pick<ListTransfersQueryDto, 'type'> = {}): Promise<ListCount> {
+    const filters = query.type ? { type: query.type } : {};
+    const take = () => this.repository.countAll(filters);
     if (!this.redis) return take();
     return cachedCount(
       this.redis.client,
-      countCacheKey('transfers', {}),
+      countCacheKey('transfers', filters),
       COUNT_TTL_SECONDS,
       take,
     );

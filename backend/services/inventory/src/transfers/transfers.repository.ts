@@ -11,7 +11,7 @@ import {
   countRows,
   type CountRowsResult,
 } from '@bitcrm/shared';
-import { type Transfer } from '@bitcrm/types';
+import { type Transfer, type TransferType } from '@bitcrm/types';
 import {
   INVENTORY_TABLE,
   GSI4_NAME,
@@ -20,6 +20,11 @@ import {
 export interface PaginatedResult {
   items: Transfer[];
   nextCursor?: string;
+}
+
+/** The filters the list and its count share. */
+export interface TransferListFilters {
+  type?: TransferType;
 }
 
 /**
@@ -139,18 +144,43 @@ export class TransfersRepository {
     };
   }
 
-  async findAll(limit: number, cursor?: string): Promise<PaginatedResult> {
+  /**
+   * The Scan filter that selects transfer rows, shared by the list and its
+   * count so the two can never answer about different populations. `type`
+   * is filtered here, not in the browser, so a page of one type still fills.
+   */
+  private listFilter(filters?: TransferListFilters) {
+    return {
+      FilterExpression: [
+        'begins_with(PK, :pk) AND SK = :sk',
+        ...(filters?.type ? ['#type = :type'] : []),
+      ].join(' AND '),
+      ExpressionAttributeValues: {
+        ':pk': 'TRANSFER#',
+        ':sk': 'METADATA',
+        ...(filters?.type && { ':type': filters.type }),
+      },
+      // `type` is a DynamoDB reserved word.
+      ...(filters?.type && { ExpressionAttributeNames: { '#type': 'type' } }),
+    };
+  }
+
+  async findAll(
+    limit: number,
+    cursor?: string,
+    filters?: TransferListFilters,
+  ): Promise<PaginatedResult> {
     // Спільна таблиця інвентарю: Scan читає й чужі рядки, а `Limit`
     // рахує прочитане, не знайдене. Без дочитування сторінка приходить
     // короткою — як було на сторінці інвентарю, де з п'ятдесяти
     // просимих поверталось кілька.
+    const filter = this.listFilter(filters);
     const page = await scanPage<Record<string, unknown>>(
       (input) =>
         this.dynamoDb.client.send(
           new ScanCommand({
-              TableName: INVENTORY_TABLE,
-              FilterExpression: 'begins_with(PK, :pk) AND SK = :sk',
-              ExpressionAttributeValues: { ':pk': 'TRANSFER#', ':sk': 'METADATA' },
+            TableName: INVENTORY_TABLE,
+            ...filter,
             ...input,
           }),
         ),
@@ -171,13 +201,13 @@ export class TransfersRepository {
    * and bounded: the inventory table is shared, so most of what this reads is
    * not a transfer.
    */
-  async countAll(): Promise<CountRowsResult> {
+  async countAll(filters?: TransferListFilters): Promise<CountRowsResult> {
+    const filter = this.listFilter(filters);
     return countRows((input) =>
       this.dynamoDb.client.send(
         new ScanCommand({
           TableName: INVENTORY_TABLE,
-          FilterExpression: 'begins_with(PK, :pk) AND SK = :sk',
-          ExpressionAttributeValues: { ':pk': 'TRANSFER#', ':sk': 'METADATA' },
+          ...filter,
           Select: 'COUNT',
           ...input,
         }),

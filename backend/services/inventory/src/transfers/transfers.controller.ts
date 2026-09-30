@@ -72,7 +72,12 @@ export class TransfersController {
 
   @Get()
   @RequirePermission('transfers', 'view')
-  @ApiOperation({ summary: 'List all transfers', description: '**Guard:** `transfers.view` permission required.' })
+  @ApiOperation({
+    summary: 'List all transfers',
+    description:
+      '**Guard:** `transfers.view` permission required. `type` (receive | transfer | deduct | ' +
+      'restore | return) filters on the server, so a page of one type still fills.',
+  })
   async list(@Query() query: ListTransfersQueryDto) {
     const { items, nextCursor } = await this.transfersService.list(query);
     return {
@@ -88,12 +93,13 @@ export class TransfersController {
   @ApiOperation({
     summary: 'How many transfers the list holds',
     description:
-      '**Guard:** `transfers.view` permission required. Answers `{ total, atLeast }` — the row ' +
+      '**Guard:** `transfers.view` permission required. Takes the list\'s `type` filter ' +
+      '(`cursor` and `limit` are ignored) and answers `{ total, atLeast }` — the row ' +
       'count behind "Page 2 of 7". `atLeast` means the walk stopped on a ceiling and the real ' +
-      'number is higher, which the panel renders as `7+`. Cached for thirty seconds.',
+      'number is higher, which the panel renders as `7+`. Cached for thirty seconds per type.',
   })
-  async count() {
-    const data = await this.transfersService.count();
+  async count(@Query() query: ListTransfersQueryDto) {
+    const data = await this.transfersService.count({ type: query.type });
     return { success: true, data };
   }
 

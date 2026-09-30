@@ -871,7 +871,7 @@ describe('TransfersService', () => {
       const result = await service.list({} as any);
 
       expect(result).toEqual(paginated);
-      expect(repository.findAll).toHaveBeenCalledWith(20, undefined);
+      expect(repository.findAll).toHaveBeenCalledWith(20, undefined, { type: undefined });
     });
 
     it('should use provided limit and cursor', async () => {
@@ -879,7 +879,15 @@ describe('TransfersService', () => {
 
       await service.list({ limit: 50, cursor: 'abc' } as any);
 
-      expect(repository.findAll).toHaveBeenCalledWith(50, 'abc');
+      expect(repository.findAll).toHaveBeenCalledWith(50, 'abc', { type: undefined });
+    });
+
+    it('passes the type filter to the repository', async () => {
+      repository.findAll.mockResolvedValue({ items: [], nextCursor: undefined });
+
+      await service.list({ limit: 20, type: TransferType.RETURN } as any);
+
+      expect(repository.findAll).toHaveBeenCalledWith(20, undefined, { type: TransferType.RETURN });
     });
   });
 
@@ -903,6 +911,19 @@ describe('TransfersService', () => {
       await service.count();
 
       expect(repository.countAll).toHaveBeenCalledTimes(1);
+    });
+
+    it('counts under the type filter, cached per type', async () => {
+      repository.countAll.mockResolvedValue({ total: 3, atLeast: false });
+
+      await service.count({ type: TransferType.RECEIVE } as any);
+      await service.count({ type: TransferType.RETURN } as any);
+      await service.count({ type: TransferType.RECEIVE } as any);
+
+      expect(repository.countAll.mock.calls).toEqual([
+        [{ type: TransferType.RECEIVE }],
+        [{ type: TransferType.RETURN }],
+      ]);
     });
   });
 });

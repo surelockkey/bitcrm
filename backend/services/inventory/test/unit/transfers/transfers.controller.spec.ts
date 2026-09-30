@@ -184,10 +184,11 @@ describe('TransfersController', () => {
     it('answers the list total in the envelope', async () => {
       service.count.mockResolvedValue({ total: 18, atLeast: false });
 
-      expect(await controller.count()).toEqual({
+      expect(await controller.count({ type: TransferType.RECEIVE } as any)).toEqual({
         success: true,
         data: { total: 18, atLeast: false },
       });
+      expect(service.count).toHaveBeenCalledWith({ type: TransferType.RECEIVE });
     });
   });
 
