@@ -8,6 +8,7 @@ import {
   InvoicePaymentsController,
   PaymentSettingsController,
   PaymentsController,
+  PaymentsInternalController,
 } from './payments.controller';
 import { PaymentsService } from './payments.service';
 import { PortalPaymentsService } from './portal-payments.service';
@@ -27,6 +28,7 @@ import { StripeWebhookController } from './stripe/stripe-webhook.controller';
   controllers: [
     InvoicePaymentsController,
     DealPaymentsController,
+    PaymentsInternalController,
     PaymentsController,
     PaymentSettingsController,
     PublicPaymentsController,
