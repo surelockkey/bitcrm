@@ -19,6 +19,16 @@ describe("deal tabs", () => {
     ]);
   });
 
+  it("shows the Payments tab (Workiz) next to Items only with payments.view", () => {
+    expect(parseDealTab("payments")).toBe("payments");
+    expect(visibleDealTabs({ estimates: true, invoices: true, messages: true, payments: true })).toEqual([
+      "details", "items", "payments", "estimates", "invoice", "attachments", "messages",
+    ]);
+    expect(visibleDealTabs({ estimates: false, invoices: false, messages: false, payments: false })).not.toContain(
+      "payments",
+    );
+  });
+
   it("writes tab + estimate into the query string, dropping defaults", () => {
     expect(dealTabHref("/deals/d1?x=1", "details", null)).toBe("/deals/d1?x=1");
     expect(dealTabHref("/deals/d1?tab=items", "details", null)).toBe("/deals/d1");
