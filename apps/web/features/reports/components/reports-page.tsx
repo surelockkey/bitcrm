@@ -31,7 +31,7 @@ export const REPORT_TILES: { name: string; icon: LucideIcon; href?: string }[] =
   { name: "Jobs", icon: Briefcase, href: "/reports/jobs" },
   { name: "Job Statistics", icon: BarChart3, href: "/reports/job-statistics" },
   { name: "Payments", icon: CreditCard },
-  { name: "Activity", icon: Activity },
+  { name: "Activity", icon: Activity, href: "/reports/activity" },
   // Workiz opens these two on the pages of the same name.
   { name: "Estimates", icon: Paperclip, href: "/estimates" },
   { name: "Invoices", icon: Receipt, href: "/invoices" },
@@ -39,7 +39,7 @@ export const REPORT_TILES: { name: string; icon: LucideIcon; href?: string }[] =
   { name: "Items and services", icon: Barcode },
   { name: "Website requests", icon: Globe },
   { name: "Tax", icon: Percent },
-  { name: "Call Tracking", icon: Phone },
+  { name: "Call Tracking", icon: Phone, href: "/reports/call-tracking" },
   { name: "Inventory Usage", icon: Package },
   { name: "Franchise Report", icon: Building2 },
   { name: "Commissions (Legacy)", icon: Calculator },
