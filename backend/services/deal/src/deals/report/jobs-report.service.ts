@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { hasPermission } from '@bitcrm/shared';
 import {
   JOBS_REPORT_BY,
@@ -247,6 +247,14 @@ export class JobsReportService {
         this.windows.delete(key);
         if (err instanceof ReportWindowTooLargeError) {
           throw new BadRequestException(`${err.message} — choose a shorter period`);
+        }
+        // An environment deployed before its EndIndex was built (terraform apply) answers this.
+        const e = err as { name?: string; message?: string };
+        if (e.name === 'ValidationException' && /index/i.test(e.message ?? '')) {
+          this.logger.error(`Jobs report: ${e.message}`);
+          throw new ServiceUnavailableException(
+            `"By: ${by === 'end' ? 'Job end date' : by}" is not available yet on this environment — its index is still being built`,
+          );
         }
         throw err;
       });

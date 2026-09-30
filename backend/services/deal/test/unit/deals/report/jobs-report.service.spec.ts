@@ -153,6 +153,13 @@ describe('JobsReportService', () => {
     await expect(service.page(q(), caller())).resolves.toMatchObject({ rows: [] });
   });
 
+  it('says so plainly when the EndIndex is not built yet on this environment', async () => {
+    repository.readReportWindow.mockRejectedValue(
+      Object.assign(new Error('The table does not have the specified index: EndIndex'), { name: 'ValidationException' }),
+    );
+    await expect(service.page(q(), caller())).rejects.toThrow('"By: Job end date" is not available yet');
+  });
+
   describe('export', () => {
     const collect = () => {
       const chunks: string[] = [];
