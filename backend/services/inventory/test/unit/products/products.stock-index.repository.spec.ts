@@ -49,7 +49,13 @@ describe('ProductsRepository — stock-managed index', () => {
   describe('update', () => {
     it('leaves the keys alone when the row already carries the right ones', async () => {
       dynamoDb.client.send.mockResolvedValue({
-        Attributes: stored({ GSI3PK: 'PRODUCTS#STOCK', GSI3SK: 'chain guard#prod-1' }),
+        // Filed on the Price Book partition too, so neither index needs a write.
+        Attributes: stored({
+          GSI3PK: 'PRODUCTS#STOCK',
+          GSI3SK: 'chain guard#prod-1',
+          GSI4PK: 'PRODUCTS#ALL',
+          GSI4SK: 'chain guard#prod-1',
+        }),
       });
 
       await repository.update('prod-1', { priceClient: 30 });
