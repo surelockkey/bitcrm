@@ -101,9 +101,9 @@ describe("describeLogEntry — Workiz's wording", () => {
 });
 
 describe("jobLabel", () => {
-  it("the number when known, else just 'Job'", () => {
-    expect(jobLabel(1749)).toBe("#1749");
-    expect(jobLabel("1750")).toBe("#1750");
+  it("the number when known, as Workiz's Job column prints it, else just 'Job'", () => {
+    expect(jobLabel(1749)).toBe("1749");
+    expect(jobLabel("1750")).toBe("1750");
     expect(jobLabel(undefined)).toBe("Job");
   });
 });

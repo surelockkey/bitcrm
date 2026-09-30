@@ -29,9 +29,9 @@ const count = (n: number | undefined): string =>
 
 const place = (name: string | undefined): string => name?.trim() || "a location";
 
-/** A job as a link names it: "#1749", or just "Job" while its number is unknown. */
+/** A job as its link reads: "1749", as Workiz's Job column prints it — or just "Job" while the number is unknown. */
 export function jobLabel(number: string | number | undefined): string {
-  return number === undefined || number === "" ? "Job" : `#${number}`;
+  return number === undefined || number === "" ? "Job" : String(number);
 }
 
 const jobRef = (number: string | number | undefined): string =>
