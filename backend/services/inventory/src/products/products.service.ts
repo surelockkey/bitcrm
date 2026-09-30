@@ -450,8 +450,17 @@ export class ProductsService {
     dto: UpdateProductDto,
   ): Promise<{ product: Product; changedFields: string[] }> {
     const existing = await this.findById(id); // Ensure exists
-    const { customAttributes: patch, ...fields } = ProductsService.stripReadOnly(dto);
+    const { customAttributes: patch, sku, ...fields } = ProductsService.stripReadOnly(dto);
     const attrs: Partial<Product> = { ...fields };
+    // A new SKU moves the product's SKU claim first, so a SKU another item
+    // holds is refused (409) before anything else is written. The same SKU
+    // sent back is no change.
+    const newSku = typeof sku === 'string' ? sku.trim() : undefined;
+    const skuChanged = newSku !== undefined && newSku !== existing.sku;
+    if (skuChanged) {
+      if (!newSku) throw new BadRequestException("SKU can't be empty");
+      await this.repository.changeSku(id, existing.sku, newSku);
+    }
     if (patch !== undefined) {
       // A patch, merged over what the item holds: the values it does not name
       // are kept. Written only when something actually changes; nothing left
@@ -470,7 +479,8 @@ export class ProductsService {
     publishInventoryEvent(this.snsPublisher, this.logger, 'product.updated', {
       productId: id,
     });
-    return { product, changedFields: changedProductFields(existing, attrs) };
+    const changedFields = changedProductFields(existing, attrs);
+    return { product, changedFields: skuChanged ? ['sku', ...changedFields] : changedFields };
   }
 
   async archive(id: string, actor?: JwtUser): Promise<Product> {

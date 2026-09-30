@@ -44,8 +44,11 @@ export class UpdateProductDto extends PartialType(OmitType(CreateProductDto, RED
   @IsString()
   name?: string;
 
-  /** Immutable after create — accepted for back-compat and ignored by the repository. */
-  @ApiPropertyOptional()
+  /**
+   * A different SKU moves the product to it (the SKU claim goes with it); a
+   * SKU another product holds is a 409. The same SKU is no change.
+   */
+  @ApiPropertyOptional({ description: 'Workiz SKU / Model #. Unique; a taken one is a 409.' })
   @whenSent
   @IsString()
   sku?: string;
