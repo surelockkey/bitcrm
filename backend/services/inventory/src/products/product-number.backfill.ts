@@ -50,3 +50,22 @@ export function planProductNumbers(rows: ProductNumberRow[]): ProductNumberPlan 
 
   return plan;
 }
+
+export type NumberWriteOutcome = 'written' | 'skipped';
+
+/**
+ * One number write that tolerates losing the race. The write is conditioned
+ * on the row still existing and having no number; a row numbered since the
+ * scan (an overlapping run, or `POST /products` mid-run) or deleted since
+ * fails that condition — the row is skipped, never the whole run. Any other
+ * failure propagates.
+ */
+export async function writeNumberUnlessTaken(write: () => Promise<unknown>): Promise<NumberWriteOutcome> {
+  try {
+    await write();
+    return 'written';
+  } catch (error: unknown) {
+    if (error instanceof Error && error.name === 'ConditionalCheckFailedException') return 'skipped';
+    throw error;
+  }
+}

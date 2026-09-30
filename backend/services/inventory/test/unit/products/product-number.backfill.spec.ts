@@ -1,6 +1,7 @@
 import {
   numberFromExternalId,
   planProductNumbers,
+  writeNumberUnlessTaken,
 } from 'src/products/product-number.backfill';
 
 /**
@@ -75,5 +76,37 @@ describe('planProductNumbers', () => {
   it('has a zero ceiling when nothing is numbered yet', () => {
     expect(planProductNumbers([{ PK: 'PRODUCT#a' }]).max).toBe(0);
     expect(planProductNumbers([]).max).toBe(0);
+  });
+});
+
+/**
+ * Два запуски бекфілу накладались на dev, і другий падав цілком на
+ * ConditionalCheckFailedException: рядок отримав номер між скануванням і
+ * записом (або його створив сервіс під час запуску). Такий рядок — пропуск,
+ * а не кінець усього запуску.
+ */
+describe('writeNumberUnlessTaken', () => {
+  const conditionFailed = () => {
+    const error = new Error('The conditional request failed');
+    error.name = 'ConditionalCheckFailedException';
+    return error;
+  };
+
+  it('answers written when the write lands', async () => {
+    const write = jest.fn().mockResolvedValue({});
+
+    expect(await writeNumberUnlessTaken(write)).toBe('written');
+    expect(write).toHaveBeenCalledTimes(1);
+  });
+
+  it('answers skipped when the row was numbered (or deleted) since the scan', async () => {
+    expect(await writeNumberUnlessTaken(jest.fn().mockRejectedValue(conditionFailed()))).toBe('skipped');
+  });
+
+  it('lets any other failure stop the run', async () => {
+    const throttled = new Error('Rate exceeded');
+    throttled.name = 'ProvisionedThroughputExceededException';
+
+    await expect(writeNumberUnlessTaken(jest.fn().mockRejectedValue(throttled))).rejects.toBe(throttled);
   });
 });
