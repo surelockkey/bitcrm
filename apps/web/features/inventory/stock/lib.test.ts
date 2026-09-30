@@ -82,6 +82,17 @@ describe("toLocations", () => {
     { id: "c2", name: "", technicianName: "Pavlo", status: InventoryStatus.ACTIVE, createdAt: "", updatedAt: "" },
   ];
 
+  // "Used by" on Templates counts the vans naming one; Apply defaults to the
+  // primary warehouse when the server marks one.
+  it("keeps a van's template and a warehouse's primary mark", () => {
+    const [shop, van] = toLocations(
+      [{ ...warehouses[0], isPrimary: true } as Warehouse],
+      [{ ...containers[0], templateId: "tp1" }],
+    );
+    expect(shop).toMatchObject({ type: "warehouse", isPrimary: true });
+    expect(van).toMatchObject({ type: "container", templateId: "tp1" });
+  });
+
   it("lists warehouses first, then containers, keeping what a picker shows", () => {
     expect(toLocations(warehouses, containers)).toEqual([
       { type: "warehouse", id: "w1", name: "Main", description: "Dallas yard", status: "active" },

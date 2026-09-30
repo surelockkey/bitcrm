@@ -78,11 +78,27 @@ vi.mock("@/features/inventory/stock/components/location-stock-dialog", () => ({
     locationId: string;
     open: boolean;
     onOpenChange: (o: boolean) => void;
+    aside?: React.ReactNode;
   }) =>
     props.open ? (
       <div data-testid="stock-popup" data-type={props.type} data-id={props.locationId}>
+        {props.aside}
         <button onClick={() => props.onOpenChange(false)}>close stock</button>
       </div>
+    ) : null,
+}));
+vi.mock("@/features/inventory/templates/components/container-template-bar", () => ({
+  ContainerTemplateBar: (props: { containerId: string; onApply: (id: string) => void; onSetTemplate: () => void }) => (
+    <div data-testid="template-bar" data-id={props.containerId}>
+      <button onClick={() => props.onApply("tp1")}>apply tp1</button>
+      <button onClick={() => props.onSetTemplate()}>set template</button>
+    </div>
+  ),
+}));
+vi.mock("@/features/inventory/templates/components/apply-template-dialog", () => ({
+  ApplyTemplateDialog: (props: { templateId: string; containerId: string | null; open: boolean }) =>
+    props.open ? (
+      <div data-testid="apply-popup" data-id={props.templateId} data-container={props.containerId ?? ""} />
     ) : null,
 }));
 
@@ -215,6 +231,35 @@ describe("ContainersPage — popups are driven by the URL", () => {
     mocks.params = new URLSearchParams("edit=c9");
     renderWithClient(<ContainersPage />);
     expect(screen.getByTestId("edit-popup")).toHaveAttribute("data-id", "c9");
+    expect(screen.queryByTestId("stock-popup")).toBeNull();
+  });
+
+  it("puts the van's template strip over its stock", () => {
+    mocks.params = new URLSearchParams("stock=c9");
+    renderWithClient(<ContainersPage />);
+    expect(screen.getByTestId("template-bar")).toHaveAttribute("data-id", "c9");
+  });
+
+  it("swaps the stock popup for Apply, naming the van", async () => {
+    mocks.params = new URLSearchParams("stock=c9");
+    renderWithClient(<ContainersPage />);
+    await userEvent.click(screen.getByText("apply tp1"));
+    expect(mocks.replace).toHaveBeenCalledWith("/inventory/containers?apply=tp1&container=c9", noScroll);
+  });
+
+  it("swaps the stock popup for Edit to set a template", async () => {
+    mocks.params = new URLSearchParams("stock=c9");
+    renderWithClient(<ContainersPage />);
+    await userEvent.click(screen.getByText("set template"));
+    expect(mocks.replace).toHaveBeenCalledWith("/inventory/containers?edit=c9", noScroll);
+  });
+
+  it("opens Apply from ?apply=<template>&container=<van>", () => {
+    mocks.params = new URLSearchParams("apply=tp1&container=c9");
+    renderWithClient(<ContainersPage />);
+    const popup = screen.getByTestId("apply-popup");
+    expect(popup).toHaveAttribute("data-id", "tp1");
+    expect(popup).toHaveAttribute("data-container", "c9");
     expect(screen.queryByTestId("stock-popup")).toBeNull();
   });
 

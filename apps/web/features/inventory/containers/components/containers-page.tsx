@@ -18,6 +18,8 @@ import { usePermissions } from "@/features/auth/use-permissions";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { useAllLocations } from "@/features/inventory/stock/hooks";
 import { LocationStockDialog } from "@/features/inventory/stock/components/location-stock-dialog";
+import { ContainerTemplateBar } from "@/features/inventory/templates/components/container-template-bar";
+import { ApplyTemplateDialog } from "@/features/inventory/templates/components/apply-template-dialog";
 import { useUrlPopups } from "@/features/inventory/use-url-popups";
 import { useUserContainers, useUserNames } from "@/features/inventory/user-containers/hooks";
 import {
@@ -38,8 +40,9 @@ import { usePager } from "@/lib/paging/use-pager";
 
 const CONTAINERS_PATH = "/inventory/containers";
 
-/** The URL params that open a popup — one at a time. */
-const POPUPS = ["stock", "edit"] as const;
+/** The URL params that open a popup — one at a time; Apply also names the van. */
+const POPUPS = ["stock", "edit", "apply"] as const;
+const EXTRAS = ["container"] as const;
 
 export function ContainersPage() {
   const { can, scopeOf } = usePermissions();
@@ -65,9 +68,10 @@ function Fleet() {
 
   // A van has no page of its own: its stock and its settings open over the
   // list, from the URL, so an old /inventory/containers/<id> link lands here.
-  const popups = useUrlPopups(CONTAINERS_PATH, POPUPS);
+  const popups = useUrlPopups(CONTAINERS_PATH, POPUPS, EXTRAS);
   const stockId = popups.param("stock");
   const editId = stockId ? null : popups.param("edit");
+  const applyId = stockId || editId ? null : popups.param("apply");
 
   // The server filters before it cuts the page — filtering a page in the
   // browser is what made every page show a different number of vans.
@@ -216,6 +220,23 @@ function Fleet() {
           locationId={stockId}
           open
           onOpenChange={(open) => (open ? undefined : popups.close())}
+          aside={
+            <ContainerTemplateBar
+              containerId={stockId}
+              // Swapped, not stacked: closing Apply goes back to the list.
+              onApply={(templateId) => popups.replace("apply", templateId, { container: stockId })}
+              onSetTemplate={() => popups.replace("edit", stockId)}
+            />
+          }
+        />
+      ) : null}
+      {applyId ? (
+        <ApplyTemplateDialog
+          templateId={applyId}
+          containerId={popups.param("container")}
+          open
+          onOpenChange={(open) => (open ? undefined : popups.close())}
+          onContainerChange={(id) => popups.replace("apply", applyId, { container: id })}
         />
       ) : null}
       {editId ? (

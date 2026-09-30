@@ -36,7 +36,7 @@ describe("InventoryTabs", () => {
     );
   });
 
-  it("puts User containers after Containers, on the containers permission", () => {
+  it("puts User containers and Templates after Containers, on the containers permission", () => {
     permissionsMock.mockReturnValue({ can: (r: string) => r === "containers" });
     pathnameMock.mockReturnValue("/inventory/containers");
     render(<InventoryTabs />);
@@ -44,7 +44,9 @@ describe("InventoryTabs", () => {
     expect(screen.getAllByRole("link").map((a) => a.textContent)).toEqual([
       "Containers",
       "User containers",
+      "Templates",
     ]);
+    expect(screen.getByRole("link", { name: "Templates" })).toHaveAttribute("href", "/inventory/templates");
     expect(screen.getByRole("link", { name: "User containers" })).toHaveAttribute(
       "href",
       "/inventory/user-containers",
@@ -61,6 +63,7 @@ describe("InventoryTabs", () => {
       "Warehouses",
       "Containers",
       "User containers",
+      "Templates",
       "Transfers",
     ]);
   });

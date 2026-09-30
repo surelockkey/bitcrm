@@ -48,11 +48,14 @@ export function LocationStockDialog({
   locationId,
   open,
   onOpenChange,
+  aside,
 }: {
   type: LocationSummaryType;
   locationId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Shown above the stock — the Containers tab puts the van's template strip here. */
+  aside?: ReactNode;
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -61,7 +64,13 @@ export function LocationStockDialog({
         // popup fits a phone as well as a desktop.
         className="flex max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-4xl"
       >
-        <LocationStock type={type} id={locationId} open={open} onDone={() => onOpenChange(false)} />
+        <LocationStock
+          type={type}
+          id={locationId}
+          open={open}
+          aside={aside}
+          onDone={() => onOpenChange(false)}
+        />
       </DialogContent>
     </Dialog>
   );
@@ -71,11 +80,13 @@ function LocationStock({
   type,
   id,
   open,
+  aside,
   onDone,
 }: {
   type: LocationSummaryType;
   id: string;
   open: boolean;
+  aside?: ReactNode;
   onDone: () => void;
 }) {
   const { can } = usePermissions();
@@ -118,7 +129,10 @@ function LocationStock({
           Every item this {type === "container" ? "van" : "warehouse"} holds.
         </DialogDescription>
       </DialogHeader>
-      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">{body}</div>
+      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
+        {missing ? null : aside}
+        {body}
+      </div>
       <DialogFooter className="m-0 flex-none">
         <Button className="px-5" onClick={onDone}>
           Done

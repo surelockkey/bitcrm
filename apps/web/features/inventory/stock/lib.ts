@@ -22,6 +22,10 @@ export interface StockLocation {
   technicianId?: string;
   technicianName?: string;
   department?: string;
+  /** Containers only: the van's template. */
+  templateId?: string;
+  /** Warehouses only, when the server marks one as the main one. */
+  isPrimary?: boolean;
 }
 
 /** Warehouses first, then containers — the order the stock popup uses too. */
@@ -33,6 +37,8 @@ export function toLocations(warehouses: Warehouse[], containers: Container[]): S
       name: w.name,
       description: w.description,
       status: w.status,
+      // Not part of the Warehouse type (yet); read when the server sends it.
+      ...((w as Warehouse & { isPrimary?: boolean }).isPrimary ? { isPrimary: true } : {}),
     })),
     ...containers.map((c) => ({
       type: "container" as const,
@@ -43,6 +49,7 @@ export function toLocations(warehouses: Warehouse[], containers: Container[]): S
       technicianId: c.technicianId,
       technicianName: c.technicianName,
       department: c.department,
+      ...(c.templateId ? { templateId: c.templateId } : {}),
     })),
   ];
 }

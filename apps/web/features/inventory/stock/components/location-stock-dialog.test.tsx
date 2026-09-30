@@ -170,6 +170,21 @@ describe("LocationStockDialog — a van's stock", () => {
     expect(mocks.urls).toEqual(["/inventory/stock/locations/container/c1"]);
   });
 
+  // The Containers tab puts the van's template strip here.
+  it("shows what the page puts above the stock", async () => {
+    renderWithClient(
+      <LocationStockDialog
+        type="container"
+        locationId="c1"
+        open
+        onOpenChange={vi.fn()}
+        aside={<div>Template strip</div>}
+      />,
+    );
+    await screen.findByText("Deadbolt");
+    expect(screen.getByText("Template strip")).toBeInTheDocument();
+  });
+
   it("closes from the yellow Done", async () => {
     const { onOpenChange } = open();
     await screen.findByText("Deadbolt");
