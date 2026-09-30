@@ -34,4 +34,9 @@ export class CreateContainerDto {
   @IsString()
   @MaxLength(200)
   technicianName?: string;
+
+  @ApiPropertyOptional({ description: 'Container template (ideal loadout); must exist and be active.' })
+  @IsOptional()
+  @IsString()
+  templateId?: string;
 }

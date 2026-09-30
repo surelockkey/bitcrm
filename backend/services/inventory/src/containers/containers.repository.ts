@@ -306,6 +306,7 @@ export class ContainersRepository {
       technicianId: item.technicianId as string | undefined,
       technicianName,
       department: item.department as string | undefined,
+      templateId: item.templateId as string | undefined,
       status: item.status as Container['status'],
       createdAt: item.createdAt as string,
       updatedAt: item.updatedAt as string,

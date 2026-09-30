@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Injectable,
   Logger,
   NotFoundException,
@@ -22,6 +23,7 @@ import {
 import { ContainersRepository } from './containers.repository';
 import { StockRepository } from '../stock/stock.repository';
 import { ContainerAssignmentResolver } from '../user-containers/container-assignment.resolver';
+import { ContainerTemplatesRepository } from '../container-templates/container-templates.repository';
 import { CreateContainerDto } from './dto/create-container.dto';
 import { ListContainersQueryDto } from './dto/list-containers-query.dto';
 import { UpdateContainerDto } from './dto/update-container.dto';
@@ -52,6 +54,7 @@ export class ContainersService {
     private readonly repository: ContainersRepository,
     private readonly stockRepository: StockRepository,
     private readonly assignments: ContainerAssignmentResolver,
+    private readonly templates: ContainerTemplatesRepository,
     @Optional() private readonly snsPublisher?: SnsPublisherService,
     @Optional() private readonly redis?: RedisService,
   ) {}
@@ -62,6 +65,8 @@ export class ContainersService {
    * users now, and who works from it is `PUT /user-containers/:userId`.
    */
   async create(dto: CreateContainerDto): Promise<Container> {
+    if (dto.templateId) await this.assertTemplateUsable(dto.templateId);
+
     const now = new Date().toISOString();
     const container: Container = {
       id: randomUUID(),
@@ -70,6 +75,7 @@ export class ContainersService {
       technicianId: dto.technicianId,
       technicianName: dto.technicianName,
       department: dto.department,
+      ...(dto.templateId && { templateId: dto.templateId }),
       status: InventoryStatus.ACTIVE,
       createdAt: now,
       updatedAt: now,
@@ -109,6 +115,8 @@ export class ContainersService {
     await this.findById(id);
 
     const attrs: Partial<Record<keyof UpdateContainerDto, unknown>> = { ...dto };
+    // `null` clears the template (the repository REMOVEs it); a new one must be usable.
+    if (typeof dto.templateId === 'string') await this.assertTemplateUsable(dto.templateId);
     if (dto.technicianId === null) {
       // Unassigning always clears the denormalized name too.
       attrs.technicianName = null;
@@ -180,6 +188,17 @@ export class ContainersService {
       COUNT_TTL_SECONDS,
       take,
     );
+  }
+
+  /** A container may only be pointed at a template that exists and is active. */
+  private async assertTemplateUsable(templateId: string): Promise<void> {
+    const template = await this.templates.findById(templateId);
+    if (!template) {
+      throw new NotFoundException(`Container template "${templateId}" not found`);
+    }
+    if (template.status !== InventoryStatus.ACTIVE) {
+      throw new BadRequestException(`Container template "${template.name}" is archived`);
+    }
   }
 
   async getStock(containerId: string): Promise<StockItem[]> {

@@ -37,6 +37,7 @@ Write these exactly as `ProductsRepository.create` / the catalog repositories do
 | Warehouse (`warehouses.repository.ts`) | `WAREHOUSE#<id>` | `METADATA` | `LOCATION#WAREHOUSE` | `<name>.trim().toLowerCase()#<id>` | — | — | `searchName = <name>.trim().toLowerCase()` |
 | Container (`containers.repository.ts`) | `CONTAINER#<id>` | `METADATA` | `LOCATION#CONTAINER` | `<name>.trim().toLowerCase()#<id>` | — | — | `searchName = <name>.trim().toLowerCase()` |
 | Stock | `WAREHOUSE#<id>` \| `CONTAINER#<id>` | `STOCK#<productId>` | — | — | — | — | — |
+| Container template (`container-templates.repository.ts`) | `CONTAINER_TEMPLATE#<id>` | `METADATA` | `CATALOG#CONTAINER_TEMPLATE` | `<name>.trim().toLowerCase()` | — | — | — |
 | User container (`user-containers.repository.ts`) | `USER_CONTAINER#<userId>` | `METADATA` | `CATALOG#USER_CONTAINER` | `<userName>.trim().toLowerCase()#<userId>` | — | — | — |
 
 - A user container with `access: "container"` also carries the sparse

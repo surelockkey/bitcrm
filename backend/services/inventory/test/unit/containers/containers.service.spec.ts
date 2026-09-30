@@ -6,6 +6,7 @@ import { ContainersService } from 'src/containers/containers.service';
 import { ContainersRepository } from 'src/containers/containers.repository';
 import { StockRepository } from 'src/stock/stock.repository';
 import { ContainerAssignmentResolver } from 'src/user-containers/container-assignment.resolver';
+import { ContainerTemplatesRepository } from 'src/container-templates/container-templates.repository';
 import {
   createMockContainer,
   createMockCreateContainerDto,
@@ -14,6 +15,8 @@ import {
   createMockContainersRepository,
   createMockStockRepository,
   createMockContainerAssignmentResolver,
+  createMockContainerTemplate,
+  createMockContainerTemplatesRepository,
 } from '../mocks';
 
 describe('ContainersService', () => {
@@ -21,6 +24,7 @@ describe('ContainersService', () => {
   let repository: ReturnType<typeof createMockContainersRepository>;
   let stockRepository: ReturnType<typeof createMockStockRepository>;
   let assignments: ReturnType<typeof createMockContainerAssignmentResolver>;
+  let templates: ReturnType<typeof createMockContainerTemplatesRepository>;
 
   let publisher: { publish: jest.Mock };
 
@@ -29,6 +33,7 @@ describe('ContainersService', () => {
     repository = createMockContainersRepository();
     stockRepository = createMockStockRepository();
     assignments = createMockContainerAssignmentResolver();
+    templates = createMockContainerTemplatesRepository();
 
     const store = new Map<string, string>();
     const redis = {
@@ -47,6 +52,7 @@ describe('ContainersService', () => {
         { provide: ContainersRepository, useValue: repository },
         { provide: StockRepository, useValue: stockRepository },
         { provide: ContainerAssignmentResolver, useValue: assignments },
+        { provide: ContainerTemplatesRepository, useValue: templates },
         { provide: SnsPublisherService, useValue: publisher },
         { provide: RedisService, useValue: redis },
       ],
@@ -93,6 +99,49 @@ describe('ContainersService', () => {
 
       expect(result.technicianId).toBe('tech-1');
       expect(repository.create).toHaveBeenCalled();
+    });
+  });
+
+  describe('templateId', () => {
+    it('creates with an active template', async () => {
+      templates.findById.mockResolvedValue(createMockContainerTemplate({ id: 'tpl-1' }));
+
+      const result = await service.create(createMockCreateContainerDto({ templateId: 'tpl-1' }));
+
+      expect(result.templateId).toBe('tpl-1');
+      expect(templates.findById).toHaveBeenCalledWith('tpl-1');
+      expect(repository.create).toHaveBeenCalledWith(expect.objectContaining({ templateId: 'tpl-1' }));
+    });
+
+    it('404s on a template that does not exist', async () => {
+      await expect(
+        service.create(createMockCreateContainerDto({ templateId: 'missing' })),
+      ).rejects.toThrow(NotFoundException);
+      expect(repository.create).not.toHaveBeenCalled();
+    });
+
+    it('refuses an archived template', async () => {
+      templates.findById.mockResolvedValue(
+        createMockContainerTemplate({ id: 'tpl-1', status: InventoryStatus.ARCHIVED }),
+      );
+      repository.findById.mockResolvedValue(createMockContainer());
+
+      await expect(service.update('container-1', { templateId: 'tpl-1' })).rejects.toThrow(BadRequestException);
+      expect(repository.update).not.toHaveBeenCalled();
+    });
+
+    it('sets a template on update, and clears it with null without looking one up', async () => {
+      templates.findById.mockResolvedValue(createMockContainerTemplate({ id: 'tpl-2' }));
+      repository.findById.mockResolvedValue(createMockContainer());
+      repository.update.mockResolvedValue(createMockContainer());
+
+      await service.update('container-1', { templateId: 'tpl-2' });
+      expect(repository.update).toHaveBeenLastCalledWith('container-1', { templateId: 'tpl-2' });
+
+      templates.findById.mockClear();
+      await service.update('container-1', { templateId: null });
+      expect(repository.update).toHaveBeenLastCalledWith('container-1', { templateId: null });
+      expect(templates.findById).not.toHaveBeenCalled();
     });
   });
 

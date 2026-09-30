@@ -15,6 +15,8 @@ export interface Container {
   /** Denormalized snapshot of the assigned technician's name. */
   technicianName?: string;
   department?: string;
+  /** The container template describing this van's ideal loadout, if one is chosen. */
+  templateId?: string;
   status: InventoryStatus;
   createdAt: string;
   updatedAt: string;

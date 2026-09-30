@@ -225,6 +225,9 @@ USER_CONTAINER#<userId> / METADATA   a user's container assignment (Workiz "User
                                      `none`); GSI1 CATALOG#USER_CONTAINER / <name>#<userId>, sparse GSI3
                                      CONTAINER_USERS#<containerId> / USER#<userId> for `access: container` only — who works
                                      from a van (OwnerIndex, beside the legacy OWNER#<technicianId> container rows)
+CONTAINER_TEMPLATE#<id> / METADATA   a van's "ideal loadout" (`items` list on the row); GSI1 CATALOG#CONTAINER_TEMPLATE /
+                                     <name lowercased> — the uniqueness check is a key condition on it, never Scan+Limit 1;
+                                     archived, not deleted (`Container.templateId` points at it)
 CONV#<id>          / METADATA        GSI1 INBOX#<open|archived>#<YYYY> — inbox split by year AND filter, never a
                                      constant key + FilterExpression (the CALL#ALL lesson); sparse GSI2 UNREAD#<YYYY>,
                                      GSI3 CAT#<kind>#<YYYY>, GSI5 FLAG#conversation, GSI6 ACCTCAT#<cat>#<YYYY>

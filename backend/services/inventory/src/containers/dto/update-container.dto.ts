@@ -49,4 +49,13 @@ export class UpdateContainerDto {
   @IsString()
   @MaxLength(200)
   technicianName?: string | null;
+
+  /** A template id to compare the van against, or null to clear it. */
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'Container template (ideal loadout); must exist and be active. null clears it.',
+  })
+  @IsOptional()
+  @IsString()
+  templateId?: string | null;
 }

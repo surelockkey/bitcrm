@@ -1,4 +1,4 @@
-import { ProductType, InventoryStatus, TransferType, LocationType, InventoryLogAction, DataScope, UserContainerAccess, type UserContainer, type Product, type Warehouse, type Container, type Transfer, type TransferItem, type StockItem, type LocationSummary, type InventoryLogEntry, type JwtUser, type ResolvedPermissions } from '@bitcrm/types';
+import { ProductType, InventoryStatus, TransferType, LocationType, InventoryLogAction, DataScope, UserContainerAccess, type UserContainer, type ContainerTemplate, type Product, type Warehouse, type Container, type Transfer, type TransferItem, type StockItem, type LocationSummary, type InventoryLogEntry, type JwtUser, type ResolvedPermissions } from '@bitcrm/types';
 import type { CreateProductDto } from 'src/products/dto/create-product.dto';
 import type { CreateWarehouseDto } from 'src/warehouses/dto/create-warehouse.dto';
 import type { CreateTransferDto } from 'src/transfers/dto/create-transfer.dto';
@@ -64,6 +64,29 @@ export function createMockUserContainer(overrides?: Partial<UserContainer>): Use
     limited: false, updatedAt: '2026-09-30T08:00:00.000Z',
     updatedBy: 'admin-1', updatedByName: 'admin@test.com',
     ...overrides,
+  };
+}
+
+export function createMockContainerTemplate(overrides?: Partial<ContainerTemplate>): ContainerTemplate {
+  return {
+    id: 'tpl-1', name: 'Standard van', description: 'What every van carries',
+    items: [
+      { productId: 'prod-1', productName: 'Deadbolt', sku: 'SKU-001', quantity: 5 },
+      { productId: 'prod-2', productName: 'Rekey kit', sku: 'SKU-002', quantity: 2 },
+    ],
+    status: InventoryStatus.ACTIVE,
+    createdAt: '2026-09-30T08:00:00.000Z', updatedAt: '2026-09-30T08:00:00.000Z',
+    ...overrides,
+  };
+}
+
+export function createMockContainerTemplatesRepository() {
+  return {
+    create: jest.fn().mockResolvedValue(undefined),
+    put: jest.fn().mockResolvedValue(undefined),
+    findById: jest.fn().mockResolvedValue(null),
+    findByName: jest.fn().mockResolvedValue([]),
+    listAll: jest.fn().mockResolvedValue([]),
   };
 }
 
@@ -166,6 +189,7 @@ export function createMockTransfersRepository() {
 export function createMockStockRepository() {
   return {
     getStockLevel: jest.fn(), getStockLevels: jest.fn(), getProductQuantities: jest.fn(),
+    getQuantities: jest.fn().mockResolvedValue(new Map()),
     incrementStock: jest.fn(), decrementStock: jest.fn(), moveStock: jest.fn(),
   };
 }

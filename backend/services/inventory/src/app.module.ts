@@ -10,6 +10,7 @@ import { TransfersModule } from './transfers/transfers.module';
 import { ItemCategoriesModule } from './item-categories/item-categories.module';
 import { BrandsModule } from './brands/brands.module';
 import { UserContainersModule } from './user-containers/user-containers.module';
+import { ContainerTemplatesModule } from './container-templates/container-templates.module';
 
 @Module({
   imports: [
@@ -49,6 +50,7 @@ import { UserContainersModule } from './user-containers/user-containers.module';
     // Global (the container a user works from), and before ContainersModule so
     // `/containers/:id/users` is registered ahead of any `/containers/:id…`.
     UserContainersModule,
+    ContainerTemplatesModule,
     ContainersModule,
     TransfersModule,
     ItemCategoriesModule,

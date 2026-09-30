@@ -212,6 +212,22 @@ describe('ContainersRepository (imported rows)', () => {
     expect(container.department).toBe('Marietta');
     expect(container.accessUserIds).toEqual(['user-4', 'user-9']);
   });
+
+  it('reads the template the container is compared against', async () => {
+    dynamoDb.client.send.mockResolvedValue({ Item: { ...importedRow, templateId: 'tpl-1' } });
+
+    expect((await repository.findById('container-1'))!.templateId).toBe('tpl-1');
+  });
+
+  it('update() removes the template when it is cleared with null', async () => {
+    dynamoDb.client.send.mockResolvedValue({ Attributes: importedRow });
+
+    await repository.update('container-1', { templateId: null });
+
+    const input = dynamoDb.client.send.mock.calls[0][0].input;
+    expect(input.UpdateExpression).toMatch(/REMOVE .*#templateId/);
+    expect(input.ExpressionAttributeValues).not.toHaveProperty(':templateId');
+  });
 });
 
 describe('ContainersRepository.findAll', () => {

@@ -92,19 +92,58 @@ export class StockRepository {
 
   /**
    * How many of one product each of the given locations holds, keyed by the
-   * location PK; a location with no stock row is simply absent. BatchGet takes
-   * 100 keys a call; keys it leaves unprocessed under load are asked again
-   * with a backoff, a bounded number of times.
+   * location PK; a location with no stock row is simply absent.
    */
   async getProductQuantities(
     productId: string,
     entityPKs: string[],
   ): Promise<Map<string, number>> {
     const quantities = new Map<string, number>();
-    for (let i = 0; i < entityPKs.length; i += 100) {
-      let keys = entityPKs
-        .slice(i, i + 100)
-        .map((pk) => ({ PK: pk, SK: `STOCK#${productId}` }));
+    const rows = await this.batchGetStockRows(
+      entityPKs.map((pk) => ({ PK: pk, SK: `STOCK#${productId}` })),
+    );
+    for (const item of rows) {
+      quantities.set(item.PK as string, Number(item.quantity) || 0);
+    }
+    return quantities;
+  }
+
+  /**
+   * How many of each product each location holds — every (location, product)
+   * pair is one BatchGet key, so comparing a van template of a few dozen lines
+   * against a van and a warehouse is one or two calls, never a Query over a
+   * warehouse's thousands of stock rows. Keyed by location PK, then product
+   * id; a pair with no stock row is simply absent.
+   */
+  async getQuantities(
+    entityPKs: string[],
+    productIds: string[],
+  ): Promise<Map<string, Map<string, number>>> {
+    const quantities = new Map<string, Map<string, number>>();
+    const keys = entityPKs.flatMap((pk) =>
+      productIds.map((productId) => ({ PK: pk, SK: `STOCK#${productId}` })),
+    );
+    for (const item of await this.batchGetStockRows(keys)) {
+      const pk = item.PK as string;
+      const productId =
+        (item.productId as string | undefined) ?? String(item.SK).slice('STOCK#'.length);
+      if (!quantities.has(pk)) quantities.set(pk, new Map());
+      quantities.get(pk)!.set(productId, Number(item.quantity) || 0);
+    }
+    return quantities;
+  }
+
+  /**
+   * Stock rows by key. BatchGet takes 100 keys a call; keys it leaves
+   * unprocessed under load are asked again with a backoff, a bounded number
+   * of times, then the request fails with a 503.
+   */
+  private async batchGetStockRows(
+    allKeys: Array<{ PK: string; SK: string }>,
+  ): Promise<Record<string, unknown>[]> {
+    const rows: Record<string, unknown>[] = [];
+    for (let i = 0; i < allKeys.length; i += 100) {
+      let keys = allKeys.slice(i, i + 100);
       for (let attempt = 0; keys.length; attempt++) {
         if (attempt >= BATCH_GET_ATTEMPTS) {
           throw new ServiceUnavailableException('Stock read throttled; try again');
@@ -113,13 +152,11 @@ export class StockRepository {
         const res = await this.dynamoDb.client.send(
           new BatchGetCommand({ RequestItems: { [INVENTORY_TABLE]: { Keys: keys } } }),
         );
-        for (const item of res.Responses?.[INVENTORY_TABLE] ?? []) {
-          quantities.set(item.PK as string, Number(item.quantity) || 0);
-        }
+        rows.push(...(res.Responses?.[INVENTORY_TABLE] ?? []));
         keys = (res.UnprocessedKeys?.[INVENTORY_TABLE]?.Keys ?? []) as typeof keys;
       }
     }
-    return quantities;
+    return rows;
   }
 
   async incrementStock(

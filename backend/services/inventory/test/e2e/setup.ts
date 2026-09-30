@@ -36,6 +36,7 @@ import { ItemCategoriesModule } from 'src/item-categories/item-categories.module
 import { BrandsModule } from 'src/brands/brands.module';
 import { InventoryLogModule } from 'src/inventory-log/inventory-log.module';
 import { UserContainersModule } from 'src/user-containers/user-containers.module';
+import { ContainerTemplatesModule } from 'src/container-templates/container-templates.module';
 import {
   createTestTable,
   clearTestTable,
@@ -295,6 +296,7 @@ export async function setupApp(): Promise<INestApplication> {
       ProductsModule,
       WarehousesModule,
       UserContainersModule,
+      ContainerTemplatesModule,
       ContainersModule,
       TransfersModule,
       ItemCategoriesModule,

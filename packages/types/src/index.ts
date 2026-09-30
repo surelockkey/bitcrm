@@ -118,6 +118,13 @@ export {
 export { Warehouse } from './entities/warehouse.entity';
 export { Container } from './entities/container.entity';
 export { UserContainer } from './entities/user-container.entity';
+export {
+  ContainerTemplate,
+  ContainerTemplateItem,
+  ContainerTemplateDiff,
+  ContainerTemplateDiffLine,
+  ContainerTemplateFillResult,
+} from './entities/container-template.entity';
 export { ProductCategory, UNCATEGORIZED_CATEGORY } from './entities/product-category.entity';
 export { Brand } from './entities/brand.entity';
 export { Transfer, TransferItem } from './entities/transfer.entity';

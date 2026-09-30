@@ -136,6 +136,61 @@ describe('StockRepository', () => {
   });
 
   /**
+   * Шаблон фургона порівнюється з фургоном і складом: кожна пара (локація,
+   * товар) — один ключ BatchGet, а не Query всього складу (тисячі рядків) і не
+   * окремий виклик на кожен рядок шаблону.
+   */
+  describe('getQuantities', () => {
+    it('reads every (location, product) pair in one batch and answers per location, per product', async () => {
+      dynamoDb.client.send.mockResolvedValue({
+        Responses: {
+          [INVENTORY_TABLE]: [
+            { PK: 'CONTAINER#c-1', SK: 'STOCK#p-1', productId: 'p-1', quantity: 2 },
+            { PK: 'WAREHOUSE#wh-1', SK: 'STOCK#p-2', quantity: 9 },
+          ],
+        },
+      });
+
+      const quantities = await repository.getQuantities(['CONTAINER#c-1', 'WAREHOUSE#wh-1'], ['p-1', 'p-2']);
+
+      expect(sent(0).constructor.name).toBe('BatchGetCommand');
+      expect(sent(0).input.RequestItems[INVENTORY_TABLE].Keys).toEqual([
+        { PK: 'CONTAINER#c-1', SK: 'STOCK#p-1' },
+        { PK: 'CONTAINER#c-1', SK: 'STOCK#p-2' },
+        { PK: 'WAREHOUSE#wh-1', SK: 'STOCK#p-1' },
+        { PK: 'WAREHOUSE#wh-1', SK: 'STOCK#p-2' },
+      ]);
+      expect(quantities.get('CONTAINER#c-1')).toEqual(new Map([['p-1', 2]]));
+      // The product comes off the sort key when the row carries no productId.
+      expect(quantities.get('WAREHOUSE#wh-1')).toEqual(new Map([['p-2', 9]]));
+    });
+
+    it('chunks at 100 keys and retries what DynamoDB left unprocessed', async () => {
+      const products = Array.from({ length: 60 }, (_, i) => `p-${i}`);
+      dynamoDb.client.send
+        .mockResolvedValueOnce({
+          Responses: { [INVENTORY_TABLE]: [] },
+          UnprocessedKeys: { [INVENTORY_TABLE]: { Keys: [{ PK: 'CONTAINER#c-1', SK: 'STOCK#p-0' }] } },
+        })
+        .mockResolvedValueOnce({
+          Responses: { [INVENTORY_TABLE]: [{ PK: 'CONTAINER#c-1', SK: 'STOCK#p-0', quantity: 1 }] },
+        })
+        .mockResolvedValueOnce({ Responses: { [INVENTORY_TABLE]: [] } });
+
+      const quantities = await repository.getQuantities(['CONTAINER#c-1', 'WAREHOUSE#wh-1'], products);
+
+      const sizes = dynamoDb.client.send.mock.calls.map((c) => c[0].input.RequestItems[INVENTORY_TABLE].Keys.length);
+      expect(sizes).toEqual([100, 1, 20]);
+      expect(quantities.get('CONTAINER#c-1')?.get('p-0')).toBe(1);
+    });
+
+    it('reads nothing for no products', async () => {
+      expect(await repository.getQuantities(['CONTAINER#c-1'], [])).toEqual(new Map());
+      expect(dynamoDb.client.send).not.toHaveBeenCalled();
+    });
+  });
+
+  /**
    * `onHand` на рядку товару — сума по всіх локаціях, яку список і картка
    * показують без BatchGet. Рядок STOCK# і `onHand` пишуться однією
    * транзакцією: збій між двома окремими записами лишав би сток зсунутим, а

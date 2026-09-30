@@ -5,6 +5,7 @@ import { StockModule } from 'src/stock/stock.module';
 import { ProductsModule } from 'src/products/products.module';
 import { WarehousesModule } from 'src/warehouses/warehouses.module';
 import { UserContainersModule } from 'src/user-containers/user-containers.module';
+import { ContainerTemplatesModule } from 'src/container-templates/container-templates.module';
 import { ContainersModule } from 'src/containers/containers.module';
 import { TransfersModule } from 'src/transfers/transfers.module';
 import { ItemCategoriesModule } from 'src/item-categories/item-categories.module';
@@ -13,6 +14,7 @@ import { ContainersService } from 'src/containers/containers.service';
 import { TransfersService } from 'src/transfers/transfers.service';
 import { ProductStockService } from 'src/stock/product-stock.service';
 import { UserContainersService } from 'src/user-containers/user-containers.service';
+import { ContainerTemplatesService } from 'src/container-templates/container-templates.service';
 
 /**
  * The service specs build each class with mocks, so none of them would notice
@@ -32,6 +34,7 @@ describe('inventory module graph', () => {
         ProductsModule,
         WarehousesModule,
         UserContainersModule,
+        ContainerTemplatesModule,
         ContainersModule,
         TransfersModule,
         ItemCategoriesModule,
@@ -48,7 +51,13 @@ describe('inventory module graph', () => {
       .useValue({})
       .compile();
 
-    for (const provider of [ContainersService, TransfersService, ProductStockService, UserContainersService]) {
+    for (const provider of [
+      ContainersService,
+      TransfersService,
+      ProductStockService,
+      UserContainersService,
+      ContainerTemplatesService,
+    ]) {
       expect(moduleRef.get(provider, { strict: false })).toBeInstanceOf(provider);
     }
     await moduleRef.close();
