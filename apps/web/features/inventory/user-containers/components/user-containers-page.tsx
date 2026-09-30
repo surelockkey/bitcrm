@@ -7,7 +7,6 @@ import { UserStatus } from "@bitcrm/types";
 import type { User } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Skeleton } from "@/components/ui/skeleton";
 import { ListPagination } from "@/components/ui/list-pagination";
 import { queryKeys } from "@/lib/query-keys";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
@@ -15,7 +14,9 @@ import { arraySource } from "@/lib/paging/array-source";
 import { pagedSource } from "@/lib/paging/paged-source";
 import { usePageSize } from "@/lib/paging/use-page-size";
 import { usePager } from "@/lib/paging/use-pager";
-import { usePermissions } from "@/features/auth/use-permissions";
+import { useDenied } from "@/features/auth/use-permissions";
+import { NoAccess } from "@/features/inventory/components/no-access";
+import { useSkeletonRows } from "@/features/inventory/components/use-skeleton-rows";
 import { personName } from "@/features/deals/person-name";
 import { fetchAllUsers } from "@/features/technicians/api";
 import { useUsers, useUsersCount } from "@/features/users/hooks";
@@ -24,13 +25,17 @@ import { useAllLocations } from "@/features/inventory/stock/hooks";
 import { useUrlPopups } from "@/features/inventory/use-url-popups";
 import { useUserContainers } from "../hooks";
 import { assignmentOf } from "../lib";
-import { UserContainersTable, type UserContainerRow } from "./user-containers-table";
+import {
+  USER_CONTAINERS_TABLE_KEY,
+  UserContainersTable,
+  type UserContainerRow,
+} from "./user-containers-table";
 import { AssignContainerDialog } from "./assign-container-dialog";
 
 const PATH = "/inventory/user-containers";
 const POPUPS = ["assign"] as const;
-/** The list's own key: its page size and its column widths are saved under it. */
-const TABLE_KEY = "inventory-user-containers";
+/** The list's own key: its page size, column widths and skeleton height are saved under it. */
+const TABLE_KEY = USER_CONTAINERS_TABLE_KEY;
 
 const ACTIVE: UserFilter = { status: UserStatus.ACTIVE };
 
@@ -40,12 +45,13 @@ const ACTIVE: UserFilter = { status: UserStatus.ACTIVE };
  * tech taking another's van for the day is ordinary.
  */
 export function UserContainersPage() {
-  const { can } = usePermissions();
-  if (!can("containers", "view")) {
+  // Refused only once the permissions are known — never a flash of "No access".
+  const denied = useDenied();
+  if (denied("containers", "view")) {
     return <NoAccess text="You don't have permission to view containers." />;
   }
   // The rows are the users directory; without it there is nothing to list.
-  if (!can("users", "view")) {
+  if (denied("users", "view")) {
     return <NoAccess text="Assigning containers needs permission to view users." />;
   }
   return <Assignments />;
@@ -63,7 +69,8 @@ function Assignments() {
   const searching = term.length > 0;
 
   // A page at a time from the server — the users service filters by status.
-  const usersQ = useUsers(ACTIVE, pageSize);
+  // A new page size keeps the page on screen, dimmed, until the next lands.
+  const usersQ = useUsers(ACTIVE, pageSize, { keepPrevious: true });
   const count = useUsersCount(ACTIVE);
   // It can't search, though, and filtering the one page on screen would miss
   // everyone on the others: a search reads the whole directory (the same
@@ -74,25 +81,25 @@ function Assignments() {
     enabled: searching,
     staleTime: 5 * 60 * 1000,
   });
+  // The matches, once the directory is here. Until then the page on screen
+  // stays, dimmed — a search no longer swaps the table for a skeleton.
+  const searched = searching && !!directory.data;
   const found = useMemo(
     () =>
-      searching
+      searched
         ? (directory.data ?? [])
             .filter((u) => u.status === UserStatus.ACTIVE && matches(u, term))
             .sort((a, b) => (personName(a) ?? "").localeCompare(personName(b) ?? ""))
         : [],
-    [searching, directory.data, term],
+    [searched, directory.data, term],
   );
 
-  const pager = usePager(
-    searching ? arraySource(found, pageSize, directory.isLoading) : pagedSource(usersQ),
-    {
-      total: searching ? found.length : count.data?.total,
-      totalIsFloor: searching ? false : count.data?.atLeast,
-      pageSize,
-      resetKey: JSON.stringify({ term, pageSize }),
-    },
-  );
+  const pager = usePager(searched ? arraySource(found, pageSize) : pagedSource(usersQ), {
+    total: searched ? found.length : count.data?.total,
+    totalIsFloor: searched ? false : count.data?.atLeast,
+    pageSize,
+    resetKey: JSON.stringify({ term: searched ? term : "", pageSize }),
+  });
 
   // Every assignment in one request, joined here by user id; a user without
   // one falls back to the van that names them as its technician.
@@ -108,13 +115,26 @@ function Assignments() {
     name: personName(u) ?? u.id,
     email: u.email,
     assignment: assignmentOf(u.id, rowsByUser, vans),
+    // No row of their own: their van, if any, is a legacy one the fleet names.
+    pending: !rowsByUser.has(u.id) && locations.isLoading,
   }));
+
+  // A row is drawn once it is whole: the user and their assignment. Drawn
+  // before the assignments, every row read "Not set" and then changed.
+  const loading =
+    (!searched && usersQ.isLoading && !usersQ.data) || (assignments.isLoading && !assignments.data);
+  const stale = pager.isStale || (searching && !directory.data);
+  const skeletonRows = useSkeletonRows(
+    TABLE_KEY,
+    pageSize,
+    count.data?.total,
+    loading || stale ? undefined : rows.length,
+  );
 
   const popups = useUrlPopups(PATH, POPUPS);
   const assignId = popups.param("assign");
 
-  const loading = searching ? directory.isLoading : usersQ.isLoading;
-  const failed = searching ? directory.isError : usersQ.isError;
+  const failed = searching ? directory.isError : usersQ.isError && !usersQ.data;
 
   return (
     <div className="flex flex-1 flex-col">
@@ -133,13 +153,7 @@ function Assignments() {
       </div>
 
       <div className="flex-1 px-6 pb-6">
-        {loading ? (
-          <div className="space-y-2">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <Skeleton key={i} className="h-12 w-full rounded-lg" />
-            ))}
-          </div>
-        ) : failed ? (
+        {failed ? (
           <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed py-16 text-center">
             <div className="flex size-12 items-center justify-center rounded-xl bg-destructive/10 text-destructive">
               <TriangleAlert className="size-6" />
@@ -149,7 +163,7 @@ function Assignments() {
               Retry
             </Button>
           </div>
-        ) : rows.length === 0 ? (
+        ) : !loading && !stale && rows.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed py-16 text-center">
             <div className="flex size-12 items-center justify-center rounded-xl bg-muted text-muted-foreground">
               <UsersRound className="size-6" />
@@ -163,8 +177,16 @@ function Assignments() {
           </div>
         ) : (
           <>
-            <UserContainersTable rows={rows} onAssign={(id) => popups.open("assign", id)} />
-            <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} />
+            {/* Loading, loaded or holding the page while a search reads the
+                directory — one table, so nothing under it moves. */}
+            <UserContainersTable
+              rows={rows}
+              loading={loading}
+              skeletonRows={skeletonRows}
+              stale={stale}
+              onAssign={(id) => popups.open("assign", id)}
+            />
+            <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} reserveSpace />
           </>
         )}
       </div>
@@ -178,15 +200,6 @@ function Assignments() {
           onOpenChange={(open) => (open ? undefined : popups.close())}
         />
       ) : null}
-    </div>
-  );
-}
-
-function NoAccess({ text }: { text: string }) {
-  return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
-      <h2 className="text-lg font-medium">No access</h2>
-      <p className="text-sm text-muted-foreground">{text}</p>
     </div>
   );
 }

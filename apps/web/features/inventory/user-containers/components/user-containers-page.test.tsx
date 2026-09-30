@@ -17,6 +17,13 @@ const mocks = vi.hoisted(() => ({
   params: new URLSearchParams(),
   push: vi.fn(),
   replace: vi.fn(),
+  permsLoading: false,
+  usersLoading: false,
+  assignmentsLoading: false,
+  locationsLoading: false,
+  /** The directory a search reads: held back until a test releases it. */
+  directoryGate: null as Promise<void> | null,
+  usersOptions: [] as unknown[],
 }));
 
 vi.mock("next/navigation", () => ({
@@ -25,19 +32,23 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/inventory/user-containers",
 }));
 vi.mock("@/features/auth/use-permissions", () => ({
-  useDenied: () => () => false,
+  useDenied: () => (resource: string, action = "view") =>
+    !mocks.permsLoading && mocks.denied.has(`${resource}.${action}`),
   usePermissions: () => ({
-    can: (resource: string, action = "view") => !mocks.denied.has(`${resource}.${action}`),
+    can: (resource: string, action = "view") =>
+      !mocks.permsLoading && !mocks.denied.has(`${resource}.${action}`),
+    isLoading: mocks.permsLoading,
   }),
 }));
 vi.mock("@/features/users/hooks", () => ({
-  useUsers: (filter: unknown) => {
+  useUsers: (filter: unknown, _limit: number, options?: unknown) => {
     mocks.userFilters.push(filter);
+    mocks.usersOptions.push(options);
     return {
-      data: { pages: [{ data: mocks.page, pagination: {} }] },
+      data: mocks.usersLoading ? undefined : { pages: [{ data: mocks.page, pagination: {} }] },
       hasNextPage: false,
       isFetchingNextPage: false,
-      isLoading: false,
+      isLoading: mocks.usersLoading,
       isError: false,
       fetchNextPage: vi.fn(),
       refetch: vi.fn(),
@@ -48,14 +59,23 @@ vi.mock("@/features/users/hooks", () => ({
 vi.mock("@/features/technicians/api", () => ({
   fetchAllUsers: async () => {
     mocks.directoryCalls += 1;
+    if (mocks.directoryGate) await mocks.directoryGate;
     return mocks.directory;
   },
 }));
 vi.mock("../hooks", () => ({
-  useUserContainers: () => ({ data: mocks.rows, isLoading: false, isError: false }),
+  useUserContainers: () => ({
+    data: mocks.assignmentsLoading ? undefined : mocks.rows,
+    isLoading: mocks.assignmentsLoading,
+    isError: false,
+  }),
 }));
 vi.mock("@/features/inventory/stock/hooks", () => ({
-  useAllLocations: () => ({ data: mocks.locations, isLoading: false, isError: false }),
+  useAllLocations: () => ({
+    data: mocks.locationsLoading ? [] : mocks.locations,
+    isLoading: mocks.locationsLoading,
+    isError: false,
+  }),
 }));
 // The popup has a suite of its own; here only which user the URL opens matters.
 vi.mock("./assign-container-dialog", () => ({
@@ -105,6 +125,12 @@ beforeEach(() => {
   ];
   mocks.params = new URLSearchParams();
   mocks.push.mockReset();
+  mocks.permsLoading = false;
+  mocks.usersLoading = false;
+  mocks.assignmentsLoading = false;
+  mocks.locationsLoading = false;
+  mocks.directoryGate = null;
+  mocks.usersOptions = [];
 });
 
 const rowOf = (name: string) => screen.getByText(name).closest("tr") as HTMLElement;
@@ -186,5 +212,62 @@ describe("UserContainersPage — access", () => {
     renderWithClient(<UserContainersPage />);
     expect(screen.getByText(/permission to view users/i)).toBeInTheDocument();
     expect(screen.queryByRole("table")).toBeNull();
+  });
+});
+
+/**
+ * "Nothing jumps": the table is drawn at its own size while loading, a row
+ * never reads "Not set" and then changes its mind, and a search keeps the
+ * page on screen while the directory downloads.
+ */
+describe("UserContainersPage — a stable first frame", () => {
+  it("draws the real table while the first page loads, with the pager's space held", () => {
+    mocks.usersLoading = true;
+    renderWithClient(<UserContainersPage />);
+    expect([...document.querySelectorAll("thead th")].map((th) => th.textContent)).toContain("Container");
+    expect(screen.getAllByTestId("skeleton-row").length).toBeGreaterThan(0);
+    expect(screen.getByTestId("list-pagination")).toHaveAttribute("aria-busy", "true");
+  });
+
+  it("waits for the assignments before it draws a row — no Not set that turns into a van", () => {
+    mocks.assignmentsLoading = true;
+    renderWithClient(<UserContainersPage />);
+    expect(screen.queryByText("Not set")).toBeNull();
+    expect(screen.getAllByTestId("skeleton-row").length).toBeGreaterThan(0);
+  });
+
+  it("lets a user without a row wait for the fleet, rather than reading Not set first", () => {
+    mocks.locationsLoading = true;
+    renderWithClient(<UserContainersPage />);
+    // Taras has his row: named at once. Olha has none: her van may be a legacy one.
+    expect(rowOf("Taras Koval")).toHaveTextContent("Van 1");
+    expect(rowOf("Olha Melnyk")).not.toHaveTextContent("Not set");
+    expect(rowOf("Olha Melnyk").querySelector("[data-testid=assignment-pending]")).not.toBeNull();
+  });
+
+  it("keeps the page on screen, dimmed, while a search downloads the directory", async () => {
+    let release: () => void = () => {};
+    mocks.directoryGate = new Promise<void>((r) => (release = r));
+    renderWithClient(<UserContainersPage />);
+    await userEvent.type(screen.getByRole("searchbox", { name: "Search users" }), "pav");
+    await waitFor(() => expect(mocks.directoryCalls).toBe(1));
+
+    expect(screen.getByText("Taras Koval")).toBeInTheDocument();
+    expect(screen.queryByTestId("skeleton-row")).toBeNull();
+    expect(screen.getByRole("table")).toHaveAttribute("aria-busy", "true");
+
+    release();
+    await waitFor(() => expect(screen.getByText("Pavlo Bondar")).toBeInTheDocument());
+  });
+
+  it("asks the users list to keep its page while the next size loads", () => {
+    renderWithClient(<UserContainersPage />);
+    expect(mocks.usersOptions.at(-1)).toMatchObject({ keepPrevious: true });
+  });
+
+  it("never flashes No access while permissions are still loading", () => {
+    mocks.permsLoading = true;
+    renderWithClient(<UserContainersPage />);
+    expect(screen.queryByText("No access")).toBeNull();
   });
 });
