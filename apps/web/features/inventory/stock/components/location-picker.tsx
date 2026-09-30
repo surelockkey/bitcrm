@@ -30,6 +30,11 @@ export function LocationPicker({
   open,
   onOpenChange,
   loading,
+  hint = locationHint,
+  placeholder = "Pick a location",
+  searchPlaceholder = "Search locations",
+  emptyText = "No other locations.",
+  disabled = false,
 }: {
   labelId: string;
   groups: { warehouses: StockLocation[]; containers: StockLocation[] };
@@ -38,6 +43,12 @@ export function LocationPicker({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   loading?: boolean;
+  /** Each option's second line; by default a van's technician and department. */
+  hint?: (location: StockLocation) => string;
+  placeholder?: string;
+  searchPlaceholder?: string;
+  emptyText?: string;
+  disabled?: boolean;
 }) {
   const empty = groups.warehouses.length === 0 && groups.containers.length === 0;
   const listId = useId();
@@ -51,16 +62,17 @@ export function LocationPicker({
         aria-expanded={open}
         aria-controls={listId}
         aria-haspopup="listbox"
+        disabled={disabled}
         onClick={() => onOpenChange(!open)}
-        className="flex h-10 w-full items-center justify-between gap-2 rounded-md border border-input bg-card px-2.5 text-left text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30"
+        className="flex h-10 w-full items-center justify-between gap-2 rounded-md border border-input bg-card px-2.5 text-left text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30"
       >
         <span className={cn("truncate", !value && "text-muted-foreground")}>
-          {value ? value.name : "Pick a location"}
+          {value ? value.name : placeholder}
         </span>
         <ChevronsUpDown className="size-4 shrink-0 opacity-50" />
       </button>
 
-      {open ? (
+      {open && !disabled ? (
         <>
           {/* Inside the dialog a click anywhere else closes the list; outside
               it the dialog's own dismissal takes over. */}
@@ -70,17 +82,17 @@ export function LocationPicker({
             className="absolute inset-x-0 top-full z-20 mt-1 overflow-hidden rounded-lg border bg-popover shadow-md"
           >
             <Command loop>
-              <CommandInput autoFocus placeholder="Search locations" className="h-9" />
+              <CommandInput autoFocus placeholder={searchPlaceholder} className="h-9" />
               <CommandList className="max-h-60">
                 {loading ? (
                   <div className="py-6 text-center text-sm text-muted-foreground">Loading locations…</div>
                 ) : empty ? (
-                  <div className="py-6 text-center text-sm text-muted-foreground">No other locations.</div>
+                  <div className="py-6 text-center text-sm text-muted-foreground">{emptyText}</div>
                 ) : (
                   <>
                     <CommandEmpty>No location matches.</CommandEmpty>
-                    <Group heading="Warehouses" locations={groups.warehouses} value={value} onPick={onChange} />
-                    <Group heading="Containers" locations={groups.containers} value={value} onPick={onChange} />
+                    <Group heading="Warehouses" locations={groups.warehouses} value={value} onPick={onChange} hint={hint} />
+                    <Group heading="Containers" locations={groups.containers} value={value} onPick={onChange} hint={hint} />
                   </>
                 )}
               </CommandList>
@@ -97,17 +109,19 @@ function Group({
   locations,
   value,
   onPick,
+  hint: hintOf,
 }: {
   heading: string;
   locations: StockLocation[];
   value: StockLocation | null;
   onPick: (location: StockLocation) => void;
+  hint: (location: StockLocation) => string;
 }) {
   if (locations.length === 0) return null;
   return (
     <CommandGroup heading={heading}>
       {locations.map((l) => {
-        const hint = locationHint(l);
+        const hint = hintOf(l);
         const picked = value?.type === l.type && value.id === l.id;
         return (
           <CommandItem

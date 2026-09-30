@@ -80,6 +80,8 @@ export interface ContainerUser {
   userId: string;
   /** `undefined` while the directory hasn't named them — never their id. */
   name?: string;
+  /** Not an assignment: the van names them as its technician. */
+  legacy?: boolean;
 }
 
 /** Who works from each van, by name — from the assignment rows. */
@@ -98,6 +100,24 @@ export function containerUserNames(
     list.sort((a, b) => (a.name ?? "").localeCompare(b.name ?? ""));
   }
   return byVan;
+}
+
+/**
+ * Who works from one van: the users whose row names it. With none, the van's
+ * own technician — the pre-assignment link — unless a row of theirs sends
+ * them somewhere else.
+ */
+export function usersOfContainer(
+  van: StockLocation,
+  byVan: Map<string, ContainerUser[]>,
+  rowsByUser: Map<string, UserContainer>,
+): ContainerUser[] {
+  const assigned = byVan.get(van.id);
+  if (assigned?.length) return assigned;
+  if (van.technicianId && !rowsByUser.has(van.technicianId)) {
+    return [{ userId: van.technicianId, name: van.technicianName?.trim() || undefined, legacy: true }];
+  }
+  return [];
 }
 
 /** "Ann, Bob" and how many more: a cell shows two names and "+N". */

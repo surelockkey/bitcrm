@@ -36,6 +36,35 @@ describe("InventoryTabs", () => {
     );
   });
 
+  it("puts User containers after Containers, on the containers permission", () => {
+    permissionsMock.mockReturnValue({ can: (r: string) => r === "containers" });
+    pathnameMock.mockReturnValue("/inventory/containers");
+    render(<InventoryTabs />);
+
+    expect(screen.getAllByRole("link").map((a) => a.textContent)).toEqual([
+      "Containers",
+      "User containers",
+    ]);
+    expect(screen.getByRole("link", { name: "User containers" })).toHaveAttribute(
+      "href",
+      "/inventory/user-containers",
+    );
+    // "/inventory/user-containers" is not "/inventory/containers".
+    expect(screen.getByRole("link", { name: "User containers" })).not.toHaveAttribute("aria-current");
+  });
+
+  it("lists the sections in Workiz's order", () => {
+    permissionsMock.mockReturnValue({ can: () => true });
+    render(<InventoryTabs />);
+    expect(screen.getAllByRole("link").map((a) => a.textContent)).toEqual([
+      "Items",
+      "Warehouses",
+      "Containers",
+      "User containers",
+      "Transfers",
+    ]);
+  });
+
   it("marks the tab matching the current pathname as current", () => {
     permissionsMock.mockReturnValue({ can: () => true });
     pathnameMock.mockReturnValue("/inventory/warehouses");

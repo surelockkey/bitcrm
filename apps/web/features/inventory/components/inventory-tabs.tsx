@@ -10,6 +10,7 @@ const TABS: { label: string; href: string; resource: Resource }[] = [
   { label: "Items", href: "/inventory/items", resource: "products" },
   { label: "Warehouses", href: "/inventory/warehouses", resource: "warehouses" },
   { label: "Containers", href: "/inventory/containers", resource: "containers" },
+  { label: "User containers", href: "/inventory/user-containers", resource: "containers" },
   { label: "Transfers", href: "/inventory/transfers", resource: "transfers" },
 ];
 

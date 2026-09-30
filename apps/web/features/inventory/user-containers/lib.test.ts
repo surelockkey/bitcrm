@@ -8,6 +8,7 @@ import {
   containerUserNames,
   nameOf,
   namesSummary,
+  usersOfContainer,
 } from "./lib";
 
 const row = (over: Partial<UserContainer>): UserContainer => ({
@@ -125,5 +126,30 @@ describe("namesSummary", () => {
     expect(namesSummary(["Ann", "Bob"])).toEqual({ text: "Ann, Bob", more: 0 });
     expect(namesSummary(["Ann", "Bob", "Cid", "Dan"])).toEqual({ text: "Ann, Bob", more: 2 });
     expect(namesSummary([])).toEqual({ text: "", more: 0 });
+  });
+});
+
+describe("usersOfContainer", () => {
+  const rows = [
+    row({ userId: "u1", userName: "Taras Koval", containerId: "c1" }),
+    row({ userId: "u5", userName: "Olha", access: UserContainerAccess.ALL, containerId: undefined }),
+  ];
+  const byUser = new Map(rows.map((r) => [r.userId, r] as const));
+  const byVan = containerUserNames(rows, new Map());
+
+  it("is the users whose row names the van", () => {
+    expect(usersOfContainer(van({ id: "c1", technicianId: "u9", technicianName: "Old Tech" }), byVan, byUser)).toEqual([
+      { userId: "u1", name: "Taras Koval" },
+    ]);
+  });
+
+  // No row points at the van: its technician still works from it — unless a
+  // row of their own sends them elsewhere.
+  it("falls back to the van's legacy technician when no row points at it", () => {
+    expect(usersOfContainer(van({ id: "c2", technicianId: "u2", technicianName: "Pavlo" }), byVan, byUser)).toEqual([
+      { userId: "u2", name: "Pavlo", legacy: true },
+    ]);
+    expect(usersOfContainer(van({ id: "c2", technicianId: "u5", technicianName: "Olha" }), byVan, byUser)).toEqual([]);
+    expect(usersOfContainer(van({ id: "c3" }), byVan, byUser)).toEqual([]);
   });
 });
