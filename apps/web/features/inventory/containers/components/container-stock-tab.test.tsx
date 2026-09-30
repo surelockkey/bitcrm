@@ -54,6 +54,13 @@ describe("ContainerStockTab", () => {
 describe("ContainerStockTab — a stable first frame", () => {
   const table = () => render(<ContainerStockTab containerId="c1" />).container;
 
+  it("scrolls sideways instead of clipping when the columns outgrow the screen", () => {
+    const frame = table().querySelector("[data-slot=table-frame]") as HTMLElement;
+    expect(frame).not.toBeNull();
+    expect(frame.className).toMatch(/overflow-x-auto/);
+    expect(frame.className).not.toMatch(/overflow-hidden/);
+  });
+
   it("lays the columns out at declared widths, not by content", () => {
     expect(table().querySelector("table")?.className).toContain("table-fixed");
   });

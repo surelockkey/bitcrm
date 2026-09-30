@@ -192,6 +192,26 @@ describe("ProductsTable — a stable first frame", () => {
     }
   });
 
+  // У браузері на 1600px колонка Actions обрізалась до «Actio», а кнопка
+  // Manage stock зникала: сума ширин (1430) не влазила в ~1250px вмісту.
+  it("fits a ~1250px content area at its default widths, Cost column included", () => {
+    const { container } = table();
+    const widths = [...container.querySelectorAll("colgroup col")].map((col) =>
+      parseFloat((col as HTMLElement).style.width),
+    );
+    expect(widths.reduce((a, b) => a + b, 0)).toBeLessThanOrEqual(1250);
+  });
+
+  // Ширше за екран (перетягнута межа, вузьке вікно) — прокрутка вбік, а не
+  // обрізана остання колонка.
+  it("scrolls sideways instead of clipping when the columns outgrow the screen", () => {
+    const { container } = table();
+    const frame = container.querySelector("[data-slot=table-frame]") as HTMLElement;
+    expect(frame).not.toBeNull();
+    expect(frame.className).toMatch(/overflow-x-auto/);
+    expect(frame.className).not.toMatch(/overflow-hidden/);
+  });
+
   it("offers a drag handle on every header", () => {
     table();
     for (const id of [

@@ -26,6 +26,7 @@ import { usePermissions } from "@/features/auth/use-permissions";
 import { useProduct, useProductStock } from "@/features/inventory/products/hooks";
 import { filterStockRows, pageSlice, stockSummary } from "../lib";
 import { StockRowActions } from "./stock-row-actions";
+import { TableFrame } from "@/features/inventory/components/table-frame";
 import {
   PAGE_SIZES,
   PanelError,
@@ -180,7 +181,7 @@ function StockBody({
           }}
         />
 
-        <div className="overflow-hidden border bg-background">
+        <TableFrame className="bg-background">
           {/* Fixed layout: a long van name clips instead of pushing the
               columns about; on a phone the table scrolls sideways. */}
           <Table className="min-w-[36rem] table-fixed">
@@ -220,7 +221,7 @@ function StockBody({
               )}
             </TableBody>
           </Table>
-        </div>
+        </TableFrame>
 
         <PanelPager view={view} onPage={setPage} />
       </div>

@@ -25,6 +25,7 @@ import { ListPagination } from "@/components/ui/list-pagination";
 import { pagedSource } from "@/lib/paging/paged-source";
 import { usePageSize } from "@/lib/paging/use-page-size";
 import { usePager } from "@/lib/paging/use-pager";
+import { TableFrame } from "@/features/inventory/components/table-frame";
 
 /**
  * The columns, with the width each one starts at — read by both the
@@ -124,7 +125,7 @@ export function TransfersPage() {
           </div>
         ) : (
           <>
-            <div className="overflow-hidden border">
+            <TableFrame>
               {/* `table-fixed`: the column decides its width, not the
                   longest item list on the page — and the reader can drag
                   the edge. */}
@@ -169,7 +170,7 @@ export function TransfersPage() {
                   })}
                 </TableBody>
               </Table>
-            </div>
+            </TableFrame>
             <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} />
           </>
         )}

@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils";
 import { RowIconAction } from "@/features/inventory/components/row-icon-action";
 import { useContainerStockView } from "../hooks";
 import { containerTitle } from "../lib";
+import { TableFrame } from "@/features/inventory/components/table-frame";
 
 /**
  * The columns, with the width each one starts at — read by both the
@@ -50,7 +51,7 @@ export function ContainersTable({
   const { widthOf, setWidth, reset } = useColumnWidths(TABLE_KEY, DEFAULT_WIDTHS);
 
   return (
-    <div className="overflow-hidden border">
+    <TableFrame>
       {/* `table-fixed`: the column decides its width, not the longest van
           name in the list — and the reader can drag the edge. */}
       <Table className="table-fixed">
@@ -79,7 +80,7 @@ export function ContainersTable({
           ))}
         </TableBody>
       </Table>
-    </div>
+    </TableFrame>
   );
 }
 

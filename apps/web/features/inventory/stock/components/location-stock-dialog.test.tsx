@@ -156,6 +156,15 @@ describe("LocationStockDialog — a van's stock", () => {
     }
   });
 
+  it("scrolls the table sideways instead of clipping it", async () => {
+    open();
+    await screen.findByText("Deadbolt");
+    const frame = document.querySelector('[role="dialog"] [data-slot=table-frame]') as HTMLElement;
+    expect(frame).not.toBeNull();
+    expect(frame.className).toMatch(/overflow-x-auto/);
+    expect(frame.className).not.toMatch(/overflow-hidden/);
+  });
+
   it("hides items the van holds none of", async () => {
     open();
     await screen.findByText("Deadbolt");

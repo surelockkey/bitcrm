@@ -16,6 +16,7 @@ import type { Product } from "@bitcrm/types";
 import { cn } from "@/lib/utils";
 import { formatMoney } from "../lib";
 import { RowIconAction } from "@/features/inventory/components/row-icon-action";
+import { TableFrame } from "@/features/inventory/components/table-frame";
 import { ProductRowActions } from "./product-row-actions";
 
 type ColumnId =
@@ -36,17 +37,21 @@ type ColumnId =
  * twice is a width that drifts. From here on the reader owns it — the drag
  * handle writes their own into `useColumnWidths`. Everything is left-aligned,
  * money and counts included: that is how Workiz lays the grid out.
+ *
+ * Together they fit the ~1250px a 1600px screen leaves beside the sidebar —
+ * at 1430 the Actions column was cut to "Actio" and Manage stock went missing.
  */
 const COLUMNS: { id: ColumnId; label: string; width: number }[] = [
-  { id: "productId", label: "Product ID", width: 110 },
-  { id: "name", label: "Name", width: 280 },
-  { id: "description", label: "Description", width: 280 },
-  { id: "price", label: "Price", width: 110 },
-  { id: "cost", label: "Cost", width: 110 },
-  { id: "quantity", label: "Quantity", width: 100 },
-  { id: "sku", label: "SKU", width: 150 },
-  { id: "category", label: "Category", width: 160 },
-  { id: "actions", label: "Actions", width: 130 },
+  { id: "productId", label: "Product ID", width: 100 },
+  { id: "name", label: "Name", width: 260 },
+  { id: "description", label: "Description", width: 220 },
+  { id: "price", label: "Price", width: 95 },
+  { id: "cost", label: "Cost", width: 95 },
+  { id: "quantity", label: "Quantity", width: 90 },
+  { id: "sku", label: "SKU", width: 130 },
+  { id: "category", label: "Category", width: 130 },
+  // Three 32px buttons, their gaps and the cell's padding.
+  { id: "actions", label: "Actions", width: 120 },
 ];
 
 const DEFAULT_WIDTHS = Object.fromEntries(COLUMNS.map((c) => [c.id, c.width]));
@@ -70,7 +75,7 @@ export function ProductsTable({
   const columns = showCost ? COLUMNS : COLUMNS.filter((c) => c.id !== "cost");
 
   return (
-    <div className="overflow-hidden border">
+    <TableFrame>
       {/*
         `table-fixed` with a declared width per column: a 70-character product
         name used to take 739px of the 1182 available. Now the column decides,
@@ -113,7 +118,7 @@ export function ProductsTable({
           })}
         </TableBody>
       </Table>
-    </div>
+    </TableFrame>
   );
 }
 

@@ -27,6 +27,7 @@ import { useWarehouse, useWarehouseStockView } from "@/features/inventory/wareho
 import type { EnrichedStockRow, StockSummary } from "@/features/inventory/warehouses/lib";
 import { filterItemRows, locationCards, pageSlice } from "../lib";
 import { StockRowActions } from "./stock-row-actions";
+import { TableFrame } from "@/features/inventory/components/table-frame";
 import {
   PAGE_SIZES,
   PanelError,
@@ -191,7 +192,7 @@ function StockBody({
           }}
         />
 
-        <div className="overflow-hidden border bg-background">
+        <TableFrame className="bg-background">
           {/* Fixed layout: a long item name clips instead of pushing the
               columns about; on a phone the table scrolls sideways. */}
           <Table className="min-w-[32rem] table-fixed">
@@ -223,7 +224,7 @@ function StockBody({
               )}
             </TableBody>
           </Table>
-        </div>
+        </TableFrame>
 
         <PanelPager view={view} onPage={setPage} />
       </div>

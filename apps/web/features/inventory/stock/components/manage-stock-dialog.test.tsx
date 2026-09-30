@@ -150,6 +150,14 @@ describe("ManageStockDialog — the Workiz popup", () => {
     expect(rows.map((r) => r[2])).toEqual(["300", "0", "69"]);
   });
 
+  it("scrolls the table sideways instead of clipping it", () => {
+    open();
+    const frame = document.querySelector('[role="dialog"] [data-slot=table-frame]') as HTMLElement;
+    expect(frame).not.toBeNull();
+    expect(frame.className).toMatch(/overflow-x-auto/);
+    expect(frame.className).not.toMatch(/overflow-hidden/);
+  });
+
   it("left-aligns the table — numbers included", () => {
     open();
     const cells = document.querySelectorAll('[role="dialog"] th, [role="dialog"] td');
