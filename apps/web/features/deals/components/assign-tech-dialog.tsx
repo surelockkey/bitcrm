@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { ChevronDown, Loader2, MapPin, Package, Search } from "lucide-react";
 import {
   Dialog,
@@ -51,12 +51,15 @@ export function AssignTechDialog({
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<string[]>(assignedTechIds);
 
-  // Re-seed whenever the dialog reopens against a changed roster.
-  useEffect(() => {
+  // Re-seed whenever the dialog reopens against a changed roster — during
+  // render, not in an effect, so the first open frame already shows it.
+  const [seed, setSeed] = useState({ open, ids: assignedTechIds });
+  if (seed.open !== open || seed.ids !== assignedTechIds) {
+    setSeed({ open, ids: assignedTechIds });
     if (open) setSelected(assignedTechIds);
-  }, [open, assignedTechIds]);
+  }
 
-  const techs = qualified.data ?? [];
+  const techs = useMemo(() => qualified.data ?? [], [qualified.data]);
   const filtered = useMemo(() => {
     const s = search.trim().toLowerCase();
     if (!s) return techs;
