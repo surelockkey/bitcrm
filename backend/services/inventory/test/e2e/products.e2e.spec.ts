@@ -208,7 +208,30 @@ describe('Products E2E', () => {
 
     expect(res.body.success).toBe(true);
     expect(res.body.data.name).toBe('Updated Name');
-    expect(res.body.data.costCompany).toBe(99);
+    // The admin role has no financials.view: the company cost is written but never answered.
+    expect(res.body.data.costCompany).toBeUndefined();
+    expect(res.body.data.costTech).toBeDefined();
+
+    const superAdmin: JwtUser = {
+      id: 'sa-1', cognitoSub: 'sub-sa', email: 'sa@test.com', roleId: 'role-super-admin', department: 'HQ',
+    };
+    const seen = await request(app.getHttpServer())
+      .get(`${BASE}/${product.id}`)
+      .set('x-test-user', createTestUserHeader(superAdmin))
+      .expect(200);
+    expect(seen.body.data.costCompany).toBe(99);
+
+    // A later edit that never sends the cost keeps it.
+    await request(app.getHttpServer())
+      .put(`${BASE}/${product.id}`)
+      .set('x-test-user', createTestUserHeader(adminUser))
+      .send({ name: 'Renamed again' })
+      .expect(200);
+    const kept = await request(app.getHttpServer())
+      .get(`${BASE}/${product.id}`)
+      .set('x-test-user', createTestUserHeader(superAdmin))
+      .expect(200);
+    expect(kept.body.data.costCompany).toBe(99);
   });
 
   // ---- DELETE / ARCHIVE ----
