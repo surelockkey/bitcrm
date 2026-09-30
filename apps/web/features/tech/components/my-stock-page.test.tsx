@@ -41,7 +41,6 @@ function stock(over: Record<string, unknown> = {}) {
     summary: { skuCount: 2, totalUnits: 122, totalValue: 0, lowCount: 1 },
     isLoading: false,
     isError: false,
-    joinReady: true,
     ...over,
   };
 }

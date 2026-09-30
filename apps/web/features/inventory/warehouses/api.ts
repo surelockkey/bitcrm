@@ -82,10 +82,3 @@ export function fetchAllProducts(): Promise<Product[]> {
   return fetchProducts({}, 5000);
 }
 
-/**
- * Every stock-managed item, for joining stock rows to the catalog: no other
- * item ever has a stock row. The cap sits above the imported price book.
- */
-export function fetchStockManagedProducts(): Promise<Product[]> {
-  return fetchProducts({ manageStock: "true" }, 20000);
-}

@@ -1,10 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { http, HttpResponse } from "msw";
-import { LocationType, ReturnReason, TransferType } from "@bitcrm/types";
+import { InventoryStatus, LocationType, ReturnReason, TransferType } from "@bitcrm/types";
 import { server } from "@/test/msw/server";
 import {
   fetchAllContainers,
   fetchAllWarehouses,
+  getLocationStock,
   moveStock,
   receiveStock,
   returnStock,
@@ -89,5 +90,48 @@ describe("fetchAllContainers / fetchAllWarehouses", () => {
     const all = await fetchAllWarehouses();
     expect(all).toHaveLength(2000);
     expect(calls).toHaveLength(20);
+  });
+});
+
+/**
+ * One location's stock in one request, named and priced by the server —
+ * joining it to the whole stock-managed catalog was 32 sequential requests
+ * and eight seconds on dev.
+ */
+describe("getLocationStock", () => {
+  const view = {
+    locationType: "container",
+    locationId: "c1",
+    name: "Taras's van",
+    status: InventoryStatus.ACTIVE,
+    rows: [{ productId: "p1", productName: "Deadbolt", sku: "LOCK-001", quantity: 6, priceClient: 45 }],
+  };
+
+  it("reads GET /inventory/stock/locations/:type/:id", async () => {
+    const paths: string[] = [];
+    server.use(
+      http.get("*/inventory/stock/locations/:type/:id", ({ request }) => {
+        paths.push(new URL(request.url).pathname);
+        return HttpResponse.json({ success: true, data: view });
+      }),
+    );
+    expect(await getLocationStock("container", "c1")).toEqual(view);
+    await getLocationStock("warehouse", "w1");
+    expect(paths.map((p) => p.replace(/^.*\/inventory/, "/inventory"))).toEqual([
+      "/inventory/stock/locations/container/c1",
+      "/inventory/stock/locations/warehouse/w1",
+    ]);
+  });
+
+  it("encodes the id rather than trusting it", async () => {
+    const paths: string[] = [];
+    server.use(
+      http.get("*/inventory/stock/locations/*", ({ request }) => {
+        paths.push(new URL(request.url).pathname);
+        return HttpResponse.json({ success: true, data: view });
+      }),
+    );
+    await getLocationStock("container", "a/b");
+    expect(paths[0]).toMatch(/\/inventory\/stock\/locations\/container\/a%2Fb$/);
   });
 });

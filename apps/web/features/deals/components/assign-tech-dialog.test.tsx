@@ -3,9 +3,10 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { QualifiedTech } from "../api";
 
-const { qualified, assign } = vi.hoisted(() => ({
+const { qualified, assign, carried } = vi.hoisted(() => ({
   qualified: { data: [] as QualifiedTech[], isLoading: false },
   assign: { mutate: vi.fn(), isPending: false },
+  carried: { data: [] as { productId: string; productName: string; quantity: number }[] },
 }));
 
 vi.mock("../hooks", () => ({
@@ -13,10 +14,7 @@ vi.mock("../hooks", () => ({
   useAssignTechs: () => assign,
 }));
 vi.mock("../tech-stock", () => ({
-  useTechStock: () => ({ data: new Map(), isLoading: false, isError: false }),
-}));
-vi.mock("@/features/inventory/warehouses/hooks", () => ({
-  useProductMap: () => ({ data: new Map() }),
+  useTechStock: () => ({ data: carried.data, isLoading: false, isError: false }),
 }));
 
 import { AssignTechDialog } from "./assign-tech-dialog";
@@ -114,5 +112,33 @@ describe("AssignTechDialog — a row that is not a technician", () => {
 
     expect(screen.getByLabelText("Assign Alex Rivera")).not.toBeDisabled();
     expect(screen.getByText("Outside service area")).toBeInTheDocument();
+  });
+});
+
+/**
+ * What the technician carries, named by the stock endpoint itself — the
+ * dialog used to page the whole stock-managed catalog to put names on it.
+ */
+describe("AssignTechDialog — carried items", () => {
+  beforeEach(() => {
+    qualified.data = [tech({})];
+    carried.data = [];
+  });
+
+  it("lists what the van holds by name, with the quantity", async () => {
+    carried.data = [
+      { productId: "p1", productName: "Deadbolt", quantity: 3 },
+      { productId: "p2", productName: "Key blank", quantity: 40 },
+    ];
+    show();
+    await userEvent.click(screen.getByRole("button", { name: "Show carried items" }));
+    expect(screen.getByText("Deadbolt")).toBeInTheDocument();
+    expect(screen.getByText("40")).toBeInTheDocument();
+  });
+
+  it("says so when the van is empty", async () => {
+    show();
+    await userEvent.click(screen.getByRole("button", { name: "Show carried items" }));
+    expect(screen.getByText("Carries no stock right now.")).toBeInTheDocument();
   });
 });

@@ -6,7 +6,7 @@ import { http, HttpResponse } from "msw";
 import { InventoryStatus } from "@bitcrm/types";
 import { server } from "@/test/msw/server";
 import type { ContainerFilter } from "./api";
-import { useContainersCount, useContainersList } from "./hooks";
+import { useContainerStockView, useContainersCount, useContainersList } from "./hooks";
 
 function wrapper(client: QueryClient) {
   return function Wrapper({ children }: { children: ReactNode }) {
@@ -65,5 +65,40 @@ describe("fleet list + count hooks", () => {
     });
     expect(lists[1]).toEqual({ search: "van", department: "South", status: "active", limit: "25" });
     expect(counts[1]).toEqual({ search: "van", department: "South", status: "active" });
+  });
+});
+
+/**
+ * The van's stock is one request now, named and priced on the server —
+ * never the whole stock-managed catalog (3 102 items, 32 sequential requests).
+ */
+describe("useContainerStockView", () => {
+  it("reads GET /stock/locations/container/:id and nothing else", async () => {
+    const urls: string[] = [];
+    server.events.on("request:start", ({ request }) => {
+      urls.push(new URL(request.url).pathname.replace(/^.*\/inventory/, "/inventory"));
+    });
+    server.use(
+      http.get("*/inventory/stock/locations/container/c1", () =>
+        HttpResponse.json({
+          success: true,
+          data: {
+            locationType: "container",
+            locationId: "c1",
+            name: "Main",
+            status: InventoryStatus.ACTIVE,
+            rows: [{ productId: "p1", productName: "Deadbolt", quantity: 6, priceClient: 45 }],
+          },
+        }),
+      ),
+    );
+    const client = new QueryClient();
+    const { result } = renderHook(() => useContainerStockView("c1"), { wrapper: wrapper(client) });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    server.events.removeAllListeners();
+
+    expect(urls).toEqual(["/inventory/stock/locations/container/c1"]);
+    expect(result.current.rows.map((r) => [r.name, r.quantity])).toEqual([["Deadbolt", 6]]);
+    expect(result.current.summary).toMatchObject({ skuCount: 1, totalUnits: 6, totalValue: 270 });
   });
 });

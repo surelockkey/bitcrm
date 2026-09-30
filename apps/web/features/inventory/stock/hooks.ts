@@ -3,17 +3,18 @@
 import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient, type Query } from "@tanstack/react-query";
 import { toast } from "sonner";
-import type { Transfer } from "@bitcrm/types";
+import type { LocationSummaryType, Transfer } from "@bitcrm/types";
+import { summarizeStock } from "@/features/inventory/warehouses/lib";
 import { queryKeys } from "@/lib/query-keys";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import * as api from "./api";
-import { movementMessages, toLocations, type Movement } from "./lib";
+import { movementMessages, stockRowsOf, toLocations, type Movement } from "./lib";
 
 /**
  * The item queries a movement changes: the list and the popup show `onHand`,
  * and `stock` is the per-location split. Not the rest of `products` — the
- * catalog maps hold nothing a movement touches, and re-reading the
- * stock-managed one is up to 200 sequential requests.
+ * whole-catalog map the job pickers hold has nothing a movement touches, and
+ * re-reading it is dozens of sequential requests.
  */
 const movedByStock = ({ queryKey: [root, second, third] }: Query) =>
   root === "products" && (second === "list" || second === "detail" || third === "stock");
@@ -76,5 +77,32 @@ export function useAllLocations(enabled = true) {
     data,
     isLoading: warehouses.isLoading || containers.isLoading,
     isError: warehouses.isError && containers.isError,
+  };
+}
+
+/**
+ * One warehouse's or van's stock, in one request: named, priced and in name
+ * order from the server. `name` and `status` come with it, so a popup needs
+ * nothing else to title itself.
+ */
+export function useLocationStock(type: LocationSummaryType, id: string, enabled = true) {
+  const query = useQuery({
+    queryKey: queryKeys.inventory.locationStock(type, id),
+    queryFn: () => api.getLocationStock(type, id),
+    enabled: enabled && !!id,
+    staleTime: 30 * 1000,
+  });
+  const rows = useMemo(() => stockRowsOf(query.data?.rows ?? []), [query.data]);
+  const summary = useMemo(() => summarizeStock(rows), [rows]);
+
+  return {
+    name: query.data?.name,
+    status: query.data?.status,
+    rows,
+    summary,
+    isLoading: query.isLoading,
+    isError: query.isError,
+    error: query.error,
+    refetch: query.refetch,
   };
 }

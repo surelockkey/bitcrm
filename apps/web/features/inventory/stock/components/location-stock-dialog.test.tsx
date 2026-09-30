@@ -2,11 +2,11 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
-import { InventoryStatus, ProductType, ReturnReason } from "@bitcrm/types";
-import type { Container, Product, StockItem, Warehouse } from "@bitcrm/types";
+import { InventoryStatus, ReturnReason } from "@bitcrm/types";
 import { server } from "@/test/msw/server";
 import { renderWithClient } from "@/test/render-with-client";
 import type { StockLocation } from "../lib";
+import type { LocationStockRow } from "../api";
 
 type Mutate = (vars: unknown, opts?: { onSuccess?: () => void }) => void;
 
@@ -40,7 +40,9 @@ const mutation = (fn: (vars: unknown) => void) => ({
     opts?.onSuccess?.();
   }) as Mutate,
 });
-vi.mock("../hooks", () => ({
+vi.mock("../hooks", async (importOriginal) => ({
+  // The stock itself is read for real, through MSW.
+  useLocationStock: (await importOriginal<typeof import("../hooks")>()).useLocationStock,
   useMoveStock: () => mutation(mocks.move),
   useReturnStock: () => mutation(mocks.ret),
   useReceiveStock: () => mutation(mocks.receive),
@@ -49,49 +51,20 @@ vi.mock("../hooks", () => ({
 
 import { LocationStockDialog } from "./location-stock-dialog";
 
-function product(over: Partial<Product>): Product {
-  return {
-    id: "p1",
-    sku: "SKU",
-    name: "Item",
-    category: "Locks",
-    type: ProductType.PRODUCT,
-    costCompany: 0,
-    costTech: 0,
-    priceClient: 0,
-    serialTracking: false,
-    minimumStockLevel: 0,
-    status: active,
-    createdAt: "",
-    updatedAt: "",
-    ...over,
-  };
-}
+const row = (
+  productId: string,
+  productName: string,
+  quantity: number,
+  over: Partial<LocationStockRow> = {},
+): LocationStockRow => ({ productId, productName, quantity, ...over });
 
-const PRODUCTS = [
-  product({ id: "p1", name: "Deadbolt", sku: "LOCK-001", priceClient: 45, minimumStockLevel: 10 }),
-  product({ id: "p2", name: "Key blank", sku: "KEY-7", priceClient: 3 }),
-  product({ id: "p3", name: "Strike plate", sku: "STR-1", priceClient: 12 }),
-];
-
-const stockRow = (productId: string, productName: string, quantity: number): StockItem => ({
-  productId,
-  productName,
-  quantity,
-  updatedAt: "",
+/** What GET /stock/locations/:type/:id answers: in-stock rows, named and priced. */
+const view = (locationType: string, locationId: string, name: string, rows: LocationStockRow[]) => ({
+  success: true,
+  data: { locationType, locationId, name, status: active, rows },
 });
 
-const VAN: Container = {
-  id: "c1",
-  name: "Taras's van",
-  technicianName: "Taras",
-  status: active,
-  createdAt: "",
-  updatedAt: "",
-};
-const SHOP: Warehouse = { id: "w1", name: "Main", status: active, createdAt: "", updatedAt: "" };
-
-let vanStock: StockItem[];
+let vanRows: LocationStockRow[];
 
 beforeEach(() => {
   mocks.denied = new Set();
@@ -99,23 +72,23 @@ beforeEach(() => {
   mocks.ret.mockReset();
   mocks.receive.mockReset();
   mocks.urls = [];
-  vanStock = [
-    stockRow("p2", "Key blank", 120),
-    stockRow("p1", "Deadbolt", 6),
-    stockRow("p3", "Strike plate", 0),
+  // Already in name order: the server sorts, the popup doesn't sort again.
+  vanRows = [
+    row("p1", "Deadbolt", 6, { sku: "LOCK-001", priceClient: 45, minimumStockLevel: 10 }),
+    row("p2", "Key blank", 120, { sku: "KEY-7", priceClient: 3 }),
   ];
   server.events.on("request:start", ({ request }) => {
-    mocks.urls.push(new URL(request.url).pathname);
+    mocks.urls.push(new URL(request.url).pathname.replace(/^.*\/inventory/, "/inventory"));
   });
+  // Anything else the popup asked for would be an unhandled request — an error.
   server.use(
-    http.get("*/inventory/containers/c1", () => HttpResponse.json({ success: true, data: VAN })),
-    http.get("*/inventory/containers/c1/stock", () => HttpResponse.json({ success: true, data: vanStock })),
-    http.get("*/inventory/warehouses/w1", () => HttpResponse.json({ success: true, data: SHOP })),
-    http.get("*/inventory/warehouses/w1/stock", () =>
-      HttpResponse.json({ success: true, data: [stockRow("p3", "Strike plate", 40)] }),
+    http.get("*/inventory/stock/locations/container/c1", () =>
+      HttpResponse.json(view("container", "c1", "Taras's van", vanRows)),
     ),
-    http.get("*/inventory/products", () =>
-      HttpResponse.json({ success: true, data: PRODUCTS, pagination: {} }),
+    http.get("*/inventory/stock/locations/warehouse/w1", () =>
+      HttpResponse.json(
+        view("warehouse", "w1", "Main", [row("p3", "Strike plate", 40, { sku: "STR-1", priceClient: 12 })]),
+      ),
     ),
   );
   return () => server.events.removeAllListeners();
@@ -143,7 +116,7 @@ describe("LocationStockDialog — a van's stock", () => {
     expect(await screen.findByRole("dialog", { name: "Taras's van — stock" })).toBeInTheDocument();
   });
 
-  it("lists what the van holds — item, SKU, quantity — by name, left-aligned", async () => {
+  it("lists what the van holds — item, SKU, quantity — left-aligned", async () => {
     open();
     await screen.findByText("Deadbolt");
     expect(headers()).toEqual(["Item", "SKU", "Quantity", "Actions"]);
@@ -165,10 +138,13 @@ describe("LocationStockDialog — a van's stock", () => {
     expect(frame.className).not.toMatch(/overflow-hidden/);
   });
 
-  it("hides items the van holds none of", async () => {
+  // F2 answers in name order; sorting again would be work, and wrong if the
+  // server ever orders on something the browser can't see.
+  it("keeps the server's order", async () => {
+    vanRows = [row("p2", "Key blank", 1), row("p1", "Deadbolt", 1)];
     open();
     await screen.findByText("Deadbolt");
-    expect(screen.queryByText("Strike plate")).toBeNull();
+    expect(bodyRows().map((r) => r[0])).toEqual(["Key blank", "Deadbolt"]);
   });
 
   it("marks an item that has run low", async () => {
@@ -186,11 +162,12 @@ describe("LocationStockDialog — a van's stock", () => {
     expect(card("Value")).toHaveTextContent("$630.00");
   });
 
-  it("asks nothing of the warehouses", async () => {
+  // The popup took over eight seconds on dev: it paged the whole
+  // stock-managed catalog (3 102 items, 32 requests) to name the rows.
+  it("reads the van in one request — no catalog, no container lookup", async () => {
     open();
     await screen.findByText("Deadbolt");
-    expect(mocks.urls.some((u) => u.endsWith("/inventory/containers/c1/stock"))).toBe(true);
-    expect(mocks.urls.some((u) => u.includes("/inventory/warehouses"))).toBe(false);
+    expect(mocks.urls).toEqual(["/inventory/stock/locations/container/c1"]);
   });
 
   it("closes from the yellow Done", async () => {
@@ -268,14 +245,9 @@ describe("LocationStockDialog — move and return, never add", () => {
 describe("LocationStockDialog — search and paging, in the browser", () => {
   beforeEach(() => {
     const many = Array.from({ length: 23 }, (_, i) =>
-      product({ id: `x${i}`, name: `Part ${String(i + 1).padStart(2, "0")}`, sku: `P-${i + 1}` }),
+      row(`x${i}`, `Part ${String(i + 1).padStart(2, "0")}`, 1, { sku: `P-${i + 1}` }),
     );
-    server.use(
-      http.get("*/inventory/products", () =>
-        HttpResponse.json({ success: true, data: [...PRODUCTS, ...many], pagination: {} }),
-      ),
-    );
-    vanStock = [...vanStock, ...many.map((p) => stockRow(p.id, p.name, 1))];
+    vanRows = [...vanRows, ...many];
   });
 
   it("pages ten at a time with Workiz's footer", async () => {
@@ -320,8 +292,7 @@ describe("LocationStockDialog — a warehouse, the same popup", () => {
     await screen.findByText("Strike plate");
     expect(card("Units")).toHaveTextContent("40");
     expect(card("Value")).toHaveTextContent("$480.00");
-    expect(mocks.urls.some((u) => u.endsWith("/inventory/warehouses/w1/stock"))).toBe(true);
-    expect(mocks.urls.some((u) => u.includes("/inventory/containers"))).toBe(false);
+    expect(mocks.urls).toEqual(["/inventory/stock/locations/warehouse/w1"]);
 
     await userEvent.click(screen.getByRole("button", { name: "Return Strike plate from Main" }));
     const ret = screen.getByRole("dialog", { name: "Return Strike plate from Main" });
@@ -336,7 +307,7 @@ describe("LocationStockDialog — a warehouse, the same popup", () => {
 
 describe("LocationStockDialog — nothing there, or nothing readable", () => {
   it("says so for an empty van", async () => {
-    vanStock = [stockRow("p3", "Strike plate", 0)];
+    vanRows = [];
     open();
     expect(await screen.findByText("Nothing in stock here.")).toBeInTheDocument();
     expect(card("SKUs")).toHaveTextContent("0");
@@ -344,15 +315,16 @@ describe("LocationStockDialog — nothing there, or nothing readable", () => {
 
   it("offers Retry when the stock can't be read", async () => {
     server.use(
-      http.get("*/inventory/containers/c1/stock", () =>
+      http.get("*/inventory/stock/locations/container/c1", () =>
         HttpResponse.json({ success: false, message: "boom" }, { status: 500 }),
       ),
     );
     open();
     expect(await screen.findByText("Couldn't load stock")).toBeInTheDocument();
-    vanStock = [stockRow("p1", "Deadbolt", 6)];
     server.use(
-      http.get("*/inventory/containers/c1/stock", () => HttpResponse.json({ success: true, data: vanStock })),
+      http.get("*/inventory/stock/locations/container/c1", () =>
+        HttpResponse.json(view("container", "c1", "Taras's van", [row("p1", "Deadbolt", 6)])),
+      ),
     );
     await userEvent.click(screen.getByRole("button", { name: "Retry" }));
     await waitFor(() => expect(screen.getByText("Deadbolt")).toBeInTheDocument());
@@ -360,22 +332,18 @@ describe("LocationStockDialog — nothing there, or nothing readable", () => {
 
   it("says the van is gone for a stale link", async () => {
     server.use(
-      http.get("*/inventory/containers/c404", () =>
+      http.get("*/inventory/stock/locations/container/c404", () =>
         HttpResponse.json({ success: false, message: "Container not found" }, { status: 404 }),
       ),
-      http.get("*/inventory/containers/c404/stock", () => HttpResponse.json({ success: true, data: [] })),
     );
     open("container", "c404");
     expect(await screen.findByRole("dialog", { name: "Container not found" })).toBeInTheDocument();
     expect(screen.queryByRole("table")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
   });
 
-  it("shows no value when the catalog can't be joined", async () => {
-    server.use(
-      http.get("*/inventory/products", () =>
-        HttpResponse.json({ success: false, message: "boom" }, { status: 500 }),
-      ),
-    );
+  it("shows no value when the server sent no prices", async () => {
+    vanRows = [row("p1", "Deadbolt", 6)];
     open();
     await screen.findByText("Deadbolt");
     expect(card("Value")).toHaveTextContent("—");

@@ -1,11 +1,10 @@
-import type { Product, StockItem, Transfer } from "@bitcrm/types";
+import type { Transfer } from "@bitcrm/types";
 
 export { formatMoney } from "@/features/inventory/products/lib";
 
 /* ------------------------------------------------------------------ *
- * Catalog join — turn bare stock rows into an inventory view.
- * Stock rows only carry productId/productName/quantity; SKU, category,
- * price, value and low-stock come from the product catalog.
+ * A location's stock as the views read it. The server names and prices
+ * the rows (`GET /stock/locations/:type/:id`); `stockRowsOf` maps them.
  * ------------------------------------------------------------------ */
 
 export interface EnrichedStockRow {
@@ -18,28 +17,6 @@ export interface EnrichedStockRow {
   value?: number;
   minLevel?: number;
   isLow: boolean;
-}
-
-export function enrichStock(
-  stock: StockItem[],
-  products: Map<string, Product>,
-): EnrichedStockRow[] {
-  return stock.map((s) => {
-    const p = products.get(s.productId);
-    const unitPrice = p?.priceClient;
-    const minLevel = p?.minimumStockLevel;
-    return {
-      productId: s.productId,
-      name: p?.name ?? s.productName,
-      sku: p?.sku,
-      category: p?.category,
-      quantity: s.quantity,
-      unitPrice,
-      value: unitPrice != null ? unitPrice * s.quantity : undefined,
-      minLevel,
-      isLow: minLevel != null && minLevel > 0 && s.quantity <= minLevel,
-    };
-  });
 }
 
 export interface StockSummary {

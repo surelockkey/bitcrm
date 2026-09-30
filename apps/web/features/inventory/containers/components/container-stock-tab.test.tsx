@@ -14,7 +14,6 @@ vi.mock("../hooks", () => ({
     summary: { skuCount: 2, totalUnits: 126, totalValue: 630, lowCount: 1 },
     isLoading: false,
     isError: false,
-    joinReady: true,
   }),
 }));
 

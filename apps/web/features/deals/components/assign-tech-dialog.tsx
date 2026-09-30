@@ -18,7 +18,6 @@ import { cn } from "@/lib/utils";
 import { initials } from "@/features/clients/lib";
 import { useAssignTechs, useQualifiedTechs } from "../hooks";
 import { useTechStock } from "../tech-stock";
-import { useProductMap } from "@/features/inventory/warehouses/hooks";
 import type { IneligibilityReason, QualifiedTech } from "../api";
 
 const REASON_LABEL: Record<IneligibilityReason, string> = {
@@ -246,8 +245,8 @@ function TechRow({
 /** What this technician currently carries, from their inventory container. */
 function TechItems({ techId, enabled }: { techId: string; enabled: boolean }) {
   const stock = useTechStock(techId, enabled);
-  const { data: productMap } = useProductMap(enabled);
-  const rows = useMemo(() => [...(stock.data?.entries() ?? [])].filter(([, q]) => q > 0), [stock.data]);
+  // Only what the van holds, named by the server.
+  const rows = stock.data ?? [];
 
   if (stock.isLoading) {
     return (
@@ -265,12 +264,10 @@ function TechItems({ techId, enabled }: { techId: string; enabled: boolean }) {
 
   return (
     <ul className="max-h-32 space-y-0.5 overflow-y-auto border-t px-3 py-2 text-xs">
-      {rows.map(([productId, qty]) => (
-        <li key={productId} className="flex justify-between gap-2">
-          <span className="truncate text-muted-foreground">
-            {productMap?.get(productId)?.name ?? productId}
-          </span>
-          <span className="font-mono">{qty}</span>
+      {rows.map((r) => (
+        <li key={r.productId} className="flex justify-between gap-2">
+          <span className="truncate text-muted-foreground">{r.productName}</span>
+          <span className="font-mono">{r.quantity}</span>
         </li>
       ))}
     </ul>

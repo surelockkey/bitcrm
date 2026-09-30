@@ -1,5 +1,6 @@
 import type {
   Container,
+  InventoryStatus,
   LocationSummaryType,
   LocationType,
   ReturnReason,
@@ -51,6 +52,48 @@ export function returnStock(body: ReturnStockBody): Promise<Transfer> {
 /** Between any two locations, warehouse→warehouse included. */
 export function moveStock(body: MoveStockBody): Promise<Transfer> {
   return http.post<Transfer>("/inventory/transfers", body);
+}
+
+/* --- One location's stock --- */
+
+/**
+ * One row of a location's stock, named and priced by the server. Only what
+ * the location holds (quantity > 0), in item-name order.
+ */
+export interface LocationStockRow {
+  productId: string;
+  productName: string;
+  /** The item's short "Product ID". */
+  number?: number;
+  sku?: string;
+  category?: string;
+  quantity: number;
+  priceClient?: number;
+  costCompany?: number;
+  /**
+   * The item's low-stock line. Not part of the endpoint's answer yet; the
+   * views mark a row low only when it arrives.
+   */
+  minimumStockLevel?: number;
+}
+
+/** `GET /inventory/stock/locations/:type/:id` — a warehouse's or van's shelf. */
+export interface LocationStock {
+  locationType: LocationSummaryType;
+  locationId: string;
+  name: string;
+  description?: string;
+  status: InventoryStatus;
+  rows: LocationStockRow[];
+}
+
+/**
+ * Everything one warehouse or van holds, in one request. The rows come
+ * joined to the catalog server-side — the browser used to page the whole
+ * stock-managed catalog (3 102 items, 32 sequential requests) to name them.
+ */
+export function getLocationStock(type: LocationSummaryType, id: string): Promise<LocationStock> {
+  return http.get<LocationStock>(`/inventory/stock/locations/${type}/${encodeURIComponent(id)}`);
 }
 
 /* --- Every location, for pickers --- */

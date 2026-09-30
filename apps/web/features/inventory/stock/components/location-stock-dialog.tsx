@@ -21,10 +21,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { usePermissions } from "@/features/auth/use-permissions";
-import { useContainer, useContainerStockView } from "@/features/inventory/containers/hooks";
-import { containerTitle } from "@/features/inventory/containers/lib";
-import { useWarehouse, useWarehouseStockView } from "@/features/inventory/warehouses/hooks";
 import type { EnrichedStockRow, StockSummary } from "@/features/inventory/warehouses/lib";
+import { ApiError } from "@/lib/api/errors";
+import { useLocationStock } from "../hooks";
 import { filterItemRows, locationCards, pageSlice } from "../lib";
 import { StockRowActions } from "./stock-row-actions";
 import { TableFrame } from "@/features/inventory/components/table-frame";
@@ -68,28 +67,6 @@ export function LocationStockDialog({
   );
 }
 
-/**
- * Both kinds are asked for, each only when it is the one open — hooks can't
- * be called conditionally, a disabled query costs nothing.
- */
-function useLocationStock(type: LocationSummaryType, id: string, open: boolean) {
-  const isVan = type === "container";
-  const van = useContainer(id, open && isVan);
-  const shop = useWarehouse(id, open && !isVan);
-  const vanStock = useContainerStockView(id, open && isVan);
-  const shopStock = useWarehouseStockView(id, open && !isVan);
-
-  const name = isVan ? (van.data ? containerTitle(van.data) : undefined) : shop.data?.name;
-  return {
-    name,
-    // A stale `?stock=<id>`: the location itself is gone.
-    missing: isVan ? van.isError : shop.isError,
-    // The rows' action labels name the location; wait for it with the stock.
-    loading: isVan ? van.isLoading : shop.isLoading,
-    stock: isVan ? vanStock : shopStock,
-  };
-}
-
 function LocationStock({
   type,
   id,
@@ -102,7 +79,11 @@ function LocationStock({
   onDone: () => void;
 }) {
   const { can } = usePermissions();
-  const { name, missing, loading, stock } = useLocationStock(type, id, open);
+  // One request: the location's name and its rows, named and priced.
+  const stock = useLocationStock(type, id, open);
+  const { name } = stock;
+  // A stale `?stock=<id>`: the location itself is gone.
+  const missing = stock.error instanceof ApiError && stock.error.status === 404;
   const kind = type === "container" ? "Container" : "Warehouse";
 
   let body: ReactNode;
@@ -110,7 +91,7 @@ function LocationStock({
     body = <p className="py-10 text-center text-sm text-muted-foreground">It may have been deleted.</p>;
   } else if (stock.isError) {
     body = <PanelError onRetry={() => stock.refetch()} />;
-  } else if (loading || stock.isLoading) {
+  } else if (stock.isLoading) {
     body = <PanelLoading testId="location-stock-loading" cards={3} />;
   } else {
     body = (
@@ -118,7 +99,9 @@ function LocationStock({
         location={{ type, id, name: name ?? "" }}
         rows={stock.rows}
         summary={stock.summary}
-        priced={stock.joinReady}
+        // Priced when the server sent a price for every row; a row without
+        // one would count as $0 and understate the total.
+        priced={stock.rows.every((r) => r.unitPrice != null)}
         actions={can("transfers", "create")}
       />
     );
@@ -163,9 +146,8 @@ function StockBody({
   const [page, setPage] = useState(1);
 
   const cards = locationCards(summary, priced);
-  // The endpoint answers in key order; a person looks an item up by name.
-  const sorted = useMemo(() => [...rows].sort((a, b) => a.name.localeCompare(b.name)), [rows]);
-  const matching = useMemo(() => filterItemRows(sorted, search), [sorted, search]);
+  // Already in name order — the server sorts.
+  const matching = useMemo(() => filterItemRows(rows, search), [rows, search]);
   const view = pageSlice(matching, page, size);
   const columns = actions ? 4 : 3;
 

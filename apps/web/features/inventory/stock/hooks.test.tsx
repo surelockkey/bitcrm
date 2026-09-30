@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -7,7 +7,13 @@ import { toast } from "sonner";
 import { InventoryStatus, ReturnReason, TransferType } from "@bitcrm/types";
 import { server } from "@/test/msw/server";
 import { queryKeys } from "@/lib/query-keys";
-import { useAllLocations, useMoveStock, useReceiveStock, useReturnStock } from "./hooks";
+import {
+  useAllLocations,
+  useLocationStock,
+  useMoveStock,
+  useReceiveStock,
+  useReturnStock,
+} from "./hooks";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), warning: vi.fn(), error: vi.fn() } }));
 
@@ -33,7 +39,6 @@ function seedProductQueries(client: QueryClient) {
     queryKeys.inventory.products.stock("p1"),
   ];
   const kept = [
-    queryKeys.inventory.products.stockMap(),
     queryKeys.inventory.products.map(),
     queryKeys.inventory.products.photo("p1"),
   ];
@@ -175,5 +180,79 @@ describe("useAllLocations", () => {
     const queries = client.getQueryCache().findAll();
     expect(queries).toHaveLength(2);
     expect(queries.map((q) => q.state.fetchStatus)).toEqual(["idle", "idle"]);
+  });
+});
+
+describe("useLocationStock", () => {
+  function serve(rows: object[]) {
+    const urls: string[] = [];
+    server.events.on("request:start", ({ request }) => {
+      urls.push(new URL(request.url).pathname.replace(/^.*\/inventory/, "/inventory"));
+    });
+    server.use(
+      http.get("*/inventory/stock/locations/:type/:id", ({ params }) =>
+        HttpResponse.json({
+          success: true,
+          data: {
+            locationType: params.type,
+            locationId: params.id,
+            name: "Taras's van",
+            status: InventoryStatus.ACTIVE,
+            rows,
+          },
+        }),
+      ),
+    );
+    return urls;
+  }
+
+  afterEach(() => server.events.removeAllListeners());
+
+  it("reads the location in one request — no catalog join", async () => {
+    const urls = serve([
+      { productId: "p1", productName: "Deadbolt", quantity: 6, priceClient: 45 },
+      { productId: "p2", productName: "Key blank", quantity: 120, priceClient: 3 },
+    ]);
+    const client = new QueryClient();
+    const { result } = renderHook(() => useLocationStock("container", "c1"), { wrapper: wrapper(client) });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    expect(urls).toEqual(["/inventory/stock/locations/container/c1"]);
+    expect(result.current.name).toBe("Taras's van");
+    expect(result.current.rows.map((r) => r.name)).toEqual(["Deadbolt", "Key blank"]);
+    expect(result.current.summary).toMatchObject({ skuCount: 2, totalUnits: 126, totalValue: 630 });
+  });
+
+  it("asks nothing while disabled", () => {
+    const client = new QueryClient();
+    renderHook(() => useLocationStock("warehouse", "w1", false), { wrapper: wrapper(client) });
+    expect(client.getQueryCache().findAll().map((q) => q.state.fetchStatus)).toEqual(["idle"]);
+  });
+
+  // A movement refreshes both locations: the view must sit under their keys.
+  it("is read again after a stock movement", async () => {
+    const urls = serve([]);
+    answer("/inventory/transfers", { id: "t1", type: TransferType.TRANSFER, items });
+    const client = new QueryClient();
+    const view = renderHook(() => useLocationStock("container", "c1"), { wrapper: wrapper(client) });
+    const shop = renderHook(() => useLocationStock("warehouse", "w1"), { wrapper: wrapper(client) });
+    await waitFor(() => expect(view.result.current.isLoading || shop.result.current.isLoading).toBe(false));
+    const reads = () => urls.filter((u) => u.startsWith("/inventory/stock/locations/")).sort();
+    expect(reads()).toEqual([
+      "/inventory/stock/locations/container/c1",
+      "/inventory/stock/locations/warehouse/w1",
+    ]);
+    const { result } = renderHook(() => useMoveStock(), { wrapper: wrapper(client) });
+
+    act(() =>
+      result.current.mutate({ fromType: "warehouse", fromId: "w1", toType: "container", toId: "c1", items }),
+    );
+    await waitFor(() => expect(reads()).toHaveLength(4));
+    expect(reads()).toEqual([
+      "/inventory/stock/locations/container/c1",
+      "/inventory/stock/locations/container/c1",
+      "/inventory/stock/locations/warehouse/w1",
+      "/inventory/stock/locations/warehouse/w1",
+    ]);
   });
 });
