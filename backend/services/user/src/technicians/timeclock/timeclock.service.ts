@@ -88,6 +88,7 @@ export class TimeClockService {
    * and show nothing at all.
    */
   async start(caller: JwtUser, dto: StartTimeClockDto): Promise<TimeClockEntry> {
+    const rate = await this.laborRate(caller.id);
     const now = new Date().toISOString();
     const entry: TimeClockEntry = {
       id: randomUUID(),
@@ -96,6 +97,7 @@ export class TimeClockService {
       dealId: dto.dealId,
       ...(toLocation(dto) ? { startLocation: toLocation(dto) } : {}),
       source: dto.source,
+      ...(rate !== null ? { laborCostPerHour: rate } : {}),
       createdAt: now,
       updatedAt: now,
     };
@@ -209,6 +211,20 @@ export class TimeClockService {
   async openEntryId(userId: string): Promise<string | null> {
     const open = await this.repository.getOpen(userId);
     return open?.id ?? null;
+  }
+
+  /**
+   * The rate to snapshot onto a new entry (the Timesheets report's Cost). A
+   * failed read must not stop anyone clocking in: the entry is written without
+   * a rate, and its hours cost nothing until an admin prices them.
+   */
+  private async laborRate(userId: string): Promise<number | null> {
+    try {
+      return await this.repository.getLaborRate(userId);
+    } catch (error) {
+      this.logger.warn(`Clock in without a labor rate: user=${userId} (${(error as Error).message})`);
+      return null;
+    }
   }
 
   private async assertCanReadOthers(caller: JwtUser): Promise<void> {

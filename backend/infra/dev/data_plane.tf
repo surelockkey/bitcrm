@@ -12,6 +12,13 @@ locals {
         { name = "DepartmentIndex", n = 2 },
         { name = "TechnicianIndex", n = 3 },
         { name = "SkillStatusIndex", n = 4 },
+        # TimeClockIndex: every time-clock entry by the account month it
+        # started in (TIMECLOCK#<YYYY-MM> / <startedAt>#<id>) — the Timesheets
+        # report reads a period off it instead of scanning the table. n = 6:
+        # the Workiz import already writes GSI5 attributes on imported users.
+        # Entries written before it existed need
+        # `npm run db:backfill-timeclock-index -w backend/services/user`.
+        { name = "TimeClockIndex", n = 6 },
       ]
       # Location breadcrumbs of a clocked-in technician (`TRACK#`) are the only
       # rows here that expire. The service promises 30 days and filters its

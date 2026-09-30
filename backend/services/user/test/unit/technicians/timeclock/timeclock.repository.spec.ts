@@ -70,6 +70,131 @@ describe('TimeClockRepository (unit)', () => {
     });
   });
 
+  describe('createOpen — the Timesheets report index', () => {
+    // The report reads everyone's entries of a month off GSI6 instead of a Scan.
+    it('puts the history item in TimeClockIndex under the account month it started in', async () => {
+      client.send.mockResolvedValue({});
+      await repo.createOpen(entry());
+
+      const item = client.send.mock.calls[0][0].input.TransactItems[0].Put.Item;
+      expect(item.GSI6PK).toBe('TIMECLOCK#2026-09');
+      expect(item.GSI6SK).toBe('2026-09-17T08:00:00.000Z#tc-1');
+    });
+
+    // 02:30 UTC on 1 October is still 30 September in New York.
+    it('files a late-evening Eastern start under the Eastern month, not the UTC one', async () => {
+      client.send.mockResolvedValue({});
+      await repo.createOpen(entry({ startedAt: '2026-10-01T02:30:00.000Z' }));
+
+      const item = client.send.mock.calls[0][0].input.TransactItems[0].Put.Item;
+      expect(item.GSI6PK).toBe('TIMECLOCK#2026-09');
+    });
+
+    // The slot carries the whole running entry; were it indexed too, a running
+    // shift would be listed twice.
+    it('never indexes the open slot', async () => {
+      client.send.mockResolvedValue({});
+      await repo.createOpen(entry());
+
+      const slot = client.send.mock.calls[0][0].input.TransactItems[1].Put.Item;
+      expect(slot.SK).toBe('CLOCK_OPEN');
+      expect(slot.GSI6PK).toBeUndefined();
+      expect(slot.GSI6SK).toBeUndefined();
+    });
+  });
+
+  describe('getLaborRate', () => {
+    it('reads laborCostPerHour off the technician profile', async () => {
+      client.send.mockResolvedValue({ Item: { laborCostPerHour: 40 } });
+      expect(await repo.getLaborRate('tech-1')).toBe(40);
+      expect(client.send.mock.calls[0][0].input.Key).toEqual({ PK: 'USER#tech-1', SK: 'TECH_PROFILE' });
+    });
+
+    it.each([[undefined], [{}], [{ laborCostPerHour: 0 }], [{ laborCostPerHour: 'x' }]])(
+      'has no rate for %p',
+      async (item) => {
+        client.send.mockResolvedValue({ Item: item });
+        expect(await repo.getLaborRate('tech-1')).toBeNull();
+      },
+    );
+  });
+
+  describe('listStartedBetween', () => {
+    it('queries one month partition of TimeClockIndex between two instants, to the last page', async () => {
+      client.send
+        .mockResolvedValueOnce({ Items: [entry()], LastEvaluatedKey: { k: 1 } })
+        .mockResolvedValueOnce({ Items: [entry({ id: 'tc-2' })] });
+
+      const out = await repo.listStartedBetween('2026-09', '2026-09-01T04:00:00.000Z', '2026-09-28T04:00:00.000Z');
+
+      const input = client.send.mock.calls[0][0].input;
+      expect(input.IndexName).toBe('TimeClockIndex');
+      expect(input.KeyConditionExpression).toBe('GSI6PK = :pk AND GSI6SK BETWEEN :lo AND :hi');
+      expect(input.ExpressionAttributeValues).toEqual({
+        ':pk': 'TIMECLOCK#2026-09',
+        ':lo': '2026-09-01T04:00:00.000Z',
+        ':hi': '2026-09-28T04:00:00.000Z',
+      });
+      expect(client.send.mock.calls[1][0].input.ExclusiveStartKey).toEqual({ k: 1 });
+      expect(out.map((e) => e.id)).toEqual(['tc-1', 'tc-2']);
+    });
+
+    it('reads the rate, the note and the import id back', async () => {
+      client.send.mockResolvedValue({
+        Items: [{ ...entry(), laborCostPerHour: 25, notes: 'Forgot to clock out', externalId: 'workiz:timeclock:1' }],
+      });
+      const [e] = await repo.listStartedBetween('2026-09', 'a', 'b');
+      expect(e.laborCostPerHour).toBe(25);
+      expect(e.notes).toBe('Forgot to clock out');
+      expect(e.externalId).toBe('workiz:timeclock:1');
+    });
+  });
+
+  describe('peopleByIds / openUserIds', () => {
+    it('batch-reads the METADATA of each person once', async () => {
+      client.send.mockResolvedValue({
+        Responses: { BitCRM_Users: [{ id: 'u1', firstName: 'Yeter', lastName: 'Mizrahi' }] },
+      });
+      const people = await repo.peopleByIds(['u1', 'u1', 'u2']);
+
+      const req = client.send.mock.calls[0][0].input.RequestItems.BitCRM_Users;
+      expect(req.Keys).toEqual([
+        { PK: 'USER#u1', SK: 'METADATA' },
+        { PK: 'USER#u2', SK: 'METADATA' },
+      ]);
+      expect(Object.values(req.ExpressionAttributeNames)).toEqual(['id', 'firstName', 'lastName', 'email']);
+      expect(people.get('u1')).toMatchObject({ firstName: 'Yeter', lastName: 'Mizrahi' });
+      expect(people.has('u2')).toBe(false);
+    });
+
+    it('asks again for keys DynamoDB left unprocessed', async () => {
+      client.send
+        .mockResolvedValueOnce({
+          Responses: { BitCRM_Users: [{ PK: 'USER#u1' }] },
+          UnprocessedKeys: { BitCRM_Users: { Keys: [{ PK: 'USER#u2', SK: 'CLOCK_OPEN' }] } },
+        })
+        .mockResolvedValueOnce({ Responses: { BitCRM_Users: [{ PK: 'USER#u2' }] } });
+
+      const open = await repo.openUserIds(['u1', 'u2', 'u3']);
+      expect(client.send.mock.calls[1][0].input.RequestItems.BitCRM_Users.Keys).toEqual([
+        { PK: 'USER#u2', SK: 'CLOCK_OPEN' },
+      ]);
+      expect([...open].sort()).toEqual(['u1', 'u2']);
+    });
+
+    it('splits more than 100 keys into several calls', async () => {
+      client.send.mockResolvedValue({ Responses: { BitCRM_Users: [] } });
+      await repo.openUserIds(Array.from({ length: 150 }, (_, i) => `u${i}`));
+      expect(client.send).toHaveBeenCalledTimes(2);
+      expect(client.send.mock.calls[0][0].input.RequestItems.BitCRM_Users.Keys).toHaveLength(100);
+    });
+
+    it('makes no call for nobody', async () => {
+      expect((await repo.peopleByIds([])).size).toBe(0);
+      expect(client.send).not.toHaveBeenCalled();
+    });
+  });
+
   describe('getOpen', () => {
     it('reads the open slot with a single GetItem', async () => {
       client.send.mockResolvedValue({ Item: entry() });

@@ -33,6 +33,10 @@ const REQUIRED_GSIS: Array<{ name: string; n: number }> = [
   { name: 'DepartmentIndex', n: 2 },
   { name: 'TechnicianIndex', n: 3 },
   { name: 'SkillStatusIndex', n: 4 },
+  // The Timesheets report (time-clock entries by account month). n = 6, not 5:
+  // GSI5 attributes are already written by the Workiz import for another purpose.
+  // Entries written before it existed: `npm run db:backfill-timeclock-index`.
+  { name: 'TimeClockIndex', n: 6 },
 ];
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));

@@ -52,6 +52,22 @@ export const clockSk = (startedAt: string, id: string) =>
 // whole open entry, so `GET /timeclock/current` is one GetItem.
 export const CLOCK_OPEN_SK = 'CLOCK_OPEN';
 
+// GSI6 — TimeClockIndex: every time-clock entry of everyone, one partition per
+// month on the account's calendar (America/New_York), so the Timesheets report
+// reads a period as a handful of Queries instead of one per person — and never
+// a Scan of a table that also holds roles, profiles and GPS breadcrumbs.
+//   GSI6PK = TIMECLOCK#<YYYY-MM>   (the account month the entry STARTED in)
+//   GSI6SK = <startedAt ISO>#<id>  (ISO instants sort lexically == chronologically)
+// Only the history item (`CLOCK#…`) carries these keys; the `CLOCK_OPEN` slot
+// never does, or a running shift would be listed twice.
+// Not GSI5: the Workiz import already writes GSI5PK/GSI5SK (EXT#workiz:user:<id>)
+// on imported users for an external-id index of its own, and the two must not share.
+export const GSI6_NAME = 'TimeClockIndex';
+export const TIMECLOCK_INDEX_PREFIX = 'TIMECLOCK#';
+export const timeClockIndexPk = (accountMonth: string) =>
+  `${TIMECLOCK_INDEX_PREFIX}${accountMonth}`;
+export const timeClockIndexSk = (startedAt: string, id: string) => `${startedAt}#${id}`;
+
 // Location track (breadcrumbs while on the clock): PK = TRACK#<userId>,
 // SK = <recordedAt ISO>. Its own partition on purpose — this is the only
 // high-cardinality, append-only, expiring data about a person, and mixing

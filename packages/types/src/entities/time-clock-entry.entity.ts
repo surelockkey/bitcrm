@@ -42,6 +42,19 @@ export interface TimeClockEntry {
   startLocation?: TimeClockLocation;
   endLocation?: TimeClockLocation;
   source: TimeClockSource;
+  /**
+   * The person's labor cost per hour when the clock was punched — a snapshot,
+   * as Workiz keeps it on each timesheet ("The labor cost will be changed for
+   * this timesheet only"), so a raise does not reprice last month's hours.
+   * Copied from the technician profile's `laborCostPerHour` at clock-in;
+   * absent when the person has none. The Timesheets report's Cost is
+   * `minutes / 60 × laborCostPerHour`.
+   */
+  laborCostPerHour?: number;
+  /** Workiz's timesheet note ("Forgot to clock out"). Only imported rows carry one today. */
+  notes?: string;
+  /** `workiz:timeclock:<id>` — the Workiz timesheet an imported entry came from. */
+  externalId?: string;
   createdAt: string;
   updatedAt: string;
 }

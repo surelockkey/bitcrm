@@ -37,6 +37,8 @@ async function main() {
           { AttributeName: 'GSI3SK', AttributeType: 'S' },
           { AttributeName: 'GSI4PK', AttributeType: 'S' },
           { AttributeName: 'GSI4SK', AttributeType: 'S' },
+          { AttributeName: 'GSI6PK', AttributeType: 'S' },
+          { AttributeName: 'GSI6SK', AttributeType: 'S' },
         ],
         GlobalSecondaryIndexes: [
           {
@@ -68,6 +70,15 @@ async function main() {
             KeySchema: [
               { AttributeName: 'GSI4PK', KeyType: 'HASH' },
               { AttributeName: 'GSI4SK', KeyType: 'RANGE' },
+            ],
+            Projection: { ProjectionType: 'ALL' },
+          },
+          {
+            // The Timesheets report: time-clock entries by account month (GSI6, not 5 — see dynamo.constants.ts).
+            IndexName: 'TimeClockIndex',
+            KeySchema: [
+              { AttributeName: 'GSI6PK', KeyType: 'HASH' },
+              { AttributeName: 'GSI6SK', KeyType: 'RANGE' },
             ],
             Projection: { ProjectionType: 'ALL' },
           },

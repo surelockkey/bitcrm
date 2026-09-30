@@ -80,6 +80,7 @@ describe('TimeClockService', () => {
     getOpen: jest.Mock;
     close: jest.Mock;
     listByUserInRange: jest.Mock;
+    getLaborRate: jest.Mock;
   };
   let users: { getResolvedPermissions: jest.Mock };
   let service: TimeClockService;
@@ -90,6 +91,7 @@ describe('TimeClockService', () => {
       getOpen: jest.fn().mockResolvedValue(null),
       close: jest.fn().mockImplementation(async (entry, patch) => ({ ...entry, ...patch })),
       listByUserInRange: jest.fn().mockResolvedValue([]),
+      getLaborRate: jest.fn().mockResolvedValue(null),
     };
     users = { getResolvedPermissions: jest.fn().mockResolvedValue(permissions(true)) };
     service = new TimeClockService(repo as never, users as never);
@@ -109,6 +111,28 @@ describe('TimeClockService', () => {
       expect(entry.startedAt).toBe(START);
       expect(entry.endedAt).toBeUndefined();
       expect(entry.minutes).toBeUndefined();
+    });
+
+    // Workiz keeps the labor cost on each timesheet, so a later raise does not
+    // reprice hours already worked; the Timesheets report's Cost reads it.
+    it('snapshots the person\'s labor rate onto the entry', async () => {
+      repo.getLaborRate.mockResolvedValue(40);
+      const entry = await service.start(tech, { source: 'mobile' });
+      expect(repo.getLaborRate).toHaveBeenCalledWith('tech-1');
+      expect(entry.laborCostPerHour).toBe(40);
+      expect(repo.createOpen.mock.calls[0][0].laborCostPerHour).toBe(40);
+    });
+
+    it('leaves the rate off when the person has none', async () => {
+      const entry = await service.start(tech, { source: 'mobile' });
+      expect('laborCostPerHour' in entry).toBe(false);
+    });
+
+    it('still clocks in when the rate cannot be read', async () => {
+      repo.getLaborRate.mockRejectedValue(new Error('throttled'));
+      const entry = await service.start(tech, { source: 'mobile' });
+      expect(repo.createOpen).toHaveBeenCalled();
+      expect(entry.laborCostPerHour).toBeUndefined();
     });
 
     it('records the job when the clock was started from one', async () => {
