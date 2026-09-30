@@ -274,6 +274,19 @@ describe('UsersRepository', () => {
       expect(result.items.map((u) => u.id)).toEqual(['a', 'b', 'c']);
       expect(result.nextCursor).toBeUndefined();
     });
+
+    it('cuts a page the last read overfilled, and hands back a cursor on the last row kept', async () => {
+      const user = (id: string) => ({ PK: `USER#${id}`, SK: 'METADATA', id });
+      dbClient.send.mockResolvedValueOnce({ Items: [user('a'), user('b'), user('c')] });
+
+      const result = await repository.findAll(2);
+
+      expect(result.items.map((u) => u.id)).toEqual(['a', 'b']);
+      expect(JSON.parse(Buffer.from(result.nextCursor!, 'base64url').toString())).toEqual({
+        PK: 'USER#b',
+        SK: 'METADATA',
+      });
+    });
   });
 
   describe('findByStatus', () => {
@@ -285,6 +298,27 @@ describe('UsersRepository', () => {
       const input = dbClient.send.mock.calls[0][0].input;
       expect(input.ExpressionAttributeNames['#status']).toBe('status');
       expect(input.ExpressionAttributeValues[':status']).toBe('active');
+    });
+
+    // Вкладка «User containers» показувала «51–106» на одній сторінці:
+    // друга сторінка `status=active&limit=50` приходила з 56–57 рядками, бо
+    // читання, що переповнило сторінку, водночас дочитало таблицю до кінця —
+    // і scanPage віддавав усе, що мав, без курсора.
+    it('never answers more than the limit, even when the read that overshot also ended the table', async () => {
+      const user = (i: number) => ({ PK: `USER#u-${i}`, SK: 'METADATA', id: `u-${i}`, status: 'active' });
+      dbClient.send
+        .mockResolvedValueOnce({ Items: Array.from({ length: 40 }, (_, i) => user(i)), LastEvaluatedKey: { PK: 'X#1' } })
+        .mockResolvedValueOnce({ Items: Array.from({ length: 17 }, (_, i) => user(40 + i)) });
+
+      const page = await repository.findByStatus(UserStatus.ACTIVE, 50, 'eyJQSyI6IlVTRVIjdS0wIiwiU0siOiJNRVRBREFUQSJ9');
+
+      expect(page.items).toHaveLength(50);
+      expect(page.items[49].id).toBe('u-49');
+      // The next page starts with the first row dropped, u-50.
+      expect(JSON.parse(Buffer.from(page.nextCursor!, 'base64url').toString())).toEqual({
+        PK: 'USER#u-49',
+        SK: 'METADATA',
+      });
     });
   });
 

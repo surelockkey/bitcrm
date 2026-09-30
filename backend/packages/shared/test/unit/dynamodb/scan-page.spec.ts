@@ -65,6 +65,29 @@ describe('scanPage', () => {
     expect(out.lastKey).toEqual({ PK: 'k3' });
   });
 
+  // `GET /users?status=active&limit=50` answered page 2 with 57 rows: the read
+  // that overfilled the page also reached the end of the table, and the page
+  // came back whole with no cursor. The containers list ("1–88 of 88" under
+  // "Rows per page 50") and the product search did the same.
+  it('cuts the page even when the read that overshot also ended the table', async () => {
+    const pages = [page([1, 2], { PK: 'a' }), page([3, 4, 5], undefined)];
+    const read: Read = jest.fn((_: ScanReadInput) => pages.shift()!);
+
+    const out = await scanPage(read, 3, { keyOf: (i: number) => ({ PK: `k${i}` }) });
+
+    expect(out.items).toEqual([1, 2, 3]);
+    // The next page resumes after the last row kept — 4 and 5 are not lost.
+    expect(out.lastKey).toEqual({ PK: 'k3' });
+  });
+
+  it('without keyOf returns an overshooting read whole, since it cannot point past a row it drops', async () => {
+    const last: Read = jest.fn((_: ScanReadInput) => page([1, 2, 3, 4], undefined));
+    const middle: Read = jest.fn((_: ScanReadInput) => page([1, 2, 3, 4], { PK: 'far' }));
+
+    expect(await scanPage(last, 3)).toEqual({ items: [1, 2, 3, 4], lastKey: undefined });
+    expect(await scanPage(middle, 3)).toEqual({ items: [1, 2, 3, 4], lastKey: { PK: 'far' } });
+  });
+
   it('gives up after a bounded number of reads rather than walking a huge table forever', async () => {
     const read: Read = jest.fn((_: ScanReadInput) => page([], { PK: 'x' }));
     const out = await scanPage(read, 100, { maxReads: 4 });

@@ -71,15 +71,19 @@ export async function scanPage<T>(
     items.push(...(out.Items ?? []));
     key = out.LastEvaluatedKey;
 
-    // The table ended: there is nothing to come back for, however short the page.
-    if (!key) return { items, lastKey: undefined };
-    if (items.length >= limit) break;
+    // The table ended, or the page is full.
+    if (!key || items.length >= limit) break;
   }
 
   if (items.length <= limit) return { items, lastKey: key };
 
   // Overshot. Cut to the page and point the cursor at the last row kept, so the
-  // next page resumes with the first row dropped instead of skipping it.
+  // next page resumes with the first row dropped instead of skipping it — also
+  // when the read that overshot was the table's last: `GET /users?status=active
+  // &limit=50` answered page 2 with 57 rows and no cursor. Without `keyOf` there
+  // is no key to resume from inside that read, so the page is returned whole
+  // (never losing a row) with the read's own cursor, which is none at the end.
+  if (!keyOf) return { items, lastKey: key };
   const kept = items.slice(0, limit);
-  return { items: kept, lastKey: keyOf ? keyOf(kept[kept.length - 1]) : key };
+  return { items: kept, lastKey: keyOf(kept[kept.length - 1]) };
 }
