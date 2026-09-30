@@ -108,6 +108,27 @@ export interface PaymentSummary {
   hasPending: boolean;
 }
 
+/**
+ * A JOB's payment ledger — Workiz's Payments tab on the job. In Workiz a
+ * payment belongs to the job and an invoice is a separate document made only
+ * by "Create invoice", so this works whether or not the job has an invoice:
+ * the ledger lives under the job's id either way (invoice id === deal id).
+ */
+export interface JobPaymentLedger {
+  dealId: string;
+  /** Set only when the job HAS an invoice (and then it equals `dealId`). */
+  invoiceId?: string;
+  /** Newest first. */
+  payments: Payment[];
+  summary: PaymentSummary;
+  /** The invoice total when there is an invoice, otherwise the job's own total. */
+  total: number;
+  /** === `summary.settled` — what counts toward the balance. */
+  amountPaid: number;
+  /** `total - amountPaid`, never below zero. */
+  balanceDue: number;
+}
+
 export const EMPTY_PAYMENT_SUMMARY: PaymentSummary = {
   settled: 0,
   pending: 0,

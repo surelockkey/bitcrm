@@ -227,6 +227,14 @@ vi.mock("@/features/clients/hooks", () => ({
 vi.mock("@/features/invoices/hooks", () => ({
   useInvoiceByDeal: () => ({ data: mocks.invoice }),
 }));
+// The Payments tab's caption reads the job ledger; the tab has its own tests.
+vi.mock("@/features/payments/hooks", () => ({
+  useDealPayments: () => ({ data: undefined }),
+}));
+vi.mock("@/features/payments/components/deal-payments-tab", () => ({
+  DealPaymentsTab: () => <div data-testid="payments-tab" />,
+  paymentsTabCaption: () => null,
+}));
 vi.mock("@/features/invoices/components/deal-invoice-tab", () => ({
   DealInvoiceTab: () => <div data-testid="invoice-tab" />,
 }));
