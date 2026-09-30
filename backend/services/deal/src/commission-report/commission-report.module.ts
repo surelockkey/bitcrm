@@ -24,5 +24,7 @@ import { CommissionReportClient } from './commission-report.client';
     ExternalCompaniesRepository,
     CustomFieldsRepository,
   ],
+  // Job Statistics (DealsModule) takes its Profit from the same rows.
+  exports: [CommissionReportService],
 })
 export class CommissionReportModule {}

@@ -235,8 +235,12 @@ export class CommissionReportService {
       : this.repository.findDoneByVisitStart(from, q.to);
   }
 
-  /** Rows for the items: names from the catalogs, the formula's inputs for the jobs done here. */
-  private async build(items: CommissionDealItem[]): Promise<{ rows: CommissionReportRow[]; warnings: string[] }> {
+  /**
+   * Rows for the items: names from the catalogs, the formula's inputs for the
+   * jobs done here. Public for Job Statistics, whose Profit is these rows'
+   * Company Profit.
+   */
+  async build(items: CommissionDealItem[]): Promise<{ rows: CommissionReportRow[]; warnings: string[] }> {
     const warnings: string[] = [];
     const computed = items.filter(needsCompute);
     const techIds = [...new Set(items.map(primaryTechOf).filter((t): t is string => Boolean(t)))];
