@@ -13,8 +13,6 @@ export interface PriceBookColumn<Id extends string = string> {
   id: Id;
   label: string;
   width: number;
-  /** The shape its skeleton cell draws, when not a bar of text (a photo's square). */
-  skeleton?: string;
 }
 
 /**
@@ -90,7 +88,7 @@ export function PriceBookTable({
               <TableRow key={r} data-testid="skeleton-row" className={cn(ROW_HEIGHT, "hover:bg-transparent")}>
                 {columns.map((c, i) => (
                   <TableCell key={c.id} className="overflow-hidden">
-                    <Skeleton className={c.skeleton ?? cn("h-4", i === 1 ? "w-3/4" : "w-1/2")} />
+                    <Skeleton className={cn("h-4", i === 1 ? "w-3/4" : "w-1/2")} />
                   </TableCell>
                 ))}
               </TableRow>

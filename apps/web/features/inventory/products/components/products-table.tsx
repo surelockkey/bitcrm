@@ -20,7 +20,6 @@ import { ProductThumb } from "./product-thumb";
 import { ProductPhotoDialog } from "./product-photo-dialog";
 
 type ColumnId =
-  | "photo"
   | "productId"
   | "name"
   | "description"
@@ -41,14 +40,14 @@ type ColumnId =
  *
  * Together they fit the ~1250px a 1600px screen leaves beside the sidebar —
  * at 1430 the Actions column was cut to "Actio" and Manage stock went missing.
- * The photo came in first, as in Workiz; Name and Description gave it room.
+ * Product ID holds the item's picture beside its number, as Workiz's does;
+ * Name and Description gave it the room.
  */
 export const PRODUCT_COLUMNS: (InventoryColumn & { id: ColumnId })[] = [
-  // A 40px thumbnail and the cell's side padding; its skeleton a square in the row's height.
-  { id: "photo", label: "Photo", width: 56, skeleton: "size-8 rounded-md" },
-  { id: "productId", label: "Product ID", width: 100 },
-  { id: "name", label: "Name", width: 240 },
-  { id: "description", label: "Description", width: 194 },
+  // The 40px picture, its gap and a five-digit number.
+  { id: "productId", label: "Product ID", width: 116 },
+  { id: "name", label: "Name", width: 250 },
+  { id: "description", label: "Description", width: 214 },
   { id: "price", label: "Price", width: 95 },
   { id: "cost", label: "Cost", width: 95 },
   { id: "quantity", label: "Quantity", width: 90 },
@@ -159,17 +158,15 @@ function Cell({
   onPhoto: (product: ProductWithMedia) => void;
 }) {
   switch (column) {
-    case "photo":
-      // py-1: a 40px picture in the 48px row, without growing it.
+    case "productId":
+      // Workiz's id cell: the picture, then the number. py-1: a 40px picture
+      // in the 48px row, without growing it.
       return (
         <TableCell className="overflow-hidden py-1">
-          <ProductThumb product={p} onOpen={onPhoto} />
-        </TableCell>
-      );
-    case "productId":
-      return (
-        <TableCell className="truncate tabular-nums text-muted-foreground">
-          {p.number ?? "—"}
+          <div className="flex items-center gap-2">
+            <ProductThumb product={p} onOpen={onPhoto} />
+            <span className="truncate tabular-nums text-muted-foreground">{p.number ?? "—"}</span>
+          </div>
         </TableCell>
       );
     case "name":

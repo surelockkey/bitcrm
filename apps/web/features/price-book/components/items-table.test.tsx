@@ -61,7 +61,6 @@ function table(
 }
 
 const ALL_COLUMNS = [
-  "Photo",
   "Product ID",
   "Name",
   "Type",
@@ -109,15 +108,15 @@ describe("ItemsTable — columns", () => {
     expect(cell("Status")).toHaveTextContent("Active");
   });
 
-  it("shows the item's thumbnail first, a grey placeholder without one", () => {
+  it("shows the item's thumbnail beside its number, a grey placeholder without one", () => {
     const { cell, unmount } = table([product({ thumbnailUrl: "https://cdn.test/p1.webp", photoKey: "k" } as Partial<Product>)]);
-    expect(cell("Photo").querySelector("img")).toHaveAttribute("src", "https://cdn.test/p1.webp");
+    expect(cell("Product ID").querySelector("img")).toHaveAttribute("src", "https://cdn.test/p1.webp");
     unmount();
-    expect(table().cell("Photo").querySelector("[data-testid=photo-placeholder]")).not.toBeNull();
+    expect(table().cell("Product ID").querySelector("[data-testid=photo-placeholder]")).not.toBeNull();
   });
 
   it("keeps the photo inside the row's height", () => {
-    expect(table().cell("Photo").className).toMatch(/(^|\s)py-1(\s|$)/);
+    expect(table().cell("Product ID").className).toMatch(/(^|\s)py-1(\s|$)/);
   });
 
   it("puts a dash where the item has no number or brand", () => {

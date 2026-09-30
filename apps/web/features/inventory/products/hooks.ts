@@ -184,6 +184,8 @@ export function useRemovePhoto() {
     onSuccess: (_d, id) => {
       qc.invalidateQueries({ queryKey: queryKeys.inventory.products.detail(id) });
       qc.invalidateQueries({ queryKey: queryKeys.inventory.products.photo(id) });
+      // The lists' rows carry the thumbnail that just went.
+      qc.invalidateQueries({ queryKey: queryKeys.inventory.products.list().slice(0, 2) });
       toast.success("Photo removed");
     },
     onError: (e) => toast.error(getApiErrorMessage(e)),

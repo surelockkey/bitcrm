@@ -13,8 +13,6 @@ export interface InventoryColumn {
   id: string;
   label: string;
   width: number;
-  /** The shape its skeleton cell draws, when not a bar of text (a photo's square). */
-  skeleton?: string;
 }
 
 /**
@@ -88,16 +86,7 @@ export function InventoryTable({
           </TableRow>
         </TableHeader>
         <TableBody className={cn(stale && "opacity-60 transition-opacity")}>
-          {loading ? (
-            <SkeletonRows
-              columns={columns.length}
-              rows={skeletonRows}
-              className={rowClassName}
-              shapes={columns.map((c) => c.skeleton)}
-            />
-          ) : (
-            children
-          )}
+          {loading ? <SkeletonRows columns={columns.length} rows={skeletonRows} className={rowClassName} /> : children}
         </TableBody>
         {footer && !loading ? <TableFooter>{footer}</TableFooter> : null}
       </Table>
@@ -110,13 +99,10 @@ export function SkeletonRows({
   columns,
   rows,
   className = INVENTORY_ROW,
-  shapes = [],
 }: {
   columns: number;
   rows: number;
   className?: string;
-  /** Per column, a shape other than a bar of text. */
-  shapes?: (string | undefined)[];
 }) {
   return (
     <>
@@ -124,7 +110,7 @@ export function SkeletonRows({
         <TableRow key={r} data-testid="skeleton-row" className={cn(className, "hover:bg-transparent")}>
           {Array.from({ length: columns }).map((_, c) => (
             <TableCell key={c} className="overflow-hidden">
-              <Skeleton className={shapes[c] ?? cn("h-4", c === 0 ? "w-3/4" : "w-1/2")} />
+              <Skeleton className={cn("h-4", c === 0 ? "w-3/4" : "w-1/2")} />
             </TableCell>
           ))}
         </TableRow>

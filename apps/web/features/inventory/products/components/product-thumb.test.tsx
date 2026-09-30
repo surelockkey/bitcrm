@@ -26,7 +26,7 @@ function product(over: Partial<Product & ProductMedia> = {}): Product & ProductM
   };
 }
 
-/** Workiz's first column: a 40×40 rounded thumbnail, a grey image icon without one. */
+/** Workiz's picture beside the item's id: 40×40, rounded, a grey picture placeholder without one. */
 describe("ProductThumb", () => {
   it("draws the thumbnail lazily, at a fixed 40×40 — nothing moves when it loads", () => {
     render(<ProductThumb product={product({ thumbnailUrl: "https://cdn.test/p1.webp", photoKey: "k" })} onOpen={vi.fn()} />);
@@ -43,6 +43,27 @@ describe("ProductThumb", () => {
     expect(document.querySelector("img")).toBeNull();
     expect(screen.getByTestId("photo-placeholder")).toBeInTheDocument();
     expect(screen.queryByRole("button")).toBeNull();
+  });
+
+  // Workiz: a click on the placeholder does nothing — not the row's Edit popup either.
+  it("keeps a click on the placeholder from reaching the row", async () => {
+    const onRow = vi.fn();
+    render(
+      <div onClick={onRow}>
+        <ProductThumb product={product()} onOpen={vi.fn()} />
+      </div>,
+    );
+    await userEvent.click(screen.getByTestId("photo-placeholder"));
+    expect(onRow).not.toHaveBeenCalled();
+  });
+
+  it("is Workiz's box: 40×40, 8px corners, a hairline border, the photo cut to fill it", () => {
+    render(<ProductThumb product={product({ thumbnailUrl: "https://cdn.test/p1.webp", photoKey: "k" })} onOpen={vi.fn()} />);
+    const box = screen.getByRole("button", { name: "View photo of Deadbolt" });
+    expect(box.className).toMatch(/(^|\s)size-10(\s|$)/);
+    expect(box.className).toMatch(/(^|\s)rounded-lg(\s|$)/);
+    expect(box.className).toMatch(/border-\[0\.5px\]/);
+    expect((document.querySelector("img") as HTMLImageElement).className).toMatch(/object-cover/);
   });
 
   it("falls back to the placeholder when the thumbnail fails to load, still opening the photo", async () => {

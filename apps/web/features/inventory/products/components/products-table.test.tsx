@@ -65,9 +65,8 @@ function table(
 }
 
 describe("ProductsTable — the Workiz columns", () => {
-  it("lists Photo · Product ID · Name · Description · Price · Cost · Quantity · SKU · Category, then Actions", () => {
+  it("lists Product ID · Name · Description · Price · Cost · Quantity · SKU · Category, then Actions", () => {
     expect(table().headers()).toEqual([
-      "Photo",
       "Product ID",
       "Name",
       "Description",
@@ -120,12 +119,12 @@ describe("ProductsTable — the Workiz columns", () => {
     expect(table([product({ onHand: undefined })]).cell("Quantity")).toHaveTextContent(/^0$/);
   });
 
-  // Workiz's first column: the item's picture, 40×40, beside its Product ID.
-  it("shows the item's thumbnail first, a grey placeholder without one", () => {
+  // Workiz's id cell: the item's picture, 40×40, then its number.
+  it("shows the item's thumbnail beside its number, a grey placeholder without one", () => {
     const { cell, unmount } = table([product({ thumbnailUrl: "https://cdn.test/p1.webp", photoKey: "k" } as Partial<Product>)]);
-    expect(cell("Photo").querySelector("img")).toHaveAttribute("src", "https://cdn.test/p1.webp");
+    expect(cell("Product ID").querySelector("img")).toHaveAttribute("src", "https://cdn.test/p1.webp");
     unmount();
-    expect(table().cell("Photo").querySelector("[data-testid=photo-placeholder]")).not.toBeNull();
+    expect(table().cell("Product ID").querySelector("[data-testid=photo-placeholder]")).not.toBeNull();
   });
 
   it("opens the photo from the thumbnail — not the item's Edit popup", async () => {
@@ -137,7 +136,7 @@ describe("ProductsTable — the Workiz columns", () => {
 
   // A 40px picture in a 48px row: the cell trims its padding instead of growing the row.
   it("keeps the photo inside the row's height", () => {
-    expect(table().cell("Photo").className).toMatch(/(^|\s)py-1(\s|$)/);
+    expect(table().cell("Product ID").className).toMatch(/(^|\s)py-1(\s|$)/);
   });
 
   it("has no checkbox column", () => {
@@ -245,7 +244,6 @@ describe("ProductsTable — a stable first frame", () => {
   it("offers a drag handle on every header", () => {
     table();
     for (const id of [
-      "photo",
       "productId",
       "name",
       "description",
