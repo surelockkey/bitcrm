@@ -2,276 +2,544 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { InventoryStatus, ProductType } from "@bitcrm/types";
-import type { Brand, Product, ProductCategory } from "@bitcrm/types";
+import type { Brand, ItemAttribute, Product, ProductCategory } from "@bitcrm/types";
 import { renderWithClient } from "@/test/render-with-client";
-
-type Mutate = (vars: unknown, opts?: { onSuccess?: (data: unknown) => void }) => void;
 
 const mocks = vi.hoisted(() => ({
   denied: new Set<string>(),
-  product: { isLoading: false, isError: false, data: undefined as Product | undefined },
+  pathname: "/inventory/items",
+  product: undefined as unknown,
   categories: [] as ProductCategory[],
   brands: [] as Brand[],
-  catalogsEnabled: [] as [string, boolean][],
+  attributes: [] as ItemAttribute[],
   update: vi.fn(),
   create: vi.fn(),
   archive: vi.fn(),
   reactivate: vi.fn(),
+  uploadUrl: vi.fn(),
+  uploadBytes: vi.fn(),
+  removePhoto: vi.fn(),
 }));
 
 vi.mock("@/features/auth/use-permissions", () => ({
   useDenied: () => () => false,
   usePermissions: () => ({
+    isLoading: false,
     can: (resource: string, action = "view") => !mocks.denied.has(`${resource}.${action}`),
   }),
 }));
+vi.mock("next/navigation", () => ({ usePathname: () => mocks.pathname }));
+vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
-// A mutation that succeeds at once, handing `onSuccess` what the server would.
-const mutation = (fn: (vars: unknown) => void, result?: (vars: unknown) => unknown) => ({
-  isPending: false,
-  mutate: ((vars, opts) => {
-    fn(vars);
-    opts?.onSuccess?.(result ? result(vars) : undefined);
-  }) as Mutate,
-});
-
-vi.mock("../hooks", () => ({
-  useProduct: () => mocks.product,
-  useItemCategories: (enabled: boolean) => {
-    mocks.catalogsEnabled.push(["categories", enabled]);
-    return { data: enabled ? mocks.categories : undefined };
+vi.mock("@/features/inventory/products/api", () => ({
+  getProduct: async () => {
+    if (mocks.product instanceof Error) throw mocks.product;
+    return mocks.product;
   },
-  useBrands: (enabled: boolean) => {
-    mocks.catalogsEnabled.push(["brands", enabled]);
-    return { data: enabled ? mocks.brands : undefined };
-  },
-  useUpdateProduct: () => mutation(mocks.update),
-  useCreateProduct: () => mutation(mocks.create, (v) => ({ ...(v as object), id: "new-1" })),
-  useArchiveProduct: () => mutation(mocks.archive),
-  useReactivateProduct: () => mutation(mocks.reactivate),
+  listItemCategories: async () => mocks.categories,
+  listBrands: async () => mocks.brands,
+  getPhotoDownloadUrl: async () => ({ downloadUrl: "https://photos/p1.png" }),
+  updateProduct: (id: string, body: unknown) => mocks.update(id, body),
+  createProduct: (body: unknown) => mocks.create(body),
+  archiveProduct: (id: string) => mocks.archive(id),
+  reactivateProduct: (id: string) => mocks.reactivate(id),
+  getPhotoUploadUrl: (id: string, type: string) => mocks.uploadUrl(id, type),
+  uploadPhotoBytes: (url: string, file: File) => mocks.uploadBytes(url, file),
+  removePhoto: (id: string) => mocks.removePhoto(id),
 }));
-vi.mock("./product-photo-panel", () => ({ ProductPhotoPanel: () => <div>Photo panel</div> }));
+vi.mock("@/features/inventory/item-attributes/api", () => ({
+  listItemAttributes: async () => mocks.attributes,
+  createItemAttribute: vi.fn(),
+  updateItemAttribute: vi.fn(),
+  deleteItemAttribute: vi.fn(),
+}));
 
-import { ProductDialog } from "./product-dialog";
+import { ProductDialog, variantForPath } from "./product-dialog";
 
-function product(over: Partial<Product> = {}): Product {
+/** The item on Workiz's reference screenshots. */
+function chainGuard(over: Partial<Product> = {}): Product {
   return {
     id: "p1",
-    number: 1042,
-    sku: "LOCK-001",
-    name: "Deadbolt",
-    category: "Locks",
+    number: 3551,
+    sku: "1607-625 (SLK-3551)",
+    name: "Don-Jo - Chain Guard - Silver (1607-625) (SLK-3551)",
+    description: "SLK-3551\n UPC: 040186243617",
+    category: "Door Hardware",
     type: ProductType.PRODUCT,
-    costCompany: 10,
+    costCompany: 20.16,
     costTech: 18,
-    priceClient: 45,
+    priceClient: 125,
+    taxable: true,
+    brandId: "b-slk",
+    barcode: "040186243617",
+    supplier: "UHS",
     serialTracking: false,
-    minimumStockLevel: 5,
-    onHand: 12,
+    minimumStockLevel: 0,
+    reorderLevel: 0,
+    manageStock: true,
+    onHand: 369,
+    photoKey: "products/p1/a.png",
     status: InventoryStatus.ACTIVE,
     createdAt: "",
-    updatedAt: "2026-09-01T00:00:00Z",
+    updatedAt: "2026-09-30T00:00:00Z",
+    customAttributes: { Link_UHS: "https://uhs/chain", workiz_attr_77: "orphan" },
     ...over,
   };
 }
 
-// The form's <Label>s are not wired to their inputs; address them by name.
-const field = (name: string) =>
-  document.querySelector(`[role="dialog"] [name="${name}"]`) as HTMLInputElement;
+/** The Price Book item on Workiz's reference screenshots. */
+function keyCopy(over: Partial<Product> = {}): Product {
+  return chainGuard({
+    id: "p2",
+    sku: "WZ-2475",
+    name: "Key Copy Sc1",
+    description: undefined,
+    category: "Uncategorized",
+    costCompany: 2,
+    priceClient: 6,
+    brandId: undefined,
+    manageStock: false,
+    photoKey: undefined,
+    customAttributes: undefined,
+    priceBookEnabled: true,
+    availableInBooking: false,
+    ...over,
+  });
+}
 
-function open(productId: string | null, over: { onCreated?: (p: Product) => void } = {}) {
+function open(
+  productId: string | null,
+  { variant, onCreated = vi.fn() }: { variant?: "inventory" | "price-book"; onCreated?: (p: Product) => void } = {},
+) {
   const onOpenChange = vi.fn();
-  const onCreated = over.onCreated ?? vi.fn();
-  const { unmount } = renderWithClient(
-    <ProductDialog productId={productId} open onOpenChange={onOpenChange} onCreated={onCreated} />,
+  renderWithClient(
+    <ProductDialog productId={productId} open onOpenChange={onOpenChange} onCreated={onCreated} variant={variant} />,
   );
-  return { onOpenChange, onCreated, unmount };
+  return { onOpenChange, onCreated };
+}
+
+const dialog = () => screen.getByTestId("item-edit-dialog");
+const left = () => screen.getByTestId("item-edit-left");
+const right = () => screen.getByTestId("item-edit-right");
+
+/** A column's fields top to bottom: input labels, selects, the category, textareas and switches. */
+function columnFields(column: HTMLElement): string[] {
+  return [
+    ...column.querySelectorAll(
+      "label[for], button[role=combobox], textarea, button[role=switch], [data-testid=category-field]",
+    ),
+  ].map((el) => {
+    if (el.matches("textarea")) return (el as HTMLTextAreaElement).placeholder;
+    if (el.matches("[data-testid=category-field]")) return "Choose category (optional)";
+    return el.getAttribute("aria-label") ?? el.textContent ?? "";
+  });
 }
 
 beforeEach(() => {
   mocks.denied = new Set();
-  mocks.product = { isLoading: false, isError: false, data: product() };
-  mocks.categories = [];
-  mocks.brands = [];
-  mocks.catalogsEnabled = [];
-  mocks.update.mockReset();
-  mocks.create.mockReset();
-  mocks.archive.mockReset();
-  mocks.reactivate.mockReset();
+  mocks.pathname = "/inventory/items";
+  mocks.product = chainGuard();
+  mocks.categories = [
+    { id: "c1", name: "Door Hardware", active: true, createdBy: "", createdAt: "", updatedAt: "" },
+    { id: "c2", name: "Locks", active: true, createdBy: "", createdAt: "", updatedAt: "" },
+  ];
+  mocks.brands = [
+    { id: "b-slk", name: "SLK", active: true, createdBy: "", createdAt: "", updatedAt: "" },
+    { id: "b-uhs", name: "UHS", active: true, createdBy: "", createdAt: "", updatedAt: "" },
+  ];
+  mocks.attributes = ["ALL SKU", "In Store Location", "Link_UHS"].map((name, i) => ({
+    id: `attr-${i}`,
+    name,
+    type: "text",
+    visible: false,
+    resource: "items",
+  }));
+  mocks.update.mockReset().mockImplementation(async (id, body) => ({ ...chainGuard(), id, ...body }));
+  mocks.create.mockReset().mockImplementation(async (body) => ({ ...chainGuard(), ...body, id: "new-1" }));
+  mocks.archive
+    .mockReset()
+    .mockImplementation(async (id) => ({ ...chainGuard(), id, status: InventoryStatus.ARCHIVED }));
+  mocks.reactivate.mockReset().mockImplementation(async (id) => ({ ...chainGuard(), id }));
+  mocks.uploadUrl.mockReset().mockResolvedValue({ uploadUrl: "https://s3/put", key: "k" });
+  mocks.uploadBytes.mockReset().mockResolvedValue(undefined);
+  mocks.removePhoto.mockReset().mockResolvedValue(chainGuard({ photoKey: undefined }));
 });
 
-describe("ProductDialog — edit", () => {
-  it("opens the item as a popup with its form and a Save in the footer", () => {
+describe("Edit Inventory item (Workiz layout)", () => {
+  it("has Workiz's fields, in Workiz's order and words, in two columns", async () => {
     open("p1");
-    const dialog = screen.getByRole("dialog", { name: "Edit item" });
-    expect(field("name").value).toBe("Deadbolt");
-    const save = within(dialog).getByRole("button", { name: "Save" });
-    // The one yellow action on the popup.
-    expect(save).toHaveAttribute("data-variant", "default");
+    expect(await screen.findByRole("heading", { name: "Edit Inventory item" })).toBeInTheDocument();
+    await screen.findByDisplayValue("125.00");
+
+    expect(columnFields(left())).toEqual([
+      "Product name",
+      "Select brand (optional)",
+      "Choose category (optional)",
+      "SKU",
+      "Re-order at",
+      "Minimum at location",
+    ]);
+    expect(columnFields(right())).toEqual(["Price", "Cost", "Description", "Taxable item"]);
+
+    expect(screen.getByLabelText("Product name")).toHaveValue(
+      "Don-Jo - Chain Guard - Silver (1607-625) (SLK-3551)",
+    );
+    expect(await screen.findByRole("combobox", { name: "Select brand (optional)" })).toHaveTextContent("SLK");
+    expect(within(screen.getByTestId("category-field")).getByText("Door Hardware")).toBeInTheDocument();
+    expect(screen.getByLabelText("Cost")).toHaveValue("20.16");
+    expect(screen.getByRole("switch", { name: "Taxable item" })).toHaveAttribute("aria-checked", "true");
+    expect(await screen.findByLabelText("Link_UHS")).toHaveValue("https://uhs/chain");
+    expect(screen.getByRole("button", { name: "Add custom fields" })).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId("wz-footer"))
+        .getAllByRole("button")
+        .map((b) => b.textContent),
+    ).toEqual(["Cancel", "Save"]);
   });
 
-  it("is wide enough for the form and its side rail", () => {
+  it("shows nothing Workiz doesn't: no rail, stats, margins, badges or BitCRM-only fields", async () => {
     open("p1");
-    expect(screen.getByRole("dialog").className).toMatch(/sm:max-w-5xl/);
-    expect(screen.getByText("Photo panel")).toBeInTheDocument();
-    expect(screen.getByText("Pricing")).toBeInTheDocument();
+    await screen.findByDisplayValue("125.00");
+    const text = dialog().textContent ?? "";
+    for (const gone of [
+      "Pricing",
+      "Company cost",
+      "Tech cost",
+      "Client price",
+      "Barcode",
+      "Supplier",
+      "Serial tracking",
+      "Track stock",
+      "margin",
+      "On hand",
+      "Archive",
+      "Active",
+      "#3551",
+      "Identity",
+    ]) {
+      expect(text).not.toContain(gone);
+    }
   });
 
-  it("sends only the fields that changed, then closes", async () => {
+  it("scrolls down only: the card and the body never scroll sideways, columns shrink instead", async () => {
+    open("p1");
+    await screen.findByDisplayValue("125.00");
+    expect(dialog().className).toMatch(/\boverflow-(x-)?hidden\b/);
+    const body = screen.getByTestId("item-edit-scroll");
+    expect(body).toHaveClass("overflow-y-auto", "overflow-x-hidden", "min-w-0");
+    expect(screen.getByTestId("item-edit-columns").className).toContain(
+      "md:grid-cols-[minmax(0,1fr)_minmax(0,0.8fr)]",
+    );
+    expect(left()).toHaveClass("min-w-0");
+    expect(right()).toHaveClass("min-w-0");
+    // The footer sits outside the scrolling body: it stays put.
+    expect(body.contains(screen.getByTestId("wz-footer"))).toBe(false);
+  });
+
+  it("Save sends only what changed — Cost as the company cost, custom fields as a patch — then closes", async () => {
+    const user = userEvent.setup();
     const { onOpenChange } = open("p1");
-    await userEvent.clear(field("supplier"));
-    await userEvent.type(field("supplier"), "Acme");
-    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    const cost = await screen.findByLabelText("Cost");
 
-    await waitFor(() => expect(mocks.update).toHaveBeenCalledTimes(1));
-    expect(mocks.update).toHaveBeenCalledWith({ id: "p1", body: { supplier: "Acme" } });
-    expect(onOpenChange).toHaveBeenCalledWith(false);
-  });
+    await user.clear(cost);
+    await user.type(cost, "21.50");
+    await user.type(await screen.findByLabelText("ALL SKU"), "A-1");
+    await user.clear(screen.getByLabelText("Link_UHS"));
+    await user.click(screen.getByRole("switch", { name: "Taxable item" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
 
-  // "None" and 0 are different reorder points; a blank field is the honest
-  // way to show an item that has none.
-  it("opens an item without a reorder level with the field blank, not 0", () => {
-    open("p1");
-    expect(field("reorderLevel").value).toBe("");
-  });
-
-  it("clears the supplier with null", async () => {
-    mocks.product = { isLoading: false, isError: false, data: product({ supplier: "Acme" }) };
-    open("p1");
-    await userEvent.clear(field("supplier"));
-    await userEvent.click(screen.getByRole("button", { name: "Save" }));
-
-    await waitFor(() => expect(mocks.update).toHaveBeenCalledTimes(1));
-    expect(mocks.update).toHaveBeenCalledWith({ id: "p1", body: { supplier: null } });
-  });
-
-  it("closes without a request when nothing changed", async () => {
-    const { onOpenChange } = open("p1");
-    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(mocks.update).toHaveBeenCalledWith("p1", {
+        costCompany: 21.5,
+        taxable: false,
+        customAttributes: { "ALL SKU": "A-1", Link_UHS: null },
+      }),
+    );
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+    expect(mocks.archive).not.toHaveBeenCalled();
+  });
+
+  it("an untouched Save closes without writing", async () => {
+    const user = userEvent.setup();
+    const { onOpenChange } = open("p1");
+    await screen.findByDisplayValue("125.00");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(onOpenChange).toHaveBeenCalledWith(false);
     expect(mocks.update).not.toHaveBeenCalled();
   });
 
-  it("shows a loading state inside the popup", () => {
-    mocks.product = { isLoading: true, isError: false, data: undefined };
+  it("an invalid value keeps the popup open and says why", async () => {
+    const user = userEvent.setup();
     open("p1");
-    expect(within(screen.getByRole("dialog")).getByTestId("product-dialog-loading")).toBeInTheDocument();
+    const price = await screen.findByLabelText("Price");
+    await user.clear(price);
+    await user.type(price, "abc");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("Enter an amount");
+    expect(price).toHaveAttribute("aria-invalid", "true");
+    expect(mocks.update).not.toHaveBeenCalled();
   });
 
-  // 442px loading, 968px loaded: a centred popup that moved both its edges.
-  it("is the same height loading and loaded, with its footer in place", () => {
-    mocks.product = { isLoading: true, isError: false, data: undefined };
-    const first = open("p1");
-    const loading = screen.getByRole("dialog").className;
-    expect(screen.getByTestId("dialog-footer-placeholder")).toBeInTheDocument();
-    first.unmount();
-
-    mocks.product = { isLoading: false, isError: false, data: product() };
+  it("the SKU is edited like the other fields (as in Workiz) and sent when changed", async () => {
+    const user = userEvent.setup();
     open("p1");
-    expect(screen.getByRole("dialog").className).toBe(loading);
-    expect(loading).toMatch(/(^|\s)h-\[/);
+    const sku = await screen.findByLabelText("SKU");
+    expect(sku).toBeEnabled();
+    expect(sku).not.toHaveAttribute("readonly");
+    await user.clear(sku);
+    await user.type(sku, "SLK-3551");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(mocks.update).toHaveBeenCalledWith("p1", { sku: "SLK-3551" }));
   });
 
-  it("says so inside the popup when the item is gone", () => {
-    mocks.product = { isLoading: false, isError: true, data: undefined };
-    open("missing");
-    const dialog = screen.getByRole("dialog", { name: "Item not found" });
-    expect(dialog).toHaveAccessibleDescription("It may have been deleted.");
-    expect(within(dialog).queryByRole("button", { name: "Save" })).toBeNull();
-  });
-
-  it("is read-only without products.edit — disabled fields, no Save, no photo", () => {
-    mocks.denied = new Set(["products.edit"]);
+  it("clearing the brand with × sends null", async () => {
+    const user = userEvent.setup();
     open("p1");
-    expect(screen.getByRole("dialog", { name: "Item" })).toBeInTheDocument();
-    expect(field("name")).toBeDisabled();
-    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
-    expect(screen.queryByText("Photo panel")).toBeNull();
+    await user.click(await screen.findByRole("button", { name: "Clear Select brand (optional)" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(mocks.update).toHaveBeenCalledWith("p1", { brandId: null }));
   });
 
-  it("keeps money out of sight without financials.view", () => {
+  it("Browse picks a category", async () => {
+    const user = userEvent.setup();
+    open("p1");
+    await screen.findByDisplayValue("125.00");
+    await user.click(await screen.findByRole("button", { name: "Browse — Choose category (optional)" }));
+    const picker = screen.getByTestId("category-picker");
+    await user.click(within(picker).getByRole("button", { name: "Locks" }));
+    await user.click(within(picker).getByRole("button", { name: "Apply" }));
+    expect(within(screen.getByTestId("category-field")).getByText("Locks")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(mocks.update).toHaveBeenCalledWith("p1", { category: "Locks" }));
+  });
+
+  it("a new photo is uploaded with Save, not before", async () => {
+    const user = userEvent.setup();
+    open("p1");
+    await screen.findByDisplayValue("125.00");
+    const file = new File(["x"], "door.png", { type: "image/png" });
+    await user.upload(screen.getByTestId("photo-input"), file);
+    expect(mocks.uploadUrl).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(mocks.uploadBytes).toHaveBeenCalledWith("https://s3/put", file));
+    expect(mocks.uploadUrl).toHaveBeenCalledWith("p1", "image/png");
+    expect(mocks.update).not.toHaveBeenCalled();
+  });
+
+  it("without financials.view there is no Cost field", async () => {
     mocks.denied = new Set(["financials.view"]);
     open("p1");
-    expect(screen.queryByText("Company cost")).toBeNull();
-    expect(screen.queryByText("$10.00")).toBeNull();
+    await screen.findByDisplayValue("125.00");
+    expect(screen.queryByLabelText("Cost")).not.toBeInTheDocument();
+    expect(columnFields(right())).toEqual(["Price", "Description", "Taxable item"]);
   });
 
-  it("archives after the confirm (products.delete)", async () => {
-    const { onOpenChange } = open("p1");
-    await userEvent.click(screen.getByRole("button", { name: "Archive" }));
-    const confirm = await screen.findByRole("alertdialog");
-    await userEvent.click(within(confirm).getByRole("button", { name: "Archive" }));
-    expect(mocks.archive).toHaveBeenCalledWith("p1");
-    expect(onOpenChange).toHaveBeenCalledWith(false);
-  });
-
-  it("offers no Archive without products.delete", () => {
-    mocks.denied = new Set(["products.delete"]);
+  it("view-only: every field is locked, no Save, no custom field management", async () => {
+    mocks.denied = new Set(["products.edit"]);
     open("p1");
-    expect(screen.queryByRole("button", { name: "Archive" })).toBeNull();
+    await screen.findByDisplayValue("125.00");
+    expect(screen.getByLabelText("Product name")).toBeDisabled();
+    expect(screen.getByLabelText("Price")).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
+    expect(await screen.findByLabelText("ALL SKU")).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Add custom fields" })).not.toBeInTheDocument();
   });
 
-  it("restores an archived item", async () => {
-    mocks.product = {
-      isLoading: false,
-      isError: false,
-      data: product({ status: InventoryStatus.ARCHIVED }),
-    };
+  it("an item that can't be read says so", async () => {
+    mocks.product = new Error("404");
     open("p1");
-    await userEvent.click(screen.getByRole("button", { name: "Restore" }));
-    expect(mocks.reactivate).toHaveBeenCalledWith("p1");
-  });
-
-  it("feeds Category and Brand from their catalogs, each behind its own permission", async () => {
-    mocks.categories = [
-      { id: "c1", name: "Locks", active: true, createdBy: "", createdAt: "", updatedAt: "" },
-      { id: "c2", name: "Keys", active: true, createdBy: "", createdAt: "", updatedAt: "" },
-    ];
-    mocks.brands = [
-      { id: "b1", name: "Schlage", active: true, createdBy: "", createdAt: "", updatedAt: "" },
-    ];
-    mocks.denied = new Set(["brands.view"]);
-    open("p1");
-    expect(screen.getByRole("combobox", { name: "Category" })).toBeInTheDocument();
-    expect(screen.queryByRole("combobox", { name: "Brand" })).toBeNull();
-    expect(mocks.catalogsEnabled).toContainEqual(["categories", true]);
-    expect(mocks.catalogsEnabled).toContainEqual(["brands", false]);
+    expect(await screen.findByRole("heading", { name: "Item not found" })).toBeInTheDocument();
   });
 });
 
-describe("ProductDialog — create", () => {
-  async function fill() {
-    await userEvent.type(field("name"), "Keypad lock");
-    await userEvent.type(field("sku"), "KP-1");
-    await userEvent.type(field("category"), "Locks");
-  }
-
-  it("opens a New item popup that tracks stock by default", async () => {
-    open(null);
-    expect(screen.getByRole("dialog", { name: "New item" })).toBeInTheDocument();
-    expect(screen.getByRole("switch", { name: "Track stock" })).toBeChecked();
-    expect(screen.queryByText("Photo panel")).toBeNull();
+describe("Edit Item (Price Book layout)", () => {
+  beforeEach(() => {
+    mocks.product = keyCopy();
   });
 
-  it("creates a stock-managed item and hands it back", async () => {
+  it("has Workiz's Price Book fields and switches, in order", async () => {
+    open("p2", { variant: "price-book" });
+    expect(await screen.findByRole("heading", { name: "Edit Item" })).toBeInTheDocument();
+    await screen.findByDisplayValue("6.00");
+
+    expect(columnFields(left())).toEqual([
+      "Title",
+      "Model #",
+      "Choose category (optional)",
+      "Item type",
+      "Brand",
+      "Item Description (optional)",
+    ]);
+    expect(columnFields(right())).toEqual([
+      "Price",
+      "Unit Cost",
+      "Manage Inventory",
+      "Taxable item",
+      "Enable item",
+      "Show item on price book",
+      "Add to booking items",
+    ]);
+    expect(screen.getByRole("button", { name: "Delete Item" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /When off, the item is hidden from the price book/ }),
+    ).toBeInTheDocument();
+  });
+
+  it("Delete Item asks first, then archives the item and closes", async () => {
+    const user = userEvent.setup();
+    const { onOpenChange } = open("p2", { variant: "price-book" });
+    await user.click(await screen.findByRole("button", { name: "Delete Item" }));
+    const confirm = screen.getByRole("alertdialog");
+    expect(within(confirm).getByText("Delete Item?")).toBeInTheDocument();
+    await user.click(within(confirm).getByRole("button", { name: "Yes, delete" }));
+    await waitFor(() => expect(mocks.archive).toHaveBeenCalledWith("p2"));
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+  });
+
+  it("Enable item off archives the item on Save; Show item on price book is then locked", async () => {
+    const user = userEvent.setup();
+    open("p2", { variant: "price-book" });
+    await screen.findByDisplayValue("6.00");
+    await user.click(screen.getByRole("switch", { name: "Enable item" }));
+    expect(screen.getByRole("switch", { name: "Show item on price book" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(mocks.archive).toHaveBeenCalledWith("p2"));
+    expect(mocks.update).not.toHaveBeenCalled();
+  });
+
+  it("an archived item is switched back on with Enable item (and offers no Delete Item)", async () => {
+    const user = userEvent.setup();
+    mocks.product = keyCopy({ status: InventoryStatus.ARCHIVED });
+    open("p2", { variant: "price-book" });
+    await screen.findByDisplayValue("6.00");
+    expect(screen.queryByRole("button", { name: "Delete Item" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("switch", { name: "Enable item" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(mocks.reactivate).toHaveBeenCalledWith("p2"));
+  });
+
+  it("without products.delete there is no Delete Item and an item can't be switched off", async () => {
+    mocks.denied = new Set(["products.delete"]);
+    open("p2", { variant: "price-book" });
+    await screen.findByDisplayValue("6.00");
+    expect(screen.queryByRole("button", { name: "Delete Item" })).not.toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: "Enable item" })).toBeDisabled();
+  });
+
+  it("Add to booking items shows Booking Price and saves both", async () => {
+    const user = userEvent.setup();
+    open("p2", { variant: "price-book" });
+    await screen.findByDisplayValue("6.00");
+    await user.click(screen.getByRole("switch", { name: "Add to booking items" }));
+    await user.type(screen.getByLabelText("Booking Price"), "40");
+    await user.click(screen.getByRole("switch", { name: "Show item on price book" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(mocks.update).toHaveBeenCalledWith("p2", {
+        priceBookEnabled: false,
+        availableInBooking: true,
+        bookingPrice: 40,
+      }),
+    );
+  });
+
+  it("a service has no Brand and no Manage Inventory", async () => {
+    mocks.product = keyCopy({ type: ProductType.SERVICE });
+    open("p2", { variant: "price-book" });
+    await screen.findByDisplayValue("6.00");
+    expect(screen.queryByRole("combobox", { name: "Brand" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("switch", { name: "Manage Inventory" })).not.toBeInTheDocument();
+  });
+
+  it("a stocked product shows what is currently on hand", async () => {
+    mocks.product = keyCopy({ manageStock: true, onHand: 12 });
+    open("p2", { variant: "price-book" });
+    expect(await screen.findByTestId("on-hand")).toHaveTextContent("Currently on hand12");
+  });
+
+  it("follows the page: a Price Book path opens “Edit Item” without being told", async () => {
+    mocks.pathname = "/price-book/items";
+    open("p2");
+    expect(await screen.findByRole("heading", { name: "Edit Item" })).toBeInTheDocument();
+    expect(variantForPath("/price-book/items")).toBe("price-book");
+    expect(variantForPath("/inventory/items")).toBe("inventory");
+    expect(variantForPath(null)).toBe("inventory");
+  });
+});
+
+describe("New item", () => {
+  it("“Add Inventory item”: same layout, Workiz defaults, Product name and SKU required", async () => {
+    const user = userEvent.setup();
     const { onCreated } = open(null);
-    await fill();
-    await userEvent.click(screen.getByRole("button", { name: "Create item" }));
+    expect(screen.getByRole("heading", { name: "Add Inventory item" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Upload Image" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Price")).toHaveValue("0.00");
+    expect(screen.getByLabelText("Cost")).toHaveValue("0.00");
+    expect(screen.getByRole("switch", { name: "Taxable item" })).toHaveAttribute("aria-checked", "true");
 
-    await waitFor(() => expect(mocks.create).toHaveBeenCalledTimes(1));
-    expect(mocks.create.mock.calls[0][0]).toMatchObject({
-      name: "Keypad lock",
-      sku: "KP-1",
-      category: "Locks",
-      manageStock: true,
-    });
-    expect(onCreated).toHaveBeenCalledWith(expect.objectContaining({ id: "new-1" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(screen.getAllByRole("alert").map((a) => a.textContent)).toEqual(["Required", "Required"]);
+    expect(mocks.create).not.toHaveBeenCalled();
+
+    await user.type(screen.getByLabelText("Product name"), "Deadbolt");
+    await user.type(screen.getByLabelText("SKU"), "DB-1");
+    await user.clear(screen.getByLabelText("Cost"));
+    await user.type(screen.getByLabelText("Cost"), "10");
+    await user.type(await screen.findByLabelText("In Store Location"), "Aisle 4");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(mocks.create).toHaveBeenCalledWith({
+        name: "Deadbolt",
+        sku: "DB-1",
+        category: "Uncategorized",
+        type: ProductType.PRODUCT,
+        description: undefined,
+        brandId: undefined,
+        priceClient: 0,
+        costCompany: 10,
+        costTech: 10,
+        taxable: true,
+        serialTracking: false,
+        manageStock: true,
+        minimumStockLevel: 0,
+        reorderLevel: undefined,
+        customAttributes: { "In Store Location": "Aisle 4" },
+      }),
+    );
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith(expect.objectContaining({ id: "new-1" })));
   });
 
-  it("refuses without products.create", () => {
+  it("“Add New Item”: a service by default — no Brand, Manage Inventory, Enable, Show or Delete", async () => {
+    const user = userEvent.setup();
+    open(null, { variant: "price-book" });
+    expect(screen.getByRole("heading", { name: "Add New Item" })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Item type" })).toHaveTextContent("Service");
+    expect(columnFields(right())).toEqual(["Price", "Unit Cost", "Taxable item", "Add to booking items"]);
+    expect(screen.queryByRole("combobox", { name: "Brand" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete Item" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("combobox", { name: "Item type" }));
+    await user.click(await screen.findByRole("option", { name: "Product" }));
+    expect(screen.getByRole("combobox", { name: "Brand" })).toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: "Manage Inventory" })).toHaveAttribute("aria-checked", "false");
+  });
+
+  it("a picked photo is uploaded to the new item once it exists", async () => {
+    const user = userEvent.setup();
+    open(null);
+    const file = new File(["x"], "new.jpg", { type: "image/jpeg" });
+    await user.upload(screen.getByTestId("photo-input"), file);
+    await user.type(screen.getByLabelText("Product name"), "Deadbolt");
+    await user.type(screen.getByLabelText("SKU"), "DB-1");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(mocks.uploadUrl).toHaveBeenCalledWith("new-1", "image/jpeg"));
+    expect(mocks.uploadBytes).toHaveBeenCalledWith("https://s3/put", file);
+  });
+
+  it("without products.create the popup says so", () => {
     mocks.denied = new Set(["products.create"]);
     open(null);
-    expect(screen.getByText(/permission to create items/)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Create item" })).toBeNull();
+    expect(screen.getByText("You don't have permission to create items.")).toBeInTheDocument();
   });
 });
