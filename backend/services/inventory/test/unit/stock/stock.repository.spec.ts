@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { BadRequestException, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ServiceUnavailableException } from '@nestjs/common';
 import { DynamoDbService, RedisService } from '@bitcrm/shared';
 import { StockRepository } from 'src/stock/stock.repository';
 import { productCacheKey } from 'src/products/products-cache.service';
@@ -210,45 +210,118 @@ describe('StockRepository', () => {
     });
   });
 
+  /** A GetCommand answer for a stock row holding `quantity` (null: no row). */
+  const storedRow = (quantity: number | null) =>
+    quantity === null ? { Item: undefined } : { Item: { quantity } };
+
   /**
    * `onHand` на рядку товару — сума по всіх локаціях, яку список і картка
-   * показують без BatchGet. Рядок STOCK# і `onHand` пишуться однією
-   * транзакцією: збій між двома окремими записами лишав би сток зсунутим, а
-   * суму — старою, і жоден повтор цього не виправляв.
+   * показують без BatchGet; `totalUnits` / `uniqueItems` на рядку локації —
+   * те саме для списків складів і фургонів. Рядок STOCK#, підсумки локації
+   * і `onHand` пишуться однією транзакцією: збій між окремими записами лишав
+   * би сток зсунутим, а суми — старими, і жоден повтор цього не виправляв.
    */
   describe('incrementStock', () => {
-    it('writes the stock row and the product onHand in one transaction', async () => {
+    it('writes the stock row, the location totals and the product onHand in one transaction', async () => {
       dynamoDb.client.send.mockResolvedValue({});
 
       await repository.incrementStock('WAREHOUSE#wh-1', 'prod-1', 'Test Product', 5);
 
       expect(dynamoDb.client.send).toHaveBeenCalledTimes(1);
       expect(sent().constructor.name).toBe('TransactWriteCommand');
-      const [stock, product] = sent().input.TransactItems;
+      const [stock, location, product] = sent().input.TransactItems;
       expect(stock.Update.Key).toEqual({ PK: 'WAREHOUSE#wh-1', SK: 'STOCK#prod-1' });
       expect(stock.Update.UpdateExpression).toContain('ADD #quantity :qty');
       expect(stock.Update.ExpressionAttributeValues[':qty']).toBe(5);
       expect(stock.Update.ExpressionAttributeValues[':pid']).toBe('prod-1');
       expect(stock.Update.ExpressionAttributeValues[':pname']).toBe('Test Product');
+      expect(location.Update.Key).toEqual({ PK: 'WAREHOUSE#wh-1', SK: 'METADATA' });
+      expect(location.Update.UpdateExpression).toBe('ADD totalUnits :units');
+      expect(location.Update.ExpressionAttributeValues).toEqual({ ':units': 5 });
       expect(product.Update.Key).toEqual({ PK: 'PRODUCT#prod-1', SK: 'METADATA' });
       expect(product.Update.UpdateExpression).toBe('ADD onHand :delta');
       expect(product.Update.ExpressionAttributeValues).toEqual({ ':delta': 5 });
     });
 
-    // До бекфілу `onHand` на товарі нема; ADD створив би його як дельту (-2
-    // після списання двох із десяти), тож без атрибута сума не ведеться.
-    it('moves onHand only where the product row exists and already carries one', async () => {
+    // Перша спроба припускає, що товар на локації вже є: умова на рядку
+    // STOCK# робить це припущення перевіреним, а не прочитаним заздалегідь.
+    it('first assumes the location already holds the product, and says so in the stock condition', async () => {
       dynamoDb.client.send.mockResolvedValue({});
 
       await repository.incrementStock('WAREHOUSE#wh-1', 'prod-1', 'Test Product', 5);
 
-      const [, product] = sent().input.TransactItems;
+      const [stock] = sent().input.TransactItems;
+      expect(stock.Update.ConditionExpression).toBe('#quantity > :zero OR #quantity <= :negQty');
+      expect(stock.Update.ExpressionAttributeValues).toMatchObject({ ':zero': 0, ':negQty': -5 });
+    });
+
+    it('counts a product the location did not hold: refused, reads the row, writes again with uniqueItems +1', async () => {
+      dynamoDb.client.send
+        .mockRejectedValueOnce(transactionCanceled(['ConditionalCheckFailed', 'None', 'None']))
+        .mockResolvedValueOnce(storedRow(null))
+        .mockResolvedValueOnce({});
+
+      await repository.incrementStock('CONTAINER#c-1', 'prod-1', 'Test Product', 2);
+
+      expect(dynamoDb.client.send).toHaveBeenCalledTimes(3);
+      expect(sent(1).constructor.name).toBe('GetCommand');
+      expect(sent(1).input).toMatchObject({
+        Key: { PK: 'CONTAINER#c-1', SK: 'STOCK#prod-1' },
+        ConsistentRead: true,
+      });
+      const [stock, location, product] = sent(2).input.TransactItems;
+      expect(stock.Update.ConditionExpression).toBe(
+        'attribute_not_exists(#quantity) OR (#quantity <= :zero AND #quantity > :negQty)',
+      );
+      expect(location.Update.UpdateExpression).toBe('ADD totalUnits :units, uniqueItems :items');
+      expect(location.Update.ExpressionAttributeValues).toEqual({ ':units': 2, ':items': 1 });
+      expect(product.Update.ExpressionAttributeValues).toEqual({ ':delta': 2 });
+    });
+
+    it('counts a row that sat at zero the same way', async () => {
+      dynamoDb.client.send
+        .mockRejectedValueOnce(transactionCanceled(['ConditionalCheckFailed', 'None', 'None']))
+        .mockResolvedValueOnce(storedRow(0))
+        .mockResolvedValueOnce({});
+
+      await repository.incrementStock('CONTAINER#c-1', 'prod-1', 'Test Product', 2);
+
+      const [, location] = sent(2).input.TransactItems;
+      expect(location.Update.ExpressionAttributeValues).toEqual({ ':units': 2, ':items': 1 });
+    });
+
+    // До бекфілу підсумків на локації нема; ADD створив би їх як дельту,
+    // тож без атрибута вони не ведуться — як і `onHand` на товарі.
+    it('moves the totals and onHand only where the rows exist and already carry them', async () => {
+      dynamoDb.client.send.mockResolvedValue({});
+
+      await repository.incrementStock('WAREHOUSE#wh-1', 'prod-1', 'Test Product', 5);
+
+      const [, location, product] = sent().input.TransactItems;
+      expect(location.Update.ConditionExpression).toBe('attribute_exists(PK) AND attribute_exists(totalUnits)');
       expect(product.Update.ConditionExpression).toBe('attribute_exists(PK) AND attribute_exists(onHand)');
     });
 
-    it('falls back to the stock row alone when only the product side refused', async () => {
+    it('leaves a location the backfill has not reached alone, and still moves the stock and onHand', async () => {
       dynamoDb.client.send
-        .mockRejectedValueOnce(transactionCanceled(['None', 'ConditionalCheckFailed']))
+        .mockRejectedValueOnce(transactionCanceled(['None', 'ConditionalCheckFailed', 'None']))
+        .mockResolvedValueOnce({});
+
+      await repository.incrementStock('WAREHOUSE#wh-1', 'prod-1', 'Test Product', 5);
+
+      expect(dynamoDb.client.send).toHaveBeenCalledTimes(2);
+      const items = sent(1).input.TransactItems;
+      expect(items.map((i: any) => i.Update.Key)).toEqual([
+        { PK: 'WAREHOUSE#wh-1', SK: 'STOCK#prod-1' },
+        { PK: 'PRODUCT#prod-1', SK: 'METADATA' },
+      ]);
+    });
+
+    it('falls back to the stock row alone when the location and the product both refused', async () => {
+      dynamoDb.client.send
+        .mockRejectedValueOnce(
+          transactionCanceled(['None', 'ConditionalCheckFailed', 'ConditionalCheckFailed']),
+        )
         .mockResolvedValueOnce({});
 
       await expect(
@@ -256,9 +329,10 @@ describe('StockRepository', () => {
       ).resolves.toBeUndefined();
 
       expect(dynamoDb.client.send).toHaveBeenCalledTimes(2);
-      expect(sent(1).constructor.name).toBe('UpdateCommand');
-      expect(sent(1).input.Key).toEqual({ PK: 'WAREHOUSE#wh-1', SK: 'STOCK#ghost' });
-      expect(sent(1).input.UpdateExpression).toContain('ADD #quantity :qty');
+      const items = sent(1).input.TransactItems;
+      expect(items).toHaveLength(1);
+      expect(items[0].Update.Key).toEqual({ PK: 'WAREHOUSE#wh-1', SK: 'STOCK#ghost' });
+      expect(items[0].Update.UpdateExpression).toContain('ADD #quantity :qty');
       expect(redis.client.del).toHaveBeenCalledWith('inventory:product:ghost');
     });
 
@@ -272,13 +346,38 @@ describe('StockRepository', () => {
       expect(redis.client.del).not.toHaveBeenCalled();
     });
 
-    it('propagates a transaction cancelled for any reason but the product condition', async () => {
-      dynamoDb.client.send.mockRejectedValueOnce(transactionCanceled(['TransactionConflict', 'None']));
+    it('propagates a transaction cancelled for a reason no retry can fix', async () => {
+      dynamoDb.client.send.mockRejectedValueOnce(transactionCanceled(['ValidationError', 'None', 'None']));
 
       await expect(
         repository.incrementStock('WAREHOUSE#wh-1', 'prod-1', 'Test Product', 5),
       ).rejects.toThrow('Transaction cancelled');
       expect(dynamoDb.client.send).toHaveBeenCalledTimes(1);
+    });
+
+    // Кожен запис стоку тепер торкається рядка METADATA локації, тож два
+    // одночасні записи в один фургон можуть зіткнутися. Транзакція тоді не
+    // застосована зовсім, і повтор безпечний.
+    it('tries again after a transaction conflict — nothing of a cancelled transaction was applied', async () => {
+      dynamoDb.client.send
+        .mockRejectedValueOnce(transactionCanceled(['None', 'TransactionConflict', 'None']))
+        .mockResolvedValueOnce({});
+
+      await repository.incrementStock('CONTAINER#c-1', 'prod-1', 'Test Product', 1);
+
+      expect(dynamoDb.client.send).toHaveBeenCalledTimes(2);
+      expect(sent(1).input.TransactItems).toHaveLength(3);
+    });
+
+    it('gives up with a 409 when the row keeps changing under it', async () => {
+      dynamoDb.client.send.mockImplementation(async (command: any) => {
+        if (command.constructor.name === 'GetCommand') return storedRow(4);
+        throw transactionCanceled(['ConditionalCheckFailed', 'None', 'None']);
+      });
+
+      await expect(
+        repository.incrementStock('CONTAINER#c-1', 'prod-1', 'Test Product', 1),
+      ).rejects.toThrow(ConflictException);
     });
 
     it('drops the cached product so the next read sees the new onHand', async () => {
@@ -311,17 +410,20 @@ describe('StockRepository', () => {
   });
 
   describe('decrementStock', () => {
-    it('subtracts from the stock row under its condition and from onHand, in one transaction', async () => {
+    it('takes from the stock row, the location totals and onHand, in one transaction', async () => {
       dynamoDb.client.send.mockResolvedValue({});
 
       await repository.decrementStock('WAREHOUSE#wh-1', 'prod-1', 3);
 
       expect(dynamoDb.client.send).toHaveBeenCalledTimes(1);
       expect(sent().constructor.name).toBe('TransactWriteCommand');
-      const [stock, product] = sent().input.TransactItems;
+      const [stock, location, product] = sent().input.TransactItems;
       expect(stock.Update.Key).toEqual({ PK: 'WAREHOUSE#wh-1', SK: 'STOCK#prod-1' });
-      expect(stock.Update.ConditionExpression).toContain('#quantity >= :qty');
+      // The first attempt assumes some are left behind.
+      expect(stock.Update.ConditionExpression).toBe('#quantity > :qty');
       expect(stock.Update.ExpressionAttributeValues[':qty']).toBe(3);
+      expect(location.Update.Key).toEqual({ PK: 'WAREHOUSE#wh-1', SK: 'METADATA' });
+      expect(location.Update.ExpressionAttributeValues).toEqual({ ':units': -3 });
       expect(product.Update.Key).toEqual({ PK: 'PRODUCT#prod-1', SK: 'METADATA' });
       expect(product.Update.UpdateExpression).toBe('ADD onHand :delta');
       expect(product.Update.ExpressionAttributeValues).toEqual({ ':delta': -3 });
@@ -329,50 +431,68 @@ describe('StockRepository', () => {
       expect(redis.client.del).toHaveBeenCalledWith('inventory:product:prod-1');
     });
 
-    it('answers insufficient stock as a 400 when the stock row refused', async () => {
-      dynamoDb.client.send.mockRejectedValue(transactionCanceled(['ConditionalCheckFailed', 'None']));
+    it('emptying the row takes the product off uniqueItems', async () => {
+      dynamoDb.client.send
+        .mockRejectedValueOnce(transactionCanceled(['ConditionalCheckFailed', 'None', 'None']))
+        .mockResolvedValueOnce(storedRow(3))
+        .mockResolvedValueOnce({});
+
+      await repository.decrementStock('CONTAINER#c-1', 'prod-1', 3);
+
+      expect(dynamoDb.client.send).toHaveBeenCalledTimes(3);
+      const [stock, location] = sent(2).input.TransactItems;
+      expect(stock.Update.ConditionExpression).toBe('#quantity = :qty');
+      expect(location.Update.UpdateExpression).toBe('ADD totalUnits :units, uniqueItems :items');
+      expect(location.Update.ExpressionAttributeValues).toEqual({ ':units': -3, ':items': -1 });
+    });
+
+    it('answers insufficient stock as a 400 once the row is read and holds too few', async () => {
+      dynamoDb.client.send
+        .mockRejectedValueOnce(transactionCanceled(['ConditionalCheckFailed', 'None', 'None']))
+        .mockResolvedValueOnce(storedRow(2));
 
       await expect(
-        repository.decrementStock('WAREHOUSE#wh-1', 'prod-1', 100),
+        repository.decrementStock('WAREHOUSE#wh-1', 'prod-1', 3),
       ).rejects.toThrow(BadRequestException);
-      expect(dynamoDb.client.send).toHaveBeenCalledTimes(1);
+      expect(dynamoDb.client.send).toHaveBeenCalledTimes(2);
       expect(redis.client.del).not.toHaveBeenCalled();
     });
 
-    it('is still insufficient stock when both sides refused', async () => {
-      dynamoDb.client.send.mockRejectedValue(
-        transactionCanceled(['ConditionalCheckFailed', 'ConditionalCheckFailed']),
-      );
+    it('is insufficient stock when the location has no row for the product at all', async () => {
+      dynamoDb.client.send
+        .mockRejectedValueOnce(transactionCanceled(['ConditionalCheckFailed', 'None', 'None']))
+        .mockResolvedValueOnce(storedRow(null));
+
+      await expect(
+        repository.decrementStock('WAREHOUSE#wh-1', 'prod-1', 1),
+      ).rejects.toThrow('Insufficient stock for product prod-1');
+    });
+
+    it('is still insufficient stock when the other sides refused too', async () => {
+      dynamoDb.client.send
+        .mockRejectedValueOnce(
+          transactionCanceled(['ConditionalCheckFailed', 'ConditionalCheckFailed', 'ConditionalCheckFailed']),
+        )
+        .mockResolvedValueOnce(storedRow(0));
 
       await expect(
         repository.decrementStock('WAREHOUSE#wh-1', 'prod-1', 100),
       ).rejects.toThrow(BadRequestException);
-      expect(dynamoDb.client.send).toHaveBeenCalledTimes(1);
+      expect(dynamoDb.client.send).toHaveBeenCalledTimes(2);
     });
 
-    it('falls back to the conditional stock write alone when only the product side refused', async () => {
+    it('keeps the stock condition when only the product side refused', async () => {
       dynamoDb.client.send
-        .mockRejectedValueOnce(transactionCanceled(['None', 'ConditionalCheckFailed']))
+        .mockRejectedValueOnce(transactionCanceled(['None', 'None', 'ConditionalCheckFailed']))
         .mockResolvedValueOnce({});
 
       await repository.decrementStock('WAREHOUSE#wh-1', 'prod-1', 3);
 
       expect(dynamoDb.client.send).toHaveBeenCalledTimes(2);
-      expect(sent(1).constructor.name).toBe('UpdateCommand');
-      expect(sent(1).input.ConditionExpression).toContain('#quantity >= :qty');
+      const items = sent(1).input.TransactItems;
+      expect(items).toHaveLength(2);
+      expect(items[0].Update.ConditionExpression).toBe('#quantity > :qty');
       expect(redis.client.del).toHaveBeenCalledWith('inventory:product:prod-1');
-    });
-
-    it('turns a refused fallback into insufficient stock too', async () => {
-      const refused = new Error('Condition not met');
-      refused.name = 'ConditionalCheckFailedException';
-      dynamoDb.client.send
-        .mockRejectedValueOnce(transactionCanceled(['None', 'ConditionalCheckFailed']))
-        .mockRejectedValueOnce(refused);
-
-      await expect(
-        repository.decrementStock('WAREHOUSE#wh-1', 'prod-1', 100),
-      ).rejects.toThrow(BadRequestException);
     });
 
     it('should rethrow non-conditional errors', async () => {
@@ -386,11 +506,12 @@ describe('StockRepository', () => {
 
   /**
    * Переміщення між локаціями не змінює суму по товару: дві дельти взаємно
-   * гасяться, тож транзакція несе лише два рядки STOCK# — і жоден збій між
-   * списанням і зарахуванням не лишає товар "у дорозі".
+   * гасяться, тож `onHand` не чіпається. Обидва рядки STOCK# і підсумки обох
+   * локацій — одна транзакція: жоден збій між списанням і зарахуванням не
+   * лишає товар "у дорозі", а суми — розбіжними.
    */
   describe('moveStock', () => {
-    it('moves between two stock rows in one transaction, leaving onHand alone', async () => {
+    it('moves between two stock rows and both locations\' totals in one transaction, leaving onHand alone', async () => {
       dynamoDb.client.send.mockResolvedValue({});
 
       await repository.moveStock('WAREHOUSE#wh-1', 'CONTAINER#c-1', 'prod-1', 'Test Product', 4);
@@ -398,23 +519,65 @@ describe('StockRepository', () => {
       expect(dynamoDb.client.send).toHaveBeenCalledTimes(1);
       expect(sent().constructor.name).toBe('TransactWriteCommand');
       const items = sent().input.TransactItems;
-      expect(items).toHaveLength(2);
-      const [from, to] = items;
+      expect(items).toHaveLength(4);
+      const [from, to, fromTotals, toTotals] = items;
       expect(from.Update.Key).toEqual({ PK: 'WAREHOUSE#wh-1', SK: 'STOCK#prod-1' });
-      expect(from.Update.ConditionExpression).toContain('#quantity >= :qty');
+      expect(from.Update.ConditionExpression).toBe('#quantity > :qty');
       expect(from.Update.ExpressionAttributeValues[':qty']).toBe(4);
       expect(to.Update.Key).toEqual({ PK: 'CONTAINER#c-1', SK: 'STOCK#prod-1' });
       expect(to.Update.UpdateExpression).toContain('ADD #quantity :qty');
       expect(to.Update.ExpressionAttributeValues[':pname']).toBe('Test Product');
+      expect(fromTotals.Update.Key).toEqual({ PK: 'WAREHOUSE#wh-1', SK: 'METADATA' });
+      expect(fromTotals.Update.ExpressionAttributeValues).toEqual({ ':units': -4 });
+      expect(toTotals.Update.Key).toEqual({ PK: 'CONTAINER#c-1', SK: 'METADATA' });
+      expect(toTotals.Update.ExpressionAttributeValues).toEqual({ ':units': 4 });
+      expect(items.some((i: any) => i.Update.Key.PK.startsWith('PRODUCT#'))).toBe(false);
       expect(redis.client.del).not.toHaveBeenCalled();
     });
 
-    it('answers insufficient stock as a 400 when the source refused', async () => {
-      dynamoDb.client.send.mockRejectedValue(transactionCanceled(['ConditionalCheckFailed', 'None']));
+    it('re-reads only the rows that refused, and moves each uniqueItems by what it found', async () => {
+      // The warehouse gives its last 4, the van had none.
+      dynamoDb.client.send
+        .mockRejectedValueOnce(
+          transactionCanceled(['ConditionalCheckFailed', 'ConditionalCheckFailed', 'None', 'None']),
+        )
+        .mockImplementationOnce(async (cmd: any) => storedRow(cmd.input.Key.PK === 'WAREHOUSE#wh-1' ? 4 : null))
+        .mockImplementationOnce(async (cmd: any) => storedRow(cmd.input.Key.PK === 'WAREHOUSE#wh-1' ? 4 : null))
+        .mockResolvedValueOnce({});
+
+      await repository.moveStock('WAREHOUSE#wh-1', 'CONTAINER#c-1', 'prod-1', 'Test Product', 4);
+
+      expect(dynamoDb.client.send).toHaveBeenCalledTimes(4);
+      const [from, to, fromTotals, toTotals] = sent(3).input.TransactItems;
+      expect(from.Update.ConditionExpression).toBe('#quantity = :qty');
+      expect(to.Update.ConditionExpression).toContain('attribute_not_exists(#quantity)');
+      expect(fromTotals.Update.ExpressionAttributeValues).toEqual({ ':units': -4, ':items': -1 });
+      expect(toTotals.Update.ExpressionAttributeValues).toEqual({ ':units': 4, ':items': 1 });
+    });
+
+    it('answers insufficient stock as a 400 when the source cannot give the units', async () => {
+      dynamoDb.client.send
+        .mockRejectedValueOnce(transactionCanceled(['ConditionalCheckFailed', 'None', 'None', 'None']))
+        .mockResolvedValueOnce(storedRow(1));
 
       await expect(
         repository.moveStock('WAREHOUSE#wh-1', 'CONTAINER#c-1', 'prod-1', 'Test Product', 100),
       ).rejects.toThrow(BadRequestException);
+    });
+
+    it('moves the stock even when neither location has totals yet', async () => {
+      dynamoDb.client.send
+        .mockRejectedValueOnce(
+          transactionCanceled(['None', 'None', 'ConditionalCheckFailed', 'ConditionalCheckFailed']),
+        )
+        .mockResolvedValueOnce({});
+
+      await repository.moveStock('WAREHOUSE#wh-1', 'CONTAINER#c-1', 'prod-1', 'Test Product', 1);
+
+      expect(sent(1).input.TransactItems.map((i: any) => i.Update.Key.SK)).toEqual([
+        'STOCK#prod-1',
+        'STOCK#prod-1',
+      ]);
     });
 
     it('propagates any other failure', async () => {

@@ -1,5 +1,6 @@
 import { Test } from '@nestjs/testing';
 import { DynamoDbService } from '@bitcrm/shared';
+import { GetCommand, PutCommand } from '@aws-sdk/lib-dynamodb';
 import { StockRepository } from 'src/stock/stock.repository';
 import {
   createTestTable,
@@ -136,6 +137,69 @@ describe('StockRepository (integration)', () => {
       await expect(
         repository.decrementStock(WAREHOUSE_PK, 'nonexistent', 1),
       ).rejects.toThrow();
+    });
+  });
+
+  /**
+   * `totalUnits` / `uniqueItems` на рядку локації рухаються тією ж
+   * транзакцією, що й рядок STOCK# — перевірка реальних виразів DynamoDB,
+   * яких модульні тести з моками не бачать.
+   */
+  describe('location totals', () => {
+    const TABLE = 'BitCRM_Inventory_Test';
+    const CONTAINER_PK = 'CONTAINER#c-1';
+
+    const putLocation = (pk: string, totals?: { totalUnits: number; uniqueItems: number }) =>
+      dbClient.send(
+        new PutCommand({ TableName: TABLE, Item: { PK: pk, SK: 'METADATA', id: pk.split('#')[1], ...totals } }),
+      );
+    const totalsOf = async (pk: string) => {
+      const { Item } = await dbClient.send(new GetCommand({ TableName: TABLE, Key: { PK: pk, SK: 'METADATA' } }));
+      return { totalUnits: Item?.totalUnits, uniqueItems: Item?.uniqueItems };
+    };
+
+    beforeEach(async () => {
+      await putLocation(WAREHOUSE_PK, { totalUnits: 0, uniqueItems: 0 });
+      await putLocation(CONTAINER_PK, { totalUnits: 0, uniqueItems: 0 });
+    });
+
+    it('counts units and distinct products as stock comes and goes', async () => {
+      await repository.incrementStock(WAREHOUSE_PK, 'prod-1', 'A', 10);
+      await repository.incrementStock(WAREHOUSE_PK, 'prod-1', 'A', 5);
+      await repository.incrementStock(WAREHOUSE_PK, 'prod-2', 'B', 1);
+      expect(await totalsOf(WAREHOUSE_PK)).toEqual({ totalUnits: 16, uniqueItems: 2 });
+
+      await repository.decrementStock(WAREHOUSE_PK, 'prod-2', 1);
+      expect(await totalsOf(WAREHOUSE_PK)).toEqual({ totalUnits: 15, uniqueItems: 1 });
+
+      // A row at zero comes back into the count.
+      await repository.incrementStock(WAREHOUSE_PK, 'prod-2', 'B', 3);
+      expect(await totalsOf(WAREHOUSE_PK)).toEqual({ totalUnits: 18, uniqueItems: 2 });
+    });
+
+    it('moves both locations in one go', async () => {
+      await repository.incrementStock(WAREHOUSE_PK, 'prod-1', 'A', 4);
+
+      await repository.moveStock(WAREHOUSE_PK, CONTAINER_PK, 'prod-1', 'A', 4);
+
+      expect(await totalsOf(WAREHOUSE_PK)).toEqual({ totalUnits: 0, uniqueItems: 0 });
+      expect(await totalsOf(CONTAINER_PK)).toEqual({ totalUnits: 4, uniqueItems: 1 });
+    });
+
+    it('leaves the totals alone when a take is refused', async () => {
+      await repository.incrementStock(WAREHOUSE_PK, 'prod-1', 'A', 2);
+
+      await expect(repository.decrementStock(WAREHOUSE_PK, 'prod-1', 3)).rejects.toThrow('Insufficient stock');
+      expect(await totalsOf(WAREHOUSE_PK)).toEqual({ totalUnits: 2, uniqueItems: 1 });
+    });
+
+    it('never invents totals on a location the backfill has not reached', async () => {
+      await putLocation(WAREHOUSE_PK);
+
+      await repository.incrementStock(WAREHOUSE_PK, 'prod-1', 'A', 7);
+
+      expect(await totalsOf(WAREHOUSE_PK)).toEqual({ totalUnits: undefined, uniqueItems: undefined });
+      expect((await repository.getStockLevel(WAREHOUSE_PK, 'prod-1'))!.quantity).toBe(7);
     });
   });
 });
