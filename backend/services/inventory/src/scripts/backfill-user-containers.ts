@@ -14,12 +14,14 @@
  *
  * WHAT
  * ----
- * Scans the `CONTAINER#…` / `METADATA` rows. Every `technicianId` is assigned
+ * Scans the `CONTAINER#…` / `METADATA` rows and skips (and prints) the archived
+ * ones and the Workiz placeholders — nobody is assigned to an inactive van.
+ * Every `technicianId` is assigned
  * to its container (named by `technicianName`, `limited` = the container's
  * `userLimited`), then every id in `accessUserIds` (named by the id; the web
  * resolves names from the users directory). Owners first, then the first
- * container seen wins; a user on a second container is printed as a conflict
- * and left on the first. See `planUserContainerBackfill`.
+ * container by name wins (not Scan order); a user on a second container is
+ * printed as a conflict and left on the first. See `planUserContainerBackfill`.
  *
  * Idempotent and upsert-only: a user who already has a row — an admin's
  * choice, or an earlier run — is never touched, and each write is a Put that
@@ -78,8 +80,8 @@ async function main() {
         FilterExpression: 'begins_with(PK, :container) AND SK = :meta',
         ExpressionAttributeValues: { ':container': 'CONTAINER#', ':meta': 'METADATA' },
         ProjectionExpression:
-          'PK, id, #name, technicianId, technicianName, userLimited, accessUserIds',
-        ExpressionAttributeNames: { '#name': 'name' },
+          'PK, id, #name, technicianId, technicianName, userLimited, accessUserIds, #status, placeholder',
+        ExpressionAttributeNames: { '#name': 'name', '#status': 'status' },
         ExclusiveStartKey: lastKey,
       }),
     );
@@ -91,6 +93,8 @@ async function main() {
         technicianName: item.technicianName as string | undefined,
         userLimited: item.userLimited as boolean | undefined,
         accessUserIds: Array.isArray(item.accessUserIds) ? (item.accessUserIds as string[]) : undefined,
+        status: item.status as string | undefined,
+        placeholder: item.placeholder === true,
       });
     }
     lastKey = page.LastEvaluatedKey;
@@ -114,6 +118,9 @@ async function main() {
   } while (lastKey);
 
   const plan = planUserContainerBackfill(containers, existing, new Date().toISOString());
+  for (const skipped of plan.skippedContainers) {
+    console.log(`  - container ${skipped.id} (${skipped.name}): ${skipped.reason}, nobody assigned`);
+  }
   for (const conflict of plan.conflicts) {
     console.log(
       `  ! ${conflict.userId}: also on container ${conflict.skippedContainerId}, ` +
@@ -142,7 +149,8 @@ async function main() {
   }
 
   console.log(
-    `\n${containers.length} container(s) scanned, ${written} assignment(s) written, ` +
+    `\n${containers.length} container(s) scanned, ${plan.skippedContainers.length} skipped ` +
+      `(archived or Workiz placeholder), ${written} assignment(s) written, ` +
       `${plan.alreadyAssigned} user(s) already assigned, ${raced} assigned mid-run, ` +
       `${plan.conflicts.length} conflict(s).`,
   );

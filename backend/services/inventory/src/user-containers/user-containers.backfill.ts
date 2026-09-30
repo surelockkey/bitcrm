@@ -10,6 +10,15 @@ export interface ContainerAccessRow {
   userLimited?: boolean;
   /** The Workiz secondary users of the location (BitCRM user ids). */
   accessUserIds?: string[];
+  status?: string;
+  /** A Workiz placeholder for a location deleted in Workiz. */
+  placeholder?: boolean;
+}
+
+export interface SkippedContainer {
+  id: string;
+  name: string;
+  reason: 'archived' | 'placeholder';
 }
 
 export interface UserContainerConflict {
@@ -25,6 +34,8 @@ export interface UserContainerBackfillPlan {
   conflicts: UserContainerConflict[];
   /** Users skipped because they already have an assignment row. */
   alreadyAssigned: number;
+  /** Containers nobody is assigned to because they are not active vans. */
+  skippedContainers: SkippedContainer[];
 }
 
 /** Who the backfill names as the author of the rows it writes. */
@@ -39,21 +50,34 @@ function containerLabel(row: ContainerAccessRow): string {
  * Which assignment rows `backfill:user-containers` writes. Pure, so the
  * decision is tested without DynamoDB.
  *
- * Every container's `technicianId` is assigned to it (named by
+ * Only active vans: an archived container or a Workiz placeholder is
+ * skipped (and reported), so nobody is assigned to an inactive van. Every
+ * remaining container's `technicianId` is assigned to it (named by
  * `technicianName`, else the id), then every id in its `accessUserIds` (named
  * by the id — the web resolves names from the users directory). Owners go
  * first, so a technician who is also a secondary user elsewhere keeps their
- * own van; after that, the first container seen wins and the rest are
- * reported as conflicts. A user who already has a row is never touched —
- * the backfill is upsert-only.
+ * own van; otherwise the first container by name wins — never the order a
+ * Scan happened to return — and the rest are reported as conflicts. A user
+ * who already has a row is never touched — the backfill is upsert-only.
  */
 export function planUserContainerBackfill(
   containers: ContainerAccessRow[],
   existingUserIds: ReadonlySet<string>,
   now: string,
 ): UserContainerBackfillPlan {
+  const byName = [...containers].sort((a, b) => {
+    const order = containerLabel(a).toLowerCase().localeCompare(containerLabel(b).toLowerCase());
+    return order !== 0 ? order : a.id.localeCompare(b.id);
+  });
+  const skippedContainers: SkippedContainer[] = [];
+  const active = byName.filter((container) => {
+    const reason = container.placeholder === true ? 'placeholder' : container.status === 'archived' ? 'archived' : null;
+    if (reason) skippedContainers.push({ id: container.id, name: containerLabel(container), reason });
+    return !reason;
+  });
+
   const candidates: Array<{ userId: string; userName: string; container: ContainerAccessRow }> = [];
-  for (const container of containers) {
+  for (const container of active) {
     if (container.technicianId) {
       candidates.push({
         userId: container.technicianId,
@@ -62,7 +86,7 @@ export function planUserContainerBackfill(
       });
     }
   }
-  for (const container of containers) {
+  for (const container of active) {
     for (const userId of container.accessUserIds ?? []) {
       candidates.push({ userId, userName: userId, container });
     }
@@ -96,5 +120,5 @@ export function planUserContainerBackfill(
     });
   }
 
-  return { rows: [...planned.values()], conflicts, alreadyAssigned: already.size };
+  return { rows: [...planned.values()], conflicts, alreadyAssigned: already.size, skippedContainers };
 }

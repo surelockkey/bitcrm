@@ -108,6 +108,50 @@ describe('planUserContainerBackfill', () => {
   it('ignores containers nobody works from', () => {
     const plan = planUserContainerBackfill([{ id: 'c-1', name: 'Spare', accessUserIds: [] }], new Set(), NOW);
 
-    expect(plan).toEqual({ rows: [], conflicts: [], alreadyAssigned: 0 });
+    expect(plan).toEqual({ rows: [], conflicts: [], alreadyAssigned: 0, skippedContainers: [] });
+  });
+
+  // Нікого не призначаємо в неактивний фургон: архівні й заглушки Workiz — пропуск.
+  it('skips archived containers and Workiz placeholders, and reports them', () => {
+    const plan = planUserContainerBackfill(
+      [
+        { id: 'c-old', name: '(9) OLD', status: 'archived', technicianId: 'u-1' },
+        { id: 'c-ph', name: 'Workiz location #6142', placeholder: true, status: 'archived', accessUserIds: ['u-2'] },
+        { id: 'c-ok', name: '(1) OK', status: 'active', technicianId: 'u-3' },
+      ],
+      new Set(),
+      NOW,
+    );
+
+    expect(plan.rows.map((r) => [r.userId, r.containerId])).toEqual([['u-3', 'c-ok']]);
+    expect(plan.skippedContainers).toEqual([
+      { id: 'c-old', name: '(9) OLD', reason: 'archived' },
+      { id: 'c-ph', name: 'Workiz location #6142', reason: 'placeholder' },
+    ]);
+  });
+
+  // Не порядок Scan: з кількох активних фургонів — той, де людина власник, інакше
+  // перший за назвою.
+  it('decides by container name, not by the order the scan happened to return', () => {
+    const scanOrder = [
+      { id: 'c-z', name: 'Zulu van', accessUserIds: ['u-1'] },
+      { id: 'c-a', name: 'Alpha van', accessUserIds: ['u-1'] },
+      { id: 'c-m', name: 'Mike van', technicianId: 'u-2', accessUserIds: ['u-1'] },
+      { id: 'c-b', name: 'Bravo van', accessUserIds: ['u-2'] },
+    ];
+
+    const plan = planUserContainerBackfill(scanOrder, new Set(), NOW);
+    const reversed = planUserContainerBackfill([...scanOrder].reverse(), new Set(), NOW);
+
+    expect(plan.rows.map((r) => [r.userId, r.containerId]).sort()).toEqual([
+      ['u-1', 'c-a'],
+      ['u-2', 'c-m'],
+    ]);
+    expect(reversed.rows.map((r) => [r.userId, r.containerId]).sort()).toEqual([
+      ['u-1', 'c-a'],
+      ['u-2', 'c-m'],
+    ]);
+    expect(plan.conflicts).toEqual(reversed.conflicts);
+    expect(plan.conflicts).toContainEqual({ userId: 'u-2', keptContainerId: 'c-m', skippedContainerId: 'c-b' });
   });
 });

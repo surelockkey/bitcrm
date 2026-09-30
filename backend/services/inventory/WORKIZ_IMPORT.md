@@ -380,8 +380,10 @@ repository's own `PK`/`SK`/`GSI3` always win over anything in the payload.
   exclusive, and it is read only for a user who has no assignment row. The
   importer still writes the owner in `technicianId` and the 8 secondary users
   of 7 containers (all inactive) in `accessUserIds`; `backfill:user-containers`
-  turns both into assignment rows (owners first; a user on two containers
-  keeps the first and is printed as a conflict), with `limited` taken from the
+  turns both into assignment rows for **active, non-placeholder** containers
+  only (archived vans and Workiz placeholders are skipped and printed); owners
+  first, then the first container by name (a user on two containers keeps
+  that one and is printed as a conflict), with `limited` taken from the
   container's `userLimited`. `findByTechnicianId` still takes `Limit: 1`, so
   give a user at most one container as `technicianId`.
 - **Placeholders.** A location deleted in Workiz is imported as
