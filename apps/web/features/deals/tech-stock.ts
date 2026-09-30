@@ -1,11 +1,22 @@
 import { useQuery } from "@tanstack/react-query";
+import { UserContainerAccess } from "@bitcrm/types";
+import { ApiError } from "@/lib/api/errors";
+import { getUserContainer } from "@/features/inventory/user-containers/api";
 import { fetchAllContainers, getLocationStock, type LocationStockRow } from "@/features/inventory/stock/api";
 
 /**
- * The van a technician works from. Resolved client-side by `technicianId`
- * over every page of containers, not the first.
+ * The van a technician works from. Their user-container row decides — a tech
+ * may have taken another's van, and "All locations" / "No access" mean no van
+ * of their own. Only without a row does the legacy link count: the van whose
+ * `technicianId` is theirs, over every page of containers, not the first.
  */
 async function techContainerId(techId: string): Promise<string | undefined> {
+  try {
+    const row = await getUserContainer(techId);
+    return row.access === UserContainerAccess.CONTAINER ? row.containerId : undefined;
+  } catch (e) {
+    if (!(e instanceof ApiError && e.status === 404)) throw e;
+  }
   const containers = await fetchAllContainers();
   return containers.find((c) => c.technicianId === techId)?.id;
 }

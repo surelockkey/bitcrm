@@ -190,6 +190,21 @@ export const queryKeys = {
       all: () => ["brands"] as const,
       list: () => ["brands", "list"] as const,
     },
+    /** Workiz "User containers": which van each user works from. */
+    userContainers: {
+      all: () => ["user-containers"] as const,
+      list: () => ["user-containers", "list"] as const,
+      /** The caller's own row. */
+      mine: () => ["user-containers", "me"] as const,
+    },
+    /** A van's ideal loadout, and how a van compares with it. */
+    containerTemplates: {
+      all: () => ["container-templates"] as const,
+      list: (status?: string) => ["container-templates", "list", status] as const,
+      detail: (id: string) => ["container-templates", "detail", id] as const,
+      diff: (id: string, containerId: string, warehouseId?: string) =>
+        ["container-templates", id, "diff", containerId, warehouseId] as const,
+    },
     /**
      * One location's stock (`GET /stock/locations/:type/:id`), under the
      * location's own root — a movement, which refreshes both locations,

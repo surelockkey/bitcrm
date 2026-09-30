@@ -66,10 +66,13 @@ export function useUpdateContainer() {
   });
 }
 
+/** The caller's own van — `null` when they have none (see `fetchMyContainer`). */
 export function useMyContainer() {
   return useQuery({
     queryKey: queryKeys.inventory.containers.mine(),
-    queryFn: () => api.getMyContainer(),
+    queryFn: api.fetchMyContainer,
+    // A 404 is an answer, not a blip.
+    retry: false,
   });
 }
 
