@@ -90,14 +90,18 @@ export function ProductDialog({
  * Each catalog behind its own permission; without it the form falls back.
  * `pending` while a permitted catalog (or the permissions) is still loading:
  * the form then holds Category and Brand in place instead of reshaping.
+ * Both are asked for beside the permissions, not after them: the server
+ * guards them, and what the form shows still follows the permissions.
  */
 function useCatalogs() {
   const { can, isLoading } = usePermissions();
-  const categories = useItemCategories(can("product_categories", "view"));
-  const brands = useBrands(can("brands", "view"));
+  const canCategories = !!isLoading || can("product_categories", "view");
+  const canBrands = !!isLoading || can("brands", "view");
+  const categories = useItemCategories(canCategories);
+  const brands = useBrands(canBrands);
   return {
-    categories: categories.data ?? [],
-    brands: brands.data ?? [],
+    categories: canCategories ? (categories.data ?? []) : [],
+    brands: canBrands ? (brands.data ?? []) : [],
     pending: !!isLoading || !!categories.isLoading || !!brands.isLoading,
   };
 }
@@ -334,11 +338,15 @@ function NewItem({
   onClose: () => void;
   onCreated: (product: Product) => void;
 }) {
-  const { can } = usePermissions();
+  const { can, isLoading } = usePermissions();
   const create = useCreateProduct();
   const { categories, brands, pending: catalogsPending } = useCatalogs();
+  // Until the permissions answer, the whole form stands in place, disabled: a
+  // "no permission" stub that the answer then swapped for the form grew the
+  // popup from 131px to 968px.
+  const pending = !!isLoading;
 
-  if (!can("products", "create")) {
+  if (!pending && !can("products", "create")) {
     return (
       <>
         <Header title="New item" description="You don't have permission to create items." />
@@ -358,7 +366,10 @@ function NewItem({
         <ProductForm
           formId={FORM_ID}
           mode="create"
-          showCompanyCost={can("financials", "view")}
+          readOnly={pending}
+          // Held while pending: the office opens this, and a field that
+          // arrived with the answer reflowed the pricing row.
+          showCompanyCost={pending || can("financials", "view")}
           categories={categories}
           brands={brands}
           catalogsPending={catalogsPending}
@@ -369,7 +380,7 @@ function NewItem({
         <Button variant="outline" onClick={onClose}>
           Cancel
         </Button>
-        <Button type="submit" form={FORM_ID} disabled={create.isPending} className="gap-1.5">
+        <Button type="submit" form={FORM_ID} disabled={pending || create.isPending} className="gap-1.5">
           {create.isPending ? <Loader2 className="size-4 animate-spin" /> : null}
           Create item
         </Button>

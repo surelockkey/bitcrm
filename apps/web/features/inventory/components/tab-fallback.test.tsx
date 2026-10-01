@@ -6,11 +6,9 @@ import { renderWithClient } from "@/test/render-with-client";
 import { TabFallback, type InventoryTab } from "./tab-fallback";
 
 /**
- * The first HTML of an Inventory tab is its Suspense fallback: the page reads
- * the URL (`?edit=`, `?stock=`), so it renders on the client. An empty
- * fallback meant a blank body and then the whole page popping in. The
- * fallback is the tab's own frame: toolbar, the table's header over a page of
- * placeholder rows, and the pager's place.
+ * An Inventory tab's Suspense fallback is the tab's own frame: toolbar, the
+ * table's header over a page of placeholder rows, and the pager's place — an
+ * empty fallback meant a blank body and then the whole page popping in.
  */
 const HEADERS: Record<InventoryTab, string> = {
   items: "Product ID",

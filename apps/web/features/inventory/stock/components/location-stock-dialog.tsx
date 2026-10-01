@@ -97,7 +97,7 @@ function LocationStock({
   // One request: the location's name and its rows, named and priced.
   const stock = useLocationStock(type, id, open);
   const { name } = stock;
-  // A stale `?stock=<id>`: the location itself is gone.
+  // A stale link: the location itself is gone.
   const missing = stock.error instanceof ApiError && stock.error.status === 404;
   const kind = type === "container" ? "Container" : "Warehouse";
   const actions = can("transfers", "create");

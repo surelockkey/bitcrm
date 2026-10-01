@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import { useDenied, usePermissions } from "@/features/auth/use-permissions";
-import { useUrlPopups } from "@/features/inventory/use-url-popups";
+import { usePopup } from "@/features/inventory/use-popup";
 import { RowIconAction } from "@/features/inventory/components/row-icon-action";
 import { useUpdateCatalogEntry, type CatalogKind } from "../hooks";
 import { useSkeletonRows } from "../use-skeleton-rows";
@@ -62,14 +62,17 @@ const COLUMNS: PriceBookColumn[] = [
 /** A catalog is small and read whole; the skeleton never needs more than this. */
 const SKELETON_CAP = 25;
 
-type Popup = "edit" | "new";
-const POPUPS: Popup[] = ["edit", "new"];
+/** The popup over the list: an entry's Edit, or a new entry. */
+type CatalogPopup = { kind: "edit"; id: string } | { kind: "new" };
+
+/** Old links carried the popup in the query; they land on the plain list, the params dropped. */
+const STALE_PARAMS = ["edit", "new"] as const;
 
 /**
  * One small catalog — item categories or brands — as a Price Book tab.
  *
  * The whole catalog is one request, so the search box filters it in place.
- * New and Edit are popups driven by the URL (`?new=1`, `?edit=<id>`). Archive
+ * New and Edit are popups over the list, held in state. Archive
  * and Restore are the same PUT as Edit (`active: false` / `true`), so they
  * follow the edit permission, which is what the API checks.
  */
@@ -104,9 +107,9 @@ export function CatalogTab({
     query.data ? Math.min(query.data.length, SKELETON_CAP) : undefined,
   );
 
-  const popups = useUrlPopups(config.path, POPUPS);
-  const editId = popups.param("edit");
-  const creating = !editId && popups.param("new") === "1";
+  const { popup, open, close } = usePopup<CatalogPopup>(STALE_PARAMS);
+  const editId = popup?.kind === "edit" ? popup.id : null;
+  const creating = popup?.kind === "new";
   const editing = editId
     ? loading
       ? undefined
@@ -139,7 +142,7 @@ export function CatalogTab({
         </div>
         <span className="ml-auto" />
         {canCreate ? (
-          <Button className="h-9 gap-1.5 px-3.5" onClick={() => popups.open("new")}>
+          <Button className="h-9 gap-1.5 px-3.5" onClick={() => open({ kind: "new" })}>
             <Plus className="size-4" />
             New {config.noun}
           </Button>
@@ -182,7 +185,7 @@ export function CatalogTab({
               <TableRow
                 key={r.id}
                 className={cn(ROW_HEIGHT, canEdit && "cursor-pointer", !r.active && "opacity-55")}
-                onClick={canEdit ? () => popups.open("edit", r.id) : undefined}
+                onClick={canEdit ? () => open({ kind: "edit", id: r.id }) : undefined}
               >
                 <TableCell className="truncate font-medium" title={r.name}>
                   {r.name}
@@ -193,7 +196,7 @@ export function CatalogTab({
                 <TableCell className="overflow-hidden" onClick={(e) => e.stopPropagation()}>
                   {canEdit ? (
                     <div className="flex items-center gap-0.5">
-                      <RowIconAction label={`Edit ${r.name}`} tip="Edit" onClick={() => popups.open("edit", r.id)}>
+                      <RowIconAction label={`Edit ${r.name}`} tip="Edit" onClick={() => open({ kind: "edit", id: r.id })}>
                         <Pencil />
                       </RowIconAction>
                       <CatalogRowActions config={config} row={r} />
@@ -207,9 +210,9 @@ export function CatalogTab({
       </div>
 
       {editId ? (
-        <CatalogDialog config={config} mode="edit" entry={editing} canSave={canEdit} onClose={popups.close} />
+        <CatalogDialog config={config} mode="edit" entry={editing} canSave={canEdit} onClose={close} />
       ) : creating ? (
-        <CatalogDialog config={config} mode="new" canSave={canCreate} onClose={popups.close} />
+        <CatalogDialog config={config} mode="new" canSave={canCreate} onClose={close} />
       ) : null}
     </div>
   );

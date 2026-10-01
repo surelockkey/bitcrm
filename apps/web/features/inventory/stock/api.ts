@@ -9,7 +9,8 @@ import type {
   TransferItem,
   Warehouse,
 } from "@bitcrm/types";
-import { http, apiFetchPaginated } from "@/lib/api/http";
+import { http } from "@/lib/api/http";
+import { readAllPages } from "@/features/inventory/read-all";
 
 /** A location that holds stock, spelled either way the web has it. */
 export type StockLocationType = LocationSummaryType | LocationType.WAREHOUSE | LocationType.CONTAINER;
@@ -76,27 +77,12 @@ export function getLocationStock(type: LocationSummaryType, id: string): Promise
 
 /* --- Every location, for pickers --- */
 
-const PAGE = 100;
-/** Far above any real fleet; only here so a looping cursor cannot spin forever. */
-const CAP = 2000;
-
-async function fetchEvery<T>(path: string): Promise<T[]> {
-  const all: T[] = [];
-  let cursor: string | undefined;
-  do {
-    const q = new URLSearchParams({ limit: String(PAGE) });
-    if (cursor) q.set("cursor", cursor);
-    const page = await apiFetchPaginated<T>(`${path}?${q}`);
-    all.push(...page.data);
-    cursor = page.pagination.nextCursor;
-  } while (cursor && all.length < CAP);
-  return all.slice(0, CAP);
-}
-
+/** Every warehouse, a hundred a request, to the end of the cursor. */
 export function fetchAllWarehouses(): Promise<Warehouse[]> {
-  return fetchEvery<Warehouse>("/inventory/warehouses");
+  return readAllPages<Warehouse>("/inventory/warehouses");
 }
 
+/** Every container (van), a hundred a request, to the end of the cursor. */
 export function fetchAllContainers(): Promise<Container[]> {
-  return fetchEvery<Container>("/inventory/containers");
+  return readAllPages<Container>("/inventory/containers");
 }

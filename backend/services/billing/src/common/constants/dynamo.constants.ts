@@ -14,6 +14,17 @@ export const BILLING_TABLE = process.env.BILLING_TABLE || 'BitCRM_Billing';
 //                       GSI2SK = INVOICE#<createdAt>#<id> | ESTIMATE#<createdAt>#<id>
 //   GSI3 DealIndex      GSI3PK = DEAL#<dealId>              (sparse: estimates only)
 //                       GSI3SK = ESTIMATE#<createdAt>#<id>
+//   GSI4 UnpaidIndex    GSI4PK = UNPAID                     (sparse: open invoices only)
+//                       GSI4SK = <invoiceId>
+//
+// UnpaidIndex holds exactly the invoices that still owe money (status `due`
+// or `overdue`, more than a cent owed — Workiz's rule) — ~550 of ~78 000. Aging invoices, the Invoices report's
+// cards and "Days due", and the overdue sweep read that one small partition
+// instead of the whole list. The keys follow `status` on every write
+// (`unpaidIndexKeys`), so no caller maintains them; rows written before the
+// index existed get them from `backfill:unpaid-index`, which then stamps
+// `UNPAIDINDEX / STATE` — until that row exists the readers fall back to the
+// full list (slow, still right).
 //
 // The payment ledger reuses the same two list indexes: GSI1 `PAYMENTS` for
 // the report page and GSI2 `CONTACT#<id>` / `PAYMENT#…` for a client's
@@ -30,11 +41,13 @@ export const BILLING_TABLE = process.env.BILLING_TABLE || 'BitCRM_Billing';
 export const BILLING_GSI1_NAME = 'ListIndex';
 export const BILLING_GSI2_NAME = 'ContactIndex';
 export const BILLING_GSI3_NAME = 'DealIndex';
+export const BILLING_GSI4_NAME = 'UnpaidIndex';
 
-export const BILLING_GSIS: ReadonlyArray<{ n: 1 | 2 | 3; name: string }> = [
+export const BILLING_GSIS: ReadonlyArray<{ n: 1 | 2 | 3 | 4; name: string }> = [
   { n: 1, name: BILLING_GSI1_NAME },
   { n: 2, name: BILLING_GSI2_NAME },
   { n: 3, name: BILLING_GSI3_NAME },
+  { n: 4, name: BILLING_GSI4_NAME },
 ];
 
 export const METADATA_SK = 'METADATA';
@@ -43,6 +56,33 @@ export const METADATA_SK = 'METADATA';
 /** `INVOICE#<dealId>` / METADATA — one per job, id === dealId. */
 export const invoicePk = (dealId: string) => `INVOICE#${dealId}`;
 export const INVOICES_GSI1PK = 'INVOICES';
+
+/** UnpaidIndex partition: every invoice that still owes money, and nothing else. */
+export const UNPAID_GSI4PK = 'UNPAID';
+/** The invoice statuses that put an invoice on UnpaidIndex. */
+export const UNPAID_STATUSES: ReadonlySet<string> = new Set(['due', 'overdue']);
+/** Workiz counts a balance of a cent or less as paid (`INVOICE_PAID_TOLERANCE` in @bitcrm/types). */
+export const UNPAID_BALANCE_TOLERANCE = 0.01;
+/**
+ * The UnpaidIndex keys an invoice carries, or `null` = none (the row must not
+ * be on the index): open status AND more than a cent owed, as Workiz counts
+ * unpaid. `balanceDue` unknown (a write that names the status but not the
+ * totals) answers by status alone — callers that know the balance pass it.
+ * The sort key is the id: every reader takes the whole ~600-row partition and
+ * orders it itself.
+ */
+export function unpaidIndexKeys(
+  id: string,
+  status: string | undefined,
+  balanceDue?: number,
+): { GSI4PK: string; GSI4SK: string } | null {
+  if (!status || !UNPAID_STATUSES.has(status)) return null;
+  if (typeof balanceDue === 'number' && !(balanceDue > UNPAID_BALANCE_TOLERANCE)) return null;
+  return { GSI4PK: UNPAID_GSI4PK, GSI4SK: id };
+}
+/** `UNPAIDINDEX` / `STATE` — written by `backfill:unpaid-index` once every row carries its keys. */
+export const UNPAID_INDEX_STATE_PK = 'UNPAIDINDEX';
+export const UNPAID_INDEX_STATE_SK = 'STATE';
 
 // ---- estimates -------------------------------------------------------------
 /** `ESTIMATE#<id>` / METADATA, and `ESTIMATE#<id>` / `ITEM#<lineId>` rows. */
@@ -171,6 +211,8 @@ export const KEY_ATTRIBUTES = [
   'GSI2SK',
   'GSI3PK',
   'GSI3SK',
+  'GSI4PK',
+  'GSI4SK',
   'entityType',
   // TTL plumbing (webhook dedupe rows) — never part of an entity.
   'expiresAt',

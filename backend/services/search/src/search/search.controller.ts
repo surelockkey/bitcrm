@@ -13,9 +13,11 @@ export class SearchController {
   @Get()
   @ApiOperation({
     summary:
-      'Global search across all entities (deals, contacts, companies, users, technicians, inventory, ' +
-      'conversations). Results are filtered to what the caller is permitted to view; ' +
-      '`type=conversation` (csv with the others) narrows to inbox threads, which link to /messages/:id.',
+      'Global search across the entities (deals, contacts, companies, users, technicians, warehouses, ' +
+      'containers, transfers, conversations). Results are filtered to what the caller is permitted to view; ' +
+      '`type=conversation` (csv with the others) narrows to inbox threads, which link to /messages/:id. ' +
+      'Products (and stock) are left out unless `type` names them — as in Workiz, items are not found ' +
+      'from the global search.',
   })
   async search(
     @CurrentUser() user: JwtUser,

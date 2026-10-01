@@ -91,6 +91,12 @@ locals {
         { name = "ListIndex", n = 1 },    # INVOICES | ESTIMATES | TEMPLATES | PAYMENTS / <createdAt>
         { name = "ContactIndex", n = 2 }, # CONTACT#<contactId> / INVOICE# | ESTIMATE# | PAYMENT#<createdAt>
         { name = "DealIndex", n = 3 },    # DEAL#<dealId> / ESTIMATE#<createdAt>
+        # UnpaidIndex is sparse — only invoices that still owe money (status
+        # due/overdue, ~600 of ~78k): UNPAID / <invoiceId>. Aging invoices, the
+        # Invoices report cards and the overdue sweep read it instead of the
+        # whole list. Rows written before it existed need
+        # `npm run backfill:unpaid-index -w billing-service`.
+        { name = "UnpaidIndex", n = 4 },
       ]
       # Stripe webhook dedupe rows (WEBHOOK#<eventId>) expire after 30 days.
       # Nothing in the payment ledger itself ever carries `expiresAt`.

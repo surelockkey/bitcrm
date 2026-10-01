@@ -18,6 +18,7 @@
     "backfill:deal-product-fulfillment": "ts-node src/scripts/backfill-deal-product-fulfillment.ts",
     "backfill:deal-item-count": "ts-node src/scripts/backfill-deal-item-count.ts",
     "backfill:deal-totals": "ts-node src/scripts/backfill-deal-totals.ts",
+    "verify:tax-report": "ts-node --transpile-only src/scripts/verify-tax-report.ts",
     "backfill:area-taxes": "ts-node src/scripts/backfill-area-taxes.ts",
     "seed:job-types": "ts-node src/scripts/seed-job-types.ts",
     "seed:external-companies": "ts-node src/scripts/seed-external-companies.ts",
@@ -28,8 +29,10 @@
     "backfill:tech-index": "ts-node src/scripts/backfill-tech-index.ts",
     "backfill:status-schedule-index": "ts-node src/scripts/backfill-status-schedule-index.ts",
     "backfill:end-index": "ts-node src/scripts/backfill-end-index.ts",
+    "verify:sales-report": "ts-node src/scripts/verify-sales-report.ts",
     "backfill:deal-number-links": "ts-node src/scripts/backfill-deal-number-links.ts",
-    "verify:jobs-report": "ts-node src/scripts/verify-jobs-report.ts"
+    "verify:jobs-report": "ts-node src/scripts/verify-jobs-report.ts",
+    "verify:job-statistics": "ts-node src/scripts/verify-job-statistics.ts"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.700.0",

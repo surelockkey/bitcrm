@@ -7,7 +7,12 @@ import { InventoryStatus } from "@bitcrm/types";
 import { server } from "@/test/msw/server";
 import type { ContainerFilter } from "./api";
 import { queryKeys } from "@/lib/query-keys";
-import { useContainerStockView, useContainersCount, useContainersList, useUpdateContainer } from "./hooks";
+import {
+  useContainerStockView,
+  useContainersCount,
+  useContainersList,
+  useUpdateContainer,
+} from "./hooks";
 
 function wrapper(client: QueryClient) {
   return function Wrapper({ children }: { children: ReactNode }) {
@@ -139,3 +144,4 @@ describe("van edits refresh the rows, not the stock", () => {
     expect(stock.map((k) => client.getQueryState(k)?.isInvalidated)).toEqual(stock.map(() => false));
   });
 });
+

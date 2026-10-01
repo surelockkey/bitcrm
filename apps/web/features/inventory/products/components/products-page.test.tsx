@@ -13,7 +13,6 @@ const mocks = vi.hoisted(() => ({
   categories: [] as ProductCategory[],
   categoriesEnabled: [] as boolean[],
   denied: new Set<string>(),
-  params: new URLSearchParams(),
   push: vi.fn(),
   replace: vi.fn(),
   csv: vi.fn<(...args: unknown[]) => string>(() => "csv"),
@@ -24,7 +23,6 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mocks.push, replace: mocks.replace }),
-  useSearchParams: () => mocks.params,
   usePathname: () => "/inventory/items",
 }));
 vi.mock("@/features/auth/use-permissions", () => ({
@@ -69,7 +67,7 @@ vi.mock("../lib", async (original) => ({
   productsToCsv: mocks.csv,
 }));
 vi.mock("./import-products-dialog", () => ({ ImportProductsDialog: () => null }));
-// The popups have suites of their own; here only which one the URL opens matters.
+// The popups have suites of their own; here only which one opens matters.
 vi.mock("./product-dialog", () => ({
   ProductDialog: (props: {
     productId: string | null;
@@ -124,8 +122,6 @@ function category(name: string, active = true): ProductCategory {
   return { id: name, name, active, createdBy: "", createdAt: "", updatedAt: "" };
 }
 
-const noScroll = { scroll: false };
-
 beforeEach(() => {
   mocks.filters = [];
   mocks.countFilters = [];
@@ -133,7 +129,6 @@ beforeEach(() => {
   mocks.categories = [category("Locks"), category("Keys"), category("Retired", false)];
   mocks.categoriesEnabled = [];
   mocks.denied = new Set();
-  mocks.params = new URLSearchParams();
   mocks.push.mockReset();
   mocks.replace.mockReset();
   mocks.csv.mockClear();
@@ -204,64 +199,70 @@ describe("ProductsPage — stock-managed items only, filters on the server", () 
   });
 });
 
-describe("ProductsPage — popups are driven by the URL", () => {
-  it("opens the Edit popup for ?edit=<id>", () => {
-    mocks.params = new URLSearchParams("edit=p9");
-    renderWithClient(<ProductsPage />);
-    expect(screen.getByTestId("product-dialog")).toHaveAttribute("data-product-id", "p9");
-    expect(screen.queryByTestId("manage-stock-dialog")).toBeNull();
-  });
+/**
+ * The owner's rule: a popup is the page's state, never the address — and no
+ * address opens one: an old link with the popup in its query lands on the
+ * plain list.
+ */
+describe("ProductsPage — popups are state, not the URL", () => {
+  const address = () => `${window.location.pathname}${window.location.search}`;
+  beforeEach(() => window.history.replaceState(null, "", "/inventory/items"));
 
-  it("opens the New item popup for ?new=1", () => {
-    mocks.params = new URLSearchParams("new=1");
-    renderWithClient(<ProductsPage />);
-    expect(screen.getByTestId("product-dialog")).toHaveAttribute("data-product-id", "new");
-  });
-
-  it("opens Manage stock for ?stock=<id>", () => {
-    mocks.params = new URLSearchParams("stock=p9");
-    renderWithClient(<ProductsPage />);
-    expect(screen.getByTestId("manage-stock-dialog")).toHaveAttribute("data-product-id", "p9");
-    expect(screen.queryByTestId("product-dialog")).toBeNull();
-  });
-
-  it("opens nothing without a param", () => {
-    renderWithClient(<ProductsPage />);
-    expect(screen.queryByTestId("product-dialog")).toBeNull();
-    expect(screen.queryByTestId("manage-stock-dialog")).toBeNull();
-  });
-
-  it("puts ?edit=<id> in the URL from the row's Edit button", async () => {
+  it("opens the Edit popup from the row's Edit button, the address untouched", async () => {
     renderWithClient(<ProductsPage />);
     await userEvent.click(screen.getByRole("button", { name: "Edit Deadbolt" }));
-    expect(mocks.push).toHaveBeenCalledWith("/inventory/items?edit=p1", noScroll);
+    expect(screen.getByTestId("product-dialog")).toHaveAttribute("data-product-id", "p1");
+    expect(address()).toBe("/inventory/items");
+    expect(mocks.push).not.toHaveBeenCalled();
+    expect(mocks.replace).not.toHaveBeenCalled();
   });
 
-  it("puts ?stock=<id> in the URL from the row's Stock button", async () => {
+  it("opens Manage stock from the row's Stock button", async () => {
     renderWithClient(<ProductsPage />);
     await userEvent.click(screen.getByRole("button", { name: "Manage stock for Deadbolt" }));
-    expect(mocks.push).toHaveBeenCalledWith("/inventory/items?stock=p1", noScroll);
+    expect(screen.getByTestId("manage-stock-dialog")).toHaveAttribute("data-product-id", "p1");
+    expect(screen.queryByTestId("product-dialog")).toBeNull();
+    expect(address()).toBe("/inventory/items");
   });
 
-  it("puts ?new=1 in the URL from New item", async () => {
+  it("opens the New item popup from New item", async () => {
     renderWithClient(<ProductsPage />);
     await userEvent.click(screen.getByRole("button", { name: "New item" }));
-    expect(mocks.push).toHaveBeenCalledWith("/inventory/items?new=1", noScroll);
+    expect(screen.getByTestId("product-dialog")).toHaveAttribute("data-product-id", "new");
+    expect(address()).toBe("/inventory/items");
   });
 
-  it("clears the param when a popup closes", async () => {
-    mocks.params = new URLSearchParams("stock=p9");
+  it("opens nothing by itself", () => {
     renderWithClient(<ProductsPage />);
+    expect(screen.queryByTestId("product-dialog")).toBeNull();
+    expect(screen.queryByTestId("manage-stock-dialog")).toBeNull();
+  });
+
+  it("closes a popup back to the list", async () => {
+    renderWithClient(<ProductsPage />);
+    await userEvent.click(screen.getByRole("button", { name: "Manage stock for Deadbolt" }));
     await userEvent.click(screen.getByRole("button", { name: "close stock" }));
-    expect(mocks.replace).toHaveBeenCalledWith("/inventory/items", noScroll);
+    expect(screen.queryByTestId("manage-stock-dialog")).toBeNull();
+    expect(address()).toBe("/inventory/items");
   });
 
   it("moves a just-created item into its Edit popup (photo, stock)", async () => {
-    mocks.params = new URLSearchParams("new=1");
     renderWithClient(<ProductsPage />);
+    await userEvent.click(screen.getByRole("button", { name: "New item" }));
     await userEvent.click(screen.getByRole("button", { name: "created" }));
-    expect(mocks.replace).toHaveBeenCalledWith("/inventory/items?edit=new-1", noScroll);
+    expect(screen.getByTestId("product-dialog")).toHaveAttribute("data-product-id", "new-1");
   });
+
+  it.each(["edit=p9", "stock=p9", "new=1"])(
+    "opens nothing from an old ?%s link, and takes it out of the address",
+    (query) => {
+      window.history.replaceState(null, "", `/inventory/items?${query}`);
+      renderWithClient(<ProductsPage />);
+      expect(screen.queryByTestId("product-dialog")).toBeNull();
+      expect(screen.queryByTestId("manage-stock-dialog")).toBeNull();
+      expect(address()).toBe("/inventory/items");
+    },
+  );
 });
 
 describe("ProductsPage — toolbar", () => {
@@ -297,6 +298,15 @@ describe("ProductsPage — toolbar", () => {
  * and the categories answer.
  */
 describe("ProductsPage — a stable first frame", () => {
+  // A new search holds the area the rows are drawn in, so the pager under it
+  // does not jump up into view (see ListBody).
+  it("draws its rows in the list's held area, with the pager under it", () => {
+    renderWithClient(<ProductsPage />);
+    const area = document.querySelector("[data-slot=list-area]");
+    expect(area).toContainElement(screen.getByRole("table"));
+    expect(area).not.toContainElement(screen.getByTestId("list-pagination"));
+  });
+
   const headers = () => [...document.querySelectorAll("thead th")].map((th) => th.getAttribute("aria-label"));
 
   it("draws the real table while the first page loads, with the pager's space held", () => {
@@ -343,6 +353,16 @@ describe("ProductsPage — a stable first frame", () => {
     renderWithClient(<ProductsPage />);
     expect(screen.getByRole("button", { name: /Import CSV/ })).toBeDisabled();
     expect(screen.getByRole("button", { name: /New item/ })).toBeDisabled();
+  });
+
+  // The categories waited for /users/me: two requests in a row before the
+  // toolbar was whole. The server guards the catalog, so it is asked for at
+  // once; the Category select still shows only with product_categories.view.
+  it("asks for the items and the categories while the permissions load", () => {
+    mocks.permsLoading = true;
+    renderWithClient(<ProductsPage />);
+    expect(mocks.filters.length).toBeGreaterThan(0);
+    expect(mocks.categoriesEnabled[0]).toBe(true);
   });
 
   // Appearing with the catalog, the Category select pushed Status and the

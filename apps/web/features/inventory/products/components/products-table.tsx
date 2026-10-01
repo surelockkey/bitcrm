@@ -1,14 +1,14 @@
 "use client";
 
 import { Boxes, Pencil } from "lucide-react";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { TableCell, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { InventoryStatus } from "@bitcrm/types";
 import type { Product } from "@bitcrm/types";
 import { cn } from "@/lib/utils";
-import { formatMoney } from "../lib";
+import { formatMoney, type ProductWithMedia } from "../lib";
 import { RowIconAction } from "@/features/inventory/components/row-icon-action";
 import {
   INVENTORY_ROW,
@@ -16,6 +16,8 @@ import {
   type InventoryColumn,
 } from "@/features/inventory/components/inventory-table";
 import { useProductRowActions } from "./product-row-actions";
+import { ProductThumb } from "./product-thumb";
+import { ProductPhotoDialog } from "./product-photo-dialog";
 
 type ColumnId =
   | "productId"
@@ -38,11 +40,14 @@ type ColumnId =
  *
  * Together they fit the ~1250px a 1600px screen leaves beside the sidebar —
  * at 1430 the Actions column was cut to "Actio" and Manage stock went missing.
+ * Product ID holds the item's picture beside its number, as Workiz's does;
+ * Name and Description gave it the room.
  */
 export const PRODUCT_COLUMNS: (InventoryColumn & { id: ColumnId })[] = [
-  { id: "productId", label: "Product ID", width: 100 },
-  { id: "name", label: "Name", width: 260 },
-  { id: "description", label: "Description", width: 220 },
+  // The 40px picture, its gap and a five-digit number.
+  { id: "productId", label: "Product ID", width: 116 },
+  { id: "name", label: "Name", width: 250 },
+  { id: "description", label: "Description", width: 214 },
   { id: "price", label: "Price", width: 95 },
   { id: "cost", label: "Cost", width: 95 },
   { id: "quantity", label: "Quantity", width: 90 },
@@ -83,6 +88,8 @@ export function ProductsTable({
 }) {
   const columns = showCost ? PRODUCT_COLUMNS : WITHOUT_COST;
   const actions = useProductRowActions();
+  // The photo opened from a thumbnail — over the list, not the item's popup.
+  const [photo, setPhoto] = useState<ProductWithMedia | null>(null);
 
   return (
     <>
@@ -116,6 +123,7 @@ export function ProductsTable({
                   menu={actions.menu}
                   onEdit={onEdit}
                   onStock={onStock}
+                  onPhoto={setPhoto}
                 />
               ))}
             </TableRow>
@@ -123,6 +131,7 @@ export function ProductsTable({
         })}
       </InventoryTable>
       {actions.dialog}
+      <ProductPhotoDialog product={photo} onOpenChange={(open) => (open ? undefined : setPhoto(null))} />
     </>
   );
 }
@@ -137,6 +146,7 @@ function Cell({
   menu,
   onEdit,
   onStock,
+  onPhoto,
 }: {
   column: ColumnId;
   product: Product;
@@ -145,12 +155,18 @@ function Cell({
   menu: (product: Product) => ReactNode;
   onEdit: (product: Product) => void;
   onStock: (product: Product) => void;
+  onPhoto: (product: ProductWithMedia) => void;
 }) {
   switch (column) {
     case "productId":
+      // Workiz's id cell: the picture, then the number. py-1: a 40px picture
+      // in the 48px row, without growing it.
       return (
-        <TableCell className="truncate tabular-nums text-muted-foreground">
-          {p.number ?? "—"}
+        <TableCell className="overflow-hidden py-1">
+          <div className="flex items-center gap-2">
+            <ProductThumb product={p} onOpen={onPhoto} />
+            <span className="truncate tabular-nums text-muted-foreground">{p.number ?? "—"}</span>
+          </div>
         </TableCell>
       );
     case "name":

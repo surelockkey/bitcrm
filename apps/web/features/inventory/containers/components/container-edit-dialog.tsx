@@ -33,7 +33,7 @@ import {
 
 /**
  * The van's Edit popup — Inventory has no container page any more. Opened
- * from the row's pencil or `?edit=<id>`; view-only without `containers.edit`.
+ * from the row's pencil or a link to the van; view-only without `containers.edit`.
  */
 export function ContainerEditDialog({
   containerId,

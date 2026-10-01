@@ -242,3 +242,25 @@ describe('InvoicesService.create — picks up a ledger that already exists', () 
     expect(inv.status).toBe('paid');
   });
 });
+
+describe('PaymentsService.ledgersByDeals — the commissions report (internal)', () => {
+  it('reads each job once, with or without an invoice, and maps a job with no payments to []', async () => {
+    const { service, ledger } = build({
+      seed: [imported(), imported({ id: 'wz-2', method: 'card', amount: 50 }), imported({ id: 'wz-3', invoiceId: 'deal-2', dealId: 'deal-2' })],
+    });
+    const out = await service.ledgersByDeals(['deal-1', 'deal-2', 'deal-1', 'deal-none', '']);
+    expect(Object.keys(out).sort()).toEqual(['deal-1', 'deal-2', 'deal-none']);
+    expect(out['deal-1'].map((p) => p.id).sort()).toEqual(['wz-1', 'wz-2']);
+    expect(out['deal-2']).toHaveLength(1);
+    expect(out['deal-none']).toEqual([]);
+    expect(ledger.listByInvoice).toHaveBeenCalledTimes(3);
+  });
+
+  it('caps a request at 100 jobs and ignores a body that is not a list', async () => {
+    const { service, ledger } = build();
+    const many = Array.from({ length: 150 }, (_, i) => `deal-${i}`);
+    expect(Object.keys(await service.ledgersByDeals(many))).toHaveLength(100);
+    expect(ledger.listByInvoice).toHaveBeenCalledTimes(100);
+    expect(await service.ledgersByDeals('deal-1' as any)).toEqual({});
+  });
+});
