@@ -35,6 +35,7 @@ import {
   amountPaidFrom,
   clampPaymentAmount,
   dealPaymentStatus,
+  isStripeBacked,
   refundableAmount,
   round2,
   statusAfterRefund,
@@ -653,8 +654,7 @@ function assertOfflineMethod(method: PaymentMethod): void {
   }
 }
 
-export const isStripeBacked = (p: Pick<Payment, 'stripePaymentIntentId' | 'stripeSessionId' | 'stripeChargeId'>) =>
-  !!(p.stripePaymentIntentId || p.stripeSessionId || p.stripeChargeId);
+export { isStripeBacked };
 
 /** Stripe's refund states, narrowed to ours. `requires_action` is still in flight. */
 export function mapRefundStatus(status: string | null | undefined): RefundStatus {

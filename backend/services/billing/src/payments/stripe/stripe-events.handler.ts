@@ -3,7 +3,7 @@ import type Stripe from 'stripe';
 import { BillingEventType, TimelineEventType, type Payment, type PaymentStatus } from '@bitcrm/types';
 import { PaymentsRepository } from '../payments.repository';
 import { PaymentsService } from '../payments.service';
-import { canTransition, fromCents, round2, statusAfterRefund } from '../payment-rules';
+import { canTransition, chargedAmount, fromCents, round2, statusAfterRefund } from '../payment-rules';
 import { StripeService, intentId } from './stripe.service';
 import { PaymentReportProjector } from '../report/payment-report.projector';
 
@@ -202,7 +202,8 @@ export class StripeEventsHandler {
     const payment = await this.resolve(charge.metadata, [charge.id, intentId(charge.payment_intent)]);
     if (!payment) return this.orphan('charge.refunded', charge.id);
 
-    const refundedAmount = round2(Math.min(payment.amount, fromCents(charge.amount_refunded ?? 0)));
+    // Up to what the card was charged — a Tap to Pay tip went through with the amount.
+    const refundedAmount = round2(Math.min(chargedAmount(payment), fromCents(charge.amount_refunded ?? 0)));
     const status = statusAfterRefund(payment, refundedAmount);
     if (refundedAmount === (payment.refundedAmount ?? 0) && status === payment.status) return;
     if (!canTransition(payment.status, status)) {

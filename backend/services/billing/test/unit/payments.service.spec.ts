@@ -242,6 +242,19 @@ describe('PaymentsService — refunds', () => {
     );
   });
 
+  it('refunds the tip of a tapped card with it — the card was charged amount + tip', async () => {
+    const ledger = fakeLedger([
+      payment({ id: 'p-tap', amount: 100, tipAmount: 15, stripePaymentIntentId: 'pi_tap', source: 'field' }),
+    ]);
+    const { service, stripe, invoices } = build({ ledger });
+    const refund = await service.refund('p-tap', {}, caller());
+    expect(refund.amount).toBe(115);
+    expect(stripe.createRefund).toHaveBeenCalledWith(expect.objectContaining({ paymentIntentId: 'pi_tap', amount: 115 }));
+    expect(ledger.payments.get('p-tap')).toMatchObject({ status: 'refunded', refundedAmount: 115 });
+    // The balance is owed again in full — never more than the job's part.
+    expect(invoices.applyAmountPaid).toHaveBeenLastCalledWith('deal-1', 0);
+  });
+
   it('keeps the offline ledger refundable with no Stripe configured', async () => {
     const ledger = fakeLedger([payment({ id: 'p-cash', amount: 60, method: 'cash', source: 'office' })]);
     const { service } = build({ ledger, stripe: null });

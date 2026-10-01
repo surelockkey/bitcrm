@@ -3,6 +3,7 @@ import {
   PaymentAmountError,
   amountPaidFrom,
   canTransition,
+  chargedAmount,
   clampPaymentAmount,
   dealPaymentStatus,
   fromCents,
@@ -85,6 +86,16 @@ describe('payment-rules: what the customer has paid', () => {
   it('rounds to cents rather than carrying float dust', () => {
     const rows = [payment({ id: 'a', amount: 0.1 }), payment({ id: 'b', amount: 0.2 })];
     expect(amountPaidFrom(rows)).toBe(0.3);
+  });
+
+  it('never counts a tip toward the balance, and a refunded tip never pushes the balance below what was paid', () => {
+    const tapped = payment({ id: 't', amount: 100, tipAmount: 15, stripePaymentIntentId: 'pi_1' });
+    expect(summarizePayments([tapped]).settled).toBe(100);
+    // The job's part went back, the tip was kept: the job is owed again in full.
+    expect(summarizePayments([{ ...tapped, refundedAmount: 100 }]).settled).toBe(0);
+    // Everything went back, the tip included: this payment counts for nothing — not −15.
+    const all = { ...tapped, status: 'refunded' as const, refundedAmount: 115 };
+    expect(summarizePayments([all, payment({ id: 'other', amount: 40 })])).toMatchObject({ settled: 40, refunded: 115 });
   });
 });
 
@@ -258,5 +269,22 @@ describe('payment-rules: refunds', () => {
     expect(statusAfterRefund(payment({ amount: 100 }), 30)).toBe('settled');
     expect(statusAfterRefund(payment({ amount: 100 }), 100)).toBe('refunded');
     expect(statusAfterRefund(payment({ amount: 100 }), 99.995)).toBe('refunded');
+  });
+
+  it('gives back the tip of a card payment taken through Stripe as well — it was charged with it', () => {
+    const tapped = payment({ amount: 100, tipAmount: 15, stripePaymentIntentId: 'pi_1' });
+    expect(chargedAmount(tapped)).toBe(115);
+    expect(refundableAmount(tapped)).toBe(115);
+    expect(refundableAmount({ ...tapped, refundedAmount: 100 })).toBe(15);
+    // Only the whole charge, tip included, makes it `refunded`.
+    expect(statusAfterRefund(tapped, 100)).toBe('settled');
+    expect(statusAfterRefund(tapped, 115)).toBe('refunded');
+  });
+
+  it('keeps the tip of an offline payment out of it — billing never took that money', () => {
+    const cash = payment({ amount: 100, tipAmount: 15, method: 'cash', source: 'office' });
+    expect(chargedAmount(cash)).toBe(100);
+    expect(refundableAmount(cash)).toBe(100);
+    expect(statusAfterRefund(cash, 100)).toBe('refunded');
   });
 });

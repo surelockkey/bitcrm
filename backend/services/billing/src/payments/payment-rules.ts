@@ -37,9 +37,30 @@ export function surchargeFor(amount: number, percent: number): number {
 
 const counts = (status: PaymentStatus) => COUNTED_PAYMENT_STATUSES.includes(status);
 
-/** What one payment contributes to the balance: its gross, less refunds. */
+/**
+ * What one payment contributes to the balance: its gross, less refunds — and
+ * never less than nothing. A card payment's tip can be refunded too, so
+ * `refundedAmount` may run past `amount`; that part was the tip, which never
+ * counted toward the balance in the first place.
+ */
 const net = (p: Pick<Payment, 'status' | 'amount' | 'refundedAmount'>): number =>
-  counts(p.status) ? p.amount - (p.refundedAmount ?? 0) : 0;
+  counts(p.status) ? Math.max(0, p.amount - (p.refundedAmount ?? 0)) : 0;
+
+/** Went through Stripe (a session, an intent or a charge of ours) — as opposed to recorded by hand. */
+export const isStripeBacked = (p: Pick<Payment, 'stripePaymentIntentId' | 'stripeSessionId' | 'stripeChargeId'>) =>
+  !!(p.stripePaymentIntentId || p.stripeSessionId || p.stripeChargeId);
+
+/**
+ * What the customer's card was charged for this payment, dollars: a payment
+ * taken through Stripe carried its tip in the same charge (Tap to Pay sends
+ * `amount + tipAmount`), so the tip is ours to give back. An offline row's
+ * tip never passed through billing — only `amount` is.
+ */
+export function chargedAmount(
+  p: Pick<Payment, 'amount' | 'tipAmount' | 'stripePaymentIntentId' | 'stripeSessionId' | 'stripeChargeId'>,
+): number {
+  return isStripeBacked(p) ? round2(p.amount + (p.tipAmount ?? 0)) : p.amount;
+}
 
 export function summarizePayments(payments: readonly Payment[]): PaymentSummary {
   if (payments.length === 0) return { ...EMPTY_PAYMENT_SUMMARY };
@@ -155,13 +176,22 @@ export function clampPaymentAmount(input: {
 
 // -------------------------------------------------------------------- refunds
 
-/** What is still refundable. Money that never landed, or already came back, is not. */
-export function refundableAmount(p: Pick<Payment, 'amount' | 'refundedAmount' | 'status'>): number {
+type RefundBasis = Pick<
+  Payment,
+  'amount' | 'tipAmount' | 'stripePaymentIntentId' | 'stripeSessionId' | 'stripeChargeId'
+>;
+
+/**
+ * What is still refundable: what was charged (`chargedAmount` — the tip of a
+ * Stripe card payment included), less what already went back. Money that
+ * never landed, or already came back, is not.
+ */
+export function refundableAmount(p: RefundBasis & Pick<Payment, 'refundedAmount' | 'status'>): number {
   if (!counts(p.status)) return 0;
-  return Math.max(0, round2(p.amount - (p.refundedAmount ?? 0)));
+  return Math.max(0, round2(chargedAmount(p) - (p.refundedAmount ?? 0)));
 }
 
-/** A PARTIAL refund leaves the payment `settled`; only the whole amount makes it `refunded`. */
-export function statusAfterRefund(p: Pick<Payment, 'amount'>, refundedTotal: number): PaymentStatus {
-  return toCents(refundedTotal) >= toCents(p.amount) ? 'refunded' : 'settled';
+/** A PARTIAL refund leaves the payment `settled`; only the whole charge makes it `refunded`. */
+export function statusAfterRefund(p: RefundBasis, refundedTotal: number): PaymentStatus {
+  return toCents(refundedTotal) >= toCents(chargedAmount(p)) ? 'refunded' : 'settled';
 }

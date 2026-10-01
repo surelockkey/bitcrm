@@ -54,10 +54,15 @@ export interface Payment {
   currency: string;
   method: PaymentMethod;
   status: PaymentStatus;
-  /** Given back so far, dollars. Never exceeds `amount`. */
+  /**
+   * Given back so far, dollars. Never exceeds what was charged: `amount`, plus
+   * `tipAmount` on a payment taken through Stripe (its tip went through the
+   * same charge, so it can be refunded too).
+   */
   refundedAmount: number;
   /** Surcharge charged on top of `amount` (off by default — see PaymentSettings). */
   feeAmount?: number;
+  /** Tip on top of `amount`, dollars. Never counts toward the balance. */
   tipAmount?: number;
   source: PaymentSource;
   /** Cheque number, confirmation code, "paid to tech Mike" — staff's own note. */
