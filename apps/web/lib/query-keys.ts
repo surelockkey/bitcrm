@@ -11,6 +11,11 @@ export const queryKeys = {
 
   jobFieldSettings: () => ["job-field-settings"] as const,
 
+  /** Reports with an endpoint of their own (the job reports ride on `deals`). */
+  reports: {
+    commissions: (params?: unknown) => ["reports", "commissions", params] as const,
+  },
+
   telephony: {
     numbers: () => ["telephony", "numbers"] as const,
     available: (params?: unknown) =>

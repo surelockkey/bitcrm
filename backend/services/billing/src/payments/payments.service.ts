@@ -99,6 +99,11 @@ interface PaymentOwner {
  * write the job timeline and publish the event. Nothing anywhere applies a
  * delta to a stored total.
  */
+/** Ledgers read at once by `ledgersByDeals`. */
+const LEDGER_READ_CONCURRENCY = 10;
+/** The DTO's cap, held here too: the body is not validated on every deployment. */
+const LEDGERS_MAX_DEALS = 100;
+
 @Injectable()
 export class PaymentsService {
   private readonly logger = new Logger(PaymentsService.name);
@@ -127,6 +132,24 @@ export class PaymentsService {
     const rows = await this.repo.listByInvoice(invoiceId);
     const payments = [...rows].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     return { payments, summary: summarizePayments(rows) };
+  }
+
+  /**
+   * Several jobs' ledgers at once, keyed by job id (`[]` for a job with no
+   * payments) — deal-service's commissions report splits them into Workiz's
+   * Cash / Credit / Check columns. Internal only, so no access check; a few
+   * jobs are read at a time so a page of a report cannot flood the table.
+   */
+  async ledgersByDeals(dealIds: string[]): Promise<Record<string, Payment[]>> {
+    const ids = Array.isArray(dealIds) ? dealIds.filter((id) => typeof id === 'string' && id) : [];
+    const unique = [...new Set(ids)].slice(0, LEDGERS_MAX_DEALS);
+    const out: Record<string, Payment[]> = {};
+    for (let i = 0; i < unique.length; i += LEDGER_READ_CONCURRENCY) {
+      const batch = unique.slice(i, i + LEDGER_READ_CONCURRENCY);
+      const ledgers = await Promise.all(batch.map((id) => this.repo.listByInvoice(id)));
+      batch.forEach((id, n) => (out[id] = ledgers[n]));
+    }
+    return out;
   }
 
   /**

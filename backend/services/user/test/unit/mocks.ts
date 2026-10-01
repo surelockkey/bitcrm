@@ -248,6 +248,7 @@ export function createMockCommissionRepository() {
     create: jest.fn(),
     getLatest: jest.fn(),
     listHistory: jest.fn().mockResolvedValue([]),
+    listHistories: jest.fn().mockResolvedValue({}),
   };
 }
 

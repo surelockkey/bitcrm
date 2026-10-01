@@ -109,4 +109,13 @@ describe('CommissionService (unit)', () => {
       expect(r).toHaveLength(1);
     });
   });
+
+  describe('histories (internal)', () => {
+    it('hands the ids to the repository without a caller check', async () => {
+      repo.listHistories.mockResolvedValue({ 'tech-1': [] });
+      await expect(service.histories(['tech-1'])).resolves.toEqual({ 'tech-1': [] });
+      expect(repo.listHistories).toHaveBeenCalledWith(['tech-1']);
+      expect(roles.findById).not.toHaveBeenCalled();
+    });
+  });
 });
