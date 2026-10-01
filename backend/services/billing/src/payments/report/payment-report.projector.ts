@@ -12,6 +12,7 @@ import {
   bucketDelta,
   bucketOf,
   contributionOf,
+  dealDims,
   isUnconfirmedCheckout,
   reportLines,
   type LineDims,
@@ -90,12 +91,7 @@ export class PaymentReportProjector {
     if (!this.deal) return {};
     const view = await this.deal.getBillingView(p.dealId).catch(() => null);
     const deal = view?.deal;
-    if (!deal) return {};
-    return {
-      ...(deal.assignedTechIds?.[0] && { technicianId: deal.assignedTechIds[0] }),
-      ...(deal.serviceAreaId && { serviceAreaId: deal.serviceAreaId }),
-      ...(deal.dealNumber && { dealNumber: deal.dealNumber }),
-    };
+    return deal ? dealDims(deal) : {};
   }
 
   private async widen(months: string[]): Promise<void> {

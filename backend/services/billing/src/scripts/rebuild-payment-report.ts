@@ -23,6 +23,7 @@ import {
   PAYMENT_REPORT_TZ,
   aggregatePlan,
   businessDay,
+  dealDims,
   expandTypes,
   isDay,
   totalsFrom,
@@ -39,6 +40,10 @@ import {
  *   npm run rebuild:payment-report -w billing-service                     # write
  *   npm run rebuild:payment-report -w billing-service -- --dry-run        # compute + compare, write nothing
  *   npm run rebuild:payment-report -w billing-service -- --no-deals       # skip deal-service (no area / job #)
+ *   … --deals-table bitcrm-dev-deals                                      # read the jobs from the deals table
+ *                                                                          # itself (after a Workiz import, when
+ *                                                                          # deal-service's internal URL and
+ *                                                                          # secret aren't at hand)
  *   npm run rebuild:payment-report -w billing-service -- --jsonl <dir>    # offline: a Workiz import package's
  *                                                                          # billing/ folder, no AWS at all
  *   … --from 2026-09-01 --to 2026-09-27 [--types charge,cash]            # the totals table to print
@@ -52,6 +57,7 @@ import {
 interface Args {
   dryRun: boolean;
   noDeals: boolean;
+  dealsTable?: string;
   jsonl?: string;
   from?: string;
   to?: string;
@@ -67,6 +73,7 @@ function parseArgs(argv: string[]): Args {
   return {
     dryRun: argv.includes('--dry-run'),
     noDeals: argv.includes('--no-deals'),
+    dealsTable: get('--deals-table'),
     jsonl: get('--jsonl'),
     from: get('--from'),
     to: get('--to'),
@@ -181,16 +188,41 @@ async function loadDeals(): Promise<Map<string, LineDims>> {
     const res = await fetch(url, { headers: { 'x-internal-secret': INTERNAL_SERVICE_SECRET } });
     if (!res.ok) throw new Error(`deal-service internal/all answered ${res.status}`);
     const body = (await res.json()) as { data?: { items?: Deal[]; nextCursor?: string } };
-    for (const d of body.data?.items ?? []) {
-      out.set(d.id, {
-        ...(d.assignedTechIds?.[0] && { technicianId: d.assignedTechIds[0] }),
-        ...(d.serviceAreaId && { serviceAreaId: d.serviceAreaId }),
-        ...(d.dealNumber && { dealNumber: d.dealNumber }),
-      });
-    }
+    for (const d of body.data?.items ?? []) out.set(d.id, dealDims(d));
     cursor = body.data?.nextCursor;
   } while (cursor);
   console.log(`deals: ${out.size.toLocaleString('en-US')}`);
+  return out;
+}
+
+/**
+ * The same, read straight from the deals table (`DEAL#<id>` / `METADATA`
+ * rows) — for a rebuild right after a Workiz import, where the loader wrote
+ * the tables and deal-service's internal endpoint isn't at hand.
+ */
+async function loadDealsFromTable(db: DynamoDbService, table: string, segments: number): Promise<Map<string, LineDims>> {
+  const out = new Map<string, LineDims>();
+  await Promise.all(
+    Array.from({ length: segments }, async (_, segment) => {
+      let ExclusiveStartKey: Record<string, unknown> | undefined;
+      do {
+        const res = await db.client.send(
+          new ScanCommand({
+            TableName: table,
+            Segment: segment,
+            TotalSegments: segments,
+            FilterExpression: 'begins_with(PK, :deal) AND SK = :md',
+            ProjectionExpression: 'id, assignedTechIds, serviceAreaId, dealNumber',
+            ExpressionAttributeValues: { ':deal': 'DEAL#', ':md': METADATA_SK },
+            ExclusiveStartKey,
+          }),
+        );
+        for (const d of (res.Items ?? []) as Deal[]) if (d.id) out.set(d.id, dealDims(d));
+        ExclusiveStartKey = res.LastEvaluatedKey;
+      } while (ExclusiveStartKey);
+    }),
+  );
+  console.log(`deals: ${out.size.toLocaleString('en-US')} (from ${table})`);
   return out;
 }
 
@@ -251,7 +283,11 @@ async function main() {
 
   const db = new DynamoDbService();
   const state = await scanTable(db, args.segments);
-  const deals = args.noDeals ? new Map<string, LineDims>() : await loadDeals();
+  const deals = args.noDeals
+    ? new Map<string, LineDims>()
+    : args.dealsTable
+      ? await loadDealsFromTable(db, args.dealsTable, args.segments)
+      : await loadDeals();
   const built = buildProjection(state.payments.values(), state.refunds, deals);
 
   const lineKeys = new Set(built.lines.map((l) => `${l.pointer.pk}|${l.pointer.sk}`));

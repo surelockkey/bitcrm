@@ -6,6 +6,7 @@ import {
   businessDay,
   csvHeader,
   csvLine,
+  dealDims,
   dayStartUtc,
   expandTypes,
   isUnconfirmedCheckout,
@@ -295,5 +296,21 @@ describe('payment report — CSV (Workiz’s own columns)', () => {
     expect(csvLine({ type: 'refund', amount: -40, tip: 0, at: '2026-09-25T15:00:00.000Z' }, TZ)).toContain(
       ',Refund,Refunded,-40.00,',
     );
+  });
+});
+
+describe('dealDims', () => {
+  // The projector (live) and the rebuild script (deal-service list, or the
+  // deals table read straight after a Workiz import) must agree on what a
+  // job lends a report line: its lead technician, service area and number.
+  it('takes the lead technician, the area and the number from a job', () => {
+    expect(
+      dealDims({ assignedTechIds: ['tech-1', 'tech-2'], serviceAreaId: 'area-1', dealNumber: 'ABC123' }),
+    ).toEqual({ technicianId: 'tech-1', serviceAreaId: 'area-1', dealNumber: 'ABC123' });
+  });
+
+  it('leaves out what the job does not have, instead of writing undefined', () => {
+    expect(dealDims({ assignedTechIds: [], dealNumber: '' })).toEqual({});
+    expect(dealDims({})).toEqual({});
   });
 });

@@ -2,6 +2,7 @@ import {
   PAYMENT_REPORT_ELECTRONIC_TYPES,
   PAYMENT_REPORT_TYPE_FILTERS,
   paymentReportTypeLabel,
+  type Deal,
   type Payment,
   type PaymentRefund,
   type PaymentReportStatus,
@@ -65,6 +66,20 @@ export interface LineDims {
   technicianId?: string;
   serviceAreaId?: string;
   dealNumber?: string;
+}
+
+/**
+ * What a job lends a report line: its lead technician, service area and
+ * number. One definition for the live projector and the rebuild script,
+ * whichever way they came by the job. A field the job lacks is left out, not
+ * written as `undefined` (DynamoDB rejects it).
+ */
+export function dealDims(deal: Partial<Pick<Deal, 'assignedTechIds' | 'serviceAreaId' | 'dealNumber'>>): LineDims {
+  return {
+    ...(deal.assignedTechIds?.[0] && { technicianId: deal.assignedTechIds[0] }),
+    ...(deal.serviceAreaId && { serviceAreaId: deal.serviceAreaId }),
+    ...(deal.dealNumber && { dealNumber: deal.dealNumber }),
+  };
 }
 
 const round2 = (n: number): number => Math.round((n + Number.EPSILON) * 100) / 100;
