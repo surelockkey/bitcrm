@@ -74,6 +74,14 @@ Write these exactly as `ProductsRepository.create` / the catalog repositories do
   (idempotent, upsert-only, **mandatory after every import** that does not
   write them). Until it has run on an environment, the Price Book list and
   its count are **empty** there.
+- A product with a photo (`photoKey = products/<id>/<uuid>.<png|jpg>`) shows
+  it in the Items and Price Book tables through a thumbnail: a 128×128 webp
+  at `products/<id>/thumb-<uuid>.webp`, named in `thumbKey`. A `thumbKey` that
+  is not the one derived from the current `photoKey` counts as none. The
+  import need not write either — run
+  `npm run backfill:product-thumbnails -w backend/services/inventory` after
+  the photos are in S3 and the catalog index is filed (idempotent; it only
+  writes `thumbKey` and the thumbnail files).
 - `<type>` is the stored `type`, i.e. always `product` or `service` — the 10
   Workiz `other`/`hours` items are written `type: "service"` and therefore
   `GSI2PK: "TYPE#service"` (§4.1), never `TYPE#other`.

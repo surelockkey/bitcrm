@@ -15,7 +15,7 @@ import { ListPagination } from "@/components/ui/list-pagination";
 import { InventoryStatus, ProductType } from "@bitcrm/types";
 import type { Product } from "@bitcrm/types";
 import { useDenied, usePermissions } from "@/features/auth/use-permissions";
-import { useUrlPopups } from "@/features/inventory/use-url-popups";
+import { usePopup } from "@/features/inventory/use-popup";
 import { useBrands, useItemCategories } from "@/features/inventory/products/hooks";
 import { productsToCsv } from "@/features/inventory/products/lib";
 import { ProductDialog } from "@/features/inventory/products/components/product-dialog";
@@ -37,11 +37,11 @@ import {
 import { useSkeletonRows } from "../use-skeleton-rows";
 import { ITEMS_TABLE_KEY, ItemsTable } from "./items-table";
 
-const ITEMS_PATH = "/price-book/items";
+/** The popup over the list — one at a time: an item's Edit, or a new item. */
+type ItemPopup = { kind: "edit"; id: string } | { kind: "new" };
 
-/** The URL params that open a popup — one at a time. */
-type Popup = "edit" | "new";
-const POPUPS: Popup[] = ["edit", "new"];
+/** Old links carried the popup in the query; they land on the plain list, the params dropped. */
+const STALE_PARAMS = ["edit", "new"] as const;
 
 const byName = (a: string, b: string) => a.localeCompare(b);
 
@@ -98,9 +98,10 @@ export function ItemsPage() {
   );
   const brandNames = useMemo(() => brandNameMap(brandCatalog.data), [brandCatalog.data]);
 
-  const popups = useUrlPopups(ITEMS_PATH, POPUPS);
-  const editId = popups.param("edit");
-  const creating = !editId && popups.param("new") === "1";
+  // Popups are state: a row opens one and the address stays.
+  const { popup, open, close } = usePopup<ItemPopup>(STALE_PARAMS);
+  const editId = popup?.kind === "edit" ? popup.id : null;
+  const creating = popup?.kind === "new";
 
   if (denied("products")) {
     return (
@@ -191,7 +192,7 @@ export function ItemsPage() {
           </Button>
         ) : null}
         {canCreate ? (
-          <Button className="h-9 gap-1.5 px-3.5" onClick={() => popups.open("new")}>
+          <Button className="h-9 gap-1.5 px-3.5" onClick={() => open({ kind: "new" })}>
             <PackagePlus className="size-4" />
             New item
           </Button>
@@ -207,7 +208,7 @@ export function ItemsPage() {
               items={items}
               showCost={money}
               brandNames={brandNames}
-              onEdit={(p: Product) => popups.open("edit", p.id)}
+              onEdit={(p: Product) => open({ kind: "edit", id: p.id })}
               loading={query.isLoading}
               skeletonRows={skeletonRows}
               stale={query.isPlaceholderData}
@@ -225,14 +226,14 @@ export function ItemsPage() {
       </div>
 
       <ImportProductsDialog open={importOpen} onOpenChange={setImportOpen} />
-      {/* Mounted only while its param is set: closing must not flash the
-          popup into another mode as the param clears under it. */}
+      {/* Mounted only while open: closing must not flash the popup into
+          another mode as its state clears under it. */}
       {editId || creating ? (
         <ProductDialog
           productId={editId}
           open
-          onOpenChange={(open) => (open ? undefined : popups.close())}
-          onCreated={(p) => popups.replace("edit", p.id)}
+          onOpenChange={(next) => (next ? undefined : close())}
+          onCreated={(p) => open({ kind: "edit", id: p.id })}
         />
       ) : null}
     </div>

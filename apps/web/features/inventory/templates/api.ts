@@ -5,6 +5,7 @@ import type {
   InventoryStatus,
 } from "@bitcrm/types";
 import { http } from "@/lib/api/http";
+import { readAllPages } from "@/features/inventory/read-all";
 
 /**
  * Container templates — a van's "ideal loadout": products and the quantity of
@@ -45,9 +46,12 @@ export interface FillBody {
 
 const BASE = "/inventory/container-templates";
 
-/** In name order; the server answers the active ones unless asked otherwise. */
+/**
+ * In name order; the server answers the active ones unless asked otherwise.
+ * One answer today; a cursor, should it page, is followed to the end.
+ */
 export function listContainerTemplates(status?: InventoryStatus): Promise<ContainerTemplate[]> {
-  return http.get<ContainerTemplate[]>(status ? `${BASE}?status=${status}` : BASE);
+  return readAllPages<ContainerTemplate>(BASE, status ? { status } : {}, { pageSize: null });
 }
 
 export function getContainerTemplate(id: string): Promise<ContainerTemplate> {

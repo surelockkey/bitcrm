@@ -16,13 +16,14 @@ import { usePageSize } from "@/lib/paging/use-page-size";
 import { usePager } from "@/lib/paging/use-pager";
 import { useDenied } from "@/features/auth/use-permissions";
 import { NoAccess } from "@/features/inventory/components/no-access";
+import { ListBody } from "@/features/inventory/components/list-body";
 import { useSkeletonRows } from "@/features/inventory/components/use-skeleton-rows";
 import { personName } from "@/features/deals/person-name";
 import { fetchAllUsers } from "@/features/technicians/api";
 import { useUsers, useUsersCount } from "@/features/users/hooks";
 import type { UserFilter } from "@/features/users/api";
 import { useAllLocations } from "@/features/inventory/stock/hooks";
-import { useUrlPopups } from "@/features/inventory/use-url-popups";
+import { usePopup } from "@/features/inventory/use-popup";
 import { useUserContainers } from "../hooks";
 import { assignmentOf } from "../lib";
 import {
@@ -32,8 +33,10 @@ import {
 } from "./user-containers-table";
 import { AssignContainerDialog } from "./assign-container-dialog";
 
-const PATH = "/inventory/user-containers";
-const POPUPS = ["assign"] as const;
+/** The popup over the list: one user's container assignment. */
+type AssignPopup = { kind: "assign"; userId: string };
+/** Old links carried the popup in the query; they land on the plain list, the params dropped. */
+const STALE_PARAMS = ["assign"] as const;
 /** The list's own key: its page size, column widths and skeleton height are saved under it. */
 const TABLE_KEY = USER_CONTAINERS_TABLE_KEY;
 
@@ -131,10 +134,11 @@ function Assignments() {
     loading || stale ? undefined : rows.length,
   );
 
-  const popups = useUrlPopups(PATH, POPUPS);
-  const assignId = popups.param("assign");
+  const { popup, open, close } = usePopup<AssignPopup>(STALE_PARAMS);
+  const assignId = popup?.userId ?? null;
 
   const failed = searching ? directory.isError : usersQ.isError && !usersQ.data;
+  const empty = !failed && !loading && !stale && rows.length === 0;
 
   return (
     <div className="flex flex-1 flex-col">
@@ -153,51 +157,60 @@ function Assignments() {
       </div>
 
       <div className="flex-1 px-6 pb-6">
-        {failed ? (
-          <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed py-16 text-center">
-            <div className="flex size-12 items-center justify-center rounded-xl bg-destructive/10 text-destructive">
-              <TriangleAlert className="size-6" />
+        <ListBody
+          holdKey={searched ? term : ""}
+          scrollKey={`${pager.page}:${pageSize}`}
+          pager={
+            failed || empty ? null : (
+              <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} reserveSpace />
+            )
+          }
+        >
+          {failed ? (
+            <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed py-16 text-center">
+              <div className="flex size-12 items-center justify-center rounded-xl bg-destructive/10 text-destructive">
+                <TriangleAlert className="size-6" />
+              </div>
+              <div className="font-medium">Couldn&apos;t load users</div>
+              <Button variant="outline" onClick={() => (searching ? directory.refetch() : usersQ.refetch())}>
+                Retry
+              </Button>
             </div>
-            <div className="font-medium">Couldn&apos;t load users</div>
-            <Button variant="outline" onClick={() => (searching ? directory.refetch() : usersQ.refetch())}>
-              Retry
-            </Button>
-          </div>
-        ) : !loading && !stale && rows.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed py-16 text-center">
-            <div className="flex size-12 items-center justify-center rounded-xl bg-muted text-muted-foreground">
-              <UsersRound className="size-6" />
+          ) : empty ? (
+            <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed py-16 text-center">
+              <div className="flex size-12 items-center justify-center rounded-xl bg-muted text-muted-foreground">
+                <UsersRound className="size-6" />
+              </div>
+              <div>
+                <div className="font-medium">{searching ? "No users match" : "No active users"}</div>
+                {searching ? (
+                  <p className="mt-1 text-sm text-muted-foreground">Try another name or email.</p>
+                ) : null}
+              </div>
             </div>
-            <div>
-              <div className="font-medium">{searching ? "No users match" : "No active users"}</div>
-              {searching ? (
-                <p className="mt-1 text-sm text-muted-foreground">Try another name or email.</p>
-              ) : null}
-            </div>
-          </div>
-        ) : (
-          <>
-            {/* Loading, loaded or holding the page while a search reads the
-                directory — one table, so nothing under it moves. */}
-            <UserContainersTable
-              rows={rows}
-              loading={loading}
-              skeletonRows={skeletonRows}
-              stale={stale}
-              onAssign={(id) => popups.open("assign", id)}
-            />
-            <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} reserveSpace />
-          </>
-        )}
+          ) : (
+            <>
+              {/* Loading, loaded or holding the page while a search reads the
+                  directory — one table, so nothing under it moves. */}
+              <UserContainersTable
+                rows={rows}
+                loading={loading}
+                skeletonRows={skeletonRows}
+                stale={stale}
+                onAssign={(id) => open({ kind: "assign", userId: id })}
+              />
+            </>
+          )}
+        </ListBody>
       </div>
 
-      {/* Mounted only while the param is set, so each opening reads fresh. */}
+      {/* Mounted only while open, so each opening reads fresh. */}
       {assignId ? (
         <AssignContainerDialog
           userId={assignId}
           user={rows.find((r) => r.userId === assignId)}
           open
-          onOpenChange={(open) => (open ? undefined : popups.close())}
+          onOpenChange={(next) => (next ? undefined : close())}
         />
       ) : null}
     </div>

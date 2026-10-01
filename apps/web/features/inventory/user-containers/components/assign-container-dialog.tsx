@@ -39,7 +39,7 @@ import {
  * specific container, every location, or none. A van may be shared, so
  * picking one somebody else uses is allowed; the popup only says so.
  *
- * Opened from the row or `?assign=<userId>`; read-only without `containers.edit`.
+ * Opened from the row; read-only without `containers.edit`.
  */
 export function AssignContainerDialog({
   userId,

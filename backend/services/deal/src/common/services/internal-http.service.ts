@@ -27,6 +27,11 @@ const CONTACT_NAMES_TIMEOUT_MS = 3_000;
 /** A scoreboard's rows — more than that is not a glance. */
 const USER_NAMES_MAX_IDS = 20;
 const USER_NAMES_TIMEOUT_MS = 3_000;
+/** user-service's batch names route takes this many ids in one body. */
+const USER_NAMES_BATCH_MAX_IDS = 200;
+/** crm's `POST /contacts/by-ids` takes this many ids in one body. */
+const CONTACTS_BY_IDS_MAX = 100;
+const CONTACTS_BY_IDS_TIMEOUT_MS = 5_000;
 
 /**
  * A technician's eligibility as user-service reports it. Carries the display
@@ -64,6 +69,8 @@ export interface RestoreStockDto {
 export class InternalHttpService {
   private readonly logger = new Logger(InternalHttpService.name);
   private readonly crmClient: AxiosInstance;
+  /** crm's PUBLIC routes, called with the caller's own token — never the internal secret. */
+  private readonly crmAsCallerClient: AxiosInstance;
   private readonly userClient: AxiosInstance;
   private readonly inventoryClient: AxiosInstance;
 
@@ -73,6 +80,7 @@ export class InternalHttpService {
     const headers = { 'x-internal-secret': INTERNAL_SERVICE_SECRET };
 
     this.crmClient = axios.create({ baseURL: CRM_SERVICE_URL, headers });
+    this.crmAsCallerClient = axios.create({ baseURL: CRM_SERVICE_URL });
     this.userClient = axios.create({ baseURL: USER_SERVICE_URL, headers });
     this.inventoryClient = axios.create({ baseURL: INVENTORY_SERVICE_URL, headers });
   }
@@ -174,6 +182,63 @@ export class InternalHttpService {
       }),
     );
     return rows.filter((row): row is PersonName => row !== null);
+  }
+
+  /**
+   * Names of many users at once — the technicians and creators across a
+   * report window. user-service's batch route (`internal/names-by-ids`,
+   * 200 ids a body), several bodies in parallel. Names only, rebuilt field by
+   * field; a batch that fails costs its names and a warning, never the report.
+   */
+  async getUserNamesBatch(ids: string[]): Promise<PersonName[]> {
+    const unique = [...new Set(ids.filter(Boolean))];
+    const batches: string[][] = [];
+    for (let i = 0; i < unique.length; i += USER_NAMES_BATCH_MAX_IDS) batches.push(unique.slice(i, i + USER_NAMES_BATCH_MAX_IDS));
+    const results = await Promise.all(
+      batches.map(async (userIds): Promise<PersonName[]> => {
+        try {
+          const response = await this.userClient.post('/api/users/internal/names-by-ids', { userIds }, { timeout: USER_NAMES_TIMEOUT_MS });
+          const rows: unknown = response.data?.data;
+          if (!Array.isArray(rows)) return [];
+          return rows
+            .filter((row): row is Record<string, unknown> => Boolean(row) && typeof (row as { id?: unknown }).id === 'string')
+            .map((row) => ({
+              id: row.id as string,
+              firstName: typeof row.firstName === 'string' ? row.firstName : '',
+              lastName: typeof row.lastName === 'string' ? row.lastName : '',
+            }));
+        } catch (error: any) {
+          this.logger.warn(`Failed to load names for ${userIds.length} users: ${error.message}`);
+          return [];
+        }
+      }),
+    );
+    return results.flat();
+  }
+
+  /**
+   * Contacts as THE CALLER may see them: crm's public `POST /contacts/by-ids`
+   * with the caller's own bearer token, so crm masks the numbers exactly as
+   * it would for them (`contacts.view_numbers`) — this service never decides
+   * that on crm's behalf. For a report's rows whose job carries no number or
+   * email of its own. At most 100 ids; best effort — a caller without
+   * `contacts.view`, or a crm that is down, gets an empty answer.
+   */
+  async getContactsAsCaller(ids: string[], authorization: string | undefined): Promise<Contact[]> {
+    const unique = [...new Set(ids.filter(Boolean))].slice(0, CONTACTS_BY_IDS_MAX);
+    if (!unique.length || !authorization) return [];
+    try {
+      const response = await this.crmAsCallerClient.post(
+        '/api/crm/contacts/by-ids',
+        { ids: unique },
+        { headers: { authorization }, timeout: CONTACTS_BY_IDS_TIMEOUT_MS },
+      );
+      const rows: unknown = response.data?.data;
+      return Array.isArray(rows) ? (rows as Contact[]) : [];
+    } catch (error: any) {
+      this.logger.warn(`Failed to load ${unique.length} contacts as the caller: ${error.message}`);
+      return [];
+    }
   }
 
   /** Full company (tax exemption, title). Null when it doesn't exist. */

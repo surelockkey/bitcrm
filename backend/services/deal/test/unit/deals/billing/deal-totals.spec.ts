@@ -15,6 +15,7 @@ describe('dealTotalsSnapshot', () => {
       tax: 9,
       total: 189,
       cost: 70.5,
+      taxableBase: 90,
     });
   });
 
@@ -33,12 +34,13 @@ describe('dealTotalsSnapshot', () => {
       tax: 67.38,
       total: 897.32,
       cost: 0,
+      taxableBase: 816.68,
     });
   });
 
   it('is all zeros for a job without lines', () => {
     expect(dealTotalsSnapshot(createMockDeal(), [])).toEqual({
-      subtotal: 0, discount: 0, tax: 0, total: 0, cost: 0,
+      subtotal: 0, discount: 0, tax: 0, total: 0, cost: 0, taxableBase: 0,
     });
   });
 

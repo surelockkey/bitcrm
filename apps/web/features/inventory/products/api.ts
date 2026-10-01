@@ -7,6 +7,8 @@ import type {
   ProductStock,
 } from "@bitcrm/types";
 import { http, apiFetchPaginated } from "@/lib/api/http";
+import { ApiError } from "@/lib/api/errors";
+import { readAllPages } from "@/features/inventory/read-all";
 import type { CreateProductValues, PatchProductValues } from "./schemas";
 import type { ProductFilter } from "./lib";
 
@@ -69,12 +71,14 @@ export function getProductStock(id: string): Promise<ProductStock> {
 
 /* --- Catalogs the item pickers read (archived rows included; filter on `active`) --- */
 
+/** The whole category catalog — one answer today; a cursor, should it page, is followed. */
 export function listItemCategories(): Promise<ProductCategory[]> {
-  return http.get<ProductCategory[]>("/inventory/categories");
+  return readAllPages<ProductCategory>("/inventory/categories", {}, { pageSize: null });
 }
 
+/** The whole brand catalog — one answer today; a cursor, should it page, is followed. */
 export function listBrands(): Promise<Brand[]> {
-  return http.get<Brand[]>("/inventory/brands");
+  return readAllPages<Brand>("/inventory/brands", {}, { pageSize: null });
 }
 
 export function getProductBySku(sku: string): Promise<Product> {
@@ -125,6 +129,19 @@ export function getPhotoUploadUrl(
     `/inventory/products/${id}/photo/upload-url`,
     { contentType },
   );
+}
+
+/**
+ * The bytes are in S3: the server makes the list's thumbnail from them. An
+ * older server has no such step and answers 404 — the upload is done anyway.
+ */
+export async function completePhotoUpload(id: string): Promise<void> {
+  try {
+    await http.post<unknown>(`/inventory/products/${id}/photo/complete`);
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) return;
+    throw e;
+  }
 }
 
 export function getPhotoDownloadUrl(id: string): Promise<{ downloadUrl: string }> {

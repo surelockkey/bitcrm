@@ -17,18 +17,25 @@ import { usePageSize } from "@/lib/paging/use-page-size";
 import { usePager } from "@/lib/paging/use-pager";
 import { useDenied, usePermissions } from "@/features/auth/use-permissions";
 import { NoAccess } from "@/features/inventory/components/no-access";
+import { ListBody } from "@/features/inventory/components/list-body";
 import { useSkeletonRows } from "@/features/inventory/components/use-skeleton-rows";
 import { useAllLocations } from "@/features/inventory/stock/hooks";
-import { useUrlPopups } from "@/features/inventory/use-url-popups";
+import { usePopup } from "@/features/inventory/use-popup";
 import { useContainerTemplates } from "../hooks";
 import { TEMPLATES_TABLE_KEY, TemplatesTable } from "./templates-table";
 import { TemplateDialog } from "./template-dialog";
 import { ApplyTemplateDialog } from "./apply-template-dialog";
 
-const PATH = "/inventory/templates";
-/** The URL params that open a popup — one at a time; Apply also names a van. */
-const POPUPS = ["template", "apply"] as const;
-const EXTRAS = ["container"] as const;
+/**
+ * The popup over the list — one at a time: a template (`id: null` a new one),
+ * or a template applied to a van.
+ */
+type TemplatesPopup =
+  | { kind: "template"; id: string | null }
+  | { kind: "apply"; templateId: string; containerId: string | null };
+
+/** Old links carried the popup in the query; they land on the plain list, the params dropped. */
+const STALE_PARAMS = ["template", "apply", "container"] as const;
 
 /**
  * Container templates: a van's ideal loadout, made once and applied to any
@@ -58,6 +65,8 @@ function Templates() {
     resetKey: JSON.stringify({ status, pageSize }),
   });
   const templates = pager.items;
+  const failed = query.isError && !query.data;
+  const empty = !failed && !loading && templates.length === 0;
   const skeletonRows = useSkeletonRows(
     TEMPLATES_TABLE_KEY,
     pageSize,
@@ -75,9 +84,7 @@ function Templates() {
     return counts;
   }, [locations.data]);
 
-  const popups = useUrlPopups(PATH, POPUPS, EXTRAS);
-  const templateParam = popups.param("template");
-  const applyId = templateParam ? null : popups.param("apply");
+  const { popup, open, close } = usePopup<TemplatesPopup>(STALE_PARAMS);
 
   return (
     <div className="flex flex-1 flex-col">
@@ -96,7 +103,7 @@ function Templates() {
           <Button
             className="h-9 gap-1.5 px-3.5"
             disabled={permsLoading}
-            onClick={() => popups.open("template", "new")}
+            onClick={() => open({ kind: "template", id: null })}
           >
             <Plus className="size-4" />
             New template
@@ -105,63 +112,71 @@ function Templates() {
       </div>
 
       <div className="flex-1 px-6 pb-6">
-        {query.isError && !query.data ? (
-          <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed py-16 text-center">
-            <div className="flex size-12 items-center justify-center rounded-xl bg-destructive/10 text-destructive">
-              <TriangleAlert className="size-6" />
-            </div>
-            <div className="font-medium">Couldn&apos;t load templates</div>
-            <Button variant="outline" onClick={() => query.refetch()}>
-              Retry
-            </Button>
-          </div>
-        ) : !loading && templates.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed py-16 text-center">
-            <div className="flex size-12 items-center justify-center rounded-xl bg-muted text-muted-foreground">
-              <ClipboardList className="size-6" />
-            </div>
-            <div>
-              <div className="font-medium">
-                {status === InventoryStatus.ACTIVE ? "No templates yet" : "No archived templates"}
+        <ListBody
+          holdKey={status}
+          scrollKey={`${pager.page}:${pageSize}`}
+          pager={
+            failed || empty ? null : (
+              <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} reserveSpace />
+            )
+          }
+        >
+          {failed ? (
+            <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed py-16 text-center">
+              <div className="flex size-12 items-center justify-center rounded-xl bg-destructive/10 text-destructive">
+                <TriangleAlert className="size-6" />
               </div>
-              {status === InventoryStatus.ACTIVE ? (
-                <p className="mt-1 text-sm text-muted-foreground">
-                  A template is a van&apos;s ideal loadout — make one, then apply it to any van.
-                </p>
-              ) : null}
+              <div className="font-medium">Couldn&apos;t load templates</div>
+              <Button variant="outline" onClick={() => query.refetch()}>
+                Retry
+              </Button>
             </div>
-          </div>
-        ) : (
-          <>
-            <TemplatesTable
-              templates={templates}
-              usedBy={usedBy}
-              usedByPending={locations.isLoading}
-              loading={loading}
-              skeletonRows={skeletonRows}
-              onEdit={(t) => popups.open("template", t.id)}
-              onApply={(t) => popups.open("apply", t.id)}
-            />
-            <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} reserveSpace />
-          </>
-        )}
+          ) : empty ? (
+            <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed py-16 text-center">
+              <div className="flex size-12 items-center justify-center rounded-xl bg-muted text-muted-foreground">
+                <ClipboardList className="size-6" />
+              </div>
+              <div>
+                <div className="font-medium">
+                  {status === InventoryStatus.ACTIVE ? "No templates yet" : "No archived templates"}
+                </div>
+                {status === InventoryStatus.ACTIVE ? (
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    A template is a van&apos;s ideal loadout — make one, then apply it to any van.
+                  </p>
+                ) : null}
+              </div>
+            </div>
+          ) : (
+            <>
+              <TemplatesTable
+                templates={templates}
+                usedBy={usedBy}
+                usedByPending={locations.isLoading}
+                loading={loading}
+                skeletonRows={skeletonRows}
+                onEdit={(t) => open({ kind: "template", id: t.id })}
+                onApply={(t) => open({ kind: "apply", templateId: t.id, containerId: null })}
+              />
+            </>
+          )}
+        </ListBody>
       </div>
 
-      {/* Mounted only while their param is set, so each opening reads fresh. */}
-      {templateParam ? (
+      {/* Mounted only while open, so each opening reads fresh. */}
+      {popup?.kind === "template" ? (
         <TemplateDialog
-          templateId={templateParam === "new" ? null : templateParam}
+          templateId={popup.id}
           open
-          onOpenChange={(open) => (open ? undefined : popups.close())}
+          onOpenChange={(next) => (next ? undefined : close())}
         />
       ) : null}
-      {applyId ? (
+      {popup?.kind === "apply" ? (
         <ApplyTemplateDialog
-          templateId={applyId}
-          containerId={popups.param("container")}
+          templateId={popup.templateId}
+          containerId={popup.containerId}
           open
-          onOpenChange={(open) => (open ? undefined : popups.close())}
-          onContainerChange={(id) => popups.replace("apply", applyId, { container: id })}
+          onOpenChange={(next) => (next ? undefined : close())}
         />
       ) : null}
     </div>

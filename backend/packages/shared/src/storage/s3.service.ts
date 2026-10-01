@@ -22,6 +22,8 @@ export interface PutObjectOptions {
   kmsKeyId?: string;
   /** Free-form `x-amz-meta-*` pairs (provenance: source URL, provider sid…). */
   metadata?: Record<string, string>;
+  /** Stored as the object's `Cache-Control`, sent back with every GET of it. */
+  cacheControl?: string;
 }
 
 /** Options for a presigned GET. */
@@ -29,6 +31,12 @@ export interface PresignedDownloadOptions {
   expiresIn?: number;
   /** Sets `response-content-disposition`, e.g. `attachment; filename="Invoice-1.pdf"`. */
   contentDisposition?: string;
+  /**
+   * The moment the signature is dated. Left out it is now, so every call
+   * gives a new URL; a fixed moment (the start of the hour) gives the same
+   * URL for the same key all hour, and the browser's cache can keep the file.
+   */
+  signingDate?: Date;
 }
 
 @Injectable()
@@ -121,6 +129,7 @@ export class S3Service {
         ContentType: opts.contentType,
         ContentLength: typeof body === 'string' ? Buffer.byteLength(body) : body.byteLength,
         ...(opts.metadata && { Metadata: opts.metadata }),
+        ...(opts.cacheControl && { CacheControl: opts.cacheControl }),
         ...(opts.kmsKeyId && {
           ServerSideEncryption: 'aws:kms',
           SSEKMSKeyId: opts.kmsKeyId,
@@ -145,7 +154,10 @@ export class S3Service {
       Key: key,
       ...(opts.contentDisposition && { ResponseContentDisposition: opts.contentDisposition }),
     });
-    return getSignedUrl(this.client, command, { expiresIn: opts.expiresIn ?? 3600 });
+    return getSignedUrl(this.client, command, {
+      expiresIn: opts.expiresIn ?? 3600,
+      ...(opts.signingDate && { signingDate: opts.signingDate }),
+    });
   }
 
   /**

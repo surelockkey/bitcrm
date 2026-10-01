@@ -2,11 +2,10 @@ import { Suspense } from "react";
 import { TabFallback } from "@/features/inventory/components/tab-fallback";
 import { WarehousesPage } from "@/features/inventory/warehouses/components/warehouses-page";
 
-// useSearchParams (the `?stock=` / `?edit=` popups) must sit under a Suspense
-// boundary.
+// A popup is the list's state, never the address.
 export default function Page() {
   return (
-    // The fallback is the first HTML: the tab's own frame, not a blank body.
+    // The tab's own frame, not a blank body, while anything under it suspends.
     <Suspense fallback={<TabFallback tab="warehouses" />}>
       <WarehousesPage />
     </Suspense>

@@ -54,4 +54,41 @@ describe('CommissionRepository (unit)', () => {
     expect(input.ScanIndexForward).toBe(false);
     expect(history).toHaveLength(2);
   });
+
+  it('passes the imported Workiz fees and rate rules through, and nothing for a BitCRM version', async () => {
+    client.send.mockResolvedValue({
+      Items: [
+        {
+          PK: 'USER#tech-1',
+          SK: 'COMMISSION#2025-10-23T17:23:00.000Z',
+          ...cfg({ baseRatePct: 50, creditCardFeePct: 2.91 }),
+          checkFeePct: 1,
+          cashFeePct: 0,
+          additionalFee: { value: 0, unit: '%', deductFromTotal: false },
+          jobTypeRules: [{ jobTypeId: 'jt-1', valuePercent: 40, valueDollars: 0, unit: '%' }],
+        },
+      ],
+    });
+    const imported = await repo.getLatest('tech-1');
+    expect(imported).toMatchObject({ baseRatePct: 50, creditCardFeePct: 2.91, checkFeePct: 1, cashFeePct: 0 });
+    expect(imported?.jobTypeRules).toHaveLength(1);
+    expect(imported).not.toHaveProperty('PK');
+
+    client.send.mockResolvedValue({ Items: [cfg()] });
+    const own = await repo.getLatest('tech-1');
+    expect(Object.keys(own!).sort()).toEqual(
+      ['achFeePct', 'baseRatePct', 'createdAt', 'createdBy', 'creditCardFeePct', 'effectiveDate', 'userId'],
+    );
+  });
+
+  it('listHistories reads each technician once and maps a missing one to []', async () => {
+    client.send.mockImplementation(async (cmd: { input: { ExpressionAttributeValues: Record<string, string> } }) => {
+      const pk = cmd.input.ExpressionAttributeValues[':pk'];
+      return { Items: pk === 'USER#tech-1' ? [cfg(), cfg({ effectiveDate: '2025-01-01T00:00:00.000Z' })] : [] };
+    });
+    const out = await repo.listHistories(['tech-1', 'tech-2', 'tech-1', '']);
+    expect(client.send).toHaveBeenCalledTimes(2);
+    expect(out['tech-1']).toHaveLength(2);
+    expect(out['tech-2']).toEqual([]);
+  });
 });

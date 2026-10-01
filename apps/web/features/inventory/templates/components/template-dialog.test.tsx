@@ -11,6 +11,7 @@ type Mutate = (vars: unknown, opts?: { onSuccess?: () => void }) => void;
 
 const mocks = vi.hoisted(() => ({
   denied: new Set<string>(),
+  permsLoading: false,
   template: undefined as { isLoading: boolean; isError: boolean; data?: unknown } | undefined,
   create: vi.fn(),
   update: vi.fn(),
@@ -19,8 +20,10 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/features/auth/use-permissions", () => ({
   useDenied: () => () => false,
+  // Like the real hook: nothing is allowed until the permissions are in.
   usePermissions: () => ({
-    can: (resource: string, action = "view") => !mocks.denied.has(`${resource}.${action}`),
+    can: (resource: string, action = "view") => !mocks.permsLoading && !mocks.denied.has(`${resource}.${action}`),
+    isLoading: mocks.permsLoading,
   }),
 }));
 
@@ -74,6 +77,7 @@ const TEMPLATE: ContainerTemplate = {
 
 beforeEach(() => {
   mocks.denied = new Set();
+  mocks.permsLoading = false;
   mocks.template = { isLoading: false, isError: false, data: TEMPLATE };
   mocks.create.mockReset();
   mocks.update.mockReset();
@@ -94,8 +98,8 @@ beforeEach(() => {
 
 function open(templateId: string | null = null) {
   const onOpenChange = vi.fn();
-  renderWithClient(<TemplateDialog templateId={templateId} open onOpenChange={onOpenChange} />);
-  return { onOpenChange };
+  const { unmount } = renderWithClient(<TemplateDialog templateId={templateId} open onOpenChange={onOpenChange} />);
+  return { onOpenChange, unmount };
 }
 
 const search = () => screen.getByRole("searchbox", { name: "Add a product" });
@@ -297,6 +301,100 @@ describe("TemplateDialog — editing one", () => {
   });
 });
 
+/**
+ * "Copy from location": the owner makes a template from the store after each
+ * import — the store's stock, each product's quantity as its target.
+ */
+describe("TemplateDialog — Copy from location", () => {
+  const stockRow = (productId: string, productName: string, sku: string, quantity: number) => ({
+    productId,
+    productName,
+    number: 1,
+    sku,
+    quantity,
+  });
+
+  function serveLocations(rows: ReturnType<typeof stockRow>[]) {
+    server.use(
+      http.get("*/inventory/warehouses", () =>
+        HttpResponse.json({
+          success: true,
+          data: [{ id: "w1", name: "STORE", status: "active", createdAt: "", updatedAt: "" }],
+          pagination: {},
+        }),
+      ),
+      http.get("*/inventory/containers", () => HttpResponse.json({ success: true, data: [], pagination: {} })),
+      http.get("*/inventory/stock/locations/warehouse/w1", () =>
+        HttpResponse.json({
+          success: true,
+          data: { locationType: "warehouse", locationId: "w1", name: "STORE", status: "active", rows },
+        }),
+      ),
+    );
+  }
+
+  async function copyFromStore(action: "Merge" | "Replace" | RegExp) {
+    await userEvent.click(screen.getByRole("button", { name: "Copy from location" }));
+    const copy = screen.getByRole("dialog", { name: "Copy from location" });
+    await userEvent.click(within(copy).getByRole("combobox", { name: "Location" }));
+    await userEvent.click(await screen.findByRole("option", { name: /STORE/ }));
+    await userEvent.click(await within(copy).findByRole("button", { name: action }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Copy from location" })).toBeNull());
+  }
+
+  it("fills a new template with what the store holds", async () => {
+    serveLocations([stockRow("p1", "Deadbolt", "LOCK-001", 6), stockRow("p2", "Deadlatch", "LOCK-002", 2)]);
+    open();
+    await copyFromStore(/^Copy 2 products$/);
+    expect(lines()).toEqual([
+      { id: "p1", qty: "6" },
+      { id: "p2", qty: "2" },
+    ]);
+  });
+
+  it("Merge keeps the template's lines and adds the products it lacks — then saves them all", async () => {
+    serveLocations([stockRow("p3", "Key blank", "KEY-7", 9), stockRow("p1", "Deadbolt", "LOCK-001", 6)]);
+    open("t1");
+    await copyFromStore("Merge");
+    expect(lines()).toEqual([
+      { id: "p3", qty: "50" },
+      { id: "p1", qty: "6" },
+    ]);
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(mocks.update).toHaveBeenCalledWith({
+      id: "t1",
+      body: expect.objectContaining({
+        items: [
+          { productId: "p3", quantity: 50 },
+          { productId: "p1", quantity: 6 },
+        ],
+      }),
+    });
+  });
+
+  it("Replace puts the store's lines in place of the template's", async () => {
+    serveLocations([stockRow("p1", "Deadbolt", "LOCK-001", 6)]);
+    open("t1");
+    await copyFromStore("Replace");
+    expect(lines()).toEqual([{ id: "p1", qty: "6" }]);
+  });
+
+  it("won't save more lines than a template takes, and says how many to remove", async () => {
+    serveLocations(Array.from({ length: 502 }, (_, i) => stockRow(`x${i}`, `Item ${i}`, `X-${i}`, 1)));
+    open("t1");
+    await copyFromStore("Merge");
+    expect(lines()).toHaveLength(503);
+    expect(screen.getByRole("alert")).toHaveTextContent("remove 3");
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+  });
+
+  it("isn't offered on a read-only template", () => {
+    mocks.denied.add("containers.edit");
+    open("t1");
+    expect(screen.queryByRole("button", { name: "Copy from location" })).toBeNull();
+  });
+});
+
 describe("TemplateDialog — loading", () => {
   // Opened and then filled in, the popup grew by its footer.
   it("has its footer in place while the template loads", () => {
@@ -304,5 +402,44 @@ describe("TemplateDialog — loading", () => {
     open("t1");
     expect(screen.getByTestId("template-loading")).toBeInTheDocument();
     expect(screen.getByTestId("dialog-footer-placeholder")).toBeInTheDocument();
+  });
+
+  // 494px loading, 968px loaded — and, centred, its top moved from 253px to 16px.
+  it("is the same height loading and loaded", () => {
+    mocks.template = { isLoading: true, isError: false };
+    const first = open("t1");
+    const loading = screen.getByRole("dialog").className;
+    first.unmount();
+
+    mocks.template = { isLoading: false, isError: false, data: TEMPLATE };
+    open("t1");
+    expect(screen.getByRole("dialog").className).toBe(loading);
+    expect(loading).toMatch(/(^|\s)h-\[/);
+  });
+
+  // By direct link the popup was a 140px "no permission" stub until the
+  // permissions came, then grew into the form.
+  it("draws the whole New template form, disabled, while the permissions load", () => {
+    mocks.permsLoading = true;
+    open();
+    expect(screen.getByRole("dialog", { name: "New template" })).toBeInTheDocument();
+    expect(screen.queryByText(/permission to create templates/)).toBeNull();
+    expect(screen.getByLabelText("Name")).toBeDisabled();
+    expect(screen.getByLabelText("Description")).toBeDisabled();
+    expect(search()).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeEnabled();
+  });
+
+  it("holds an existing template as the editable form, disabled, until the permissions say", () => {
+    mocks.permsLoading = true;
+    open("t1");
+    expect(screen.getByRole("dialog", { name: "Edit template" })).toBeInTheDocument();
+    // No "view-only" banner that the permissions would then take away.
+    expect(screen.queryByText(/view-only access/)).toBeNull();
+    expect(screen.getByLabelText("Name")).toBeDisabled();
+    expect(search()).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Remove Key blank" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
   });
 });
