@@ -46,7 +46,7 @@ describe("ClientNotesPanel — Workiz's Notes rail", () => {
         if (url.searchParams.get("cursor") === "page-2") {
           return HttpResponse.json({ success: true, data: [note({ id: "n5", note: "From the second page", createdAt: "2025-01-05T09:00:00" })], pagination: { count: 1 } });
         }
-        return HttpResponse.json({ success: true, data: notes, pagination: { count: notes.length, nextCursor: "page-2" }, notesCount: 5 });
+        return HttpResponse.json({ success: true, data: notes, pagination: { count: notes.length, nextCursor: "page-2", notesCount: 5 } });
       }),
       http.post("*/crm/contacts/c1/notes", async ({ request }) => {
         const body = (await request.json()) as { note: string };

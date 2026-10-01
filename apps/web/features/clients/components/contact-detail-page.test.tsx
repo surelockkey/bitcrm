@@ -206,8 +206,8 @@ describe("ContactDetailPage — the client card, laid out as Workiz's", () => {
             { id: "n1", contactId: "c1", note: "Gate code 4421", actorId: "u1", actorName: "Betty", pinned: false, createdAt: "2025-07-24T18:19:00", updatedAt: "2025-07-24T18:19:00" },
             { id: "n2", contactId: "c1", note: "Call before arriving", actorId: "u1", actorName: "Betty", pinned: true, createdAt: "2025-03-01T09:00:00", updatedAt: "2025-03-01T09:00:00" },
           ],
-          pagination: { count: 2 },
-          notesCount: 2,
+          // notesCount rides in the pagination envelope, as the CRM sends it on the first page.
+          pagination: { count: 2, notesCount: 2 },
         }),
       ),
       http.get("*/deals/attachments/by-contact/c1", () =>

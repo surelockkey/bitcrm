@@ -106,8 +106,9 @@ describe('DealAttachmentsRepository', () => {
     expect(page.items.map((a) => a.id)).toEqual(['att-9', 'att-1']);
     // The job file keeps its dealId (that is how the web knows which download
     // route to call); the client file has none.
-    expect(page.items[1].dealId).toBe('d1');
-    expect(page.items[0].dealId).toBeUndefined();
+    const dealIdOf = (a: (typeof page.items)[number]) => ('dealId' in a ? a.dealId : undefined);
+    expect(dealIdOf(page.items[1])).toBe('d1');
+    expect(dealIdOf(page.items[0])).toBeUndefined();
     expect(page.nextCursor).toBeDefined();
 
     dynamoDb.client.send.mockResolvedValue({ Items: [] });

@@ -21,7 +21,7 @@ export function ClientRail({ contact, canEdit }: { contact: Contact; canEdit: bo
   // came back — plus the client form's old notes field, shown as a card too.
   const notes = useContactNotes(contact.id);
   const loaded = notes.data?.pages.flatMap((p) => p.data).length ?? 0;
-  const count = (notes.data?.pages[0]?.notesCount ?? loaded) + (contact.notes ? 1 : 0);
+  const count = (notes.data?.pages[0]?.pagination?.notesCount ?? loaded) + (contact.notes ? 1 : 0);
   const close = (o: boolean) => !o && setPanel(null);
 
   return (
