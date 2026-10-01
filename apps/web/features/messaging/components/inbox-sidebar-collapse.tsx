@@ -10,9 +10,16 @@ export const INBOX_ROUTE_PREFIX = "/messages";
 export const isInboxRoute = (pathname: string | null | undefined) =>
   !!pathname && (pathname === INBOX_ROUTE_PREFIX || pathname.startsWith(`${INBOX_ROUTE_PREFIX}/`));
 
+/** A client card (`/contacts/<id>`): its own left column wants the room the nav takes. */
+const CLIENT_CARD_ROUTE = /^\/contacts\/[^/]+$/;
+
+/** Routes that own the screen: the Inbox and a client card fold the nav to its icon rail. */
+export const isSidebarFoldedRoute = (pathname: string | null | undefined) =>
+  isInboxRoute(pathname) || (!!pathname && CLIENT_CARD_ROUTE.test(pathname));
+
 /**
- * Folds the navigation sidebar while the Inbox is open and unfolds it again on
- * the way out — only when this component did the folding, so a sidebar the
+ * Folds the navigation sidebar while the Inbox or a client card is open and
+ * unfolds it again on the way out — only when this component did the folding, so a sidebar the
  * user collapsed themselves stays collapsed. Renders nothing; mounts inside
  * `SidebarProvider` (see `AppShell`). Mobile uses the sheet sidebar, which is
  * closed anyway, so nothing happens there.
@@ -22,7 +29,7 @@ export function InboxSidebarCollapse() {
   const { open, setOpen, isMobile } = useSidebar();
   // The sidebar state we found on entering the Inbox, to restore on leaving.
   const foldedByUs = useRef<boolean | null>(null);
-  const onInbox = isInboxRoute(pathname);
+  const onInbox = isSidebarFoldedRoute(pathname);
 
   useEffect(() => {
     if (isMobile) return;

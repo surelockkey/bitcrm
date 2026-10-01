@@ -92,7 +92,7 @@ export function ClientTagsField({
           }}
         >
           <Popover.Trigger asChild>
-            <Button variant="ghost" size="sm" className="h-6 gap-1 px-1.5 text-xs text-primary" aria-label="Add tag">
+            <Button variant="ghost" size="sm" className="h-6 gap-1 px-1.5 text-xs text-brand" aria-label="Add tag">
               <Plus className="size-3.5" /> Add tag
             </Button>
           </Popover.Trigger>

@@ -39,7 +39,7 @@ export function ClientPaymentsTab({ contactId, dealsById }: { contactId: string;
             {rows.map((p) => (
               <TableRow key={p.id}>
                 <TableCell>
-                  <Link href={`/deals/${p.dealId}`} className="font-mono font-medium text-primary hover:underline">
+                  <Link href={`/deals/${p.dealId}`} className="font-mono font-medium text-brand hover:underline">
                     {dealsById.get(p.dealId)?.dealNumber ?? p.dealId.slice(0, 8)}
                   </Link>
                 </TableCell>

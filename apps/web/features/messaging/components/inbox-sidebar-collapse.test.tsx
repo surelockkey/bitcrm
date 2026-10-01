@@ -1,7 +1,7 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { SidebarProvider, useSidebar } from "@/components/ui/sidebar";
-import { InboxSidebarCollapse, isInboxRoute } from "./inbox-sidebar-collapse";
+import { InboxSidebarCollapse, isInboxRoute, isSidebarFoldedRoute } from "./inbox-sidebar-collapse";
 
 let pathname = "/deals";
 vi.mock("next/navigation", () => ({
@@ -33,6 +33,17 @@ describe("isInboxRoute", () => {
     expect(isInboxRoute("/messages-archive")).toBe(false);
     expect(isInboxRoute("/deals")).toBe(false);
     expect(isInboxRoute(null)).toBe(false);
+  });
+});
+
+describe("isSidebarFoldedRoute", () => {
+  it("folds for the Inbox and for a client card, not for the clients list", () => {
+    expect(isSidebarFoldedRoute("/messages/abc")).toBe(true);
+    expect(isSidebarFoldedRoute("/contacts/dbbedc9b-92be-521f-b9fc-914dc7bd1c99")).toBe(true);
+    expect(isSidebarFoldedRoute("/contacts")).toBe(false);
+    expect(isSidebarFoldedRoute("/contacts/")).toBe(false);
+    expect(isSidebarFoldedRoute("/companies/x")).toBe(false);
+    expect(isSidebarFoldedRoute(null)).toBe(false);
   });
 });
 

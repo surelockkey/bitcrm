@@ -56,7 +56,7 @@ export function ClientSummaryPanel({
           <div className="mt-1 truncate text-sm text-muted-foreground">
             {contact.title ? `${contact.title} · ` : ""}
             {company ? (
-              <Link href={`/companies/${company.id}`} className="text-primary hover:underline">
+              <Link href={`/companies/${company.id}`} className="text-brand hover:underline">
                 {company.title}
               </Link>
             ) : (
@@ -128,7 +128,7 @@ export function ClientSummaryPanel({
       <Section title="Company" defaultOpen={false}>
         {company ? (
           <Link href={`/companies/${company.id}`} className="flex items-center gap-3 rounded-lg border p-3 hover:bg-accent">
-            <span className="flex size-8 flex-none items-center justify-center rounded-lg bg-primary/10 text-primary">
+            <span className="flex size-8 flex-none items-center justify-center rounded-lg bg-brand/10 text-brand">
               <Building2 className="size-4" />
             </span>
             <div className="min-w-0">

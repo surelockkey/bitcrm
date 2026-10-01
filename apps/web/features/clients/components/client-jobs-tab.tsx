@@ -56,7 +56,7 @@ export function ClientJobsTab({
               return (
                 <TableRow key={d.id}>
                   <TableCell>
-                    <Link href={`/deals/${d.id}`} className="font-mono font-medium text-primary hover:underline">
+                    <Link href={`/deals/${d.id}`} className="font-mono font-medium text-brand hover:underline">
                       {d.dealNumber}
                     </Link>
                   </TableCell>
