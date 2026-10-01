@@ -8,6 +8,7 @@ import {
 } from "@bitcrm/types";
 import { toneClasses } from "@/lib/theme/tone";
 import type { EstimateItemBody } from "./schemas";
+import { DEFAULT_TZ } from "@/lib/timezone";
 
 export const ESTIMATE_STATUS_META: Record<EstimateStatus, { label: string; className: string }> = {
   unsent: {
@@ -182,4 +183,29 @@ export function itemBodyFrom(
     taxable: item.taxable,
     ...changes,
   };
+}
+
+/**
+ * The Created column of a job's Estimates list, as Workiz prints it:
+ * "Thu Oct 01, 2026 11:03 am", in the account's zone. Empty for a missing or
+ * broken date rather than "Invalid Date".
+ */
+export function formatEstimateCreated(iso: string, tz: string = DEFAULT_TZ): string {
+  const d = iso ? new Date(iso) : null;
+  if (!d || Number.isNaN(d.getTime())) return "";
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: tz,
+      weekday: "short",
+      month: "short",
+      day: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true,
+    })
+      .formatToParts(d)
+      .map((p) => [p.type, p.value]),
+  );
+  return `${parts.weekday} ${parts.month} ${parts.day}, ${parts.year} ${parts.hour}:${parts.minute} ${String(parts.dayPeriod).toLowerCase()}`;
 }

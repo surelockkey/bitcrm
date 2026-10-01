@@ -7,23 +7,15 @@ import { copyText, usePortalLinkUrl } from "../hooks";
 import { usePortalUrlStore } from "../store";
 
 /**
- * "Copy client portal link" for a document screen. Copies the client's
- * existing link — it is never regenerated behind their back (that would kill
- * the URL in a text they already have); a client with no link gets one.
+ * Copies the client's existing portal link — it is never regenerated behind
+ * their back (that would kill the URL in a text they already have); a client
+ * with no link gets one. Shared by the button and the "Actions ▾" menu item.
  */
-export function CopyPortalLinkButton({
-  contactId,
-  className,
-  variant = "outline",
-}: {
-  contactId: string;
-  className?: string;
-  variant?: "outline" | "ghost";
-}) {
+export function useCopyPortalLink(contactId: string) {
   const known = usePortalUrlStore((s) => s.urls[contactId]);
   const ensure = usePortalLinkUrl(contactId);
 
-  const onClick = async () => {
+  const copy = async () => {
     let url: string | undefined = known;
     if (!url) {
       try {
@@ -37,9 +29,23 @@ export function CopyPortalLinkButton({
     else toast.message("Copy this link", { description: url });
   };
 
+  return { copy, pending: ensure.isPending, disabled: ensure.isPending || !contactId };
+}
+
+/** "Copy client portal link" for a document screen. */
+export function CopyPortalLinkButton({
+  contactId,
+  className,
+  variant = "outline",
+}: {
+  contactId: string;
+  className?: string;
+  variant?: "outline" | "ghost";
+}) {
+  const { copy, pending, disabled } = useCopyPortalLink(contactId);
   return (
-    <Button type="button" variant={variant} size="sm" className={className} onClick={onClick} disabled={ensure.isPending || !contactId}>
-      {ensure.isPending ? <Loader2 className="animate-spin" /> : <Link2 />}
+    <Button type="button" variant={variant} size="sm" className={className} onClick={copy} disabled={disabled}>
+      {pending ? <Loader2 className="animate-spin" /> : <Link2 />}
       Copy client portal link
     </Button>
   );

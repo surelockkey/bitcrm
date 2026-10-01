@@ -1,7 +1,9 @@
 "use client";
 
+import type { ReactNode } from "react";
 import type { EstimateItem } from "@bitcrm/types";
 import { DocumentItemsTable } from "@/features/billing/components/document-items-table";
+import { usePermissions } from "@/features/auth/use-permissions";
 import {
   useAddEstimateItem,
   useDeleteEstimateItem,
@@ -16,12 +18,16 @@ export function EstimateItemsTable({
   dealId,
   items,
   canEdit,
+  toolbar,
 }: {
   estimateId: string;
   dealId?: string;
   items: EstimateItem[];
   canEdit: boolean;
+  /** Buttons beside "Add item" (Price book, Sync to Job / Create new job). */
+  toolbar?: ReactNode;
 }) {
+  const { can } = usePermissions();
   const add = useAddEstimateItem(estimateId, dealId);
   const update = useUpdateEstimateItem(estimateId, dealId);
   const remove = useDeleteEstimateItem(estimateId, dealId);
@@ -32,7 +38,9 @@ export function EstimateItemsTable({
     <DocumentItemsTable
       items={items}
       canEdit={canEdit}
+      showCost={can("financials", "view")}
       emptyText="No items on this estimate yet."
+      toolbar={toolbar}
       pending={{
         add: add.isPending,
         update: update.isPending,

@@ -11,6 +11,7 @@ import {
 const mocks = vi.hoisted(() => ({
   push: vi.fn(),
   createDeal: vi.fn(),
+  copyEstimate: vi.fn(async () => ({ estimate: { id: "e9" }, itemCount: 1 })),
   createContact: vi.fn(),
   updateContact: vi.fn(),
   linkCall: vi.fn(),
@@ -162,6 +163,7 @@ vi.mock("./deal-address-fields", () => ({
   ),
 }));
 
+vi.mock("@/features/estimates/api", () => ({ copyEstimateToJob: mocks.copyEstimate }));
 import { NewDealPage } from "./new-deal-page";
 
 const user = () => userEvent.setup();
@@ -352,6 +354,16 @@ describe("NewDealPage — opened from the client card", () => {
     await u.click(screen.getByRole("button", { name: /pick job type/i }));
     await u.click(submit());
     await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/deals/d-new?tab=estimates&estimate=new"));
+  });
+
+  it("`?then=copy-estimate:<id>` copies the client estimate onto the new job (Workiz Copy to job), then opens it there", async () => {
+    mocks.searchParams = "contactId=c1&then=copy-estimate%3Ae9";
+    const u = user();
+    render(<NewDealPage />);
+    await u.click(screen.getByRole("button", { name: /pick job type/i }));
+    await u.click(submit());
+    await waitFor(() => expect(mocks.copyEstimate).toHaveBeenCalledWith("e9", "d-new"));
+    await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/estimates/e9"));
   });
 
   it("`?then=invoice` lands on the new job's Invoice tab", async () => {

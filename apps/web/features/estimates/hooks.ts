@@ -153,19 +153,23 @@ export function useUpdateEstimate(id: string, dealId?: string) {
       const previous = qc.getQueryData<EstimateWithItems>(key);
       // Header fields paint immediately; tax/discount wait for server totals.
       if (previous) {
-        const { name, estimateDate, notes } = body;
+        const { name, estimateDate, notes, description } = body;
         qc.setQueryData<EstimateWithItems>(key, {
           ...previous,
           ...(name !== undefined ? { name } : {}),
           ...(estimateDate !== undefined ? { estimateDate } : {}),
           ...(notes !== undefined ? { notes } : {}),
+          ...(description !== undefined ? { description: description ?? undefined } : {}),
         });
       }
       return { previous };
     },
-    onSuccess: (_e, body) => {
+    onSuccess: (e, body) => {
+      // The server's answer carries the signed cover URL; paint it at once.
+      qc.setQueryData<EstimateWithItems>(key, (prev) => (prev ? { ...prev, ...e, items: prev.items } : e));
       if (body.discount !== undefined) toast.success(body.discount ? "Discount applied" : "Discount removed");
       else if (body.taxRateId !== undefined) toast.success(body.taxRateId ? "Tax updated" : "Tax removed");
+      else if (body.coverAssetId !== undefined) toast.success(body.coverAssetId ? "Cover image saved" : "Cover image removed");
       else toast.success("Estimate saved");
     },
     onError: (e, _b, ctx) => {

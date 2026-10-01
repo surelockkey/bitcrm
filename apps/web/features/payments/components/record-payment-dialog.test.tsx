@@ -9,6 +9,7 @@ const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), message: vi.
 vi.mock("sonner", () => ({ toast }));
 
 import { RecordPaymentDialog } from "./record-payment-dialog";
+import { todayYmd } from "@/features/billing/dates";
 
 const user = () => userEvent.setup({ pointerEventsCheck: 0 });
 let posted: Record<string, unknown> | undefined;
@@ -57,7 +58,7 @@ describe("RecordPaymentDialog", () => {
     open();
     expect(await screen.findByLabelText("Amount")).toHaveValue("240.50");
     expect(screen.getByLabelText("Date received")).toHaveValue(
-      new Date().toISOString().slice(0, 10),
+      todayYmd(),
     );
   });
 

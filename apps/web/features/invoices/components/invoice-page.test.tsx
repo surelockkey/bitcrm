@@ -85,7 +85,7 @@ describe("StandaloneInvoicePage", () => {
       }),
     );
     renderWithClient(<StandaloneInvoicePage invoiceId="inv-9" />);
-    expect(await screen.findByRole("heading", { name: "Invoice #1001" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /invoice #1001/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Jane Client/ })).toHaveAttribute("href", "/contacts/c1");
     expect(screen.queryByTestId("job-items")).not.toBeInTheDocument();
     expect(screen.getByText("No items on this invoice yet.")).toBeInTheDocument();

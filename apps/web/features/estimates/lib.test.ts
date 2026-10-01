@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { ESTIMATE_STATUSES, type Estimate, type EstimateItem } from "@bitcrm/types";
 import {
   ESTIMATE_STATUS_META,
+  formatEstimateCreated,
   buildEstimateListQuery,
   estimateLocalTotals,
   estimateStatusLabel,
@@ -116,5 +117,16 @@ describe("misc", () => {
       productId: "p1", productType: undefined, name: "Lock", sku: "L-1", description: undefined,
       quantity: 3, priceClient: 10, costCompany: 4, costForTech: 5, taxable: false,
     });
+  });
+});
+
+describe("formatEstimateCreated — Workiz's Created column", () => {
+  it("reads like Workiz: weekday, month, day, year, 12-hour time in the account's zone", () => {
+    expect(formatEstimateCreated("2026-10-01T15:03:00.000Z", "America/New_York")).toBe("Thu Oct 01, 2026 11:03 am");
+    expect(formatEstimateCreated("2026-10-01T18:13:00.000Z", "America/New_York")).toBe("Thu Oct 01, 2026 02:13 pm");
+  });
+  it("is empty for a missing or broken date", () => {
+    expect(formatEstimateCreated("")).toBe("");
+    expect(formatEstimateCreated("not a date")).toBe("");
   });
 });

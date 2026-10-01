@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Loader2 } from "lucide-react";
 import { estimateDepositDue, type Estimate } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
@@ -57,14 +57,6 @@ export function SetDepositDialog({
     startsAsPercent ? String(current.depositPercentage) : current.depositAmount ? String(current.depositAmount) : "0",
   );
   const [future, setFuture] = useState(false);
-
-  useEffect(() => {
-    if (!open) return;
-    const pct = !(current.depositAmount && current.depositAmount > 0) && !!current.depositPercentage;
-    setMode(pct ? "percent" : "amount");
-    setValue(pct ? String(current.depositPercentage) : current.depositAmount ? String(current.depositAmount) : "0");
-    setFuture(false);
-  }, [open, current.depositAmount, current.depositPercentage]);
 
   const n = Number(value);
   const valid = value.trim() !== "" && Number.isFinite(n) && n >= 0 && (mode === "amount" || n <= 100);

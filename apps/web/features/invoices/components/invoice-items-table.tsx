@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import type { BillingLine } from "@bitcrm/types";
 import { DocumentItemsTable, type DocumentLineItem } from "@/features/billing/components/document-items-table";
+import { usePermissions } from "@/features/auth/use-permissions";
 import {
   useAddInvoiceItem,
   useDeleteInvoiceItem,
@@ -39,6 +40,7 @@ export function InvoiceItemsTable({
   items: BillingLine[];
   canEdit: boolean;
 }) {
+  const { can } = usePermissions();
   const add = useAddInvoiceItem(invoiceId);
   const update = useUpdateInvoiceItem(invoiceId);
   const remove = useDeleteInvoiceItem(invoiceId);
@@ -50,6 +52,7 @@ export function InvoiceItemsTable({
     <DocumentItemsTable
       items={lines}
       canEdit={canEdit}
+      showCost={can("financials", "view")}
       emptyText="No items on this invoice yet."
       pending={{
         add: add.isPending,

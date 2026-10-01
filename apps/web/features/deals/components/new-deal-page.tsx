@@ -40,6 +40,7 @@ import { useCreateDeal } from "../hooks";
 import { updateDeal as updateDealApi, assignTechs as assignTechsApi } from "../api";
 import { requestAttachmentUpload, uploadAttachmentBytes } from "../attachments-api";
 import { useLinkCallToDeal } from "@/features/calls/hooks";
+import { copyEstimateToJob } from "@/features/estimates/api";
 import { CallsToLink } from "@/features/calls/components/calls-to-link";
 import { dealJobSchema, type DealJobValues } from "../schemas";
 import { JobTypeSelect } from "@/features/job-types/components/job-type-select";
@@ -569,6 +570,21 @@ function DealForm({
                   `Job created, but a file failed to upload (${getApiErrorMessage(e)}). Attach it on the job page.`,
                 );
               }
+            }
+            // Workiz "Copy to job" from a client estimate: the new job gets
+            // the estimate's items and the estimate moves onto it.
+            const copyId = then?.startsWith("copy-estimate:") ? then.slice("copy-estimate:".length) : null;
+            if (copyId) {
+              let openId = copyId;
+              try {
+                const copied = await copyEstimateToJob(copyId, deal.id);
+                openId = copied?.estimate?.id ?? copyId;
+              } catch (e) {
+                toast.error(`Job created, but the estimate could not be copied onto it (${getApiErrorMessage(e)}).`);
+              }
+              // The estimate's own page, with "← Job ID" back to the new job (Workiz).
+              router.push(`/estimates/${encodeURIComponent(openId)}`);
+              return;
             }
             router.push(
               then === "estimate"

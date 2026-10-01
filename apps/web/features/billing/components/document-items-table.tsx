@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import {
   DndContext,
   KeyboardSensor,
@@ -18,8 +18,8 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { GripVertical, Loader2, Plus, X } from "lucide-react";
-import { lineAmount, type ProductType } from "@bitcrm/types";
+import { GripVertical, Loader2, Package, Plus, Trash2, Wrench } from "lucide-react";
+import { ProductType, lineAmount } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
@@ -59,12 +59,20 @@ export interface DocumentItemsTableProps {
   onRemove: (lineId: string) => void;
   onReorder: (lineIds: string[]) => void;
   onTaxable: (lineId: string, taxable: boolean) => void;
+  /** Buttons beside "Add item" (Workiz: Price book, Sync to Job …). */
+  toolbar?: ReactNode;
+  /** Show the Cost column with the margin (staff who may see money). */
+  showCost?: boolean;
 }
 
+const th = "px-3 py-2.5 text-left text-[13px] font-semibold";
+const td = "px-3 py-3 align-top";
+
 /**
- * The lines of a document that owns them, with drag-to-reorder, inline
- * qty/price edits and the catalog picker. Which document — an estimate or a
- * client invoice — is the wrapper's business: it brings the mutations.
+ * The lines of a document that owns them, as Workiz lays its Items table out:
+ * Item · Quantity · Price · Cost · Amount · Taxable, a drag handle on the
+ * left, a bin on the right, the yellow "+ Add item" under it. Which document
+ * — an estimate or a client invoice — is the wrapper's business.
  */
 export function DocumentItemsTable({
   items,
@@ -76,6 +84,8 @@ export function DocumentItemsTable({
   onRemove,
   onReorder,
   onTaxable,
+  toolbar,
+  showCost = true,
 }: DocumentItemsTableProps) {
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<DocumentLineItem | null>(null);
@@ -106,27 +116,28 @@ export function DocumentItemsTable({
   };
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       {sorted.length === 0 ? (
-        <div className="rounded-lg border border-dashed py-10 text-center text-sm text-muted-foreground">{emptyText}</div>
+        <div className="rounded-md border border-dashed py-10 text-center text-sm text-muted-foreground">{emptyText}</div>
       ) : (
-        <div className="overflow-x-auto rounded-lg border">
+        <div className="overflow-x-auto">
           <DndContext
             sensors={sensors}
             collisionDetection={closestCenter}
             modifiers={[restrictToVerticalAxis, restrictToParentElement]}
             onDragEnd={onDragEnd}
           >
-            <table className="w-full min-w-[34rem] text-sm">
+            <table className="w-full min-w-[40rem] border-separate border-spacing-0 text-sm">
               <thead>
-                <tr className="border-b bg-muted/40 text-xs tracking-wide text-muted-foreground uppercase">
-                  {canEdit ? <th className="w-7" aria-label="Reorder" /> : null}
-                  <th className="px-3 py-2 text-left font-semibold">Item</th>
-                  <th className="w-20 px-2 py-2 text-right font-semibold">Qty</th>
-                  <th className="w-28 px-2 py-2 text-right font-semibold">Price</th>
-                  <th className="px-3 py-2 text-right font-semibold">Amount</th>
-                  <th className="px-2 py-2 text-center font-semibold">Taxable</th>
-                  {canEdit ? <th className="w-8" /> : null}
+                <tr className="text-foreground">
+                  {canEdit ? <th className="w-8 border-b" aria-label="Reorder" /> : null}
+                  <th className={cn(th, "border-b border-l border-dashed")}>Item</th>
+                  <th className={cn(th, "w-28 border-b border-l border-dashed")}>Quantity</th>
+                  <th className={cn(th, "w-32 border-b border-l border-dashed")}>Price</th>
+                  {showCost ? <th className={cn(th, "w-36 border-b border-l border-dashed")}>Cost</th> : null}
+                  <th className={cn(th, "w-32 border-b border-l border-dashed")}>Amount</th>
+                  <th className={cn(th, "w-24 border-b border-l border-dashed")}>Taxable</th>
+                  {canEdit ? <th className="w-12 border-b border-l border-dashed" aria-label="Remove" /> : null}
                 </tr>
               </thead>
               <SortableContext items={sorted.map((i) => i.lineId)} strategy={verticalListSortingStrategy}>
@@ -136,6 +147,7 @@ export function DocumentItemsTable({
                       key={item.lineId}
                       item={item}
                       canEdit={canEdit}
+                      showCost={showCost}
                       removing={pending.removingLineId === item.lineId}
                       onEdit={() => setEditing(item)}
                       onRemove={() => onRemove(item.lineId)}
@@ -151,9 +163,12 @@ export function DocumentItemsTable({
       )}
 
       {canEdit ? (
-        <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setAdding(true)}>
-          <Plus className="size-3.5" /> Add item
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="default" size="lg" className="rounded-pill px-4 font-semibold" onClick={() => setAdding(true)}>
+            <Plus /> Add item
+          </Button>
+          {toolbar}
+        </div>
       ) : null}
 
       <ProductPickerDialog
@@ -172,9 +187,16 @@ export function DocumentItemsTable({
   );
 }
 
+/** Cost → margin, as Workiz prints under the cost ("71.32 Margin" = percent of the price kept). */
+export function marginPercent(priceClient: number, costCompany: number): number | null {
+  if (!(priceClient > 0)) return null;
+  return Math.round(((priceClient - costCompany) / priceClient) * 10000) / 100;
+}
+
 function ItemRow({
   item,
   canEdit,
+  showCost,
   removing,
   onEdit,
   onRemove,
@@ -183,6 +205,7 @@ function ItemRow({
 }: {
   item: DocumentLineItem;
   canEdit: boolean;
+  showCost: boolean;
   removing: boolean;
   onEdit: () => void;
   onRemove: () => void;
@@ -191,15 +214,18 @@ function ItemRow({
 }) {
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } =
     useSortable({ id: item.lineId, disabled: !canEdit });
+  const isService = item.productType === ProductType.SERVICE;
+  const margin = marginPercent(item.priceClient, item.costCompany);
+  const cell = cn(td, "border-b border-l border-dashed");
 
   return (
     <tr
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition }}
-      className={cn("border-b bg-background last:border-0", isDragging && "relative z-10 opacity-80 shadow-sm")}
+      className={cn("bg-background", isDragging && "relative z-10 opacity-80 shadow-sm")}
     >
       {canEdit ? (
-        <td className="pl-1.5 align-middle">
+        <td className="border-b pl-1 align-top pt-3">
           <button
             type="button"
             ref={setActivatorNodeRef}
@@ -212,20 +238,40 @@ function ItemRow({
           </button>
         </td>
       ) : null}
-      <td className="px-3 py-2">
-        {canEdit ? (
-          <button type="button" onClick={onEdit} className="text-left font-medium hover:underline" aria-label={`Edit ${item.name}`}>
-            {item.name}
-          </button>
-        ) : (
-          <span className="font-medium">{item.name}</span>
-        )}
-        {item.description ? (
-          <p className="mt-0.5 line-clamp-2 text-xs whitespace-pre-line text-muted-foreground">{item.description}</p>
-        ) : null}
-        <div className="font-mono text-[11px] text-muted-foreground">{item.sku}</div>
+      <td className={cell}>
+        <div className="flex items-start gap-3">
+          <span
+            aria-hidden
+            className={cn(
+              "flex size-10 flex-none items-center justify-center rounded-md border bg-muted/40 text-muted-foreground",
+              isService && "bg-info/10 text-info-text",
+            )}
+          >
+            {isService ? <Wrench className="size-4" /> : <Package className="size-4" />}
+          </span>
+          <div className="min-w-0">
+            {canEdit ? (
+              <button type="button" onClick={onEdit} className="text-left font-medium hover:underline" aria-label={`Edit ${item.name}`}>
+                {item.name}
+              </button>
+            ) : (
+              <span className="font-medium">{item.name}</span>
+            )}
+            {item.description ? (
+              <p className="mt-0.5 line-clamp-2 text-xs whitespace-pre-line text-muted-foreground">{item.description}</p>
+            ) : null}
+            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+              {item.sku ? <span className="font-mono text-[11px] text-muted-foreground">{item.sku}</span> : null}
+              {isService ? (
+                <span className="rounded-chip border border-info/40 px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-info-text uppercase">
+                  Service
+                </span>
+              ) : null}
+            </div>
+          </div>
+        </div>
       </td>
-      <td className="px-2 py-2 text-right tabular-nums">
+      <td className={cn(cell, "tabular-nums")}>
         {canEdit ? (
           <CommitInput
             type="number"
@@ -235,13 +281,13 @@ function ItemRow({
             aria-label={`${item.name} quantity`}
             value={String(item.quantity)}
             onCommit={(quantity) => onInline({ quantity })}
-            className="h-7 text-right tabular-nums"
+            className="h-8 w-20 tabular-nums"
           />
         ) : (
-          item.quantity
+          item.quantity.toFixed(2)
         )}
       </td>
-      <td className="px-2 py-2 text-right font-mono tabular-nums">
+      <td className={cn(cell, "font-mono tabular-nums")}>
         {canEdit ? (
           <CommitInput
             type="number"
@@ -251,23 +297,36 @@ function ItemRow({
             aria-label={`${item.name} price`}
             value={String(item.priceClient)}
             onCommit={(priceClient) => onInline({ priceClient })}
-            className="h-7 text-right font-mono tabular-nums"
+            className="h-8 w-28 font-mono tabular-nums"
           />
         ) : (
           formatMoney(item.priceClient)
         )}
       </td>
-      <td className="px-3 py-2 text-right font-mono tabular-nums">{formatMoney(lineAmount(item))}</td>
-      <td className="px-2 py-2 text-center">
-        <Checkbox
-          checked={item.taxable !== false}
-          disabled={!canEdit}
-          onCheckedChange={(v) => onTaxable(v === true)}
-          aria-label={`${item.name} is taxable`}
-        />
+      {showCost ? (
+        <td className={cn(cell, "font-mono tabular-nums")}>
+          {formatMoney(item.costCompany)}
+          {margin !== null ? (
+            <span className="mt-1 block w-fit rounded-md border px-1.5 py-0.5 font-sans text-[11px] text-muted-foreground">
+              {margin}% margin
+            </span>
+          ) : null}
+        </td>
+      ) : null}
+      <td className={cn(cell, "font-mono tabular-nums")}>{formatMoney(lineAmount(item))}</td>
+      <td className={cell}>
+        <label className="inline-flex items-center gap-2">
+          <Checkbox
+            checked={item.taxable !== false}
+            disabled={!canEdit}
+            onCheckedChange={(v) => onTaxable(v === true)}
+            aria-label={`${item.name} is taxable`}
+          />
+          <span className="text-sm">{item.taxable !== false ? "Yes" : "No"}</span>
+        </label>
       </td>
       {canEdit ? (
-        <td className="px-2 py-2 text-right">
+        <td className={cn(cell, "text-center")}>
           <button
             type="button"
             onClick={onRemove}
@@ -275,7 +334,7 @@ function ItemRow({
             className="text-muted-foreground hover:text-destructive"
             aria-label={`Remove ${item.name}`}
           >
-            {removing ? <Loader2 className="size-4 animate-spin" /> : <X className="size-4" />}
+            {removing ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
           </button>
         </td>
       ) : null}

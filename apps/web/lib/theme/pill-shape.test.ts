@@ -10,7 +10,8 @@ import { describe, expect, it } from "vitest";
  *
  * The tell is horizontal padding: a circle is sized (`size-8`), a pill is
  * padded (`px-2`). So a bare `rounded-full` on a padded element is the thing
- * this guards against.
+ * this guards against. Workiz's pill BUTTONS (Actions ▾, Send, Price book,
+ * Add item) are the one deliberate exception and say so: `rounded-pill`.
  */
 
 const ROOT = join(__dirname, "..", "..");
@@ -58,7 +59,8 @@ describe("no oval labels", () => {
     const avatar = 'className="grid size-6 place-items-center rounded-full bg-primary px-1"';
     const dot = 'className="size-1.5 rounded-full bg-destructive"';
     const hoverOval = 'className="px-2 hover:rounded-full"';
-    for (const sample of [avatar, dot, hoverOval]) {
+    const pillButton = 'className="h-9 rounded-pill px-5 font-semibold"';
+    for (const sample of [avatar, dot, hoverOval, pillButton]) {
       const flagged =
         BARE_ROUNDED_FULL.test(sample) &&
         HAS_X_PADDING.test(sample) &&

@@ -104,9 +104,11 @@ describe("DealInvoiceTab — existing invoice", () => {
 
   it("shows the header, status, sent state and the job's items with payments", async () => {
     renderWithClient(<DealInvoiceTab deal={deal} canEditItems />);
-    expect(await screen.findByRole("heading", { name: "Invoice #1042" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /invoice #1042/i })).toBeInTheDocument();
     expect(screen.getByText("Due")).toBeInTheDocument();
-    expect(screen.getByText("Unsent")).toBeInTheDocument();
+    // Workiz: "Sent: No" in red until it goes out.
+    expect(screen.getByText("Sent:").nextSibling).toHaveTextContent("No");
+    expect(screen.getByText("Bill to:")).toBeInTheDocument();
     expect(screen.getByTestId("job-items")).toHaveAttribute("data-payments", "true");
     expect(screen.getByLabelText("Invoice date")).toHaveValue("2026-09-16");
     // Fixed terms own the due date.
@@ -122,7 +124,9 @@ describe("DealInvoiceTab — existing invoice", () => {
       }),
     );
     renderWithClient(<DealInvoiceTab deal={deal} canEditItems />);
-    await user().click(await screen.findByRole("button", { name: /mark as sent/i }));
+    // Workiz keeps Preview / Download / Mark as sent under "Actions ▾".
+    await user().click(await screen.findByRole("button", { name: /^actions$/i }));
+    await user().click(await screen.findByRole("menuitem", { name: /mark as sent/i }));
     await waitFor(() => expect(body).toEqual({ sent: true }));
   });
 
@@ -145,7 +149,7 @@ describe("DealInvoiceTab — existing invoice", () => {
 
   it("offers Send only to someone who may both send invoices and send messages", async () => {
     const { unmount } = renderWithClient(<DealInvoiceTab deal={deal} canEditItems />);
-    await screen.findByRole("heading", { name: "Invoice #1042" });
+    await screen.findByRole("heading", { name: /invoice #1042/i });
     expect(screen.queryByRole("button", { name: /^send$/i })).not.toBeInTheDocument();
     unmount();
 
@@ -190,7 +194,8 @@ describe("DealInvoiceTab — existing invoice", () => {
 
   it("explains that deleting keeps the job's items", async () => {
     renderWithClient(<DealInvoiceTab deal={deal} canEditItems />);
-    await user().click(await screen.findByRole("button", { name: /delete invoice/i }));
+    await user().click(await screen.findByRole("button", { name: /^actions$/i }));
+    await user().click(await screen.findByRole("menuitem", { name: /delete invoice/i }));
     expect(await screen.findByText(/items stay on the job/i)).toBeInTheDocument();
   });
 });
@@ -235,7 +240,7 @@ describe("DealInvoiceTab — the payment ledger", () => {
 
   it("marks a part-paid invoice beside its status, which stays Due", async () => {
     renderWithClient(<DealInvoiceTab deal={deal} canEditItems />);
-    await screen.findByRole("heading", { name: "Invoice #1042" });
+    await screen.findByRole("heading", { name: /invoice #1042/i });
     expect(await screen.findAllByText("Partially paid")).not.toHaveLength(0);
     expect(screen.getByText("Due")).toBeInTheDocument();
   });
@@ -244,7 +249,7 @@ describe("DealInvoiceTab — the payment ledger", () => {
     mocks.perms.delete("payments.view");
     mocks.perms.delete("payments.collect");
     renderWithClient(<DealInvoiceTab deal={deal} canEditItems />);
-    await screen.findByRole("heading", { name: "Invoice #1042" });
+    await screen.findByRole("heading", { name: /invoice #1042/i });
     expect(screen.queryByRole("heading", { name: "Payments" })).toBeNull();
   });
 });

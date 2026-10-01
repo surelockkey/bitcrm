@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { Eye } from "lucide-react";
 import { PortalSkeleton, PortalView, type DocumentLoaders } from "@bitcrm/portal-ui";
 import { Button } from "@/components/ui/button";
+import { toneClasses } from "@/lib/theme/tone";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { useDenied } from "@/features/auth/use-permissions";
 import { NoAccess } from "@/features/billing/components/list-bits";
@@ -34,12 +35,12 @@ export function PortalPreviewPage({ contactId }: { contactId: string }) {
       </div>
       <div
         role="note"
-        className="flex items-center gap-2 border-b border-amber-500/30 bg-amber-500/10 px-6 py-2 text-sm text-amber-800 dark:text-amber-300"
+        className={`flex items-center gap-2 border-b px-6 py-2 text-sm ${toneClasses("warning")}`}
       >
         <Eye className="size-4 flex-none" />
         Preview — unsent documents are shown with an UNSENT label. The client only sees sent documents.
       </div>
-      <div className="flex-1 overflow-auto bg-muted/30 px-4 py-6 sm:px-6">
+      <div className="flex-1 overflow-auto bg-white [color-scheme:light]">
         {q.isLoading ? (
           <PortalSkeleton />
         ) : q.isError || !q.data ? (

@@ -45,11 +45,14 @@ function DocList({
   return <ul className="divide-y rounded-lg border">{children}</ul>;
 }
 
-/** Where a document opens: its job's tab, or — with no job — its own page. */
+/**
+ * Where a document opens. An invoice: its job's tab, or — with no job — its
+ * own page. An estimate always has a page of its own (Workiz): a job's one
+ * shows "← Job ID" and the job's other estimates as tabs.
+ */
 export const invoiceHref = (inv: Pick<Invoice, "id" | "dealId">): string =>
   inv.dealId ? `/deals/${inv.dealId}?tab=invoice` : `/invoices/${inv.id}`;
-export const estimateHref = (e: Pick<Estimate, "id" | "dealId">): string =>
-  e.dealId ? `/deals/${e.dealId}?tab=estimates&estimate=${e.id}` : `/estimates/${e.id}`;
+export const estimateHref = (e: Pick<Estimate, "id">): string => `/estimates/${e.id}`;
 
 /** A client's invoices — their jobs' and their own (no job) — each linking where it lives. */
 export function ClientInvoicesList({ contactIds }: { contactIds: string[] }) {

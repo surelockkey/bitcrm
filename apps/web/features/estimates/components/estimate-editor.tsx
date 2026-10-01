@@ -1,22 +1,33 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
+import Link from "next/link";
 import {
   ArrowLeftRight,
-  ChevronLeft,
+  BookOpen,
+  Briefcase,
+  ChevronDown,
   Copy,
   Download,
   Eye,
+  Link2,
   Loader2,
-  PiggyBank,
   Send,
+  StickyNote,
   Trash2,
   Undo2,
+  Wrench,
 } from "lucide-react";
 import { toast } from "sonner";
 import type { Deal } from "@bitcrm/types";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
@@ -31,20 +42,23 @@ import {
 } from "@/components/ui/alert-dialog";
 import { queryKeys } from "@/lib/query-keys";
 import { getApiErrorMessage } from "@/lib/api/errors";
+import { formatPhone } from "@/lib/phone";
+import { cn } from "@/lib/utils";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { useDealProducts } from "@/features/deals/hooks";
-import { formatYmd } from "@/features/billing/dates";
+import { formatMoney } from "@/features/billing/lib";
 import { useOpenPdf } from "@/features/billing/open-pdf";
 import { CommitInput, CommitTextarea, DocField } from "@/features/billing/components/document-field";
 import { DocumentPreviewDialog } from "@/features/billing/components/document-preview-dialog";
-import { DocumentSummaryPanel } from "@/features/billing/components/document-summary-panel";
+import { DocumentSummaryPanel, Row } from "@/features/billing/components/document-summary-panel";
 import { DocumentTemplateSelect } from "@/features/billing/components/document-template-select";
-import { SentBadge } from "@/features/invoices/components/sent-badge";
 import { SignaturesSection } from "@/features/billing/components/signatures-section";
-import { useDocumentSettings, useUpdateDocumentSettings } from "@/features/documents/hooks";
 import { useContact } from "@/features/clients/hooks";
-import { CopyPortalLinkButton } from "@/features/portal/components/copy-portal-link-button";
-import { SendDocumentDialog, type SendDocumentChannel } from "@/features/portal/components/send-document-dialog";
+import { contactName, formatAddress } from "@/features/clients/lib";
+import { useDocumentSettings, useUpdateDocumentSettings } from "@/features/documents/hooks";
+import { SentBadge } from "@/features/invoices/components/sent-badge";
+import { CopyPortalLinkButton, useCopyPortalLink } from "@/features/portal/components/copy-portal-link-button";
+import { SendDocumentDialog } from "@/features/portal/components/send-document-dialog";
 import { getEstimateHtml, getEstimatePdfUrl } from "../api";
 import {
   useDeleteEstimate,
@@ -58,30 +72,46 @@ import {
 } from "../hooks";
 import { estimateLocalTotals, estimateTitle, syncBlockReason, syncConfirmText } from "../lib";
 import { estimateHeaderSchema, type EstimateHeaderValues } from "../schemas";
+import { EstimateCoverField } from "./estimate-cover-field";
 import { EstimateItemsTable } from "./estimate-items-table";
 import { EstimateStatusBadge } from "./estimate-status-badge";
 import { EstimateStatusSelect } from "./estimate-status-select";
 import { SetDepositDialog, depositLabel } from "./set-deposit-dialog";
 
+/** Workiz's outline pill ("Actions ▾", "Price book", "Sync to Job"). */
+const pill = "h-9 rounded-pill border-foreground/60 px-4 font-semibold";
+
 /**
- * One estimate, edited in place — inside the job's Estimates tab (`deal`
- * given, `onBack` returns to the list) or on a client estimate's own page
- * (no `deal`: Workiz's "stub", which has no job to sync to).
+ * One estimate, laid out as Workiz lays its estimate page out. Two layouts,
+ * as there:
+ * - a JOB's estimate (`deal` given): the job's estimates as tabs with
+ *   Actions ▾ and the yellow Send; a band with the cover image, the
+ *   description, the client's details, the service address, the status and
+ *   the estimate's number; Items with Add item / Price book / Sync to job /
+ *   Create new job;
+ * - a CLIENT's estimate (no job): "Client: …" with Actions ▾ and Send on a
+ *   grey band, "Bill to:" on the left and Estimate / Estimate name / Date /
+ *   Status on the right; Items with Add item / Price book, and Actions → Copy
+ *   to job.
+ * Then the totals, Notes and Signatures, the same for both.
  */
 export function EstimateEditor({
   estimateId,
   deal,
-  onBack,
+  tabs,
   onOpenEstimate,
   onDeleted,
+  onSendAll,
 }: {
   estimateId: string;
   deal?: Deal;
-  /** Back to the tab's list; absent on a page of its own (no "< Back" in page headers). */
-  onBack?: () => void;
+  /** The job's estimate tabs, rendered left of Actions / Send (Workiz). Absent on a page of its own. */
+  tabs?: ReactNode;
   onOpenEstimate: (id: string) => void;
-  /** Where to go once the estimate is deleted; defaults to `onBack`. */
+  /** Where to go once the estimate is deleted. */
   onDeleted?: () => void;
+  /** Workiz "Send > Send all (proposal)": given when the job has open estimates to send together. */
+  onSendAll?: () => void;
 }) {
   const { can } = usePermissions();
   const dealId = deal?.id;
@@ -95,44 +125,33 @@ export function EstimateEditor({
   const del = useDeleteEstimate(dealId);
   const sign = useSignEstimate(estimateId, dealId);
   const saveDefaults = useUpdateDocumentSettings();
-  const afterDelete = onDeleted ?? onBack;
   const pdf = useOpenPdf(() => getEstimatePdfUrl(estimateId));
   const [previewing, setPreviewing] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const portalLink = useCopyPortalLink(estimate?.contactId ?? "");
   const [deleting, setDeleting] = useState(false);
   const [depositOpen, setDepositOpen] = useState(false);
-  const [sendingVia, setSendingVia] = useState<SendDocumentChannel | null>(null);
+  const [sending, setSending] = useState(false);
+  const [editingDescription, setEditingDescription] = useState(false);
   const client = useContact(estimate?.contactId ?? "");
   // Loaded once for the Send panel's defaults; the deposit dialog writes it.
   useDocumentSettings();
 
   const items = useMemo(() => estimate?.items ?? [], [estimate?.items]);
-  const localTotals = useMemo(
-    () => (estimate ? estimateLocalTotals(estimate, items) : null),
-    [estimate, items],
-  );
-
-  const back = onBack ? (
-    <Button variant="ghost" size="sm" className="-ml-2 gap-1" onClick={onBack}>
-      <ChevronLeft /> All estimates
-    </Button>
-  ) : null;
+  const localTotals = useMemo(() => (estimate ? estimateLocalTotals(estimate, items) : null), [estimate, items]);
 
   if (isLoading) {
     return (
       <div className="space-y-3">
-        {back}
+        <Skeleton className="h-12 w-full" />
         <Skeleton className="h-48 w-full" />
       </div>
     );
   }
   if (isError || !estimate || !localTotals) {
     return (
-      <div className="space-y-3">
-        {back}
-        <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
-          {getApiErrorMessage(error, "This estimate couldn't be loaded — it may have been deleted.")}
-        </div>
+      <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
+        {getApiErrorMessage(error, "This estimate couldn't be loaded — it may have been deleted.")}
       </div>
     );
   }
@@ -142,10 +161,16 @@ export function EstimateEditor({
   const canCreate = can("estimates", "create");
   const canText = canSend && can("messages", "send");
   const canDelete = can("estimates", "delete");
-  const syncBlocked = syncBlockReason(estimate, items.length, can("estimates", "sync"), !!deal);
+  const canSync = can("estimates", "sync");
+  const syncBlocked = syncBlockReason(estimate, items.length, canSync, !!deal);
   const jobItemCount = jobProducts?.length ?? deal?.itemCount ?? 0;
   // Server totals lag item edits by a refetch; the shared formula bridges it.
-  const totals = isFetching ? localTotals : estimate.totals ?? localTotals;
+  const totals = isFetching ? localTotals : (estimate.totals ?? localTotals);
+  const c = client.data;
+  const clientFullName = c ? contactName(c) : "";
+  const itemCost = items.reduce((sum, i) => sum + i.costCompany * i.quantity, 0);
+  const margin = totals.subtotal > 0 ? Math.round(((totals.subtotal - itemCost) / totals.subtotal) * 1000) / 10 : null;
+  const deposit = depositLabel({ ...estimate, totals });
 
   const saveHeader = (patch: Partial<EstimateHeaderValues>) => {
     const parsed = estimateHeaderSchema.partial().safeParse(patch);
@@ -156,101 +181,51 @@ export function EstimateEditor({
     update.mutate(parsed.data);
   };
 
-  return (
-    <div className="space-y-4">
-      {back}
+  // Workiz "Copy to job": the New job page, with this client and this estimate to copy onto it.
+  const createJobHref = `/deals/new?contactId=${encodeURIComponent(estimate.contactId)}&then=${encodeURIComponent(`copy-estimate:${estimate.id}`)}`;
 
-      <section className="space-y-4 rounded-lg border p-4">
-        <div className="flex flex-wrap items-center gap-2">
-          <h2 className="text-base font-semibold">{estimateTitle(estimate)}</h2>
-          <EstimateStatusBadge status={estimate.status} />
-          <SentBadge sentAt={estimate.sentAt} />
-          {estimate.approvedVia === "portal" ? <Badge variant="outline">Signed on the portal</Badge> : null}
-          {estimate.proposalId ? <Badge variant="outline">In a proposal</Badge> : null}
-          <span className="ml-auto text-xs text-muted-foreground">Created {formatYmd(estimate.createdAt)}</span>
-        </div>
-
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <DocField label="Name" htmlFor="estimate-name-edit">
-            <CommitInput
-              id="estimate-name-edit"
-              value={estimate.name ?? ""}
-              placeholder="e.g. Good"
-              maxLength={120}
-              disabled={!canEdit}
-              onCommit={(name) => saveHeader({ name: name.trim() })}
-            />
-          </DocField>
-          <DocField label="Estimate date" htmlFor="estimate-date">
-            <CommitInput
-              id="estimate-date"
-              type="date"
-              value={estimate.estimateDate}
-              disabled={!canEdit}
-              onCommit={(estimateDate) => estimateDate && saveHeader({ estimateDate })}
-            />
-          </DocField>
-          <DocField label="Status" htmlFor="estimate-status">
-            <EstimateStatusSelect
-              id="estimate-status"
-              value={estimate.status}
-              disabled={!canEdit || setStatus.isPending}
-              onChange={(s) => s !== estimate.status && setStatus.mutate(s)}
-            />
-          </DocField>
-          <DocField label="Template" htmlFor="estimate-template">
-            <DocumentTemplateSelect
-              id="estimate-template"
-              kind="estimate"
-              value={estimate.templateId}
-              disabled={!canEdit}
-              onChange={(templateId) => update.mutate({ templateId })}
-            />
-          </DocField>
-        </div>
-
-        <div className="flex flex-wrap gap-1.5 border-t pt-3">
-          <Button variant="outline" size="sm" onClick={() => setPreviewing(true)}>
-            <Eye /> Preview
+  const createJobButton =
+    items.length === 0 ? (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="outline"
+            size="lg"
+            aria-disabled="true"
+            className={cn(pill, "cursor-not-allowed opacity-50")}
+            onClick={(e) => e.preventDefault()}
+          >
+            <Briefcase /> Create new job
           </Button>
-          <Button variant="outline" size="sm" onClick={pdf.open} disabled={pdf.pending}>
-            {pdf.pending ? <Loader2 className="animate-spin" /> : <Download />} Download PDF
-          </Button>
-          {canSend ? (
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={markSent.isPending}
-              onClick={() => markSent.mutate(!estimate.sentAt)}
-            >
-              {markSent.isPending ? <Loader2 className="animate-spin" /> : estimate.sentAt ? <Undo2 /> : <Send />}
-              {estimate.sentAt ? "Mark as unsent" : "Mark as sent"}
-            </Button>
-          ) : null}
-          {canText ? (
-            <Button variant="brand" size="sm" onClick={() => setSendingVia("sms")}>
-              <Send /> Send
-            </Button>
-          ) : null}
-          {canSend ? <CopyPortalLinkButton contactId={estimate.contactId} /> : null}
-          {canCreate ? (
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={duplicate.isPending}
-              onClick={() => duplicate.mutate(estimate.id, { onSuccess: (e) => onOpenEstimate(e.id) })}
-            >
-              {duplicate.isPending ? <Loader2 className="animate-spin" /> : <Copy />} Duplicate
-            </Button>
-          ) : null}
+        </TooltipTrigger>
+        <TooltipContent>Add at least one item first</TooltipContent>
+      </Tooltip>
+    ) : (
+      <Button asChild variant="outline" size="lg" className={pill}>
+        <Link href={createJobHref}>
+          <Briefcase /> Create new job
+        </Link>
+      </Button>
+    );
+
+  // Workiz's job-estimate toolbar: Price book · Sync to job · Create new job. A client's: Price book.
+  const toolbar = (
+    <>
+      <Button asChild variant="outline" size="lg" className={pill}>
+        <Link href="/inventory/items">
+          <BookOpen /> Price book
+        </Link>
+      </Button>
+      {deal ? (
+        <>
           {syncBlocked ? (
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
-                  variant="brand"
-                  size="sm"
+                  variant="outline"
+                  size="lg"
                   aria-disabled="true"
-                  className="cursor-not-allowed opacity-50"
+                  className={cn(pill, "cursor-not-allowed opacity-50")}
                   onClick={(e) => e.preventDefault()}
                 >
                   <ArrowLeftRight /> Sync to job
@@ -259,73 +234,406 @@ export function EstimateEditor({
               <TooltipContent>{syncBlocked}</TooltipContent>
             </Tooltip>
           ) : (
-            <Button variant="brand" size="sm" onClick={() => setSyncing(true)} disabled={sync.isPending}>
+            <Button variant="outline" size="lg" className={pill} onClick={() => setSyncing(true)} disabled={sync.isPending}>
               {sync.isPending ? <Loader2 className="animate-spin" /> : <ArrowLeftRight />} Sync to job
             </Button>
           )}
-          {canDelete ? (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="ml-auto text-destructive hover:text-destructive"
-              onClick={() => setDeleting(true)}
-              aria-label="Delete estimate"
-            >
+          {canSync ? createJobButton : null}
+        </>
+      ) : null}
+    </>
+  );
+
+  const actionsMenu = (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="outline" size="lg" className={pill}>
+          <ChevronDown /> Actions
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-56">
+        {estimate.dealId ? (
+          <DropdownMenuItem asChild>
+            <Link href={`/deals/${estimate.dealId}`}>
+              <Wrench /> View job
+            </Link>
+          </DropdownMenuItem>
+        ) : null}
+        <DropdownMenuItem onSelect={() => setPreviewing(true)}>
+          <Eye /> Preview
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => pdf.open()} disabled={pdf.pending}>
+          <Download /> Download PDF
+        </DropdownMenuItem>
+        {canSend ? (
+          <DropdownMenuItem disabled={markSent.isPending} onSelect={() => markSent.mutate(!estimate.sentAt)}>
+            {estimate.sentAt ? <Undo2 /> : <Send />} {estimate.sentAt ? "Mark as unsent" : "Mark as sent"}
+          </DropdownMenuItem>
+        ) : null}
+        {canCreate ? (
+          <DropdownMenuItem disabled={duplicate.isPending} onSelect={() => duplicate.mutate(estimate.id, { onSuccess: (e) => onOpenEstimate(e.id) })}>
+            <Copy /> Duplicate
+          </DropdownMenuItem>
+        ) : null}
+        {canSend ? (
+          <DropdownMenuItem disabled={portalLink.disabled} onSelect={() => void portalLink.copy()}>
+            {portalLink.pending ? <Loader2 className="animate-spin" /> : <Link2 />} Copy client portal link
+          </DropdownMenuItem>
+        ) : null}
+        {deal && canSync ? (
+          <DropdownMenuItem disabled={!!syncBlocked || sync.isPending} onSelect={() => setSyncing(true)}>
+            <ArrowLeftRight /> Sync to job
+          </DropdownMenuItem>
+        ) : null}
+        {!deal && canSync ? (
+          items.length > 0 ? (
+            <DropdownMenuItem asChild>
+              <Link href={createJobHref}>
+                <Briefcase /> Copy to job
+              </Link>
+            </DropdownMenuItem>
+          ) : (
+            <DropdownMenuItem disabled>
+              <Briefcase /> Copy to job
+            </DropdownMenuItem>
+          )
+        ) : null}
+        {canDelete ? (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem variant="destructive" onSelect={() => setDeleting(true)}>
               <Trash2 /> Delete
-            </Button>
-          ) : null}
+            </DropdownMenuItem>
+          </>
+        ) : null}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+
+  const sendClass = "h-9 rounded-pill px-5 font-semibold";
+  const sendButton = canText ? (
+    onSendAll ? (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="default" size="lg" className={sendClass}>
+            <Send /> Send
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="min-w-52">
+          <DropdownMenuItem onSelect={() => setSending(true)}>
+            <Send /> Send estimate
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={onSendAll}>
+            <Send /> Send all (proposal)
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    ) : (
+      <Button variant="default" size="lg" className={sendClass} onClick={() => setSending(true)}>
+        <Send /> Send
+      </Button>
+    )
+  ) : canSend ? (
+    <CopyPortalLinkButton contactId={estimate.contactId} />
+  ) : null;
+
+  const billTo = c?.billingAddress ?? c?.addresses?.[0];
+
+  return (
+    <div className="space-y-4">
+      {deal ? (
+        <>
+          {/* The job's estimates (or the title), Actions ▾, Send — one row (Workiz). */}
+          <div className="flex flex-wrap items-center gap-2 border-b">
+            {tabs ?? (
+              <div className="flex flex-wrap items-center gap-2 py-2">
+                <h2 className="text-lg font-semibold">{estimateTitle(estimate)}</h2>
+                <EstimateStatusBadge status={estimate.status} />
+                <SentBadge sentAt={estimate.sentAt} />
+              </div>
+            )}
+            <div className="ml-auto flex items-center gap-2 pb-2">
+              {actionsMenu}
+              {sendButton}
+            </div>
+          </div>
+
+          {/* Cover · Description · the grey band: client, service address, status and number. */}
+          <section className="grid overflow-hidden rounded-lg border bg-card lg:grid-cols-[auto_minmax(14rem,1fr)_2fr]">
+            <div className="flex items-start justify-center p-4 lg:border-r">
+              <EstimateCoverField
+                coverUrl={estimate.coverUrl}
+                disabled={!canEdit}
+                saving={update.isPending && update.variables?.coverAssetId !== undefined}
+                onChange={(coverAssetId) => update.mutate({ coverAssetId })}
+              />
+            </div>
+            <div className="min-w-0 space-y-1.5 p-4">
+              <p className="text-sm font-semibold">Description</p>
+              {editingDescription || !estimate.description ? (
+                canEdit ? (
+                  editingDescription ? (
+                    <CommitTextarea
+                      rows={3}
+                      maxLength={2000}
+                      autoFocus
+                      aria-label="Description"
+                      placeholder="What this option includes — the client sees it on their portal"
+                      value={estimate.description ?? ""}
+                      onCommit={(description) => {
+                        update.mutate({ description: description || null });
+                        setEditingDescription(false);
+                      }}
+                    />
+                  ) : (
+                    <button type="button" onClick={() => setEditingDescription(true)} className="text-sm font-medium text-brand hover:underline">
+                      (+Add)
+                    </button>
+                  )
+                ) : (
+                  <p className="text-sm text-muted-foreground">—</p>
+                )
+              ) : (
+                <button
+                  type="button"
+                  disabled={!canEdit}
+                  onClick={() => setEditingDescription(true)}
+                  className="block w-full text-left text-sm whitespace-pre-line hover:underline disabled:no-underline"
+                >
+                  {estimate.description}
+                </button>
+              )}
+            </div>
+            <div className="grid gap-4 bg-muted/60 p-4 sm:grid-cols-3">
+              <div className="space-y-0.5 text-sm">
+                <p className="font-semibold">Client details</p>
+                <p className="text-muted-foreground">{clientFullName || "—"}</p>
+                {c?.emails?.[0] ? <p className="truncate text-muted-foreground">{c.emails[0]}</p> : null}
+                {c?.phones?.[0] ? <p className="text-muted-foreground">{formatPhone(c.phones[0])}</p> : null}
+              </div>
+              <div className="space-y-0.5 text-sm sm:border-l sm:pl-4">
+                <p className="font-semibold">Service address</p>
+                {deal.address?.street ? (
+                  <>
+                    <p className="text-muted-foreground">{[deal.address.street, deal.address.unit].filter(Boolean).join(", ")}</p>
+                    <p className="text-muted-foreground">
+                      {[deal.address.city, [deal.address.state, deal.address.zip].filter(Boolean).join(" ")].filter(Boolean).join(", ")}
+                    </p>
+                  </>
+                ) : billTo ? (
+                  <p className="text-muted-foreground">{formatAddress(billTo)}</p>
+                ) : (
+                  <p className="text-muted-foreground">—</p>
+                )}
+              </div>
+              <div className="space-y-2 text-sm sm:border-l sm:pl-4">
+                <div className="flex items-center gap-2">
+                  <label htmlFor="estimate-status" className="font-semibold">
+                    Status
+                  </label>
+                  <EstimateStatusSelect
+                    id="estimate-status"
+                    className="h-8 min-w-0 flex-1"
+                    value={estimate.status}
+                    disabled={!canEdit || setStatus.isPending}
+                    onChange={(st) => st !== estimate.status && setStatus.mutate(st)}
+                  />
+                </div>
+                <p>
+                  <span className="font-semibold">Estimate no.</span> <span className="text-muted-foreground">{estimate.number}</span>
+                </p>
+              </div>
+            </div>
+          </section>
+
+          {/* The document's own fields — kept, in a quiet row. */}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <DocField label="Name" htmlFor="estimate-name-edit">
+              <CommitInput
+                id="estimate-name-edit"
+                value={estimate.name ?? ""}
+                placeholder="e.g. Good"
+                maxLength={120}
+                disabled={!canEdit}
+                onCommit={(name) => saveHeader({ name: name.trim() })}
+              />
+            </DocField>
+            <DocField label="Estimate date" htmlFor="estimate-date">
+              <CommitInput
+                id="estimate-date"
+                type="date"
+                value={estimate.estimateDate}
+                disabled={!canEdit}
+                onCommit={(estimateDate) => estimateDate && saveHeader({ estimateDate })}
+              />
+            </DocField>
+            <DocField label="Template" htmlFor="estimate-template">
+              <DocumentTemplateSelect
+                id="estimate-template"
+                kind="estimate"
+                value={estimate.templateId}
+                disabled={!canEdit}
+                onChange={(templateId) => update.mutate({ templateId })}
+              />
+            </DocField>
+          </div>
+        </>
+      ) : (
+        /* A client's estimate (Workiz): Client · Actions ▾ · Send; Bill to | Estimate, name, date, status. */
+        <section aria-label="Estimate details" className="space-y-5 rounded-lg border bg-muted/60 p-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-base">
+              <span>Client:</span>{" "}
+              <Link href={`/contacts/${estimate.contactId}`} className="font-medium hover:underline">
+                {clientFullName || "the client"}
+              </Link>
+            </p>
+            <div className="flex items-center gap-2">
+              {actionsMenu}
+              {sendButton}
+            </div>
+          </div>
+          <div className="flex flex-col gap-6 md:flex-row md:justify-between">
+            <div className="space-y-1 text-sm">
+              <p className="text-base font-semibold">Bill to:</p>
+              {billTo ? <p>{formatAddress(billTo)}</p> : null}
+              {c?.phones?.[0] ? <p>{formatPhone(c.phones[0])}</p> : null}
+              {c?.emails?.[0] ? <p>{c.emails[0]}</p> : null}
+              {!billTo && !c?.phones?.[0] && !c?.emails?.[0] ? <p className="text-muted-foreground">—</p> : null}
+            </div>
+            <dl className="grid grid-cols-[auto_minmax(12rem,17rem)] items-center gap-x-4 gap-y-2.5 text-sm">
+              <dt className="font-semibold">Estimate:</dt>
+              <dd className="font-mono">{estimate.number}</dd>
+              <dt className="font-semibold">
+                <label htmlFor="estimate-name-edit">Estimate name</label>:
+              </dt>
+              <dd>
+                <CommitInput
+                  id="estimate-name-edit"
+                  value={estimate.name ?? ""}
+                  placeholder="e.g. Front door"
+                  maxLength={120}
+                  disabled={!canEdit}
+                  onCommit={(name) => saveHeader({ name: name.trim() })}
+                />
+              </dd>
+              <dt className="font-semibold">
+                <label htmlFor="estimate-date">Date</label>:
+              </dt>
+              <dd>
+                <CommitInput
+                  id="estimate-date"
+                  type="date"
+                  value={estimate.estimateDate}
+                  disabled={!canEdit}
+                  onCommit={(estimateDate) => estimateDate && saveHeader({ estimateDate })}
+                />
+              </dd>
+              <dt className="font-semibold">
+                <label htmlFor="estimate-status">Status</label>:
+              </dt>
+              <dd>
+                <EstimateStatusSelect
+                  id="estimate-status"
+                  value={estimate.status}
+                  disabled={!canEdit || setStatus.isPending}
+                  onChange={(st) => st !== estimate.status && setStatus.mutate(st)}
+                />
+              </dd>
+              <dt className="font-semibold">
+                <label htmlFor="estimate-template">Template</label>:
+              </dt>
+              <dd>
+                <DocumentTemplateSelect
+                  id="estimate-template"
+                  kind="estimate"
+                  value={estimate.templateId}
+                  disabled={!canEdit}
+                  onChange={(templateId) => update.mutate({ templateId })}
+                />
+              </dd>
+            </dl>
+          </div>
+        </section>
+      )}
+
+      {/* Items */}
+      <section className="space-y-4 rounded-lg border bg-card p-4">
+        <h3 className="border-b pb-2 text-lg font-semibold">Items</h3>
+        <EstimateItemsTable estimateId={estimate.id} dealId={dealId} items={items} canEdit={canEdit} toolbar={toolbar} />
+
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div className="flex items-baseline gap-3 text-sm lg:pl-1">
+            <span className="text-muted-foreground">Total :</span>
+            <span className="font-mono text-2xl font-semibold tabular-nums">{formatMoney(totals.total)}</span>
+            <span className="text-muted-foreground">·</span>
+            <span className="text-muted-foreground">
+              {items.length} item{items.length === 1 ? "" : "s"}
+            </span>
+          </div>
+          <DocumentSummaryPanel
+            totals={totals}
+            taxRateId={estimate.taxRateId}
+            taxRateName={estimate.taxRateName}
+            taxSource={estimate.taxSource}
+            discount={estimate.discount}
+            canEdit={canEdit}
+            pending={update.isPending && (update.variables?.taxRateId !== undefined || update.variables?.discount !== undefined)}
+            onTaxChange={(taxRateId) => update.mutate({ taxRateId })}
+            onDiscountChange={(discount) => update.mutate({ discount })}
+            extraRows={
+              <>
+                {itemCost > 0 ? (
+                  <Row label="Item cost" value={formatMoney(itemCost)} hint={margin !== null ? `${margin}% margin` : undefined} />
+                ) : null}
+                <Row
+                  label="Deposit"
+                  value={deposit ?? "—"}
+                  action={
+                    canEdit ? (
+                      <button type="button" onClick={() => setDepositOpen(true)} className="text-xs font-medium text-brand hover:underline">
+                        {deposit ? "Change" : "Set deposit"}
+                      </button>
+                    ) : undefined
+                  }
+                />
+              </>
+            }
+          />
         </div>
       </section>
 
-      <EstimateItemsTable estimateId={estimate.id} dealId={dealId} items={items} canEdit={canEdit} />
-
-      <div className="flex flex-wrap items-center gap-2 rounded-lg border px-4 py-3 text-sm">
-        <PiggyBank className="size-4 text-muted-foreground" aria-hidden />
-        <span className="font-medium">Deposit</span>
-        <span className="text-muted-foreground">
-          {depositLabel({ ...estimate, totals }) ?? "None — the client approves without paying"}
-        </span>
-        {canEdit ? (
-          <Button variant="outline" size="sm" className="ml-auto" onClick={() => setDepositOpen(true)}>
-            Set deposit
-          </Button>
-        ) : null}
-      </div>
-
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <DocField label="Estimate notes" htmlFor="estimate-notes" className="sm:flex-1">
+      {/* Notes · Signatures */}
+      <div className="grid gap-4 lg:grid-cols-2">
+        <section className="space-y-2 rounded-lg border bg-card p-4">
+          <h3 className="flex items-center gap-1.5 border-b pb-2 text-base font-semibold">
+            <StickyNote className="size-4 text-muted-foreground" aria-hidden /> Notes
+          </h3>
           <CommitTextarea
             id="estimate-notes"
-            rows={4}
+            aria-label="Estimate notes"
+            rows={5}
             maxLength={5000}
             placeholder="Shown on the estimate (scope, warranty, validity…)"
             value={estimate.notes ?? ""}
             disabled={!canEdit}
             onCommit={(notes) => saveHeader({ notes })}
           />
-        </DocField>
-        <DocumentSummaryPanel
-          totals={totals}
-          taxRateId={estimate.taxRateId}
-          taxRateName={estimate.taxRateName}
-          taxSource={estimate.taxSource}
-          discount={estimate.discount}
-          canEdit={canEdit}
-          pending={update.isPending && (update.variables?.taxRateId !== undefined || update.variables?.discount !== undefined)}
-          onTaxChange={(taxRateId) => update.mutate({ taxRateId })}
-          onDiscountChange={(discount) => update.mutate({ discount })}
-        />
+        </section>
+        <div id="estimate-signatures">
+          <SignaturesSection
+            signatures={estimate.signatures ?? []}
+            signerName={clientFullName}
+            canSign={canEdit}
+            saving={sign.isPending}
+            onSign={(input) => sign.mutateAsync(input)}
+          />
+        </div>
       </div>
 
-      <SignaturesSection
-        signatures={estimate.signatures ?? []}
-        signerName={[client.data?.firstName, client.data?.lastName].filter(Boolean).join(" ")}
-        canSign={canEdit}
-        saving={sign.isPending}
-        onSign={(input) => sign.mutateAsync(input)}
-      />
-
+      {/* Keyed per opening: each opening starts from the estimate's current deposit. */}
       <SetDepositDialog
+        key={depositOpen ? "open" : "closed"}
         open={depositOpen}
         onOpenChange={setDepositOpen}
         total={totals.total}
@@ -364,9 +672,9 @@ export function EstimateEditor({
 
       {canText ? (
         <SendDocumentDialog
-          channel={sendingVia ?? "sms"}
-          open={sendingVia !== null}
-          onOpenChange={(o) => !o && setSendingVia(null)}
+          channel="email"
+          open={sending}
+          onOpenChange={(o) => !o && setSending(false)}
           document={{
             kind: "estimate",
             id: estimate.id,
@@ -396,7 +704,7 @@ export function EstimateEditor({
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-white hover:bg-destructive/90"
-              onClick={() => del.mutate(estimate.id, { onSuccess: afterDelete })}
+              onClick={() => del.mutate(estimate.id, { onSuccess: onDeleted })}
             >
               Delete
             </AlertDialogAction>

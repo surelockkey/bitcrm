@@ -23,6 +23,10 @@ export interface EstimatePatch {
   name?: string;
   estimateDate?: string;
   notes?: string;
+  /** Workiz proposal option: the pitch under the title; `null` clears. */
+  description?: string | null;
+  /** Workiz proposal option: the cover image (a billing asset); `null` removes it. */
+  coverAssetId?: string | null;
   templateId?: string | null;
   taxRateId?: string | null;
   discount?: DocumentDiscount | null;
@@ -103,6 +107,10 @@ export const duplicateEstimate = (id: string): Promise<EstimateWithItems> =>
 
 export const syncEstimateToJob = (id: string): Promise<{ estimate: EstimateWithItems; itemCount: number }> =>
   http.post<{ estimate: EstimateWithItems; itemCount: number }>(`${BASE}/${id}/sync-to-job`);
+
+/** Workiz "Copy to job": a client estimate's lines become the job's items; the estimate joins the job as won. */
+export const copyEstimateToJob = (id: string, dealId: string): Promise<{ estimate: EstimateWithItems; itemCount: number }> =>
+  http.post<{ estimate: EstimateWithItems; itemCount: number }>(`${BASE}/${id}/copy-to-job`, { dealId });
 
 export const markEstimateSent = (id: string, sent: boolean): Promise<Estimate> =>
   http.post<Estimate>(`${BASE}/${id}/mark-sent`, { sent });

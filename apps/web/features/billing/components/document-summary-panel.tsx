@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Loader2, Pencil, Plus, RotateCcw, ShieldCheck, X } from "lucide-react";
 import type { DocumentDiscount, DocumentTaxSource, DocumentTotals, PaymentSummary } from "@bitcrm/types";
 import { Badge } from "@/components/ui/badge";
@@ -45,13 +45,17 @@ export interface DocumentSummaryPanelProps {
    * taken but not landed is never deducted from the balance.
    */
   paymentSummary?: PaymentSummary;
+  /** Rows a document adds between Tax and Total (an estimate's Item cost and Deposit). */
+  extraRows?: ReactNode;
   className?: string;
 }
 
 /**
- * Workiz-style document footer: Subtotal → Discount → Tax → Total
- * (→ Paid → Balance due). Props-driven so the job Items tab, estimates and
- * invoices share it; the caller wires the callbacks to its own mutations.
+ * The document's footer, laid out like Workiz's Subtotal → Discount → Taxable
+ * → Tax rate → Tax → Total column and tidied up: one quiet card, every amount
+ * right-aligned in the same column, the editors inline where the value is,
+ * and the Total set apart with a rule. Props-driven so the job Items tab,
+ * estimates and invoices share it; the caller wires the callbacks.
  */
 export function DocumentSummaryPanel({
   totals,
@@ -67,203 +71,231 @@ export function DocumentSummaryPanel({
   pending = false,
   showPayments = false,
   paymentSummary,
+  extraRows,
   className,
 }: DocumentSummaryPanelProps) {
   const [editingDiscount, setEditingDiscount] = useState(false);
   const exempt = taxSource === "exempt";
   const auto = isAutoTaxSource(taxSource);
   const hasDiscount = Boolean(discount && discount.value > 0);
+  const taxLabel =
+    exempt ? "Exempt" : taxRateId || totals.taxRatePercent > 0 ? `${taxRateName ?? "Tax"} ${formatPercent(totals.taxRatePercent)}` : "No tax";
 
   return (
     <section
       aria-label="Totals"
       aria-busy={pending || undefined}
-      className={cn("w-full space-y-2 rounded-lg border bg-muted/20 p-3 text-sm sm:max-w-sm", className)}
+      className={cn("w-full rounded-lg border bg-card text-sm sm:max-w-sm", className)}
     >
-      <Row label="Subtotal" value={formatMoney(totals.subtotal)} />
+      <dl className="divide-y">
+        <Row label="Subtotal" value={formatMoney(totals.subtotal)} />
 
-      {/* Discount */}
-      {editingDiscount ? (
-        <DiscountEditor
-          initial={discount}
-          pending={pending}
-          onCancel={() => setEditingDiscount(false)}
-          onApply={(d) => {
-            onDiscountChange(d);
-            setEditingDiscount(false);
-          }}
-        />
-      ) : hasDiscount ? (
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex min-w-0 items-center gap-1">
-            <span className="text-muted-foreground">
-              Discount{discount!.type === "percent" ? ` (${discountLabel(discount)})` : ""}
-            </span>
-            {canEdit ? (
-              <>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="size-6"
-                  disabled={pending}
-                  onClick={() => setEditingDiscount(true)}
-                  aria-label="Edit discount"
-                >
-                  <Pencil className="size-3" />
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="size-6 hover:text-destructive"
-                  disabled={pending}
-                  onClick={() => onDiscountChange(null)}
-                  aria-label="Remove discount"
-                >
-                  <X className="size-3" />
-                </Button>
-              </>
-            ) : null}
-          </div>
-          <span className="font-mono tabular-nums">−{formatMoney(totals.discount)}</span>
-        </div>
-      ) : canEdit ? (
-        <button
-          type="button"
-          disabled={pending}
-          onClick={() => setEditingDiscount(true)}
-          className="inline-flex items-center gap-1 text-xs font-medium text-brand hover:underline disabled:opacity-50"
-        >
-          <Plus className="size-3" /> Add discount
-        </button>
-      ) : null}
-
-      {/* Tax */}
-      <div className="space-y-1.5">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-            <span className="text-muted-foreground">Tax</span>
-            {exempt ? (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Badge
-                    variant="outline"
-                    tabIndex={0}
-                    className="gap-1 border-emerald-500/40 font-normal text-emerald-700 dark:text-emerald-400"
-                  >
-                    <ShieldCheck /> Exempt
-                  </Badge>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {exemptLabel ? `${taxSourceLabel("exempt")} — ${exemptLabel}` : taxSourceLabel("exempt")}
-                </TooltipContent>
-              </Tooltip>
-            ) : auto ? (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Badge variant="secondary" tabIndex={0} className="font-normal">
-                    Auto
-                  </Badge>
-                </TooltipTrigger>
-                <TooltipContent>{taxSourceLabel(taxSource)}</TooltipContent>
-              </Tooltip>
-            ) : null}
-            {!canEdit ? (
-              <span className="truncate text-muted-foreground">
-                {taxRateId || totals.taxRatePercent > 0
-                  ? `${taxRateName ?? "Tax"} ${formatPercent(totals.taxRatePercent)}`
-                  : ""}
-              </span>
-            ) : null}
-          </div>
-          <span className="flex items-center gap-1.5 font-mono tabular-nums">
-            {pending ? <Loader2 className="size-3 animate-spin text-muted-foreground" aria-hidden /> : null}
-            {formatMoney(totals.tax)}
-          </span>
-        </div>
-
-        {canEdit ? (
-          <div className="flex items-center gap-1.5">
-            <TaxRateSelect
-              size="sm"
-              value={taxRateId ?? null}
-              onChange={onTaxChange}
-              disabled={pending}
-              fallbackLabel={taxRateName}
-              fallbackPercent={totals.taxRatePercent}
-              className="min-w-0 flex-1"
+        {/* Discount */}
+        {editingDiscount ? (
+          <div className="px-4 py-2.5">
+            <DiscountEditor
+              initial={discount}
+              pending={pending}
+              onCancel={() => setEditingDiscount(false)}
+              onApply={(d) => {
+                onDiscountChange(d);
+                setEditingDiscount(false);
+              }}
             />
-            {onResetTaxAuto && taxSource === "manual" ? (
-              <Tooltip>
-                <TooltipTrigger asChild>
+          </div>
+        ) : hasDiscount ? (
+          <div className="flex items-center justify-between gap-2 px-4 py-2.5">
+            <dt className="flex min-w-0 items-center gap-1 text-muted-foreground">
+              <span>Discount{discount!.type === "percent" ? ` (${discountLabel(discount)})` : ""}</span>
+              {canEdit ? (
+                <>
                   <Button
                     type="button"
                     variant="ghost"
                     size="icon"
-                    className="size-7 flex-none"
+                    className="size-6"
                     disabled={pending}
-                    onClick={onResetTaxAuto}
-                    aria-label="Reset tax to automatic"
+                    onClick={() => setEditingDiscount(true)}
+                    aria-label="Edit discount"
                   >
-                    <RotateCcw className="size-3.5" />
+                    <Pencil className="size-3" />
                   </Button>
-                </TooltipTrigger>
-                <TooltipContent>Reset to automatic (client exemption → the job&apos;s service area tax)</TooltipContent>
-              </Tooltip>
-            ) : null}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="size-6 hover:text-destructive"
+                    disabled={pending}
+                    onClick={() => onDiscountChange(null)}
+                    aria-label="Remove discount"
+                  >
+                    <X className="size-3" />
+                  </Button>
+                </>
+              ) : null}
+            </dt>
+            <dd className="font-mono tabular-nums text-success-text">−{formatMoney(totals.discount)}</dd>
           </div>
-        ) : null}
+        ) : (
+          <div className="flex items-center justify-between gap-2 px-4 py-2.5">
+            <dt className="text-muted-foreground">Discount</dt>
+            <dd className="font-mono tabular-nums">
+              {canEdit ? (
+                <button
+                  type="button"
+                  disabled={pending}
+                  onClick={() => setEditingDiscount(true)}
+                  className="inline-flex items-center gap-1 font-sans text-xs font-medium text-brand hover:underline disabled:opacity-50"
+                >
+                  <Plus className="size-3" /> Add discount
+                </button>
+              ) : (
+                formatMoney(0)
+              )}
+            </dd>
+          </div>
+        )}
 
-        {totals.tax > 0 && totals.nonTaxableSubtotal > 0 ? (
-          <p className="text-[11px] text-muted-foreground">
-            {formatPercent(totals.taxRatePercent)} on {formatMoney(totals.taxableBase)} taxable
-          </p>
-        ) : null}
-      </div>
+        {/* Taxable base — only worth a line when some lines are not taxed. */}
+        {totals.nonTaxableSubtotal > 0 ? <Row label="Taxable" value={formatMoney(totals.taxableBase)} /> : null}
 
-      <div className="border-t pt-2">
-        <Row label="Total" value={formatMoney(totals.total)} strong />
-      </div>
+        {/* Tax */}
+        <div className="space-y-1.5 px-4 py-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <dt className="flex min-w-0 flex-wrap items-center gap-1.5 text-muted-foreground">
+              <span>Tax</span>
+              {exempt ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Badge
+                      variant="outline"
+                      tabIndex={0}
+                      className="gap-1 border-success/40 font-normal text-success-text"
+                    >
+                      <ShieldCheck /> Exempt
+                    </Badge>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {exemptLabel ? `${taxSourceLabel("exempt")} — ${exemptLabel}` : taxSourceLabel("exempt")}
+                  </TooltipContent>
+                </Tooltip>
+              ) : auto ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Badge variant="secondary" tabIndex={0} className="font-normal">
+                      Auto
+                    </Badge>
+                  </TooltipTrigger>
+                  <TooltipContent>{taxSourceLabel(taxSource)}</TooltipContent>
+                </Tooltip>
+              ) : null}
+              {!canEdit ? <span className="truncate">{exempt ? "" : taxLabel}</span> : null}
+            </dt>
+            <dd className="flex items-center gap-1.5 font-mono tabular-nums">
+              {pending ? <Loader2 className="size-3 animate-spin text-muted-foreground" aria-hidden /> : null}
+              {formatMoney(totals.tax)}
+            </dd>
+          </div>
 
-      {showPayments ? (
-        <>
-          <Row label="Paid" value={`−${formatMoney(totals.amountPaid)}`} />
-          {paymentSummary?.hasPending ? (
-            <>
-              <Row label="Clearing" value={formatMoney(paymentSummary.pending)} />
-              <p className="text-[11px] text-muted-foreground">
-                A bank payment is on its way — not counted until it lands.
-              </p>
-            </>
+          {canEdit ? (
+            <div className="flex items-center gap-1.5">
+              <TaxRateSelect
+                size="sm"
+                value={taxRateId ?? null}
+                onChange={onTaxChange}
+                disabled={pending}
+                fallbackLabel={taxRateName}
+                fallbackPercent={totals.taxRatePercent}
+                className="min-w-0 flex-1"
+              />
+              {onResetTaxAuto && taxSource === "manual" ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="size-7 flex-none"
+                      disabled={pending}
+                      onClick={onResetTaxAuto}
+                      aria-label="Reset tax to automatic"
+                    >
+                      <RotateCcw className="size-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Reset to automatic (client exemption → the job&apos;s service area tax)</TooltipContent>
+                </Tooltip>
+              ) : null}
+            </div>
           ) : null}
-          <Row
-            label="Balance due"
-            value={formatMoney(totals.balanceDue)}
-            strong
-            className={totals.balanceDue > 0 ? "text-foreground" : "text-emerald-700 dark:text-emerald-400"}
-          />
-        </>
-      ) : null}
+
+          {totals.tax > 0 && totals.nonTaxableSubtotal > 0 ? (
+            <p className="text-[11px] text-muted-foreground">
+              {formatPercent(totals.taxRatePercent)} on {formatMoney(totals.taxableBase)} taxable
+            </p>
+          ) : null}
+        </div>
+
+        {extraRows}
+
+        <div className="flex items-center justify-between gap-2 bg-muted/60 px-4 py-3 text-base font-semibold">
+          <dt>Total</dt>
+          <dd className="font-mono tabular-nums">{formatMoney(totals.total)}</dd>
+        </div>
+
+        {showPayments ? (
+          <>
+            <Row label="Paid" value={`−${formatMoney(totals.amountPaid)}`} />
+            {paymentSummary?.hasPending ? (
+              <>
+                <Row label="Clearing" value={formatMoney(paymentSummary.pending)} />
+                <p className="px-4 pb-2 text-[11px] text-muted-foreground">
+                  A bank payment is on its way — not counted until it lands.
+                </p>
+              </>
+            ) : null}
+            <div
+              className={cn(
+                "flex items-center justify-between gap-2 px-4 py-3 text-base font-semibold",
+                totals.balanceDue > 0 ? "text-foreground" : "text-success-text",
+              )}
+            >
+              <dt>Balance due</dt>
+              <dd className="font-mono tabular-nums">{formatMoney(totals.balanceDue)}</dd>
+            </div>
+          </>
+        ) : null}
+      </dl>
     </section>
   );
 }
 
-function Row({
+/** One label / amount line of the footer. Exported for the rows a document adds of its own. */
+export function Row({
   label,
   value,
-  strong,
+  hint,
+  action,
   className,
 }: {
-  label: string;
-  value: string;
-  strong?: boolean;
+  label: ReactNode;
+  value: ReactNode;
+  /** Small print under the amount (a margin, a percent). */
+  hint?: ReactNode;
+  /** A control beside the label (Workiz underlines the label; we give it a button). */
+  action?: ReactNode;
   className?: string;
 }) {
   return (
-    <div className={cn("flex items-center justify-between gap-2", strong && "text-base font-semibold", className)}>
-      <span className={strong ? undefined : "text-muted-foreground"}>{label}</span>
-      <span className="font-mono tabular-nums">{value}</span>
+    <div className={cn("flex items-center justify-between gap-2 px-4 py-2.5", className)}>
+      <dt className="flex min-w-0 items-center gap-1.5 text-muted-foreground">
+        {label}
+        {action}
+      </dt>
+      <dd className="text-right">
+        <span className="font-mono tabular-nums">{value}</span>
+        {hint ? <span className="block text-[11px] text-muted-foreground">{hint}</span> : null}
+      </dd>
     </div>
   );
 }

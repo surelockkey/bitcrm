@@ -48,12 +48,12 @@ beforeEach(() => {
 
 /**
  * Workiz: a client's documents live either on a job or on the client alone.
- * A job's document opens in the job's tab; a client's opens on its own page.
+ * A job's invoice opens in the job's tab; every estimate has its own page.
  */
 describe("client document lists", () => {
-  it("links a job's estimate to the job tab and a client estimate to its own page", async () => {
+  it("opens every estimate on its own page — a job's one leads back to its job from there (Workiz)", async () => {
     renderWithClient(<ClientEstimatesList contactIds={["c1"]} />);
-    expect(await screen.findByRole("link", { name: /#1042-1/ })).toHaveAttribute("href", "/deals/d1?tab=estimates&estimate=e1");
+    expect(await screen.findByRole("link", { name: /#1042-1/ })).toHaveAttribute("href", "/estimates/e1");
     expect(screen.getByRole("link", { name: /#1141/ })).toHaveAttribute("href", "/estimates/e9");
   });
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Download, Eye, FileText, Loader2, Send, Trash2, Undo2 } from "lucide-react";
+import { ChevronDown, Download, Eye, FileText, Link2, Loader2, Send, Trash2, Undo2 } from "lucide-react";
 import { toast } from "sonner";
 import { PaymentTerms, type Deal, type InvoiceView } from "@bitcrm/types";
 import { Badge } from "@/components/ui/badge";
@@ -15,6 +15,15 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { formatPhone } from "@/lib/phone";
+import { contactName, formatAddress } from "@/features/clients/lib";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -36,7 +45,7 @@ import { CommitInput, CommitTextarea, DocField } from "@/features/billing/compon
 import { DocumentPreviewDialog } from "@/features/billing/components/document-preview-dialog";
 import { DocumentSummaryPanel } from "@/features/billing/components/document-summary-panel";
 import { DocumentTemplateSelect } from "@/features/billing/components/document-template-select";
-import { CopyPortalLinkButton } from "@/features/portal/components/copy-portal-link-button";
+import { CopyPortalLinkButton, useCopyPortalLink } from "@/features/portal/components/copy-portal-link-button";
 import { SignaturesSection } from "@/features/billing/components/signatures-section";
 import { useContact } from "@/features/clients/hooks";
 import { useInvoicePayments } from "@/features/payments/hooks";
@@ -57,7 +66,6 @@ import { PAYMENT_TERMS_OPTIONS, canCreateInvoice, dueDateForTerms } from "../lib
 import { invoiceEditSchema, type InvoicePatch } from "../schemas";
 import { InvoiceItemsTable } from "./invoice-items-table";
 import { InvoiceStatusBadge } from "./invoice-status-badge";
-import { SentBadge } from "./sent-badge";
 
 /**
  * The job's Invoice tab (Workiz): one invoice per job whose items, tax and
@@ -153,6 +161,7 @@ export function InvoiceDetail({
   const del = useDeleteInvoice(deal?.id);
   const sign = useSignInvoice(invoice);
   const client = useContact(invoice.contactId);
+  const portalLink = useCopyPortalLink(invoice.contactId);
   const pdf = useOpenPdf(() => getInvoicePdfUrl(invoice.id));
   const [previewing, setPreviewing] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -183,22 +192,95 @@ export function InvoiceDetail({
     update.mutate(patch);
   };
 
+  const c = client.data;
+  const billTo = c?.billingAddress ?? c?.addresses?.[0];
+  const pill = "h-9 rounded-pill border-foreground/60 px-4 font-semibold";
+
   return (
     <div className="space-y-4">
-      <section className="space-y-4 rounded-lg border p-4">
-        <div className="flex flex-wrap items-center gap-2">
-          <h2 className="text-base font-semibold">Invoice #{invoice.number}</h2>
-          <InvoiceStatusBadge status={invoice.status} />
-          {isPartiallyPaid(paymentSummary?.settled ?? 0, paidTotals.balanceDue) ? (
-            <PartiallyPaidBadge />
-          ) : null}
-          <SentBadge sentAt={invoice.sentAt} />
-          {invoice.signedAt ? (
-            <Badge variant="outline">Signed</Badge>
-          ) : invoice.requestSignature ? (
-            <Badge variant="outline">Signature requested</Badge>
-          ) : null}
-          <span className="ml-auto text-xs text-muted-foreground">Created {formatYmd(invoice.createdAt)}</span>
+      {/* Workiz invoice header: Client / Bill to on the left, ID · Created · Sent on the right, Actions ▾ and Send above. */}
+      <section className="space-y-4 rounded-lg border bg-card p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0 space-y-3">
+            <h2 className="text-lg font-semibold">
+              Invoice #{invoice.number}
+              {c ? <span className="font-normal text-muted-foreground"> · {contactName(c)}</span> : null}
+            </h2>
+            <div className="text-sm">
+              <p className="font-semibold">Bill to:</p>
+              <p className="text-muted-foreground">{c ? contactName(c) : "—"}</p>
+              {billTo ? <p className="text-muted-foreground">{formatAddress(billTo)}</p> : null}
+              {c?.phones?.[0] ? <p className="text-muted-foreground">{formatPhone(c.phones[0])}</p> : null}
+              {c?.emails?.[0] ? <p className="text-muted-foreground">{c.emails[0]}</p> : null}
+            </div>
+          </div>
+          <div className="flex flex-col items-end gap-3">
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="lg" className={pill}>
+                    <ChevronDown /> Actions
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="min-w-56">
+                  <DropdownMenuItem onSelect={() => setPreviewing(true)}>
+                    <Eye /> Preview
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => pdf.open()} disabled={pdf.pending}>
+                    <Download /> Download PDF
+                  </DropdownMenuItem>
+                  {canSend ? (
+                    <DropdownMenuItem
+                      disabled={markSent.isPending}
+                      onSelect={() => markSent.mutate({ id: invoice.id, sent: !invoice.sentAt })}
+                    >
+                      {invoice.sentAt ? <Undo2 /> : <Send />} {invoice.sentAt ? "Mark as unsent" : "Mark as sent"}
+                    </DropdownMenuItem>
+                  ) : null}
+                  {canSend ? (
+                    <DropdownMenuItem disabled={portalLink.disabled} onSelect={() => void portalLink.copy()}>
+                      {portalLink.pending ? <Loader2 className="animate-spin" /> : <Link2 />} Copy client portal link
+                    </DropdownMenuItem>
+                  ) : null}
+                  {canDelete ? (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem variant="destructive" onSelect={() => setDeleting(true)}>
+                        <Trash2 /> Delete invoice
+                      </DropdownMenuItem>
+                    </>
+                  ) : null}
+                </DropdownMenuContent>
+              </DropdownMenu>
+              {canText ? (
+                <Button variant="default" size="lg" className="h-9 rounded-pill px-5 font-semibold" onClick={() => setSendingVia("email")}>
+                  <Send /> Send
+                </Button>
+              ) : canSend ? (
+                <CopyPortalLinkButton contactId={invoice.contactId} />
+              ) : null}
+            </div>
+            <dl className="grid grid-cols-[auto_auto] gap-x-3 gap-y-1 text-sm">
+              <dt className="text-right font-semibold">Invoice ID:</dt>
+              <dd className="font-mono tabular-nums">{invoice.number}</dd>
+              <dt className="text-right font-semibold">Created:</dt>
+              <dd>{formatYmd(invoice.createdAt)}</dd>
+              <dt className="text-right font-semibold">Sent:</dt>
+              <dd className={invoice.sentAt ? "text-success-text" : "text-destructive"}>
+                {invoice.sentAt ? formatYmd(invoice.sentAt) : "No"}
+              </dd>
+              <dt className="text-right font-semibold">Status:</dt>
+              <dd className="flex flex-wrap items-center gap-1.5">
+                <InvoiceStatusBadge status={invoice.status} />
+                {isPartiallyPaid(paymentSummary?.settled ?? 0, paidTotals.balanceDue) ? <PartiallyPaidBadge /> : null}
+                {invoice.signedAt ? (
+                  <Badge variant="outline">Signed</Badge>
+                ) : invoice.requestSignature ? (
+                  <Badge variant="outline">Signature requested</Badge>
+                ) : null}
+              </dd>
+            </dl>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -255,42 +337,6 @@ export function InvoiceDetail({
           </DocField>
         </div>
 
-        <div className="flex flex-wrap gap-1.5 border-t pt-3">
-          <Button variant="outline" size="sm" onClick={() => setPreviewing(true)}>
-            <Eye /> Preview
-          </Button>
-          <Button variant="outline" size="sm" onClick={pdf.open} disabled={pdf.pending}>
-            {pdf.pending ? <Loader2 className="animate-spin" /> : <Download />} Download PDF
-          </Button>
-          {canSend ? (
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={markSent.isPending}
-              onClick={() => markSent.mutate({ id: invoice.id, sent: !invoice.sentAt })}
-            >
-              {markSent.isPending ? <Loader2 className="animate-spin" /> : invoice.sentAt ? <Undo2 /> : <Send />}
-              {invoice.sentAt ? "Mark as unsent" : "Mark as sent"}
-            </Button>
-          ) : null}
-          {canText ? (
-            <Button variant="brand" size="sm" onClick={() => setSendingVia("sms")}>
-              <Send /> Send
-            </Button>
-          ) : null}
-          {canSend ? <CopyPortalLinkButton contactId={invoice.contactId} /> : null}
-          {canDelete ? (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="ml-auto text-destructive hover:text-destructive"
-              onClick={() => setDeleting(true)}
-              aria-label="Delete invoice"
-            >
-              <Trash2 /> Delete
-            </Button>
-          ) : null}
-        </div>
       </section>
 
       {deal ? (
@@ -323,6 +369,7 @@ export function InvoiceDetail({
 
       <InvoicePaymentsSection invoice={invoice} dealId={deal?.id} />
 
+      <div id="invoice-signatures">
       <SignaturesSection
         signatures={invoice.signatures ?? []}
         signerName={[client.data?.firstName, client.data?.lastName].filter(Boolean).join(" ")}
@@ -330,6 +377,7 @@ export function InvoiceDetail({
         saving={sign.isPending}
         onSign={(input) => sign.mutateAsync(input)}
       />
+      </div>
 
       <DocField label="Invoice notes" htmlFor="invoice-notes">
         <CommitTextarea

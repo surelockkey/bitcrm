@@ -67,6 +67,8 @@
   /* Their tag and tech labels are near-square: a 14px-tall chip with about
      two pixels of corner. Counters and avatars stay round. */
   --radius-chip: 2px;
+  /* Workiz's pill buttons (Actions ▾, Send, Price book): a deliberate full round, unlike an oval label. */
+  --radius-pill: 9999px;
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);

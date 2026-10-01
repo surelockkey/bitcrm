@@ -303,12 +303,12 @@ export function DealDetailPage({
         </div>
         {tab === "items" ? (
           <div className="relative flex-1 p-6">
-            <div className="max-w-3xl"><DealProductsTab deal={deal} canEdit={canEdit} /></div>
+            <DealProductsTab deal={deal} canEdit={canEdit} />
           </div>
         ) : null}
         {tab === "payments" ? (
           <div className="relative flex-1 p-6">
-            <div className="max-w-4xl">
+            <div>
               <DealPaymentsTab
                 deal={deal}
                 // "Create invoice" stays its own action (Workiz): it opens the
@@ -322,19 +322,19 @@ export function DealDetailPage({
         ) : null}
         {tab === "estimates" ? (
           <div className="relative flex-1 p-6">
-            <div className="max-w-4xl">
+            <div>
               <DealEstimatesTab deal={deal} estimateId={estimateId} onEstimateChange={openEstimate} startCreating={startCreatingEstimate} />
             </div>
           </div>
         ) : null}
         {tab === "invoice" ? (
           <div className="relative flex-1 p-6">
-            <div className="max-w-4xl"><DealInvoiceTab deal={deal} canEditItems={canEdit} /></div>
+            <DealInvoiceTab deal={deal} canEditItems={canEdit} />
           </div>
         ) : null}
         {tab === "attachments" ? (
           <div className="relative flex-1 p-6">
-            <div className="max-w-5xl"><DealAttachmentsTab dealId={dealId} canEdit={canEdit} /></div>
+            <DealAttachmentsTab dealId={dealId} canEdit={canEdit} />
           </div>
         ) : null}
       </div>
@@ -501,7 +501,7 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
     {/* The page's own scroll region carries these fields; nothing here
         scrolls on its own. */}
     <div className="relative flex-1 p-6">
-    <div className="grid max-w-5xl grid-cols-1 gap-x-8 gap-y-6 lg:grid-cols-2">
+    <div className="grid grid-cols-1 gap-x-8 gap-y-6 lg:grid-cols-2">
       {/* Client */}
       <Section
         title="Client"

@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Check, Loader2, Plus, ShieldCheck, X } from "lucide-react";
+import Link from "next/link";
+import { BookOpen, Check, Loader2, Plus, ShieldCheck, Trash2 } from "lucide-react";
 import { calculateDocumentTotals } from "@bitcrm/types";
 import type { Deal, DealProduct, PaymentSummary } from "@bitcrm/types";
 import { Badge } from "@/components/ui/badge";
@@ -56,6 +57,10 @@ function FulfillmentBadge({ product }: { product: DealProduct }) {
   }
   return null; // `sourced` is the default — no badge needed.
 }
+
+const th = "px-3 py-2.5 text-left text-[13px] font-semibold";
+const td = "px-3 py-3 align-top";
+const cell = cn(td, "border-b border-l border-dashed");
 
 export function DealProductsTab({
   deal,
@@ -122,26 +127,26 @@ export function DealProductsTab({
           No products on this job yet.
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-lg border">
-          <table className="w-full min-w-[28rem] text-sm">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[36rem] border-separate border-spacing-0 text-sm">
             <thead>
-              <tr className="border-b bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
-                <th className="px-3 py-2 text-left font-semibold">Item</th>
-                <th className="px-3 py-2 text-right font-semibold">Qty</th>
-                <th className="px-3 py-2 text-right font-semibold">Client</th>
-                <th className="px-3 py-2 text-right font-semibold">Line</th>
-                <th className="px-2 py-2 text-center font-semibold">Taxable</th>
-                {canEdit ? <th className="w-8" /> : null}
+              <tr>
+                <th className={cn(th, "border-b border-dashed")}>Item</th>
+                <th className={cn(th, "w-28 border-b border-l border-dashed")}>Quantity</th>
+                <th className={cn(th, "w-32 border-b border-l border-dashed")}>Price</th>
+                <th className={cn(th, "w-32 border-b border-l border-dashed")}>Amount</th>
+                <th className={cn(th, "w-24 border-b border-l border-dashed")}>Taxable</th>
+                {canEdit ? <th className="w-12 border-b border-l border-dashed" aria-label="Remove" /> : null}
               </tr>
             </thead>
             <tbody>
               {items.map((p) => (
                 <tr
                   key={p.lineId}
-                  className={cn("border-b last:border-0", canEdit && "cursor-pointer hover:bg-accent/30")}
+                  className={cn(canEdit && "cursor-pointer hover:bg-accent/30")}
                   onClick={canEdit ? () => setEditing(p) : undefined}
                 >
-                  <td className="px-3 py-2">
+                  <td className={cn(td, "border-b border-dashed")}>
                     <div className="flex items-center gap-2">
                       {canEdit ? (
                         <button
@@ -179,21 +184,24 @@ export function DealProductsTab({
                       </button>
                     ) : null}
                   </td>
-                  <td className="px-3 py-2 text-right tabular-nums">{p.quantity}</td>
-                  <td className="px-3 py-2 text-right font-mono tabular-nums">{formatMoney(p.priceClient)}</td>
-                  <td className="px-3 py-2 text-right font-mono tabular-nums">{formatMoney(p.priceClient * p.quantity)}</td>
-                  <td className="px-2 py-2 text-center" onClick={(e) => e.stopPropagation()}>
-                    <Checkbox
-                      checked={p.taxable !== false}
-                      disabled={!canEdit}
-                      onCheckedChange={(v) =>
-                        setTaxable.mutate({ lineId: p.lineId, taxable: v === true })
-                      }
-                      aria-label={`${p.name} is taxable`}
-                    />
+                  <td className={cn(cell, "tabular-nums")}>{p.quantity.toFixed(2)}</td>
+                  <td className={cn(cell, "font-mono tabular-nums")}>{formatMoney(p.priceClient)}</td>
+                  <td className={cn(cell, "font-mono tabular-nums")}>{formatMoney(p.priceClient * p.quantity)}</td>
+                  <td className={cell} onClick={(e) => e.stopPropagation()}>
+                    <label className="inline-flex items-center gap-2">
+                      <Checkbox
+                        checked={p.taxable !== false}
+                        disabled={!canEdit}
+                        onCheckedChange={(v) =>
+                          setTaxable.mutate({ lineId: p.lineId, taxable: v === true })
+                        }
+                        aria-label={`${p.name} is taxable`}
+                      />
+                      <span className="text-sm">{p.taxable !== false ? "Yes" : "No"}</span>
+                    </label>
                   </td>
                   {canEdit ? (
-                    <td className="px-2 py-2 text-right">
+                    <td className={cn(cell, "text-center")}>
                       <button
                         type="button"
                         onClick={(e) => { e.stopPropagation(); remove.mutate(p.lineId); }}
@@ -201,7 +209,7 @@ export function DealProductsTab({
                         className="text-muted-foreground hover:text-destructive"
                         aria-label={`Remove ${p.name}`}
                       >
-                        {remove.isPending ? <Loader2 className="size-4 animate-spin" /> : <X className="size-4" />}
+                        {remove.isPending ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
                       </button>
                     </td>
                   ) : null}
@@ -214,9 +222,14 @@ export function DealProductsTab({
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         {canEdit ? (
-          <div className="flex flex-col items-start gap-1">
-            <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setAdding(true)}>
-              <Plus className="size-3.5" /> Add item
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="default" size="lg" className="rounded-pill px-4 font-semibold" onClick={() => setAdding(true)}>
+              <Plus /> Add item
+            </Button>
+            <Button variant="outline" size="lg" className="h-9 rounded-pill border-foreground/60 px-4 font-semibold" asChild>
+              <Link href="/inventory/items">
+                <BookOpen /> Price book
+              </Link>
             </Button>
           </div>
         ) : <span />}

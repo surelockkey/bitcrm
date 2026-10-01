@@ -92,10 +92,11 @@ export function useDealCounts(params: DealCountsParams, enabled = true) {
   });
 }
 
-export function useDeal(id: string) {
+export function useDeal(id: string, enabled = true) {
   return useQuery({
     queryKey: queryKeys.deals.detail(id),
     queryFn: () => api.getDeal(id),
+    enabled: enabled && !!id,
   });
 }
 
