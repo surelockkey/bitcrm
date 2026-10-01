@@ -75,12 +75,26 @@ export type UpdateProductValues = z.infer<typeof updateProductSchema>;
 /** The optional fields PUT /products/:id clears when they arrive as `null`. */
 type ClearableField = "brandId" | "reorderLevel" | "supplier" | "barcode" | "description";
 
+/**
+ * Fields the Workiz item popups edit beside the schema's: the SKU, the custom
+ * field values (a patch keyed by field name — `null` clears one, the others are
+ * kept) and the Price Book booking / visibility switches. `null` clears.
+ */
+export type ProductExtrasBody = {
+  /** A new SKU (Workiz lets it be edited); one another item has is a 409. */
+  sku?: string;
+  customAttributes?: Record<string, string | null>;
+  availableInBooking?: boolean | null;
+  bookingPrice?: number | null;
+  priceBookEnabled?: boolean | null;
+};
+
 /** A PUT body carrying only the fields the user actually changed; `null` clears. */
 export type PatchProductValues = {
   [K in keyof UpdateProductValues]?: K extends ClearableField
     ? UpdateProductValues[K] | null
     : UpdateProductValues[K];
-};
+} & ProductExtrasBody;
 
 /* ------------------------------------------------------------------ *
  * Editing an imported item

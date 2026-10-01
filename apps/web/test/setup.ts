@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { afterAll, afterEach, beforeAll } from "vitest";
+import { afterAll, afterEach, beforeAll, vi } from "vitest";
 import { cleanup } from "@testing-library/react";
 import { server } from "./msw/server";
 
@@ -40,6 +40,14 @@ if (typeof window !== "undefined" && !window.matchMedia) {
     dispatchEvent: () => false,
   }) as unknown as MediaQueryList;
 }
+
+// next/font is compiled away by Next; under vitest its module is empty. The
+// loaders a component calls (the Workiz item popups use Poppins) hand back a
+// plain class instead.
+vi.mock("next/font/google", () => {
+  const font = () => ({ className: "", style: { fontFamily: "sans-serif" }, variable: "" });
+  return { Poppins: font, Geist: font, Geist_Mono: font };
+});
 
 beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
 afterEach(() => {

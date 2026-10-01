@@ -220,6 +220,77 @@ export class ProductsRepository {
     }
   }
 
+  /**
+   * Moves a product to a new SKU in one transaction: the new `SKU#` claim is
+   * taken (refused if another product holds it — a 409), the old claim is
+   * dropped (only if it is this product's, or already gone), and the row's
+   * `sku` / `searchSku` change — on condition the row still has the old SKU.
+   * `generated` marks the new SKU as an internal one (`skuGenerated`); any
+   * other SKU clears the mark.
+   * Lines, transfers, templates and the log keep the SKU they were written
+   * with, as they keep the name.
+   */
+  async changeSku(
+    id: string,
+    from: string,
+    to: string,
+    { generated = false }: { generated?: boolean } = {},
+  ): Promise<void> {
+    const { TransactWriteCommand } = await import('@aws-sdk/lib-dynamodb');
+    try {
+      await this.dynamoDb.client.send(
+        new TransactWriteCommand({
+          TransactItems: [
+            {
+              Put: {
+                TableName: INVENTORY_TABLE,
+                Item: { PK: `SKU#${to}`, SK: 'PRODUCT', productId: id },
+                ConditionExpression: 'attribute_not_exists(PK)',
+              },
+            },
+            {
+              Delete: {
+                TableName: INVENTORY_TABLE,
+                Key: { PK: `SKU#${from}`, SK: 'PRODUCT' },
+                ConditionExpression: 'attribute_not_exists(PK) OR productId = :id',
+                ExpressionAttributeValues: { ':id': id },
+              },
+            },
+            {
+              Update: {
+                TableName: INVENTORY_TABLE,
+                Key: { PK: `PRODUCT#${id}`, SK: 'METADATA' },
+                // An internal SKU is marked so screens show the field empty;
+                // one the user typed clears the mark.
+                UpdateExpression: generated
+                  ? 'SET #sku = :to, searchSku = :search, updatedAt = :now, skuGenerated = :generated'
+                  : 'SET #sku = :to, searchSku = :search, updatedAt = :now REMOVE skuGenerated',
+                ConditionExpression: '#sku = :from',
+                ExpressionAttributeNames: { '#sku': 'sku' },
+                ExpressionAttributeValues: {
+                  ':to': to,
+                  ':from': from,
+                  ':search': productSearchSku(to),
+                  ':now': new Date().toISOString(),
+                  ...(generated ? { ':generated': true } : {}),
+                },
+              },
+            },
+          ],
+        }),
+      );
+    } catch (error: unknown) {
+      if (error instanceof Error && error.name === 'TransactionCanceledException') {
+        const reasons = (error as { CancellationReasons?: { Code?: string }[] }).CancellationReasons;
+        if (!reasons || reasons[0]?.Code === 'ConditionalCheckFailed') {
+          throw new ConflictException(`Product with SKU "${to}" already exists`);
+        }
+        throw new ConflictException('The item changed while saving — reopen it and try again');
+      }
+      throw error;
+    }
+  }
+
   async findById(id: string): Promise<Product | null> {
     const result = await this.dynamoDb.client.send(
       new GetCommand({

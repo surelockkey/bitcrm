@@ -168,6 +168,11 @@ export {
 } from './entities/container-template.entity';
 export { ProductCategory, UNCATEGORIZED_CATEGORY } from './entities/product-category.entity';
 export { Brand } from './entities/brand.entity';
+export {
+  ItemAttribute,
+  ItemAttributeType,
+  ITEM_ATTRIBUTE_TYPES,
+} from './entities/item-attribute.entity';
 export { Transfer, TransferItem } from './entities/transfer.entity';
 export { InventoryLogEntry } from './entities/inventory-log-entry.entity';
 export { StockItem } from './entities/stock-item.entity';

@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   Logger,
   NotFoundException,
@@ -30,6 +31,7 @@ import {
 import { publishInventoryEvent } from '../common/events/publish-inventory-event';
 import { ItemCategoriesService } from '../item-categories/item-categories.service';
 import { InventoryLogService } from '../inventory-log/inventory-log.service';
+import { ItemAttributesRepository } from '../item-attributes/item-attributes.repository';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { ListProductsQueryDto } from './dto/list-products-query.dto';
@@ -108,6 +110,60 @@ export function changedProductFields(existing: Product, attrs: Partial<Product>)
   });
 }
 
+/** A custom-field patch as the API takes it: name → value, `null` clears. */
+export type CustomAttributesPatch = Record<string, string | null>;
+
+/**
+ * An item's custom field values after a patch: each name sent is set, or
+ * cleared by `null` / a blank value; every other value the item holds is kept
+ * (an imported `workiz_attr_<id>` no definition names any more included).
+ * `null` when nothing is left — the attribute is then removed, never stored
+ * as an empty map.
+ */
+export function mergeCustomAttributes(
+  current: Record<string, unknown> | null | undefined,
+  patch: CustomAttributesPatch,
+): Record<string, string> | null {
+  const merged: Record<string, string> = {};
+  for (const [name, value] of Object.entries(current ?? {})) {
+    if (value !== null && value !== undefined) merged[name] = String(value);
+  }
+  for (const [name, value] of Object.entries(patch)) {
+    if (value === null || value.trim() === '') delete merged[name];
+    else merged[name] = value;
+  }
+  return Object.keys(merged).length > 0 ? merged : null;
+}
+
+/** Same values whatever the key order; an absent map and an empty one are the same. */
+export function sameCustomAttributes(
+  a: Record<string, unknown> | null | undefined,
+  b: Record<string, unknown> | null | undefined,
+): boolean {
+  const entries = (m: Record<string, unknown> | null | undefined) =>
+    JSON.stringify(Object.entries(m ?? {}).sort(([x], [y]) => (x < y ? -1 : x > y ? 1 : 0)));
+  return entries(a) === entries(b);
+}
+
+/**
+ * An internal SKU for an item that has none of its own (Workiz lets SKU /
+ * Model # stay empty). Built from the item's number; `retry` adds a random
+ * tail for the rare clash with a SKU someone typed.
+ */
+export function internalSku(product: { id: string; number?: number }, retry = false): string {
+  const base = `ITEM-${product.number ?? product.id.slice(0, 8)}`;
+  return retry ? `${base}-${randomUUID().slice(0, 6)}` : base;
+}
+
+/**
+ * The importer's stand-in SKU: `WZ-<workiz id>`, written when the Workiz
+ * serial was empty, duplicated or too long (the serial itself, if any, is kept
+ * in `workizSerial`). Screens show the serial there, as Workiz does.
+ */
+export function isImporterSku(product: ProductWithExtras): boolean {
+  return product.sku.startsWith('WZ-') && product.workizSerial !== product.sku;
+}
+
 @Injectable()
 export class ProductsService {
   private readonly logger = new Logger(ProductsService.name);
@@ -120,7 +176,25 @@ export class ProductsService {
     @Optional() private readonly itemCategories?: ItemCategoriesService,
     @Optional() private readonly redis?: RedisService,
     @Optional() private readonly inventoryLog?: InventoryLogService,
+    @Optional() private readonly itemAttributes?: ItemAttributesRepository,
   ) {}
+
+  /**
+   * Every name a custom-field patch carries must be a field of the catalog
+   * (`GET /item-attributes`) — an item edit cannot invent keys. A 400 names
+   * the ones that are not.
+   */
+  private async assertKnownCustomAttributes(patch: CustomAttributesPatch): Promise<void> {
+    const names = Object.keys(patch);
+    if (names.length === 0 || !this.itemAttributes) return;
+    const known = new Set((await this.itemAttributes.listAll()).map((a) => a.name));
+    const unknown = names.filter((name) => !known.has(name));
+    if (unknown.length > 0) {
+      throw new BadRequestException(
+        `Unknown custom field${unknown.length > 1 ? 's' : ''}: ${unknown.map((n) => `"${n}"`).join(', ')}`,
+      );
+    }
+  }
 
   /** One audit-log line for an item edit; the log itself never throws. */
   private async recordItem(
@@ -175,11 +249,21 @@ export class ProductsService {
   }
 
   async create(dto: CreateProductDto, actor?: JwtUser): Promise<Product> {
+    const { customAttributes: patch, ...fields } = ProductsService.stripReadOnly(dto);
+    if (patch) await this.assertKnownCustomAttributes(patch);
+    const customAttributes = patch ? mergeCustomAttributes(undefined, patch) : null;
     const now = new Date().toISOString();
-    const product: Product = {
-      id: randomUUID(),
-      number: await this.repository.nextNumber(),
-      ...ProductsService.stripReadOnly(dto),
+    const id = randomUUID();
+    const number = await this.repository.nextNumber();
+    // No SKU of its own (left out or blank): an internal one, marked.
+    const generated = !(typeof fields.sku === 'string' && fields.sku.trim());
+    let product: Product = {
+      id,
+      number,
+      ...fields,
+      sku: generated ? internalSku({ id, number }) : (fields.sku as string),
+      ...(generated ? { skuGenerated: true } : {}),
+      ...(customAttributes ? { customAttributes } : {}),
       category: await this.prepareCategory(dto.category),
       taxable: dto.taxable ?? true,
       onHand: 0,
@@ -188,7 +272,15 @@ export class ProductsService {
       updatedAt: now,
     };
 
-    await this.repository.create(product);
+    try {
+      await this.repository.create(product);
+    } catch (error) {
+      // A typed SKU that clashes is the caller's 409; an internal one that
+      // happens to be taken gets a random tail and one more go.
+      if (!generated || !(error instanceof ConflictException)) throw error;
+      product = { ...product, sku: internalSku({ id, number }, true) };
+      await this.repository.create(product);
+    }
     publishInventoryEvent(this.snsPublisher, this.logger, 'product.created', {
       productId: product.id,
     });
@@ -371,6 +463,34 @@ export class ProductsService {
     );
   }
 
+  /**
+   * The SKU part of an edit; answers whether the SKU itself changed.
+   * - the same SKU: nothing;
+   * - another SKU: the claim moves (a taken one is a 409) and an internal
+   *   mark is cleared;
+   * - blank: the item keeps an internal SKU it already has (the importer's
+   *   `WZ-…` included), only marked; one the user had typed is replaced by a
+   *   new internal SKU.
+   */
+  private async applySku(existing: Product, next: string): Promise<boolean> {
+    if (next === existing.sku) return false;
+    if (next) {
+      await this.repository.changeSku(existing.id, existing.sku, next);
+      return true;
+    }
+    if (existing.skuGenerated || isImporterSku(existing as ProductWithExtras)) {
+      if (!existing.skuGenerated) await this.repository.update(existing.id, { skuGenerated: true });
+      return false;
+    }
+    try {
+      await this.repository.changeSku(existing.id, existing.sku, internalSku(existing), { generated: true });
+    } catch (error) {
+      if (!(error instanceof ConflictException)) throw error;
+      await this.repository.changeSku(existing.id, existing.sku, internalSku(existing, true), { generated: true });
+    }
+    return true;
+  }
+
   async update(id: string, dto: UpdateProductDto, actor?: JwtUser): Promise<Product> {
     const { product, changedFields } = await this.applyUpdate(id, dto);
     // An edit that changed nothing is not a line in the log.
@@ -392,7 +512,23 @@ export class ProductsService {
     dto: UpdateProductDto,
   ): Promise<{ product: Product; changedFields: string[] }> {
     const existing = await this.findById(id); // Ensure exists
-    const attrs: Partial<Product> = { ...ProductsService.stripReadOnly(dto) };
+    const { customAttributes: patch, sku, ...fields } = ProductsService.stripReadOnly(dto);
+    const attrs: Partial<Product> = { ...fields };
+    // A new SKU moves the product's SKU claim first, so a SKU another item
+    // holds is refused (409) before anything else is written. The same SKU
+    // sent back is no change. A blank one means "no SKU of its own", as an
+    // emptied Workiz SKU / Model # does: an internal SKU, marked.
+    const skuChanged = typeof sku === 'string' ? await this.applySku(existing, sku.trim()) : false;
+    if (patch !== undefined) {
+      // A patch, merged over what the item holds: the values it does not name
+      // are kept. Written only when something actually changes; nothing left
+      // is `null`, which removes the attribute.
+      await this.assertKnownCustomAttributes(patch);
+      const merged = mergeCustomAttributes(existing.customAttributes, patch);
+      if (!sameCustomAttributes(existing.customAttributes, merged)) {
+        attrs.customAttributes = merged as Product['customAttributes'];
+      }
+    }
     if (typeof dto.category === 'string') {
       attrs.category = await this.prepareCategory(dto.category);
     }
@@ -401,7 +537,8 @@ export class ProductsService {
     publishInventoryEvent(this.snsPublisher, this.logger, 'product.updated', {
       productId: id,
     });
-    return { product, changedFields: changedProductFields(existing, attrs) };
+    const changedFields = changedProductFields(existing, attrs);
+    return { product, changedFields: skuChanged ? ['sku', ...changedFields] : changedFields };
   }
 
   async archive(id: string, actor?: JwtUser): Promise<Product> {
