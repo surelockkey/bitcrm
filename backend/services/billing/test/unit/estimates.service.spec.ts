@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   NotFoundException,
   UnprocessableEntityException,
@@ -18,6 +19,7 @@ import {
   billingView,
   caller,
   dealProduct,
+  mockCrmClient,
   mockDealClient,
   mockDocuments,
   mockEvents,
@@ -27,6 +29,7 @@ function mockRepo() {
   const estimates = new Map<string, Estimate>();
   const items = new Map<string, Map<string, EstimateItem>>();
   let seq = 0;
+  let accountSeq = 0;
   const itemsOf = (id: string) => {
     if (!items.has(id)) items.set(id, new Map());
     return items.get(id)!;
@@ -35,6 +38,7 @@ function mockRepo() {
     estimates,
     items,
     nextSeq: jest.fn(async () => ++seq),
+    nextAccountSeq: jest.fn(async () => ++accountSeq),
     create: jest.fn(async (e: Estimate, its: EstimateItem[]) => {
       estimates.set(e.id, e);
       for (const i of its) itemsOf(e.id).set(i.lineId, i);
@@ -87,6 +91,8 @@ describe('EstimatesService', () => {
   let repo: ReturnType<typeof mockRepo>;
   let deal: ReturnType<typeof mockDealClient>;
   let events: ReturnType<typeof mockEvents>;
+  let crm: ReturnType<typeof mockCrmClient>;
+  let documents: ReturnType<typeof mockDocuments>;
   let service: EstimatesService;
 
   beforeEach(() => {
@@ -94,7 +100,16 @@ describe('EstimatesService', () => {
     repo = mockRepo();
     deal = mockDealClient();
     events = mockEvents();
-    service = new EstimatesService(repo as never, deal as never, mockDocuments() as never, events as never);
+    crm = mockCrmClient();
+    documents = mockDocuments();
+    service = new EstimatesService(
+      repo as never,
+      deal as never,
+      documents as never,
+      events as never,
+      undefined,
+      crm as never,
+    );
   });
   afterEach(() => jest.useRealTimers());
 
@@ -429,6 +444,122 @@ describe('EstimatesService', () => {
       await service.deleteForDeal('deal-1');
       expect(repo.estimates.size).toBe(0);
       expect(repo.deleteCounter).toHaveBeenCalledWith('deal-1');
+    });
+  });
+
+  /**
+   * Workiz: a client's card has Create new → Estimate, which makes an estimate
+   * for the client with no job ("stub"). It is numbered from the account
+   * counter, carries the client's company and tax status, and every document
+   * action works without a job — except Sync to job, which has no job to go to.
+   */
+  describe('client estimates (no job)', () => {
+    const noJob = () => service.create({ contactId: 'contact-1' }, caller());
+
+    it('needs a job or a client', async () => {
+      await expect(service.create({}, caller())).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('creates for the client with a stub number from the account counter, no job fields, empty items', async () => {
+      crm.getContact.mockResolvedValueOnce({
+        id: 'contact-1',
+        firstName: 'Jane',
+        lastName: 'Client',
+        companyId: 'co-9',
+        taxExempt: true,
+        addresses: [],
+      });
+      const e = await noJob();
+      expect(repo.nextAccountSeq).toHaveBeenCalledTimes(1);
+      expect(repo.nextSeq).not.toHaveBeenCalled();
+      expect(e.number).toBe('1001');
+      expect(e.dealId).toBeUndefined();
+      expect(e.dealNumber).toBeUndefined();
+      expect(e).toMatchObject({
+        contactId: 'contact-1',
+        companyId: 'co-9',
+        taxSource: 'exempt',
+        status: 'unsent',
+        estimateDate: '2026-09-16',
+      });
+      expect(e.items).toEqual([]);
+      expect(e.totals.total).toBe(0);
+      // No job: nothing to read from deal-service, no job timeline to write to.
+      expect(deal.getBillingView).not.toHaveBeenCalled();
+      expect(deal.addTimeline).not.toHaveBeenCalled();
+      expect(events.estimate).toHaveBeenCalledWith(
+        BillingEventType.ESTIMATE_CREATED,
+        expect.objectContaining({ number: '1001' }),
+      );
+      const second = await noJob();
+      expect(second.number).toBe('1002');
+    });
+
+    it('404s for an unknown client', async () => {
+      crm.getContact.mockResolvedValueOnce(null);
+      await expect(noJob()).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('is office-only: a technician scoped to their jobs cannot see, list or count it', async () => {
+      const e = await noJob();
+      await service.create({ dealId: 'deal-1' }, caller());
+      const tech = caller(DataScope.ASSIGNED_ONLY, { id: 'tech-1' });
+      deal.listDealIdsByTech.mockResolvedValue(new Set(['deal-1']));
+      await expect(service.get(e.id, tech)).rejects.toBeInstanceOf(ForbiddenException);
+      const page = await service.list({}, tech);
+      expect(page.items.map((i) => i.number)).toEqual(['K4T9ZW-1']);
+      const summary = await service.summary(tech);
+      expect(summary.total.count).toBe(1);
+    });
+
+    it('edits, items, status, mark-sent, duplicate and delete work without a job (and write no job timeline)', async () => {
+      const e = await noJob();
+      await service.addItem(e.id, itemDto({ priceClient: 100 }), caller());
+      const updated = await service.update(e.id, { name: 'Rekey', estimateDate: '2026-09-20' }, caller());
+      expect(updated).toMatchObject({ name: 'Rekey', estimateDate: '2026-09-20' });
+      expect(updated.totals.subtotal).toBe(100);
+      const sent = await service.markSent(e.id, true, caller());
+      expect(sent.status).toBe('pending');
+      const approved = await service.setStatus(e.id, 'approved', caller());
+      expect(approved.approvedAt).toBe(NOW);
+      const copy = await service.duplicate(e.id, caller());
+      expect(copy.number).toBe('1002');
+      expect(copy.dealId).toBeUndefined();
+      expect(copy.items).toHaveLength(1);
+      await service.delete(e.id, caller());
+      expect(repo.estimates.has(e.id)).toBe(false);
+      expect(deal.addTimeline).not.toHaveBeenCalled();
+      expect(deal.getBillingView).not.toHaveBeenCalled();
+    });
+
+    it('renders the PDF / HTML / portal views from the client alone, with no job view', async () => {
+      const e = await noJob();
+      await service.pdf(e.id, false, caller());
+      await service.html(e.id, caller());
+      await service.portalHtml(e.id);
+      await service.portalPdf(e.id);
+      expect(deal.getBillingView).not.toHaveBeenCalled();
+      const sources = [...documents.pdf.mock.calls, ...documents.html.mock.calls].map((c) => (c as unknown[])[0]);
+      expect(sources).toHaveLength(4);
+      for (const source of sources) {
+        expect(source).toMatchObject({ kind: 'estimate', doc: expect.objectContaining({ id: e.id }) });
+        expect((source as { view?: unknown }).view).toBeUndefined();
+      }
+    });
+
+    it('sync-to-job is refused with 409: there is no job to sync to', async () => {
+      const e = await noJob();
+      await service.addItem(e.id, itemDto(), caller());
+      await expect(service.syncToJob(e.id, caller())).rejects.toBeInstanceOf(ConflictException);
+      expect(deal.replaceAllProducts).not.toHaveBeenCalled();
+      expect(repo.estimates.get(e.id)!.status).toBe('unsent');
+    });
+
+    it("lists a client's estimates with and without a job together", async () => {
+      await noJob();
+      await service.create({ dealId: 'deal-1' }, caller());
+      const all = await service.listForContact('contact-1');
+      expect(all.map((x) => x.number).sort()).toEqual(['1001', 'K4T9ZW-1']);
     });
   });
 });

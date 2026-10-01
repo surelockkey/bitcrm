@@ -211,6 +211,39 @@ describe('DocumentContextBuilder', () => {
     expect(ctx.document.dueDate).toBeUndefined();
     expect(ctx.totals).toMatchObject({ subtotal: 110, discount: 10, tax: 10, total: 110 });
   });
+
+  it('builds a client estimate (no job) from the contact alone: billing address, no job section', async () => {
+    crm.getContact.mockResolvedValueOnce({
+      id: 'contact-1',
+      firstName: 'Jane',
+      lastName: 'Client',
+      phones: ['+18605550100'],
+      emails: ['jane@example.com'],
+      addresses: [{ street: '1 Main St', city: 'Hartford', state: 'CT', zip: '06103' }],
+      billingAddress: { street: 'PO Box 12', city: 'Hartford', state: 'CT', zip: '06101' },
+    });
+    const est = {
+      id: 'e2',
+      number: '1141',
+      contactId: 'contact-1',
+      status: 'unsent',
+      estimateDate: '2026-09-15',
+      taxRatePercent: 0,
+      items: [{ lineId: 'l1', productId: 'p', name: 'Lock', sku: 'L', quantity: 2, priceClient: 50, taxable: true, position: 0 }],
+    } as unknown as EstimateWithItems;
+    const ctx = await builder.build('estimate', est, undefined, template({ kind: 'estimate', body: [], footer: [] }));
+    expect(deal.getBillingView).not.toHaveBeenCalled();
+    // The default company brands a document that has no job to say otherwise.
+    expect(profiles.get).toHaveBeenCalledWith(undefined);
+    expect(ctx.client).toMatchObject({
+      fullName: 'Jane Client',
+      address: '1 Main St, Hartford, CT 06103',
+      billingAddress: 'PO Box 12, Hartford, CT 06101',
+    });
+    expect(ctx.job).toBeUndefined();
+    expect(ctx.document).toMatchObject({ number: '1141', date: 'Sep 15, 2026', status: 'unsent' });
+    expect(ctx.totals).toMatchObject({ subtotal: 100, total: 100 });
+  });
 });
 
 describe('DocumentsService', () => {
@@ -240,6 +273,11 @@ describe('DocumentsService', () => {
       jobTypeId: 'jt-1',
       serviceAreaId: 'sa-1',
     });
+  });
+
+  it('resolves the template from the document alone when there is no job', async () => {
+    await service.html({ kind: 'estimate', doc: { ...invoiceView(), templateId: 'tpl-9' } as never, view: undefined });
+    expect(templates.resolveForDocument).toHaveBeenCalledWith({ kind: 'estimate', templateId: 'tpl-9' });
   });
 
   it('renders HTML in screen mode', async () => {

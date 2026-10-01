@@ -16,6 +16,7 @@ import {
 } from '@bitcrm/shared';
 import type { Estimate, EstimateItem, EstimateStatus } from '@bitcrm/types';
 import {
+  ACCOUNT_COUNTERS_PK,
   BILLING_GSI1_NAME,
   BILLING_GSI2_NAME,
   BILLING_GSI3_NAME,
@@ -60,8 +61,11 @@ export interface EstimateListFilter {
  *     GSI1 (ListIndex):    GSI1PK = ESTIMATES,           GSI1SK = <createdAt>#<id>
  *     GSI2 (ContactIndex): GSI2PK = CONTACT#<contactId>, GSI2SK = ESTIMATE#<createdAt>#<id>
  *     GSI3 (DealIndex):    GSI3PK = DEAL#<dealId>,       GSI3SK = ESTIMATE#<createdAt>#<id>
+ *                          — only when the estimate HAS a job; a client estimate
+ *                            (no `dealId`) writes no GSI3 keys, so the index stays sparse
  *   PK = ESTIMATE#<id>, SK = ITEM#<lineId>     line rows, ordered by `position`
- *   PK = DEAL#<dealId>, SK = COUNTERS          `estimateSeq` (ADD 1 per new estimate)
+ *   PK = DEAL#<dealId>, SK = COUNTERS          `estimateSeq` (ADD 1 per new estimate on the job)
+ *   PK = COUNTERS#ACCOUNT, SK = COUNTERS       `documentSeq` (ADD 1 per new client estimate / invoice)
  */
 @Injectable()
 export class EstimatesRepository {
@@ -75,8 +79,7 @@ export class EstimatesRepository {
       GSI1SK: listSk(e.createdAt, e.id),
       GSI2PK: contactGsi2Pk(e.contactId),
       GSI2SK: contactGsi2Sk('ESTIMATE', e.createdAt, e.id),
-      GSI3PK: dealGsi3Pk(e.dealId),
-      GSI3SK: dealGsi3Sk(e.createdAt, e.id),
+      ...(e.dealId && { GSI3PK: dealGsi3Pk(e.dealId), GSI3SK: dealGsi3Sk(e.createdAt, e.id) }),
       entityType: 'estimate',
       ...e,
     };
@@ -98,6 +101,23 @@ export class EstimatesRepository {
       }),
     );
     return Number(res.Attributes?.estimateSeq ?? 1);
+  }
+
+  /**
+   * Atomic account-wide counter for a CLIENT estimate (no job to number it
+   * from); shared with client invoices (`InvoicesRepository.nextAccountSeq`).
+   */
+  async nextAccountSeq(): Promise<number> {
+    const res = await this.db.client.send(
+      new UpdateCommand({
+        TableName: BILLING_TABLE,
+        Key: { PK: ACCOUNT_COUNTERS_PK, SK: COUNTERS_SK },
+        UpdateExpression: 'ADD documentSeq :one',
+        ExpressionAttributeValues: { ':one': 1 },
+        ReturnValues: 'UPDATED_NEW',
+      }),
+    );
+    return Number(res.Attributes?.documentSeq ?? 1);
   }
 
   async create(estimate: Estimate, items: EstimateItem[]): Promise<void> {

@@ -1,5 +1,6 @@
 import type { PaymentTerms } from '../enums/payment-terms.enum';
 import type { DocumentDiscount, DocumentTaxSource, DocumentTotals } from '../billing/totals';
+import type { ProductType } from '../enums/product-type.enum';
 import type { OnlinePaymentMethod, Payment, PaymentSummary } from './payment.entity';
 
 /**
@@ -13,18 +14,55 @@ export const INVOICE_STATUSES = ['no_amount', 'due', 'overdue', 'paid'] as const
 export type InvoiceStatus = (typeof INVOICE_STATUSES)[number];
 
 /**
- * A job invoice. Exactly one per job; its id and number are the job's. The
- * invoice owns no item rows — its items, tax rate, taxable flags and discount
- * ARE the job's (two-way sync by construction).
+ * A line of a CLIENT invoice (one with no job). A job invoice has no rows of
+ * its own — its lines are the job's items.
+ */
+export interface InvoiceItem {
+  lineId: string;
+  invoiceId: string;
+  /** Sort position (0-based). */
+  position: number;
+  productId: string;
+  productType?: ProductType;
+  name: string;
+  sku: string;
+  description?: string;
+  quantity: number;
+  priceClient: number;
+  costCompany: number;
+  costForTech: number;
+  taxable: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * An invoice belongs to a JOB or to a CLIENT alone (Workiz: "either a job or a
+ * client"; the client card's Create new → Invoice makes one without a job).
+ *
+ * - Job invoice: exactly one per job; `id` === `dealId`, `number` === the job's
+ *   number. It owns no item rows — its items, tax rate, taxable flags and
+ *   discount ARE the job's (two-way sync by construction).
+ * - Client invoice: no `dealId`; `id` a fresh uuid, `number` from the
+ *   account-wide document counter (shared with client estimates). It owns its
+ *   `InvoiceItem` rows and its own tax/discount snapshot (the fields below),
+ *   and its due date comes from the CLIENT's payment terms.
  */
 export interface Invoice {
-  /** === dealId */
+  /** === dealId on a job invoice; a uuid on a client invoice. */
   id: string;
-  /** === deal.dealNumber */
+  /** === deal.dealNumber on a job invoice; the account counter's number otherwise. */
   number: string;
-  dealId: string;
+  /** Absent on a client invoice (no job). */
+  dealId?: string;
   contactId: string;
   companyId?: string;
+  /* ---- own tax/discount snapshot: CLIENT invoices only (a job invoice reads the job's) */
+  taxRateId?: string;
+  taxRateName?: string;
+  taxRatePercent?: number;
+  taxSource?: DocumentTaxSource;
+  discount?: DocumentDiscount;
   /** YYYY-MM-DD; defaults to the creation day, editable. */
   invoiceDate: string;
   paymentTerms: PaymentTerms;
@@ -60,24 +98,26 @@ export interface Invoice {
   tipAmount?: number;
 }
 
-/** An invoice with the job's live lines + tax — what the detail screen/PDF use. */
+/**
+ * An invoice with its lines + tax — what the detail screen/PDF use. On a job
+ * invoice the lines and tax are the job's, live; on a client invoice they are
+ * its own rows (`position` set, in order).
+ */
 export interface InvoiceView extends Invoice {
   items: BillingLine[];
   /** The ledger behind `totals.amountPaid`, newest first. */
   payments?: Payment[];
   paymentSummary?: PaymentSummary;
-  taxRateId?: string;
-  taxRateName?: string;
-  taxRatePercent?: number;
-  taxSource?: DocumentTaxSource;
-  discount?: DocumentDiscount;
 }
 
 /** Common line shape rendered on invoices/estimates. */
 export interface BillingLine {
-  /** Estimate line id, or the productId for job lines. */
+  /** Estimate / client-invoice line id, or the productId for job lines. */
   lineId: string;
+  /** Sort position of an owned row (client invoice); absent for job lines. */
+  position?: number;
   productId: string;
+  productType?: ProductType;
   name: string;
   sku: string;
   description?: string;

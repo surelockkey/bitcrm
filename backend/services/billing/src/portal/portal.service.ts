@@ -182,8 +182,9 @@ export class PortalService {
 
     const byId = new Map(companies.map((c) => [c.id, c]));
     const fallback = companies.find((c) => c.isDefault) ?? companies[0];
-    const companyOf = (dealId: string): BusinessProfile | undefined => {
-      const id = jobCompanies.get(dealId);
+    // A client document (no job) is branded with the default company.
+    const companyOf = (dealId: string | undefined): BusinessProfile | undefined => {
+      const id = dealId ? jobCompanies.get(dealId) : undefined;
       return (id && byId.get(id)) || fallback;
     };
 
@@ -194,10 +195,10 @@ export class PortalService {
     const lastSent = [...shownInvoices, ...shownEstimates]
       .filter((d) => !!d.sentAt)
       .sort((a, b) => b.sentAt!.localeCompare(a.sentAt!))[0];
-    const headerId = lastSent ? jobCompanies.get(lastSent.dealId) : undefined;
+    const headerId = lastSent?.dealId ? jobCompanies.get(lastSent.dealId) : undefined;
     const business = await this.profiles.getPublic(headerId && byId.has(headerId) ? headerId : undefined);
 
-    const named = (s: PortalDocumentSummary, dealId: string): PortalDocumentSummary => {
+    const named = (s: PortalDocumentSummary, dealId: string | undefined): PortalDocumentSummary => {
       const name = companyOf(dealId)?.name;
       return name ? { ...s, companyName: name } : s;
     };

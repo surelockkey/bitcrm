@@ -12,8 +12,8 @@ export const BILLING_TABLE = process.env.BILLING_TABLE || 'BitCRM_Billing';
 //                       GSI1SK = <createdAt>#<id>          newest-first lists
 //   GSI2 ContactIndex   GSI2PK = CONTACT#<contactId>
 //                       GSI2SK = INVOICE#<createdAt>#<id> | ESTIMATE#<createdAt>#<id>
-//   GSI3 DealIndex      GSI3PK = DEAL#<dealId>              (sparse: estimates only)
-//                       GSI3SK = ESTIMATE#<createdAt>#<id>
+//   GSI3 DealIndex      GSI3PK = DEAL#<dealId>              (sparse: a JOB's estimates only —
+//                       GSI3SK = ESTIMATE#<createdAt>#<id>   a client estimate has no job and no row here)
 //   GSI4 UnpaidIndex    GSI4PK = UNPAID                     (sparse: open invoices only)
 //                       GSI4SK = <invoiceId>
 //
@@ -94,6 +94,13 @@ export const ESTIMATES_GSI1PK = 'ESTIMATES';
 /** `DEAL#<dealId>` / COUNTERS — `estimateSeq` is ADDed atomically per new estimate. */
 export const dealCountersPk = (dealId: string) => `DEAL#${dealId}`;
 export const COUNTERS_SK = 'COUNTERS';
+/**
+ * `COUNTERS#ACCOUNT` / COUNTERS — `documentSeq`, ADDed per new CLIENT document
+ * (an estimate or invoice with no job; see `common/document-number.ts`). One
+ * counter for both kinds, so a client estimate and a client invoice never
+ * share a number.
+ */
+export const ACCOUNT_COUNTERS_PK = 'COUNTERS#ACCOUNT';
 
 // ---- templates / settings / assets / portal ----------------------------------
 /** `TEMPLATE#<id>` / METADATA. */

@@ -27,12 +27,24 @@ export interface EstimateItem {
   updatedAt: string;
 }
 
-/** Many per job. Number = `<dealNumber>-<n>`; n is never reused. */
+/**
+ * An estimate belongs to a JOB or to a CLIENT alone (Workiz: "either a job or
+ * a client"; the client card's Create new → Estimate makes one without a job).
+ *
+ * - On a job: many per job, number `<dealNumber>-<n>` (n is never reused),
+ *   `dealId`/`dealNumber` set, tax/discount start as the job's.
+ * - On a client only: no `dealId`/`dealNumber`, number from the account-wide
+ *   document counter (Workiz's "stub" — 1141), office-only (a technician's
+ *   `assigned_only` scope has no job to be assigned to), and Sync to job is
+ *   refused until the estimate has a job.
+ */
 export interface Estimate {
   id: string;
   number: string;
-  dealId: string;
-  dealNumber: string;
+  /** Absent on a client estimate (no job). */
+  dealId?: string;
+  /** Absent on a client estimate (no job). */
+  dealNumber?: string;
   contactId: string;
   companyId?: string;
   /** Optional title, e.g. "Good" / "Rekey all locks". */

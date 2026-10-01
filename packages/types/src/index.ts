@@ -430,7 +430,7 @@ export type {
 } from './billing/totals';
 export type { TaxRate } from './entities/tax-rate.entity';
 export { INVOICE_STATUSES } from './entities/invoice.entity';
-export type { Invoice, InvoiceStatus, InvoiceView, BillingLine } from './entities/invoice.entity';
+export type { Invoice, InvoiceItem, InvoiceStatus, InvoiceView, BillingLine } from './entities/invoice.entity';
 export { ESTIMATE_STATUSES } from './entities/estimate.entity';
 export type {
   Estimate,

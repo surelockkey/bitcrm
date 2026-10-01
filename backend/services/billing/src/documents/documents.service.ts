@@ -22,7 +22,8 @@ import { renderDocumentHtml } from './renderer';
 export interface DocumentSource {
   kind: BillingDocumentKind;
   doc: BillingDocument;
-  view: DealBillingView;
+  /** The job's billing view; absent for a client document (no job). */
+  view?: DealBillingView;
 }
 
 const URL_TTL_SECONDS = 300;
@@ -48,12 +49,16 @@ export class DocumentsService {
   ) {}
 
   async prepare(source: DocumentSource): Promise<{ template: DocumentTemplate; ctx: DocumentRenderContext }> {
+    const deal = source.view?.deal;
     const template = await this.templates.resolveForDocument({
       kind: source.kind,
       templateId: source.doc.templateId,
-      jobTypeId: source.view.deal.jobTypeId,
-      serviceAreaId: source.view.deal.serviceAreaId,
-      businessProfileId: source.view.deal.businessProfileId,
+      // A client document has no job: only its own template or the default applies.
+      ...(deal && {
+        jobTypeId: deal.jobTypeId,
+        serviceAreaId: deal.serviceAreaId,
+        businessProfileId: deal.businessProfileId,
+      }),
     });
     const ctx = await this.contexts.build(source.kind, source.doc, source.view, template);
     return { template, ctx };

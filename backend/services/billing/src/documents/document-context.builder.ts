@@ -59,6 +59,10 @@ export function templateAssetIds(t: Pick<DocumentTemplateContent, 'header' | 'bo
  * `buildDocumentContext(kind, doc)`: everything a template can print, from
  * the document, its job, the client and the job's company (business profile). Peer lookups
  * are best effort — a missing contact renders a blank, it never fails the PDF.
+ *
+ * A CLIENT document (no job, `view` undefined) prints the client and the
+ * default company, and no job section at all (`job` is undefined, so the
+ * template's job blocks render nothing).
  */
 @Injectable()
 export class DocumentContextBuilder {
@@ -74,21 +78,20 @@ export class DocumentContextBuilder {
   async build(
     kind: BillingDocumentKind,
     doc: BillingDocument,
-    view: DealBillingView,
+    view: DealBillingView | undefined,
     template: Pick<DocumentTemplateContent, 'header' | 'body' | 'footer'>,
   ): Promise<DocumentRenderContext> {
-    const deal = view.deal;
+    const deal = view?.deal;
+    const companyId = doc.companyId ?? deal?.companyId;
     const [profile, contact, company, areas, fieldDefs] = await Promise.all([
-      // The job's company; unknown/absent → the default company.
-      this.profiles.get(deal.businessProfileId ?? view.businessProfileId),
-      this.safe(() => this.crm.getContact(doc.contactId ?? deal.contactId)),
-      doc.companyId ?? deal.companyId
-        ? this.safe(() => this.crm.getCompany((doc.companyId ?? deal.companyId)!))
-        : Promise.resolve(null),
-      deal.serviceAreaId ? this.deal.listServiceAreas() : Promise.resolve([]),
-      deal.customFields ? this.deal.listCustomFields() : Promise.resolve([]),
+      // The job's company; unknown/absent (and every client document) → the default company.
+      this.profiles.get(deal?.businessProfileId ?? view?.businessProfileId),
+      this.safe(() => this.crm.getContact(doc.contactId ?? deal?.contactId ?? '')),
+      companyId ? this.safe(() => this.crm.getCompany(companyId)) : Promise.resolve(null),
+      deal?.serviceAreaId ? this.deal.listServiceAreas() : Promise.resolve([]),
+      deal?.customFields ? this.deal.listCustomFields() : Promise.resolve([]),
     ]);
-    const area = areas.find((a) => a.id === deal.serviceAreaId);
+    const area = areas.find((a) => a.id === deal?.serviceAreaId);
     const tz = resolveTimezone(area?.timezone);
 
     const assetIds = templateAssetIds(template);
@@ -103,14 +106,15 @@ export class DocumentContextBuilder {
 
     const names = new Map(fieldDefs.map((f) => [f.id, f.name]));
     const customFields: Record<string, string> = {};
-    for (const [id, value] of Object.entries(deal.customFields ?? {})) {
+    for (const [id, value] of Object.entries(deal?.customFields ?? {})) {
       const s = customFieldString(value);
       if (s) customFields[names.get(id) ?? id] = s;
     }
 
-    const first = deal.clientName?.firstName ?? (contact as BillingContact | null)?.firstName ?? '';
-    const last = deal.clientName?.lastName ?? (contact as BillingContact | null)?.lastName ?? '';
-    const jobAddress = formatAddress(deal.address);
+    const first = deal?.clientName?.firstName ?? (contact as BillingContact | null)?.firstName ?? '';
+    const last = deal?.clientName?.lastName ?? (contact as BillingContact | null)?.lastName ?? '';
+    const jobAddress = formatAddress(deal?.address);
+    const clientAddress = formatAddress(contact?.addresses?.[0]);
 
     const isInvoice = kind === 'invoice';
     const inv = doc as InvoiceView;
@@ -147,19 +151,26 @@ export class DocumentContextBuilder {
         companyName: (company as Company | null)?.title,
         email: contact?.emails?.[0],
         phone: contact?.phones?.[0],
-        address: formatAddress(contact?.addresses?.[0]) ?? jobAddress,
-        billingAddress: formatAddress((company as Company | null)?.address) ?? formatAddress(contact?.addresses?.[0]),
+        address: clientAddress ?? jobAddress,
+        // Bill to: the company's address, else the client's billing address, else their first address.
+        billingAddress:
+          formatAddress((company as Company | null)?.address) ??
+          formatAddress(contact?.billingAddress) ??
+          clientAddress,
       },
-      job: {
-        number: deal.dealNumber,
-        address: jobAddress,
-        jobType: view.jobTypeName,
-        serviceArea: area?.name ?? deal.serviceArea,
-        scheduledDate: formatDisplayDate(deal.scheduledDate, tz),
-        technicians: view.technicianNames?.length ? view.technicianNames.join(', ') : undefined,
-        poNumber: deal.poNumber,
-        customFields,
-      },
+      ...(deal &&
+        view && {
+          job: {
+            number: deal.dealNumber,
+            address: jobAddress,
+            jobType: view.jobTypeName,
+            serviceArea: area?.name ?? deal.serviceArea,
+            scheduledDate: formatDisplayDate(deal.scheduledDate, tz),
+            technicians: view.technicianNames?.length ? view.technicianNames.join(', ') : undefined,
+            poNumber: deal.poNumber,
+            customFields,
+          },
+        }),
       document: {
         number: doc.number,
         date: formatDisplayDate(isInvoice ? inv.invoiceDate : est.estimateDate, tz) ?? '',

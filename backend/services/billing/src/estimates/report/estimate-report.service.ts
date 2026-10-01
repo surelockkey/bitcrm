@@ -48,7 +48,7 @@ export class EstimateReportService {
       let rows = await this.repo.cardRows(window);
       if (scoped) {
         const mine = await this.deal.listDealIdsByTech(caller.user.id);
-        rows = rows.filter((r) => mine.has(r.dealId));
+        rows = rows.filter((r) => !!r.dealId && mine.has(r.dealId));
       }
       return estimateCards(rows);
     };
@@ -62,7 +62,7 @@ export class EstimateReportService {
     const result = await this.repo.page(this.filterOf(q), limit, q.cursor);
     if (!isAssignedOnly(caller, 'estimates')) return result;
     const mine = await this.deal.listDealIdsByTech(caller.user.id);
-    return { ...result, items: result.items.filter((e) => mine.has(e.dealId)) };
+    return { ...result, items: result.items.filter((e) => !!e.dealId && mine.has(e.dealId)) };
   }
 
   async count(q: EstimateReportQuery, caller: Caller): Promise<ListCount> {
@@ -74,7 +74,7 @@ export class EstimateReportService {
     let { items, truncated } = await this.repo.walk(this.filterOf(q), ESTIMATE_REPORT_EXPORT_MAX_ROWS);
     if (isAssignedOnly(caller, 'estimates')) {
       const mine = await this.deal.listDealIdsByTech(caller.user.id);
-      items = items.filter((e) => mine.has(e.dealId));
+      items = items.filter((e) => !!e.dealId && mine.has(e.dealId));
     }
     const [clients, authors] = await Promise.all([
       reportClients(this.crm, items.map((e) => e.contactId), authorization),

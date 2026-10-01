@@ -74,7 +74,8 @@ export interface ReportCard {
 /** One row of the Aging table — Workiz's eight columns plus the links. */
 export interface AgingRow {
   invoiceId: string;
-  dealId: string;
+  /** Absent for a client invoice (no job). */
+  dealId?: string;
   /** Invoice No. — the job's number, as in Workiz. */
   number: string;
   /** Invoice Name (Workiz `invoice_name`; usually empty). */

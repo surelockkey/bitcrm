@@ -2,6 +2,7 @@ import { RedisService, cachedCount, countCacheKey } from '@bitcrm/shared';
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -24,8 +25,10 @@ import {
 } from '@bitcrm/types';
 import { assertDealAccess, isAssignedOnly, type Caller } from '../common/access';
 import { isYmd, resolveTimezone, todayIn } from '../common/dates';
+import { standaloneDocumentNumber } from '../common/document-number';
 import { DocumentsService } from '../documents/documents.service';
 import { BillingEventsPublisher } from '../integrations/billing-events.publisher';
+import { CrmClient } from '../integrations/crm.client';
 import { DealClient, type DealBillingView, type ReplaceAllRequest } from '../integrations/deal.client';
 import {
   assertSyncable,
@@ -42,8 +45,10 @@ import {
   type EstimateListFilter,
 } from './estimates.repository';
 
+/** Either a job (`dealId`) or a client alone (`contactId`) — see `Estimate`. */
 export interface CreateEstimateInput {
-  dealId: string;
+  dealId?: string;
+  contactId?: string;
   name?: string;
   copyJobItems?: boolean;
 }
@@ -79,6 +84,12 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 /**
  * Estimates (Workiz): many per job, own line items, own tax/discount
  * snapshot. `sync-to-job` overwrites the job's items through deal-service.
+ *
+ * An estimate may also belong to a CLIENT with no job (the client card's
+ * Create new → Estimate). Such an estimate has no `dealId`: nothing is read
+ * from or written to deal-service for it, its number comes from the account
+ * counter, it is office-only (a technician's `assigned_only` scope is about
+ * jobs), and Sync to job is refused until it has a job.
  */
 /** How long a list count stays good enough. Matches the deals tab counts. */
 const COUNT_TTL_SECONDS = 30;
@@ -93,12 +104,54 @@ export class EstimatesService {
     @Optional() private readonly documents?: DocumentsService,
     @Optional() private readonly events?: BillingEventsPublisher,
     @Optional() private readonly redis?: RedisService,
+    @Optional() private readonly crm?: CrmClient,
   ) {}
 
   // ---------------------------------------------------------------- create
 
   async create(input: CreateEstimateInput, caller: Caller): Promise<EstimateWithItems> {
-    const view = await this.loadView(input.dealId);
+    if (input.dealId) return this.createForJob(input.dealId, input, caller);
+    if (input.contactId) return this.createForClient(input.contactId, input, caller);
+    throw new BadRequestException('An estimate needs a job (dealId) or a client (contactId)');
+  }
+
+  /**
+   * A client's estimate with no job (Workiz's "stub"): numbered from the
+   * account counter, Bill to = the client, tax exempt when the client is,
+   * empty items. Office-only — a technician has no job to be assigned to.
+   */
+  private async createForClient(contactId: string, input: CreateEstimateInput, caller: Caller): Promise<EstimateWithItems> {
+    if (isAssignedOnly(caller, 'estimates')) {
+      throw new ForbiddenException('An estimate without a job can only be created from the office');
+    }
+    const contact = await this.requireCrm().getContact(contactId);
+    if (!contact) throw new NotFoundException('Client not found');
+    const seq = await this.repo.nextAccountSeq();
+    const now = new Date().toISOString();
+    const id = randomUUID();
+    const estimate: Estimate = {
+      id,
+      number: standaloneDocumentNumber(seq),
+      contactId: contact.id,
+      ...(contact.companyId && { companyId: contact.companyId }),
+      ...(input.name?.trim() && { name: input.name.trim() }),
+      status: 'unsent',
+      statusChangedAt: now,
+      estimateDate: todayIn(resolveTimezone(undefined)),
+      ...(contact.taxExempt && { taxRatePercent: 0, taxSource: 'exempt' as const }),
+      totals: estimateTotals({}, []),
+      version: 1,
+      createdBy: caller.user.id,
+      createdAt: now,
+      updatedAt: now,
+    };
+    await this.repo.create(estimate, []);
+    this.events?.estimate(BillingEventType.ESTIMATE_CREATED, estimate);
+    return { ...estimate, items: [] };
+  }
+
+  private async createForJob(dealId: string, input: CreateEstimateInput, caller: Caller): Promise<EstimateWithItems> {
+    const view = await this.loadView(dealId);
     assertDealAccess(caller, 'estimates', view.deal);
     const d = view.deal;
     const seq = await this.repo.nextSeq(d.id);
@@ -143,7 +196,11 @@ export class EstimatesService {
 
   async duplicate(id: string, caller: Caller): Promise<EstimateWithItems> {
     const src = await this.load(id, caller);
-    const seq = await this.repo.nextSeq(src.estimate.dealId);
+    const { dealId, dealNumber } = src.estimate;
+    const number =
+      dealId && dealNumber
+        ? estimateNumber(dealNumber, await this.repo.nextSeq(dealId))
+        : standaloneDocumentNumber(await this.repo.nextAccountSeq());
     const now = new Date().toISOString();
     const newId = randomUUID();
     const {
@@ -159,7 +216,7 @@ export class EstimatesService {
     const copy: Estimate = {
       ...rest,
       id: newId,
-      number: estimateNumber(src.estimate.dealNumber, seq),
+      number,
       status: 'unsent',
       statusChangedAt: now,
       version: 1,
@@ -177,11 +234,11 @@ export class EstimatesService {
     }));
     copy.totals = estimateTotals(copy, items);
     await this.repo.create(copy, items);
-    await this.deal.addTimeline(copy.dealId, TimelineEventType.ESTIMATE_CREATED, caller.user.id, {
+    await this.timeline(copy.dealId, TimelineEventType.ESTIMATE_CREATED, caller, {
       estimateId: newId,
       number: copy.number,
       duplicatedFrom: src.estimate.number,
-    }, caller.user.email);
+    });
     this.events?.estimate(BillingEventType.ESTIMATE_CREATED, copy);
     return { ...copy, items };
   }
@@ -221,9 +278,10 @@ export class EstimatesService {
     const limit = Math.min(Math.max(Number(query.limit) || 20, 1), 100);
     const result = await this.repo.list({ ...query, limit });
     if (!isAssignedOnly(caller, 'estimates')) return result;
-    // Page-local filter (see InvoicesService.list).
+    // Page-local filter (see InvoicesService.list). A client estimate has no
+    // job to be assigned to, so a technician never sees one.
     const mine = await this.deal.listDealIdsByTech(caller.user.id);
-    return { ...result, items: result.items.filter((e) => mine.has(e.dealId)) };
+    return { ...result, items: result.items.filter((e) => onMyJobs(e, mine)) };
   }
 
   /**
@@ -255,7 +313,7 @@ export class EstimatesService {
     let all = await this.repo.listAll();
     if (isAssignedOnly(caller, 'estimates')) {
       const mine = await this.deal.listDealIdsByTech(caller.user.id);
-      all = all.filter((e) => mine.has(e.dealId));
+      all = all.filter((e) => onMyJobs(e, mine));
     }
     const out = Object.fromEntries(
       [...ESTIMATE_STATUSES, 'total'].map((s) => [s, { count: 0, amount: 0 }]),
@@ -330,12 +388,12 @@ export class EstimatesService {
     const changes = statusChanges(estimate, status, new Date().toISOString());
     if (!Object.keys(changes).length) return { ...estimate, items };
     const updated = await this.write(id, { ...changes, updatedAt: changes.statusChangedAt }, [], estimate.version);
-    await this.deal.addTimeline(estimate.dealId, TimelineEventType.ESTIMATE_STATUS_CHANGED, caller.user.id, {
+    await this.timeline(estimate.dealId, TimelineEventType.ESTIMATE_STATUS_CHANGED, caller, {
       estimateId: id,
       number: estimate.number,
       from: estimate.status,
       to: status,
-    }, caller.user.email);
+    });
     this.events?.estimate(BillingEventType.ESTIMATE_UPDATED, updated);
     return { ...updated, items };
   }
@@ -346,10 +404,10 @@ export class EstimatesService {
     const { set, remove } = markSentChanges(estimate, sent, caller.user.id, now);
     const updated = await this.write(id, { ...set, updatedAt: now }, remove, estimate.version);
     if (sent) {
-      await this.deal.addTimeline(estimate.dealId, TimelineEventType.ESTIMATE_SENT, caller.user.id, {
+      await this.timeline(estimate.dealId, TimelineEventType.ESTIMATE_SENT, caller, {
         estimateId: id,
         number: estimate.number,
-      }, caller.user.email);
+      });
     }
     this.events?.estimate(BillingEventType.ESTIMATE_UPDATED, updated);
     return { ...updated, items };
@@ -358,10 +416,10 @@ export class EstimatesService {
   async delete(id: string, caller: Caller): Promise<void> {
     const { estimate } = await this.load(id, caller);
     await this.repo.delete(id);
-    await this.deal.addTimeline(estimate.dealId, TimelineEventType.ESTIMATE_DELETED, caller.user.id, {
+    await this.timeline(estimate.dealId, TimelineEventType.ESTIMATE_DELETED, caller, {
       estimateId: id,
       number: estimate.number,
-    }, caller.user.email);
+    });
     this.events?.estimate(BillingEventType.ESTIMATE_DELETED, estimate);
   }
 
@@ -411,8 +469,19 @@ export class EstimatesService {
 
   // ------------------------------------------------------------------ sync
 
+  /**
+   * Overwrites the job's items with the estimate's. A CLIENT estimate has no
+   * job: that is a 409 — "create a job from this estimate" needs a deal-service
+   * route that does not exist yet, so for now the job is created first (the
+   * client card's Create new → Job) and its own estimates are synced.
+   */
   async syncToJob(id: string, caller: Caller): Promise<{ estimate: EstimateWithItems; itemCount: number }> {
     const { estimate, items } = await this.load(id, caller);
+    if (!estimate.dealId) {
+      throw new ConflictException(
+        'This estimate belongs to the client and has no job to sync to — create a job for the client first',
+      );
+    }
     assertSyncable(estimate, items.length);
 
     const body: ReplaceAllRequest = {
@@ -471,7 +540,7 @@ export class EstimatesService {
   async portalHtml(id: string): Promise<{ html: string }> {
     const found = await this.repo.get(id);
     if (!found) throw new NotFoundException('Estimate not found');
-    const view = await this.loadView(found.estimate.dealId);
+    const view = await this.viewFor(found.estimate);
     const doc = { ...found.estimate, items: found.items };
     return this.requireDocuments().html({ kind: 'estimate', doc, view });
   }
@@ -479,7 +548,7 @@ export class EstimatesService {
   async portalPdf(id: string, download = false): Promise<{ url: string }> {
     const found = await this.repo.get(id);
     if (!found) throw new NotFoundException('Estimate not found');
-    const view = await this.loadView(found.estimate.dealId);
+    const view = await this.viewFor(found.estimate);
     const doc = { ...found.estimate, items: found.items };
     return this.requireDocuments().pdf(
       { kind: 'estimate', doc, view },
@@ -487,9 +556,10 @@ export class EstimatesService {
     );
   }
 
+  /** The document + its job (none for a client estimate) a template renders against. */
   async renderSource(id: string, caller: Caller) {
     const { estimate, items, view } = await this.load(id, caller, true);
-    return { kind: 'estimate' as const, doc: { ...estimate, items }, view: view ?? (await this.loadView(estimate.dealId)) };
+    return { kind: 'estimate' as const, doc: { ...estimate, items }, view };
   }
 
   // ------------------------------------------------------ job lifecycle
@@ -556,12 +626,34 @@ export class EstimatesService {
   ): Promise<{ estimate: Estimate; items: EstimateItem[]; view?: DealBillingView }> {
     const found = await this.repo.get(id);
     if (!found) throw new NotFoundException('Estimate not found');
+    const scoped = isAssignedOnly(caller, 'estimates');
+    // A technician sees the estimates of jobs assigned to them; a client
+    // estimate has no job, so it is the office's alone.
+    if (scoped && !found.estimate.dealId) {
+      throw new ForbiddenException('This estimate belongs to the client and has no job you are assigned to');
+    }
     let view: DealBillingView | undefined;
-    if (withView || isAssignedOnly(caller, 'estimates')) {
-      view = await this.loadView(found.estimate.dealId);
-      assertDealAccess(caller, 'estimates', view.deal);
+    if (withView || scoped) {
+      view = await this.viewFor(found.estimate);
+      if (view) assertDealAccess(caller, 'estimates', view.deal);
     }
     return { ...found, view };
+  }
+
+  /** The job's billing view, or nothing for a client estimate. */
+  private async viewFor(estimate: Pick<Estimate, 'dealId'>): Promise<DealBillingView | undefined> {
+    return estimate.dealId ? this.loadView(estimate.dealId) : undefined;
+  }
+
+  /** The job timeline, when there is a job. */
+  private async timeline(
+    dealId: string | undefined,
+    type: TimelineEventType,
+    caller: Caller,
+    metadata: Record<string, unknown>,
+  ): Promise<void> {
+    if (!dealId) return;
+    await this.deal.addTimeline(dealId, type, caller.user.id, metadata, caller.user.email);
   }
 
   /** Re-reads the lines after a line write so concurrent edits are counted. */
@@ -655,4 +747,12 @@ export class EstimatesService {
     if (!this.documents) throw new Error('DocumentsService not wired');
     return this.documents;
   }
+
+  private requireCrm(): CrmClient {
+    if (!this.crm) throw new Error('CrmClient not wired');
+    return this.crm;
+  }
 }
+
+/** Under `assigned_only`: the estimate's job is one of mine. No job ⇒ never mine. */
+const onMyJobs = (e: Pick<Estimate, 'dealId'>, mine: Set<string>): boolean => !!e.dealId && mine.has(e.dealId);

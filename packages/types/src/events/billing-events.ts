@@ -17,7 +17,8 @@ export enum BillingEventType {
 
 export interface InvoiceEvent {
   invoiceId: string;
-  dealId: string;
+  /** Absent for a client invoice (no job). */
+  dealId?: string;
   contactId: string;
   number: string;
   status: string;
@@ -38,7 +39,8 @@ export interface PaymentEvent {
 
 export interface EstimateEvent {
   estimateId: string;
-  dealId: string;
+  /** Absent for a client estimate (no job). */
+  dealId?: string;
   contactId: string;
   number: string;
   status: string;

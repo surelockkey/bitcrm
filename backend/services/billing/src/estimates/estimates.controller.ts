@@ -35,8 +35,12 @@ export class EstimatesController {
   @Post()
   @RequirePermission('estimates', 'create')
   @ApiOperation({
-    summary: 'Create an estimate for a job',
-    description: "**Guard:** `estimates.create`. Number `<jobNumber>-<n>`; tax/discount start as the job's; `copyJobItems` copies the job's lines.",
+    summary: 'Create an estimate for a job, or for a client with no job',
+    description:
+      "**Guard:** `estimates.create`. With `dealId`: number `<jobNumber>-<n>`, tax/discount start as the job's, " +
+      "`copyJobItems` copies the job's lines. With only `contactId` (Workiz: the client card's Create new → Estimate): " +
+      'a client estimate with no job — numbered from the account counter, empty items, office-only (403 under ' +
+      '`assigned_only`). One of the two is required.',
   })
   async create(@Body() dto: CreateEstimateDto, @CallerCtx() caller: Caller) {
     return { success: true, data: await this.estimates.create(dto, caller) };
@@ -171,7 +175,9 @@ export class EstimatesController {
   @HttpCode(200)
   @ApiOperation({
     summary: "Overwrite the job's items with this estimate",
-    description: '**Guard:** `estimates.sync`. Needs ≥ 1 item; refused for archived estimates. Marks the estimate won.',
+    description:
+      '**Guard:** `estimates.sync`. Needs ≥ 1 item; refused for archived estimates. Marks the estimate won. ' +
+      '409 for a client estimate (no job): create a job for the client first.',
   })
   async sync(@Param('id') id: string, @CallerCtx() caller: Caller) {
     return { success: true, data: await this.estimates.syncToJob(id, caller) };
