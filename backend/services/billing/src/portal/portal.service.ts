@@ -12,6 +12,7 @@ import {
   type PortalJob,
   type PortalLink,
   type PortalPaymentLine,
+  type PortalProposalSummary,
   type PortalView,
 } from '@bitcrm/types';
 import { BusinessProfileService } from '../business-profile/business-profile.service';
@@ -25,6 +26,7 @@ import { CrmClient } from '../integrations/crm.client';
 import { DealClient, type ContactDealSummary } from '../integrations/deal.client';
 import { formatAddress } from '../documents/document-context.builder';
 import { InvoicesService, type SignInvoiceInput } from '../invoices/invoices.service';
+import { ProposalsService } from '../proposals/proposals.service';
 import { generatePortalToken, hashPortalToken, isPlausibleToken, recoverPortalToken } from './portal-token';
 import { PortalRepository, type StoredPortalLink } from './portal.repository';
 
@@ -65,6 +67,7 @@ export class PortalService {
     @Optional() @Inject(PaymentsRepository) private readonly ledger?: PaymentsRepository,
     @Optional() @Inject(PaymentSettingsService) private readonly paymentSettings?: PaymentSettingsService,
     @Optional() @Inject(StripeService) private readonly stripe?: StripeService,
+    @Optional() @Inject(ProposalsService) private readonly proposals?: ProposalsService,
   ) {}
 
   async getLink(contactId: string): Promise<PortalLink | null> {
@@ -162,12 +165,21 @@ export class PortalService {
    */
   async approveEstimate(token: string, estimateId: string, input: SignEstimateInput): Promise<EstimateWithItems> {
     await this.sentEstimateFor(token, estimateId);
-    return this.estimates.approveByClient(estimateId, input);
+    const approved = await this.estimates.approveByClient(estimateId, input);
+    // An option of a proposal: the proposal is decided and the other options declined.
+    await this.proposals?.onEstimateApproved(estimateId).catch((err: Error) =>
+      this.logger.warn(`proposal not updated after approving ${estimateId}: ${err.message}`),
+    );
+    return approved;
   }
 
   async declineEstimate(token: string, estimateId: string, input: { reason?: string }): Promise<EstimateWithItems> {
     await this.sentEstimateFor(token, estimateId);
-    return this.estimates.declineByClient(estimateId, input);
+    const declined = await this.estimates.declineByClient(estimateId, input);
+    await this.proposals?.onEstimateDeclined(estimateId).catch((err: Error) =>
+      this.logger.warn(`proposal not updated after declining ${estimateId}: ${err.message}`),
+    );
+    return declined;
   }
 
   /** "Request signature" on an invoice: the client signs before paying. */
@@ -214,13 +226,14 @@ export class PortalService {
    * view); an outage just falls back to the default company.
    */
   private async buildView(contactId: string, preview: boolean): Promise<PortalView> {
-    const [contact, invoices, estimates, jobs, companies, payments] = await Promise.all([
+    const [contact, invoices, estimates, jobs, companies, payments, proposals] = await Promise.all([
       this.crm.getContact(contactId).catch(() => null),
       this.invoices.listForContact(contactId),
       this.estimates.listForContact(contactId),
       this.contactJobs(contactId),
       this.profiles.listAll(),
       this.paymentHistory(contactId),
+      this.proposals ? this.proposals.listForContact(contactId).catch(() => []) : Promise.resolve([]),
     ]);
     if (!contact && !preview) throw notFound();
     const jobCompanies = new Map(jobs.filter((r) => r.businessProfileId).map((r) => [r.id, r.businessProfileId!]));
@@ -252,6 +265,18 @@ export class PortalService {
       this.depositFlags(shownEstimates),
     ]);
     const byDateDesc = (a: PortalDocumentSummary, b: PortalDocumentSummary) => b.date.localeCompare(a.date);
+    const estimateSummaries = shownEstimates
+      .map((e) => ({ ...named(estimateSummary(e), e.dealId), ...(deposits.get(e.id) ?? {}) }))
+      .sort(byDateDesc);
+    const byEstimateId = new Map(estimateSummaries.map((e) => [e.id, e]));
+    const proposalSummaries: PortalProposalSummary[] = proposals
+      .map((p) => ({
+        ...p,
+        options: p.estimateIds.map((id) => byEstimateId.get(id)).filter((e): e is PortalDocumentSummary => !!e),
+      }))
+      // Nothing sent in it that the client may see ⇒ nothing to show.
+      .filter((p) => p.options.length > 0)
+      .map((p) => ({ ...p, ...(p.options[0].companyName && { companyName: p.options[0].companyName }) }));
     return {
       business,
       client: {
@@ -265,9 +290,8 @@ export class PortalService {
       invoices: shownInvoices
         .map((i) => ({ ...named(invoiceSummary(i), i.dealId), ...(payable.get(i.id) ?? {}) }))
         .sort(byDateDesc),
-      estimates: shownEstimates
-        .map((e) => ({ ...named(estimateSummary(e), e.dealId), ...(deposits.get(e.id) ?? {}) }))
-        .sort(byDateDesc),
+      estimates: estimateSummaries,
+      proposals: proposalSummaries,
       preview,
     };
   }
@@ -433,6 +457,7 @@ function estimateSummary(e: Estimate): PortalDocumentSummary {
     total: e.totals?.total ?? 0,
     ...(e.name && { name: e.name }),
     sent: !!e.sentAt,
+    ...(e.proposalId && { proposalId: e.proposalId }),
     // Still open ⇒ approving it means signing it.
     signatureNeeded: !!e.sentAt && (e.status === 'pending' || e.status === 'unsent'),
     signed: e.approvedVia === 'portal',

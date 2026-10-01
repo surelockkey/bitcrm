@@ -22,6 +22,7 @@ import { InvoicesModule } from './invoices/invoices.module';
 import { PaymentsModule } from './payments/payments.module';
 import { StripeModule } from './payments/stripe/stripe.module';
 import { PortalModule } from './portal/portal.module';
+import { ProposalsModule } from './proposals/proposals.module';
 import { BillingReportsModule } from './reports/reports.module';
 import { TemplateRenderModule } from './templates/template-render.module';
 import { TemplatesModule } from './templates/templates.module';
@@ -86,6 +87,7 @@ const DEAL_EVENTS_QUEUE_URL = process.env.BILLING_DEAL_EVENTS_QUEUE_URL;
     TemplatesModule,
     InvoicesModule,
     EstimatesModule,
+    ProposalsModule,
     PortalModule,
     // Last: its `invoices/:id/payments` and `public/portal/...` routes are
     // deeper than the ones above and must not shadow them.

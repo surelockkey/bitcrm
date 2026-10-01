@@ -66,6 +66,8 @@ export interface Estimate {
   display?: Partial<DocumentVisibility>;
   sentAt?: string;
   sentBy?: string;
+  /** The sales proposal this estimate went out in, if any (Workiz `proposal_id`). */
+  proposalId?: string;
   approvedAt?: string;
   /** `portal` when the client signed it on the client portal; `staff` when set by hand. */
   approvedVia?: 'portal' | 'staff';

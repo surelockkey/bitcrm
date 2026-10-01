@@ -585,6 +585,22 @@ export class EstimatesService {
     return { ...updated, items };
   }
 
+  /**
+   * "Send all (proposal)": each option is marked sent (unsent → pending) and
+   * remembers its proposal. One write per estimate, no timeline — the
+   * proposal logs one entry for the lot.
+   */
+  async attachToProposal(estimateIds: string[], proposalId: string, caller: Caller): Promise<void> {
+    const now = new Date().toISOString();
+    for (const id of estimateIds) {
+      const estimate = await this.repo.getMetadata(id);
+      if (!estimate) continue;
+      const { set } = markSentChanges(estimate, true, caller.user.id, now);
+      const updated = await this.write(id, { ...set, proposalId, updatedAt: now }, [], estimate.version);
+      this.events?.estimate(BillingEventType.ESTIMATE_UPDATED, updated);
+    }
+  }
+
   async delete(id: string, caller: Caller): Promise<void> {
     const { estimate } = await this.load(id, caller);
     await this.repo.delete(id);

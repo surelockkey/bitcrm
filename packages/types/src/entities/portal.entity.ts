@@ -2,6 +2,7 @@ import type { BusinessProfile } from './business-profile.entity';
 import type { EstimateStatus } from './estimate.entity';
 import type { InvoiceStatus } from './invoice.entity';
 import type { PaymentMethod, PaymentStatus } from './payment.entity';
+import type { PortalProposalSummary } from './proposal.entity';
 
 /** Metadata of a client's portal link (the raw token is only returned on create). */
 export interface PortalLink {
@@ -27,6 +28,8 @@ export interface PortalDocumentSummary {
   dueDate?: string;
   name?: string;
   sent: boolean;
+  /** Estimate: the proposal it is an option of. */
+  proposalId?: string;
   /** The job's company, when it differs between documents. */
   companyName?: string;
   /** True when this document can be paid online right now. */
@@ -84,6 +87,8 @@ export interface PortalView {
   client: { firstName: string; lastName: string; email?: string; phone?: string };
   estimates: PortalDocumentSummary[];
   invoices: PortalDocumentSummary[];
+  /** Sales proposals (good / better / best); their options are also in `estimates`. */
+  proposals: PortalProposalSummary[];
   /** Upcoming first (soonest first), then completed (latest first). */
   jobs: PortalJob[];
   /** Newest first; failed attempts are left out. */

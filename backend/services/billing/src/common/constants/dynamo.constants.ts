@@ -87,6 +87,9 @@ export const UNPAID_INDEX_STATE_SK = 'STATE';
 // ---- estimates -------------------------------------------------------------
 /** `ESTIMATE#<id>` / METADATA, and `ESTIMATE#<id>` / `ITEM#<lineId>` rows. */
 export const estimatePk = (id: string) => `ESTIMATE#${id}`;
+/** `PROPOSAL#<id>` / METADATA; GSI2 CONTACT#<contactId> / PROPOSAL#<createdAt>#<id>, GSI3 DEAL#<dealId> / PROPOSAL#… */
+export const proposalPk = (id: string) => `PROPOSAL#${id}`;
+export const proposalGsi3Sk = (createdAt: string, id: string) => `PROPOSAL#${createdAt}#${id}`;
 export const ITEM_SK_PREFIX = 'ITEM#';
 export const estimateItemSk = (lineId: string) => `${ITEM_SK_PREFIX}${lineId}`;
 export const ESTIMATES_GSI1PK = 'ESTIMATES';
@@ -210,7 +213,7 @@ export const PAYREPORT_INDEX_SK = 'INDEX';
 // ---- index keys --------------------------------------------------------------
 export const listSk = (createdAt: string, id: string) => `${createdAt}#${id}`;
 export const contactGsi2Pk = (contactId: string) => `CONTACT#${contactId}`;
-export const contactGsi2Sk = (kind: 'INVOICE' | 'ESTIMATE' | 'PAYMENT', createdAt: string, id: string) =>
+export const contactGsi2Sk = (kind: 'INVOICE' | 'ESTIMATE' | 'PAYMENT' | 'PROPOSAL', createdAt: string, id: string) =>
   `${kind}#${createdAt}#${id}`;
 export const dealGsi3Pk = (dealId: string) => `DEAL#${dealId}`;
 export const dealGsi3Sk = (createdAt: string, id: string) => `ESTIMATE#${createdAt}#${id}`;
