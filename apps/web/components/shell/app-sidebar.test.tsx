@@ -134,9 +134,10 @@ describe("AppSidebar", () => {
     expect(screen.getByText("Estimates")).toBeInTheDocument();
     // Payments is a report, reached from Reports, not a sidebar entry (as in Workiz).
     expect(screen.queryByText("Payments")).not.toBeInTheDocument();
-    // The commissions report is built now (Workiz "Commissions (Legacy)"):
-    expect(screen.getByText("Commission")).toBeInTheDocument();
-    // Still coming-soon, so still hidden by default:
+    // Reports is the only Insights entry: Commissions (Legacy) is a tile in the
+    // hub, as in Workiz, and the Analytics placeholder is gone.
+    expect(screen.getByText("Reports")).toBeInTheDocument();
+    expect(screen.queryByText("Commission")).not.toBeInTheDocument();
     expect(screen.queryByText("Analytics")).not.toBeInTheDocument();
   });
 

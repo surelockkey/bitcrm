@@ -110,11 +110,9 @@ export const MAIN_NAV: NavGroup[] = [
   {
     label: "Insights",
     items: [
-      // The Workiz-style reports hub (tiles are mocked while reports land).
+      // The Reports hub; every report, Commissions (Legacy) included, is a
+      // tile in it — Workiz has no separate menu entries either.
       { label: "Reports", href: "/reports", icon: BarChart3, resource: "reports" },
-      // Workiz "Commissions (Legacy)" — the weekly technician settlements.
-      { label: "Commission", href: "/reports/commission", icon: BarChart3, resource: "commission" },
-      { label: "Analytics", href: "/reports/analytics", icon: BarChart3, resource: "reports", status: "coming-soon" },
     ],
   },
 ];

@@ -86,6 +86,13 @@ describe("MAIN_NAV billing", () => {
   });
 });
 
+describe("MAIN_NAV insights", () => {
+  it("is just the Reports hub: the reports themselves are its tiles, as in Workiz", () => {
+    const insights = MAIN_NAV.find((g) => g.label === "Insights")!;
+    expect(insights.items.map((i) => i.href)).toEqual(["/reports"]);
+  });
+});
+
 describe("visibleNavItems", () => {
   it("keeps available, permitted items and hides coming-soon ones by default", () => {
     const items = visibleNavItems(work.items, () => true);
