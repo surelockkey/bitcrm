@@ -26,6 +26,8 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(dirname, "."),
+      // next/font is compiled away by Next; outside it the module has no loaders.
+      "next/font/google": path.resolve(dirname, "test/next-font-google.ts"),
     },
   },
 });
