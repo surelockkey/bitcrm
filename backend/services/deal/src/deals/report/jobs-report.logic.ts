@@ -224,6 +224,8 @@ export const SUPER_STATUS_LABEL: Record<JobSuperStatus, string> = {
 export interface ReportLookups {
   jobTypes: Map<string, string>;
   sources: Map<string, string>;
+  /** Workiz ad-group descriptions, by source id — Job Statistics groups its Sources tab by them. */
+  sourceDescriptions: Map<string, string>;
   tags: Map<string, { name: string; color?: JobTagColor }>;
   subStatuses: Map<string, string>;
   serviceAreas: Map<string, string>;
@@ -237,6 +239,7 @@ export interface ReportLookups {
 export const emptyLookups = (): ReportLookups => ({
   jobTypes: new Map(),
   sources: new Map(),
+  sourceDescriptions: new Map(),
   tags: new Map(),
   subStatuses: new Map(),
   serviceAreas: new Map(),

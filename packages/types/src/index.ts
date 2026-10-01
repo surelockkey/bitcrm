@@ -581,3 +581,23 @@ export type {
   JobsReportRow,
   JobsReportSettings,
 } from './reports/jobs-report';
+
+// Reports — the Workiz Job Statistics (`GET /deals/report/statistics`)
+export {
+  JOB_STATISTICS_BY_LABEL,
+  JOB_STATISTICS_PROFIT_ACTION,
+  JOB_STATISTICS_TABS,
+  JOB_STATISTICS_TAB_ACTION,
+} from './reports/job-statistics';
+export type {
+  JobStatistics,
+  JobStatisticsBy,
+  JobStatisticsCounts,
+  JobStatisticsDay,
+  JobStatisticsKpis,
+  JobStatisticsMoney,
+  JobStatisticsRow,
+  JobStatisticsTab,
+  JobStatisticsTable,
+  JobStatisticsTotals,
+} from './reports/job-statistics';

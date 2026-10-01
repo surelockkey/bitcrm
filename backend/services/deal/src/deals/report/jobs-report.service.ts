@@ -79,6 +79,26 @@ interface Entry {
 const fullName = (p: PersonName): string => `${p.firstName ?? ''} ${p.lastName ?? ''}`.trim();
 
 /**
+ * A failed window read as a report answers it: a window past the row guard
+ * is the caller's to shorten (400); an environment deployed before its
+ * EndIndex was built (terraform apply) says so (503) instead of a 500.
+ * Shared with Job Statistics, which reads the same windows.
+ */
+export function windowReadError(err: unknown, by: JobsReportBy, logger: Logger, report: string): unknown {
+  if (err instanceof ReportWindowTooLargeError) {
+    return new BadRequestException(`${err.message} — choose a shorter period`);
+  }
+  const e = err as { name?: string; message?: string };
+  if (e?.name === 'ValidationException' && /index/i.test(e.message ?? '')) {
+    logger.error(`${report}: ${e.message}`);
+    return new ServiceUnavailableException(
+      `"By: ${by === 'end' ? 'Job end date' : by}" is not available yet on this environment — its index is still being built`,
+    );
+  }
+  return err;
+}
+
+/**
  * The Workiz Jobs report (`GET /deals/report`, `/deals/report/export`,
  * `/deals/report/settings`). Reads one window of deals off the index of the
  * chosen date (`DealsRepository.readReportWindow`), then does everything
@@ -245,18 +265,7 @@ export class JobsReportService {
       .then((items) => items.map(toReportDeal))
       .catch((err: unknown) => {
         this.windows.delete(key);
-        if (err instanceof ReportWindowTooLargeError) {
-          throw new BadRequestException(`${err.message} — choose a shorter period`);
-        }
-        // An environment deployed before its EndIndex was built (terraform apply) answers this.
-        const e = err as { name?: string; message?: string };
-        if (e.name === 'ValidationException' && /index/i.test(e.message ?? '')) {
-          this.logger.error(`Jobs report: ${e.message}`);
-          throw new ServiceUnavailableException(
-            `"By: ${by === 'end' ? 'Job end date' : by}" is not available yet on this environment — its index is still being built`,
-          );
-        }
-        throw err;
+        throw windowReadError(err, by, this.logger, 'Jobs report');
       });
     this.windows.delete(key);
     this.windows.set(key, { at: now, deals });
@@ -278,7 +287,8 @@ export class JobsReportService {
     return lookups;
   }
 
-  private catalogLookups(): Promise<ReportLookups> {
+  /** The catalogs' names, a minute fresh — also what Job Statistics names its rows with. */
+  catalogLookups(): Promise<ReportLookups> {
     const now = Date.now();
     if (this.catalogs && now - this.catalogs.at < CATALOG_TTL_MS) return this.catalogs.lookups;
     const lookups = (async () => {
@@ -301,7 +311,10 @@ export class JobsReportService {
         settle('external companies', () => this.externalCompanies.list()),
       ]);
       for (const t of types) lk.jobTypes.set(t.id, t.name);
-      for (const s of sources) lk.sources.set(s.id, s.name);
+      for (const s of sources) {
+        lk.sources.set(s.id, s.name);
+        if (s.description) lk.sourceDescriptions.set(s.id, s.description);
+      }
       for (const t of tags) lk.tags.set(t.id, { name: t.name, color: t.color });
       for (const s of statuses) lk.subStatuses.set(s.id, s.name);
       for (const a of areas) lk.serviceAreas.set(a.id, a.name);
@@ -313,7 +326,8 @@ export class JobsReportService {
     return lookups;
   }
 
-  private async namesOfUsers(ids: string[]): Promise<Map<string, string>> {
+  /** Users' names through the report's five-minute cache — technicians and creators. */
+  async namesOfUsers(ids: string[]): Promise<Map<string, string>> {
     return this.cachedNames(this.userNames, ids, (missing) => this.internalHttp.getUserNamesBatch(missing));
   }
 

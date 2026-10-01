@@ -26,6 +26,15 @@ const crud = (view: boolean, create: boolean, edit: boolean, del: boolean) => ({
   delete: del,
 });
 
+/** Job Statistics: the four tab grants (Workiz Ad/Tech/Area/Dispatch Statistics) and View Profit. */
+const statistics = (tabs: boolean, profit: boolean) => ({
+  view_ad_statistics: tabs,
+  view_tech_statistics: tabs,
+  view_area_statistics: tabs,
+  view_dispatch_statistics: tabs,
+  view_profit: profit,
+});
+
 /** Build a full data-scope map from a base default + per-resource overrides. */
 function scopes(
   base: DataScope,
@@ -62,7 +71,7 @@ export const SYSTEM_ROLES: Record<string, SystemRole> = {
       transfers: crud(true, true, true, true),
       users: crud(true, true, true, true),
       roles: crud(true, true, true, true),
-      reports: crud(true, true, true, true),
+      reports: { ...crud(true, true, true, true), ...statistics(true, true) },
       settings: { view: true, edit: true },
       technicians: crud(true, true, true, true),
       job_types: caps(true, true, true, true, true, true, true),
@@ -117,7 +126,7 @@ export const SYSTEM_ROLES: Record<string, SystemRole> = {
       transfers: crud(true, true, true, false),
       users: crud(true, true, true, true),
       roles: crud(true, false, false, false),
-      reports: crud(true, true, true, false),
+      reports: { ...crud(true, true, true, false), ...statistics(true, true) },
       settings: { view: true, edit: true },
       technicians: crud(true, true, true, true),
       job_types: caps(true, true, true, true, false, true, true),
@@ -172,7 +181,7 @@ export const SYSTEM_ROLES: Record<string, SystemRole> = {
       transfers: crud(true, false, false, false),
       users: crud(true, true, true, false),
       roles: crud(true, false, false, false),
-      reports: crud(true, true, true, false),
+      reports: { ...crud(true, true, true, false), ...statistics(true, true) },
       settings: { view: true, edit: false },
       technicians: crud(true, true, true, false),
       job_types: caps(true, true, true, false, false, true, true),
@@ -236,7 +245,7 @@ export const SYSTEM_ROLES: Record<string, SystemRole> = {
       transfers: crud(true, false, false, false),
       users: crud(true, false, false, false),
       roles: crud(true, false, false, false),
-      reports: crud(true, false, false, false),
+      reports: { ...crud(true, false, false, false), ...statistics(true, false) },
       settings: { view: true, edit: false },
       technicians: crud(true, false, false, false),
       job_types: caps(true, false, false, false, false, false, false),
@@ -303,7 +312,7 @@ export const SYSTEM_ROLES: Record<string, SystemRole> = {
       transfers: crud(true, false, false, false),
       users: crud(false, false, false, false),
       roles: crud(false, false, false, false),
-      reports: crud(false, false, false, false),
+      reports: { ...crud(false, false, false, false), ...statistics(false, false) },
       settings: { view: false, edit: false },
       technicians: crud(true, false, true, false),
       job_types: caps(true, false, false, false, true, false, false),
@@ -369,7 +378,7 @@ export const SYSTEM_ROLES: Record<string, SystemRole> = {
       transfers: crud(true, false, false, false),
       users: crud(true, false, false, false),
       roles: crud(true, false, false, false),
-      reports: crud(true, false, false, false),
+      reports: { ...crud(true, false, false, false), ...statistics(true, true) },
       settings: { view: true, edit: false },
       technicians: crud(true, false, false, false),
       job_types: caps(true, false, false, false, false, false, false),

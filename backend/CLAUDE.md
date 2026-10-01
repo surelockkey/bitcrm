@@ -565,6 +565,20 @@ tests, and — if it emits events — the types in `@bitcrm/types` plus a row in
   force on the job's day (user's `POST /technicians/internal/commissions`) —
   versions are never rewritten, which is what freezes a job's rate. The old
   `calculateCommission` in user-service (EPIC-6) is a different formula; leave it.
+- **Job Statistics reads the Jobs report's windows; `/deals/stats` is the
+  dashboard's.** `GET /api/deals/report/statistics` (Workiz Job Statistics) reads
+  a period with `DealsRepository.readReportWindow` — "Closed" is the EndIndex
+  (the visit's end, NOT `closedAt`), days on the account's Eastern calendar — and
+  aggregates it with the pure `deals/report/job-statistics.logic.ts`. Its Profit
+  is the Company Profit of the job's Commissions (Legacy) row (`commissionSnapshot`
+  on an imported job, `CommissionReportService.build` on one done here), never
+  total − tax − cost. Tabs and View Profit are `reports.view_*_statistics` /
+  `reports.view_profit` on top of `reports.view` + `financials.view`; only an
+  explicit `false` closes one, so a role saved before them keeps everything.
+  `GET /deals/stats` keeps its own older semantics (by `closedAt`, money split
+  per tech) because the dashboard widgets are built on it — don't "fix" one
+  through the other. Offline check against Workiz's live numbers:
+  `npm run verify:job-statistics -w backend/services/deal -- --package …`.
 - **Companies are billing's.** A job's `businessProfileId` is validated against
   billing's internal list (cached 60s in deal, non-fatal when billing is down) and
   its name snapshotted; documents and the portal render the job's company (fallback:
