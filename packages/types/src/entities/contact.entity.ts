@@ -2,6 +2,7 @@ import { ContactType } from '../enums/contact-type.enum';
 import { ContactSource } from '../enums/contact-source.enum';
 import { CrmStatus } from '../enums/crm-status.enum';
 import { Address } from './address.entity';
+import { PaymentTerms } from '../enums/payment-terms.enum';
 
 export interface Contact {
   id: string;
@@ -33,6 +34,18 @@ export interface Contact {
   lastJobAt?: string;
   /** Client tags (the ClientTag catalog), as Workiz's chips on the client card. */
   tagIds?: string[];
+  /**
+   * Workiz's "Ad source" on the client: a JobSource catalog id (the same
+   * catalog jobs use). `source` is the closed enum the form always had.
+   */
+  sourceId?: string;
+  /**
+   * Workiz's "Client payment terms": client terms win over the company's and
+   * the business profile's when an invoice is made (billing's
+   * `resolvePaymentTerms`). `customTermsDays` holds the days for `custom`.
+   */
+  paymentTerms?: PaymentTerms;
+  customTermsDays?: number;
   companyId?: string;
   type: ContactType;
   title?: string;

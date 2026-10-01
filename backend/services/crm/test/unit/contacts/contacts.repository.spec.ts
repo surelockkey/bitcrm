@@ -103,6 +103,29 @@ describe('ContactsRepository', () => {
       expect(result!.tagIds).toEqual(['tag-platinum', 'tag-tax-free']);
     });
 
+    it("keeps the Workiz ad source (a JobSource catalog id) the import put on the row", async () => {
+      const contact = createMockContact();
+      dynamoDb.client.send.mockResolvedValue({
+        Item: { ...contact, sourceId: 'src-sure-tx-platinum', PK: `CONTACT#${contact.id}`, SK: 'METADATA' },
+      });
+
+      const result = await repository.findById('contact-1');
+
+      expect(result!.sourceId).toBe('src-sure-tx-platinum');
+    });
+
+    it("keeps the client's payment terms (Workiz's Client payment terms: Custom, 60 days)", async () => {
+      const contact = createMockContact();
+      dynamoDb.client.send.mockResolvedValue({
+        Item: { ...contact, paymentTerms: 'custom', customTermsDays: 60, PK: `CONTACT#${contact.id}`, SK: 'METADATA' },
+      });
+
+      const result = await repository.findById('contact-1');
+
+      expect(result!.paymentTerms).toBe('custom');
+      expect(result!.customTermsDays).toBe(60);
+    });
+
     it('leaves billingAddress and lastJobAt out when the row has none', async () => {
       const contact = createMockContact();
       dynamoDb.client.send.mockResolvedValue({

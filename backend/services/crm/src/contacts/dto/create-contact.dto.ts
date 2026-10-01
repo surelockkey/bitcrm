@@ -1,10 +1,12 @@
 import {
+  IsInt, Min,
   IsString, IsOptional, MaxLength, IsEnum, IsArray, IsBoolean, IsObject,
   ArrayMinSize, ArrayMaxSize, MinLength, IsEmail, ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { ContactType, ContactSource } from '@bitcrm/types';
+import { PaymentTerms } from '@bitcrm/types';
 import { ContactAddressDto } from './address.dto';
 
 /**
@@ -82,6 +84,22 @@ export class CreateContactDto {
   @IsArray()
   @IsString({ each: true })
   tagIds?: string[];
+
+  @ApiPropertyOptional({ description: "Workiz's Ad source: a JobSource catalog id" })
+  @IsOptional()
+  @IsString()
+  sourceId?: string;
+
+  @ApiPropertyOptional({ enum: PaymentTerms, description: "Workiz's Client payment terms; win over the company's on invoices" })
+  @IsOptional()
+  @IsEnum(PaymentTerms)
+  paymentTerms?: PaymentTerms;
+
+  @ApiPropertyOptional({ example: 60, description: 'Days for `custom` terms' })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  customTermsDays?: number;
 
   @ApiPropertyOptional({ example: 'company-uuid' })
   @IsOptional()
