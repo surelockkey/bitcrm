@@ -51,6 +51,10 @@ export const createContact = (
 export const setContactAddresses = (id: string, addresses: Address[]): Promise<Contact> =>
   http.put<Contact>(`/crm/contacts/${id}`, { addresses });
 
+/** Only the billing address — the card's Address panel on "Billing address". */
+export const setContactBillingAddress = (id: string, billingAddress: Address): Promise<Contact> =>
+  http.put<Contact>(`/crm/contacts/${id}`, { billingAddress });
+
 /** Only the client's tags — the card's chips save without touching the rest of the form. */
 export const setContactTags = (id: string, tagIds: string[]): Promise<Contact> =>
   http.put<Contact>(`/crm/contacts/${id}`, { tagIds });

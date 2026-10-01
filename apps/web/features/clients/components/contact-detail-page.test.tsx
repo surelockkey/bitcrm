@@ -185,8 +185,8 @@ describe("ContactDetailPage — the client card, laid out as Workiz's", () => {
     expect(within(panel).queryByText("Manual")).toBeNull();
     expect(within(panel).getByText("Net-60 (custom)")).toBeInTheDocument();
 
-    expect(within(panel).getByText("Service address").parentElement).toHaveTextContent("241 E Farm to Market Rd 1382, Cedar Hill, TX 75104");
-    expect(within(panel).getByText("Billing address").parentElement).toHaveTextContent("200 E Campus View Blvd ste 120, Columbus, OH 43235");
+    expect(within(panel).getByText("Service address").closest("[data-slot=address-card]")).toHaveTextContent("241 E Farm to Market Rd 1382, Cedar Hill, TX 75104");
+    expect(within(panel).getByText("Billing address").closest("[data-slot=address-card]")).toHaveTextContent("200 E Campus View Blvd ste 120, Columbus, OH 43235");
     expect(within(panel).queryByText(/300 Convent St/)).toBeNull();
     expect(within(panel).queryByText(/18840 I-35/)).toBeNull();
   });
@@ -337,6 +337,57 @@ describe("ContactDetailPage — the client card, laid out as Workiz's", () => {
     const sent = (puts[0] as { addresses: { street: string }[] }).addresses;
     expect(sent).toHaveLength(CONTACT.addresses.length + 1);
     expect(sent.at(-1)).toMatchObject({ street: "5 Oak Ave", unit: "2B", city: "Austin", state: "TX", zip: "78701" });
+  });
+
+  it("the pencil on Billing address opens the Address panel on it, with the client's properties to pick from", async () => {
+    const puts: unknown[] = [];
+    server.use(
+      http.put("*/crm/contacts/c1", async ({ request }) => {
+        const body = (await request.json()) as Record<string, unknown>;
+        puts.push(body);
+        return HttpResponse.json({ success: true, data: { ...CONTACT, ...body } });
+      }),
+    );
+    await renderPage();
+    const panel = screen.getByRole("complementary", { name: "Client" });
+    await userEvent.click(within(panel).getByRole("button", { name: "Edit billing address" }));
+
+    const sheet = await screen.findByRole("dialog", { name: "Address" });
+    expect(within(sheet).getByRole("combobox", { name: "Client properties" })).toHaveTextContent("200 E Campus View Blvd ste 120");
+    expect(within(sheet).getByRole("textbox", { name: "City" })).toHaveValue("Columbus");
+
+    await userEvent.clear(within(sheet).getByRole("textbox", { name: "Unit" }));
+    await userEvent.type(within(sheet).getByRole("textbox", { name: "Unit" }), "ste 130");
+    await userEvent.click(within(sheet).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(puts).toHaveLength(1));
+    expect(puts[0]).toEqual({ billingAddress: { street: "200 E Campus View Blvd ste 120", unit: "ste 130", city: "Columbus", state: "OH", zip: "43235" } });
+  });
+
+  it("the pencil on Service address lets another of the client's properties become the service address", async () => {
+    const puts: unknown[] = [];
+    server.use(
+      http.put("*/crm/contacts/c1", async ({ request }) => {
+        const body = (await request.json()) as { addresses: { street: string }[] };
+        puts.push(body);
+        return HttpResponse.json({ success: true, data: { ...CONTACT, addresses: body.addresses } });
+      }),
+    );
+    await renderPage();
+    const panel = screen.getByRole("complementary", { name: "Client" });
+    await userEvent.click(within(panel).getByRole("button", { name: "Edit service address" }));
+
+    const sheet = await screen.findByRole("dialog", { name: "Address" });
+    expect(within(sheet).getByRole("combobox", { name: "Client properties" })).toHaveTextContent("241 E Farm to Market Rd 1382");
+    await userEvent.click(within(sheet).getByRole("combobox", { name: "Client properties" }));
+    await userEvent.click(await screen.findByRole("option", { name: /18840 I-35 ste 100/ }));
+    expect(within(sheet).getByRole("textbox", { name: "City" })).toHaveValue("Kyle");
+    await userEvent.click(within(sheet).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(puts).toHaveLength(1));
+    const sent = (puts[0] as { addresses: { street: string }[] }).addresses.map((a) => a.street);
+    // The chosen property leads; the rest keep their order; nothing is lost or doubled.
+    expect(sent).toEqual(["18840 I-35 ste 100", "241 E Farm to Market Rd 1382", "300 Convent St", "300 Convent St"]);
   });
 
   it("Create new → Pay Invoices lists the unpaid invoices with a total, and records them one after another", async () => {

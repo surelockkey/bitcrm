@@ -148,6 +148,22 @@ export function useSetContactAddresses(contactId: string) {
   });
 }
 
+/** The card's Address panel on "Billing address": where the invoices go. */
+export function useSetContactBillingAddress(contactId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (billingAddress: Address) => api.setContactBillingAddress(contactId, billingAddress),
+    onSuccess: (contact) => {
+      qc.setQueryData(queryKeys.contacts.detail(contactId), (prev: Contact | undefined) =>
+        prev ? { ...prev, billingAddress: contact.billingAddress } : prev,
+      );
+      qc.invalidateQueries({ queryKey: queryKeys.contacts.detail(contactId) });
+      toast.success("Billing address saved");
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+}
+
 /** The client card's tag chips: put a tag on or take it off, and refresh the card. */
 export function useSetContactTags(contactId: string) {
   const qc = useQueryClient();

@@ -21,7 +21,7 @@ import { amountDueByDeal, clientAddressRows, clientKpis } from "../client-page";
 import { useCompany, useContact, useDeleteContact } from "../hooks";
 import { contactName } from "../lib";
 import { ClientAddressesTab } from "./client-addresses-tab";
-import { ClientAddressSheet } from "./client-address-sheet";
+import { ClientAddressSheet, type AddressSheetMode } from "./client-address-sheet";
 import { EditClientDialog } from "./edit-client-dialog";
 import { PayInvoicesDialog } from "./pay-invoices-dialog";
 import { ServiceLocationDialog } from "./service-location-dialog";
@@ -52,7 +52,7 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
   const [tab, setTab] = useState("jobs");
   const [chatOpen, setChatOpen] = useState(false);
   const [locationOpen, setLocationOpen] = useState(false);
-  const [addressOpen, setAddressOpen] = useState(false);
+  const [addressMode, setAddressMode] = useState<AddressSheetMode | null>(null);
   const [payOpen, setPayOpen] = useState(false);
 
   const money = can("financials", "view");
@@ -99,6 +99,7 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
           onEdit={() => setEditing(true)}
           onDelete={() => setConfirmDelete(true)}
           onMessage={() => setChatOpen(true)}
+          onEditAddress={setAddressMode}
         />
       </div>
 
@@ -138,7 +139,7 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
                 </DropdownMenuItem>
               ) : null}
               {can("contacts", "edit") ? (
-                <DropdownMenuItem onSelect={() => setAddressOpen(true)}>
+                <DropdownMenuItem onSelect={() => setAddressMode("new")}>
                   <Home className="size-4" /> Address
                 </DropdownMenuItem>
               ) : null}
@@ -206,7 +207,13 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
 
       <ClientChatSheet contactId={contact.id} name={contactName(contact)} phone={contact.phones[0]} open={chatOpen} onOpenChange={setChatOpen} />
       <ServiceLocationDialog contact={contact} open={locationOpen} onOpenChange={setLocationOpen} />
-      <ClientAddressSheet contact={contact} open={addressOpen} onOpenChange={setAddressOpen} />
+      <ClientAddressSheet
+        key={addressMode ?? "closed"}
+        contact={contact}
+        mode={addressMode ?? "new"}
+        open={addressMode !== null}
+        onOpenChange={(o) => !o && setAddressMode(null)}
+      />
       <PayInvoicesDialog invoices={invoices.data ?? []} open={payOpen} onOpenChange={setPayOpen} />
       <EditClientDialog
         contact={contact}

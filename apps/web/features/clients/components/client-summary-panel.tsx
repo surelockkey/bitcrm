@@ -37,6 +37,7 @@ export function ClientSummaryPanel({
   onEdit,
   onDelete,
   onMessage,
+  onEditAddress,
 }: {
   contact: Contact;
   company?: Company;
@@ -50,6 +51,8 @@ export function ClientSummaryPanel({
   onEdit: () => void;
   onDelete: () => void;
   onMessage: () => void;
+  /** The pencil on Service / Billing address: opens the Address panel on it. */
+  onEditAddress: (which: "service" | "billing") => void;
 }) {
   const service = contact.addresses[0];
   const billing = contact.billingAddress;
@@ -147,8 +150,13 @@ export function ClientSummaryPanel({
       </div>
 
       <Section title="Addresses" defaultOpen>
-        <AddressCard label="Service address" address={service ? formatAddress(service) : undefined} />
-        <AddressCard label="Billing address" address={billing ? formatAddress(billing) : undefined} fallback="Same as the service address" />
+        <AddressCard label="Service address" address={service ? formatAddress(service) : undefined} onEdit={canEdit ? () => onEditAddress("service") : undefined} />
+        <AddressCard
+          label="Billing address"
+          address={billing ? formatAddress(billing) : undefined}
+          fallback="Same as the service address"
+          onEdit={canEdit ? () => onEditAddress("billing") : undefined}
+        />
       </Section>
 
       <Section title="Company" defaultOpen={false}>
@@ -195,10 +203,17 @@ function Section({ title, defaultOpen, children }: { title: string; defaultOpen:
   );
 }
 
-function AddressCard({ label, address, fallback }: { label: string; address?: string; fallback?: string }) {
+function AddressCard({ label, address, fallback, onEdit }: { label: string; address?: string; fallback?: string; onEdit?: () => void }) {
   return (
-    <div className="rounded-lg border p-3">
-      <div className="text-xs font-medium">{label}</div>
+    <div data-slot="address-card" className="rounded-lg border p-3">
+      <div className="flex items-center justify-between">
+        <div className="text-xs font-medium">{label}</div>
+        {onEdit ? (
+          <Button variant="ghost" size="icon-sm" aria-label={`Edit ${label.toLowerCase()}`} onClick={onEdit}>
+            <Pencil className="size-3.5" />
+          </Button>
+        ) : null}
+      </div>
       <div className={cn("mt-1 flex items-start gap-1.5 text-sm", !address && "text-muted-foreground")}>
         <MapPin className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" aria-hidden />
         <span>{address ?? fallback ?? "—"}</span>
