@@ -75,13 +75,12 @@ describe("MAIN_NAV structure", () => {
 describe("MAIN_NAV billing", () => {
   const billing = MAIN_NAV.find((g) => g.label === "Billing")!;
 
-  it("ships the payments report gated on payments.view", () => {
-    const payments = billing.items.find((i) => i.label === "Payments")!;
-    expect(payments).toMatchObject({ href: "/payments", resource: "payments" });
-    expect(payments.status).toBeUndefined();
+  it("has no Payments entry: Workiz keeps the Payments report under Reports, so do we", () => {
+    expect(billing.items.map((i) => i.label)).toEqual(["Estimates", "Invoices", "Work Orders"]);
+    expect(MAIN_NAV.flatMap((g) => g.items).find((i) => i.href === "/payments")).toBeUndefined();
   });
 
-  it("hides it from a user who cannot view payments", () => {
+  it("shows a user only the billing pages they may view", () => {
     const items = visibleNavItems(billing.items, (r: Resource) => r === "invoices");
     expect(items.map((i) => i.label)).toEqual(["Invoices"]);
   });

@@ -7,7 +7,6 @@ import {
   Calendar,
   ClipboardCheck,
   Contact,
-  CreditCard,
   FileText,
   LayoutDashboard,
   Map,
@@ -105,7 +104,6 @@ export const MAIN_NAV: NavGroup[] = [
     items: [
       { label: "Estimates", href: "/estimates", icon: FileText, resource: "estimates" },
       { label: "Invoices", href: "/invoices", icon: FileText, resource: "invoices" },
-      { label: "Payments", href: "/payments", icon: CreditCard, resource: "payments" },
       { label: "Work Orders", href: "/work-orders", icon: ClipboardCheck, resource: "work_orders" },
     ],
   },
