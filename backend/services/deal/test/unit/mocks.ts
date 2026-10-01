@@ -2,7 +2,8 @@ import {
   ClientType, DealStage, JobSuperStatus, DealPriority, DealStatus, TimelineEventType,
   ServiceAreaType,
   type Deal, type DealProduct, type TimelineEntry, type JwtUser, type Address,
-  type ServiceArea, type JobType, type JobSource, type JobTag, type ExternalCompany,
+  type ServiceArea, type JobType, type JobSource, type JobTag,
+  type ClientTag, type ExternalCompany,
   type CustomFieldDefinition, type TaxRate,
 } from '@bitcrm/types';
 
@@ -142,6 +143,20 @@ export function createMockJobTag(overrides?: Partial<JobTag>): JobTag {
     id: 'jobtag-1',
     name: 'Rush',
     color: 'red',
+    priority: 0,
+    active: true,
+    createdBy: 'admin-1',
+    createdAt: '2026-04-16T10:00:00.000Z',
+    updatedAt: '2026-04-16T10:00:00.000Z',
+    ...overrides,
+  };
+}
+
+export function createMockClientTag(overrides?: Partial<ClientTag>): ClientTag {
+  return {
+    id: 'clienttag-1',
+    name: 'PLATINUM',
+    color: 'blue',
     priority: 0,
     active: true,
     createdBy: 'admin-1',
@@ -374,6 +389,16 @@ export function createMockJobTagsRepository() {
     get: jest.fn(),
     listAll: jest.fn().mockResolvedValue([]),
     isReferencedByDeal: jest.fn().mockResolvedValue(false),
+    remove: jest.fn(),
+  };
+}
+
+export function createMockClientTagsRepository() {
+  return {
+    create: jest.fn(),
+    put: jest.fn(),
+    get: jest.fn(),
+    listAll: jest.fn().mockResolvedValue([]),
     remove: jest.fn(),
   };
 }

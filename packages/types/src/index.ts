@@ -110,6 +110,7 @@ export { JobType } from './entities/job-type.entity';
 export { JobSource } from './entities/job-source.entity';
 export { ExternalCompany } from './entities/external-company.entity';
 export { JobTag } from './entities/job-tag.entity';
+export { ClientTag } from './entities/client-tag.entity';
 export {
   JOB_REQUIRABLE_FIELDS,
   DEFAULT_JOB_FIELD_SETTINGS,

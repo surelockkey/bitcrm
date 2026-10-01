@@ -24,6 +24,7 @@ import { JobTypesModule } from './job-types/job-types.module';
 import { JobSourcesModule } from './job-sources/job-sources.module';
 import { ExternalCompaniesModule } from './external-companies/external-companies.module';
 import { JobTagsModule } from './job-tags/job-tags.module';
+import { ClientTagsModule } from './client-tags/client-tags.module';
 import { JobStatusesModule } from './job-statuses/job-statuses.module';
 import { JobFieldSettingsModule } from './job-field-settings/job-field-settings.module';
 import { CustomFieldsModule } from './custom-fields/custom-fields.module';
@@ -94,6 +95,7 @@ const AWS_ENDPOINT = process.env.AWS_ENDPOINT;
     JobSourcesModule,
     ExternalCompaniesModule,
     JobTagsModule,
+    ClientTagsModule,
     JobStatusesModule,
     JobFieldSettingsModule,
     CustomFieldsModule,

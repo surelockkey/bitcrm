@@ -62,6 +62,12 @@ export class UpdateContactDto {
   @Type(() => ContactAddressDto)
   billingAddress?: ContactAddressDto;
 
+  @ApiPropertyOptional({ type: [String], description: 'Client tags (ClientTag catalog ids)' })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  tagIds?: string[];
+
   @ApiPropertyOptional({ example: 'company-uuid' })
   @IsOptional()
   @IsString()

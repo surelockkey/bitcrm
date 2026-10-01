@@ -31,6 +31,8 @@ export interface Contact {
   billingAddress?: Address;
   /** The date of the client's latest job, "YYYY-MM-DD" — kept by the Workiz import. */
   lastJobAt?: string;
+  /** Client tags (the ClientTag catalog), as Workiz's chips on the client card. */
+  tagIds?: string[];
   companyId?: string;
   type: ContactType;
   title?: string;

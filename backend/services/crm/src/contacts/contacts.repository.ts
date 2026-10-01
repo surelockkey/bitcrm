@@ -335,6 +335,7 @@ export class ContactsRepository {
       addresses: (item.addresses as Address[]) || [],
       ...(item.billingAddress ? { billingAddress: item.billingAddress as Address } : {}),
       ...(item.lastJobAt ? { lastJobAt: item.lastJobAt as string } : {}),
+      ...(Array.isArray(item.tagIds) ? { tagIds: item.tagIds as string[] } : {}),
       companyId: item.companyId as string | undefined,
       type: item.type as Contact['type'],
       title: item.title as string | undefined,

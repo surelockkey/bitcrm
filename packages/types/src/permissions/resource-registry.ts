@@ -52,6 +52,7 @@ export const RESOURCE_REGISTRY = {
   job_sources: ['view', 'create', 'edit', 'delete'],
   external_companies: ['view', 'create', 'edit', 'delete'],
   job_tags: ['view', 'create', 'edit', 'delete'],
+  client_tags: ['view', 'create', 'edit', 'delete'],
   job_statuses: ['view', 'create', 'edit', 'delete'],
   custom_fields: ['view', 'create', 'edit', 'delete'],
   work_orders: ['view', 'create', 'edit', 'delete'],

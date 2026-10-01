@@ -92,6 +92,17 @@ describe('ContactsRepository', () => {
       expect(result!.lastJobAt).toBe('2026-10-09');
     });
 
+    it('keeps the client tags the import or the card put on the row', async () => {
+      const contact = createMockContact();
+      dynamoDb.client.send.mockResolvedValue({
+        Item: { ...contact, tagIds: ['tag-platinum', 'tag-tax-free'], PK: `CONTACT#${contact.id}`, SK: 'METADATA' },
+      });
+
+      const result = await repository.findById('contact-1');
+
+      expect(result!.tagIds).toEqual(['tag-platinum', 'tag-tax-free']);
+    });
+
     it('leaves billingAddress and lastJobAt out when the row has none', async () => {
       const contact = createMockContact();
       dynamoDb.client.send.mockResolvedValue({

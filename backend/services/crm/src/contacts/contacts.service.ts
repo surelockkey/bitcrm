@@ -135,6 +135,7 @@ export class ContactsService {
       emails: dto.emails || [],
       addresses: dto.addresses || [],
       ...(dto.billingAddress && { billingAddress: dto.billingAddress }),
+      ...(dto.tagIds && { tagIds: dto.tagIds }),
       companyId: dto.companyId,
       type: dto.type,
       title: dto.title,
