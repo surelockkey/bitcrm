@@ -2,6 +2,7 @@ import { NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { ProductsController } from 'src/products/products.controller';
 import { ProductsService } from 'src/products/products.service';
+import { ProductThumbnailsService } from 'src/products/product-thumbnails';
 import {
   createMockProduct,
   createMockCreateProductDto,
@@ -12,6 +13,7 @@ import {
 describe('ProductsController', () => {
   let controller: ProductsController;
   let service: Record<string, jest.Mock>;
+  let thumbnails: Record<string, jest.Mock>;
   const user = createMockJwtUser();
   /** A caller who may see money: the product answers keep `costCompany`. */
   const money = {
@@ -36,9 +38,19 @@ describe('ProductsController', () => {
       getPhotoDownloadUrl: jest.fn(),
     };
 
+    // A list page's items pass through as they are unless a test says otherwise.
+    thumbnails = {
+      withThumbnails: jest.fn(async (items: unknown[]) => items),
+      complete: jest.fn(),
+      removePhoto: jest.fn(),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       controllers: [ProductsController],
-      providers: [{ provide: ProductsService, useValue: service }],
+      providers: [
+        { provide: ProductsService, useValue: service },
+        { provide: ProductThumbnailsService, useValue: thumbnails },
+      ],
     }).compile();
 
     controller = module.get<ProductsController>(ProductsController);
@@ -225,6 +237,43 @@ describe('ProductsController', () => {
       await controller.getPhotoUploadUrl('prod-1', undefined as any);
 
       expect(service.getPhotoUploadUrl).toHaveBeenCalledWith('prod-1', 'image/jpeg');
+    });
+  });
+
+  describe('photo thumbnails', () => {
+    const noMoney = { resolvedPermissions: createMockResolvedPermissions() };
+
+    it("gives a list page's items their thumbnail URLs — after the money is taken out", async () => {
+      const product = createMockProduct({ costCompany: 10 });
+      service.list.mockResolvedValue({ items: [product], nextCursor: 'next' });
+      thumbnails.withThumbnails.mockImplementation(async (items: any[]) =>
+        items.map((i) => ({ ...i, thumbnailUrl: 'https://s3.test/thumb.webp' })),
+      );
+
+      const result = await controller.list({ limit: 20 } as any, noMoney);
+
+      expect(thumbnails.withThumbnails.mock.calls[0][0][0]).not.toHaveProperty('costCompany');
+      expect(result.data[0]).toMatchObject({ id: 'prod-1', thumbnailUrl: 'https://s3.test/thumb.webp' });
+      expect(result.pagination).toEqual({ nextCursor: 'next', count: 1 });
+    });
+
+    it('completes an upload with the thumbnail step, answering the item', async () => {
+      thumbnails.complete.mockResolvedValue({ ...createMockProduct(), thumbnailUrl: 'https://s3.test/t.webp' });
+
+      const result = await controller.completePhotoUpload('prod-1', noMoney);
+
+      expect(thumbnails.complete).toHaveBeenCalledWith('prod-1');
+      expect(result.data).toMatchObject({ thumbnailUrl: 'https://s3.test/t.webp' });
+      expect(result.data).not.toHaveProperty('costCompany');
+    });
+
+    it('removes the photo with its thumbnail', async () => {
+      thumbnails.removePhoto.mockResolvedValue(createMockProduct());
+
+      const result = await controller.removePhoto('prod-1', money);
+
+      expect(thumbnails.removePhoto).toHaveBeenCalledWith('prod-1');
+      expect(result.success).toBe(true);
     });
   });
 

@@ -48,6 +48,16 @@ export interface Invoice {
   createdBy: string;
   createdAt: string;
   updatedAt: string;
+
+  /* ------------------------------------------ carried over from Workiz */
+  /** Workiz `invoice_name` — the Invoice Name column (rarely set). */
+  workizName?: string;
+  /** Workiz's own invoice serial. */
+  workizNumber?: number;
+  /** `workiz:invoice:<id>` on an imported invoice. */
+  externalId?: string;
+  /** Workiz's tip on the job (an imported invoice); BitCRM keeps tips on the payments. */
+  tipAmount?: number;
 }
 
 /** An invoice with the job's live lines + tax — what the detail screen/PDF use. */

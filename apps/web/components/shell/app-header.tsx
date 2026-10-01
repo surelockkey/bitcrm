@@ -22,7 +22,7 @@ export function AppHeader() {
         >
           <Search className="size-4 shrink-0" />
           <span className="hidden flex-1 truncate text-left sm:inline">
-            Search deals, contacts, SKU…
+            Search deals, contacts, people…
           </span>
           <kbd className="hidden rounded border bg-background px-1.5 font-mono text-xs sm:inline">
             ⌘K

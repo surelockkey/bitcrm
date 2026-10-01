@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { Brand } from "@bitcrm/types";
 import { renderWithClient } from "@/test/render-with-client";
@@ -14,7 +14,6 @@ const mocks = vi.hoisted(() => ({
   creates: [] as Call[],
   updates: [] as Call[],
   denied: new Set<string>(),
-  params: new URLSearchParams(),
   push: vi.fn(),
   replace: vi.fn(),
   back: vi.fn(),
@@ -22,7 +21,6 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mocks.push, replace: mocks.replace, back: mocks.back }),
-  useSearchParams: () => mocks.params,
   usePathname: () => "/price-book",
 }));
 vi.mock("@/features/auth/use-permissions", () => ({
@@ -67,8 +65,6 @@ const row = (id: string, name: string, active = true): Row => ({
   updatedAt: "",
 });
 
-const noScroll = { scroll: false };
-
 const KINDS = [
   {
     kind: "categories",
@@ -96,13 +92,13 @@ beforeEach(() => {
   mocks.creates = [];
   mocks.updates = [];
   mocks.denied = new Set();
-  mocks.params = new URLSearchParams();
+  window.history.replaceState(null, "", "/");
   mocks.push.mockReset();
   mocks.replace.mockReset();
   mocks.back.mockReset();
 });
 
-describe.each(KINDS)("$Noun tab", ({ kind, Page, path, resource, noun, Noun, names }) => {
+describe.each(KINDS)("$Noun tab", ({ kind, Page, path, resource, noun, names }) => {
   beforeEach(() => {
     mocks.rows = [row("r1", names[0]), row("r2", names[1]), row("r3", names[2], false)];
   });
@@ -156,26 +152,29 @@ describe.each(KINDS)("$Noun tab", ({ kind, Page, path, resource, noun, Noun, nam
   });
 
   it(`opens New ${noun} from the one yellow button`, async () => {
+    window.history.replaceState(null, "", path);
     renderWithClient(<Page />);
     const button = screen.getByRole("button", { name: `New ${noun}` });
     expect(button).toHaveAttribute("data-variant", "default");
     await userEvent.click(button);
-    expect(mocks.push).toHaveBeenCalledWith(`${path}?new=1`, noScroll);
+    expect(screen.getByRole("dialog", { name: `New ${noun}` })).toBeInTheDocument();
+    expect(window.location.pathname + window.location.search).toBe(path);
+    expect(mocks.push).not.toHaveBeenCalled();
   });
 
   it(`creates a ${noun} with exactly its name and active flag`, async () => {
-    mocks.params = new URLSearchParams("new=1");
     renderWithClient(<Page />);
+    await userEvent.click(screen.getByRole("button", { name: `New ${noun}` }));
     const dialog = screen.getByRole("dialog", { name: `New ${noun}` });
     await userEvent.type(within(dialog).getByLabelText("Name"), "  Padlocks ");
     await userEvent.click(within(dialog).getByRole("button", { name: "Create" }));
     expect(mocks.creates).toEqual([{ kind, body: { name: "Padlocks", active: true } }]);
-    expect(mocks.replace).toHaveBeenCalledWith(path, noScroll);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
   it("refuses a blank name without asking the server", async () => {
-    mocks.params = new URLSearchParams("new=1");
     renderWithClient(<Page />);
+    await userEvent.click(screen.getByRole("button", { name: `New ${noun}` }));
     const dialog = screen.getByRole("dialog", { name: `New ${noun}` });
     await userEvent.click(within(dialog).getByRole("button", { name: "Create" }));
     expect(mocks.creates).toEqual([]);
@@ -185,12 +184,13 @@ describe.each(KINDS)("$Noun tab", ({ kind, Page, path, resource, noun, Noun, nam
   it("opens the Edit popup on a row click", async () => {
     renderWithClient(<Page />);
     await userEvent.click(screen.getByText(names[0]));
-    expect(mocks.push).toHaveBeenCalledWith(`${path}?edit=r1`, noScroll);
+    expect(within(screen.getByRole("dialog", { name: `Edit ${noun}` })).getByLabelText("Name")).toHaveValue(names[0]);
+    expect(mocks.push).not.toHaveBeenCalled();
   });
 
   it("sends only what changed from the Edit popup", async () => {
-    mocks.params = new URLSearchParams("edit=r1");
     renderWithClient(<Page />);
+    await userEvent.click(screen.getByText(names[0]));
     const dialog = screen.getByRole("dialog", { name: `Edit ${noun}` });
     const name = within(dialog).getByLabelText("Name");
     expect(name).toHaveValue(names[0]);
@@ -201,8 +201,8 @@ describe.each(KINDS)("$Noun tab", ({ kind, Page, path, resource, noun, Noun, nam
   });
 
   it("archives from the Edit popup's Active switch", async () => {
-    mocks.params = new URLSearchParams("edit=r1");
     renderWithClient(<Page />);
+    await userEvent.click(screen.getByText(names[0]));
     const dialog = screen.getByRole("dialog", { name: `Edit ${noun}` });
     await userEvent.click(within(dialog).getByRole("switch", { name: "Active" }));
     await userEvent.click(within(dialog).getByRole("button", { name: "Save" }));
@@ -210,18 +210,26 @@ describe.each(KINDS)("$Noun tab", ({ kind, Page, path, resource, noun, Noun, nam
   });
 
   it("closes without a request when nothing changed", async () => {
-    mocks.params = new URLSearchParams("edit=r1");
     renderWithClient(<Page />);
+    await userEvent.click(screen.getByText(names[0]));
     const dialog = screen.getByRole("dialog", { name: `Edit ${noun}` });
     await userEvent.click(within(dialog).getByRole("button", { name: "Save" }));
     expect(mocks.updates).toEqual([]);
-    expect(mocks.replace).toHaveBeenCalledWith(path, noScroll);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
-  it(`says so when ?edit= names no ${noun}`, () => {
-    mocks.params = new URLSearchParams("edit=nope");
+  // Popups are state now; an old link with the popup in its query still opens it.
+  // No deep links: an old link with the popup in its query lands on the plain list.
+  it(`opens nothing from an old ?edit= / ?new=1 link, and takes it out of the address`, () => {
+    window.history.replaceState(null, "", `${path}?edit=r1`);
+    const { unmount } = renderWithClient(<Page />);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(window.location.pathname + window.location.search).toBe(path);
+    unmount();
+    window.history.replaceState(null, "", `${path}?new=1`);
     renderWithClient(<Page />);
-    expect(screen.getByRole("dialog", { name: `${Noun} not found` })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(window.location.pathname + window.location.search).toBe(path);
   });
 
   it("archives from the kebab after a confirm, with active: false", async () => {
@@ -254,7 +262,7 @@ describe.each(KINDS)("$Noun tab", ({ kind, Page, path, resource, noun, Noun, nam
     expect(screen.queryByRole("button", { name: `Edit ${names[0]}` })).toBeNull();
     expect(screen.queryByRole("button", { name: `Actions for ${names[0]}` })).toBeNull();
     await userEvent.click(screen.getByText(names[0]));
-    expect(mocks.push).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   it(`refuses without ${resource}.view`, () => {
@@ -268,8 +276,8 @@ describe.each(KINDS)("$Noun tab", ({ kind, Page, path, resource, noun, Noun, nam
 describe("renaming a category", () => {
   it("warns that items filed under the old name keep it", async () => {
     mocks.rows = [row("r1", "Locks")];
-    mocks.params = new URLSearchParams("edit=r1");
     renderWithClient(<CategoriesPage />);
+    await userEvent.click(screen.getByText("Locks"));
     const dialog = screen.getByRole("dialog", { name: "Edit category" });
     expect(within(dialog).queryByText(/keep/i)).toBeNull();
     await userEvent.type(within(dialog).getByLabelText("Name"), "s");

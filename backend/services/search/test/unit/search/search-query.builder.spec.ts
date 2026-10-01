@@ -1,4 +1,4 @@
-import { buildSearchBody } from 'src/search/search-query.builder';
+import { LEFT_OUT_BY_DEFAULT, buildSearchBody } from 'src/search/search-query.builder';
 
 const authz = { match_all: {} };
 
@@ -24,9 +24,27 @@ describe('buildSearchBody', () => {
 
     it('excludes deleted and archived docs by default', () => {
       const body = buildSearchBody({ q: 'x', authzClause: authz, mode: 'full' });
-      expect(boolOf(body).must_not).toEqual([
-        { terms: { status: ['deleted', 'archived'] } },
-      ]);
+      expect(boolOf(body).must_not).toEqual(
+        expect.arrayContaining([{ terms: { status: ['deleted', 'archived'] } }]),
+      );
+    });
+
+    // Як у Workiz: глобальний пошук не знаходить товари.
+    it('leaves products and stock out of a search that names no types', () => {
+      for (const mode of ['full', 'typeahead'] as const) {
+        const body = buildSearchBody({ q: 'deadbolt', authzClause: authz, mode });
+        expect(boolOf(body).must_not).toEqual([
+          { terms: { status: ['deleted', 'archived'] } },
+          { terms: { type: ['product', 'stock'] } },
+        ]);
+      }
+      expect(LEFT_OUT_BY_DEFAULT).toEqual(['product', 'stock']);
+    });
+
+    it('still finds products for a caller that asks for them by name', () => {
+      const body = buildSearchBody({ q: 'deadbolt', authzClause: authz, mode: 'full', types: ['product'] });
+      expect(boolOf(body).filter).toEqual(expect.arrayContaining([{ terms: { type: ['product'] } }]));
+      expect(boolOf(body).must_not).toEqual([{ terms: { status: ['deleted', 'archived'] } }]);
     });
 
     it('filters by requested types when provided', () => {

@@ -11,6 +11,11 @@ export const queryKeys = {
 
   jobFieldSettings: () => ["job-field-settings"] as const,
 
+  /** Reports with an endpoint of their own (the job reports ride on `deals`). */
+  reports: {
+    commissions: (params?: unknown) => ["reports", "commissions", params] as const,
+  },
+
   telephony: {
     numbers: () => ["telephony", "numbers"] as const,
     available: (params?: unknown) =>
@@ -53,7 +58,10 @@ export const queryKeys = {
   },
 
   search: {
-    global: (q: string, mode: string) => ["search", mode, q] as const,
+    // The types are part of the answer: ⌘K and a jobs-only picker searching
+    // the same text must not share a cache entry.
+    global: (q: string, mode: string, types?: readonly string[]) =>
+      ["search", mode, q, types?.length ? types.join(",") : "all"] as const,
   },
 
   deals: {
@@ -329,6 +337,12 @@ export const queryKeys = {
     byContact: (contactId: string) => ["invoices", "by-contact", contactId] as const,
     summary: () => ["invoices", "summary"] as const,
     needingInvoice: () => ["invoices", "needing-invoice"] as const,
+    /** Workiz's Invoices report — under `invoices` so every invoice change refreshes it. */
+    report: (params?: unknown) => ["invoices", "report", params] as const,
+    reportCount: (params?: unknown) => ["invoices", "report-count", params] as const,
+    reportSummary: (params?: unknown) => ["invoices", "report-summary", params] as const,
+    /** Workiz Reports → Aging invoices. */
+    aging: (params?: unknown) => ["invoices", "aging", params] as const,
   },
 
   /**
@@ -339,7 +353,11 @@ export const queryKeys = {
   payments: {
     all: () => ["payments"] as const,
     list: (params?: unknown) => ["payments", "list", params] as const,
+    /** Workiz Reports → Payments: `["payments", "report"]` is the prefix to invalidate. */
+    report: (params?: unknown) => ["payments", "report", params] as const,
     byInvoice: (invoiceId: string) => ["payments", "by-invoice", invoiceId] as const,
+    /** The job's ledger (Payments tab) — with or without an invoice. */
+    byDeal: (dealId: string) => ["payments", "by-deal", dealId] as const,
     settings: () => ["payments", "settings"] as const,
   },
 
@@ -351,7 +369,14 @@ export const queryKeys = {
     byDeal: (dealId: string) => ["estimates", "by-deal", dealId] as const,
     byContact: (contactId: string) => ["estimates", "by-contact", contactId] as const,
     summary: () => ["estimates", "summary"] as const,
+    /** Workiz's Estimates report — under `estimates` so every estimate change refreshes it. */
+    report: (params?: unknown) => ["estimates", "report", params] as const,
+    reportCount: (params?: unknown) => ["estimates", "report-count", params] as const,
+    reportSummary: (params?: unknown) => ["estimates", "report-summary", params] as const,
   },
+
+  /** Workiz Reports → Tax (deal service). */
+  taxReport: (params?: unknown) => ["reports", "tax", params] as const,
 
   documentTemplates: {
     all: () => ["document-templates"] as const,

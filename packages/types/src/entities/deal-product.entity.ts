@@ -62,6 +62,13 @@ export interface DealProduct {
    * readers must treat an absent value as `true` (Workiz default).
    */
   taxable?: boolean;
+  /**
+   * Whether the job's discount reaches this line. Absent ⇒ `true`; only the
+   * Workiz importer writes `false` today — for Workiz's card service fee and
+   * its non-discountable lines, which Workiz leaves out of the discount (see
+   * `calculateDocumentTotals`).
+   */
+  discountable?: boolean;
   /** Optional client-facing description shown on estimates/invoices. */
   description?: string;
   addedBy: string;

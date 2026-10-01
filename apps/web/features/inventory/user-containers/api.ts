@@ -1,5 +1,6 @@
 import type { UserContainer, UserContainerAccess } from "@bitcrm/types";
 import { http } from "@/lib/api/http";
+import { readAllPages } from "@/features/inventory/read-all";
 
 /**
  * Workiz "User containers": which van each user works from — exactly one, or
@@ -17,9 +18,12 @@ export interface AssignUserContainerBody {
   limited?: boolean;
 }
 
-/** Every assignment row, in name order — one request for the whole team. */
+/**
+ * Every assignment row, in name order — one request for the whole team; a
+ * cursor, should the endpoint start paging, is followed to the end.
+ */
 export function listUserContainers(): Promise<UserContainer[]> {
-  return http.get<UserContainer[]>("/inventory/user-containers");
+  return readAllPages<UserContainer>("/inventory/user-containers", {}, { pageSize: null });
 }
 
 /** The caller's own row; 404 when they have none. */

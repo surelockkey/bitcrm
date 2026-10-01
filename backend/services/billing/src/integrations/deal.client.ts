@@ -103,6 +103,8 @@ const CATALOG_TTL_MS = 60_000;
  *   GET   /api/deals/internal/by-tech/:techId        (existing — assigned_only scope)
  *   GET   /api/deals/service-areas/internal          (existing — name + timezone)
  *   GET   /api/deals/custom-fields/internal          (existing — id → name)
+ *   GET   /api/deals/job-types/internal              (existing — id → name; the Payments report)
+ *   POST  /api/deals/by-ids                          (public; the caller's bearer — the Payments report)
  *   GET   /api/deals?needsInvoice=true               (public; the caller's bearer is forwarded)
  */
 @Injectable()
@@ -203,6 +205,28 @@ export class DealClient {
         { operation: 'listByTech' },
       )) ?? [];
     return new Set(rows.map((r) => r.id));
+  }
+
+  /**
+   * The jobs of a set of ids (at most 100), through the PUBLIC `POST /deals/by-ids`
+   * on the caller's own bearer — there is no internal twin, and this way the
+   * caller's `deals` scope applies. No bearer, no answer.
+   */
+  async getDealsByIds(ids: string[], authorization: string | undefined): Promise<Deal[]> {
+    if (!authorization || ids.length === 0) return [];
+    return (
+      (await this.http.request<Deal[]>('/api/deals/by-ids', {
+        method: 'POST',
+        body: { ids: ids.slice(0, 100) },
+        operation: 'getDealsByIds',
+        headers: { authorization },
+      })) ?? []
+    );
+  }
+
+  /** id → name of every job type (active or not), cached 60s. */
+  async listJobTypes(): Promise<Array<{ id: string; name: string }>> {
+    return this.cachedCatalog<{ id: string; name: string }>('job-types', '/api/deals/job-types/internal');
   }
 
   async listServiceAreas(): Promise<ServiceAreaSummary[]> {

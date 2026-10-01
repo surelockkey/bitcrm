@@ -19,7 +19,7 @@ import { useAllLocations } from "@/features/inventory/stock/hooks";
 import { LocationStockDialog } from "@/features/inventory/stock/components/location-stock-dialog";
 import { ContainerTemplateBar } from "@/features/inventory/templates/components/container-template-bar";
 import { ApplyTemplateDialog } from "@/features/inventory/templates/components/apply-template-dialog";
-import { useUrlPopups } from "@/features/inventory/use-url-popups";
+import { useDropStaleParams, usePopup } from "@/features/inventory/use-popup";
 import { useUserContainers, useUserNames } from "@/features/inventory/user-containers/hooks";
 import {
   containerUserNames,
@@ -38,18 +38,27 @@ import { pagedSource } from "@/lib/paging/paged-source";
 import { usePageSize } from "@/lib/paging/use-page-size";
 import { usePager } from "@/lib/paging/use-pager";
 import { useSkeletonRows } from "@/features/inventory/components/use-skeleton-rows";
-
-const CONTAINERS_PATH = "/inventory/containers";
+import { ListBody } from "@/features/inventory/components/list-body";
 
 /** The list's own key: its page size and its skeleton's height are saved under it. */
 const TABLE_KEY = "inventory-vans";
 
-/** The URL params that open a popup — one at a time; Apply also names the van. */
-const POPUPS = ["stock", "edit", "apply"] as const;
-const EXTRAS = ["container"] as const;
+/**
+ * The popup over the fleet — one at a time: a van's stock, its settings, or a
+ * template applied to it.
+ */
+type ContainersPopup =
+  | { kind: "stock"; id: string }
+  | { kind: "edit"; id: string }
+  | { kind: "apply"; templateId: string; containerId: string | null };
+
+/** Old links carried the popup in the query; they land on the plain list, the params dropped. */
+const STALE_PARAMS = ["stock", "edit", "apply", "container"] as const;
 
 export function ContainersPage() {
   const { can, scopeOf, isLoading } = usePermissions();
+  // An old ?stock= / ?edit= link lands on the plain page — whichever it turns out to be.
+  useDropStaleParams(STALE_PARAMS);
 
   // Which screen this is — the fleet or a technician's own van — is the
   // permissions' to say. Until they do: the fleet's frame, asking for
@@ -77,11 +86,10 @@ function Fleet() {
   const [createOpen, setCreateOpen] = useState(false);
 
   // A van has no page of its own: its stock and its settings open over the
-  // list, from the URL, so an old /inventory/containers/<id> link lands here.
-  const popups = useUrlPopups(CONTAINERS_PATH, POPUPS, EXTRAS);
-  const stockId = popups.param("stock");
-  const editId = stockId ? null : popups.param("edit");
-  const applyId = stockId || editId ? null : popups.param("apply");
+  // list as state; an old /inventory/containers/<id> link lands on the list.
+  const { popup, open, close } = usePopup<ContainersPopup>();
+  const stockId = popup?.kind === "stock" ? popup.id : null;
+  const editId = popup?.kind === "edit" ? popup.id : null;
 
   // The server filters before it cuts the page — filtering a page in the
   // browser is what made every page show a different number of vans.
@@ -106,6 +114,7 @@ function Fleet() {
   const containers = pager.items;
   // Nothing on screen yet: the table draws itself, a page of skeleton rows tall.
   const loading = query.isLoading && !query.data;
+  const empty = !loading && containers.length === 0;
   const skeletonRows = useSkeletonRows(
     TABLE_KEY,
     pageSize,
@@ -155,70 +164,78 @@ function Fleet() {
       />
 
       <div className="flex-1 px-6 pb-6">
-        {!loading && containers.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed py-16 text-center">
-            <div className="flex size-12 items-center justify-center rounded-xl bg-muted text-muted-foreground">
-              <Truck className="size-6" />
+        <ListBody
+          holdKey={JSON.stringify(filter)}
+          scrollKey={`${pager.page}:${pageSize}`}
+          pager={
+            empty ? null : (
+              <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} reserveSpace />
+            )
+          }
+        >
+          {empty ? (
+            <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed py-16 text-center">
+              <div className="flex size-12 items-center justify-center rounded-xl bg-muted text-muted-foreground">
+                <Truck className="size-6" />
+              </div>
+              <div>
+                <div className="font-medium">{filtered ? "No containers match" : "No containers"}</div>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {filtered
+                    ? "Try clearing your search or filter."
+                    : "A van appears here when a technician is activated."}
+                </p>
+              </div>
             </div>
-            <div>
-              <div className="font-medium">{filtered ? "No containers match" : "No containers"}</div>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {filtered
-                  ? "Try clearing your search or filter."
-                  : "A van appears here when a technician is activated."}
-              </p>
-            </div>
-          </div>
-        ) : (
-          <>
-            {/* Loading, loaded or holding the last filter's rows — one table,
-                so nothing under it moves when the rows land. */}
-            <ContainersTable
-              containers={containers}
-              users={users}
-              loading={loading}
-              skeletonRows={skeletonRows}
-              stale={pager.isStale}
-              onEdit={(c) => popups.open("edit", c.id)}
-              onStock={(c) => popups.open("stock", c.id)}
-            />
-            <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} reserveSpace />
-          </>
-        )}
+          ) : (
+            <>
+              {/* Loading, loaded or holding the last filter's rows — one table,
+                  so nothing under it moves when the rows land. */}
+              <ContainersTable
+                containers={containers}
+                users={users}
+                loading={loading}
+                skeletonRows={skeletonRows}
+                stale={pager.isStale}
+                onEdit={(c) => open({ kind: "edit", id: c.id })}
+                onStock={(c) => open({ kind: "stock", id: c.id })}
+              />
+            </>
+          )}
+        </ListBody>
       </div>
 
       <ContainerCreateDialog open={createOpen} onOpenChange={setCreateOpen} />
-      {/* Mounted only while their param is set, so each opening reads fresh. */}
+      {/* Mounted only while open, so each opening reads fresh. */}
       {stockId ? (
         <LocationStockDialog
           type="container"
           locationId={stockId}
           open
-          onOpenChange={(open) => (open ? undefined : popups.close())}
+          onOpenChange={(next) => (next ? undefined : close())}
           aside={
             <ContainerTemplateBar
               containerId={stockId}
               // Swapped, not stacked: closing Apply goes back to the list.
-              onApply={(templateId) => popups.replace("apply", templateId, { container: stockId })}
-              onSetTemplate={() => popups.replace("edit", stockId)}
+              onApply={(templateId) => open({ kind: "apply", templateId, containerId: stockId })}
+              onSetTemplate={() => open({ kind: "edit", id: stockId })}
             />
           }
         />
       ) : null}
-      {applyId ? (
+      {popup?.kind === "apply" ? (
         <ApplyTemplateDialog
-          templateId={applyId}
-          containerId={popups.param("container")}
+          templateId={popup.templateId}
+          containerId={popup.containerId}
           open
-          onOpenChange={(open) => (open ? undefined : popups.close())}
-          onContainerChange={(id) => popups.replace("apply", applyId, { container: id })}
+          onOpenChange={(next) => (next ? undefined : close())}
         />
       ) : null}
       {editId ? (
         <ContainerEditDialog
           containerId={editId}
           open
-          onOpenChange={(open) => (open ? undefined : popups.close())}
+          onOpenChange={(next) => (next ? undefined : close())}
         />
       ) : null}
     </div>

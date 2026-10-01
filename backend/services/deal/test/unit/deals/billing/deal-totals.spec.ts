@@ -15,12 +15,32 @@ describe('dealTotalsSnapshot', () => {
       tax: 9,
       total: 189,
       cost: 70.5,
+      taxableBase: 90,
+    });
+  });
+
+  it('stores what Workiz billed for a job with fractional hours, a fee and a discount', () => {
+    // Real amounts from a Workiz job: the old per-line rounding stored 897.34.
+    const deal = createMockDeal({ taxRatePercent: 8.25, discount: { type: 'amount', value: 18 } });
+    const lines = [
+      createMockDealProduct({ quantity: 1.5, priceClient: 125, costCompany: 0 }),
+      createMockDealProduct({ quantity: 1, priceClient: 13.26, costCompany: 0, taxable: false, discountable: false }),
+      createMockDealProduct({ quantity: 1, priceClient: 647.18, costCompany: 0 }),
+    ];
+
+    expect(dealTotalsSnapshot(deal, lines)).toEqual({
+      subtotal: 847.94,
+      discount: 18,
+      tax: 67.38,
+      total: 897.32,
+      cost: 0,
+      taxableBase: 816.68,
     });
   });
 
   it('is all zeros for a job without lines', () => {
     expect(dealTotalsSnapshot(createMockDeal(), [])).toEqual({
-      subtotal: 0, discount: 0, tax: 0, total: 0, cost: 0,
+      subtotal: 0, discount: 0, tax: 0, total: 0, cost: 0, taxableBase: 0,
     });
   });
 
