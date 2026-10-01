@@ -1,5 +1,6 @@
 import type { DocumentDiscount, DocumentTaxSource, DocumentTotals } from '../billing/totals';
 import type { ProductType } from '../enums/product-type.enum';
+import type { DocumentSignatureView } from './document-signature.entity';
 
 /**
  * Workiz estimate statuses. `pending` is set on send, `won` on sync-to-job,
@@ -63,6 +64,8 @@ export interface Estimate {
   sentAt?: string;
   sentBy?: string;
   approvedAt?: string;
+  /** `portal` when the client signed it on the client portal; `staff` when set by hand. */
+  approvedVia?: 'portal' | 'staff';
   declinedAt?: string;
   wonAt?: string;
   syncedAt?: string;
@@ -93,4 +96,6 @@ export interface Estimate {
 
 export interface EstimateWithItems extends Estimate {
   items: EstimateItem[];
+  /** Every signature collected on it, oldest first (the document prints the latest). */
+  signatures?: DocumentSignatureView[];
 }

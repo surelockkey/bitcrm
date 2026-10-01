@@ -32,6 +32,16 @@ export interface PortalDocumentSummary {
   payable?: boolean;
   /** Taken but still clearing (ACH) — shown as a note, not deducted. */
   amountPending?: number;
+  /**
+   * Estimate: still open, so approving it means signing it (Workiz: every
+   * estimate needs a signature to approve). Invoice: "Request signature" was
+   * chosen at send time and nobody has signed yet.
+   */
+  signatureNeeded?: boolean;
+  /** At least one signature was collected on it. */
+  signed?: boolean;
+  /** Estimate: the deposit asked for (Workiz "Required deposit"), when one is set. */
+  depositDue?: number;
 }
 
 /** GET /api/billing/public/portal/:token */

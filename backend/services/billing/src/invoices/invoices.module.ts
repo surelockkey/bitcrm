@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { BusinessProfileModule } from '../business-profile/business-profile.module';
 import { DocumentsModule } from '../documents/documents.module';
 import { PaymentsLedgerModule } from '../payments/payments-ledger.module';
+import { SignaturesModule } from '../signatures/signatures.module';
 import { InvoicesController } from './invoices.controller';
 import { InvoiceReportController } from './report/invoice-report.controller';
 import { InvoiceReportRepository } from './report/invoice-report.repository';
@@ -14,7 +15,7 @@ import { UnpaidInvoicesRepository } from './unpaid-invoices.repository';
 @Module({
   // PaymentsLedgerModule (storage only) — the invoice's totals derive from the
   // payment ledger. PaymentsModule imports THIS one, never the other way round.
-  imports: [BusinessProfileModule, DocumentsModule, PaymentsLedgerModule],
+  imports: [BusinessProfileModule, DocumentsModule, PaymentsLedgerModule, SignaturesModule],
   // The report's static paths (`aging`, `report/…`) before the `:id` routes.
   controllers: [InvoiceReportController, InvoicesController],
   providers: [

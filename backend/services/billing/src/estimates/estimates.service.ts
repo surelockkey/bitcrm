@@ -7,6 +7,7 @@ import {
   Logger,
   NotFoundException,
   Optional,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import {
@@ -27,6 +28,7 @@ import { assertDealAccess, isAssignedOnly, type Caller } from '../common/access'
 import { isYmd, resolveTimezone, todayIn } from '../common/dates';
 import { standaloneDocumentNumber } from '../common/document-number';
 import { DocumentSettingsService } from '../documents/document-settings.service';
+import { SignaturesService } from '../signatures/signatures.service';
 import { DocumentsService } from '../documents/documents.service';
 import { BillingEventsPublisher } from '../integrations/billing-events.publisher';
 import { CrmClient } from '../integrations/crm.client';
@@ -39,6 +41,8 @@ import {
   reorderPositions,
   sortItems,
   statusChanges,
+  assertClientCanDecide,
+  depositChanges,
 } from './estimate-rules';
 import {
   EstimateVersionConflictError,
@@ -54,10 +58,20 @@ export interface CreateEstimateInput {
   copyJobItems?: boolean;
 }
 
+/** A signature from the portal canvas (or the technician's phone). */
+export interface SignEstimateInput {
+  imageDataUrl: string;
+  signedBy: string;
+  ip?: string;
+}
+
 export interface UpdateEstimateInput {
   name?: string | null;
   estimateDate?: string;
   notes?: string | null;
+  /** Workiz "Set deposit": a percent of the total OR a fixed amount; `null` clears. */
+  depositPercentage?: number | null;
+  depositAmount?: number | null;
   templateId?: string | null;
   taxRateId?: string | null;
   discount?: DocumentDiscount | null;
@@ -107,6 +121,7 @@ export class EstimatesService {
     @Optional() private readonly redis?: RedisService,
     @Optional() private readonly crm?: CrmClient,
     @Optional() private readonly documentSettings?: DocumentSettingsService,
+    @Optional() private readonly signatures?: SignaturesService,
   ) {}
 
   // ---------------------------------------------------------------- create
@@ -271,7 +286,13 @@ export class EstimatesService {
 
   async get(id: string, caller: Caller): Promise<EstimateWithItems> {
     const { estimate, items } = await this.load(id, caller);
-    return { ...estimate, items };
+    return { ...estimate, items, ...(await this.signaturesOf(id)) };
+  }
+
+  /** The document's signatures, oldest first — absent when signatures are not wired. */
+  private async signaturesOf(id: string): Promise<Pick<EstimateWithItems, 'signatures'>> {
+    if (!this.signatures) return {};
+    return { signatures: await this.signatures.list('estimate', id) };
   }
 
   getStored(id: string): Promise<Estimate | null> {
@@ -373,6 +394,9 @@ export class EstimatesService {
     optional('notes', input.notes);
     optional('templateId', input.templateId);
     if (input.estimateDate !== undefined) set.estimateDate = input.estimateDate;
+    const deposit = depositChanges(input);
+    Object.assign(set, deposit.set);
+    remove.push(...deposit.remove);
 
     if (input.taxRateId !== undefined) {
       if (input.taxRateId === null) {
@@ -420,6 +444,115 @@ export class EstimatesService {
     });
     this.events?.estimate(BillingEventType.ESTIMATE_UPDATED, updated);
     return { ...updated, items };
+  }
+
+  // ------------------------------------------------- client decisions (portal)
+
+  /**
+   * The client approves the estimate on the portal (Workiz): the signature is
+   * mandatory and is taken FIRST — no signature, no approval — then the
+   * status becomes `approved`. The deposit, when there is one, is collected
+   * right after by the payments flow; it never gates the approval here.
+   */
+  async approveByClient(id: string, input: SignEstimateInput): Promise<EstimateWithItems> {
+    const found = await this.repo.get(id);
+    if (!found) throw new NotFoundException('Estimate not found');
+    const { estimate, items } = found;
+    assertClientCanDecide(estimate);
+    const signatures = this.requireSignatures();
+    const signature = await signatures.collect({
+      kind: 'estimate',
+      documentId: id,
+      ...(estimate.dealId && { dealId: estimate.dealId }),
+      contactId: estimate.contactId,
+      imageDataUrl: input.imageDataUrl,
+      signedBy: input.signedBy,
+      source: 'portal',
+      ...(input.ip && { ip: input.ip }),
+    });
+    const now = new Date().toISOString();
+    const updated = await this.write(
+      id,
+      { ...statusChanges(estimate, 'approved', now), approvedVia: 'portal', updatedAt: now },
+      [],
+      estimate.version,
+    );
+    await this.clientTimeline(estimate.dealId, TimelineEventType.ESTIMATE_APPROVED, signature.signedBy, {
+      estimateId: id,
+      number: estimate.number,
+      total: estimate.totals.total,
+      signedBy: signature.signedBy,
+      signatureId: signature.id,
+    });
+    this.events?.estimate(BillingEventType.ESTIMATE_UPDATED, updated);
+    return { ...updated, items, signatures: await signatures.list('estimate', id) };
+  }
+
+  /** The client declines on the portal, optionally saying why. No signature involved. */
+  async declineByClient(id: string, input: { reason?: string }): Promise<EstimateWithItems> {
+    const found = await this.repo.get(id);
+    if (!found) throw new NotFoundException('Estimate not found');
+    const { estimate, items } = found;
+    assertClientCanDecide(estimate);
+    const now = new Date().toISOString();
+    const reason = input.reason?.trim();
+    const updated = await this.write(
+      id,
+      { ...statusChanges(estimate, 'declined', now), ...(reason && { declineReason: reason }), updatedAt: now },
+      reason ? [] : ['declineReason'],
+      estimate.version,
+    );
+    await this.clientTimeline(estimate.dealId, TimelineEventType.ESTIMATE_DECLINED, undefined, {
+      estimateId: id,
+      number: estimate.number,
+      ...(reason && { reason }),
+    });
+    this.events?.estimate(BillingEventType.ESTIMATE_UPDATED, updated);
+    return { ...updated, items, ...(await this.signaturesOf(id)) };
+  }
+
+  /**
+   * A signature collected in person (the technician's phone, Workiz
+   * "Signatures +"). It is evidence only: the status is the office's call.
+   */
+  async sign(id: string, input: SignEstimateInput, caller: Caller): Promise<EstimateWithItems> {
+    const { estimate, items } = await this.load(id, caller);
+    const signatures = this.requireSignatures();
+    const signature = await signatures.collect({
+      kind: 'estimate',
+      documentId: id,
+      ...(estimate.dealId && { dealId: estimate.dealId }),
+      contactId: estimate.contactId,
+      imageDataUrl: input.imageDataUrl,
+      signedBy: input.signedBy,
+      source: 'app',
+      collectedBy: caller.user.id,
+      ...(input.ip && { ip: input.ip }),
+    });
+    await this.timeline(estimate.dealId, TimelineEventType.ESTIMATE_STATUS_CHANGED, caller, {
+      estimateId: id,
+      number: estimate.number,
+      signedBy: signature.signedBy,
+      signatureId: signature.id,
+      signed: true,
+    });
+    return { ...estimate, items, signatures: await signatures.list('estimate', id) };
+  }
+
+  private requireSignatures(): SignaturesService {
+    if (!this.signatures) throw new UnprocessableEntityException('Signatures are not available');
+    return this.signatures;
+  }
+
+  /** A timeline entry whose actor is the client, not a staff user. */
+  private async clientTimeline(
+    dealId: string | undefined,
+    type: TimelineEventType,
+    clientName: string | undefined,
+    metadata: Record<string, unknown>,
+  ): Promise<void> {
+    if (!dealId) return;
+    await this.deal.addTimeline(dealId, type, 'client', metadata, clientName);
   }
 
   async markSent(id: string, sent: boolean, caller: Caller): Promise<EstimateWithItems> {

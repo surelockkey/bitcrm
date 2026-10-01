@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { DocumentsModule } from '../documents/documents.module';
+import { SignaturesModule } from '../signatures/signatures.module';
 import { EstimatesController } from './estimates.controller';
 import { EstimatesRepository } from './estimates.repository';
 import { EstimatesService } from './estimates.service';
@@ -8,7 +9,7 @@ import { EstimateReportRepository } from './report/estimate-report.repository';
 import { EstimateReportService } from './report/estimate-report.service';
 
 @Module({
-  imports: [DocumentsModule],
+  imports: [DocumentsModule, SignaturesModule],
   // The report's static `estimates/report/…` paths before `estimates/:id`.
   controllers: [EstimateReportController, EstimatesController],
   providers: [EstimatesRepository, EstimatesService, EstimateReportRepository, EstimateReportService],

@@ -23,6 +23,7 @@ import { EstimateItemDto, ItemTaxableDto, ReorderItemsDto } from '../estimates/d
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
 import { ListInvoicesQueryDto } from './dto/list-invoices-query.dto';
 import { UpdateInvoiceDto } from './dto/update-invoice.dto';
+import { SignDocumentDto } from '../signatures/dto/sign.dto';
 import { InvoicesService } from './invoices.service';
 
 const truthy = (v?: string) => v === '1' || v === 'true';
@@ -179,6 +180,19 @@ export class InvoicesController {
   @ApiOperation({ summary: 'Remove a line (client invoice)', description: '**Guard:** `invoices.edit`. 422 on a job invoice.' })
   async removeItem(@Param('id') id: string, @Param('lineId') lineId: string, @CallerCtx() caller: Caller) {
     return { success: true, data: await this.invoices.removeItem(id, lineId, caller) };
+  }
+
+  @Post(':id/signatures')
+  @RequirePermission('invoices', 'edit')
+  @HttpCode(201)
+  @ApiOperation({
+    summary: 'Collect a signature in person',
+    description:
+      '**Guard:** `invoices.edit`. The technician’s phone (Workiz "Signatures +"): PNG data URL + the ' +
+      'signer’s name. → the invoice with `signatures`.',
+  })
+  async sign(@Param('id') id: string, @Body() dto: SignDocumentDto, @CallerCtx() caller: Caller) {
+    return { success: true, data: await this.invoices.sign(id, dto, caller) };
   }
 
   @Post(':id/mark-sent')

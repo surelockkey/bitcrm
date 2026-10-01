@@ -59,6 +59,52 @@ export function markSentChanges(
   };
 }
 
+/**
+ * The deposit (Workiz "Set deposit": $ or %): a percent of the total OR a
+ * fixed amount, never both; `null` clears whichever is set.
+ */
+export function depositChanges(input: {
+  depositPercentage?: number | null;
+  depositAmount?: number | null;
+}): { set: Partial<Estimate>; remove: Array<'depositPercentage' | 'depositAmount'> } {
+  const pct = input.depositPercentage;
+  const amt = input.depositAmount;
+  if (pct === undefined && amt === undefined) return { set: {}, remove: [] };
+  if (pct != null && amt != null) {
+    throw new BadRequestException('A deposit is either a percent of the total or a fixed amount, not both');
+  }
+  // A key is never both SET and REMOVEd: only the other kind is cleared.
+  if (pct != null) {
+    if (!Number.isFinite(pct) || pct < 0 || pct > 100) {
+      throw new BadRequestException('A deposit percent must be between 0 and 100');
+    }
+    return pct > 0
+      ? { set: { depositPercentage: round2(pct) }, remove: ['depositAmount'] }
+      : { set: {}, remove: ['depositPercentage', 'depositAmount'] };
+  }
+  if (amt != null) {
+    if (!Number.isFinite(amt) || amt < 0) throw new BadRequestException('A deposit amount cannot be negative');
+    return amt > 0
+      ? { set: { depositAmount: round2(amt) }, remove: ['depositPercentage'] }
+      : { set: {}, remove: ['depositPercentage', 'depositAmount'] };
+  }
+  return { set: {}, remove: ['depositPercentage', 'depositAmount'] };
+}
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/**
+ * Only a SENT estimate that is still open (Workiz: Unsent or Pending — in
+ * practice Pending, since sending makes it so) can be approved or declined
+ * by the client. Anything else was already decided, by them or by staff.
+ */
+export function assertClientCanDecide(estimate: Pick<Estimate, 'status' | 'sentAt'>): void {
+  if (!estimate.sentAt) throw new UnprocessableEntityException('This estimate has not been sent');
+  if (estimate.status !== 'pending' && estimate.status !== 'unsent') {
+    throw new UnprocessableEntityException(`This estimate is already ${estimate.status}`);
+  }
+}
+
 export function assertSyncable(estimate: Pick<Estimate, 'status'>, itemCount: number): void {
   if (estimate.status === 'archived') {
     throw new UnprocessableEntityException('An archived estimate cannot be synced to the job');

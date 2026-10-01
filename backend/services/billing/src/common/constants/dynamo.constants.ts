@@ -124,6 +124,10 @@ export const BUSINESS_PROFILES_GSI1PK = 'BUSINESS_PROFILES';
 export const assetPk = (id: string) => `ASSET#${id}`;
 export const assetS3Key = (id: string) => `billing/assets/${id}`;
 
+/** `SIGNATURE#<kind>#<documentId>` / `<signedAt>#<id>` — a document's signatures, oldest first. */
+export const signaturePk = (kind: string, documentId: string) => `SIGNATURE#${kind}#${documentId}`;
+export const signatureSk = (signedAt: string, id: string) => `${signedAt}#${id}`;
+
 /** Rendered PDFs, content-addressed: `billing/pdfs/<docId>/<hash>.pdf`. */
 export const pdfS3Key = (docId: string, hash: string) => `billing/pdfs/${docId}/${hash}.pdf`;
 

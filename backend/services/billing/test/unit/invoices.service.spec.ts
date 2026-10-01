@@ -20,6 +20,7 @@ import {
   mockEvents,
   mockDocumentSettings,
   mockProfileService,
+  mockSignatures,
   profile,
 } from './mocks';
 
@@ -122,6 +123,60 @@ describe('InvoicesService', () => {
     service = build();
   });
   afterEach(() => jest.useRealTimers());
+
+  describe('signatures', () => {
+    const PNG = 'data:image/png;base64,iVBORw0KGgo=';
+    const withSignatures = (signatures: ReturnType<typeof mockSignatures>) =>
+      new InvoicesService(
+        repo as never,
+        deal as never,
+        crm as never,
+        profiles as never,
+        documents as never,
+        events as never,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        signatures as never,
+      );
+
+    it('the client signs a SENT invoice from the portal; the timeline says who', async () => {
+      const signatures = mockSignatures();
+      const svc = withSignatures(signatures);
+      await svc.create('deal-1', caller());
+      await svc.markSent('deal-1', true, caller());
+      const inv = await svc.signByClient('deal-1', { imageDataUrl: PNG, signedBy: 'Jane Client', ip: '9.9.9.9' });
+      expect(signatures.collect).toHaveBeenCalledWith(
+        expect.objectContaining({ kind: 'invoice', documentId: 'deal-1', dealId: 'deal-1', contactId: 'contact-1', source: 'portal', ip: '9.9.9.9' }),
+      );
+      expect(inv.signatures).toHaveLength(1);
+      expect(deal.addTimeline).toHaveBeenCalledWith(
+        'deal-1',
+        TimelineEventType.INVOICE_SIGNED,
+        'client',
+        expect.objectContaining({ invoiceId: 'deal-1', signedBy: 'Jane Client' }),
+        'Jane Client',
+      );
+    });
+
+    it('an unsent invoice cannot be signed from the portal', async () => {
+      const svc = withSignatures(mockSignatures());
+      await svc.create('deal-1', caller());
+      await expect(svc.signByClient('deal-1', { imageDataUrl: PNG, signedBy: 'J' })).rejects.toBeInstanceOf(
+        UnprocessableEntityException,
+      );
+    });
+
+    it('a technician collects a signature in person', async () => {
+      const signatures = mockSignatures();
+      const svc = withSignatures(signatures);
+      await svc.create('deal-1', caller());
+      const inv = await svc.sign('deal-1', { imageDataUrl: PNG, signedBy: 'Jane Client' }, caller(DataScope.ALL, { id: 'tech-7' }));
+      expect(signatures.collect).toHaveBeenCalledWith(expect.objectContaining({ source: 'app', collectedBy: 'tech-7' }));
+      expect(inv.signatures?.[0].signedBy).toBe('Jane Client');
+    });
+  });
 
   describe('create', () => {
     it('creates the job invoice: id and number are the job’s', async () => {

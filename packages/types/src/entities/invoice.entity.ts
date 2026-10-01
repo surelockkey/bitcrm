@@ -1,6 +1,7 @@
 import type { PaymentTerms } from '../enums/payment-terms.enum';
 import type { DocumentDiscount, DocumentTaxSource, DocumentTotals } from '../billing/totals';
 import type { ProductType } from '../enums/product-type.enum';
+import type { DocumentSignatureView } from './document-signature.entity';
 import type { OnlinePaymentMethod, Payment, PaymentSummary } from './payment.entity';
 
 /**
@@ -79,6 +80,11 @@ export interface Invoice {
    * chosen at send time. Absent ⇒ whatever the account settings allow.
    */
   allowedMethods?: OnlinePaymentMethod[];
+  /**
+   * Workiz "Request signature", chosen at send time: the portal asks the
+   * client to sign before paying. Absent ⇒ the account default.
+   */
+  requestSignature?: boolean;
   status: InvoiceStatus;
   /** Last known totals (kept fresh from deal events) for list views. */
   totals: DocumentTotals;
@@ -108,6 +114,8 @@ export interface InvoiceView extends Invoice {
   /** The ledger behind `totals.amountPaid`, newest first. */
   payments?: Payment[];
   paymentSummary?: PaymentSummary;
+  /** Every signature collected on it, oldest first (the document prints the latest). */
+  signatures?: DocumentSignatureView[];
 }
 
 /** Common line shape rendered on invoices/estimates. */

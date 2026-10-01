@@ -1,7 +1,8 @@
-import { Controller, Get, NotFoundException, Param, Query, Redirect, Req } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, NotFoundException, Param, Post, Query, Redirect, Req } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Public } from '@bitcrm/shared';
 import type { Request } from 'express';
+import { DeclineEstimateDto, SignDocumentDto } from '../signatures/dto/sign.dto';
 import { PortalRateLimiter, clientIp } from './portal-rate-limiter';
 import { isPlausibleToken } from './portal-token';
 import { PortalService, portalUrl } from './portal.service';
@@ -41,6 +42,64 @@ export class PublicPortalController {
   ) {
     await this.limiter.check(clientIp(req), token);
     return { success: true, data: await this.portal.publicHtml(token, kind, id) };
+  }
+
+  @Post(':token/estimate/:id/approve')
+  @Public()
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Approve an estimate (sign it)',
+    description:
+      '**Guard:** none (token), STRICT rate limit that fails closed. The signature is mandatory and is ' +
+      'stored FIRST; then the estimate becomes `approved`. 404 unless sent and the token’s own; 422 if ' +
+      'already decided. A deposit, when set, is collected next through the payment routes.',
+  })
+  async approve(
+    @Param('token') token: string,
+    @Param('id') id: string,
+    @Body() dto: SignDocumentDto,
+    @Req() req: Request,
+  ) {
+    const ip = clientIp(req);
+    await this.limiter.checkWrite(ip, token);
+    return { success: true, data: await this.portal.approveEstimate(token, id, { ...dto, ip }) };
+  }
+
+  @Post(':token/estimate/:id/decline')
+  @Public()
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Decline an estimate',
+    description: '**Guard:** none (token), STRICT rate limit. Optional reason. 404 unless sent and the token’s own.',
+  })
+  async decline(
+    @Param('token') token: string,
+    @Param('id') id: string,
+    @Body() dto: DeclineEstimateDto,
+    @Req() req: Request,
+  ) {
+    await this.limiter.checkWrite(clientIp(req), token);
+    return { success: true, data: await this.portal.declineEstimate(token, id, dto) };
+  }
+
+  @Post(':token/invoice/:id/sign')
+  @Public()
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Sign an invoice',
+    description:
+      '**Guard:** none (token), STRICT rate limit. Workiz "Request signature": the client signs before ' +
+      'paying. 404 unless sent and the token’s own.',
+  })
+  async sign(
+    @Param('token') token: string,
+    @Param('id') id: string,
+    @Body() dto: SignDocumentDto,
+    @Req() req: Request,
+  ) {
+    const ip = clientIp(req);
+    await this.limiter.checkWrite(ip, token);
+    return { success: true, data: await this.portal.signInvoice(token, id, { ...dto, ip }) };
   }
 
   @Get(':token/:kind/:id/pdf')

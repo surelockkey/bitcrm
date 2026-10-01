@@ -37,6 +37,7 @@ import { standaloneDocumentNumber } from '../common/document-number';
 import { BusinessProfileService } from '../business-profile/business-profile.service';
 import { DocumentSettingsService } from '../documents/document-settings.service';
 import { DocumentsService } from '../documents/documents.service';
+import { SignaturesService } from '../signatures/signatures.service';
 import { reorderPositions, sortItems } from '../estimates/estimate-rules';
 import { BillingEventsPublisher } from '../integrations/billing-events.publisher';
 import { CrmClient } from '../integrations/crm.client';
@@ -59,6 +60,13 @@ import {
   type InvoiceListFilter,
 } from './invoices.repository';
 import { UnpaidInvoicesRepository } from './unpaid-invoices.repository';
+
+/** A signature from the portal canvas (or the technician's phone). */
+export interface SignInvoiceInput {
+  imageDataUrl: string;
+  signedBy: string;
+  ip?: string;
+}
 
 export interface UpdateInvoiceInput {
   invoiceDate?: string;
@@ -198,6 +206,7 @@ export class InvoicesService {
     @Optional() @Inject(PaymentsRepository) private readonly ledger?: PaymentLedgerSource,
     @Optional() private readonly unpaid?: UnpaidInvoicesRepository,
     @Optional() private readonly documentSettings?: DocumentSettingsService,
+    @Optional() private readonly signatures?: SignaturesService,
   ) {}
 
   // ---------------------------------------------------------------- create
@@ -340,11 +349,92 @@ export class InvoicesService {
 
   async get(id: string, caller: Caller): Promise<InvoiceView> {
     const invoice = await this.require(id);
-    if (!hasJob(invoice)) return this.clientView(invoice, caller);
+    const base = hasJob(invoice) ? await this.jobView(invoice, caller) : await this.clientView(invoice, caller);
+    return { ...base, ...(await this.signaturesOf(id)) };
+  }
+
+  private async jobView(invoice: Invoice & { dealId: string }, caller: Caller): Promise<InvoiceView> {
     const view = await this.loadView(invoice.dealId);
     assertDealAccess(caller, 'invoices', view.deal);
     const fresh = await this.refreshSnapshot(invoice, view);
     return this.toView(fresh, view, await this.ledgerFor(invoice.id));
+  }
+
+  /** The document's signatures, oldest first — absent when signatures are not wired. */
+  private async signaturesOf(id: string): Promise<Pick<InvoiceView, 'signatures'>> {
+    if (!this.signatures) return {};
+    return { signatures: await this.signatures.list('invoice', id) };
+  }
+
+  // ------------------------------------------------------------ signatures
+
+  /**
+   * The client signs a SENT invoice on the portal (Workiz "Request
+   * signature"): taken before the payment, kept as evidence on the document.
+   */
+  async signByClient(id: string, input: SignInvoiceInput): Promise<InvoiceView> {
+    const invoice = await this.require(id);
+    if (!invoice.sentAt) throw new UnprocessableEntityException('This invoice has not been sent');
+    const signatures = this.requireSignatures();
+    const signature = await signatures.collect({
+      kind: 'invoice',
+      documentId: id,
+      ...(invoice.dealId && { dealId: invoice.dealId }),
+      contactId: invoice.contactId,
+      imageDataUrl: input.imageDataUrl,
+      signedBy: input.signedBy,
+      source: 'portal',
+      ...(input.ip && { ip: input.ip }),
+    });
+    if (hasJob(invoice)) {
+      await this.deal.addTimeline(
+        invoice.dealId,
+        TimelineEventType.INVOICE_SIGNED,
+        'client',
+        { invoiceId: id, number: invoice.number, signedBy: signature.signedBy, signatureId: signature.id },
+        signature.signedBy,
+      );
+    }
+    const base = hasJob(invoice)
+      ? this.toView(invoice, await this.loadView(invoice.dealId), await this.ledgerFor(id))
+      : this.toClientView(invoice, await this.repo.getItems(id), await this.ledgerFor(id));
+    return { ...base, signatures: await signatures.list('invoice', id) };
+  }
+
+  /** A signature collected in person by staff (the technician's phone). */
+  async sign(id: string, input: SignInvoiceInput, caller: Caller): Promise<InvoiceView> {
+    const invoice = await this.require(id);
+    const view = await this.accessView(invoice, caller);
+    const signatures = this.requireSignatures();
+    const signature = await signatures.collect({
+      kind: 'invoice',
+      documentId: id,
+      ...(invoice.dealId && { dealId: invoice.dealId }),
+      contactId: invoice.contactId,
+      imageDataUrl: input.imageDataUrl,
+      signedBy: input.signedBy,
+      source: 'app',
+      collectedBy: caller.user.id,
+      ...(input.ip && { ip: input.ip }),
+    });
+    if (hasJob(invoice)) {
+      await this.deal.addTimeline(
+        invoice.dealId,
+        TimelineEventType.INVOICE_SIGNED,
+        caller.user.id,
+        { invoiceId: id, number: invoice.number, signedBy: signature.signedBy, signatureId: signature.id },
+        caller.user.email,
+      );
+    }
+    const base = view
+      ? this.toView(invoice, view, await this.ledgerFor(id))
+      : this.toClientView(invoice, await this.repo.getItems(id), await this.ledgerFor(id));
+    return { ...base, signatures: await signatures.list('invoice', id) };
+  }
+
+  private requireSignatures(): SignaturesService {
+    if (!this.signatures) throw new UnprocessableEntityException('Signatures are not available');
+    return this.signatures;
   }
 
   async getByDeal(dealId: string, caller: Caller): Promise<InvoiceView | null> {

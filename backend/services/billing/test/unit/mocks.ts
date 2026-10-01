@@ -166,4 +166,34 @@ export function mockDocumentSettings(over: Record<string, unknown> = {}) {
   };
 }
 
+export function mockSignatures() {
+  const rows: any[] = [];
+  return {
+    rows,
+    collect: jest.fn(async (input: any) => {
+      const sig = {
+        id: `sig-${rows.length + 1}`,
+        kind: input.kind,
+        documentId: input.documentId,
+        ...(input.dealId && { dealId: input.dealId }),
+        contactId: input.contactId,
+        assetId: 'asset-sig',
+        signedBy: input.signedBy,
+        signedAt: new Date().toISOString(),
+        source: input.source,
+        ...(input.collectedBy && { collectedBy: input.collectedBy }),
+        ...(input.ip && { ip: input.ip }),
+      };
+      rows.push(sig);
+      return sig;
+    }),
+    list: jest.fn(async (kind: string, documentId: string) =>
+      rows
+        .filter((r) => r.kind === kind && r.documentId === documentId)
+        .map(({ assetId: _a, ...r }) => ({ ...r, imageUrl: `https://s3/${_a}` })),
+    ),
+    forRender: jest.fn(async () => undefined),
+  };
+}
+
 export { PaymentTerms, DataScope };

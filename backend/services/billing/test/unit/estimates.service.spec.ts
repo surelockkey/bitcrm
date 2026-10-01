@@ -24,6 +24,7 @@ import {
   mockDocumentSettings,
   mockDocuments,
   mockEvents,
+  mockSignatures,
 } from './mocks';
 
 function mockRepo() {
@@ -113,6 +114,122 @@ describe('EstimatesService', () => {
     );
   });
   afterEach(() => jest.useRealTimers());
+
+  describe('deposit', () => {
+    it('a percent of the total OR a fixed amount, never both; null clears', async () => {
+      const e = await service.create({ dealId: 'deal-1' }, caller());
+      const pct = await service.update(e.id, { depositPercentage: 50 }, caller());
+      expect(pct.depositPercentage).toBe(50);
+      expect(pct.depositAmount).toBeUndefined();
+      const amt = await service.update(e.id, { depositAmount: 75 }, caller());
+      expect(amt.depositAmount).toBe(75);
+      expect(amt.depositPercentage).toBeUndefined();
+      const none = await service.update(e.id, { depositAmount: null }, caller());
+      expect(none.depositAmount).toBeUndefined();
+      expect(none.depositPercentage).toBeUndefined();
+    });
+
+    it('refuses a percent over 100, a negative amount, or both at once', async () => {
+      const e = await service.create({ dealId: 'deal-1' }, caller());
+      await expect(service.update(e.id, { depositPercentage: 101 }, caller())).rejects.toBeInstanceOf(BadRequestException);
+      await expect(service.update(e.id, { depositAmount: -5 }, caller())).rejects.toBeInstanceOf(BadRequestException);
+      await expect(service.update(e.id, { depositPercentage: 10, depositAmount: 10 }, caller())).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+    });
+  });
+
+  describe('client approval (portal)', () => {
+    const PNG = 'data:image/png;base64,iVBORw0KGgo=';
+    let signatures: ReturnType<typeof mockSignatures>;
+    let withSignatures: EstimatesService;
+
+    beforeEach(() => {
+      signatures = mockSignatures();
+      withSignatures = new EstimatesService(
+        repo as never,
+        deal as never,
+        documents as never,
+        events as never,
+        undefined,
+        crm as never,
+        undefined,
+        signatures as never,
+      );
+    });
+
+    const sentEstimate = async () => {
+      const e = await withSignatures.create({ dealId: 'deal-1' }, caller());
+      await withSignatures.addItem(e.id, itemDto(), caller());
+      await withSignatures.markSent(e.id, true, caller());
+      return e.id;
+    };
+
+    it('approving signs first: the signature is stored, then the status becomes approved', async () => {
+      const id = await sentEstimate();
+      const approved = await withSignatures.approveByClient(id, { imageDataUrl: PNG, signedBy: 'Jane Client', ip: '1.2.3.4' });
+      expect(signatures.collect).toHaveBeenCalledWith(
+        expect.objectContaining({ kind: 'estimate', documentId: id, dealId: 'deal-1', contactId: 'contact-1', signedBy: 'Jane Client', source: 'portal', ip: '1.2.3.4' }),
+      );
+      expect(approved.status).toBe('approved');
+      expect(approved.approvedAt).toBe(NOW);
+      expect(approved.approvedVia).toBe('portal');
+      expect(deal.addTimeline).toHaveBeenCalledWith(
+        'deal-1',
+        TimelineEventType.ESTIMATE_APPROVED,
+        'client',
+        expect.objectContaining({ estimateId: id, signedBy: 'Jane Client' }),
+        'Jane Client',
+      );
+      expect(events.estimate).toHaveBeenCalledWith(BillingEventType.ESTIMATE_UPDATED, expect.objectContaining({ status: 'approved' }));
+    });
+
+    it('a client cannot approve an estimate that was never sent, or one already decided', async () => {
+      const unsent = await withSignatures.create({ dealId: 'deal-1' }, caller());
+      await expect(
+        withSignatures.approveByClient(unsent.id, { imageDataUrl: PNG, signedBy: 'J' }),
+      ).rejects.toBeInstanceOf(UnprocessableEntityException);
+      const id = await sentEstimate();
+      await withSignatures.setStatus(id, 'declined', caller());
+      await expect(withSignatures.approveByClient(id, { imageDataUrl: PNG, signedBy: 'J' })).rejects.toBeInstanceOf(
+        UnprocessableEntityException,
+      );
+      expect(signatures.collect).not.toHaveBeenCalled();
+    });
+
+    it('declining records the reason and the timeline, without a signature', async () => {
+      const id = await sentEstimate();
+      const declined = await withSignatures.declineByClient(id, { reason: 'Too expensive' });
+      expect(declined.status).toBe('declined');
+      expect(declined.declineReason).toBe('Too expensive');
+      expect(declined.declinedAt).toBe(NOW);
+      expect(signatures.collect).not.toHaveBeenCalled();
+      expect(deal.addTimeline).toHaveBeenCalledWith(
+        'deal-1',
+        TimelineEventType.ESTIMATE_DECLINED,
+        'client',
+        expect.objectContaining({ estimateId: id, reason: 'Too expensive' }),
+        undefined,
+      );
+    });
+
+    it('an in-person signature (mobile app) is collected by the staff user and does not change the status', async () => {
+      const id = await sentEstimate();
+      const e = await withSignatures.sign(id, { imageDataUrl: PNG, signedBy: 'Jane Client' }, caller(DataScope.ALL, { id: 'tech-7' }));
+      expect(signatures.collect).toHaveBeenCalledWith(
+        expect.objectContaining({ kind: 'estimate', documentId: id, source: 'app', collectedBy: 'tech-7' }),
+      );
+      expect(e.status).toBe('pending');
+      expect(e.signatures).toHaveLength(1);
+    });
+
+    it('get() carries the document’s signatures', async () => {
+      const id = await sentEstimate();
+      await withSignatures.sign(id, { imageDataUrl: PNG, signedBy: 'Jane Client' }, caller());
+      const e = await withSignatures.get(id, caller());
+      expect(e.signatures?.[0]).toMatchObject({ signedBy: 'Jane Client', imageUrl: expect.any(String) });
+    });
+  });
 
   describe('create', () => {
     it('numbers estimates <dealNumber>-<n> from the atomic per-job counter', async () => {

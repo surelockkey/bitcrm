@@ -59,6 +59,30 @@ export class AssetsService {
     return { id, uploadUrl: url, headers };
   }
 
+  /**
+   * Stores image bytes the SERVER already holds (a signature canvas export)
+   * as an asset — the browser upload path above is for template images.
+   */
+  async storeImage(buffer: Buffer, contentType: string, createdBy: string): Promise<BillingAsset> {
+    if (!(ALLOWED_ASSET_TYPES as readonly string[]).includes(contentType)) {
+      throw new BadRequestException(`Unsupported image type; use ${ALLOWED_ASSET_TYPES.join(', ')}`);
+    }
+    if (buffer.byteLength <= 0 || buffer.byteLength > MAX_ASSET_BYTES) {
+      throw new BadRequestException('Images must be at most 5 MB');
+    }
+    const id = randomUUID();
+    await this.s3.putObject(assetS3Key(id), buffer, { contentType, kmsKeyId: documentsKmsKeyId() });
+    const asset: BillingAsset = {
+      id,
+      contentType,
+      size: buffer.byteLength,
+      createdBy,
+      createdAt: new Date().toISOString(),
+    };
+    await this.repo.create(asset);
+    return asset;
+  }
+
   async getUrl(id: string): Promise<{ url: string }> {
     const asset = await this.repo.get(id);
     if (!asset) throw new NotFoundException('Asset not found');

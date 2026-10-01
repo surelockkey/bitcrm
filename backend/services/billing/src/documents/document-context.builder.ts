@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import {
   calculateDocumentTotals,
   lineAmount,
@@ -17,6 +17,7 @@ import { formatDisplayDate, resolveTimezone } from '../common/dates';
 import { CrmClient, type BillingContact } from '../integrations/crm.client';
 import { DealClient, type DealBillingView } from '../integrations/deal.client';
 import { paymentTermsLabel, termDays } from '../invoices/invoice-rules';
+import { SignaturesService } from '../signatures/signatures.service';
 
 export type BillingDocumentKind = 'invoice' | 'estimate';
 export type BillingDocument = InvoiceView | EstimateWithItems;
@@ -73,6 +74,7 @@ export class DocumentContextBuilder {
     private readonly crm: CrmClient,
     private readonly profiles: BusinessProfileService,
     private readonly assets: AssetsService,
+    @Optional() private readonly signatures?: SignaturesService,
   ) {}
 
   async build(
@@ -83,13 +85,15 @@ export class DocumentContextBuilder {
   ): Promise<DocumentRenderContext> {
     const deal = view?.deal;
     const companyId = doc.companyId ?? deal?.companyId;
-    const [profile, contact, company, areas, fieldDefs] = await Promise.all([
+    const [profile, contact, company, areas, fieldDefs, signature] = await Promise.all([
       // The job's company; unknown/absent (and every client document) → the default company.
       this.profiles.get(deal?.businessProfileId ?? view?.businessProfileId),
       this.safe(() => this.crm.getContact(doc.contactId ?? deal?.contactId ?? '')),
       companyId ? this.safe(() => this.crm.getCompany(companyId)) : Promise.resolve(null),
       deal?.serviceAreaId ? this.deal.listServiceAreas() : Promise.resolve([]),
       deal?.customFields ? this.deal.listCustomFields() : Promise.resolve([]),
+      // The latest signature, if the document was ever signed (portal or in person).
+      this.signatures ? this.safe(() => this.signatures!.forRender(kind, doc.id)) : Promise.resolve(undefined),
     ]);
     const area = areas.find((a) => a.id === deal?.serviceAreaId);
     const tz = resolveTimezone(area?.timezone);
@@ -199,6 +203,13 @@ export class DocumentContextBuilder {
         amountPaid: totals.amountPaid,
         balanceDue: totals.balanceDue,
       },
+      ...(signature && {
+        signature: {
+          imageUrl: signature.imageUrl,
+          signedBy: signature.signedBy,
+          signedAt: formatDisplayDate(signature.signedAt, tz) ?? signature.signedAt,
+        },
+      }),
       assets,
       currency: 'USD',
       today: formatDisplayDate(new Date().toISOString(), tz) ?? '',

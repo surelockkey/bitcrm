@@ -447,6 +447,20 @@ export { DEFAULT_BUSINESS_PROFILE, DEFAULT_BUSINESS_PROFILE_ID } from './entitie
 export type { BusinessProfile, BusinessProfileView, BillingAsset } from './entities/business-profile.entity';
 export type { PortalLink, PortalDocumentSummary, PortalView } from './entities/portal.entity';
 export type { DocumentSettings } from './entities/document-settings.entity';
+export type {
+  DocumentSignature,
+  DocumentSignatureView,
+  SignatureDocumentKind,
+  SignatureSource,
+} from './entities/document-signature.entity';
+export {
+  DECLINE_REASON_MAX_LENGTH,
+  SIGNATURE_DOCUMENT_KINDS,
+  SIGNATURE_IMAGE_TYPES,
+  SIGNATURE_MAX_BYTES,
+  SIGNATURE_SOURCES,
+  SIGNER_NAME_MAX_LENGTH,
+} from './entities/document-signature.entity';
 export {
   DEFAULT_DOCUMENT_NOTES,
   DEFAULT_DOCUMENT_SETTINGS,

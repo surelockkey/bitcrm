@@ -1,6 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsOptional, IsString, Matches, MaxLength, ValidateNested } from 'class-validator';
+import { IsNumber, IsOptional, IsString, Matches, Max, MaxLength, Min, ValidateIf, ValidateNested } from 'class-validator';
 import { DiscountDto } from '../../common/dto/discount.dto';
 
 export class UpdateEstimateDto {
@@ -33,6 +33,29 @@ export class UpdateEstimateDto {
   @IsOptional()
   @IsString()
   taxRateId?: string | null;
+
+  @ApiPropertyOptional({
+    example: 50,
+    nullable: true,
+    description: 'Workiz "Set deposit" as a percent of the total. Clears a fixed amount. `null` clears the deposit.',
+  })
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(100)
+  depositPercentage?: number | null;
+
+  @ApiPropertyOptional({
+    example: 75,
+    nullable: true,
+    description: 'Workiz "Set deposit" as a fixed amount. Clears a percent. `null` clears the deposit.',
+  })
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  depositAmount?: number | null;
 
   @ApiPropertyOptional({ type: DiscountDto, nullable: true })
   @IsOptional()

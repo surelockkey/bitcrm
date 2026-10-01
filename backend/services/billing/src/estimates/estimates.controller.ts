@@ -22,6 +22,7 @@ import { EstimateItemDto, ItemTaxableDto, ReorderItemsDto } from './dto/estimate
 import { SetEstimateStatusDto } from './dto/estimate-status.dto';
 import { ListEstimatesQueryDto } from './dto/list-estimates-query.dto';
 import { UpdateEstimateDto } from './dto/update-estimate.dto';
+import { SignDocumentDto } from '../signatures/dto/sign.dto';
 import { EstimatesService } from './estimates.service';
 
 const truthy = (v?: string) => v === '1' || v === 'true';
@@ -181,6 +182,19 @@ export class EstimatesController {
   })
   async sync(@Param('id') id: string, @CallerCtx() caller: Caller) {
     return { success: true, data: await this.estimates.syncToJob(id, caller) };
+  }
+
+  @Post(':id/signatures')
+  @RequirePermission('estimates', 'edit')
+  @HttpCode(201)
+  @ApiOperation({
+    summary: 'Collect a signature in person',
+    description:
+      '**Guard:** `estimates.edit`. The technician’s phone (Workiz "Signatures +"): PNG data URL + the ' +
+      'signer’s name. Evidence only — the status does not change. → the estimate with `signatures`.',
+  })
+  async sign(@Param('id') id: string, @Body() dto: SignDocumentDto, @CallerCtx() caller: Caller) {
+    return { success: true, data: await this.estimates.sign(id, dto, caller) };
   }
 
   @Post(':id/mark-sent')

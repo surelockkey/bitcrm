@@ -1,12 +1,15 @@
 import { Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
-import type {
-  BusinessProfile,
-  Estimate,
-  Invoice,
-  JwtUser,
-  PortalDocumentSummary,
-  PortalLink,
-  PortalView,
+import {
+  estimateDepositDue,
+  type BusinessProfile,
+  type Estimate,
+  type EstimateWithItems,
+  type Invoice,
+  type InvoiceView,
+  type JwtUser,
+  type PortalDocumentSummary,
+  type PortalLink,
+  type PortalView,
 } from '@bitcrm/types';
 import { BusinessProfileService } from '../business-profile/business-profile.service';
 import { PaymentSettingsService } from '../payments/payment-settings.service';
@@ -14,15 +17,18 @@ import { summarizePayments, round2 } from '../payments/payment-rules';
 import { PaymentsRepository } from '../payments/payments.repository';
 import { StripeService } from '../payments/stripe/stripe.service';
 import { portalBaseUrl } from '../common/constants/services.constants';
-import { EstimatesService } from '../estimates/estimates.service';
+import { EstimatesService, type SignEstimateInput } from '../estimates/estimates.service';
 import { CrmClient } from '../integrations/crm.client';
 import { DealClient } from '../integrations/deal.client';
-import { InvoicesService } from '../invoices/invoices.service';
+import { InvoicesService, type SignInvoiceInput } from '../invoices/invoices.service';
 import { generatePortalToken, hashPortalToken, isPlausibleToken, recoverPortalToken } from './portal-token';
 import { PortalRepository, type StoredPortalLink } from './portal.repository';
 
-type InvoiceSource = Pick<InvoicesService, 'listForContact' | 'getStored' | 'portalPdf' | 'portalHtml'>;
-type EstimateSource = Pick<EstimatesService, 'listForContact' | 'getStored' | 'portalPdf' | 'portalHtml'>;
+type InvoiceSource = Pick<InvoicesService, 'listForContact' | 'getStored' | 'portalPdf' | 'portalHtml' | 'signByClient'>;
+type EstimateSource = Pick<
+  EstimatesService,
+  'listForContact' | 'getStored' | 'portalPdf' | 'portalHtml' | 'approveByClient' | 'declineByClient'
+>;
 
 const notFound = () => new NotFoundException('This link is no longer valid');
 
@@ -141,6 +147,39 @@ export class PortalService {
       throw new NotFoundException('Document not found');
     }
     return invoice;
+  }
+
+  // ------------------------------------------------ the client's decisions
+
+  /**
+   * Approve = sign (Workiz: an estimate cannot be approved without a
+   * signature). The deposit, if any, is collected by the payments flow right
+   * after — see `PortalPaymentsService`.
+   */
+  async approveEstimate(token: string, estimateId: string, input: SignEstimateInput): Promise<EstimateWithItems> {
+    await this.sentEstimateFor(token, estimateId);
+    return this.estimates.approveByClient(estimateId, input);
+  }
+
+  async declineEstimate(token: string, estimateId: string, input: { reason?: string }): Promise<EstimateWithItems> {
+    await this.sentEstimateFor(token, estimateId);
+    return this.estimates.declineByClient(estimateId, input);
+  }
+
+  /** "Request signature" on an invoice: the client signs before paying. */
+  async signInvoice(token: string, invoiceId: string, input: SignInvoiceInput): Promise<InvoiceView> {
+    await this.sentInvoiceFor(token, invoiceId);
+    return this.invoices.signByClient(invoiceId, input);
+  }
+
+  /** The token's own, SENT estimate — same 404 for "not yours", "not sent" and "doesn't exist". */
+  async sentEstimateFor(token: string, estimateId: string): Promise<Estimate> {
+    const contactId = await this.resolveToken(token);
+    const estimate = await this.estimates.getStored(estimateId);
+    if (!estimate || estimate.contactId !== contactId || !estimate.sentAt) {
+      throw new NotFoundException('Document not found');
+    }
+    return estimate;
   }
 
   /** Resolves the token and proves the document is one of that contact's SENT ones. */
@@ -276,6 +315,7 @@ function invoiceSummary(i: Invoice): PortalDocumentSummary {
 }
 
 function estimateSummary(e: Estimate): PortalDocumentSummary {
+  const depositDue = estimateDepositDue(e);
   return {
     kind: 'estimate',
     id: e.id,
@@ -285,5 +325,9 @@ function estimateSummary(e: Estimate): PortalDocumentSummary {
     total: e.totals?.total ?? 0,
     ...(e.name && { name: e.name }),
     sent: !!e.sentAt,
+    // Still open ⇒ approving it means signing it.
+    signatureNeeded: !!e.sentAt && (e.status === 'pending' || e.status === 'unsent'),
+    signed: e.approvedVia === 'portal',
+    ...(depositDue > 0 && { depositDue }),
   };
 }

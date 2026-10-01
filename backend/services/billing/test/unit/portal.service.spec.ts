@@ -59,8 +59,21 @@ const estimate = (over: Partial<Estimate>): Estimate =>
 describe('PortalService', () => {
   let repo: ReturnType<typeof mockRepo>;
   let crm: ReturnType<typeof mockCrmClient>;
-  let invoices: { listForContact: jest.Mock; getStored: jest.Mock; portalPdf: jest.Mock; portalHtml: jest.Mock };
-  let estimates: { listForContact: jest.Mock; getStored: jest.Mock; portalPdf: jest.Mock; portalHtml: jest.Mock };
+  let invoices: {
+    listForContact: jest.Mock;
+    getStored: jest.Mock;
+    portalPdf: jest.Mock;
+    portalHtml: jest.Mock;
+    signByClient?: jest.Mock;
+  };
+  let estimates: {
+    listForContact: jest.Mock;
+    getStored: jest.Mock;
+    portalPdf: jest.Mock;
+    portalHtml: jest.Mock;
+    approveByClient: jest.Mock;
+    declineByClient: jest.Mock;
+  };
   let profiles: { getPublic: jest.Mock; listAll: jest.Mock };
   let deals: { listByContact: jest.Mock };
   let service: PortalService;
@@ -85,7 +98,10 @@ describe('PortalService', () => {
       getStored: jest.fn(async (id: string) => [sentEst, unsentEst].find((e) => e.id === id) ?? null),
       portalPdf: jest.fn(async () => ({ url: 'https://s3/est.pdf' })),
       portalHtml: jest.fn(async () => ({ html: '<html>estimate</html>' })),
+      approveByClient: jest.fn(async (id: string) => ({ ...sentEst, id, status: 'approved', items: [] })),
+      declineByClient: jest.fn(async (id: string) => ({ ...sentEst, id, status: 'declined', items: [] })),
     };
+    invoices.signByClient = jest.fn(async (id: string) => ({ ...sentInv, id, items: [], signatures: [{ signedBy: 'Jane' }] }));
     profiles = {
       getPublic: jest.fn(async (id?: string) => {
         if (id === 'bp-2') return { name: 'Second Brand', logoUrl: 'https://s3/logo-2' };
@@ -281,6 +297,61 @@ describe('PortalService', () => {
       await expect(service.publicHtml(token!, 'invoice', 'deal-2')).rejects.toBeInstanceOf(NotFoundException);
       await expect(service.publicHtml(token!, 'receipt', 'x')).rejects.toBeInstanceOf(NotFoundException);
       await expect(service.publicHtml('A'.repeat(43), 'invoice', 'deal-1')).rejects.toBeInstanceOf(NotFoundException);
+    });
+  });
+
+  describe('client decisions (approve / decline / sign)', () => {
+    const PNG = 'data:image/png;base64,iVBORw0KGgo=';
+
+    it('approves the token’s own SENT estimate through the estimate service, passing the client IP', async () => {
+      const { token } = await service.createLink('contact-1', user());
+      const out = await service.approveEstimate(token!, 'est-1', { imageDataUrl: PNG, signedBy: 'Jane', ip: '1.1.1.1' });
+      expect(estimates.approveByClient).toHaveBeenCalledWith('est-1', { imageDataUrl: PNG, signedBy: 'Jane', ip: '1.1.1.1' });
+      expect(out.status).toBe('approved');
+    });
+
+    it('declines with a reason', async () => {
+      const { token } = await service.createLink('contact-1', user());
+      const out = await service.declineEstimate(token!, 'est-1', { reason: 'Too much' });
+      expect(estimates.declineByClient).toHaveBeenCalledWith('est-1', { reason: 'Too much' });
+      expect(out.status).toBe('declined');
+    });
+
+    it('signs the token’s own SENT invoice', async () => {
+      const { token } = await service.createLink('contact-1', user());
+      const out = await service.signInvoice(token!, 'deal-1', { imageDataUrl: PNG, signedBy: 'Jane' });
+      expect(invoices.signByClient).toHaveBeenCalledWith('deal-1', { imageDataUrl: PNG, signedBy: 'Jane' });
+      expect(out.signatures).toHaveLength(1);
+    });
+
+    it('404s an unsent estimate, another contact’s document, or a bad token — nothing is written', async () => {
+      const { token } = await service.createLink('contact-1', user());
+      await expect(service.approveEstimate(token!, 'est-2', { imageDataUrl: PNG, signedBy: 'J' })).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+      await expect(service.declineEstimate(token!, 'est-2', {})).rejects.toBeInstanceOf(NotFoundException);
+      await expect(service.signInvoice(token!, 'deal-2', { imageDataUrl: PNG, signedBy: 'J' })).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+      await expect(service.approveEstimate('nope', 'est-1', { imageDataUrl: PNG, signedBy: 'J' })).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+      expect(estimates.approveByClient).not.toHaveBeenCalled();
+      expect(estimates.declineByClient).not.toHaveBeenCalled();
+      expect(invoices.signByClient).not.toHaveBeenCalled();
+    });
+
+    it('the inbox says which estimates still need a signature and what deposit is due', async () => {
+      estimates.listForContact.mockResolvedValueOnce([
+        estimate({ sentAt: NOW, depositPercentage: 50, totals: { total: 200, balanceDue: 200 } as never }),
+        estimate({ id: 'est-3', number: 'K4T9ZW-3', sentAt: NOW, status: 'approved', depositAmount: 30 }),
+      ]);
+      const { token } = await service.createLink('contact-1', user());
+      const view = await service.publicView(token!);
+      const open = view.estimates.find((e) => e.id === 'est-1')!;
+      const done = view.estimates.find((e) => e.id === 'est-3')!;
+      expect(open).toMatchObject({ signatureNeeded: true, depositDue: 100 });
+      expect(done).toMatchObject({ signatureNeeded: false, depositDue: 30 });
     });
   });
 
