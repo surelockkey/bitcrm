@@ -3,6 +3,7 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { ContactsService } from 'src/contacts/contacts.service';
 import { ContactsRepository } from 'src/contacts/contacts.repository';
 import { ContactsCacheService } from 'src/contacts/contacts-cache.service';
+import { ContactNotesRepository } from 'src/contacts/notes/contact-notes.repository';
 import { SnsPublisherService } from '@bitcrm/shared';
 import { CrmStatus, type Contact } from '@bitcrm/types';
 import {
@@ -168,5 +169,47 @@ describe('ContactsService.merge', () => {
       service.merge({ primaryId: 'contact-1', mergeIds: ['contact-2'] }),
     ).rejects.toThrow(BadRequestException);
     expect(repository.update).not.toHaveBeenCalled();
+  });
+
+  describe('client notes', () => {
+    let notes: { moveAll: jest.Mock };
+
+    beforeEach(async () => {
+      notes = { moveAll: jest.fn().mockResolvedValue(1) };
+      const module = await Test.createTestingModule({
+        providers: [
+          ContactsService,
+          { provide: ContactsRepository, useValue: repository },
+          { provide: ContactsCacheService, useValue: cache },
+          { provide: SnsPublisherService, useValue: snsPublisher },
+          { provide: ContactNotesRepository, useValue: notes },
+        ],
+      }).compile();
+      service = module.get(ContactsService);
+    });
+
+    it("moves every duplicate's NOTE# rows under the primary", async () => {
+      mockContacts(primary, dupA, dupB);
+
+      await service.merge({ primaryId: 'contact-1', mergeIds: ['contact-2', 'contact-3'] });
+
+      expect(notes.moveAll).toHaveBeenCalledTimes(2);
+      expect(notes.moveAll).toHaveBeenCalledWith('contact-2', 'contact-1');
+      expect(notes.moveAll).toHaveBeenCalledWith('contact-3', 'contact-1');
+    });
+
+    it('moves the notes before the duplicate is soft-deleted, so a failed move leaves it mergeable again', async () => {
+      mockContacts(primary, dupA);
+      const order: string[] = [];
+      notes.moveAll.mockImplementation(async () => { order.push('move'); return 1; });
+      repository.update.mockImplementation(async (id: string, attrs: Partial<Contact>) => {
+        if (attrs.status === CrmStatus.DELETED) order.push(`delete:${id}`);
+        return { ...(primary as Contact), ...attrs };
+      });
+
+      await service.merge({ primaryId: 'contact-1', mergeIds: ['contact-2'] });
+
+      expect(order).toEqual(['move', 'delete:contact-2']);
+    });
   });
 });

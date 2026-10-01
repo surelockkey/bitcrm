@@ -213,6 +213,16 @@ describe('ContactsRepository', () => {
 
       expect(result.nextCursor).toBeDefined();
     });
+
+    it('pins the Scan to METADATA rows, so the NOTE# rows sharing the partition never leak into the list', async () => {
+      dynamoDb.client.send.mockResolvedValue({ Items: [] });
+
+      await repository.findAll(20);
+
+      const input = dynamoDb.client.send.mock.calls[0][0].input;
+      expect(input.FilterExpression).toContain('SK = :sk');
+      expect(input.ExpressionAttributeValues[':sk']).toBe('METADATA');
+    });
   });
 
   describe('update', () => {
@@ -338,6 +348,9 @@ describe('ContactsRepository', () => {
       const sent = dynamoDb.client.send.mock.calls[0][0];
       expect(sent.input.Select).toBe('COUNT');
       expect(sent.input.ExpressionAttributeValues[':status']).toBe('active');
+      // Client notes share the CONTACT# partition; the count must not include them.
+      expect(sent.input.FilterExpression).toContain('SK = :sk');
+      expect(sent.input.ExpressionAttributeValues[':sk']).toBe('METADATA');
     });
 
     it('counts one company’s contacts on the company index', async () => {

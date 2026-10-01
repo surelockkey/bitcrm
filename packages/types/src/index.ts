@@ -39,6 +39,7 @@ export {
 export { User } from './entities/user.entity';
 export { Role } from './entities/role.entity';
 export { Contact } from './entities/contact.entity';
+export { ContactNote, CONTACT_NOTE_MAX_LENGTH } from './entities/contact-note.entity';
 export { Company } from './entities/company.entity';
 export { WorkOrder } from './entities/work-order.entity';
 export { CompanyDocument } from './entities/company-document.entity';
@@ -236,6 +237,10 @@ export type {
   DocumentEvent,
   SensitiveAccessedEvent,
 } from './events/user-events';
+
+// Event contract (contact-events topic)
+export { CONTACT_EVENT_TOPIC, ContactEventType } from './events/contact-events';
+export type { ContactNoteAddedEvent } from './events/contact-events';
 
 // Event contract (call-events topic)
 export { CALL_EVENT_TOPIC, CallEventType } from './events/call-events';

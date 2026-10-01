@@ -196,9 +196,16 @@ Deal reads contacts/companies (tax exemption) via crm's existing
 `GET /api/crm/contacts/internal/:id` and `GET /api/crm/companies/internal/:id`.
 
 ## Topic: `contact-events` / `crm` (published by crm-service)
-`contact.created`, `contact.updated`, `company.created`, `company.updated`, `contact.merged`.
+`contact.created`, `contact.updated`, `company.created`, `company.updated`, `contact.merged`,
+`contact.note_added`. Constants for the contact ones in `@bitcrm/types` (`events/contact-events.ts`).
 `contact.merged` (`{oldContactId, newContactId}`) is emitted once per absorbed duplicate by
 `ContactsService.merge`; deal-service re-points the old contact's active deals to the survivor.
+`contact.note_added` (`ContactNoteAddedEvent` `{contactId, noteId, actorId, actorName, createdAt}`) is
+emitted by `ContactNotesService.create` when a note is added to a client (the client card's Notes
+panel, `POST /api/crm/contacts/:id/notes`; rows `CONTACT#<id> / NOTE#<createdAt>#<noteId>`). No consumer
+yet — it is there for a client history feed to pick up. Edits, pins and deletes are not published.
+A merge moves the duplicates' notes under the survivor (`ContactNotesRepository.moveAll`) and
+announces nothing beyond the `contact.merged` it already sends.
 
 ## Topic: `call-events` (published by telephony-service)
 
