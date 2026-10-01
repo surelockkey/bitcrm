@@ -333,6 +333,54 @@ describe("NewDealPage — deferred file uploads", () => {
   });
 });
 
+describe("NewDealPage — opened from the client card", () => {
+  beforeEach(() => {
+    mocks.customFieldDefs = [];
+    mocks.requiredFields = {};
+    mocks.createDeal.mockReset();
+    mocks.push.mockReset();
+    mocks.effectiveArea = null;
+    mocks.createDeal.mockImplementation((_body: unknown, opts?: { onSuccess?: (d: unknown) => void }) =>
+      opts?.onSuccess?.({ id: "d-new", dealNumber: "NEW001" }),
+    );
+  });
+
+  it("`?then=estimate` lands on the new job's Estimates tab with a new estimate started", async () => {
+    mocks.searchParams = "contactId=c1&then=estimate";
+    const u = user();
+    render(<NewDealPage />);
+    await u.click(screen.getByRole("button", { name: /pick job type/i }));
+    await u.click(submit());
+    await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/deals/d-new?tab=estimates&estimate=new"));
+  });
+
+  it("`?then=invoice` lands on the new job's Invoice tab", async () => {
+    mocks.searchParams = "contactId=c1&then=invoice";
+    const u = user();
+    render(<NewDealPage />);
+    await u.click(screen.getByRole("button", { name: /pick job type/i }));
+    await u.click(submit());
+    await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/deals/d-new?tab=invoice"));
+  });
+
+  it("`?address=N` prefills the job with that one of the client's addresses; `address=new` leaves it empty", async () => {
+    contact.addresses.push({ street: "9 Oak Ave", unit: "", city: "Mesa", state: "AZ", zip: "85201" });
+    try {
+      mocks.searchParams = "contactId=c1&address=1";
+      const first = render(<NewDealPage />);
+      expect(screen.getByDisplayValue("9 Oak Ave")).toBeInTheDocument();
+      first.unmount();
+
+      mocks.searchParams = "contactId=c1&address=new";
+      render(<NewDealPage />);
+      expect(screen.queryByDisplayValue("1 Main")).toBeNull();
+      expect(screen.queryByDisplayValue("9 Oak Ave")).toBeNull();
+    } finally {
+      contact.addresses.pop();
+    }
+  });
+});
+
 describe("NewDealPage — service area on create", () => {
   beforeEach(() => {
     mocks.searchParams = "contactId=c1";

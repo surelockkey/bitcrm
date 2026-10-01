@@ -24,15 +24,18 @@ export function DealEstimatesTab({
   deal,
   estimateId,
   onEstimateChange,
+  startCreating = false,
 }: {
   deal: Deal;
   estimateId: string | null;
   onEstimateChange: (id: string | null) => void;
+  /** Arrive with the New estimate dialog open (the client card's Create new → Estimate). */
+  startCreating?: boolean;
 }) {
   const { can } = usePermissions();
   const { data: estimates, isLoading, isError, error, refetch } = useDealEstimates(deal.id);
   const { data: jobProducts } = useDealProducts(deal.id);
-  const [creating, setCreating] = useState(false);
+  const [creating, setCreating] = useState(startCreating);
 
   if (estimateId) {
     return (

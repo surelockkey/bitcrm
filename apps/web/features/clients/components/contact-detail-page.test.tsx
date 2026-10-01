@@ -65,6 +65,19 @@ vi.mock("@/features/billing/components/client-documents", () => ({
   ClientInvoicesList: () => <div data-testid="invoices-list" />,
 }));
 vi.mock("./contact-form", () => ({ ContactForm: () => <div data-testid="contact-form" /> }));
+vi.mock("@/features/payments/components/record-payment-dialog", () => ({
+  RecordPaymentDialog: ({ invoiceId, balanceDue, open, onOpenChange }: { invoiceId: string; balanceDue: number; open: boolean; onOpenChange: (o: boolean) => void }) =>
+    open ? (
+      <div data-testid="record-payment" data-invoice={invoiceId} data-balance={balanceDue}>
+        <button type="button" onClick={() => onOpenChange(false)}>Done</button>
+      </div>
+    ) : null,
+}));
+vi.mock("@/features/deals/components/address-autocomplete", () => ({
+  AddressAutocomplete: ({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) => (
+    <input aria-label="Address" placeholder={placeholder} value={value} onChange={(e) => onChange(e.target.value)} />
+  ),
+}));
 
 import { ContactDetailPage } from "./contact-detail-page";
 
@@ -233,12 +246,82 @@ describe("ContactDetailPage — the client card, laid out as Workiz's", () => {
     expect(screen.getByRole("tab", { name: /^Jobs/ })).toHaveTextContent("3+");
   });
 
-  it("Create new offers a job for this client and a text", async () => {
+  it("Create new has Workiz's items that BitCRM can honour: Job, Estimate, Invoice, Message, Address, Pay Invoices", async () => {
     await renderPage();
     await userEvent.click(screen.getByRole("button", { name: "Create new" }));
-    expect(await screen.findByRole("menuitem", { name: "Job" })).toHaveAttribute("href", "/deals/new?contactId=c1");
+    const items = await screen.findAllByRole("menuitem");
+    expect(items.map((i) => i.textContent?.trim())).toEqual(["Job", "Estimate", "Invoice", "Message", "Address", "Pay Invoices"]);
+    // Estimate and Invoice start a job for the client and land on that document.
+    expect(screen.getByRole("menuitem", { name: "Estimate" })).toHaveAttribute("href", "/deals/new?contactId=c1&then=estimate");
+    expect(screen.getByRole("menuitem", { name: "Invoice" })).toHaveAttribute("href", "/deals/new?contactId=c1&then=invoice");
     await userEvent.click(screen.getByRole("menuitem", { name: "Message" }));
     expect(await screen.findByTestId("party-chat")).toBeInTheDocument();
+  });
+
+  it("Create new → Job asks which of the client's addresses the job is at, as Workiz does", async () => {
+    await renderPage();
+    await userEvent.click(screen.getByRole("button", { name: "Create new" }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Job" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Select a service location" });
+    // One row per distinct address (the service address first), each with Use this address.
+    const uses = within(dialog).getAllByRole("link", { name: "Use this address" });
+    expect(uses).toHaveLength(3);
+    expect(uses[0]).toHaveAttribute("href", "/deals/new?contactId=c1&address=0");
+    expect(within(dialog).getByText("241 E Farm to Market Rd 1382, Cedar Hill, TX 75104")).toBeInTheDocument();
+    expect(within(dialog).getByRole("link", { name: "Create new location" })).toHaveAttribute("href", "/deals/new?contactId=c1&address=new");
+
+    await userEvent.type(within(dialog).getByRole("searchbox", { name: "Search property" }), "kyle");
+    expect(within(dialog).getAllByRole("link", { name: "Use this address" })).toHaveLength(1);
+  });
+
+  it("Create new → Address opens Workiz's side panel and saves the address onto the client", async () => {
+    const puts: unknown[] = [];
+    server.use(
+      http.put("*/crm/contacts/c1", async ({ request }) => {
+        const body = (await request.json()) as { addresses: unknown[] };
+        puts.push(body);
+        return HttpResponse.json({ success: true, data: { ...CONTACT, addresses: body.addresses } });
+      }),
+    );
+    await renderPage();
+    await userEvent.click(screen.getByRole("button", { name: "Create new" }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Address" }));
+
+    const panel = await screen.findByRole("dialog", { name: "Address" });
+    await userEvent.type(within(panel).getByRole("textbox", { name: "Address" }), "5 Oak Ave");
+    await userEvent.type(within(panel).getByRole("textbox", { name: "Unit" }), "2B");
+    await userEvent.type(within(panel).getByRole("textbox", { name: "City" }), "Austin");
+    await userEvent.type(within(panel).getByRole("textbox", { name: "State" }), "TX");
+    await userEvent.type(within(panel).getByRole("textbox", { name: "Zip" }), "78701");
+    await userEvent.click(within(panel).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(puts).toHaveLength(1));
+    const sent = (puts[0] as { addresses: { street: string }[] }).addresses;
+    expect(sent).toHaveLength(CONTACT.addresses.length + 1);
+    expect(sent.at(-1)).toMatchObject({ street: "5 Oak Ave", unit: "2B", city: "Austin", state: "TX", zip: "78701" });
+  });
+
+  it("Create new → Pay Invoices lists the unpaid invoices with a total, and records them one after another", async () => {
+    await renderPage();
+    await userEvent.click(screen.getByRole("button", { name: "Create new" }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Pay Invoices" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Pay 2 invoices" });
+    expect(within(dialog).getByRole("checkbox", { name: /Invoice #D1/ })).toBeChecked();
+    expect(within(dialog).getByRole("checkbox", { name: /Invoice #D2/ })).toBeChecked();
+    expect(dialog).toHaveTextContent("Total:$150.00");
+
+    await userEvent.click(within(dialog).getByRole("checkbox", { name: /Invoice #D2/ }));
+    expect(dialog).toHaveTextContent("Total:$100.00");
+    await userEvent.click(within(dialog).getByRole("checkbox", { name: /Invoice #D2/ }));
+
+    await userEvent.click(within(dialog).getByRole("button", { name: "Continue" }));
+    const first = await screen.findByTestId("record-payment");
+    expect(first).toHaveAttribute("data-invoice", "i1");
+    expect(first).toHaveAttribute("data-balance", "100");
+    await userEvent.click(within(first).getByRole("button", { name: "Done" }));
+    expect(await screen.findByTestId("record-payment")).toHaveAttribute("data-invoice", "i2");
   });
 
   it("a message button beside the phone opens the client's chat in a side panel, as on the job; no Messages tab", async () => {
@@ -255,13 +338,16 @@ describe("ContactDetailPage — the client card, laid out as Workiz's", () => {
     expect(screen.getByRole("dialog")).toHaveTextContent("CBRE Facilities Management");
   });
 
-  it("the card's menu edits or deletes the client, by permission", async () => {
+  it("the card's menu opens Workiz's Edit client info popup, or deletes the client, by permission", async () => {
     await renderPage();
-    await userEvent.click(screen.getByRole("button", { name: "Client actions" }));
-    expect(await screen.findByRole("menuitem", { name: "Edit client" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Edit client" }));
+    expect(await screen.findByRole("menuitem", { name: "Edit client info" })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: "Delete client" })).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("menuitem", { name: "Edit client" }));
-    expect(await screen.findByTestId("contact-form")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("menuitem", { name: "Edit client info" }));
+    const dialog = await screen.findByRole("dialog", { name: "Edit client info" });
+    expect(within(dialog).getByTestId("contact-form")).toBeInTheDocument();
+    // The card stays underneath: the popup is over it, not instead of it.
+    expect(screen.getByRole("complementary", { name: "Client", hidden: true })).toBeInTheDocument();
   });
 
   it("Notes open in the right rail", async () => {

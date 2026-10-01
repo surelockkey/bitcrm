@@ -75,6 +75,11 @@ export function NewDealPage() {
   // form so the created job keeps the call's attribution.
   const callSid = params.get("callSid") ?? undefined;
   const prefillContactId = params.get("contactId") ?? undefined;
+  // From the client card: which of its addresses the job is at (`address=1`,
+  // or `new` for none), and where to go once the job exists — a new estimate
+  // or the invoice, as Workiz's Create new → Estimate / Invoice do.
+  const prefillAddress = params.get("address");
+  const then = params.get("then");
   const prefillPhone = params.get("phone") ?? undefined;
   const prefillSourceId = params.get("sourceId") ?? undefined;
   // …and a company (business profile) from the number / call flow.
@@ -126,6 +131,8 @@ export function NewDealPage() {
           prefillPhone={prefillPhone}
           prefillSourceId={prefillSourceId}
           prefillCompanyId={prefillCompanyId}
+          prefillAddress={prefillAddress}
+          then={then}
           callSid={callSid}
           callsToLink={callsToLink}
           onCallsToLink={setCallsToLink}
@@ -155,6 +162,8 @@ function DealForm({
   prefillPhone,
   prefillSourceId,
   prefillCompanyId,
+  prefillAddress,
+  then,
   callSid,
   callsToLink,
   onCallsToLink,
@@ -169,6 +178,10 @@ function DealForm({
   prefillSourceId?: string;
   /** Company the referring call was attributed to. */
   prefillCompanyId?: string;
+  /** Which of the client's addresses the job is at (`"1"`), or `"new"` for none. */
+  prefillAddress?: string | null;
+  /** Where to go once the job exists: `estimate` or `invoice` (the client card's Create new). */
+  then?: string | null;
   callSid?: string;
   callsToLink: string[];
   onCallsToLink: (sids: string[]) => void;
@@ -247,17 +260,20 @@ function DealForm({
       clientType: ClientType.RESIDENTIAL,
       jobTypeId: "",
       serviceArea: "",
-      address: contact?.addresses?.[0]
-        ? {
-            street: contact.addresses[0].street,
-            unit: contact.addresses[0].unit ?? "",
-            city: contact.addresses[0].city,
-            state: contact.addresses[0].state,
-            zip: contact.addresses[0].zip,
-            lat: contact.addresses[0].lat,
-            lng: contact.addresses[0].lng,
-          }
-        : { street: "", unit: "", city: "", state: "", zip: "" },
+      address: (() => {
+        const picked = prefillAddress === "new" ? undefined : contact?.addresses?.[Number(prefillAddress ?? 0) || 0];
+        return picked
+          ? {
+              street: picked.street,
+              unit: picked.unit ?? "",
+              city: picked.city,
+              state: picked.state,
+              zip: picked.zip,
+              lat: picked.lat,
+              lng: picked.lng,
+            }
+          : { street: "", unit: "", city: "", state: "", zip: "" };
+      })(),
       scheduledDate: scheduleNow.date,
       scheduledEndDate: scheduleNow.date,
       scheduledTimeSlot: `${scheduleNow.start}-${scheduleNow.end}`,
@@ -554,7 +570,13 @@ function DealForm({
                 );
               }
             }
-            router.push(`/deals/${deal.id}`);
+            router.push(
+              then === "estimate"
+                ? `/deals/${deal.id}?tab=estimates&estimate=new`
+                : then === "invoice"
+                  ? `/deals/${deal.id}?tab=invoice`
+                  : `/deals/${deal.id}`,
+            );
           })();
         },
       },

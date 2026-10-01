@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import type { ClientType, Company, Contact, CompanyDocumentType } from "@bitcrm/types";
+import type { Address, ClientType, Company, Contact, CompanyDocumentType } from "@bitcrm/types";
 import { queryKeys } from "@/lib/query-keys";
 import { useGlobalSearch } from "@/features/search/use-global-search";
 import { getApiErrorMessage } from "@/lib/api/errors";
@@ -127,6 +127,22 @@ export function useCreateContact() {
     onSuccess: (c) => {
       invalidate();
       toast.success(`Contact “${contactName(c)}” created`);
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+}
+
+/** The client card's Address panel: one more address on the client, and refresh the card. */
+export function useSetContactAddresses(contactId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (addresses: Address[]) => api.setContactAddresses(contactId, addresses),
+    onSuccess: (contact) => {
+      qc.setQueryData(queryKeys.contacts.detail(contactId), (prev: Contact | undefined) =>
+        prev ? { ...prev, addresses: contact.addresses } : prev,
+      );
+      qc.invalidateQueries({ queryKey: queryKeys.contacts.detail(contactId) });
+      toast.success("Address added");
     },
     onError: (e) => toast.error(getApiErrorMessage(e)),
   });

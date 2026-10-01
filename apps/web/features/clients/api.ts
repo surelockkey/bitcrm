@@ -1,4 +1,4 @@
-import type {
+import type { Address,
   Contact,
   Company,
   ClientType,
@@ -46,6 +46,10 @@ export const searchContactByPhone = (phone: string): Promise<Contact | null> =>
 export const createContact = (
   body: CreateContactValues & { reassignPhones?: boolean },
 ): Promise<Contact> => http.post<Contact>("/crm/contacts", body);
+
+/** Only the client's addresses — the card's Address panel saves without touching the rest of the form. */
+export const setContactAddresses = (id: string, addresses: Address[]): Promise<Contact> =>
+  http.put<Contact>(`/crm/contacts/${id}`, { addresses });
 
 /** Only the client's tags — the card's chips save without touching the rest of the form. */
 export const setContactTags = (id: string, tagIds: string[]): Promise<Contact> =>

@@ -120,7 +120,10 @@ export function DealDetailPage({
   const setTags = useSetDealTags(dealId);
   const moveStatus = useMoveStatus(dealId);
   const [selectedTab, setSelectedTab] = useState<Tab>(initialTab ?? "details");
-  const [estimateId, setEstimateId] = useState<string | null>(initialEstimateId);
+  // `?estimate=new` (Create new → Estimate on the client card) is not an
+  // estimate: it opens the tab with the New estimate dialog already up.
+  const [estimateId, setEstimateId] = useState<string | null>(initialEstimateId === "new" ? null : initialEstimateId);
+  const startCreatingEstimate = initialEstimateId === "new";
   const canInvoices = can("invoices");
   const { data: invoice } = useInvoiceByDeal(dealId, canInvoices);
   const canPayments = can("payments");
@@ -320,7 +323,7 @@ export function DealDetailPage({
         {tab === "estimates" ? (
           <div className="relative flex-1 p-6">
             <div className="max-w-4xl">
-              <DealEstimatesTab deal={deal} estimateId={estimateId} onEstimateChange={openEstimate} />
+              <DealEstimatesTab deal={deal} estimateId={estimateId} onEstimateChange={openEstimate} startCreating={startCreatingEstimate} />
             </div>
           </div>
         ) : null}

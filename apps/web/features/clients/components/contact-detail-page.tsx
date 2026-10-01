@@ -3,7 +3,7 @@
 import { useCallback, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronDown, MessageSquareText, StickyNote, Wrench } from "lucide-react";
+import { ChevronDown, CreditCard, FileSpreadsheet, FileText, Home, MessageSquareText, StickyNote, Wrench } from "lucide-react";
 import type { Deal } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -21,12 +21,15 @@ import { amountDueByDeal, clientAddressRows, clientKpis } from "../client-page";
 import { useCompany, useContact, useDeleteContact } from "../hooks";
 import { contactName } from "../lib";
 import { ClientAddressesTab } from "./client-addresses-tab";
+import { ClientAddressSheet } from "./client-address-sheet";
+import { EditClientDialog } from "./edit-client-dialog";
+import { PayInvoicesDialog } from "./pay-invoices-dialog";
+import { ServiceLocationDialog } from "./service-location-dialog";
 import { ClientChatSheet } from "./client-chat-sheet";
 import { ClientJobsTab } from "./client-jobs-tab";
 import { ClientKpiStrip } from "./client-kpi-strip";
 import { ClientPaymentsTab } from "./client-payments-tab";
 import { ClientSummaryPanel } from "./client-summary-panel";
-import { ContactForm } from "./contact-form";
 import { DeleteClientDialog } from "./delete-client-dialog";
 
 const JOBS_PAGE = 50;
@@ -48,6 +51,9 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
   const [notesOpen, setNotesOpen] = useState(false);
   const [tab, setTab] = useState("jobs");
   const [chatOpen, setChatOpen] = useState(false);
+  const [locationOpen, setLocationOpen] = useState(false);
+  const [addressOpen, setAddressOpen] = useState(false);
+  const [payOpen, setPayOpen] = useState(false);
 
   const money = can("financials", "view");
   const jobs = useDealsPage({ contactId, limit: JOBS_PAGE, sort: "schedule", dir: "desc" }, !!contact);
@@ -76,17 +82,6 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
   const remove = () => del.mutate(contact.id, { onSuccess: () => router.push("/contacts") });
   const jobsCount = `${deals.length}${hasNextPage ? "+" : ""}`;
 
-  if (editing) {
-    return (
-      <div className="flex flex-1 flex-col overflow-y-auto">
-        <div className="mx-auto w-full max-w-2xl p-6">
-          <h1 className="mb-4 text-lg font-semibold tracking-tight">{contactName(contact)}</h1>
-          <ContactForm contact={contact} onCancel={() => setEditing(false)} onDone={() => setEditing(false)} />
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto md:flex-row md:overflow-hidden">
       <div className="md:w-80 md:shrink-0 md:overflow-y-auto">
@@ -114,16 +109,39 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
+              {/* Workiz's list, minus what BitCRM has nothing for (Lead, Service Plan). */}
               {can("deals", "create") ? (
+                <DropdownMenuItem onSelect={() => setLocationOpen(true)}>
+                  <Wrench className="size-4" /> Job
+                </DropdownMenuItem>
+              ) : null}
+              {can("deals", "create") && can("estimates", "create") ? (
                 <DropdownMenuItem asChild>
-                  <Link href={`/deals/new?contactId=${contact.id}`}>
-                    <Wrench className="size-4" /> Job
+                  <Link href={`/deals/new?contactId=${contact.id}&then=estimate`}>
+                    <FileSpreadsheet className="size-4" /> Estimate
+                  </Link>
+                </DropdownMenuItem>
+              ) : null}
+              {can("deals", "create") && can("invoices", "create") ? (
+                <DropdownMenuItem asChild>
+                  <Link href={`/deals/new?contactId=${contact.id}&then=invoice`}>
+                    <FileText className="size-4" /> Invoice
                   </Link>
                 </DropdownMenuItem>
               ) : null}
               {can("messages", "send") ? (
                 <DropdownMenuItem onSelect={() => setChatOpen(true)}>
                   <MessageSquareText className="size-4" /> Message
+                </DropdownMenuItem>
+              ) : null}
+              {can("contacts", "edit") ? (
+                <DropdownMenuItem onSelect={() => setAddressOpen(true)}>
+                  <Home className="size-4" /> Address
+                </DropdownMenuItem>
+              ) : null}
+              {can("invoices") && can("payments", "create") ? (
+                <DropdownMenuItem onSelect={() => setPayOpen(true)}>
+                  <CreditCard className="size-4" /> Pay Invoices
                 </DropdownMenuItem>
               ) : null}
             </DropdownMenuContent>
@@ -192,6 +210,10 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
       </div>
 
       <ClientChatSheet contactId={contact.id} name={contactName(contact)} phone={contact.phones[0]} open={chatOpen} onOpenChange={setChatOpen} />
+      <ServiceLocationDialog contact={contact} open={locationOpen} onOpenChange={setLocationOpen} />
+      <ClientAddressSheet contact={contact} open={addressOpen} onOpenChange={setAddressOpen} />
+      <PayInvoicesDialog invoices={invoices.data ?? []} open={payOpen} onOpenChange={setPayOpen} />
+      <EditClientDialog contact={contact} open={editing} onOpenChange={setEditing} />
 
       {/* Workiz's right rail. Notes is the one BitCRM has to show. */}
       <div className="flex shrink-0 gap-2 border-t p-2 md:flex-col md:border-t-0 md:border-l">

@@ -46,9 +46,9 @@ const estimate: EstimateWithItems = {
   ],
 };
 
-function Harness({ initial = null }: { initial?: string | null }) {
+function Harness({ initial = null, startCreating }: { initial?: string | null; startCreating?: boolean }) {
   const [id, setId] = useState<string | null>(initial);
-  return <DealEstimatesTab deal={deal} estimateId={id} onEstimateChange={setId} />;
+  return <DealEstimatesTab deal={deal} estimateId={id} onEstimateChange={setId} startCreating={startCreating} />;
 }
 
 const user = () => userEvent.setup({ pointerEventsCheck: 0 });
@@ -96,6 +96,11 @@ describe("DealEstimatesTab", () => {
     await u.click(screen.getByRole("button", { name: /create estimate/i }));
     await waitFor(() => expect(body).toEqual({ dealId: "d1", name: "Better", copyJobItems: true }));
     expect(await screen.findByRole("heading", { name: "Estimate #1042-2 · Better" })).toBeInTheDocument();
+  });
+
+  it("opens the New estimate dialog on arrival when asked to (Create new → Estimate from the client card)", async () => {
+    renderWithClient(<Harness startCreating />);
+    expect(await screen.findByRole("button", { name: /create estimate/i })).toBeInTheDocument();
   });
 
   it("hides New estimate without create permission", async () => {

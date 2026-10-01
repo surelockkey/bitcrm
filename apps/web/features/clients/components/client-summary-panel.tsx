@@ -76,14 +76,14 @@ export function ClientSummaryPanel({
         {canEdit || canDelete ? (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon-sm" aria-label="Client actions">
+              <Button variant="ghost" size="icon-sm" aria-label="Edit client" title="Edit client">
                 <MoreVertical className="size-4" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               {canEdit ? (
                 <DropdownMenuItem onSelect={onEdit}>
-                  <Pencil className="size-4" /> Edit client
+                  <Pencil className="size-4" /> Edit client info
                 </DropdownMenuItem>
               ) : null}
               {canEdit && canDelete ? <DropdownMenuSeparator /> : null}

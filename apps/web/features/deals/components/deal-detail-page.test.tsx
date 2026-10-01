@@ -239,8 +239,8 @@ vi.mock("@/features/invoices/components/deal-invoice-tab", () => ({
   DealInvoiceTab: () => <div data-testid="invoice-tab" />,
 }));
 vi.mock("@/features/estimates/components/deal-estimates-tab", () => ({
-  DealEstimatesTab: ({ estimateId }: { estimateId: string | null }) => (
-    <div data-testid="estimates-tab" data-estimate={estimateId ?? ""} />
+  DealEstimatesTab: ({ estimateId, startCreating }: { estimateId: string | null; startCreating?: boolean }) => (
+    <div data-testid="estimates-tab" data-estimate={estimateId ?? ""} data-creating={startCreating ? "1" : ""} />
   ),
 }));
 
@@ -697,6 +697,16 @@ describe("DealDetailPage (editable, single save)", () => {
 });
 
 describe("DealDetailPage — billing tabs and deep links", () => {
+  it("`?estimate=new` opens the Estimates tab with a new estimate started, not an estimate called \"new\"", () => {
+    mocks.perms.deals = true;
+    window.history.replaceState(null, "", "/deals/d1?tab=estimates&estimate=new");
+    render(<DealDetailPage dealId="d1" initialTab="estimates" initialEstimateId="new" />);
+
+    const tab = screen.getByTestId("estimates-tab");
+    expect(tab).toHaveAttribute("data-estimate", "");
+    expect(tab).toHaveAttribute("data-creating", "1");
+  });
+
   it("opens the tab named in the URL and keeps the URL in sync", async () => {
     mocks.perms.deals = true;
     window.history.replaceState(null, "", "/deals/d1?tab=estimates&estimate=e1");
