@@ -280,6 +280,17 @@ describe('DocumentsService', () => {
     expect(templates.resolveForDocument).toHaveBeenCalledWith({ kind: 'estimate', templateId: 'tpl-9' });
   });
 
+  it('the document’s own Advanced choices narrow the template’s visibility for the render', async () => {
+    templates.resolveForDocument.mockResolvedValueOnce(template({ visibility: { quantity: true, sku: true } as never }));
+    await service.html({ ...source, doc: { ...invoiceView(), display: { quantity: false } } });
+    expect(renderer.renderDocumentHtml).toHaveBeenCalledWith(
+      expect.objectContaining({ visibility: { quantity: false, sku: true } }),
+      ctx,
+      { mode: 'screen' },
+    );
+    expect(builder.build).toHaveBeenCalledWith('invoice', expect.anything(), expect.anything(), expect.objectContaining({ visibility: { quantity: false, sku: true } }));
+  });
+
   it('renders HTML in screen mode', async () => {
     await expect(service.html(source)).resolves.toEqual({ html: '<html>K4T9ZW:screen</html>' });
   });

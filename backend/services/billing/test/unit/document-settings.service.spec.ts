@@ -28,6 +28,23 @@ describe('DocumentSettingsService', () => {
     expect(s.depositAmount).toBeUndefined();
   });
 
+  it('ships Workiz’s default send messages per document, with short codes', async () => {
+    const s = await new DocumentSettingsService(mockRepo() as never).get();
+    expect(s.invoiceEmailSubject).toBe('Your invoice from {{business.name}}');
+    expect(s.invoiceMessage).toContain('{{client.firstName}}');
+    expect(s.invoiceMessage).toContain('{{portal_link}}');
+    expect(s.estimateEmailSubject).toBe('Your estimate from {{business.name}}');
+    expect(s.proposalEmailSubject).toBe('View your proposal from {{business.name}}');
+    expect(s.proposalMessage).toContain('{{portal_link}}');
+  });
+
+  it('a send message must keep the portal link', async () => {
+    const service = new DocumentSettingsService(mockRepo() as never);
+    await expect(service.update({ invoiceMessage: 'Hi, pay me' }, 'u-1')).rejects.toBeInstanceOf(BadRequestException);
+    const ok = await service.update({ invoiceMessage: 'Hi {{client.firstName}}, see {{portal_link}}' }, 'u-1');
+    expect(ok.invoiceMessage).toBe('Hi {{client.firstName}}, see {{portal_link}}');
+  });
+
   it('merges a partial update over what is stored and stamps the author', async () => {
     const repo = mockRepo({ estimateNotes: 'Old' });
     const service = new DocumentSettingsService(repo as never);

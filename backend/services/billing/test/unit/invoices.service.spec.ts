@@ -385,6 +385,18 @@ describe('InvoicesService', () => {
     });
   });
 
+  describe('send options (Workiz Send panel)', () => {
+    it('"Request signature" and the Advanced column choices are kept on the invoice', async () => {
+      await service.create('deal-1', caller());
+      const on = await service.update('deal-1', { requestSignature: true, display: { quantity: false, unitPrice: false } }, caller());
+      expect(on.requestSignature).toBe(true);
+      expect(on.display).toEqual({ quantity: false, unitPrice: false });
+      const off = await service.update('deal-1', { requestSignature: false, display: null }, caller());
+      expect(off.requestSignature).toBe(false);
+      expect(off.display).toBeUndefined();
+    });
+  });
+
   describe('update / send / delete', () => {
     beforeEach(async () => {
       await service.create('deal-1', caller());

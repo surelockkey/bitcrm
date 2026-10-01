@@ -1,5 +1,10 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { DEFAULT_DOCUMENT_SETTINGS, DOCUMENT_NOTES_MAX_LENGTH, type DocumentSettings } from '@bitcrm/types';
+import {
+  DEFAULT_DOCUMENT_SETTINGS,
+  DOCUMENT_NOTES_MAX_LENGTH,
+  PORTAL_LINK_SHORT_CODE,
+  type DocumentSettings,
+} from '@bitcrm/types';
 import { DocumentSettingsRepository } from './document-settings.repository';
 
 /** A PATCH-shaped update: `undefined` leaves a field alone, `null` clears the default deposit. */
@@ -10,7 +15,17 @@ export interface DocumentSettingsPatch {
   depositAmount?: number | null;
   requestInvoiceSignature?: boolean;
   showUnselectedProposalOptions?: boolean;
+  invoiceEmailSubject?: string;
+  invoiceMessage?: string;
+  estimateEmailSubject?: string;
+  estimateMessage?: string;
+  proposalEmailSubject?: string;
+  proposalMessage?: string;
 }
+
+const SUBJECT_KEYS = ['invoiceEmailSubject', 'estimateEmailSubject', 'proposalEmailSubject'] as const;
+const MESSAGE_KEYS = ['invoiceMessage', 'estimateMessage', 'proposalMessage'] as const;
+const SUBJECT_MAX_LENGTH = 250;
 
 const isNumber = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -64,6 +79,28 @@ export class DocumentSettingsService {
         }
         if (patch.depositAmount > 0) next.depositAmount = round2(patch.depositAmount);
       }
+    }
+
+    for (const key of SUBJECT_KEYS) {
+      const value = patch[key];
+      if (value === undefined) continue;
+      if (typeof value !== 'string' || !value.trim()) throw new BadRequestException(`${key} cannot be empty`);
+      if (value.length > SUBJECT_MAX_LENGTH) {
+        throw new BadRequestException(`${key} cannot be longer than ${SUBJECT_MAX_LENGTH} characters`);
+      }
+      next[key] = value.trim();
+    }
+    for (const key of MESSAGE_KEYS) {
+      const value = patch[key];
+      if (value === undefined) continue;
+      if (typeof value !== 'string' || !value.trim()) throw new BadRequestException(`${key} cannot be empty`);
+      if (value.length > DOCUMENT_NOTES_MAX_LENGTH) {
+        throw new BadRequestException(`${key} cannot be longer than ${DOCUMENT_NOTES_MAX_LENGTH} characters`);
+      }
+      if (!value.includes(PORTAL_LINK_SHORT_CODE)) {
+        throw new BadRequestException(`${key} must keep ${PORTAL_LINK_SHORT_CODE} — the client has nothing to open without it`);
+      }
+      next[key] = value.trim();
     }
 
     if (patch.requestInvoiceSignature !== undefined) next.requestInvoiceSignature = !!patch.requestInvoiceSignature;

@@ -1,7 +1,7 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsEnum, IsOptional, IsString, Matches, MaxLength, ValidateNested } from 'class-validator';
-import { PaymentTerms } from '@bitcrm/types';
+import { IsBoolean, IsEnum, IsObject, IsOptional, IsString, Matches, MaxLength, ValidateIf, ValidateNested } from 'class-validator';
+import { PaymentTerms, type DocumentVisibility } from '@bitcrm/types';
 import { DiscountDto } from '../../common/dto/discount.dto';
 
 const YMD = /^\d{4}-\d{2}-\d{2}$/;
@@ -41,6 +41,22 @@ export class UpdateInvoiceDto {
   @IsOptional()
   @IsString()
   taxRateId?: string | null;
+
+  @ApiPropertyOptional({ description: 'Workiz Send panel "Request signature": the portal asks the client to sign before paying.' })
+  @IsOptional()
+  @IsBoolean()
+  requestSignature?: boolean;
+
+  @ApiPropertyOptional({
+    type: Object,
+    nullable: true,
+    example: { quantity: false, unitPrice: false },
+    description: 'Workiz Send panel "Advanced": visibility keys (quantity, unitPrice, lineAmount, description, sku, …) the client sees. `null` = the template’s own.',
+  })
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsObject()
+  display?: Partial<DocumentVisibility> | null;
 
   @ApiPropertyOptional({ type: DiscountDto, nullable: true, description: 'CLIENT invoices only (422 on a job invoice).' })
   @IsOptional()

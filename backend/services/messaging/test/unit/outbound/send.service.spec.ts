@@ -243,6 +243,16 @@ describe('SendService.sendToConversation — email (M17)', () => {
   const withEmail = createMockConversation({ addresses: { phones: ['+14045551234'], emails: ['jane@example.com', 'j.doe@work.co'] } });
   const emailDto = (overrides: Partial<SendMessageDto> = {}) => dto({ channel: 'email', subject: '  Your key  ', body: 'Hi Jane,\n\nyour key is ready & waiting', ...overrides });
 
+  it('carries the Cc addresses, lower-cased and de-duplicated, never the recipient itself', async () => {
+    const { service } = makeService({ conversation: withEmail, email: emailReady() });
+    const m = await service.sendToConversation(
+      'c1',
+      emailDto({ cc: ['Boss@Example.com', 'boss@example.com', 'jane@example.com', 'office2@example.com'] }),
+      { user, perms: perms() },
+    );
+    expect(m.cc).toEqual(['boss@example.com', 'office2@example.com']);
+  });
+
   it('stores a queued email with both body renderings, the resolved sender and the recipient email, then enqueues it', async () => {
     const email = emailReady();
     const { service, messages, queue, sender, optOuts, events } = makeService({ conversation: withEmail, email });

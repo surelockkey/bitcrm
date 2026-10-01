@@ -40,4 +40,40 @@ export class UpdateDocumentSettingsDto {
   @IsOptional()
   @IsBoolean()
   showUnselectedProposalOptions?: boolean;
+
+  @ApiPropertyOptional({ example: 'Your invoice from {{business.name}}', maxLength: 250 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(250)
+  invoiceEmailSubject?: string;
+
+  @ApiPropertyOptional({ description: 'Must keep {{portal_link}}.', maxLength: DOCUMENT_NOTES_MAX_LENGTH })
+  @IsOptional()
+  @IsString()
+  @MaxLength(DOCUMENT_NOTES_MAX_LENGTH)
+  invoiceMessage?: string;
+
+  @ApiPropertyOptional({ example: 'Your estimate from {{business.name}}', maxLength: 250 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(250)
+  estimateEmailSubject?: string;
+
+  @ApiPropertyOptional({ description: 'Must keep {{portal_link}}.', maxLength: DOCUMENT_NOTES_MAX_LENGTH })
+  @IsOptional()
+  @IsString()
+  @MaxLength(DOCUMENT_NOTES_MAX_LENGTH)
+  estimateMessage?: string;
+
+  @ApiPropertyOptional({ example: 'View your proposal from {{business.name}}', maxLength: 250 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(250)
+  proposalEmailSubject?: string;
+
+  @ApiPropertyOptional({ description: 'Must keep {{portal_link}}.', maxLength: DOCUMENT_NOTES_MAX_LENGTH })
+  @IsOptional()
+  @IsString()
+  @MaxLength(DOCUMENT_NOTES_MAX_LENGTH)
+  proposalMessage?: string;
 }

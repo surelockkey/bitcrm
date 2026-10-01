@@ -30,6 +30,7 @@ import {
   type Payment,
   type PaymentSummary,
   type ProductType,
+  type DocumentVisibility,
 } from '@bitcrm/types';
 import { assertDealAccess, isAssignedOnly, type Caller } from '../common/access';
 import { isYmd, resolveTimezone, todayIn } from '../common/dates';
@@ -38,7 +39,7 @@ import { BusinessProfileService } from '../business-profile/business-profile.ser
 import { DocumentSettingsService } from '../documents/document-settings.service';
 import { DocumentsService } from '../documents/documents.service';
 import { SignaturesService } from '../signatures/signatures.service';
-import { reorderPositions, sortItems } from '../estimates/estimate-rules';
+import { displayOverrides, reorderPositions, sortItems } from '../estimates/estimate-rules';
 import { BillingEventsPublisher } from '../integrations/billing-events.publisher';
 import { CrmClient } from '../integrations/crm.client';
 import { DealClient, type DealBillingView } from '../integrations/deal.client';
@@ -74,6 +75,10 @@ export interface UpdateInvoiceInput {
   dueDate?: string;
   notes?: string | null;
   templateId?: string | null;
+  /** Workiz Send panel "Request signature": the portal asks the client to sign before paying. */
+  requestSignature?: boolean;
+  /** Workiz Send panel "Advanced": which details the client sees; `null` = the template's own. */
+  display?: Partial<DocumentVisibility> | null;
   /** CLIENT invoices only — a job invoice's tax and discount are the job's (422 otherwise). */
   taxRateId?: string | null;
   discount?: DocumentDiscount | null;
@@ -687,6 +692,12 @@ export class InvoicesService {
     if (input.templateId !== undefined) {
       if (input.templateId === null || input.templateId === '') remove.push('templateId');
       else set.templateId = input.templateId;
+    }
+    if (input.requestSignature !== undefined) set.requestSignature = !!input.requestSignature;
+    if (input.display !== undefined) {
+      const display = displayOverrides(input.display);
+      if (display) set.display = display;
+      else remove.push('display');
     }
   }
 

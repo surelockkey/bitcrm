@@ -636,6 +636,7 @@ export class SendService {
       bodyHtml: bodies?.html,
       from: sender.from,
       to,
+      ...(ccOf(dto.cc, to) && { cc: ccOf(dto.cc, to) }),
       contactAddress: to,
       inReplyTo: thread?.inReplyTo,
       references: thread?.references,
@@ -1235,4 +1236,18 @@ export class SendService {
       addresses: input.phones.map((address) => ({ address, source: input.addressSource })),
     });
   }
+}
+
+/** The Cc list as it goes out: lower-cased, de-duplicated, without the recipient; undefined when empty. */
+export function ccOf(cc: string[] | undefined, to: string): string[] | undefined {
+  if (!cc?.length) return undefined;
+  const seen = new Set<string>([to.trim().toLowerCase()]);
+  const out: string[] = [];
+  for (const raw of cc) {
+    const addr = raw.trim().toLowerCase();
+    if (!addr || seen.has(addr)) continue;
+    seen.add(addr);
+    out.push(addr);
+  }
+  return out.length ? out : undefined;
 }

@@ -3,6 +3,7 @@ import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
+  IsEmail,
   IsIn,
   IsInt,
   IsOptional,
@@ -102,6 +103,24 @@ export class SendMessageDto {
   @IsString()
   @Length(1, 250)
   subject?: string;
+
+  @ApiPropertyOptional({
+    type: [String],
+    description: 'Email only: up to five Cc addresses (Workiz Send panel "Cc"). The recipient itself is dropped.',
+    example: ['office@example.com'],
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(5)
+  @IsEmail({}, { each: true })
+  @ValidateBy({
+    name: 'ccEmailOnly',
+    validator: {
+      validate: (_: unknown, args?: ValidationArguments) => (args?.object as SendMessageDto | undefined)?.channel === 'email',
+      defaultMessage: () => 'cc is only for email',
+    },
+  })
+  cc?: string[];
 
   @ApiPropertyOptional({
     description: 'E.164 company number the agent picked in the composer; must be one the workspace may text from.',

@@ -1,7 +1,9 @@
 import { BadRequestException, UnprocessableEntityException } from '@nestjs/common';
 import {
   calculateDocumentTotals,
+  DEFAULT_DOCUMENT_VISIBILITY,
   type DocumentTotals,
+  type DocumentVisibility,
   type Estimate,
   type EstimateItem,
   type EstimateStatus,
@@ -145,4 +147,20 @@ export function estimateTotals(
     taxRatePercent: estimate.taxSource === 'exempt' ? 0 : estimate.taxRatePercent ?? 0,
     discount: estimate.discount ?? undefined,
   });
+}
+
+/**
+ * Workiz "Advanced: choose the details your client sees": only known
+ * visibility keys, only booleans; an empty choice means "the template's own".
+ */
+export function displayOverrides(
+  input: Partial<DocumentVisibility> | null | undefined,
+): Partial<DocumentVisibility> | undefined {
+  if (!input || typeof input !== 'object') return undefined;
+  const out: Partial<DocumentVisibility> = {};
+  for (const key of Object.keys(DEFAULT_DOCUMENT_VISIBILITY) as Array<keyof DocumentVisibility>) {
+    const value = (input as Record<string, unknown>)[key];
+    if (typeof value === 'boolean') out[key] = value;
+  }
+  return Object.keys(out).length ? out : undefined;
 }

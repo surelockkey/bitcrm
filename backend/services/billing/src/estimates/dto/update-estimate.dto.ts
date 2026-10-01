@@ -1,6 +1,7 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsNumber, IsOptional, IsString, Matches, Max, MaxLength, Min, ValidateIf, ValidateNested } from 'class-validator';
+import { IsNumber, IsObject, IsOptional, IsString, Matches, Max, MaxLength, Min, ValidateIf, ValidateNested } from 'class-validator';
+import type { DocumentVisibility } from '@bitcrm/types';
 import { DiscountDto } from '../../common/dto/discount.dto';
 
 export class UpdateEstimateDto {
@@ -56,6 +57,17 @@ export class UpdateEstimateDto {
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
   depositAmount?: number | null;
+
+  @ApiPropertyOptional({
+    type: Object,
+    nullable: true,
+    example: { unitPrice: false },
+    description: 'Workiz Send panel "Advanced": visibility keys the client sees. `null` = the template’s own.',
+  })
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsObject()
+  display?: Partial<DocumentVisibility> | null;
 
   @ApiPropertyOptional({ type: DiscountDto, nullable: true })
   @IsOptional()

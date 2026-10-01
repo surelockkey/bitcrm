@@ -24,6 +24,13 @@ describe('SendMessageDto', () => {
     expect(await errorsOf(SendMessageDto, { ...valid, body: 'x'.repeat(1601) })).toEqual(['body']);
   });
 
+  it('an email may carry up to five Cc addresses; a text may not', async () => {
+    expect(await errorsOf(SendMessageDto, { clientMessageId: CM, channel: 'email', subject: 's', body: 'x', cc: ['boss@example.com'] })).toEqual([]);
+    expect(await errorsOf(SendMessageDto, { clientMessageId: CM, channel: 'email', subject: 's', body: 'x', cc: ['not-an-email'] })).toEqual(['cc']);
+    expect(await errorsOf(SendMessageDto, { clientMessageId: CM, channel: 'email', subject: 's', body: 'x', cc: Array(6).fill('a@b.co') })).toEqual(['cc']);
+    expect(await errorsOf(SendMessageDto, { ...valid, cc: ['boss@example.com'] })).toEqual(['cc']);
+  });
+
   it('lets an email with attachments omit the body but demands a subject', async () => {
     const attachment = { id: CM, fileName: 'a.pdf', contentType: 'application/pdf', size: 10 };
     expect(await errorsOf(SendMessageDto, { clientMessageId: CM, channel: 'email', subject: 'Invoice', attachments: [attachment] })).toEqual([]);

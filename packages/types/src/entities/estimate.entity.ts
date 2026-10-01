@@ -1,6 +1,7 @@
 import type { DocumentDiscount, DocumentTaxSource, DocumentTotals } from '../billing/totals';
 import type { ProductType } from '../enums/product-type.enum';
 import type { DocumentSignatureView } from './document-signature.entity';
+import type { DocumentVisibility } from './document-template.entity';
 
 /**
  * Workiz estimate statuses. `pending` is set on send, `won` on sync-to-job,
@@ -61,6 +62,8 @@ export interface Estimate {
   discount?: DocumentDiscount;
   notes?: string;
   templateId?: string;
+  /** Workiz "Advanced: choose the details your client sees" — per-document overrides of the template's visibility. */
+  display?: Partial<DocumentVisibility>;
   sentAt?: string;
   sentBy?: string;
   approvedAt?: string;

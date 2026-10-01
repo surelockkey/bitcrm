@@ -5,6 +5,7 @@ import type {
   DocumentTemplate,
   DocumentTemplateContent,
   DocumentTemplateKind,
+  DocumentVisibility,
 } from '@bitcrm/types';
 import { pdfS3Key } from '../common/constants/dynamo.constants';
 import { documentsKmsKeyId } from '../common/constants/services.constants';
@@ -60,8 +61,13 @@ export class DocumentsService {
         businessProfileId: deal.businessProfileId,
       }),
     });
-    const ctx = await this.contexts.build(source.kind, source.doc, source.view, template);
-    return { template, ctx };
+    // Workiz "Advanced": the document's own choices narrow what the template shows.
+    const display = (source.doc as { display?: Partial<DocumentVisibility> }).display;
+    const shown: DocumentTemplate = display
+      ? { ...template, visibility: { ...(template.visibility ?? {}), ...display } as DocumentVisibility }
+      : template;
+    const ctx = await this.contexts.build(source.kind, source.doc, source.view, shown);
+    return { template: shown, ctx };
   }
 
   /** Render context of a real document with a given (unsaved) template body. */

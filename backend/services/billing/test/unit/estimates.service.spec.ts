@@ -389,6 +389,16 @@ describe('EstimatesService', () => {
     });
   });
 
+  describe('Advanced (what the client sees)', () => {
+    it('column choices are kept on the estimate and cleared with null', async () => {
+      const e = await service.create({ dealId: 'deal-1' }, caller());
+      const hidden = await service.update(e.id, { display: { unitPrice: false, lineAmount: false } }, caller());
+      expect(hidden.display).toEqual({ unitPrice: false, lineAmount: false });
+      const shown = await service.update(e.id, { display: null }, caller());
+      expect(shown.display).toBeUndefined();
+    });
+  });
+
   describe('update (tax / discount)', () => {
     let id: string;
     const rates: TaxRate[] = [

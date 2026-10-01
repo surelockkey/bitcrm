@@ -23,6 +23,7 @@ import {
   type EstimateStatus,
   type EstimateWithItems,
   type ListCount,
+  type DocumentVisibility,
 } from '@bitcrm/types';
 import { assertDealAccess, isAssignedOnly, type Caller } from '../common/access';
 import { isYmd, resolveTimezone, todayIn } from '../common/dates';
@@ -43,6 +44,7 @@ import {
   statusChanges,
   assertClientCanDecide,
   depositChanges,
+  displayOverrides,
 } from './estimate-rules';
 import {
   EstimateVersionConflictError,
@@ -72,6 +74,8 @@ export interface UpdateEstimateInput {
   /** Workiz "Set deposit": a percent of the total OR a fixed amount; `null` clears. */
   depositPercentage?: number | null;
   depositAmount?: number | null;
+  /** Workiz Send panel "Advanced": which details the client sees; `null` = the template's own. */
+  display?: Partial<DocumentVisibility> | null;
   templateId?: string | null;
   taxRateId?: string | null;
   discount?: DocumentDiscount | null;
@@ -397,6 +401,11 @@ export class EstimatesService {
     const deposit = depositChanges(input);
     Object.assign(set, deposit.set);
     remove.push(...deposit.remove);
+    if (input.display !== undefined) {
+      const display = displayOverrides(input.display);
+      if (display) set.display = display;
+      else remove.push('display');
+    }
 
     if (input.taxRateId !== undefined) {
       if (input.taxRateId === null) {
