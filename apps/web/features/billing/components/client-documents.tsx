@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { FileSpreadsheet, FileText } from "lucide-react";
 import type { ReactNode } from "react";
+import type { Estimate, Invoice } from "@bitcrm/types";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { formatMoney } from "@/features/billing/lib";
@@ -44,7 +45,13 @@ function DocList({
   return <ul className="divide-y rounded-lg border">{children}</ul>;
 }
 
-/** A client's invoices (all their jobs), each linking to the job's Invoice tab. */
+/** Where a document opens: its job's tab, or — with no job — its own page. */
+export const invoiceHref = (inv: Pick<Invoice, "id" | "dealId">): string =>
+  inv.dealId ? `/deals/${inv.dealId}?tab=invoice` : `/invoices/${inv.id}`;
+export const estimateHref = (e: Pick<Estimate, "id" | "dealId">): string =>
+  e.dealId ? `/deals/${e.dealId}?tab=estimates&estimate=${e.id}` : `/estimates/${e.id}`;
+
+/** A client's invoices — their jobs' and their own (no job) — each linking where it lives. */
 export function ClientInvoicesList({ contactIds }: { contactIds: string[] }) {
   const q = useInvoicesForContacts(contactIds);
   return (
@@ -52,7 +59,7 @@ export function ClientInvoicesList({ contactIds }: { contactIds: string[] }) {
       {q.data.map((inv) => (
         <li key={inv.id}>
           <Link
-            href={`/deals/${inv.dealId}?tab=invoice`}
+            href={invoiceHref(inv)}
             className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm hover:bg-accent/40"
           >
             <span className="font-mono font-medium">#{inv.number}</span>
@@ -74,7 +81,7 @@ export function ClientInvoicesList({ contactIds }: { contactIds: string[] }) {
   );
 }
 
-/** A client's estimates, each opening in its job's Estimates tab. */
+/** A client's estimates — their jobs' and their own (no job) — each linking where it lives. */
 export function ClientEstimatesList({ contactIds }: { contactIds: string[] }) {
   const q = useEstimatesForContacts(contactIds);
   return (
@@ -82,7 +89,7 @@ export function ClientEstimatesList({ contactIds }: { contactIds: string[] }) {
       {q.data.map((e) => (
         <li key={e.id}>
           <Link
-            href={`/deals/${e.dealId}?tab=estimates&estimate=${e.id}`}
+            href={estimateHref(e)}
             className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm hover:bg-accent/40"
           >
             <span className="font-mono font-medium">#{e.number}</span>

@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ChevronDown, CreditCard, FileSpreadsheet, FileText, Home, MessageSquareText, StickyNote, Wrench } from "lucide-react";
 import type { Deal } from "@bitcrm/types";
@@ -13,8 +12,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { ClientCallsLog } from "@/features/calls/components/client-calls-log";
 import { useDealsPage } from "@/features/deals/hooks";
-import { useEstimatesForContacts } from "@/features/estimates/hooks";
-import { useInvoicesForContacts } from "@/features/invoices/hooks";
+import { useCreateClientEstimate, useEstimatesForContacts } from "@/features/estimates/hooks";
+import { useCreateClientInvoice, useInvoicesForContacts } from "@/features/invoices/hooks";
 import { ClientEstimatesList, ClientInvoicesList } from "@/features/billing/components/client-documents";
 import { accountToday } from "@/features/reports/report-dates";
 import { amountDueByDeal, byJobDateDesc, clientAddressRows, clientKpis } from "../client-page";
@@ -63,6 +62,10 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
   const deals = useMemo<Deal[]>(() => (jobs.data?.pages.flatMap((p) => p.data) ?? []).slice().sort(byJobDateDesc), [jobs.data]);
   const invoices = useInvoicesForContacts([contactId], can("invoices"));
   const estimates = useEstimatesForContacts([contactId], can("estimates"));
+  // Workiz: Create new → Estimate / Invoice make the client's document at once
+  // (no job — "either a job or a client") and open it on its own page.
+  const createEstimate = useCreateClientEstimate();
+  const createInvoice = useCreateClientInvoice();
 
   const kpis = useMemo(() => clientKpis(invoices.data ?? [], estimates.data ?? [], accountToday()), [invoices.data, estimates.data]);
   const amountDue = useMemo(() => amountDueByDeal(invoices.data ?? []), [invoices.data]);
@@ -122,18 +125,24 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
                   <Wrench className="size-4" /> Job
                 </DropdownMenuItem>
               ) : null}
-              {can("deals", "create") && can("estimates", "create") ? (
-                <DropdownMenuItem asChild>
-                  <Link href={`/deals/new?contactId=${contact.id}&then=estimate`}>
-                    <FileSpreadsheet className="size-4" /> Estimate
-                  </Link>
+              {can("estimates", "create") ? (
+                <DropdownMenuItem
+                  disabled={createEstimate.isPending}
+                  onSelect={() =>
+                    createEstimate.mutate(contact.id, { onSuccess: (e) => router.push(`/estimates/${e.id}`) })
+                  }
+                >
+                  <FileSpreadsheet className="size-4" /> Estimate
                 </DropdownMenuItem>
               ) : null}
-              {can("deals", "create") && can("invoices", "create") ? (
-                <DropdownMenuItem asChild>
-                  <Link href={`/deals/new?contactId=${contact.id}&then=invoice`}>
-                    <FileText className="size-4" /> Invoice
-                  </Link>
+              {can("invoices", "create") ? (
+                <DropdownMenuItem
+                  disabled={createInvoice.isPending}
+                  onSelect={() =>
+                    createInvoice.mutate(contact.id, { onSuccess: (inv) => router.push(`/invoices/${inv.id}`) })
+                  }
+                >
+                  <FileText className="size-4" /> Invoice
                 </DropdownMenuItem>
               ) : null}
               {can("messages", "send") ? (

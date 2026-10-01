@@ -56,8 +56,10 @@ export const getEstimatesByDeal = (dealId: string): Promise<EstimateWithItems[]>
 export const getEstimate = (id: string): Promise<EstimateWithItems> =>
   http.get<EstimateWithItems>(`${BASE}/${id}`);
 
+/** Either a job (`dealId`) or a client alone (`contactId`) — Workiz's "either a job or a client". */
 export const createEstimate = (body: {
-  dealId: string;
+  dealId?: string;
+  contactId?: string;
   name?: string;
   copyJobItems?: boolean;
 }): Promise<EstimateWithItems> => http.post<EstimateWithItems>(BASE, body);

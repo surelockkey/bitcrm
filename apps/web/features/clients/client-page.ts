@@ -85,7 +85,10 @@ export function filterAddressRows(rows: ClientAddressRow[], query: string): Clie
 /** dealId → the balance still due on that job's invoice (Workiz's Amount Due column). */
 export function amountDueByDeal(invoices: Invoice[]): Map<string, number> {
   const map = new Map<string, number>();
-  for (const inv of invoices) map.set(inv.dealId, Math.max(0, inv.totals?.balanceDue ?? 0));
+  for (const inv of invoices) {
+    // A client invoice (no job) has no job row to show a balance on.
+    if (inv.dealId) map.set(inv.dealId, Math.max(0, inv.totals?.balanceDue ?? 0));
+  }
   return map;
 }
 

@@ -45,7 +45,8 @@ export function InvoicePaymentsSection({
 }) {
   const { can } = usePermissions();
   const canView = can("payments");
-  const canCollect = can("payments", "collect");
+  // The ledger is keyed by the job: a client invoice (no job) can be read but not paid yet.
+  const canCollect = can("payments", "collect") && !!invoice.dealId;
   const canGiveBack = can("payments", "refund");
   const ledger = useInvoicePayments(invoice.id, canView);
   const resend = useResendReceipt();

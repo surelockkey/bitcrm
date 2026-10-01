@@ -111,6 +111,20 @@ describe("InvoicesPage", () => {
     expect(mocks.push).toHaveBeenCalledWith("/deals/d1?tab=invoice");
   });
 
+  it("shows a dash in Job for a client invoice (no job) and opens its own page", async () => {
+    server.use(
+      http.get("*/billing/invoices/report", () =>
+        HttpResponse.json({ success: true, data: { items: [inv({ id: "inv-9", number: "1001", dealId: undefined })] } }),
+      ),
+    );
+    renderWithClient(<InvoicesPage />);
+    const row = await screen.findByRole("row", { name: /#1001/ });
+    expect(within(row).getAllByRole("cell")[10]).toHaveTextContent("—");
+    expect(within(row).queryByRole("link", { name: "1001" })).not.toBeInTheDocument();
+    await user().click(row);
+    expect(mocks.push).toHaveBeenCalledWith("/invoices/inv-9");
+  });
+
   it("filters Unsent from its card, and windows the cards on the chosen dates", async () => {
     renderWithClient(<InvoicesPage />);
     const u = user();

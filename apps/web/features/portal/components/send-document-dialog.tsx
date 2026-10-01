@@ -29,7 +29,8 @@ export interface SendableDocument {
   number: string;
   total: number;
   contactId: string;
-  dealId: string;
+  /** The job; absent for a client document (no job). */
+  dealId?: string;
   /** The job's company, for the "from …" in the text. */
   businessProfileId?: string;
   alreadySent: boolean;

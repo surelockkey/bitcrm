@@ -6,7 +6,8 @@ import type { Estimate } from "@bitcrm/types";
 import { server } from "@/test/msw/server";
 import { renderWithClient } from "@/test/render-with-client";
 
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), replace: vi.fn() }) }));
+const mocks = vi.hoisted(() => ({ push: vi.fn() }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.push, replace: vi.fn() }) }));
 vi.mock("next/link", () => ({
   default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => (
     <a href={href} {...rest}>{children}</a>
@@ -91,6 +92,23 @@ describe("EstimatesPage", () => {
     expect(within(row).getByText("$1,984.20")).toBeInTheDocument();
     // All time by default.
     expect(summaryCalls[0].has("from")).toBe(false);
+  });
+
+  it("shows a dash in Source for a client estimate (no job) and opens its own page", async () => {
+    server.use(
+      http.get("*/billing/estimates/report", () =>
+        HttpResponse.json({
+          success: true,
+          data: { items: [est({ id: "e9", number: "1141", dealId: undefined, dealNumber: undefined, name: "" })] },
+        }),
+      ),
+    );
+    renderWithClient(<EstimatesPage />);
+    const row = await screen.findByRole("row", { name: /#1141/ });
+    expect(within(row).queryByText(/Job - /)).not.toBeInTheDocument();
+    expect(within(row).getAllByRole("cell")[6]).toHaveTextContent("—");
+    await userEvent.setup({ pointerEventsCheck: 0 }).click(row);
+    expect(mocks.push).toHaveBeenCalledWith("/estimates/e9");
   });
 
   it("filters by a status card, windows on the chosen dates and exports", async () => {

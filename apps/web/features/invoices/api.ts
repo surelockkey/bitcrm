@@ -1,5 +1,6 @@
 import type { Invoice, InvoiceView, ListCount } from "@bitcrm/types";
 import { http } from "@/lib/api/http";
+import type { EstimateItemBody } from "@/features/estimates/schemas";
 import { buildInvoiceListQuery, type InvoiceListParams } from "./lib";
 import type { InvoicePatch } from "./schemas";
 
@@ -68,6 +69,27 @@ export const getInvoice = (id: string): Promise<InvoiceView> =>
 
 export const createInvoice = (dealId: string): Promise<InvoiceView> =>
   http.post<InvoiceView>(BASE, { dealId });
+
+/** Workiz's client card: an invoice for the client with no job (own lines, account-counter number). */
+export const createClientInvoice = (contactId: string): Promise<InvoiceView> =>
+  http.post<InvoiceView>(BASE, { contactId });
+
+/* ---- lines of a CLIENT invoice (a job invoice's lines are the job's items) */
+
+export const addInvoiceItem = (id: string, body: EstimateItemBody): Promise<InvoiceView> =>
+  http.post<InvoiceView>(`${BASE}/${id}/items`, body);
+
+export const updateInvoiceItem = (id: string, lineId: string, body: EstimateItemBody): Promise<InvoiceView> =>
+  http.put<InvoiceView>(`${BASE}/${id}/items/${lineId}`, body);
+
+export const setInvoiceItemTaxable = (id: string, lineId: string, taxable: boolean): Promise<InvoiceView> =>
+  http.patch<InvoiceView>(`${BASE}/${id}/items/${lineId}/taxable`, { taxable });
+
+export const deleteInvoiceItem = (id: string, lineId: string): Promise<InvoiceView> =>
+  http.delete<InvoiceView>(`${BASE}/${id}/items/${lineId}`);
+
+export const reorderInvoiceItems = (id: string, lineIds: string[]): Promise<InvoiceView> =>
+  http.put<InvoiceView>(`${BASE}/${id}/items-order`, { lineIds });
 
 export const updateInvoice = (id: string, body: InvoicePatch): Promise<InvoiceView> =>
   http.patch<InvoiceView>(`${BASE}/${id}`, body);

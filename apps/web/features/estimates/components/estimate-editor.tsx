@@ -58,27 +58,37 @@ import { EstimateItemsTable } from "./estimate-items-table";
 import { EstimateStatusBadge } from "./estimate-status-badge";
 import { EstimateStatusSelect } from "./estimate-status-select";
 
-/** One estimate, edited in place inside the job's Estimates tab. */
+/**
+ * One estimate, edited in place — inside the job's Estimates tab (`deal`
+ * given, `onBack` returns to the list) or on a client estimate's own page
+ * (no `deal`: Workiz's "stub", which has no job to sync to).
+ */
 export function EstimateEditor({
   estimateId,
   deal,
   onBack,
   onOpenEstimate,
+  onDeleted,
 }: {
   estimateId: string;
-  deal: Deal;
-  onBack: () => void;
+  deal?: Deal;
+  /** Back to the tab's list; absent on a page of its own (no "< Back" in page headers). */
+  onBack?: () => void;
   onOpenEstimate: (id: string) => void;
+  /** Where to go once the estimate is deleted; defaults to `onBack`. */
+  onDeleted?: () => void;
 }) {
   const { can } = usePermissions();
+  const dealId = deal?.id;
   const { data: estimate, isLoading, isError, error, isFetching } = useEstimate(estimateId);
-  const { data: jobProducts } = useDealProducts(deal.id);
-  const update = useUpdateEstimate(estimateId, deal.id);
-  const setStatus = useSetEstimateStatus(estimateId, deal.id);
-  const markSent = useMarkEstimateSent(estimateId, deal.id);
-  const duplicate = useDuplicateEstimate(deal.id);
-  const sync = useSyncEstimateToJob(estimateId, deal.id);
-  const del = useDeleteEstimate(deal.id);
+  const { data: jobProducts } = useDealProducts(dealId ?? "", !!dealId);
+  const update = useUpdateEstimate(estimateId, dealId);
+  const setStatus = useSetEstimateStatus(estimateId, dealId);
+  const markSent = useMarkEstimateSent(estimateId, dealId);
+  const duplicate = useDuplicateEstimate(dealId);
+  const sync = useSyncEstimateToJob(estimateId, dealId);
+  const del = useDeleteEstimate(dealId);
+  const afterDelete = onDeleted ?? onBack;
   const pdf = useOpenPdf(() => getEstimatePdfUrl(estimateId));
   const [previewing, setPreviewing] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -91,11 +101,11 @@ export function EstimateEditor({
     [estimate, items],
   );
 
-  const back = (
+  const back = onBack ? (
     <Button variant="ghost" size="sm" className="-ml-2 gap-1" onClick={onBack}>
       <ChevronLeft /> All estimates
     </Button>
-  );
+  ) : null;
 
   if (isLoading) {
     return (
@@ -121,8 +131,8 @@ export function EstimateEditor({
   const canCreate = can("estimates", "create");
   const canText = canSend && can("messages", "send");
   const canDelete = can("estimates", "delete");
-  const syncBlocked = syncBlockReason(estimate, items.length, can("estimates", "sync"));
-  const jobItemCount = jobProducts?.length ?? deal.itemCount ?? 0;
+  const syncBlocked = syncBlockReason(estimate, items.length, can("estimates", "sync"), !!deal);
+  const jobItemCount = jobProducts?.length ?? deal?.itemCount ?? 0;
   // Server totals lag item edits by a refetch; the shared formula bridges it.
   const totals = isFetching ? localTotals : estimate.totals ?? localTotals;
 
@@ -259,7 +269,7 @@ export function EstimateEditor({
         </div>
       </section>
 
-      <EstimateItemsTable estimateId={estimate.id} dealId={deal.id} items={items} canEdit={canEdit} />
+      <EstimateItemsTable estimateId={estimate.id} dealId={dealId} items={items} canEdit={canEdit} />
 
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <DocField label="Estimate notes" htmlFor="estimate-notes" className="sm:flex-1">
@@ -320,8 +330,8 @@ export function EstimateEditor({
             number: estimate.number,
             total: estimate.totals?.total ?? 0,
             contactId: estimate.contactId,
-            dealId: deal.id,
-            businessProfileId: deal.businessProfileId,
+            dealId,
+            businessProfileId: deal?.businessProfileId,
             alreadySent: !!estimate.sentAt,
           }}
           markSent={() => markSent.mutateAsync(true)}
@@ -333,14 +343,16 @@ export function EstimateEditor({
           <AlertDialogHeader>
             <AlertDialogTitle>Delete estimate #{estimate.number}?</AlertDialogTitle>
             <AlertDialogDescription>
-              The estimate and its items are removed. The job&apos;s own items are not affected.
+              {deal
+                ? "The estimate and its items are removed. The job's own items are not affected."
+                : "The estimate and its items are removed from the client's card."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-white hover:bg-destructive/90"
-              onClick={() => del.mutate(estimate.id, { onSuccess: onBack })}
+              onClick={() => del.mutate(estimate.id, { onSuccess: afterDelete })}
             >
               Delete
             </AlertDialogAction>

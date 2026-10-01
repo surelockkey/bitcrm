@@ -33,6 +33,7 @@ import { formatYmd } from "@/features/billing/dates";
 import { useOpenPdf } from "@/features/billing/open-pdf";
 import { CommitInput, CommitTextarea, DocField } from "@/features/billing/components/document-field";
 import { DocumentPreviewDialog } from "@/features/billing/components/document-preview-dialog";
+import { DocumentSummaryPanel } from "@/features/billing/components/document-summary-panel";
 import { DocumentTemplateSelect } from "@/features/billing/components/document-template-select";
 import { CopyPortalLinkButton } from "@/features/portal/components/copy-portal-link-button";
 import { useInvoicePayments } from "@/features/payments/hooks";
@@ -50,6 +51,7 @@ import {
 } from "../hooks";
 import { PAYMENT_TERMS_OPTIONS, canCreateInvoice, dueDateForTerms } from "../lib";
 import { invoiceEditSchema, type InvoicePatch } from "../schemas";
+import { InvoiceItemsTable } from "./invoice-items-table";
 import { InvoiceStatusBadge } from "./invoice-status-badge";
 import { SentBadge } from "./sent-badge";
 
@@ -121,14 +123,30 @@ function NoInvoice({ deal, canCreate }: { deal: Deal; canCreate: boolean }) {
   );
 }
 
-function InvoiceDetail({ deal, invoice, canEditItems }: { deal: Deal; invoice: InvoiceView; canEditItems: boolean }) {
+/**
+ * One invoice, edited in place — the job's (`deal` given: its items, tax and
+ * discount are the job's, edited on the job) or a client's on its own page
+ * (no `deal`: it owns its lines, tax and discount).
+ */
+export function InvoiceDetail({
+  deal,
+  invoice,
+  canEditItems,
+  onDeleted,
+}: {
+  deal?: Deal;
+  invoice: InvoiceView;
+  canEditItems: boolean;
+  /** Where to go once the invoice is deleted (a client invoice's page has nothing left to show). */
+  onDeleted?: () => void;
+}) {
   const { can } = usePermissions();
   const canEdit = can("invoices", "edit");
   const canSend = can("invoices", "send");
   const canDelete = can("invoices", "delete");
   const update = useUpdateInvoice(invoice);
-  const markSent = useMarkInvoiceSent(deal.id);
-  const del = useDeleteInvoice(deal.id);
+  const markSent = useMarkInvoiceSent(deal?.id);
+  const del = useDeleteInvoice(deal?.id);
   const pdf = useOpenPdf(() => getInvoicePdfUrl(invoice.id));
   const [previewing, setPreviewing] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -269,14 +287,35 @@ function InvoiceDetail({ deal, invoice, canEditItems }: { deal: Deal; invoice: I
         </div>
       </section>
 
-      <DealProductsTab
-        deal={deal}
-        canEdit={canEditItems}
-        showPayments
-        paymentSummary={paymentSummary}
-      />
+      {deal ? (
+        <DealProductsTab
+          deal={deal}
+          canEdit={canEditItems}
+          showPayments
+          paymentSummary={paymentSummary}
+        />
+      ) : (
+        <>
+          <InvoiceItemsTable invoiceId={invoice.id} items={invoice.items} canEdit={canEditItems} />
+          <div className="flex justify-end">
+            <DocumentSummaryPanel
+              totals={paidTotals}
+              taxRateId={invoice.taxRateId}
+              taxRateName={invoice.taxRateName}
+              taxSource={invoice.taxSource}
+              discount={invoice.discount}
+              canEdit={canEdit}
+              pending={update.isPending && (update.variables?.taxRateId !== undefined || update.variables?.discount !== undefined)}
+              onTaxChange={(taxRateId) => update.mutate({ taxRateId })}
+              onDiscountChange={(discount) => update.mutate({ discount })}
+              showPayments
+              paymentSummary={paymentSummary}
+            />
+          </div>
+        </>
+      )}
 
-      <InvoicePaymentsSection invoice={invoice} dealId={deal.id} />
+      <InvoicePaymentsSection invoice={invoice} dealId={deal?.id} />
 
       <DocField label="Invoice notes" htmlFor="invoice-notes">
         <CommitTextarea
@@ -311,8 +350,8 @@ function InvoiceDetail({ deal, invoice, canEditItems }: { deal: Deal; invoice: I
             number: invoice.number,
             total: invoice.totals?.total ?? 0,
             contactId: invoice.contactId,
-            dealId: deal.id,
-            businessProfileId: deal.businessProfileId,
+            dealId: deal?.id,
+            businessProfileId: deal?.businessProfileId,
             alreadySent: !!invoice.sentAt,
             allowedMethods: invoice.allowedMethods,
           }}
@@ -325,15 +364,16 @@ function InvoiceDetail({ deal, invoice, canEditItems }: { deal: Deal; invoice: I
           <AlertDialogHeader>
             <AlertDialogTitle>Delete invoice #{invoice.number}?</AlertDialogTitle>
             <AlertDialogDescription>
-              The invoice is removed from the invoices list and the client portal. The items stay on
-              the job — you can create the invoice again later.
+              {deal
+                ? "The invoice is removed from the invoices list and the client portal. The items stay on the job — you can create the invoice again later."
+                : "The invoice and its items are removed from the invoices list, the client's card and the client portal."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-white hover:bg-destructive/90"
-              onClick={() => del.mutate(invoice.id)}
+              onClick={() => del.mutate(invoice.id, { onSuccess: onDeleted })}
             >
               Delete
             </AlertDialogAction>

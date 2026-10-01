@@ -140,7 +140,11 @@ export function AgingInvoicesPage() {
                   {(r?.items ?? []).map((row) => (
                     <TableRow key={row.invoiceId} className="align-top">
                       <TableCell className="whitespace-nowrap font-mono">
-                        <Link href={`/deals/${row.dealId}?tab=invoice`} className="text-primary hover:underline">
+                        <Link
+                          // A client invoice (no job) lives on its own page.
+                          href={row.dealId ? `/deals/${row.dealId}?tab=invoice` : `/invoices/${row.invoiceId}`}
+                          className="text-primary hover:underline"
+                        >
                           {row.number}
                         </Link>
                       </TableCell>

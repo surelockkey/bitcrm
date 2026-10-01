@@ -124,7 +124,25 @@ export function useCreateEstimate(dealId: string) {
   });
 }
 
-export function useUpdateEstimate(id: string, dealId: string) {
+/**
+ * Workiz's client card: Create new → Estimate makes the client's estimate with
+ * no job at once (number from the account counter, empty items) and opens it.
+ */
+export function useCreateClientEstimate() {
+  const invalidate = useInvalidateEstimates();
+  const put = usePutDetail();
+  return useMutation({
+    mutationFn: (contactId: string) => api.createEstimate({ contactId }),
+    onSuccess: (e) => {
+      put(e);
+      invalidate();
+      toast.success(`Estimate #${e.number} created`);
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+}
+
+export function useUpdateEstimate(id: string, dealId?: string) {
   const qc = useQueryClient();
   const invalidate = useInvalidateEstimates();
   const key = queryKeys.estimates.detail(id);
@@ -158,7 +176,7 @@ export function useUpdateEstimate(id: string, dealId: string) {
   });
 }
 
-export function useSetEstimateStatus(id: string, dealId: string) {
+export function useSetEstimateStatus(id: string, dealId?: string) {
   const qc = useQueryClient();
   const invalidate = useInvalidateEstimates();
   const key = queryKeys.estimates.detail(id);
@@ -179,7 +197,7 @@ export function useSetEstimateStatus(id: string, dealId: string) {
   });
 }
 
-export function useAddEstimateItem(id: string, dealId: string) {
+export function useAddEstimateItem(id: string, dealId?: string) {
   const invalidate = useInvalidateEstimates();
   return useMutation({
     mutationFn: (body: EstimateItemBody) => api.addEstimateItem(id, body),
@@ -191,7 +209,7 @@ export function useAddEstimateItem(id: string, dealId: string) {
   });
 }
 
-export function useUpdateEstimateItem(id: string, dealId: string) {
+export function useUpdateEstimateItem(id: string, dealId?: string) {
   const invalidate = useInvalidateEstimates();
   return useMutation({
     mutationFn: ({ lineId, body }: { lineId: string; body: EstimateItemBody }) =>
@@ -204,7 +222,7 @@ export function useUpdateEstimateItem(id: string, dealId: string) {
   });
 }
 
-export function useSetEstimateItemTaxable(id: string, dealId: string) {
+export function useSetEstimateItemTaxable(id: string, dealId?: string) {
   const qc = useQueryClient();
   const invalidate = useInvalidateEstimates();
   const key = queryKeys.estimates.detail(id);
@@ -230,7 +248,7 @@ export function useSetEstimateItemTaxable(id: string, dealId: string) {
   });
 }
 
-export function useDeleteEstimateItem(id: string, dealId: string) {
+export function useDeleteEstimateItem(id: string, dealId?: string) {
   const invalidate = useInvalidateEstimates();
   return useMutation({
     mutationFn: (lineId: string) => api.deleteEstimateItem(id, lineId),
@@ -243,7 +261,7 @@ export function useDeleteEstimateItem(id: string, dealId: string) {
 }
 
 /** Drag-and-drop order; the rows move before the server confirms. */
-export function useReorderEstimateItems(id: string, dealId: string) {
+export function useReorderEstimateItems(id: string, dealId?: string) {
   const qc = useQueryClient();
   const invalidate = useInvalidateEstimates();
   const key = queryKeys.estimates.detail(id);
@@ -272,7 +290,7 @@ export function useReorderEstimateItems(id: string, dealId: string) {
   });
 }
 
-export function useDuplicateEstimate(dealId: string) {
+export function useDuplicateEstimate(dealId?: string) {
   const invalidate = useInvalidateEstimates();
   const put = usePutDetail();
   return useMutation({
@@ -286,7 +304,7 @@ export function useDuplicateEstimate(dealId: string) {
   });
 }
 
-export function useMarkEstimateSent(id: string, dealId: string) {
+export function useMarkEstimateSent(id: string, dealId?: string) {
   const invalidate = useInvalidateEstimates();
   return useMutation({
     mutationFn: (sent: boolean) => api.markEstimateSent(id, sent),
@@ -299,7 +317,7 @@ export function useMarkEstimateSent(id: string, dealId: string) {
 }
 
 /** Overwrite the job's items with the estimate's — refreshes the whole job. */
-export function useSyncEstimateToJob(id: string, dealId: string) {
+export function useSyncEstimateToJob(id: string, dealId?: string) {
   const qc = useQueryClient();
   const invalidate = useInvalidateEstimates();
   const put = usePutDetail();
@@ -308,10 +326,12 @@ export function useSyncEstimateToJob(id: string, dealId: string) {
     onSuccess: ({ estimate, itemCount }) => {
       put(estimate);
       invalidate(dealId);
-      qc.invalidateQueries({ queryKey: queryKeys.deals.detail(dealId) });
-      qc.invalidateQueries({ queryKey: queryKeys.deals.products(dealId) });
-      qc.invalidateQueries({ queryKey: queryKeys.dealTotals(dealId) });
-      qc.invalidateQueries({ queryKey: queryKeys.deals.timeline(dealId) });
+      if (dealId) {
+        qc.invalidateQueries({ queryKey: queryKeys.deals.detail(dealId) });
+        qc.invalidateQueries({ queryKey: queryKeys.deals.products(dealId) });
+        qc.invalidateQueries({ queryKey: queryKeys.dealTotals(dealId) });
+        qc.invalidateQueries({ queryKey: queryKeys.deals.timeline(dealId) });
+      }
       qc.invalidateQueries({ queryKey: ["deals", "list"] });
       qc.invalidateQueries({ queryKey: queryKeys.invoices.all() });
       toast.success(`Job items replaced — ${itemCount} item${itemCount === 1 ? "" : "s"} synced from the estimate`);
@@ -320,7 +340,7 @@ export function useSyncEstimateToJob(id: string, dealId: string) {
   });
 }
 
-export function useDeleteEstimate(dealId: string) {
+export function useDeleteEstimate(dealId?: string) {
   const qc = useQueryClient();
   const invalidate = useInvalidateEstimates();
   return useMutation({

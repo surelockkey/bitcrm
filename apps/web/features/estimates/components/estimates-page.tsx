@@ -50,6 +50,7 @@ import { EstimateStatusBadge } from "./estimate-status-badge";
 import { pagedSource } from "@/lib/paging/paged-source";
 import { usePageSize } from "@/lib/paging/use-page-size";
 import { usePager } from "@/lib/paging/use-pager";
+import { estimateHref } from "@/features/billing/components/client-documents";
 
 /**
  * Every column of the list — Workiz's Estimates page, in its order — with the
@@ -229,7 +230,7 @@ function EstimatesTable({
     );
   }
 
-  const open = (e: Estimate) => router.push(`/deals/${e.dealId}?tab=estimates&estimate=${e.id}`);
+  const open = (e: Estimate) => router.push(estimateHref(e));
   const author = (e: Estimate): string | undefined => {
     if (e.createdByName) return e.createdByName;
     const u = users.get(e.createdBy);
@@ -291,13 +292,18 @@ function EstimatesTable({
                     {updated ? <span className="block truncate text-xs text-muted-foreground">Updated: {workizDate(updated)}</span> : null}
                   </TableCell>
                   <TableCell className="overflow-hidden">
-                    <Link
-                      href={`/deals/${e.dealId}`}
-                      onClick={(ev) => ev.stopPropagation()}
-                      className="inline-flex items-center gap-1 text-primary hover:underline"
-                    >
-                      Job - {e.dealNumber} <ExternalLink className="size-3" />
-                    </Link>
+                    {e.dealId ? (
+                      <Link
+                        href={`/deals/${e.dealId}`}
+                        onClick={(ev) => ev.stopPropagation()}
+                        className="inline-flex items-center gap-1 text-primary hover:underline"
+                      >
+                        Job - {e.dealNumber} <ExternalLink className="size-3" />
+                      </Link>
+                    ) : (
+                      // A client estimate (Workiz's "stub"): no job behind it.
+                      <span className="text-muted-foreground">—</span>
+                    )}
                   </TableCell>
                   <TableCell className="truncate text-right font-mono tabular-nums">{formatMoney(estimateDepositDue(e))}</TableCell>
                 </TableRow>

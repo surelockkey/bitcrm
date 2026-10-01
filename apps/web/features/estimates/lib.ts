@@ -118,8 +118,11 @@ export function syncBlockReason(
   estimate: Pick<Estimate, "status">,
   itemCount: number,
   canSync: boolean,
+  hasJob = true,
 ): string | null {
   if (!canSync) return "You don't have permission to sync estimates to jobs";
+  // Workiz's "stub": a client's estimate with no job has nowhere to sync to.
+  if (!hasJob) return "This estimate has no job — create a job for the client first";
   if (estimate.status === "archived") return "Archived estimates can't be synced";
   if (itemCount < 1) return "Add at least one item to the estimate first";
   return null;
@@ -158,8 +161,14 @@ export function reorderLineIds(ids: string[], activeId: string, overId: string):
   return next;
 }
 
-/** PUT body for an existing line, with some fields changed. */
-export function itemBodyFrom(item: EstimateItem, changes: Partial<EstimateItemBody>): EstimateItemBody {
+/** PUT body for an existing line (an estimate's or a client invoice's), with some fields changed. */
+export function itemBodyFrom(
+  item: Pick<
+    EstimateItem,
+    "productId" | "productType" | "name" | "sku" | "description" | "quantity" | "priceClient" | "costCompany" | "costForTech" | "taxable"
+  >,
+  changes: Partial<EstimateItemBody>,
+): EstimateItemBody {
   return {
     productId: item.productId,
     productType: item.productType,

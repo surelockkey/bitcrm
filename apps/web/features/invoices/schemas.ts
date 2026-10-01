@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { PaymentTerms } from "@bitcrm/types";
+import { PaymentTerms, type DocumentDiscount } from "@bitcrm/types";
 import { isYmd } from "@/features/billing/dates";
 
 const ymd = z.string().refine((v) => isYmd(v), "Pick a valid date");
@@ -25,4 +25,7 @@ export interface InvoicePatch {
   dueDate?: string;
   notes?: string;
   templateId?: string | null;
+  /** A CLIENT invoice's own tax rate / discount (a job invoice's are the job's). */
+  taxRateId?: string | null;
+  discount?: DocumentDiscount | null;
 }

@@ -9,6 +9,8 @@ import { renderWithClient } from "@/test/render-with-client";
 const mocks = vi.hoisted(() => ({
   push: vi.fn(),
   dealsPageArgs: [] as unknown[],
+  createEstimate: vi.fn(),
+  createInvoice: vi.fn(),
   perms: { allowed: new Set<string>(["*"]) },
   deals: { pages: [] as { data: Deal[] }[], hasNextPage: false, fetchNextPage: vi.fn(), isFetchingNextPage: false },
   payments: [] as Payment[],
@@ -49,9 +51,11 @@ vi.mock("@/features/invoices/hooks", () => ({
     isLoading: false,
     isError: false,
   }),
+  useCreateClientInvoice: () => ({ mutate: mocks.createInvoice, isPending: false }),
 }));
 vi.mock("@/features/estimates/hooks", () => ({
   useEstimatesForContacts: () => ({ data: [{ id: "e1" }, { id: "e2" }, { id: "e3" }], isLoading: false, isError: false }),
+  useCreateClientEstimate: () => ({ mutate: mocks.createEstimate, isPending: false }),
 }));
 vi.mock("@/features/job-types/lib", () => ({ useJobTypeName: () => (id?: string) => (id === "jt1" ? "Lock Repair" : "Unknown type") }));
 vi.mock("@/features/payments/hooks", () => ({
@@ -324,11 +328,31 @@ describe("ContactDetailPage — the client card, laid out as Workiz's", () => {
     await userEvent.click(screen.getByRole("button", { name: "Create new" }));
     const items = await screen.findAllByRole("menuitem");
     expect(items.map((i) => i.textContent?.trim())).toEqual(["Job", "Estimate", "Invoice", "Message", "Address", "Pay Invoices"]);
-    // Estimate and Invoice start a job for the client and land on that document.
-    expect(screen.getByRole("menuitem", { name: "Estimate" })).toHaveAttribute("href", "/deals/new?contactId=c1&then=estimate");
-    expect(screen.getByRole("menuitem", { name: "Invoice" })).toHaveAttribute("href", "/deals/new?contactId=c1&then=invoice");
     await userEvent.click(screen.getByRole("menuitem", { name: "Message" }));
     expect(await screen.findByTestId("party-chat")).toBeInTheDocument();
+  });
+
+  // Workiz: Create new → Estimate makes the client's estimate (no job) at once and opens it.
+  it("Create new → Estimate creates a client estimate (no job) and opens its page", async () => {
+    mocks.createEstimate.mockImplementation((_contactId: string, opts?: { onSuccess?: (e: { id: string; number: string }) => void }) =>
+      opts?.onSuccess?.({ id: "e-new", number: "1141" }),
+    );
+    await renderPage();
+    await userEvent.click(screen.getByRole("button", { name: "Create new" }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Estimate" }));
+    expect(mocks.createEstimate).toHaveBeenCalledWith("c1", expect.anything());
+    expect(mocks.push).toHaveBeenCalledWith("/estimates/e-new");
+  });
+
+  it("Create new → Invoice creates a client invoice (no job) and opens its page", async () => {
+    mocks.createInvoice.mockImplementation((_contactId: string, opts?: { onSuccess?: (i: { id: string; number: string }) => void }) =>
+      opts?.onSuccess?.({ id: "inv-new", number: "1001" }),
+    );
+    await renderPage();
+    await userEvent.click(screen.getByRole("button", { name: "Create new" }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Invoice" }));
+    expect(mocks.createInvoice).toHaveBeenCalledWith("c1", expect.anything());
+    expect(mocks.push).toHaveBeenCalledWith("/invoices/inv-new");
   });
 
   it("Create new → Job asks which of the client's addresses the job is at, as Workiz does", async () => {

@@ -9,8 +9,12 @@ import { formatMoney } from "@/features/deals/lib";
 import { InvoiceStatusBadge } from "@/features/invoices/components/invoice-status-badge";
 import { RecordPaymentDialog } from "@/features/payments/components/record-payment-dialog";
 
-/** The invoices Workiz's "Pay N Invoices" lists: anything still owing. */
-export const unpaidInvoices = (invoices: Invoice[]): Invoice[] => invoices.filter((i) => (i.totals?.balanceDue ?? 0) > 0);
+/**
+ * The invoices Workiz's "Pay N Invoices" lists: anything still owing — on a
+ * job. The ledger cannot take a payment on a client invoice (no job) yet.
+ */
+export const unpaidInvoices = (invoices: Invoice[]): Invoice[] =>
+  invoices.filter((i) => !!i.dealId && (i.totals?.balanceDue ?? 0) > 0);
 
 /**
  * Workiz's "Pay N Invoices" from Create new: the client's open invoices with

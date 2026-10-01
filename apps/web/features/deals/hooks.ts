@@ -99,10 +99,11 @@ export function useDeal(id: string) {
   });
 }
 
-export function useDealProducts(id: string) {
+export function useDealProducts(id: string, enabled = true) {
   return useQuery({
     queryKey: queryKeys.deals.products(id),
     queryFn: () => api.getDealProducts(id),
+    enabled: enabled && !!id,
   });
 }
 

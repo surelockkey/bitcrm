@@ -60,6 +60,11 @@ describe("sync rules", () => {
     expect(syncBlockReason({ status: "approved" }, 2, true)).toBeNull();
   });
 
+  it("cannot sync a client estimate: there is no job (Workiz's stub)", () => {
+    expect(syncBlockReason({ status: "approved" }, 2, true, false)).toMatch(/no job/i);
+    expect(syncBlockReason({ status: "approved" }, 2, true, true)).toBeNull();
+  });
+
   it("explains what the sync replaces", () => {
     expect(syncConfirmText(3, 1)).toBe(
       "This replaces the job's 3 current items with the estimate's 1 item. Parts are pulled from the assigned technician's stock when available, otherwise marked to order.",

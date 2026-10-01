@@ -61,6 +61,7 @@ import { InvoiceStatusBadge } from "./invoice-status-badge";
 import { pagedSource } from "@/lib/paging/paged-source";
 import { usePageSize } from "@/lib/paging/use-page-size";
 import { usePager } from "@/lib/paging/use-pager";
+import { invoiceHref } from "@/features/billing/components/client-documents";
 
 type View = "invoices" | "needs";
 
@@ -332,7 +333,7 @@ function InvoicesTable({ params, enabled }: { params: Omit<InvoiceReportParams, 
     );
   }
 
-  const open = (inv: InvoiceReportRow) => router.push(`/deals/${inv.dealId}?tab=invoice`);
+  const open = (inv: InvoiceReportRow) => router.push(invoiceHref(inv));
 
   return (
     <div className="space-y-3">
@@ -404,13 +405,18 @@ function InvoicesTable({ params, enabled }: { params: Omit<InvoiceReportParams, 
                     </span>
                   </TableCell>
                   <TableCell className="overflow-hidden">
-                    <Link
-                      href={`/deals/${inv.dealId}`}
-                      onClick={(e) => e.stopPropagation()}
-                      className="truncate font-mono text-primary hover:underline"
-                    >
-                      {inv.number}
-                    </Link>
+                    {inv.dealId ? (
+                      <Link
+                        href={`/deals/${inv.dealId}`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="truncate font-mono text-primary hover:underline"
+                      >
+                        {inv.number}
+                      </Link>
+                    ) : (
+                      // A client invoice: no job behind it.
+                      <span className="text-muted-foreground">—</span>
+                    )}
                   </TableCell>
                   <TableCell className="truncate text-muted-foreground" />
                 </TableRow>
