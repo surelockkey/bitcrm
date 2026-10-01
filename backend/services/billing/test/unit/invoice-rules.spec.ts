@@ -155,6 +155,22 @@ describe('invoice totals + derived status', () => {
     expect(totals.amountPaid).toBe(0);
   });
 
+  it('totals an imported Workiz invoice to what Workiz billed: no phantom balance', () => {
+    // Real amounts: a $180 taxable service, the 5.40 card fee Workiz keeps out
+    // of the discount, $13.72 off, 8.25% tax, paid 185.40 in full.
+    const totals = computeInvoiceTotals(
+      {
+        deal: { taxRatePercent: 8.25, taxSource: 'manual', discount: { type: 'amount', value: 13.72 } } as Deal,
+        items: [
+          line({ priceClient: 180 }),
+          line({ productId: 'fee', priceClient: 5.4, taxable: false, discountable: false }),
+        ],
+      },
+      { amountPaid: 185.4 },
+    );
+    expect(totals).toMatchObject({ tax: 13.72, total: 185.4, balanceDue: 0 });
+  });
+
   it('takes amountPaid from actualTotal when the job is paid', () => {
     const totals = computeInvoiceTotals({
       deal: { ...baseDeal, paymentStatus: 'paid', actualTotal: 60 },
