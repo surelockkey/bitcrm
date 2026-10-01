@@ -1,34 +1,37 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
-import type { Deal } from "@bitcrm/types";
+import type { Deal, Payment } from "@bitcrm/types";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatMoney } from "@/features/deals/lib";
-import { usePaymentList } from "@/features/payments/hooks";
 import { PaymentStatusBadge } from "@/features/payments/components/payment-status-badge";
 import { paymentMethodLabel } from "@/features/payments/lib";
 import { paginate } from "@/features/reports/lib";
 import { ClientPagination } from "./client-pagination";
 
-const PAGE = 100;
-
-/** Workiz's Payments tab: Job, Date, Amount, Type, Status — newest first. */
-export function ClientPaymentsTab({ contactId, dealsById }: { contactId: string; dealsById: Map<string, Deal> }) {
-  const q = usePaymentList({ contactId, limit: PAGE });
-  const rows = q.data?.pages.flatMap((p) => p.items) ?? [];
+/** Workiz's Payments tab: Job, Date, Amount, Type, Status — newest first. The card fetches the rows. */
+export function ClientPaymentsTab({
+  rows,
+  dealsById,
+  isLoading,
+  isError,
+  complete,
+}: {
+  rows: Payment[];
+  dealsById: Map<string, Deal>;
+  isLoading: boolean;
+  isError: boolean;
+  /** Every payment of the client is in hand, so the page count is final. */
+  complete: boolean;
+}) {
   const [page, setPage] = useState(1);
   const [size, setSize] = useState(10);
-  // Every payment of the client, page after page, so the footer's count is exact.
-  const { hasNextPage, isFetchingNextPage, fetchNextPage } = q;
-  useEffect(() => {
-    if (hasNextPage && !isFetchingNextPage) void fetchNextPage();
-  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
   const paged = paginate(rows, page, size);
 
-  if (q.isLoading) return <Skeleton className="m-4 h-40" />;
-  if (q.isError) return <p className="p-6 text-sm text-destructive">Couldn&apos;t load the payments.</p>;
+  if (isLoading) return <Skeleton className="m-4 h-40" />;
+  if (isError) return <p className="p-6 text-sm text-destructive">Couldn&apos;t load the payments.</p>;
   if (rows.length === 0) return <p className="p-6 text-sm text-muted-foreground">No payments yet.</p>;
 
   return (
@@ -66,7 +69,7 @@ export function ClientPaymentsTab({ contactId, dealsById }: { contactId: string;
         </Table>
       </div>
       <ClientPagination page={paged.page} pages={paged.pages} total={paged.total} size={size} onPage={setPage} onSize={(n) => { setSize(n); setPage(1); }} />
-      {hasNextPage ? <p className="px-1 text-xs text-muted-foreground">Still counting the client&apos;s payments…</p> : null}
+      {!complete ? <p className="px-1 text-xs text-muted-foreground">Still counting the client&apos;s payments…</p> : null}
     </div>
   );
 }

@@ -13,6 +13,7 @@ import { ClientCallsLog } from "@/features/calls/components/client-calls-log";
 import { useDealsPage } from "@/features/deals/hooks";
 import { useCreateClientEstimate, useEstimatesForContacts } from "@/features/estimates/hooks";
 import { useCreateClientInvoice, useInvoicesForContacts } from "@/features/invoices/hooks";
+import { usePaymentList } from "@/features/payments/hooks";
 import { ClientEstimatesList, ClientInvoicesList } from "@/features/billing/components/client-documents";
 import { accountToday } from "@/features/reports/report-dates";
 import { amountDueByDeal, byJobDateDesc, clientAddressRows, clientKpis } from "../client-page";
@@ -61,6 +62,14 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
   const deals = useMemo<Deal[]>(() => (jobs.data?.pages.flatMap((p) => p.data) ?? []).slice().sort(byJobDateDesc), [jobs.data]);
   const invoices = useInvoicesForContacts([contactId], can("invoices"));
   const estimates = useEstimatesForContacts([contactId], can("estimates"));
+  // The client's payments, every page, so the tab's badge is a number and the
+  // tab itself pages them locally (as Jobs does).
+  const payments = usePaymentList({ contactId, limit: 100 }, !!contact && can("payments"));
+  const paymentRows = useMemo(() => payments.data?.pages.flatMap((p) => p.items) ?? [], [payments.data]);
+  const { hasNextPage: morePayments, isFetchingNextPage: fetchingPayments, fetchNextPage: fetchPayments } = payments;
+  useEffect(() => {
+    if (morePayments && !fetchingPayments) void fetchPayments();
+  }, [morePayments, fetchingPayments, fetchPayments]);
   // Workiz: Create new → Estimate / Invoice make the client's document at once
   // (no job — "either a job or a client") and open it on its own page.
   const createEstimate = useCreateClientEstimate();
@@ -89,6 +98,7 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
 
   const remove = () => del.mutate(contact.id, { onSuccess: () => router.push("/contacts") });
   const jobsCount = `${deals.length}${hasNextPage ? "+" : ""}`;
+  const paymentsCount = `${paymentRows.length}${morePayments ? "+" : ""}`;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto md:flex-row md:overflow-hidden">
@@ -171,17 +181,17 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
               </TabsTrigger>
               {can("estimates") ? (
                 <TabsTrigger value="estimates" className="px-2">
-                  Estimates
+                  Estimates <Count n={String(estimates.data?.length ?? 0)} />
                 </TabsTrigger>
               ) : null}
               {can("invoices") ? (
                 <TabsTrigger value="invoices" className="px-2">
-                  Invoices
+                  Invoices <Count n={String(invoices.data?.length ?? 0)} />
                 </TabsTrigger>
               ) : null}
               {can("payments") ? (
                 <TabsTrigger value="payments" className="px-2">
-                  Payments
+                  Payments <Count n={paymentsCount} />
                 </TabsTrigger>
               ) : null}
               <TabsTrigger value="addresses" className="px-2">
@@ -205,7 +215,7 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
             <ClientInvoicesList contactIds={[contact.id]} />
           </TabsContent>
           <TabsContent value="payments" className="mt-0">
-            <ClientPaymentsTab contactId={contact.id} dealsById={dealsById} />
+            <ClientPaymentsTab rows={paymentRows} dealsById={dealsById} isLoading={payments.isLoading} isError={payments.isError} complete={!morePayments} />
           </TabsContent>
           <TabsContent value="addresses" className="mt-0">
             <ClientAddressesTab rows={addressRows} money={money} complete={!hasNextPage} />
