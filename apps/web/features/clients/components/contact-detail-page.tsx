@@ -17,7 +17,7 @@ import { useEstimatesForContacts } from "@/features/estimates/hooks";
 import { useInvoicesForContacts } from "@/features/invoices/hooks";
 import { ClientEstimatesList, ClientInvoicesList } from "@/features/billing/components/client-documents";
 import { accountToday } from "@/features/reports/report-dates";
-import { amountDueByDeal, clientAddressRows, clientKpis } from "../client-page";
+import { amountDueByDeal, byJobDateDesc, clientAddressRows, clientKpis } from "../client-page";
 import { useCompany, useContact, useDeleteContact } from "../hooks";
 import { contactName } from "../lib";
 import { ClientAddressesTab } from "./client-addresses-tab";
@@ -56,8 +56,11 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
   const [payOpen, setPayOpen] = useState(false);
 
   const money = can("financials", "view");
-  const jobs = useDealsPage({ contactId, limit: JOBS_PAGE, sort: "schedule", dir: "desc" }, !!contact);
-  const deals = useMemo<Deal[]>(() => jobs.data?.pages.flatMap((p) => p.data) ?? [], [jobs.data]);
+  // The client's jobs and nothing else: a `sort=schedule` here once took the
+  // schedule index, which has no client key, and the card showed the whole
+  // account. The order Workiz shows (by job date) is applied below.
+  const jobs = useDealsPage({ contactId, limit: JOBS_PAGE }, !!contact);
+  const deals = useMemo<Deal[]>(() => (jobs.data?.pages.flatMap((p) => p.data) ?? []).slice().sort(byJobDateDesc), [jobs.data]);
   const invoices = useInvoicesForContacts([contactId], can("invoices"));
   const estimates = useEstimatesForContacts([contactId], can("estimates"));
 

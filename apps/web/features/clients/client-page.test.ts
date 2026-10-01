@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { Address, Contact, Deal, Estimate, Invoice } from "@bitcrm/types";
-import { clientKpis, clientAddressRows, filterAddressRows, amountDueByDeal, jobDateLabel } from "./client-page";
+import { clientKpis, clientAddressRows, filterAddressRows, amountDueByDeal, jobDateLabel, byJobDateDesc } from "./client-page";
 
 const addr = (street: string, city = "Dallas", zip = "75201", unit?: string): Address => ({
   street,
@@ -98,5 +98,13 @@ describe("job row helpers", () => {
     expect(jobDateLabel({ scheduledDate: "2026-10-09", scheduledTimeSlot: "11:00-12:00" } as Deal)).toBe("Fri Oct 09, 2026 11:00 am");
     expect(jobDateLabel({ scheduledDate: "2026-10-07", allDay: true } as Deal)).toBe("Wed Oct 07, 2026");
     expect(jobDateLabel({} as Deal)).toBe("Unscheduled");
+  });
+});
+
+describe("byJobDateDesc — Workiz's Jobs tab order", () => {
+  it("newest visit first; undated jobs last; ties by creation, newest first", () => {
+    const d = (id: string, scheduledDate?: string, createdAt = "2026-01-01T00:00:00.000Z") => ({ id, scheduledDate, createdAt }) as Deal;
+    const sorted = [d("old", "2026-09-01"), d("undated"), d("new", "2026-10-09"), d("tie-early", "2026-10-01", "2026-01-01T00:00:00.000Z"), d("tie-late", "2026-10-01", "2026-02-01T00:00:00.000Z")].sort(byJobDateDesc);
+    expect(sorted.map((x) => x.id)).toEqual(["new", "tie-late", "tie-early", "old", "undated"]);
   });
 });

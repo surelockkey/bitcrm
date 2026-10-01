@@ -8,6 +8,7 @@ import { renderWithClient } from "@/test/render-with-client";
 
 const mocks = vi.hoisted(() => ({
   push: vi.fn(),
+  dealsPageArgs: [] as unknown[],
   perms: { allowed: new Set<string>(["*"]) },
   deals: { pages: [] as { data: Deal[] }[], hasNextPage: false, fetchNextPage: vi.fn(), isFetchingNextPage: false },
   payments: [] as Payment[],
@@ -29,7 +30,8 @@ vi.mock("@/features/auth/use-permissions", () => ({
   useDenied: () => (r: string, a = "view") => !(mocks.perms.allowed.has("*") || mocks.perms.allowed.has(`${r}.${a}`) || mocks.perms.allowed.has(r)),
 }));
 vi.mock("@/features/deals/hooks", () => ({
-  useDealsPage: () => ({
+  useDealsPage: (params: unknown) => ({
+    ...(mocks.dealsPageArgs.push(params), {}),
     data: { pages: mocks.deals.pages },
     hasNextPage: mocks.deals.hasNextPage,
     fetchNextPage: mocks.deals.fetchNextPage,
@@ -240,6 +242,28 @@ describe("ContactDetailPage — the client card, laid out as Workiz's", () => {
     expect(rows[0]).toHaveTextContent("$100.00");
     expect(rows[1]).toHaveTextContent("$50.00"); // amount due from the invoice
     expect(rows[2]).toHaveTextContent("Unscheduled");
+  });
+
+  it("asks the API for the client's jobs only — no schedule sort, which the API answered with the whole account", async () => {
+    mocks.dealsPageArgs.length = 0;
+    await renderPage();
+    expect(mocks.dealsPageArgs[0]).toEqual({ contactId: "c1", limit: 50 });
+  });
+
+  it("orders the Jobs tab by job date, newest first, as Workiz does", async () => {
+    mocks.deals.pages = [
+      {
+        data: [
+          deal("d1", "OLDEST", addr("1 A St", "Dallas", "TX", "75201"), { scheduledDate: "2026-09-01" }),
+          deal("d2", "NEWEST", addr("2 B St", "Dallas", "TX", "75201"), { scheduledDate: "2026-10-09" }),
+          deal("d3", "UNDATED", addr("3 C St", "Dallas", "TX", "75201"), { scheduledDate: undefined, scheduledTimeSlot: undefined }),
+          deal("d4", "MIDDLE", addr("4 D St", "Dallas", "TX", "75201"), { scheduledDate: "2026-10-01" }),
+        ],
+      },
+    ];
+    await renderPage();
+    const rows = within(screen.getByRole("table", { name: "Jobs" })).getAllByRole("row").slice(1);
+    expect(rows.map((r) => within(r).getByRole("link").textContent)).toEqual(["NEWEST", "MIDDLE", "OLDEST", "UNDATED"]);
   });
 
   it("pages the jobs like Workiz: arrows, Page X of Y, Showing a to b of N results, ten a page", async () => {

@@ -104,3 +104,20 @@ export function jobDateLabel(deal: Pick<Deal, "scheduledDate" | "scheduledTimeSl
   const h12 = hh % 12 === 0 ? 12 : hh % 12;
   return `${day} ${h12}:${String(mm).padStart(2, "0")} ${hh < 12 ? "am" : "pm"}`;
 }
+
+/**
+ * Workiz's Jobs tab order: newest visit first, undated jobs at the end, a
+ * tie broken by creation (newest first). The card has every job of the
+ * client in hand, so it sorts them itself — the API's contact index is by
+ * creation, and a schedule sort there is not a thing.
+ */
+export function byJobDateDesc(a: Pick<Deal, "scheduledDate" | "createdAt">, b: Pick<Deal, "scheduledDate" | "createdAt">): number {
+  const da = a.scheduledDate ?? "";
+  const db = b.scheduledDate ?? "";
+  if (da !== db) {
+    if (!da) return 1;
+    if (!db) return -1;
+    return db.localeCompare(da);
+  }
+  return (b.createdAt ?? "").localeCompare(a.createdAt ?? "");
+}
