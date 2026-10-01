@@ -158,6 +158,13 @@ describe("address helpers", () => {
     expect(addressKey(a)).toBe(addressKey({ ...a, street: " 123 MAIN ST " }));
     expect(addressKey(a)).not.toBe(addressKey({ ...a, zip: "30302" }));
   });
+  it("addressKey survives an imported address with a field missing", () => {
+    // Workiz rows reach us with zip, city or state absent now and then.
+    const bare = { street: "300 Convent St" } as unknown as typeof a;
+    expect(addressKey(bare)).toBe("300 convent st||||");
+    expect(addressKey({ ...bare, zip: "78205" })).not.toBe(addressKey(bare));
+  });
+
   it("addressInList detects existing vs new addresses", () => {
     expect(addressInList(a, [a])).toBe(true);
     expect(addressInList({ ...a, street: "999 New Rd" }, [a])).toBe(false);

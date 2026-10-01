@@ -53,8 +53,8 @@ export function formatAddress(a: Address): string {
 
 /** Normalized comparison key for an address — used to dedupe / detect new ones. */
 export function addressKey(a: Pick<Address, "street" | "unit" | "city" | "state" | "zip">): string {
-  return [a.street, a.unit ?? "", a.city, a.state, a.zip]
-    .map((s) => s.trim().toLowerCase())
+  return [a.street, a.unit, a.city, a.state, a.zip]
+    .map((s) => (s ?? "").trim().toLowerCase())
     .join("|");
 }
 
@@ -63,7 +63,7 @@ export function addressInList(
   a: Pick<Address, "street" | "unit" | "city" | "state" | "zip">,
   list: Address[] | undefined,
 ): boolean {
-  if (!a.street.trim()) return true; // empty → nothing to save
+  if (!a.street?.trim()) return true; // empty → nothing to save
   const key = addressKey(a);
   return (list ?? []).some((x) => addressKey(x) === key);
 }

@@ -1,172 +1,217 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Building2, FileSpreadsheet, FileText, Mail, MapPin, MessagesSquare, Pencil, Phone, PhoneCall, Trash2 } from "lucide-react";
+import { ChevronDown, MessageSquareText, StickyNote, Wrench } from "lucide-react";
+import type { Deal } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { ClientCallsLog } from "@/features/calls/components/client-calls-log";
+import { useDealsPage } from "@/features/deals/hooks";
+import { useEstimatesForContacts } from "@/features/estimates/hooks";
+import { useInvoicesForContacts } from "@/features/invoices/hooks";
 import { PartyChat } from "@/features/messaging/components/party-chat";
-import { TextButton } from "@/features/messaging/components/text-button";
-import { CallClientButton } from "@/features/telephony/components/call-client-button";
 import { ClientEstimatesList, ClientInvoicesList } from "@/features/billing/components/client-documents";
-import { PortalLinkCard } from "@/features/portal/components/portal-link-card";
-import { FieldList } from "./field-list";
-import { useContact, useCompanyMap, useDeleteContact } from "../hooks";
-import {
-  clientTypeLabel,
-  contactName,
-  extensionOf,
-  formatAddress,
-  formatPhoneWithExtension,
-  initials,
-  sourceLabel,
-} from "../lib";
-import { ContactTypeBadge, TaxExemptBadge } from "./client-badges";
+import { accountToday } from "@/features/reports/report-dates";
+import { amountDueByDeal, clientAddressRows, clientKpis } from "../client-page";
+import { useCompany, useContact, useDeleteContact } from "../hooks";
+import { contactName } from "../lib";
+import { ClientAddressesTab } from "./client-addresses-tab";
+import { ClientJobsTab } from "./client-jobs-tab";
+import { ClientKpiStrip } from "./client-kpi-strip";
+import { ClientPaymentsTab } from "./client-payments-tab";
+import { ClientSummaryPanel } from "./client-summary-panel";
 import { ContactForm } from "./contact-form";
 import { DeleteClientDialog } from "./delete-client-dialog";
 
+const JOBS_PAGE = 50;
+
+/**
+ * The client card, laid out as Workiz's (/root/client/<id>): the summary
+ * column on the left, the four cards and "Create new" up top, then the
+ * tabs — Jobs, Estimates, Invoices, Payments, Addresses, Calls, Messages —
+ * and a Notes rail on the right.
+ */
 export function ContactDetailPage({ contactId }: { contactId: string }) {
   const router = useRouter();
   const { can } = usePermissions();
   const { data: contact, isLoading } = useContact(contactId);
-  const { map: companyMap } = useCompanyMap();
+  const { data: company } = useCompany(contact?.companyId ?? "");
   const del = useDeleteContact();
   const [editing, setEditing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [notesOpen, setNotesOpen] = useState(false);
+  const [tab, setTab] = useState("jobs");
+
+  const money = can("financials", "view");
+  const jobs = useDealsPage({ contactId, limit: JOBS_PAGE, sort: "schedule", dir: "desc" }, !!contact);
+  const deals = useMemo<Deal[]>(() => jobs.data?.pages.flatMap((p) => p.data) ?? [], [jobs.data]);
+  const invoices = useInvoicesForContacts([contactId], can("invoices"));
+  const estimates = useEstimatesForContacts([contactId], can("estimates"));
+
+  const kpis = useMemo(() => clientKpis(invoices.data ?? [], estimates.data ?? [], accountToday()), [invoices.data, estimates.data]);
+  const amountDue = useMemo(() => amountDueByDeal(invoices.data ?? []), [invoices.data]);
+  const addressRows = useMemo(() => (contact ? clientAddressRows(contact, deals) : []), [contact, deals]);
+  const dealsById = useMemo(() => new Map(deals.map((d) => [d.id, d])), [deals]);
+
+  const { hasNextPage, isFetchingNextPage, fetchNextPage } = jobs;
+  const loadAllJobs = useCallback(() => {
+    if (hasNextPage && !isFetchingNextPage) void fetchNextPage();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   if (isLoading || !contact) {
-    return <div className="p-6"><Skeleton className="h-64 w-full" /></div>;
+    return (
+      <div className="p-6">
+        <Skeleton className="h-64 w-full" />
+      </div>
+    );
   }
 
-  const company = contact.companyId ? companyMap.get(contact.companyId) : undefined;
+  const remove = () => del.mutate(contact.id, { onSuccess: () => router.push("/contacts") });
+  const jobsCount = `${deals.length}${hasNextPage ? "+" : ""}`;
 
-  const remove = () =>
-    del.mutate(contact.id, { onSuccess: () => router.push("/contacts") });
+  if (editing) {
+    return (
+      <div className="flex flex-1 flex-col overflow-y-auto">
+        <div className="mx-auto w-full max-w-2xl p-6">
+          <h1 className="mb-4 text-lg font-semibold tracking-tight">{contactName(contact)}</h1>
+          <ContactForm contact={contact} onCancel={() => setEditing(false)} onDone={() => setEditing(false)} />
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="flex flex-1 flex-col">
-      <div className="flex items-center gap-3 border-b px-5 py-4">
-        <span className="flex size-9 flex-none items-center justify-center rounded-full bg-muted text-sm font-semibold text-muted-foreground">
-          {initials(contact.firstName, contact.lastName)}
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="truncate font-semibold">{contactName(contact)}</div>
-          <div className="truncate text-xs text-muted-foreground">
-            {contact.title ? `${contact.title} · ` : ""}
-            {company ? <Link href={`/companies/${company.id}`} className="text-primary">{company.title}</Link> : "No company"}
-          </div>
-        </div>
-        <ContactTypeBadge type={contact.type} />
-        {contact.taxExempt ? <TaxExemptBadge reason={contact.taxExemptReason} /> : null}
-        {/* Text opens (or starts) their thread right here — the Workiz card's action. */}
-        {!editing ? <TextButton partyKind="contact" partyId={contact.id} name={contactName(contact)} /> : null}
-        {!editing && can("contacts", "edit") ? (
-          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setEditing(true)}>
-            <Pencil className="size-3.5" /> Edit
-          </Button>
-        ) : null}
-        {!editing && can("contacts", "delete") ? (
-          <Button variant="outline" size="sm" className="gap-1.5 text-destructive" onClick={() => setConfirmDelete(true)}>
-            <Trash2 className="size-3.5" /> Delete
-          </Button>
-        ) : null}
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto md:flex-row md:overflow-hidden">
+      <div className="md:w-80 md:shrink-0 md:overflow-y-auto">
+        <ClientSummaryPanel
+          contact={contact}
+          company={company}
+          canEdit={can("contacts", "edit")}
+          canDelete={can("contacts", "delete")}
+          showPortal={can("invoices") || can("estimates")}
+          onEdit={() => setEditing(true)}
+          onDelete={() => setConfirmDelete(true)}
+        />
       </div>
 
-      <div className="relative flex-1 overflow-y-auto">
-        {editing ? (
-          <div className="mx-auto max-w-2xl p-6">
-            <ContactForm contact={contact} onCancel={() => setEditing(false)} onDone={() => setEditing(false)} />
-          </div>
-        ) : (
-          <div className="grid gap-0 md:grid-cols-[1fr_300px]">
-            <div className="space-y-5 p-6">
-              {/* Formatted for reading — number then what to press once it
-                  answers — but each row keeps its own raw number so the call
-                  button dials what's on file. */}
-              <FieldList
-                label="Phones"
-                icon={Phone}
-                values={contact.phones}
-                maskedCount={contact.phoneCount}
-                format={(p) => formatPhoneWithExtension(p, extensionOf(contact, p))}
-                primaryFirst
-                action={(phone) => (
-                  <CallClientButton to={phone} partyId={contact.id} />
-                )}
-              />
-              <FieldList label="Emails" icon={Mail} values={contact.emails} />
-              {contact.addresses?.length ? (
-                <FieldList label="Addresses" icon={MapPin} values={contact.addresses.map(formatAddress)} />
+      <div className="flex min-w-0 flex-1 flex-col md:overflow-y-auto">
+        <div className="flex flex-wrap items-start justify-between gap-3 border-b px-5 py-4">
+          <ClientKpiStrip kpis={kpis} money={money} />
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="brand" size="sm" className="gap-1">
+                Create new <ChevronDown className="size-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {can("deals", "create") ? (
+                <DropdownMenuItem asChild>
+                  <Link href={`/deals/new?contactId=${contact.id}`}>
+                    <Wrench className="size-4" /> Job
+                  </Link>
+                </DropdownMenuItem>
               ) : null}
-              <div className="grid grid-cols-2 gap-4">
-                <Detail label="Title" value={contact.title || "—"} />
-                <Detail label="Source" value={sourceLabel(contact.source)} />
-              </div>
-              {contact.notes ? <Detail label="Notes" value={contact.notes} /> : null}
-
-              {can("estimates") ? (
-                <div>
-                  <div className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    <FileSpreadsheet className="size-3.5" /> Estimates
-                  </div>
-                  <ClientEstimatesList contactIds={[contact.id]} />
-                </div>
-              ) : null}
-
-              {can("invoices") ? (
-                <div>
-                  <div className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    <FileText className="size-3.5" /> Invoices
-                  </div>
-                  <ClientInvoicesList contactIds={[contact.id]} />
-                </div>
-              ) : null}
-
-              <div>
-                <div className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  <PhoneCall className="size-3.5" /> Calls
-                </div>
-                <ClientCallsLog contactId={contact.id} />
-              </div>
-
               {can("messages") ? (
-                <div>
-                  <div className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    <MessagesSquare className="size-3.5" /> Messages
-                  </div>
-                  <PartyChat partyKind="contact" partyId={contact.id} className="h-[28rem]" />
-                </div>
+                <DropdownMenuItem onSelect={() => setTab("messages")}>
+                  <MessageSquareText className="size-4" /> Message
+                </DropdownMenuItem>
               ) : null}
-            </div>
-            <div className="border-t p-6 md:border-l md:border-t-0">
-              <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Company</div>
-              {company ? (
-                <Link href={`/companies/${company.id}`} className="flex items-center gap-3 rounded-lg border p-3 hover:bg-accent">
-                  <span className="flex size-8 flex-none items-center justify-center rounded-lg bg-primary/10 text-primary">
-                    <Building2 className="size-4" />
-                  </span>
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-medium">{company.title}</div>
-                    <div className="text-xs text-muted-foreground">{clientTypeLabel(company.clientType)}</div>
-                  </div>
-                </Link>
-              ) : (
-                <p className="text-sm text-muted-foreground">Residential — no company.</p>
-              )}
-              {can("invoices") || can("estimates") ? (
-                <PortalLinkCard contactId={contact.id} className="mt-5" />
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+
+        <Tabs value={tab} onValueChange={setTab} className="flex min-h-0 flex-1 flex-col gap-0">
+          <div className="border-b px-5">
+            <TabsList variant="line" className="h-11">
+              <TabsTrigger value="jobs" className="px-2">
+                Jobs <Count n={jobsCount} />
+              </TabsTrigger>
+              {can("estimates") ? (
+                <TabsTrigger value="estimates" className="px-2">
+                  Estimates
+                </TabsTrigger>
               ) : null}
-              <div className="mb-2 mt-5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Jobs</div>
-              <div className="rounded-lg border border-dashed p-4 text-center text-xs text-muted-foreground">
-                Their jobs appear here once Jobs ships.
-              </div>
-            </div>
+              {can("invoices") ? (
+                <TabsTrigger value="invoices" className="px-2">
+                  Invoices
+                </TabsTrigger>
+              ) : null}
+              {can("payments") ? (
+                <TabsTrigger value="payments" className="px-2">
+                  Payments
+                </TabsTrigger>
+              ) : null}
+              <TabsTrigger value="addresses" className="px-2">
+                Addresses <Count n={String(addressRows.length)} />
+              </TabsTrigger>
+              {can("calls") ? (
+                <TabsTrigger value="calls" className="px-2">
+                  Calls
+                </TabsTrigger>
+              ) : null}
+              {can("messages") ? (
+                <TabsTrigger value="messages" className="px-2">
+                  Messages
+                </TabsTrigger>
+              ) : null}
+            </TabsList>
           </div>
-        )}
+
+          <TabsContent value="jobs" className="mt-0">
+            <ClientJobsTab
+              deals={deals}
+              amountDue={amountDue}
+              money={money}
+              isLoading={jobs.isLoading}
+              hasMore={!!hasNextPage}
+              loadingMore={isFetchingNextPage}
+              onMore={() => void fetchNextPage()}
+            />
+          </TabsContent>
+          <TabsContent value="estimates" className="mt-0 p-4">
+            <ClientEstimatesList contactIds={[contact.id]} />
+          </TabsContent>
+          <TabsContent value="invoices" className="mt-0 p-4">
+            <ClientInvoicesList contactIds={[contact.id]} />
+          </TabsContent>
+          <TabsContent value="payments" className="mt-0">
+            <ClientPaymentsTab contactId={contact.id} dealsById={dealsById} />
+          </TabsContent>
+          <TabsContent value="addresses" className="mt-0">
+            <ClientAddressesTab rows={addressRows} money={money} complete={!hasNextPage} onNeedAll={loadAllJobs} />
+          </TabsContent>
+          <TabsContent value="calls" className="mt-0 p-4">
+            <ClientCallsLog contactId={contact.id} />
+          </TabsContent>
+          <TabsContent value="messages" className="mt-0 p-4">
+            <PartyChat partyKind="contact" partyId={contact.id} className="h-112" />
+          </TabsContent>
+        </Tabs>
       </div>
+
+      {/* Workiz's right rail. Notes is the one BitCRM has to show. */}
+      <div className="flex shrink-0 gap-2 border-t p-2 md:flex-col md:border-t-0 md:border-l">
+        <Button variant="ghost" size="sm" className="flex-col gap-0.5 md:h-14 md:w-14" onClick={() => setNotesOpen(true)} aria-label="Notes">
+          <StickyNote className="size-4" />
+          <span className="text-[10px]">Notes</span>
+        </Button>
+      </div>
+
+      <Sheet open={notesOpen} onOpenChange={setNotesOpen}>
+        <SheetContent side="right" className="w-96">
+          <SheetHeader>
+            <SheetTitle>Notes</SheetTitle>
+            <SheetDescription>What the office keeps on this client.</SheetDescription>
+          </SheetHeader>
+          <div className="px-4 text-sm whitespace-pre-wrap">{contact.notes || <span className="text-muted-foreground">No notes yet. Edit the client to add some.</span>}</div>
+        </SheetContent>
+      </Sheet>
 
       <DeleteClientDialog
         open={confirmDelete}
@@ -180,11 +225,6 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
   );
 }
 
-function Detail({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</div>
-      <div className="text-sm">{value}</div>
-    </div>
-  );
+function Count({ n }: { n: string }) {
+  return <span className="ml-1 rounded-chip bg-muted px-1.5 text-[11px] font-medium text-muted-foreground">{n}</span>;
 }
