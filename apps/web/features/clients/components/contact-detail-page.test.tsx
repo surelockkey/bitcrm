@@ -41,7 +41,29 @@ vi.mock("@/features/deals/hooks", () => ({
     isLoading: false,
     isError: false,
   }),
+  useUserMap: () => ({ map: new Map(), users: [], isLoading: false }),
+  useContactTimeline: () => ({
+    data: {
+      pages: [
+        {
+          data: [
+            { id: "h1", dealId: "d1", dealNumber: "3Y1CNX", eventType: "note_added", actorId: "u1", actorName: "Piper", timestamp: "2026-09-30T19:53:00.000Z", details: {}, note: "scheduled 10-12pm" },
+          ],
+          pagination: { count: 1 },
+        },
+      ],
+    },
+    isLoading: false,
+    hasNextPage: false,
+    isFetchingNextPage: false,
+    fetchNextPage: vi.fn(),
+  }),
 }));
+// The history rail resolves the ids its rows carry through these catalogs.
+vi.mock("@/features/job-statuses/hooks", () => ({ useJobStatuses: () => ({ data: [] }) }));
+vi.mock("@/features/job-types/hooks", () => ({ useJobTypes: () => ({ data: [] }) }));
+vi.mock("@/features/external-companies/hooks", () => ({ useExternalCompanies: () => ({ data: [] }) }));
+vi.mock("@/features/job-tags/hooks", () => ({ useJobTags: () => ({ data: [] }) }));
 vi.mock("@/features/invoices/hooks", () => ({
   useInvoicesForContacts: () => ({
     data: [
@@ -176,6 +198,24 @@ describe("ContactDetailPage — the client card, laid out as Workiz's", () => {
       ),
       http.get("*/crm/companies/co1", () =>
         HttpResponse.json({ success: true, data: { id: "co1", title: "CBRE Facilities Management", clientType: "commercial", phones: [], emails: [] } }),
+      ),
+      http.get("*/crm/contacts/c1/notes", () =>
+        HttpResponse.json({
+          success: true,
+          data: [
+            { id: "n1", contactId: "c1", note: "Gate code 4421", actorId: "u1", actorName: "Betty", pinned: false, createdAt: "2025-07-24T18:19:00", updatedAt: "2025-07-24T18:19:00" },
+            { id: "n2", contactId: "c1", note: "Call before arriving", actorId: "u1", actorName: "Betty", pinned: true, createdAt: "2025-03-01T09:00:00", updatedAt: "2025-03-01T09:00:00" },
+          ],
+          pagination: { count: 2 },
+          notesCount: 2,
+        }),
+      ),
+      http.get("*/deals/attachments/by-contact/c1", () =>
+        HttpResponse.json({
+          success: true,
+          data: [{ id: "f1", contactId: "c1", dealId: "d1", dealNumber: "3Y1CNX", fileName: "invoice.pdf", contentType: "application/pdf", size: 5678, uploadedBy: "u1", uploadedAt: "2026-08-20T10:00:00" }],
+          pagination: { count: 1 },
+        }),
       ),
     );
   });
@@ -502,10 +542,43 @@ describe("ContactDetailPage — the client card, laid out as Workiz's", () => {
     expect(screen.getByRole("complementary", { name: "Client", hidden: true })).toBeInTheDocument();
   });
 
-  it("Notes open in the right rail", async () => {
-    await renderPage();
-    await userEvent.click(screen.getByRole("button", { name: "Notes" }));
-    expect(await screen.findByText("Net 45 client. Tax exempt.")).toBeInTheDocument();
+  describe("the right rail, as Workiz's: Notes, History, Files", () => {
+    it("stacks the three buttons, Notes with a badge counting the CRM notes plus the legacy description", async () => {
+      await renderPage();
+      const rail = screen.getByRole("complementary", { name: "Client rail" });
+      expect(within(rail).getAllByRole("button").map((b) => b.getAttribute("aria-label"))).toEqual(["Notes", "History", "Files"]);
+      expect(await within(within(rail).getByRole("button", { name: "Notes" })).findByText("3")).toBeInTheDocument();
+    });
+
+    it("Notes opens the notes panel: the legacy description first, then the CRM notes, pinned on top", async () => {
+      await renderPage();
+      await userEvent.click(screen.getByRole("button", { name: "Notes" }));
+      const dialog = await screen.findByRole("dialog", { name: "Notes" });
+      await within(dialog).findByText("Gate code 4421");
+      const cards = within(dialog).getAllByTestId("note-card");
+      expect(cards[0]).toHaveTextContent("Net 45 client. Tax exempt.");
+      expect(cards[1]).toHaveTextContent("Call before arriving");
+      expect(cards[2]).toHaveTextContent("Gate code 4421");
+      expect(within(dialog).getByRole("button", { name: "Add note" })).toBeInTheDocument();
+    });
+
+    it("History opens the client's feed across jobs, each row linking its job", async () => {
+      await renderPage();
+      await userEvent.click(screen.getByRole("button", { name: "History" }));
+      const dialog = await screen.findByRole("dialog", { name: "History" });
+      expect(await within(dialog).findByText(/scheduled 10-12pm/)).toBeInTheDocument();
+      expect(within(dialog).getByRole("link", { name: "3Y1CNX" })).toHaveAttribute("href", "/deals/d1");
+      expect(within(dialog).getByRole("combobox", { name: "Filters" })).toBeInTheDocument();
+    });
+
+    it("Files opens the client's files across jobs, with Upload file for contacts.edit", async () => {
+      await renderPage();
+      await userEvent.click(screen.getByRole("button", { name: "Files" }));
+      const dialog = await screen.findByRole("dialog", { name: "Files" });
+      expect(await within(dialog).findByText("invoice.pdf")).toBeInTheDocument();
+      expect(within(dialog).getByRole("link", { name: "3Y1CNX" })).toHaveAttribute("href", "/deals/d1");
+      expect(within(dialog).getByRole("button", { name: "Upload file" })).toBeInTheDocument();
+    });
   });
 
   it("the Payments tab lists the client's payments", async () => {

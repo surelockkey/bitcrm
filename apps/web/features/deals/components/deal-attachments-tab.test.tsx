@@ -8,7 +8,10 @@ const { deleteMutate, updateMutate, downloadUrlFor } = vi.hoisted(() => ({
   downloadUrlFor: vi.fn(async () => ({ downloadUrl: "https://s3.example/signed.pdf" })),
 }));
 
-vi.mock("../attachments-api", () => ({ getAttachmentDownloadUrl: downloadUrlFor }));
+vi.mock("../attachments-api", () => ({
+  getAttachmentDownloadUrl: downloadUrlFor,
+  ATTACHMENT_ACCEPT: "image/png,image/jpeg,image/webp,image/heic,application/pdf",
+}));
 
 const photo: DealAttachmentMeta = {
   id: "a-photo",

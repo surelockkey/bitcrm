@@ -29,7 +29,7 @@ import { cn } from "@/lib/utils";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { formatDate } from "@/features/users/lib";
 import { useFilePreviewStore } from "@/features/files/preview-store";
-import { getAttachmentDownloadUrl } from "../attachments-api";
+import { ATTACHMENT_ACCEPT, getAttachmentDownloadUrl } from "../attachments-api";
 import {
   useAttachments,
   useAttachmentUrl,
@@ -37,8 +37,6 @@ import {
   useUpdateAttachment,
   useUploadAttachment,
 } from "../attachments-hooks";
-
-const ACCEPT = "image/png,image/jpeg,image/webp,image/heic,application/pdf";
 
 export function DealAttachmentsTab({ dealId, canEdit }: { dealId: string; canEdit: boolean }) {
   const { data: items, isLoading } = useAttachments(dealId);
@@ -296,7 +294,7 @@ function UploadButton({ dealId }: { dealId: string }) {
       <input
         ref={inputRef}
         type="file"
-        accept={ACCEPT}
+        accept={ATTACHMENT_ACCEPT}
         className="hidden"
         onChange={(e) => {
           const f = e.target.files?.[0];
