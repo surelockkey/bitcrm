@@ -41,6 +41,12 @@ export interface Payment {
   /** === invoiceId === dealId. One invoice per job, so these are the same value. */
   invoiceId: string;
   dealId: string;
+  /**
+   * Set when the payment is an estimate's DEPOSIT (Workiz
+   * `clientPortalEstimateDeposit`). The row still sits on the job's ledger —
+   * a deposit is applied to the job's balance, and so to its invoice.
+   */
+  estimateId?: string;
   contactId: string;
   companyId?: string;
   /** Dollars, 2dp — the gross amount taken, before any refund. */
@@ -248,6 +254,28 @@ export interface PortalPaymentOptions {
   surchargeLabel: string;
   tipsEnabled: boolean;
   tipPresets: number[];
+}
+
+/** What the portal's "Make a deposit" step renders for one approved estimate. */
+export interface PortalDepositOptions {
+  estimateId: string;
+  number: string;
+  /** Workiz "Required deposit": the fixed amount, or the percent of the total. */
+  depositDue: number;
+  /** Deposit money already settled on this estimate. */
+  amountPaid: number;
+  /** What is still owed of the deposit, dollars. 0 ⇒ nothing to pay. */
+  amountDue: number;
+  /** Taken but still clearing (ACH). */
+  amountPending: number;
+  /** The client signed (approved) it — the deposit can only be taken after that. */
+  signed: boolean;
+  currency: string;
+  methods: OnlinePaymentMethod[];
+  allowPartial: boolean;
+  bankMinimum: number;
+  surchargePercent: number;
+  surchargeLabel: string;
 }
 
 /** Created per payment attempt — never baked into the emailed link (24h expiry). */

@@ -8,11 +8,14 @@ import {
   Optional,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import type {
-  OnlinePaymentMethod,
-  Payment,
-  PortalPaymentOptions,
-  PortalPaymentSession,
+import {
+  estimateDepositDue,
+  type Estimate,
+  type OnlinePaymentMethod,
+  type Payment,
+  type PortalDepositOptions,
+  type PortalPaymentOptions,
+  type PortalPaymentSession,
 } from '@bitcrm/types';
 import { portalBaseUrl } from '../common/constants/services.constants';
 import { CrmClient } from '../integrations/crm.client';
@@ -97,28 +100,127 @@ export class PortalPaymentsService {
       // The ledger is keyed by the job; a client invoice (no job) is not payable online yet.
       throw new ConflictException('This invoice cannot be paid online yet — please contact the office');
     }
+    return this.openCheckout({
+      token,
+      input,
+      dealId: invoice.dealId,
+      contactId: invoice.contactId,
+      companyId: invoice.companyId,
+      allowedMethods: invoice.allowedMethods,
+      documentId: invoice.id,
+      description: `Invoice ${invoice.number}`,
+      owed: (ledger) => round2(Math.max(0, (invoice.totals?.total ?? 0) - summarizePayments(ledger).settled)),
+      pending: (ledger) => summarizePayments(ledger).pending,
+    });
+  }
+
+  // ---------------------------------------------------------- estimate deposit
+
+  /**
+   * The "Make a deposit" step of approving an estimate (Workiz "Required
+   * deposit"). 404 unless the estimate is the token's and sent.
+   */
+  async depositOptions(token: string, estimateId: string): Promise<PortalDepositOptions> {
+    const estimate = await this.portal.sentEstimateFor(token, estimateId);
+    const settings = await this.settings.get();
+    const deposit = estimate.dealId ? depositLedger(await this.repo.listByInvoice(estimate.dealId), estimate.id) : [];
+    const summary = summarizePayments(deposit);
+    const depositDue = estimateDepositDue(estimate);
+    return {
+      estimateId: estimate.id,
+      number: estimate.number,
+      depositDue,
+      amountPaid: summary.settled,
+      amountDue: round2(Math.max(0, depositDue - summary.settled)),
+      amountPending: summary.pending,
+      signed: estimate.status === 'approved',
+      currency: 'usd',
+      // No deposit, or no job to hold the money ⇒ nothing can be paid.
+      methods:
+        depositDue > 0 && estimate.dealId ? this.settings.methodsFor(settings, undefined, !!this.stripe?.onlineReady) : [],
+      allowPartial: settings.allowPartial,
+      bankMinimum: settings.bankMinimum,
+      surchargePercent: settings.surchargePercent,
+      surchargeLabel: settings.surchargeLabel,
+    };
+  }
+
+  /**
+   * Signature first, money second: a deposit is only taken on an estimate the
+   * client has approved (= signed). The payment goes on the JOB's ledger —
+   * Workiz applies a deposit to the job's balance, and so to its invoice —
+   * tagged with the estimate so the deposit step knows what was paid.
+   */
+  async payDeposit(token: string, estimateId: string, input: PortalPayInput): Promise<PortalPaymentSession> {
+    const estimate = await this.portal.sentEstimateFor(token, estimateId);
+    const depositDue = estimateDepositDue(estimate);
+    if (!(depositDue > 0)) throw new BadRequestException('This estimate does not ask for a deposit');
+    if (!estimate.dealId) {
+      throw new ConflictException('This estimate cannot take a deposit online yet — please contact the office');
+    }
+    if (estimate.status !== 'approved') {
+      throw new ConflictException('Please sign the estimate first — the deposit is paid after approving it');
+    }
+    const dealId = estimate.dealId;
+    return this.openCheckout({
+      token,
+      input,
+      dealId,
+      contactId: estimate.contactId,
+      companyId: estimate.companyId,
+      allowedMethods: undefined,
+      documentId: estimate.id,
+      estimateId: estimate.id,
+      description: `Deposit for estimate ${estimate.number}`,
+      owed: (ledger) => round2(Math.max(0, depositDue - summarizePayments(depositLedger(ledger, estimate.id)).settled)),
+      pending: (ledger) => summarizePayments(depositLedger(ledger, estimate.id)).pending,
+    });
+  }
+
+  /**
+   * Opens ONE Checkout Session for one attempt. The ledger row is written
+   * first, `pending`, so the webhook (whose only join is the metadata) always
+   * finds a payment to assert against — even if it beats this response.
+   */
+  private async openCheckout(params: {
+    token: string;
+    input: PortalPayInput;
+    dealId: string;
+    contactId: string;
+    companyId?: string;
+    allowedMethods?: OnlinePaymentMethod[];
+    /** The invoice or estimate the client is paying for (the return URL). */
+    documentId: string;
+    estimateId?: string;
+    description: string;
+    /** What is still owed, given the job's ledger as it now stands. */
+    owed: (ledger: Payment[]) => number;
+    /** Confirmed money still clearing, which caps a second attempt. */
+    pending: (ledger: Payment[]) => number;
+  }): Promise<PortalPaymentSession> {
+    const { token, input, dealId } = params;
     const settings = await this.settings.get();
 
     if (!this.stripe?.onlineReady) {
       throw new ServiceUnavailableException('Online payments are not available right now');
     }
-    const methods = this.settings.methodsFor(settings, invoice.allowedMethods, true);
+    const methods = this.settings.methodsFor(settings, params.allowedMethods, true);
     if (!methods.includes(input.method)) {
-      throw new BadRequestException('That payment method is not available for this invoice');
+      throw new BadRequestException('That payment method is not available for this document');
     }
 
     // A re-POST means the customer changed their mind about the amount: the
     // half-finished session is abandoned, not the new request refused.
-    const ledger = await this.supersedeOpenSessions(await this.repo.listByInvoice(invoice.id));
-    const summary = summarizePayments(ledger);
-    const amountDue = round2(Math.max(0, (invoice.totals?.total ?? 0) - summary.settled));
+    const ledger = await this.supersedeOpenSessions(await this.repo.listByInvoice(dealId));
+    const amountDue = params.owed(ledger);
+    const pending = params.pending(ledger);
     // Money already confirmed and merely clearing (ACH) is not deducted from
     // `amountDue` — the client is shown it separately — but it DOES cap what
-    // a second attempt may add, or the invoice would be over-collected.
-    const ceiling = round2(amountDue - summary.pending);
+    // a second attempt may add, or the document would be over-collected.
+    const ceiling = round2(amountDue - pending);
     if (amountDue > 0 && ceiling <= 0) {
       throw new ConflictException(
-        `A bank payment of $${summary.pending.toFixed(2)} for this invoice is still clearing — ` +
+        `A bank payment of $${pending.toFixed(2)} is still clearing — ` +
           'nothing more is owed until it lands or is returned',
       );
     }
@@ -141,10 +243,11 @@ export class PortalPaymentsService {
     const now = new Date().toISOString();
     const payment: Payment = {
       id: randomUUID(),
-      invoiceId: invoice.id,
-      dealId: invoice.dealId,
-      contactId: invoice.contactId,
-      ...(invoice.companyId && { companyId: invoice.companyId }),
+      invoiceId: dealId,
+      dealId,
+      ...(params.estimateId && { estimateId: params.estimateId }),
+      contactId: params.contactId,
+      ...(params.companyId && { companyId: params.companyId }),
       amount,
       currency: 'usd',
       method: input.method,
@@ -160,29 +263,29 @@ export class PortalPaymentsService {
     };
     await this.repo.create(payment);
 
-    const contact = await this.crm.getContact(invoice.contactId).catch(() => null);
+    const contact = await this.crm.getContact(params.contactId).catch(() => null);
     const email = contact?.emails?.[0];
 
     let session: { sessionId: string; clientSecret: string; paymentIntentId?: string };
     try {
       session = await this.stripe.createCheckoutSession({
         paymentId: payment.id,
-        invoiceId: invoice.id,
-        dealId: invoice.dealId,
-        contactId: invoice.contactId,
+        invoiceId: dealId,
+        dealId,
+        contactId: params.contactId,
         amount,
         surcharge,
         surchargeLabel: settings.surchargeLabel,
         currency: 'usd',
-        description: `Invoice ${invoice.number}`,
+        description: params.description,
         method: input.method,
-        returnUrl: this.returnUrl(token, input.returnPath, payment.id, invoice.id),
+        returnUrl: this.returnUrl(token, input.returnPath, payment.id, params.documentId),
         ...(email && { customerEmail: email }),
         idempotencyKey: `checkout_${payment.id}`,
       });
     } catch (err) {
       // No session means no way to pay: drop the row rather than leave a
-      // phantom "clearing" line on the client's invoice.
+      // phantom "clearing" line on the client's document.
       await this.repo.delete(payment).catch(() => undefined);
       throw err;
     }
@@ -291,4 +394,9 @@ export function safePortalPath(raw: string | undefined, token: string): string {
   const path = raw.split('?')[0].split('#')[0];
   if (!path.startsWith('/') || path.startsWith('//') || path.includes('..') || path.includes('\\')) return fallback;
   return path === `/${token}` || path.startsWith(`/${token}/`) ? path : fallback;
+}
+
+/** The rows of a job's ledger that are deposits on ONE estimate. */
+export function depositLedger(ledger: Payment[], estimateId: string): Payment[] {
+  return ledger.filter((p) => p.estimateId === estimateId);
 }

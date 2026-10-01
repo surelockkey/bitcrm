@@ -527,6 +527,7 @@ export type {
   PaymentSettings,
   PortalPaymentOptions,
   PortalPaymentSession,
+  PortalDepositOptions,
 } from './entities/payment.entity';
 export {
   PAYMENT_REPORT_TYPES,

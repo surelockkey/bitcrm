@@ -57,6 +57,39 @@ export class PublicPaymentsController {
     return { success: true, data: await this.payments.pay(token, id, dto) };
   }
 
+  @Get(':token/estimate/:id/deposit-options')
+  @Public()
+  @ApiOperation({
+    summary: 'What the estimate’s deposit is and how it can be paid',
+    description:
+      '**Guard:** none (token), rate limited. 404 unless the estimate belongs to the token’s contact AND ' +
+      'has been sent. `signed` says whether the client approved it — the deposit is only taken after that.',
+  })
+  async depositOptions(@Param('token') token: string, @Param('id') id: string, @Req() req: Request) {
+    await this.limiter.check(clientIp(req), token);
+    return { success: true, data: await this.payments.depositOptions(token, id) };
+  }
+
+  @Post(':token/estimate/:id/deposit/pay')
+  @Public()
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Pay an estimate’s deposit',
+    description:
+      '**Guard:** none (token), STRICT rate limit that fails closed. Signature first: 409 unless the ' +
+      'estimate is `approved`. The payment lands on the JOB’s ledger tagged with the estimate, so it is ' +
+      'applied to the invoice later. → `PortalPaymentSession`.',
+  })
+  async payDeposit(
+    @Param('token') token: string,
+    @Param('id') id: string,
+    @Body() dto: PortalPayDto,
+    @Req() req: Request,
+  ) {
+    await this.limiter.checkWrite(clientIp(req), token);
+    return { success: true, data: await this.payments.payDeposit(token, id, dto) };
+  }
+
   @Get(':token/payment/:paymentId')
   @Public()
   @ApiOperation({

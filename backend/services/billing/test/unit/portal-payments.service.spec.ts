@@ -3,10 +3,33 @@ import { BadRequestException, ConflictException, NotFoundException, ServiceUnava
 import { PortalPaymentsService } from 'src/payments/portal-payments.service';
 import { PaymentsService } from 'src/payments/payments.service';
 import { PaymentSettingsService } from 'src/payments/payment-settings.service';
-import { mockCrmClient, mockDealClient, mockEvents } from './mocks';
+import type { Estimate } from '@bitcrm/types';
+import { mockCrmClient, mockDealClient, mockEvents, NOW } from './mocks';
 import { fakeInvoices, fakeLedger, invoice, mockStripeService, payment } from './payment-mocks';
 
 const TOKEN = 'T'.repeat(43);
+
+/** A job estimate the client already signed (approved on the portal), asking for a 50% deposit of $200. */
+const estimate = (over: Partial<Estimate> = {}): Estimate =>
+  ({
+    id: 'est-1',
+    number: 'K4T9ZW-1',
+    dealId: 'deal-1',
+    dealNumber: 'K4T9ZW',
+    contactId: 'contact-1',
+    status: 'approved',
+    approvedAt: NOW,
+    approvedVia: 'portal',
+    estimateDate: '2026-09-20',
+    totals: { subtotal: 200, discount: 0, taxRatePercent: 0, tax: 0, total: 200, amountPaid: 0, balanceDue: 200 },
+    depositPercentage: 50,
+    sentAt: '2026-09-20T12:00:00.000Z',
+    version: 1,
+    createdBy: 'u-1',
+    createdAt: '2026-09-20T12:00:00.000Z',
+    updatedAt: '2026-09-20T12:00:00.000Z',
+    ...over,
+  }) as Estimate;
 
 async function build(
   over: {
@@ -14,6 +37,7 @@ async function build(
     stripe?: any;
     settings?: Record<string, unknown>;
     invoice?: ReturnType<typeof invoice>;
+    estimate?: Estimate;
   } = {},
 ) {
   const ledger = over.ledger ?? fakeLedger();
@@ -39,6 +63,12 @@ async function build(
     resolveContact: jest.fn(async (token: string) => {
       if (token !== TOKEN) throw new NotFoundException('This link is no longer valid');
       return 'contact-1';
+    }),
+    sentEstimateFor: jest.fn(async (token: string, id: string) => {
+      if (token !== TOKEN) throw new NotFoundException('This link is no longer valid');
+      const est = over.estimate ?? estimate();
+      if (est.id !== id || !est.sentAt) throw new NotFoundException('Document not found');
+      return est;
     }),
   };
   const service = new PortalPaymentsService(
@@ -317,5 +347,74 @@ describe('portal payment poll', () => {
   it('404s an unknown payment', async () => {
     const { service } = await build();
     await expect(service.status(TOKEN, 'nope')).rejects.toThrow(NotFoundException);
+  });
+});
+
+
+describe('estimate deposit (portal)', () => {
+  it('describes the deposit: what Workiz calls "Required deposit", less what already settled on it', async () => {
+    const ledger = fakeLedger([payment({ id: 'dep-1', amount: 40, status: 'settled', estimateId: 'est-1' })]);
+    const { service } = await build({ ledger });
+    const opts = await service.depositOptions(TOKEN, 'est-1');
+    expect(opts).toMatchObject({
+      estimateId: 'est-1',
+      number: 'K4T9ZW-1',
+      depositDue: 100,
+      amountPaid: 40,
+      amountDue: 60,
+      amountPending: 0,
+      signed: true,
+      methods: ['card', 'bank'],
+    });
+  });
+
+  it('opens a Checkout Session for the deposit on the JOB’s ledger, tagged with the estimate', async () => {
+    const { service, ledger, stripe } = await build();
+    const session = await service.payDeposit(TOKEN, 'est-1', { amount: 100, method: 'card' });
+    expect(session.amount).toBe(100);
+    const row = [...ledger.payments.values()][0];
+    expect(row).toMatchObject({
+      invoiceId: 'deal-1',
+      dealId: 'deal-1',
+      estimateId: 'est-1',
+      amount: 100,
+      status: 'pending',
+      source: 'portal',
+      takenBy: 'client',
+    });
+    expect(stripe.createCheckoutSession).toHaveBeenCalledWith(
+      expect.objectContaining({ description: 'Deposit for estimate K4T9ZW-1', dealId: 'deal-1' }),
+    );
+  });
+
+  it('signature first: an estimate the client has not approved cannot take a deposit', async () => {
+    const { service, ledger } = await build({ estimate: estimate({ status: 'pending', approvedAt: undefined, approvedVia: undefined }) });
+    await expect(service.payDeposit(TOKEN, 'est-1', { amount: 100, method: 'card' })).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+    expect(ledger.payments.size).toBe(0);
+  });
+
+  it('refuses an estimate with no deposit, one with no job, and more than the deposit', async () => {
+    const none = await build({ estimate: estimate({ depositPercentage: undefined }) });
+    await expect(none.service.payDeposit(TOKEN, 'est-1', { amount: 10, method: 'card' })).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+    const noJob = await build({ estimate: estimate({ dealId: undefined, dealNumber: undefined }) });
+    await expect(noJob.service.payDeposit(TOKEN, 'est-1', { amount: 100, method: 'card' })).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+    const { service } = await build();
+    await expect(service.payDeposit(TOKEN, 'est-1', { amount: 150, method: 'card' })).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+  });
+
+  it('404s an unsent estimate or a bad token', async () => {
+    const { service } = await build({ estimate: estimate({ sentAt: undefined }) });
+    await expect(service.depositOptions(TOKEN, 'est-1')).rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.payDeposit('x'.repeat(43), 'est-1', { amount: 1, method: 'card' })).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
   });
 });

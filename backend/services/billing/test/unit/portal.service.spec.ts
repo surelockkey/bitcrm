@@ -341,6 +341,36 @@ describe('PortalService', () => {
       expect(invoices.signByClient).not.toHaveBeenCalled();
     });
 
+    it('with the ledger wired, an approved estimate with a deposit still owed is payable, and the paid part is shown', async () => {
+      estimates.listForContact.mockResolvedValueOnce([
+        estimate({ sentAt: NOW, status: 'approved', approvedVia: 'portal', depositPercentage: 50, totals: { total: 200, balanceDue: 200 } as never }),
+      ]);
+      const ledger = {
+        listByInvoice: jest.fn(async () => [
+          { id: 'p1', estimateId: 'est-1', amount: 40, status: 'settled', refundedAmount: 0 },
+          { id: 'p2', amount: 10, status: 'settled', refundedAmount: 0 },
+        ]),
+      };
+      const paymentSettings = {
+        get: jest.fn(async () => ({ onlinePaymentsEnabled: true, cardEnabled: true, bankEnabled: false })),
+        methodsFor: jest.fn(() => ['card']),
+      };
+      const withLedger = new PortalService(
+        repo as never,
+        crm as never,
+        invoices as never,
+        estimates as never,
+        profiles as never,
+        deals as never,
+        ledger as never,
+        paymentSettings as never,
+        { onlineReady: true } as never,
+      );
+      const { token } = await withLedger.createLink('contact-1', user());
+      const view = await withLedger.publicView(token!);
+      expect(view.estimates[0]).toMatchObject({ depositDue: 100, depositPaid: 40, payable: true, signed: true });
+    });
+
     it('the inbox says which estimates still need a signature and what deposit is due', async () => {
       estimates.listForContact.mockResolvedValueOnce([
         estimate({ sentAt: NOW, depositPercentage: 50, totals: { total: 200, balanceDue: 200 } as never }),

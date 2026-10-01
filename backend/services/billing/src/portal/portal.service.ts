@@ -241,7 +241,10 @@ export class PortalService {
       const name = companyOf(dealId)?.name;
       return name ? { ...s, companyName: name } : s;
     };
-    const payable = await this.payableFlags(shownInvoices);
+    const [payable, deposits] = await Promise.all([
+      this.payableFlags(shownInvoices),
+      this.depositFlags(shownEstimates),
+    ]);
     const byDateDesc = (a: PortalDocumentSummary, b: PortalDocumentSummary) => b.date.localeCompare(a.date);
     return {
       business,
@@ -249,7 +252,9 @@ export class PortalService {
       invoices: shownInvoices
         .map((i) => ({ ...named(invoiceSummary(i), i.dealId), ...(payable.get(i.id) ?? {}) }))
         .sort(byDateDesc),
-      estimates: shownEstimates.map((e) => named(estimateSummary(e), e.dealId)).sort(byDateDesc),
+      estimates: shownEstimates
+        .map((e) => ({ ...named(estimateSummary(e), e.dealId), ...(deposits.get(e.id) ?? {}) }))
+        .sort(byDateDesc),
       preview,
     };
   }
@@ -283,6 +288,41 @@ export class PortalService {
       }
     } catch (err) {
       this.logger.warn(`portal: payment ledger unavailable: ${(err as Error).message}`);
+    }
+    return out;
+  }
+
+  /**
+   * Which estimates can take their deposit right now (approved = signed, a
+   * deposit set, part of it still owed, a job to hold the money, Stripe
+   * ready), and how much of the deposit already settled. Best effort, like
+   * `payableFlags`.
+   */
+  private async depositFlags(estimates: Estimate[]): Promise<Map<string, { payable: boolean; depositPaid: number }>> {
+    const out = new Map<string, { payable: boolean; depositPaid: number }>();
+    const withDeposit = estimates.filter((e) => estimateDepositDue(e) > 0);
+    if (!this.ledger || !this.paymentSettings || withDeposit.length === 0) return out;
+    try {
+      const settings = await this.paymentSettings.get();
+      const stripeReady = !!this.stripe?.onlineReady;
+      const methods = this.paymentSettings.methodsFor(settings, undefined, stripeReady);
+      const ledgers = new Map<string, Promise<Awaited<ReturnType<PaymentsRepository['listByInvoice']>>>>();
+      for (const estimate of withDeposit) {
+        if (!estimate.dealId) {
+          out.set(estimate.id, { payable: false, depositPaid: 0 });
+          continue;
+        }
+        if (!ledgers.has(estimate.dealId)) ledgers.set(estimate.dealId, this.ledger.listByInvoice(estimate.dealId));
+        const rows = (await ledgers.get(estimate.dealId)!).filter((p) => p.estimateId === estimate.id);
+        const depositPaid = summarizePayments(rows).settled;
+        const owed = round2(Math.max(0, estimateDepositDue(estimate) - depositPaid));
+        out.set(estimate.id, {
+          payable: methods.length > 0 && owed > 0 && estimate.status === 'approved',
+          depositPaid,
+        });
+      }
+    } catch (err) {
+      this.logger.warn(`portal: payment ledger unavailable for deposits: ${(err as Error).message}`);
     }
     return out;
   }

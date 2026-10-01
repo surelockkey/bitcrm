@@ -42,6 +42,8 @@ export interface PortalDocumentSummary {
   signed?: boolean;
   /** Estimate: the deposit asked for (Workiz "Required deposit"), when one is set. */
   depositDue?: number;
+  /** Estimate: deposit money already settled on it. */
+  depositPaid?: number;
 }
 
 /** GET /api/billing/public/portal/:token */
