@@ -445,7 +445,7 @@ export type {
 } from './entities/estimate.entity';
 export { DEFAULT_BUSINESS_PROFILE, DEFAULT_BUSINESS_PROFILE_ID } from './entities/business-profile.entity';
 export type { BusinessProfile, BusinessProfileView, BillingAsset } from './entities/business-profile.entity';
-export type { PortalLink, PortalDocumentSummary, PortalView } from './entities/portal.entity';
+export type { PortalLink, PortalDocumentSummary, PortalView, PortalJob, PortalPaymentLine } from './entities/portal.entity';
 export type { DocumentSettings } from './entities/document-settings.entity';
 export type {
   DocumentSignature,

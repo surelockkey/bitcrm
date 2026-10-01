@@ -7,8 +7,11 @@ import {
   type Invoice,
   type InvoiceView,
   type JwtUser,
+  type Payment,
   type PortalDocumentSummary,
+  type PortalJob,
   type PortalLink,
+  type PortalPaymentLine,
   type PortalView,
 } from '@bitcrm/types';
 import { BusinessProfileService } from '../business-profile/business-profile.service';
@@ -19,7 +22,8 @@ import { StripeService } from '../payments/stripe/stripe.service';
 import { portalBaseUrl } from '../common/constants/services.constants';
 import { EstimatesService, type SignEstimateInput } from '../estimates/estimates.service';
 import { CrmClient } from '../integrations/crm.client';
-import { DealClient } from '../integrations/deal.client';
+import { DealClient, type ContactDealSummary } from '../integrations/deal.client';
+import { formatAddress } from '../documents/document-context.builder';
 import { InvoicesService, type SignInvoiceInput } from '../invoices/invoices.service';
 import { generatePortalToken, hashPortalToken, isPlausibleToken, recoverPortalToken } from './portal-token';
 import { PortalRepository, type StoredPortalLink } from './portal.repository';
@@ -210,14 +214,16 @@ export class PortalService {
    * view); an outage just falls back to the default company.
    */
   private async buildView(contactId: string, preview: boolean): Promise<PortalView> {
-    const [contact, invoices, estimates, jobCompanies, companies] = await Promise.all([
+    const [contact, invoices, estimates, jobs, companies, payments] = await Promise.all([
       this.crm.getContact(contactId).catch(() => null),
       this.invoices.listForContact(contactId),
       this.estimates.listForContact(contactId),
-      this.jobCompanies(contactId),
+      this.contactJobs(contactId),
       this.profiles.listAll(),
+      this.paymentHistory(contactId),
     ]);
     if (!contact && !preview) throw notFound();
+    const jobCompanies = new Map(jobs.filter((r) => r.businessProfileId).map((r) => [r.id, r.businessProfileId!]));
 
     const byId = new Map(companies.map((c) => [c.id, c]));
     const fallback = companies.find((c) => c.isDefault) ?? companies[0];
@@ -248,7 +254,14 @@ export class PortalService {
     const byDateDesc = (a: PortalDocumentSummary, b: PortalDocumentSummary) => b.date.localeCompare(a.date);
     return {
       business,
-      client: { firstName: contact?.firstName ?? '', lastName: contact?.lastName ?? '' },
+      client: {
+        firstName: contact?.firstName ?? '',
+        lastName: contact?.lastName ?? '',
+        ...(contact?.emails?.[0] && { email: contact.emails[0] }),
+        ...(contact?.phones?.[0] && { phone: contact.phones[0] }),
+      },
+      jobs: portalJobs(jobs, new Date()),
+      payments,
       invoices: shownInvoices
         .map((i) => ({ ...named(invoiceSummary(i), i.dealId), ...(payable.get(i.id) ?? {}) }))
         .sort(byDateDesc),
@@ -327,17 +340,70 @@ export class PortalService {
     return out;
   }
 
-  /** dealId → businessProfileId for the contact's jobs (empty on failure). */
-  private async jobCompanies(contactId: string): Promise<Map<string, string>> {
-    if (!this.deals) return new Map();
+  /** The contact's jobs from deal-service (empty on failure — the portal still opens). */
+  private async contactJobs(contactId: string): Promise<ContactDealSummary[]> {
+    if (!this.deals) return [];
     try {
-      const rows = await this.deals.listByContact(contactId);
-      return new Map(rows.filter((r) => r.businessProfileId).map((r) => [r.id, r.businessProfileId!]));
+      return await this.deals.listByContact(contactId);
     } catch (err) {
-      this.logger.warn(`portal: job companies unavailable for ${contactId}: ${(err as Error).message}`);
-      return new Map();
+      this.logger.warn(`portal: jobs unavailable for ${contactId}: ${(err as Error).message}`);
+      return [];
     }
   }
+
+  /** The client's own payments, newest first, without failed attempts (empty when the ledger is not wired or down). */
+  private async paymentHistory(contactId: string): Promise<PortalPaymentLine[]> {
+    if (!this.ledger) return [];
+    try {
+      const { items } = await this.ledger.list({ contactId, limit: 200 });
+      return items
+        .filter((p) => p.status !== 'failed')
+        .sort((a, b) => b.takenAt.localeCompare(a.takenAt))
+        .map(paymentLine);
+    } catch (err) {
+      this.logger.warn(`portal: payment history unavailable for ${contactId}: ${(err as Error).message}`);
+      return [];
+    }
+  }
+}
+
+/** Workiz My Booking: Upcoming = submitted jobs scheduled from now on; Completed = done. The rest are not shown. */
+export function portalJobs(rows: ContactDealSummary[], now: Date): PortalJob[] {
+  const nowIso = now.toISOString();
+  const toJob = (r: ContactDealSummary, kind: PortalJob['kind']): PortalJob => ({
+    id: r.id,
+    number: r.dealNumber,
+    kind,
+    ...(r.scheduledDate && { scheduledDate: r.scheduledDate }),
+    ...(r.scheduledEndDate && { scheduledEndDate: r.scheduledEndDate }),
+    ...(r.jobTimezone && { timezone: r.jobTimezone }),
+    ...(r.jobTypeName && { jobType: r.jobTypeName }),
+    ...(formatAddress(r.address) && { address: formatAddress(r.address)! }),
+    technicians: r.technicianNames ?? [],
+  });
+  const upcoming = rows
+    .filter((r) => r.superStatus === 'submitted' && !!r.scheduledDate && r.scheduledDate >= nowIso)
+    .sort((a, b) => a.scheduledDate!.localeCompare(b.scheduledDate!))
+    .map((r) => toJob(r, 'upcoming'));
+  const completed = rows
+    .filter((r) => r.superStatus === 'done')
+    .sort((a, b) => (b.scheduledDate ?? '').localeCompare(a.scheduledDate ?? ''))
+    .map((r) => toJob(r, 'completed'));
+  return [...upcoming, ...completed];
+}
+
+function paymentLine(p: Payment): PortalPaymentLine {
+  return {
+    id: p.id,
+    amount: p.amount,
+    method: p.method,
+    status: p.status,
+    takenAt: p.takenAt,
+    ...(p.invoiceId && { invoiceId: p.invoiceId }),
+    ...(p.estimateId && { estimateId: p.estimateId }),
+    ...(p.cardBrand && { cardBrand: p.cardBrand }),
+    ...(p.last4 && { last4: p.last4 }),
+  };
 }
 
 function invoiceSummary(i: Invoice): PortalDocumentSummary {
@@ -351,6 +417,8 @@ function invoiceSummary(i: Invoice): PortalDocumentSummary {
     balanceDue: i.totals?.balanceDue ?? 0,
     dueDate: i.dueDate,
     sent: !!i.sentAt,
+    signatureNeeded: !!i.requestSignature && !i.signedAt,
+    signed: !!i.signedAt,
   };
 }
 

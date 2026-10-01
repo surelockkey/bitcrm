@@ -482,7 +482,7 @@ export class EstimatesService {
     const now = new Date().toISOString();
     const updated = await this.write(
       id,
-      { ...statusChanges(estimate, 'approved', now), approvedVia: 'portal', updatedAt: now },
+      { ...statusChanges(estimate, 'approved', now), approvedVia: 'portal', signedAt: signature.signedAt, updatedAt: now },
       [],
       estimate.version,
     );
@@ -538,6 +538,12 @@ export class EstimatesService {
       collectedBy: caller.user.id,
       ...(input.ip && { ip: input.ip }),
     });
+    const updated = await this.write(
+      id,
+      { signedAt: signature.signedAt, updatedAt: signature.signedAt },
+      [],
+      estimate.version,
+    );
     await this.timeline(estimate.dealId, TimelineEventType.ESTIMATE_STATUS_CHANGED, caller, {
       estimateId: id,
       number: estimate.number,
@@ -545,7 +551,7 @@ export class EstimatesService {
       signatureId: signature.id,
       signed: true,
     });
-    return { ...estimate, items, signatures: await signatures.list('estimate', id) };
+    return { ...updated, items, signatures: await signatures.list('estimate', id) };
   }
 
   private requireSignatures(): SignaturesService {

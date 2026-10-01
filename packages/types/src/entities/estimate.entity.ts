@@ -69,6 +69,8 @@ export interface Estimate {
   approvedAt?: string;
   /** `portal` when the client signed it on the client portal; `staff` when set by hand. */
   approvedVia?: 'portal' | 'staff';
+  /** When the latest signature was collected (portal or in person). */
+  signedAt?: string;
   declinedAt?: string;
   wonAt?: string;
   syncedAt?: string;

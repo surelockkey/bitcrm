@@ -174,6 +174,7 @@ describe('EstimatesService', () => {
       expect(approved.status).toBe('approved');
       expect(approved.approvedAt).toBe(NOW);
       expect(approved.approvedVia).toBe('portal');
+      expect(approved.signedAt).toBe(NOW);
       expect(deal.addTimeline).toHaveBeenCalledWith(
         'deal-1',
         TimelineEventType.ESTIMATE_APPROVED,
@@ -221,6 +222,7 @@ describe('EstimatesService', () => {
       );
       expect(e.status).toBe('pending');
       expect(e.signatures).toHaveLength(1);
+      expect(e.signedAt).toBe(NOW);
     });
 
     it('get() carries the document’s signatures', async () => {

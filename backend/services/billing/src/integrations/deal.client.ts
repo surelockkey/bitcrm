@@ -57,6 +57,13 @@ export interface ContactDealSummary {
   superStatus: Deal['superStatus'];
   businessProfileId?: string;
   businessProfileName?: string;
+  /* ---- the client portal's My Booking tab */
+  scheduledDate?: string;
+  scheduledEndDate?: string;
+  jobTimezone?: string;
+  jobTypeName?: string;
+  address?: Deal['address'];
+  technicianNames?: string[];
 }
 
 /** Body of `PUT /api/deals/internal/:id/payment-status`. */

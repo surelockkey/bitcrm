@@ -17,6 +17,10 @@ export interface BusinessProfile {
   website?: string;
   licenseNumber?: string;
   address?: Address;
+  /** The portal header's tagline (Workiz `company_description`). */
+  description?: string;
+  /** "Book a service" in the portal header (Workiz `bookingLink`). */
+  bookingUrl?: string;
   /** Billing asset id of the uploaded logo. */
   logoAssetId?: string;
   /** Default payment terms for new invoices when the client has none. */

@@ -1,6 +1,7 @@
 import type { BusinessProfile } from './business-profile.entity';
 import type { EstimateStatus } from './estimate.entity';
 import type { InvoiceStatus } from './invoice.entity';
+import type { PaymentMethod, PaymentStatus } from './payment.entity';
 
 /** Metadata of a client's portal link (the raw token is only returned on create). */
 export interface PortalLink {
@@ -46,11 +47,46 @@ export interface PortalDocumentSummary {
   depositPaid?: number;
 }
 
+/** One of the client's jobs on the portal's My Booking tab (Workiz: Upcoming = submitted + future, Completed = done). */
+export interface PortalJob {
+  id: string;
+  number: string;
+  kind: 'upcoming' | 'completed';
+  scheduledDate?: string;
+  scheduledEndDate?: string;
+  /** IANA zone of the job, for the "Add to calendar" link. */
+  timezone?: string;
+  jobType?: string;
+  /** One line. */
+  address?: string;
+  technicians: string[];
+}
+
+/** One line of the client's payment history on the portal (never a card number). */
+export interface PortalPaymentLine {
+  id: string;
+  amount: number;
+  method: PaymentMethod;
+  status: PaymentStatus;
+  takenAt: string;
+  invoiceId?: string;
+  /** Set when the payment was an estimate's deposit. */
+  estimateId?: string;
+  cardBrand?: string;
+  last4?: string;
+}
+
 /** GET /api/billing/public/portal/:token */
 export interface PortalView {
-  business: Pick<BusinessProfile, 'name' | 'phone' | 'email' | 'website' | 'address'> & { logoUrl?: string };
-  client: { firstName: string; lastName: string };
+  business: Pick<BusinessProfile, 'name' | 'phone' | 'email' | 'website' | 'address' | 'description' | 'bookingUrl'> & {
+    logoUrl?: string;
+  };
+  client: { firstName: string; lastName: string; email?: string; phone?: string };
   estimates: PortalDocumentSummary[];
   invoices: PortalDocumentSummary[];
+  /** Upcoming first (soonest first), then completed (latest first). */
+  jobs: PortalJob[];
+  /** Newest first; failed attempts are left out. */
+  payments: PortalPaymentLine[];
   preview: boolean;
 }

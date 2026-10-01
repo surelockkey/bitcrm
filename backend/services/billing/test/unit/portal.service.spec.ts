@@ -221,7 +221,7 @@ describe('PortalService', () => {
     const { token } = await service.createLink('contact-1', user());
     const view = await service.publicView(token!);
     expect(view.preview).toBe(false);
-    expect(view.client).toEqual({ firstName: 'Jane', lastName: 'Client' });
+    expect(view.client).toMatchObject({ firstName: 'Jane', lastName: 'Client' });
     expect(view.business).toMatchObject({ name: 'Sure Lock Key', logoUrl: 'https://s3/logo' });
     expect(view.invoices).toEqual([
       {
@@ -234,6 +234,8 @@ describe('PortalService', () => {
         balanceDue: 100,
         dueDate: '2026-09-30',
         sent: true,
+        signatureNeeded: false,
+        signed: false,
         companyName: 'Sure Lock Key',
       },
     ]);
@@ -297,6 +299,85 @@ describe('PortalService', () => {
       await expect(service.publicHtml(token!, 'invoice', 'deal-2')).rejects.toBeInstanceOf(NotFoundException);
       await expect(service.publicHtml(token!, 'receipt', 'x')).rejects.toBeInstanceOf(NotFoundException);
       await expect(service.publicHtml('A'.repeat(43), 'invoice', 'deal-1')).rejects.toBeInstanceOf(NotFoundException);
+    });
+  });
+
+  describe('the Workiz-style portal view', () => {
+    it('carries the company tagline + booking link, the client’s contact details, the invoice signature state', async () => {
+      profiles.getPublic.mockResolvedValueOnce({
+        name: 'Sure Lock Key',
+        phone: '+12037479615',
+        description: 'Offering Locksmith, Door, and Garage Door Services!',
+        bookingUrl: 'https://book.example.com',
+        logoUrl: 'https://s3/logo',
+      });
+      invoices.listForContact.mockResolvedValueOnce([
+        invoice({ sentAt: NOW, requestSignature: true }),
+        invoice({ id: 'deal-3', number: 'B3', sentAt: NOW, requestSignature: true, signedAt: NOW }),
+        invoice({ id: 'deal-4', number: 'B4', sentAt: NOW }),
+      ]);
+      const { token } = await service.createLink('contact-1', user());
+      const view = await service.publicView(token!);
+      expect(view.business).toMatchObject({ description: 'Offering Locksmith, Door, and Garage Door Services!', bookingUrl: 'https://book.example.com' });
+      expect(view.client).toEqual({ firstName: 'Jane', lastName: 'Client', email: 'jane@example.com', phone: '+18605550100' });
+      const byId = Object.fromEntries(view.invoices.map((i) => [i.id, i]));
+      expect(byId['deal-1']).toMatchObject({ signatureNeeded: true, signed: false });
+      expect(byId['deal-3']).toMatchObject({ signatureNeeded: false, signed: true });
+      expect(byId['deal-4']).toMatchObject({ signatureNeeded: false, signed: false });
+    });
+
+    it('My Booking: the client’s upcoming (submitted, future) and completed (done) jobs, nothing else', async () => {
+      deals.listByContact.mockResolvedValue([
+        { id: 'j1', dealNumber: 'J1', superStatus: 'submitted', scheduledDate: '2026-09-20T14:00:00.000Z', scheduledEndDate: '2026-09-20T16:00:00.000Z', jobTypeName: 'Lock change', technicianNames: ['Mike Smith'], address: { street: '1 Main St', city: 'Hartford', state: 'CT', zip: '06103' } },
+        { id: 'j2', dealNumber: 'J2', superStatus: 'done', scheduledDate: '2026-09-01T14:00:00.000Z', jobTypeName: 'Rekey' },
+        { id: 'j3', dealNumber: 'J3', superStatus: 'in_progress', scheduledDate: '2026-09-16T09:00:00.000Z' },
+        { id: 'j4', dealNumber: 'J4', superStatus: 'canceled', scheduledDate: '2026-09-25T09:00:00.000Z' },
+        { id: 'j5', dealNumber: 'J5', superStatus: 'submitted', scheduledDate: '2026-09-10T09:00:00.000Z' },
+      ]);
+      const { token } = await service.createLink('contact-1', user());
+      const view = await service.publicView(token!);
+      expect(view.jobs.map((j) => [j.id, j.kind])).toEqual([
+        ['j1', 'upcoming'],
+        ['j2', 'completed'],
+      ]);
+      expect(view.jobs[0]).toMatchObject({
+        number: 'J1',
+        scheduledDate: '2026-09-20T14:00:00.000Z',
+        scheduledEndDate: '2026-09-20T16:00:00.000Z',
+        jobType: 'Lock change',
+        technicians: ['Mike Smith'],
+        address: '1 Main St, Hartford, CT 06103',
+      });
+    });
+
+    it('Payment history: the client’s settled, refunded and clearing payments, newest first, never a card number', async () => {
+      const ledger = {
+        listByInvoice: jest.fn(async () => []),
+        list: jest.fn(async () => ({
+          items: [
+            { id: 'p1', invoiceId: 'deal-1', dealId: 'deal-1', amount: 50.46, method: 'card', status: 'settled', refundedAmount: 0, takenAt: '2026-09-29T13:52:00.000Z', createdAt: '2026-09-29T13:52:00.000Z', cardBrand: 'visa', last4: '4061', stripePaymentIntentId: 'pi_secret' },
+            { id: 'p2', invoiceId: 'deal-1', dealId: 'deal-1', estimateId: 'est-1', amount: 100, method: 'bank', status: 'pending', refundedAmount: 0, takenAt: '2026-09-30T10:00:00.000Z', createdAt: '2026-09-30T10:00:00.000Z' },
+            { id: 'p3', invoiceId: 'deal-1', dealId: 'deal-1', amount: 20, method: 'card', status: 'failed', refundedAmount: 0, takenAt: '2026-09-28T10:00:00.000Z', createdAt: '2026-09-28T10:00:00.000Z' },
+          ],
+        })),
+      };
+      const paymentSettings = { get: jest.fn(async () => ({})), methodsFor: jest.fn(() => []) };
+      const withLedger = new PortalService(repo as never, crm as never, invoices as never, estimates as never, profiles as never, deals as never, ledger as never, paymentSettings as never, undefined);
+      const { token } = await withLedger.createLink('contact-1', user());
+      const view = await withLedger.publicView(token!);
+      expect(ledger.list).toHaveBeenCalledWith(expect.objectContaining({ contactId: 'contact-1' }));
+      expect(view.payments.map((p) => p.id)).toEqual(['p2', 'p1']);
+      expect(view.payments[1]).toEqual({
+        id: 'p1',
+        amount: 50.46,
+        method: 'card',
+        status: 'settled',
+        takenAt: '2026-09-29T13:52:00.000Z',
+        invoiceId: 'deal-1',
+        cardBrand: 'visa',
+        last4: '4061',
+      });
+      expect(view.payments[0]).toMatchObject({ estimateId: 'est-1', status: 'pending' });
     });
   });
 

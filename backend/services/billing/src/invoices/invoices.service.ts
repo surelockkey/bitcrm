@@ -391,18 +391,19 @@ export class InvoicesService {
       source: 'portal',
       ...(input.ip && { ip: input.ip }),
     });
-    if (hasJob(invoice)) {
+    const signed = await this.stampSigned(invoice, signature.signedAt);
+    if (hasJob(signed)) {
       await this.deal.addTimeline(
-        invoice.dealId,
+        signed.dealId,
         TimelineEventType.INVOICE_SIGNED,
         'client',
-        { invoiceId: id, number: invoice.number, signedBy: signature.signedBy, signatureId: signature.id },
+        { invoiceId: id, number: signed.number, signedBy: signature.signedBy, signatureId: signature.id },
         signature.signedBy,
       );
     }
-    const base = hasJob(invoice)
-      ? this.toView(invoice, await this.loadView(invoice.dealId), await this.ledgerFor(id))
-      : this.toClientView(invoice, await this.repo.getItems(id), await this.ledgerFor(id));
+    const base = hasJob(signed)
+      ? this.toView(signed, await this.loadView(signed.dealId), await this.ledgerFor(id))
+      : this.toClientView(signed, await this.repo.getItems(id), await this.ledgerFor(id));
     return { ...base, signatures: await signatures.list('invoice', id) };
   }
 
@@ -422,19 +423,25 @@ export class InvoicesService {
       collectedBy: caller.user.id,
       ...(input.ip && { ip: input.ip }),
     });
-    if (hasJob(invoice)) {
+    const signed = await this.stampSigned(invoice, signature.signedAt);
+    if (hasJob(signed)) {
       await this.deal.addTimeline(
-        invoice.dealId,
+        signed.dealId,
         TimelineEventType.INVOICE_SIGNED,
         caller.user.id,
-        { invoiceId: id, number: invoice.number, signedBy: signature.signedBy, signatureId: signature.id },
+        { invoiceId: id, number: signed.number, signedBy: signature.signedBy, signatureId: signature.id },
         caller.user.email,
       );
     }
     const base = view
-      ? this.toView(invoice, view, await this.ledgerFor(id))
-      : this.toClientView(invoice, await this.repo.getItems(id), await this.ledgerFor(id));
+      ? this.toView(signed, view, await this.ledgerFor(id))
+      : this.toClientView(signed, await this.repo.getItems(id), await this.ledgerFor(id));
     return { ...base, signatures: await signatures.list('invoice', id) };
+  }
+
+  /** `signedAt` on the invoice row, so lists and the portal know without reading the signatures. */
+  private stampSigned(invoice: Invoice, signedAt: string): Promise<Invoice> {
+    return this.repo.update(invoice.id, { signedAt, updatedAt: signedAt }, [], undefined, SNAPSHOT_WRITE);
   }
 
   private requireSignatures(): SignaturesService {

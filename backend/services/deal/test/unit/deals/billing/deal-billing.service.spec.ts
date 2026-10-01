@@ -436,9 +436,37 @@ describe('DealBillingService', () => {
         });
 
       expect(await service.listByContact('contact-1')).toEqual([
-        { id: 'a', dealNumber: 'AB12CD', superStatus: 'submitted' },
-        { id: 'b', dealNumber: 'ZZ', superStatus: 'submitted', businessProfileId: 'bp-2', businessProfileName: 'Two' },
+        expect.objectContaining({ id: 'a', dealNumber: 'AB12CD', superStatus: 'submitted' }),
+        expect.objectContaining({ id: 'b', dealNumber: 'ZZ', superStatus: 'submitted', businessProfileId: 'bp-2', businessProfileName: 'Two' }),
       ]);
+    });
+
+    it('carries what the client portal’s My Booking needs: when, what, where and who (names resolved locally)', async () => {
+      jobTypes.findById.mockResolvedValue({ id: 'jt-1', name: 'Lock change' });
+      eligibility.get.mockImplementation(async (id: string) =>
+        id === 'tech-1' ? { technicianId: 'tech-1', firstName: 'Mike', lastName: 'Smith' } : null,
+      );
+      repo.findByContact.mockResolvedValueOnce({
+        items: [
+          createMockDeal({
+            id: 'a',
+            scheduledDate: '2026-10-05T14:00:00.000Z',
+            scheduledEndDate: '2026-10-05T16:00:00.000Z',
+            jobTimezone: 'America/New_York',
+            assignedTechIds: ['tech-1', 'tech-9'],
+          }),
+        ],
+      });
+      const [row] = await service.listByContact('contact-1');
+      expect(row).toMatchObject({
+        id: 'a',
+        scheduledDate: '2026-10-05T14:00:00.000Z',
+        scheduledEndDate: '2026-10-05T16:00:00.000Z',
+        jobTimezone: 'America/New_York',
+        jobTypeName: 'Lock change',
+        technicianNames: ['Mike Smith'],
+      });
+      expect(row.address).toEqual(expect.objectContaining({ city: expect.any(String) }));
     });
   });
 

@@ -10,6 +10,7 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  IsUrl,
   Max,
   MaxLength,
   Min,
@@ -40,6 +41,18 @@ export class BusinessProfileFieldsDto {
   @ApiPropertyOptional({ nullable: true }) @IsOptional() @IsEmail() email?: string | null;
   @ApiPropertyOptional({ nullable: true }) @IsOptional() @IsString() @MaxLength(200) website?: string | null;
   @ApiPropertyOptional({ nullable: true }) @IsOptional() @IsString() @MaxLength(100) licenseNumber?: string | null;
+
+  @ApiPropertyOptional({ nullable: true, description: 'The client portal header’s tagline (Workiz company description).' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  description?: string | null;
+
+  @ApiPropertyOptional({ nullable: true, description: '"Book a service" link shown on the client portal.' })
+  @IsOptional()
+  @IsUrl({ require_protocol: true })
+  @MaxLength(500)
+  bookingUrl?: string | null;
 
   @ApiPropertyOptional({ type: ProfileAddressDto, nullable: true })
   @IsOptional()

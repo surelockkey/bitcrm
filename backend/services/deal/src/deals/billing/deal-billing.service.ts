@@ -44,12 +44,22 @@ export interface DealBillingView {
 }
 
 /** `GET internal/by-contact/:contactId` row. */
+/**
+ * A contact's job as billing's client portal lists it (My Booking: when,
+ * what, where, who) and brands its documents (the company).
+ */
 export interface ContactDealSummary {
   id: string;
   dealNumber: string;
   superStatus: Deal['superStatus'];
   businessProfileId?: string;
   businessProfileName?: string;
+  scheduledDate?: string;
+  scheduledEndDate?: string;
+  jobTimezone?: string;
+  jobTypeName?: string;
+  address?: Deal['address'];
+  technicianNames?: string[];
 }
 
 /** Who a timeline entry / stock move is attributed to. */
@@ -363,15 +373,52 @@ export class DealBillingService {
   async listByContact(contactId: string): Promise<ContactDealSummary[]> {
     const out: ContactDealSummary[] = [];
     let cursor: string | undefined;
+    const jobTypeNames = new Map<string, Promise<string | undefined>>();
+    const techNames = new Map<string, Promise<string | undefined>>();
+    const jobTypeName = (id: string) => {
+      if (!jobTypeNames.has(id)) {
+        jobTypeNames.set(
+          id,
+          this.jobTypes
+            .findById(id)
+            .then((t) => t.name)
+            .catch(() => undefined),
+        );
+      }
+      return jobTypeNames.get(id)!;
+    };
+    // Names come from the local eligibility projection — no user-service hop.
+    const techName = (id: string) => {
+      if (!techNames.has(id)) {
+        techNames.set(
+          id,
+          this.eligibility
+            .get(id)
+            .then((t) => [t?.firstName, t?.lastName].filter(Boolean).join(' ').trim() || undefined)
+            .catch(() => undefined),
+        );
+      }
+      return techNames.get(id)!;
+    };
     do {
       const page = await this.repository.findByContact(contactId, 100, cursor);
       for (const d of page.items) {
+        const technicianNames = (await Promise.all((d.assignedTechIds ?? []).map(techName))).filter(
+          (n): n is string => !!n,
+        );
+        const typeName = d.jobTypeId ? await jobTypeName(d.jobTypeId) : undefined;
         out.push({
           id: d.id,
           dealNumber: d.dealNumber,
           superStatus: d.superStatus,
           ...(d.businessProfileId && { businessProfileId: d.businessProfileId }),
           ...(d.businessProfileName && { businessProfileName: d.businessProfileName }),
+          ...(d.scheduledDate && { scheduledDate: d.scheduledDate }),
+          ...(d.scheduledEndDate && { scheduledEndDate: d.scheduledEndDate }),
+          ...(d.jobTimezone && { jobTimezone: d.jobTimezone }),
+          ...(typeName && { jobTypeName: typeName }),
+          ...(d.address && { address: d.address }),
+          ...(technicianNames.length && { technicianNames }),
         });
       }
       cursor = page.nextCursor;

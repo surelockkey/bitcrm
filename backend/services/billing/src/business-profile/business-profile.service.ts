@@ -36,6 +36,8 @@ const CLEARABLE = [
   'website',
   'licenseNumber',
   'address',
+  'description',
+  'bookingUrl',
   'logoAssetId',
   'defaultCustomTermDays',
 ] as const;
@@ -114,6 +116,8 @@ export class BusinessProfileService {
       email: p.email,
       website: p.website,
       address: p.address,
+      description: p.description,
+      bookingUrl: p.bookingUrl,
       logoUrl: await this.logoUrl(p),
     };
   }

@@ -164,8 +164,25 @@ describe('BusinessProfileService (many companies)', () => {
         email: undefined,
         website: undefined,
         address: undefined,
+        description: undefined,
+        bookingUrl: undefined,
         logoUrl: 'https://s3/billing/assets/logo-1',
       });
+    });
+
+    it('the portal header’s tagline and "Book a service" link are company fields (Workiz client portal settings)', async () => {
+      const saved = await service.update(
+        'z',
+        { description: 'Locksmith, door and garage door services', bookingUrl: 'https://book.example.com/slk' } as never,
+        'u-1',
+      );
+      expect(saved).toMatchObject({ description: 'Locksmith, door and garage door services', bookingUrl: 'https://book.example.com/slk' });
+      const pub = await service.getPublic('z');
+      expect(pub.description).toBe('Locksmith, door and garage door services');
+      expect(pub.bookingUrl).toBe('https://book.example.com/slk');
+      const cleared = await service.update('z', { description: null, bookingUrl: null } as never, 'u-1');
+      expect(cleared.description).toBeUndefined();
+      expect(cleared.bookingUrl).toBeUndefined();
     });
   });
 

@@ -91,6 +91,8 @@ export interface Invoice {
    * time: per-document overrides narrowing the template's visibility.
    */
   display?: Partial<DocumentVisibility>;
+  /** When the latest signature was collected (portal or in person). */
+  signedAt?: string;
   status: InvoiceStatus;
   /** Last known totals (kept fresh from deal events) for list views. */
   totals: DocumentTotals;

@@ -151,6 +151,7 @@ describe('InvoicesService', () => {
         expect.objectContaining({ kind: 'invoice', documentId: 'deal-1', dealId: 'deal-1', contactId: 'contact-1', source: 'portal', ip: '9.9.9.9' }),
       );
       expect(inv.signatures).toHaveLength(1);
+      expect(inv.signedAt).toBe(NOW);
       expect(deal.addTimeline).toHaveBeenCalledWith(
         'deal-1',
         TimelineEventType.INVOICE_SIGNED,
