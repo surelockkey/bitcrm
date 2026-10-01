@@ -3,11 +3,10 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronDown, CreditCard, FileSpreadsheet, FileText, Home, MessageSquareText, StickyNote, Wrench } from "lucide-react";
+import { ChevronDown, CreditCard, FileSpreadsheet, FileText, Home, MessageSquareText, Wrench } from "lucide-react";
 import type { Deal } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { usePermissions } from "@/features/auth/use-permissions";
@@ -29,6 +28,7 @@ import { ClientChatSheet } from "./client-chat-sheet";
 import { ClientJobsTab } from "./client-jobs-tab";
 import { ClientKpiStrip } from "./client-kpi-strip";
 import { ClientPaymentsTab } from "./client-payments-tab";
+import { ClientRail } from "./client-rail";
 import { ClientSummaryPanel } from "./client-summary-panel";
 import { DeleteClientDialog } from "./delete-client-dialog";
 
@@ -37,8 +37,8 @@ const JOBS_PAGE = 50;
 /**
  * The client card, laid out as Workiz's (/root/client/<id>): the summary
  * column on the left, the four cards and "Create new" up top, then the
- * tabs — Jobs, Estimates, Invoices, Payments, Addresses, Calls, Messages —
- * and a Notes rail on the right.
+ * tabs — Jobs, Estimates, Invoices, Payments, Addresses, Calls — and the
+ * Notes / History / Files rail on the right.
  */
 export function ContactDetailPage({ contactId }: { contactId: string }) {
   const router = useRouter();
@@ -48,7 +48,6 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
   const del = useDeleteContact();
   const [editing, setEditing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [notesOpen, setNotesOpen] = useState(false);
   const [tab, setTab] = useState("jobs");
   const [chatOpen, setChatOpen] = useState(false);
   const [locationOpen, setLocationOpen] = useState(false);
@@ -232,23 +231,8 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
         }
       />
 
-      {/* Workiz's right rail. Notes is the one BitCRM has to show. */}
-      <div className="flex shrink-0 gap-2 border-t p-2 md:flex-col md:border-t-0 md:border-l">
-        <Button variant="ghost" size="sm" className="flex-col gap-0.5 md:h-14 md:w-14" onClick={() => setNotesOpen(true)} aria-label="Notes">
-          <StickyNote className="size-4" />
-          <span className="text-[10px]">Notes</span>
-        </Button>
-      </div>
-
-      <Sheet open={notesOpen} onOpenChange={setNotesOpen}>
-        <SheetContent side="right" className="w-96">
-          <SheetHeader>
-            <SheetTitle>Notes</SheetTitle>
-            <SheetDescription>What the office keeps on this client.</SheetDescription>
-          </SheetHeader>
-          <div className="px-4 text-sm whitespace-pre-wrap">{contact.notes || <span className="text-muted-foreground">No notes yet. Edit the client to add some.</span>}</div>
-        </SheetContent>
-      </Sheet>
+      {/* Workiz's right rail: Notes, History, Files. */}
+      <ClientRail contact={contact} canEdit={can("contacts", "edit")} />
 
       <DeleteClientDialog
         open={confirmDelete}
