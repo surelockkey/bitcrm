@@ -15,6 +15,7 @@ import {
   type PortalProposalSummary,
   type PortalView,
 } from '@bitcrm/types';
+import { AssetsService } from '../assets/assets.service';
 import { BusinessProfileService } from '../business-profile/business-profile.service';
 import { PaymentSettingsService } from '../payments/payment-settings.service';
 import { summarizePayments, round2 } from '../payments/payment-rules';
@@ -68,6 +69,7 @@ export class PortalService {
     @Optional() @Inject(PaymentSettingsService) private readonly paymentSettings?: PaymentSettingsService,
     @Optional() @Inject(StripeService) private readonly stripe?: StripeService,
     @Optional() @Inject(ProposalsService) private readonly proposals?: ProposalsService,
+    @Optional() @Inject(AssetsService) private readonly assets?: AssetsService,
   ) {}
 
   async getLink(contactId: string): Promise<PortalLink | null> {
@@ -265,9 +267,15 @@ export class PortalService {
       this.depositFlags(shownEstimates),
     ]);
     const byDateDesc = (a: PortalDocumentSummary, b: PortalDocumentSummary) => b.date.localeCompare(a.date);
-    const estimateSummaries = shownEstimates
-      .map((e) => ({ ...named(estimateSummary(e), e.dealId), ...(deposits.get(e.id) ?? {}) }))
-      .sort(byDateDesc);
+    const estimateSummaries = (
+      await Promise.all(
+        shownEstimates.map(async (e) => ({
+          ...named(estimateSummary(e), e.dealId),
+          ...(deposits.get(e.id) ?? {}),
+          ...(await this.coverUrl(e)),
+        })),
+      )
+    ).sort(byDateDesc);
     const byEstimateId = new Map(estimateSummaries.map((e) => [e.id, e]));
     const proposalSummaries: PortalProposalSummary[] = proposals
       .map((p) => ({
@@ -364,6 +372,16 @@ export class PortalService {
     return out;
   }
 
+  /** A proposal option's cover image, signed for an hour (best effort). */
+  private async coverUrl(e: Estimate): Promise<Pick<PortalDocumentSummary, 'coverUrl'>> {
+    if (!e.coverAssetId || !this.assets) return {};
+    try {
+      return { coverUrl: (await this.assets.getUrl(e.coverAssetId)).url };
+    } catch {
+      return {};
+    }
+  }
+
   /** The contact's jobs from deal-service (empty on failure — the portal still opens). */
   private async contactJobs(contactId: string): Promise<ContactDealSummary[]> {
     if (!this.deals) return [];
@@ -456,6 +474,7 @@ function estimateSummary(e: Estimate): PortalDocumentSummary {
     status: e.status,
     total: e.totals?.total ?? 0,
     ...(e.name && { name: e.name }),
+    ...(e.description && { description: e.description }),
     sent: !!e.sentAt,
     ...(e.proposalId && { proposalId: e.proposalId }),
     // Still open ⇒ approving it means signing it.

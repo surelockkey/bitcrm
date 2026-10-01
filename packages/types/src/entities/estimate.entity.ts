@@ -51,6 +51,10 @@ export interface Estimate {
   companyId?: string;
   /** Optional title, e.g. "Good" / "Rekey all locks". */
   name?: string;
+  /** Workiz proposal option: a short pitch under the title, shown on the portal card. */
+  description?: string;
+  /** Workiz proposal option: the cover image (a billing asset). */
+  coverAssetId?: string;
   status: EstimateStatus;
   statusChangedAt?: string;
   /** YYYY-MM-DD */
@@ -103,6 +107,8 @@ export interface Estimate {
 
 export interface EstimateWithItems extends Estimate {
   items: EstimateItem[];
+  /** Short-lived URL of the cover image, when one is set. */
+  coverUrl?: string;
   /** Every signature collected on it, oldest first (the document prints the latest). */
   signatures?: DocumentSignatureView[];
 }

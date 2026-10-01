@@ -115,6 +115,59 @@ describe('EstimatesService', () => {
   });
   afterEach(() => jest.useRealTimers());
 
+  describe('cover image + description (Workiz proposal options)', () => {
+    const assets = () => ({
+      getUrl: jest.fn(async (id: string) => {
+        if (id === 'asset-missing') throw new NotFoundException('Asset not found');
+        return { url: `https://s3/${id}` };
+      }),
+    });
+
+    it('stores the description and the cover asset, and the view carries a signed cover URL', async () => {
+      const a = assets();
+      const svc = new EstimatesService(repo as never, deal as never, documents as never, events as never, undefined, crm as never, undefined, undefined, a as never);
+      const e = await svc.create({ dealId: 'deal-1' }, caller());
+      const saved = await svc.update(e.id, { description: '  16-lite primed door, hardware reused  ', coverAssetId: 'asset-7' }, caller());
+      expect(saved.description).toBe('16-lite primed door, hardware reused');
+      expect(saved.coverAssetId).toBe('asset-7');
+      expect(saved.coverUrl).toBe('https://s3/asset-7');
+      expect((await svc.get(e.id, caller())).coverUrl).toBe('https://s3/asset-7');
+      const cleared = await svc.update(e.id, { description: null, coverAssetId: null }, caller());
+      expect(cleared.description).toBeUndefined();
+      expect(cleared.coverAssetId).toBeUndefined();
+      expect(cleared.coverUrl).toBeUndefined();
+    });
+
+    it('refuses a cover that was never uploaded', async () => {
+      const svc = new EstimatesService(repo as never, deal as never, documents as never, events as never, undefined, crm as never, undefined, undefined, assets() as never);
+      const e = await svc.create({ dealId: 'deal-1' }, caller());
+      await expect(svc.update(e.id, { coverAssetId: 'asset-missing' }, caller())).rejects.toBeInstanceOf(BadRequestException);
+    });
+  });
+
+  describe('copy to job (Workiz "Copy to job" on a standalone estimate)', () => {
+    it('puts the estimate’s lines on the client’s job, links the estimate to it and marks it won', async () => {
+      const e = await service.create({ contactId: 'contact-1' }, caller());
+      await service.addItem(e.id, itemDto(), caller());
+      deal.getBillingView.mockResolvedValueOnce(billingView({ id: 'deal-9', dealNumber: 'NEWJOB', contactId: 'contact-1' }));
+      const { estimate, itemCount } = await service.copyToJob(e.id, 'deal-9', caller());
+      expect(deal.replaceAllProducts).toHaveBeenCalledWith('deal-9', expect.objectContaining({ estimateNumber: e.number }));
+      expect(estimate).toMatchObject({ dealId: 'deal-9', dealNumber: 'NEWJOB', status: 'won', syncedAt: NOW, syncedBy: 'u-1' });
+      expect(itemCount).toBe(1);
+      expect(deal.addTimeline).toHaveBeenCalledWith('deal-9', TimelineEventType.ESTIMATE_SYNCED, 'u-1', expect.objectContaining({ estimateId: e.id }), 'dispatcher@example.com');
+    });
+
+    it('refuses another client’s job, and an estimate that already has a job', async () => {
+      const e = await service.create({ contactId: 'contact-1' }, caller());
+      await service.addItem(e.id, itemDto(), caller());
+      deal.getBillingView.mockResolvedValueOnce(billingView({ id: 'deal-9', contactId: 'someone-else' }));
+      await expect(service.copyToJob(e.id, 'deal-9', caller())).rejects.toBeInstanceOf(ConflictException);
+      const onJob = await service.create({ dealId: 'deal-1' }, caller());
+      await expect(service.copyToJob(onJob.id, 'deal-1', caller())).rejects.toBeInstanceOf(ConflictException);
+      expect(deal.replaceAllProducts).not.toHaveBeenCalled();
+    });
+  });
+
   describe('deposit', () => {
     it('a percent of the total OR a fixed amount, never both; null clears', async () => {
       const e = await service.create({ dealId: 'deal-1' }, caller());

@@ -30,6 +30,9 @@ export interface PortalDocumentSummary {
   sent: boolean;
   /** Estimate: the proposal it is an option of. */
   proposalId?: string;
+  /** Estimate: the option's pitch and cover image (Workiz good / better / best). */
+  description?: string;
+  coverUrl?: string;
   /** The job's company, when it differs between documents. */
   companyName?: string;
   /** True when this document can be paid online right now. */

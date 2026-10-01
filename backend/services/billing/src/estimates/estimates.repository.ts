@@ -179,6 +179,11 @@ export class EstimatesRepository {
       patch.GSI2PK = contactGsi2Pk(set.contactId);
       patch.GSI2SK = contactGsi2Sk('ESTIMATE', set.createdAt, id);
     }
+    // A client estimate copied to a job (with the row's `createdAt`) joins the job's DealIndex partition.
+    if (typeof set.dealId === 'string' && typeof set.createdAt === 'string') {
+      patch.GSI3PK = dealGsi3Pk(set.dealId);
+      patch.GSI3SK = dealGsi3Sk(set.createdAt, id);
+    }
     delete patch.version;
     const expr = buildUpdate(patch, remove, { incrementVersion: true });
     const conditions = ['attribute_exists(PK)'];

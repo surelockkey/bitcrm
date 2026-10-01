@@ -28,6 +28,7 @@ import {
 import { assertDealAccess, isAssignedOnly, type Caller } from '../common/access';
 import { isYmd, resolveTimezone, todayIn } from '../common/dates';
 import { standaloneDocumentNumber } from '../common/document-number';
+import { AssetsService } from '../assets/assets.service';
 import { DocumentSettingsService } from '../documents/document-settings.service';
 import { SignaturesService } from '../signatures/signatures.service';
 import { DocumentsService } from '../documents/documents.service';
@@ -71,6 +72,10 @@ export interface UpdateEstimateInput {
   name?: string | null;
   estimateDate?: string;
   notes?: string | null;
+  /** Workiz proposal option: the pitch under the title. */
+  description?: string | null;
+  /** Workiz proposal option: the cover image — a billing asset that finished uploading. `null` removes it. */
+  coverAssetId?: string | null;
   /** Workiz "Set deposit": a percent of the total OR a fixed amount; `null` clears. */
   depositPercentage?: number | null;
   depositAmount?: number | null;
@@ -126,7 +131,19 @@ export class EstimatesService {
     @Optional() private readonly crm?: CrmClient,
     @Optional() private readonly documentSettings?: DocumentSettingsService,
     @Optional() private readonly signatures?: SignaturesService,
+    @Optional() private readonly assets?: AssetsService,
   ) {}
+
+  /** The cover image's short-lived URL, when one is set and assets are wired. */
+  private async coverOf(estimate: Pick<Estimate, 'coverAssetId'>): Promise<Pick<EstimateWithItems, 'coverUrl'>> {
+    if (!estimate.coverAssetId || !this.assets) return {};
+    try {
+      return { coverUrl: (await this.assets.getUrl(estimate.coverAssetId)).url };
+    } catch (err) {
+      this.logger.warn(`estimate cover ${estimate.coverAssetId} unreadable: ${(err as Error).message}`);
+      return {};
+    }
+  }
 
   // ---------------------------------------------------------------- create
 
@@ -237,6 +254,83 @@ export class EstimatesService {
     return { ...estimate, items };
   }
 
+  /**
+   * Workiz "Copy to job" on a standalone estimate: the estimate's lines
+   * become the job's items (like a sync), the estimate joins that job
+   * (numbered as it was, under the job's Estimates tab) and is `won`. The job
+   * must be the same client's; an estimate already on a job is synced, not copied.
+   */
+  async copyToJob(id: string, dealId: string, caller: Caller): Promise<{ estimate: EstimateWithItems; itemCount: number }> {
+    const { estimate, items } = await this.load(id, caller);
+    if (estimate.dealId) {
+      throw new ConflictException('This estimate already belongs to a job — use Sync to job instead');
+    }
+    const view = await this.loadView(dealId);
+    assertDealAccess(caller, 'estimates', view.deal);
+    if (view.deal.contactId !== estimate.contactId) {
+      throw new ConflictException("That job belongs to another client — pick one of this client's jobs");
+    }
+    assertSyncable(estimate, items.length);
+    const result = await this.deal.replaceAllProducts(dealId, this.replaceAllBody(estimate, items, caller));
+
+    const now = new Date().toISOString();
+    const updated = await this.write(
+      id,
+      {
+        ...statusChanges(estimate, 'won', now),
+        dealId,
+        dealNumber: view.deal.dealNumber,
+        // Needed by the repository to file the row under the job's DealIndex partition.
+        createdAt: estimate.createdAt,
+        syncedAt: now,
+        syncedBy: caller.user.id,
+        updatedAt: now,
+      },
+      [],
+      estimate.version,
+    );
+    await this.timeline(dealId, TimelineEventType.ESTIMATE_SYNCED, caller, {
+      estimateId: id,
+      number: estimate.number,
+      itemCount: items.length,
+      copiedFromClient: true,
+    });
+    this.events?.estimate(BillingEventType.ESTIMATE_SYNCED, updated);
+    return { estimate: { ...updated, items }, itemCount: result.items?.length ?? items.length };
+  }
+
+  /** The job's new lines, tax and discount as the estimate has them (shared by sync and copy). */
+  private replaceAllBody(estimate: Estimate, items: EstimateItem[], caller: Caller): ReplaceAllRequest {
+    return {
+      actorId: caller.user.id,
+      actorName: caller.user.email,
+      estimateNumber: estimate.number,
+      items: items.map((i) => ({
+        productId: i.productId,
+        ...(i.productType && { productType: i.productType }),
+        name: i.name,
+        sku: i.sku,
+        ...(i.description && { description: i.description }),
+        quantity: i.quantity,
+        priceClient: i.priceClient,
+        costCompany: i.costCompany,
+        costForTech: i.costForTech,
+        taxable: i.taxable,
+      })),
+      // An exempt estimate says nothing about the job's rate: leave the job's
+      // own resolution (which is exempt for the same client) alone.
+      ...(estimate.taxSource !== 'exempt' && { taxRateId: estimate.taxRateId ?? null }),
+      // Lets deal-service keep a pre-Revision-2 (catalog) rate that no longer resolves.
+      ...(estimate.taxSource !== 'exempt' &&
+        estimate.taxRateId &&
+        estimate.taxRateName && {
+          taxRateName: estimate.taxRateName,
+          taxRatePercent: estimate.taxRatePercent ?? 0,
+        }),
+      discount: estimate.discount ?? null,
+    };
+  }
+
   async duplicate(id: string, caller: Caller): Promise<EstimateWithItems> {
     const src = await this.load(id, caller);
     const { dealId, dealNumber } = src.estimate;
@@ -290,7 +384,7 @@ export class EstimatesService {
 
   async get(id: string, caller: Caller): Promise<EstimateWithItems> {
     const { estimate, items } = await this.load(id, caller);
-    return { ...estimate, items, ...(await this.signaturesOf(id)) };
+    return { ...estimate, items, ...(await this.signaturesOf(id)), ...(await this.coverOf(estimate)) };
   }
 
   /** The document's signatures, oldest first — absent when signatures are not wired. */
@@ -389,7 +483,7 @@ export class EstimatesService {
     }
     const set: Partial<Estimate> = { updatedAt: new Date().toISOString() };
     const remove: string[] = [];
-    const optional = (key: 'name' | 'notes' | 'templateId', value: string | null | undefined) => {
+    const optional = (key: 'name' | 'notes' | 'templateId' | 'description', value: string | null | undefined) => {
       if (value === undefined) return;
       if (value === null || value.trim() === '') remove.push(key);
       else set[key] = value.trim();
@@ -397,6 +491,19 @@ export class EstimatesService {
     optional('name', input.name);
     optional('notes', input.notes);
     optional('templateId', input.templateId);
+    optional('description', input.description);
+    if (input.coverAssetId !== undefined) {
+      if (input.coverAssetId === null || input.coverAssetId === '') remove.push('coverAssetId');
+      else {
+        if (!this.assets) throw new UnprocessableEntityException('Images are not available');
+        try {
+          await this.assets.getUrl(input.coverAssetId);
+        } catch {
+          throw new BadRequestException('The cover image was not uploaded — upload it first, then save');
+        }
+        set.coverAssetId = input.coverAssetId;
+      }
+    }
     if (input.estimateDate !== undefined) set.estimateDate = input.estimateDate;
     const deposit = depositChanges(input);
     Object.assign(set, deposit.set);
@@ -437,7 +544,7 @@ export class EstimatesService {
 
     const updated = await this.write(id, set, remove, estimate.version);
     this.events?.estimate(BillingEventType.ESTIMATE_UPDATED, updated);
-    return { ...updated, items };
+    return { ...updated, items, ...(await this.coverOf(updated)) };
   }
 
   async setStatus(id: string, status: EstimateStatus, caller: Caller): Promise<EstimateWithItems> {
@@ -672,35 +779,7 @@ export class EstimatesService {
     }
     assertSyncable(estimate, items.length);
 
-    const body: ReplaceAllRequest = {
-      actorId: caller.user.id,
-      actorName: caller.user.email,
-      estimateNumber: estimate.number,
-      items: items.map((i) => ({
-        productId: i.productId,
-        ...(i.productType && { productType: i.productType }),
-        name: i.name,
-        sku: i.sku,
-        ...(i.description && { description: i.description }),
-        quantity: i.quantity,
-        priceClient: i.priceClient,
-        costCompany: i.costCompany,
-        costForTech: i.costForTech,
-        taxable: i.taxable,
-      })),
-      // An exempt estimate says nothing about the job's rate: leave the job's
-      // own resolution (which is exempt for the same client) alone.
-      ...(estimate.taxSource !== 'exempt' && { taxRateId: estimate.taxRateId ?? null }),
-      // Lets deal-service keep a pre-Revision-2 (catalog) rate that no longer resolves.
-      ...(estimate.taxSource !== 'exempt' &&
-        estimate.taxRateId &&
-        estimate.taxRateName && {
-          taxRateName: estimate.taxRateName,
-          taxRatePercent: estimate.taxRatePercent ?? 0,
-        }),
-      discount: estimate.discount ?? null,
-    };
-    const result = await this.deal.replaceAllProducts(estimate.dealId, body);
+    const result = await this.deal.replaceAllProducts(estimate.dealId, this.replaceAllBody(estimate, items, caller));
 
     const now = new Date().toISOString();
     const updated = await this.write(

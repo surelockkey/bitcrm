@@ -22,6 +22,18 @@ export class UpdateEstimateDto {
   @MaxLength(5000)
   notes?: string | null;
 
+  @ApiPropertyOptional({ nullable: true, maxLength: 2000, description: 'Workiz proposal option: the pitch under the title.' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  description?: string | null;
+
+  @ApiPropertyOptional({ nullable: true, description: 'Cover image: a billing asset id (POST /assets, then PUT the bytes). `null` removes it.' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  coverAssetId?: string | null;
+
   @ApiPropertyOptional({ nullable: true })
   @IsOptional()
   @IsString()

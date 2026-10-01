@@ -17,6 +17,7 @@ import type { Caller } from '../common/access';
 import { CallerCtx } from '../common/caller.decorator';
 import { Internal } from '../common/decorators/internal.decorator';
 import { MarkSentDto } from '../common/dto/sent.dto';
+import { CopyToJobDto } from './dto/copy-to-job.dto';
 import { CreateEstimateDto } from './dto/create-estimate.dto';
 import { EstimateItemDto, ItemTaxableDto, ReorderItemsDto } from './dto/estimate-item.dto';
 import { SetEstimateStatusDto } from './dto/estimate-status.dto';
@@ -195,6 +196,19 @@ export class EstimatesController {
   })
   async sign(@Param('id') id: string, @Body() dto: SignDocumentDto, @CallerCtx() caller: Caller) {
     return { success: true, data: await this.estimates.sign(id, dto, caller) };
+  }
+
+  @Post(':id/copy-to-job')
+  @RequirePermission('estimates', 'sync')
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Copy a client estimate to a job (Workiz "Copy to job")',
+    description:
+      '**Guard:** `estimates.sync`. For an estimate with no job: its lines replace the job’s items, the estimate ' +
+      'joins that job and becomes `won`. 409 when the estimate already has a job, or the job is another client’s.',
+  })
+  async copyToJob(@Param('id') id: string, @Body() dto: CopyToJobDto, @CallerCtx() caller: Caller) {
+    return { success: true, data: await this.estimates.copyToJob(id, dto.dealId, caller) };
   }
 
   @Post(':id/mark-sent')
