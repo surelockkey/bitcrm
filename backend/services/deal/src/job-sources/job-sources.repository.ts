@@ -115,6 +115,8 @@ export class JobSourcesRepository {
       name: item.name as string,
       priority: (item.priority as number) ?? 0,
       active: Boolean(item.active),
+      // Workiz ad groups carry a description; Job Statistics groups by it.
+      ...(typeof item.description === 'string' && item.description.trim() !== '' && { description: item.description }),
       createdBy: item.createdBy as string,
       createdAt: item.createdAt as string,
       updatedAt: item.updatedAt as string,

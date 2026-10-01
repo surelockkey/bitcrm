@@ -165,6 +165,7 @@ export {
 export {
   CommissionConfig,
   CommissionBreakdown,
+  CommissionJobTypeRule,
 } from './entities/commission-config.entity';
 export {
   TechnicianDocument,
@@ -518,6 +519,26 @@ export type {
   DealStatsDay,
   DealStatsMoney,
 } from './responses/deal-stats';
+export {
+  COMMISSION_REPORT_MODES,
+  COMMISSION_REPORT_BY,
+  COMMISSION_REPORT_TOTAL_KEYS,
+} from './responses/commission-report';
+export type {
+  CommissionReport,
+  CommissionReportBy,
+  CommissionReportExternalSummary,
+  CommissionReportMode,
+  CommissionReportRow,
+  CommissionReportTechSummary,
+  CommissionReportTotal,
+  CommissionReportTotalKey,
+  CommissionReportTotals,
+  CommissionRateSource,
+  CommissionRateUnit,
+  CommissionRowSource,
+  WorkizCommissionSnapshot,
+} from './responses/commission-report';
 export type {
   CallFlowSeries,
   CallsDashboardBundle,
@@ -606,3 +627,22 @@ export type {
   TaxReportBy,
   TaxReportRow,
 } from './reports/billing-reports';
+// Reports — the Workiz Job Statistics (`GET /deals/report/statistics`)
+export {
+  JOB_STATISTICS_BY_LABEL,
+  JOB_STATISTICS_PROFIT_ACTION,
+  JOB_STATISTICS_TABS,
+  JOB_STATISTICS_TAB_ACTION,
+} from './reports/job-statistics';
+export type {
+  JobStatistics,
+  JobStatisticsBy,
+  JobStatisticsCounts,
+  JobStatisticsDay,
+  JobStatisticsKpis,
+  JobStatisticsMoney,
+  JobStatisticsRow,
+  JobStatisticsTab,
+  JobStatisticsTable,
+  JobStatisticsTotals,
+} from './reports/job-statistics';

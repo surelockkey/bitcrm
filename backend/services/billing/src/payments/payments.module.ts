@@ -8,6 +8,7 @@ import {
   InvoicePaymentsController,
   PaymentSettingsController,
   PaymentsController,
+  PaymentsInternalController,
 } from './payments.controller';
 import { PaymentsService } from './payments.service';
 import { PortalPaymentsService } from './portal-payments.service';
@@ -29,6 +30,8 @@ import { StripeWebhookController } from './stripe/stripe-webhook.controller';
 @Module({
   imports: [PaymentsLedgerModule, InvoicesModule, PortalModule],
   controllers: [
+    // Static `/payments/internal/...` paths first, ahead of any `/payments/:paymentId/...`.
+    PaymentsInternalController,
     InvoicePaymentsController,
     DealPaymentsController,
     // Static `/payments/report` paths, before the ledger's `/payments/:paymentId/...`.
