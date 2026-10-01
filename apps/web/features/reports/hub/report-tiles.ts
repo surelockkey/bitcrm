@@ -54,12 +54,12 @@ export const REPORT_TILES: readonly ReportTile[] = [
     icon: ChartColumnIncreasing,
     href: "/reports/job-statistics",
   },
-  // Workiz's `/root/payments` — the sidebar's Payments page is the report.
+  // Workiz's `/root/payments`: reached from this hub, not from the sidebar.
   {
     name: "Payments",
     description: "Payments taken, by method and by who took them.",
     icon: CreditCard,
-    href: "/payments",
+    href: "/reports/payments",
     requires: [["payments", "view"]],
   },
   { name: "Activity", description: "What each user did in BitCRM, and when.", icon: Users, href: "/reports/activity" },

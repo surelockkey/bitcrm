@@ -39,7 +39,7 @@ const DROPPED = [
 const ROUTES: Record<string, string> = {
   Jobs: "/reports/jobs",
   "Job Statistics": "/reports/job-statistics",
-  Payments: "/payments",
+  Payments: "/reports/payments",
   Activity: "/reports/activity",
   Estimates: "/estimates",
   Invoices: "/invoices",
@@ -55,7 +55,7 @@ const ROUTES: Record<string, string> = {
 const NOT_IN_BITCRM = ["Website requests", "Franchise Report"];
 
 /** The report pages on main today. */
-const ON_MAIN = ["/reports/jobs", "/reports/job-statistics", "/payments", "/estimates", "/invoices"];
+const ON_MAIN = ["/reports/jobs", "/reports/job-statistics", "/reports/payments", "/estimates", "/invoices"];
 
 const hub = () => screen.getByRole("list", { name: "Reports" });
 /** The tiles' names in page order — links and "not yet" buttons alike. */
@@ -102,7 +102,7 @@ describe("ReportsPage", () => {
     // Workiz opens these on the pages of the same name.
     expect(screen.getByRole("link", { name: /^Estimates/ })).toHaveAttribute("href", "/estimates");
     expect(screen.getByRole("link", { name: /^Invoices/ })).toHaveAttribute("href", "/invoices");
-    expect(screen.getByRole("link", { name: /^Payments/ })).toHaveAttribute("href", "/payments");
+    expect(screen.getByRole("link", { name: /^Payments/ })).toHaveAttribute("href", "/reports/payments");
 
     const activity = screen.getByRole("button", { name: /^Activity/ });
     expect(activity).toHaveAttribute("aria-disabled", "true");

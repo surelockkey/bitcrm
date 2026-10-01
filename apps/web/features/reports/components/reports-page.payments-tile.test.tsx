@@ -10,8 +10,8 @@ vi.mock("@/features/auth/use-permissions", () => ({
 import { ReportsPage } from "./reports-page";
 
 describe("ReportsPage — Payments tile", () => {
-  it("opens the Payments report (Workiz's /root/payments is our /payments)", () => {
+  it("opens the Payments report (Workiz's /root/payments is our /reports/payments)", () => {
     render(<ReportsPage />);
-    expect(screen.getByRole("link", { name: "Payments" })).toHaveAttribute("href", "/payments");
+    expect(screen.getByRole("link", { name: "Payments" })).toHaveAttribute("href", "/reports/payments");
   });
 });

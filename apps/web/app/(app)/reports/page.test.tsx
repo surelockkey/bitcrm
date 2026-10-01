@@ -14,7 +14,7 @@ describe("/reports", () => {
     const routes = REPORT_TILES.flatMap((t) => (t.href ? [t.href] : []));
 
     // The reports on main open…
-    for (const href of ["/reports/jobs", "/reports/job-statistics", "/estimates", "/invoices", "/payments"]) {
+    for (const href of ["/reports/jobs", "/reports/job-statistics", "/estimates", "/invoices", "/reports/payments"]) {
       expect(built).toContain(href);
     }
     // …and every route is judged by whether its page file is really there.

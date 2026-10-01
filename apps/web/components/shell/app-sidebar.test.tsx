@@ -132,7 +132,8 @@ describe("AppSidebar", () => {
     // Billing is live now — payments included.
     expect(screen.getByText("Invoices")).toBeInTheDocument();
     expect(screen.getByText("Estimates")).toBeInTheDocument();
-    expect(screen.getByText("Payments")).toBeInTheDocument();
+    // Payments is a report, reached from Reports, not a sidebar entry (as in Workiz).
+    expect(screen.queryByText("Payments")).not.toBeInTheDocument();
     // The commissions report is built now (Workiz "Commissions (Legacy)"):
     expect(screen.getByText("Commission")).toBeInTheDocument();
     // Still coming-soon, so still hidden by default:
