@@ -92,7 +92,6 @@ import { ServiceAreaField } from "@/features/service-areas/components/service-ar
 import { DEFAULT_TZ } from "@/lib/timezone";
 import { useUnsavedChanges } from "./use-unsaved-changes";
 import { usePageHistoryLabel } from "@/components/shell/page-history";
-import { DealMessagesTab } from "@/features/messaging/components/deal-messages-tab";
 import { DealEstimatesTab } from "@/features/estimates/components/deal-estimates-tab";
 import { DealInvoiceTab } from "@/features/invoices/components/deal-invoice-tab";
 import { DealPaymentsTab, paymentsTabCaption } from "@/features/payments/components/deal-payments-tab";
@@ -131,7 +130,6 @@ export function DealDetailPage({
   const tabs = visibleDealTabs({
     estimates: can("estimates"),
     invoices: canInvoices,
-    messages: can("messages"),
     payments: canPayments,
   });
   // A deep link to a tab the viewer can't see lands on Details.
@@ -305,12 +303,12 @@ export function DealDetailPage({
         </div>
         {tab === "items" ? (
           <div className="relative flex-1 p-6">
-            <div className="mx-auto max-w-3xl"><DealProductsTab deal={deal} canEdit={canEdit} /></div>
+            <div className="max-w-3xl"><DealProductsTab deal={deal} canEdit={canEdit} /></div>
           </div>
         ) : null}
         {tab === "payments" ? (
           <div className="relative flex-1 p-6">
-            <div className="mx-auto max-w-4xl">
+            <div className="max-w-4xl">
               <DealPaymentsTab
                 deal={deal}
                 // "Create invoice" stays its own action (Workiz): it opens the
@@ -324,24 +322,19 @@ export function DealDetailPage({
         ) : null}
         {tab === "estimates" ? (
           <div className="relative flex-1 p-6">
-            <div className="mx-auto max-w-4xl">
+            <div className="max-w-4xl">
               <DealEstimatesTab deal={deal} estimateId={estimateId} onEstimateChange={openEstimate} />
             </div>
           </div>
         ) : null}
         {tab === "invoice" ? (
           <div className="relative flex-1 p-6">
-            <div className="mx-auto max-w-4xl"><DealInvoiceTab deal={deal} canEditItems={canEdit} /></div>
+            <div className="max-w-4xl"><DealInvoiceTab deal={deal} canEditItems={canEdit} /></div>
           </div>
         ) : null}
         {tab === "attachments" ? (
           <div className="relative flex-1 p-6">
-            <div className="mx-auto max-w-5xl"><DealAttachmentsTab dealId={dealId} canEdit={canEdit} /></div>
-          </div>
-        ) : null}
-        {tab === "messages" ? (
-          <div className="relative flex-1 p-6">
-            <div className="mx-auto max-w-3xl"><DealMessagesTab deal={deal} /></div>
+            <div className="max-w-5xl"><DealAttachmentsTab dealId={dealId} canEdit={canEdit} /></div>
           </div>
         ) : null}
       </div>
