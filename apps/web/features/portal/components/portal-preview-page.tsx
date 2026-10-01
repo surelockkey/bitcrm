@@ -1,8 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import Link from "next/link";
-import { ChevronLeft, Eye } from "lucide-react";
+import { Eye } from "lucide-react";
 import type { PortalDocumentSummary } from "@bitcrm/types";
 import { PortalDocumentViewer, PortalSkeleton, PortalView, type DocumentLoaders } from "@bitcrm/portal-ui";
 import { Button } from "@/components/ui/button";
@@ -33,12 +32,6 @@ export function PortalPreviewPage({ contactId }: { contactId: string }) {
   return (
     <div className="flex flex-1 flex-col">
       <div className="flex flex-wrap items-center gap-3 border-b px-6 py-3">
-        <Link
-          href={`/contacts/${contactId}`}
-          className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-        >
-          <ChevronLeft className="size-4" /> Client
-        </Link>
         <h1 className="text-lg font-semibold tracking-tight">Client portal preview</h1>
       </div>
       <div

@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Building2, ChevronLeft, Loader2, X } from "lucide-react";
+import { Building2, Loader2, X } from "lucide-react";
 import { ClientType, ContactSource, ContactType, DealPriority } from "@bitcrm/types";
 import type { Contact, CustomFieldValue } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
@@ -106,9 +106,6 @@ export function NewDealPage() {
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
       <div className="flex flex-wrap items-center gap-3 border-b px-6 py-4">
-        <Link href="/deals" className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
-          <ChevronLeft className="size-4" /> Jobs
-        </Link>
         <h1 className="text-base font-semibold">New deal</h1>
         <span className="text-sm text-muted-foreground">· everything on one page</span>
         <span className="flex-1" />

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { ArrowDown, ArrowLeft, ArrowUp, ChevronLeft, ChevronRight, Download, Laptop, Smartphone, Sparkles, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Download, Laptop, Smartphone, Sparkles, X } from "lucide-react";
 import { toast } from "sonner";
 import {
   ACTIVITY_DEFAULT_PAGE_SIZE,
@@ -101,14 +101,7 @@ export function ActivityPage({ today }: { today: string }) {
   return (
     <div className="flex flex-1 flex-col overflow-y-auto">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b px-6 py-4">
-        <div className="flex items-center gap-2">
-          <Button asChild variant="ghost" size="icon" aria-label="Back to reports">
-            <Link href="/reports">
-              <ArrowLeft className="size-4" />
-            </Link>
-          </Button>
-          <h1 className="text-lg font-semibold tracking-tight">Activity</h1>
-        </div>
+        <h1 className="text-lg font-semibold tracking-tight">Activity</h1>
         <div className="flex flex-wrap items-center gap-2">
           <select
             aria-label="Date preset"

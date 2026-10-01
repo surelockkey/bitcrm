@@ -1,8 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import Link from "next/link";
-import { ChevronLeft, Percent, Search } from "lucide-react";
+import { Percent, Search } from "lucide-react";
 import { toast } from "sonner";
 import {
   TAX_REPORT_BY,
@@ -124,12 +123,7 @@ export function TaxReportPage() {
   return (
     <div className="flex min-w-0 flex-1 flex-col">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3 sm:px-6">
-        <div className="flex items-center gap-2">
-          <Link href="/reports" className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
-            <ChevronLeft className="size-4" /> Reports
-          </Link>
-          <h1 className="text-lg font-semibold tracking-tight">Tax report</h1>
-        </div>
+        <h1 className="text-lg font-semibold tracking-tight">Tax report</h1>
         <div className="flex flex-wrap items-center gap-2">
           <DateRangeControl presets={TAX_DATE_PRESETS} state={range} />
           {basis === "accrual" ? (

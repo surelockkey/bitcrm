@@ -1,7 +1,6 @@
 "use client";
 
-import Link from "next/link";
-import { ChevronLeft, PhoneIncoming, PhoneOutgoing } from "lucide-react";
+import { PhoneIncoming, PhoneOutgoing } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { useCallDetail } from "../hooks";
@@ -68,13 +67,7 @@ export function CallDetailPage({ callId }: { callId: string }) {
   return (
     <div className="flex flex-1 flex-col gap-6 p-6">
       <div className="flex items-center gap-3 border-b pb-4">
-        <Link
-          href="/calls"
-          className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-        >
-          <ChevronLeft className="size-4" /> Calls
-        </Link>
-        <div className="ml-2 flex items-center gap-3">
+        <div className="flex items-center gap-3">
           {call.direction === "inbound" ? (
             <PhoneIncoming className="size-5 text-muted-foreground" />
           ) : (

@@ -1,8 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import { useMemo, useState, type ReactNode } from "react";
-import { ChevronLeft, Download, Search } from "lucide-react";
+import { Download, Search } from "lucide-react";
 import {
   JOB_STATISTICS_BY_LABEL,
   type JobStatistics,
@@ -109,10 +108,6 @@ export function JobStatisticsPage({ today: todayProp }: { today?: string } = {})
   return (
     <div className="flex min-w-0 flex-1 flex-col overflow-y-auto">
       <div className="flex flex-wrap items-center gap-2 border-b px-4 py-3 sm:px-6">
-        <Link href="/reports" className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
-          <ChevronLeft className="size-4" /> Reports
-        </Link>
-        <span className="text-muted-foreground">/</span>
         <h1 className="text-lg font-semibold tracking-tight">Job Statistics</h1>
       </div>
 

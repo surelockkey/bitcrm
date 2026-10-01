@@ -1,9 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { ArrowLeft, History, Loader2 } from "lucide-react";
+import { History, Loader2 } from "lucide-react";
 import { AUTOMATION_RUN_OUTCOMES, type AutomationRule, type AutomationRun } from "@bitcrm/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -149,14 +148,7 @@ export function AutomationActivityPage() {
     <div className="flex flex-1 flex-col gap-4 p-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <Link
-            href="/automations"
-            className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:underline"
-          >
-            <ArrowLeft className="size-3.5" />
-            Automations
-          </Link>
-          <h1 className="mt-1 text-lg font-semibold tracking-tight">Activity</h1>
+          <h1 className="text-lg font-semibold tracking-tight">Activity</h1>
           <p className="text-sm text-muted-foreground">
             Every firing of every rule, newest first. The log is kept for 30 days.
           </p>

@@ -104,12 +104,12 @@ describe("TechJobPage", () => {
     expect(screen.getByRole("button", { name: "Call client" })).toBeInTheDocument();
   });
 
-  it("carries the visit actions, the photos, and a way back to the day", () => {
+  it("carries the visit actions and the photos, with no back link: the sidebar and the browser do that", () => {
     render(<TechJobPage dealId="d1" />);
 
     expect(screen.getByTestId("tech-actions")).toBeInTheDocument();
     expect(screen.getByTestId("tech-photos")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /my jobs/i })).toHaveAttribute("href", "/my-jobs");
+    expect(screen.queryByRole("link", { name: /my jobs/i })).toBeNull();
     // The office view is a link away for anything this page leaves out.
     expect(screen.getByRole("link", { name: /open the full job/i })).toHaveAttribute(
       "href",

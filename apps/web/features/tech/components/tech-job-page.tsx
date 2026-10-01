@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ChevronLeft, Loader2, MapPin, Navigation, StickyNote } from "lucide-react";
+import { Loader2, MapPin, Navigation, StickyNote } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
@@ -78,12 +78,6 @@ export function TechJobPage({ dealId }: { dealId: string }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
       <div className="flex flex-wrap items-center gap-2 border-b px-4 py-3 sm:px-6">
-        <Link
-          href={TECHNICIAN_HOME}
-          className="inline-flex h-11 items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-        >
-          <ChevronLeft className="size-5" /> My Jobs
-        </Link>
         <span className="font-mono text-sm font-semibold">#{deal.dealNumber}</span>
         <StageBadge status={deal.superStatus} />
         {isUrgent(deal) ? <PriorityFlag /> : null}

@@ -1,8 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import { useMemo, useState } from "react";
-import { ArrowLeft, ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import type { CallTrackingGroupBy, CallTrackingReport } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -68,14 +67,7 @@ export function CallTrackingPage({ today }: { today: string }) {
   return (
     <div className="flex flex-1 flex-col overflow-y-auto">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b px-6 py-4">
-        <div className="flex items-center gap-2">
-          <Button asChild variant="ghost" size="icon" aria-label="Back to reports">
-            <Link href="/reports">
-              <ArrowLeft className="size-4" />
-            </Link>
-          </Button>
-          <h1 className="text-lg font-semibold tracking-tight">Call Tracking</h1>
-        </div>
+        <h1 className="text-lg font-semibold tracking-tight">Call Tracking</h1>
         <div className="flex flex-wrap items-center gap-2">
           <select
             aria-label="Group by"

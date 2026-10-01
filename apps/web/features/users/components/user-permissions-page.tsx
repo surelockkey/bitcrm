@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import {
-  ArrowLeft,
   Eraser,
   Info,
   Loader2,
@@ -154,7 +153,6 @@ function OverridesEditor({
   resolved: ResolvedPermissions;
   schema: Schema;
 }) {
-  const router = useRouter();
   const { can } = usePermissions();
   const { canManage, isSelf } = useHierarchy();
   const setPermissions = useSetUserPermissions();
@@ -193,11 +191,6 @@ function OverridesEditor({
     return () => window.removeEventListener("beforeunload", handler);
   }, [dirty]);
 
-  const goBack = () => {
-    if (dirty && !window.confirm("Discard unsaved changes?")) return;
-    router.push("/admin/users");
-  };
-
   const save = () => {
     setConfirmSave(false);
     if (sparse === null) clearPermissions.mutate(user.id);
@@ -208,10 +201,6 @@ function OverridesEditor({
     <div className="flex flex-1 flex-col">
       {/* Header */}
       <div className="flex items-center gap-3 border-b px-6 py-4">
-        <Button variant="ghost" size="sm" className="gap-1.5" onClick={goBack}>
-          <ArrowLeft className="size-4" />
-          Users
-        </Button>
         <h1 className="truncate text-lg font-semibold tracking-tight">
           {user.firstName} {user.lastName}
         </h1>

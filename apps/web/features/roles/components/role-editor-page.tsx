@@ -5,7 +5,6 @@ import type { Dispatch, ReactNode, SetStateAction } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
-  ArrowLeft,
   CopyPlus,
   Eraser,
   Info,
@@ -144,7 +143,6 @@ function RoleEditor({
   schema: Schema;
   roleId: string;
 }) {
-  const router = useRouter();
   const { data: allRoles } = useRoles();
   const { data: members } = useRoleMembers(roleId);
   const updateRole = useUpdateRole();
@@ -171,11 +169,6 @@ function RoleEditor({
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
   }, [dirty]);
-
-  const goBack = () => {
-    if (dirty && !window.confirm("Discard unsaved changes?")) return;
-    router.push("/admin/roles");
-  };
 
   const save = () => {
     const parsed = roleDetailsSchema.safeParse({
@@ -213,10 +206,6 @@ function RoleEditor({
     <div className="flex flex-1 flex-col">
       {/* Header */}
       <div className="flex items-center gap-3 border-b px-6 py-4">
-        <Button variant="ghost" size="sm" className="gap-1.5" onClick={goBack}>
-          <ArrowLeft className="size-4" />
-          Roles
-        </Button>
         <span
           className="size-2.5 flex-none rounded-[3px]"
           style={{ background: roleSwatch(role.id) }}

@@ -27,7 +27,7 @@ import { collectAssetIds, isVersionConflict, kindHasDefault } from "../../lib";
 import { templateNameSchema } from "../../schemas";
 import { selectIsDirty, useEditorStore } from "../store";
 import { useEditorUi } from "../ui-store";
-import { LEAVE_MESSAGE, useEditorShortcuts, useLeaveGuard } from "../use-editor-shortcuts";
+import { useEditorShortcuts, useLeaveGuard } from "../use-editor-shortcuts";
 import { TemplateCanvas } from "./canvas";
 import { EditorDnd } from "./editor-dnd";
 import { LeftPanel } from "./left-panel";
@@ -175,11 +175,6 @@ export function TemplateEditorPage({ templateId }: { templateId: string }) {
   useEditorShortcuts({ onSave, enabled: loaded && canEdit });
   useLeaveGuard(dirty && loaded);
 
-  const goBack = () => {
-    if (useEditorStore.getState().draft && selectIsDirty(useEditorStore.getState()) && !window.confirm(LEAVE_MESSAGE)) return;
-    router.push("/settings/documents");
-  };
-
   /* ------------------------------------------------------------- states */
 
   if (!permsLoading && !canView) {
@@ -242,7 +237,6 @@ export function TemplateEditorPage({ templateId }: { templateId: string }) {
       isDefault={!!query.data?.isDefault}
       saving={save.isPending}
       ctx={ctx}
-      onBack={goBack}
       onSave={onSave}
     />
   );

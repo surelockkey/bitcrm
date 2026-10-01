@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { ArrowDown, ArrowLeft, ArrowUp, ChevronLeft, ChevronRight, Columns3, Download, Printer, Search } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Columns3, Download, Printer, Search } from "lucide-react";
 import { toast } from "sonner";
 import type {
   CommissionReport,
@@ -178,16 +178,9 @@ export function CommissionsPage({ today }: { today: string }) {
   return (
     <div className="flex flex-1 flex-col overflow-y-auto print:overflow-visible">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b px-6 py-4 print:hidden">
-        <div className="flex items-center gap-2">
-          <Button asChild variant="ghost" size="icon" aria-label="Back to reports">
-            <Link href="/reports">
-              <ArrowLeft className="size-4" />
-            </Link>
-          </Button>
-          <div>
-            <h1 className="text-lg font-semibold tracking-tight">Commissions</h1>
-            <p className="text-xs text-muted-foreground">Finance Reporting — Done jobs, by technician</p>
-          </div>
+        <div>
+          <h1 className="text-lg font-semibold tracking-tight">Commissions</h1>
+          <p className="text-xs text-muted-foreground">Finance Reporting — Done jobs, by technician</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <select

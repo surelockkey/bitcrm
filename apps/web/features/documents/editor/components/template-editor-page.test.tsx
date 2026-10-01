@@ -245,18 +245,9 @@ describe("TemplateEditorPage", () => {
     expect(await screen.findByTitle("Live preview")).toBeInTheDocument();
   });
 
-  it("asks before leaving with unsaved changes", async () => {
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
-    const user = userEvent.setup();
+  it("has no back button: the browser's Back and the sidebar do that job", async () => {
     renderPage();
     await loaded();
-    act(() => void useEditorStore.getState().rename("Changed"));
-    await user.click(screen.getByRole("button", { name: "Back to templates" }));
-    expect(confirm).toHaveBeenCalled();
-    expect(push).not.toHaveBeenCalled();
-    confirm.mockReturnValue(true);
-    await user.click(screen.getByRole("button", { name: "Back to templates" }));
-    expect(push).toHaveBeenCalledWith("/settings/documents");
-    confirm.mockRestore();
+    expect(screen.queryByRole("button", { name: "Back to templates" })).toBeNull();
   });
 });

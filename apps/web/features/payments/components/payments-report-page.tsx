@@ -204,15 +204,7 @@ export function PaymentsReportPage() {
   return (
     <div className="flex min-w-0 flex-1 flex-col">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3 sm:px-6">
-        <div className="flex items-center gap-2">
-          <Link
-            href="/reports"
-            className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-          >
-            <ChevronLeft className="size-4" /> Reports
-          </Link>
-          <h1 className="text-lg font-semibold tracking-tight">Payments report</h1>
-        </div>
+        <h1 className="text-lg font-semibold tracking-tight">Payments report</h1>
         <div className="flex flex-wrap items-center gap-2">
           <select
             aria-label="Date range"

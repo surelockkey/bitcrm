@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Building, ChevronLeft, ExternalLink, Loader2, Lock, Trash2, UserCog, X } from "lucide-react";
+import { Building, ExternalLink, Loader2, Lock, Trash2, UserCog, X } from "lucide-react";
 import { DealPriority, type Contact, type Deal } from "@bitcrm/types";
 import type { UpdateDealValues } from "../schemas";
 import { Button } from "@/components/ui/button";
@@ -188,9 +188,6 @@ export function DealDetailPage({
       <LiveCallStrip dealId={dealId} />
       {/* Header */}
       <div className="flex flex-wrap items-center gap-3 border-b px-6 py-4">
-        <Link href="/deals" className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
-          <ChevronLeft className="size-4" /> Jobs
-        </Link>
         <span className="font-mono text-base font-semibold">#{deal.dealNumber}</span>
         <StageBadge status={deal.superStatus} />
         {isUrgent(deal) ? <PriorityFlag /> : null}

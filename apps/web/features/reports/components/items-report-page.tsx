@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import Link from "next/link";
 import { ChevronLeft, ChevronRight, Download, Search } from "lucide-react";
 import { toast } from "sonner";
 import { ITEMS_REPORT_ITEM_TYPES, type ItemsReportFilters, type ItemsReportPage as ItemsPage, type ItemsReportSort } from "@bitcrm/types";
@@ -100,10 +99,6 @@ export function ItemsReportPage({ today: todayProp }: { today?: string } = {}) {
   return (
     <div className="flex min-w-0 flex-1 flex-col">
       <div className="flex flex-wrap items-center gap-2 border-b px-4 py-3 sm:px-6">
-        <Link href="/reports" className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
-          <ChevronLeft className="size-4" /> Reports
-        </Link>
-        <span className="text-muted-foreground">/</span>
         <h1 className="text-lg font-semibold tracking-tight">Items and services</h1>
       </div>
 

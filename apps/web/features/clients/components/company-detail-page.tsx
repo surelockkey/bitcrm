@@ -1,9 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Building2, ChevronLeft, Mail, Pencil, Phone, Plus, Trash2 } from "lucide-react";
+import { Building2, Mail, Pencil, Phone, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -50,9 +49,6 @@ export function CompanyDetailPage({ companyId }: { companyId: string }) {
   return (
     <div className="flex flex-1 flex-col">
       <div className="flex items-center gap-3 border-b px-5 py-4">
-        <Link href="/companies" className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
-          <ChevronLeft className="size-4" /> Companies
-        </Link>
         <span className="flex size-9 flex-none items-center justify-center rounded-lg border bg-muted text-muted-foreground">
           <Building2 className="size-4" />
         </span>

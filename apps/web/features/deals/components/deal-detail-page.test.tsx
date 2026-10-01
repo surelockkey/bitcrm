@@ -271,7 +271,8 @@ const user = () => userEvent.setup({ pointerEventsCheck: 0 });
 const poInput = () => screen.getByPlaceholderText(/what needs doing/i);
 const firstNameInput = () => screen.getByDisplayValue("Jane");
 const saveButton = () => screen.getByRole("button", { name: "Save" });
-const jobsLink = () => screen.getByRole("link", { name: /jobs/i });
+/** Any same-origin link does for the leave guard; the client link is always on the page. */
+const clientLink = () => screen.getByRole("link", { name: /view client/i });
 
 const DIALOG_TITLE = "Leave without saving?";
 
@@ -290,7 +291,7 @@ describe("DealDetailPage — scrolling", () => {
 
     const page = screen.getByTestId("job-page-scroll");
     expect(page.className).toMatch(/overflow-y-auto/);
-    expect(page).toContainElement(jobsLink());
+    expect(page).toContainElement(screen.getByText("#1042"));
     expect(page).toContainElement(screen.getByRole("button", { name: /^details$/i }));
     expect(page).toContainElement(screen.getByRole("link", { name: /view client/i }));
   });
@@ -648,27 +649,27 @@ describe("DealDetailPage (editable, single save)", () => {
     expect(saveButton()).toBeEnabled();
   });
 
-  it("warns before leaving via the Jobs link while dirty — Stay keeps, Leave navigates", async () => {
+  it("warns before leaving via a link while dirty — Stay keeps, Leave navigates", async () => {
     const u = user();
     render(<DealDetailPage dealId="d1" />);
 
     await u.type(poInput(), "PO-1");
 
-    await u.click(jobsLink());
+    await u.click(clientLink());
     expect(await screen.findByText(DIALOG_TITLE)).toBeInTheDocument();
 
     await u.click(screen.getByRole("button", { name: "Stay" }));
     await waitFor(() => expect(screen.queryByText(DIALOG_TITLE)).toBeNull());
     expect(mocks.push).not.toHaveBeenCalled();
 
-    await u.click(jobsLink());
+    await u.click(clientLink());
     expect(await screen.findByText(DIALOG_TITLE)).toBeInTheDocument();
 
     await u.click(screen.getByRole("button", { name: "Leave" }));
-    expect(mocks.push).toHaveBeenCalledWith("/deals");
+    expect(mocks.push).toHaveBeenCalledWith("/contacts/c1");
   });
 
-  it("does not warn on the Jobs link once edits are reset", async () => {
+  it("does not warn on a link once edits are reset", async () => {
     const u = user();
     render(<DealDetailPage dealId="d1" />);
 
@@ -679,7 +680,7 @@ describe("DealDetailPage (editable, single save)", () => {
     expect(poInput()).toHaveValue("");
     expect(saveButton()).toBeDisabled();
 
-    await u.click(jobsLink());
+    await u.click(clientLink());
     expect(screen.queryByText(DIALOG_TITLE)).toBeNull();
     expect(mocks.push).not.toHaveBeenCalled();
   });

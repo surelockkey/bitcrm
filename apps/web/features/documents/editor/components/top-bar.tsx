@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowLeft, Eye, Loader2, Pencil, Redo2, Save, Star, Undo2 } from "lucide-react";
+import { Eye, Loader2, Pencil, Redo2, Save, Star, Undo2 } from "lucide-react";
 import type { DocumentRenderContext } from "@bitcrm/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -97,7 +97,6 @@ export function EditorTopBar({
   isDefault,
   saving,
   ctx,
-  onBack,
   onSave,
 }: {
   canEdit: boolean;
@@ -106,7 +105,6 @@ export function EditorTopBar({
   isDefault: boolean;
   saving: boolean;
   ctx: DocumentRenderContext;
-  onBack: () => void;
   onSave: () => void;
 }) {
   const kind = useEditorStore((s) => s.draft?.kind ?? "invoice");
@@ -120,9 +118,6 @@ export function EditorTopBar({
 
   return (
     <header className="flex h-14 flex-none items-center gap-2 border-b bg-background px-2 sm:px-3">
-      <Button variant="ghost" size="icon-sm" aria-label="Back to templates" onClick={onBack}>
-        <ArrowLeft />
-      </Button>
       <div className="flex min-w-0 flex-1 items-center gap-1.5">
         <InlineName editable={canEdit} />
         <Badge variant="outline" className="hidden flex-none sm:inline-flex">
