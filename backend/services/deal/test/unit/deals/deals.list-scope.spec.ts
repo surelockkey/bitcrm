@@ -67,6 +67,23 @@ describe('DealsService.list — technician filter on every index', () => {
     );
   });
 
+  it('contactId wins over a schedule sort: the contact index answers, never the schedule index', async () => {
+    // The client card asked for its jobs by visit date and got the whole
+    // account's: `sort=schedule` took the schedule index, which has no
+    // contact key, and the contact was forgotten.
+    (repo as any).findBySchedule = jest.fn().mockResolvedValue(page);
+    await service.list({ contactId: 'c-1', sort: 'schedule', dir: 'desc' } as any, caller);
+    expect(repo.findByContact).toHaveBeenCalledWith('c-1', 20, undefined, expect.any(Object));
+    expect((repo as any).findBySchedule).not.toHaveBeenCalled();
+  });
+
+  it('contactId wins over a visit-date window too', async () => {
+    (repo as any).findBySchedule = jest.fn().mockResolvedValue(page);
+    await service.list({ contactId: 'c-1', scheduledFrom: '2026-10-01', scheduledTo: '2026-10-07' } as any, caller);
+    expect(repo.findByContact).toHaveBeenCalled();
+    expect((repo as any).findBySchedule).not.toHaveBeenCalled();
+  });
+
   it('assigned_only + dispatcherId filters the dispatcher index by the caller', async () => {
     await service.list({ dispatcherId: 'd-1' } as any, caller, 'assigned_only');
     expect(repo.findByDispatcher).toHaveBeenCalledWith(

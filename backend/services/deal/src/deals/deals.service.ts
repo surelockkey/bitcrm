@@ -593,6 +593,17 @@ export class DealsService {
       }
     }
 
+    // One client's jobs are one partition of the contact index, whatever
+    // sort or window came with the request: the schedule and report indexes
+    // have no contact key, and taking them here once handed the client card
+    // the whole account's jobs. A caller that wants them by visit date sorts
+    // the client's (few) jobs itself.
+    if (query.contactId) {
+      const page = await this.repository.findByContact(query.contactId, limit, query.cursor, filters);
+      // A status tab on top of the client is a filter on their partition.
+      return query.superStatus ? { ...page, items: page.items.filter((d) => this.matchesListQuery(d, query, filters)) } : page;
+    }
+
     // The report's other two dates: a span of creation days is the status
     // index's own sort key; a span of closing days is the sparse closed
     // index, where a status is a filter.
