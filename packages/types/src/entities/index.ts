@@ -6,7 +6,7 @@ export { WorkOrder } from './work-order.entity';
 export { CompanyDocument } from './company-document.entity';
 export { Address } from './address.entity';
 export { Deal } from './deal.entity';
-export { DealAttachment, DealAttachmentMeta } from './deal-attachment.entity';
+export { DealAttachment, DealAttachmentMeta, ContactAttachment, ContactFileListItem } from './deal-attachment.entity';
 export {
   CallGroup,
   CallGroupChannel,
@@ -35,7 +35,7 @@ export { CallTag, CALL_TAG_LIMITS } from './call-tag.entity';
 export { DealSubStatus } from './deal-sub-status.entity';
 export { CustomFieldDefinition, CustomFieldValue } from './custom-field.entity';
 export { DealProduct } from './deal-product.entity';
-export { TimelineEntry } from './timeline-entry.entity';
+export { TimelineEntry, ContactHistoryEntry } from './timeline-entry.entity';
 export { CalendarEvent } from './calendar-event.entity';
 export { LocationSummary, LocationSummaryType, LocationStockTotals } from './location-summary.entity';
 export { ProductStock, ProductLocationStock } from './product-stock.entity';

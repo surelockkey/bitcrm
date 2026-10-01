@@ -27,7 +27,25 @@ export const DEALS_GSI6_NAME = 'ClosedIndex';
  */
 export const DEALS_GSI7_NAME = 'EndIndex';
 
+/**
+ * GSI10PK = CONTACT#<contactId> (timeline rows) | CONTACTFILE#<contactId>
+ * (attachment rows), GSI10SK = <timestamp>#<id> — sparse, the client card's
+ * History and Files across all of the client's jobs. Keys and prefixes live in
+ * `contacts/contact-index.ts`; rows written before the index need
+ * `backfill:contact-index`.
+ */
+export const DEALS_GSI10_NAME = 'ContactActivityIndex';
+
 // Job attachments (photos/files): PK=DEAL#<id>, SK=ATTACH#<attachmentId>.
 export const DEAL_ATTACHMENT_SK_PREFIX = 'ATTACH#';
 export const dealAttachmentS3Key = (dealId: string, attachmentId: string) =>
   `deals/${dealId}/attachments/${attachmentId}`;
+
+// A client's own files (uploaded on the client card, no job): PK=CONTACT#<contactId>, SK=ATTACH#<attachmentId>.
+export const CONTACT_PK_PREFIX = 'CONTACT#';
+export const contactAttachmentS3Key = (contactId: string, attachmentId: string) =>
+  `contacts/${contactId}/attachments/${attachmentId}`;
+
+// The Workiz import's client-level events (client created / deleted): PK=CLIENT#<contactId>, SK=ACT#<ts>#<id>.
+export const CLIENT_ACTIVITY_PK_PREFIX = 'CLIENT#';
+export const CLIENT_ACTIVITY_SK_PREFIX = 'ACT#';

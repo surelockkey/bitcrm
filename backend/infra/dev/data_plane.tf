@@ -31,6 +31,12 @@ locals {
       # backend/services/deal -- --apply`, then `recount:activity -- --apply`.
       { name = "ActivityDayIndex", n = 8 },
       { name = "ActorIndex", n = 9 },
+      # The client card's History and Files, sparse: CONTACT#<contactId> /
+      # <timestamp>#<id> on the timeline rows, CONTACTFILE#<contactId> /
+      # <uploadedAt>#<id> on the attachment rows (job files under DEAL#, the
+      # client's own under CONTACT#). Rows written before it need
+      # `npm run backfill:contact-index -w backend/services/deal`.
+      { name = "ContactActivityIndex", n = 10 },
       { name = "StageIndex", n = 1 },
       { name = "TechIndex", n = 2 },
       { name = "ContactIndex", n = 3 },
