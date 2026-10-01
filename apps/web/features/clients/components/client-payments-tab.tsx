@@ -1,21 +1,31 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import type { Deal } from "@bitcrm/types";
-import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatMoney } from "@/features/deals/lib";
 import { usePaymentList } from "@/features/payments/hooks";
 import { PaymentStatusBadge } from "@/features/payments/components/payment-status-badge";
 import { paymentMethodLabel } from "@/features/payments/lib";
+import { paginate } from "@/features/reports/lib";
+import { ClientPagination } from "./client-pagination";
 
-const PAGE = 25;
+const PAGE = 100;
 
 /** Workiz's Payments tab: Job, Date, Amount, Type, Status — newest first. */
 export function ClientPaymentsTab({ contactId, dealsById }: { contactId: string; dealsById: Map<string, Deal> }) {
   const q = usePaymentList({ contactId, limit: PAGE });
   const rows = q.data?.pages.flatMap((p) => p.items) ?? [];
+  const [page, setPage] = useState(1);
+  const [size, setSize] = useState(10);
+  // Every payment of the client, page after page, so the footer's count is exact.
+  const { hasNextPage, isFetchingNextPage, fetchNextPage } = q;
+  useEffect(() => {
+    if (hasNextPage && !isFetchingNextPage) void fetchNextPage();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+  const paged = paginate(rows, page, size);
 
   if (q.isLoading) return <Skeleton className="m-4 h-40" />;
   if (q.isError) return <p className="p-6 text-sm text-destructive">Couldn&apos;t load the payments.</p>;
@@ -36,7 +46,7 @@ export function ClientPaymentsTab({ contactId, dealsById }: { contactId: string;
             </TableRow>
           </TableHeader>
           <TableBody>
-            {rows.map((p) => (
+            {paged.rows.map((p) => (
               <TableRow key={p.id}>
                 <TableCell>
                   <Link href={`/deals/${p.dealId}`} className="font-mono font-medium text-brand hover:underline">
@@ -55,13 +65,8 @@ export function ClientPaymentsTab({ contactId, dealsById }: { contactId: string;
           </TableBody>
         </Table>
       </div>
-      {q.hasNextPage ? (
-        <div>
-          <Button variant="outline" size="sm" onClick={() => q.fetchNextPage()} disabled={q.isFetchingNextPage}>
-            {q.isFetchingNextPage ? "Loading…" : "Load more"}
-          </Button>
-        </div>
-      ) : null}
+      <ClientPagination page={paged.page} pages={paged.pages} total={paged.total} size={size} onPage={setPage} onSize={(n) => { setSize(n); setPage(1); }} />
+      {hasNextPage ? <p className="px-1 text-xs text-muted-foreground">Still counting the client&apos;s payments…</p> : null}
     </div>
   );
 }

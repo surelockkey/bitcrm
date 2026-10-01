@@ -230,6 +230,38 @@ describe("ContactDetailPage — the client card, laid out as Workiz's", () => {
     expect(rows[2]).toHaveTextContent("Unscheduled");
   });
 
+  it("pages the jobs like Workiz: arrows, Page X of Y, Showing a to b of N results, ten a page", async () => {
+    mocks.deals.pages = [
+      {
+        data: Array.from({ length: 12 }, (_, i) =>
+          deal(`d${i + 1}`, `JOB${String(i + 1).padStart(3, "0")}`, addr(`${i + 1} Main St`, "Dallas", "TX", "75201")),
+        ),
+      },
+    ];
+    await renderPage();
+
+    const table = screen.getByRole("table", { name: "Jobs" });
+    expect(within(table).getAllByRole("row").slice(1)).toHaveLength(10);
+    const pager = screen.getByTestId("client-pagination");
+    expect(pager).toHaveTextContent("Showing 1 to 10 of 12 results");
+    expect(pager).toHaveTextContent("Page 1 of 2");
+    expect(within(pager).getByRole("button", { name: "Previous page" })).toBeDisabled();
+
+    await userEvent.click(within(pager).getByRole("button", { name: "Next page" }));
+    expect(within(screen.getByRole("table", { name: "Jobs" })).getAllByRole("row").slice(1)).toHaveLength(2);
+    expect(screen.getByTestId("client-pagination")).toHaveTextContent("Showing 11 to 12 of 12 results");
+    expect(screen.getByTestId("client-pagination")).toHaveTextContent("Page 2 of 2");
+    expect(within(screen.getByTestId("client-pagination")).getByRole("button", { name: "Next page" })).toBeDisabled();
+    expect(screen.getByRole("tab", { name: /^Jobs/ })).toHaveTextContent("12");
+  });
+
+  it("asks for every page of the client's jobs as the card opens, so the count and the pages are exact", async () => {
+    mocks.deals.hasNextPage = true;
+    await renderPage();
+    await waitFor(() => expect(mocks.deals.fetchNextPage).toHaveBeenCalled());
+    expect(screen.getByRole("tab", { name: /^Jobs/ })).toHaveTextContent("3+");
+  });
+
   it("the Addresses tab lists each distinct address once, with its job count and total", async () => {
     await renderPage();
     await userEvent.click(screen.getByRole("tab", { name: /^Addresses/ }));
@@ -246,15 +278,10 @@ describe("ContactDetailPage — the client card, laid out as Workiz's", () => {
 
     await userEvent.type(screen.getByRole("searchbox", { name: "Search addresses" }), "austin");
     expect(within(screen.getByRole("table", { name: "Addresses" })).getAllByRole("row").slice(1)).toHaveLength(1);
+    expect(screen.getByTestId("client-pagination")).toHaveTextContent("Showing 1 to 1 of 1 results");
+    expect(screen.getByTestId("client-pagination")).toHaveTextContent("Page 1 of 1");
   });
 
-  it("asks for the rest of the jobs when the Addresses tab opens with more pages", async () => {
-    mocks.deals.hasNextPage = true;
-    await renderPage();
-    await userEvent.click(screen.getByRole("tab", { name: /^Addresses/ }));
-    await waitFor(() => expect(mocks.deals.fetchNextPage).toHaveBeenCalled());
-    expect(screen.getByRole("tab", { name: /^Jobs/ })).toHaveTextContent("3+");
-  });
 
   it("Create new has Workiz's items that BitCRM can honour: Job, Estimate, Invoice, Message, Address, Pay Invoices", async () => {
     await renderPage();

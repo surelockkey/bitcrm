@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ChevronDown, CreditCard, FileSpreadsheet, FileText, Home, MessageSquareText, StickyNote, Wrench } from "lucide-react";
@@ -66,8 +66,11 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
   const addressRows = useMemo(() => (contact ? clientAddressRows(contact, deals) : []), [contact, deals]);
   const dealsById = useMemo(() => new Map(deals.map((d) => [d.id, d])), [deals]);
 
+  // The card wants every job of the client: the Jobs tab pages them with an
+  // exact "Page 1 of 76", the Addresses tab counts jobs per address, and the
+  // tab's badge is a number, not "99+". Pages come one after another.
   const { hasNextPage, isFetchingNextPage, fetchNextPage } = jobs;
-  const loadAllJobs = useCallback(() => {
+  useEffect(() => {
     if (hasNextPage && !isFetchingNextPage) void fetchNextPage();
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
@@ -181,15 +184,7 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
           </div>
 
           <TabsContent value="jobs" className="mt-0">
-            <ClientJobsTab
-              deals={deals}
-              amountDue={amountDue}
-              money={money}
-              isLoading={jobs.isLoading}
-              hasMore={!!hasNextPage}
-              loadingMore={isFetchingNextPage}
-              onMore={() => void fetchNextPage()}
-            />
+            <ClientJobsTab deals={deals} amountDue={amountDue} money={money} isLoading={jobs.isLoading} complete={!hasNextPage} />
           </TabsContent>
           <TabsContent value="estimates" className="mt-0 p-4">
             <ClientEstimatesList contactIds={[contact.id]} />
@@ -201,7 +196,7 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
             <ClientPaymentsTab contactId={contact.id} dealsById={dealsById} />
           </TabsContent>
           <TabsContent value="addresses" className="mt-0">
-            <ClientAddressesTab rows={addressRows} money={money} complete={!hasNextPage} onNeedAll={loadAllJobs} />
+            <ClientAddressesTab rows={addressRows} money={money} complete={!hasNextPage} />
           </TabsContent>
           <TabsContent value="calls" className="mt-0 p-4">
             <ClientCallsLog contactId={contact.id} />

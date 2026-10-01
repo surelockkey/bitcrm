@@ -1,14 +1,16 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import type { Deal } from "@bitcrm/types";
-import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { StageBadge } from "@/features/deals/components/deal-badges";
 import { formatMoney } from "@/features/deals/lib";
 import { useJobTypeName } from "@/features/job-types/lib";
+import { paginate } from "@/features/reports/lib";
 import { jobDateLabel } from "../client-page";
+import { ClientPagination } from "./client-pagination";
 
 /** Workiz's Jobs tab columns, in its order (Job Name is the per-job client name). */
 const COLUMNS = ["Id", "Name", "Address", "City", "State", "Zipcode", "Job Date", "Job Type", "Status", "Total", "Amount Due"] as const;
@@ -18,20 +20,21 @@ export function ClientJobsTab({
   amountDue,
   money,
   isLoading,
-  hasMore,
-  loadingMore,
-  onMore,
+  complete,
 }: {
+  /** Every job of the client the card has fetched so far, newest schedule first. */
   deals: Deal[];
   /** dealId → balance due on its invoice. */
   amountDue: Map<string, number>;
   money: boolean;
   isLoading: boolean;
-  hasMore: boolean;
-  loadingMore: boolean;
-  onMore: () => void;
+  /** All of the client's jobs are in hand, so the page count is final. */
+  complete: boolean;
 }) {
   const jobTypeName = useJobTypeName();
+  const [page, setPage] = useState(1);
+  const [size, setSize] = useState(10);
+  const paged = paginate(deals, page, size);
 
   if (isLoading) return <Skeleton className="m-4 h-40" />;
   if (deals.length === 0) return <p className="p-6 text-sm text-muted-foreground">No jobs yet.</p>;
@@ -50,7 +53,7 @@ export function ClientJobsTab({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {deals.map((d) => {
+            {paged.rows.map((d) => {
               const name = d.clientName ? `${d.clientName.firstName} ${d.clientName.lastName}`.trim() : (d.businessProfileName ?? "");
               const due = amountDue.get(d.id);
               return (
@@ -78,13 +81,8 @@ export function ClientJobsTab({
           </TableBody>
         </Table>
       </div>
-      {hasMore ? (
-        <div>
-          <Button variant="outline" size="sm" onClick={onMore} disabled={loadingMore}>
-            {loadingMore ? "Loading…" : "Load more"}
-          </Button>
-        </div>
-      ) : null}
+      <ClientPagination page={paged.page} pages={paged.pages} total={paged.total} size={size} onPage={setPage} onSize={(n) => { setSize(n); setPage(1); }} />
+      {!complete ? <p className="px-1 text-xs text-muted-foreground">Still counting the client&apos;s jobs…</p> : null}
     </div>
   );
 }
