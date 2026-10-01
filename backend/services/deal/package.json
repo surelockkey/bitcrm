@@ -35,6 +35,7 @@
     "verify:sales-report": "ts-node src/scripts/verify-sales-report.ts",
     "backfill:deal-number-links": "ts-node src/scripts/backfill-deal-number-links.ts",
     "verify:jobs-report": "ts-node src/scripts/verify-jobs-report.ts",
+    "verify:items-report": "ts-node src/scripts/verify-items-report.ts",
     "verify:job-statistics": "ts-node src/scripts/verify-job-statistics.ts"
   },
   "dependencies": {

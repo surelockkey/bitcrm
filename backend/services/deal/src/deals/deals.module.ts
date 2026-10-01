@@ -40,6 +40,9 @@ import { TaxReportService } from './report/tax-report.service';
 import { BillingReportsClient } from '../common/services/billing-reports.client';
 import { JobsReportService } from './report/jobs-report.service';
 import { JobsReportSettingsRepository } from './report/jobs-report-settings.repository';
+import { ItemsReportController } from './report/items-report.controller';
+import { ItemsReportService } from './report/items-report.service';
+import { ItemsReportRepository } from './report/items-report.repository';
 import { JobStatisticsController } from './report/job-statistics.controller';
 import { JobStatisticsService } from './report/job-statistics.service';
 import { CommissionReportModule } from '../commission-report/commission-report.module';
@@ -50,6 +53,7 @@ import { CommissionReportModule } from '../commission-report/commission-report.m
   // `internal/:id/...` routes are matched ahead of DealsController's; the
   // live stream too, or `GET /:id` would take `/stream`; the dashboard's
   // `stats/*` too, ahead of the `:id/…` routes; the Jobs report's `report/*`
+  // and the Items and services report's `report/items/*` likewise.
   // and Job Statistics' `report/statistics` likewise.
   controllers: [
     DealEventsController,
@@ -60,6 +64,7 @@ import { CommissionReportModule } from '../commission-report/commission-report.m
     SalesReportController,
     TaxReportController,
     JobsReportController,
+    ItemsReportController,
     JobStatisticsController,
     DealsController,
   ],
@@ -83,6 +88,8 @@ import { CommissionReportModule } from '../commission-report/commission-report.m
     SalesReportSettingsRepository,
     JobsReportService,
     JobsReportSettingsRepository,
+    ItemsReportService,
+    ItemsReportRepository,
     TaxReportRepository,
     TaxReportService,
     BillingReportsClient,

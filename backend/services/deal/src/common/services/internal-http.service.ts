@@ -29,6 +29,9 @@ const USER_NAMES_MAX_IDS = 20;
 const USER_NAMES_TIMEOUT_MS = 3_000;
 /** user-service's batch names route takes this many ids in one body. */
 const USER_NAMES_BATCH_MAX_IDS = 200;
+/** Price-book reads a report sends at once — inventory answers one product a request. */
+const PRODUCTS_PARALLEL = 8;
+const PRODUCT_TIMEOUT_MS = 5_000;
 /** crm's `POST /contacts/by-ids` takes this many ids in one body. */
 const CONTACTS_BY_IDS_MAX = 100;
 const CONTACTS_BY_IDS_TIMEOUT_MS = 5_000;
@@ -330,6 +333,49 @@ export class InternalHttpService {
       this.businessMetrics?.internalHttpErrors.inc({ target_service: 'inventory', operation: 'getProduct' });
       throw this.toHttpError(error, 'Product lookup');
     }
+  }
+
+  /**
+   * Many price-book items at once, for a report that prints their current
+   * name, type, model and category (Items and services). Inventory has no
+   * batch route, so this is `GET /products/internal/:id` per product,
+   * `PRODUCTS_PARALLEL` at a time, each answer as inventory sent it (the
+   * importer's extras — `number`, `workizType`, `workizSerial` — included).
+   * Best effort: a product inventory does not know, or cannot answer for, is
+   * left out with one warning for the lot, and the report prints the line's
+   * own words for it. An inventory that answers nothing but errors is asked
+   * no further.
+   */
+  async getProductsForReport(ids: string[]): Promise<Map<string, Record<string, unknown>>> {
+    const unique = [...new Set(ids.filter(Boolean))];
+    const out = new Map<string, Record<string, unknown>>();
+    let failed = 0;
+    let lastError = '';
+    let next = 0;
+    const worker = async (): Promise<void> => {
+      while (next < unique.length) {
+        // Inventory down (every answer so far an error): stop asking, do not wait out a timeout per item.
+        if (failed >= PRODUCTS_PARALLEL && out.size === 0) return;
+        const id = unique[next++];
+        try {
+          const response = await this.inventoryClient.get(`/api/inventory/products/internal/${encodeURIComponent(id)}`, {
+            timeout: PRODUCT_TIMEOUT_MS,
+          });
+          const product: unknown = response.data?.data;
+          if (product && typeof product === 'object') out.set(id, product as Record<string, unknown>);
+        } catch (error: any) {
+          if (error.response?.status === 404) continue;
+          failed += 1;
+          lastError = error.message;
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(PRODUCTS_PARALLEL, unique.length) }, worker));
+    if (failed) {
+      this.businessMetrics?.internalHttpErrors.inc({ target_service: 'inventory', operation: 'getProductsForReport' });
+      this.logger.warn(`Failed to load ${failed} of ${unique.length} products for a report: ${lastError}`);
+    }
+    return out;
   }
 
   async deductStock(dto: DeductStockDto): Promise<void> {

@@ -650,6 +650,26 @@ export type {
   JobsReportSettings,
 } from './reports/jobs-report';
 
+// Reports — the Workiz Items and services report (`GET /deals/report/items`)
+export {
+  ITEMS_REPORT_COLUMNS,
+  ITEMS_REPORT_ITEM_TYPES,
+  ITEMS_REPORT_MAX_DAYS,
+  ITEMS_REPORT_MAX_PAGE_SIZE,
+  ITEMS_REPORT_SORTS,
+} from './reports/items-report';
+export type {
+  ItemsReportColumnId,
+  ItemsReportFilters,
+  ItemsReportItemType,
+  ItemsReportJobRow,
+  ItemsReportJobsPage,
+  ItemsReportPage,
+  ItemsReportPagination,
+  ItemsReportRow,
+  ItemsReportSort,
+  ItemsReportTotals,
+} from './reports/items-report';
 // Reports — Workiz's billing reports: Aging invoices, Tax, Invoices, Estimates
 export {
   AGING_BUCKETS,
