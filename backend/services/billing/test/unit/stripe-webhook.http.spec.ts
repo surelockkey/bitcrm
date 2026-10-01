@@ -60,7 +60,11 @@ describe('POST /api/billing/webhooks/stripe (raw body, real signature)', () => {
 
   beforeAll(async () => {
     process.env.STRIPE_WEBHOOK_SECRET = SECRET;
-    ledger = fakeLedger([payment({ id: 'p1', status: 'pending', amount: 100, stripeSessionId: 'cs_1' })]);
+    ledger = fakeLedger([
+      payment({ id: 'p1', status: 'pending', amount: 100, stripeSessionId: 'cs_1' }),
+      // A Tap to Pay attempt: the row and its intent exist before the tap.
+      payment({ id: 'p2', status: 'pending', amount: 50, source: 'field', takenBy: 'tech-1', stripePaymentIntentId: 'pi_2' }),
+    ]);
     const invoices = fakeInvoices(invoice(), ledger);
 
     const mod = await Test.createTestingModule({
@@ -123,6 +127,36 @@ describe('POST /api/billing/webhooks/stripe (raw body, real signature)', () => {
     expect(second.body.duplicate).toBe(true);
     await handler.settle();
     expect(ledger.payments.get('p1')!.version).toBe(version);
+  });
+
+  it('fails a cancelled Tap to Pay attempt from a really-signed payment_intent.canceled, once', async () => {
+    const payload = body({
+      id: 'evt_http_canceled',
+      type: 'payment_intent.canceled',
+      data: {
+        object: {
+          id: 'pi_2',
+          object: 'payment_intent',
+          status: 'canceled',
+          amount: 5_000,
+          currency: 'usd',
+          payment_method_types: ['card_present'],
+          cancellation_reason: 'requested_by_customer',
+          metadata: { paymentId: 'p2', invoiceId: 'deal-1', dealId: 'deal-1' },
+        },
+      },
+    });
+    const first = await post(payload, sign(payload));
+    expect(first.status).toBe(200);
+    expect(first.body).toMatchObject({ received: true, duplicate: false });
+    await handler.settle();
+    expect(ledger.payments.get('p2')!.status).toBe('failed');
+    const version = ledger.payments.get('p2')!.version;
+
+    const replay = await post(payload, sign(payload));
+    expect(replay.body).toMatchObject({ received: true, duplicate: true });
+    await handler.settle();
+    expect(ledger.payments.get('p2')!.version).toBe(version);
   });
 
   it('400s a body signed with the wrong secret', async () => {

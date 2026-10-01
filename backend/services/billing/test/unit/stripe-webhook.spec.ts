@@ -1,10 +1,11 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { BillingEventType } from '@bitcrm/types';
-import { StripeEventsHandler } from 'src/payments/stripe/stripe-events.handler';
+import { BillingEventType, type Payment } from '@bitcrm/types';
+import { SUBSCRIBED_STRIPE_EVENTS, StripeEventsHandler } from 'src/payments/stripe/stripe-events.handler';
 import { PaymentsService } from 'src/payments/payments.service';
 import { PaymentSettingsService } from 'src/payments/payment-settings.service';
+import { PaymentVersionConflictError } from 'src/payments/payments.repository';
 import { mockDealClient, mockEvents } from './mocks';
-import { fakeInvoices, fakeLedger, invoice, mockStripeService, payment } from './payment-mocks';
+import { PAY_NOW, fakeInvoices, fakeLedger, invoice, mockStripeService, payment } from './payment-mocks';
 
 let seq = 0;
 const event = (type: string, object: any, over: Partial<any> = {}): any => ({
@@ -204,6 +205,136 @@ describe('stripe webhook — a card payment', () => {
     expect(status(ledger)).toBe('failed');
     expect(ledger.payments.get('p1')!.failureReason).toBe('Your card was declined.');
     expect(events.payment).toHaveBeenCalledWith(BillingEventType.PAYMENT_FAILED, expect.anything());
+  });
+});
+
+describe('stripe webhook — a card tapped on the technician’s phone (card_present)', () => {
+  /** The row the terminal route wrote before the tap: pending, intent recorded, $15 tip on top. */
+  const tapped = (over: Partial<Payment> = {}) =>
+    payment({
+      id: 'p1',
+      status: 'pending',
+      source: 'field',
+      takenBy: 'tech-1',
+      amount: 100,
+      tipAmount: 15,
+      stripePaymentIntentId: 'pi_1',
+      ...over,
+    });
+  const charge = (over: any = {}) => ({
+    id: 'ch_1',
+    object: 'charge',
+    status: 'succeeded',
+    amount: 11_500,
+    payment_intent: 'pi_1',
+    metadata: { paymentId: 'p1', invoiceId: 'deal-1', dealId: 'deal-1' },
+    payment_method_details: { type: 'card_present', card_present: { brand: 'visa', last4: '4242' } },
+    ...over,
+  });
+
+  it('is subscribed to the cancellation and the charge events', () => {
+    expect(SUBSCRIBED_STRIPE_EVENTS).toEqual(expect.arrayContaining(['payment_intent.canceled', 'charge.succeeded']));
+  });
+
+  it('settles on payment_intent.succeeded; the tip stays on the row and out of the balance', async () => {
+    const { handler, ledger, invoices } = build([tapped()]);
+    await handler.receive(event('payment_intent.succeeded', intent({ amount: 11_500 })));
+    await handler.settle();
+    expect(ledger.payments.get('p1')).toMatchObject({ status: 'settled', amount: 100, tipAmount: 15 });
+    expect(invoices.applyAmountPaid).toHaveBeenLastCalledWith('deal-1', 100);
+  });
+
+  it('fails the attempt on payment_intent.canceled, saying why', async () => {
+    const { handler, ledger, events } = build([tapped()]);
+    await handler.receive(
+      event('payment_intent.canceled', intent({ status: 'canceled', cancellation_reason: 'abandoned', latest_charge: null })),
+    );
+    await handler.settle();
+    const p = ledger.payments.get('p1')!;
+    expect(p.status).toBe('failed');
+    expect(p.failureReason).toMatch(/cancel/i);
+    expect(p.failureReason).toMatch(/abandoned/);
+    expect(events.payment).toHaveBeenCalledWith(BillingEventType.PAYMENT_FAILED, expect.anything());
+  });
+
+  it('keeps the first reason when the attempt had already failed', async () => {
+    const { handler, ledger } = build([tapped({ status: 'failed', failureReason: 'Cancelled on the device' })]);
+    await handler.receive(
+      event('payment_intent.canceled', intent({ status: 'canceled', cancellation_reason: 'requested_by_customer' })),
+    );
+    await handler.settle();
+    expect(ledger.payments.get('p1')!.failureReason).toBe('Cancelled on the device');
+  });
+
+  it('refuses a late payment_intent.canceled for money already collected', async () => {
+    const { handler, ledger } = build([tapped({ status: 'settled', settledAt: PAY_NOW })]);
+    await handler.receive(event('payment_intent.canceled', intent({ status: 'canceled' })));
+    await handler.settle();
+    expect(status(ledger)).toBe('settled');
+  });
+
+  it('stores the card brand and last 4 from charge.succeeded and never touches the status', async () => {
+    const { handler, ledger, invoices } = build([tapped()]);
+    await handler.receive(event('charge.succeeded', charge()));
+    await handler.settle();
+    expect(ledger.payments.get('p1')).toMatchObject({
+      status: 'pending',
+      cardBrand: 'visa',
+      last4: '4242',
+      stripeChargeId: 'ch_1',
+    });
+    expect(ledger.pointers.get('ch_1')).toBe('p1');
+    expect(invoices.applyAmountPaid).not.toHaveBeenCalled();
+  });
+
+  it('finds the payment through the intent pointer when the charge carries no metadata', async () => {
+    const { handler, ledger } = build([tapped()]);
+    await handler.receive(event('charge.succeeded', charge({ metadata: {} })));
+    await handler.settle();
+    expect(ledger.payments.get('p1')).toMatchObject({ cardBrand: 'visa', last4: '4242' });
+  });
+
+  it('writes nothing for a charge.succeeded that says nothing new', async () => {
+    const { handler, ledger } = build([tapped()]);
+    await handler.receive(event('charge.succeeded', charge()));
+    await handler.settle();
+    const version = ledger.payments.get('p1')!.version;
+    // A different event id carrying the same state.
+    await handler.receive(event('charge.succeeded', charge()));
+    await handler.settle();
+    expect(ledger.payments.get('p1')!.version).toBe(version);
+  });
+
+  it('only adds the card details to a reversed payment — its status stays', async () => {
+    const { handler, ledger } = build([
+      tapped({ status: 'reversed', reversedAt: PAY_NOW, stripeChargeId: 'ch_1', failureReason: 'This payment was disputed (fraudulent)' }),
+    ]);
+    await handler.receive(event('charge.succeeded', charge()));
+    await handler.settle();
+    expect(ledger.payments.get('p1')).toMatchObject({ status: 'reversed', last4: '4242' });
+  });
+
+  it('reads an online card the same way — the portal never recorded brand / last 4 either', async () => {
+    const { handler, ledger } = build([payment({ id: 'p1', status: 'settled', stripePaymentIntentId: 'pi_1' })]);
+    await handler.receive(
+      event('charge.succeeded', charge({ payment_method_details: { type: 'card', card: { brand: 'mastercard', last4: '4444' } } })),
+    );
+    await handler.settle();
+    expect(ledger.payments.get('p1')).toMatchObject({ status: 'settled', cardBrand: 'mastercard', last4: '4444' });
+  });
+});
+
+describe('stripe webhook — two writers on one payment', () => {
+  it('re-reads the row and asserts again when another write got there first', async () => {
+    const { handler, ledger } = build([payment({ id: 'p1', status: 'pending', stripePaymentIntentId: 'pi_1' })]);
+    // The phone's sync (or a sibling event) bumped the version between our read and our write.
+    ledger.update.mockRejectedValueOnce(new PaymentVersionConflictError());
+    const e = event('payment_intent.succeeded', intent());
+    await handler.receive(e);
+    await handler.settle();
+    expect(status(ledger)).toBe('settled');
+    // Handled — not released for Stripe to retry minutes later.
+    expect(ledger.claimed.has(e.id)).toBe(true);
   });
 });
 

@@ -1,13 +1,17 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import type Stripe from 'stripe';
 import { BillingEventType, TimelineEventType, type Payment, type PaymentStatus } from '@bitcrm/types';
-import { PaymentsRepository } from '../payments.repository';
+import { PaymentVersionConflictError, PaymentsRepository } from '../payments.repository';
 import { PaymentsService } from '../payments.service';
 import { canTransition, chargedAmount, fromCents, round2, statusAfterRefund } from '../payment-rules';
 import { StripeService, intentId } from './stripe.service';
 import { PaymentReportProjector } from '../report/payment-report.projector';
 
-/** Exactly the events the endpoint is subscribed to in the Stripe dashboard. */
+/**
+ * Exactly the events the endpoint is subscribed to in the Stripe dashboard.
+ * This list is documentation — Stripe sends only what the endpoint lists, so a
+ * type added here must be ticked there too.
+ */
 export const SUBSCRIBED_STRIPE_EVENTS = [
   'checkout.session.completed',
   'checkout.session.async_payment_succeeded',
@@ -15,6 +19,9 @@ export const SUBSCRIBED_STRIPE_EVENTS = [
   'payment_intent.succeeded',
   'payment_intent.processing',
   'payment_intent.payment_failed',
+  // Tap to Pay: an attempt cancelled on the device, and the card that paid.
+  'payment_intent.canceled',
+  'charge.succeeded',
   'charge.refunded',
   'refund.created',
   'refund.updated',
@@ -99,7 +106,10 @@ export class StripeEventsHandler {
       case 'payment_intent.succeeded':
       case 'payment_intent.processing':
       case 'payment_intent.payment_failed':
+      case 'payment_intent.canceled':
         return this.onIntent(event.data.object as Stripe.PaymentIntent, event.type);
+      case 'charge.succeeded':
+        return this.onChargeSucceeded(event.data.object as Stripe.Charge);
       case 'charge.refunded':
         return this.onChargeRefunded(event.data.object as Stripe.Charge);
       case 'refund.created':
@@ -187,9 +197,38 @@ export class StripeEventsHandler {
           ...patch,
           failureReason: intent.last_payment_error?.message || 'The payment did not go through',
         });
+      case 'payment_intent.canceled':
+        // An attempt already failed (declined, cancelled on the device) keeps its first reason.
+        return this.assert(
+          payment,
+          'failed',
+          payment.status === 'failed' ? patch : { ...patch, failureReason: cancelledReason(intent.cancellation_reason) },
+        );
       default:
         return this.assert(payment, 'settled', patch);
     }
+  }
+
+  /**
+   * The charge that paid: the card's brand and last 4 for the payment row
+   * (Terminal's `card_present`, or an online `card`). Display data only — the
+   * status is the intent events' business, so this never moves it.
+   */
+  private async onChargeSucceeded(charge: Stripe.Charge): Promise<void> {
+    const payment = await this.resolve(charge.metadata, [charge.id, intentId(charge.payment_intent)]);
+    if (!payment) return this.orphan('charge.succeeded', charge.id);
+
+    const patch: Partial<Payment> = { ...cardDetails(charge) };
+    if (payment.stripeChargeId !== charge.id) {
+      patch.stripeChargeId = charge.id;
+      await this.repo.putStripePointer(charge.id, payment.id);
+    }
+    const intent = intentId(charge.payment_intent);
+    if (intent && !payment.stripePaymentIntentId) {
+      patch.stripePaymentIntentId = intent;
+      await this.repo.putStripePointer(intent, payment.id);
+    }
+    return this.annotate(payment, patch);
   }
 
   // ------------------------------------------------------------------ refunds
@@ -304,17 +343,26 @@ export class StripeEventsHandler {
   /**
    * Asserts a status. The transition table, not the event, decides whether it
    * takes effect — and an assertion that changes nothing writes nothing.
+   *
+   * Two writers on one row are normal with Tap to Pay (`charge.succeeded`,
+   * `payment_intent.succeeded` and the phone's sync all land within a
+   * second), so a version conflict is answered by re-reading the row and
+   * asserting once more against what is there now — an assertion is safe to
+   * repeat. A second conflict is thrown, which releases the event for
+   * Stripe's retry as before.
    */
   private async assert(
     payment: Payment,
     target: PaymentStatus,
     patch: Partial<Payment> = {},
     published?: { event: BillingEventType; timeline: TimelineEventType },
+    retried = false,
   ): Promise<void> {
     if (!canTransition(payment.status, target)) return this.refused(payment, target, 'assert');
 
+    const changes = changedFields(payment, patch);
     const now = new Date().toISOString();
-    const set: Partial<Payment> & Record<string, unknown> = { ...patch, updatedAt: now };
+    const set: Partial<Payment> & Record<string, unknown> = { ...changes, updatedAt: now };
     const remove: string[] = [];
     const statusChanged = payment.status !== target;
     if (statusChanged) set.status = target;
@@ -323,15 +371,24 @@ export class StripeEventsHandler {
       if (payment.failureReason) remove.push('failureReason');
     }
     // Nothing but `updatedAt` to say: leave the row alone.
-    if (!statusChanged && Object.keys(patch).length === 0 && remove.length === 0) return;
+    if (!statusChanged && Object.keys(changes).length === 0 && remove.length === 0) return;
 
-    const updated = await this.repo.update(payment, set, remove, { expectedVersion: payment.version });
+    let updated: Payment;
+    try {
+      updated = await this.repo.update(payment, set, remove, { expectedVersion: payment.version });
+    } catch (err) {
+      if (err instanceof PaymentVersionConflictError && !retried) {
+        const fresh = await this.repo.get(payment.id);
+        if (fresh) return this.assert(fresh, target, patch, published, true);
+      }
+      throw err;
+    }
 
     // The portal writes its row `pending` before the customer has confirmed
     // anything, so "still pending" is not always a non-event: the moment an
     // intent is recorded, a bank payment has genuinely started moving and
     // staff should see it.
-    const nowConfirmed = target === 'pending' && !payment.stripePaymentIntentId && !!patch.stripePaymentIntentId;
+    const nowConfirmed = target === 'pending' && !payment.stripePaymentIntentId && !!changes.stripePaymentIntentId;
     if (!statusChanged && !nowConfirmed) return;
 
     const chosen = published ?? OUTCOME[target];
@@ -342,6 +399,32 @@ export class StripeEventsHandler {
       actorId: 'system',
       actorName: 'Stripe',
     });
+  }
+
+  /**
+   * Writes display data (card brand, last 4, Stripe ids) onto a payment
+   * WITHOUT asserting a status — whatever status the row has now, it keeps.
+   * Only what differs is written; the same one-retry rule as `assert`.
+   */
+  private async annotate(payment: Payment, patch: Partial<Payment>, retried = false): Promise<void> {
+    const changes = changedFields(payment, patch);
+    if (Object.keys(changes).length === 0) return;
+    try {
+      await this.repo.update(
+        payment,
+        { ...changes, updatedAt: new Date().toISOString() },
+        [],
+        { expectedVersion: payment.version },
+      );
+    } catch (err) {
+      if (err instanceof PaymentVersionConflictError && !retried) {
+        const fresh = await this.repo.get(payment.id);
+        if (fresh) return this.annotate(fresh, patch, true);
+      }
+      throw err;
+    }
+    // The report line of a card charge shows its last 4.
+    await this.report?.project(payment.id);
   }
 
   private refused(payment: Payment, target: PaymentStatus, where: string): void {
@@ -397,7 +480,7 @@ const OUTCOME: Partial<Record<PaymentStatus, { event: BillingEventType; timeline
 const INTENT_EVENT: Record<string, string | undefined> = {
   succeeded: 'payment_intent.succeeded',
   processing: 'payment_intent.processing',
-  canceled: 'payment_intent.payment_failed',
+  canceled: 'payment_intent.canceled',
   requires_payment_method: 'payment_intent.payment_failed',
 };
 
@@ -405,4 +488,25 @@ const INTENT_EVENT: Record<string, string | undefined> = {
 function chargeId(v: string | Stripe.Charge | null | undefined): string | undefined {
   if (!v) return undefined;
   return typeof v === 'string' ? v : v.id;
+}
+
+/** The part of `patch` that differs from what the row already holds. */
+function changedFields(payment: Payment, patch: Partial<Payment>): Partial<Payment> {
+  const current = payment as unknown as Record<string, unknown>;
+  return Object.fromEntries(Object.entries(patch).filter(([k, v]) => current[k] !== v)) as Partial<Payment>;
+}
+
+/** The card that paid, for the payment row — a tapped card (`card_present`) or an online one (`card`). */
+function cardDetails(charge: Stripe.Charge): Pick<Payment, 'cardBrand' | 'last4'> {
+  const details = charge.payment_method_details;
+  const card = details?.card_present ?? details?.card;
+  return {
+    ...(card?.brand && { cardBrand: card.brand }),
+    ...(card?.last4 && { last4: card.last4 }),
+  };
+}
+
+/** "The payment was cancelled (abandoned)" — Stripe's reason, in words. */
+function cancelledReason(reason: string | null | undefined): string {
+  return reason ? `The payment was cancelled (${humanise(reason)})` : 'The payment was cancelled';
 }
