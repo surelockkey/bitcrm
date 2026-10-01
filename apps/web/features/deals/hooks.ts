@@ -124,6 +124,16 @@ export function useDealTimeline(id: string) {
   });
 }
 
+/** The client card's History rail: the client's jobs' timelines as one feed. */
+export function useContactTimeline(contactId: string, enabled = true) {
+  return useInfiniteQuery({
+    queryKey: queryKeys.deals.timelineByContact(contactId),
+    queryFn: ({ pageParam }) => api.getTimelineByContact(contactId, pageParam),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.pagination.nextCursor,
+    enabled: enabled && !!contactId,
+  });
+}
 
 /**
  * The per-technician sent / seen stamps of a job (`ASSIGN#` rows). Only

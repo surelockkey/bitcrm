@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { queryKeys } from "@/lib/query-keys";
 import { getApiErrorMessage } from "@/lib/api/errors";
@@ -53,6 +53,59 @@ export function useUpdateAttachment(dealId: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.deals.attachments(dealId) });
       toast.success("Attachment updated");
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+}
+
+/* ------------------------------------------------- the client's files */
+
+/** The client card's Files rail: the client's own files and its jobs' files, a page at a time. */
+export function useAttachmentsByContact(contactId: string, enabled = true) {
+  return useInfiniteQuery({
+    queryKey: queryKeys.contacts.files(contactId),
+    queryFn: ({ pageParam }) => api.listAttachmentsByContact(contactId, pageParam),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.pagination.nextCursor,
+    enabled: enabled && !!contactId,
+  });
+}
+
+/**
+ * A presigned URL for one rail row — through the job's route when the file is
+ * a job's, the client's route otherwise. Cached short of its 300s life, as
+ * {@link useAttachmentUrl}.
+ */
+export function useFileUrl(row: api.ContactFileRow) {
+  return useQuery({
+    queryKey: api.isJobFile(row)
+      ? queryKeys.deals.attachmentUrl(row.dealId, row.id)
+      : queryKeys.contacts.fileUrl(row.contactId, row.id),
+    queryFn: () => api.getFileDownloadUrl(row),
+    staleTime: 4 * 60_000,
+    gcTime: 4 * 60_000,
+  });
+}
+
+export function useUploadContactAttachment(contactId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (file: File) => api.uploadContactAttachment(contactId, file),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.contacts.files(contactId) });
+      toast.success("File uploaded");
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+}
+
+export function useDeleteContactAttachment(contactId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (attachmentId: string) => api.deleteContactAttachment(contactId, attachmentId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.contacts.files(contactId) });
+      toast.success("File removed");
     },
     onError: (e) => toast.error(getApiErrorMessage(e)),
   });

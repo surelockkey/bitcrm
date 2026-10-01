@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import {
   ArrowRight,
   BadgeDollarSign,
@@ -154,7 +155,7 @@ function fieldLabel(key: string, lk: Lookups): string {
  * actually know the thing by. All are small cached lists already loaded elsewhere
  * on the job page, so this adds no new traffic.
  */
-interface Lookups {
+export interface Lookups {
   userName: (id: unknown) => string | null;
   contactName: (id: unknown) => string | null;
   jobTypes: Map<string, string>;
@@ -164,7 +165,7 @@ interface Lookups {
   tags: Map<string, string>;
 }
 
-function useTimelineLookups(contactIds: string[]): Lookups {
+export function useTimelineLookups(contactIds: string[]): Lookups {
   const { map: userMap } = useUserMap();
   // Only the clients the entries mention — a "Client" change names two.
   const { map: contactMap } = useContactsByIds(contactIds);
@@ -405,9 +406,9 @@ function when(ts: string): string {
 
 /* -------------------------------------------------------------- filters */
 
-type TimelineFilter = "all" | "notes" | "activities" | "calls";
+export type TimelineFilter = "all" | "notes" | "activities" | "calls";
 
-const FILTERS: { key: TimelineFilter; label: string }[] = [
+export const FILTERS: { key: TimelineFilter; label: string }[] = [
   { key: "all", label: "All" },
   { key: "notes", label: "Notes" },
   { key: "activities", label: "Activities" },
@@ -416,7 +417,7 @@ const FILTERS: { key: TimelineFilter; label: string }[] = [
 
 const CALL_EVENTS = new Set([TimelineEventType.CALL_LINKED, TimelineEventType.CALL_UNLINKED]);
 
-function matchesFilter(entry: TimelineEntry, filter: TimelineFilter): boolean {
+export function matchesFilter(entry: TimelineEntry, filter: TimelineFilter): boolean {
   switch (filter) {
     case "all":
       return true;
@@ -430,12 +431,39 @@ function matchesFilter(entry: TimelineEntry, filter: TimelineFilter): boolean {
   }
 }
 
-function entryHaystack(entry: TimelineEntry, lk: Lookups): string {
+export function entryHaystack(entry: TimelineEntry, lk: Lookups): string {
   const meta = META[entry.eventType];
   return [meta?.label ?? entry.eventType, detail(entry, lk), entry.note, entry.actorName]
     .filter(Boolean)
     .join(" ")
     .toLowerCase();
+}
+
+/**
+ * The clients an entry set mentions (a "Client" change names two) — only those
+ * are looked up by id, nothing is enumerated.
+ */
+export function mentionedContactIds(entries: TimelineEntry[]): string[] {
+  const ids = new Set<string>();
+  for (const e of entries) {
+    const d = e.details as Record<string, unknown> | undefined;
+    if (d?.field !== "contactId") continue;
+    for (const v of [d.oldValue, d.newValue]) if (typeof v === "string") ids.add(v);
+  }
+  return [...ids];
+}
+
+/**
+ * Entries store the actor's email; show the person's name when we know them
+ * (system actors like "Payment Service" fall back to the stored label).
+ */
+export function actorLabel(
+  e: TimelineEntry,
+  userMap: Map<string, { firstName?: string; lastName?: string }>,
+): string {
+  const u = userMap.get(e.actorId);
+  const name = u ? `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() : "";
+  return name || e.actorName;
 }
 
 /* ---------------------------------------------------------------- panel */
@@ -504,34 +532,16 @@ function PanelBody({
   const updateNote = useUpdateNote(dealId);
   const deleteNote = useDeleteNote(dealId);
   const { map: userMap } = useUserMap();
-  const mentionedContactIds = useMemo(() => {
-    const ids = new Set<string>();
-    for (const e of query.data?.pages.flatMap((p) => p.data) ?? []) {
-      const d = e.details as Record<string, unknown> | undefined;
-      if (d?.field !== "contactId") continue;
-      for (const v of [d.oldValue, d.newValue]) if (typeof v === "string") ids.add(v);
-    }
-    return [...ids];
-  }, [query.data]);
-  const lookups = useTimelineLookups(mentionedContactIds);
+  const entries = useMemo(
+    () => query.data?.pages.flatMap((p) => p.data) ?? [],
+    [query.data],
+  );
+  const lookups = useTimelineLookups(useMemo(() => mentionedContactIds(entries), [entries]));
   const [note, setNote] = useState("");
   const [filter, setFilter] = useState<TimelineFilter>("all");
   const [search, setSearch] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<TimelineEntry | null>(null);
-
-  // Entries store the actor's email; show the person's name when we know them
-  // (system actors like "Payment Service" fall back to the stored label).
-  const actorLabel = (e: TimelineEntry) => {
-    const u = userMap.get(e.actorId);
-    const name = u ? `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() : "";
-    return name || e.actorName;
-  };
-
-  const entries = useMemo(
-    () => query.data?.pages.flatMap((p) => p.data) ?? [],
-    [query.data],
-  );
 
   const rows = useMemo(() => {
     let base = entries.filter((e) => matchesFilter(e, filter));
@@ -626,7 +636,7 @@ function PanelBody({
                 key={row.id}
                 entry={row}
                 lookups={lookups}
-                actor={actorLabel(row)}
+                actor={actorLabel(row, userMap)}
                 canEdit={canEdit}
                 isEditing={editingId === row.id}
                 onStartEdit={() => setEditingId(row.id)}
@@ -684,12 +694,19 @@ function PanelBody({
   );
 }
 
-function EntryRow({
+/**
+ * One timeline row: icon, what happened, the note or change lines, when and
+ * who. The job page edits notes in place; the client card's History rail
+ * reads the same rows across jobs (`job` names which) and leaves editing to
+ * the job, so the handlers are optional there.
+ */
+export function EntryRow({
   entry,
   lookups,
   actor,
-  canEdit,
-  isEditing,
+  job,
+  canEdit = false,
+  isEditing = false,
   onStartEdit,
   onCancelEdit,
   onSaveEdit,
@@ -698,12 +715,14 @@ function EntryRow({
   entry: TimelineEntry;
   lookups: Lookups;
   actor: string;
-  canEdit: boolean;
-  isEditing: boolean;
-  onStartEdit: () => void;
-  onCancelEdit: () => void;
-  onSaveEdit: (note: string) => void;
-  onDelete: () => void;
+  /** The job the row belongs to, linked, when the feed spans several. */
+  job?: { id: string; number: string };
+  canEdit?: boolean;
+  isEditing?: boolean;
+  onStartEdit?: () => void;
+  onCancelEdit?: () => void;
+  onSaveEdit?: (note: string) => void;
+  onDelete?: () => void;
 }) {
   const meta = META[entry.eventType] ?? { icon: Sparkles, label: entry.eventType };
   const Icon = meta.icon;
@@ -721,6 +740,14 @@ function EntryRow({
         <div className="flex items-start gap-1">
           <span className="min-w-0 flex-1">
             <span className="font-medium">{meta.label}</span>
+            {job ? (
+              <span className="text-muted-foreground">
+                {" "}· Job:{" "}
+                <Link href={`/deals/${job.id}`} className="font-mono font-medium text-brand hover:underline">
+                  {job.number}
+                </Link>
+              </span>
+            ) : null}
             {d ? <span className="text-muted-foreground"> · {d}</span> : null}
           </span>
           {isNote && canEdit && !isEditing ? (
@@ -730,7 +757,7 @@ function EntryRow({
                 aria-label="Edit note"
                 onClick={() => {
                   setDraft(entry.note ?? "");
-                  onStartEdit();
+                  onStartEdit?.();
                 }}
                 className="grid size-6 place-items-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
               >
@@ -752,7 +779,7 @@ function EntryRow({
           <div className="mt-1 space-y-1.5">
             <Textarea rows={2} value={draft} onChange={(e) => setDraft(e.target.value)} />
             <div className="flex gap-1.5">
-              <Button size="sm" className="h-7 text-xs" variant="brand" aria-label="Save note" disabled={!draft.trim()} onClick={() => onSaveEdit(draft.trim())}>
+              <Button size="sm" className="h-7 text-xs" variant="brand" aria-label="Save note" disabled={!draft.trim()} onClick={() => onSaveEdit?.(draft.trim())}>
                 Save
               </Button>
               <Button size="sm" className="h-7 text-xs" variant="outline" onClick={onCancelEdit}>

@@ -177,6 +177,16 @@ export function getTimeline(id: string, cursor?: string): Promise<PaginatedRespo
   return apiFetchPaginated<TimelineEntry>(`/deals/${id}/timeline?${q}`);
 }
 
+/** A timeline entry on the client card: the job's code rides along so the row can name it. */
+export type ContactTimelineEntry = TimelineEntry & { dealNumber?: string };
+
+/** `GET /deals/timeline/by-contact/:contactId` — every job of the client, one feed, newest first. */
+export function getTimelineByContact(contactId: string, cursor?: string): Promise<PaginatedResponse<ContactTimelineEntry>> {
+  const q = new URLSearchParams({ limit: "30" });
+  if (cursor) q.set("cursor", cursor);
+  return apiFetchPaginated<ContactTimelineEntry>(`/deals/timeline/by-contact/${contactId}?${q}`);
+}
+
 export const addNote = (id: string, note: string): Promise<{ added: true }> =>
   http.post<{ added: true }>(`/deals/${id}/notes`, { note });
 
