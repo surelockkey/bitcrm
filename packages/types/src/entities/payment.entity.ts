@@ -74,6 +74,34 @@ export interface Payment {
   version: number;
   createdAt: string;
   updatedAt: string;
+
+  // ---- Workiz parity (all optional; the Payments report reads them) --------
+  /**
+   * The Workiz payment type (`charge`, `credit`, `check`, `cash`, `zelle`,
+   * `installments`, …) — finer than `method`, which has five values. Set by
+   * the Workiz import; a payment taken here derives it from `method` (see
+   * `paymentReportType`). Keys of `PAYMENT_REPORT_TYPE_LABELS`.
+   */
+  methodDetail?: string;
+  /** Workiz's own label for `methodDetail`, as imported ("Credit offline"). */
+  methodLabel?: string;
+  /** How a card payment was collected: "Client portal", "Card reader", "Keyed". */
+  transactionMethod?: string;
+  /** What the processor kept (Workiz Pay `app_fee`), dollars. NOT `feeAmount`, which is our surcharge. */
+  processingFee?: number;
+  /** `amount + tipAmount − processingFee` as the processor paid it out, dollars. */
+  netAmount?: number;
+  /** The job's lead technician when the payment was taken (Workiz "Technician"). */
+  technicianId?: string;
+  /** The job's service area when the payment was taken (the report's Service Areas filter). */
+  serviceAreaId?: string;
+  /** Who took the payment in Workiz ("Collected by") — imported rows; ours use `takenBy`. */
+  collectedBy?: string;
+  collectedByName?: string;
+  /** Workiz's `amount`, which INCLUDES the tip (ours is `amount + tipAmount`). Imported rows only. */
+  workizAmount?: number;
+  externalId?: string;
+  workizId?: number;
 }
 
 /** One refund against one payment. Stripe allows several partial refunds. */
@@ -93,6 +121,26 @@ export interface PaymentRefund {
   refundedBy: string;
   createdAt: string;
   updatedAt: string;
+
+  // ---- Workiz parity (all optional; imported refunds carry them) -----------
+  /** The job, denormalised (=== the payment's `dealId`). */
+  dealId?: string;
+  /**
+   * The Workiz type of the refund line: `refund` / `refund_offline`, or — for
+   * a negative offline payment Workiz allocated to this one — its own type
+   * (`credit`, `cash`, `check`…). The Payments report files the line under it.
+   */
+  methodDetail?: string;
+  methodLabel?: string;
+  /** Workiz's signed amount of the refund line (negative). Imported rows only. */
+  workizAmount?: number;
+  /** Confirmation code / cheque number of the refund, when Workiz had one. */
+  reference?: string;
+  note?: string;
+  transactionMethod?: string;
+  collectedByName?: string;
+  externalId?: string;
+  workizId?: number;
 }
 
 /** What an invoice's ledger adds up to. Computed, never stored on its own. */

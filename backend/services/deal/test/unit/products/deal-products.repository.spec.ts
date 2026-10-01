@@ -200,6 +200,19 @@ describe('DealProductsRepository', () => {
       expect(flagged!.description).toBe('Rekey 2 locks');
     });
 
+    it('carries discountable only when a line is kept out of the discount', async () => {
+      const base = { PK: 'DEAL#deal-1', SK: 'PRODUCT#product-1', ...createMockDealProduct() };
+      dynamoDb.client.send
+        .mockResolvedValueOnce({ Item: base })
+        .mockResolvedValueOnce({ Item: { ...base, discountable: false } });
+
+      const plain = await repository.findProduct('deal-1', 'product-1');
+      const fee = await repository.findProduct('deal-1', 'product-1');
+
+      expect(plain).not.toHaveProperty('discountable');
+      expect(fee!.discountable).toBe(false);
+    });
+
     it('setTaxable updates the flag on an existing line and returns it', async () => {
       const item = { PK: 'DEAL#deal-1', SK: 'PRODUCT#product-1', ...createMockDealProduct(), taxable: false };
       dynamoDb.client.send.mockResolvedValue({ Attributes: item });

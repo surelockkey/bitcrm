@@ -40,6 +40,7 @@ import {
   summarizePayments,
 } from './payment-rules';
 import { PaymentVersionConflictError, PaymentsRepository, type PaymentListFilter } from './payments.repository';
+import { PaymentReportProjector } from './report/payment-report.projector';
 import { StripeService } from './stripe/stripe.service';
 
 /** Methods staff can record by hand. `bank` is online-only (it settles through Stripe). */
@@ -67,7 +68,7 @@ export interface InvoiceLedger {
 /** The invoice + job a payment hangs off, after the caller's scope was checked. */
 interface PaymentContext {
   invoice: Invoice;
-  deal: Pick<Deal, 'id' | 'assignedTechIds' | 'contactId'>;
+  deal: Pick<Deal, 'id' | 'assignedTechIds' | 'contactId' | 'serviceAreaId'>;
 }
 
 /**
@@ -86,6 +87,9 @@ interface PaymentOwner {
   dealId: string;
   contactId: string;
   companyId?: string;
+  /** The job's lead technician and area at the time — the Payments report files the payment under them. */
+  technicianId?: string;
+  serviceAreaId?: string;
 }
 
 /**
@@ -113,6 +117,7 @@ export class PaymentsService {
     @Optional() private readonly events?: BillingEventsPublisher,
     @Optional() private readonly crm?: CrmClient,
     @Optional() private readonly messaging?: MessagingClient,
+    @Optional() private readonly report?: PaymentReportProjector,
   ) {}
 
   // -------------------------------------------------------------- ledger read
@@ -243,9 +248,14 @@ export class PaymentsService {
 
   /** Cash, a cheque, a card taken in person. Settled the moment it is recorded. */
   async recordOffline(invoiceId: string, input: RecordPaymentInput, caller: Caller): Promise<Payment> {
-    const { invoice } = await this.context(invoiceId, caller);
+    const { invoice, deal } = await this.context(invoiceId, caller);
     assertOfflineMethod(input.method);
-    return this.writeOffline(invoiceOwner(invoice), await this.amountDue(invoice), input, caller);
+    return this.writeOffline(
+      { ...invoiceOwner(invoice), ...jobDims(deal) },
+      await this.amountDue(invoice),
+      input,
+      caller,
+    );
   }
 
   /**
@@ -257,7 +267,12 @@ export class PaymentsService {
     const ctx = await this.jobContext(dealId, caller);
     assertOfflineMethod(input.method);
     if (ctx.invoice) {
-      return this.writeOffline(invoiceOwner(ctx.invoice), await this.amountDue(ctx.invoice), input, caller);
+      return this.writeOffline(
+        { ...invoiceOwner(ctx.invoice), ...jobDims(ctx.view.deal) },
+        await this.amountDue(ctx.invoice),
+        input,
+        caller,
+      );
     }
     const deal = ctx.view.deal;
     const paid = amountPaidFrom(await this.repo.listByInvoice(deal.id));
@@ -266,6 +281,7 @@ export class PaymentsService {
       dealId: deal.id,
       contactId: deal.contactId,
       ...(deal.companyId && { companyId: deal.companyId }),
+      ...jobDims(deal),
     };
     return this.writeOffline(owner, balanceOf(jobTotal(ctx.view, paid), paid), input, caller);
   }
@@ -503,6 +519,11 @@ export class PaymentsService {
       status: payment.status,
       balanceDue,
     });
+
+    // The Payments report re-derives this payment's lines from the ledger as
+    // it now stands. Never throws — a lagging report is fixed by the next
+    // write or by `rebuild:payment-report`.
+    await this.report?.project(payment.id);
   }
 
   /** What is still owed on an invoice, ledger included. */
@@ -586,6 +607,12 @@ function jobTotal(view: DealBillingView, amountPaid: number): number {
 }
 
 const balanceOf = (total: number, amountPaid: number): number => round2(Math.max(0, total - amountPaid));
+
+/** Who led the job and where, as the report files a payment (only what the job has). */
+const jobDims = (deal: Pick<Deal, 'assignedTechIds' | 'serviceAreaId'>): Pick<PaymentOwner, 'technicianId' | 'serviceAreaId'> => ({
+  ...(deal.assignedTechIds?.[0] && { technicianId: deal.assignedTechIds[0] }),
+  ...(deal.serviceAreaId && { serviceAreaId: deal.serviceAreaId }),
+});
 
 const invoiceOwner = (invoice: Invoice): PaymentOwner => ({
   invoiceId: invoice.id,
