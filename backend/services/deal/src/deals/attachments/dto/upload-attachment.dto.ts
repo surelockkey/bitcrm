@@ -7,10 +7,16 @@ export class UploadAttachmentDto {
   @MaxLength(255)
   fileName!: string;
 
-  @ApiProperty({ example: 'image/jpeg', description: 'MIME type of the file to upload.' })
+  @ApiProperty({
+    example: 'image/jpeg',
+    description:
+      'MIME type of the file to upload: image/jpeg|png|webp|heic, application/pdf, ' +
+      'application/vnd.openxmlformats-officedocument.* (docx/xlsx/pptx) or video/mp4.',
+  })
   @IsString()
-  @Matches(/^(image\/(jpeg|png|webp|heic)|application\/pdf)$/, {
-    message: 'contentType must be an image (jpeg/png/webp/heic) or application/pdf',
+  @Matches(/^(image\/(jpeg|png|webp|heic)|application\/pdf|application\/vnd\.openxmlformats-officedocument\.[a-z]+(\.[a-z]+)*|video\/mp4)$/, {
+    message:
+      'contentType must be an image (jpeg/png/webp/heic), application/pdf, an Office document (application/vnd.openxmlformats-officedocument.*) or video/mp4',
   })
   contentType!: string;
 
