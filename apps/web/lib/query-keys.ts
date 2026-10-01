@@ -77,6 +77,8 @@ export const queryKeys = {
     byIds: (ids: string[]) => ["deals", "by-ids", ids] as const,
     detail: (id: string) => ["deals", "detail", id] as const,
     timeline: (id: string) => ["deals", id, "timeline"] as const,
+    /** The client card's History rail: one feed across every job of the client. */
+    timelineByContact: (contactId: string) => ["deals", "timeline", "by-contact", contactId] as const,
     qualifiedTechs: (id: string) => ["deals", id, "qualified-techs"] as const,
     assignments: (id: string) => ["deals", id, "assignments"] as const,
     products: (id: string) => ["deals", id, "products"] as const,
@@ -147,6 +149,12 @@ export const queryKeys = {
     byIds: (ids: string[]) => ["contacts", "by-ids", ids] as const,
     /** The server-paged Contacts list (optionally one company's people). */
     page: (companyId?: string) => ["contacts", "page", companyId] as const,
+    /** The client card's Notes rail (`/crm/contacts/:id/notes`). */
+    notes: (id: string) => ["contacts", id, "notes"] as const,
+    /** The client card's Files rail: the client's own files and its jobs' files, one feed. */
+    files: (id: string) => ["contacts", id, "files"] as const,
+    /** A presigned URL for one of the client's own files. */
+    fileUrl: (id: string, attachmentId: string) => ["contacts", id, "files", attachmentId, "url"] as const,
   },
 
   companies: {
