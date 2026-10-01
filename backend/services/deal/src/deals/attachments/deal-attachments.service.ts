@@ -8,6 +8,7 @@ import {
   type JwtUser,
 } from '@bitcrm/types';
 import { TimelineRepository } from '../../timeline/timeline.repository';
+import { DealsService } from '../deals.service';
 import { DealAttachmentsRepository } from './deal-attachments.repository';
 import { UploadAttachmentDto } from './dto/upload-attachment.dto';
 import { UpdateAttachmentDto } from './dto/update-attachment.dto';
@@ -16,6 +17,10 @@ import { dealAttachmentS3Key } from '../../common/constants/dynamo.constants';
 /**
  * Photos and files attached to a job. Access is gated by the `deals` permission
  * at the controller, so no role logic lives here.
+ *
+ * A job's file is the client's file too: the row and every timeline entry
+ * about it name the job's client, which is what files them in GSI10 — the
+ * client card's Files and History (`contacts/contact-index.ts`).
  */
 @Injectable()
 export class DealAttachmentsService {
@@ -25,7 +30,22 @@ export class DealAttachmentsService {
     private readonly s3: S3Service,
     private readonly repository: DealAttachmentsRepository,
     private readonly timeline: TimelineRepository,
+    private readonly deals: DealsService,
   ) {}
+
+  /**
+   * The job's client, from the row when it has one (every row written since
+   * the index) and from the cached job otherwise. Best-effort: never blocks.
+   */
+  private async contactIdOf(dealId: string, known?: string): Promise<string | undefined> {
+    if (known) return known;
+    try {
+      return (await this.deals.findById(dealId)).contactId || undefined;
+    } catch (error) {
+      this.logger.warn(`Attachment event on ${dealId} filed without its client: ${(error as Error).message}`);
+      return undefined;
+    }
+  }
 
   /**
    * A photo appearing on, being renamed on, or vanishing from a job is part of
@@ -37,11 +57,13 @@ export class DealAttachmentsService {
     eventType: TimelineEventType,
     caller: JwtUser,
     details: Record<string, unknown>,
+    contactId?: string,
   ): Promise<void> {
     try {
       await this.timeline.addEntry({
         id: randomUUID(),
         dealId,
+        contactId: await this.contactIdOf(dealId, contactId),
         eventType,
         actorId: caller.id,
         actorName: caller.email,
@@ -60,6 +82,9 @@ export class DealAttachmentsService {
     dto: UploadAttachmentDto,
     caller: JwtUser,
   ): Promise<{ id: string; uploadUrl: string; s3Key: string; headers: Record<string, string> }> {
+    // 404 for an unknown job, and the client the file is filed under.
+    const deal = await this.deals.findById(dealId);
+    const contactId = deal.contactId || undefined;
     const id = randomUUID();
     const s3Key = dealAttachmentS3Key(dealId, id);
     // The SSE-KMS headers are part of the signature — the client must replay
@@ -71,6 +96,7 @@ export class DealAttachmentsService {
 
     await this.repository.create({
       dealId,
+      ...(contactId && { contactId }),
       id,
       fileName: dto.fileName,
       contentType: dto.contentType,
@@ -81,13 +107,19 @@ export class DealAttachmentsService {
       uploadedAt: new Date().toISOString(),
     });
     this.logger.log(`Deal attachment upload requested: ${dealId}/${id} by ${caller.id}`);
-    await this.logTimeline(dealId, TimelineEventType.ATTACHMENT_ADDED, caller, {
-      attachmentId: id,
-      fileName: dto.fileName,
-      category: dto.category,
-      size: dto.size,
-      contentType: dto.contentType,
-    });
+    await this.logTimeline(
+      dealId,
+      TimelineEventType.ATTACHMENT_ADDED,
+      caller,
+      {
+        attachmentId: id,
+        fileName: dto.fileName,
+        category: dto.category,
+        size: dto.size,
+        contentType: dto.contentType,
+      },
+      contactId,
+    );
     return { id, uploadUrl, s3Key, headers };
   }
 
@@ -107,12 +139,18 @@ export class DealAttachmentsService {
     const renamed = updated.fileName !== att.fileName;
     const redescribed = (updated.description ?? '') !== (att.description ?? '');
     if (renamed || redescribed) {
-      await this.logTimeline(dealId, TimelineEventType.ATTACHMENT_RENAMED, caller, {
-        attachmentId: id,
-        fileName: updated.fileName,
-        ...(renamed ? { previousFileName: att.fileName } : {}),
-        ...(redescribed ? { description: updated.description ?? null } : {}),
-      });
+      await this.logTimeline(
+        dealId,
+        TimelineEventType.ATTACHMENT_RENAMED,
+        caller,
+        {
+          attachmentId: id,
+          fileName: updated.fileName,
+          ...(renamed ? { previousFileName: att.fileName } : {}),
+          ...(redescribed ? { description: updated.description ?? null } : {}),
+        },
+        att.contactId,
+      );
     }
     return this.toMeta(updated);
   }
@@ -150,10 +188,16 @@ export class DealAttachmentsService {
     if (!att) throw new NotFoundException('Attachment not found');
     await this.s3.deleteObject(att.s3Key);
     await this.repository.delete(dealId, id);
-    await this.logTimeline(dealId, TimelineEventType.ATTACHMENT_REMOVED, caller, {
-      attachmentId: id,
-      fileName: att.fileName,
-      category: att.category,
-    });
+    await this.logTimeline(
+      dealId,
+      TimelineEventType.ATTACHMENT_REMOVED,
+      caller,
+      {
+        attachmentId: id,
+        fileName: att.fileName,
+        category: att.category,
+      },
+      att.contactId,
+    );
   }
 }

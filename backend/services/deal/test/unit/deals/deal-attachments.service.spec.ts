@@ -36,6 +36,7 @@ describe('DealAttachmentsService', () => {
     delete: jest.Mock;
   };
   let timeline: { addEntry: jest.Mock };
+  let deals: { findById: jest.Mock };
   let service: DealAttachmentsService;
 
   beforeEach(() => {
@@ -55,7 +56,46 @@ describe('DealAttachmentsService', () => {
       delete: jest.fn().mockResolvedValue(undefined),
     };
     timeline = { addEntry: jest.fn().mockResolvedValue(undefined) };
-    service = new DealAttachmentsService(s3 as never, repo as never, timeline as never);
+    deals = { findById: jest.fn().mockResolvedValue({ id: 'd1', contactId: 'c1' }) };
+    service = new DealAttachmentsService(s3 as never, repo as never, timeline as never, deals as never);
+  });
+
+  /**
+   * A job's file is also the client's file: the row names the job's client so
+   * GSI10 (the client card's Files) can list it, and so does every timeline
+   * entry about it (the client card's History).
+   */
+  describe('the job’s client on the rows', () => {
+    it('upload stamps the deal’s contactId on the attachment row and the timeline entry', async () => {
+      const res = await service.requestUpload('d1', { fileName: 'a.jpg', contentType: 'image/jpeg' }, caller);
+      expect(deals.findById).toHaveBeenCalledWith('d1');
+      expect(repo.create).toHaveBeenCalledWith(expect.objectContaining({ id: res.id, dealId: 'd1', contactId: 'c1' }));
+      expect(timeline.addEntry).toHaveBeenCalledWith(expect.objectContaining({ dealId: 'd1', contactId: 'c1' }));
+    });
+
+    it('upload on an unknown job is a 404, not an orphan row', async () => {
+      deals.findById.mockRejectedValue(new NotFoundException('Deal nope not found'));
+      await expect(
+        service.requestUpload('nope', { fileName: 'a.jpg', contentType: 'image/jpeg' }, caller),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(repo.create).not.toHaveBeenCalled();
+      expect(s3.getPresignedUpload).not.toHaveBeenCalled();
+    });
+
+    it('rename and delete file their entries under the client the row names, without re-reading the job', async () => {
+      repo.get.mockResolvedValue({ ...storedAttachment, contactId: 'c1' });
+      repo.update.mockResolvedValue({ ...storedAttachment, contactId: 'c1', fileName: 'x.jpg' });
+      await service.update('d1', 'att-1', { fileName: 'x.jpg' }, caller);
+      await service.delete('d1', 'att-1', caller);
+      expect(timeline.addEntry.mock.calls.map((c) => c[0].contactId)).toEqual(['c1', 'c1']);
+      expect(deals.findById).not.toHaveBeenCalled();
+    });
+
+    it('a row written before the index (no contactId) falls back to the job for its client', async () => {
+      await service.delete('d1', 'att-1', caller);
+      expect(deals.findById).toHaveBeenCalledWith('d1');
+      expect(timeline.addEntry).toHaveBeenCalledWith(expect.objectContaining({ contactId: 'c1' }));
+    });
   });
 
   describe('update', () => {

@@ -533,7 +533,7 @@ export class DealsService {
     await this.repository.create(deal);
     this.businessMetrics?.entityCreated.inc({ entity_type: 'deal' });
 
-    await this.addTimelineEntry(deal.id, TimelineEventType.CREATED, caller, {});
+    await this.addTimelineEntry(deal.id, TimelineEventType.CREATED, caller, {}, undefined, deal.contactId);
     // Nothing is cached yet; this is for the live boards (see invalidate).
     await this.cache.invalidate(deal.id);
 
@@ -1414,12 +1414,13 @@ export class DealsService {
     details: Record<string, unknown>,
     actor: { id: string; name: string },
   ): Promise<void> {
-    await this.findById(dealId);
+    const deal = await this.findById(dealId);
     // Written directly: addTimelineEntry stamps `caller.email` as the label,
     // and this actor arrives with a display name instead of a JWT.
     await this.timelineRepo.addEntry({
       id: randomUUID(),
       dealId,
+      contactId: deal.contactId || undefined,
       eventType: linked
         ? TimelineEventType.CALL_LINKED
         : TimelineEventType.CALL_UNLINKED,
@@ -2367,6 +2368,8 @@ export class DealsService {
         await this.timelineRepo.addEntry({
           id: randomUUID(),
           dealId: deal.id,
+          // Filed under the client the job belongs to from now on.
+          contactId: newContactId,
           eventType: TimelineEventType.FIELD_UPDATED,
           actorId: 'system',
           actorName: 'CRM Service',
@@ -2397,7 +2400,7 @@ export class DealsService {
    *  - nothing else on the job is touched.
    */
   async updatePaymentStatus(id: string, dto: UpdatePaymentStatusDto): Promise<void> {
-    await this.repository.update(id, {
+    const updated = await this.repository.update(id, {
       paymentStatus: dto.paymentStatus,
       amountPaid: dto.amountPaid,
       ...(typeof dto.invoiceTotal === 'number' && { actualTotal: dto.invoiceTotal }),
@@ -2407,6 +2410,7 @@ export class DealsService {
     await this.timelineRepo.addEntry({
       id: randomUUID(),
       dealId: id,
+      contactId: updated?.contactId || undefined,
       eventType: TimelineEventType.FIELD_UPDATED,
       actorId: 'system',
       actorName: 'Billing',
@@ -2447,16 +2451,34 @@ export class DealsService {
     return false;
   }
 
+  /**
+   * The job's client, for filing an event under it (GSI10, the client card's
+   * History). Callers that hold the deal pass it; the rest go through the
+   * cached read — and a failed read costs the entry its contact key, never
+   * the entry itself.
+   */
+  private async contactIdOf(dealId: string, known?: string): Promise<string | undefined> {
+    if (known !== undefined) return known || undefined;
+    try {
+      return (await this.findById(dealId)).contactId || undefined;
+    } catch (error) {
+      this.logger.warn(`Timeline entry on ${dealId} filed without its client: ${(error as Error).message}`);
+      return undefined;
+    }
+  }
+
   private async addTimelineEntry(
     dealId: string,
     eventType: TimelineEventType,
     caller: JwtUser,
     details: Record<string, unknown>,
     note?: string,
+    contactId?: string,
   ): Promise<void> {
     const entry: TimelineEntry = {
       id: randomUUID(),
       dealId,
+      contactId: await this.contactIdOf(dealId, contactId),
       eventType,
       actorId: caller.id,
       actorName: caller.email,
