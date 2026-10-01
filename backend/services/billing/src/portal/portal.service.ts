@@ -235,8 +235,9 @@ export class PortalService {
         const methods = this.paymentSettings.methodsFor(settings, invoice.allowedMethods, stripeReady);
         out.set(invoice.id, {
           // Every Pay button in the portal is gated on this: Stripe configured,
-          // the document actually sent, a method allowed, and something owed.
-          payable: methods.length > 0 && balanceDue > 0 && !!invoice.sentAt,
+          // the document actually sent, a method allowed, something owed — and
+          // a job, since the ledger cannot take a payment on a client invoice yet.
+          payable: methods.length > 0 && balanceDue > 0 && !!invoice.sentAt && !!invoice.dealId,
           amountPending: summary.pending,
           balanceDue,
         });

@@ -126,6 +126,39 @@ describe('PaymentsService — offline payments', () => {
   });
 });
 
+describe('PaymentsService — client invoices (no job)', () => {
+  const clientInvoice = () => invoice({ id: 'inv-c1', number: '1001', dealId: undefined });
+
+  it('reads an (empty) ledger for a client invoice', async () => {
+    const ledger = fakeLedger();
+    const invoices = fakeInvoices(clientInvoice(), ledger);
+    const service = new PaymentsService(ledger as any, invoices as any, new PaymentSettingsService(ledger as any), mockDealClient() as any);
+    await expect(service.listForInvoice('inv-c1', caller())).resolves.toEqual({
+      payments: [],
+      summary: expect.objectContaining({ settled: 0, paymentCount: 0 }),
+    });
+  });
+
+  it('is office-only: a technician scoped to their jobs gets 403', async () => {
+    const ledger = fakeLedger();
+    const invoices = fakeInvoices(clientInvoice(), ledger);
+    const service = new PaymentsService(ledger as any, invoices as any, new PaymentSettingsService(ledger as any), mockDealClient() as any);
+    await expect(service.listForInvoice('inv-c1', caller(DataScope.ASSIGNED_ONLY, { id: 'tech-1' }))).rejects.toThrow(
+      ForbiddenException,
+    );
+  });
+
+  it('refuses to record a payment on it (409) until the ledger learns about invoices without a job', async () => {
+    const ledger = fakeLedger();
+    const invoices = fakeInvoices(clientInvoice(), ledger);
+    const deal = mockDealClient();
+    const service = new PaymentsService(ledger as any, invoices as any, new PaymentSettingsService(ledger as any), deal as any);
+    await expect(service.recordOffline('inv-c1', { amount: 10, method: 'cash' }, caller())).rejects.toThrow(ConflictException);
+    expect(ledger.payments.size).toBe(0);
+    expect(deal.getBillingView).not.toHaveBeenCalled();
+  });
+});
+
 describe('PaymentsService — deleting a payment', () => {
   it('removes a mis-keyed offline payment and re-derives the invoice', async () => {
     const ledger = fakeLedger([payment({ id: 'p-off', amount: 40, method: 'cash', source: 'office' })]);

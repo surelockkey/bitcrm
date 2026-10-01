@@ -5,6 +5,8 @@ import {
   type Deal,
   type DealProduct,
   type DocumentTotals,
+  type Invoice,
+  type InvoiceItem,
   type InvoiceStatus,
 } from '@bitcrm/types';
 import { addDays, dateIn, isYmd } from '../common/dates';
@@ -125,6 +127,25 @@ export function computeInvoiceTotals(
   if (deal.paymentStatus !== 'paid') return unpaid;
   const paid = typeof deal.actualTotal === 'number' ? deal.actualTotal : unpaid.total;
   return calculateDocumentTotals({ ...base, amountPaid: paid });
+}
+
+/**
+ * A CLIENT invoice's totals: its own rows, its own tax percent (none when the
+ * client is exempt) and discount. `amountPaid` is the ledger's answer; with
+ * no ledger row nothing has been paid — there is no job whose payment flag
+ * could say otherwise.
+ */
+export function computeClientInvoiceTotals(
+  invoice: Pick<Invoice, 'taxRatePercent' | 'taxSource' | 'discount'>,
+  items: Pick<InvoiceItem, 'quantity' | 'priceClient' | 'taxable'>[],
+  opts: { amountPaid: number },
+): DocumentTotals {
+  return calculateDocumentTotals({
+    lines: items.map((i) => ({ quantity: i.quantity, priceClient: i.priceClient, taxable: i.taxable })),
+    taxRatePercent: invoice.taxSource === 'exempt' ? 0 : invoice.taxRatePercent ?? 0,
+    discount: invoice.discount ?? undefined,
+    amountPaid: opts.amountPaid,
+  });
 }
 
 export function deriveInvoiceStatus(input: {

@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -9,6 +10,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
@@ -17,6 +19,7 @@ import type { Caller } from '../common/access';
 import { CallerCtx } from '../common/caller.decorator';
 import { Internal } from '../common/decorators/internal.decorator';
 import { MarkSentDto } from '../common/dto/sent.dto';
+import { EstimateItemDto, ItemTaxableDto, ReorderItemsDto } from '../estimates/dto/estimate-item.dto';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
 import { ListInvoicesQueryDto } from './dto/list-invoices-query.dto';
 import { UpdateInvoiceDto } from './dto/update-invoice.dto';
@@ -33,12 +36,18 @@ export class InvoicesController {
   @Post()
   @RequirePermission('invoices', 'create')
   @ApiOperation({
-    summary: "Create the job's invoice",
+    summary: "Create the job's invoice, or a client's invoice with no job",
     description:
-      '**Guard:** `invoices.create`. One per job: id and number are the job’s. 422 when the job has no items, 409 when it already has an invoice.',
+      '**Guard:** `invoices.create`. With `dealId`: one per job, id and number are the job’s; 422 when the job ' +
+      'has no items, 409 when it already has an invoice. With only `contactId` (Workiz: the client card’s ' +
+      'Create new → Invoice): a client invoice with no job — fresh id, number from the account counter, due ' +
+      'date from the client’s payment terms, no lines yet (add them with `POST :id/items`); office-only ' +
+      '(403 under `assigned_only`). One of the two is required.',
   })
   async create(@Body() dto: CreateInvoiceDto, @CallerCtx() caller: Caller) {
-    return { success: true, data: await this.invoices.create(dto.dealId, caller) };
+    if (dto.dealId) return { success: true, data: await this.invoices.create(dto.dealId, caller) };
+    if (dto.contactId) return { success: true, data: await this.invoices.createForClient(dto.contactId, caller) };
+    throw new BadRequestException('An invoice needs a job (dealId) or a client (contactId)');
   }
 
   @Get()
@@ -106,16 +115,70 @@ export class InvoicesController {
 
   @Get(':id')
   @RequirePermission('invoices', 'view')
-  @ApiOperation({ summary: 'Get invoice', description: "**Guard:** `invoices.view`. Items/tax are the job's, live." })
+  @ApiOperation({
+    summary: 'Get invoice',
+    description: "**Guard:** `invoices.view`. A job invoice's items/tax are the job's, live; a client invoice's are its own rows.",
+  })
   async get(@Param('id') id: string, @CallerCtx() caller: Caller) {
     return { success: true, data: await this.invoices.get(id, caller) };
   }
 
   @Patch(':id')
   @RequirePermission('invoices', 'edit')
-  @ApiOperation({ summary: 'Update invoice fields', description: '**Guard:** `invoices.edit`.' })
+  @ApiOperation({
+    summary: 'Update invoice fields',
+    description:
+      '**Guard:** `invoices.edit`. `taxRateId` / `discount` apply to a client invoice only (422 on a job invoice, whose tax and discount are the job’s).',
+  })
   async update(@Param('id') id: string, @Body() dto: UpdateInvoiceDto, @CallerCtx() caller: Caller) {
     return { success: true, data: await this.invoices.update(id, dto, caller) };
+  }
+
+  // ---- lines of a CLIENT invoice (a job invoice's lines are the job's items: 422)
+
+  @Post(':id/items')
+  @RequirePermission('invoices', 'edit')
+  @ApiOperation({ summary: 'Add a line (client invoice)', description: '**Guard:** `invoices.edit`. 422 on a job invoice.' })
+  async addItem(@Param('id') id: string, @Body() dto: EstimateItemDto, @CallerCtx() caller: Caller) {
+    return { success: true, data: await this.invoices.addItem(id, dto, caller) };
+  }
+
+  @Put(':id/items-order')
+  @RequirePermission('invoices', 'edit')
+  @ApiOperation({ summary: 'Reorder lines (client invoice)', description: '**Guard:** `invoices.edit`. 422 on a job invoice.' })
+  async reorder(@Param('id') id: string, @Body() dto: ReorderItemsDto, @CallerCtx() caller: Caller) {
+    return { success: true, data: await this.invoices.reorderItems(id, dto.lineIds, caller) };
+  }
+
+  @Put(':id/items/:lineId')
+  @RequirePermission('invoices', 'edit')
+  @ApiOperation({ summary: 'Replace a line (client invoice)', description: '**Guard:** `invoices.edit`. 422 on a job invoice.' })
+  async updateItem(
+    @Param('id') id: string,
+    @Param('lineId') lineId: string,
+    @Body() dto: EstimateItemDto,
+    @CallerCtx() caller: Caller,
+  ) {
+    return { success: true, data: await this.invoices.updateItem(id, lineId, dto, caller) };
+  }
+
+  @Patch(':id/items/:lineId/taxable')
+  @RequirePermission('invoices', 'edit')
+  @ApiOperation({ summary: 'Toggle a line’s taxable flag (client invoice)', description: '**Guard:** `invoices.edit`. 422 on a job invoice.' })
+  async setTaxable(
+    @Param('id') id: string,
+    @Param('lineId') lineId: string,
+    @Body() dto: ItemTaxableDto,
+    @CallerCtx() caller: Caller,
+  ) {
+    return { success: true, data: await this.invoices.setItemTaxable(id, lineId, dto.taxable, caller) };
+  }
+
+  @Delete(':id/items/:lineId')
+  @RequirePermission('invoices', 'edit')
+  @ApiOperation({ summary: 'Remove a line (client invoice)', description: '**Guard:** `invoices.edit`. 422 on a job invoice.' })
+  async removeItem(@Param('id') id: string, @Param('lineId') lineId: string, @CallerCtx() caller: Caller) {
+    return { success: true, data: await this.invoices.removeItem(id, lineId, caller) };
   }
 
   @Post(':id/mark-sent')

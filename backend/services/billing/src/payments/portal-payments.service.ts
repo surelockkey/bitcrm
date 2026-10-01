@@ -93,6 +93,10 @@ export class PortalPaymentsService {
    */
   async pay(token: string, invoiceId: string, input: PortalPayInput): Promise<PortalPaymentSession> {
     const invoice = await this.portal.sentInvoiceFor(token, invoiceId);
+    if (!invoice.dealId) {
+      // The ledger is keyed by the job; a client invoice (no job) is not payable online yet.
+      throw new ConflictException('This invoice cannot be paid online yet — please contact the office');
+    }
     const settings = await this.settings.get();
 
     if (!this.stripe?.onlineReady) {

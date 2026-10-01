@@ -1,9 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import {
+  BatchWriteCommand,
   DeleteCommand,
   GetCommand,
   PutCommand,
   QueryCommand,
+  TransactWriteCommand,
   UpdateCommand,
   type QueryCommandInput,
 } from '@aws-sdk/lib-dynamodb';
@@ -12,20 +14,25 @@ import {
   countRows,
   type CountRowsResult,
 } from '@bitcrm/shared';
-import type { Invoice, InvoiceStatus } from '@bitcrm/types';
+import type { Invoice, InvoiceItem, InvoiceStatus } from '@bitcrm/types';
 import {
+  ACCOUNT_COUNTERS_PK,
   BILLING_GSI1_NAME,
   BILLING_GSI2_NAME,
   BILLING_TABLE,
+  COUNTERS_SK,
   INVOICES_GSI1PK,
+  ITEM_SK_PREFIX,
   METADATA_SK,
   contactGsi2Pk,
   contactGsi2Sk,
+  estimateItemSk,
   invoicePk,
   listSk,
   stripKeys,
   unpaidIndexKeys,
 } from '../common/constants/dynamo.constants';
+import { sortItems } from '../estimates/estimate-rules';
 import { decodeCursor, encodeCursor } from '../common/cursor';
 import { isConditionalCheckFailed } from '../common/dynamo-errors';
 import { buildUpdate } from '../common/update-expression';
@@ -53,13 +60,17 @@ export interface InvoiceListFilter {
 }
 
 /**
- * Invoices — one per job, id === dealId.
+ * Invoices — a job's (one per job, id === dealId) or a client's (no job, id a uuid).
  *
- *   PK = INVOICE#<dealId>, SK = METADATA
+ *   PK = INVOICE#<id>, SK = METADATA
  *   GSI1 (ListIndex):    GSI1PK = INVOICES,            GSI1SK = <createdAt>#<id>
  *   GSI2 (ContactIndex): GSI2PK = CONTACT#<contactId>, GSI2SK = INVOICE#<createdAt>#<id>
  *   GSI4 (UnpaidIndex):  GSI4PK = UNPAID,             GSI4SK = <id>   only while `due`/`overdue`
  *                                                                          and more than $0.01 owed
+ *   PK = INVOICE#<id>, SK = ITEM#<lineId>     a CLIENT invoice's own lines, ordered by `position`
+ *                                             (a job invoice has none: its lines are the job's).
+ *                                             The ledger's PAYMENT#… rows share the partition.
+ *   PK = COUNTERS#ACCOUNT, SK = COUNTERS       `documentSeq` — client documents' numbers
  *
  * The UnpaidIndex keys follow `status` on every write that carries one
  * (create, and any update whose `set` names `status`), so no caller keeps
@@ -162,10 +173,107 @@ export class InvoicesRepository {
     }
   }
 
+  /** Removes the invoice and (a client invoice's) line rows. The ledger's PAYMENT# rows stay. */
   async delete(id: string): Promise<void> {
-    await this.db.client.send(
-      new DeleteCommand({ TableName: BILLING_TABLE, Key: { PK: invoicePk(id), SK: METADATA_SK } }),
+    const items = await this.getItems(id);
+    const keys = [
+      { PK: invoicePk(id), SK: METADATA_SK },
+      ...items.map((i) => ({ PK: invoicePk(id), SK: estimateItemSk(i.lineId) })),
+    ];
+    if (keys.length === 1) {
+      await this.db.client.send(new DeleteCommand({ TableName: BILLING_TABLE, Key: keys[0] }));
+      return;
+    }
+    for (let i = 0; i < keys.length; i += 25) {
+      await this.batchWriteWithRetry(keys.slice(i, i + 25).map((Key) => ({ DeleteRequest: { Key } })));
+    }
+  }
+
+  // ------------------------------------------------- client invoices' lines
+
+  /**
+   * Atomic account-wide counter for a CLIENT invoice's number (no job to take
+   * one from); the same counter client estimates use.
+   */
+  async nextAccountSeq(): Promise<number> {
+    const res = await this.db.client.send(
+      new UpdateCommand({
+        TableName: BILLING_TABLE,
+        Key: { PK: ACCOUNT_COUNTERS_PK, SK: COUNTERS_SK },
+        UpdateExpression: 'ADD documentSeq :one',
+        ExpressionAttributeValues: { ':one': 1 },
+        ReturnValues: 'UPDATED_NEW',
+      }),
     );
+    return Number(res.Attributes?.documentSeq ?? 1);
+  }
+
+  /** The invoice's own ITEM# rows, in `position` order (none for a job invoice). */
+  async getItems(id: string): Promise<InvoiceItem[]> {
+    const out: InvoiceItem[] = [];
+    let ExclusiveStartKey: Record<string, unknown> | undefined;
+    do {
+      const res = await this.db.client.send(
+        new QueryCommand({
+          TableName: BILLING_TABLE,
+          KeyConditionExpression: 'PK = :pk AND begins_with(SK, :sk)',
+          ExpressionAttributeValues: { ':pk': invoicePk(id), ':sk': ITEM_SK_PREFIX },
+          ExclusiveStartKey,
+        }),
+      );
+      for (const r of res.Items ?? []) out.push(stripKeys<InvoiceItem>(r)!);
+      ExclusiveStartKey = res.LastEvaluatedKey;
+    } while (ExclusiveStartKey);
+    return sortItems(out);
+  }
+
+  async putItem(item: InvoiceItem): Promise<void> {
+    await this.db.client.send(
+      new PutCommand({
+        TableName: BILLING_TABLE,
+        Item: { PK: invoicePk(item.invoiceId), SK: estimateItemSk(item.lineId), entityType: 'invoice_item', ...item },
+      }),
+    );
+  }
+
+  async deleteItem(invoiceId: string, lineId: string): Promise<void> {
+    await this.db.client.send(
+      new DeleteCommand({ TableName: BILLING_TABLE, Key: { PK: invoicePk(invoiceId), SK: estimateItemSk(lineId) } }),
+    );
+  }
+
+  async setPositions(
+    invoiceId: string,
+    positions: Array<{ lineId: string; position: number }>,
+    now: string,
+  ): Promise<void> {
+    for (let i = 0; i < positions.length; i += 100) {
+      await this.db.client.send(
+        new TransactWriteCommand({
+          TransactItems: positions.slice(i, i + 100).map((p) => ({
+            Update: {
+              TableName: BILLING_TABLE,
+              Key: { PK: invoicePk(invoiceId), SK: estimateItemSk(p.lineId) },
+              UpdateExpression: 'SET #pos = :pos, updatedAt = :now',
+              ConditionExpression: 'attribute_exists(PK)',
+              ExpressionAttributeNames: { '#pos': 'position' },
+              ExpressionAttributeValues: { ':pos': p.position, ':now': now },
+            },
+          })),
+        }),
+      );
+    }
+  }
+
+  private async batchWriteWithRetry(requests: Record<string, unknown>[]): Promise<void> {
+    let pending = requests;
+    for (let attempt = 0; attempt < 5 && pending.length; attempt++) {
+      const res = await this.db.client.send(
+        new BatchWriteCommand({ RequestItems: { [BILLING_TABLE]: pending as never } }),
+      );
+      pending = (res.UnprocessedItems?.[BILLING_TABLE] as Record<string, unknown>[] | undefined) ?? [];
+      if (pending.length) await new Promise((r) => setTimeout(r, 50 * 2 ** attempt));
+    }
   }
 
   /**

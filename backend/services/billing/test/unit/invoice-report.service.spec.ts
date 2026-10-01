@@ -100,7 +100,7 @@ describe('InvoiceReportService', () => {
 
     it('keeps a technician to their own jobs', async () => {
       const rows = open();
-      const { service } = make(rows, { mine: [rows[1].dealId] });
+      const { service } = make(rows, { mine: [rows[1].dealId!] });
       const r = await service.aging({}, caller(DataScope.ASSIGNED_ONLY, { id: 'tech-1' }));
       expect(r.cards.all).toEqual({ count: 1, amount: 20 });
     });

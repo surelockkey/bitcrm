@@ -4,7 +4,7 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { BillingEventType, TimelineEventType, type Invoice } from '@bitcrm/types';
+import { BillingEventType, TimelineEventType, type Invoice, type InvoiceItem } from '@bitcrm/types';
 import { InvoicesService } from 'src/invoices/invoices.service';
 import { InvoiceExistsError, InvoiceVersionConflictError } from 'src/invoices/invoices.repository';
 import {
@@ -24,13 +24,29 @@ import {
 
 function mockRepo() {
   const store = new Map<string, Invoice>();
+  const items = new Map<string, Map<string, InvoiceItem>>();
+  let accountSeq = 0;
+  const itemsOf = (id: string) => {
+    if (!items.has(id)) items.set(id, new Map());
+    return items.get(id)!;
+  };
   return {
     store,
+    items,
+    nextAccountSeq: jest.fn(async () => ++accountSeq),
     create: jest.fn(async (inv: Invoice) => {
       if (store.has(inv.id)) throw new InvoiceExistsError();
       store.set(inv.id, inv);
     }),
     get: jest.fn(async (id: string) => store.get(id) ?? null),
+    getItems: jest.fn(async (id: string) =>
+      [...itemsOf(id).values()].sort((a, b) => a.position - b.position || a.createdAt.localeCompare(b.createdAt)),
+    ),
+    putItem: jest.fn(async (i: InvoiceItem) => void itemsOf(i.invoiceId).set(i.lineId, i)),
+    deleteItem: jest.fn(async (id: string, lineId: string) => void itemsOf(id).delete(lineId)),
+    setPositions: jest.fn(async (id: string, positions: Array<{ lineId: string; position: number }>) => {
+      for (const p of positions) itemsOf(id).get(p.lineId)!.position = p.position;
+    }),
     update: jest.fn(
       async (
         id: string,
@@ -51,11 +67,27 @@ function mockRepo() {
         return cur as unknown as Invoice;
       },
     ),
-    delete: jest.fn(async (id: string) => void store.delete(id)),
-    list: jest.fn(async () => ({ items: [...store.values()] })),
+    delete: jest.fn(async (id: string) => {
+      store.delete(id);
+      items.delete(id);
+    }),
+    list: jest.fn(async (filter?: { contactId?: string }) => ({
+      items: [...store.values()].filter((i) => !filter?.contactId || i.contactId === filter.contactId),
+    })),
     listAll: jest.fn(async () => [...store.values()]),
   };
 }
+
+const itemDto = (over: Record<string, unknown> = {}) => ({
+  productId: 'p-9',
+  name: 'Smart lock',
+  sku: 'SL-9',
+  quantity: 1,
+  priceClient: 200,
+  costCompany: 120,
+  costForTech: 20,
+  ...over,
+});
 
 describe('InvoicesService', () => {
   let repo: ReturnType<typeof mockRepo>;
@@ -63,16 +95,19 @@ describe('InvoicesService', () => {
   let crm: ReturnType<typeof mockCrmClient>;
   let profiles: ReturnType<typeof mockProfileService>;
   let events: ReturnType<typeof mockEvents>;
+  let documents: ReturnType<typeof mockDocuments>;
   let service: InvoicesService;
 
-  const build = () =>
+  const build = (ledger?: { listByInvoice: jest.Mock }) =>
     new InvoicesService(
       repo as never,
       deal as never,
       crm as never,
       profiles as never,
-      mockDocuments() as never,
+      documents as never,
       events as never,
+      undefined,
+      ledger as never,
     );
 
   beforeEach(() => {
@@ -82,6 +117,7 @@ describe('InvoicesService', () => {
     crm = mockCrmClient();
     profiles = mockProfileService();
     events = mockEvents();
+    documents = mockDocuments();
     service = build();
   });
   afterEach(() => jest.useRealTimers());
@@ -349,6 +385,181 @@ describe('InvoicesService', () => {
       const res = await service.list({ limit: 20 }, caller(DataScope.ASSIGNED_ONLY, { id: 'tech-1' }));
       expect(res.items.map((i) => i.id)).toEqual(['deal-2']);
       expect(deal.listDealIdsByTech).toHaveBeenCalledWith('tech-1');
+    });
+  });
+
+  /**
+   * Workiz: a client's card has Create new → Invoice, which makes an invoice
+   * for the client with no job. It owns its own lines and tax/discount (a job
+   * invoice reads the job's), is numbered from the account counter, takes its
+   * due date from the CLIENT's payment terms and, having no job, is office-only.
+   */
+  describe('client invoices (no job)', () => {
+    const noJob = () => service.createForClient('contact-1', caller());
+
+    it('creates for the client: fresh id, stub number, client terms, no job, no items', async () => {
+      crm.getContact.mockResolvedValueOnce({
+        id: 'contact-1',
+        firstName: 'Jane',
+        lastName: 'Client',
+        companyId: 'co-9',
+        paymentTerms: PaymentTerms.NET_30,
+        taxExempt: true,
+        addresses: [],
+      });
+      const inv = await noJob();
+      expect(inv.id).not.toBe('deal-1');
+      expect(inv.id).not.toBe('contact-1');
+      expect(inv.id).toMatch(/^[0-9a-f-]{36}$/);
+      expect(inv.dealId).toBeUndefined();
+      expect(repo.nextAccountSeq).toHaveBeenCalledTimes(1);
+      expect(inv).toMatchObject({
+        number: '1001',
+        contactId: 'contact-1',
+        companyId: 'co-9',
+        invoiceDate: '2026-09-16',
+        paymentTerms: PaymentTerms.NET_30,
+        dueDate: '2026-10-16',
+        taxSource: 'exempt',
+        taxRatePercent: 0,
+        status: 'no_amount',
+        version: 1,
+      });
+      expect(inv.items).toEqual([]);
+      expect(inv.totals.total).toBe(0);
+      // No job: nothing read from or written to deal-service.
+      expect(deal.getBillingView).not.toHaveBeenCalled();
+      expect(deal.setInvoiceLink).not.toHaveBeenCalled();
+      expect(deal.addTimeline).not.toHaveBeenCalled();
+      expect(events.invoice).toHaveBeenCalledWith(BillingEventType.INVOICE_CREATED, expect.objectContaining({ number: '1001' }));
+    });
+
+    it('falls back to the company terms, then the default profile, when the client has none', async () => {
+      crm.getCompany.mockResolvedValueOnce({ id: 'co-1', title: 'Acme', paymentTerms: PaymentTerms.NET_15 });
+      crm.getContact.mockResolvedValueOnce({ id: 'contact-1', firstName: 'J', lastName: 'C', companyId: 'co-1', addresses: [] });
+      expect(await noJob()).toMatchObject({ paymentTerms: PaymentTerms.NET_15, dueDate: '2026-10-01' });
+      expect(await noJob()).toMatchObject({ paymentTerms: PaymentTerms.CASH, dueDate: '2026-09-16' });
+    });
+
+    it('404s for an unknown client and is office-only to create', async () => {
+      crm.getContact.mockResolvedValueOnce(null);
+      await expect(noJob()).rejects.toBeInstanceOf(NotFoundException);
+      await expect(
+        service.createForClient('contact-1', caller(DataScope.ASSIGNED_ONLY, { id: 'tech-1' })),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('owns its lines: add, edit, toggle taxable, reorder, remove — totals and status follow', async () => {
+      const inv = await noJob();
+      let v = await service.addItem(inv.id, itemDto({ priceClient: 100 }), caller());
+      expect(v.items).toHaveLength(1);
+      expect(v.items[0]).toMatchObject({ productId: 'p-9', position: 0, amount: 100, taxable: true });
+      expect(v.totals.total).toBe(100);
+      expect(v.status).toBe('due');
+      expect(repo.store.get(inv.id)!.totals.total).toBe(100);
+
+      v = await service.addItem(inv.id, itemDto({ productId: 'p-10', priceClient: 50, taxable: false }), caller());
+      expect(v.items.map((i) => i.position)).toEqual([0, 1]);
+      expect(v.totals.subtotal).toBe(150);
+
+      const [a, b] = v.items;
+      v = await service.updateItem(inv.id, a!.lineId, itemDto({ quantity: 2, priceClient: 100 }), caller());
+      expect(v.totals.subtotal).toBe(250);
+      v = await service.setItemTaxable(inv.id, b!.lineId, true, caller());
+      expect(v.items.find((i) => i.lineId === b!.lineId)!.taxable).toBe(true);
+      v = await service.reorderItems(inv.id, [b!.lineId, a!.lineId], caller());
+      expect(v.items.map((i) => i.lineId)).toEqual([b!.lineId, a!.lineId]);
+      v = await service.removeItem(inv.id, a!.lineId, caller());
+      expect(v.items.map((i) => i.lineId)).toEqual([b!.lineId]);
+      expect(v.totals.subtotal).toBe(50);
+      await expect(service.removeItem(inv.id, 'nope', caller())).rejects.toBeInstanceOf(NotFoundException);
+      expect(deal.getBillingView).not.toHaveBeenCalled();
+    });
+
+    it("refuses line edits on a job invoice — its items are the job's", async () => {
+      await service.create('deal-1', caller());
+      await expect(service.addItem('deal-1', itemDto(), caller())).rejects.toBeInstanceOf(UnprocessableEntityException);
+      await expect(service.update('deal-1', { taxRateId: 'tax-1' }, caller())).rejects.toBeInstanceOf(UnprocessableEntityException);
+      await expect(service.update('deal-1', { discount: { type: 'percent', value: 5 } }, caller())).rejects.toBeInstanceOf(
+        UnprocessableEntityException,
+      );
+    });
+
+    it('sets its own tax rate and discount', async () => {
+      deal.listTaxRates.mockResolvedValue([{ id: 'tax-1', name: 'CT Sales', ratePercent: 6.35, active: true }]);
+      const inv = await noJob();
+      await service.addItem(inv.id, itemDto({ priceClient: 100 }), caller());
+      let v = await service.update(inv.id, { taxRateId: 'tax-1' }, caller());
+      expect(v).toMatchObject({ taxRateId: 'tax-1', taxRateName: 'CT Sales', taxRatePercent: 6.35, taxSource: 'manual' });
+      expect(v.totals.tax).toBe(6.35);
+      v = await service.update(inv.id, { discount: { type: 'amount', value: 10 } }, caller());
+      expect(v.totals).toMatchObject({ discount: 10, total: 95.72 });
+      v = await service.update(inv.id, { taxRateId: null, discount: null }, caller());
+      expect(v.taxRateId).toBeUndefined();
+      expect(v.discount).toBeUndefined();
+      expect(v.totals.total).toBe(100);
+      await expect(service.update(inv.id, { taxRateId: 'nope' }, caller())).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('is office-only to read: a technician scoped to their jobs cannot see or list it', async () => {
+      const inv = await noJob();
+      await service.create('deal-1', caller());
+      const tech = caller(DataScope.ASSIGNED_ONLY, { id: 'tech-1' });
+      deal.listDealIdsByTech.mockResolvedValue(new Set(['deal-1']));
+      await expect(service.get(inv.id, tech)).rejects.toBeInstanceOf(ForbiddenException);
+      const page = await service.list({ limit: 20 }, tech);
+      expect(page.items.map((i) => i.number)).toEqual(['K4T9ZW']);
+    });
+
+    it('derives totals and status from its own lines and the payment ledger', async () => {
+      const ledger = { listByInvoice: jest.fn(async () => [] as unknown[]) };
+      service = build(ledger);
+      const inv = await noJob();
+      await service.addItem(inv.id, itemDto({ priceClient: 100 }), caller());
+      ledger.listByInvoice.mockResolvedValue([{ status: 'settled', amount: 40, refundedAmount: 0 }]);
+      const partly = await service.get(inv.id, caller());
+      expect(partly.totals).toMatchObject({ total: 100, amountPaid: 40, balanceDue: 60 });
+      expect(partly.status).toBe('due');
+      const paid = await service.applyAmountPaid(inv.id, 100);
+      expect(paid).toMatchObject({ status: 'paid', totals: expect.objectContaining({ balanceDue: 0 }) });
+      expect(deal.getBillingView).not.toHaveBeenCalled();
+    });
+
+    it('header edits, mark-sent and delete work without a job', async () => {
+      const inv = await noJob();
+      const terms = await service.update(inv.id, { paymentTerms: PaymentTerms.NET_15 }, caller());
+      expect(terms.dueDate).toBe('2026-10-01');
+      const dated = await service.update(inv.id, { invoiceDate: '2026-09-20' }, caller());
+      expect(dated.dueDate).toBe('2026-10-05');
+      const sent = await service.markSent(inv.id, true, caller());
+      expect(sent.sentAt).toBe(NOW);
+      await service.delete(inv.id, caller());
+      expect(repo.store.has(inv.id)).toBe(false);
+      expect(deal.setInvoiceLink).not.toHaveBeenCalled();
+      expect(deal.addTimeline).not.toHaveBeenCalled();
+      expect(deal.getBillingView).not.toHaveBeenCalled();
+    });
+
+    it('renders the PDF / HTML / portal views from the client alone, with no job view', async () => {
+      const inv = await noJob();
+      await service.pdf(inv.id, false, caller());
+      await service.html(inv.id, caller());
+      await service.portalHtml(inv.id);
+      await service.portalPdf(inv.id);
+      expect(deal.getBillingView).not.toHaveBeenCalled();
+      const sources = [...documents.pdf.mock.calls, ...documents.html.mock.calls].map((c) => (c as unknown[])[0]);
+      expect(sources).toHaveLength(4);
+      for (const source of sources) {
+        expect(source).toMatchObject({ kind: 'invoice', doc: expect.objectContaining({ id: inv.id, number: '1001' }) });
+        expect((source as { view?: unknown }).view).toBeUndefined();
+      }
+    });
+
+    it("lists a client's invoices with and without a job together", async () => {
+      await noJob();
+      await service.create('deal-1', caller());
+      const all = await service.listForContact('contact-1');
+      expect(all.map((x) => x.number).sort()).toEqual(['1001', 'K4T9ZW']);
     });
   });
 });

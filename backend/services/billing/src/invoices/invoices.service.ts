@@ -2,6 +2,7 @@ import { RedisService, cachedCount, countCacheKey } from '@bitcrm/shared';
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Inject,
   Injectable,
   Logger,
@@ -9,30 +10,38 @@ import {
   Optional,
   UnprocessableEntityException,
 } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import {
   BillingEventType,
   PaymentTerms,
   TimelineEventType,
+  effectiveTaxRatePercent,
   lineAmount,
   type BillingLine,
+  type DocumentDiscount,
   type DocumentTotals,
   type Invoice,
+  type InvoiceItem,
   type InvoiceStatus,
   type InvoiceView,
   type ListCount,
   type OnlinePaymentMethod,
   type Payment,
   type PaymentSummary,
+  type ProductType,
 } from '@bitcrm/types';
 import { assertDealAccess, isAssignedOnly, type Caller } from '../common/access';
 import { isYmd, resolveTimezone, todayIn } from '../common/dates';
+import { standaloneDocumentNumber } from '../common/document-number';
 import { BusinessProfileService } from '../business-profile/business-profile.service';
 import { DocumentsService } from '../documents/documents.service';
+import { reorderPositions, sortItems } from '../estimates/estimate-rules';
 import { BillingEventsPublisher } from '../integrations/billing-events.publisher';
 import { CrmClient } from '../integrations/crm.client';
 import { DealClient, type DealBillingView } from '../integrations/deal.client';
 import {
+  computeClientInvoiceTotals,
   computeDueDate,
   computeInvoiceTotals,
   deriveInvoiceStatus,
@@ -56,6 +65,23 @@ export interface UpdateInvoiceInput {
   dueDate?: string;
   notes?: string | null;
   templateId?: string | null;
+  /** CLIENT invoices only — a job invoice's tax and discount are the job's (422 otherwise). */
+  taxRateId?: string | null;
+  discount?: DocumentDiscount | null;
+}
+
+/** A line of a CLIENT invoice (a job invoice's lines are the job's items). */
+export interface InvoiceItemInput {
+  productId: string;
+  productType?: ProductType;
+  name: string;
+  sku: string;
+  description?: string;
+  quantity: number;
+  priceClient: number;
+  costCompany: number;
+  costForTech: number;
+  taxable?: boolean;
 }
 
 export interface InvoiceSummary {
@@ -112,13 +138,46 @@ function toBillingLines(view: DealBillingView): BillingLine[] {
   }));
 }
 
+/** A client invoice's own rows, in order, as the lines a screen or PDF prints. */
+function ownLines(items: InvoiceItem[]): BillingLine[] {
+  return sortItems(items).map((i) => ({
+    lineId: i.lineId,
+    position: i.position,
+    productId: i.productId,
+    ...(i.productType && { productType: i.productType }),
+    name: i.name,
+    sku: i.sku,
+    ...(i.description && { description: i.description }),
+    quantity: i.quantity,
+    priceClient: i.priceClient,
+    costCompany: i.costCompany,
+    costForTech: i.costForTech,
+    taxable: i.taxable !== false,
+    amount: lineAmount(i),
+  }));
+}
+
 /** Key-order-insensitive: DynamoDB does not preserve the order of a map's keys. */
 const sameTotals = (a: DocumentTotals | undefined, b: DocumentTotals) => !!a && isDeepStrictEqual({ ...a }, { ...b });
 
+/** Under `assigned_only`: the invoice's job is one of mine. No job ⇒ never mine. */
+const onMyJobs = (i: Pick<Invoice, 'dealId'>, mine: Set<string>): boolean => !!i.dealId && mine.has(i.dealId);
+
+/** Narrows an invoice to one that has a job. */
+type JobInvoice = Invoice & { dealId: string };
+const hasJob = (invoice: Invoice): invoice is JobInvoice => typeof invoice.dealId === 'string' && invoice.dealId !== '';
+
 /**
- * Job invoices (Workiz): one per job, id + number are the job's, and the
- * items / tax / discount ARE the job's — the invoice stores only its own
- * fields plus a totals + status snapshot for lists.
+ * Invoices (Workiz): either a job's or a client's.
+ *
+ * - Job invoice: one per job, id + number are the job's, and the items / tax /
+ *   discount ARE the job's — the invoice stores only its own fields plus a
+ *   totals + status snapshot for lists.
+ * - Client invoice (the client card's Create new → Invoice): no job. It owns
+ *   its lines and tax/discount, is numbered from the account counter, takes
+ *   its due date from the client's payment terms and is office-only (a
+ *   technician's `assigned_only` scope is about jobs). Nothing is read from or
+ *   written to deal-service for it.
  */
 /** How long a list count stays good enough. Matches the deals tab counts. */
 const COUNT_TTL_SECONDS = 30;
@@ -211,11 +270,61 @@ export class InvoicesService {
     return this.toView(invoice, view);
   }
 
+  /**
+   * A client's invoice with no job (Workiz: the client card's Create new →
+   * Invoice): a fresh id, a stub number from the account counter, Bill to =
+   * the client, the due date from the CLIENT's payment terms (then the
+   * company's, then the default profile's), tax exempt when the client is,
+   * and no lines yet. Office-only.
+   */
+  async createForClient(contactId: string, caller: Caller): Promise<InvoiceView> {
+    if (isAssignedOnly(caller, 'invoices')) {
+      throw new ForbiddenException('An invoice without a job can only be created from the office');
+    }
+    const contact = await this.crm.getContact(contactId);
+    if (!contact) throw new NotFoundException('Client not found');
+    const [company, profile, seq] = await Promise.all([
+      contact.companyId ? this.crm.getCompany(contact.companyId).catch(() => null) : Promise.resolve(null),
+      this.profiles.get(undefined),
+      this.repo.nextAccountSeq(),
+    ]);
+
+    const now = new Date().toISOString();
+    const invoiceDate = todayIn(resolveTimezone(undefined));
+    const { terms } = resolvePaymentTerms(contact, company as never, profile);
+    const days = this.daysFor(terms, company as { customTermsDays?: number } | null, profile.defaultCustomTermDays, contact);
+    // No job to count from: the terms run from the invoice date.
+    const dueDate = computeDueDate(invoiceDate, days);
+
+    const base: Invoice = {
+      id: randomUUID(),
+      number: standaloneDocumentNumber(seq),
+      contactId: contact.id,
+      ...(contact.companyId && { companyId: contact.companyId }),
+      ...(contact.taxExempt && { taxRatePercent: 0, taxSource: 'exempt' as const }),
+      invoiceDate,
+      paymentTerms: terms,
+      dueDate,
+      status: 'no_amount',
+      totals: computeClientInvoiceTotals({}, [], { amountPaid: 0 }),
+      version: 1,
+      createdBy: caller.user.id,
+      createdAt: now,
+      updatedAt: now,
+    };
+    const totals = computeClientInvoiceTotals(base, [], { amountPaid: 0 });
+    const invoice: Invoice = { ...base, totals, status: deriveInvoiceStatus({ totals, dueDate, today: invoiceDate }) };
+
+    await this.repo.create(invoice);
+    this.events?.invoice(BillingEventType.INVOICE_CREATED, invoice);
+    return this.toClientView(invoice, []);
+  }
+
   // ------------------------------------------------------------------ read
 
   async get(id: string, caller: Caller): Promise<InvoiceView> {
-    const invoice = await this.repo.get(id);
-    if (!invoice) throw new NotFoundException('Invoice not found');
+    const invoice = await this.require(id);
+    if (!hasJob(invoice)) return this.clientView(invoice, caller);
     const view = await this.loadView(invoice.dealId);
     assertDealAccess(caller, 'invoices', view.deal);
     const fresh = await this.refreshSnapshot(invoice, view);
@@ -251,9 +360,10 @@ export class InvoicesService {
     }
     if (isAssignedOnly(caller, 'invoices')) {
       // Page-local filter: a technician's page can come back short. Their
-      // job list is capped at 100 by deal-service (`internal/by-tech`).
+      // job list is capped at 100 by deal-service (`internal/by-tech`). A
+      // client invoice has no job to be assigned to, so they never see one.
       const mine = await this.deal.listDealIdsByTech(caller.user.id);
-      result = { ...result, items: result.items.filter((i) => mine.has(i.dealId)) };
+      result = { ...result, items: result.items.filter((i) => onMyJobs(i, mine)) };
     }
     return result;
   }
@@ -350,30 +460,26 @@ export class InvoicesService {
   // ----------------------------------------------------------------- write
 
   async update(id: string, input: UpdateInvoiceInput, caller: Caller): Promise<InvoiceView> {
-    const invoice = await this.repo.get(id);
-    if (!invoice) throw new NotFoundException('Invoice not found');
-    const view = await this.loadView(invoice.dealId);
-    assertDealAccess(caller, 'invoices', view.deal);
-
+    const invoice = await this.require(id);
     if (input.invoiceDate !== undefined && !isYmd(input.invoiceDate)) {
       throw new BadRequestException('invoiceDate must be YYYY-MM-DD');
     }
     if (input.dueDate !== undefined && !isYmd(input.dueDate)) {
       throw new BadRequestException('dueDate must be YYYY-MM-DD');
     }
+    if (!hasJob(invoice)) return this.updateClient(invoice, input, caller);
+    if (input.taxRateId !== undefined || input.discount !== undefined) {
+      throw new UnprocessableEntityException(
+        "This invoice is the job's — its tax rate and discount are edited on the job's items",
+      );
+    }
+
+    const view = await this.loadView(invoice.dealId);
+    assertDealAccess(caller, 'invoices', view.deal);
 
     const set: Partial<Invoice> & Record<string, unknown> = { updatedAt: new Date().toISOString() };
     const remove: string[] = [];
-    if (input.invoiceDate !== undefined) set.invoiceDate = input.invoiceDate;
-    if (input.paymentTerms !== undefined) set.paymentTerms = input.paymentTerms;
-    if (input.notes !== undefined) {
-      if (input.notes === null || input.notes === '') remove.push('notes');
-      else set.notes = input.notes;
-    }
-    if (input.templateId !== undefined) {
-      if (input.templateId === null || input.templateId === '') remove.push('templateId');
-      else set.templateId = input.templateId;
-    }
+    this.applyHeader(set, remove, input);
 
     if (input.dueDate !== undefined) {
       set.dueDate = input.dueDate;
@@ -383,10 +489,7 @@ export class InvoicesService {
         this.timezoneFor(view.deal.serviceAreaId),
       ]);
       const terms = input.paymentTerms ?? invoice.paymentTerms;
-      const days =
-        terms === PaymentTerms.CUSTOM
-          ? this.customSpan(invoice) ?? profile.defaultCustomTermDays ?? 0
-          : termDays(terms);
+      const days = this.termDaysFor(terms, invoice, profile.defaultCustomTermDays);
       const basis = dueDateBasisDate(profile, {
         invoiceDate: (set.invoiceDate as string | undefined) ?? invoice.invoiceDate,
         deal: view.deal,
@@ -415,28 +518,101 @@ export class InvoicesService {
     return this.toView(updated, view);
   }
 
+  /** A client invoice's header, terms, tax rate and discount — all its own. */
+  private async updateClient(invoice: Invoice, input: UpdateInvoiceInput, caller: Caller): Promise<InvoiceView> {
+    this.assertOffice(caller);
+    const set: Partial<Invoice> & Record<string, unknown> = { updatedAt: new Date().toISOString() };
+    const remove: string[] = [];
+    this.applyHeader(set, remove, input);
+
+    if (input.dueDate !== undefined) {
+      set.dueDate = input.dueDate;
+    } else if (input.paymentTerms !== undefined || input.invoiceDate !== undefined) {
+      const profile = await this.profiles.get(undefined);
+      const terms = input.paymentTerms ?? invoice.paymentTerms;
+      const days = this.termDaysFor(terms, invoice, profile.defaultCustomTermDays);
+      set.dueDate = computeDueDate((set.invoiceDate as string | undefined) ?? invoice.invoiceDate, days);
+    }
+
+    if (input.taxRateId !== undefined) {
+      if (input.taxRateId === null) {
+        remove.push('taxRateId', 'taxRateName');
+        set.taxRatePercent = 0;
+        set.taxSource = 'manual';
+      } else {
+        const rates = await this.deal.listTaxRates();
+        const rate = rates.find((r) => r.id === input.taxRateId);
+        if (!rate) throw new NotFoundException('Tax rate not found');
+        set.taxRateId = rate.id;
+        set.taxRateName = rate.name;
+        set.taxRatePercent = effectiveTaxRatePercent(rate, rates);
+        set.taxSource = 'manual';
+      }
+    }
+    if (input.discount !== undefined) {
+      if (input.discount === null || !(input.discount.value > 0)) remove.push('discount');
+      else set.discount = { type: input.discount.type, value: input.discount.value };
+    }
+
+    const next = { ...invoice, ...set } as Invoice;
+    for (const k of remove) delete (next as unknown as Record<string, unknown>)[k];
+    const items = await this.repo.getItems(invoice.id);
+    const amountPaid = (await this.ledgerAmountPaid(invoice.id)) ?? 0;
+    set.totals = computeClientInvoiceTotals(next, items, { amountPaid });
+    set.status = deriveInvoiceStatus({
+      totals: set.totals,
+      dueDate: next.dueDate,
+      today: todayIn(resolveTimezone(undefined)),
+    });
+
+    const updated = await this.writeWithConflict(invoice.id, set, remove, invoice.version);
+    this.events?.invoice(BillingEventType.INVOICE_UPDATED, updated);
+    return this.toClientView(updated, items, await this.ledgerFor(invoice.id));
+  }
+
+  /** notes / template / dates / terms — the fields both kinds of invoice own. */
+  private applyHeader(set: Partial<Invoice> & Record<string, unknown>, remove: string[], input: UpdateInvoiceInput): void {
+    if (input.invoiceDate !== undefined) set.invoiceDate = input.invoiceDate;
+    if (input.paymentTerms !== undefined) set.paymentTerms = input.paymentTerms;
+    if (input.notes !== undefined) {
+      if (input.notes === null || input.notes === '') remove.push('notes');
+      else set.notes = input.notes;
+    }
+    if (input.templateId !== undefined) {
+      if (input.templateId === null || input.templateId === '') remove.push('templateId');
+      else set.templateId = input.templateId;
+    }
+  }
+
+  private termDaysFor(terms: PaymentTerms, invoice: Invoice, profileCustomDays: number | undefined): number {
+    return terms === PaymentTerms.CUSTOM ? this.customSpan(invoice) ?? profileCustomDays ?? 0 : termDays(terms);
+  }
+
   async markSent(id: string, sent: boolean, caller: Caller): Promise<InvoiceView> {
-    const invoice = await this.repo.get(id);
-    if (!invoice) throw new NotFoundException('Invoice not found');
-    const view = await this.loadView(invoice.dealId);
-    assertDealAccess(caller, 'invoices', view.deal);
+    const invoice = await this.require(id);
+    const view = await this.accessView(invoice, caller);
     const now = new Date().toISOString();
     const updated = sent
       ? await this.writeWithConflict(id, { sentAt: now, sentBy: caller.user.id, updatedAt: now }, [], invoice.version)
       : await this.writeWithConflict(id, { updatedAt: now }, ['sentAt', 'sentBy'], invoice.version);
-    if (sent) {
+    if (sent && hasJob(invoice)) {
       await this.deal.addTimeline(invoice.dealId, TimelineEventType.INVOICE_SENT, caller.user.id, {
         invoiceId: id,
         number: invoice.number,
       }, caller.user.email);
     }
     this.events?.invoice(BillingEventType.INVOICE_UPDATED, updated);
-    return this.toView(updated, view);
+    return view ? this.toView(updated, view) : this.toClientView(updated, await this.repo.getItems(id));
   }
 
   async delete(id: string, caller: Caller): Promise<void> {
-    const invoice = await this.repo.get(id);
-    if (!invoice) throw new NotFoundException('Invoice not found');
+    const invoice = await this.require(id);
+    if (!hasJob(invoice)) {
+      this.assertOffice(caller);
+      await this.repo.delete(id);
+      this.events?.invoice(BillingEventType.INVOICE_DELETED, invoice);
+      return;
+    }
     const view = await this.deal.getBillingView(invoice.dealId);
     if (view) assertDealAccess(caller, 'invoices', view.deal);
     await this.repo.delete(id);
@@ -450,6 +626,50 @@ export class InvoicesService {
     this.events?.invoice(BillingEventType.INVOICE_DELETED, invoice);
   }
 
+  // ------------------------------------------------- lines (client invoices)
+
+  async addItem(id: string, input: InvoiceItemInput, caller: Caller): Promise<InvoiceView> {
+    const { invoice, items } = await this.loadClient(id, caller);
+    const now = new Date().toISOString();
+    const position = items.reduce((max, i) => Math.max(max, i.position), -1) + 1;
+    await this.repo.putItem(this.toItem(id, randomUUID(), position, input, now, now));
+    return this.recomputeClient(invoice);
+  }
+
+  async updateItem(id: string, lineId: string, input: InvoiceItemInput, caller: Caller): Promise<InvoiceView> {
+    const { invoice, items } = await this.loadClient(id, caller);
+    const current = items.find((i) => i.lineId === lineId);
+    if (!current) throw new NotFoundException('Invoice line not found');
+    const next = this.toItem(id, lineId, current.position, input, current.createdAt, new Date().toISOString());
+    if (input.taxable === undefined) next.taxable = current.taxable;
+    await this.repo.putItem(next);
+    return this.recomputeClient(invoice);
+  }
+
+  async setItemTaxable(id: string, lineId: string, taxable: boolean, caller: Caller): Promise<InvoiceView> {
+    const { invoice, items } = await this.loadClient(id, caller);
+    const current = items.find((i) => i.lineId === lineId);
+    if (!current) throw new NotFoundException('Invoice line not found');
+    await this.repo.putItem({ ...current, taxable, updatedAt: new Date().toISOString() });
+    return this.recomputeClient(invoice);
+  }
+
+  async removeItem(id: string, lineId: string, caller: Caller): Promise<InvoiceView> {
+    const { invoice, items } = await this.loadClient(id, caller);
+    if (!items.some((i) => i.lineId === lineId)) throw new NotFoundException('Invoice line not found');
+    await this.repo.deleteItem(id, lineId);
+    return this.recomputeClient(invoice);
+  }
+
+  async reorderItems(id: string, lineIds: string[], caller: Caller): Promise<InvoiceView> {
+    const { invoice, items } = await this.loadClient(id, caller);
+    const moves = reorderPositions(items, lineIds);
+    if (moves.length) await this.repo.setPositions(id, moves, new Date().toISOString());
+    const byId = new Map(moves.map((m) => [m.lineId, m.position]));
+    const reordered = items.map((i) => ({ ...i, position: byId.get(i.lineId) ?? i.position }));
+    return this.toClientView(invoice, reordered, await this.ledgerFor(id));
+  }
+
   // ------------------------------------------------------------- documents
 
   async pdf(id: string, download: boolean, caller: Caller): Promise<{ url: string }> {
@@ -459,39 +679,40 @@ export class InvoicesService {
 
   async html(id: string, caller: Caller): Promise<{ html: string }> {
     const doc = await this.get(id, caller);
-    const view = await this.loadView(doc.dealId);
-    return this.requireDocuments().html({ kind: 'invoice', doc, view });
+    return this.requireDocuments().html({ kind: 'invoice', doc, view: await this.viewFor(doc) });
   }
 
   /** Portal download: the caller already proved ownership through the token. */
   async portalPdf(id: string, download = false): Promise<{ url: string }> {
-    const invoice = await this.repo.get(id);
-    if (!invoice) throw new NotFoundException('Invoice not found');
-    const view = await this.loadView(invoice.dealId);
-    return this.renderPdf(this.toView(invoice, view), download, view);
+    const invoice = await this.require(id);
+    const view = await this.viewFor(invoice);
+    return this.renderPdf(await this.storedView(invoice, view), download, view);
   }
 
   /** Portal on-screen view: the caller already proved ownership through the token. */
   async portalHtml(id: string): Promise<{ html: string }> {
-    const invoice = await this.repo.get(id);
-    if (!invoice) throw new NotFoundException('Invoice not found');
-    const view = await this.loadView(invoice.dealId);
-    return this.requireDocuments().html({ kind: 'invoice', doc: this.toView(invoice, view), view });
+    const invoice = await this.require(id);
+    const view = await this.viewFor(invoice);
+    return this.requireDocuments().html({ kind: 'invoice', doc: await this.storedView(invoice, view), view });
   }
 
-  /** The document + job a template preview renders against. */
+  /** The document + its job (none for a client invoice) a template preview renders against. */
   async renderSource(id: string, caller: Caller) {
     const doc = await this.get(id, caller);
-    const view = await this.loadView(doc.dealId);
-    return { kind: 'invoice' as const, doc, view };
+    return { kind: 'invoice' as const, doc, view: await this.viewFor(doc) };
   }
 
   private async renderPdf(doc: InvoiceView, download: boolean, view?: DealBillingView) {
-    const v = view ?? (await this.loadView(doc.dealId));
+    const v = view ?? (await this.viewFor(doc));
     return this.requireDocuments().pdf(
       { kind: 'invoice', doc, view: v },
       { download, filename: `Invoice-${doc.number}.pdf` },
     );
+  }
+
+  /** The stored invoice as a view, without a snapshot refresh or access check. */
+  private async storedView(invoice: Invoice, view: DealBillingView | undefined): Promise<InvoiceView> {
+    return view ? this.toView(invoice, view) : this.toClientView(invoice, await this.repo.getItems(invoice.id));
   }
 
   // ------------------------------------------------------------- the ledger
@@ -504,6 +725,11 @@ export class InvoicesService {
   async applyAmountPaid(invoiceId: string, amountPaid: number): Promise<Invoice | null> {
     const invoice = await this.repo.get(invoiceId);
     if (!invoice) return null;
+    if (!hasJob(invoice)) {
+      const fresh = await this.refreshClientSnapshot(invoice, await this.repo.getItems(invoiceId), { amountPaid });
+      if (fresh !== invoice) this.events?.invoice(BillingEventType.INVOICE_UPDATED, fresh);
+      return fresh;
+    }
     const view = await this.deal.getBillingView(invoice.dealId);
     if (!view) return invoice;
     const fresh = await this.refreshSnapshot(invoice, view, false, { amountPaid });
@@ -560,7 +786,7 @@ export class InvoicesService {
   /** deal.product_* / deal.updated: re-snapshot totals + status. */
   async refreshFromDeal(dealId: string): Promise<void> {
     const invoice = await this.repo.get(dealId);
-    if (!invoice) return;
+    if (!invoice || !hasJob(invoice)) return;
     const view = await this.deal.getBillingView(dealId);
     if (!view) return;
     const fresh = await this.refreshSnapshot(invoice, view, true);
@@ -570,7 +796,7 @@ export class InvoicesService {
   /** deal.deleted: the job is gone, so is its invoice. */
   async deleteForDeal(dealId: string): Promise<void> {
     const invoice = await this.repo.get(dealId);
-    if (!invoice) return;
+    if (!invoice || !hasJob(invoice)) return;
     await this.repo.delete(dealId);
     this.events?.invoice(BillingEventType.INVOICE_DELETED, invoice);
   }
@@ -619,6 +845,130 @@ export class InvoicesService {
   }
 
   // -------------------------------------------------------------- helpers
+
+  private async require(id: string): Promise<Invoice> {
+    const invoice = await this.repo.get(id);
+    if (!invoice) throw new NotFoundException('Invoice not found');
+    return invoice;
+  }
+
+  /** A client invoice has no job: a technician's `assigned_only` scope cannot reach it. */
+  private assertOffice(caller: Caller): void {
+    if (isAssignedOnly(caller, 'invoices')) {
+      throw new ForbiddenException('This invoice belongs to the client and has no job you are assigned to');
+    }
+  }
+
+  /** The job's view after the caller's scope check, or nothing for a client invoice (office-only). */
+  private async accessView(invoice: Invoice, caller: Caller): Promise<DealBillingView | undefined> {
+    if (!hasJob(invoice)) {
+      this.assertOffice(caller);
+      return undefined;
+    }
+    const view = await this.loadView(invoice.dealId);
+    assertDealAccess(caller, 'invoices', view.deal);
+    return view;
+  }
+
+  /** The job's billing view, or nothing for a client invoice. */
+  private async viewFor(invoice: Pick<Invoice, 'dealId'>): Promise<DealBillingView | undefined> {
+    return invoice.dealId ? this.loadView(invoice.dealId) : undefined;
+  }
+
+  /** A client invoice + its rows, for a line edit; a job invoice's lines are the job's (422). */
+  private async loadClient(id: string, caller: Caller): Promise<{ invoice: Invoice; items: InvoiceItem[] }> {
+    const invoice = await this.require(id);
+    if (hasJob(invoice)) {
+      throw new UnprocessableEntityException(
+        "This invoice is the job's — its lines are the job's items, edit them on the job",
+      );
+    }
+    this.assertOffice(caller);
+    return { invoice, items: await this.repo.getItems(id) };
+  }
+
+  /** A client invoice's full view: scope check, fresh snapshot, ledger. */
+  private async clientView(invoice: Invoice, caller: Caller): Promise<InvoiceView> {
+    this.assertOffice(caller);
+    const items = await this.repo.getItems(invoice.id);
+    const fresh = await this.refreshClientSnapshot(invoice, items);
+    return this.toClientView(fresh, items, await this.ledgerFor(invoice.id));
+  }
+
+  /** Re-reads the rows after a line write so concurrent edits are counted. */
+  private async recomputeClient(invoice: Invoice): Promise<InvoiceView> {
+    const items = await this.repo.getItems(invoice.id);
+    const fresh = await this.refreshClientSnapshot(invoice, items, undefined, true);
+    this.events?.invoice(BillingEventType.INVOICE_UPDATED, fresh);
+    return this.toClientView(fresh, items, await this.ledgerFor(invoice.id));
+  }
+
+  /**
+   * A client invoice's totals + status from its own rows and the ledger. Like
+   * `refreshSnapshot`, never bumps `version`. No ledger row ⇒ nothing paid.
+   */
+  private async refreshClientSnapshot(
+    invoice: Invoice,
+    items: InvoiceItem[],
+    known?: { amountPaid?: number },
+    bumpAlways = false,
+  ): Promise<Invoice> {
+    const amountPaid = (known ? known.amountPaid : await this.ledgerAmountPaid(invoice.id)) ?? 0;
+    const totals = computeClientInvoiceTotals(invoice, items, { amountPaid });
+    const status = deriveInvoiceStatus({ totals, dueDate: invoice.dueDate, today: todayIn(resolveTimezone(undefined)) });
+    if (!bumpAlways && status === invoice.status && sameTotals(invoice.totals, totals)) return invoice;
+    try {
+      return await this.repo.update(
+        invoice.id,
+        { totals, status, updatedAt: new Date().toISOString() },
+        [],
+        undefined,
+        SNAPSHOT_WRITE,
+      );
+    } catch (err) {
+      this.logger.warn(`invoice ${invoice.id} snapshot refresh failed: ${(err as Error).message}`);
+      return { ...invoice, totals, status };
+    }
+  }
+
+  private toClientView(
+    invoice: Invoice,
+    items: InvoiceItem[],
+    ledger?: { payments: Payment[]; summary: PaymentSummary },
+  ): InvoiceView {
+    return {
+      ...invoice,
+      items: ownLines(items),
+      ...(ledger && { payments: ledger.payments, paymentSummary: ledger.summary }),
+    };
+  }
+
+  private toItem(
+    invoiceId: string,
+    lineId: string,
+    position: number,
+    input: InvoiceItemInput,
+    createdAt: string,
+    updatedAt: string,
+  ): InvoiceItem {
+    return {
+      lineId,
+      invoiceId,
+      position,
+      productId: input.productId,
+      ...(input.productType && { productType: input.productType }),
+      name: input.name,
+      sku: input.sku,
+      ...(input.description?.trim() && { description: input.description.trim() }),
+      quantity: input.quantity,
+      priceClient: input.priceClient,
+      costCompany: input.costCompany,
+      costForTech: input.costForTech,
+      taxable: input.taxable !== false,
+      createdAt,
+      updatedAt,
+    };
+  }
 
   private async refreshSnapshot(
     invoice: Invoice,
@@ -725,7 +1075,7 @@ export class InvoicesService {
   private visible = async (items: Invoice[], caller: Caller): Promise<Invoice[]> => {
     if (!isAssignedOnly(caller, 'invoices')) return items;
     const mine = await this.deal.listDealIdsByTech(caller.user.id);
-    return items.filter((i) => mine.has(i.dealId));
+    return items.filter((i) => onMyJobs(i, mine));
   };
 
   private requireDocuments(): DocumentsService {

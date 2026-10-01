@@ -94,9 +94,12 @@ async function main(): Promise<void> {
   const w = dayWindow(from, to);
   const listed = invoices.filter((i) => inWindow(i.createdAt, w));
   const dealsDir = arg('--deals');
-  const fees = dealsDir ? await readFees(dealsDir, new Set(listed.map((i) => i.dealId))) : new Map<string, number>();
+  const jobIds = new Set(listed.map((i) => i.dealId).filter((id): id is string => !!id));
+  const fees = dealsDir ? await readFees(dealsDir, jobIds) : new Map<string, number>();
   // Workiz's figures, as the report prints them (imported rows: Workiz's own tip).
-  const figs = listed.map((i) => invoiceReportFigures(i, { tip: i.tipAmount ?? 0, serviceFee: fees.get(i.dealId) ?? 0 }));
+  const figs = listed.map((i) =>
+    invoiceReportFigures(i, { tip: i.tipAmount ?? 0, serviceFee: (i.dealId && fees.get(i.dealId)) || 0 }),
+  );
   console.log(`\nInvoices created ${from}..${to}`);
   console.log(`  count ${listed.length}`);
   console.log(`  Σ subtotal $${money(sum(figs.map((f) => f.subtotal)))}   (stored $${money(sum(listed.map((i) => i.totals.subtotal)))}, fees $${money(sum(figs.map((f) => f.serviceFee)))})`);

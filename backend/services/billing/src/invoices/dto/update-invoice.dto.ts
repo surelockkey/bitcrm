@@ -1,6 +1,8 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEnum, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsEnum, IsOptional, IsString, Matches, MaxLength, ValidateNested } from 'class-validator';
 import { PaymentTerms } from '@bitcrm/types';
+import { DiscountDto } from '../../common/dto/discount.dto';
 
 const YMD = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -30,4 +32,19 @@ export class UpdateInvoiceDto {
   @IsOptional()
   @IsString()
   templateId?: string | null;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    description:
+      "CLIENT invoices only (422 on a job invoice — its tax is the job's). Catalog tax rate; name + effective percent are snapshotted (source `manual`). `null` = no tax.",
+  })
+  @IsOptional()
+  @IsString()
+  taxRateId?: string | null;
+
+  @ApiPropertyOptional({ type: DiscountDto, nullable: true, description: 'CLIENT invoices only (422 on a job invoice).' })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => DiscountDto)
+  discount?: DiscountDto | null;
 }

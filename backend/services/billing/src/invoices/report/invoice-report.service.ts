@@ -189,7 +189,7 @@ export class InvoiceReportService {
     result = await this.listRepo.page(filter, today, limit, q.cursor);
     if (isAssignedOnly(caller, 'invoices')) {
       const mine = await this.deal.listDealIdsByTech(caller.user.id);
-      result = { ...result, items: result.items.filter((i) => mine.has(i.dealId)) };
+      result = { ...result, items: result.items.filter((i) => !!i.dealId && mine.has(i.dealId)) };
     }
     return result;
   }
@@ -251,7 +251,8 @@ export class InvoiceReportService {
     if (!items.length) return out;
 
     const fees = new Map<string, number>();
-    const dealIds = [...new Set(items.map((i) => i.dealId))];
+    // Service fees live on the job; a client invoice (no job) has none.
+    const dealIds = [...new Set(items.map((i) => i.dealId).filter((id): id is string => !!id))];
     const chunks: string[][] = [];
     for (let i = 0; i < dealIds.length; i += DEAL_CHUNK) chunks.push(dealIds.slice(i, i + DEAL_CHUNK));
     let dealsOk = !!authorization;
@@ -302,7 +303,7 @@ export class InvoiceReportService {
     }
 
     for (const inv of items) {
-      out.set(inv.id, invoiceReportFigures(inv, { tip: tips.get(inv.id) ?? 0, serviceFee: fees.get(inv.dealId) ?? 0 }));
+      out.set(inv.id, invoiceReportFigures(inv, { tip: tips.get(inv.id) ?? 0, serviceFee: (inv.dealId && fees.get(inv.dealId)) || 0 }));
     }
     return out;
   }
@@ -326,7 +327,7 @@ export class InvoiceReportService {
   private async visible(items: Invoice[], caller: Caller): Promise<Invoice[]> {
     if (!isAssignedOnly(caller, 'invoices')) return items;
     const mine = await this.deal.listDealIdsByTech(caller.user.id);
-    return items.filter((i) => mine.has(i.dealId));
+    return items.filter((i) => !!i.dealId && mine.has(i.dealId));
   }
 
   private async nameRows(

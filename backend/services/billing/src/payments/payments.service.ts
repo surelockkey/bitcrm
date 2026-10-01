@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -65,11 +66,21 @@ export interface InvoiceLedger {
   summary: PaymentSummary;
 }
 
-/** The invoice + job a payment hangs off, after the caller's scope was checked. */
+/**
+ * The invoice + job a payment hangs off, after the caller's scope was checked.
+ * `deal` is null for a CLIENT invoice (one with no job): the ledger is keyed
+ * by the job today (`Payment.dealId`, the job board's payment flag, the
+ * Payments report's job dimensions), so such an invoice can be read but not
+ * yet paid — `recordOffline` answers 409 until the ledger learns about it.
+ */
 interface PaymentContext {
   invoice: Invoice;
-  deal: Pick<Deal, 'id' | 'assignedTechIds' | 'contactId' | 'serviceAreaId'>;
+  deal: Pick<Deal, 'id' | 'assignedTechIds' | 'contactId' | 'serviceAreaId'> | null;
 }
+
+/** An invoice that has a job — the only kind the ledger can take a payment on today. */
+type JobInvoice = Invoice & { dealId: string };
+const hasJob = (invoice: Invoice): invoice is JobInvoice => typeof invoice.dealId === 'string' && invoice.dealId !== '';
 
 /**
  * The job a ledger hangs off, after the caller's scope was checked — with its
@@ -249,6 +260,11 @@ export class PaymentsService {
   /** Cash, a cheque, a card taken in person. Settled the moment it is recorded. */
   async recordOffline(invoiceId: string, input: RecordPaymentInput, caller: Caller): Promise<Payment> {
     const { invoice, deal } = await this.context(invoiceId, caller);
+    if (!deal || !hasJob(invoice)) {
+      throw new ConflictException(
+        'This invoice belongs to the client and has no job — payments can only be recorded on a job’s invoice for now',
+      );
+    }
     assertOfflineMethod(input.method);
     return this.writeOffline(
       { ...invoiceOwner(invoice), ...jobDims(deal) },
@@ -266,7 +282,8 @@ export class PaymentsService {
   async recordOfflineForDeal(dealId: string, input: RecordPaymentInput, caller: Caller): Promise<Payment> {
     const ctx = await this.jobContext(dealId, caller);
     assertOfflineMethod(input.method);
-    if (ctx.invoice) {
+    // The job's invoice (id === deal id) always has the job.
+    if (ctx.invoice && hasJob(ctx.invoice)) {
       return this.writeOffline(
         { ...invoiceOwner(ctx.invoice), ...jobDims(ctx.view.deal) },
         await this.amountDue(ctx.invoice),
@@ -542,6 +559,13 @@ export class PaymentsService {
   private async context(invoiceId: string, caller: Caller): Promise<PaymentContext> {
     const invoice = await this.invoices.getStored(invoiceId);
     if (!invoice) throw new NotFoundException('Invoice not found');
+    if (!hasJob(invoice)) {
+      // A client invoice (no job) is the office's alone — there is no job to be assigned to.
+      if (isAssignedOnly(caller, 'payments')) {
+        throw new ForbiddenException('This invoice belongs to the client and has no job you are assigned to');
+      }
+      return { invoice, deal: null };
+    }
     const view = await this.deal.getBillingView(invoice.dealId);
     if (!view) throw new NotFoundException('Job not found');
     assertDealAccess(caller, 'payments', view.deal);
@@ -614,7 +638,7 @@ const jobDims = (deal: Pick<Deal, 'assignedTechIds' | 'serviceAreaId'>): Pick<Pa
   ...(deal.serviceAreaId && { serviceAreaId: deal.serviceAreaId }),
 });
 
-const invoiceOwner = (invoice: Invoice): PaymentOwner => ({
+const invoiceOwner = (invoice: JobInvoice): PaymentOwner => ({
   invoiceId: invoice.id,
   dealId: invoice.dealId,
   contactId: invoice.contactId,
