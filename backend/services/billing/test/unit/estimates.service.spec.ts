@@ -21,6 +21,7 @@ import {
   dealProduct,
   mockCrmClient,
   mockDealClient,
+  mockDocumentSettings,
   mockDocuments,
   mockEvents,
 } from './mocks';
@@ -125,6 +126,41 @@ describe('EstimatesService', () => {
       expect(a.estimateDate).toBe('2026-09-16');
       expect(a.dealNumber).toBe('K4T9ZW');
       expect(a.contactId).toBe('contact-1');
+    });
+
+    it('pre-fills Notes and the default deposit from the document settings (Workiz)', async () => {
+      const withSettings = new EstimatesService(
+        repo as never,
+        deal as never,
+        documents as never,
+        events as never,
+        undefined,
+        crm as never,
+        mockDocumentSettings({ depositPercentage: 50 }) as never,
+      );
+      const job = await withSettings.create({ dealId: 'deal-1' }, caller());
+      expect(job.notes).toBe('Thank you for considering our services!');
+      expect(job.depositPercentage).toBe(50);
+      expect(job.depositAmount).toBeUndefined();
+      const client = await withSettings.create({ contactId: 'contact-1' }, caller());
+      expect(client.notes).toBe('Thank you for considering our services!');
+      expect(client.depositPercentage).toBe(50);
+    });
+
+    it('an empty default leaves Notes and the deposit unset', async () => {
+      const withSettings = new EstimatesService(
+        repo as never,
+        deal as never,
+        documents as never,
+        events as never,
+        undefined,
+        crm as never,
+        mockDocumentSettings({ estimateNotes: '' }) as never,
+      );
+      const e = await withSettings.create({ dealId: 'deal-1' }, caller());
+      expect(e.notes).toBeUndefined();
+      expect(e.depositPercentage).toBeUndefined();
+      expect(e.depositAmount).toBeUndefined();
     });
 
     it('snapshots the job’s tax and discount', async () => {

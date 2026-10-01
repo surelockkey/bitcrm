@@ -35,6 +35,7 @@ import { assertDealAccess, isAssignedOnly, type Caller } from '../common/access'
 import { isYmd, resolveTimezone, todayIn } from '../common/dates';
 import { standaloneDocumentNumber } from '../common/document-number';
 import { BusinessProfileService } from '../business-profile/business-profile.service';
+import { DocumentSettingsService } from '../documents/document-settings.service';
 import { DocumentsService } from '../documents/documents.service';
 import { reorderPositions, sortItems } from '../estimates/estimate-rules';
 import { BillingEventsPublisher } from '../integrations/billing-events.publisher';
@@ -196,9 +197,22 @@ export class InvoicesService {
     @Optional() private readonly redis?: RedisService,
     @Optional() @Inject(PaymentsRepository) private readonly ledger?: PaymentLedgerSource,
     @Optional() private readonly unpaid?: UnpaidInvoicesRepository,
+    @Optional() private readonly documentSettings?: DocumentSettingsService,
   ) {}
 
   // ---------------------------------------------------------------- create
+
+  /** The default Notes of a NEW invoice (Workiz: Settings → Documents). Best effort. */
+  private async newInvoiceDefaults(): Promise<Pick<Invoice, 'notes'>> {
+    if (!this.documentSettings) return {};
+    try {
+      const notes = (await this.documentSettings.get()).invoiceNotes?.trim();
+      return notes ? { notes } : {};
+    } catch (err) {
+      this.logger.warn(`document settings unavailable, creating a blank invoice: ${(err as Error).message}`);
+      return {};
+    }
+  }
 
   async create(dealId: string, caller: Caller): Promise<InvoiceView> {
     const view = await this.loadView(dealId);
@@ -233,6 +247,7 @@ export class InvoicesService {
       invoiceDate,
       paymentTerms: terms,
       dueDate,
+      ...(await this.newInvoiceDefaults()),
       status: deriveInvoiceStatus({
         totals,
         dueDate,
@@ -305,6 +320,7 @@ export class InvoicesService {
       invoiceDate,
       paymentTerms: terms,
       dueDate,
+      ...(await this.newInvoiceDefaults()),
       status: 'no_amount',
       totals: computeClientInvoiceTotals({}, [], { amountPaid: 0 }),
       version: 1,

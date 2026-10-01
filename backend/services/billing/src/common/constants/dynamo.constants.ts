@@ -172,6 +172,9 @@ export const WEBHOOK_EVENT_TTL_DAYS = 30;
 /** `SETTINGS` / PAYMENTS — the account-wide PaymentSettings singleton. */
 export const PAYMENT_SETTINGS_SK = 'PAYMENTS';
 
+/** `SETTINGS` / DOCUMENTS — the account-wide DocumentSettings singleton (default notes, deposit, signature). */
+export const DOCUMENT_SETTINGS_SK = 'DOCUMENTS';
+
 // ---- payments report (a derived projection of the ledger) ----------------------
 /**
  * The Payments report (Workiz Reports → Payments) reads its own rows, never

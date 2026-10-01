@@ -18,6 +18,7 @@ import {
   mockDealClient,
   mockDocuments,
   mockEvents,
+  mockDocumentSettings,
   mockProfileService,
   profile,
 } from './mocks';
@@ -136,6 +137,42 @@ describe('InvoicesService', () => {
       expect(inv.taxRatePercent).toBe(6.35);
       expect(inv.totals.total).toBe(106.35);
       expect(inv.status).toBe('due');
+    });
+
+    it('pre-fills Notes from the document settings on a job and a client invoice', async () => {
+      const withSettings = new InvoicesService(
+        repo as never,
+        deal as never,
+        crm as never,
+        profiles as never,
+        documents as never,
+        events as never,
+        undefined,
+        undefined,
+        undefined,
+        mockDocumentSettings() as never,
+      );
+      const job = await withSettings.create('deal-1', caller());
+      expect(job.notes).toBe('Thank you for considering our services!');
+      const client = await withSettings.createForClient('contact-1', caller());
+      expect(client.notes).toBe('Thank you for considering our services!');
+    });
+
+    it('no default notes ⇒ Notes stay empty', async () => {
+      const withSettings = new InvoicesService(
+        repo as never,
+        deal as never,
+        crm as never,
+        profiles as never,
+        documents as never,
+        events as never,
+        undefined,
+        undefined,
+        undefined,
+        mockDocumentSettings({ invoiceNotes: '' }) as never,
+      );
+      const job = await withSettings.create('deal-1', caller());
+      expect(job.notes).toBeUndefined();
     });
 
     it('links the job, logs the timeline and publishes invoice.created', async () => {

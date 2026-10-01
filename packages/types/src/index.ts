@@ -446,6 +446,12 @@ export type {
 export { DEFAULT_BUSINESS_PROFILE, DEFAULT_BUSINESS_PROFILE_ID } from './entities/business-profile.entity';
 export type { BusinessProfile, BusinessProfileView, BillingAsset } from './entities/business-profile.entity';
 export type { PortalLink, PortalDocumentSummary, PortalView } from './entities/portal.entity';
+export type { DocumentSettings } from './entities/document-settings.entity';
+export {
+  DEFAULT_DOCUMENT_NOTES,
+  DEFAULT_DOCUMENT_SETTINGS,
+  DOCUMENT_NOTES_MAX_LENGTH,
+} from './entities/document-settings.entity';
 export {
   DOCUMENT_TEMPLATE_KINDS,
   DOCUMENT_BLOCK_TYPES,

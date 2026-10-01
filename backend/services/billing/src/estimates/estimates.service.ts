@@ -26,6 +26,7 @@ import {
 import { assertDealAccess, isAssignedOnly, type Caller } from '../common/access';
 import { isYmd, resolveTimezone, todayIn } from '../common/dates';
 import { standaloneDocumentNumber } from '../common/document-number';
+import { DocumentSettingsService } from '../documents/document-settings.service';
 import { DocumentsService } from '../documents/documents.service';
 import { BillingEventsPublisher } from '../integrations/billing-events.publisher';
 import { CrmClient } from '../integrations/crm.client';
@@ -105,9 +106,30 @@ export class EstimatesService {
     @Optional() private readonly events?: BillingEventsPublisher,
     @Optional() private readonly redis?: RedisService,
     @Optional() private readonly crm?: CrmClient,
+    @Optional() private readonly documentSettings?: DocumentSettingsService,
   ) {}
 
   // ---------------------------------------------------------------- create
+
+  /**
+   * What every NEW estimate starts with (Workiz: Settings → Documents and the
+   * deposit's "Set for future estimates"): the default Notes and the default
+   * deposit. Best effort — unreadable settings just mean a blank start.
+   */
+  private async newEstimateDefaults(): Promise<Pick<Estimate, 'notes' | 'depositPercentage' | 'depositAmount'>> {
+    if (!this.documentSettings) return {};
+    try {
+      const s = await this.documentSettings.get();
+      return {
+        ...(s.estimateNotes?.trim() && { notes: s.estimateNotes.trim() }),
+        ...(s.depositPercentage && { depositPercentage: s.depositPercentage }),
+        ...(s.depositAmount && { depositAmount: s.depositAmount }),
+      };
+    } catch (err) {
+      this.logger.warn(`document settings unavailable, creating a blank estimate: ${(err as Error).message}`);
+      return {};
+    }
+  }
 
   async create(input: CreateEstimateInput, caller: Caller): Promise<EstimateWithItems> {
     if (input.dealId) return this.createForJob(input.dealId, input, caller);
@@ -139,6 +161,7 @@ export class EstimatesService {
       statusChangedAt: now,
       estimateDate: todayIn(resolveTimezone(undefined)),
       ...(contact.taxExempt && { taxRatePercent: 0, taxSource: 'exempt' as const }),
+      ...(await this.newEstimateDefaults()),
       totals: estimateTotals({}, []),
       version: 1,
       createdBy: caller.user.id,
@@ -175,6 +198,7 @@ export class EstimatesService {
       ...(d.taxRatePercent !== undefined && { taxRatePercent: d.taxRatePercent }),
       ...(d.taxSource && { taxSource: d.taxSource }),
       ...(d.discount && { discount: d.discount }),
+      ...(await this.newEstimateDefaults()),
       totals: estimateTotals({}, []),
       version: 1,
       createdBy: caller.user.id,

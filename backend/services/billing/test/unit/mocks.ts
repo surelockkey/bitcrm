@@ -154,4 +154,16 @@ export function mockDocuments() {
   };
 }
 
+export function mockDocumentSettings(over: Record<string, unknown> = {}) {
+  return {
+    get: jest.fn(async () => ({
+      estimateNotes: 'Thank you for considering our services!',
+      invoiceNotes: 'Thank you for considering our services!',
+      requestInvoiceSignature: true,
+      showUnselectedProposalOptions: false,
+      ...over,
+    })),
+  };
+}
+
 export { PaymentTerms, DataScope };
