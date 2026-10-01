@@ -107,11 +107,13 @@ export function ClientSummaryPanel({
           format={(p) => formatPhoneWithExtension(p, extensionOf(contact, p))}
           primaryFirst
           // Workiz puts a phone and a chat icon beside the number: call, or
-          // open the thread in a side panel without leaving the card.
-          action={(phone) => (
+          // open the thread in a side panel without leaving the card. The
+          // thread is one per client, so the chat icon sits by the primary
+          // number only; every number can be called.
+          action={(phone, index) => (
             <span className="flex items-center gap-1">
               <CallClientButton to={phone} partyId={contact.id} />
-              {canMessage ? (
+              {canMessage && index === 0 ? (
                 <Button variant="ghost" size="icon-sm" aria-label="Message client" onClick={onMessage}>
                   <MessageSquare className="size-4" />
                 </Button>

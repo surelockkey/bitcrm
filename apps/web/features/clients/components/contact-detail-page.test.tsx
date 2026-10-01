@@ -247,7 +247,10 @@ describe("ContactDetailPage — the client card, laid out as Workiz's", () => {
     expect(screen.queryByTestId("party-chat")).toBeNull();
 
     const panel = screen.getByRole("complementary", { name: "Client" });
-    await userEvent.click(within(panel).getAllByRole("button", { name: "Message client" })[0]);
+    // One message button, beside the primary number only; every number keeps its call button.
+    expect(within(panel).getAllByRole("button", { name: "Message client" })).toHaveLength(1);
+    expect(within(panel).getAllByRole("button", { name: /^Call / })).toHaveLength(2);
+    await userEvent.click(within(panel).getByRole("button", { name: "Message client" }));
     expect(await screen.findByTestId("party-chat")).toBeInTheDocument();
     expect(screen.getByRole("dialog")).toHaveTextContent("CBRE Facilities Management");
   });
