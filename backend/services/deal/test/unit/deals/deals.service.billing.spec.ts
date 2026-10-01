@@ -259,7 +259,7 @@ describe('DealsService — billing', () => {
       }));
       expect(repo.update).toHaveBeenCalledWith('deal-1', {
         itemCount: 1,
-        totals: { subtotal: 50, discount: 0, tax: 0, total: 50, cost: 1 },
+        totals: { subtotal: 50, discount: 0, tax: 0, total: 50, cost: 1, taxableBase: 50 },
       });
     });
 
@@ -306,6 +306,22 @@ describe('DealsService — billing', () => {
       expect(products.addProduct.mock.calls[0][1]).toMatchObject({ productId: 'product-2', taxable: true });
     });
 
+    it('keeps a line out of the discount through an in-place edit, not through a swap', async () => {
+      mockFindById();
+      products.findProduct.mockImplementation(async (_d: string, pid: string) =>
+        pid === 'product-1'
+          ? createMockDealProduct({ fulfillment: 'to_order', taxable: false, discountable: false })
+          : null,
+      );
+      http.getProduct.mockResolvedValue({ id: 'product-2', type: 'product' });
+
+      await service.replaceProduct('deal-1', 'product-1', { ...lineDto, priceClient: 6 } as any, caller);
+      await service.replaceProduct('deal-1', 'product-1', { ...lineDto, productId: 'product-2' } as any, caller);
+
+      expect(products.addProduct.mock.calls[0][1]).toMatchObject({ priceClient: 6, discountable: false });
+      expect(products.addProduct.mock.calls[1][1]).not.toHaveProperty('discountable');
+    });
+
     it('recounts items on remove', async () => {
       mockFindById();
       products.findProduct.mockResolvedValue(createMockDealProduct({ fulfillment: 'service' }));
@@ -315,7 +331,7 @@ describe('DealsService — billing', () => {
 
       expect(repo.update).toHaveBeenCalledWith('deal-1', {
         itemCount: 0,
-        totals: { subtotal: 0, discount: 0, tax: 0, total: 0, cost: 0 },
+        totals: { subtotal: 0, discount: 0, tax: 0, total: 0, cost: 0, taxableBase: 0 },
       });
       expect(cache.invalidate).toHaveBeenCalledWith('deal-1');
     });

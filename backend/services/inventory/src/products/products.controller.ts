@@ -17,6 +17,7 @@ import { ApiBearerAuth, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagg
 import { CurrentUser, RequirePermission, hasPermission } from '@bitcrm/shared';
 import { type JwtUser, type Product } from '@bitcrm/types';
 import { ProductsService } from './products.service';
+import { ProductThumbnailsService } from './product-thumbnails';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { ListProductsQueryDto } from './dto/list-products-query.dto';
@@ -41,7 +42,10 @@ const MONEY_NOTE = ' `costCompany` is left out without `financials.view`.';
 @ApiBearerAuth()
 @Controller('products')
 export class ProductsController {
-  constructor(private readonly productsService: ProductsService) {}
+  constructor(
+    private readonly productsService: ProductsService,
+    private readonly thumbnails: ProductThumbnailsService,
+  ) {}
 
   @Post()
   @RequirePermission('products', 'create')
@@ -62,13 +66,15 @@ export class ProductsController {
       'in name order; the other filters (`type`, `status`, `search`, `brandId`, `manageStock`) ' +
       'apply on top. On both name-ordered partitions a filtered page is filled across the whole ' +
       'partition, never an empty page with a cursor. A cursor is only good for the partition that ' +
-      'handed it out; any other is a 400.' + MONEY_NOTE,
+      'handed it out; any other is a 400. An item with a photo whose thumbnail has been made ' +
+      'carries `thumbnailUrl` — a presigned GET of a 128×128 webp, the same URL all hour.' + MONEY_NOTE,
   })
   async list(@Query() query: ListProductsQueryDto, @Req() req: any) {
     const { items, nextCursor } = await this.productsService.list(query);
+    const data = await this.thumbnails.withThumbnails(items.map((item) => forCaller(item, req)));
     return {
       success: true,
-      data: items.map((item) => forCaller(item, req)),
+      data,
       pagination: { nextCursor, count: items.length },
     };
   }
@@ -185,6 +191,36 @@ export class ProductsController {
       contentType || 'image/jpeg',
     );
     return { success: true, data };
+  }
+
+  @Post(':id/photo/complete')
+  @RequirePermission('products', 'edit')
+  @ApiOperation({
+    summary: 'Finish a photo upload: make its thumbnail',
+    description:
+      '**Guard:** `products.edit` permission required. Called after the PUT to the presigned ' +
+      'URL: reads the photo from S3, stores a 128×128 webp beside it (`products/<id>/thumb-<uuid>.webp`) ' +
+      'and names it on the product (`thumbKey`), so the lists show it. Answers the product with its ' +
+      '`thumbnailUrl`. 404 without a photo, 409 while the photo is not in S3 yet (or was replaced ' +
+      'meanwhile), 422 when the file is not a readable image — the photo itself is kept either way.' +
+      MONEY_NOTE,
+  })
+  async completePhotoUpload(@Param('id') id: string, @Req() req: any) {
+    const data = await this.thumbnails.complete(id);
+    return { success: true, data: forCaller(data, req) };
+  }
+
+  @Delete(':id/photo')
+  @RequirePermission('products', 'edit')
+  @ApiOperation({
+    summary: 'Remove the product photo',
+    description:
+      '**Guard:** `products.edit` permission required. Deletes the photo and its thumbnail ' +
+      'from S3 and clears `photoKey` / `thumbKey`.' + MONEY_NOTE,
+  })
+  async removePhoto(@Param('id') id: string, @Req() req: any) {
+    const data = await this.thumbnails.removePhoto(id);
+    return { success: true, data: forCaller(data, req) };
   }
 
   @Get(':id/photo')

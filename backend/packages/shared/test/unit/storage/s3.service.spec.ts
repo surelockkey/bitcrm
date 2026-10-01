@@ -111,6 +111,14 @@ describe('S3Service', () => {
       });
       expect(mockGetSignedUrl.mock.calls[0][2]).toEqual({ expiresIn: 600 });
     });
+
+    // A list's thumbnails: the same URL all hour, so the browser keeps the file.
+    it('dates the signature at the given moment', async () => {
+      mockGetSignedUrl.mockResolvedValue('https://s3/thumb');
+      const hour = new Date('2026-09-30T14:00:00.000Z');
+      await service.getPresignedDownloadUrl('products/p1/thumb-u1.webp', { expiresIn: 7200, signingDate: hour });
+      expect(mockGetSignedUrl.mock.calls[0][2]).toEqual({ expiresIn: 7200, signingDate: hour });
+    });
   });
 
   describe('getObjectBuffer / objectExists', () => {
@@ -166,6 +174,17 @@ describe('S3Service', () => {
       expect(input.ContentLength).toBe(2);
       expect(input.ServerSideEncryption).toBeUndefined();
       expect(input.Metadata).toBeUndefined();
+      expect(input.CacheControl).toBeUndefined();
+    });
+
+    it('stores a Cache-Control when one is given', async () => {
+      mockSend.mockResolvedValue({});
+      await service.putObject('products/p1/thumb-u1.webp', Buffer.from('x'), {
+        contentType: 'image/webp',
+        cacheControl: 'private, max-age=31536000, immutable',
+      });
+      const { PutObjectCommand } = require('@aws-sdk/client-s3');
+      expect(PutObjectCommand.mock.calls.at(-1)[0].CacheControl).toBe('private, max-age=31536000, immutable');
     });
   });
 

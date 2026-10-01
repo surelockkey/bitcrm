@@ -1,10 +1,11 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import type Stripe from 'stripe';
 import { BillingEventType, TimelineEventType, type Payment, type PaymentStatus } from '@bitcrm/types';
 import { PaymentsRepository } from '../payments.repository';
 import { PaymentsService } from '../payments.service';
 import { canTransition, fromCents, round2, statusAfterRefund } from '../payment-rules';
 import { StripeService, intentId } from './stripe.service';
+import { PaymentReportProjector } from '../report/payment-report.projector';
 
 /** Exactly the events the endpoint is subscribed to in the Stripe dashboard. */
 export const SUBSCRIBED_STRIPE_EVENTS = [
@@ -59,6 +60,7 @@ export class StripeEventsHandler {
     private readonly repo: PaymentsRepository,
     private readonly payments: PaymentsService,
     private readonly stripe: StripeService,
+    @Optional() private readonly report?: PaymentReportProjector,
   ) {}
 
   /**
@@ -238,6 +240,8 @@ export class StripeEventsHandler {
       ...(refund.failure_reason && { failureReason: refund.failure_reason }),
       updatedAt: new Date().toISOString(),
     });
+    // A refund that failed or was cancelled leaves the Payments report.
+    await this.report?.project(paymentId);
   }
 
   // ----------------------------------------------------------------- disputes

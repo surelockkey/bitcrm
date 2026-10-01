@@ -44,7 +44,7 @@ const FORM_ID = "warehouse-edit-form";
 
 /**
  * The warehouse's Edit popup — Inventory has no warehouse page any more.
- * Opened from the row's pencil or `?edit=<id>`; view-only without
+ * Opened from the row's pencil or a link to the warehouse; view-only without
  * `warehouses.edit`. Archive sits in its footer, as on an item's popup.
  */
 export function WarehouseEditDialog({

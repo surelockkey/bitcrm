@@ -165,6 +165,7 @@ export {
 export {
   CommissionConfig,
   CommissionBreakdown,
+  CommissionJobTypeRule,
 } from './entities/commission-config.entity';
 export {
   TechnicianDocument,
@@ -450,10 +451,26 @@ export type {
   PaymentRefund,
   RefundStatus,
   PaymentSummary,
+  JobPaymentLedger,
   PaymentSettings,
   PortalPaymentOptions,
   PortalPaymentSession,
 } from './entities/payment.entity';
+export {
+  PAYMENT_REPORT_TYPES,
+  PAYMENT_REPORT_TYPE_LABELS,
+  PAYMENT_REPORT_TYPE_FILTERS,
+  PAYMENT_REPORT_ELECTRONIC_TYPES,
+  paymentReportTypeLabel,
+} from './entities/payment-report.entity';
+export type {
+  PaymentReportType,
+  PaymentReportStatus,
+  PaymentReportRow,
+  PaymentReportTotals,
+  PaymentReportPage,
+  PaymentReportQuery,
+} from './entities/payment-report.entity';
 
 // Permissions
 export {
@@ -502,6 +519,26 @@ export type {
   DealStatsDay,
   DealStatsMoney,
 } from './responses/deal-stats';
+export {
+  COMMISSION_REPORT_MODES,
+  COMMISSION_REPORT_BY,
+  COMMISSION_REPORT_TOTAL_KEYS,
+} from './responses/commission-report';
+export type {
+  CommissionReport,
+  CommissionReportBy,
+  CommissionReportExternalSummary,
+  CommissionReportMode,
+  CommissionReportRow,
+  CommissionReportTechSummary,
+  CommissionReportTotal,
+  CommissionReportTotalKey,
+  CommissionReportTotals,
+  CommissionRateSource,
+  CommissionRateUnit,
+  CommissionRowSource,
+  WorkizCommissionSnapshot,
+} from './responses/commission-report';
 export type {
   CallFlowSeries,
   CallsDashboardBundle,
@@ -522,6 +559,33 @@ export {
   dashboardWindow,
   msUntilDailyAt,
 } from './dashboard/time';
+
+// Reports — the Workiz Sales report (`GET /deals/report/sales`)
+export {
+  SALES_REPORT_BY,
+  SALES_REPORT_COLUMNS,
+  SALES_REPORT_COLUMN_IDS,
+  SALES_REPORT_DEFAULT_COLUMNS,
+  SALES_REPORT_DEFAULT_SETTINGS,
+  SALES_REPORT_MAX_DAYS,
+  SALES_REPORT_MAX_PAGE_SIZE,
+  SALES_REPORT_MONEY_COLUMNS,
+  SALES_REPORT_PAYMENT_STATUSES,
+  SALES_REPORT_STATUSES,
+} from './reports/sales-report';
+export type {
+  SalesReportBy,
+  SalesReportColumnId,
+  SalesReportDay,
+  SalesReportFilters,
+  SalesReportMoney,
+  SalesReportPage,
+  SalesReportPagination,
+  SalesReportPaymentStatus,
+  SalesReportRow,
+  SalesReportSettings,
+  SalesReportTotals,
+} from './reports/sales-report';
 
 // Reports — the Workiz Jobs report (`GET /deals/report`)
 export {
@@ -565,3 +629,67 @@ export type {
   ItemsReportSort,
   ItemsReportTotals,
 } from './reports/items-report';
+// Reports — Workiz's billing reports: Aging invoices, Tax, Invoices, Estimates
+export {
+  AGING_BUCKETS,
+  AGING_BUCKET_LABELS,
+  AGING_SORTS,
+  INVOICE_REPORT_STATUSES,
+  INVOICE_DAYS_DUE,
+  INVOICE_DAYS_DUE_LABELS,
+  ESTIMATE_STATUS_LABELS,
+  TAX_REPORT_BASES,
+  TAX_REPORT_BY,
+  TAX_REPORT_BY_LABELS,
+  agingDaysLate,
+  agingBucketOf,
+  invoiceDaysDueWindow,
+  invoiceDiscountPercent,
+  INVOICE_PAID_TOLERANCE,
+  reportInvoiceBalance,
+  reportInvoiceStatus,
+  isReportOpen,
+  invoiceReportFigures,
+  estimateReportAmount,
+  estimateDepositDue,
+  taxRateKey,
+  taxRateRounded,
+} from './reports/billing-reports';
+export type {
+  AgingBucket,
+  AgingOverdueBucket,
+  AgingReport,
+  AgingRow,
+  AgingSort,
+  EstimateReportSummary,
+  InvoiceDaysDue,
+  InvoiceReportStatus,
+  InvoiceReportSummary,
+  InvoiceReportFigures,
+  InvoiceReportRow,
+  ReportCard,
+  ReportCsvExport,
+  TaxReport,
+  TaxReportBasis,
+  TaxReportBy,
+  TaxReportRow,
+} from './reports/billing-reports';
+// Reports — the Workiz Job Statistics (`GET /deals/report/statistics`)
+export {
+  JOB_STATISTICS_BY_LABEL,
+  JOB_STATISTICS_PROFIT_ACTION,
+  JOB_STATISTICS_TABS,
+  JOB_STATISTICS_TAB_ACTION,
+} from './reports/job-statistics';
+export type {
+  JobStatistics,
+  JobStatisticsBy,
+  JobStatisticsCounts,
+  JobStatisticsDay,
+  JobStatisticsKpis,
+  JobStatisticsMoney,
+  JobStatisticsRow,
+  JobStatisticsTab,
+  JobStatisticsTable,
+  JobStatisticsTotals,
+} from './reports/job-statistics';

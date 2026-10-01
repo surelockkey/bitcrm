@@ -93,6 +93,49 @@ describe("CommandMenu", () => {
     expect(screen.queryByText("Dashboard")).not.toBeInTheDocument();
   });
 
+  // Як у Workiz: глобальний пошук не знаходить товари.
+  it("never asks for items, and never shows any an older server sends", async () => {
+    let types: string[] = [];
+    server.use(
+      http.get("*/search", ({ request }) => {
+        types = (new URL(request.url).searchParams.get("type") ?? "").split(",");
+        return HttpResponse.json({
+          success: true,
+          data: {
+            query: "dead",
+            mode: "typeahead",
+            took: 1,
+            groups: [
+              {
+                type: "product",
+                total: 1,
+                items: [{ entityId: "p1", type: "product", title: "Deadbolt", badges: [], url: "/inventory/products/p1", score: 3 }],
+              },
+              {
+                type: "deal",
+                total: 1,
+                items: [{ entityId: "d1", type: "deal", title: "Deadbolt install", badges: [], url: "/deals/d1", score: 2 }],
+              },
+            ],
+          },
+        });
+      }),
+    );
+
+    useUiStore.setState({ commandOpen: true });
+    renderMenu();
+    await userEvent.type(screen.getByPlaceholderText(/search deals, contacts/i), "dead");
+
+    expect(await screen.findByText("Deadbolt install")).toBeInTheDocument();
+    expect(screen.queryByText("Deadbolt")).not.toBeInTheDocument();
+    expect(screen.queryByText("Products")).not.toBeInTheDocument();
+    expect(types).toContain("deal");
+    expect(types).toContain("contact");
+    expect(types).not.toContain("product");
+    expect(types).not.toContain("stock");
+    expect(screen.getByPlaceholderText(/search deals, contacts/i).getAttribute("placeholder")).not.toMatch(/product|sku/i);
+  });
+
   it("navigates to the hit url on select", async () => {
     server.use(
       http.get("*/search", () =>

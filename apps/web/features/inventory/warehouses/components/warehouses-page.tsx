@@ -14,6 +14,7 @@ import {
 import { InventoryStatus } from "@bitcrm/types";
 import { useDenied, usePermissions } from "@/features/auth/use-permissions";
 import { NoAccess } from "@/features/inventory/components/no-access";
+import { ListBody } from "@/features/inventory/components/list-body";
 import { useSkeletonRows } from "@/features/inventory/components/use-skeleton-rows";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { ListPagination } from "@/components/ui/list-pagination";
@@ -21,17 +22,18 @@ import { pagedSource } from "@/lib/paging/paged-source";
 import { usePageSize } from "@/lib/paging/use-page-size";
 import { usePager } from "@/lib/paging/use-pager";
 import { LocationStockDialog } from "@/features/inventory/stock/components/location-stock-dialog";
-import { useUrlPopups } from "@/features/inventory/use-url-popups";
+import { usePopup } from "@/features/inventory/use-popup";
 import { useWarehousesList, useWarehousesCount } from "../hooks";
 import type { WarehouseFilter } from "../api";
 import { WarehousesTable } from "./warehouses-table";
 import { WarehouseCreateDialog } from "./warehouse-create-dialog";
 import { WarehouseEditDialog } from "./warehouse-edit-dialog";
 
-const WAREHOUSES_PATH = "/inventory/warehouses";
+/** The popup over the list — one at a time: a warehouse's stock or its settings. */
+type WarehousesPopup = { kind: "stock"; id: string } | { kind: "edit"; id: string };
 
-/** The URL params that open a popup — one at a time. */
-const POPUPS = ["stock", "edit"] as const;
+/** Old links carried the popup in the query; they land on the plain list, the params dropped. */
+const STALE_PARAMS = ["stock", "edit"] as const;
 
 /** The list's own key: its page size and its skeleton's height are saved under it. */
 const TABLE_KEY = "inventory-warehouses";
@@ -45,10 +47,10 @@ export function WarehousesPage() {
   const [createOpen, setCreateOpen] = useState(false);
 
   // A warehouse has no page of its own: its stock and its settings open over
-  // the list, from the URL, so an old /inventory/warehouses/<id> link lands here.
-  const popups = useUrlPopups(WAREHOUSES_PATH, POPUPS);
-  const stockId = popups.param("stock");
-  const editId = stockId ? null : popups.param("edit");
+  // the list as state; an old /inventory/warehouses/<id> link lands on the list.
+  const { popup, open, close } = usePopup<WarehousesPopup>(STALE_PARAMS);
+  const stockId = popup?.kind === "stock" ? popup.id : null;
+  const editId = popup?.kind === "edit" ? popup.id : null;
 
   // The server searches and filters; the browser shows the page it got.
   const term = useDebouncedValue(search.trim(), 300);
@@ -72,6 +74,8 @@ export function WarehousesPage() {
   const filtered = !!filter.search || status !== InventoryStatus.ACTIVE;
   // Nothing on screen yet: the table draws itself, a page of skeleton rows tall.
   const loading = query.isLoading && !query.data;
+  const failed = query.isError && !query.data;
+  const empty = !failed && !loading && warehouses.length === 0;
   const skeletonRows = useSkeletonRows(
     TABLE_KEY,
     pageSize,
@@ -124,64 +128,73 @@ export function WarehousesPage() {
       </div>
 
       <div className="flex-1 px-6 pb-6">
-        {query.isError && !query.data ? (
-          <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed py-16 text-center">
-            <div className="flex size-12 items-center justify-center rounded-xl bg-destructive/10 text-destructive">
-              <TriangleAlert className="size-6" />
-            </div>
-            <div className="font-medium">Couldn&apos;t load warehouses</div>
-            <Button variant="outline" onClick={() => query.refetch()}>
-              Retry
-            </Button>
-          </div>
-        ) : !loading && warehouses.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed py-16 text-center">
-            <div className="flex size-12 items-center justify-center rounded-xl bg-muted text-muted-foreground">
-              <WarehouseIcon className="size-6" />
-            </div>
-            <div>
-              <div className="font-medium">
-                {filtered ? "No warehouses match" : "No warehouses yet"}
+        <ListBody
+          holdKey={JSON.stringify(filter)}
+          scrollKey={`${pager.page}:${pageSize}`}
+          pager={
+            failed || empty ? null : (
+              <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} reserveSpace />
+            )
+          }
+        >
+          {failed ? (
+            <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed py-16 text-center">
+              <div className="flex size-12 items-center justify-center rounded-xl bg-destructive/10 text-destructive">
+                <TriangleAlert className="size-6" />
               </div>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {filtered
-                  ? "Try clearing your search or filter."
-                  : "Create your first warehouse to start receiving stock."}
-              </p>
+              <div className="font-medium">Couldn&apos;t load warehouses</div>
+              <Button variant="outline" onClick={() => query.refetch()}>
+                Retry
+              </Button>
             </div>
-          </div>
-        ) : (
-          <>
-            {/* Loading, loaded or holding the last filter's rows — one table,
-                so nothing under it moves when the rows land. */}
-            <WarehousesTable
-              warehouses={warehouses}
-              loading={loading}
-              skeletonRows={skeletonRows}
-              stale={pager.isStale}
-              onEdit={(w) => popups.open("edit", w.id)}
-              onStock={(w) => popups.open("stock", w.id)}
-            />
-            <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} reserveSpace />
-          </>
-        )}
+          ) : empty ? (
+            <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed py-16 text-center">
+              <div className="flex size-12 items-center justify-center rounded-xl bg-muted text-muted-foreground">
+                <WarehouseIcon className="size-6" />
+              </div>
+              <div>
+                <div className="font-medium">
+                  {filtered ? "No warehouses match" : "No warehouses yet"}
+                </div>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {filtered
+                    ? "Try clearing your search or filter."
+                    : "Create your first warehouse to start receiving stock."}
+                </p>
+              </div>
+            </div>
+          ) : (
+            <>
+              {/* Loading, loaded or holding the last filter's rows — one table,
+                  so nothing under it moves when the rows land. */}
+              <WarehousesTable
+                warehouses={warehouses}
+                loading={loading}
+                skeletonRows={skeletonRows}
+                stale={pager.isStale}
+                onEdit={(w) => open({ kind: "edit", id: w.id })}
+                onStock={(w) => open({ kind: "stock", id: w.id })}
+              />
+            </>
+          )}
+        </ListBody>
       </div>
 
       <WarehouseCreateDialog open={createOpen} onOpenChange={setCreateOpen} />
-      {/* Mounted only while their param is set, so each opening reads fresh. */}
+      {/* Mounted only while open, so each opening reads fresh. */}
       {stockId ? (
         <LocationStockDialog
           type="warehouse"
           locationId={stockId}
           open
-          onOpenChange={(open) => (open ? undefined : popups.close())}
+          onOpenChange={(next) => (next ? undefined : close())}
         />
       ) : null}
       {editId ? (
         <WarehouseEditDialog
           warehouseId={editId}
           open
-          onOpenChange={(open) => (open ? undefined : popups.close())}
+          onOpenChange={(next) => (next ? undefined : close())}
         />
       ) : null}
     </div>

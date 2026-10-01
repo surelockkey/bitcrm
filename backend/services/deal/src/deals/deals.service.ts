@@ -2212,6 +2212,8 @@ export class DealsService {
         fulfillment === 'to_order' &&
         existing.orderedAt && { orderedAt: existing.orderedAt }),
       taxable,
+      // A Workiz service fee edited in place stays out of the discount.
+      ...(!isSwap && existing.discountable === false && { discountable: false }),
       ...(description !== undefined && { description }),
       addedBy: existing.addedBy,
       addedAt: existing.addedAt,

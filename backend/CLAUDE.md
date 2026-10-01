@@ -39,7 +39,7 @@ documented surface; keep it in sync when you add a variable.
 | --------- | ---- | ---------------- | ---- |
 | user      | 4001 | `api/users`      | users, roles/permissions, technicians (assignments, commission, documents, calendar, location) |
 | crm       | 4002 | `api/crm`        | contacts, companies, company documents, work orders |
-| deal      | 4003 | `api/deals`      | deals/jobs, line items, timeline, attachments + the catalogs (job types/sources/tags/statuses, service areas — each with its own sales `tax` and default company —, custom fields, external companies), the read-only tax rates derived from the areas, and the technician-eligibility projection |
+| deal      | 4003 | `api/deals`      | deals/jobs, line items, timeline, attachments + the catalogs (job types/sources/tags/statuses, service areas — each with its own sales `tax` and default company —, custom fields, external companies), the read-only tax rates derived from the areas, the technician-eligibility projection, and the commissions report (`reports/commissions`, read-only) |
 | inventory | 4004 | `api/inventory`  | products, brands, item categories, warehouses, containers, stock, transfers |
 | search    | 4005 | `api/search`     | global search — OpenSearch read model + indexer (CQRS) |
 | telephony | 4006 | `api/telephony`  | Twilio softphone: tokens, TwiML, call records, presence, call groups/flows, numbers, job dial-in codes |
@@ -201,7 +201,7 @@ display names per table.
 | `BitCRM_Calls` (also job dial-in codes) | `CALLS_TABLE` | AgentIndex | AllCallsIndex | PartyIndex | |
 | `BitCRM_CallGroups`, `BitCRM_CallFlows` | `CALL_GROUPS_TABLE`, `CALL_FLOWS_TABLE` | — | | | |
 | `BitCRM_Messaging` (conversations, messages, pointers, opt-outs, templates, settings, counters) | `MESSAGING_TABLE` | InboxIndex | UnreadIndex | CategoryIndex | JobIndex (+ GSI5 FlagIndex, GSI6 AccountCategoryIndex; TTL on `expiresAt`) |
-| `BitCRM_Billing` (invoices, estimates + lines, **payments + refunds + Stripe pointers**, templates, companies (business profiles), assets, portal tokens, per-job counters; TTL on `expiresAt` for webhook dedupe rows) | `BILLING_TABLE` | ListIndex | ContactIndex | DealIndex | |
+| `BitCRM_Billing` (invoices, estimates + lines, **payments + refunds + Stripe pointers**, templates, companies (business profiles), assets, portal tokens, per-job counters; TTL on `expiresAt` for webhook dedupe rows) | `BILLING_TABLE` | ListIndex | ContactIndex | DealIndex | UnpaidIndex (sparse) |
 
 Item shapes are prefix-encoded, e.g.
 
@@ -255,7 +255,12 @@ IDEMPOTENCY#TEMPLATE_FILL#<requestId> / METADATA   one "Fill from warehouse" req
 CONV#<id>          / METADATA        GSI1 INBOX#<open|archived>#<YYYY> — inbox split by year AND filter, never a
                                      constant key + FilterExpression (the CALL#ALL lesson); sparse GSI2 UNREAD#<YYYY>,
                                      GSI3 CAT#<kind>#<YYYY>, GSI5 FLAG#conversation, GSI6 ACCTCAT#<cat>#<YYYY>
-INVOICE#<dealId>   / METADATA        one per job; GSI1 INVOICES, GSI2 CONTACT#<contactId> (status filtered, not keyed)
+INVOICE#<dealId>   / METADATA        one per job; GSI1 INVOICES, GSI2 CONTACT#<contactId> (status filtered, not keyed);
+                                     sparse GSI4 UNPAID / <invoiceId> while status is due|overdue AND more than $0.01 is
+                                     owed (Workiz counts a cent as paid) — set and cleared by the repository on every
+                                     write that carries `status` (+ totals), never by a caller
+UNPAIDINDEX        / STATE           { readyAt, count } — stamped by backfill:unpaid-index; until it exists the readers
+                                     of UnpaidIndex answer from the full INVOICES list (slow, never wrong)
 ESTIMATE#<id>      / METADATA | ITEM#<lineId>   GSI1 ESTIMATES, GSI2 CONTACT#…, GSI3 DEAL#<dealId>; DEAL#<id>/COUNTERS estimateSeq
 PORTAL#<sha256>    / METADATA        portal token → contactId; CONTACT#<id>/PORTAL_LINK holds the link metadata
 BUSINESS_PROFILE#<id> / METADATA     a company; GSI1 BUSINESS_PROFILES. The legacy SETTINGS/BUSINESS_PROFILE
@@ -264,6 +269,14 @@ PAYMENT#<id>       / METADATA        a payment; GSI1 PAYMENTS, GSI2 CONTACT#<id>
 INVOICE#<dealId>   / PAYMENT#<createdAt>#<id>   the SAME payment, adjacent to its invoice — one Query reads a
                                      job's ledger. Both copies are written in one TransactWrite
 PAYMENT#<id>       / REFUND#<createdAt>#<id>    refunds under their payment (Stripe allows several partials)
+PAYMENT#<id>       / REPORT          the Payments report's pointer: which PAYLINE rows the payment has and what each
+                                     added to its bucket (the delta base); `rev`-guarded
+PAYLINE#<YYYY-MM>  / <at>#<lineId>   one line of the Payments report — a payment on its PAYMENT date (tip included),
+                                     a refund as a negative line on its own date, a reversal as "Dispute"; month and
+                                     day on the business clock (America/New_York). No GSI keys
+PAYAGG#<YYYY>      / D#<day>#<type>#<tech|->#<area|->  and  M#<YYYY-MM>#…   ADDed counters (n, amountCents,
+                                     tipsCents, feesCents): the report's totals for any range, "All time" included,
+                                     without reading the payments; PAYREPORT / INDEX holds its first and last month
 STRIPE#<objectId>  / POINTER         → {paymentId}; one per session / intent / charge id, so a webhook finds
                                      its payment in ONE read
 WEBHOOK#<eventId>  / METADATA        Stripe event dedupe; `expiresAt` TTL, 30 days
@@ -536,6 +549,12 @@ tests, and — if it emits events — the types in `@bitcrm/types` plus a row in
   `PRODUCTS#ALL` partition, and until it has run on an environment the Price
   Book — `GET /products` and `/products/count` without `category` and without
   `manageStock=true` — is EMPTY there.
+  `backfill:product-thumbnails` (after the deploy, after the catalog index,
+  and after every import that brings photos) makes the 128×128 webp each
+  photo's list row shows (`products/<id>/thumb-<uuid>.webp`, named in
+  `thumbKey`); until it has run, those items show the placeholder. New
+  uploads get theirs from `POST /products/:id/photo/complete`. It walks GSI4
+  `PRODUCTS#ALL` (no Scan), is idempotent, and needs the S3 bucket too.
 - **Redis DB 0 is dev, DB 15 is tests.** Don't flush the wrong one.
 - **Taxes live on service areas.** There is no tax-rate catalog: `ServiceArea.tax`
   (`{name, ratePercent}`) is the rate, exposed read-only as a `TaxRate` whose id is
@@ -543,6 +562,34 @@ tests, and — if it emits events — the types in `@bitcrm/types` plus a row in
   job's area tax → none. Jobs, estimates and invoices snapshot name + percent, so
   never "fix" a job by editing its area. Old `TAX_RATE#` rows / `defaultTaxRateId`
   pointers are converted by `npm run backfill:area-taxes -w backend/services/deal`.
+- **The commissions report owns no rows.** `GET /api/deals/reports/commissions`
+  (+ `/export`, CSV) is Workiz's "Commissions (Legacy)": Done jobs of a period,
+  read off EXISTING keys — GSI5 `STATUS#done` by visit start for Closed /
+  Scheduled (Workiz's "Closed" is the END of the visit window,
+  `scheduledEndDate`, so the start range reaches 31 days back and the end day is
+  filtered on), GSI1 `STATUS#done` by `createdAt` for Created (the local day in
+  `jobTimezone`), the tech index for an `assigned_only` caller. It never reads
+  GSI6: `closedAt` is when the job turned Done, not Workiz's "Closed". An
+  imported job shows Workiz's frozen `commissionSnapshot`; a job done here is
+  computed by `calculateWorkizCommission` (`commission-report/`) from billing's
+  `POST /payments/internal/by-deals` and the technician's commission version in
+  force on the job's day (user's `POST /technicians/internal/commissions`) —
+  versions are never rewritten, which is what freezes a job's rate. The old
+  `calculateCommission` in user-service (EPIC-6) is a different formula; leave it.
+- **Job Statistics reads the Jobs report's windows; `/deals/stats` is the
+  dashboard's.** `GET /api/deals/report/statistics` (Workiz Job Statistics) reads
+  a period with `DealsRepository.readReportWindow` — "Closed" is the EndIndex
+  (the visit's end, NOT `closedAt`), days on the account's Eastern calendar — and
+  aggregates it with the pure `deals/report/job-statistics.logic.ts`. Its Profit
+  is the Company Profit of the job's Commissions (Legacy) row (`commissionSnapshot`
+  on an imported job, `CommissionReportService.build` on one done here), never
+  total − tax − cost. Tabs and View Profit are `reports.view_*_statistics` /
+  `reports.view_profit` on top of `reports.view` + `financials.view`; only an
+  explicit `false` closes one, so a role saved before them keeps everything.
+  `GET /deals/stats` keeps its own older semantics (by `closedAt`, money split
+  per tech) because the dashboard widgets are built on it — don't "fix" one
+  through the other. Offline check against Workiz's live numbers:
+  `npm run verify:job-statistics -w backend/services/deal -- --package …`.
 - **Companies are billing's.** A job's `businessProfileId` is validated against
   billing's internal list (cached 60s in deal, non-fatal when billing is down) and
   its name snapshotted; documents and the portal render the job's company (fallback:
@@ -569,6 +616,49 @@ tests, and — if it emits events — the types in `@bitcrm/types` plus a row in
   partial payment leaves it `due`/`overdue` and a reversal pushes a `paid`
   invoice back on its own. Deal keeps only a denormalised `paymentStatus` for
   the job board, pushed over `PUT /deals/internal/:id/payment-status`.
+- **A payment belongs to the JOB, not to the invoice (Workiz).** A job can have
+  payments and no invoice at all (most imported Workiz jobs do): the ledger rows
+  still sit under `INVOICE#<dealId>` with `invoiceId === dealId`, just without
+  an `INVOICE#<dealId>/METADATA` row. `GET/POST /deals/:dealId/payments` (the job's
+  Payments tab) work either way and measure the balance against the job's own
+  total; refund / delete / receipt fall back to the job too. The
+  `/invoices/:id/payments` routes still 404 without an invoice, and an invoice
+  created later starts from the existing ledger (`ledgerAmountPaid(deal.id)`).
+- **The Payments report is a projection, and a deploy is not done until it is rebuilt.**
+  `GET /payments/report[/totals|/export]` (Workiz Reports → Payments) read only
+  the `PAYLINE#` / `PAYAGG#` rows, never the ledger's `PAYMENTS` list index
+  (keyed by `createdAt`, and summed with a 20k-row cap). `PaymentReportProjector`
+  keeps them current from `syncLedger` (every ledger path) and the `refund.*`
+  webhook: it re-reads the payment strongly consistent and writes the line +
+  bucket DIFFERENCE in one `rev`-guarded transaction — never throws, never a
+  delta it was told about. Rows written before the projection existed (every
+  Workiz import) are invisible until `npm run rebuild:payment-report -w
+  billing-service` has run (reconciles: overwrites with absolute values,
+  deletes what the ledger no longer explains; `--dry-run` compares, `--jsonl
+  <billing dir>` computes the report from an import package with no AWS). Run
+  it after the deploy that ships the report and after every Workiz import.
+- **The billing reports (Workiz Aging invoices, Invoices, Estimates, Tax) read
+  indexes, never the whole ledger.** Everything about money still owed —
+  Aging's five cards and table, the Invoices cards, "Days due", an
+  unpaid-only Status filter, the overdue sweep — reads UnpaidIndex (~600 of
+  ~78k invoices); a filter that may select a paid invoice walks GSI1 on its
+  created window (New York days as UTC instants) with one FilterExpression
+  the page and its count share. Estimates' cards read the created window
+  projected to status + amounts (Redis 30 s). The Tax report is
+  deal-service's (`GET /deals/report/tax`, `reports.view` + `financials.view`):
+  Accrual reads the Jobs report's `readReportWindow` (the EndIndex for "Job
+  end date"), Paid asks billing `GET /reports/internal/paid-by-job` — the
+  Payments report's `PAYLINE#` lines, so it is only as complete as
+  `rebuild:payment-report` made them. A deploy is not done until
+  `npm run backfill:unpaid-index -w billing-service` has run (Terraform first:
+  the UnpaidIndex GSI); run it again after every Workiz import. Offline
+  checks against an import package: `verify:billing-reports` (billing) and
+  `verify:tax-report` (deal). The reports read money the way Workiz prints it
+  (`invoiceReportFigures` in @bitcrm/types): a cent or less owed is Paid /
+  $0.00 (the invoice keeps the cent), Subtotal leaves out the card service fee
+  (the job's `totals.serviceFee`), Amount adds the tip (Workiz's on an
+  imported invoice, the ledger's otherwise) — stored totals are never
+  rewritten for it.
 - **Stripe webhook handlers ASSERT a state, they never apply a delta.** Stripe
   gives no ordering guarantee and re-delivers freely, so every status move goes
   through `canTransition` (`payments/payment-rules.ts`) and `reversed` is a

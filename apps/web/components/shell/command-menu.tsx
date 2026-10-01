@@ -23,6 +23,7 @@ import { usePermissions } from "@/features/auth/use-permissions";
 import { useUiStore } from "@/stores/ui-store";
 import { useGlobalSearch } from "@/features/search/use-global-search";
 import { SearchResults } from "@/features/search/search-results";
+import { GLOBAL_SEARCH_TYPES } from "@/features/search/search-meta";
 import type { SearchHit } from "@bitcrm/types";
 
 export function CommandMenu() {
@@ -32,13 +33,16 @@ export function CommandMenu() {
   const { can, isTechnician } = usePermissions();
 
   const [query, setQuery] = useState("");
+  // Everything but items: as in Workiz, the global search finds no products.
   const { data, isSearching } = useGlobalSearch(query, {
     mode: "typeahead",
     limit: 5,
+    types: [...GLOBAL_SEARCH_TYPES],
   });
 
   const showResults = query.trim().length >= 2;
-  const groups = data?.groups ?? [];
+  // An older search service that answers them anyway: still not shown.
+  const groups = (data?.groups ?? []).filter((g) => GLOBAL_SEARCH_TYPES.includes(g.type));
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -78,7 +82,7 @@ export function CommandMenu() {
         <CommandInput
           value={query}
           onValueChange={setQuery}
-          placeholder="Search deals, contacts, products, people…"
+          placeholder="Search deals, contacts, people…"
         />
         <CommandList>
           <CommandEmpty>

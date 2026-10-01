@@ -1,25 +1,61 @@
-import type { DealStatsBucket, DealStatsBy, DealStatsDay } from "@bitcrm/types";
+import type {
+  DashboardShare,
+  JobStatisticsBy,
+  JobStatisticsDay,
+  JobStatisticsRow,
+  JobStatisticsTab,
+  JobStatisticsTable,
+  JobStatisticsTotals,
+} from "@bitcrm/types";
+import type { JobsReportPreset } from "../jobs/lib";
 
-/* -------------------------------------------------------------- query */
+/*
+ * Workiz's Job Statistics, web side: the toolbar, the request it makes of
+ * `GET /deals/report/statistics`, and what the page does with the answer —
+ * weeks and months of the day series, the Sources type switch, the tables'
+ * names, columns, order, pies and CSV. Every figure comes from the server.
+ */
 
-export interface JobStatisticsFilters {
-  by: DealStatsBy;
+/* ---------------------------------------------------------------- toolbar */
+
+/** Workiz's Job Statistics presets, in its order ("This year" / "Last year" are the Jobs report's only). */
+export const STATISTICS_PRESETS: { id: JobsReportPreset; label: string }[] = [
+  { id: "custom", label: "Custom" },
+  { id: "today", label: "Today" },
+  { id: "yesterday", label: "Yesterday" },
+  { id: "this_week_sun", label: "This week (Sun-Today)" },
+  { id: "this_week_mon", label: "This week (Mon-Today)" },
+  { id: "last_7", label: "Last 7 days" },
+  { id: "last_week_sun", label: "Last week (Sun-Sat)" },
+  { id: "last_week_mon", label: "Last week (Mon-Sun)" },
+  { id: "last_business_week", label: "Last business week (Mon-Fri)" },
+  { id: "last_14", label: "Last 14 days" },
+  { id: "this_month", label: "This month" },
+  { id: "last_30", label: "Last 30 days" },
+  { id: "last_month", label: "Last month" },
+];
+
+/** Workiz opens Job Statistics on this month, by Closed. */
+export const DEFAULT_STATISTICS_PRESET: JobsReportPreset = "this_month";
+export const DEFAULT_STATISTICS_BY: JobStatisticsBy = "end";
+
+export interface StatisticsQuery {
+  by: JobStatisticsBy;
   from: string;
   to: string;
-  /** Service area name, as jobs carry it. */
-  serviceArea?: string;
+  serviceAreaId?: string;
   tagIds?: string[];
 }
 
-/** The `GET /deals/stats` query: the window on the "By Time" date, plus the filters that are set. */
-export function statsParams(f: JobStatisticsFilters): Record<string, string> {
-  const out: Record<string, string> = { [`${f.by}From`]: f.from, [`${f.by}To`]: f.to };
-  if (f.serviceArea) out.serviceArea = f.serviceArea;
-  if (f.tagIds?.length) out.tagIds = f.tagIds.join(",");
-  return out;
+/** The request: the period on its "By Time" date, plus the filters that are set. Tags are any-of. */
+export function statisticsParams(q: StatisticsQuery): string {
+  const p = new URLSearchParams({ by: q.by, from: q.from, to: q.to });
+  if (q.serviceAreaId) p.set("serviceAreaId", q.serviceAreaId);
+  if (q.tagIds?.length) p.set("tagId", q.tagIds.join(","));
+  return p.toString();
 }
 
-/* -------------------------------------------------------------- series */
+/* ----------------------------------------------------------------- series */
 
 export type Grain = "day" | "week" | "month";
 
@@ -38,113 +74,228 @@ function startOf(day: string, grain: Grain): string {
   return day;
 }
 
-const round = (n: number): number => Math.round(n * 100) / 100;
+const cents = (n: number | undefined): number => Math.round((n ?? 0) * 100);
 
-/** Days summed into Monday-started weeks or calendar months, keyed by their first day. */
-export function groupSeries(days: DealStatsDay[], grain: Grain): DealStatsDay[] {
+/** Days summed into Monday-started weeks or calendar months, keyed by their first day — in cents, so nothing drifts. */
+export function groupSeries(days: JobStatisticsDay[], grain: Grain): JobStatisticsDay[] {
   if (grain === "day") return days;
-  const out = new Map<string, DealStatsDay>();
+  const out = new Map<string, { row: JobStatisticsDay; sales?: number; profit?: number }>();
   for (const d of days) {
     const key = startOf(d.date, grain);
-    const row = out.get(key) ?? { date: key, jobs: 0, canceled: 0 };
-    row.jobs += d.jobs;
-    row.canceled += d.canceled;
-    if (d.revenue !== undefined) row.revenue = round((row.revenue ?? 0) + d.revenue);
-    if (d.profit !== undefined) row.profit = round((row.profit ?? 0) + d.profit);
-    out.set(key, row);
+    const acc = out.get(key) ?? { row: { date: key, jobs: 0, canceled: 0, done: 0 } };
+    acc.row.jobs += d.jobs;
+    acc.row.canceled += d.canceled;
+    acc.row.done += d.done;
+    if (d.sales !== undefined) acc.sales = (acc.sales ?? 0) + cents(d.sales);
+    if (d.profit !== undefined) acc.profit = (acc.profit ?? 0) + cents(d.profit);
+    out.set(key, acc);
   }
-  return [...out.values()];
-}
-
-/* ----------------------------------------------------------- breakdowns */
-
-export interface BreakdownRow {
-  key: string;
-  name: string;
-  all: number;
-  done: number;
-  open: number;
-  canceled: number;
-  canceledPct: number;
-  gross?: number;
-  profit?: number;
-  avgSale?: number;
-  avgProfit?: number;
-}
-
-export type BreakdownTotals = Omit<BreakdownRow, "key" | "name">;
-
-const pct = (part: number, whole: number): number => (whole ? round((part / whole) * 100) : 0);
-const per = (amount: number, count: number): number => (count ? round(amount / count) : 0);
-
-function ratios(r: { all: number; done: number; canceled: number; gross?: number; profit?: number }) {
-  return {
-    canceledPct: pct(r.canceled, r.all),
-    ...(r.gross !== undefined && {
-      gross: r.gross,
-      profit: r.profit ?? 0,
-      avgSale: per(r.gross, r.done),
-      avgProfit: per(r.profit ?? 0, r.done),
-    }),
-  };
-}
-
-/** One row per group, named; averages are per Done job (Workiz). "" = Not set. */
-export function breakdownRows(buckets: DealStatsBucket[], names: Record<string, string | undefined>): BreakdownRow[] {
-  return buckets.map((b) => ({
-    key: b.key,
-    name: b.key ? (names[b.key] ?? b.key) : "Not set",
-    all: b.all,
-    done: b.done,
-    open: b.open,
-    canceled: b.canceled,
-    ...ratios({ ...b, gross: b.revenue }),
+  return [...out.values()].map(({ row, sales, profit }) => ({
+    ...row,
+    ...(sales !== undefined && { sales: sales / 100 }),
+    ...(profit !== undefined && { profit: profit / 100 }),
   }));
 }
 
-/** The Totals row: sums, with the ratios recomputed over the sums. */
-export function breakdownTotals(rows: BreakdownRow[]): BreakdownTotals {
-  const money = rows.some((r) => r.gross !== undefined);
-  const sum = (k: "all" | "done" | "open" | "canceled" | "gross" | "profit") =>
-    round(rows.reduce((s, r) => s + (r[k] ?? 0), 0));
-  const t = { all: sum("all"), done: sum("done"), open: sum("open"), canceled: sum("canceled") };
-  return { ...t, ...ratios({ ...t, ...(money && { gross: sum("gross"), profit: sum("profit") }) }) };
+/* ---------------------------------------------------------------- tables */
+
+/** Workiz's "Source type": All sources, Only Ad sources, Only referrals (external companies). */
+export type SourceType = "all" | "ad" | "external";
+
+const round2 = (n: number): number => Math.round(n * 100) / 100;
+
+/** A Totals row over some rows: the sums, and the ratios recomputed over them (Canceled % over All). */
+export function totalsOf(rows: JobStatisticsRow[]): JobStatisticsTotals {
+  const all = rows.reduce((n, r) => n + r.all, 0);
+  const done = rows.reduce((n, r) => n + r.done, 0);
+  const canceled = rows.reduce((n, r) => n + r.canceled, 0);
+  const has = (k: keyof JobStatisticsTotals) => rows.length > 0 && rows.every((r) => r[k] !== undefined);
+  const sum = (k: "gross" | "profit" | "laborCost" | "techExpenses") => rows.reduce((c, r) => c + cents(r[k]), 0);
+  const per = (c: number) => (done ? Math.round(c / done) / 100 : 0);
+  return {
+    all,
+    done,
+    open: all - done - canceled,
+    canceled,
+    canceledPct: all ? round2((canceled / all) * 100) : 0,
+    ...(has("gross") && { gross: sum("gross") / 100, avgSale: per(sum("gross")) }),
+    ...(has("profit") && { profit: sum("profit") / 100, avgProfit: per(sum("profit")) }),
+    ...(has("laborCost") && { laborCost: sum("laborCost") / 100 }),
+    ...(has("techExpenses") && { techExpenses: sum("techExpenses") / 100 }),
+  };
 }
 
-export type BreakdownColumn = keyof Omit<BreakdownRow, "key">;
+/** The Sources table under a source type — the server's Totals for all, recomputed otherwise. */
+export function sourcesOf(table: JobStatisticsTable, type: SourceType): JobStatisticsTable {
+  if (type === "all") return table;
+  const rows = table.rows.filter((r) => (type === "external" ? r.kind === "external" : r.kind !== "external"));
+  return { rows, totals: totalsOf(rows) };
+}
 
-export function sortRows(rows: BreakdownRow[], by: BreakdownColumn, dir: "asc" | "desc"): BreakdownRow[] {
+export type AreaDrill = "metro" | "city" | "zip";
+
+/** What a row is called, blanks spelled out. */
+export function rowName(tab: JobStatisticsTab, row: JobStatisticsRow, drill: AreaDrill = "metro"): string {
+  if (row.label) return row.label;
+  switch (tab) {
+    case "sources":
+      if (row.kind === "external") return "Unknown company";
+      return row.key.startsWith("ad-id:") ? "Unknown source" : "No source";
+    case "tech":
+      return row.techIds?.length ? "Unknown user" : "Unassigned";
+    case "area":
+      return drill === "zip" ? "No zip" : drill === "city" ? "No city" : "No name";
+    case "dispatcher":
+      return "Unknown user";
+    case "jobTypes":
+      return "No job type";
+  }
+}
+
+export type ColumnKey = keyof JobStatisticsTotals | "name" | "city" | "serviceArea";
+export interface StatisticsColumn {
+  key: ColumnKey;
+  label: string;
+  format: "text" | "count" | "pct" | "money";
+}
+
+const NAME_LABEL: Record<Exclude<JobStatisticsTab, "area">, string> = {
+  sources: "Job Source",
+  tech: "Tech",
+  dispatcher: "Dispatcher",
+  jobTypes: "Job Type",
+};
+
+/**
+ * A tab's columns, Workiz's order: the name (Area: Zip · City · Service
+ * Area, as the drill shows them), the counts, then the money — Labor cost and
+ * Tech expenses on Tech only, Profit only when the answer carries it.
+ */
+export function columnsFor(tab: JobStatisticsTab, drill: AreaDrill, show: { money: boolean; profit: boolean }): StatisticsColumn[] {
+  const names: StatisticsColumn[] =
+    tab !== "area"
+      ? [{ key: "name", label: NAME_LABEL[tab], format: "text" }]
+      : drill === "zip"
+        ? [
+            { key: "name", label: "Zip", format: "text" },
+            { key: "city", label: "City", format: "text" },
+          ]
+        : drill === "city"
+          ? [
+              { key: "name", label: "City", format: "text" },
+              { key: "serviceArea", label: "Service Area", format: "text" },
+            ]
+          : [{ key: "name", label: "Service Area", format: "text" }];
+  const counts: StatisticsColumn[] = [
+    { key: "all", label: "All Jobs", format: "count" },
+    { key: "done", label: "Done Jobs", format: "count" },
+    { key: "open", label: "Open Jobs", format: "count" },
+    { key: "canceled", label: "Canceled Jobs", format: "count" },
+    { key: "canceledPct", label: "Canceled %", format: "pct" },
+  ];
+  if (!show.money) return [...names, ...counts];
+  const money = (key: ColumnKey, label: string): StatisticsColumn => ({ key, label, format: "money" });
+  return [
+    ...names,
+    ...counts,
+    money("gross", "Gross Amount"),
+    ...(show.profit ? [money("profit", "Profit")] : []),
+    ...(tab === "tech" ? [money("laborCost", "Labor cost"), money("techExpenses", "Tech expenses")] : []),
+    money("avgSale", "Average Sale"),
+    ...(show.profit ? [money("avgProfit", "Average Profit")] : []),
+  ];
+}
+
+/** A cell's value for sorting and printing. */
+export function cellValue(row: JobStatisticsRow, key: ColumnKey, name: string): string | number | undefined {
+  if (key === "name") return name;
+  if (key === "city") return row.city ?? "";
+  if (key === "serviceArea") return row.serviceArea ?? "";
+  return row[key];
+}
+
+const collator = new Intl.Collator("en", { sensitivity: "base", numeric: true });
+
+/** Workiz sorts its tables in the browser, on any column. */
+export function sortRows(
+  rows: JobStatisticsRow[],
+  key: ColumnKey,
+  dir: "asc" | "desc",
+  nameOf: (r: JobStatisticsRow) => string,
+): JobStatisticsRow[] {
   const sign = dir === "asc" ? 1 : -1;
   return [...rows].sort((a, b) => {
-    if (by === "name") return sign * a.name.localeCompare(b.name);
-    return sign * ((a[by] ?? 0) - (b[by] ?? 0));
+    const va = cellValue(a, key, nameOf(a));
+    const vb = cellValue(b, key, nameOf(b));
+    const c =
+      typeof va === "number" || typeof vb === "number"
+        ? (Number(va) || 0) - (Number(vb) || 0)
+        : collator.compare(String(va ?? ""), String(vb ?? ""));
+    return c * sign || collator.compare(nameOf(a), nameOf(b));
   });
 }
 
-/* -------------------------------------------------------------- export */
+/** Rows whose name columns hold the text — Workiz's search box on the Area tab. */
+export function searchRows(rows: JobStatisticsRow[], q: string, nameOf: (r: JobStatisticsRow) => string): JobStatisticsRow[] {
+  const needle = q.trim().toLowerCase();
+  if (!needle) return rows;
+  return rows.filter((r) => [nameOf(r), r.city, r.serviceArea].some((v) => v?.toLowerCase().includes(needle)));
+}
 
-const COUNT_HEADERS = ["All Jobs", "Done Jobs", "Open Jobs", "Canceled Jobs", "Canceled %"];
-const MONEY_HEADERS = ["Gross Amount", "Profit", "Average Sale", "Average Profit"];
+/* ------------------------------------------------------------------- pies */
 
-const cell = (v: string): string => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
-const amount = (n?: number): string => (n ?? 0).toFixed(2);
+const PIE_SLICES = 4;
 
-/** The breakdown as CSV, Totals last; the money columns only when the rows carry money. */
-export function breakdownCsv(groupLabel: string, rows: BreakdownRow[], totals: BreakdownTotals): string {
-  const money = totals.gross !== undefined;
-  const line = (name: string, r: BreakdownTotals) =>
-    [
-      cell(name),
-      r.all,
-      r.done,
-      r.open,
-      r.canceled,
-      r.canceledPct,
-      ...(money ? [amount(r.gross), amount(r.profit), amount(r.avgSale), amount(r.avgProfit)] : []),
-    ].join(",");
+/**
+ * A pie's slices: the three biggest rows and "Other" for the rest, so the
+ * percents are of the whole (Workiz draws every row; four read). `measure`
+ * is Done Jobs, or Gross for "By Sales Amount" — Workiz draws Profit under
+ * that title; this draws what the title says.
+ */
+export function pieOf(
+  rows: JobStatisticsRow[],
+  measure: "done" | "gross",
+  nameOf: (r: JobStatisticsRow) => string,
+): DashboardShare[] {
+  const value = (r: JobStatisticsRow) => (measure === "done" ? r.done : (r.gross ?? 0));
+  const ranked = rows.filter((r) => value(r) > 0).sort((a, b) => value(b) - value(a));
+  const total = ranked.reduce((n, r) => n + value(r), 0);
+  if (!total) return [];
+  const head = ranked.length > PIE_SLICES ? ranked.slice(0, PIE_SLICES - 1) : ranked;
+  const rest = ranked.slice(head.length);
+  const slices = head.map((r) => ({ key: r.key, name: nameOf(r), count: value(r) }));
+  if (rest.length) slices.push({ key: "__other__", name: "Other", count: rest.reduce((n, r) => n + value(r), 0) });
+  return slices.map((s) => ({ ...s, count: round2(s.count), percent: round2((s.count / total) * 100) }));
+}
+
+/* -------------------------------------------------------------------- CSV */
+
+const csvCell = (v: string): string => {
+  const safe = /^[=+\-@\t\r]/.test(v) ? `'${v}` : v;
+  return /[",\r\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
+};
+
+function printed(value: string | number | undefined, format: StatisticsColumn["format"]): string {
+  if (format === "money") return (Number(value) || 0).toFixed(2);
+  if (format === "pct") return `${value ?? 0}%`;
+  return String(value ?? "");
+}
+
+/** Workiz's "Export List": the table's columns, every row in its order, and the Totals row last. */
+export function tableCsv(
+  columns: StatisticsColumn[],
+  rows: JobStatisticsRow[],
+  totals: JobStatisticsTotals,
+  nameOf: (r: JobStatisticsRow) => string,
+): string {
+  const line = (cells: string[]) => cells.map(csvCell).join(",");
   return [
-    [groupLabel, ...COUNT_HEADERS, ...(money ? MONEY_HEADERS : [])].join(","),
-    ...rows.map((r) => line(r.name, r)),
-    line("Totals", totals),
-  ].join("\n");
+    line(columns.map((c) => c.label)),
+    ...rows.map((r) => line(columns.map((c) => printed(cellValue(r, c.key, nameOf(r)), c.format)))),
+    line(
+      columns.map((c, i) =>
+        c.format === "text" ? (i === 0 ? "Totals:" : "") : printed(totals[c.key as keyof JobStatisticsTotals], c.format),
+      ),
+    ),
+  ].join("\r\n");
 }

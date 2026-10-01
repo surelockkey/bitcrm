@@ -30,9 +30,9 @@ import { diffSummary } from "../lib";
 const newRequestId = () => crypto.randomUUID();
 
 /**
- * A template applied to one van (`?apply=<templateId>&container=<id>`): what
- * it should carry, what it has, what is missing — and, from the chosen
- * warehouse, what "Fill from warehouse" would move in one transfer.
+ * A template applied to one van: what it should carry, what it has, what is
+ * missing — and, from the chosen warehouse, what "Fill from warehouse" would
+ * move in one transfer.
  */
 export function ApplyTemplateDialog({
   templateId,
@@ -46,7 +46,7 @@ export function ApplyTemplateDialog({
   containerId: string | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Keeps the URL's `container` in step with the picker. */
+  /** Told which van the picker moved to. */
   onContainerChange?: (containerId: string) => void;
 }) {
   const { can } = usePermissions();

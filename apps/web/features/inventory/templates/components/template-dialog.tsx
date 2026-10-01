@@ -3,7 +3,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Popover } from "radix-ui";
-import { Info, Loader2, PackageSearch, Search, X } from "lucide-react";
+import { CopyPlus, Info, Loader2, PackageSearch, Search, X } from "lucide-react";
 import { InventoryStatus } from "@bitcrm/types";
 import type { ContainerTemplate } from "@bitcrm/types";
 import {
@@ -25,12 +25,13 @@ import { usePermissions } from "@/features/auth/use-permissions";
 import { listProducts } from "@/features/inventory/products/api";
 import type { UpdateTemplateBody } from "../api";
 import { useContainerTemplate, useCreateTemplate, useUpdateTemplate } from "../hooks";
-import { addLine, checkLineQuantity, type DraftLine } from "../lib";
+import { MAX_TEMPLATE_LINES, addLine, checkLineQuantity, copyLines, type DraftLine } from "../lib";
+import { CopyFromLocationDialog } from "./copy-from-location-dialog";
 
 /**
  * A template — a van's ideal loadout — in a popup: its name, a description,
  * and the products with the quantity of each a van should carry. `null` is a
- * new one (`?template=new`); otherwise `?template=<id>`.
+ * new one.
  */
 export function TemplateDialog({
   templateId,
@@ -41,14 +42,18 @@ export function TemplateDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const { can } = usePermissions();
+  const { can, isLoading: permsLoading } = usePermissions();
   const query = useContainerTemplate(templateId ?? undefined, open && !!templateId);
   const close = () => onOpenChange(false);
+  // Until the permissions answer, the form is drawn whole and editable-shaped,
+  // but disabled: a "no permission" stub (or a view-only banner) that the
+  // answer then replaced grew the popup and pushed the form about.
+  const pending = !!permsLoading;
 
   let content: ReactNode;
   if (!templateId) {
-    content = can("containers", "create") ? (
-      <TemplateForm readOnly={false} onClose={close} />
+    content = pending || can("containers", "create") ? (
+      <TemplateForm readOnly={false} pending={pending} onClose={close} />
     ) : (
       <>
         <Header title="New template" description="You don't have permission to create templates." />
@@ -83,7 +88,8 @@ export function TemplateDialog({
       <TemplateForm
         key={query.data.updatedAt}
         template={query.data}
-        readOnly={!can("containers", "edit")}
+        readOnly={!pending && !can("containers", "edit")}
+        pending={pending}
         onClose={close}
       />
     );
@@ -91,7 +97,16 @@ export function TemplateDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl">
+      <DialogContent
+        className={cn(
+          // Header and footer stay put; the form scrolls between them. A
+          // template's popup is one height loading and loaded: 494px growing
+          // to 968px moved its top from 253px to 16px. A new one starts empty
+          // and grows only as lines are added.
+          "flex flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl",
+          templateId ? "h-[min(61rem,calc(100dvh-2rem))]" : "max-h-[calc(100dvh-2rem)]",
+        )}
+      >
         {content}
       </DialogContent>
     </Dialog>
@@ -101,15 +116,18 @@ export function TemplateDialog({
 function TemplateForm({
   template,
   readOnly,
+  pending = false,
   onClose,
 }: {
   template?: ContainerTemplate;
   readOnly: boolean;
+  /** The permissions are still loading: the editable form, every control off. */
+  pending?: boolean;
   onClose: () => void;
 }) {
   const create = useCreateTemplate();
   const update = useUpdateTemplate();
-  const pending = create.isPending || update.isPending;
+  const saving = create.isPending || update.isPending;
   const ids = useId();
 
   const [name, setName] = useState(template?.name ?? "");
@@ -134,12 +152,21 @@ function TemplateForm({
     input?.select();
   }, [focus]);
 
+  // "Copy from location" — open while the copy popup is.
+  const [copying, setCopying] = useState(false);
+
   const checks = lines.map((l) => checkLineQuantity(l.quantity));
-  const valid = name.trim().length > 0 && lines.length > 0 && checks.every((c) => c.quantity !== null);
+  // The server takes MAX_TEMPLATE_LINES lines at most; a copied store may hold more.
+  const tooMany = lines.length > MAX_TEMPLATE_LINES;
+  const valid =
+    name.trim().length > 0 && lines.length > 0 && !tooMany && checks.every((c) => c.quantity !== null);
   const items = lines.map((l, i) => ({ productId: l.productId, quantity: checks[i].quantity ?? 0 }));
 
+  // Nothing to press or type into until the permissions answer.
+  const locked = readOnly || pending;
+
   const save = () => {
-    if (!valid || readOnly) return;
+    if (!valid || locked) return;
     const text = description.trim();
     if (!template) {
       create.mutate(
@@ -186,7 +213,7 @@ function TemplateForm({
           <Input
             id={`${ids}-name`}
             className="h-10"
-            disabled={readOnly}
+            disabled={locked}
             value={name}
             placeholder="Standard van"
             onChange={(e) => setName(e.target.value)}
@@ -197,7 +224,7 @@ function TemplateForm({
           <Textarea
             id={`${ids}-desc`}
             rows={2}
-            disabled={readOnly}
+            disabled={locked}
             value={description}
             placeholder="Optional"
             onChange={(e) => setDescription(e.target.value)}
@@ -205,11 +232,33 @@ function TemplateForm({
         </div>
 
         <div className="space-y-2 rounded-lg bg-muted/60 p-3">
-          <div className="text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
-            Products · target quantity
+          <div className="flex min-h-7 items-center justify-between gap-2">
+            <div className="text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
+              Products · target quantity
+            </div>
+            {!readOnly ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7 gap-1.5 bg-background"
+                disabled={pending}
+                onClick={() => setCopying(true)}
+              >
+                <CopyPlus className="size-3.5" />
+                Copy from location
+              </Button>
+            ) : null}
           </div>
+          {tooMany ? (
+            <p role="alert" className="text-xs text-destructive">
+              A template holds {MAX_TEMPLATE_LINES} products at most — remove {lines.length - MAX_TEMPLATE_LINES} to
+              save it.
+            </p>
+          ) : null}
           {!readOnly ? (
             <ProductSearch
+              disabled={pending}
               onPick={(p) => {
                 const next = addLine(lines, p);
                 setLines(next.lines);
@@ -242,7 +291,7 @@ function TemplateForm({
                       step={1}
                       aria-label={`Quantity of ${l.productName}`}
                       aria-invalid={checks[i].error ? true : undefined}
-                      disabled={readOnly}
+                      disabled={locked}
                       value={l.quantity}
                       onChange={(e) =>
                         setLines((all) =>
@@ -261,6 +310,7 @@ function TemplateForm({
                       variant="ghost"
                       size="icon"
                       className="size-8 flex-none"
+                      disabled={pending}
                       aria-label={`Remove ${l.productName}`}
                       onClick={() => setLines((all) => all.filter((x) => x.productId !== l.productId))}
                     >
@@ -274,6 +324,15 @@ function TemplateForm({
         </div>
       </div>
 
+      {copying ? (
+        <CopyFromLocationDialog
+          open
+          onOpenChange={setCopying}
+          current={lines}
+          onCopy={(incoming, mode) => setLines((all) => copyLines(all, incoming, mode))}
+        />
+      ) : null}
+
       <Footer>
         {readOnly ? (
           <Button type="button" variant="outline" onClick={onClose}>
@@ -284,8 +343,8 @@ function TemplateForm({
             <Button type="button" variant="outline" onClick={onClose}>
               Cancel
             </Button>
-            <Button type="submit" disabled={!valid || pending} className="gap-1.5">
-              {pending ? <Loader2 className="size-4 animate-spin" /> : null}
+            <Button type="submit" disabled={!valid || locked || saving} className="gap-1.5">
+              {saving ? <Loader2 className="size-4 animate-spin" /> : null}
               Save
             </Button>
           </>
@@ -304,7 +363,13 @@ function TemplateForm({
  * cut off by it and hidden behind the footer. The last results stay while
  * the next search runs, instead of blinking to "Searching…" per keystroke.
  */
-function ProductSearch({ onPick }: { onPick: (p: { id: string; name: string; sku?: string }) => void }) {
+function ProductSearch({
+  onPick,
+  disabled = false,
+}: {
+  onPick: (p: { id: string; name: string; sku?: string }) => void;
+  disabled?: boolean;
+}) {
   const [text, setText] = useState("");
   const [open, setOpen] = useState(false);
   const term = useDebouncedValue(text.trim(), 300);
@@ -338,6 +403,7 @@ function ProductSearch({ onPick }: { onPick: (p: { id: string; name: string; sku
             aria-controls={listId}
             aria-expanded={showing}
             placeholder="Search items by name or SKU to add"
+            disabled={disabled}
             value={text}
             onChange={(e) => {
               setText(e.target.value);

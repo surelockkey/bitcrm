@@ -103,13 +103,18 @@ export function computeDueDate(basis: string, days: number): string {
 export function computeInvoiceTotals(
   view: {
     deal: Pick<Deal, 'taxRatePercent' | 'taxSource' | 'discount' | 'paymentStatus' | 'actualTotal'>;
-    items: Pick<DealProduct, 'quantity' | 'priceClient' | 'taxable'>[];
+    items: Pick<DealProduct, 'quantity' | 'priceClient' | 'taxable' | 'discountable'>[];
   },
   opts: { amountPaid?: number } = {},
 ): DocumentTotals {
   const { deal } = view;
   const base = {
-    lines: view.items.map((i) => ({ quantity: i.quantity, priceClient: i.priceClient, taxable: i.taxable })),
+    lines: view.items.map((i) => ({
+      quantity: i.quantity,
+      priceClient: i.priceClient,
+      taxable: i.taxable,
+      discountable: i.discountable,
+    })),
     taxRatePercent: deal.taxSource === 'exempt' ? 0 : deal.taxRatePercent ?? 0,
     discount: deal.discount ?? undefined,
   };
