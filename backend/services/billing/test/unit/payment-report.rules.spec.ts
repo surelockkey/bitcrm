@@ -127,6 +127,31 @@ describe('payment report — lines (Workiz arithmetic)', () => {
     expect(reportLines(imported, [], {}, TZ)).toHaveLength(1);
   });
 
+  it('a Tap to Pay attempt is a line only once a card was presented — collected, or declined', () => {
+    const uid = '0f8fad5b-d9cb-469f-a165-70867728950e';
+    const tapped = payment({
+      channel: 'terminal',
+      status: 'pending',
+      source: 'field',
+      takenBy: uid,
+      transactionMethod: 'Tap to Pay',
+      stripePaymentIntentId: 'pi_t',
+      amount: 60,
+      tipAmount: 9,
+    });
+    // Opened on the phone, nobody tapped yet — or given up / replaced: no money moved.
+    expect(isUnconfirmedCheckout(tapped)).toBe(true);
+    expect(reportLines(tapped, [], {}, TZ)).toEqual([]);
+    expect(reportLines({ ...tapped, status: 'failed', failureReason: 'Replaced by a newer payment attempt' }, [], {}, TZ)).toEqual([]);
+    // A declined card has a charge: Workiz lists the failed attempt.
+    const declined = reportLines({ ...tapped, status: 'failed', stripeChargeId: 'ch_t', failureReason: 'Your card was declined.' }, [], {}, TZ);
+    expect(declined).toHaveLength(1);
+    expect(declined[0]).toMatchObject({ status: 'failed', amount: 0, description: 'Your card was declined.' });
+    // Collected: a "Credit charge" at its full amount, tip included, with the card and how it was taken.
+    const [paid] = reportLines({ ...tapped, status: 'settled', stripeChargeId: 'ch_t', last4: '4242' }, [], {}, TZ);
+    expect(paid).toMatchObject({ type: 'charge', amount: 69, tip: 9, last4: '4242', transactionMethod: 'Tap to Pay', collectedById: uid });
+  });
+
   it('maps our five methods onto Workiz types', () => {
     expect(paymentReportType(payment({ method: 'card' }))).toBe('credit');
     expect(paymentReportType(payment({ method: 'card', stripePaymentIntentId: 'pi' }))).toBe('charge');

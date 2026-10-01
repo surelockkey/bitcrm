@@ -95,10 +95,15 @@ const isStripeBacked = (p: Pick<Payment, 'stripePaymentIntentId' | 'stripeSessio
  * expired. It is a row in the ledger (so a second attempt cannot double-pay)
  * but no money moved, so Workiz would not list it and neither do we.
  * Imported rows are never sessions of ours (`externalId`).
+ *
+ * The same holds for a Tap to Pay attempt no card was presented to (opened
+ * on the phone, then given up or replaced): its intent exists from the start,
+ * so the mark of a real attempt is a CHARGE — a declined card has one too.
  */
 export function isUnconfirmedCheckout(p: Payment): boolean {
   // Money that was collected (or collected and given back) was confirmed.
   if (p.status === 'settled' || p.status === 'refunded' || p.status === 'reversed') return false;
+  if (p.channel === 'terminal') return !p.stripeChargeId;
   if (p.stripePaymentIntentId || p.stripeChargeId || p.externalId) return false;
   return !!p.stripeSessionId || (p.source === 'portal' && p.takenBy === 'client');
 }
