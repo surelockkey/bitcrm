@@ -141,7 +141,7 @@ export function ContactsTable({
                   )}
                 </TableCell>
                 <TableCell className="overflow-hidden"><ContactTypeBadge type={c.type} /></TableCell>
-                <TableCell className="overflow-hidden"><SourceLabel source={c.source} /></TableCell>
+                <TableCell className="overflow-hidden"><SourceLabel source={c.source} sourceId={c.sourceId} /></TableCell>
               </TableRow>
             );
           })}

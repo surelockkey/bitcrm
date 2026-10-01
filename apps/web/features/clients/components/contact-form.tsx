@@ -5,7 +5,7 @@ import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useState } from "react";
 import { Building2, Link2, Loader2, Mail, Phone, Trash2, TriangleAlert } from "lucide-react";
-import { ContactSource, ContactType } from "@bitcrm/types";
+import { ContactSource, ContactType, PaymentTerms } from "@bitcrm/types";
 import type { Contact } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
 import { PhoneInput } from "@/components/ui/phone-input";
@@ -15,6 +15,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { TAX_EXEMPT_REASONS } from "@/features/billing/lib";
+import { useJobSources } from "@/features/job-sources/hooks";
+import { activeJobSources } from "@/features/job-sources/lib";
 import {
   Select,
   SelectContent,
@@ -75,6 +77,9 @@ export function ContactForm({
           notes: contact.notes ?? "",
           taxExempt: contact.taxExempt ?? false,
           taxExemptReason: contact.taxExemptReason ?? "",
+          sourceId: contact.sourceId ?? "",
+          paymentTerms: contact.paymentTerms ?? "",
+          customTermsDays: contact.customTermsDays,
         }
       : {
           firstName: "",
@@ -91,8 +96,13 @@ export function ContactForm({
           notes: "",
           taxExempt: false,
           taxExemptReason: "",
+          sourceId: "",
+          paymentTerms: "",
+          customTermsDays: undefined,
         },
   });
+  const { data: jobSources } = useJobSources();
+  const paymentTerms = useWatch({ control: form.control, name: "paymentTerms" });
 
   const watchedPhone = useWatch({ control: form.control, name: "phones.0" });
   const watchedPhones = useWatch({ control: form.control, name: "phones" });
@@ -120,6 +130,9 @@ export function ContactForm({
       taxExempt: v.taxExempt,
       // "" clears a stale reason once the client is no longer exempt.
       taxExemptReason: v.taxExempt ? (v.taxExemptReason ?? "") : "",
+      sourceId: v.sourceId || undefined,
+      paymentTerms: v.paymentTerms || undefined,
+      customTermsDays: v.paymentTerms === PaymentTerms.CUSTOM ? v.customTermsDays : undefined,
     };
     if (isEdit) {
       update.mutate({ id: contact.id, body: base }, { onSuccess: (c) => onDone?.(c) });
@@ -423,6 +436,32 @@ export function ContactForm({
         <div className="space-y-6">
           <section className="space-y-5">
             <h3 className="text-sm font-semibold">Payment</h3>
+            <div className={cn("grid gap-4", paymentTerms === PaymentTerms.CUSTOM ? "grid-cols-[1fr_7rem]" : "grid-cols-1")}>
+              <Outlined label="Client payment terms">
+                <Controller
+                  control={form.control}
+                  name="paymentTerms"
+                  render={({ field }) => (
+                    <Select value={field.value || "default"} onValueChange={(v) => field.onChange(v === "default" ? "" : v)}>
+                      <SelectTrigger className="h-11 w-full" aria-label="Client payment terms"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="default">Use default (company / account)</SelectItem>
+                        <SelectItem value={PaymentTerms.CASH}>Due upon receipt (0 days)</SelectItem>
+                        <SelectItem value={PaymentTerms.NET_15}>Net 15 (15 days)</SelectItem>
+                        <SelectItem value={PaymentTerms.NET_30}>Net 30 (30 days)</SelectItem>
+                        <SelectItem value={PaymentTerms.NET_60}>Net 60 (60 days)</SelectItem>
+                        <SelectItem value={PaymentTerms.CUSTOM}>Custom</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
+              </Outlined>
+              {paymentTerms === PaymentTerms.CUSTOM ? (
+                <Outlined label="Days" htmlFor="ec-days" error={form.formState.errors.customTermsDays?.message}>
+                  <Input id="ec-days" type="number" min={1} className="h-11" aria-label="Days" {...form.register("customTermsDays")} />
+                </Outlined>
+              ) : null}
+            </div>
             <div className="flex items-center justify-between gap-3">
               <Label htmlFor="contact-tax-exempt">Tax exempt</Label>
               <Controller
@@ -456,17 +495,24 @@ export function ContactForm({
             <Outlined label="Ad source">
               <Controller
                 control={form.control}
-                name="source"
-                render={({ field }) => (
-                  <Select value={field.value} onValueChange={field.onChange} disabled={isEdit}>
-                    <SelectTrigger className="h-11 w-full" aria-label="Ad source"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {Object.values(ContactSource).map((x) => (
-                        <SelectItem key={x} value={x}>{sourceLabel(x)}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
+                name="sourceId"
+                render={({ field }) => {
+                  // Active sources, plus the client's own even when archived.
+                  const list = activeJobSources(jobSources);
+                  const own = field.value ? (jobSources ?? []).find((j) => j.id === field.value) : undefined;
+                  const options = own && !list.some((j) => j.id === own.id) ? [own, ...list] : list;
+                  return (
+                    <Select value={field.value || "none"} onValueChange={(v) => field.onChange(v === "none" ? "" : v)}>
+                      <SelectTrigger className="h-11 w-full" aria-label="Ad source"><SelectValue placeholder="Select Ad Source" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">Select Ad Source</SelectItem>
+                        {options.map((j) => (
+                          <SelectItem key={j.id} value={j.id}>{j.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  );
+                }}
               />
             </Outlined>
             <Outlined label="Type">

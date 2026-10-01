@@ -63,10 +63,22 @@ export function normalizeDiscount(
 
 /** Workiz's tax-exemption reasons, offered as suggestions (free text allowed). */
 export const TAX_EXEMPT_REASONS = [
+  // Workiz's "Tax exempt reason" list, in its order; "Resale" is what older
+  // Workiz clients carry (CBRE), kept so an imported reason still resolves.
   "Federal government",
-  "State/local government",
-  "Non-profit",
+  "State government",
+  "Local government",
+  "Tribal government",
+  "Charitable organization",
+  "Religious organization",
+  "Educational organization",
   "Hospital",
+  "Direct pay permit",
+  "Multiple points of use",
+  "Direct mail",
+  "Agricultural production",
+  "Industrial production / manufacturing",
+  "Foreign diplomat",
   "Resale",
   "Other",
 ] as const;

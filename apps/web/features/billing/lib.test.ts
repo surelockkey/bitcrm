@@ -96,8 +96,9 @@ describe("normalizeDiscount", () => {
 });
 
 describe("TAX_EXEMPT_REASONS", () => {
-  it("offers the Workiz suggestions", () => {
-    expect(TAX_EXEMPT_REASONS).toContain("Non-profit");
+  it("offers Workiz's reasons, Resale included for the imported clients", () => {
+    expect(TAX_EXEMPT_REASONS).toContain("Charitable organization");
+    expect(TAX_EXEMPT_REASONS).toContain("Resale");
     expect(TAX_EXEMPT_REASONS).toContain("Other");
   });
 });

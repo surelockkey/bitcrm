@@ -44,6 +44,11 @@ export const contactFormSchema = z.object({
   /** Tax-exempt client: new jobs/estimates carry no tax. */
   taxExempt: z.boolean().default(false),
   taxExemptReason: z.string().trim().max(200, "Keep the reason under 200 characters").optional(),
+  /** Workiz's Ad source: a JobSource catalog id ("" = none). */
+  sourceId: z.string().optional(),
+  /** Workiz's Client payment terms ("" = use the company's / account default). */
+  paymentTerms: z.union([z.nativeEnum(PaymentTerms), z.literal("")]).optional(),
+  customTermsDays: z.coerce.number().int().min(1).optional(),
 });
 export type ContactFormValues = z.infer<typeof contactFormSchema>;
 

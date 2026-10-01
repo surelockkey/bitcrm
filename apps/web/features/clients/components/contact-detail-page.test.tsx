@@ -103,6 +103,9 @@ const CONTACT = {
   notes: "Net 45 client. Tax exempt.",
   taxExempt: true,
   tagIds: ["t-platinum", "t-taxfree"],
+  sourceId: "src-tx-platinum",
+  paymentTerms: "custom",
+  customTermsDays: 60,
   lastJobAt: "2026-10-09",
   status: "active",
   createdBy: "u1",
@@ -150,6 +153,9 @@ describe("ContactDetailPage — the client card, laid out as Workiz's", () => {
           ],
         }),
       ),
+      http.get("*/deals/job-sources", () =>
+        HttpResponse.json({ success: true, data: [{ id: "src-tx-platinum", name: "SURE TX PLATINUM", priority: 1, active: true }] }),
+      ),
       http.get("*/crm/companies/co1", () =>
         HttpResponse.json({ success: true, data: { id: "co1", title: "CBRE Facilities Management", clientType: "commercial", phones: [], emails: [] } }),
       ),
@@ -174,6 +180,10 @@ describe("ContactDetailPage — the client card, laid out as Workiz's", () => {
     expect(await within(panel).findByText("PLATINUM")).toBeInTheDocument();
     expect(within(panel).getByText("tax free")).toBeInTheDocument();
     expect(within(panel).getByRole("button", { name: "Add tag" })).toBeInTheDocument();
+    // Workiz's Ad source and payment terms, by name — not the closed "Manual" enum.
+    expect(await within(panel).findByText("SURE TX PLATINUM")).toBeInTheDocument();
+    expect(within(panel).queryByText("Manual")).toBeNull();
+    expect(within(panel).getByText("Net-60 (custom)")).toBeInTheDocument();
 
     expect(within(panel).getByText("Service address").parentElement).toHaveTextContent("241 E Farm to Market Rd 1382, Cedar Hill, TX 75104");
     expect(within(panel).getByText("Billing address").parentElement).toHaveTextContent("200 E Campus View Blvd ste 120, Columbus, OH 43235");

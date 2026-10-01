@@ -18,7 +18,8 @@ import { ClientTagsField } from "@/features/client-tags/components/client-tags-f
 import { PortalLinkCard } from "@/features/portal/components/portal-link-card";
 import { FieldList } from "./field-list";
 import { ContactTypeBadge, TaxExemptBadge } from "./client-badges";
-import { clientTypeLabel, contactName, extensionOf, formatAddress, formatPhoneWithExtension, sourceLabel } from "../lib";
+import { useJobSourceName } from "@/features/job-sources/lib";
+import { clientTypeLabel, contactName, extensionOf, formatAddress, formatPhoneWithExtension, paymentTermsLabel, sourceLabel } from "../lib";
 
 /**
  * Workiz's left column of the client card: the name and company, how to
@@ -52,6 +53,7 @@ export function ClientSummaryPanel({
 }) {
   const service = contact.addresses[0];
   const billing = contact.billingAddress;
+  const jobSourceName = useJobSourceName();
 
   return (
     <aside aria-label="Client" className="flex flex-col border-b md:border-r md:border-b-0">
@@ -126,9 +128,15 @@ export function ClientSummaryPanel({
         <ClientTagsField contactId={contact.id} tagIds={contact.tagIds} canEdit={canEdit} canCreate={canCreateTags} />
         <div className="grid grid-cols-2 gap-3 text-sm">
           <div>
-            <div className="text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">Source</div>
-            {sourceLabel(contact.source)}
+            <div className="text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">Ad source</div>
+            {contact.sourceId ? jobSourceName(contact.sourceId) : sourceLabel(contact.source)}
           </div>
+          {contact.paymentTerms ? (
+            <div>
+              <div className="text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">Payment terms</div>
+              {paymentTermsLabel(contact.paymentTerms, contact.customTermsDays)}
+            </div>
+          ) : null}
           {contact.lastJobAt ? (
             <div>
               <div className="text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">Last job</div>

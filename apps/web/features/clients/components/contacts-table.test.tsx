@@ -7,6 +7,8 @@ import { ContactsTable } from "./contacts-table";
 
 const push = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
+// The Source column resolves a Workiz ad source through the catalog; the table test has no query client.
+vi.mock("@/features/job-sources/lib", () => ({ useJobSourceName: () => (id?: string) => (id ? `Source ${id}` : "—") }));
 
 function contact(over: Partial<Contact> = {}): Contact {
   return {

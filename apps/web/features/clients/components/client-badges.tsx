@@ -2,6 +2,7 @@ import { Globe, Mail, Phone, PencilLine, Crown, ShieldCheck } from "lucide-react
 import { ClientType, ContactSource, ContactType } from "@bitcrm/types";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { useJobSourceName } from "@/features/job-sources/lib";
 import { clientTypeLabel, contactTypeLabel, sourceLabel, type CoiStatus } from "../lib";
 
 export function ClientTypeBadge({ type }: { type: ClientType }) {
@@ -37,12 +38,14 @@ const SOURCE_ICON = {
   [ContactSource.MANUAL]: PencilLine,
 } as const;
 
-export function SourceLabel({ source }: { source: ContactSource }) {
+/** Workiz's Ad source by name when the client has one; the closed enum otherwise. */
+export function SourceLabel({ source, sourceId }: { source: ContactSource; sourceId?: string }) {
   const Icon = SOURCE_ICON[source];
+  const jobSourceName = useJobSourceName();
   return (
     <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
       <Icon className="size-3" />
-      {sourceLabel(source)}
+      {sourceId ? jobSourceName(sourceId) : sourceLabel(source)}
     </span>
   );
 }
