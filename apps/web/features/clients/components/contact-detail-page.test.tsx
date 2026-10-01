@@ -73,6 +73,18 @@ vi.mock("@/features/payments/components/record-payment-dialog", () => ({
       </div>
     ) : null,
 }));
+vi.mock("@/lib/env", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/env")>();
+  return { env: { ...actual.env, googleMapsApiKey: "test-key" } };
+});
+vi.mock("@vis.gl/react-google-maps", () => ({
+  APIProvider: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  Map: ({ children, center, defaultCenter }: { children?: React.ReactNode; center?: { lat: number; lng: number }; defaultCenter?: { lat: number; lng: number } }) => (
+    <div data-testid="map" data-center={JSON.stringify(center ?? defaultCenter)}>{children}</div>
+  ),
+  AdvancedMarker: ({ position }: { position?: { lat: number; lng: number } }) => <div data-testid="marker" data-position={JSON.stringify(position)} />,
+  Marker: ({ position }: { position?: { lat: number; lng: number } }) => <div data-testid="marker" data-position={JSON.stringify(position)} />,
+}));
 vi.mock("@/features/deals/components/address-autocomplete", () => ({
   AddressAutocomplete: ({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) => (
     <input aria-label="Address" placeholder={placeholder} value={value} onChange={(e) => onChange(e.target.value)} />
@@ -96,7 +108,7 @@ const CONTACT = {
     addr("300 Convent St", "San Antonio", "TX", "78205"),
     addr("18840 I-35 ste 100", "Kyle", "TX", "78640"),
   ],
-  billingAddress: addr("200 E Campus View Blvd ste 120", "Columbus", "OH", "43235"),
+  billingAddress: { ...addr("200 E Campus View Blvd ste 120", "Columbus", "OH", "43235"), lat: 40.0955, lng: -82.9931 },
   companyId: "co1",
   type: "company_representative",
   source: "manual",
@@ -355,13 +367,17 @@ describe("ContactDetailPage — the client card, laid out as Workiz's", () => {
     const sheet = await screen.findByRole("dialog", { name: "Address" });
     expect(within(sheet).getByRole("combobox", { name: "Client properties" })).toHaveTextContent("200 E Campus View Blvd ste 120");
     expect(within(sheet).getByRole("textbox", { name: "City" })).toHaveValue("Columbus");
+    // Workiz's map above the fields, pinned on the address, with Maps and Get directions links.
+    expect(within(sheet).getByTestId("marker")).toHaveAttribute("data-position", JSON.stringify({ lat: 40.0955, lng: -82.9931 }));
+    expect(within(sheet).getByRole("link", { name: "Maps" })).toHaveAttribute("href", expect.stringContaining("google.com/maps/search/?api=1&query=200%20E%20Campus%20View%20Blvd%20ste%20120"));
+    expect(within(sheet).getByRole("link", { name: "Get directions" })).toHaveAttribute("href", expect.stringContaining("google.com/maps/dir/?api=1&destination="));
 
     await userEvent.clear(within(sheet).getByRole("textbox", { name: "Unit" }));
     await userEvent.type(within(sheet).getByRole("textbox", { name: "Unit" }), "ste 130");
     await userEvent.click(within(sheet).getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(puts).toHaveLength(1));
-    expect(puts[0]).toEqual({ billingAddress: { street: "200 E Campus View Blvd ste 120", unit: "ste 130", city: "Columbus", state: "OH", zip: "43235" } });
+    expect(puts[0]).toEqual({ billingAddress: { street: "200 E Campus View Blvd ste 120", unit: "ste 130", city: "Columbus", state: "OH", zip: "43235", lat: 40.0955, lng: -82.9931 } });
   });
 
   it("the pencil on Service address lets another of the client's properties become the service address", async () => {

@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { AddressAutocomplete } from "@/features/deals/components/address-autocomplete";
+import { AddressMap, GetDirections } from "./address-map";
 import { clientAddressRows } from "../client-page";
 import { useSetContactAddresses, useSetContactBillingAddress } from "../hooks";
 import { addressInList, addressKey, formatAddress } from "../lib";
@@ -94,6 +95,8 @@ export function ClientAddressSheet({
           </SheetDescription>
         </SheetHeader>
         <div className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
+          {/* Workiz's panel: the map first, pinned on the address being edited. */}
+          <AddressMap address={draft} />
           {mode !== "new" ? (
             <div className="space-y-1.5">
               <Label>Client properties</Label>
@@ -142,6 +145,7 @@ export function ClientAddressSheet({
             </div>
           </div>
           {error ? <p className="text-xs text-destructive">{error}</p> : null}
+          <GetDirections address={draft} />
         </div>
         <SheetFooter className="flex-row justify-end gap-2 border-t px-4 py-3">
           <Button type="button" variant="outline" onClick={() => close(false)}>
