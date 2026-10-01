@@ -1,6 +1,4 @@
 import { Module } from '@nestjs/common';
-import { TipsReportController } from './report/tips-report.controller';
-import { TipsReportService } from './report/tips-report.service';
 import { ServiceAreasModule } from '../service-areas/service-areas.module';
 import { JobTypesModule } from '../job-types/job-types.module';
 import { JobSourcesModule } from '../job-sources/job-sources.module';
@@ -32,9 +30,6 @@ import { DealTaxResolver } from './billing/deal-tax.resolver';
 import { DealDashboardController } from './dashboard/deal-dashboard.controller';
 import { DealDashboardService } from './dashboard/deal-dashboard.service';
 import { DashboardSnapshotScheduler } from './dashboard/dashboard-snapshot.scheduler';
-import { SalesReportController } from './report/sales-report.controller';
-import { SalesReportService } from './report/sales-report.service';
-import { SalesReportSettingsRepository } from './report/sales-report-settings.repository';
 import { JobsReportController } from './report/jobs-report.controller';
 import { TaxReportController } from './report/tax-report.controller';
 import { TaxReportRepository } from './report/tax-report.repository';
@@ -59,13 +54,9 @@ import { CommissionReportModule } from '../commission-report/commission-report.m
   // and Job Statistics' `report/statistics` likewise.
   controllers: [
     DealEventsController,
-    // The Tips report's `report/tips/*` — with the other reports, ahead of DealsController's `/:id/…`.
-    TipsReportController,
     DealAttachmentsController,
     DealBillingController,
     DealDashboardController,
-    // The Sales report's `report/sales/*`, with the other reports ahead of `/:id`.
-    SalesReportController,
     TaxReportController,
     JobsReportController,
     ItemsReportController,
@@ -74,7 +65,6 @@ import { CommissionReportModule } from '../commission-report/commission-report.m
   ],
   providers: [
     DealsService,
-    TipsReportService,
     DealsRepository,
     DealsCacheService,
     DealEventsBus,
@@ -89,8 +79,6 @@ import { CommissionReportModule } from '../commission-report/commission-report.m
     DealBillingService,
     DealDashboardService,
     DashboardSnapshotScheduler,
-    SalesReportService,
-    SalesReportSettingsRepository,
     JobsReportService,
     JobsReportSettingsRepository,
     ItemsReportService,

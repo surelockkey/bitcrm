@@ -527,23 +527,6 @@ export {
 export { ResolvedPermissions } from './permissions/resolved-permissions';
 export { RESOURCE_REGISTRY, Resource, Action } from './permissions/resource-registry';
 
-// Reports — the Workiz Tips report (`GET /deals/report/tips`)
-export {
-  TIPS_REPORT_JOBS_MAX_PAGE_SIZE,
-  TIPS_REPORT_JOBS_PAGE_SIZE,
-  TIPS_REPORT_JOB_COLUMNS,
-  TIPS_REPORT_JOB_SORTS,
-  TIPS_REPORT_MAX_DAYS,
-} from './reports/tips-report';
-export type {
-  TipsReportFilters,
-  TipsReportJobRow,
-  TipsReportJobSort,
-  TipsReportJobsPage,
-  TipsReportPage,
-  TipsReportRow,
-} from './reports/tips-report';
-
 // DTOs
 export { CreateUserRequest } from './dto/create-user.dto';
 export { UpdateUserRequest } from './dto/update-user.dto';
@@ -622,33 +605,6 @@ export {
   dashboardWindow,
   msUntilDailyAt,
 } from './dashboard/time';
-
-// Reports — the Workiz Sales report (`GET /deals/report/sales`)
-export {
-  SALES_REPORT_BY,
-  SALES_REPORT_COLUMNS,
-  SALES_REPORT_COLUMN_IDS,
-  SALES_REPORT_DEFAULT_COLUMNS,
-  SALES_REPORT_DEFAULT_SETTINGS,
-  SALES_REPORT_MAX_DAYS,
-  SALES_REPORT_MAX_PAGE_SIZE,
-  SALES_REPORT_MONEY_COLUMNS,
-  SALES_REPORT_PAYMENT_STATUSES,
-  SALES_REPORT_STATUSES,
-} from './reports/sales-report';
-export type {
-  SalesReportBy,
-  SalesReportColumnId,
-  SalesReportDay,
-  SalesReportFilters,
-  SalesReportMoney,
-  SalesReportPage,
-  SalesReportPagination,
-  SalesReportPaymentStatus,
-  SalesReportRow,
-  SalesReportSettings,
-  SalesReportTotals,
-} from './reports/sales-report';
 
 // Reports — the Workiz Jobs report (`GET /deals/report`)
 export {
