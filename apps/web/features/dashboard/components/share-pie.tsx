@@ -16,6 +16,8 @@ const SLOTS = [
   { fill: "fill-chart4", border: "border-chart4", swatch: "bg-chart4" },
 ] as const;
 
+const jobsText = (count: number): string => `${count.toLocaleString("en-US")} ${count === 1 ? "job" : "jobs"}`;
+
 /**
  * A pie of up to four slices and, under it, Workiz's two-by-two legend: each
  * slice's name over its percent, the left column ruled on the left and the
@@ -26,7 +28,19 @@ const SLOTS = [
  * split by a 2px ring of the card colour, answer hover and focus with their
  * numbers, and the whole thing is a table for screen readers.
  */
-export function SharePie({ title, slices }: { title: string; slices: DashboardShare[] }) {
+export function SharePie({
+  title,
+  slices,
+  valueText = jobsText,
+  valueHeader = "Jobs",
+}: {
+  title: string;
+  slices: DashboardShare[];
+  /** How a slice's `count` reads in the tooltip — jobs by default; Job Statistics also pies money. */
+  valueText?: (count: number) => string;
+  /** The screen-reader table's value column. */
+  valueHeader?: string;
+}) {
   const [active, setActive] = useState<number | null>(null);
   if (!slices.length) {
     return <p className="py-10 text-center text-sm text-muted-foreground">No data to display.</p>;
@@ -62,7 +76,7 @@ export function SharePie({ title, slices }: { title: string; slices: DashboardSh
           >
             <span className="text-muted-foreground">{shown.name}</span>{" "}
             <span className="font-medium text-foreground">
-              {shown.count.toLocaleString("en-US")} {shown.count === 1 ? "job" : "jobs"} · {shown.percent}%
+              {valueText(shown.count)} · {shown.percent}%
             </span>
           </div>
         ) : null}
@@ -96,7 +110,7 @@ export function SharePie({ title, slices }: { title: string; slices: DashboardSh
           <thead>
             <tr>
               <th scope="col">Name</th>
-              <th scope="col">Jobs</th>
+              <th scope="col">{valueHeader}</th>
               <th scope="col">Share</th>
             </tr>
           </thead>

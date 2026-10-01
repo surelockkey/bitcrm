@@ -14,6 +14,8 @@ export type BillingContact = Contact & { paymentTerms?: string; customTermsDays?
  * CRM reads (existing internal routes):
  *   GET /api/crm/contacts/internal/:id
  *   GET /api/crm/companies/internal/:id
+ *   POST /api/crm/contacts/internal/names-by-ids   (names only — the Payments report)
+ *   POST /api/crm/contacts/by-ids                   (as the caller — the billing reports' client cells)
  */
 @Injectable()
 export class CrmClient {
@@ -31,6 +33,36 @@ export class CrmClient {
       operation: 'getContact',
       nullOn404: true,
     });
+  }
+
+  /** `{ id, firstName, lastName }` per contact id (at most 100 per call; missing ids are absent). */
+  async contactNamesByIds(ids: string[]): Promise<Array<{ id: string; firstName?: string; lastName?: string }>> {
+    if (ids.length === 0) return [];
+    return (
+      (await this.http.request<Array<{ id: string; firstName?: string; lastName?: string }>>(
+        '/api/crm/contacts/internal/names-by-ids',
+        { method: 'POST', body: { ids: ids.slice(0, 100) }, operation: 'contactNamesByIds' },
+      )) ?? []
+    );
+  }
+
+  /**
+   * Full contacts for a report the CALLER is reading — through the public,
+   * permission-guarded `POST /api/crm/contacts/by-ids` with the caller's own
+   * bearer, so `contacts.view` / `contacts.view_numbers` apply to them exactly
+   * as on screen (numbers come back masked when they may not see them). At
+   * most 100 ids; missing ids are absent. Without a bearer: `[]`.
+   */
+  async contactsAs(ids: string[], authorization: string | undefined): Promise<Contact[]> {
+    if (!authorization || ids.length === 0) return [];
+    return (
+      (await this.http.request<Contact[]>('/api/crm/contacts/by-ids', {
+        method: 'POST',
+        body: { ids: ids.slice(0, 100) },
+        headers: { authorization },
+        operation: 'contactsAs',
+      })) ?? []
+    );
   }
 
   getCompany(id: string): Promise<Company | null> {

@@ -15,7 +15,10 @@
     "setup:db": "ts-node src/scripts/setup-dynamodb.ts",
     "setup:dynamodb": "ts-node src/scripts/setup-dynamodb.ts",
     "setup:aws": "ts-node src/scripts/setup-aws.ts",
-    "setup": "npm run setup:db && npm run setup:aws"
+    "setup": "npm run setup:db && npm run setup:aws",
+    "rebuild:payment-report": "ts-node src/scripts/rebuild-payment-report.ts",
+    "backfill:unpaid-index": "ts-node src/scripts/backfill-unpaid-index.ts",
+    "verify:billing-reports": "ts-node --transpile-only src/scripts/verify-billing-reports.ts"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.700.0",

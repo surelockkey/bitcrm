@@ -46,6 +46,19 @@ describe('JobSourcesRepository', () => {
     expect(jobSources).toHaveLength(1);
   });
 
+  it('keeps the Workiz ad-group description a source was imported with', async () => {
+    dynamoDb.client.send.mockResolvedValue({
+      Items: [
+        { ...createMockJobSource({ id: 'a' }), description: 'ALL CALLS COMING IN FROM A1 CT' },
+        createMockJobSource({ id: 'b' }),
+      ],
+    });
+    const [withOne, without] = await repository.listAll();
+
+    expect(withOne.description).toBe('ALL CALLS COMING IN FROM A1 CT');
+    expect(without).not.toHaveProperty('description');
+  });
+
   it('detects a job source still referenced by a deal', async () => {
     dynamoDb.client.send.mockResolvedValue({ Items: [{ id: 'deal-1' }] });
     expect(await repository.isReferencedByDeal('jt-1')).toBe(true);

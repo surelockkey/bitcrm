@@ -34,16 +34,23 @@ import { SalesReportController } from './report/sales-report.controller';
 import { SalesReportService } from './report/sales-report.service';
 import { SalesReportSettingsRepository } from './report/sales-report-settings.repository';
 import { JobsReportController } from './report/jobs-report.controller';
+import { TaxReportController } from './report/tax-report.controller';
+import { TaxReportRepository } from './report/tax-report.repository';
+import { TaxReportService } from './report/tax-report.service';
+import { BillingReportsClient } from '../common/services/billing-reports.client';
 import { JobsReportService } from './report/jobs-report.service';
 import { JobsReportSettingsRepository } from './report/jobs-report-settings.repository';
+import { JobStatisticsController } from './report/job-statistics.controller';
+import { JobStatisticsService } from './report/job-statistics.service';
+import { CommissionReportModule } from '../commission-report/commission-report.module';
 
 @Module({
-  imports: [ServiceAreasModule, JobTypesModule, JobSourcesModule, ExternalCompaniesModule, JobTagsModule, JobStatusesModule, JobFieldSettingsModule, CustomFieldsModule, TechnicianEligibilityModule, TaxRatesModule, BusinessProfilesClientModule],
+  imports: [ServiceAreasModule, JobTypesModule, JobSourcesModule, ExternalCompaniesModule, JobTagsModule, JobStatusesModule, JobFieldSettingsModule, CustomFieldsModule, TechnicianEligibilityModule, TaxRatesModule, BusinessProfilesClientModule, CommissionReportModule],
   // Attachments and billing controllers before Deals so their `/:id/...` and
   // `internal/:id/...` routes are matched ahead of DealsController's; the
   // live stream too, or `GET /:id` would take `/stream`; the dashboard's
   // `stats/*` too, ahead of the `:id/…` routes; the Jobs report's `report/*`
-  // likewise.
+  // and Job Statistics' `report/statistics` likewise.
   controllers: [
     DealEventsController,
     DealAttachmentsController,
@@ -51,7 +58,9 @@ import { JobsReportSettingsRepository } from './report/jobs-report-settings.repo
     DealDashboardController,
     // The Sales report's `report/sales/*`, with the other reports ahead of `/:id`.
     SalesReportController,
+    TaxReportController,
     JobsReportController,
+    JobStatisticsController,
     DealsController,
   ],
   providers: [
@@ -74,6 +83,10 @@ import { JobsReportSettingsRepository } from './report/jobs-report-settings.repo
     SalesReportSettingsRepository,
     JobsReportService,
     JobsReportSettingsRepository,
+    TaxReportRepository,
+    TaxReportService,
+    BillingReportsClient,
+    JobStatisticsService,
   ],
   exports: [DealsService, DealsEventHandler],
 })

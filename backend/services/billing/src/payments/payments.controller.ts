@@ -4,6 +4,8 @@ import { CurrentUser, RequirePermission } from '@bitcrm/shared';
 import type { JwtUser } from '@bitcrm/types';
 import type { Caller } from '../common/access';
 import { CallerCtx } from '../common/caller.decorator';
+import { Internal } from '../common/decorators/internal.decorator';
+import { LedgersByDealsDto } from './dto/ledgers-by-deals.dto';
 import { AllowedMethodsDto } from './dto/allowed-methods.dto';
 import { ListPaymentsQueryDto } from './dto/list-payments-query.dto';
 import { UpdatePaymentSettingsDto } from './dto/payment-settings.dto';
@@ -57,6 +59,71 @@ export class InvoicePaymentsController {
   })
   async allowedMethods(@Param('id') id: string, @Body() dto: AllowedMethodsDto, @CallerCtx() caller: Caller) {
     return { success: true, data: await this.payments.setAllowedMethods(id, dto.methods, caller) };
+  }
+}
+
+/**
+ * The JOB's ledger (Workiz: the job's Payments tab), under `/deals/:dealId/...`.
+ * Works whether or not the job has an invoice — in Workiz a payment belongs to
+ * the job, and the invoice is a separate document. The ledger is the same one
+ * `/invoices/:id/payments` reads (invoice id === deal id); those routes keep
+ * insisting on an invoice, unchanged.
+ */
+@ApiTags('Payments')
+@ApiBearerAuth()
+@Controller('deals')
+export class DealPaymentsController {
+  constructor(private readonly payments: PaymentsService) {}
+
+  @Get(':dealId/payments')
+  @RequirePermission('payments', 'view')
+  @ApiOperation({
+    summary: "A job's payment ledger, with or without an invoice",
+    description:
+      '**Guard:** `payments.view` (`assigned_only` → the caller’s jobs). → `{ dealId, invoiceId?, payments, ' +
+      'summary, total, amountPaid, balanceDue }`, newest first. `total` is the invoice’s when the job has ' +
+      'one, otherwise the job’s own; `invoiceId` is present only when an invoice exists.',
+  })
+  async list(@Param('dealId') dealId: string, @CallerCtx() caller: Caller) {
+    return { success: true, data: await this.payments.listForDeal(dealId, caller) };
+  }
+
+  @Post(':dealId/payments')
+  @RequirePermission('payments', 'collect')
+  @ApiOperation({
+    summary: 'Record a payment taken offline on a job',
+    description:
+      '**Guard:** `payments.collect` (technicians hold it with `assigned_only`). Cash, cheque, a card ' +
+      'run in person or other — settled immediately, with or without an invoice. 400 above the balance ' +
+      '(the invoice’s, or the job total less what is paid); 404 when the job does not exist.',
+  })
+  async record(@Param('dealId') dealId: string, @Body() dto: RecordPaymentDto, @CallerCtx() caller: Caller) {
+    return { success: true, data: await this.payments.recordOfflineForDeal(dealId, dto, caller) };
+  }
+}
+
+/**
+ * Service-to-service reads of the ledger. Its own controller, registered
+ * before `PaymentsController`, so no `payments/:paymentId/...` route can ever
+ * take `payments/internal/...` for a payment id.
+ */
+@ApiTags('Payments')
+@Controller('payments/internal')
+export class PaymentsInternalController {
+  constructor(private readonly payments: PaymentsService) {}
+
+  @Post('by-deals')
+  @Internal()
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Internal: the ledgers of several jobs',
+    description:
+      '**Guard:** Internal service-to-service only (`x-internal-secret` header required). ' +
+      "deal-service's commissions report splits these into Workiz's Cash / Credit / Check columns. " +
+      'Up to 100 job ids; `{ [dealId]: Payment[] }`, `[]` for a job with no payments, invoice or not.',
+  })
+  async ledgersByDeals(@Body() dto: LedgersByDealsDto) {
+    return { success: true, data: await this.payments.ledgersByDeals(dto.dealIds ?? []) };
   }
 }
 
