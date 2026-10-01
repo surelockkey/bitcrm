@@ -74,13 +74,13 @@ export interface InvoiceLedger {
  * Payments report's job dimensions), so such an invoice can be read but not
  * yet paid — `recordOffline` answers 409 until the ledger learns about it.
  */
-interface PaymentContext {
+export interface PaymentContext {
   invoice: Invoice;
   deal: Pick<Deal, 'id' | 'assignedTechIds' | 'contactId' | 'serviceAreaId'> | null;
 }
 
 /** An invoice that has a job — the only kind the ledger can take a payment on today. */
-type JobInvoice = Invoice & { dealId: string };
+export type JobInvoice = Invoice & { dealId: string };
 const hasJob = (invoice: Invoice): invoice is JobInvoice => typeof invoice.dealId === 'string' && invoice.dealId !== '';
 
 /**
@@ -88,13 +88,13 @@ const hasJob = (invoice: Invoice): invoice is JobInvoice => typeof invoice.dealI
  * invoice when it has one. In Workiz a payment belongs to the JOB; an invoice
  * is a separate document, so `invoice` is legitimately `null` here.
  */
-interface JobContext {
+export interface JobContext {
   invoice: Invoice | null;
   view: DealBillingView;
 }
 
 /** Who a new payment row belongs to. `invoiceId` is always the job id. */
-interface PaymentOwner {
+export interface PaymentOwner {
   invoiceId: string;
   dealId: string;
   contactId: string;
@@ -260,12 +260,7 @@ export class PaymentsService {
 
   /** Cash, a cheque, a card taken in person. Settled the moment it is recorded. */
   async recordOffline(invoiceId: string, input: RecordPaymentInput, caller: Caller): Promise<Payment> {
-    const { invoice, deal } = await this.context(invoiceId, caller);
-    if (!deal || !hasJob(invoice)) {
-      throw new ConflictException(
-        'This invoice belongs to the client and has no job — payments can only be recorded on a job’s invoice for now',
-      );
-    }
+    const { invoice, deal } = await this.jobInvoiceFor(invoiceId, caller);
     assertOfflineMethod(input.method);
     return this.writeOffline(
       { ...invoiceOwner(invoice), ...jobDims(deal) },
@@ -556,6 +551,25 @@ export class PaymentsService {
     return payment;
   }
 
+  /**
+   * A JOB invoice money can be taken on, with the caller's scope checked:
+   * 404 without the invoice (or its job), 403 off the job's roster, 409 for a
+   * client invoice — the ledger is keyed by the job. The offline record and
+   * the Terminal intent both start here.
+   */
+  async jobInvoiceFor(
+    invoiceId: string,
+    caller: Caller,
+  ): Promise<{ invoice: JobInvoice; deal: NonNullable<PaymentContext['deal']> }> {
+    const { invoice, deal } = await this.context(invoiceId, caller);
+    if (!deal || !hasJob(invoice)) {
+      throw new ConflictException(
+        'This invoice belongs to the client and has no job — payments can only be recorded on a job’s invoice for now',
+      );
+    }
+    return { invoice, deal };
+  }
+
   /** The invoice + its job, with the caller's `assigned_only` scope enforced. */
   private async context(invoiceId: string, caller: Caller): Promise<PaymentContext> {
     const invoice = await this.invoices.getStored(invoiceId);
@@ -589,7 +603,7 @@ export class PaymentsService {
    * The scope check for a payment that already exists. Its invoice may never
    * have existed (a job paid without one, as in Workiz), so the job decides.
    */
-  private async paymentContext(payment: Payment, caller: Caller): Promise<JobContext> {
+  async paymentContext(payment: Payment, caller: Caller): Promise<JobContext> {
     const invoice = await this.invoices.getStored(payment.invoiceId);
     const view = await this.deal.getBillingView(invoice?.dealId ?? payment.dealId);
     if (!view) throw new NotFoundException(invoice ? 'Job not found' : 'Invoice not found');
@@ -603,18 +617,7 @@ export class PaymentsService {
   }
 
   private clamp(requested: unknown, amountDue: number): number {
-    try {
-      return clampPaymentAmount({
-        requested,
-        amountDue,
-        allowPartial: true,
-        method: 'card',
-        bankMinimum: 0,
-      });
-    } catch (err) {
-      if (err instanceof PaymentAmountError) throw new BadRequestException(err.message);
-      throw err;
-    }
+    return clampStaffAmount(requested, amountDue);
   }
 
   /** Surfaces the optimistic-concurrency refusal as something a caller can act on. */
@@ -633,8 +636,24 @@ function jobTotal(view: DealBillingView, amountPaid: number): number {
 
 const balanceOf = (total: number, amountPaid: number): number => round2(Math.max(0, total - amountPaid));
 
+/**
+ * What staff may take against `amountDue` — the record-payment rule, shared
+ * with the Terminal routes: a part payment is fine, more than is owed is a
+ * 400 (refused, never quietly capped), and so is anything when nothing is owed.
+ */
+export function clampStaffAmount(requested: unknown, amountDue: number): number {
+  try {
+    return clampPaymentAmount({ requested, amountDue, allowPartial: true, method: 'card', bankMinimum: 0 });
+  } catch (err) {
+    if (err instanceof PaymentAmountError) throw new BadRequestException(err.message);
+    throw err;
+  }
+}
+
 /** Who led the job and where, as the report files a payment (only what the job has). */
-const jobDims = (deal: Pick<Deal, 'assignedTechIds' | 'serviceAreaId'>): Pick<PaymentOwner, 'technicianId' | 'serviceAreaId'> => ({
+export const jobDims = (
+  deal: Pick<Deal, 'assignedTechIds' | 'serviceAreaId'>,
+): Pick<PaymentOwner, 'technicianId' | 'serviceAreaId'> => ({
   ...(deal.assignedTechIds?.[0] && { technicianId: deal.assignedTechIds[0] }),
   ...(deal.serviceAreaId && { serviceAreaId: deal.serviceAreaId }),
 });

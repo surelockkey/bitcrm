@@ -36,6 +36,15 @@ export const COUNTED_PAYMENT_STATUSES: readonly PaymentStatus[] = ['settled', 'r
 export const PAYMENT_SOURCES = ['portal', 'office', 'field', 'system'] as const;
 export type PaymentSource = (typeof PAYMENT_SOURCES)[number];
 
+/**
+ * How a card reached Stripe, when it was not the client's own portal
+ * checkout. `terminal` — card-present through Stripe Terminal on a staff
+ * phone (Tap to Pay): the ledger row is written first, `pending`, then a
+ * `card_present` PaymentIntent the device collects and confirms.
+ */
+export const PAYMENT_CHANNELS = ['terminal'] as const;
+export type PaymentChannel = (typeof PAYMENT_CHANNELS)[number];
+
 export interface Payment {
   id: string;
   /** === invoiceId === dealId. One invoice per job, so these are the same value. */
@@ -65,6 +74,8 @@ export interface Payment {
   /** Tip on top of `amount`, dollars. Never counts toward the balance. */
   tipAmount?: number;
   source: PaymentSource;
+  /** `terminal` for a card tapped on a staff phone (Stripe Terminal). Absent otherwise. */
+  channel?: PaymentChannel;
   /** Cheque number, confirmation code, "paid to tech Mike" — staff's own note. */
   reference?: string;
   note?: string;
@@ -222,6 +233,12 @@ export interface PaymentSettings {
   /** Tips — Stripe has no native online tipping, so this is our own field. */
   tipsEnabled: boolean;
   tipPresets: number[];
+  /**
+   * The Stripe Terminal Location (`tml_…`) every Tap to Pay reader connects
+   * under — one per business account, created from the default company's
+   * address by `POST /terminal/location`. Never typed in, never an env var.
+   */
+  terminalLocationId?: string;
   updatedBy?: string;
   updatedAt?: string;
 }
@@ -281,6 +298,47 @@ export interface PortalDepositOptions {
   bankMinimum: number;
   surchargePercent: number;
   surchargeLabel: string;
+}
+
+// ---- Stripe Terminal (Tap to Pay on a staff phone) -------------------------
+
+/** `POST /terminal/connection-token` — what the Terminal SDK's token provider returns. Never cache it. */
+export interface TerminalConnectionToken {
+  secret: string;
+}
+
+/** `GET` / `POST /terminal/location` — the Location Tap to Pay readers connect under. */
+export interface TerminalLocation {
+  /** Stripe `tml_…`, for `connectReader({ locationId })`. `null` until one is created. */
+  locationId: string | null;
+  /** What it was created with (only on the `POST` that created it). */
+  displayName?: string;
+  address?: { line1: string; line2?: string; city: string; state: string; postalCode: string; country: string };
+}
+
+/** `POST /invoices/:id/terminal-intent` and `POST /estimates/:id/terminal-intent` (a deposit). */
+export interface TerminalPaymentIntent {
+  /** The ledger row — the request's `attemptId`. */
+  paymentId: string;
+  /** Stripe `pi_…`. */
+  intentId: string;
+  /** For the Terminal SDK's `retrievePaymentIntent(clientSecret)`. */
+  clientSecret: string;
+  /** Dollars toward the balance (or the deposit). */
+  amount: number;
+  /** Dollars on top, never toward the balance. */
+  tipAmount: number;
+  /** `amount + tipAmount` — what the card is charged. */
+  total: number;
+  currency: string;
+  /** The row now: `pending` until the card is charged; a retried attempt may already be `settled`. */
+  status: PaymentStatus;
+}
+
+/** `POST /terminal-intents/:paymentId/sync` and `…/cancel`: the attempt now, and its job's ledger. */
+export interface TerminalIntentOutcome {
+  payment: Payment;
+  ledger: JobPaymentLedger;
 }
 
 /** Created per payment attempt — never baked into the emailed link (24h expiry). */

@@ -184,10 +184,21 @@ export function mockStripeService(over: Record<string, unknown> = {}) {
       paymentIntentId: 'pi_test_1',
     })),
     retrieveSession: jest.fn(async () => ({ id: 'cs_test_1', payment_status: 'paid' })),
-    retrievePaymentIntent: jest.fn(async () => ({ id: 'pi_test_1', status: 'succeeded' })),
+    retrievePaymentIntent: jest.fn(async (_id: string, _opts?: any): Promise<any> => ({ id: 'pi_test_1', status: 'succeeded' })),
     createRefund: jest.fn(async () => ({ id: 're_test_1', status: 'succeeded' })),
     expireSession: jest.fn(async () => undefined),
     constructEvent: jest.fn(),
+    // Stripe Terminal (Tap to Pay)
+    createConnectionToken: jest.fn(async (_locationId?: string) => ({ secret: 'pst_test_1' })),
+    createTerminalLocation: jest.fn(async (_input: any) => ({ id: 'tml_1', object: 'terminal.location' })),
+    createTerminalIntent: jest.fn(async (input: any): Promise<any> => ({
+      id: `pi_${input.metadata.paymentId}`,
+      object: 'payment_intent',
+      client_secret: `pi_${input.metadata.paymentId}_secret_1`,
+      status: 'requires_payment_method',
+      metadata: input.metadata,
+    })),
+    cancelPaymentIntent: jest.fn(async (id: string, _reason?: string): Promise<any> => ({ id, object: 'payment_intent', status: 'canceled' })),
     ...over,
   };
 }

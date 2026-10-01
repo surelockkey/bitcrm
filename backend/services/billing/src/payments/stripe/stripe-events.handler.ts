@@ -149,6 +149,28 @@ export class StripeEventsHandler {
     // Still open: the customer may yet finish it.
   }
 
+  /**
+   * The phone's "what happened?" right after a tap (Terminal sync) — the
+   * same assertion path as the webhook, so whichever lands first wins and the
+   * other is a no-op. Unlike the sweep, an intent still waiting for its card
+   * is left alone (the customer may not have tapped yet); only a DECLINE —
+   * an error on the intent — fails the row, and the same intent may still
+   * settle afterwards. The charge comes back expanded, so the card's brand
+   * and last 4 land with the settlement.
+   */
+  async syncIntent(payment: Payment): Promise<void> {
+    if (!payment.stripePaymentIntentId) return;
+    const intent = await this.stripe.retrievePaymentIntent(payment.stripePaymentIntentId, { expandCharge: true });
+    const type =
+      intent.status === 'requires_payment_method'
+        ? intent.last_payment_error
+          ? 'payment_intent.payment_failed'
+          : undefined
+        : INTENT_EVENT[intent.status];
+    if (!type) return;
+    return this.onIntent(intent, type);
+  }
+
   // ------------------------------------------------------------------ sessions
 
   private async onSession(session: Stripe.Checkout.Session, type: string): Promise<void> {
@@ -187,6 +209,10 @@ export class StripeEventsHandler {
     if (charge && payment.stripeChargeId !== charge) {
       patch.stripeChargeId = charge;
       await this.repo.putStripePointer(charge, payment.id);
+    }
+    // Expanded (the Terminal sync asks for it): the card that paid, or was declined.
+    if (intent.latest_charge && typeof intent.latest_charge !== 'string') {
+      Object.assign(patch, cardDetails(intent.latest_charge));
     }
 
     switch (type) {

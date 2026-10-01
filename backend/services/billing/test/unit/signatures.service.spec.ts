@@ -103,6 +103,14 @@ describe('SignaturesService', () => {
     expect((list[0] as unknown as { assetId?: string }).assetId).toBeUndefined();
   });
 
+  it('says whether a document has any signature on file, without minting image URLs', async () => {
+    expect(await service.hasAny('invoice', 'deal-1')).toBe(false);
+    await service.collect({ kind: 'invoice', documentId: 'deal-1', contactId: 'c', imageDataUrl: PNG_1X1, signedBy: 'A', source: 'app' });
+    expect(await service.hasAny('invoice', 'deal-1')).toBe(true);
+    expect(await service.hasAny('estimate', 'deal-1')).toBe(false);
+    expect(assets.getUrl).not.toHaveBeenCalled();
+  });
+
   it('the render context gets the LATEST signature inlined as a data URI', async () => {
     expect(await service.forRender('estimate', 'est-1')).toBeUndefined();
     await service.collect({ kind: 'estimate', documentId: 'est-1', contactId: 'c', imageDataUrl: PNG_1X1, signedBy: 'A', source: 'portal' });

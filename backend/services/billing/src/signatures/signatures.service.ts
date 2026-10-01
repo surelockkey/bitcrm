@@ -87,6 +87,11 @@ export class SignaturesService {
     );
   }
 
+  /** Whether ANY signature is on file — no image URLs are made (a payment gate, not a view). */
+  async hasAny(kind: SignatureDocumentKind, documentId: string): Promise<boolean> {
+    return (await this.repo.list(kind, documentId)).length > 0;
+  }
+
   /** The LATEST signature, inlined for the PDF browser (which has no network); undefined when unsigned. */
   async forRender(kind: SignatureDocumentKind, documentId: string): Promise<RenderSignature | undefined> {
     const rows = await this.repo.list(kind, documentId);

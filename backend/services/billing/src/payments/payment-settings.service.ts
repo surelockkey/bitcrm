@@ -9,7 +9,8 @@ import {
 import { PaymentsRepository } from './payments.repository';
 import { round2 } from './payment-rules';
 
-export type PaymentSettingsPatch = Partial<Omit<PaymentSettings, 'updatedBy' | 'updatedAt'>>;
+/** What `PUT /payment-settings` may change — the Terminal Location is the Terminal routes' own. */
+export type PaymentSettingsPatch = Partial<Omit<PaymentSettings, 'updatedBy' | 'updatedAt' | 'terminalLocationId'>>;
 
 /**
  * The account-wide payment configuration (`SETTINGS` / `PAYMENTS`). A
@@ -45,6 +46,22 @@ export class PaymentSettingsService {
     next.updatedBy = userId;
     next.updatedAt = new Date().toISOString();
     return this.repo.putSettings(next);
+  }
+
+  /**
+   * Remembers the account's Stripe Terminal Location (created from the
+   * default company's address). Kept on the settings row, so a fresh
+   * environment needs no new env var — only `POST /terminal/location` once.
+   */
+  async setTerminalLocation(locationId: string, userId: string): Promise<PaymentSettings> {
+    const current = await this.repo.getSettings();
+    return this.repo.putSettings({
+      ...DEFAULT_PAYMENT_SETTINGS,
+      ...current,
+      terminalLocationId: locationId,
+      updatedBy: userId,
+      updatedAt: new Date().toISOString(),
+    });
   }
 
   /**
