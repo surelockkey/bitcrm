@@ -26,6 +26,7 @@ import { randomUUID } from 'crypto';
 import { ContactsRepository } from './contacts.repository';
 import { CompaniesRepository } from '../companies/companies.repository';
 import { ContactsCacheService } from './contacts-cache.service';
+import { ContactNotesRepository } from './notes/contact-notes.repository';
 import { type CreateContactDto } from './dto/create-contact.dto';
 import { type UpdateContactDto } from './dto/update-contact.dto';
 import { type FindOrCreateContactDto } from './dto/find-or-create-contact.dto';
@@ -66,6 +67,8 @@ export class ContactsService {
     @Optional() private readonly snsPublisher?: SnsPublisherService,
     @Optional() private readonly businessMetrics?: BusinessMetricsService,
     @Optional() private readonly redis?: RedisService,
+    // The client notes of a merged duplicate follow it to the survivor.
+    @Optional() private readonly contactNotes?: ContactNotesRepository,
   ) {}
 
   /**
@@ -353,6 +356,10 @@ export class ContactsService {
     const updated = await this.repository.update(primary.id, updateAttrs);
 
     for (const dup of duplicates) {
+      // Notes first, soft-delete after: a move that fails leaves the duplicate
+      // alive and mergeable again, instead of a deleted contact still holding
+      // notes nobody can reach.
+      await this.contactNotes?.moveAll(dup.id, primary.id);
       await this.repository.update(dup.id, { status: CrmStatus.DELETED } as any);
       await this.cache.invalidate(dup.id);
       this.businessMetrics?.entityDeleted.inc({ entity_type: 'contact' });
