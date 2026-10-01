@@ -202,10 +202,13 @@ export class EstimatesController {
   @RequirePermission('estimates', 'sync')
   @HttpCode(200)
   @ApiOperation({
-    summary: 'Copy a client estimate to a job (Workiz "Copy to job")',
+    summary: 'Copy an estimate to a job (Workiz "Copy to job" / "Create new job")',
     description:
-      '**Guard:** `estimates.sync`. For an estimate with no job: its lines replace the job’s items, the estimate ' +
-      'joins that job and becomes `won`. 409 when the estimate already has a job, or the job is another client’s.',
+      '**Guard:** `estimates.sync` (a technician must be on both jobs). A CLIENT estimate (no job): its lines replace ' +
+      'the job’s items, the estimate joins that job and becomes `won`. A JOB estimate: a copy is made on the other ' +
+      'job (numbered there, `won`) and its lines replace that job’s items; the original and its job are untouched — ' +
+      '`estimate` in the answer is the copy. 409 for the estimate’s own job (use sync-to-job) or another client’s job; ' +
+      '422 for an archived or empty estimate.',
   })
   async copyToJob(@Param('id') id: string, @Body() dto: CopyToJobDto, @CallerCtx() caller: Caller) {
     return { success: true, data: await this.estimates.copyToJob(id, dto.dealId, caller) };

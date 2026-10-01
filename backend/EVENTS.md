@@ -260,10 +260,10 @@ gated on `BILLING_EVENTS_TOPIC_ARN`. No consumers yet.
 | `invoice.created` | `InvoiceEvent` `{invoiceId, dealId, contactId, number, status, total}` | a job's invoice is created |
 | `invoice.updated` | `InvoiceEvent` | fields edited, marked sent/unsent, totals/status refreshed from the job, overdue sweep |
 | `invoice.deleted` | `InvoiceEvent` | invoice deleted (by a user, or because its job was deleted) |
-| `estimate.created` | `EstimateEvent` `{estimateId, dealId, contactId, number, status, total}` | estimate created or duplicated |
+| `estimate.created` | `EstimateEvent` `{estimateId, dealId, contactId, number, status, total}` | estimate created, duplicated, or copied from another job's estimate (`copy-to-job` of a job estimate — then `estimate.synced` follows for the copy) |
 | `estimate.updated` | `EstimateEvent` | fields / lines / status / sent changed, archived on job cancel |
 | `estimate.deleted` | `EstimateEvent` | estimate deleted (by a user, or with its job) |
-| `estimate.synced` | `EstimateEvent` | the estimate's lines replaced the job's (`sync-to-job`) |
+| `estimate.synced` | `EstimateEvent` | the estimate's lines replaced the job's (`sync-to-job`, `copy-to-job`) |
 | `payment.succeeded` | `PaymentEvent` `{paymentId, invoiceId, dealId, contactId, amount, method, status, balanceDue}` | a payment settled: recorded offline, a card taken in the portal, an ACH debit that cleared, or a dispute we won |
 | `payment.pending` | `PaymentEvent` | a bank (ACH) payment was confirmed and is on its way — it does NOT count toward the invoice yet |
 | `payment.failed` | `PaymentEvent` | the card was declined, the bank payment was returned unpaid, or a checkout session expired unfinished |

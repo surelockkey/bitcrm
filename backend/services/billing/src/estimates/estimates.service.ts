@@ -258,13 +258,15 @@ export class EstimatesService {
    * Workiz "Copy to job" on a standalone estimate: the estimate's lines
    * become the job's items (like a sync), the estimate joins that job
    * (numbered as it was, under the job's Estimates tab) and is `won`. The job
-   * must be the same client's; an estimate already on a job is synced, not copied.
+   * must be the same client's.
+   *
+   * A JOB estimate is copied instead (Workiz "Create new job" under the
+   * estimate's lines): see `copyToAnotherJob`. Its own job is refused — that
+   * is Sync to job.
    */
   async copyToJob(id: string, dealId: string, caller: Caller): Promise<{ estimate: EstimateWithItems; itemCount: number }> {
     const { estimate, items } = await this.load(id, caller);
-    if (estimate.dealId) {
-      throw new ConflictException('This estimate already belongs to a job — use Sync to job instead');
-    }
+    if (estimate.dealId) return this.copyToAnotherJob(estimate, items, dealId, caller);
     const view = await this.loadView(dealId);
     assertDealAccess(caller, 'estimates', view.deal);
     if (view.deal.contactId !== estimate.contactId) {
@@ -297,6 +299,94 @@ export class EstimatesService {
     });
     this.events?.estimate(BillingEventType.ESTIMATE_SYNCED, updated);
     return { estimate: { ...updated, items }, itemCount: result.items?.length ?? items.length };
+  }
+
+  /**
+   * A job estimate → ANOTHER job of the same client (Workiz "Create new job"
+   * from a job-connected estimate, the job made first): a COPY of the
+   * estimate is filed under the new job — numbered there, `won`, synced — and
+   * its lines replace that job's items. The original estimate, its lines and
+   * its job are not touched, so the copy starts without the original's own
+   * history (sent, approval, signature, proposal). Deposit payments stay on
+   * the original job's ledger.
+   */
+  private async copyToAnotherJob(
+    estimate: Estimate,
+    items: EstimateItem[],
+    dealId: string,
+    caller: Caller,
+  ): Promise<{ estimate: EstimateWithItems; itemCount: number }> {
+    if (estimate.dealId === dealId) {
+      throw new ConflictException('This estimate is already on that job — use Sync to job instead');
+    }
+    const view = await this.loadView(dealId);
+    assertDealAccess(caller, 'estimates', view.deal);
+    if (view.deal.contactId !== estimate.contactId) {
+      throw new ConflictException("That job belongs to another client — pick one of this client's jobs");
+    }
+    assertSyncable(estimate, items.length);
+
+    const target = view.deal;
+    const number = estimateNumber(target.dealNumber, await this.repo.nextSeq(target.id));
+    const now = new Date().toISOString();
+    const newId = randomUUID();
+    const {
+      sentAt: _sentAt,
+      sentBy: _sentBy,
+      approvedAt: _approvedAt,
+      approvedVia: _approvedVia,
+      signedAt: _signedAt,
+      declinedAt: _declinedAt,
+      declineReason: _declineReason,
+      wonAt: _wonAt,
+      syncedAt: _syncedAt,
+      syncedBy: _syncedBy,
+      proposalId: _proposalId,
+      workizNumber: _workizNumber,
+      createdByName: _createdByName,
+      ...content
+    } = estimate;
+    const copy: Estimate = {
+      ...content,
+      id: newId,
+      number,
+      dealId: target.id,
+      dealNumber: target.dealNumber,
+      ...statusChanges({ status: 'unsent' }, 'won', now),
+      syncedAt: now,
+      syncedBy: caller.user.id,
+      version: 1,
+      createdBy: caller.user.id,
+      createdAt: now,
+      updatedAt: now,
+    } as Estimate;
+    const copyItems = items.map((i, position) => ({
+      ...i,
+      lineId: randomUUID(),
+      estimateId: newId,
+      position,
+      createdAt: now,
+      updatedAt: now,
+    }));
+    copy.totals = estimateTotals(copy, copyItems);
+
+    // The job first: if deal-service refuses, nothing has been written here.
+    const result = await this.deal.replaceAllProducts(target.id, this.replaceAllBody(copy, copyItems, caller));
+    await this.repo.create(copy, copyItems);
+    await this.timeline(target.id, TimelineEventType.ESTIMATE_SYNCED, caller, {
+      estimateId: newId,
+      number,
+      itemCount: copyItems.length,
+      copiedFrom: estimate.number,
+      copiedFromEstimateId: estimate.id,
+      copiedFromDealId: estimate.dealId,
+    });
+    this.events?.estimate(BillingEventType.ESTIMATE_CREATED, copy);
+    this.events?.estimate(BillingEventType.ESTIMATE_SYNCED, copy);
+    return {
+      estimate: { ...copy, items: copyItems, ...(await this.coverOf(copy)) },
+      itemCount: result.items?.length ?? copyItems.length,
+    };
   }
 
   /** The job's new lines, tax and discount as the estimate has them (shared by sync and copy). */

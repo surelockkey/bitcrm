@@ -157,7 +157,7 @@ describe('EstimatesService', () => {
       expect(deal.addTimeline).toHaveBeenCalledWith('deal-9', TimelineEventType.ESTIMATE_SYNCED, 'u-1', expect.objectContaining({ estimateId: e.id }), 'dispatcher@example.com');
     });
 
-    it('refuses another client’s job, and an estimate that already has a job', async () => {
+    it('refuses another client’s job, and a job estimate’s own job (that is Sync to job)', async () => {
       const e = await service.create({ contactId: 'contact-1' }, caller());
       await service.addItem(e.id, itemDto(), caller());
       deal.getBillingView.mockResolvedValueOnce(billingView({ id: 'deal-9', contactId: 'someone-else' }));
@@ -165,6 +165,123 @@ describe('EstimatesService', () => {
       const onJob = await service.create({ dealId: 'deal-1' }, caller());
       await expect(service.copyToJob(onJob.id, 'deal-1', caller())).rejects.toBeInstanceOf(ConflictException);
       expect(deal.replaceAllProducts).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('copy a JOB estimate to a new job (Workiz "Create new job" under the estimate)', () => {
+    const jobEstimate = async () => {
+      const e = await service.create({ dealId: 'deal-1' }, caller());
+      await service.addItem(e.id, itemDto(), caller());
+      await service.update(e.id, { name: 'Better', depositPercentage: 50 }, caller());
+      return repo.get(e.id).then((f) => f!);
+    };
+    const newJob = (over: Record<string, unknown> = {}) =>
+      deal.getBillingView.mockResolvedValueOnce(billingView({ id: 'deal-9', dealNumber: 'NEWJOB', contactId: 'contact-1', ...over }));
+
+    it('makes a copy on the new job and puts its lines on that job; the original estimate and its job stay as they were', async () => {
+      const original = await jobEstimate();
+      const before = { estimate: { ...original.estimate }, items: original.items.map((i) => ({ ...i })) };
+      deal.replaceAllProducts.mockClear();
+      deal.addTimeline.mockClear();
+      newJob();
+
+      const { estimate: copy, itemCount } = await service.copyToJob(original.estimate.id, 'deal-9', caller());
+
+      expect(copy.id).not.toBe(original.estimate.id);
+      // Numbered on the NEW job's counter (the fake's counter is shared, the real one is per job).
+      expect(copy.number).toMatch(/^NEWJOB-\d+$/);
+      expect(repo.nextSeq).toHaveBeenLastCalledWith('deal-9');
+      expect(copy).toMatchObject({
+        dealId: 'deal-9',
+        dealNumber: 'NEWJOB',
+        contactId: 'contact-1',
+        name: 'Better',
+        depositPercentage: 50,
+        status: 'won',
+        wonAt: NOW,
+        syncedAt: NOW,
+        syncedBy: 'u-1',
+        createdBy: 'u-1',
+        version: 1,
+      });
+      expect(copy.items).toHaveLength(1);
+      expect(copy.items[0]).toMatchObject({ estimateId: copy.id, name: 'Smart lock', priceClient: 200, position: 0 });
+      expect(copy.items[0].lineId).not.toBe(before.items[0].lineId);
+      expect(copy.totals.total).toBe(original.estimate.totals.total);
+      expect(itemCount).toBe(1);
+      // Stored, under the new job.
+      expect((await repo.get(copy.id))!.estimate).toMatchObject({ dealId: 'deal-9', number: copy.number });
+
+      // Only the NEW job's items are replaced, from the copy.
+      expect(deal.replaceAllProducts).toHaveBeenCalledTimes(1);
+      expect(deal.replaceAllProducts).toHaveBeenCalledWith(
+        'deal-9',
+        expect.objectContaining({ estimateNumber: copy.number, items: [expect.objectContaining({ name: 'Smart lock', quantity: 1 })] }),
+      );
+      // The original is untouched.
+      const after = (await repo.get(original.estimate.id))!;
+      expect(after.estimate).toEqual(before.estimate);
+      expect(after.items).toEqual(before.items);
+
+      // The new job's timeline says where the estimate came from; nothing is written on the old job.
+      expect(deal.addTimeline).toHaveBeenCalledTimes(1);
+      expect(deal.addTimeline).toHaveBeenCalledWith(
+        'deal-9',
+        TimelineEventType.ESTIMATE_SYNCED,
+        'u-1',
+        expect.objectContaining({ estimateId: copy.id, number: copy.number, copiedFrom: original.estimate.number }),
+        'dispatcher@example.com',
+      );
+      expect(events.estimate).toHaveBeenCalledWith(BillingEventType.ESTIMATE_CREATED, expect.objectContaining({ id: copy.id, dealId: 'deal-9' }));
+    });
+
+    it('leaves the original’s own history behind: not sent, not approved or signed, in no proposal', async () => {
+      const original = await jobEstimate();
+      repo.estimates.set(original.estimate.id, {
+        ...original.estimate,
+        status: 'approved',
+        sentAt: NOW,
+        sentBy: 'u-1',
+        approvedAt: NOW,
+        approvedVia: 'portal',
+        signedAt: NOW,
+        proposalId: 'prop-1',
+        declineReason: 'n/a',
+        workizNumber: '1041-1',
+      });
+      newJob();
+      const { estimate: copy } = await service.copyToJob(original.estimate.id, 'deal-9', caller());
+      for (const field of ['sentAt', 'sentBy', 'approvedAt', 'approvedVia', 'signedAt', 'proposalId', 'declineReason', 'workizNumber'] as const) {
+        expect(copy[field]).toBeUndefined();
+      }
+      expect(copy.status).toBe('won');
+    });
+
+    it('refuses another client’s job and an archived or empty estimate, and writes nothing', async () => {
+      const original = await jobEstimate();
+      deal.replaceAllProducts.mockClear();
+      newJob({ contactId: 'someone-else' });
+      await expect(service.copyToJob(original.estimate.id, 'deal-9', caller())).rejects.toBeInstanceOf(ConflictException);
+
+      const empty = await service.create({ dealId: 'deal-1' }, caller());
+      newJob();
+      await expect(service.copyToJob(empty.id, 'deal-9', caller())).rejects.toBeInstanceOf(UnprocessableEntityException);
+
+      expect(deal.replaceAllProducts).not.toHaveBeenCalled();
+      expect([...repo.estimates.values()].filter((e) => e.dealId === 'deal-9')).toHaveLength(0);
+    });
+
+    it('needs a technician to be on the new job as well', async () => {
+      const original = await jobEstimate();
+      const tech = caller(DataScope.ASSIGNED_ONLY, { id: 'tech-1' });
+      // The estimate's own job (deal-1) has tech-1; the new job does not.
+      deal.getBillingView.mockImplementation(async (id: string) =>
+        id === 'deal-9'
+          ? billingView({ id: 'deal-9', dealNumber: 'NEWJOB', contactId: 'contact-1', assignedTechIds: ['someone-else'] })
+          : billingView(),
+      );
+      await expect(service.copyToJob(original.estimate.id, 'deal-9', tech)).rejects.toBeInstanceOf(ForbiddenException);
+      expect([...repo.estimates.values()].filter((e) => e.dealId === 'deal-9')).toHaveLength(0);
     });
   });
 
