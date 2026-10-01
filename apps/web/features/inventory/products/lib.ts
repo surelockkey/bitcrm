@@ -27,6 +27,23 @@ export function formatMargin(price: number, cost: number): string {
 }
 
 /* ------------------------------------------------------------------ *
+ * Photo
+ * ------------------------------------------------------------------ */
+
+/**
+ * What a list row carries about the item's photo beyond `photoKey`: the URL of
+ * its thumbnail (a 128px webp, presigned, the same URL all hour) once the
+ * server has made one. An older server sends none — the row then shows the
+ * placeholder, and the photo opens from `GET /inventory/products/:id/photo`.
+ */
+export interface ProductMedia {
+  thumbnailUrl?: string;
+}
+
+/** An item as a list row sends it, its thumbnail's URL included. */
+export type ProductWithMedia = Product & ProductMedia;
+
+/* ------------------------------------------------------------------ *
  * Labels
  * ------------------------------------------------------------------ */
 

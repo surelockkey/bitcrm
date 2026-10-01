@@ -106,4 +106,20 @@ describe('DEFAULT_ROLES <-> RESOURCE_REGISTRY consistency', () => {
     // technicians have no access to the calls section
     expect(byId('role-technician').permissions.calls).toMatchObject({ view: false, join: false });
   });
+
+  it('opens the Job Statistics tabs with reports.view and its profit with financials.view', () => {
+    const tabs = ['view_ad_statistics', 'view_tech_statistics', 'view_area_statistics', 'view_dispatch_statistics'];
+    for (const role of DEFAULT_ROLES) {
+      const reports = role.permissions.reports as Record<string, boolean>;
+      for (const tab of tabs) expect({ role: role.id, tab, on: reports[tab] }).toEqual({ role: role.id, tab, on: reports.view });
+      // Workiz "View Profit": a role that cannot see money cannot see profit either.
+      expect({ role: role.id, on: reports.view_profit }).toEqual({
+        role: role.id,
+        on: reports.view && role.permissions.financials.view,
+      });
+    }
+    const byId = (id: string) => DEFAULT_ROLES.find((r) => r.id === id)!;
+    expect(byId('role-dispatcher').permissions.reports).toMatchObject({ view_tech_statistics: true, view_profit: false });
+    expect(byId('role-technician').permissions.reports).toMatchObject({ view_ad_statistics: false, view_profit: false });
+  });
 });

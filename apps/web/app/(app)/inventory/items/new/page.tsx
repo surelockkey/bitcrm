@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-/** New items are created in a popup on the Items tab now. */
+/** New items are made from the Items tab's New item button; an old link lands on the list. */
 export default function Page() {
-  redirect("/inventory/items?new=1");
+  redirect("/inventory/items");
 }

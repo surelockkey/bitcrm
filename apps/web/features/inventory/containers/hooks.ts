@@ -2,6 +2,7 @@
 
 import {
   keepPreviousData,
+  queryOptions,
   useInfiniteQuery,
   useMutation,
   useQuery,
@@ -43,12 +44,19 @@ export function useContainersList(filter: api.ContainerFilter, limit = 100) {
   });
 }
 
+/** One van's read. */
+function vanQuery(id: string) {
+  return queryOptions({
+    queryKey: queryKeys.inventory.containers.detail(id),
+    queryFn: () => api.getContainer(id),
+  });
+}
+
 /** One van — starting from its list row when a list holds it, read fresh behind it. */
 export function useContainer(id: string, enabled = true) {
   const qc = useQueryClient();
   return useQuery({
-    queryKey: queryKeys.inventory.containers.detail(id),
-    queryFn: () => api.getContainer(id),
+    ...vanQuery(id),
     enabled,
     placeholderData: () => rowFromLists<Container>(qc, "containers", id),
   });

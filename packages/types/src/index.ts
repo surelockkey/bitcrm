@@ -79,6 +79,33 @@ export {
 } from './entities/call-flow.entity';
 export { CALL_FLOW_LIMITS } from './entities/call-flow.entity';
 export { CallTag, CALL_TAG_LIMITS } from './entities/call-tag.entity';
+// Reports — Workiz Call Tracking (`GET /telephony/calls/stats/tracking`)
+export {
+  CALL_TRACKING_GROUP_BY,
+  CALL_TRACKING_GRAPH_BY,
+  CALL_TRACKING_MAX_DAYS,
+  CALL_TRACKING_GRAPH_SERIES,
+  CALL_TRACKING_OTHER_SERIES,
+} from './reports/call-tracking';
+export type {
+  CallTrackingGroupBy,
+  CallTrackingGraphBy,
+  CallTrackingRow,
+  CallTrackingCards,
+  CallTrackingSeries,
+  CallTrackingGraph,
+  CallTrackingReport,
+} from './reports/call-tracking';
+// The account's calendar for reports (America/New_York days ↔ UTC instants)
+export {
+  AccountClock,
+  accountDayStartUtc,
+  accountDaysBetween,
+  accountWindowUtc,
+  shiftAccountDay,
+  weekStartSunday,
+  zoneOffsetMs,
+} from './reports/account-clock';
 export { JobType } from './entities/job-type.entity';
 export { JobSource } from './entities/job-source.entity';
 export { ExternalCompany } from './entities/external-company.entity';
@@ -109,6 +136,20 @@ export {
   DealProductPriceSource,
 } from './entities/deal-product.entity';
 export { TimelineEntry } from './entities/timeline-entry.entity';
+// Reports — Workiz Activity (`GET /deals/activity`), read off the timelines
+export {
+  ACTIVITY_PAGE_SIZES,
+  ACTIVITY_DEFAULT_PAGE_SIZE,
+  ACTIVITY_MAX_USERS,
+  ACTIVITY_EXPORT_MAX_ROWS,
+  ACTIVITY_FIRST_DAY,
+} from './reports/activity';
+export type {
+  ActivityRow,
+  ActivitySource,
+  ActivitySort,
+  ActivityExport,
+} from './reports/activity';
 export {
   Product,
   ProductWithExtras,
@@ -170,6 +211,7 @@ export {
 export {
   CommissionConfig,
   CommissionBreakdown,
+  CommissionJobTypeRule,
 } from './entities/commission-config.entity';
 export {
   TechnicianDocument,
@@ -455,10 +497,26 @@ export type {
   PaymentRefund,
   RefundStatus,
   PaymentSummary,
+  JobPaymentLedger,
   PaymentSettings,
   PortalPaymentOptions,
   PortalPaymentSession,
 } from './entities/payment.entity';
+export {
+  PAYMENT_REPORT_TYPES,
+  PAYMENT_REPORT_TYPE_LABELS,
+  PAYMENT_REPORT_TYPE_FILTERS,
+  PAYMENT_REPORT_ELECTRONIC_TYPES,
+  paymentReportTypeLabel,
+} from './entities/payment-report.entity';
+export type {
+  PaymentReportType,
+  PaymentReportStatus,
+  PaymentReportRow,
+  PaymentReportTotals,
+  PaymentReportPage,
+  PaymentReportQuery,
+} from './entities/payment-report.entity';
 
 // Permissions
 export {
@@ -468,6 +526,23 @@ export {
 } from './permissions/permission-matrix';
 export { ResolvedPermissions } from './permissions/resolved-permissions';
 export { RESOURCE_REGISTRY, Resource, Action } from './permissions/resource-registry';
+
+// Reports — the Workiz Tips report (`GET /deals/report/tips`)
+export {
+  TIPS_REPORT_JOBS_MAX_PAGE_SIZE,
+  TIPS_REPORT_JOBS_PAGE_SIZE,
+  TIPS_REPORT_JOB_COLUMNS,
+  TIPS_REPORT_JOB_SORTS,
+  TIPS_REPORT_MAX_DAYS,
+} from './reports/tips-report';
+export type {
+  TipsReportFilters,
+  TipsReportJobRow,
+  TipsReportJobSort,
+  TipsReportJobsPage,
+  TipsReportPage,
+  TipsReportRow,
+} from './reports/tips-report';
 
 // DTOs
 export { CreateUserRequest } from './dto/create-user.dto';
@@ -507,6 +582,26 @@ export type {
   DealStatsDay,
   DealStatsMoney,
 } from './responses/deal-stats';
+export {
+  COMMISSION_REPORT_MODES,
+  COMMISSION_REPORT_BY,
+  COMMISSION_REPORT_TOTAL_KEYS,
+} from './responses/commission-report';
+export type {
+  CommissionReport,
+  CommissionReportBy,
+  CommissionReportExternalSummary,
+  CommissionReportMode,
+  CommissionReportRow,
+  CommissionReportTechSummary,
+  CommissionReportTotal,
+  CommissionReportTotalKey,
+  CommissionReportTotals,
+  CommissionRateSource,
+  CommissionRateUnit,
+  CommissionRowSource,
+  WorkizCommissionSnapshot,
+} from './responses/commission-report';
 export type {
   CallFlowSeries,
   CallsDashboardBundle,
@@ -527,3 +622,137 @@ export {
   dashboardWindow,
   msUntilDailyAt,
 } from './dashboard/time';
+
+// Reports — the Workiz Sales report (`GET /deals/report/sales`)
+export {
+  SALES_REPORT_BY,
+  SALES_REPORT_COLUMNS,
+  SALES_REPORT_COLUMN_IDS,
+  SALES_REPORT_DEFAULT_COLUMNS,
+  SALES_REPORT_DEFAULT_SETTINGS,
+  SALES_REPORT_MAX_DAYS,
+  SALES_REPORT_MAX_PAGE_SIZE,
+  SALES_REPORT_MONEY_COLUMNS,
+  SALES_REPORT_PAYMENT_STATUSES,
+  SALES_REPORT_STATUSES,
+} from './reports/sales-report';
+export type {
+  SalesReportBy,
+  SalesReportColumnId,
+  SalesReportDay,
+  SalesReportFilters,
+  SalesReportMoney,
+  SalesReportPage,
+  SalesReportPagination,
+  SalesReportPaymentStatus,
+  SalesReportRow,
+  SalesReportSettings,
+  SalesReportTotals,
+} from './reports/sales-report';
+
+// Reports — the Workiz Jobs report (`GET /deals/report`)
+export {
+  JOBS_REPORT_BY,
+  JOBS_REPORT_BY_LABEL,
+  JOBS_REPORT_COLUMNS,
+  JOBS_REPORT_COLUMN_IDS,
+  JOBS_REPORT_DEFAULT_COLUMNS,
+  JOBS_REPORT_DEFAULT_SETTINGS,
+  JOBS_REPORT_MAX_DAYS,
+  JOBS_REPORT_MAX_PAGE_SIZE,
+} from './reports/jobs-report';
+export type {
+  JobsReportBy,
+  JobsReportColumnId,
+  JobsReportFilters,
+  JobsReportOrigin,
+  JobsReportPage,
+  JobsReportPagination,
+  JobsReportRow,
+  JobsReportSettings,
+} from './reports/jobs-report';
+
+// Reports — the Workiz Items and services report (`GET /deals/report/items`)
+export {
+  ITEMS_REPORT_COLUMNS,
+  ITEMS_REPORT_ITEM_TYPES,
+  ITEMS_REPORT_MAX_DAYS,
+  ITEMS_REPORT_MAX_PAGE_SIZE,
+  ITEMS_REPORT_SORTS,
+} from './reports/items-report';
+export type {
+  ItemsReportColumnId,
+  ItemsReportFilters,
+  ItemsReportItemType,
+  ItemsReportJobRow,
+  ItemsReportJobsPage,
+  ItemsReportPage,
+  ItemsReportPagination,
+  ItemsReportRow,
+  ItemsReportSort,
+  ItemsReportTotals,
+} from './reports/items-report';
+// Reports — Workiz's billing reports: Aging invoices, Tax, Invoices, Estimates
+export {
+  AGING_BUCKETS,
+  AGING_BUCKET_LABELS,
+  AGING_SORTS,
+  INVOICE_REPORT_STATUSES,
+  INVOICE_DAYS_DUE,
+  INVOICE_DAYS_DUE_LABELS,
+  ESTIMATE_STATUS_LABELS,
+  TAX_REPORT_BASES,
+  TAX_REPORT_BY,
+  TAX_REPORT_BY_LABELS,
+  agingDaysLate,
+  agingBucketOf,
+  invoiceDaysDueWindow,
+  invoiceDiscountPercent,
+  INVOICE_PAID_TOLERANCE,
+  reportInvoiceBalance,
+  reportInvoiceStatus,
+  isReportOpen,
+  invoiceReportFigures,
+  estimateReportAmount,
+  estimateDepositDue,
+  taxRateKey,
+  taxRateRounded,
+} from './reports/billing-reports';
+export type {
+  AgingBucket,
+  AgingOverdueBucket,
+  AgingReport,
+  AgingRow,
+  AgingSort,
+  EstimateReportSummary,
+  InvoiceDaysDue,
+  InvoiceReportStatus,
+  InvoiceReportSummary,
+  InvoiceReportFigures,
+  InvoiceReportRow,
+  ReportCard,
+  ReportCsvExport,
+  TaxReport,
+  TaxReportBasis,
+  TaxReportBy,
+  TaxReportRow,
+} from './reports/billing-reports';
+// Reports — the Workiz Job Statistics (`GET /deals/report/statistics`)
+export {
+  JOB_STATISTICS_BY_LABEL,
+  JOB_STATISTICS_PROFIT_ACTION,
+  JOB_STATISTICS_TABS,
+  JOB_STATISTICS_TAB_ACTION,
+} from './reports/job-statistics';
+export type {
+  JobStatistics,
+  JobStatisticsBy,
+  JobStatisticsCounts,
+  JobStatisticsDay,
+  JobStatisticsKpis,
+  JobStatisticsMoney,
+  JobStatisticsRow,
+  JobStatisticsTab,
+  JobStatisticsTable,
+  JobStatisticsTotals,
+} from './reports/job-statistics';

@@ -1,14 +1,9 @@
 import { redirect } from "next/navigation";
 
 /**
- * The search index links a product hit to `/inventory/products/<id>`, a page
- * the web never had. Hand it to the item's Edit popup on the Items tab.
+ * The search index linked a product hit to `/inventory/products/<id>`, a page
+ * the web never had. No address opens a popup: it lands on the Items list.
  */
-export default async function Page({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
-  const { id } = await params;
-  redirect(`/inventory/items?edit=${encodeURIComponent(id)}`);
+export default function Page() {
+  redirect("/inventory/items");
 }

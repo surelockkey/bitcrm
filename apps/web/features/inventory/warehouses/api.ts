@@ -1,12 +1,7 @@
-import type {
-  Warehouse,
-  StockItem,
-  Product,
-  PaginatedResponse,
-  InventoryStatus,
-  ListCount,
-} from "@bitcrm/types";
+import { InventoryStatus } from "@bitcrm/types";
+import type { Warehouse, StockItem, Product, PaginatedResponse, ListCount } from "@bitcrm/types";
 import { http, apiFetchPaginated } from "@/lib/api/http";
+import { readAllPages } from "@/features/inventory/read-all";
 import type { WarehouseValues } from "./schemas";
 
 /* --- Warehouses --- */
@@ -64,21 +59,14 @@ export function getWarehouseStock(id: string): Promise<StockItem[]> {
 
 /* --- Product catalog --- */
 
-async function fetchProducts(filter: Record<string, string>, cap: number): Promise<Product[]> {
-  const all: Product[] = [];
-  let cursor: string | undefined;
-  do {
-    const q = new URLSearchParams({ ...filter, limit: "100" });
-    if (cursor) q.set("cursor", cursor);
-    const page = await apiFetchPaginated<Product>(`/inventory/products?${q}`);
-    all.push(...page.data);
-    cursor = page.pagination.nextCursor;
-  } while (cursor && all.length < cap);
-  return all.slice(0, cap);
-}
-
-/** The whole catalog, services included — what the job and estimate item pickers offer. */
+/**
+ * Every active item — products and services — what the job and estimate item
+ * pickers offer. Read to the end of the cursor: the catalog is ~7 300 active
+ * items of ~16 000 on dev, and the old read stopped at 5 000 of all of them
+ * (active and archived, in name order), so the pickers never offered an item
+ * past the first third of the alphabet. Archived items were thrown away by
+ * both pickers anyway; asking the server for the active ones halves the read.
+ */
 export function fetchAllProducts(): Promise<Product[]> {
-  return fetchProducts({}, 5000);
+  return readAllPages<Product>("/inventory/products", { status: InventoryStatus.ACTIVE });
 }
-

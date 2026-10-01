@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ProductsController } from './products.controller';
+import { ProductThumbnailsService } from './product-thumbnails';
 import { ProductsService } from './products.service';
 import { ProductsRepository } from './products.repository';
 import { ProductsCacheService } from './products-cache.service';
@@ -17,6 +18,7 @@ import { ItemAttributesModule } from '../item-attributes/item-attributes.module'
     ProductsRepository,
     ProductsCacheService,
     ProductsTypeBackfill,
+    ProductThumbnailsService,
   ],
   exports: [ProductsService, ProductsRepository],
 })

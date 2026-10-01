@@ -24,6 +24,13 @@ locals {
     # bulk write of millions of rows; without a restore point, a bad run
     # leaves no way back except regenerating and reloading everything.
     deals = { enable_pitr = true, gsis = [
+      # Reports → Activity, on the timeline rows only (sparse): ActivityDayIndex
+      # = ACTDAY#<New York day> / <timestamp>#<id>, ActorIndex = ACTOR#<actorId>
+      # / <timestamp>#<id>. 8 and 9 because 7 is the Jobs report's EndIndex.
+      # Rows written before them need `npm run backfill:activity-index -w
+      # backend/services/deal -- --apply`, then `recount:activity -- --apply`.
+      { name = "ActivityDayIndex", n = 8 },
+      { name = "ActorIndex", n = 9 },
       { name = "StageIndex", n = 1 },
       { name = "TechIndex", n = 2 },
       { name = "ContactIndex", n = 3 },
@@ -32,6 +39,11 @@ locals {
       # ClosedIndex is sparse — closed deals only, one partition a month
       # (CLOSED#<YYYY-MM> / <closedAt>#DEAL#<id>) — for the report's "By: Job closed".
       { name = "ClosedIndex", n = 6 },
+      # EndIndex keys the visit's END on the account's clock, one partition a
+      # month (END#<YYYY-MM> / <YYYY-MM-DDTHH:MM>#DEAL#<id>) — the Jobs report's
+      # "By: Job end date" (Workiz report_by=3). Rows written before it existed
+      # need `npm run backfill:end-index -w backend/services/deal -- --apply`.
+      { name = "EndIndex", n = 7 },
     ] }
     # One item per call (PK=CALL#<sid>, SK=METADATA). AgentIndex is an agent's
     # own history; AllCallsIndex is the global time-ordered log the calls page
@@ -86,6 +98,12 @@ locals {
         { name = "ListIndex", n = 1 },    # INVOICES | ESTIMATES | TEMPLATES | PAYMENTS / <createdAt>
         { name = "ContactIndex", n = 2 }, # CONTACT#<contactId> / INVOICE# | ESTIMATE# | PAYMENT#<createdAt>
         { name = "DealIndex", n = 3 },    # DEAL#<dealId> / ESTIMATE#<createdAt>
+        # UnpaidIndex is sparse — only invoices that still owe money (status
+        # due/overdue, ~600 of ~78k): UNPAID / <invoiceId>. Aging invoices, the
+        # Invoices report cards and the overdue sweep read it instead of the
+        # whole list. Rows written before it existed need
+        # `npm run backfill:unpaid-index -w billing-service`.
+        { name = "UnpaidIndex", n = 4 },
       ]
       # Stripe webhook dedupe rows (WEBHOOK#<eventId>) expire after 30 days.
       # Nothing in the payment ledger itself ever carries `expiresAt`.

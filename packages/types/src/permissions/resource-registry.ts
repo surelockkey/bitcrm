@@ -30,7 +30,22 @@ export const RESOURCE_REGISTRY = {
   transfers: ['view', 'create', 'edit', 'delete'],
   users: ['view', 'create', 'edit', 'delete'],
   roles: ['view', 'create', 'edit', 'delete'],
-  reports: ['view', 'create', 'edit', 'delete'],
+  // Job Statistics: one action per tab (Workiz "Statistics Report" sub-grants
+  // Ad 1010, Tech 1011, Area 1012, Dispatch 1013) and `view_profit` (Workiz
+  // "View Profit" 1014, on top of `financials.view`). deal-service closes a
+  // tab only on an explicit `false`, so a role saved before these existed
+  // keeps every tab it had.
+  reports: [
+    'view',
+    'create',
+    'edit',
+    'delete',
+    'view_ad_statistics',
+    'view_tech_statistics',
+    'view_area_statistics',
+    'view_dispatch_statistics',
+    'view_profit',
+  ],
   settings: ['view', 'edit'],
   technicians: ['view', 'create', 'edit', 'delete'],
   job_types: ['view', 'create', 'edit', 'delete', 'propose', 'approve', 'revoke'],

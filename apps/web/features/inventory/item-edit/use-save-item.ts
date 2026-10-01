@@ -37,6 +37,8 @@ async function applyPhoto(id: string, photo: PhotoChange, hadPhoto: boolean): Pr
   if (photo.file) {
     const { uploadUrl } = await api.getPhotoUploadUrl(id, photo.file.type || "image/jpeg");
     await api.uploadPhotoBytes(uploadUrl, photo.file);
+    // the list's 40×40 thumbnail is made server-side from the uploaded bytes
+    await api.completePhotoUpload(id);
   } else if (photo.remove && hadPhoto) {
     await api.removePhoto(id);
   }

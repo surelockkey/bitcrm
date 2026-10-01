@@ -95,6 +95,8 @@ import { usePageHistoryLabel } from "@/components/shell/page-history";
 import { DealMessagesTab } from "@/features/messaging/components/deal-messages-tab";
 import { DealEstimatesTab } from "@/features/estimates/components/deal-estimates-tab";
 import { DealInvoiceTab } from "@/features/invoices/components/deal-invoice-tab";
+import { DealPaymentsTab, paymentsTabCaption } from "@/features/payments/components/deal-payments-tab";
+import { useDealPayments } from "@/features/payments/hooks";
 import { InvoiceStatusBadge } from "@/features/invoices/components/invoice-status-badge";
 import { useInvoiceByDeal } from "@/features/invoices/hooks";
 import { dealTabHref, visibleDealTabs, type DealTab } from "../deal-tabs";
@@ -122,10 +124,15 @@ export function DealDetailPage({
   const [estimateId, setEstimateId] = useState<string | null>(initialEstimateId);
   const canInvoices = can("invoices");
   const { data: invoice } = useInvoiceByDeal(dealId, canInvoices);
+  const canPayments = can("payments");
+  // The Payments tab's caption ("$0.00 balance", as in Workiz) — the same
+  // query the tab itself reads, so opening it costs nothing more.
+  const { data: jobLedger } = useDealPayments(dealId, canPayments);
   const tabs = visibleDealTabs({
     estimates: can("estimates"),
     invoices: canInvoices,
     messages: can("messages"),
+    payments: canPayments,
   });
   // A deep link to a tab the viewer can't see lands on Details.
   const tab: Tab = tabs.includes(selectedTab) ? selectedTab : "details";
@@ -275,6 +282,11 @@ export function DealDetailPage({
             )}
           >
             {t}
+            {t === "payments" && paymentsTabCaption(jobLedger?.balanceDue) ? (
+              <span className="text-xs font-normal normal-case text-muted-foreground tabular-nums">
+                {paymentsTabCaption(jobLedger?.balanceDue)}
+              </span>
+            ) : null}
             {t === "attachments" && attachmentCount > 0 ? (
               <span className="inline-flex min-w-5 items-center justify-center rounded-chip bg-muted px-1.5 text-xs font-medium tabular-nums">
                 {attachmentCount}
@@ -294,6 +306,20 @@ export function DealDetailPage({
         {tab === "items" ? (
           <div className="relative flex-1 p-6">
             <div className="mx-auto max-w-3xl"><DealProductsTab deal={deal} canEdit={canEdit} /></div>
+          </div>
+        ) : null}
+        {tab === "payments" ? (
+          <div className="relative flex-1 p-6">
+            <div className="mx-auto max-w-4xl">
+              <DealPaymentsTab
+                deal={deal}
+                // "Create invoice" stays its own action (Workiz): it opens the
+                // Invoice tab, where the invoice is made.
+                onCreateInvoice={
+                  canInvoices && can("invoices", "create") && !invoice ? () => setTab("invoice") : undefined
+                }
+              />
+            </div>
           </div>
         ) : null}
         {tab === "estimates" ? (

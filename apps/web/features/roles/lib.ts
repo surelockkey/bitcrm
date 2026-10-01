@@ -50,6 +50,12 @@ export const ACTION_LABELS: Record<string, string> = {
   // Governs client phone numbers on contacts AND companies — turning it off is
   // what switches call masking on for that role or user.
   view_numbers: "See client numbers",
+  // Job Statistics — Workiz's "Statistics Report" sub-grants and View Profit.
+  view_ad_statistics: "Statistics: Sources",
+  view_tech_statistics: "Statistics: Tech",
+  view_area_statistics: "Statistics: Area",
+  view_dispatch_statistics: "Statistics: Dispatcher",
+  view_profit: "Statistics: Profit",
 };
 
 /** Domain grouping for the matrix — keeps 15 resources scannable. */

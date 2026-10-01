@@ -18,6 +18,11 @@ vi.mock("../hooks", () => ({
   useArchiveProduct: () => ({ mutate: vi.fn(), isPending: false }),
   useReactivateProduct: () => ({ mutate: vi.fn(), isPending: false }),
 }));
+// The photo popup has a suite of its own; here only who opens it matters.
+vi.mock("./product-photo-dialog", () => ({
+  ProductPhotoDialog: ({ product }: { product: { id: string } | null }) =>
+    product ? <div data-testid="photo-preview" data-id={product.id} /> : null,
+}));
 
 function product(over: Partial<Product> = {}): Product {
   return {
@@ -112,6 +117,26 @@ describe("ProductsTable — the Workiz columns", () => {
     expect(cell("Quantity")).toHaveTextContent("369");
     unmount();
     expect(table([product({ onHand: undefined })]).cell("Quantity")).toHaveTextContent(/^0$/);
+  });
+
+  // Workiz's id cell: the item's picture, 40×40, then its number.
+  it("shows the item's thumbnail beside its number, a grey placeholder without one", () => {
+    const { cell, unmount } = table([product({ thumbnailUrl: "https://cdn.test/p1.webp", photoKey: "k" } as Partial<Product>)]);
+    expect(cell("Product ID").querySelector("img")).toHaveAttribute("src", "https://cdn.test/p1.webp");
+    unmount();
+    expect(table().cell("Product ID").querySelector("[data-testid=photo-placeholder]")).not.toBeNull();
+  });
+
+  it("opens the photo from the thumbnail — not the item's Edit popup", async () => {
+    const { onEdit } = table([product({ thumbnailUrl: "https://cdn.test/p1.webp", photoKey: "k" } as Partial<Product>)]);
+    await userEvent.click(screen.getByRole("button", { name: "View photo of Deadbolt" }));
+    expect(screen.getByTestId("photo-preview")).toHaveAttribute("data-id", "p1");
+    expect(onEdit).not.toHaveBeenCalled();
+  });
+
+  // A 40px picture in a 48px row: the cell trims its padding instead of growing the row.
+  it("keeps the photo inside the row's height", () => {
+    expect(table().cell("Product ID").className).toMatch(/(^|\s)py-1(\s|$)/);
   });
 
   it("has no checkbox column", () => {

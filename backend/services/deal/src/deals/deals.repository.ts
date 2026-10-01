@@ -12,6 +12,7 @@ import { DynamoDbService, scanPage } from '@bitcrm/shared';
 import {
   DealStatus,
   JobSuperStatus,
+  SUPER_STATUS_ORDER,
   STAGE_TO_SUPER_STATUS,
   type Deal,
   type DealStage,
@@ -25,8 +26,10 @@ import {
   DEALS_GSI4_NAME,
   DEALS_GSI5_NAME,
   DEALS_GSI6_NAME,
+  DEALS_GSI7_NAME,
 } from '../common/constants/dynamo.constants';
 import { generateDealNumberCode } from './deal-number.util';
+import { dayStartUtc, jobEndAt, shiftDay, type ReportDateSource } from './report/report-dates';
 
 export interface PaginatedResult {
   items: Deal[];
@@ -81,6 +84,20 @@ export function monthsOf(window: DayWindow): string[] {
   return out;
 }
 
+/** `from`..`to` cut at month ends — consecutive, non-overlapping spans of whole days. */
+export function monthSlices(from: string, to: string): { from: string; to: string }[] {
+  const out: { from: string; to: string }[] = [];
+  let start = from;
+  while (start <= to && out.length < 240) {
+    const [y, m] = start.split('-').map(Number);
+    const monthEnd = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
+    const end = monthEnd < to ? monthEnd : to;
+    out.push({ from: start, to: end });
+    start = shiftDay(end, 1);
+  }
+  return out;
+}
+
 /** The sort key of an undated deal — 'U' sorts after every digit, so they come last ascending. */
 const UNSCHEDULED = 'UNSCHED';
 
@@ -122,8 +139,40 @@ export function closedIndexKeys(deal: { id: string; closedAt?: string }): { GSI6
   return { GSI6PK: `CLOSED#${deal.closedAt.slice(0, 7)}`, GSI6SK: `${deal.closedAt}#DEAL#${deal.id}` };
 }
 
+/**
+ * The EndIndex keys of a deal — the visit's end on the account's clock
+ * (`jobEndAt`), one partition a month — or nothing for a row with no date
+ * at all. Every dated deal is in it: the Jobs report's "By: Job end date"
+ * reads a window of months here.
+ */
+export function endIndexKeys(deal: ReportDateSource & { id: string }): { GSI7PK: string; GSI7SK: string } | undefined {
+  const end = jobEndAt(deal);
+  if (!end) return undefined;
+  return { GSI7PK: `END#${end.slice(0, 7)}`, GSI7SK: `${end}#DEAL#${deal.id}` };
+}
+
 /** The deal attributes the date indexes are computed from. */
-const INDEX_KEY_FIELDS: ReadonlySet<string> = new Set(['superStatus', 'scheduledDate', 'scheduledTimeSlot', 'allDay', 'closedAt']);
+const INDEX_KEY_FIELDS: ReadonlySet<string> = new Set([
+  'superStatus',
+  'scheduledDate',
+  'scheduledEndDate',
+  'scheduledTimeSlot',
+  'allDay',
+  'closedAt',
+  'jobDateUtc',
+  'jobEndDateUtc',
+  'jobTimezone',
+]);
+
+/** Which Jobs-report date a window read is on. */
+export type ReportWindowBy = 'created' | 'scheduled' | 'end';
+
+/**
+ * A whole report window is read, not paged: the report sorts on any column
+ * and prints "of N". Past this many jobs the read stops and says so — a
+ * guard, a year of this business is about 45 000.
+ */
+export const REPORT_WINDOW_MAX_ROWS = 150_000;
 
 /** Secondary (non-index) filters applied on top of the primary query/scan. */
 export interface DealFilters {
@@ -315,6 +364,7 @@ export class DealsRepository {
           GSI4SK: `${deal.createdAt}#DEAL#${deal.id}`,
           ...statusScheduleKeys(deal),
           ...closedIndexKeys(deal),
+          ...endIndexKeys(deal),
           ...deal,
         },
         ConditionExpression: 'attribute_not_exists(PK)',
@@ -490,6 +540,85 @@ export class DealsRepository {
       this.dayRangeValues(window),
       filters,
     );
+  }
+
+  /**
+   * Every deal of a Jobs-report window, read to its end and projected to the
+   * attributes the report uses (`projection`). The report sorts on any
+   * column and prints "of N", so it needs the whole window, never a page —
+   * but only the window: each date has an index whose sort key is that date.
+   *
+   * - `created` — the status index (`<createdAt>#DEAL#<id>`), six statuses;
+   *   the window's Eastern days become UTC instants, exact.
+   * - `scheduled` — the schedule index holds the visit's own local day, and an
+   *   Eastern day is at most one away from it, so a day either side is read
+   *   and the caller windows exactly (`reportDay`). Undated jobs report on
+   *   their creation (Workiz's hidden slot), read off the `UNSCHED` keys.
+   * - `end` — the EndIndex (`END#<YYYY-MM>` / `<jobEndAt>#…`), exact.
+   *
+   * Deleted rows never come back. Throws `ReportWindowTooLargeError` past
+   * `REPORT_WINDOW_MAX_ROWS`.
+   *
+   * `opts.statuses` reads only those status partitions of the `created` and
+   * `scheduled` indexes — the Items and services report wants Done jobs
+   * only, a third of a window. The EndIndex is not split by status, so an
+   * `end` read still returns every status; callers check each row's status.
+   */
+  async readReportWindow(
+    by: ReportWindowBy,
+    from: string,
+    to: string,
+    projection: readonly string[],
+    opts: { statuses?: readonly JobSuperStatus[] } = {},
+  ): Promise<Record<string, unknown>[]> {
+    const statuses = (opts.statuses?.length ? opts.statuses : SUPER_STATUS_ORDER).map((s) => `STATUS#${s}`);
+    const range = '#pk = :pk AND #sk BETWEEN :from AND :to';
+    const read = new WindowRead(this.dynamoDb, this.tableName, projection);
+    // A status partition is read one month at a time, all months at once: a
+    // year of Canceled is ~30 000 rows, and one sequential walk of it would
+    // be a hundred-odd pages end to end.
+    if (by === 'created') {
+      await Promise.all(
+        monthSlices(from, to).map((m) =>
+          read.partitions(DEALS_GSI1_NAME, 'GSI1PK', 'GSI1SK', statuses, range, {
+            ':from': dayStartUtc(m.from),
+            ':to': dayStartUtc(shiftDay(m.to, 1)),
+          }),
+        ),
+      );
+    } else if (by === 'scheduled') {
+      await Promise.all([
+        ...monthSlices(shiftDay(from, -1), shiftDay(to, 1)).map((m) =>
+          read.partitions(DEALS_GSI5_NAME, 'GSI5PK', 'GSI5SK', statuses, range, {
+            ':from': `${m.from}#`,
+            ':to': `${m.to}#~~`,
+          }),
+        ),
+        read.partitions(
+          DEALS_GSI5_NAME,
+          'GSI5PK',
+          'GSI5SK',
+          statuses,
+          '#pk = :pk AND begins_with(#sk, :unsched)',
+          { ':unsched': `${UNSCHEDULED}#` },
+          {
+            expression: '#createdAt BETWEEN :createdFrom AND :createdTo',
+            names: { '#createdAt': 'createdAt' },
+            values: { ':createdFrom': dayStartUtc(shiftDay(from, -1)), ':createdTo': dayStartUtc(shiftDay(to, 2)) },
+          },
+        ),
+      ]);
+    } else {
+      await read.partitions(
+        DEALS_GSI7_NAME,
+        'GSI7PK',
+        'GSI7SK',
+        monthsOf({ from, to }).map((m) => `END#${m}`),
+        range,
+        { ':from': from, ':to': `${to}~` },
+      );
+    }
+    return read.items;
   }
 
   /** The key condition of a schedule window: a day span, the undated ones, or the whole partition. */
@@ -1225,11 +1354,13 @@ export class DealsRepository {
     return this.toDeal(result.Attributes!);
   }
 
-  /** The schedule and closed index keys, recomputed from the whole row. */
+  /** The schedule, closed and end index keys, recomputed from the whole row. */
   private async restampIndexKeys(id: string, row: Record<string, unknown>): Promise<Deal> {
     const deal = this.toDeal(row);
     const schedule = statusScheduleKeys(deal);
     const closed = closedIndexKeys(deal);
+    // From the raw row: the imported visit instants are not on `Deal`.
+    const end = endIndexKeys({ ...(row as ReportDateSource), id });
     const sets = ['GSI5PK = :gsi5pk', 'GSI5SK = :gsi5sk'];
     const removes: string[] = [];
     const values: Record<string, unknown> = { ':gsi5pk': schedule.GSI5PK, ':gsi5sk': schedule.GSI5SK };
@@ -1245,6 +1376,13 @@ export class DealsRepository {
       values[':gsi6sk'] = closed.GSI6SK;
     } else {
       removes.push('GSI6PK', 'GSI6SK');
+    }
+    if (end) {
+      sets.push('GSI7PK = :gsi7pk', 'GSI7SK = :gsi7sk');
+      values[':gsi7pk'] = end.GSI7PK;
+      values[':gsi7sk'] = end.GSI7SK;
+    } else {
+      removes.push('GSI7PK', 'GSI7SK');
     }
     const result = await this.dynamoDb.client.send(
       new UpdateCommand({
@@ -1428,5 +1566,77 @@ export class DealsRepository {
   ): Record<string, unknown> | undefined {
     if (!cursor) return undefined;
     return JSON.parse(Buffer.from(cursor, 'base64url').toString('utf-8'));
+  }
+}
+
+/** A report window grew past `REPORT_WINDOW_MAX_ROWS`. */
+export class ReportWindowTooLargeError extends Error {
+  constructor(readonly limit: number) {
+    super(`The report window holds more than ${limit} jobs`);
+    this.name = 'ReportWindowTooLargeError';
+  }
+}
+
+/**
+ * One report-window read: any number of index partitions, each walked to the
+ * end of its range in parallel, projected, active rows only, with one shared
+ * row budget.
+ */
+class WindowRead {
+  readonly items: Record<string, unknown>[] = [];
+  private readonly names: Record<string, string> = { '#status': 'status' };
+  private readonly projection: string;
+
+  constructor(
+    private readonly dynamoDb: DynamoDbService,
+    private readonly tableName: string,
+    projection: readonly string[],
+  ) {
+    this.projection = projection
+      .map((attr, i) => {
+        this.names[`#p${i}`] = attr;
+        return `#p${i}`;
+      })
+      .join(', ');
+  }
+
+  async partitions(
+    indexName: string,
+    pkAttr: string,
+    skAttr: string,
+    partitionKeys: string[],
+    keyCondition: string,
+    keyValues: Record<string, unknown>,
+    extra?: { expression: string; names: Record<string, string>; values: Record<string, unknown> },
+  ): Promise<void> {
+    const names = {
+      ...this.names,
+      ...extra?.names,
+      '#pk': pkAttr,
+      ...(keyCondition.includes('#sk') ? { '#sk': skAttr } : {}),
+    };
+    const filter = ['#status = :active', extra?.expression].filter(Boolean).join(' AND ');
+    await Promise.all(
+      partitionKeys.map(async (pk) => {
+        let startKey: Record<string, unknown> | undefined;
+        do {
+          const res = await this.dynamoDb.client.send(
+            new QueryCommand({
+              TableName: this.tableName,
+              IndexName: indexName,
+              KeyConditionExpression: keyCondition,
+              FilterExpression: filter,
+              ProjectionExpression: this.projection,
+              ExpressionAttributeNames: names,
+              ExpressionAttributeValues: { ':pk': pk, ':active': DealStatus.ACTIVE, ...keyValues, ...extra?.values },
+              ExclusiveStartKey: startKey,
+            }),
+          );
+          for (const item of res.Items ?? []) this.items.push(item);
+          if (this.items.length > REPORT_WINDOW_MAX_ROWS) throw new ReportWindowTooLargeError(REPORT_WINDOW_MAX_ROWS);
+          startKey = res.LastEvaluatedKey;
+        } while (startKey);
+      }),
+    );
   }
 }

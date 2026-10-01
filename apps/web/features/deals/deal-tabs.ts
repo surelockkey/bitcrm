@@ -1,5 +1,5 @@
 /** Tabs of the job page, in display order; `?tab=` deep-links to one. */
-export const DEAL_TABS = ["details", "items", "estimates", "invoice", "attachments", "messages"] as const;
+export const DEAL_TABS = ["details", "items", "payments", "estimates", "invoice", "attachments", "messages"] as const;
 export type DealTab = (typeof DEAL_TABS)[number];
 
 export function parseDealTab(raw: string | string[] | undefined | null): DealTab | null {
@@ -7,9 +7,16 @@ export function parseDealTab(raw: string | string[] | undefined | null): DealTab
   return (DEAL_TABS as readonly string[]).includes(v ?? "") ? (v as DealTab) : null;
 }
 
-export function visibleDealTabs(perms: { estimates: boolean; invoices: boolean; messages: boolean }): DealTab[] {
+export function visibleDealTabs(perms: {
+  estimates: boolean;
+  invoices: boolean;
+  messages: boolean;
+  /** `payments.view` — the job's Payments tab (Workiz). Hidden unless granted. */
+  payments?: boolean;
+}): DealTab[] {
   return DEAL_TABS.filter(
     (t) =>
+      (t !== "payments" || perms.payments === true) &&
       (t !== "estimates" || perms.estimates) &&
       (t !== "invoice" || perms.invoices) &&
       (t !== "messages" || perms.messages),

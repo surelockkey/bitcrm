@@ -153,17 +153,24 @@ export function useReactivateProduct() {
   });
 }
 
-/** Upload = presign → PUT bytes to S3 → refresh detail + photo URL. */
+/**
+ * Upload = presign → PUT bytes to S3 → "complete" (the server makes the
+ * thumbnail) → refresh the item, its photo URL and the lists, whose rows
+ * carry the thumbnail.
+ */
 export function useUploadPhoto() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ id, file }: { id: string; file: File }) => {
       const { uploadUrl } = await api.getPhotoUploadUrl(id, file.type);
       await api.uploadPhotoBytes(uploadUrl, file);
+      await api.completePhotoUpload(id);
     },
     onSuccess: (_d, { id }) => {
       qc.invalidateQueries({ queryKey: queryKeys.inventory.products.detail(id) });
       qc.invalidateQueries({ queryKey: queryKeys.inventory.products.photo(id) });
+      // Every list (Items, Price Book), whatever its filter.
+      qc.invalidateQueries({ queryKey: queryKeys.inventory.products.list().slice(0, 2) });
       toast.success("Photo updated");
     },
     onError: (e) => toast.error(getApiErrorMessage(e)),
@@ -177,6 +184,8 @@ export function useRemovePhoto() {
     onSuccess: (_d, id) => {
       qc.invalidateQueries({ queryKey: queryKeys.inventory.products.detail(id) });
       qc.invalidateQueries({ queryKey: queryKeys.inventory.products.photo(id) });
+      // The lists' rows carry the thumbnail that just went.
+      qc.invalidateQueries({ queryKey: queryKeys.inventory.products.list().slice(0, 2) });
       toast.success("Photo removed");
     },
     onError: (e) => toast.error(getApiErrorMessage(e)),

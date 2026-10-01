@@ -25,7 +25,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { todayYmd } from "@/features/billing/dates";
-import { useRecordPayment } from "../hooks";
+import { useRecordPayment, type RecordPaymentTarget } from "../hooks";
 import { OFFLINE_METHOD_LABEL, OFFLINE_PAYMENT_METHODS, parseMoney, takenAtIso } from "../lib";
 import { recordPaymentSchema, type RecordPaymentValues } from "../schemas";
 
@@ -40,6 +40,7 @@ export function RecordPaymentDialog({
   balanceDue,
   open,
   onOpenChange,
+  target = "invoice",
 }: {
   invoiceId: string;
   dealId?: string;
@@ -47,6 +48,8 @@ export function RecordPaymentDialog({
   balanceDue: number;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** `job` records on the job's ledger (the Payments tab) — no invoice needed. */
+  target?: RecordPaymentTarget;
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -54,7 +57,8 @@ export function RecordPaymentDialog({
         <DialogHeader>
           <DialogTitle>Record a payment</DialogTitle>
           <DialogDescription>
-            Money taken outside the client portal. It comes off the invoice balance straight away.
+            Money taken outside the client portal. It comes off the{" "}
+            {target === "job" ? "job" : "invoice"} balance straight away.
           </DialogDescription>
         </DialogHeader>
         {/* Remounted per open so the amount re-seeds from the current balance. */}
@@ -63,6 +67,7 @@ export function RecordPaymentDialog({
             invoiceId={invoiceId}
             dealId={dealId}
             balanceDue={balanceDue}
+            target={target}
             onDone={() => onOpenChange(false)}
             onCancel={() => onOpenChange(false)}
           />
@@ -76,16 +81,18 @@ function RecordPaymentForm({
   invoiceId,
   dealId,
   balanceDue,
+  target,
   onDone,
   onCancel,
 }: {
   invoiceId: string;
   dealId?: string;
   balanceDue: number;
+  target: RecordPaymentTarget;
   onDone: () => void;
   onCancel: () => void;
 }) {
-  const record = useRecordPayment(invoiceId, dealId);
+  const record = useRecordPayment(invoiceId, dealId, target);
   const [error, setError] = useState<string | null>(null);
   const today = todayYmd();
 

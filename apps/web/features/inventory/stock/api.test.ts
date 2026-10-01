@@ -85,11 +85,13 @@ describe("fetchAllContainers / fetchAllWarehouses", () => {
     ]);
   });
 
-  it("stops at the safety cap of 2000 rows", async () => {
-    const calls = pagedList("/inventory/warehouses", 5000, (i) => ({ id: `w${i}`, name: `W ${i}` }));
+  // The old read stopped at 2000 rows; a list longer than that lost its tail.
+  it("reads every row, however many pages that takes", async () => {
+    const calls = pagedList("/inventory/warehouses", 2350, (i) => ({ id: `w${i}`, name: `W ${i}` }));
     const all = await fetchAllWarehouses();
-    expect(all).toHaveLength(2000);
-    expect(calls).toHaveLength(20);
+    expect(all).toHaveLength(2350);
+    expect(all.at(-1)).toMatchObject({ id: "w2349" });
+    expect(calls).toHaveLength(24);
   });
 });
 
