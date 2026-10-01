@@ -8,14 +8,14 @@ import {
   Download,
   Eye,
   Loader2,
-  Mail,
-  MessageSquareText,
+  PiggyBank,
   Send,
   Trash2,
   Undo2,
 } from "lucide-react";
 import { toast } from "sonner";
 import type { Deal } from "@bitcrm/types";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -40,6 +40,9 @@ import { DocumentPreviewDialog } from "@/features/billing/components/document-pr
 import { DocumentSummaryPanel } from "@/features/billing/components/document-summary-panel";
 import { DocumentTemplateSelect } from "@/features/billing/components/document-template-select";
 import { SentBadge } from "@/features/invoices/components/sent-badge";
+import { SignaturesSection } from "@/features/billing/components/signatures-section";
+import { useDocumentSettings, useUpdateDocumentSettings } from "@/features/documents/hooks";
+import { useContact } from "@/features/clients/hooks";
 import { CopyPortalLinkButton } from "@/features/portal/components/copy-portal-link-button";
 import { SendDocumentDialog, type SendDocumentChannel } from "@/features/portal/components/send-document-dialog";
 import { getEstimateHtml, getEstimatePdfUrl } from "../api";
@@ -49,6 +52,7 @@ import {
   useEstimate,
   useMarkEstimateSent,
   useSetEstimateStatus,
+  useSignEstimate,
   useSyncEstimateToJob,
   useUpdateEstimate,
 } from "../hooks";
@@ -57,6 +61,7 @@ import { estimateHeaderSchema, type EstimateHeaderValues } from "../schemas";
 import { EstimateItemsTable } from "./estimate-items-table";
 import { EstimateStatusBadge } from "./estimate-status-badge";
 import { EstimateStatusSelect } from "./estimate-status-select";
+import { SetDepositDialog, depositLabel } from "./set-deposit-dialog";
 
 /**
  * One estimate, edited in place — inside the job's Estimates tab (`deal`
@@ -88,12 +93,18 @@ export function EstimateEditor({
   const duplicate = useDuplicateEstimate(dealId);
   const sync = useSyncEstimateToJob(estimateId, dealId);
   const del = useDeleteEstimate(dealId);
+  const sign = useSignEstimate(estimateId, dealId);
+  const saveDefaults = useUpdateDocumentSettings();
   const afterDelete = onDeleted ?? onBack;
   const pdf = useOpenPdf(() => getEstimatePdfUrl(estimateId));
   const [previewing, setPreviewing] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [depositOpen, setDepositOpen] = useState(false);
   const [sendingVia, setSendingVia] = useState<SendDocumentChannel | null>(null);
+  const client = useContact(estimate?.contactId ?? "");
+  // Loaded once for the Send panel's defaults; the deposit dialog writes it.
+  useDocumentSettings();
 
   const items = useMemo(() => estimate?.items ?? [], [estimate?.items]);
   const localTotals = useMemo(
@@ -154,6 +165,8 @@ export function EstimateEditor({
           <h2 className="text-base font-semibold">{estimateTitle(estimate)}</h2>
           <EstimateStatusBadge status={estimate.status} />
           <SentBadge sentAt={estimate.sentAt} />
+          {estimate.approvedVia === "portal" ? <Badge variant="outline">Signed on the portal</Badge> : null}
+          {estimate.proposalId ? <Badge variant="outline">In a proposal</Badge> : null}
           <span className="ml-auto text-xs text-muted-foreground">Created {formatYmd(estimate.createdAt)}</span>
         </div>
 
@@ -215,14 +228,9 @@ export function EstimateEditor({
             </Button>
           ) : null}
           {canText ? (
-            <>
-              <Button variant="brand" size="sm" onClick={() => setSendingVia("sms")}>
-                <MessageSquareText /> Send by text
-              </Button>
-              <Button variant="outline" size="sm" onClick={() => setSendingVia("email")}>
-                <Mail /> Send by email
-              </Button>
-            </>
+            <Button variant="brand" size="sm" onClick={() => setSendingVia("sms")}>
+              <Send /> Send
+            </Button>
           ) : null}
           {canSend ? <CopyPortalLinkButton contactId={estimate.contactId} /> : null}
           {canCreate ? (
@@ -271,6 +279,19 @@ export function EstimateEditor({
 
       <EstimateItemsTable estimateId={estimate.id} dealId={dealId} items={items} canEdit={canEdit} />
 
+      <div className="flex flex-wrap items-center gap-2 rounded-lg border px-4 py-3 text-sm">
+        <PiggyBank className="size-4 text-muted-foreground" aria-hidden />
+        <span className="font-medium">Deposit</span>
+        <span className="text-muted-foreground">
+          {depositLabel({ ...estimate, totals }) ?? "None — the client approves without paying"}
+        </span>
+        {canEdit ? (
+          <Button variant="outline" size="sm" className="ml-auto" onClick={() => setDepositOpen(true)}>
+            Set deposit
+          </Button>
+        ) : null}
+      </div>
+
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <DocField label="Estimate notes" htmlFor="estimate-notes" className="sm:flex-1">
           <CommitTextarea
@@ -295,6 +316,28 @@ export function EstimateEditor({
           onDiscountChange={(discount) => update.mutate({ discount })}
         />
       </div>
+
+      <SignaturesSection
+        signatures={estimate.signatures ?? []}
+        signerName={[client.data?.firstName, client.data?.lastName].filter(Boolean).join(" ")}
+        canSign={canEdit}
+        saving={sign.isPending}
+        onSign={(input) => sign.mutateAsync(input)}
+      />
+
+      <SetDepositDialog
+        open={depositOpen}
+        onOpenChange={setDepositOpen}
+        total={totals.total}
+        current={estimate}
+        canSetDefault={can("settings", "edit")}
+        saving={update.isPending || saveDefaults.isPending}
+        onSave={async (patch, setForFuture) => {
+          await update.mutateAsync(patch);
+          if (setForFuture) await saveDefaults.mutateAsync(patch);
+          setDepositOpen(false);
+        }}
+      />
 
       <DocumentPreviewDialog
         open={previewing}
@@ -333,6 +376,7 @@ export function EstimateEditor({
             dealId,
             businessProfileId: deal?.businessProfileId,
             alreadySent: !!estimate.sentAt,
+            display: estimate.display,
           }}
           markSent={() => markSent.mutateAsync(true)}
         />

@@ -397,6 +397,14 @@ export const queryKeys = {
     detail: (id: string) => ["document-templates", "detail", id] as const,
   },
 
+  /** Settings → Documents defaults (notes, deposit, request signature, send messages). */
+  documentSettings: () => ["document-settings"] as const,
+
+  proposals: {
+    all: () => ["proposals"] as const,
+    byDeal: (dealId: string) => ["proposals", "by-deal", dealId] as const,
+  },
+
   /** Companies (business profiles). The old singleton key is gone — read the default company from this list. */
   businessProfiles: {
     all: () => ["business-profiles"] as const,

@@ -47,6 +47,10 @@ export const companyFormSchema = z
     email: text(200).refine((v) => !v || z.string().email().safeParse(v).success, "Enter a valid email"),
     website: text(200),
     licenseNumber: text(100),
+    /** The client portal header's tagline. */
+    description: text(300),
+    /** "Book a service" on the client portal. */
+    bookingUrl: text(500).refine((v) => !v || /^https?:\/\//.test(v), "Enter a full link starting with https://"),
     address: addressSchema,
     /** "" = no logo. */
     logoAssetId: z.string(),
@@ -73,6 +77,8 @@ export function companyToForm(p: BusinessProfile | undefined): CompanyFormValues
     email: p?.email ?? "",
     website: p?.website ?? "",
     licenseNumber: p?.licenseNumber ?? "",
+    description: p?.description ?? "",
+    bookingUrl: p?.bookingUrl ?? "",
     address: {
       street: p?.address?.street ?? "",
       unit: p?.address?.unit ?? "",
@@ -90,7 +96,7 @@ export function companyToForm(p: BusinessProfile | undefined): CompanyFormValues
   };
 }
 
-const OPTIONAL_TEXT = ["legalName", "phone", "email", "website", "licenseNumber", "logoAssetId"] as const;
+const OPTIONAL_TEXT = ["legalName", "phone", "email", "website", "licenseNumber", "description", "bookingUrl", "logoAssetId"] as const;
 type OptionalText = (typeof OPTIONAL_TEXT)[number];
 
 /**

@@ -53,7 +53,13 @@ const user = () => userEvent.setup({ pointerEventsCheck: 0 });
 
 beforeEach(() => {
   mocks.products = [];
-  server.use(http.get("*/billing/templates", () => HttpResponse.json({ success: true, data: [] })));
+  server.use(
+    http.get("*/billing/templates", () => HttpResponse.json({ success: true, data: [] })),
+    http.get("*/billing/document-settings", () => HttpResponse.json({ success: true, data: {} })),
+    http.get("*/crm/contacts/c1", () =>
+      HttpResponse.json({ success: true, data: { id: "c1", firstName: "Jane", lastName: "Client", phones: [], emails: [], addresses: [] } }),
+    ),
+  );
 });
 
 describe("DealInvoiceTab — no invoice", () => {
@@ -137,35 +143,49 @@ describe("DealInvoiceTab — existing invoice", () => {
     await waitFor(() => expect(body).toEqual({ invoiceDate: "2026-09-20", dueDate: "2026-10-05" }));
   });
 
-  it("offers Send by text only to someone who may both send invoices and send messages", async () => {
+  it("offers Send only to someone who may both send invoices and send messages", async () => {
     const { unmount } = renderWithClient(<DealInvoiceTab deal={deal} canEditItems />);
     await screen.findByRole("heading", { name: "Invoice #1042" });
-    expect(screen.queryByRole("button", { name: /send by text/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^send$/i })).not.toBeInTheDocument();
     unmount();
 
     mocks.perms.add("messages.send");
     try {
       renderWithClient(<DealInvoiceTab deal={deal} canEditItems />);
-      expect(await screen.findByRole("button", { name: /send by text/i })).toBeInTheDocument();
+      expect(await screen.findByRole("button", { name: /^send$/i })).toBeInTheDocument();
     } finally {
       mocks.perms.delete("messages.send");
     }
   });
 
-  it("offers Send by email only to someone who may both send invoices and send messages", async () => {
-    const { unmount } = renderWithClient(<DealInvoiceTab deal={deal} canEditItems />);
-    await screen.findByRole("heading", { name: "Invoice #1042" });
-    expect(screen.queryByRole("button", { name: /send by email/i })).not.toBeInTheDocument();
-    unmount();
-
+  it("Send opens the Workiz-style panel with both Send email and Send text", async () => {
     mocks.perms.add("messages.send");
+    server.use(
+      http.get("*/crm/contacts/c1", () =>
+        HttpResponse.json({ success: true, data: { id: "c1", firstName: "Jane", lastName: "Client", phones: [], emails: [], addresses: [] } }),
+      ),
+      http.get("*/billing/business-profiles", () => HttpResponse.json({ success: true, data: [] })),
+      http.get("*/billing/document-settings", () => HttpResponse.json({ success: true, data: {} })),
+      http.post("*/billing/portal-links/c1/url", () =>
+        HttpResponse.json({ success: true, data: { contactId: "c1", createdBy: "u", createdAt: "t", url: "https://portal.test/tok", token: "tok" } }),
+      ),
+    );
     try {
       renderWithClient(<DealInvoiceTab deal={deal} canEditItems />);
-      await user().click(await screen.findByRole("button", { name: /send by email/i }));
-      expect(await screen.findByRole("heading", { name: /send invoice #1042 by email/i })).toBeInTheDocument();
+      await user().click(await screen.findByRole("button", { name: /^send$/i }));
+      expect(await screen.findByRole("heading", { name: /send invoice #1042/i })).toBeInTheDocument();
+      expect(await screen.findByRole("button", { name: /^send email$/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /^send text$/i })).toBeInTheDocument();
     } finally {
       mocks.perms.delete("messages.send");
     }
+  });
+
+  it("shows the Signatures section, with Sign for someone who may edit", async () => {
+    renderWithClient(<DealInvoiceTab deal={deal} canEditItems />);
+    expect(await screen.findByRole("heading", { name: /signatures/i })).toBeInTheDocument();
+    expect(screen.getByText(/no signatures yet/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^sign$/i })).toBeInTheDocument();
   });
 
   it("explains that deleting keeps the job's items", async () => {

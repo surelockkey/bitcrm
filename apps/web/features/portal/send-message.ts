@@ -1,45 +1,49 @@
-import type { PortalDocumentSummary } from "@bitcrm/types";
+import { DEFAULT_DOCUMENT_SETTINGS, type DocumentSettings } from "@bitcrm/types";
 import { formatMoney } from "@/features/billing/lib";
 
-type Kind = PortalDocumentSummary["kind"];
+export type SendDocumentKind = "invoice" | "estimate" | "proposal";
 
-/** The text a client gets with their link — the staff member edits it before it goes. */
-export function defaultSendText(input: {
-  kind: Kind;
+/** What a send message can mention — the short codes of Settings → Documents → Messages. */
+export interface SendMessageContext {
+  kind: SendDocumentKind;
   number: string;
   total: number;
   firstName?: string;
+  lastName?: string;
   businessName?: string;
+  /** The client's portal link. */
   url: string;
-}): string {
-  const who = input.firstName?.trim() ? `Hi ${input.firstName.trim()}, your` : "Your";
-  const from = input.businessName ? ` from ${input.businessName}` : "";
-  const what = input.kind === "invoice" ? "invoice" : "estimate";
-  const ask = input.kind === "invoice" ? "View and pay it here" : "View it here";
-  return `${who} ${what} #${input.number}${from} is ready (${formatMoney(input.total)}). ${ask}: ${input.url}`;
 }
 
-/** The subject and body of the email a client gets with their link — edited before it goes. */
-export function defaultSendEmail(input: {
-  kind: Kind;
-  number: string;
-  total: number;
-  firstName?: string;
-  businessName?: string;
-  url: string;
-}): { subject: string; body: string } {
-  const what = input.kind === "invoice" ? "invoice" : "estimate";
-  const from = input.businessName ? ` from ${input.businessName}` : "";
-  const greeting = input.firstName?.trim() ? `Hi ${input.firstName.trim()},` : "Hello,";
-  const ask = input.kind === "invoice" ? "View and pay it here" : "View it here";
-  const signOff = input.businessName ? `Thank you,\n${input.businessName}` : "Thank you";
-  return {
-    subject: `${what[0].toUpperCase()}${what.slice(1)} #${input.number}${from}`,
-    body: [
-      greeting,
-      `Your ${what} #${input.number}${from} is ready. The total is ${formatMoney(input.total)}.`,
-      `${ask}: ${input.url}`,
-      signOff,
-    ].join("\n\n"),
+const CODE = /\{\{\s*([a-zA-Z_.]+)\s*\}\}/g;
+
+/** Fills `{{client.firstName}}`, `{{business.name}}`, `{{document.total}}`, `{{portal_link}}`, …; an unknown code renders blank. */
+export function renderSendMessage(template: string, ctx: SendMessageContext): string {
+  const fullName = [ctx.firstName, ctx.lastName].map((p) => p?.trim()).filter(Boolean).join(" ");
+  const values: Record<string, string> = {
+    "client.firstName": ctx.firstName?.trim() ?? "",
+    "client.lastName": ctx.lastName?.trim() ?? "",
+    "client.fullName": fullName,
+    "business.name": ctx.businessName ?? "",
+    "document.number": ctx.number,
+    "document.total": formatMoney(ctx.total),
+    portal_link: ctx.url,
   };
+  return template.replace(CODE, (_m, code: string) => values[code] ?? "");
+}
+
+/** The subject and message the staff member starts from — the account's template for this kind of document. */
+export function sendMessageFor(
+  settings: DocumentSettings | undefined,
+  ctx: SendMessageContext,
+): { subject: string; body: string } {
+  // Field by field: a half-saved settings row still has every message.
+  const s: DocumentSettings = { ...DEFAULT_DOCUMENT_SETTINGS, ...(settings ?? {}) };
+  const [subject, message] =
+    ctx.kind === "invoice"
+      ? [s.invoiceEmailSubject, s.invoiceMessage]
+      : ctx.kind === "estimate"
+        ? [s.estimateEmailSubject, s.estimateMessage]
+        : [s.proposalEmailSubject, s.proposalMessage];
+  return { subject: renderSendMessage(subject, ctx), body: renderSendMessage(message, ctx) };
 }

@@ -1,6 +1,7 @@
 import type {
   DocumentPageSettings,
   DocumentRow,
+  DocumentSettings,
   DocumentTemplate,
   DocumentTemplateContent,
   DocumentTemplateKind,
@@ -184,3 +185,27 @@ export async function searchPreviewSources(kind: PreviewSource["kind"], query: s
     throw e;
   }
 }
+
+/* --------------------------------------------------------- document settings */
+
+/** A PATCH-shaped PUT: only the fields sent change; `null` clears the default deposit. */
+export interface DocumentSettingsBody {
+  estimateNotes?: string;
+  invoiceNotes?: string;
+  depositPercentage?: number | null;
+  depositAmount?: number | null;
+  requestInvoiceSignature?: boolean;
+  showUnselectedProposalOptions?: boolean;
+  invoiceEmailSubject?: string;
+  invoiceMessage?: string;
+  estimateEmailSubject?: string;
+  estimateMessage?: string;
+  proposalEmailSubject?: string;
+  proposalMessage?: string;
+}
+
+const S = "/billing/document-settings";
+
+export const getDocumentSettings = (): Promise<DocumentSettings> => http.get<DocumentSettings>(S);
+export const updateDocumentSettings = (body: DocumentSettingsBody): Promise<DocumentSettings> =>
+  http.put<DocumentSettings>(S, body);

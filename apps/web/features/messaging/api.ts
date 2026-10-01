@@ -88,6 +88,8 @@ export interface SendMessageBody {
   channel: SendableMessageChannel;
   body: string;
   subject?: string;
+  /** Email only: up to five Cc addresses (the Send panel's "Cc"). */
+  cc?: string[];
   /** E.164 company number the agent picked; omitted → the server's sender chain. */
   fromNumber?: string;
   toAddress?: string;

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useState } from "react";
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import type { Deal, EstimateWithItems } from "@bitcrm/types";
@@ -60,21 +60,24 @@ beforeEach(() => {
     http.get("*/billing/templates", () => HttpResponse.json({ success: true, data: [] })),
     http.get("*/billing/estimates/by-deal/d1", () => HttpResponse.json({ success: true, data: [estimate] })),
     http.get("*/billing/estimates/e1", () => HttpResponse.json({ success: true, data: estimate })),
+    http.get("*/billing/document-settings", () => HttpResponse.json({ success: true, data: {} })),
+    http.get("*/crm/contacts/c1", () =>
+      HttpResponse.json({ success: true, data: { id: "c1", firstName: "Jane", lastName: "Client", phones: [], emails: [], addresses: [] } }),
+    ),
   );
 });
 
 describe("DealEstimatesTab", () => {
-  it("lists estimate cards and opens one in the editor", async () => {
+  it("shows the job's estimates as tabs (Workiz) and opens the first one", async () => {
     renderWithClient(<Harness />);
-    const card = await screen.findByRole("button", { name: /#1042-1/ });
-    expect(card).toHaveTextContent("Good");
-    expect(card).toHaveTextContent("Pending");
-    expect(card).toHaveTextContent("1 item");
-    expect(card).toHaveTextContent("$80.00");
-    await user().click(card);
+    const tab = await screen.findByRole("tab", { name: /estimate 1/i });
+    expect(tab).toHaveTextContent("#1042-1");
+    expect(tab).toHaveTextContent("Good");
+    expect(tab).toHaveTextContent("Pending");
+    expect(tab).toHaveAttribute("aria-selected", "true");
     expect(await screen.findByRole("heading", { name: "Estimate #1042-1 · Good" })).toBeInTheDocument();
-    await user().click(screen.getByRole("button", { name: /all estimates/i }));
-    expect(await screen.findByRole("button", { name: /#1042-1/ })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /signatures/i })).toBeInTheDocument();
+    expect(screen.getByText(/^deposit$/i)).toBeInTheDocument();
   });
 
   it("creates an estimate copying the job items and opens it", async () => {
@@ -90,10 +93,12 @@ describe("DealEstimatesTab", () => {
     );
     renderWithClient(<Harness />);
     const u = user();
-    await u.click(await screen.findByRole("button", { name: /new estimate/i }));
-    await u.type(screen.getByLabelText(/^name/i), "Better");
-    expect(screen.getByRole("checkbox", { name: /copy current job items/i })).toBeChecked();
-    await u.click(screen.getByRole("button", { name: /create estimate/i }));
+    await u.click(await screen.findByRole("button", { name: /add estimate/i }));
+    await u.click(await screen.findByRole("menuitem", { name: /new estimate/i }));
+    const dialog = await screen.findByRole("dialog");
+    await u.type(within(dialog).getByLabelText(/^name/i), "Better");
+    expect(within(dialog).getByRole("checkbox", { name: /copy current job items/i })).toBeChecked();
+    await u.click(within(dialog).getByRole("button", { name: /create estimate/i }));
     await waitFor(() => expect(body).toEqual({ dealId: "d1", name: "Better", copyJobItems: true }));
     expect(await screen.findByRole("heading", { name: "Estimate #1042-2 · Better" })).toBeInTheDocument();
   });
@@ -103,11 +108,27 @@ describe("DealEstimatesTab", () => {
     expect(await screen.findByRole("button", { name: /create estimate/i })).toBeInTheDocument();
   });
 
-  it("hides New estimate without create permission", async () => {
+  it("hides Add estimate without create permission", async () => {
     mocks.perms.delete("estimates.create");
     renderWithClient(<Harness />);
-    await screen.findByRole("button", { name: /#1042-1/ });
-    expect(screen.queryByRole("button", { name: /new estimate/i })).not.toBeInTheDocument();
+    await screen.findByRole("tab", { name: /estimate 1/i });
+    expect(screen.queryByRole("button", { name: /add estimate/i })).not.toBeInTheDocument();
+  });
+
+  it("offers Send all (proposal) while an open estimate is not in a proposal yet", async () => {
+    mocks.perms.add("messages.send");
+    const { unmount } = renderWithClient(<Harness />);
+    await screen.findByRole("tab", { name: /estimate 1/i });
+    expect(screen.getByRole("button", { name: /send all \(proposal\)/i })).toBeInTheDocument();
+    unmount();
+    server.use(
+      http.get("*/billing/estimates/by-deal/d1", () =>
+        HttpResponse.json({ success: true, data: [{ ...estimate, proposalId: "p1" }] }),
+      ),
+    );
+    renderWithClient(<Harness />);
+    await screen.findByRole("tab", { name: /estimate 1/i });
+    expect(screen.queryByRole("button", { name: /send all \(proposal\)/i })).not.toBeInTheDocument();
   });
 });
 
@@ -137,15 +158,15 @@ describe("EstimateEditor — sync to job", () => {
     expect(toast.success).toHaveBeenCalledWith(expect.stringMatching(/1 item synced/));
   });
 
-  it("offers Send by text only to someone who may send both estimates and messages", async () => {
+  it("offers Send only to someone who may send both estimates and messages", async () => {
     const { unmount } = renderWithClient(<Harness initial="e1" />);
     await screen.findByRole("button", { name: /sync to job/i });
-    expect(screen.queryByRole("button", { name: /send by text/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^send$/i })).not.toBeInTheDocument();
     unmount();
 
     mocks.perms.add("messages.send");
     renderWithClient(<Harness initial="e1" />);
-    expect(await screen.findByRole("button", { name: /send by text/i })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /^send$/i })).toBeInTheDocument();
   });
 
   it("texts the client their portal link, marking the estimate sent first", async () => {
@@ -159,7 +180,8 @@ describe("EstimateEditor — sync to job", () => {
           data: { id: "c1", firstName: "Jane", lastName: "Client", phones: ["+18605550199"], emails: [], addresses: [] },
         }),
       ),
-      http.get("*/billing/business-profiles", () => HttpResponse.json({ success: true, data: [] })),
+      http.get("*/billing/business-profiles", () => HttpResponse.json({ success: true, data: [{ id: "bp1", name: "Sure Lock Key", isDefault: true }] })),
+      http.get("*/billing/document-settings", () => HttpResponse.json({ success: true, data: {} })),
       http.post("*/billing/portal-links/c1/url", () =>
         HttpResponse.json({
           success: true,
@@ -177,28 +199,37 @@ describe("EstimateEditor — sync to job", () => {
       }),
     );
     renderWithClient(<Harness initial="e1" />);
-    await user().click(await screen.findByRole("button", { name: /send by text/i }));
+    await user().click(await screen.findByRole("button", { name: /^send$/i }));
 
     const box = (await screen.findByLabelText("Message")) as HTMLTextAreaElement;
     await waitFor(() => expect(box.value).toContain("https://portal.test/tok_abc"));
-    expect(box.value).toBe("Hi Jane, your estimate #1042-1 is ready ($80.00). View it here: https://portal.test/tok_abc");
+    expect(box.value).toContain("Hi Jane,");
+    expect(box.value).toContain("Sure Lock Key");
+    expect(box.value).toContain("#1042-1");
 
-    await user().click(screen.getByRole("button", { name: /send text/i }));
+    await user().click(screen.getByRole("button", { name: /^send text$/i }));
     await waitFor(() => expect(sms).toBeDefined());
     expect(order).toEqual(["mark-sent", "sms"]);
     expect(sms).toMatchObject({ contactId: "c1", channel: "sms", dealId: "d1", body: expect.stringContaining("tok_abc") });
   });
 
-  it("offers Send by email beside Send by text, opening the email dialog", async () => {
-    const { unmount } = renderWithClient(<Harness initial="e1" />);
-    await screen.findByRole("button", { name: /sync to job/i });
-    expect(screen.queryByRole("button", { name: /send by email/i })).not.toBeInTheDocument();
-    unmount();
-
+  it("Send opens the Workiz-style panel with both Send email and Send text", async () => {
     mocks.perms.add("messages.send");
+    server.use(
+      http.get("*/crm/contacts/c1", () =>
+        HttpResponse.json({ success: true, data: { id: "c1", firstName: "Jane", lastName: "Client", phones: [], emails: [], addresses: [] } }),
+      ),
+      http.get("*/billing/business-profiles", () => HttpResponse.json({ success: true, data: [] })),
+      http.get("*/billing/document-settings", () => HttpResponse.json({ success: true, data: {} })),
+      http.post("*/billing/portal-links/c1/url", () =>
+        HttpResponse.json({ success: true, data: { contactId: "c1", createdBy: "u", createdAt: "t", url: "https://portal.test/tok", token: "tok" } }),
+      ),
+    );
     renderWithClient(<Harness initial="e1" />);
-    await user().click(await screen.findByRole("button", { name: /send by email/i }));
-    expect(await screen.findByRole("heading", { name: /send estimate #1042-1 by email/i })).toBeInTheDocument();
+    await user().click(await screen.findByRole("button", { name: /^send$/i }));
+    expect(await screen.findByRole("heading", { name: /send estimate #1042-1/i })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /^send email$/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^send text$/i })).toBeInTheDocument();
   });
 
   it("disables sync without the sync permission", async () => {

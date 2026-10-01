@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import type { Invoice, InvoiceView } from "@bitcrm/types";
 import { queryKeys } from "@/lib/query-keys";
 import { getApiErrorMessage } from "@/lib/api/errors";
+import type { SignatureBody } from "@/features/estimates/api";
 import type { EstimateItemBody } from "@/features/estimates/schemas";
 import * as api from "./api";
 import type { InvoiceListParams } from "./lib";
@@ -311,5 +312,22 @@ export function useDeleteInvoice(dealId?: string) {
       toast.success(dealId ? "Invoice deleted — the job's items were kept" : "Invoice deleted");
     },
     onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+}
+
+/* ------------------------------------------------------------ signatures */
+
+/** A signature collected in person on the invoice. */
+export function useSignInvoice(invoice: Pick<InvoiceView, "id" | "dealId">) {
+  const qc = useQueryClient();
+  const invalidate = useInvalidateInvoice();
+  return useMutation({
+    mutationFn: (body: SignatureBody) => api.signInvoice(invoice.id, body),
+    onSuccess: (view) => {
+      qc.setQueryData(invoiceKey(invoice), view);
+      toast.success("Signature saved");
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+    onSettled: () => invalidate(invoice.dealId),
   });
 }

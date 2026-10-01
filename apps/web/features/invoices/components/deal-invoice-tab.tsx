@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { Download, Eye, FileText, Loader2, Mail, MessageSquareText, Send, Trash2, Undo2 } from "lucide-react";
+import { Download, Eye, FileText, Loader2, Send, Trash2, Undo2 } from "lucide-react";
 import { toast } from "sonner";
 import { PaymentTerms, type Deal, type InvoiceView } from "@bitcrm/types";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -36,6 +37,8 @@ import { DocumentPreviewDialog } from "@/features/billing/components/document-pr
 import { DocumentSummaryPanel } from "@/features/billing/components/document-summary-panel";
 import { DocumentTemplateSelect } from "@/features/billing/components/document-template-select";
 import { CopyPortalLinkButton } from "@/features/portal/components/copy-portal-link-button";
+import { SignaturesSection } from "@/features/billing/components/signatures-section";
+import { useContact } from "@/features/clients/hooks";
 import { useInvoicePayments } from "@/features/payments/hooks";
 import { applyAmountPaid, isPartiallyPaid } from "@/features/payments/lib";
 import { PartiallyPaidBadge } from "@/features/payments/components/payment-status-badge";
@@ -47,6 +50,7 @@ import {
   useDeleteInvoice,
   useInvoiceByDeal,
   useMarkInvoiceSent,
+  useSignInvoice,
   useUpdateInvoice,
 } from "../hooks";
 import { PAYMENT_TERMS_OPTIONS, canCreateInvoice, dueDateForTerms } from "../lib";
@@ -147,6 +151,8 @@ export function InvoiceDetail({
   const update = useUpdateInvoice(invoice);
   const markSent = useMarkInvoiceSent(deal?.id);
   const del = useDeleteInvoice(deal?.id);
+  const sign = useSignInvoice(invoice);
+  const client = useContact(invoice.contactId);
   const pdf = useOpenPdf(() => getInvoicePdfUrl(invoice.id));
   const [previewing, setPreviewing] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -187,6 +193,11 @@ export function InvoiceDetail({
             <PartiallyPaidBadge />
           ) : null}
           <SentBadge sentAt={invoice.sentAt} />
+          {invoice.signedAt ? (
+            <Badge variant="outline">Signed</Badge>
+          ) : invoice.requestSignature ? (
+            <Badge variant="outline">Signature requested</Badge>
+          ) : null}
           <span className="ml-auto text-xs text-muted-foreground">Created {formatYmd(invoice.createdAt)}</span>
         </div>
 
@@ -263,14 +274,9 @@ export function InvoiceDetail({
             </Button>
           ) : null}
           {canText ? (
-            <>
-              <Button variant="brand" size="sm" onClick={() => setSendingVia("sms")}>
-                <MessageSquareText /> Send by text
-              </Button>
-              <Button variant="outline" size="sm" onClick={() => setSendingVia("email")}>
-                <Mail /> Send by email
-              </Button>
-            </>
+            <Button variant="brand" size="sm" onClick={() => setSendingVia("sms")}>
+              <Send /> Send
+            </Button>
           ) : null}
           {canSend ? <CopyPortalLinkButton contactId={invoice.contactId} /> : null}
           {canDelete ? (
@@ -317,6 +323,14 @@ export function InvoiceDetail({
 
       <InvoicePaymentsSection invoice={invoice} dealId={deal?.id} />
 
+      <SignaturesSection
+        signatures={invoice.signatures ?? []}
+        signerName={[client.data?.firstName, client.data?.lastName].filter(Boolean).join(" ")}
+        canSign={canEdit}
+        saving={sign.isPending}
+        onSign={(input) => sign.mutateAsync(input)}
+      />
+
       <DocField label="Invoice notes" htmlFor="invoice-notes">
         <CommitTextarea
           id="invoice-notes"
@@ -354,6 +368,8 @@ export function InvoiceDetail({
             businessProfileId: deal?.businessProfileId,
             alreadySent: !!invoice.sentAt,
             allowedMethods: invoice.allowedMethods,
+            requestSignature: invoice.requestSignature,
+            display: invoice.display,
           }}
           markSent={() => markSent.mutateAsync({ id: invoice.id, sent: true })}
         />

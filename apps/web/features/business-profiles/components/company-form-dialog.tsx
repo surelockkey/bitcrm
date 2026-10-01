@@ -77,7 +77,7 @@ function Section({ title, hint, children }: { title: string; hint?: string; chil
   );
 }
 
-type TextKey = "name" | "legalName" | "phone" | "email" | "website" | "licenseNumber";
+type TextKey = "name" | "legalName" | "phone" | "email" | "website" | "licenseNumber" | "description" | "bookingUrl";
 
 function CompanyForm({
   company,
@@ -155,6 +155,13 @@ function CompanyForm({
                 {textField("website", "Website", { placeholder: "www.example.com" })}
                 {textField("licenseNumber", "License #")}
               </div>
+            </div>
+          </Section>
+
+          <Section title="Client portal" hint="The header your clients see when they open an estimate or invoice.">
+            <div className="grid gap-4 sm:grid-cols-2">
+              {textField("description", "Tagline", { placeholder: "Locksmith, door and garage door services" })}
+              {textField("bookingUrl", "Book a service link", { type: "url", placeholder: "https://…" })}
             </div>
           </Section>
 

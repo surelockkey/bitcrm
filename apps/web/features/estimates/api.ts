@@ -1,10 +1,12 @@
 import type {
   DocumentDiscount,
+  DocumentVisibility,
   Estimate,
   EstimateItem,
   EstimateStatus,
   EstimateWithItems,
   ListCount,
+  Proposal,
 } from "@bitcrm/types";
 import { http } from "@/lib/api/http";
 import { buildEstimateListQuery, normalizeEstimateSummary, type EstimateListParams, type EstimateSummary } from "./lib";
@@ -24,6 +26,17 @@ export interface EstimatePatch {
   templateId?: string | null;
   taxRateId?: string | null;
   discount?: DocumentDiscount | null;
+  /** Workiz "Set deposit": a percent of the total OR a fixed amount; `null` clears. */
+  depositPercentage?: number | null;
+  depositAmount?: number | null;
+  /** Workiz Send panel "Advanced": what the client sees; `null` = the template's own. */
+  display?: Partial<DocumentVisibility> | null;
+}
+
+/** A signature from the canvas: PNG data URL + the signer's typed name. */
+export interface SignatureBody {
+  imageDataUrl: string;
+  signedBy: string;
 }
 
 export const listEstimates = (params: EstimateListParams = {}): Promise<EstimatePage> =>
@@ -101,3 +114,16 @@ export const getEstimatePdfUrl = (id: string, download = false): Promise<{ url: 
 
 export const getEstimateHtml = (id: string): Promise<{ html: string }> =>
   http.get<{ html: string }>(`${BASE}/${id}/html`);
+
+/** In person (Workiz "Signatures +"): evidence only, the status does not change. */
+export const signEstimate = (id: string, body: SignatureBody): Promise<EstimateWithItems> =>
+  http.post<EstimateWithItems>(`${BASE}/${id}/signatures`, body);
+
+/* ------------------------------------------------------------- proposals */
+
+/** Workiz "Send all (proposal)": the job's open estimates go out together under one number. */
+export const createProposal = (dealId: string): Promise<Proposal> =>
+  http.post<Proposal>("/billing/proposals", { dealId });
+
+export const getProposalsByDeal = (dealId: string): Promise<Proposal[]> =>
+  http.get<Proposal[]>(`/billing/proposals?dealId=${encodeURIComponent(dealId)}`);

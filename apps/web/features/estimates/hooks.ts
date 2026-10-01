@@ -353,3 +353,43 @@ export function useDeleteEstimate(dealId?: string) {
     onError: (e) => toast.error(getApiErrorMessage(e)),
   });
 }
+
+/* ------------------------------------------------------------ signatures */
+
+/** A signature collected in person on the estimate (the technician's phone, the office). */
+export function useSignEstimate(id: string, dealId?: string) {
+  const qc = useQueryClient();
+  const invalidate = useInvalidateEstimates();
+  return useMutation({
+    mutationFn: (body: api.SignatureBody) => api.signEstimate(id, body),
+    onSuccess: (e) => {
+      qc.setQueryData(queryKeys.estimates.detail(id), e);
+      toast.success("Signature saved");
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+    onSettled: () => invalidate(dealId),
+  });
+}
+
+/* ------------------------------------------------------------- proposals */
+
+export function useDealProposals(dealId: string, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.proposals.byDeal(dealId),
+    queryFn: () => api.getProposalsByDeal(dealId),
+    enabled: enabled && !!dealId,
+  });
+}
+
+/** "Send all (proposal)". Quiet — the send drawer reports. */
+export function useCreateProposal(dealId: string) {
+  const qc = useQueryClient();
+  const invalidate = useInvalidateEstimates();
+  return useMutation({
+    mutationFn: () => api.createProposal(dealId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.proposals.byDeal(dealId) });
+      invalidate(dealId);
+    },
+  });
+}

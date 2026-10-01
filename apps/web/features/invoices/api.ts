@@ -1,6 +1,7 @@
 import type { Invoice, InvoiceView, ListCount } from "@bitcrm/types";
 import { http } from "@/lib/api/http";
 import type { EstimateItemBody } from "@/features/estimates/schemas";
+import type { SignatureBody } from "@/features/estimates/api";
 import { buildInvoiceListQuery, type InvoiceListParams } from "./lib";
 import type { InvoicePatch } from "./schemas";
 
@@ -104,3 +105,7 @@ export const getInvoicePdfUrl = (id: string, download = false): Promise<{ url: s
 
 export const getInvoiceHtml = (id: string): Promise<{ html: string }> =>
   http.get<{ html: string }>(`${BASE}/${id}/html`);
+
+/** In person (Workiz "Signatures +"). */
+export const signInvoice = (id: string, body: SignatureBody): Promise<InvoiceView> =>
+  http.post<InvoiceView>(`${BASE}/${id}/signatures`, body);

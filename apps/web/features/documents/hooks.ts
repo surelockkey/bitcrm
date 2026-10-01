@@ -28,6 +28,30 @@ export const documentKeys = {
 /** Presigned URLs are refreshed well before they expire. */
 const ASSET_URL_STALE_MS = 10 * 60_000;
 
+/* ------------------------------------------------------ document settings */
+
+/** Settings → Documents defaults; the send drawer and the editors read them too. */
+export function useDocumentSettings(enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.documentSettings(),
+    queryFn: api.getDocumentSettings,
+    enabled,
+    staleTime: 5 * 60_000,
+  });
+}
+
+export function useUpdateDocumentSettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: api.DocumentSettingsBody) => api.updateDocumentSettings(body),
+    onSuccess: (settings) => {
+      qc.setQueryData(queryKeys.documentSettings(), settings);
+      toast.success("Document settings saved");
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+}
+
 /* ------------------------------------------------------------- templates */
 
 export function useDocumentTemplates(enabled = true) {

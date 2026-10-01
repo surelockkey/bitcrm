@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { PaymentTerms, type DocumentDiscount } from "@bitcrm/types";
+import { PaymentTerms, type DocumentDiscount, type DocumentVisibility } from "@bitcrm/types";
 import { isYmd } from "@/features/billing/dates";
 
 const ymd = z.string().refine((v) => isYmd(v), "Pick a valid date");
@@ -28,4 +28,8 @@ export interface InvoicePatch {
   /** A CLIENT invoice's own tax rate / discount (a job invoice's are the job's). */
   taxRateId?: string | null;
   discount?: DocumentDiscount | null;
+  /** Workiz Send panel "Request signature": the portal asks the client to sign before paying. */
+  requestSignature?: boolean;
+  /** Workiz Send panel "Advanced": what the client sees; `null` = the template's own. */
+  display?: Partial<DocumentVisibility> | null;
 }
