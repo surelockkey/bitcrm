@@ -11,6 +11,9 @@ const view: PortalView = {
   invoices: [
     { kind: "invoice", id: "d1", number: "1042", date: "2026-09-12", status: "due", total: 300, balanceDue: 300, sent: true },
   ],
+  proposals: [],
+  jobs: [],
+  payments: [],
   preview: false,
 };
 

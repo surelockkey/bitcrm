@@ -102,6 +102,11 @@ const META: Record<TimelineEventType, { icon: typeof Sparkles; label: string }> 
   [TimelineEventType.ESTIMATE_SENT]: { icon: Send, label: "Estimate sent" },
   [TimelineEventType.ESTIMATE_SYNCED]: { icon: FileCheck2, label: "Estimate synced to job" },
   [TimelineEventType.ESTIMATE_DELETED]: { icon: FileX, label: "Estimate deleted" },
+  // The client's own decisions on the portal (Workiz "Client signed estimate").
+  [TimelineEventType.ESTIMATE_APPROVED]: { icon: FileCheck2, label: "Estimate approved by client" },
+  [TimelineEventType.ESTIMATE_DECLINED]: { icon: FileX, label: "Estimate declined by client" },
+  [TimelineEventType.PROPOSAL_SENT]: { icon: Send, label: "Proposal sent" },
+  [TimelineEventType.INVOICE_SIGNED]: { icon: FileCheck2, label: "Invoice signed" },
   [TimelineEventType.PAYMENT_RECEIVED]: { icon: BadgeDollarSign, label: "Payment received" },
   // Taken but not landed yet — an ACH debit in transit.
   [TimelineEventType.PAYMENT_PENDING]: { icon: BadgeDollarSign, label: "Payment clearing" },

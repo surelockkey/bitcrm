@@ -24,6 +24,9 @@ const view: PortalViewData = {
       balanceDue: 120.5, dueDate: "2026-09-13", sent: false,
     },
   ],
+  proposals: [],
+  jobs: [],
+  payments: [],
   preview: false,
 };
 
