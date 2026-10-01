@@ -15,13 +15,13 @@ import { ClientCallsLog } from "@/features/calls/components/client-calls-log";
 import { useDealsPage } from "@/features/deals/hooks";
 import { useEstimatesForContacts } from "@/features/estimates/hooks";
 import { useInvoicesForContacts } from "@/features/invoices/hooks";
-import { PartyChat } from "@/features/messaging/components/party-chat";
 import { ClientEstimatesList, ClientInvoicesList } from "@/features/billing/components/client-documents";
 import { accountToday } from "@/features/reports/report-dates";
 import { amountDueByDeal, clientAddressRows, clientKpis } from "../client-page";
 import { useCompany, useContact, useDeleteContact } from "../hooks";
 import { contactName } from "../lib";
 import { ClientAddressesTab } from "./client-addresses-tab";
+import { ClientChatSheet } from "./client-chat-sheet";
 import { ClientJobsTab } from "./client-jobs-tab";
 import { ClientKpiStrip } from "./client-kpi-strip";
 import { ClientPaymentsTab } from "./client-payments-tab";
@@ -47,6 +47,7 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
   const [tab, setTab] = useState("jobs");
+  const [chatOpen, setChatOpen] = useState(false);
 
   const money = can("financials", "view");
   const jobs = useDealsPage({ contactId, limit: JOBS_PAGE, sort: "schedule", dir: "desc" }, !!contact);
@@ -96,8 +97,10 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
           canDelete={can("contacts", "delete")}
           canCreateTags={can("client_tags", "create")}
           showPortal={can("invoices") || can("estimates")}
+          canMessage={can("messages", "send")}
           onEdit={() => setEditing(true)}
           onDelete={() => setConfirmDelete(true)}
+          onMessage={() => setChatOpen(true)}
         />
       </div>
 
@@ -118,8 +121,8 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
                   </Link>
                 </DropdownMenuItem>
               ) : null}
-              {can("messages") ? (
-                <DropdownMenuItem onSelect={() => setTab("messages")}>
+              {can("messages", "send") ? (
+                <DropdownMenuItem onSelect={() => setChatOpen(true)}>
                   <MessageSquareText className="size-4" /> Message
                 </DropdownMenuItem>
               ) : null}
@@ -156,11 +159,6 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
                   Calls
                 </TabsTrigger>
               ) : null}
-              {can("messages") ? (
-                <TabsTrigger value="messages" className="px-2">
-                  Messages
-                </TabsTrigger>
-              ) : null}
             </TabsList>
           </div>
 
@@ -190,11 +188,10 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
           <TabsContent value="calls" className="mt-0 p-4">
             <ClientCallsLog contactId={contact.id} />
           </TabsContent>
-          <TabsContent value="messages" className="mt-0 p-4">
-            <PartyChat partyKind="contact" partyId={contact.id} className="h-112" />
-          </TabsContent>
         </Tabs>
       </div>
+
+      <ClientChatSheet contactId={contact.id} name={contactName(contact)} phone={contact.phones[0]} open={chatOpen} onOpenChange={setChatOpen} />
 
       {/* Workiz's right rail. Notes is the one BitCRM has to show. */}
       <div className="flex shrink-0 gap-2 border-t p-2 md:flex-col md:border-t-0 md:border-l">

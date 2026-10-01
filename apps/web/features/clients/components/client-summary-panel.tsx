@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Building2, ChevronDown, ChevronRight, Mail, MapPin, MoreVertical, Pencil, Phone, Trash2 } from "lucide-react";
+import { Building2, ChevronDown, ChevronRight, Mail, MapPin, MessageSquare, MoreVertical, Pencil, Phone, Trash2 } from "lucide-react";
 import type { Company, Contact } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
 import {
@@ -32,8 +32,10 @@ export function ClientSummaryPanel({
   canDelete,
   canCreateTags,
   showPortal,
+  canMessage,
   onEdit,
   onDelete,
+  onMessage,
 }: {
   contact: Contact;
   company?: Company;
@@ -42,8 +44,11 @@ export function ClientSummaryPanel({
   /** `client_tags.create`: the Add tag popup may make a new tag. */
   canCreateTags: boolean;
   showPortal: boolean;
+  /** `messages.send`: the message button beside the phone opens the chat panel. */
+  canMessage: boolean;
   onEdit: () => void;
   onDelete: () => void;
+  onMessage: () => void;
 }) {
   const service = contact.addresses[0];
   const billing = contact.billingAddress;
@@ -101,7 +106,18 @@ export function ClientSummaryPanel({
           maskedCount={contact.phoneCount}
           format={(p) => formatPhoneWithExtension(p, extensionOf(contact, p))}
           primaryFirst
-          action={(phone) => <CallClientButton to={phone} partyId={contact.id} />}
+          // Workiz puts a phone and a chat icon beside the number: call, or
+          // open the thread in a side panel without leaving the card.
+          action={(phone) => (
+            <span className="flex items-center gap-1">
+              <CallClientButton to={phone} partyId={contact.id} />
+              {canMessage ? (
+                <Button variant="ghost" size="icon-sm" aria-label="Message client" onClick={onMessage}>
+                  <MessageSquare className="size-4" />
+                </Button>
+              ) : null}
+            </span>
+          )}
         />
         <FieldList label="Emails" icon={Mail} values={contact.emails} />
         {/* Workiz's tags sit under the contact details: chips, then "+ Add tag". */}

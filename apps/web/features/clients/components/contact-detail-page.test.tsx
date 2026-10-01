@@ -186,7 +186,7 @@ describe("ContactDetailPage — the client card, laid out as Workiz's", () => {
 
   it("has Workiz's tabs, Jobs first and open, with the job table's columns", async () => {
     await renderPage();
-    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["Jobs 3", "Estimates", "Invoices", "Payments", "Addresses 5", "Calls", "Messages"]);
+    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["Jobs 3", "Estimates", "Invoices", "Payments", "Addresses 5", "Calls"]);
     expect(screen.getByRole("tab", { name: /^Jobs/ })).toHaveAttribute("aria-selected", "true");
 
     const table = screen.getByRole("table", { name: "Jobs" });
@@ -237,7 +237,19 @@ describe("ContactDetailPage — the client card, laid out as Workiz's", () => {
     await renderPage();
     await userEvent.click(screen.getByRole("button", { name: "Create new" }));
     expect(await screen.findByRole("menuitem", { name: "Job" })).toHaveAttribute("href", "/deals/new?contactId=c1");
-    expect(screen.getByRole("menuitem", { name: "Message" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("menuitem", { name: "Message" }));
+    expect(await screen.findByTestId("party-chat")).toBeInTheDocument();
+  });
+
+  it("a message button beside the phone opens the client's chat in a side panel, as on the job; no Messages tab", async () => {
+    await renderPage();
+    expect(screen.queryByRole("tab", { name: "Messages" })).toBeNull();
+    expect(screen.queryByTestId("party-chat")).toBeNull();
+
+    const panel = screen.getByRole("complementary", { name: "Client" });
+    await userEvent.click(within(panel).getAllByRole("button", { name: "Message client" })[0]);
+    expect(await screen.findByTestId("party-chat")).toBeInTheDocument();
+    expect(screen.getByRole("dialog")).toHaveTextContent("CBRE Facilities Management");
   });
 
   it("the card's menu edits or deletes the client, by permission", async () => {
