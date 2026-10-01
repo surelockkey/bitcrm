@@ -1,15 +1,9 @@
 import {
   Archive,
-  Banknote,
   Barcode,
   Calculator,
   ChartColumnIncreasing,
-  ClipboardCheck,
-  Clock3,
-  Coins,
   CreditCard,
-  FileCheck2,
-  FilePlus2,
   Globe,
   Paperclip,
   Percent,
@@ -17,7 +11,6 @@ import {
   Receipt,
   Store,
   Users,
-  Wallet,
   Wrench,
   type LucideIcon,
 } from "lucide-react";
@@ -26,6 +19,8 @@ import type { Action, Resource } from "@bitcrm/types";
 export interface ReportTile {
   /** Workiz's label, word for word. */
   name: string;
+  /** One line on what the report answers — the hub shows it under the name. */
+  description: string;
   /** The nearest Lucide glyph to Workiz's line icon for this report. */
   icon: LucideIcon;
   /**
@@ -42,38 +37,71 @@ export interface ReportTile {
 }
 
 /**
- * The 23 tiles of Workiz's Reports → "Workiz reports" tab, in its on-screen
- * order (row by row, three to a row), with Workiz's labels.
+ * The 14 Workiz reports the business kept (struck out on 2026-09-25 and
+ * confirmed on 2026-10-01), in Workiz's on-screen order. Performance Pay,
+ * Sales, Tips, Leads, Expenses, Timesheets, Tasks, Equipment and Service
+ * Plans are not coming back.
  *
  * Routes and permissions follow the report pages as they are built — on main
- * or in their open PRs (#83–#90, Inventory Usage in `web/inventory-report`).
- * Merging one of those turns its tile on by itself: the tile already points
- * at the page the PR adds.
+ * or in their open PRs. Merging one of those turns its tile on by itself: the
+ * tile already points at the page the PR adds.
  */
 export const REPORT_TILES: readonly ReportTile[] = [
-  { name: "Jobs", icon: Wrench, href: "/reports/jobs" },
-  { name: "Performance Pay", icon: Calculator },
-  { name: "Sales", icon: Wallet, href: "/reports/sales" },
-  { name: "Tips", icon: Wallet, href: "/reports/tips" },
-  { name: "Job Statistics", icon: ChartColumnIncreasing, href: "/reports/job-statistics" },
-  { name: "Leads Report", icon: Banknote },
+  { name: "Jobs", description: "Every job in a period, with its status, team and totals.", icon: Wrench, href: "/reports/jobs" },
+  {
+    name: "Job Statistics",
+    description: "Jobs, sales and profit by day, source or technician.",
+    icon: ChartColumnIncreasing,
+    href: "/reports/job-statistics",
+  },
   // Workiz's `/root/payments` — the sidebar's Payments page is the report.
-  { name: "Payments", icon: CreditCard, href: "/payments", requires: [["payments", "view"]] },
-  { name: "Expenses", icon: Coins },
-  { name: "Activity", icon: Users, href: "/reports/activity" },
+  {
+    name: "Payments",
+    description: "Payments taken, by method and by who took them.",
+    icon: CreditCard,
+    href: "/payments",
+    requires: [["payments", "view"]],
+  },
+  { name: "Activity", description: "What each user did in BitCRM, and when.", icon: Users, href: "/reports/activity" },
   // Workiz opens these two on the pages of the same name.
-  { name: "Estimates", icon: Paperclip, href: "/estimates", requires: [["estimates", "view"]] },
-  { name: "Invoices", icon: Receipt, href: "/invoices", requires: [["invoices", "view"]] },
-  { name: "Aging invoices", icon: Receipt, href: "/reports/aging-invoices", requires: [["invoices", "view"]] },
-  { name: "Timesheets", icon: Clock3, href: "/reports/timesheets" },
-  { name: "Items and services", icon: Barcode, href: "/reports/items" },
-  { name: "Website requests", icon: Globe },
-  { name: "Tax", icon: Percent, href: "/reports/tax", requires: [["financials", "view"]] },
-  { name: "Call Tracking", icon: Phone, href: "/reports/call-tracking", requires: [["calls", "view"]] },
-  { name: "Inventory Usage", icon: Archive, href: "/reports/inventory-usage" },
-  { name: "Franchise Report", icon: Store },
-  { name: "Tasks", icon: ClipboardCheck },
-  { name: "Equipment", icon: FilePlus2 },
-  { name: "Service Plans", icon: FileCheck2 },
-  { name: "Commissions (Legacy)", icon: Calculator, href: "/reports/commission", requires: [["commission", "view"]] },
+  {
+    name: "Estimates",
+    description: "Estimates sent, approved and still waiting.",
+    icon: Paperclip,
+    href: "/estimates",
+    requires: [["estimates", "view"]],
+  },
+  {
+    name: "Invoices",
+    description: "Invoices issued, paid and outstanding.",
+    icon: Receipt,
+    href: "/invoices",
+    requires: [["invoices", "view"]],
+  },
+  {
+    name: "Aging invoices",
+    description: "Unpaid invoices by how long they've been overdue.",
+    icon: Receipt,
+    href: "/reports/aging-invoices",
+    requires: [["invoices", "view"]],
+  },
+  { name: "Items and services", description: "What was sold, how much of it and for how much.", icon: Barcode, href: "/reports/items" },
+  { name: "Website requests", description: "Requests that came in through the website.", icon: Globe },
+  { name: "Tax", description: "Tax collected, by rate and by period.", icon: Percent, href: "/reports/tax", requires: [["financials", "view"]] },
+  {
+    name: "Call Tracking",
+    description: "Calls by number, source and outcome.",
+    icon: Phone,
+    href: "/reports/call-tracking",
+    requires: [["calls", "view"]],
+  },
+  { name: "Inventory Usage", description: "Stock used on jobs, by item and by technician.", icon: Archive, href: "/reports/inventory-usage" },
+  { name: "Franchise Report", description: "Figures across franchise locations.", icon: Store },
+  {
+    name: "Commissions (Legacy)",
+    description: "Commission earned per technician on done jobs.",
+    icon: Calculator,
+    href: "/reports/commission",
+    requires: [["commission", "view"]],
+  },
 ];

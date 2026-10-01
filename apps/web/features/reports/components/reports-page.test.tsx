@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 const { toast, perms } = vi.hoisted(() => ({
@@ -17,54 +17,50 @@ vi.mock("@/features/auth/use-permissions", () => ({
 
 import { ReportsPage, REPORT_TILES } from "./reports-page";
 
-/** Workiz → Reports → "Workiz reports", as it stands (2026-09-30): 23 tiles, row by row. */
-const WORKIZ_ORDER = [
-  "Jobs", "Performance Pay", "Sales",
-  "Tips", "Job Statistics", "Leads Report",
-  "Payments", "Expenses", "Activity",
+/**
+ * The 14 reports the business kept (2026-09-25, confirmed on 2026-10-01), in
+ * Workiz's order. Performance Pay, Sales, Tips, Leads, Expenses, Timesheets,
+ * Tasks, Equipment and Service Plans are gone for good.
+ */
+const KEPT = [
+  "Jobs", "Job Statistics", "Payments", "Activity",
   "Estimates", "Invoices", "Aging invoices",
-  "Timesheets", "Items and services", "Website requests",
+  "Items and services", "Website requests",
   "Tax", "Call Tracking", "Inventory Usage",
-  "Franchise Report", "Tasks", "Equipment",
-  "Service Plans", "Commissions (Legacy)",
+  "Franchise Report", "Commissions (Legacy)",
 ];
 
-/**
- * Where each report lives in BitCRM — on main or in its open PR (#83–#90;
- * Inventory Usage in `web/inventory-report`). Merging one of those must be
- * all it takes to turn its tile on.
- */
+const DROPPED = [
+  "Performance Pay", "Sales", "Tips", "Leads Report", "Expenses",
+  "Timesheets", "Tasks", "Equipment", "Service Plans",
+];
+
+/** Where each report lives in BitCRM — on main or in its open PR. */
 const ROUTES: Record<string, string> = {
   Jobs: "/reports/jobs",
-  Sales: "/reports/sales", // #90
   "Job Statistics": "/reports/job-statistics",
-  Payments: "/payments", // #83
-  Activity: "/reports/activity", // #88
+  Payments: "/payments",
+  Activity: "/reports/activity",
   Estimates: "/estimates",
   Invoices: "/invoices",
-  "Aging invoices": "/reports/aging-invoices", // #87
-  "Items and services": "/reports/items", // #89
-  Tax: "/reports/tax", // #87
-  "Call Tracking": "/reports/call-tracking", // #88
-  "Inventory Usage": "/reports/inventory-usage", // web/inventory-report
-  "Commissions (Legacy)": "/reports/commission", // #85
-  Timesheets: "/reports/timesheets", // #94
-  Tips: "/reports/tips", // in progress
+  "Aging invoices": "/reports/aging-invoices",
+  "Items and services": "/reports/items",
+  Tax: "/reports/tax",
+  "Call Tracking": "/reports/call-tracking",
+  "Inventory Usage": "/reports/inventory-usage",
+  "Commissions (Legacy)": "/reports/commission",
 };
 
-/** Reports BitCRM has no page for and nobody is building. */
-const NOT_IN_BITCRM = [
-  "Performance Pay", "Leads Report", "Expenses",
-  "Website requests", "Franchise Report", "Tasks", "Equipment", "Service Plans",
-];
+/** Kept on the hub, but nobody is building a page for them yet. */
+const NOT_IN_BITCRM = ["Website requests", "Franchise Report"];
 
 /** The report pages on main today. */
 const ON_MAIN = ["/reports/jobs", "/reports/job-statistics", "/payments", "/estimates", "/invoices"];
 
-const workizPanel = () => screen.getByRole("tabpanel", { name: "Workiz reports" });
+const hub = () => screen.getByRole("list", { name: "Reports" });
 /** The tiles' names in page order — links and "not yet" buttons alike. */
 const tileNames = () =>
-  [...workizPanel().querySelectorAll("a, button")].map((el) => el.querySelector("[data-slot=report-name]")?.textContent ?? "");
+  [...hub().querySelectorAll("a, button")].map((el) => el.querySelector("[data-slot=report-name]")?.textContent ?? "");
 
 describe("ReportsPage", () => {
   beforeEach(() => {
@@ -72,11 +68,25 @@ describe("ReportsPage", () => {
     perms.denied = new Set();
   });
 
-  it("shows Workiz's 23 report tiles, in Workiz's order, with Workiz's labels", () => {
+  it("shows the 14 kept reports, in Workiz's order, and none of the dropped ones", () => {
     render(<ReportsPage built={ON_MAIN} />);
 
-    expect(REPORT_TILES.map((t) => t.name)).toEqual(WORKIZ_ORDER);
-    expect(tileNames()).toEqual(WORKIZ_ORDER);
+    expect(REPORT_TILES.map((t) => t.name)).toEqual(KEPT);
+    expect(tileNames()).toEqual(KEPT);
+    for (const name of DROPPED) expect(screen.queryByText(name)).toBeNull();
+  });
+
+  it("is laid out like the rest of BitCRM: one list under the page title, no Workiz tabs or font", () => {
+    render(<ReportsPage built={ON_MAIN} />);
+
+    expect(screen.getByRole("heading", { level: 1, name: "Reports" })).toBeInTheDocument();
+    expect(screen.queryByRole("tab")).toBeNull();
+    expect(screen.queryByRole("tablist")).toBeNull();
+    expect(screen.queryByText(/custom reports/i)).toBeNull();
+    expect(screen.queryByRole("button", { name: /back/i })).toBeNull();
+    // Every tile says what the report is for, as the Settings list does.
+    for (const tile of REPORT_TILES) expect(tile.description).toMatch(/\S/);
+    expect(screen.getByText(REPORT_TILES[0].description)).toBeInTheDocument();
   });
 
   it("points every report at its BitCRM page, the open PRs' pages included", () => {
@@ -87,26 +97,26 @@ describe("ReportsPage", () => {
   it("opens only the reports that are built; a report still in a PR says it's coming", async () => {
     render(<ReportsPage built={ON_MAIN} />);
 
-    expect(screen.getByRole("link", { name: "Jobs" })).toHaveAttribute("href", "/reports/jobs");
-    expect(screen.getByRole("link", { name: "Job Statistics" })).toHaveAttribute("href", "/reports/job-statistics");
+    expect(screen.getByRole("link", { name: /^Jobs/ })).toHaveAttribute("href", "/reports/jobs");
+    expect(screen.getByRole("link", { name: /^Job Statistics/ })).toHaveAttribute("href", "/reports/job-statistics");
     // Workiz opens these on the pages of the same name.
-    expect(screen.getByRole("link", { name: "Estimates" })).toHaveAttribute("href", "/estimates");
-    expect(screen.getByRole("link", { name: "Invoices" })).toHaveAttribute("href", "/invoices");
-    expect(screen.getByRole("link", { name: "Payments" })).toHaveAttribute("href", "/payments");
+    expect(screen.getByRole("link", { name: /^Estimates/ })).toHaveAttribute("href", "/estimates");
+    expect(screen.getByRole("link", { name: /^Invoices/ })).toHaveAttribute("href", "/invoices");
+    expect(screen.getByRole("link", { name: /^Payments/ })).toHaveAttribute("href", "/payments");
 
-    const sales = screen.getByRole("button", { name: /^Sales/ });
-    expect(sales).toHaveAttribute("aria-disabled", "true");
-    expect(sales).toHaveTextContent("Coming soon");
-    expect(screen.queryByRole("link", { name: /Sales/ })).toBeNull();
-    await userEvent.click(sales);
-    expect(toast.info).toHaveBeenCalledWith(expect.stringContaining("Sales"));
+    const activity = screen.getByRole("button", { name: /^Activity/ });
+    expect(activity).toHaveAttribute("aria-disabled", "true");
+    expect(activity).toHaveTextContent("Coming soon");
+    expect(screen.queryByRole("link", { name: /^Activity/ })).toBeNull();
+    await userEvent.click(activity);
+    expect(toast.info).toHaveBeenCalledWith(expect.stringContaining("Activity"));
   });
 
   it("greys out the reports BitCRM doesn't have, and says so", async () => {
     render(<ReportsPage built={ON_MAIN} />);
 
     for (const name of NOT_IN_BITCRM) {
-      const tile = screen.getByRole("button", { name: new RegExp(`^${name.replace(/[()]/g, "\\$&")}`) });
+      const tile = screen.getByRole("button", { name: new RegExp(`^${name}`) });
       expect(tile).toHaveAttribute("aria-disabled", "true");
       expect(tile).toHaveTextContent("Not in BitCRM");
     }
@@ -118,45 +128,15 @@ describe("ReportsPage", () => {
     render(<ReportsPage built={Object.values(ROUTES)} />);
 
     for (const [name, href] of Object.entries(ROUTES)) {
-      expect(screen.getByRole("link", { name })).toHaveAttribute("href", href);
+      expect(screen.getByRole("link", { name: new RegExp(`^${name.replace(/[()]/g, "\\$&")}`) })).toHaveAttribute("href", href);
     }
     expect(screen.queryByText("Coming soon")).toBeNull();
   });
 
   it("without the build's list, opens every report that has a route", () => {
     render(<ReportsPage />);
-    expect(screen.getByRole("link", { name: "Sales" })).toHaveAttribute("href", "/reports/sales");
+    expect(screen.getByRole("link", { name: /^Activity/ })).toHaveAttribute("href", "/reports/activity");
     expect(screen.getAllByRole("link")).toHaveLength(Object.keys(ROUTES).length);
-  });
-
-  it("switches to Custom reports without touching the address, and shows the empty state", async () => {
-    const before = window.location.href;
-    render(<ReportsPage built={ON_MAIN} />);
-
-    expect(screen.getByRole("tab", { name: "Workiz reports" })).toHaveAttribute("aria-selected", "true");
-    await userEvent.click(screen.getByRole("tab", { name: "Custom reports" }));
-
-    expect(screen.getByRole("tab", { name: "Custom reports" })).toHaveAttribute("aria-selected", "true");
-    const panel = screen.getByRole("tabpanel", { name: "Custom reports" });
-    expect(within(panel).getByText("No custom reports found")).toBeInTheDocument();
-    expect(within(panel).getByText(/Creating custom reports isn.t available/)).toBeInTheDocument();
-    expect(screen.queryByRole("tabpanel", { name: "Workiz reports" })).toBeNull();
-    // BitCRM can't build reports: no Create buttons anywhere.
-    expect(screen.queryByRole("button", { name: /create report/i })).toBeNull();
-    expect(screen.queryByText(/add custom report/i)).toBeNull();
-    expect(window.location.href).toBe(before);
-  });
-
-  it("on a phone, Back lists the tabs and picking one opens it", async () => {
-    render(<ReportsPage built={ON_MAIN} />);
-
-    await userEvent.click(screen.getByRole("button", { name: /Back to the report tabs \(Workiz reports is open\)/ }));
-    const list = screen.getByRole("list", { name: "Report tabs" });
-    await userEvent.click(within(list).getByRole("button", { name: "Custom reports" }));
-
-    expect(screen.queryByRole("list", { name: "Report tabs" })).toBeNull();
-    expect(screen.getByRole("button", { name: /Custom reports is open/ })).toBeInTheDocument();
-    expect(screen.getByText("No custom reports found")).toBeInTheDocument();
   });
 
   it("blocks users without the reports permission", () => {
@@ -164,7 +144,7 @@ describe("ReportsPage", () => {
     render(<ReportsPage built={ON_MAIN} />);
 
     expect(screen.getByText(/no access/i)).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "Jobs" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /^Jobs/ })).not.toBeInTheDocument();
   });
 
   it("leaves out the reports a role may not open, as Workiz does", () => {
@@ -175,9 +155,9 @@ describe("ReportsPage", () => {
       expect(screen.queryByText(name)).toBeNull();
     }
     // The money-bearing reports that hide amounts themselves stay.
-    for (const name of ["Jobs", "Sales", "Job Statistics", "Items and services", "Activity", "Inventory Usage"]) {
-      expect(screen.getByRole("link", { name })).toBeInTheDocument();
+    for (const name of ["Jobs", "Job Statistics", "Items and services", "Activity", "Inventory Usage"]) {
+      expect(screen.getByRole("link", { name: new RegExp(`^${name}`) })).toBeInTheDocument();
     }
-    expect(tileNames()).toHaveLength(WORKIZ_ORDER.length - 7);
+    expect(tileNames()).toHaveLength(KEPT.length - 7);
   });
 });
