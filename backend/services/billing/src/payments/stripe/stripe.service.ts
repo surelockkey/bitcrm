@@ -28,6 +28,31 @@ export interface CheckoutSessionResult {
   paymentIntentId?: string;
 }
 
+/** A Stripe address as Terminal Locations take it (US: every field but `line2` is required). */
+export interface TerminalAddress {
+  line1: string;
+  line2?: string;
+  city: string;
+  state: string;
+  postal_code: string;
+  /** ISO 3166-1 alpha-2. Immutable once the Location exists. */
+  country: string;
+}
+
+export interface TerminalIntentInput {
+  /** Dollars toward the balance / deposit. */
+  amount: number;
+  /** Dollars on top, chosen on the phone BEFORE the tap (Tap to Pay has no on-reader tipping). */
+  tipAmount: number;
+  currency: string;
+  /** "Invoice K4T9ZW" / "Deposit for estimate K4T9ZW-1" — on the Stripe payment and the bank statement line. */
+  description: string;
+  /** `paymentId` is the webhook's join; Stripe copies intent metadata onto the charge. */
+  metadata: Record<string, string>;
+  /** One per payment attempt: a retried POST gets the same intent back. */
+  idempotencyKey: string;
+}
+
 /** Raised when a webhook body is not signed by Stripe (or is too old). */
 export class WebhookSignatureError extends Error {
   constructor(message: string) {
@@ -173,8 +198,66 @@ export class StripeService {
     return this.client().checkout.sessions.retrieve(sessionId);
   }
 
-  retrievePaymentIntent(paymentIntentId: string): Promise<Stripe.PaymentIntent> {
-    return this.client().paymentIntents.retrieve(paymentIntentId);
+  /** `expandCharge` inlines `latest_charge` — the card that paid (brand, last 4). */
+  retrievePaymentIntent(paymentIntentId: string, opts: { expandCharge?: boolean } = {}): Promise<Stripe.PaymentIntent> {
+    return opts.expandCharge
+      ? this.client().paymentIntents.retrieve(paymentIntentId, { expand: ['latest_charge'] })
+      : this.client().paymentIntents.retrieve(paymentIntentId);
+  }
+
+  // ------------------------------------------------------------ Terminal
+
+  /**
+   * A Stripe Terminal connection token for the technician's phone (the SDK's
+   * token provider). Short-lived and single-use: never cached on either side.
+   * `location` only scopes internet readers — it has no effect on Tap to Pay.
+   */
+  async createConnectionToken(locationId?: string): Promise<{ secret: string }> {
+    const token = await this.client().terminal.connectionTokens.create(locationId ? { location: locationId } : {});
+    return { secret: token.secret };
+  }
+
+  /** The Location a Tap to Pay reader is connected under (`connectReader({ locationId })`). */
+  async createTerminalLocation(input: {
+    displayName: string;
+    address: TerminalAddress;
+    idempotencyKey: string;
+  }): Promise<Stripe.Terminal.Location> {
+    return this.client().terminal.locations.create(
+      { display_name: input.displayName, address: input.address },
+      { idempotencyKey: input.idempotencyKey },
+    );
+  }
+
+  /**
+   * A card-present PaymentIntent the phone collects and CONFIRMS on the device
+   * (server-side confirmation would skip the PIN prompt). Captured
+   * automatically: Tap to Pay has no after-auth tipping, so the tip is chosen
+   * first and charged in the same amount — `amount + tipAmount`, in cents.
+   */
+  async createTerminalIntent(input: TerminalIntentInput): Promise<Stripe.PaymentIntent> {
+    const intent = await this.client().paymentIntents.create(
+      {
+        amount: toCents(input.amount) + toCents(input.tipAmount),
+        currency: input.currency,
+        payment_method_types: ['card_present'],
+        capture_method: 'automatic',
+        description: input.description,
+        metadata: input.metadata,
+      },
+      { idempotencyKey: input.idempotencyKey },
+    );
+    if (!intent.client_secret) {
+      throw new ServiceUnavailableException('Stripe did not return a client secret for this payment');
+    }
+    return intent;
+  }
+
+  async cancelPaymentIntent(
+    paymentIntentId: string,
+    reason: 'abandoned' | 'duplicate' | 'requested_by_customer',
+  ): Promise<Stripe.PaymentIntent> {
+    return this.client().paymentIntents.cancel(paymentIntentId, { cancellation_reason: reason });
   }
 
   /** Dollars in, dollars out — cents exist only inside this method. */
