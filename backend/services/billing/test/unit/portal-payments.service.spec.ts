@@ -326,6 +326,28 @@ describe('portal pay — the amount is clamped server-side', () => {
   });
 });
 
+describe('portal pay — signature first (Workiz "Request signature")', () => {
+  it('refuses to take money for an invoice that asks for a signature nobody has given yet', async () => {
+    const { service, ledger, stripe } = await build({ invoice: invoice({ requestSignature: true }) });
+    await expect(service.pay(TOKEN, 'deal-1', { amount: 100, method: 'card' })).rejects.toThrow(ConflictException);
+    await expect(service.pay(TOKEN, 'deal-1', { amount: 100, method: 'card' })).rejects.toThrow(/sign the invoice first/i);
+    expect(ledger.payments.size).toBe(0);
+    expect(stripe.createCheckoutSession).not.toHaveBeenCalled();
+  });
+
+  it('takes the payment once the invoice is signed', async () => {
+    const { service } = await build({
+      invoice: invoice({ requestSignature: true, signedAt: '2026-09-21T12:00:00.000Z' }),
+    });
+    await expect(service.pay(TOKEN, 'deal-1', { amount: 100, method: 'card' })).resolves.toMatchObject({ amount: 100 });
+  });
+
+  it('asks for nothing when the invoice was sent without "Request signature"', async () => {
+    const { service } = await build({ invoice: invoice({ requestSignature: false }) });
+    await expect(service.pay(TOKEN, 'deal-1', { amount: 100, method: 'card' })).resolves.toMatchObject({ amount: 100 });
+  });
+});
+
 describe('portal payment poll', () => {
   it('reports the payment the client just made', async () => {
     const ledger = fakeLedger([payment({ id: 'p1', amount: 40, status: 'pending', method: 'bank' })]);

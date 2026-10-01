@@ -19,6 +19,7 @@ import {
 } from '@bitcrm/types';
 import { portalBaseUrl } from '../common/constants/services.constants';
 import { CrmClient } from '../integrations/crm.client';
+import { invoiceAwaitsSignature } from '../invoices/invoice-rules';
 import { PortalService } from '../portal/portal.service';
 import { PaymentSettingsService } from './payment-settings.service';
 import { PaymentAmountError, clampPaymentAmount, round2, summarizePayments, surchargeFor } from './payment-rules';
@@ -99,6 +100,11 @@ export class PortalPaymentsService {
     if (!invoice.dealId) {
       // The ledger is keyed by the job; a client invoice (no job) is not payable online yet.
       throw new ConflictException('This invoice cannot be paid online yet — please contact the office');
+    }
+    // Signature first, money second — enforced here, not only by the portal's
+    // Sign & pay drawer: a direct POST must not get around "Request signature".
+    if (invoiceAwaitsSignature(invoice)) {
+      throw new ConflictException('Please sign the invoice first — it is paid after signing it');
     }
     return this.openCheckout({
       token,

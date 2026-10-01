@@ -26,6 +26,7 @@ import { EstimatesService, type SignEstimateInput } from '../estimates/estimates
 import { CrmClient } from '../integrations/crm.client';
 import { DealClient, type ContactDealSummary } from '../integrations/deal.client';
 import { formatAddress } from '../documents/document-context.builder';
+import { invoiceAwaitsSignature } from '../invoices/invoice-rules';
 import { InvoicesService, type SignInvoiceInput } from '../invoices/invoices.service';
 import { ProposalsService } from '../proposals/proposals.service';
 import { generatePortalToken, hashPortalToken, isPlausibleToken, recoverPortalToken } from './portal-token';
@@ -308,11 +309,17 @@ export class PortalService {
    * Which invoices the client can actually pay right now, and what is still
    * clearing on each. Best effort — a ledger outage must not take the portal
    * down, it just hides the Pay button.
+   *
+   * "Request signature" is part of the answer: such an invoice is `payable`
+   * THROUGH signing — `signatureNeeded` sends its Pay button to the Sign & pay
+   * drawer (the portal's only way to sign an invoice), and the pay route
+   * refuses with 409 until the signature is on file. Both read
+   * `invoiceAwaitsSignature`, so they cannot disagree.
    */
   private async payableFlags(
     invoices: Invoice[],
-  ): Promise<Map<string, { payable: boolean; amountPending: number; balanceDue: number }>> {
-    const out = new Map<string, { payable: boolean; amountPending: number; balanceDue: number }>();
+  ): Promise<Map<string, { payable: boolean; signatureNeeded: boolean; amountPending: number; balanceDue: number }>> {
+    const out = new Map<string, { payable: boolean; signatureNeeded: boolean; amountPending: number; balanceDue: number }>();
     if (!this.ledger || !this.paymentSettings || invoices.length === 0) return out;
     try {
       const settings = await this.paymentSettings.get();
@@ -327,6 +334,7 @@ export class PortalService {
           // the document actually sent, a method allowed, something owed — and
           // a job, since the ledger cannot take a payment on a client invoice yet.
           payable: methods.length > 0 && balanceDue > 0 && !!invoice.sentAt && !!invoice.dealId,
+          signatureNeeded: invoiceAwaitsSignature(invoice),
           amountPending: summary.pending,
           balanceDue,
         });
@@ -459,7 +467,7 @@ function invoiceSummary(i: Invoice): PortalDocumentSummary {
     balanceDue: i.totals?.balanceDue ?? 0,
     dueDate: i.dueDate,
     sent: !!i.sentAt,
-    signatureNeeded: !!i.requestSignature && !i.signedAt,
+    signatureNeeded: invoiceAwaitsSignature(i),
     signed: !!i.signedAt,
   };
 }

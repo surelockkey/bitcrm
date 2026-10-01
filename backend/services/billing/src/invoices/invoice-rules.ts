@@ -159,3 +159,12 @@ export function deriveInvoiceStatus(input: {
   if (input.totals.balanceDue <= 0) return 'paid';
   return input.dueDate < input.today ? 'overdue' : 'due';
 }
+
+/**
+ * Workiz "Request signature", chosen at send time: the client signs BEFORE
+ * paying, and nobody has signed yet. The portal's pay route refuses while it
+ * holds; the portal summary sends the Pay button through signing first.
+ */
+export function invoiceAwaitsSignature(invoice: Pick<Invoice, 'requestSignature' | 'signedAt'>): boolean {
+  return invoice.requestSignature === true && !invoice.signedAt;
+}

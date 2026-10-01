@@ -452,6 +452,30 @@ describe('PortalService', () => {
       expect(view.estimates[0]).toMatchObject({ depositDue: 100, depositPaid: 40, payable: true, signed: true });
     });
 
+    it('a payable invoice that asks for a signature is flagged signature-first, so its Pay button signs before paying', async () => {
+      invoices.listForContact.mockResolvedValueOnce([
+        invoice({ sentAt: NOW, requestSignature: true }),
+        invoice({ id: 'deal-3', number: 'B3', dealId: 'deal-3', sentAt: NOW, requestSignature: true, signedAt: NOW }),
+      ]);
+      const withLedger = new PortalService(
+        repo as never,
+        crm as never,
+        invoices as never,
+        estimates as never,
+        profiles as never,
+        deals as never,
+        { listByInvoice: jest.fn(async () => []) } as never,
+        { get: jest.fn(async () => ({})), methodsFor: jest.fn(() => ['card']) } as never,
+        { onlineReady: true } as never,
+      );
+      const { token } = await withLedger.createLink('contact-1', user());
+      const byId = Object.fromEntries((await withLedger.publicView(token!)).invoices.map((i) => [i.id, i]));
+      // `payable` stays true: the portal's "Sign & pay invoice" button IS the way to sign it.
+      // The pay route itself refuses until the signature is on file.
+      expect(byId['deal-1']).toMatchObject({ payable: true, signatureNeeded: true });
+      expect(byId['deal-3']).toMatchObject({ payable: true, signatureNeeded: false });
+    });
+
     it('the inbox says which estimates still need a signature and what deposit is due', async () => {
       estimates.listForContact.mockResolvedValueOnce([
         estimate({ sentAt: NOW, depositPercentage: 50, totals: { total: 200, balanceDue: 200 } as never }),
