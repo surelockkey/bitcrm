@@ -18,6 +18,15 @@ export interface BuildSearchParams {
   size?: number;
 }
 
+/**
+ * What a search that names no types leaves out: the item catalog — products,
+ * and the stock rows derived from them. Workiz's global search doesn't find
+ * items, and the owner wants the same here ("в воркізі не можна так шукати
+ * товари то і нам не треба"). The documents stay indexed: a caller that asks
+ * for them by name (`type=product`) still gets them.
+ */
+export const LEFT_OUT_BY_DEFAULT: readonly SearchType[] = ['product', 'stock'];
+
 const DEFAULT_PER_TYPE_LIMIT = 5;
 const DEFAULT_PAGE_SIZE = 20;
 
@@ -79,8 +88,11 @@ export function buildSearchBody(params: BuildSearchParams): Record<string, any> 
   const { q, authzClause, mode, types } = params;
 
   const filter: QueryClause[] = [authzClause];
+  const mustNot: QueryClause[] = [{ terms: { status: ['deleted', 'archived'] } }];
   if (types && types.length > 0) {
     filter.push({ terms: { type: types } });
+  } else {
+    mustNot.push({ terms: { type: [...LEFT_OUT_BY_DEFAULT] } });
   }
 
   const scoredQuery = {
@@ -89,7 +101,7 @@ export function buildSearchBody(params: BuildSearchParams): Record<string, any> 
         bool: {
           must: [buildMatchClause(q)],
           filter,
-          must_not: [{ terms: { status: ['deleted', 'archived'] } }],
+          must_not: mustNot,
         },
       },
       functions: [

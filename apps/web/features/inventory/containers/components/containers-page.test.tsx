@@ -12,7 +12,6 @@ const mocks = vi.hoisted(() => ({
   countFilters: [] as ContainerFilter[],
   rows: [] as Container[],
   locations: [] as StockLocation[],
-  params: new URLSearchParams(),
   push: vi.fn(),
   replace: vi.fn(),
   scope: "all" as string,
@@ -25,7 +24,6 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mocks.push, replace: mocks.replace }),
-  useSearchParams: () => mocks.params,
   usePathname: () => "/inventory/containers",
 }));
 vi.mock("@/features/auth/use-permissions", () => ({
@@ -75,7 +73,7 @@ vi.mock("@/features/inventory/user-containers/hooks", () => ({
 }));
 vi.mock("./container-create-dialog", () => ({ ContainerCreateDialog: () => null }));
 vi.mock("./my-container-view", () => ({ MyContainerView: () => <div data-testid="my-van" /> }));
-// The popups have suites of their own; here only which one the URL opens matters.
+// The popups have suites of their own; here only which one opens matters.
 vi.mock("./container-edit-dialog", () => ({
   ContainerEditDialog: (props: { containerId: string; open: boolean; onOpenChange: (o: boolean) => void }) =>
     props.open ? (
@@ -132,7 +130,6 @@ const active = InventoryStatus.ACTIVE;
 beforeEach(() => {
   mocks.assignments = [];
   mocks.namesAskedFor = [];
-  mocks.params = new URLSearchParams();
   mocks.push.mockReset();
   mocks.replace.mockReset();
   mocks.scope = DataScope.ALL;
@@ -230,85 +227,89 @@ describe("ContainersPage — who works from each van", () => {
   });
 });
 
-const noScroll = { scroll: false };
+/**
+ * The owner's rule: a popup is the page's state, never the address — and no
+ * address opens one: an old link with the popup in its query lands on the
+ * plain list.
+ */
+describe("ContainersPage — popups are state, not the URL", () => {
+  const address = () => `${window.location.pathname}${window.location.search}`;
+  beforeEach(() => window.history.replaceState(null, "", "/inventory/containers"));
 
-describe("ContainersPage — popups are driven by the URL", () => {
-  it("opens the van's stock from ?stock=<id>", () => {
-    mocks.params = new URLSearchParams("stock=c9");
+  it("opens the van's stock from a row click, the address untouched", async () => {
     renderWithClient(<ContainersPage />);
+    await userEvent.click(screen.getByText("Van Alpha"));
     const popup = screen.getByTestId("stock-popup");
     expect(popup).toHaveAttribute("data-type", "container");
-    expect(popup).toHaveAttribute("data-id", "c9");
-    expect(screen.queryByTestId("edit-popup")).toBeNull();
+    expect(popup).toHaveAttribute("data-id", "c1");
+    expect(address()).toBe("/inventory/containers");
+    expect(mocks.push).not.toHaveBeenCalled();
+    expect(mocks.replace).not.toHaveBeenCalled();
   });
 
-  it("opens the van's Edit popup from ?edit=<id>", () => {
-    mocks.params = new URLSearchParams("edit=c9");
+  it("opens the van's Edit popup from the row's pencil", async () => {
     renderWithClient(<ContainersPage />);
-    expect(screen.getByTestId("edit-popup")).toHaveAttribute("data-id", "c9");
+    await userEvent.click(screen.getByRole("button", { name: "Edit Van Zeta" }));
+    expect(screen.getByTestId("edit-popup")).toHaveAttribute("data-id", "c2");
     expect(screen.queryByTestId("stock-popup")).toBeNull();
+    expect(address()).toBe("/inventory/containers");
   });
 
-  it("puts the van's template strip over its stock", () => {
-    mocks.params = new URLSearchParams("stock=c9");
+  /** The van's stock, opened from its row. */
+  async function openStock() {
     renderWithClient(<ContainersPage />);
-    expect(screen.getByTestId("template-bar")).toHaveAttribute("data-id", "c9");
+    await userEvent.click(screen.getByText("Van Alpha"));
+  }
+
+  it("puts the van's template strip over its stock", async () => {
+    await openStock();
+    expect(screen.getByTestId("template-bar")).toHaveAttribute("data-id", "c1");
   });
 
   it("swaps the stock popup for Apply, naming the van", async () => {
-    mocks.params = new URLSearchParams("stock=c9");
-    renderWithClient(<ContainersPage />);
+    await openStock();
     await userEvent.click(screen.getByText("apply tp1"));
-    expect(mocks.replace).toHaveBeenCalledWith("/inventory/containers?apply=tp1&container=c9", noScroll);
-  });
-
-  it("swaps the stock popup for Edit to set a template", async () => {
-    mocks.params = new URLSearchParams("stock=c9");
-    renderWithClient(<ContainersPage />);
-    await userEvent.click(screen.getByText("set template"));
-    expect(mocks.replace).toHaveBeenCalledWith("/inventory/containers?edit=c9", noScroll);
-  });
-
-  it("opens Apply from ?apply=<template>&container=<van>", () => {
-    mocks.params = new URLSearchParams("apply=tp1&container=c9");
-    renderWithClient(<ContainersPage />);
     const popup = screen.getByTestId("apply-popup");
     expect(popup).toHaveAttribute("data-id", "tp1");
-    expect(popup).toHaveAttribute("data-container", "c9");
+    expect(popup).toHaveAttribute("data-container", "c1");
     expect(screen.queryByTestId("stock-popup")).toBeNull();
   });
 
-  it("opens no popup without a param", () => {
+  it("swaps the stock popup for Edit to set a template", async () => {
+    await openStock();
+    await userEvent.click(screen.getByText("set template"));
+    expect(screen.getByTestId("edit-popup")).toHaveAttribute("data-id", "c1");
+    expect(screen.queryByTestId("stock-popup")).toBeNull();
+  });
+
+  it("opens no popup by itself", () => {
     renderWithClient(<ContainersPage />);
     expect(screen.queryByTestId("stock-popup")).toBeNull();
     expect(screen.queryByTestId("edit-popup")).toBeNull();
   });
 
-  it("puts ?stock=<id> in the URL from a row click", async () => {
-    renderWithClient(<ContainersPage />);
-    await userEvent.click(screen.getByText("Van Alpha"));
-    expect(mocks.push).toHaveBeenCalledWith("/inventory/containers?stock=c1", noScroll);
-  });
-
-  it("puts ?edit=<id> in the URL from the row's pencil", async () => {
-    renderWithClient(<ContainersPage />);
-    await userEvent.click(screen.getByRole("button", { name: "Edit Van Zeta" }));
-    expect(mocks.push).toHaveBeenCalledWith("/inventory/containers?edit=c2", noScroll);
-  });
-
-  it("closing a popup replaces the URL, so Back doesn't reopen it", async () => {
-    mocks.params = new URLSearchParams("stock=c9");
-    renderWithClient(<ContainersPage />);
+  it("closes a popup back to the list", async () => {
+    await openStock();
     await userEvent.click(screen.getByText("close stock"));
-    expect(mocks.replace).toHaveBeenCalledWith("/inventory/containers", noScroll);
+    expect(screen.queryByTestId("stock-popup")).toBeNull();
+    expect(address()).toBe("/inventory/containers");
   });
 
-  it("a technician on their own van still gets the read-only view, whatever the URL", () => {
+  it("opens nothing from an old ?stock= / ?edit= / ?apply= link, and takes it out of the address", () => {
+    window.history.replaceState(null, "", "/inventory/containers?stock=c9&apply=tp1&container=c9");
+    renderWithClient(<ContainersPage />);
+    expect(screen.queryByTestId("stock-popup")).toBeNull();
+    expect(screen.queryByTestId("apply-popup")).toBeNull();
+    expect(address()).toBe("/inventory/containers");
+  });
+
+  it("a technician on their own van gets the read-only view — an old link's params dropped too", () => {
     mocks.scope = DataScope.ASSIGNED_ONLY;
-    mocks.params = new URLSearchParams("stock=c9");
+    window.history.replaceState(null, "", "/inventory/containers?stock=c9");
     renderWithClient(<ContainersPage />);
     expect(screen.getByTestId("my-van")).toBeInTheDocument();
     expect(screen.queryByTestId("stock-popup")).toBeNull();
+    expect(address()).toBe("/inventory/containers");
   });
 });
 
@@ -318,6 +319,15 @@ describe("ContainersPage — popups are driven by the URL", () => {
  * users — and then the whole page swapped for the fleet.
  */
 describe("ContainersPage — a stable first frame", () => {
+  // A new search holds the area the rows are drawn in, so the pager under it
+  // does not jump up into view (see ListBody).
+  it("draws its rows in the list's held area, with the pager under it", () => {
+    renderWithClient(<ContainersPage />);
+    const area = document.querySelector("[data-slot=list-area]");
+    expect(area).toContainElement(screen.getByRole("table"));
+    expect(area).not.toContainElement(screen.getByTestId("list-pagination"));
+  });
+
   it("while permissions load, draws the fleet's frame and asks for nothing", () => {
     mocks.permsLoading = true;
     renderWithClient(<ContainersPage />);

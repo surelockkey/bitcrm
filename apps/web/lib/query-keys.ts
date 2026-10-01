@@ -56,7 +56,10 @@ export const queryKeys = {
   },
 
   search: {
-    global: (q: string, mode: string) => ["search", mode, q] as const,
+    // The types are part of the answer: ⌘K and a jobs-only picker searching
+    // the same text must not share a cache entry.
+    global: (q: string, mode: string, types?: readonly string[]) =>
+      ["search", mode, q, types?.length ? types.join(",") : "all"] as const,
   },
 
   deals: {

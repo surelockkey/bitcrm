@@ -41,6 +41,14 @@ describe("useSkeletonRows", () => {
     expect(result.current).toBe(50);
   });
 
+  // Templates and Transfers, empty on dev, drew a 50-row skeleton (2440px)
+  // that collapsed into the "none yet" card on every visit.
+  it("remembers a list that was empty: one row next time, not a page", () => {
+    renderHook(() => useSkeletonRows("w", 50, undefined, 0)).unmount();
+    const { result } = renderHook(() => useSkeletonRows("w", 50, undefined, undefined));
+    expect(result.current).toBe(1);
+  });
+
   it("is at least one row — an empty list still has a first frame", () => {
     const { result } = renderHook(() => useSkeletonRows("w", 50, 0, undefined));
     expect(result.current).toBe(1);

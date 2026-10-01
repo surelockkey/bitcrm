@@ -19,7 +19,7 @@ export function useGlobalSearch(
   const mode = opts?.mode ?? "typeahead";
 
   const result = useQuery({
-    queryKey: queryKeys.search.global(query, mode),
+    queryKey: queryKeys.search.global(query, mode, opts?.types),
     queryFn: () => globalSearch({ q: query, ...opts, mode }),
     enabled,
     placeholderData: keepPreviousData,

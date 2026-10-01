@@ -549,6 +549,12 @@ tests, and — if it emits events — the types in `@bitcrm/types` plus a row in
   `PRODUCTS#ALL` partition, and until it has run on an environment the Price
   Book — `GET /products` and `/products/count` without `category` and without
   `manageStock=true` — is EMPTY there.
+  `backfill:product-thumbnails` (after the deploy, after the catalog index,
+  and after every import that brings photos) makes the 128×128 webp each
+  photo's list row shows (`products/<id>/thumb-<uuid>.webp`, named in
+  `thumbKey`); until it has run, those items show the placeholder. New
+  uploads get theirs from `POST /products/:id/photo/complete`. It walks GSI4
+  `PRODUCTS#ALL` (no Scan), is idempotent, and needs the S3 bucket too.
 - **Redis DB 0 is dev, DB 15 is tests.** Don't flush the wrong one.
 - **Taxes live on service areas.** There is no tax-rate catalog: `ServiceArea.tax`
   (`{name, ratePercent}`) is the rate, exposed read-only as a `TaxRate` whose id is

@@ -8,6 +8,8 @@ import {
   fillMessages,
   templateUnits,
   usedByCount,
+  copyLines,
+  linesFromStock,
 } from "./lib";
 
 const template = (over: Partial<ContainerTemplate> = {}): ContainerTemplate => ({
@@ -128,5 +130,52 @@ describe("template lines", () => {
     expect(checkLineQuantity("0").error).toBe("Enter 1 or more");
     expect(checkLineQuantity("1.5").error).toBe("Whole units only");
     expect(checkLineQuantity("").error).toBe("Enter a quantity");
+  });
+});
+
+/** "Copy from location": what a warehouse or van holds, as template lines. */
+describe("linesFromStock", () => {
+  const row = (productId: string, quantity: number, over: object = {}) => ({
+    productId,
+    productName: `Item ${productId}`,
+    number: 1,
+    sku: `SKU-${productId}`,
+    quantity,
+    ...over,
+  });
+
+  it("makes one line per product, its quantity the target, whole units of at least 1", () => {
+    const { lines, skipped } = linesFromStock([row("p1", 4), row("p2", 2.6), row("p3", 0.2)]);
+    expect(lines.map((l) => [l.productId, l.quantity])).toEqual([
+      ["p1", "4"],
+      ["p2", "3"],
+      ["p3", "1"],
+    ]);
+    expect(skipped).toBe(0);
+  });
+
+  it("leaves out empty rows, repeats, and items gone from the catalog", () => {
+    const { lines, skipped } = linesFromStock([
+      row("p1", 0),
+      row("p2", 5),
+      row("p2", 5),
+      row("p9", 3, { number: undefined, sku: undefined }),
+    ]);
+    expect(lines.map((l) => l.productId)).toEqual(["p2"]);
+    expect(skipped).toBe(1);
+  });
+});
+
+describe("copyLines", () => {
+  const line = (productId: string, quantity: string) => ({ productId, productName: productId, quantity });
+  const current = [line("p1", "50"), line("p2", "1")];
+  const incoming = [line("p2", "7"), line("p3", "4")];
+
+  it("Replace: the template becomes the location's lines", () => {
+    expect(copyLines(current, incoming, "replace")).toEqual(incoming);
+  });
+
+  it("Merge: the template's lines stay as they are; the products it lacks are added", () => {
+    expect(copyLines(current, incoming, "merge")).toEqual([line("p1", "50"), line("p2", "1"), line("p3", "4")]);
   });
 });

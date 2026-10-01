@@ -1,11 +1,6 @@
-import { Suspense } from "react";
 import { BrandsPage } from "@/features/price-book/components/brands-page";
 
-// useSearchParams (the `?edit=` / `?new=` popups) must sit under a Suspense boundary.
+// A popup is the list's state, never the address.
 export default function Page() {
-  return (
-    <Suspense>
-      <BrandsPage />
-    </Suspense>
-  );
+  return <BrandsPage />;
 }

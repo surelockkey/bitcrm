@@ -14,11 +14,12 @@ import {
 import { InventoryStatus } from "@bitcrm/types";
 import type { Product } from "@bitcrm/types";
 import { useDenied, usePermissions } from "@/features/auth/use-permissions";
+import { ListBody } from "@/features/inventory/components/list-body";
 import { NoAccess } from "@/features/inventory/components/no-access";
 import { useSkeletonRows } from "@/features/inventory/components/use-skeleton-rows";
 import { ManageStockDialog } from "@/features/inventory/stock/components/manage-stock-dialog";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
-import { useUrlPopups } from "@/features/inventory/use-url-popups";
+import { usePopup } from "@/features/inventory/use-popup";
 import { useItemCategories, useProducts, useProductsCount } from "../hooks";
 import { productsToCsv, type ProductFilter } from "../lib";
 import { ProductsTable } from "./products-table";
@@ -29,14 +30,14 @@ import { pagedSource } from "@/lib/paging/paged-source";
 import { usePageSize } from "@/lib/paging/use-page-size";
 import { usePager } from "@/lib/paging/use-pager";
 
-const ITEMS_PATH = "/inventory/items";
-
 /** The list's own key: its page size and its skeleton's height are saved under it. */
 const TABLE_KEY = "inventory-items";
 
-/** The URL params that open a popup — one at a time. */
-type Popup = "edit" | "stock" | "new";
-const POPUPS: Popup[] = ["edit", "stock", "new"];
+/** The popup over the list — one at a time. */
+type ItemsPopup = { kind: "edit"; id: string } | { kind: "stock"; id: string } | { kind: "new" };
+
+/** Old links carried the popup in the query; they land on the plain list, the params dropped. */
+const STALE_PARAMS = ["edit", "stock", "new"] as const;
 
 export function ProductsPage() {
   const { can, isLoading: permsLoading } = usePermissions();
@@ -81,20 +82,22 @@ export function ProductsPage() {
   );
 
   // Every category the catalog knows (archived too — items still carry them),
-  // not the handful on the page being shown.
+  // not the handful on the page being shown. Asked for beside the permissions,
+  // not after them — the server guards the catalog; the select below still
+  // shows only to those who may see it.
   const canCategories = can("product_categories", "view");
-  const catalog = useItemCategories(canCategories);
+  const catalog = useItemCategories(permsLoading || canCategories);
   const categories = useMemo(
     () => [...new Set((catalog.data ?? []).map((c) => c.name))].sort((a, b) => a.localeCompare(b)),
     [catalog.data],
   );
 
-  // Popups live in the URL, so a link to an item (or an old /inventory/items/<id>
-  // bookmark, redirected here) opens it.
-  const popups = useUrlPopups(ITEMS_PATH, POPUPS);
-  const editId = popups.param("edit");
-  const stockId = popups.param("stock");
-  const creating = !editId && popups.param("new") === "1";
+  // Popups are state: a row opens one and the address stays. No address opens
+  // one — an old ?edit= link lands on the plain list.
+  const { popup, open, close } = usePopup<ItemsPopup>(STALE_PARAMS);
+  const editId = popup?.kind === "edit" ? popup.id : null;
+  const stockId = popup?.kind === "stock" ? popup.id : null;
+  const creating = popup?.kind === "new";
 
   // Refused only once the permissions are known — never a flash of "No access".
   if (denied("products", "view")) {
@@ -102,6 +105,8 @@ export function ProductsPage() {
   }
   // In place from the first frame, off until the permissions answer.
   const canCreate = permsLoading || can("products", "create");
+  const failed = query.isError && !query.data;
+  const empty = !failed && !loading && products.length === 0;
 
   const exportCsv = () =>
     downloadCsv(productsToCsv(products, { withCost: money }), "items.csv");
@@ -179,7 +184,7 @@ export function ProductsPage() {
           </Button>
         ) : null}
         {canCreate ? (
-          <Button className="h-9 gap-1.5 px-3.5" disabled={permsLoading} onClick={() => popups.open("new")}>
+          <Button className="h-9 gap-1.5 px-3.5" disabled={permsLoading} onClick={() => open({ kind: "new" })}>
             <PackagePlus className="size-4" />
             New item
           </Button>
@@ -188,48 +193,55 @@ export function ProductsPage() {
 
       {/* Body */}
       <div className="flex-1 px-6 pb-6">
-        {query.isError && !query.data ? (
-          <ErrorState onRetry={() => query.refetch()} />
-        ) : !loading && products.length === 0 ? (
-          <EmptyState
-            filtered={!!filter.search || !!filter.category || status !== InventoryStatus.ACTIVE}
-            canCreate={can("products", "create")}
-            onCreate={() => popups.open("new")}
-          />
-        ) : (
-          <>
-            {/* Loading, loaded or holding the last filter's rows — one table,
-                so nothing under it moves when the rows land. */}
+        <ListBody
+          holdKey={JSON.stringify(filter)}
+          scrollKey={`${pager.page}:${pageSize}`}
+          pager={
+            failed || empty ? null : (
+              <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} reserveSpace />
+            )
+          }
+        >
+          {failed ? (
+            <ErrorState onRetry={() => query.refetch()} />
+          ) : empty ? (
+            <EmptyState
+              filtered={!!filter.search || !!filter.category || status !== InventoryStatus.ACTIVE}
+              canCreate={can("products", "create")}
+              onCreate={() => open({ kind: "new" })}
+            />
+          ) : (
+            // Loading, loaded or holding the last filter's rows — one table,
+            // so nothing under it moves when the rows land.
             <ProductsTable
               products={products}
               showCost={permsLoading ? "pending" : money}
               loading={loading}
               skeletonRows={skeletonRows}
               stale={pager.isStale}
-              onEdit={(p: Product) => popups.open("edit", p.id)}
-              onStock={(p: Product) => popups.open("stock", p.id)}
+              onEdit={(p: Product) => open({ kind: "edit", id: p.id })}
+              onStock={(p: Product) => open({ kind: "stock", id: p.id })}
             />
-            <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} reserveSpace />
-          </>
-        )}
+          )}
+        </ListBody>
       </div>
 
       <ImportProductsDialog open={importOpen} onOpenChange={setImportOpen} />
-      {/* Mounted only while their param is set: a popup closing must not
-          flash into another mode as the param clears under it. */}
+      {/* Mounted only while open: a popup closing must not flash into
+          another mode as its state clears under it. */}
       {editId || creating ? (
         <ProductDialog
           productId={editId}
           open
-          onOpenChange={(open) => (open ? undefined : popups.close())}
-          onCreated={(p) => popups.replace("edit", p.id)}
+          onOpenChange={(next) => (next ? undefined : close())}
+          onCreated={(p) => open({ kind: "edit", id: p.id })}
         />
       ) : null}
       {stockId ? (
         <ManageStockDialog
           productId={stockId}
           open
-          onOpenChange={(open) => (open ? undefined : popups.close())}
+          onOpenChange={(next) => (next ? undefined : close())}
         />
       ) : null}
     </div>

@@ -3,6 +3,7 @@ import type {
   ContainerTemplateDiff,
   ContainerTemplateDiffLine,
   ContainerTemplateFillResult,
+  LocationStockRow,
 } from "@bitcrm/types";
 
 function plural(n: number, word: string): string {
@@ -88,4 +89,47 @@ export function checkLineQuantity(raw: string): { quantity: number | null; error
   if (!Number.isInteger(n)) return { quantity: null, error: "Whole units only" };
   if (n < 1) return { quantity: null, error: "Enter 1 or more" };
   return { quantity: n, error: null };
+}
+
+/** The most lines a template takes — the server refuses more (`MAX_TEMPLATE_ITEMS`). */
+export const MAX_TEMPLATE_LINES = 500;
+
+/* ------------------------------------------------------------------ *
+ * Copy from location
+ * ------------------------------------------------------------------ */
+
+/**
+ * What a warehouse or a van holds now, as template lines: one per product,
+ * the quantity it holds as the target (whole units, at least 1). A row whose
+ * item is gone from the catalog (the server sends it without its Product ID
+ * and SKU) is left out — a template can only name items that exist.
+ */
+export function linesFromStock(rows: LocationStockRow[]): { lines: DraftLine[]; skipped: number } {
+  const lines: DraftLine[] = [];
+  const seen = new Set<string>();
+  let skipped = 0;
+  for (const row of rows) {
+    if (row.quantity <= 0 || seen.has(row.productId)) continue;
+    if (row.number === undefined && row.sku === undefined) {
+      skipped += 1;
+      continue;
+    }
+    seen.add(row.productId);
+    lines.push({
+      productId: row.productId,
+      productName: row.productName,
+      sku: row.sku,
+      quantity: String(Math.max(1, Math.round(row.quantity))),
+    });
+  }
+  return { lines, skipped };
+}
+
+/** Replace — the template becomes the location's lines. Merge — its lines stay; the products it lacks are added. */
+export type CopyMode = "replace" | "merge";
+
+export function copyLines(current: DraftLine[], incoming: DraftLine[], mode: CopyMode): DraftLine[] {
+  if (mode === "replace") return incoming;
+  const have = new Set(current.map((l) => l.productId));
+  return [...current, ...incoming.filter((l) => !have.has(l.productId))];
 }
