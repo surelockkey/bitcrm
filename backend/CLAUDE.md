@@ -216,7 +216,10 @@ DEAL#<id>          / METADATA        GSI1 STATUS#<s> / <createdAt>#…, GSI5 STA
                                      date" does not list them
 DEAL#<id>          / ASSIGN#<techId> assignment adjacency, on TechIndex — what findByTech reads
 DEAL#<id>          / PRODUCT#<id>    line item; fulfillment: sourced | to_order | service
-DEAL#<id>          / ATTACH#<id>
+DEAL#<id>          / ATTACH#<id>     a job's file; sparse GSI10 ContactActivityIndex CONTACTFILE#<contactId> / <uploadedAt>#<id>
+CONTACT#<id>       / ATTACH#<id>     the client's own file (client card "Upload file", `contacts/<id>/attachments/<id>` in S3),
+                                     same GSI10 key — `GET /deals/attachments/by-contact/:id` lists both kinds newest first;
+                                     a row with `dealId` downloads through its job, one without through `/deals/contacts/…`
 JOB_TAG#<id>       / METADATA        GSI1 CATALOG#JOB_TAG, GSI1SK <priority>#<name>
 TECH_ELIGIBILITY#<id> / …            read model rebuilt from user-events
 CALL#<sid>         / METADATA        GSI2 CALL#ALL for the global time-ordered log; optional `tagIds` (call tags)
@@ -225,7 +228,12 @@ EXT#<code> / EXTOF#<dealId>          job dial-in codes (both directions, for ide
 DEAL#<id> / TIMELINE#<ts>#<id>, <owner> / ACT#<ts>#<id>   job events / job-less imported Workiz events; sparse GSI8
                                      ActivityDayIndex ACTDAY#<New York day> and GSI9 ActorIndex ACTOR#<actorId>, both
                                      SK <ts>#<id>, + `activitySearch` — Reports → Activity (`GET /deals/activity`).
-                                     ACTCOUNT#<day> / COUNT { count } — events per day, the report's "of N"
+                                     ACTCOUNT#<day> / COUNT { count } — events per day, the report's "of N".
+                                     A job's event also carries sparse GSI10 ContactActivityIndex CONTACT#<contactId> /
+                                     <ts>#<id> (+ `contactId`) — the client card's History across all of the client's jobs
+                                     (`GET /deals/timeline/by-contact/:id`, which folds the import's CLIENT#<id> / ACT# rows
+                                     in by time). Rows older than the index need `npm run backfill:contact-index -w
+                                     backend/services/deal` (idempotent, conditional; `--dry-run` counts)
 INVLOG#<YYYY-MM>   / <createdAt>#<id> inventory audit log (item edits + stock moves), one partition per UTC month —
                                      never one constant key (the CALL#ALL lesson); walked newest-first, filters on top
                                      … GSI4 INVLOG#PRODUCT#<productId> / <createdAt>#<id> — one item's history on TransferEntityIndex
