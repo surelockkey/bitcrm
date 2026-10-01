@@ -1,4 +1,6 @@
 import { Module } from '@nestjs/common';
+import { TipsReportController } from './report/tips-report.controller';
+import { TipsReportService } from './report/tips-report.service';
 import { ServiceAreasModule } from '../service-areas/service-areas.module';
 import { JobTypesModule } from '../job-types/job-types.module';
 import { JobSourcesModule } from '../job-sources/job-sources.module';
@@ -57,6 +59,8 @@ import { CommissionReportModule } from '../commission-report/commission-report.m
   // and Job Statistics' `report/statistics` likewise.
   controllers: [
     DealEventsController,
+    // The Tips report's `report/tips/*` — with the other reports, ahead of DealsController's `/:id/…`.
+    TipsReportController,
     DealAttachmentsController,
     DealBillingController,
     DealDashboardController,
@@ -70,6 +74,7 @@ import { CommissionReportModule } from '../commission-report/commission-report.m
   ],
   providers: [
     DealsService,
+    TipsReportService,
     DealsRepository,
     DealsCacheService,
     DealEventsBus,

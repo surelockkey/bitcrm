@@ -19,6 +19,16 @@ export interface FilterGroup<K extends string = keyof JobsReportFilters> {
   key: K;
   label: string;
   options: FilterOption[];
+  /**
+   * The options are already the answer to the search box (a group looked up
+   * on the server as the user types — the Tips report's clients): they are
+   * shown as they are, not narrowed by their label again.
+   */
+  remote?: boolean;
+  /** What an empty group says instead of "—" (e.g. "Type to find a client"). */
+  empty?: string;
+  /** Told what is typed in the search box — a `remote` group looks its options up with it. */
+  onSearch?: (query: string) => void;
 }
 
 /**
@@ -58,8 +68,8 @@ export function JobsReportFilter<F extends object = JobsReportFilters>({
 
   const needle = query.trim().toLowerCase();
   const shown = groups
-    .map((g) => ({ ...g, options: needle ? g.options.filter((o) => o.label.toLowerCase().includes(needle)) : g.options }))
-    .filter((g) => !needle || g.options.length > 0);
+    .map((g) => ({ ...g, options: needle && !g.remote ? g.options.filter((o) => o.label.toLowerCase().includes(needle)) : g.options }))
+    .filter((g) => !needle || g.remote || g.options.length > 0);
 
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
@@ -122,7 +132,10 @@ export function JobsReportFilter<F extends object = JobsReportFilters>({
               placeholder="Search…"
               className="h-7 flex-1 bg-transparent text-sm outline-none"
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                for (const g of groups) g.onSearch?.(e.target.value);
+              }}
             />
           </div>
           <div className="flex max-h-[22rem] overflow-x-auto" role="group" aria-label="Filter groups">
@@ -131,7 +144,7 @@ export function JobsReportFilter<F extends object = JobsReportFilters>({
                 <h3 className="px-3 pt-2 pb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{g.label}</h3>
                 <div className="flex-1 overflow-y-auto pb-2">
                   {g.options.length === 0 ? (
-                    <p className="px-3 py-1 text-xs text-muted-foreground">—</p>
+                    <p className="px-3 py-1 text-xs text-muted-foreground">{g.empty ?? "—"}</p>
                   ) : (
                     g.options.map((o) => {
                       const on = valuesOf(g.key).includes(o.value);

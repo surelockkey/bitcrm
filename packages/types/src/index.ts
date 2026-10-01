@@ -522,6 +522,23 @@ export {
 export { ResolvedPermissions } from './permissions/resolved-permissions';
 export { RESOURCE_REGISTRY, Resource, Action } from './permissions/resource-registry';
 
+// Reports — the Workiz Tips report (`GET /deals/report/tips`)
+export {
+  TIPS_REPORT_JOBS_MAX_PAGE_SIZE,
+  TIPS_REPORT_JOBS_PAGE_SIZE,
+  TIPS_REPORT_JOB_COLUMNS,
+  TIPS_REPORT_JOB_SORTS,
+  TIPS_REPORT_MAX_DAYS,
+} from './reports/tips-report';
+export type {
+  TipsReportFilters,
+  TipsReportJobRow,
+  TipsReportJobSort,
+  TipsReportJobsPage,
+  TipsReportPage,
+  TipsReportRow,
+} from './reports/tips-report';
+
 // DTOs
 export { CreateUserRequest } from './dto/create-user.dto';
 export { UpdateUserRequest } from './dto/update-user.dto';
