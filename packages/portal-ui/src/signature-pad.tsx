@@ -15,7 +15,7 @@ export function SignaturePad({
   onChange,
   disabled,
   className,
-  height = 160,
+  height = 220,
 }: {
   onChange: (dataUrl: string | null) => void;
   disabled?: boolean;
@@ -91,15 +91,16 @@ export function SignaturePad({
     onChangeRef.current(null);
   }, []);
 
+  /* Workiz's pad: a white sheet, "Clear" with a bin in its bottom-left corner, a slate rule underneath. */
   return (
-    <div className={cx("space-y-2", className)}>
-      <div className="relative rounded-lg border bg-white">
+    <div className={cx("border-b-2 border-[#3b4b52]/70", className)}>
+      <div className="relative bg-white">
         <canvas
           ref={canvasRef}
           role="img"
           aria-label="Sign here"
           style={{ height, width: "100%", touchAction: "none", display: "block" }}
-          className={cx("rounded-lg", disabled ? "cursor-not-allowed opacity-60" : "cursor-crosshair")}
+          className={disabled ? "cursor-not-allowed opacity-60" : "cursor-crosshair"}
           onPointerDown={start}
           onPointerMove={move}
           onPointerUp={end}
@@ -107,20 +108,17 @@ export function SignaturePad({
           onPointerLeave={end}
         />
         {empty ? (
-          <span className="pointer-events-none absolute inset-x-0 bottom-3 text-center text-xs text-muted-foreground">
-            Sign here
-          </span>
+          <span className="pointer-events-none absolute inset-x-0 top-1/2 -translate-y-1/2 text-center text-sm text-[#9ea6aa]">Sign here</span>
         ) : null}
-        <span className="pointer-events-none absolute inset-x-4 bottom-10 border-b border-dashed border-muted-foreground/40" />
+        <button
+          type="button"
+          onClick={clear}
+          disabled={disabled || empty}
+          className="absolute bottom-3 left-4 inline-flex items-center gap-2 text-base text-[#637075] hover:text-[#3b4b52] disabled:opacity-50"
+        >
+          <Trash2 className="size-5" aria-hidden /> Clear
+        </button>
       </div>
-      <button
-        type="button"
-        onClick={clear}
-        disabled={disabled || empty}
-        className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
-      >
-        <Trash2 className="size-3.5" aria-hidden /> Clear
-      </button>
     </div>
   );
 }

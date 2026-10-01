@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { AlertCircle, Check, CheckCircle2, ChevronRight, Loader2, Lock, X } from "lucide-react";
+import { useState } from "react";
+import { AlertCircle, CheckCircle2, ChevronDown, ChevronRight, Loader2 } from "lucide-react";
 import type { PortalDocumentSummary } from "@bitcrm/types";
 import { primaryButton } from "./document-viewer";
+import { Drawer, StepBadge } from "./drawer";
 import { cx, formatMoney } from "./lib";
 import { PaymentPanelBody, type PaymentLoaders } from "./payment-panel";
 import { SignaturePad } from "./signature-pad";
@@ -33,11 +34,13 @@ export interface SignAndPayPanelProps {
   businessName?: string;
 }
 
+const SOFT = "text-[#637075]";
+
 /**
- * Workiz "Sign & Pay": step 1 "Add your signature", step 2 "Make a deposit"
- * (or pay the invoice). Always in that order — the signature is what approves
- * an estimate, and money is only taken after it. Full screen, like the
- * payment panel: a phone has no room for a modal-in-a-modal.
+ * Workiz "Sign & Pay", as its drawer lays it out: step 1 "Add your signature"
+ * on the grey sheet, step 2 "Make a deposit" (or pay the invoice) as the white
+ * card that rises from the bottom. Always in that order — the signature is
+ * what approves an estimate, and money is only taken after it.
  */
 export function SignAndPayPanel({
   doc,
@@ -51,22 +54,10 @@ export function SignAndPayPanel({
 }: SignAndPayPanelProps) {
   const [signed, setSigned] = useState(alreadySigned);
   const [name, setName] = useState(signerName);
+  const [editingName, setEditingName] = useState(!signerName.trim());
   const [image, setImage] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const close = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    close.current?.focus();
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => {
-      document.body.style.overflow = previous;
-      window.removeEventListener("keydown", onKey);
-    };
-  }, [onClose]);
 
   const title = payment ? (mode === "approve" ? "Sign & Pay" : "Sign & pay invoice") : "Approve estimate";
   const stepTwo = payment ? (payment.noun === "deposit" ? "Make a deposit" : "Pay the invoice") : null;
@@ -86,41 +77,33 @@ export function SignAndPayPanel({
   };
 
   return (
-    <div role="dialog" aria-modal="true" aria-label={title} className="fixed inset-0 z-60 flex flex-col bg-background">
-      <header className="border-b bg-card pt-[env(safe-area-inset-top)]">
-        <div className="mx-auto flex w-full max-w-lg items-center gap-3 px-3 py-2.5 sm:px-5">
-          <button
-            ref={close}
-            type="button"
-            onClick={onClose}
-            aria-label="Close and go back"
-            className="-ml-1 inline-flex size-10 flex-none items-center justify-center rounded-lg hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-          >
-            <X className="size-5" aria-hidden />
-          </button>
-          <h2 className="min-w-0 flex-1 truncate text-base leading-tight font-semibold">{title}</h2>
-          <span className="inline-flex flex-none items-center gap-1 text-xs text-muted-foreground">
-            <Lock className="size-3.5" aria-hidden /> Secure
-          </span>
-        </div>
-      </header>
-
-      <div className="min-h-0 flex-1 overflow-auto pb-[max(1.5rem,env(safe-area-inset-bottom))]">
-        <div className="mx-auto w-full max-w-lg space-y-4 p-4 sm:p-6">
-          <p className="text-sm text-muted-foreground">
-            {mode === "approve" ? `Estimate #${doc.number}` : `Invoice #${doc.number}`}
-            {doc.name ? ` · ${doc.name}` : ""} · {formatMoney(doc.total)}
-          </p>
-
-          {/* Step 1 */}
-          <section aria-label="Add your signature" className={cx("rounded-2xl border bg-card shadow-xs", signed && "opacity-90")}>
-            <div className="flex items-center gap-3 px-4 py-3 sm:px-5">
-              <StepBadge n={1} done={signed} />
-              <h3 className="flex-1 text-base font-semibold">Add your signature</h3>
-              {signed ? <span className="text-xs text-emerald-700 dark:text-emerald-400">Signed</span> : <ChevronRight className="size-4 text-muted-foreground" aria-hidden />}
-            </div>
-            {!signed ? (
-              <div className="space-y-3 border-t px-4 py-4 sm:px-5">
+    <Drawer title={title} onClose={onClose}>
+      <div className="flex min-h-full flex-col">
+        {/* Step 1 */}
+        <section aria-label="Add your signature" className="px-5 pt-5 pb-5">
+          <div className="flex items-center gap-3">
+            <StepBadge n={1} done={signed} />
+            <h3 className="flex-1 text-xl font-semibold">Add your signature</h3>
+            {signed ? (
+              <>
+                <span className={cx("text-xs font-medium", SOFT)}>Signed</span>
+                <ChevronDown className={cx("size-5", SOFT)} aria-hidden />
+              </>
+            ) : (
+              <ChevronRight className="size-5" aria-hidden />
+            )}
+          </div>
+          {!signed ? (
+            <div className="mt-4 space-y-4">
+              <p className={cx("text-sm", SOFT)}>
+                {mode === "approve" ? `Estimate #${doc.number}` : `Invoice #${doc.number}`}
+                {doc.name ? ` · ${doc.name}` : ""} · {formatMoney(doc.total)}
+              </p>
+              <div>
+                <span className="inline-block border-b-[3px] border-[#50d58c] px-1 pb-1 text-sm font-semibold">Sign</span>
+                <SignaturePad onChange={setImage} disabled={saving} />
+              </div>
+              {editingName ? (
                 <div className="space-y-1.5">
                   <label htmlFor="sign-name" className="text-sm font-medium">
                     Your name
@@ -130,85 +113,85 @@ export function SignAndPayPanel({
                     value={name}
                     maxLength={120}
                     onChange={(e) => setName(e.target.value)}
-                    className="h-10 w-full rounded-lg border bg-background px-3 text-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-                  />
-                </div>
-                <SignaturePad onChange={setImage} disabled={saving} />
-                {error ? (
-                  <p role="alert" className="rounded-xl border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
-                    {error}
-                  </p>
-                ) : null}
-                <p className="text-xs text-muted-foreground">
-                  {mode === "approve"
-                    ? `By signing you approve this estimate from ${businessName ?? "us"}.`
-                    : `${businessName ?? "The business"} asked for your signature on this invoice before payment.`}
-                </p>
-                <button type="button" onClick={sign} disabled={!image || !name.trim() || saving} className={cx(primaryButton, "w-full")}>
-                  {saving ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Check className="size-4" aria-hidden />}
-                  {payment ? "Continue" : mode === "approve" ? "Approve" : "Sign"}
-                </button>
-              </div>
-            ) : null}
-          </section>
-
-          {/* Step 2 */}
-          {payment && stepTwo ? (
-            <section aria-label={stepTwo} className={cx("rounded-2xl border bg-card shadow-xs", !signed && "opacity-60")}>
-              <div className="flex items-center gap-3 px-4 py-3 sm:px-5">
-                <StepBadge n={2} done={false} />
-                <h3 className="flex-1 text-base font-semibold">{stepTwo}</h3>
-              </div>
-              {signed ? (
-                <div className="space-y-4 border-t px-4 py-4 sm:px-5">
-                  <PaymentPanelBody
-                    doc={doc}
-                    loaders={payment.loaders}
-                    onClose={onClose}
-                    onPaid={payment.onPaid}
-                    businessName={businessName}
-                    returnUrl={payment.returnUrl}
-                    noun={payment.noun}
+                    className="h-10 w-full rounded-lg border border-[#e9ebec] bg-white px-3 text-sm focus-visible:ring-2 focus-visible:ring-[#6aa8ee] focus-visible:outline-none"
                   />
                 </div>
               ) : (
-                <p className="border-t px-4 py-3 text-xs text-muted-foreground sm:px-5">Sign first — the payment comes after.</p>
+                <p className={cx("text-xs", SOFT)}>
+                  Signing as <span className="font-semibold text-[#3b4b52]">{name}</span>.{" "}
+                  <button type="button" onClick={() => setEditingName(true)} className="text-[#6aa8ee] hover:underline">
+                    Not you?
+                  </button>
+                </p>
               )}
-            </section>
-          ) : signed ? (
-            <div role="status" aria-live="polite" className="flex flex-col items-center gap-3 rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-8 text-center">
-              <CheckCircle2 className="size-6 text-emerald-600" aria-hidden />
+              {error ? (
+                <p role="alert" className="rounded-lg border border-[#e05c5c]/40 bg-[#fdecec] p-3 text-sm text-[#e05c5c]">
+                  {error}
+                </p>
+              ) : null}
+              <p className={cx("text-xs", SOFT)}>
+                {mode === "approve"
+                  ? `By signing you approve this estimate from ${businessName ?? "us"}.`
+                  : `${businessName ?? "The business"} asked for your signature on this invoice before payment.`}
+              </p>
+              <div className="flex justify-end">
+                <button type="button" onClick={sign} disabled={!image || !name.trim() || saving} className={cx(primaryButton, "h-12 px-8 text-base")}>
+                  {saving ? <Loader2 className="size-4 animate-spin" aria-hidden /> : null}
+                  {payment ? "Continue" : mode === "approve" ? "Approve" : "Sign"}
+                </button>
+              </div>
+            </div>
+          ) : null}
+        </section>
+
+        {/* Step 2: the white card at the bottom (Workiz). */}
+        {payment && stepTwo ? (
+          <section
+            aria-label={stepTwo}
+            className="mt-auto rounded-t-3xl bg-white px-5 pt-5 pb-[max(1.5rem,env(safe-area-inset-bottom))] shadow-[0_-6px_20px_rgba(59,75,82,0.10)]"
+          >
+            <div className="flex items-center gap-3">
+              <StepBadge n={2} done={false} />
+              <h3 className="flex-1 text-xl font-semibold">{stepTwo}</h3>
+              {signed ? <ChevronRight className="size-5" aria-hidden /> : <ChevronDown className={cx("size-5", SOFT)} aria-hidden />}
+            </div>
+            {signed ? (
+              <div className="mt-5 space-y-4">
+                <PaymentPanelBody
+                  doc={doc}
+                  loaders={payment.loaders}
+                  onClose={onClose}
+                  onPaid={payment.onPaid}
+                  businessName={businessName}
+                  returnUrl={payment.returnUrl}
+                  noun={payment.noun}
+                />
+              </div>
+            ) : (
+              <p className={cx("mt-2 text-xs", SOFT)}>Sign first — the payment comes after.</p>
+            )}
+          </section>
+        ) : signed ? (
+          <div className="mt-auto rounded-t-3xl bg-white px-5 pt-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] shadow-[0_-6px_20px_rgba(59,75,82,0.10)]">
+            <div role="status" aria-live="polite" className="flex flex-col items-center gap-3 rounded-lg border border-[#50d58c]/40 bg-[#eefbf4] p-8 text-center">
+              <CheckCircle2 className="size-7 text-[#50d58c]" aria-hidden />
               <p className="text-base font-semibold">{mode === "approve" ? "Estimate approved — thank you!" : "Signed — thank you!"}</p>
-              <p className="text-sm text-muted-foreground">
+              <p className={cx("text-sm", SOFT)}>
                 {businessName ?? "The business"} has been notified{mode === "approve" ? " and will be in touch about the work." : "."}
               </p>
               <button type="button" onClick={onClose} className={primaryButton}>
                 Done
               </button>
             </div>
-          ) : null}
+          </div>
+        ) : null}
 
-          {!signed && !payment ? null : (
-            <p className="text-center text-xs text-muted-foreground">
-              <AlertCircle className="mr-1 inline size-3.5" aria-hidden /> Your signature is kept with the document as proof of approval.
-            </p>
-          )}
-        </div>
+        {!signed && !payment ? null : (
+          <p className={cx("bg-white px-5 pb-4 text-center text-xs", SOFT)}>
+            <AlertCircle className="mr-1 inline size-3.5" aria-hidden /> Your signature is kept with the document as proof of approval.
+          </p>
+        )}
       </div>
-    </div>
-  );
-}
-
-function StepBadge({ n, done }: { n: number; done: boolean }) {
-  return (
-    <span
-      aria-hidden
-      className={cx(
-        "flex size-6 flex-none items-center justify-center rounded-full text-xs font-semibold",
-        done ? "bg-emerald-500 text-white" : "bg-brand/15 text-brand",
-      )}
-    >
-      {done ? <Check className="size-3.5" /> : n}
-    </span>
+    </Drawer>
   );
 }

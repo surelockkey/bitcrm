@@ -246,10 +246,15 @@ function DeclineDialog({
     }
   };
   return (
-    <div role="dialog" aria-modal="true" aria-label={`Decline estimate #${doc.number}`} className="fixed inset-0 z-60 flex items-end justify-center bg-black/40 p-4 sm:items-center">
-      <div className="w-full max-w-md space-y-3 rounded-2xl border bg-card p-5 shadow-lg">
-        <h2 className="text-lg font-semibold">Decline estimate #{doc.number}?</h2>
-        <p className="text-sm text-muted-foreground">Let us know why, if you like — it helps us do better.</p>
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Decline estimate #${doc.number}`}
+      className="fixed inset-0 z-60 flex items-end justify-center bg-[#3b4b52]/45 p-4 font-sans text-[#3b4b52] sm:items-center"
+    >
+      <div className="w-full max-w-md space-y-4 rounded-2xl bg-white p-6 shadow-[0_12px_40px_rgba(59,75,82,0.25)]">
+        <h2 className="text-xl font-semibold">Decline estimate #{doc.number}?</h2>
+        <p className="text-sm text-[#637075]">Let us know why, if you like — it helps us do better.</p>
         <label htmlFor="decline-reason" className="sr-only">
           Reason
         </label>
@@ -260,16 +265,26 @@ function DeclineDialog({
           value={reason}
           onChange={(e) => setReason(e.target.value)}
           placeholder="Reason (optional)"
-          className="w-full rounded-lg border bg-background p-2.5 text-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          className="w-full rounded-lg border border-[#e9ebec] bg-white p-3 text-sm placeholder:text-[#9ea6aa] focus-visible:ring-2 focus-visible:ring-[#6aa8ee] focus-visible:outline-none"
         />
         {error ? (
-          <p role="alert" className="text-sm text-destructive">{error}</p>
+          <p role="alert" className="text-sm text-[#e05c5c]">{error}</p>
         ) : null}
         <div className="flex justify-end gap-2">
-          <button type="button" onClick={onCancel} disabled={busy} className="inline-flex h-10 items-center rounded-lg border px-4 text-sm font-medium hover:bg-accent">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={busy}
+            className="inline-flex h-10 items-center rounded-full border border-[#3b4b52]/70 bg-white px-5 text-sm font-semibold hover:bg-[#f3f4f5] disabled:opacity-60"
+          >
             Keep it
           </button>
-          <button type="button" onClick={submit} disabled={busy} className="inline-flex h-10 items-center rounded-lg bg-destructive px-4 text-sm font-medium text-white hover:bg-destructive/90 disabled:opacity-60">
+          <button
+            type="button"
+            onClick={submit}
+            disabled={busy}
+            className="inline-flex h-10 items-center rounded-full bg-[#e05c5c] px-5 text-sm font-semibold text-white hover:bg-[#d14f4f] disabled:opacity-60"
+          >
             Decline
           </button>
         </div>

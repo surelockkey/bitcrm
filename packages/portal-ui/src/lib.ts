@@ -126,12 +126,12 @@ export function outstanding(invoices: PortalDocumentSummary[]): { total: number;
 type Tone = "slate" | "amber" | "red" | "emerald" | "sky" | "zinc";
 
 const TONE: Record<Tone, string> = {
-  slate: "border-slate-500/30 bg-slate-500/10 text-slate-700 dark:text-slate-300",
-  amber: "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400",
-  red: "border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-400",
-  emerald: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
-  sky: "border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300",
-  zinc: "border-zinc-500/30 bg-zinc-500/5 text-zinc-500 dark:text-zinc-400",
+  slate: "border-[#3b4b52]/25 bg-[#f3f4f5] text-[#3b4b52]",
+  amber: "border-[#f5ba45]/50 bg-[#fdf3dc] text-[#8a5a00]",
+  red: "border-[#e05c5c]/40 bg-[#fdecec] text-[#a02525]",
+  emerald: "border-[#50d58c]/50 bg-[#eefbf4] text-[#1f7a4a]",
+  sky: "border-[#6aa8ee]/50 bg-[#eef5fd] text-[#1b5fae]",
+  zinc: "border-[#e9ebec] bg-white text-[#637075]",
 };
 
 /**
@@ -141,20 +141,20 @@ const TONE: Record<Tone, string> = {
  * fifth copy nobody updates.
  */
 export const TONE_TEXT = {
-  warning: "text-amber-700 dark:text-amber-400",
-  good: "text-emerald-700 dark:text-emerald-400",
+  warning: "text-[#b7791f]",
+  good: "text-[#2f9e63]",
 } as const;
 
 export const TONE_PANEL = {
-  good: "border-emerald-500/30 bg-emerald-500/5",
-  bad: "border-destructive/40 bg-destructive/5",
-  neutral: "bg-card",
+  good: "border-[#50d58c]/40 bg-[#eefbf4]",
+  bad: "border-[#e05c5c]/40 bg-[#fdecec]",
+  neutral: "border-[#e9ebec] bg-white",
 } as const;
 
 export const TONE_BADGE = {
-  good: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
-  bad: "bg-destructive/10 text-destructive",
-  neutral: "bg-muted text-muted-foreground",
+  good: "bg-[#50d58c]/15 text-[#2f9e63]",
+  bad: "bg-[#e05c5c]/10 text-[#e05c5c]",
+  neutral: "bg-[#f3f4f5] text-[#637075]",
 } as const;
 
 const INVOICE_STATUS: Record<InvoiceStatus, { label: string; tone: Tone }> = {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, ArrowLeft, Building2, CheckCircle2, Clock, CreditCard, Loader2, Lock, X } from "lucide-react";
+import { AlertCircle, Building2, CheckCircle2, Clock, CreditCard, Loader2, Lock } from "lucide-react";
 import type { Stripe } from "@stripe/stripe-js";
 import { loadStripe } from "@stripe/stripe-js/pure";
 import { CheckoutElementsProvider, PaymentElement, useCheckoutElements } from "@stripe/react-stripe-js/checkout";
@@ -12,6 +12,7 @@ import type {
   PortalPaymentSession,
 } from "@bitcrm/types";
 import { primaryButton, outlineButton } from "./document-viewer";
+import { Drawer } from "./drawer";
 import { TONE_BADGE, TONE_PANEL, TONE_TEXT, cx, formatMoney, isInvalidPortalError } from "./lib";
 import {
   MAX_STATUS_POLLS,
@@ -87,25 +88,12 @@ type Step =
 /* --------------------------------------------------------------------- shell */
 
 const label = "text-sm font-medium";
-const hint = "text-xs text-muted-foreground";
+const hint = "text-xs text-[#637075]";
+const caption = "text-[11px] font-semibold tracking-wide text-[#637075] uppercase";
 
-/** Full-screen, like the document viewer: a phone has no room for a modal-in-a-modal. */
+/** Workiz's drawer, with the states inside its white card. */
 export function PaymentPanel(props: PaymentPanelProps) {
   const { doc, onClose } = props;
-  const close = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    close.current?.focus();
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => {
-      document.body.style.overflow = previous;
-      window.removeEventListener("keydown", onKey);
-    };
-  }, [onClose]);
-
   // Coming back from a redirect there is nothing left to choose — the page is a receipt.
   const title = props.resumePaymentId
     ? "Your payment"
@@ -113,30 +101,13 @@ export function PaymentPanel(props: PaymentPanelProps) {
       ? `Deposit for estimate #${doc.number}`
       : `Pay invoice #${doc.number}`;
   return (
-    <div role="dialog" aria-modal="true" aria-label={title} className="fixed inset-0 z-60 flex flex-col bg-background">
-      <header className="border-b bg-card pt-[env(safe-area-inset-top)]">
-        <div className="mx-auto flex w-full max-w-lg items-center gap-3 px-3 py-2.5 sm:px-5">
-          <button
-            ref={close}
-            type="button"
-            onClick={onClose}
-            aria-label="Close and go back"
-            className="-ml-1 inline-flex size-10 flex-none items-center justify-center rounded-lg hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-          >
-            <X className="size-5" aria-hidden />
-          </button>
-          <h2 className="min-w-0 flex-1 truncate text-base leading-tight font-semibold">{title}</h2>
-          <span className={cx(hint, "inline-flex flex-none items-center gap-1")}>
-            <Lock className="size-3.5" aria-hidden /> Secure
-          </span>
-        </div>
-      </header>
-      <div className="min-h-0 flex-1 overflow-auto pb-[max(1.5rem,env(safe-area-inset-bottom))]">
-        <div className="mx-auto w-full max-w-lg space-y-4 p-4 sm:p-6">
+    <Drawer title={title} onClose={onClose}>
+      <div className="flex min-h-full flex-col">
+        <div className="mt-auto space-y-4 rounded-t-3xl bg-white px-5 pt-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] shadow-[0_-6px_20px_rgba(59,75,82,0.10)]">
           <PanelBody {...props} />
         </div>
       </div>
-    </div>
+    </Drawer>
   );
 }
 
@@ -302,19 +273,16 @@ function PayFlow({
 
   return (
     <>
-      <section className="space-y-4 rounded-2xl border bg-card p-4 shadow-xs sm:p-5">
-        <div className="space-y-1.5">
-          <label htmlFor="pay-amount" className={label}>
+      <section className="space-y-5">
+        <div className="space-y-1">
+          <p aria-hidden className={caption}>
+            Amount due
+          </p>
+          <label htmlFor="pay-amount" className="sr-only">
             Amount to pay
           </label>
-          <div
-            className={cx(
-              "flex items-center gap-1 rounded-xl border bg-background px-3 py-2.5 transition-colors focus-within:ring-2 focus-within:ring-ring",
-              showError && "border-destructive",
-              onPayStep && "opacity-60",
-            )}
-          >
-            <span aria-hidden className="font-mono text-xl text-muted-foreground">
+          <div className={cx("flex items-baseline gap-1", showError && "text-[#e05c5c]", onPayStep && "opacity-60")}>
+            <span aria-hidden className="text-2xl font-semibold">
               $
             </span>
             <input
@@ -328,6 +296,7 @@ function PayFlow({
               readOnly={!options.allowPartial || onPayStep}
               aria-invalid={showError || undefined}
               aria-describedby="pay-amount-help"
+              style={{ width: `${Math.max(4, raw.length + 1)}ch` }}
               onChange={(e) => {
                 setRaw(e.target.value);
                 setTouched(true);
@@ -336,10 +305,14 @@ function PayFlow({
                 setTouched(true);
                 if (amount !== null) setRaw(amount.toFixed(2));
               }}
-              className="w-full min-w-0 bg-transparent font-mono text-xl font-semibold tabular-nums outline-none"
+              className={cx(
+                "min-w-0 border-b-2 border-transparent bg-transparent text-2xl font-semibold tabular-nums outline-none",
+                options.allowPartial && !onPayStep && "focus-visible:border-[#6aa8ee]",
+              )}
             />
+            <span className="text-xl text-[#637075]">/ {formatMoney(options.amountDue)}</span>
           </div>
-          <p id="pay-amount-help" className={showError ? "text-xs text-destructive" : hint} role={showError ? "alert" : undefined}>
+          <p id="pay-amount-help" className={showError ? "text-xs text-[#e05c5c]" : hint} role={showError ? "alert" : undefined}>
             {showError
               ? error
               : options.allowPartial
@@ -354,14 +327,19 @@ function PayFlow({
         </div>
 
         {choices.length > 1 ? (
-          <fieldset disabled={onPayStep} className="space-y-1.5">
-            <legend className={cx(label, "mb-1.5")}>How would you like to pay?</legend>
-            <div role="radiogroup" aria-label="How would you like to pay?" className="space-y-2">
+          <fieldset disabled={onPayStep} className="space-y-3">
+            <legend className="sr-only">How would you like to pay?</legend>
+            <div aria-hidden className={cx("flex items-center gap-3", caption)}>
+              <span className="h-px flex-1 bg-[#e9ebec]" />
+              Pay with
+              <span className="h-px flex-1 bg-[#e9ebec]" />
+            </div>
+            <div role="radiogroup" aria-label="How would you like to pay?" className="grid grid-cols-2 gap-3">
               {choices.map((choice) => (
                 <label
                   key={choice.value}
                   className={cx(
-                    "flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition-colors has-checked:border-brand has-checked:bg-brand/5",
+                    "flex cursor-pointer flex-col items-center gap-1 rounded-lg border border-[#e9ebec] px-3 py-3 text-center text-[#637075] transition-colors has-checked:border-[#6aa8ee] has-checked:bg-[#eef5fd] has-checked:text-[#3b4b52] has-focus-visible:ring-2 has-focus-visible:ring-[#6aa8ee]",
                     choice.disabled && "cursor-not-allowed opacity-60",
                   )}
                 >
@@ -372,13 +350,12 @@ function PayFlow({
                     checked={chosen === choice.value}
                     disabled={choice.disabled || onPayStep}
                     onChange={() => setMethod(choice.value)}
-                    className="mt-1 size-4 flex-none accent-[var(--brand)] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                    className="sr-only"
                   />
-                  <span className="min-w-0 space-y-0.5">
-                    <span className="block text-sm font-medium">{choice.label}</span>
-                    <span className="block text-xs text-muted-foreground">{choice.description}</span>
-                    {choice.reason ? <span className={`block text-xs ${TONE_TEXT.warning}`}>{choice.reason}</span> : null}
-                  </span>
+                  {choice.value === "bank" ? <Building2 className="size-5" aria-hidden /> : <CreditCard className="size-5" aria-hidden />}
+                  <span className="text-sm font-medium">{choice.label}</span>
+                  <span className="text-xs">{choice.description}</span>
+                  {choice.reason ? <span className={`block text-xs ${TONE_TEXT.warning}`}>{choice.reason}</span> : null}
                 </label>
               ))}
             </div>
@@ -394,7 +371,7 @@ function PayFlow({
       </section>
 
       {startError ? (
-        <p role="alert" className="rounded-xl border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
+        <p role="alert" className="rounded-lg border border-[#e05c5c]/40 bg-[#fdecec] p-3 text-sm text-[#e05c5c]">
           {startError}
         </p>
       ) : null}
@@ -409,13 +386,14 @@ function PayFlow({
         </CheckoutElementsProvider>
       ) : (
         <button type="button" onClick={start} disabled={amount === null || step.kind === "starting"} className={cx(primaryButton, "w-full")}>
-          {step.kind === "starting" ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <CreditCard className="size-4" aria-hidden />}
+          {step.kind === "starting" ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Lock className="size-4" aria-hidden />}
           Continue to payment
         </button>
       )}
 
-      <p className={cx(hint, "text-center")}>
-        Payments are handled by Stripe. {businessName ?? "We"} never sees your card details.
+      <p className={cx(hint, "flex items-start justify-center gap-2 text-left")}>
+        <Lock className="mt-0.5 size-4 flex-none text-[#9ea6aa]" aria-hidden />
+        <span>Payments are handled by Stripe. {businessName ?? "We"} never sees your card details.</span>
       </p>
     </>
   );
@@ -423,21 +401,19 @@ function PayFlow({
 
 function Summary({ amount, fee, total, feeLabel }: { amount: number; fee: number; total: number; feeLabel: string }) {
   return (
-    <div role="group" aria-label="Payment summary" className="space-y-1.5 rounded-xl bg-muted/60 p-3 text-sm">
+    <div role="group" aria-label="Payment summary" className="divide-y divide-[#e9ebec] border-t border-[#e9ebec] text-sm">
       <Row label="Amount" value={amount} />
       {fee > 0 ? <Row label={feeLabel} value={fee} /> : null}
-      <div className="border-t pt-1.5">
-        <Row label="Total" value={total} strong />
-      </div>
+      <Row label="Total" value={total} strong />
     </div>
   );
 }
 
 function Row({ label: text, value, strong }: { label: string; value: number; strong?: boolean }) {
   return (
-    <div className="flex items-baseline justify-between gap-3">
-      <span className={strong ? "font-semibold" : "text-muted-foreground"}>{text}</span>
-      <span className={cx("font-mono tabular-nums", strong && "text-base font-semibold")}>{formatMoney(value)}</span>
+    <div className="flex items-baseline justify-between gap-3 py-2">
+      <span className={cx("text-[11px] tracking-wide uppercase", strong ? "font-semibold" : "text-[#637075]")}>{text}</span>
+      <span className={cx("tabular-nums", strong ? "text-base font-semibold" : "text-sm")}>{formatMoney(value)}</span>
     </div>
   );
 }
@@ -501,26 +477,26 @@ function PayStep({
           ref={alertRef}
           tabIndex={-1}
           role="alert"
-          className="space-y-1 rounded-xl border border-destructive/40 bg-destructive/5 p-3 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          className="space-y-1 rounded-lg border border-[#e05c5c]/40 bg-[#fdecec] p-3 focus-visible:ring-2 focus-visible:ring-[#6aa8ee] focus-visible:outline-none"
         >
-          <p className="text-sm font-semibold text-destructive">{declined.title}</p>
-          <p className="text-sm text-destructive/90">{declined.detail}</p>
+          <p className="text-sm font-semibold text-[#e05c5c]">{declined.title}</p>
+          <p className="text-sm text-[#e05c5c]/90">{declined.detail}</p>
         </div>
       ) : null}
 
       {/* A fixed floor, so the card fields dropping in never shove the button. */}
-      <div className="min-h-[248px] rounded-2xl border bg-card p-4 shadow-xs sm:p-5">
+      <div className="min-h-[248px] rounded-lg border border-[#e9ebec] bg-white p-4">
         {failed ? (
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm text-[#637075]">
             We couldn&apos;t load the secure card form. Please refresh the page and try again, or pay by another means.
           </p>
         ) : (
           <>
             {checkout.type === "loading" ? (
               <div role="status" aria-label="Loading the secure card form" className="space-y-3">
-                <div className="h-10 animate-pulse rounded-lg bg-muted" />
-                <div className="h-10 animate-pulse rounded-lg bg-muted" />
-                <div className="h-10 w-2/3 animate-pulse rounded-lg bg-muted" />
+                <div className="h-10 animate-pulse rounded-lg bg-[#f3f4f5]" />
+                <div className="h-10 animate-pulse rounded-lg bg-[#f3f4f5]" />
+                <div className="h-10 w-2/3 animate-pulse rounded-lg bg-[#f3f4f5]" />
               </div>
             ) : null}
             <div className={checkout.type === "loading" ? "hidden" : undefined}>
@@ -600,8 +576,8 @@ function PollingState({
   }, [paymentId, amount]);
 
   return (
-    <div role="status" className="flex flex-col items-center gap-3 rounded-2xl border bg-card p-8 text-center shadow-xs">
-      <Loader2 className="size-6 animate-spin text-muted-foreground" aria-hidden />
+    <div role="status" className="flex flex-col items-center gap-3 rounded-lg border border-[#e9ebec] bg-white p-8 text-center">
+      <Loader2 className="size-6 animate-spin text-[#637075]" aria-hidden />
       <p className="text-sm font-medium">Confirming your payment…</p>
       <p className={hint}>This takes a few seconds. Please don&apos;t close this page or pay again.</p>
     </div>
@@ -651,21 +627,21 @@ function Notice({
   return (
     <div
       {...(live ? { role: "status", "aria-live": "polite" as const } : {})}
-      className={cx("flex flex-col items-center gap-3 rounded-2xl border p-6 text-center shadow-xs sm:p-8", ring)}
+      className={cx("flex flex-col items-center gap-3 rounded-lg border p-6 text-center sm:p-8", ring)}
     >
-      <span className={cx("flex size-12 items-center justify-center rounded-xl", badge)}>{icon}</span>
+      <span className={cx("flex size-12 items-center justify-center rounded-full", badge)}>{icon}</span>
       <h3 className="text-lg font-semibold">{title}</h3>
-      <p className="text-sm text-muted-foreground">{children}</p>
+      <p className="text-sm text-[#637075]">{children}</p>
       {action}
     </div>
   );
 }
 
 function PanelSkeleton() {
-  const bar = "animate-pulse rounded-lg bg-muted";
+  const bar = "animate-pulse rounded-lg bg-[#f3f4f5]";
   return (
     <div role="status" aria-label="Loading payment options" className="space-y-4">
-      <div className={cx(bar, "h-44 rounded-2xl")} />
+      <div className={cx(bar, "h-44")} />
       <div className={cx(bar, "h-11 rounded-lg")} />
     </div>
   );

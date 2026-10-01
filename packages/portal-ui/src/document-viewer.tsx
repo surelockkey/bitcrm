@@ -15,10 +15,11 @@ export interface DocumentLoaders {
   getPdfUrl: (doc: PortalDocumentSummary, download: boolean) => Promise<{ url: string }>;
 }
 
+/* Workiz's portal buttons: full pills, the yellow one for the one thing to do, an ink outline for the rest. */
 const button =
-  "inline-flex h-10 items-center justify-center gap-2 rounded-lg px-4 text-sm font-medium whitespace-nowrap transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:pointer-events-none disabled:opacity-60";
-export const primaryButton = cx(button, "bg-brand text-brand-foreground hover:bg-brand/90");
-export const outlineButton = cx(button, "border bg-card hover:bg-accent");
+  "inline-flex h-10 items-center justify-center gap-2 rounded-full px-5 text-sm font-semibold whitespace-nowrap transition-colors focus-visible:ring-2 focus-visible:ring-[#6aa8ee] focus-visible:outline-none disabled:pointer-events-none disabled:opacity-60";
+export const primaryButton = cx(button, "bg-[#ffd503] text-[#3b4b52] hover:bg-[#f7d006]");
+export const outlineButton = cx(button, "border border-[#3b4b52]/70 bg-white text-[#3b4b52] hover:bg-[#f3f4f5]");
 
 /**
  * A document, full screen. The page itself (HTML) comes first — readable at
@@ -108,21 +109,21 @@ function Viewer({
   };
 
   return (
-    <div role="dialog" aria-modal="true" aria-label={title} className="fixed inset-0 z-50 flex flex-col bg-background">
-      <header className="border-b bg-card pt-[env(safe-area-inset-top)]">
+    <div role="dialog" aria-modal="true" aria-label={title} className="fixed inset-0 z-50 flex flex-col bg-white">
+      <header className="border-b bg-white pt-[env(safe-area-inset-top)]">
         <div className="mx-auto flex w-full max-w-4xl items-center gap-3 px-3 py-2.5 sm:px-5">
           <button
             ref={back}
             type="button"
             onClick={onClose}
             aria-label="Back to all documents"
-            className="-ml-1 inline-flex size-10 flex-none items-center justify-center rounded-lg hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+            className="-ml-1 inline-flex size-10 flex-none items-center justify-center rounded-lg hover:bg-[#f3f4f5] focus-visible:ring-2 focus-visible:ring-[#6aa8ee] focus-visible:outline-none"
           >
             <ArrowLeft className="size-5" aria-hidden />
           </button>
           <div className="min-w-0 flex-1">
             <h2 className="truncate text-base leading-tight font-semibold">{title}</h2>
-            <p className="truncate text-xs text-muted-foreground">
+            <p className="truncate text-xs text-[#637075]">
               {doc.name ? `${doc.name} · ` : ""}
               {formatMoney(doc.total)}
             </p>
@@ -145,26 +146,26 @@ function Viewer({
           </button>
         </div>
         {onPay && owing && !payNow ? (
-          <p className="mx-auto max-w-4xl px-3 pb-2 text-xs text-muted-foreground sm:px-5">
+          <p className="mx-auto max-w-4xl px-3 pb-2 text-xs text-[#637075] sm:px-5">
             Online payment isn&apos;t available for this invoice — please contact us to pay.
           </p>
         ) : null}
         {pdfError ? (
-          <p role="alert" className="mx-auto max-w-4xl px-3 pb-2 text-xs text-destructive sm:px-5">
+          <p role="alert" className="mx-auto max-w-4xl px-3 pb-2 text-xs text-[#e05c5c] sm:px-5">
             {pdfError}
           </p>
         ) : null}
       </header>
 
-      <div className="min-h-0 flex-1 overflow-auto bg-muted/40 pb-[env(safe-area-inset-bottom)]">
+      <div className="min-h-0 flex-1 overflow-auto bg-[#f3f4f5] pb-[env(safe-area-inset-bottom)]">
         {page.loading ? (
-          <div role="status" className="flex h-full min-h-64 flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
+          <div role="status" className="flex h-full min-h-64 flex-col items-center justify-center gap-2 text-sm text-[#637075]">
             <Loader2 className="size-5 animate-spin" aria-hidden />
             Loading {documentKindLabel(doc.kind).toLowerCase()}…
           </div>
         ) : page.error || !page.data ? (
-          <div className="mx-auto flex max-w-sm flex-col items-center gap-3 p-8 text-center text-sm text-muted-foreground">
-            <AlertCircle className="size-6 text-destructive" aria-hidden />
+          <div className="mx-auto flex max-w-sm flex-col items-center gap-3 p-8 text-center text-sm text-[#637075]">
+            <AlertCircle className="size-6 text-[#e05c5c]" aria-hidden />
             <p>We couldn&apos;t show this {documentKindLabel(doc.kind).toLowerCase()} on the page. You can still get the PDF above.</p>
             <button type="button" onClick={page.reload} className={outlineButton}>
               Try again

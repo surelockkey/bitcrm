@@ -132,14 +132,18 @@ describe("PortalView — the Workiz layout", () => {
     expect(within(screen.getByRole("region", { name: "Document" })).queryByRole("button", { name: /pay/i })).toBeNull();
   });
 
-  it("a proposal shows its options side by side; View estimate opens one with a way back to the proposal", async () => {
+  it("a proposal shows its options side by side on a PROPOSAL sheet; View Option opens one with a way back", async () => {
     render(<PortalView view={view} loaders={loaders} />);
     await user().click(screen.getByRole("button", { name: "Proposal #256" }));
     const pane = screen.getByRole("region", { name: "Document" });
     expect(within(pane).getByRole("heading", { name: "Proposal #256" })).toBeInTheDocument();
-    expect(within(pane).getByText("9 Lite")).toBeInTheDocument();
-    expect(within(pane).getByText("16 Lite")).toBeInTheDocument();
-    const buttons = within(pane).getAllByRole("button", { name: /view estimate/i });
+    // Workiz's sheet: the company on the left, PROPOSAL on the right, an option per card.
+    const sheet = within(pane).getByRole("group", { name: "Proposal options" });
+    expect(within(sheet).getByText("PROPOSAL")).toBeInTheDocument();
+    expect(within(sheet).getByText("Acme Locks")).toBeInTheDocument();
+    expect(within(sheet).getByText("9 Lite")).toBeInTheDocument();
+    expect(within(sheet).getByText("16 Lite")).toBeInTheDocument();
+    const buttons = within(pane).getAllByRole("button", { name: /view option/i });
     await user().click(buttons[1]);
     expect(within(screen.getByRole("region", { name: "Document" })).getByRole("heading", { name: /estimate #1042-3/i })).toBeInTheDocument();
     await user().click(screen.getByRole("button", { name: /back to proposal #256/i }));
