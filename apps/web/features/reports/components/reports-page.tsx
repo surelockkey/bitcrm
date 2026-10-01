@@ -9,6 +9,7 @@ import {
   Building2,
   Calculator,
   CreditCard,
+  DollarSign,
   Globe,
   Package,
   Paperclip,
@@ -24,25 +25,27 @@ import { useDenied } from "@/features/auth/use-permissions";
 
 /**
  * The Workiz reports this business keeps, in Workiz's on-screen order
- * (Performance Pay, Sales, Tips, Leads, Expenses, Timesheets, Tasks,
+ * (Performance Pay, Tips, Leads, Expenses, Timesheets, Tasks,
  * Equipment and Service Plans are not used here). `href` = built.
  */
 export const REPORT_TILES: { name: string; icon: LucideIcon; href?: string }[] = [
   { name: "Jobs", icon: Briefcase, href: "/reports/jobs" },
+  { name: "Sales", icon: DollarSign, href: "/reports/sales" },
   { name: "Job Statistics", icon: BarChart3, href: "/reports/job-statistics" },
-  { name: "Payments", icon: CreditCard },
+  // Workiz's `/root/payments` — our sidebar's Payments page is the report.
+  { name: "Payments", icon: CreditCard, href: "/payments" },
   { name: "Activity", icon: Activity },
   // Workiz opens these two on the pages of the same name.
   { name: "Estimates", icon: Paperclip, href: "/estimates" },
   { name: "Invoices", icon: Receipt, href: "/invoices" },
-  { name: "Aging invoices", icon: ReceiptText },
+  { name: "Aging invoices", icon: ReceiptText, href: "/reports/aging-invoices" },
   { name: "Items and services", icon: Barcode },
   { name: "Website requests", icon: Globe },
-  { name: "Tax", icon: Percent },
+  { name: "Tax", icon: Percent, href: "/reports/tax" },
   { name: "Call Tracking", icon: Phone },
   { name: "Inventory Usage", icon: Package },
   { name: "Franchise Report", icon: Building2 },
-  { name: "Commissions (Legacy)", icon: Calculator },
+  { name: "Commissions (Legacy)", icon: Calculator, href: "/reports/commission" },
 ];
 
 /**

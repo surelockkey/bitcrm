@@ -60,6 +60,23 @@ export interface Estimate {
   createdBy: string;
   createdAt: string;
   updatedAt: string;
+
+  /* ------------------------------------------ carried over from Workiz */
+  /**
+   * Workiz's own Amount (`job_total_price`) for an imported estimate — it
+   * leaves out unpicked optional items, which BitCRM does not model yet. Kept
+   * until the estimate is re-priced here; the reports prefer it
+   * (`estimateReportAmount`).
+   */
+  workizTotal?: number;
+  /** The Workiz number (`<job serial>-<n>`), the same as `number` on import. */
+  workizNumber?: string;
+  /** Who created it, as Workiz named them (the report's "Created By"). */
+  createdByName?: string;
+  /** Workiz deposit: a fixed amount, or a percent of the total. */
+  depositAmount?: number;
+  depositPercentage?: number;
+  declineReason?: string;
 }
 
 export interface EstimateWithItems extends Estimate {

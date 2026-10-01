@@ -114,7 +114,8 @@ export const MAIN_NAV: NavGroup[] = [
     items: [
       // The Workiz-style reports hub (tiles are mocked while reports land).
       { label: "Reports", href: "/reports", icon: BarChart3, resource: "reports" },
-      { label: "Commission", href: "/reports/commission", icon: BarChart3, resource: "reports", status: "coming-soon" },
+      // Workiz "Commissions (Legacy)" — the weekly technician settlements.
+      { label: "Commission", href: "/reports/commission", icon: BarChart3, resource: "commission" },
       { label: "Analytics", href: "/reports/analytics", icon: BarChart3, resource: "reports", status: "coming-soon" },
     ],
   },

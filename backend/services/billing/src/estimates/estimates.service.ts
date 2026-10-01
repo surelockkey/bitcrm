@@ -311,6 +311,10 @@ export class EstimatesService {
       if (input.discount === null || !(input.discount.value > 0)) remove.push('discount');
       else set.discount = { type: input.discount.type, value: input.discount.value };
     }
+    // Re-priced here: Workiz's own Amount no longer describes it.
+    if ((input.taxRateId !== undefined || input.discount !== undefined) && estimate.workizTotal !== undefined) {
+      remove.push('workizTotal');
+    }
 
     const next = { ...estimate, ...set } as Estimate;
     for (const k of remove) delete (next as unknown as Record<string, unknown>)[k];
@@ -566,7 +570,13 @@ export class EstimatesService {
     const items = fresh?.items ?? [];
     const base = fresh?.estimate ?? estimate;
     const totals = estimateTotals(base, items);
-    const updated = await this.repo.update(estimate.id, { totals, updatedAt: new Date().toISOString() });
+    // A line changed: Workiz's own Amount (`workizTotal`) no longer describes
+    // the estimate, so the reports fall back to BitCRM's total from here on.
+    const updated = await this.repo.update(
+      estimate.id,
+      { totals, updatedAt: new Date().toISOString() },
+      base.workizTotal !== undefined ? ['workizTotal'] : [],
+    );
     this.events?.estimate(BillingEventType.ESTIMATE_UPDATED, updated);
     return { ...updated, items };
   }

@@ -12,6 +12,11 @@ export interface JobSource {
   priority: number;
   /** Archived sources stay resolvable on historical deals but leave the pickers. */
   active: boolean;
+  /**
+   * Workiz ad-group description ("ALL CALLS COMING IN FROM A1 CT"), when the
+   * source has one. Job Statistics groups its Sources tab by it, as Workiz does.
+   */
+  description?: string;
   createdBy: string;
   createdAt: string;
   updatedAt: string;
