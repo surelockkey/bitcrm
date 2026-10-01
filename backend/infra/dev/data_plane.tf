@@ -24,6 +24,13 @@ locals {
     # bulk write of millions of rows; without a restore point, a bad run
     # leaves no way back except regenerating and reloading everything.
     deals = { enable_pitr = true, gsis = [
+      # Reports → Activity, on the timeline rows only (sparse): ActivityDayIndex
+      # = ACTDAY#<New York day> / <timestamp>#<id>, ActorIndex = ACTOR#<actorId>
+      # / <timestamp>#<id>. 8 and 9 because 7 is the Jobs report's EndIndex.
+      # Rows written before them need `npm run backfill:activity-index -w
+      # backend/services/deal -- --apply`, then `recount:activity -- --apply`.
+      { name = "ActivityDayIndex", n = 8 },
+      { name = "ActorIndex", n = 9 },
       { name = "StageIndex", n = 1 },
       { name = "TechIndex", n = 2 },
       { name = "ContactIndex", n = 3 },

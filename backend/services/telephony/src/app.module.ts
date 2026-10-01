@@ -18,6 +18,7 @@ import { NumbersModule } from './numbers/numbers.module';
 import { CallGroupsModule } from './call-groups/call-groups.module';
 import { CallFlowsModule } from './call-flows/call-flows.module';
 import { CallTagsModule } from './call-tags/call-tags.module';
+import { CallTrackingModule } from './calls/tracking/call-tracking.module';
 import { DbSetupService } from './common/db-setup.service';
 import { CALLS_TABLE } from './common/constants/dynamo.constants';
 import { CALL_GROUPS_TABLE } from './call-groups/call-groups.constants';
@@ -66,6 +67,8 @@ import { CALL_FLOWS_TABLE } from './call-flows/call-flows.constants';
     PresenceModule,
     // Catalog before the calls module, per the route-order rule in CLAUDE.md §4.
     CallTagsModule,
+    // Reports → Call Tracking: `calls/stats/tracking`, ahead of CallsController's `:sid` routes.
+    CallTrackingModule,
     CallsModule,
     VoiceModule,
     ExtsModule,

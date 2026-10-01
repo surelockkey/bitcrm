@@ -34,6 +34,7 @@ describe('CallsRepository upsert — the optional attribute whitelist', () => {
     conferenceName: 'conf-CA1',
     conferenceSid: 'CF1',
     flowName: 'Main line',
+    flowId: 'flow-1',
     recordingSid: 'RE1',
     recordingDurationSeconds: 30,
     internalLegOf: 'CA0',

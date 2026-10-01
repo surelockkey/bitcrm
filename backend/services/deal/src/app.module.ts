@@ -14,6 +14,8 @@ import {
 } from '@bitcrm/shared';
 import { UserEventType } from '@bitcrm/types';
 import { AppController } from './app.controller';
+import { ActivityModule } from './activity/activity.module';
+import { DealTotalsModule } from './deal-totals/deal-totals.module';
 import { DealsModule } from './deals/deals.module';
 import { DealsEventHandler } from './deals/deals.event-handler';
 import { ServiceAreasModule } from './service-areas/service-areas.module';
@@ -81,6 +83,11 @@ const AWS_ENDPOINT = process.env.AWS_ENDPOINT;
     // DealsController's `GET /:id` under the shared `api/deals` prefix.
     // TaxRatesModule also owns `GET internal/tax-rates`, which DealsController's
     // `GET internal/:id` would otherwise capture.
+    // Reports read by other services / pages under the same prefix: job totals
+    // for Call Tracking (`internal/deal-totals`), and Reports → Activity
+    // (`activity`, which DealsController's `GET /:id` would otherwise take).
+    DealTotalsModule,
+    ActivityModule,
     TaxRatesModule,
     ServiceAreasModule,
     JobTypesModule,
