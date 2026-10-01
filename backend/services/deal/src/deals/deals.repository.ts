@@ -558,14 +558,20 @@ export class DealsRepository {
    *
    * Deleted rows never come back. Throws `ReportWindowTooLargeError` past
    * `REPORT_WINDOW_MAX_ROWS`.
+   *
+   * `opts.statuses` reads only those status partitions of the `created` and
+   * `scheduled` indexes — the Items and services report wants Done jobs
+   * only, a third of a window. The EndIndex is not split by status, so an
+   * `end` read still returns every status; callers check each row's status.
    */
   async readReportWindow(
     by: ReportWindowBy,
     from: string,
     to: string,
     projection: readonly string[],
+    opts: { statuses?: readonly JobSuperStatus[] } = {},
   ): Promise<Record<string, unknown>[]> {
-    const statuses = SUPER_STATUS_ORDER.map((s) => `STATUS#${s}`);
+    const statuses = (opts.statuses?.length ? opts.statuses : SUPER_STATUS_ORDER).map((s) => `STATUS#${s}`);
     const range = '#pk = :pk AND #sk BETWEEN :from AND :to';
     const read = new WindowRead(this.dynamoDb, this.tableName, projection);
     // A status partition is read one month at a time, all months at once: a

@@ -560,6 +560,33 @@ export {
   msUntilDailyAt,
 } from './dashboard/time';
 
+// Reports — the Workiz Sales report (`GET /deals/report/sales`)
+export {
+  SALES_REPORT_BY,
+  SALES_REPORT_COLUMNS,
+  SALES_REPORT_COLUMN_IDS,
+  SALES_REPORT_DEFAULT_COLUMNS,
+  SALES_REPORT_DEFAULT_SETTINGS,
+  SALES_REPORT_MAX_DAYS,
+  SALES_REPORT_MAX_PAGE_SIZE,
+  SALES_REPORT_MONEY_COLUMNS,
+  SALES_REPORT_PAYMENT_STATUSES,
+  SALES_REPORT_STATUSES,
+} from './reports/sales-report';
+export type {
+  SalesReportBy,
+  SalesReportColumnId,
+  SalesReportDay,
+  SalesReportFilters,
+  SalesReportMoney,
+  SalesReportPage,
+  SalesReportPagination,
+  SalesReportPaymentStatus,
+  SalesReportRow,
+  SalesReportSettings,
+  SalesReportTotals,
+} from './reports/sales-report';
+
 // Reports — the Workiz Jobs report (`GET /deals/report`)
 export {
   JOBS_REPORT_BY,

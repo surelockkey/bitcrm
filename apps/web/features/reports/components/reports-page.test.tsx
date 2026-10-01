@@ -19,6 +19,7 @@ import { ReportsPage, REPORT_TILES } from "./reports-page";
 /** The Workiz reports this business keeps, in Workiz's on-screen order. */
 const WORKIZ_REPORTS = [
   "Jobs",
+  "Sales",
   "Job Statistics",
   "Payments",
   "Activity",
@@ -35,7 +36,7 @@ const WORKIZ_REPORTS = [
 ];
 
 /** Workiz reports this business does not use — no tile for them. */
-const DROPPED = ["Performance Pay", "Sales", "Tips", "Leads Report", "Expenses", "Timesheets", "Tasks", "Equipment", "Service Plans"];
+const DROPPED = ["Performance Pay", "Tips", "Leads Report", "Expenses", "Timesheets", "Tasks", "Equipment", "Service Plans"];
 
 describe("ReportsPage", () => {
   beforeEach(() => {
@@ -66,6 +67,7 @@ describe("ReportsPage", () => {
 
     expect(screen.getByRole("link", { name: "Jobs" })).toHaveAttribute("href", "/reports/jobs");
     expect(screen.getByRole("link", { name: "Job Statistics" })).toHaveAttribute("href", "/reports/job-statistics");
+    expect(screen.getByRole("link", { name: "Sales" })).toHaveAttribute("href", "/reports/sales");
 
     fireEvent.click(screen.getByRole("button", { name: "Franchise Report" }));
     expect(toast.info).toHaveBeenCalledWith(expect.stringContaining("Franchise Report"));

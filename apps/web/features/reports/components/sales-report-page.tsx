@@ -2,16 +2,16 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { ChevronLeft, ChevronRight, Columns3, Download, Search } from "lucide-react";
+import { ChevronLeft, Columns3, Download, Search } from "lucide-react";
 import { toast } from "sonner";
 import {
-  JOBS_REPORT_BY,
-  JOBS_REPORT_BY_LABEL,
-  JOBS_REPORT_DEFAULT_SETTINGS,
-  SUPER_STATUS_ORDER,
-  type JobsReportBy,
-  type JobsReportColumnId,
-  type JobsReportFilters,
+  SALES_REPORT_BY,
+  SALES_REPORT_DEFAULT_SETTINGS,
+  SALES_REPORT_PAYMENT_STATUSES,
+  SALES_REPORT_STATUSES,
+  type SalesReportBy,
+  type SalesReportColumnId,
+  type SalesReportFilters,
 } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,42 +26,44 @@ import { superStatusLabel } from "@/features/deals/lib";
 import { useAllTechnicians } from "@/features/technicians/hooks";
 import { useJobTypes } from "@/features/job-types/hooks";
 import { useJobSources } from "@/features/job-sources/hooks";
-import { useJobStatuses } from "@/features/job-statuses/hooks";
-import { useJobTags } from "@/features/job-tags/hooks";
 import { useServiceAreas } from "@/features/service-areas/hooks";
-import { useExternalCompanies } from "@/features/external-companies/hooks";
-import { downloadJobsReportCsv } from "../jobs/api";
-import { useJobsReport, useJobsReportSettings, useSaveJobsReportSettings } from "../jobs/hooks";
-import {
-  DEFAULT_PRESET,
-  JOBS_REPORT_PAGE_SIZES,
-  JOBS_REPORT_PRESETS,
-  accountToday,
-  addFilter,
-  exportParams,
-  inReportOrder,
-  presetRange,
-  reportParams,
-  type JobsReportPreset,
-  type JobsReportState,
-} from "../jobs/lib";
+import { LineChart } from "@/features/dashboard/components/line-chart";
+import { JOBS_REPORT_PRESETS, accountToday, presetRange, type JobsReportPreset } from "../jobs/lib";
 import { JobsReportFilter, type FilterGroup } from "../jobs/components/jobs-report-filter";
 import { JobsReportFields } from "../jobs/components/jobs-report-fields";
-import { JobsReportTable } from "../jobs/components/jobs-report-table";
+import { Pager } from "./jobs-report-page";
+import { downloadSalesReportCsv } from "../sales/api";
+import { useSalesReport, useSalesReportSettings, useSaveSalesReportSettings } from "../sales/hooks";
+import {
+  DEFAULT_SALES_PAGE_SIZE,
+  DEFAULT_SALES_PRESET,
+  SALES_FIELDS,
+  SALES_REPORT_BY_LABEL,
+  SALES_REPORT_PAGE_SIZES,
+  addSalesFilter,
+  chartDayLabel,
+  inSalesOrder,
+  isMoneyColumn,
+  nextSalesSort,
+  salesExportParams,
+  salesReportParams,
+  type SalesReportState,
+} from "../sales/lib";
+import { SalesReportTable } from "../sales/components/sales-report-table";
 
-const BY_STORAGE_KEY = "bitcrm.jobs-report.by";
+const BY_STORAGE_KEY = "bitcrm.sales-report.by";
 
 /** The viewer's last "By:" — a per-browser convenience over the account default. */
-function storedBy(): JobsReportBy | null {
+function storedBy(): SalesReportBy | null {
   try {
     const v = localStorage.getItem(BY_STORAGE_KEY);
-    return v && (JOBS_REPORT_BY as readonly string[]).includes(v) ? (v as JobsReportBy) : null;
+    return v && (SALES_REPORT_BY as readonly string[]).includes(v) ? (v as SalesReportBy) : null;
   } catch {
     return null;
   }
 }
 
-function rememberBy(by: JobsReportBy): void {
+function rememberBy(by: SalesReportBy): void {
   try {
     localStorage.setItem(BY_STORAGE_KEY, by);
   } catch {
@@ -73,39 +75,43 @@ const personName = (u: { firstName?: string; lastName?: string; email?: string; 
   `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() || u.email || u.id;
 
 /**
- * The Workiz Jobs report (`/root/jobreport`): every job of a period, any
- * status, on the date chosen under "By:" — Job created, Job date or Job end
- * date. Workiz's multi-filter, its fifteen date presets, a column chooser
- * saved for the account, a sort on every column and a CSV of the visible
- * columns. The server does the work (`GET /deals/report`): it pages, sorts
- * and names; this page only holds the toolbar.
+ * The Workiz Sales report (`/root/sales`): every job of a period that is a
+ * sale — any status but Canceled, a total above zero — with its money: Total,
+ * Item cost, Tech expenses, Paid, Due, Tax, Profit (before the technician's
+ * share) and Tip, under a bold Total row, and a Sales / Profit line per day
+ * above. The period is on the date chosen under "By:" (Job date by
+ * default); Workiz's six-group filter, its date presets (This month by
+ * default), a search, a sort on every column, 10 rows a page, a column
+ * chooser saved for the account and a CSV. The server does the work
+ * (`GET /deals/report/sales`); this page only holds the toolbar.
  */
-export function JobsReportPage({ today: todayProp }: { today?: string } = {}) {
+export function SalesReportPage({ today: todayProp }: { today?: string } = {}) {
   const denied = useDenied();
   const { can } = usePermissions();
   // The presets count from today on the account's calendar (Eastern), not the viewer's.
   const [today] = useState(() => todayProp ?? accountToday());
 
-  const settingsQuery = useJobsReportSettings();
-  const saveSettings = useSaveJobsReportSettings();
-  const settings = settingsQuery.data ?? JOBS_REPORT_DEFAULT_SETTINGS;
+  const settingsQuery = useSalesReportSettings();
+  const saveSettings = useSaveSalesReportSettings();
+  const settings = settingsQuery.data ?? SALES_REPORT_DEFAULT_SETTINGS;
 
-  const [byChoice, setByChoice] = useState<JobsReportBy | null>(storedBy);
+  const [byChoice, setByChoice] = useState<SalesReportBy | null>(storedBy);
   const by = byChoice ?? settings.by;
-  const [preset, setPreset] = useState<JobsReportPreset>(DEFAULT_PRESET);
+  const [preset, setPreset] = useState<JobsReportPreset>(DEFAULT_SALES_PRESET);
   const [custom, setCustom] = useState<{ from: string; to: string }>({ from: today, to: today });
   const range = preset === "custom" ? custom : presetRange(preset, today);
-  const [filters, setFilters] = useState<JobsReportFilters>({});
+  const [filters, setFilters] = useState<SalesReportFilters>({});
   const [search, setSearch] = useState("");
   const q = useDebouncedValue(search, 400);
-  const [sort, setSort] = useState<{ column: JobsReportColumnId; dir: "asc" | "desc" }>({ column: "created", dir: "desc" });
+  // Workiz opens on `job_serial desc`: the newest jobs first.
+  const [sort, setSort] = useState<{ column: SalesReportColumnId; dir: "asc" | "desc" }>({ column: "jobNumber", dir: "desc" });
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(50);
-  const [localColumns, setLocalColumns] = useState<JobsReportColumnId[] | null>(null);
+  const [pageSize, setPageSize] = useState(DEFAULT_SALES_PAGE_SIZE);
+  const [localColumns, setLocalColumns] = useState<SalesReportColumnId[] | null>(null);
   const [fieldsOpen, setFieldsOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
 
-  const state: JobsReportState = {
+  const state: SalesReportState = {
     by,
     from: range.from,
     to: range.to,
@@ -117,12 +123,12 @@ export function JobsReportPage({ today: todayProp }: { today?: string } = {}) {
     pageSize,
   };
   // The account's "By:" decides the first request — do not ask for the wrong window first.
-  const ready = settingsQuery.isFetched || byChoice !== null;
-  const report = useJobsReport(reportParams(state), ready);
+  const ready = (settingsQuery.isFetched || byChoice !== null) && !denied("reports", "view");
+  const report = useSalesReport(salesReportParams(state), ready);
   const data = report.data;
 
   const money = data?.money ?? can("financials");
-  const columns = inReportOrder(localColumns ?? settings.columns).filter((c) => money || c !== "total");
+  const columns = inSalesOrder(localColumns ?? settings.columns).filter((c) => money || !isMoneyColumn(c));
 
   const groups = useFilterGroups();
 
@@ -134,20 +140,20 @@ export function JobsReportPage({ today: todayProp }: { today?: string } = {}) {
   };
   const changeFilters = resetPage(setFilters);
 
-  const onSort = (column: JobsReportColumnId) => {
-    setSort((cur) => (cur.column === column ? { column, dir: cur.dir === "asc" ? "desc" : "asc" } : { column, dir: column === "created" ? "desc" : "asc" }));
+  const onSort = (column: SalesReportColumnId) => {
+    setSort((cur) => nextSalesSort(cur, column));
     setPage(1);
   };
 
   const exportCsv = async () => {
     setExporting(true);
     try {
-      const blob = await downloadJobsReportCsv(exportParams(state, columns));
+      const blob = await downloadSalesReportCsv(salesExportParams(state, columns));
       if (typeof URL.createObjectURL !== "function") return;
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `jobs-report-${state.from}_${state.to}.csv`;
+      a.download = `sales-report-${state.from}_${state.to}.csv`;
       a.click();
       URL.revokeObjectURL(url);
     } catch (err) {
@@ -158,14 +164,7 @@ export function JobsReportPage({ today: todayProp }: { today?: string } = {}) {
   };
 
   const pagination = data?.pagination;
-  const pager = pagination ? <Pager page={pagination.page} pages={pagination.pages} onPage={setPage} /> : null;
-  const showing = pagination ? (
-    <span className="text-xs tabular-nums text-muted-foreground">
-      {pagination.total === 0
-        ? "No results"
-        : `Showing ${pagination.from.toLocaleString()} to ${pagination.to.toLocaleString()} of ${pagination.total.toLocaleString()} results`}
-    </span>
-  ) : null;
+  const chart = data?.chart ?? [];
 
   return (
     <div className="flex min-w-0 flex-1 flex-col">
@@ -174,13 +173,28 @@ export function JobsReportPage({ today: todayProp }: { today?: string } = {}) {
           <ChevronLeft className="size-4" /> Reports
         </Link>
         <span className="text-muted-foreground">/</span>
-        <h1 className="text-lg font-semibold tracking-tight">Jobs report</h1>
+        <h1 className="text-lg font-semibold tracking-tight">Sales report</h1>
       </div>
 
-      {/* Workiz's top band: the multi-filter, and the period box with its "By:". */}
+      {/* Workiz's chart over the report: Profit and Sales per day. */}
+      {money && data ? (
+        <div className="border-b px-4 py-4 sm:px-6">
+          <LineChart
+            title="Sales and profit per day"
+            days={chart.map((d) => d.day)}
+            series={[
+              { name: "Profit", values: chart.map((d) => d.profit) },
+              { name: "Sales", values: chart.map((d) => d.sales) },
+            ]}
+            labelOf={chartDayLabel}
+          />
+        </div>
+      ) : null}
+
+      {/* Workiz's band: the multi-filter, and the period box with its "By:". */}
       <div className="flex flex-col gap-3 border-b px-4 py-4 sm:px-6 lg:flex-row lg:items-start">
         <div className="min-w-0 flex-1">
-          <JobsReportFilter groups={groups} filters={filters} onChange={changeFilters} />
+          <JobsReportFilter<SalesReportFilters> groups={groups} filters={filters} onChange={changeFilters} />
         </div>
         <div className="flex w-full flex-col gap-2 rounded-md border p-2 lg:w-[22rem]">
           <select
@@ -212,15 +226,15 @@ export function JobsReportPage({ today: todayProp }: { today?: string } = {}) {
             className="h-9 rounded-md border bg-transparent px-2 text-sm"
             value={by}
             onChange={(e) => {
-              const next = e.target.value as JobsReportBy;
+              const next = e.target.value as SalesReportBy;
               setByChoice(next);
               rememberBy(next);
               setPage(1);
             }}
           >
-            {JOBS_REPORT_BY.map((b) => (
+            {SALES_REPORT_BY.map((b) => (
               <option key={b} value={b}>
-                By: {JOBS_REPORT_BY_LABEL[b]}
+                By: {SALES_REPORT_BY_LABEL[b]}
               </option>
             ))}
           </select>
@@ -242,6 +256,7 @@ export function JobsReportPage({ today: todayProp }: { today?: string } = {}) {
               }}
             />
           </div>
+          {!money ? <span className="text-xs text-muted-foreground">Amounts are hidden — they need the financials permission.</span> : null}
           <span className="flex-1" />
           <select
             aria-label="Rows per page"
@@ -249,7 +264,7 @@ export function JobsReportPage({ today: todayProp }: { today?: string } = {}) {
             value={pageSize}
             onChange={(e) => resetPage(setPageSize)(Number(e.target.value))}
           >
-            {JOBS_REPORT_PAGE_SIZES.map((s) => (
+            {SALES_REPORT_PAGE_SIZES.map((s) => (
               <option key={s} value={s}>
                 {s}
               </option>
@@ -268,7 +283,7 @@ export function JobsReportPage({ today: todayProp }: { today?: string } = {}) {
             {report.error instanceof Error ? report.error.message : "Could not load the report."}
           </p>
         ) : !data ? (
-          <div role="status" aria-label="Loading jobs" className="space-y-2">
+          <div role="status" aria-label="Loading sales" className="space-y-2">
             <Skeleton className="h-10 w-full" />
             {Array.from({ length: 8 }, (_, i) => (
               <Skeleton key={i} className="h-12 w-full" />
@@ -276,28 +291,36 @@ export function JobsReportPage({ today: todayProp }: { today?: string } = {}) {
           </div>
         ) : (
           <>
-            <JobsReportTable
+            <SalesReportTable
               rows={data.rows}
+              totals={data.totals}
               columns={columns}
               sort={data.sort.column}
               dir={data.sort.dir}
               onSort={onSort}
-              addFilter={(key, value) => changeFilters(addFilter(filters, key, value))}
+              onStatus={(status) => changeFilters(addSalesFilter(filters, "status", status))}
               busy={report.isFetching}
             />
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              {showing}
-              {pager}
-            </div>
+            {pagination ? (
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-xs tabular-nums text-muted-foreground">
+                  {pagination.total === 0
+                    ? "No results"
+                    : `Showing ${pagination.from.toLocaleString()} to ${pagination.to.toLocaleString()} of ${pagination.total.toLocaleString()} results`}
+                </span>
+                <Pager page={pagination.page} pages={pagination.pages} onPage={setPage} />
+              </div>
+            ) : null}
           </>
         )}
       </div>
 
-      <JobsReportFields
+      <JobsReportFields<SalesReportColumnId>
         open={fieldsOpen}
         onOpenChange={setFieldsOpen}
         columns={columns}
         money={money}
+        fields={SALES_FIELDS}
         canSave={can("reports", "edit")}
         saving={saveSettings.isPending}
         onApply={(next, persist) => {
@@ -322,81 +345,33 @@ export function JobsReportPage({ today: todayProp }: { today?: string } = {}) {
   );
 }
 
-/** Previous / a window of page numbers / Next — the server knows the total, so every page is reachable. Also the Sales report's. */
-export function Pager({ page, pages, onPage }: { page: number; pages: number; onPage: (p: number) => void }) {
-  if (pages <= 1) return null;
-  const first = Math.max(1, Math.min(page - 2, pages - 4));
-  const numbers = Array.from({ length: Math.min(5, pages) }, (_, i) => first + i);
-  return (
-    <nav aria-label="Pages" className="flex items-center gap-1">
-      <Button variant="outline" size="icon" className="size-8" aria-label="Previous page" disabled={page <= 1} onClick={() => onPage(page - 1)}>
-        <ChevronLeft className="size-4" />
-      </Button>
-      {numbers.map((n) => (
-        <Button
-          key={n}
-          variant={n === page ? "default" : "ghost"}
-          size="sm"
-          className="h-8 min-w-8 px-2 tabular-nums"
-          aria-current={n === page ? "page" : undefined}
-          onClick={() => onPage(n)}
-        >
-          {n}
-        </Button>
-      ))}
-      <Button variant="outline" size="icon" className="size-8" aria-label="Next page" disabled={page >= pages} onClick={() => onPage(page + 1)}>
-        <ChevronRight className="size-4" />
-      </Button>
-    </nav>
-  );
-}
-
 /**
- * The filter's groups, in Workiz's order, from the catalogs the app already
- * holds: statuses with their sub-statuses, the field team, everyone who can
- * create a job, tags, job types, origin, sources, service areas, external
- * companies. Archived entries stay: last year's jobs still carry them.
+ * The filter's groups, in Workiz's order for this report: the five statuses
+ * a sale can have (no sub-statuses, no Canceled), the field team, job types,
+ * payment status, sources, service areas. Archived entries stay: last
+ * year's jobs still carry them.
  */
-function useFilterGroups(): FilterGroup[] {
+function useFilterGroups(): FilterGroup<keyof SalesReportFilters>[] {
   const { can } = usePermissions();
   const { users } = useUserMap();
   // Who is on the field team; without the grant to list them, Team offers everyone.
   const { profiles } = useAllTechnicians(can("technicians", "view"));
-  const statuses = useJobStatuses().data;
-  const tags = useJobTags().data;
   const types = useJobTypes().data;
   const sources = useJobSources().data;
   const areas = useServiceAreas().data;
-  const companies = useExternalCompanies().data;
 
   return useMemo(() => {
     const byName = <T extends { label: string }>(a: T, b: T) => a.label.localeCompare(b.label);
     const people = users.map((u) => ({ value: u.id, label: personName(u) })).sort(byName);
     const field = new Set(profiles.map((p) => p.userId));
     const team = field.size ? people.filter((p) => field.has(p.value)) : people;
-    const status = SUPER_STATUS_ORDER.flatMap((s) => [
-      { value: s, label: superStatusLabel(s) },
-      ...(statuses ?? [])
-        .filter((sub) => sub.group === s)
-        .map((sub) => ({ value: `${s}:${sub.id}`, label: `${superStatusLabel(s)} - ${sub.name}` })),
-    ]);
     return [
-      { key: "status", label: "Status", options: status },
+      { key: "status", label: "Status", options: SALES_REPORT_STATUSES.map((s) => ({ value: s, label: superStatusLabel(s) })) },
       { key: "techId", label: "Team", options: team },
-      { key: "createdBy", label: "Created by", options: people },
-      { key: "tagId", label: "Tags", options: (tags ?? []).map((t) => ({ value: t.id, label: t.name, color: t.color })) },
       { key: "jobTypeId", label: "Job type", options: (types ?? []).map((t) => ({ value: t.id, label: t.name })) },
-      {
-        key: "origin",
-        label: "Job origin",
-        options: [
-          { value: "lead", label: "Lead" },
-          { value: "new", label: "New" },
-        ],
-      },
+      { key: "paymentStatus", label: "Payment status", options: SALES_REPORT_PAYMENT_STATUSES.map((p) => ({ value: p.id, label: p.label })) },
       { key: "sourceId", label: "Source", options: (sources ?? []).map((s) => ({ value: s.id, label: s.name })).sort(byName) },
       { key: "serviceAreaId", label: "Service areas", options: (areas ?? []).map((a) => ({ value: a.id, label: a.name })).sort(byName) },
-      { key: "externalCompanyId", label: "Companies", options: (companies ?? []).map((c) => ({ value: c.id, label: c.name })).sort(byName) },
-    ] satisfies FilterGroup[];
-  }, [users, profiles, statuses, tags, types, sources, areas, companies]);
+    ] satisfies FilterGroup<keyof SalesReportFilters>[];
+  }, [users, profiles, types, sources, areas]);
 }

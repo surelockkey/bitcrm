@@ -276,8 +276,11 @@ export class JobsReportService {
     return deals;
   }
 
-  /** Every name the kept jobs refer to: catalogs, people and — when asked — clients. */
-  private async lookupsFor(deals: ReportDeal[], clients: boolean): Promise<ReportLookups> {
+  /**
+   * Every name the kept jobs refer to: catalogs, people and — when asked —
+   * clients. Also the Sales report's, whose rows are this report's plus money.
+   */
+  async lookupsFor(deals: ReportDeal[], clients: boolean): Promise<ReportLookups> {
     const catalogs = await this.catalogLookups();
     const users = await this.namesOfUsers([...new Set(deals.flatMap((d) => [...d.techIds, d.createdBy ?? '']))]);
     const lookups: ReportLookups = { ...catalogs, users, clients: new Map() };
@@ -373,8 +376,8 @@ export class JobsReportService {
     return out;
   }
 
-  /** Clients of rows that have no name yet (page rows, export chunks). */
-  private async fillClients(rows: JobsReportRow[]): Promise<void> {
+  /** Clients of rows that have no name yet (page rows, export chunks) — this report's and the Sales report's. */
+  async fillClients(rows: Pick<JobsReportRow, 'contactId' | 'client'>[]): Promise<void> {
     const need = [...new Set(rows.filter((r) => !r.client && r.contactId).map((r) => r.contactId))];
     if (!need.length) return;
     const names = await this.namesOfClients(need);
@@ -386,7 +389,11 @@ export class JobsReportService {
    * created here keeps them on the client. Asked of crm AS THE CALLER, so the
    * number is masked exactly as crm masks it for them.
    */
-  private async fillContactDetails(rows: JobsReportRow[], authorization: string | undefined, opts: RowOptions): Promise<void> {
+  async fillContactDetails(
+    rows: Pick<JobsReportRow, 'contactId' | 'phone' | 'phoneMasked' | 'email'>[],
+    authorization: string | undefined,
+    opts: RowOptions,
+  ): Promise<void> {
     const need = [...new Set(rows.filter((r) => r.contactId && ((!r.phone && !r.phoneMasked) || !r.email)).map((r) => r.contactId))];
     if (!need.length || !authorization) return;
     const contacts = new Map<string, { phones: string[]; emails: string[]; phonesMasked?: boolean }>();
