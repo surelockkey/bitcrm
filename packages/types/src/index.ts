@@ -53,7 +53,7 @@ export type {
   PersonName,
   JobsListIncluded,
 } from './entities/deal.entity';
-export { DealAttachment, DealAttachmentMeta } from './entities/deal-attachment.entity';
+export { DealAttachment, DealAttachmentMeta, ContactAttachment, ContactFileListItem } from './entities/deal-attachment.entity';
 export {
   CallGroup,
   CallGroupChannel,
@@ -137,7 +137,7 @@ export {
   DealProductFulfillment,
   DealProductPriceSource,
 } from './entities/deal-product.entity';
-export { TimelineEntry } from './entities/timeline-entry.entity';
+export { TimelineEntry, ContactHistoryEntry } from './entities/timeline-entry.entity';
 // Reports — Workiz Activity (`GET /deals/activity`), read off the timelines
 export {
   ACTIVITY_PAGE_SIZES,

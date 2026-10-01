@@ -8,10 +8,19 @@ import {
 } from '@aws-sdk/lib-dynamodb';
 import { DynamoDbService } from '@bitcrm/shared';
 import { AccountClock, type TimelineEntry } from '@bitcrm/types';
-import { DEALS_TABLE } from '../common/constants/dynamo.constants';
+import {
+  CLIENT_ACTIVITY_PK_PREFIX,
+  CLIENT_ACTIVITY_SK_PREFIX,
+  DEALS_TABLE,
+} from '../common/constants/dynamo.constants';
 import { activityIndexFields } from '../activity/activity-index';
 import { currentActivitySource } from '../activity/activity-source';
 import { ActivityCountsRepository } from '../activity/activity-counts.repository';
+import {
+  CONTACT_ACTIVITY_INDEX,
+  contactActivityPk,
+  timelineContactKeys,
+} from '../contacts/contact-index';
 
 export interface PaginatedTimelineResult {
   items: TimelineEntry[];
@@ -30,6 +39,11 @@ const clock = new AccountClock();
  * text and where it was done (web / mobile, from the request), and ticks the
  * day's counter. Rows written before that get the keys from
  * `backfill:activity-index`.
+ *
+ * An entry that names the job's client is also filed under that client (GSI10
+ * ContactActivityIndex, `contacts/contact-index.ts`) — the client card's
+ * History across all of the client's jobs. Rows written before that get the
+ * keys from `backfill:contact-index`.
  */
 @Injectable()
 export class TimelineRepository {
@@ -47,10 +61,13 @@ export class TimelineRepository {
       ...entry,
     };
     const activity = activityIndexFields(item, clock, currentActivitySource());
+    const contact = entry.contactId
+      ? timelineContactKeys(entry.contactId, entry.timestamp, entry.id)
+      : null;
     await this.dynamoDb.client.send(
       new PutCommand({
         TableName: this.tableName,
-        Item: { ...item, ...activity },
+        Item: { ...item, ...activity, ...contact },
       }),
     );
     if (activity && this.activityCounts) {
@@ -131,10 +148,58 @@ export class TimelineRepository {
     };
   }
 
+  /**
+   * Every event of the client's jobs, newest first, off ContactActivityIndex.
+   * Only rows that carry the contact key are here (see the class comment).
+   */
+  async findByContact(
+    contactId: string,
+    limit: number,
+    cursor?: string,
+  ): Promise<PaginatedTimelineResult> {
+    const result = await this.dynamoDb.client.send(
+      new QueryCommand({
+        TableName: this.tableName,
+        IndexName: CONTACT_ACTIVITY_INDEX,
+        KeyConditionExpression: 'GSI10PK = :pk',
+        ExpressionAttributeValues: { ':pk': contactActivityPk(contactId) },
+        ScanIndexForward: false,
+        Limit: limit,
+        ExclusiveStartKey: this.decodeCursor(cursor),
+      }),
+    );
+    return {
+      items: (result.Items || []).map((i) => this.toEntry(i)),
+      nextCursor: this.encodeCursor(result.LastEvaluatedKey),
+    };
+  }
+
+  /**
+   * The Workiz import's client-level events (client created / deleted):
+   * `CLIENT#<contactId>` / `ACT#<ts>#<id>`, newest first. A client has a
+   * handful of these at most, so the whole partition is one read; they have
+   * no job, hence no `dealId`.
+   */
+  async findClientActivity(contactId: string): Promise<TimelineEntry[]> {
+    const result = await this.dynamoDb.client.send(
+      new QueryCommand({
+        TableName: this.tableName,
+        KeyConditionExpression: 'PK = :pk AND begins_with(SK, :sk)',
+        ExpressionAttributeValues: {
+          ':pk': `${CLIENT_ACTIVITY_PK_PREFIX}${contactId}`,
+          ':sk': CLIENT_ACTIVITY_SK_PREFIX,
+        },
+        ScanIndexForward: false,
+      }),
+    );
+    return (result.Items || []).map((i) => this.toEntry(i));
+  }
+
   private toEntry(item: Record<string, unknown>): TimelineEntry {
     return {
       id: item.id as string,
       dealId: item.dealId as string,
+      ...(typeof item.contactId === 'string' && { contactId: item.contactId }),
       eventType: item.eventType as TimelineEntry['eventType'],
       actorId: item.actorId as string,
       actorName: item.actorName as string,

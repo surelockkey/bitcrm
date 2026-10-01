@@ -153,7 +153,7 @@ export class DealBillingService {
     const deal = await this.repository.update(id, { discount: next });
     await this.deals.refreshTotals(id);
     await this.cache.invalidate(id);
-    await this.addEntry(id, TimelineEventType.DISCOUNT_CHANGED, this.actorOf(caller), { from, to: next });
+    await this.addEntry(id, TimelineEventType.DISCOUNT_CHANGED, this.actorOf(caller), { from, to: next }, existing.contactId || '');
     this.publishEvent('deal.updated', { dealId: id, updatedBy: caller.id });
     return deal;
   }
@@ -349,12 +349,13 @@ export class DealBillingService {
 
   /** A timeline entry written on behalf of another service (billing documents). */
   async addTimeline(id: string, dto: InternalTimelineDto): Promise<void> {
-    await this.deals.findById(id);
+    const deal = await this.deals.findById(id);
     await this.addEntry(
       id,
       dto.type,
       { id: dto.actorId, name: dto.actorName || 'Billing' },
       dto.metadata ?? {},
+      deal.contactId || '',
     );
   }
 
@@ -392,7 +393,7 @@ export class DealBillingService {
     const deal = await this.repository.update(existing.id, { ...to });
     await this.deals.refreshTotals(existing.id);
     await this.cache.invalidate(existing.id);
-    await this.addEntry(existing.id, TimelineEventType.TAX_CHANGED, actor, { from, to, reason });
+    await this.addEntry(existing.id, TimelineEventType.TAX_CHANGED, actor, { from, to, reason }, existing.contactId || '');
     this.publishEvent('deal.updated', { dealId: existing.id, updatedBy: actor.id });
     return deal;
   }
@@ -529,15 +530,30 @@ export class DealBillingService {
     return { id: caller.id, name: caller.email };
   }
 
+  /**
+   * An event on the job, filed under the job's client too (GSI10, the client
+   * card's History). Callers that hold the deal pass its `contactId`; the rest
+   * go through deal-service's cached read, and a failed read costs the entry
+   * its contact key, never the entry.
+   */
   private async addEntry(
     dealId: string,
     eventType: TimelineEventType,
     actor: Actor,
     details: Record<string, unknown>,
+    contactId?: string,
   ): Promise<void> {
+    if (contactId === undefined) {
+      try {
+        contactId = (await this.deals.findById(dealId)).contactId;
+      } catch (error) {
+        this.logger.warn(`Timeline entry on ${dealId} filed without its client: ${(error as Error).message}`);
+      }
+    }
     await this.timelineRepo.addEntry({
       id: randomUUID(),
       dealId,
+      contactId: contactId || undefined,
       eventType,
       actorId: actor.id,
       actorName: actor.name,

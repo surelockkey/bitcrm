@@ -14,7 +14,10 @@ import {
  * one of them existed gets it here (one per run — DynamoDB builds one index
  * at a time); a fresh table is created with all of them.
  */
-const LATER_INDEXES = [{ name: 'EndIndex', pk: 'GSI7PK', sk: 'GSI7SK' }];
+const LATER_INDEXES = [
+  { name: 'EndIndex', pk: 'GSI7PK', sk: 'GSI7SK', backfill: 'backfill:end-index' },
+  { name: 'ContactActivityIndex', pk: 'GSI10PK', sk: 'GSI10SK', backfill: 'backfill:contact-index' },
+];
 
 const TABLE_NAME = 'BitCRM_Deals';
 
@@ -52,6 +55,8 @@ async function main() {
           { AttributeName: 'GSI6SK', AttributeType: 'S' },
           { AttributeName: 'GSI7PK', AttributeType: 'S' },
           { AttributeName: 'GSI7SK', AttributeType: 'S' },
+          { AttributeName: 'GSI10PK', AttributeType: 'S' },
+          { AttributeName: 'GSI10SK', AttributeType: 'S' },
         ],
         GlobalSecondaryIndexes: [
           {
@@ -111,6 +116,18 @@ async function main() {
             ],
             Projection: { ProjectionType: 'ALL' },
           },
+          {
+            // The client card's History and Files: CONTACT#<contactId> on the
+            // timeline rows, CONTACTFILE#<contactId> on the attachment rows
+            // (`contacts/contact-index.ts`). 8 and 9 are the Activity report's
+            // (`setup:activity-indexes`).
+            IndexName: 'ContactActivityIndex',
+            KeySchema: [
+              { AttributeName: 'GSI10PK', KeyType: 'HASH' },
+              { AttributeName: 'GSI10SK', KeyType: 'RANGE' },
+            ],
+            Projection: { ProjectionType: 'ALL' },
+          },
         ],
         BillingMode: 'PAY_PER_REQUEST',
       }),
@@ -155,7 +172,7 @@ async function addLaterIndexes(client: DynamoDBClient): Promise<void> {
       ],
     }),
   );
-  console.log(`Index "${missing.name}" added to "${TABLE_NAME}" — run backfill:end-index to fill it`);
+  console.log(`Index "${missing.name}" added to "${TABLE_NAME}" — run ${missing.backfill} to fill it`);
 }
 
 main().catch((err) => {

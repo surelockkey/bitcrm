@@ -43,6 +43,10 @@ import { ItemsReportRepository } from './report/items-report.repository';
 import { JobStatisticsController } from './report/job-statistics.controller';
 import { JobStatisticsService } from './report/job-statistics.service';
 import { CommissionReportModule } from '../commission-report/commission-report.module';
+import { ContactHistoryController } from '../contacts/contact-history.controller';
+import { ContactHistoryService } from '../contacts/contact-history.service';
+import { ContactAttachmentsController } from '../contacts/contact-attachments.controller';
+import { ContactAttachmentsService } from '../contacts/contact-attachments.service';
 
 @Module({
   imports: [ServiceAreasModule, JobTypesModule, JobSourcesModule, ExternalCompaniesModule, JobTagsModule, JobStatusesModule, JobFieldSettingsModule, CustomFieldsModule, TechnicianEligibilityModule, TaxRatesModule, BusinessProfilesClientModule, CommissionReportModule],
@@ -55,6 +59,8 @@ import { CommissionReportModule } from '../commission-report/commission-report.m
   controllers: [
     DealEventsController,
     DealAttachmentsController,
+    ContactHistoryController,
+    ContactAttachmentsController,
     DealBillingController,
     DealDashboardController,
     TaxReportController,
@@ -75,6 +81,8 @@ import { CommissionReportModule } from '../commission-report/commission-report.m
     DealsEventHandler,
     DealAttachmentsService,
     DealAttachmentsRepository,
+    ContactHistoryService,
+    ContactAttachmentsService,
     DealTaxResolver,
     DealBillingService,
     DealDashboardService,
