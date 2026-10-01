@@ -226,8 +226,10 @@ describe("ContactDetailPage — the client card, laid out as Workiz's", () => {
   });
 
   it("has Workiz's tabs, Jobs first and open, with the job table's columns", async () => {
+    mocks.payments = [{ id: "p1", dealId: "d1", amount: 481, method: "cash", status: "settled", takenAt: "2026-09-30T03:10:33.000Z", tipAmount: 0 } as Payment];
     await renderPage();
-    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["Jobs 3", "Estimates", "Invoices", "Payments", "Addresses 5", "Calls"]);
+    // Every tab says how many it holds, as Workiz's badges do: 3 estimates and 2 invoices from the mocks, 1 payment.
+    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["Jobs 3", "Estimates 3", "Invoices 2", "Payments 1", "Addresses 5", "Calls"]);
     expect(screen.getByRole("tab", { name: /^Jobs/ })).toHaveAttribute("aria-selected", "true");
 
     const table = screen.getByRole("table", { name: "Jobs" });
@@ -513,7 +515,7 @@ describe("ContactDetailPage — the client card, laid out as Workiz's", () => {
       { id: "p1", dealId: "d1", amount: 481, method: "cash", status: "settled", takenAt: "2026-09-30T03:10:33.000Z", tipAmount: 0 } as Payment,
     ];
     await renderPage();
-    await userEvent.click(screen.getByRole("tab", { name: "Payments" }));
+    await userEvent.click(screen.getByRole("tab", { name: /^Payments/ }));
     const table = screen.getByRole("table", { name: "Payments" });
     expect(within(table).getAllByRole("row").slice(1)).toHaveLength(1);
     expect(table).toHaveTextContent("$481.00");
