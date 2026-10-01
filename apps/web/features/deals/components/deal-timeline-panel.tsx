@@ -51,6 +51,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import { formatPhone } from "@/lib/phone";
+import { DEFAULT_TZ } from "@/lib/timezone";
 import { formatDuration } from "@/features/calls/lib";
 import { useJobStatuses } from "@/features/job-statuses/hooks";
 import { useJobTypes } from "@/features/job-types/hooks";
@@ -225,9 +226,34 @@ function itemChangeLines(entry: TimelineEntry): string[] {
     });
 }
 
-/** Render a logged value: addresses/arrays flattened, empty as an em-dash. */
+/**
+ * Imported Workiz activity lines that match none of our events keep their
+ * text as the note and are typed `workiz_activity`; they read as "Activity".
+ */
+const LEGACY_META: Record<string, { icon: typeof Sparkles; label: string }> = {
+  workiz_activity: { icon: Sparkles, label: "Activity" },
+};
+
+/** `some_event_type` → "Some event type", for a type no map knows. */
+const fallbackMeta = (eventType: string) => ({
+  icon: Sparkles,
+  label: eventType ? eventType.charAt(0).toUpperCase() + eventType.slice(1).replace(/_/g, " ") : "Event",
+});
+
+const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?$/;
+
+/** A logged ISO timestamp (schedule change…) read on business time, e.g. "Sep 30, 2026, 10:00 AM". */
+function fmtInstant(iso: string): string {
+  const dt = new Date(iso);
+  return Number.isNaN(dt.getTime())
+    ? iso
+    : dt.toLocaleString("en-US", { timeZone: DEFAULT_TZ, year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
+/** Render a logged value: addresses/arrays flattened, dates on business time, empty as an em-dash. */
 function fmtValue(v: unknown): string {
   if (v === null || v === undefined || v === "") return "—";
+  if (typeof v === "string" && ISO_INSTANT.test(v)) return fmtInstant(v);
   if (Array.isArray(v)) return v.length ? v.map(fmtValue).join(", ") : "—";
   if (typeof v === "object") {
     const a = v as Record<string, unknown>;
@@ -724,7 +750,7 @@ export function EntryRow({
   onSaveEdit?: (note: string) => void;
   onDelete?: () => void;
 }) {
-  const meta = META[entry.eventType] ?? { icon: Sparkles, label: entry.eventType };
+  const meta = META[entry.eventType] ?? LEGACY_META[entry.eventType] ?? fallbackMeta(entry.eventType);
   const Icon = meta.icon;
   const d = detail(entry, lookups);
   const changeLines = itemChangeLines(entry);

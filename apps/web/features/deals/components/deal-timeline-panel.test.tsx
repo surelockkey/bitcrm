@@ -490,3 +490,28 @@ describe("DealTimelinePanel — every event reads human", () => {
     expect(screen.getByText(/Olha Datsiuk/)).toBeInTheDocument();
   });
 });
+
+describe("DealTimelinePanel — imported Workiz rows read human", () => {
+  const show = (e: TimelineEntry) => {
+    timeline.entries = [e];
+    render(<DealTimelinePanel dealId="d1" canEdit />);
+    openPanel();
+  };
+
+  it("labels a Workiz activity line, not its raw event type", () => {
+    show(entry({ eventType: "workiz_activity" as TimelineEventType, note: "Remove tag from job" }));
+    expect(screen.getByText("Activity")).toBeInTheDocument();
+    expect(screen.queryByText(/workiz_activity/)).not.toBeInTheDocument();
+  });
+
+  it("shows a schedule change as dates, not ISO strings", () => {
+    show(
+      entry({
+        eventType: TimelineEventType.FIELD_UPDATED,
+        details: { field: "scheduledDate", oldValue: "2026-09-30T10:00:00-04:00", newValue: "2026-10-07T10:00:00-04:00" },
+      }),
+    );
+    expect(screen.getByText(/Scheduled date: Sep 30, 2026, 10:00 AM → Oct 7, 2026, 10:00 AM/)).toBeInTheDocument();
+    expect(screen.queryByText(/T10:00:00/)).not.toBeInTheDocument();
+  });
+});
