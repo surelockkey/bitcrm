@@ -1,9 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { Eye } from "lucide-react";
-import type { PortalDocumentSummary } from "@bitcrm/types";
-import { PortalDocumentViewer, PortalSkeleton, PortalView, type DocumentLoaders } from "@bitcrm/portal-ui";
+import { PortalSkeleton, PortalView, type DocumentLoaders } from "@bitcrm/portal-ui";
 import { Button } from "@/components/ui/button";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { useDenied } from "@/features/auth/use-permissions";
@@ -16,7 +15,6 @@ import { usePortalPreview } from "../hooks";
 export function PortalPreviewPage({ contactId }: { contactId: string }) {
   const denied = useDenied();
   const q = usePortalPreview(contactId);
-  const [open, setOpen] = useState<PortalDocumentSummary | null>(null);
   // Staff read documents with their own session; the client's page does the same by token.
   const loaders = useMemo<DocumentLoaders>(
     () => ({
@@ -50,10 +48,9 @@ export function PortalPreviewPage({ contactId }: { contactId: string }) {
             <Button variant="outline" size="sm" className="mt-3" onClick={() => q.refetch()}>Try again</Button>
           </div>
         ) : (
-          <PortalView view={{ ...q.data, preview: true }} onOpen={setOpen} />
+          <PortalView view={{ ...q.data, preview: true }} loaders={loaders} scope={`preview:${contactId}`} />
         )}
       </div>
-      <PortalDocumentViewer doc={open} onClose={() => setOpen(null)} loaders={loaders} scope={`preview:${contactId}`} />
     </div>
   );
 }

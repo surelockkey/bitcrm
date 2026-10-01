@@ -1,5 +1,8 @@
 import type {
+  EstimateWithItems,
+  InvoiceView,
   OnlinePaymentMethod,
+  PortalDepositOptions,
   PortalDocumentSummary,
   PortalPaymentOptions,
   PortalPaymentSession,
@@ -36,8 +39,8 @@ export const publicGet = <T,>(path: string): Promise<T> =>
   call<T>(path, { method: "GET", headers: { Accept: "application/json" } });
 
 /**
- * The portal's only write. Used for one thing — starting a payment — so the
- * client secret comes back in the response body and never rides in a URL.
+ * The portal's writes — a signature, a decision, a payment attempt — all go
+ * in the body, so nothing sensitive ever rides in a URL.
  */
 export const publicPost = <T,>(path: string, body: unknown): Promise<T> =>
   call<T>(path, {
@@ -77,3 +80,47 @@ export const startPayment = (token: string, invoiceId: string, body: { amount: n
 /** Where that payment got to. Polled a bounded number of times, never in a loop. */
 export const getPaymentStatus = (token: string, paymentId: string) =>
   publicGet<PortalPaymentStatus>(`${base(token)}/payment/${encodeURIComponent(paymentId)}`);
+
+/* ------------------------------------------------- the client's decisions */
+
+export interface SignatureInput {
+  /** PNG data URL from the signature canvas. */
+  imageDataUrl: string;
+  signedBy: string;
+}
+
+/** Approve an estimate = sign it (Workiz). The deposit, if any, is paid next. */
+export const approveEstimate = (token: string, estimateId: string, body: SignatureInput) =>
+  publicPost<EstimateWithItems>(`${docBase(token, "estimate", estimateId)}/approve`, body);
+
+export const declineEstimate = (token: string, estimateId: string, body: { reason?: string }) =>
+  publicPost<EstimateWithItems>(`${docBase(token, "estimate", estimateId)}/decline`, body);
+
+/** Workiz "Request signature": the client signs the invoice before paying. */
+export const signInvoice = (token: string, invoiceId: string, body: SignatureInput) =>
+  publicPost<InvoiceView>(`${docBase(token, "invoice", invoiceId)}/sign`, body);
+
+/* ------------------------------------------------------------ the deposit */
+
+/** The estimate's deposit, in the shape the payment panel reads (it is one more thing to pay). */
+export const getDepositOptions = async (token: string, estimateId: string): Promise<PortalPaymentOptions> => {
+  const d = await publicGet<PortalDepositOptions>(`${docBase(token, "estimate", estimateId)}/deposit-options`);
+  return {
+    invoiceId: d.estimateId,
+    number: d.number,
+    amountDue: d.amountDue,
+    amountPending: d.amountPending,
+    currency: d.currency,
+    methods: d.methods,
+    allowPartial: d.allowPartial,
+    bankMinimum: d.bankMinimum,
+    surchargePercent: d.surchargePercent,
+    surchargeLabel: d.surchargeLabel,
+    tipsEnabled: false,
+    tipPresets: [],
+  };
+};
+
+/** Signature first: the server refuses a deposit on an estimate the client has not approved. */
+export const startDeposit = (token: string, estimateId: string, body: { amount: number; method: OnlinePaymentMethod }) =>
+  publicPost<PortalPaymentSession>(`${docBase(token, "estimate", estimateId)}/deposit/pay`, body);

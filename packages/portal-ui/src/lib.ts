@@ -1,4 +1,4 @@
-import type { Address, EstimateStatus, InvoiceStatus, PortalDocumentSummary, PortalView } from "@bitcrm/types";
+import type { Address, EstimateStatus, InvoiceStatus, PortalDocumentSummary, PortalProposalSummary, PortalView } from "@bitcrm/types";
 
 /** Class names that are truthy, joined. (No Tailwind-merge: nothing here needs to override.) */
 export const cx = (...parts: Array<string | false | null | undefined>): string => parts.filter(Boolean).join(" ");
@@ -177,4 +177,95 @@ export function statusMeta(doc: Pick<PortalDocumentSummary, "kind" | "status">):
   const table = (doc.kind === "invoice" ? INVOICE_STATUS : ESTIMATE_STATUS) as Record<string, { label: string; tone: Tone }>;
   const meta = table[doc.status] ?? { label: String(doc.status), tone: "slate" as Tone };
   return { label: meta.label, className: TONE[meta.tone] };
+}
+
+/* ------------------------------------------------------------ Workiz inbox */
+
+/** "Sep 30, 2026" for an ISO instant (the portal's "Sent …" lines). */
+export function formatSentAt(iso: string | undefined): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+/**
+ * The status chip of a Workiz inbox card: AWAITING APPROVAL on an open
+ * estimate, PENDING / OVERDUE / PAID on an invoice, APPROVED / DECLINED once
+ * decided. Upper-case by convention, like Workiz.
+ */
+export function inboxChip(doc: Pick<PortalDocumentSummary, "kind" | "status" | "balanceDue">): { label: string; className: string } {
+  if (doc.kind === "estimate") {
+    const s = doc.status as EstimateStatus;
+    if (s === "pending" || s === "unsent") return { label: "AWAITING APPROVAL", className: TONE.amber };
+    if (s === "approved" || s === "won") return { label: "APPROVED", className: TONE.emerald };
+    if (s === "declined") return { label: "DECLINED", className: TONE.red };
+    return { label: "ARCHIVED", className: TONE.zinc };
+  }
+  const s = doc.status as InvoiceStatus;
+  if (s === "paid" || (typeof doc.balanceDue === "number" && doc.balanceDue <= 0 && s !== "no_amount")) {
+    return { label: "PAID", className: TONE.emerald };
+  }
+  if (s === "overdue") return { label: "OVERDUE", className: TONE.red };
+  if (s === "no_amount") return { label: "NO AMOUNT", className: TONE.slate };
+  return { label: "PENDING", className: TONE.amber };
+}
+
+export function proposalChip(p: Pick<PortalProposalSummary, "status">): { label: string; className: string } {
+  if (p.status === "approved") return { label: "APPROVED", className: TONE.emerald };
+  if (p.status === "declined") return { label: "DECLINED", className: TONE.red };
+  if (p.status === "archived") return { label: "ARCHIVED", className: TONE.zinc };
+  return { label: "PENDING", className: TONE.amber };
+}
+
+/** An estimate the client can still decide on. */
+export function isOpenEstimate(doc: PortalDocumentSummary): boolean {
+  return doc.kind === "estimate" && (doc.status === "pending" || doc.status === "unsent") && doc.sent;
+}
+
+/** The deposit still owed on an estimate (after what already settled). */
+export function depositOwed(doc: Pick<PortalDocumentSummary, "depositDue" | "depositPaid">): number {
+  const due = doc.depositDue ?? 0;
+  const paid = doc.depositPaid ?? 0;
+  return Math.max(0, Math.round((due - paid) * 100) / 100);
+}
+
+export function clientInitials(client: PortalView["client"]): string {
+  const i = `${client.firstName?.trim()?.[0] ?? ""}${client.lastName?.trim()?.[0] ?? ""}`.toUpperCase();
+  return i || "•";
+}
+
+/** "Tue, Oct 5 · 10:00 AM – 12:00 PM" in the job's zone. */
+export function formatJobWhen(start: string | undefined, end: string | undefined, timezone: string | undefined): string {
+  if (!start) return "Date to be confirmed";
+  const s = new Date(start);
+  if (Number.isNaN(s.getTime())) return "Date to be confirmed";
+  const tz = timezone ? { timeZone: timezone } : {};
+  const day = s.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", ...tz });
+  const time = (d: Date) => d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", ...tz });
+  const e = end ? new Date(end) : null;
+  return e && !Number.isNaN(e.getTime()) ? `${day} · ${time(s)} – ${time(e)}` : `${day} · ${time(s)}`;
+}
+
+/** An "Add to calendar" file for one job (RFC 5545), as a data URL. */
+export function calendarDataUrl(job: { number: string; jobType?: string; address?: string; scheduledDate?: string; scheduledEndDate?: string }, businessName: string): string | null {
+  if (!job.scheduledDate) return null;
+  const stamp = (iso: string) => iso.replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+  const end = job.scheduledEndDate ?? new Date(new Date(job.scheduledDate).getTime() + 60 * 60_000).toISOString();
+  const esc = (v: string) => v.replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\n/g, "\\n");
+  const lines = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//BitCRM//Client portal//EN",
+    "BEGIN:VEVENT",
+    `UID:job-${job.number}@bitcrm`,
+    `DTSTAMP:${stamp(new Date().toISOString())}`,
+    `DTSTART:${stamp(job.scheduledDate)}`,
+    `DTEND:${stamp(end)}`,
+    `SUMMARY:${esc(`${job.jobType ?? "Service"} — ${businessName}`)}`,
+    ...(job.address ? [`LOCATION:${esc(job.address)}`] : []),
+    "END:VEVENT",
+    "END:VCALENDAR",
+  ];
+  return `data:text/calendar;charset=utf-8,${encodeURIComponent(lines.join("\r\n"))}`;
 }

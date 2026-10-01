@@ -6,106 +6,186 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { PortalView as PortalViewData } from "@bitcrm/types";
 import { InvalidPortalLink, PortalLoadError, PortalView } from "./portal-view";
+import type { DocumentLoaders } from "./document-viewer";
+
+vi.mock("./navigate", () => ({ goTo: vi.fn() }));
+
+const loaders: DocumentLoaders = {
+  getHtml: vi.fn(async () => ({ html: "<html><head></head><body>doc</body></html>" })),
+  getPdfUrl: vi.fn(async () => ({ url: "https://s3/doc.pdf" })),
+};
 
 const view: PortalViewData = {
   business: {
     name: "Acme Locks",
     phone: "+1 (404) 555-0100",
     email: "hi@acme.test",
+    description: "Locksmith, door and garage door services",
+    bookingUrl: "https://book.acme.test",
     logoUrl: "https://files.test/logo.png",
   },
-  client: { firstName: "Jane", lastName: "Smith" },
+  client: { firstName: "Jane", lastName: "Smith", email: "jane@client.test", phone: "+14045550123" },
   estimates: [
-    { kind: "estimate", id: "e1", number: "1042-1", name: "Good", date: "2026-09-10", status: "pending", total: 250, sent: true },
+    {
+      kind: "estimate", id: "e1", number: "1042-1", name: "Storefront door", date: "2026-09-30", status: "pending", total: 3886.84,
+      sent: true, signatureNeeded: true, signed: false, depositDue: 1943.42, payable: true,
+    },
+    { kind: "estimate", id: "e2", number: "1042-2", name: "9 Lite", date: "2026-09-30", status: "pending", total: 2000.03, sent: true, proposalId: "p1", signatureNeeded: true },
+    { kind: "estimate", id: "e3", number: "1042-3", name: "16 Lite", date: "2026-09-30", status: "pending", total: 2117.62, sent: true, proposalId: "p1", signatureNeeded: true },
   ],
   invoices: [
     {
-      kind: "invoice", id: "d1", number: "1042", date: "2026-09-12", status: "overdue", total: 300,
-      balanceDue: 120.5, dueDate: "2026-09-13", sent: false,
+      kind: "invoice", id: "d1", number: "1042", date: "2026-09-29", status: "paid", total: 50.46,
+      balanceDue: 0, dueDate: "2026-10-02", sent: true, signed: true,
+    },
+    {
+      kind: "invoice", id: "d2", number: "1043", date: "2026-09-28", status: "due", total: 300,
+      balanceDue: 120.5, dueDate: "2026-10-12", sent: true, payable: true, signatureNeeded: true,
     },
   ],
-  proposals: [],
-  jobs: [],
-  payments: [],
+  proposals: [
+    {
+      id: "p1", number: "256", status: "pending", sentAt: "2026-09-30T11:01:03.000Z", estimateIds: ["e2", "e3"],
+      options: [],
+    },
+  ],
+  jobs: [
+    { id: "j1", number: "J1", kind: "upcoming", scheduledDate: "2026-10-05T14:00:00.000Z", scheduledEndDate: "2026-10-05T16:00:00.000Z", timezone: "America/New_York", jobType: "Lock change", address: "1 Main St, Hartford, CT 06103", technicians: ["Mike Smith"] },
+    { id: "j2", number: "J2", kind: "completed", scheduledDate: "2026-09-01T14:00:00.000Z", jobType: "Rekey", technicians: [] },
+  ],
+  payments: [
+    { id: "p1", amount: 50.46, method: "card", status: "settled", takenAt: "2026-09-29T13:52:00.000Z", invoiceId: "d1", cardBrand: "visa", last4: "4061" },
+  ],
   preview: false,
 };
+// The proposal's options are the same summaries the inbox lists.
+view.proposals[0].options = [view.estimates[1], view.estimates[2]];
 
-describe("PortalView", () => {
-  it("greets the client, names the business and offers a call / email shortcut", () => {
-    render(<PortalView view={view} onOpen={() => {}} />);
-    expect(screen.getByRole("heading", { level: 1, name: "Hi Jane," })).toBeInTheDocument();
-    expect(screen.getByText("Here are your documents from Acme Locks.")).toBeInTheDocument();
-    expect(screen.getByText("Acme Locks", { selector: "p" })).toBeInTheDocument();
+const user = () => userEvent.setup({ pointerEventsCheck: 0 });
+
+describe("PortalView — the Workiz layout", () => {
+  it("heads the page with the company, its tagline, phone and Book a service; greets the client by first name", () => {
+    render(<PortalView view={view} loaders={loaders} />);
+    expect(screen.getByText("Acme Locks")).toBeInTheDocument();
+    expect(screen.getByText("Locksmith, door and garage door services")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /\(404\) 555-0100/ })).toHaveAttribute("href", "tel:+14045550100");
-    expect(screen.getByRole("link", { name: /hi@acme.test/ })).toHaveAttribute("href", "mailto:hi@acme.test");
+    expect(screen.getByRole("link", { name: /book a service/i })).toHaveAttribute("href", "https://book.acme.test");
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Hey Jane, it's great to see you.");
+    expect(screen.getByRole("tab", { name: "Inbox" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "My Booking" })).toBeInTheDocument();
   });
 
-  it("lists both sections with status, amount owed and due date", () => {
-    render(<PortalView view={view} onOpen={() => {}} />);
-    const estimates = screen.getByRole("region", { name: "Estimates" });
-    expect(within(estimates).getByText("Good")).toBeInTheDocument();
-    expect(within(estimates).getByText("Pending")).toBeInTheDocument();
-    expect(within(estimates).getByText("$250.00")).toBeInTheDocument();
-
-    const invoices = screen.getByRole("region", { name: "Invoices" });
-    expect(within(invoices).getByText("Overdue")).toBeInTheDocument();
-    expect(within(invoices).getByText(/\$120\.50 due/)).toBeInTheDocument();
-    expect(within(invoices).getByText(/due sep 13, 2026/i)).toBeInTheDocument();
+  it("lists the inbox as Workiz cards: estimate / proposal / invoice with chips, Sent | Due, Deposit and Total", () => {
+    render(<PortalView view={view} loaders={loaders} />);
+    const inbox = screen.getByRole("region", { name: "Your inbox" });
+    expect(within(inbox).getByRole("heading", { name: "Your Inbox (4)" })).toBeInTheDocument();
+    const est = within(inbox).getByRole("button", { name: "Estimate #1042-1 Storefront door" });
+    expect(est).toHaveTextContent("AWAITING APPROVAL");
+    expect(est).toHaveTextContent("Sent Sep 30, 2026");
+    expect(est).toHaveTextContent("Deposit: $1,943.42");
+    expect(est).toHaveTextContent("Total: $3,886.84");
+    // Options of a proposal are not listed on their own.
+    expect(within(inbox).queryByRole("button", { name: /1042-2/ })).toBeNull();
+    const proposal = within(inbox).getByRole("button", { name: "Proposal #256" });
+    expect(proposal).toHaveTextContent("PENDING");
+    expect(proposal).toHaveTextContent("2 estimates");
+    const paid = within(inbox).getByRole("button", { name: "Invoice #1042" });
+    expect(paid).toHaveTextContent("PAID");
+    expect(paid).toHaveTextContent("Sent Sep 29, 2026 | Due Oct 2, 2026");
+    expect(within(inbox).getByRole("button", { name: "Invoice #1043" })).toHaveTextContent("PENDING");
   });
 
-  it("puts what the client owes up top, and opens the single open invoice from it", async () => {
-    const onOpen = vi.fn();
-    render(<PortalView view={view} onOpen={onOpen} />);
-    const balance = screen.getByRole("region", { name: "Balance due" });
-    expect(within(balance).getByText("Balance overdue")).toBeInTheDocument();
-    expect(within(balance).getByText("$120.50")).toBeInTheDocument();
-    expect(within(balance).getByText("on 1 invoice")).toBeInTheDocument();
-    await userEvent.click(within(balance).getByRole("button", { name: /view invoice #1042/i }));
-    expect(onOpen).toHaveBeenCalledWith(view.invoices[0]);
+  it("opens an estimate on the right: Required deposit, Decline and Approve & pay deposit, the document as a page", async () => {
+    const actions = { onApprove: vi.fn(), onDecline: vi.fn() };
+    render(<PortalView view={view} loaders={loaders} actions={actions} />);
+    await user().click(screen.getByRole("button", { name: "Estimate #1042-1 Storefront door" }));
+    const pane = screen.getByRole("region", { name: "Document" });
+    expect(within(pane).getByRole("heading", { name: /estimate #1042-1/i })).toBeInTheDocument();
+    expect(within(pane).getByText("Required deposit: $1,943.42")).toBeInTheDocument();
+    await user().click(within(pane).getByRole("button", { name: /approve & pay deposit/i }));
+    expect(actions.onApprove).toHaveBeenCalledWith(view.estimates[0]);
+    await user().click(within(pane).getByRole("button", { name: /^decline$/i }));
+    expect(actions.onDecline).toHaveBeenCalledWith(view.estimates[0]);
+    expect(await within(pane).findByTitle("Estimate #1042-1")).toBeInTheDocument();
+    expect(loaders.getHtml).toHaveBeenCalledWith(view.estimates[0]);
   });
 
-  it("shows no balance card when nothing is owed, and skips empty sections", () => {
-    const paid: PortalViewData = {
+  it("offers no decisions in the staff preview, and no dead buttons on a decided estimate", async () => {
+    const decided: PortalViewData = { ...view, estimates: [{ ...view.estimates[0], status: "approved", signed: true }], proposals: [] };
+    render(<PortalView view={decided} loaders={loaders} />);
+    await user().click(screen.getByRole("button", { name: "Estimate #1042-1 Storefront door" }));
+    const pane = screen.getByRole("region", { name: "Document" });
+    expect(within(pane).queryByRole("button", { name: /approve/i })).toBeNull();
+    expect(within(pane).queryByRole("button", { name: /decline/i })).toBeNull();
+    expect(within(pane).getByText("APPROVED")).toBeInTheDocument();
+  });
+
+  it("an invoice that asks for a signature says Sign & pay; a settled one offers nothing to pay", async () => {
+    const actions = { onPay: vi.fn() };
+    render(<PortalView view={view} loaders={loaders} actions={actions} />);
+    await user().click(screen.getByRole("button", { name: "Invoice #1043" }));
+    const pane = screen.getByRole("region", { name: "Document" });
+    expect(within(pane).getByText(/balance: \$120\.50/i)).toBeInTheDocument();
+    await user().click(within(pane).getByRole("button", { name: /sign & pay invoice/i }));
+    expect(actions.onPay).toHaveBeenCalledWith(view.invoices[1]);
+    await user().click(screen.getByRole("button", { name: "Invoice #1042" }));
+    expect(within(screen.getByRole("region", { name: "Document" })).queryByRole("button", { name: /pay/i })).toBeNull();
+  });
+
+  it("a proposal shows its options side by side; View estimate opens one with a way back to the proposal", async () => {
+    render(<PortalView view={view} loaders={loaders} />);
+    await user().click(screen.getByRole("button", { name: "Proposal #256" }));
+    const pane = screen.getByRole("region", { name: "Document" });
+    expect(within(pane).getByRole("heading", { name: "Proposal #256" })).toBeInTheDocument();
+    expect(within(pane).getByText("9 Lite")).toBeInTheDocument();
+    expect(within(pane).getByText("16 Lite")).toBeInTheDocument();
+    const buttons = within(pane).getAllByRole("button", { name: /view estimate/i });
+    await user().click(buttons[1]);
+    expect(within(screen.getByRole("region", { name: "Document" })).getByRole("heading", { name: /estimate #1042-3/i })).toBeInTheDocument();
+    await user().click(screen.getByRole("button", { name: /back to proposal #256/i }));
+    expect(within(screen.getByRole("region", { name: "Document" })).getByRole("heading", { name: "Proposal #256" })).toBeInTheDocument();
+  });
+
+  it("marks the chosen option once the proposal is decided", async () => {
+    const decided: PortalViewData = {
       ...view,
-      estimates: [],
-      invoices: [{ ...view.invoices[0], status: "paid", balanceDue: 0 }],
+      proposals: [{ ...view.proposals[0], status: "approved", selectedEstimateId: "e3" }],
     };
-    render(<PortalView view={paid} onOpen={() => {}} />);
-    expect(screen.queryByRole("region", { name: /balance/i })).toBeNull();
-    expect(screen.queryByRole("region", { name: "Estimates" })).toBeNull();
-    expect(screen.getByRole("region", { name: "Invoices" })).toBeInTheDocument();
+    render(<PortalView view={decided} loaders={loaders} />);
+    await user().click(screen.getByRole("button", { name: "Proposal #256" }));
+    expect(screen.getByText("Selected option")).toBeInTheDocument();
   });
 
-  it("says so once, kindly, when there is nothing yet", () => {
-    render(<PortalView view={{ ...view, estimates: [], invoices: [] }} onOpen={() => {}} />);
+  it("My Booking lists upcoming and completed jobs with when, where and who, and an Add to calendar file", async () => {
+    render(<PortalView view={view} loaders={loaders} />);
+    await user().click(screen.getByRole("tab", { name: "My Booking" }));
+    const upcoming = screen.getByRole("region", { name: "Upcoming" });
+    expect(within(upcoming).getByText("Lock change")).toBeInTheDocument();
+    expect(within(upcoming).getByText(/1 Main St, Hartford/)).toBeInTheDocument();
+    expect(within(upcoming).getByText("Mike Smith")).toBeInTheDocument();
+    expect(within(upcoming).getByText(/Oct 5/)).toBeInTheDocument();
+    expect(within(upcoming).getByRole("link", { name: /add to calendar/i })).toHaveAttribute("href", expect.stringContaining("data:text/calendar"));
+    expect(within(screen.getByRole("region", { name: "Completed" })).getByText("Rekey")).toBeInTheDocument();
+  });
+
+  it("the avatar opens the profile: contact details and the payment history, without card numbers", async () => {
+    render(<PortalView view={view} loaders={loaders} />);
+    await user().click(screen.getByRole("button", { name: /your profile/i }));
+    expect(screen.getByRole("heading", { name: "Your Profile" })).toBeInTheDocument();
+    expect(screen.getByText("jane@client.test")).toBeInTheDocument();
+    const history = screen.getByRole("region", { name: "Payment history" });
+    expect(within(history).getByText("$50.46")).toBeInTheDocument();
+    expect(within(history).getByText(/visa ···· 4061/)).toBeInTheDocument();
+    expect(within(history).getByText("Paid")).toBeInTheDocument();
+    await user().click(screen.getByRole("button", { name: /^back$/i }));
+    expect(screen.getByRole("tab", { name: "Inbox" })).toBeInTheDocument();
+  });
+
+  it("says so once, kindly, when there is nothing yet; labels unsent documents only in preview", () => {
+    const { rerender } = render(<PortalView view={{ ...view, estimates: [], invoices: [], proposals: [] }} loaders={loaders} />);
     expect(screen.getByText(/nothing to show yet/i)).toBeInTheDocument();
-    expect(screen.queryByRole("region", { name: "Invoices" })).toBeNull();
-  });
-
-  it("names the company a document is from", () => {
-    render(<PortalView view={{ ...view, estimates: [{ ...view.estimates[0], companyName: "KeyPro" }] }} onOpen={() => {}} />);
-    expect(within(screen.getByRole("region", { name: "Estimates" })).getByText("KeyPro")).toBeInTheDocument();
-    expect(within(screen.getByRole("region", { name: "Invoices" })).queryByText("KeyPro")).toBeNull();
-  });
-
-  it("labels unsent documents only in preview", () => {
-    const { rerender } = render(<PortalView view={view} onOpen={() => {}} />);
-    expect(screen.queryByText("UNSENT")).toBeNull();
-    rerender(<PortalView view={{ ...view, preview: true }} onOpen={() => {}} />);
+    rerender(<PortalView view={{ ...view, preview: true, invoices: [{ ...view.invoices[0], sent: false }] }} loaders={loaders} />);
     expect(screen.getByText("UNSENT")).toBeInTheDocument();
-  });
-
-  it("opens a document from its card", async () => {
-    const onOpen = vi.fn();
-    render(<PortalView view={view} onOpen={onOpen} />);
-    await userEvent.click(screen.getByRole("button", { name: "Estimate #1042-1 Good" }));
-    expect(onOpen).toHaveBeenCalledWith(view.estimates[0]);
-  });
-
-  it("falls back to initials without a logo, and to a plain hello without a first name", () => {
-    render(<PortalView view={{ ...view, business: { name: "Acme Locks" }, client: { firstName: "", lastName: "" } }} onOpen={() => {}} />);
-    expect(screen.getByText("AL")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { level: 1, name: "Hello," })).toBeInTheDocument();
   });
 });
 
@@ -126,61 +206,9 @@ describe("page states", () => {
 
 describe("chip shape", () => {
   it("is a near-square label, not an oval — same rule as the CRM", () => {
-    // The portal shares its look with apps/web, where labels are
-    // `rounded-chip` (2px) and only real circles stay round.
-    const source = readFileSync(
-      join(__dirname, "portal-view.tsx"),
-      "utf8",
-    );
+    const source = readFileSync(join(__dirname, "portal-view.tsx"), "utf8");
     const chip = source.split("const chip =")[1].split(";")[0];
     expect(chip).toContain("rounded-chip");
     expect(chip).not.toContain("rounded-full");
-  });
-});
-
-describe("paying from the balance card", () => {
-  const payable = {
-    ...view,
-    invoices: [{ ...view.invoices[0], payable: true }],
-  };
-
-  it("offers Pay now for the one invoice that is payable, alongside viewing it", async () => {
-    const onPay = vi.fn();
-    render(<PortalView view={payable} onOpen={() => {}} onPay={onPay} />);
-    const balance = screen.getByRole("region", { name: "Balance due" });
-    await userEvent.click(within(balance).getByRole("button", { name: /pay \$120\.50 now/i }));
-    expect(onPay).toHaveBeenCalledWith(payable.invoices[0]);
-    expect(within(balance).getByRole("button", { name: /view invoice #1042/i })).toBeInTheDocument();
-  });
-
-  it("says why there is no button rather than showing a dead one", () => {
-    render(<PortalView view={view} onOpen={() => {}} onPay={() => {}} />);
-    const balance = screen.getByRole("region", { name: "Balance due" });
-    expect(within(balance).queryByRole("button", { name: /pay/i })).toBeNull();
-    expect(within(balance).getByText(/online payment isn.t available/i)).toBeInTheDocument();
-  });
-
-  it("points at the individual invoices when several are open", () => {
-    const many = {
-      ...view,
-      invoices: [
-        { ...view.invoices[0], payable: true },
-        { ...view.invoices[0], id: "d2", number: "1043", payable: true },
-      ],
-    };
-    render(<PortalView view={many} onOpen={() => {}} onPay={() => {}} />);
-    const balance = screen.getByRole("region", { name: "Balance due" });
-    expect(within(balance).queryByRole("button", { name: /pay/i })).toBeNull();
-    expect(within(balance).getByText(/open an invoice to pay it/i)).toBeInTheDocument();
-  });
-
-  it("shows no payment control at all in the staff preview", () => {
-    render(<PortalView view={payable} onOpen={() => {}} />);
-    expect(screen.queryByRole("button", { name: /pay/i })).toBeNull();
-  });
-
-  it("notes a bank payment still clearing on the card", () => {
-    render(<PortalView view={{ ...view, invoices: [{ ...view.invoices[0], amountPending: 40 }] }} onOpen={() => {}} />);
-    expect(screen.getByText(/\$40\.00 clearing/i)).toBeInTheDocument();
   });
 });

@@ -1,290 +1,686 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import {
-  Building2,
-  ChevronRight,
+  ArrowLeft,
+  CalendarDays,
+  CalendarPlus,
   CreditCard,
+  Download,
   FileSpreadsheet,
   FileText,
-  Globe,
+  Layers,
   Link2Off,
-  Mail,
+  Loader2,
   MapPin,
   Phone,
   RefreshCw,
+  Wrench,
 } from "lucide-react";
-import type { PortalDocumentSummary, PortalView as PortalViewData } from "@bitcrm/types";
-import { primaryButton, outlineButton } from "./document-viewer";
+import type {
+  PortalDocumentSummary,
+  PortalJob,
+  PortalPaymentLine,
+  PortalProposalSummary,
+  PortalView as PortalViewData,
+} from "@bitcrm/types";
+import { DocumentFrame } from "./document-frame";
+import { primaryButton, outlineButton, type DocumentLoaders } from "./document-viewer";
 import {
-  businessAddressLine,
   businessInitials,
+  calendarDataUrl,
+  clientInitials,
   cx,
-  documentKindLabel,
+  depositOwed,
   documentTitle,
   firstNameOf,
+  formatJobWhen,
   formatMoney,
+  formatSentAt,
   formatYmd,
+  inboxChip,
+  isOpenEstimate,
   isOwing,
-  outstanding,
+  proposalChip,
   telHref,
   websiteHref,
 } from "./lib";
-import { StatusBadge } from "./status-badge";
+import { goTo } from "./navigate";
+import { useLoad } from "./use-load";
 
-const chip =
-  "inline-flex h-9 items-center gap-1.5 rounded-chip border bg-card px-3 text-[13px] font-medium sm:px-3.5 sm:text-sm transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none";
+const chip = "inline-flex items-center rounded-chip border px-1.5 py-0.5 text-[10px] font-semibold tracking-wide whitespace-nowrap";
 
-/** The client-facing portal body — shared by the public page and the staff preview. */
+/** What the host lets the client DO (the staff preview passes nothing — it reads, it never decides). */
+export interface PortalActions {
+  /** Approve an open estimate: sign it, then pay its deposit when it asks for one. */
+  onApprove?: (doc: PortalDocumentSummary) => void;
+  onDecline?: (doc: PortalDocumentSummary) => void;
+  /** Pay an invoice's balance (signing first when the invoice asks for a signature). */
+  onPay?: (doc: PortalDocumentSummary) => void;
+  /** Pay what is still owed of an approved estimate's deposit. */
+  onPayDeposit?: (doc: PortalDocumentSummary) => void;
+}
+
+export type PortalSelection =
+  | { kind: "invoice" | "estimate"; id: string; fromProposal?: string }
+  | { kind: "proposal"; id: string }
+  | null;
+
+/**
+ * The client portal as Workiz lays it out: the company header, "Hey Jane,
+ * it's great to see you", the Inbox / My Booking tabs, the inbox list on the
+ * left with the chosen document on the right, and the profile (contact
+ * details + payment history) behind the avatar. Shared by the public page
+ * and the staff preview.
+ */
 export function PortalView({
   view,
-  onOpen,
-  onPay,
+  loaders,
+  actions = {},
+  scope = "portal",
+  initialSelection = null,
 }: {
   view: PortalViewData;
-  onOpen: (doc: PortalDocumentSummary) => void;
-  /** Absent wherever paying is not on offer (the staff preview) — no dead buttons. */
-  onPay?: (doc: PortalDocumentSummary) => void;
+  loaders: DocumentLoaders;
+  actions?: PortalActions;
+  /** Tells one host's documents from another's (token, or preview contact). */
+  scope?: string;
+  initialSelection?: PortalSelection;
 }) {
-  const owing = outstanding(view.invoices);
-  const nothing = view.invoices.length === 0 && view.estimates.length === 0;
+  const [tab, setTab] = useState<"inbox" | "booking">("inbox");
+  const [profile, setProfile] = useState(false);
+  const [selected, setSelected] = useState<PortalSelection>(initialSelection);
   const name = firstNameOf(view.client);
 
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-6">
-      <BusinessHeader business={view.business} />
+    <div className="mx-auto w-full max-w-6xl space-y-5">
+      <PortalHeader business={view.business} />
 
-      <section className="space-y-1 px-1">
-        <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">{name ? `Hi ${name},` : "Hello,"}</h1>
-        <p className="text-muted-foreground">Here are your documents from {view.business.name}.</p>
-      </section>
+      <div className="flex items-center justify-between gap-3 px-1">
+        <h1 className="text-lg sm:text-xl">
+          {name ? (
+            <>
+              Hey <span className="font-semibold">{name}</span>, it&apos;s great to see you.
+            </>
+          ) : (
+            "Welcome, it's great to see you."
+          )}
+        </h1>
+        <button
+          type="button"
+          onClick={() => setProfile((p) => !p)}
+          aria-label="Your profile"
+          aria-pressed={profile}
+          className="flex size-10 flex-none items-center justify-center rounded-full bg-brand/15 text-sm font-semibold text-brand hover:bg-brand/25 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+        >
+          {clientInitials(view.client)}
+        </button>
+      </div>
 
-      {owing.count > 0 ? (
-        <BalanceCard {...owing} invoices={view.invoices} onOpen={onOpen} onPay={onPay} businessName={view.business.name} />
-      ) : null}
-
-      {nothing ? (
-        <p className="rounded-2xl border border-dashed bg-card p-8 text-center text-sm text-muted-foreground">
-          Nothing to show yet. Your estimates and invoices will appear here as soon as {view.business.name} sends them.
-        </p>
-      ) : null}
-
-      {view.invoices.length > 0 ? (
-        <DocSection title="Invoices" icon={<FileText className="size-4" aria-hidden />} docs={view.invoices} preview={view.preview} onOpen={onOpen} />
-      ) : null}
-      {view.estimates.length > 0 ? (
-        <DocSection title="Estimates" icon={<FileSpreadsheet className="size-4" aria-hidden />} docs={view.estimates} preview={view.preview} onOpen={onOpen} />
-      ) : null}
+      {profile ? (
+        <ProfilePanel view={view} onBack={() => setProfile(false)} />
+      ) : (
+        <>
+          <div role="tablist" aria-label="Portal sections" className="flex border-b px-1">
+            {(["inbox", "booking"] as const).map((t) => (
+              <button
+                key={t}
+                type="button"
+                role="tab"
+                aria-selected={tab === t}
+                onClick={() => setTab(t)}
+                className={cx(
+                  "-mb-px border-b-2 px-5 py-2.5 text-sm transition-colors",
+                  tab === t ? "border-emerald-500 font-semibold" : "border-transparent text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {t === "inbox" ? "Inbox" : "My Booking"}
+              </button>
+            ))}
+          </div>
+          {tab === "inbox" ? (
+            <Inbox view={view} loaders={loaders} actions={actions} scope={scope} selected={selected} onSelect={setSelected} />
+          ) : (
+            <Booking jobs={view.jobs} businessName={view.business.name} />
+          )}
+        </>
+      )}
     </div>
   );
 }
 
-function BusinessHeader({ business }: { business: PortalViewData["business"] }) {
-  const address = businessAddressLine(business.address);
+/* ------------------------------------------------------------------ header */
+
+function PortalHeader({ business }: { business: PortalViewData["business"] }) {
   return (
-    <header className="overflow-hidden rounded-2xl border bg-card shadow-xs">
-      <div aria-hidden className="h-1.5 bg-brand" />
-      <div className="space-y-4 p-4 sm:p-6">
-        <div className="flex items-center gap-3.5">
-          {business.logoUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element -- signed URL from the API, not a static asset
-            <img src={business.logoUrl} alt="" className="h-12 w-auto max-w-36 flex-none object-contain sm:h-14" />
-          ) : (
-            <span
-              aria-hidden
-              className="flex size-12 flex-none items-center justify-center rounded-xl bg-brand text-base font-semibold text-brand-foreground sm:size-14 sm:text-lg"
-            >
-              {businessInitials(business.name)}
-            </span>
-          )}
-          <div className="min-w-0">
-            <p className="text-lg leading-tight font-semibold tracking-tight sm:text-xl">{business.name}</p>
-            {address ? (
-              <p className="mt-1 flex items-start gap-1.5 text-sm text-muted-foreground">
-                <MapPin className="mt-0.5 size-3.5 flex-none" aria-hidden />
-                <span>{address}</span>
-              </p>
-            ) : null}
-          </div>
-        </div>
-        {business.phone || business.email || business.website ? (
-          <ul className="flex flex-wrap gap-2">
-            {business.phone ? (
-              <li>
-                <a href={telHref(business.phone)} className={chip}>
-                  <Phone className="size-4" aria-hidden /> {business.phone}
-                </a>
-              </li>
-            ) : null}
-            {business.email ? (
-              <li>
-                <a href={`mailto:${business.email}`} className={chip}>
-                  <Mail className="size-4" aria-hidden /> {business.email}
-                </a>
-              </li>
-            ) : null}
-            {business.website ? (
-              <li>
-                <a href={websiteHref(business.website)} target="_blank" rel="noopener noreferrer" className={chip}>
-                  <Globe className="size-4" aria-hidden /> {business.website.replace(/^https?:\/\//i, "")}
-                </a>
-              </li>
-            ) : null}
-          </ul>
+    <header className="flex flex-wrap items-center gap-3 rounded-2xl border bg-card px-4 py-3 shadow-xs sm:px-6">
+      {business.logoUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element -- signed URL from the API, not a static asset
+        <img src={business.logoUrl} alt="" className="h-10 w-auto max-w-32 flex-none object-contain sm:h-12" />
+      ) : (
+        <span aria-hidden className="flex size-10 flex-none items-center justify-center rounded-xl bg-brand text-sm font-semibold text-brand-foreground">
+          {businessInitials(business.name)}
+        </span>
+      )}
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-base leading-tight font-semibold sm:text-lg">{business.name}</p>
+        {business.description ? <p className="truncate text-xs text-muted-foreground sm:text-sm">{business.description}</p> : null}
+      </div>
+      <div className="flex w-full items-center gap-2 sm:w-auto">
+        {business.phone ? (
+          <a href={telHref(business.phone)} className="inline-flex items-center gap-1.5 text-sm font-medium hover:underline">
+            <Phone className="size-4" aria-hidden /> {business.phone}
+          </a>
+        ) : null}
+        {business.bookingUrl ? (
+          <a
+            href={websiteHref(business.bookingUrl)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="ml-auto inline-flex items-center gap-1.5 text-sm font-medium hover:underline sm:ml-2 sm:border-l sm:pl-3"
+          >
+            <CalendarDays className="size-4" aria-hidden /> Book a service
+          </a>
         ) : null}
       </div>
     </header>
   );
 }
 
-function BalanceCard({
-  total,
-  count,
-  overdue,
-  invoices,
-  onOpen,
-  onPay,
-  businessName,
+/* ------------------------------------------------------------------- inbox */
+
+type InboxEntry =
+  | { kind: "doc"; doc: PortalDocumentSummary; sentAt: string }
+  | { kind: "proposal"; proposal: PortalProposalSummary; sentAt: string };
+
+function inboxEntries(view: PortalViewData): InboxEntry[] {
+  const inProposal = new Set(view.proposals.flatMap((p) => p.estimateIds));
+  const docs: InboxEntry[] = [...view.invoices, ...view.estimates.filter((e) => !inProposal.has(e.id))].map((doc) => ({
+    kind: "doc",
+    doc,
+    sentAt: doc.date,
+  }));
+  const proposals: InboxEntry[] = view.proposals.map((proposal) => ({ kind: "proposal", proposal, sentAt: proposal.sentAt }));
+  return [...docs, ...proposals].sort((a, b) => b.sentAt.localeCompare(a.sentAt));
+}
+
+function Inbox({
+  view,
+  loaders,
+  actions,
+  scope,
+  selected,
+  onSelect,
 }: {
-  total: number;
-  count: number;
-  overdue: boolean;
-  invoices: PortalDocumentSummary[];
-  onOpen: (doc: PortalDocumentSummary) => void;
-  onPay?: (doc: PortalDocumentSummary) => void;
-  businessName: string;
+  view: PortalViewData;
+  loaders: DocumentLoaders;
+  actions: PortalActions;
+  scope: string;
+  selected: PortalSelection;
+  onSelect: (s: PortalSelection) => void;
 }) {
-  const only = count === 1 ? invoices.find(isOwing) : undefined;
-  const clearing = invoices.filter(isOwing).reduce((sum, d) => sum + (d.amountPending ?? 0), 0);
-  // One invoice that takes card or bank gets a button; anything else gets a
-  // sentence, because a button that cannot pay is worse than no button.
-  const payNow = onPay && only?.payable ? only : undefined;
+  const entries = inboxEntries(view);
+  const byId = new Map(
+    [...view.invoices, ...view.estimates].map((d) => [`${d.kind}:${d.id}`, d] as const),
+  );
+  const current =
+    selected && selected.kind !== "proposal" ? (byId.get(`${selected.kind}:${selected.id}`) ?? null) : null;
+  const proposal = selected?.kind === "proposal" ? (view.proposals.find((p) => p.id === selected.id) ?? null) : null;
+  const parent = selected && selected.kind !== "proposal" && selected.fromProposal
+    ? view.proposals.find((p) => p.id === selected.fromProposal)
+    : undefined;
+
   return (
-    <section
-      aria-label="Balance due"
-      className={cx(
-        "flex flex-col gap-4 rounded-2xl border p-4 sm:flex-row sm:items-center sm:justify-between sm:p-6",
-        overdue ? "border-red-500/30 bg-red-500/5" : "border-brand/25 bg-brand/5",
-      )}
-    >
-      <div>
-        <p className="text-sm font-medium text-muted-foreground">{overdue ? "Balance overdue" : "Balance due"}</p>
-        <p className="font-mono text-3xl font-semibold tracking-tight tabular-nums">{formatMoney(total)}</p>
-        <p className="text-sm text-muted-foreground">
-          {count === 1 ? "on 1 invoice" : `across ${count} invoices`}
-          {clearing > 0 ? ` · ${formatMoney(clearing)} clearing` : ""}
-        </p>
-        {onPay && !payNow ? (
-          <p className="mt-1.5 max-w-xs text-xs text-muted-foreground">
-            {count > 1
-              ? "Open an invoice to pay it online."
-              : `Online payment isn't available for this invoice — please contact ${businessName} to pay.`}
+    <div className="grid gap-5 md:grid-cols-[minmax(260px,330px)_1fr]">
+      <section aria-label="Your inbox" className={cx("space-y-3", selected && "hidden md:block")}>
+        <h2 className="px-1 text-lg font-semibold">Your Inbox ({entries.length})</h2>
+        {entries.length === 0 ? (
+          <p className="rounded-2xl border border-dashed bg-card p-6 text-center text-sm text-muted-foreground">
+            Nothing to show yet. Your estimates and invoices will appear here as soon as {view.business.name} sends them.
           </p>
-        ) : null}
-      </div>
-      {only ? (
-        <div className="flex flex-col gap-2 sm:flex-none sm:flex-row">
-          {payNow ? (
-            <button type="button" onClick={() => onPay?.(payNow)} className={primaryButton}>
-              <CreditCard className="size-4" aria-hidden /> Pay {formatMoney(total)} now
-            </button>
-          ) : null}
-          <button type="button" onClick={() => onOpen(only)} className={payNow ? outlineButton : primaryButton}>
-            View invoice #{only.number}
-          </button>
-        </div>
-      ) : null}
-    </section>
+        ) : (
+          <ul className="space-y-2.5">
+            {entries.map((e) =>
+              e.kind === "doc" ? (
+                <li key={`${e.doc.kind}-${e.doc.id}`}>
+                  <DocumentCard
+                    doc={e.doc}
+                    preview={view.preview}
+                    selected={current?.id === e.doc.id && current.kind === e.doc.kind}
+                    onOpen={() => onSelect({ kind: e.doc.kind, id: e.doc.id })}
+                  />
+                </li>
+              ) : (
+                <li key={`proposal-${e.proposal.id}`}>
+                  <ProposalCard
+                    proposal={e.proposal}
+                    selected={proposal?.id === e.proposal.id}
+                    onOpen={() => onSelect({ kind: "proposal", id: e.proposal.id })}
+                  />
+                </li>
+              ),
+            )}
+          </ul>
+        )}
+      </section>
+
+      <section aria-label="Document" className={cx("min-w-0", !selected && "hidden md:block")}>
+        {proposal ? (
+          <ProposalDetail
+            proposal={proposal}
+            onBack={() => onSelect(null)}
+            onOpenOption={(doc) => onSelect({ kind: "estimate", id: doc.id, fromProposal: proposal.id })}
+          />
+        ) : current ? (
+          <DocumentDetail
+            key={`${scope}:${current.kind}:${current.id}`}
+            doc={current}
+            loaders={loaders}
+            actions={actions}
+            preview={view.preview}
+            onBack={() => onSelect(parent ? { kind: "proposal", id: parent.id } : null)}
+            backLabel={parent ? `Back to Proposal #${parent.number}` : "Back to inbox"}
+          />
+        ) : (
+          <div className="hidden h-full min-h-64 items-center justify-center rounded-2xl border border-dashed bg-card p-8 text-center text-sm text-muted-foreground md:flex">
+            {entries.length ? "Pick a document on the left to read it." : "Nothing to read yet."}
+          </div>
+        )}
+      </section>
+    </div>
   );
 }
 
-function DocSection({
-  title,
-  icon,
-  docs,
+export function DocumentCard({
+  doc,
   preview,
+  selected,
   onOpen,
 }: {
-  title: string;
-  icon: ReactNode;
-  docs: PortalDocumentSummary[];
+  doc: PortalDocumentSummary;
   preview: boolean;
-  onOpen: (doc: PortalDocumentSummary) => void;
+  selected?: boolean;
+  onOpen: () => void;
 }) {
-  return (
-    <section aria-label={title} className="space-y-2.5">
-      <h2 className="flex items-center gap-2 px-1 text-sm font-semibold tracking-wide text-muted-foreground uppercase">
-        {icon} {title}
-        <span className="font-normal">· {docs.length}</span>
-      </h2>
-      <ul className="space-y-2.5">
-        {docs.map((d) => (
-          <li key={`${d.kind}-${d.id}`}>
-            <DocumentCard doc={d} preview={preview} onOpen={() => onOpen(d)} />
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-}
-
-export function DocumentCard({ doc, preview, onOpen }: { doc: PortalDocumentSummary; preview: boolean; onOpen: () => void }) {
   const isInvoice = doc.kind === "invoice";
-  const Icon = isInvoice ? FileText : FileSpreadsheet;
-  const owing = isOwing(doc);
-
+  const status = inboxChip(doc);
   return (
     <button
       type="button"
       onClick={onOpen}
       aria-label={`${documentTitle(doc)}${doc.name ? ` ${doc.name}` : ""}`}
-      className="group flex w-full items-center gap-3 rounded-2xl border bg-card p-3.5 text-left shadow-xs transition-colors hover:border-brand/40 hover:bg-accent/30 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:p-4"
+      aria-current={selected ? "true" : undefined}
+      className={cx(
+        "block w-full rounded-2xl border bg-card p-4 text-left shadow-xs transition-colors hover:border-brand/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+        selected && "border-emerald-500/60 bg-emerald-500/5",
+      )}
     >
-      <span
-        aria-hidden
-        className={cx(
-          "flex size-11 flex-none items-center justify-center rounded-xl",
-          isInvoice ? "bg-brand/10 text-brand" : "bg-sky-500/10 text-sky-700 dark:text-sky-300",
-        )}
-      >
-        <Icon className="size-5" />
+      <span className="flex flex-wrap items-start justify-between gap-2">
+        <span className="text-base font-semibold">{documentTitle(doc)}</span>
+        <span className={cx(chip, status.className)}>{status.label}</span>
       </span>
-      <span className="min-w-0 flex-1 space-y-1">
-        <span className="flex flex-wrap items-center gap-1.5">
-          <span className="font-medium">{documentTitle(doc)}</span>
-          <StatusBadge doc={doc} />
-          {preview && !doc.sent ? (
-            <span className="rounded border border-dashed border-amber-500/60 px-1.5 text-[10px] font-semibold tracking-wide text-amber-700 dark:text-amber-400">
-              UNSENT
-            </span>
-          ) : null}
+      {doc.name ? <span className="mt-1 block truncate text-sm">{doc.name}</span> : null}
+      {preview && !doc.sent ? (
+        <span className="mt-1 inline-block rounded border border-dashed border-amber-500/60 px-1.5 text-[10px] font-semibold tracking-wide text-amber-700 dark:text-amber-400">
+          UNSENT
         </span>
-        {doc.name ? <span className="block truncate text-sm">{doc.name}</span> : null}
-        {doc.companyName ? (
-          <span className="flex items-center gap-1 truncate text-xs text-muted-foreground">
-            <Building2 className="size-3 flex-none" aria-hidden />
-            <span className="truncate">{doc.companyName}</span>
+      ) : null}
+      <span className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
+        <CalendarDays className="size-3.5" aria-hidden />
+        {doc.sent ? `Sent ${formatYmd(doc.date)}` : formatYmd(doc.date)}
+        {isInvoice && doc.dueDate ? ` | Due ${formatYmd(doc.dueDate)}` : ""}
+      </span>
+      <span className="mt-2 flex justify-end gap-4 border-t pt-2 text-sm">
+        {!isInvoice && doc.depositDue ? (
+          <span>
+            <span className="text-muted-foreground">Deposit: </span>
+            <span className="font-semibold tabular-nums">{formatMoney(doc.depositDue)}</span>
           </span>
         ) : null}
-        <span className="block text-xs text-muted-foreground">
-          {formatYmd(doc.date)}
-          {isInvoice && doc.dueDate && doc.status !== "paid" ? ` · Due ${formatYmd(doc.dueDate)}` : ""}
+        <span>
+          <span className="text-muted-foreground">Total: </span>
+          <span className="font-semibold tabular-nums">{formatMoney(doc.total)}</span>
         </span>
       </span>
-      <span className="flex-none text-right">
-        <span className="block font-mono text-base font-semibold tabular-nums">{formatMoney(doc.total)}</span>
-        {owing ? (
-          <span className="block text-xs font-medium text-amber-700 tabular-nums dark:text-amber-400">
-            {formatMoney(doc.balanceDue ?? 0)} due
-          </span>
-        ) : null}
-      </span>
-      <ChevronRight
-        className="size-4 flex-none text-muted-foreground transition-transform group-hover:translate-x-0.5"
-        aria-hidden
-      />
-      <span className="sr-only">Open this {documentKindLabel(doc.kind).toLowerCase()}</span>
     </button>
+  );
+}
+
+function ProposalCard({ proposal, selected, onOpen }: { proposal: PortalProposalSummary; selected?: boolean; onOpen: () => void }) {
+  const status = proposalChip(proposal);
+  const n = proposal.options.length;
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      aria-label={`Proposal #${proposal.number}`}
+      aria-current={selected ? "true" : undefined}
+      className={cx(
+        "block w-full rounded-2xl border bg-card p-4 text-left shadow-xs transition-colors hover:border-brand/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+        selected && "border-emerald-500/60 bg-emerald-500/5",
+      )}
+    >
+      <span className="flex flex-wrap items-start justify-between gap-2">
+        <span className="text-base font-semibold">Proposal #{proposal.number}</span>
+        <span className={cx(chip, status.className)}>{status.label}</span>
+      </span>
+      <span className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
+        <CalendarDays className="size-3.5" aria-hidden /> Sent {formatSentAt(proposal.sentAt)}
+      </span>
+      <span className="mt-2 flex justify-end border-t pt-2 text-sm font-semibold">
+        {n} estimate{n === 1 ? "" : "s"}
+      </span>
+    </button>
+  );
+}
+
+/* ------------------------------------------------------------------ detail */
+
+function DocumentDetail({
+  doc,
+  loaders,
+  actions,
+  preview,
+  onBack,
+  backLabel,
+}: {
+  doc: PortalDocumentSummary;
+  loaders: DocumentLoaders;
+  actions: PortalActions;
+  preview: boolean;
+  onBack: () => void;
+  backLabel: string;
+}) {
+  const title = documentTitle(doc);
+  const page = useLoad(() => loaders.getHtml(doc), `${doc.kind}:${doc.id}`);
+  const [busy, setBusy] = useState(false);
+  const [pdfError, setPdfError] = useState<string | null>(null);
+  const isInvoice = doc.kind === "invoice";
+  const open = isOpenEstimate(doc);
+  const owedDeposit = depositOwed(doc);
+  const status = inboxChip(doc);
+
+  const download = async () => {
+    setBusy(true);
+    setPdfError(null);
+    try {
+      const { url } = await loaders.getPdfUrl(doc, true);
+      goTo(url);
+    } catch {
+      setPdfError("Couldn't prepare the PDF. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // What the client can do right now. A button that cannot act is worse than none.
+  const approve = open && actions.onApprove ? actions.onApprove : undefined;
+  const decline = open && actions.onDecline ? actions.onDecline : undefined;
+  const payDeposit = !open && doc.status === "approved" && owedDeposit > 0 && doc.payable && actions.onPayDeposit ? actions.onPayDeposit : undefined;
+  const pay = isInvoice && isOwing(doc) && doc.payable && actions.onPay ? actions.onPay : undefined;
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-2">
+        <button type="button" onClick={onBack} className="inline-flex items-center gap-1 text-sm font-medium text-brand hover:underline">
+          <ArrowLeft className="size-4" aria-hidden /> {backLabel}
+        </button>
+        <button type="button" onClick={download} disabled={busy} className="inline-flex items-center gap-1.5 text-sm font-medium hover:underline disabled:opacity-60">
+          {busy ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Download className="size-4" aria-hidden />} Download PDF
+        </button>
+      </div>
+
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="text-lg font-semibold">
+            {title}
+            {doc.name ? <span className="font-normal text-muted-foreground"> - {doc.name}</span> : null}
+          </h2>
+          {!isInvoice && open && doc.depositDue ? (
+            <p className="text-base font-semibold">Required deposit: {formatMoney(doc.depositDue)}</p>
+          ) : null}
+          {!isInvoice && !open && owedDeposit > 0 ? (
+            <p className="text-base font-semibold">Deposit still owed: {formatMoney(owedDeposit)}</p>
+          ) : null}
+          <p className="text-sm text-muted-foreground">
+            {isInvoice && isOwing(doc) ? `Balance: ${formatMoney(doc.balanceDue ?? doc.total)} · ` : ""}
+            Total: {formatMoney(doc.total)}
+          </p>
+          <span className={cx(chip, status.className, "mt-1")}>{status.label}</span>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {decline ? (
+            <button type="button" onClick={() => decline(doc)} className={outlineButton}>
+              Decline
+            </button>
+          ) : null}
+          {approve ? (
+            <button type="button" onClick={() => approve(doc)} className={primaryButton}>
+              {doc.depositDue ? "Approve & pay deposit" : "Approve"}
+            </button>
+          ) : null}
+          {payDeposit ? (
+            <button type="button" onClick={() => payDeposit(doc)} className={primaryButton}>
+              <CreditCard className="size-4" aria-hidden /> Pay deposit {formatMoney(owedDeposit)}
+            </button>
+          ) : null}
+          {pay ? (
+            <button type="button" onClick={() => pay(doc)} className={primaryButton}>
+              <CreditCard className="size-4" aria-hidden /> {doc.signatureNeeded ? "Sign & pay invoice" : "Pay invoice"}
+            </button>
+          ) : null}
+        </div>
+      </div>
+      {preview && (open || isOwing(doc)) ? (
+        <p className="text-xs text-muted-foreground">Preview — approving, signing and paying are the client&apos;s to do.</p>
+      ) : null}
+      {pdfError ? (
+        <p role="alert" className="text-xs text-destructive">{pdfError}</p>
+      ) : null}
+
+      <div className="rounded-2xl border bg-muted/40 p-2 sm:p-3">
+        {page.loading ? (
+          <div role="status" className="flex min-h-64 flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="size-5 animate-spin" aria-hidden /> Loading…
+          </div>
+        ) : page.error || !page.data ? (
+          <div className="mx-auto flex max-w-sm flex-col items-center gap-3 p-8 text-center text-sm text-muted-foreground">
+            <p>We couldn&apos;t show this document on the page. You can still download the PDF above.</p>
+            <button type="button" onClick={page.reload} className={outlineButton}>
+              Try again
+            </button>
+          </div>
+        ) : (
+          <DocumentFrame html={page.data.html} title={title} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ProposalDetail({
+  proposal,
+  onBack,
+  onOpenOption,
+}: {
+  proposal: PortalProposalSummary;
+  onBack: () => void;
+  onOpenOption: (doc: PortalDocumentSummary) => void;
+}) {
+  const status = proposalChip(proposal);
+  return (
+    <div className="space-y-3">
+      <button type="button" onClick={onBack} className="inline-flex items-center gap-1 text-sm font-medium text-brand hover:underline md:hidden">
+        <ArrowLeft className="size-4" aria-hidden /> Back to inbox
+      </button>
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <h2 className="text-lg font-semibold">Proposal #{proposal.number}</h2>
+          <p className="text-sm text-muted-foreground">Sent {formatSentAt(proposal.sentAt)} · {proposal.options.length} estimates</p>
+        </div>
+        <span className={cx(chip, status.className)}>{status.label}</span>
+      </div>
+      <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {proposal.options.map((o, i) => {
+          const picked = proposal.selectedEstimateId === o.id;
+          const s = inboxChip(o);
+          return (
+            <li
+              key={o.id}
+              className={cx("relative flex flex-col gap-2 rounded-2xl border bg-card p-4 shadow-xs", picked && "border-emerald-500/60")}
+            >
+              {picked ? (
+                <span className="absolute -top-2.5 left-1/2 -translate-x-1/2 rounded-chip bg-emerald-500 px-2 py-0.5 text-[10px] font-semibold text-white">
+                  Selected option
+                </span>
+              ) : null}
+              <span className="flex items-start justify-between gap-2">
+                <span className="font-semibold">{o.name || `Option ${i + 1}`}</span>
+                <span className="font-mono font-semibold tabular-nums">{formatMoney(o.total)}</span>
+              </span>
+              <span className="text-xs text-muted-foreground">Estimate #{o.number}</span>
+              <span className={cx(chip, s.className, "self-start")}>{s.label}</span>
+              <button type="button" onClick={() => onOpenOption(o)} className={cx(primaryButton, "mt-auto")}>
+                View estimate
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+/* ----------------------------------------------------------------- booking */
+
+function Booking({ jobs, businessName }: { jobs: PortalJob[]; businessName: string }) {
+  const upcoming = jobs.filter((j) => j.kind === "upcoming");
+  const completed = jobs.filter((j) => j.kind === "completed");
+  return (
+    <div className="space-y-6">
+      <JobList title="Upcoming" jobs={upcoming} businessName={businessName} empty="No upcoming visits." />
+      <JobList title="Completed" jobs={completed} businessName={businessName} empty="No completed jobs yet." />
+    </div>
+  );
+}
+
+function JobList({ title, jobs, businessName, empty }: { title: string; jobs: PortalJob[]; businessName: string; empty: string }) {
+  return (
+    <section aria-label={title} className="space-y-2.5">
+      <h2 className="px-1 text-lg font-semibold">
+        {title} <span className="text-base font-normal text-muted-foreground">({jobs.length})</span>
+      </h2>
+      {jobs.length === 0 ? (
+        <p className="rounded-2xl border border-dashed bg-card p-6 text-center text-sm text-muted-foreground">{empty}</p>
+      ) : (
+        <ul className="grid gap-3 sm:grid-cols-2">
+          {jobs.map((j) => {
+            const ics = calendarDataUrl(j, businessName);
+            return (
+              <li key={j.id} className="space-y-2 rounded-2xl border bg-card p-4 shadow-xs">
+                <p className="flex items-center justify-between gap-2">
+                  <span className="font-semibold">{j.jobType ?? "Service visit"}</span>
+                  <span className="text-xs text-muted-foreground">#{j.number}</span>
+                </p>
+                <p className="flex items-center gap-1.5 text-sm">
+                  <CalendarDays className="size-4 flex-none text-muted-foreground" aria-hidden />
+                  {formatJobWhen(j.scheduledDate, j.scheduledEndDate, j.timezone)}
+                </p>
+                {j.address ? (
+                  <p className="flex items-start gap-1.5 text-sm text-muted-foreground">
+                    <MapPin className="mt-0.5 size-4 flex-none" aria-hidden /> {j.address}
+                  </p>
+                ) : null}
+                {j.technicians.length ? (
+                  <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                    <Wrench className="size-4 flex-none" aria-hidden /> {j.technicians.join(", ")}
+                  </p>
+                ) : null}
+                {ics && j.kind === "upcoming" ? (
+                  <a href={ics} download={`job-${j.number}.ics`} className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:underline">
+                    <CalendarPlus className="size-4" aria-hidden /> Add to calendar
+                  </a>
+                ) : null}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+/* ----------------------------------------------------------------- profile */
+
+const METHOD_LABEL: Record<string, string> = { card: "Card", bank: "Bank transfer", cash: "Cash", check: "Check", other: "Other" };
+const PAYMENT_STATUS: Record<string, string> = {
+  settled: "Paid",
+  pending: "Clearing",
+  refunded: "Refunded",
+  reversed: "Returned",
+  failed: "Failed",
+};
+
+function ProfilePanel({ view, onBack }: { view: PortalViewData; onBack: () => void }) {
+  const c = view.client;
+  return (
+    <div className="space-y-5">
+      <button type="button" onClick={onBack} className="inline-flex items-center gap-1 text-sm font-medium text-brand hover:underline">
+        <ArrowLeft className="size-4" aria-hidden /> Back
+      </button>
+      <h2 className="text-2xl font-semibold">Your Profile</h2>
+      <section aria-label="Personal info" className="space-y-2 rounded-2xl border bg-card p-4 shadow-xs">
+        <h3 className="font-semibold">Personal Info</h3>
+        <dl className="grid gap-2 text-sm sm:grid-cols-3">
+          <Info label="Name" value={[c.firstName, c.lastName].filter(Boolean).join(" ") || "—"} />
+          <Info label="Email" value={c.email ?? "—"} />
+          <Info label="Phone" value={c.phone ?? "—"} />
+        </dl>
+        <p className="text-xs text-muted-foreground">To change these, please contact {view.business.name}.</p>
+      </section>
+      <section aria-label="Payment history" className="space-y-2 rounded-2xl border bg-card p-4 shadow-xs">
+        <h3 className="font-semibold">Payment History</h3>
+        {view.payments.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No payments yet.</p>
+        ) : (
+          <ul className="divide-y">
+            {view.payments.map((p) => (
+              <PaymentRow key={p.id} payment={p} />
+            ))}
+          </ul>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function Info({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dd className="font-medium">{value}</dd>
+    </div>
+  );
+}
+
+function PaymentRow({ payment: p }: { payment: PortalPaymentLine }) {
+  const what = p.estimateId ? "Deposit on an estimate" : p.invoiceId ? "Invoice payment" : "Payment";
+  const how = [METHOD_LABEL[p.method] ?? p.method, p.cardBrand && p.last4 ? `${p.cardBrand} ···· ${p.last4}` : null]
+    .filter(Boolean)
+    .join(" · ");
+  return (
+    <li className="flex items-center justify-between gap-3 py-2 text-sm">
+      <span className="min-w-0">
+        <span className="block font-medium">{what}</span>
+        <span className="block text-xs text-muted-foreground">
+          {formatSentAt(p.takenAt)} · {how}
+        </span>
+      </span>
+      <span className="text-right">
+        <span className="block font-mono font-semibold tabular-nums">{formatMoney(p.amount)}</span>
+        <span className="block text-xs text-muted-foreground">{PAYMENT_STATUS[p.status] ?? p.status}</span>
+      </span>
+    </li>
   );
 }
 
@@ -293,12 +689,15 @@ export function DocumentCard({ doc, preview, onOpen }: { doc: PortalDocumentSumm
 export function PortalSkeleton() {
   const bar = "animate-pulse rounded-lg bg-muted";
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-6" aria-busy role="status" aria-label="Loading your documents">
-      <div className={cx(bar, "h-36 rounded-2xl")} />
+    <div className="mx-auto w-full max-w-6xl space-y-5" aria-busy role="status" aria-label="Loading your documents">
+      <div className={cx(bar, "h-16 rounded-2xl")} />
       <div className={cx(bar, "h-8 w-1/2")} />
-      <div className="space-y-2.5">
-        <div className={cx(bar, "h-24 rounded-2xl")} />
-        <div className={cx(bar, "h-24 rounded-2xl")} />
+      <div className="grid gap-5 md:grid-cols-[330px_1fr]">
+        <div className="space-y-2.5">
+          <div className={cx(bar, "h-28 rounded-2xl")} />
+          <div className={cx(bar, "h-28 rounded-2xl")} />
+        </div>
+        <div className={cx(bar, "hidden h-96 rounded-2xl md:block")} />
       </div>
     </div>
   );
@@ -331,3 +730,10 @@ export function PortalLoadError({ onRetry, retrying }: { onRetry: () => void; re
     </div>
   );
 }
+
+/** Kept for hosts that still render a lone icon per kind. */
+export const KIND_ICON: Record<PortalDocumentSummary["kind"] | "proposal", ReactNode> = {
+  invoice: <FileText className="size-4" aria-hidden />,
+  estimate: <FileSpreadsheet className="size-4" aria-hidden />,
+  proposal: <Layers className="size-4" aria-hidden />,
+};

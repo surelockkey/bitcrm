@@ -73,6 +73,8 @@ export interface PaymentPanelProps {
   returnUrl: (paymentId: string) => string;
   /** Set when the page was opened by that redirect: skip to the poll. */
   resumePaymentId?: string;
+  /** What is being paid: an invoice's balance (default) or an estimate's deposit. Only the copy changes. */
+  noun?: "invoice" | "deposit";
 }
 
 type Step =
@@ -105,7 +107,11 @@ export function PaymentPanel(props: PaymentPanelProps) {
   }, [onClose]);
 
   // Coming back from a redirect there is nothing left to choose — the page is a receipt.
-  const title = props.resumePaymentId ? "Your payment" : `Pay invoice #${doc.number}`;
+  const title = props.resumePaymentId
+    ? "Your payment"
+    : props.noun === "deposit"
+      ? `Deposit for estimate #${doc.number}`
+      : `Pay invoice #${doc.number}`;
   return (
     <div role="dialog" aria-modal="true" aria-label={title} className="fixed inset-0 z-60 flex flex-col bg-background">
       <header className="border-b bg-card pt-[env(safe-area-inset-top)]">
@@ -136,7 +142,12 @@ export function PaymentPanel(props: PaymentPanelProps) {
 
 /* ---------------------------------------------------------------- the states */
 
-function PanelBody({ doc, loaders, onClose, onPaid, businessName, returnUrl, resumePaymentId }: PaymentPanelProps) {
+/** The states of a payment without the full-screen shell — the Sign & Pay panel embeds it as its second step. */
+export function PaymentPanelBody(props: PaymentPanelProps) {
+  return <PanelBody {...props} />;
+}
+
+function PanelBody({ doc, loaders, onClose, onPaid, businessName, returnUrl, resumePaymentId, noun = "invoice" }: PaymentPanelProps) {
   const [step, setStep] = useState<Step>(
     resumePaymentId ? { kind: "polling", paymentId: resumePaymentId, amount: doc.balanceDue ?? 0 } : { kind: "form" },
   );
@@ -191,8 +202,8 @@ function PanelBody({ doc, loaders, onClose, onPaid, businessName, returnUrl, res
 
   if (opts.amountDue <= 0) {
     return (
-      <Notice tone="good" icon={<CheckCircle2 className="size-6" aria-hidden />} title="This invoice is settled">
-        Thank you — there&apos;s nothing left to pay on invoice #{opts.number}.
+      <Notice tone="good" icon={<CheckCircle2 className="size-6" aria-hidden />} title={noun === "deposit" ? "This deposit is paid" : "This invoice is settled"}>
+        Thank you — there&apos;s nothing left to pay on {noun === "deposit" ? "the deposit for estimate" : "invoice"} #{opts.number}.
         {opts.amountPending > 0 ? ` A bank payment of ${formatMoney(opts.amountPending)} is still clearing.` : ""}
       </Notice>
     );
@@ -200,7 +211,7 @@ function PanelBody({ doc, loaders, onClose, onPaid, businessName, returnUrl, res
   if (!payableOnline(opts)) {
     return (
       <Notice tone="muted" icon={<Building2 className="size-6" aria-hidden />} title="Online payment isn't available here">
-        {formatMoney(opts.amountDue)} is owed on invoice #{opts.number}, but{" "}
+        {formatMoney(opts.amountDue)} is owed on {noun === "deposit" ? "the deposit for estimate" : "invoice"} #{opts.number}, but{" "}
         {businessName ?? "the business that sent this"} doesn&apos;t take card or bank payments through this page. Please
         contact {businessName ?? "them"} to arrange payment.
       </Notice>
@@ -217,6 +228,7 @@ function PanelBody({ doc, loaders, onClose, onPaid, businessName, returnUrl, res
       returnUrl={returnUrl}
       onDone={finish}
       businessName={businessName}
+      noun={noun}
     />
   );
 }
@@ -232,6 +244,7 @@ function PayFlow({
   returnUrl,
   onDone,
   businessName,
+  noun = "invoice",
 }: {
   doc: PortalDocumentSummary;
   options: PortalPaymentOptions;
@@ -241,6 +254,7 @@ function PayFlow({
   returnUrl: (paymentId: string) => string;
   onDone: (outcome: PaymentOutcome, amount: number) => void;
   businessName?: string;
+  noun?: "invoice" | "deposit";
 }) {
   const [raw, setRaw] = useState(() => options.amountDue.toFixed(2));
   const [touched, setTouched] = useState(false);
@@ -329,8 +343,8 @@ function PayFlow({
             {showError
               ? error
               : options.allowPartial
-                ? `You can pay any part of the ${formatMoney(options.amountDue)} balance.`
-                : `This invoice is paid in one go — the full balance of ${formatMoney(options.amountDue)}.`}
+                ? `You can pay any part of the ${formatMoney(options.amountDue)} ${noun === "deposit" ? "deposit" : "balance"}.`
+                : `This ${noun} is paid in one go — the full ${formatMoney(options.amountDue)}.`}
           </p>
           {options.amountPending > 0 ? (
             <p className={hint}>
