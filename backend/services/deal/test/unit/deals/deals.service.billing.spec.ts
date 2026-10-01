@@ -259,7 +259,7 @@ describe('DealsService — billing', () => {
       }));
       expect(repo.update).toHaveBeenCalledWith('deal-1', {
         itemCount: 1,
-        totals: { subtotal: 50, discount: 0, tax: 0, total: 50, cost: 1 },
+        totals: { subtotal: 50, discount: 0, tax: 0, total: 50, cost: 1, taxableBase: 50 },
       });
     });
 
@@ -331,7 +331,7 @@ describe('DealsService — billing', () => {
 
       expect(repo.update).toHaveBeenCalledWith('deal-1', {
         itemCount: 0,
-        totals: { subtotal: 0, discount: 0, tax: 0, total: 0, cost: 0 },
+        totals: { subtotal: 0, discount: 0, tax: 0, total: 0, cost: 0, taxableBase: 0 },
       });
       expect(cache.invalidate).toHaveBeenCalledWith('deal-1');
     });

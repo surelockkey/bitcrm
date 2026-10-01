@@ -48,6 +48,7 @@ import {
   InvoicesRepository,
   type InvoiceListFilter,
 } from './invoices.repository';
+import { UnpaidInvoicesRepository } from './unpaid-invoices.repository';
 
 export interface UpdateInvoiceInput {
   invoiceDate?: string;
@@ -135,6 +136,7 @@ export class InvoicesService {
     @Optional() private readonly events?: BillingEventsPublisher,
     @Optional() private readonly redis?: RedisService,
     @Optional() @Inject(PaymentsRepository) private readonly ledger?: PaymentLedgerSource,
+    @Optional() private readonly unpaid?: UnpaidInvoicesRepository,
   ) {}
 
   // ---------------------------------------------------------------- create
@@ -576,13 +578,13 @@ export class InvoicesService {
   /**
    * Flips `due` invoices whose due date has passed to `overdue`, from the
    * stored snapshot (no deal calls). Returns how many changed.
+   *
+   * The candidates come off UnpaidIndex (~600 open invoices) once it is
+   * built; before that, and when the index reader is not wired (unit tests),
+   * from the whole list with a filter, as it always did.
    */
   async sweepOverdue(today: string = todayIn(resolveTimezone(undefined))): Promise<number> {
-    const candidates = await this.repo.listAll({
-      expression: '#status = :due AND #dueDate < :today',
-      names: { '#status': 'status', '#dueDate': 'dueDate' },
-      values: { ':due': 'due', ':today': today },
-    });
+    const candidates = await this.overdueCandidates(today);
     let changed = 0;
     for (const inv of candidates) {
       const status = deriveInvoiceStatus({ totals: inv.totals, dueDate: inv.dueDate, today });
@@ -602,6 +604,18 @@ export class InvoicesService {
       }
     }
     return changed;
+  }
+
+  private async overdueCandidates(today: string): Promise<Invoice[]> {
+    if (this.unpaid && (await this.unpaid.isReady())) {
+      const { items } = await this.unpaid.listUnpaid();
+      return items.filter((i) => i.status === 'due' && typeof i.dueDate === 'string' && i.dueDate < today);
+    }
+    return this.repo.listAll({
+      expression: '#status = :due AND #dueDate < :today',
+      names: { '#status': 'status', '#dueDate': 'dueDate' },
+      values: { ':due': 'due', ':today': today },
+    });
   }
 
   // -------------------------------------------------------------- helpers

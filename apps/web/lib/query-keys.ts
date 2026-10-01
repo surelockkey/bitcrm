@@ -325,6 +325,12 @@ export const queryKeys = {
     byContact: (contactId: string) => ["invoices", "by-contact", contactId] as const,
     summary: () => ["invoices", "summary"] as const,
     needingInvoice: () => ["invoices", "needing-invoice"] as const,
+    /** Workiz's Invoices report — under `invoices` so every invoice change refreshes it. */
+    report: (params?: unknown) => ["invoices", "report", params] as const,
+    reportCount: (params?: unknown) => ["invoices", "report-count", params] as const,
+    reportSummary: (params?: unknown) => ["invoices", "report-summary", params] as const,
+    /** Workiz Reports → Aging invoices. */
+    aging: (params?: unknown) => ["invoices", "aging", params] as const,
   },
 
   /**
@@ -351,7 +357,14 @@ export const queryKeys = {
     byDeal: (dealId: string) => ["estimates", "by-deal", dealId] as const,
     byContact: (contactId: string) => ["estimates", "by-contact", contactId] as const,
     summary: () => ["estimates", "summary"] as const,
+    /** Workiz's Estimates report — under `estimates` so every estimate change refreshes it. */
+    report: (params?: unknown) => ["estimates", "report", params] as const,
+    reportCount: (params?: unknown) => ["estimates", "report-count", params] as const,
+    reportSummary: (params?: unknown) => ["estimates", "report-summary", params] as const,
   },
+
+  /** Workiz Reports → Tax (deal service). */
+  taxReport: (params?: unknown) => ["reports", "tax", params] as const,
 
   documentTemplates: {
     all: () => ["document-templates"] as const,

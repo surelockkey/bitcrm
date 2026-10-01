@@ -31,6 +31,10 @@ import { DealDashboardController } from './dashboard/deal-dashboard.controller';
 import { DealDashboardService } from './dashboard/deal-dashboard.service';
 import { DashboardSnapshotScheduler } from './dashboard/dashboard-snapshot.scheduler';
 import { JobsReportController } from './report/jobs-report.controller';
+import { TaxReportController } from './report/tax-report.controller';
+import { TaxReportRepository } from './report/tax-report.repository';
+import { TaxReportService } from './report/tax-report.service';
+import { BillingReportsClient } from '../common/services/billing-reports.client';
 import { JobsReportService } from './report/jobs-report.service';
 import { JobsReportSettingsRepository } from './report/jobs-report-settings.repository';
 import { JobStatisticsController } from './report/job-statistics.controller';
@@ -49,6 +53,7 @@ import { CommissionReportModule } from '../commission-report/commission-report.m
     DealAttachmentsController,
     DealBillingController,
     DealDashboardController,
+    TaxReportController,
     JobsReportController,
     JobStatisticsController,
     DealsController,
@@ -71,6 +76,9 @@ import { CommissionReportModule } from '../commission-report/commission-report.m
     DashboardSnapshotScheduler,
     JobsReportService,
     JobsReportSettingsRepository,
+    TaxReportRepository,
+    TaxReportService,
+    BillingReportsClient,
     JobStatisticsService,
   ],
   exports: [DealsService, DealsEventHandler],

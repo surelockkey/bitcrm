@@ -29,6 +29,12 @@ export interface DealTotalsSnapshot {
   total: number;
   /** Σ quantity × company cost over the lines. */
   cost: number;
+  /**
+   * The taxable lines less their share of the discount — what the tax was
+   * taken of (Workiz `taxable_amount`, the Tax report's Taxable Amount).
+   * Absent on snapshots written before it was kept.
+   */
+  taxableBase?: number;
 }
 
 export interface Deal {

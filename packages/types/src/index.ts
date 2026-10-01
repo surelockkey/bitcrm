@@ -582,6 +582,51 @@ export type {
   JobsReportSettings,
 } from './reports/jobs-report';
 
+// Reports — Workiz's billing reports: Aging invoices, Tax, Invoices, Estimates
+export {
+  AGING_BUCKETS,
+  AGING_BUCKET_LABELS,
+  AGING_SORTS,
+  INVOICE_REPORT_STATUSES,
+  INVOICE_DAYS_DUE,
+  INVOICE_DAYS_DUE_LABELS,
+  ESTIMATE_STATUS_LABELS,
+  TAX_REPORT_BASES,
+  TAX_REPORT_BY,
+  TAX_REPORT_BY_LABELS,
+  agingDaysLate,
+  agingBucketOf,
+  invoiceDaysDueWindow,
+  invoiceDiscountPercent,
+  INVOICE_PAID_TOLERANCE,
+  reportInvoiceBalance,
+  reportInvoiceStatus,
+  isReportOpen,
+  invoiceReportFigures,
+  estimateReportAmount,
+  estimateDepositDue,
+  taxRateKey,
+  taxRateRounded,
+} from './reports/billing-reports';
+export type {
+  AgingBucket,
+  AgingOverdueBucket,
+  AgingReport,
+  AgingRow,
+  AgingSort,
+  EstimateReportSummary,
+  InvoiceDaysDue,
+  InvoiceReportStatus,
+  InvoiceReportSummary,
+  InvoiceReportFigures,
+  InvoiceReportRow,
+  ReportCard,
+  ReportCsvExport,
+  TaxReport,
+  TaxReportBasis,
+  TaxReportBy,
+  TaxReportRow,
+} from './reports/billing-reports';
 // Reports — the Workiz Job Statistics (`GET /deals/report/statistics`)
 export {
   JOB_STATISTICS_BY_LABEL,
