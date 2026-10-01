@@ -4,10 +4,12 @@ import Link from "next/link";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useState } from "react";
-import { Building2, Link2, Loader2, Mail, Phone, TriangleAlert } from "lucide-react";
+import { Building2, Link2, Loader2, Mail, Phone, Trash2, TriangleAlert } from "lucide-react";
 import { ContactSource, ContactType } from "@bitcrm/types";
 import type { Contact } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
+import { PhoneInput } from "@/components/ui/phone-input";
+import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -33,10 +35,13 @@ export function ContactForm({
   defaultPhone,
   onDone,
   onCancel,
+  onDelete,
   layout = "page",
 }: {
   contact?: Contact;
   defaultCompanyId?: string;
+  /** The popup's red "Delete client" at the bottom of the right column. */
+  onDelete?: () => void;
   /** `dialog`: Workiz's two-column "Edit client info" popup. */
   layout?: "page" | "dialog";
   /** Prefills the first phone — e.g. creating a client from an unknown caller. */
@@ -90,6 +95,7 @@ export function ContactForm({
   });
 
   const watchedPhone = useWatch({ control: form.control, name: "phones.0" });
+  const watchedPhones = useWatch({ control: form.control, name: "phones" });
   const taxExempt = useWatch({ control: form.control, name: "taxExempt" });
   const firstPhone = (watchedPhone ?? "").trim();
   const dupe = useContactByPhone(firstPhone, !isEdit && firstPhone.length >= 7);
@@ -305,30 +311,196 @@ export function ContactForm({
   );
 
   if (dialog) {
-    // Workiz's "Edit client info": details and how to reach them on the
-    // left, payment and the rest on the right, the address list underneath.
+    // Workiz's "Edit client info", field for field: outlined inputs with the
+    // label on the border, Client details / Contact information / Description
+    // on the left, Payment / Additional on the right, Save in the middle.
+    const phoneAt = (i: number) => watchedPhones?.[i] ?? "";
+    const setPhone = (i: number, v: string) => {
+      const list = [...form.getValues("phones")];
+      const exts = [...form.getValues("phoneExts")];
+      if (i === 1 && !v.trim()) {
+        // An emptied secondary number is no number, not an invalid one.
+        form.setValue("phones", list.slice(0, 1), { shouldValidate: true });
+        form.setValue("phoneExts", exts.slice(0, 1));
+        return;
+      }
+      list[i] = v;
+      if (exts.length <= i) exts[i] = "";
+      form.setValue("phones", list, { shouldValidate: true });
+      form.setValue("phoneExts", exts);
+    };
+    const phoneErr = form.formState.errors.phones;
     return (
-      <form onSubmit={form.handleSubmit(submit)} className="grid gap-x-8 gap-y-4 md:grid-cols-2" noValidate>
-        <div className="space-y-4">
-          <h3 className="text-sm font-semibold">Client details</h3>
-          {names}
-          {companyAndType}
-          <h3 className="pt-2 text-sm font-semibold">Contact information</h3>
-          {phones}
-          {emails}
-          <h3 className="pt-2 text-sm font-semibold">Description</h3>
-          {notes}
+      <form onSubmit={form.handleSubmit(submit)} className="grid gap-x-8 gap-y-6 pt-2 md:grid-cols-2" noValidate>
+        <div className="space-y-6">
+          <section className="space-y-5">
+            <h3 className="text-sm font-semibold">Client details</h3>
+            <div className="grid grid-cols-2 gap-4">
+              <Outlined label="First Name" htmlFor="ec-first" error={form.formState.errors.firstName?.message}>
+                <Input id="ec-first" className="h-11" {...form.register("firstName")} />
+              </Outlined>
+              <Outlined label="Last Name" htmlFor="ec-last" error={form.formState.errors.lastName?.message}>
+                <Input id="ec-last" className="h-11" {...form.register("lastName")} />
+              </Outlined>
+            </div>
+            <Outlined label="Company name">
+              <Controller
+                control={form.control}
+                name="companyId"
+                render={({ field }) => {
+                  const selected = field.value ? companies.find((c) => c.id === field.value) : undefined;
+                  return (
+                    <>
+                      <div className="flex h-11 items-center gap-2 rounded-md border px-3 text-sm">
+                        <span className={cn("flex-1 truncate", !selected && "text-muted-foreground")}>{selected?.title ?? "No company"}</span>
+                        {selected ? (
+                          <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-xs text-muted-foreground" onClick={() => field.onChange("")}>
+                            Detach
+                          </Button>
+                        ) : null}
+                        <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-xs text-brand" onClick={() => setPickerOpen(true)}>
+                          {selected ? "Change" : "Attach"}
+                        </Button>
+                      </div>
+                      <CompanyPickerDialog
+                        open={pickerOpen}
+                        onOpenChange={setPickerOpen}
+                        companies={companies}
+                        onSelect={(id) => {
+                          field.onChange(id);
+                          setPickerOpen(false);
+                        }}
+                      />
+                    </>
+                  );
+                }}
+              />
+            </Outlined>
+          </section>
+
+          <section className="space-y-5">
+            <h3 className="text-sm font-semibold">Contact information</h3>
+            <div className="grid grid-cols-[1fr_7rem] gap-4">
+              <Outlined label="Phone number" htmlFor="ec-phone-0" error={phoneErr?.[0]?.message ?? (typeof phoneErr?.message === "string" ? phoneErr.message : undefined)}>
+                <PhoneInput id="ec-phone-0" className="h-11" value={phoneAt(0)} onChange={(v) => setPhone(0, v)} />
+              </Outlined>
+              <Outlined label="ext." htmlFor="ec-ext-0">
+                <Input id="ec-ext-0" className="h-11" {...form.register("phoneExts.0")} />
+              </Outlined>
+            </div>
+            <div className="grid grid-cols-[1fr_7rem] gap-4">
+              <Outlined label="Secondary phone" htmlFor="ec-phone-1" error={phoneErr?.[1]?.message}>
+                <PhoneInput id="ec-phone-1" className="h-11" value={phoneAt(1)} onChange={(v) => setPhone(1, v)} />
+              </Outlined>
+              <Outlined label="ext." htmlFor="ec-ext-1">
+                <Input id="ec-ext-1" className="h-11" {...form.register("phoneExts.1")} />
+              </Outlined>
+            </div>
+            <Outlined label="Email" htmlFor="ec-email" error={form.formState.errors.emails?.[0]?.message}>
+              <Input id="ec-email" className="h-11" type="email" {...form.register("emails.0")} />
+            </Outlined>
+            {duplicate ? (
+              <p className="text-xs text-amber-700 dark:text-amber-500">
+                A contact with this phone already exists —{" "}
+                <Link href={`/contacts/${duplicate.id}`} className="font-medium underline" onClick={() => onCancel?.()}>
+                  {duplicate.firstName} {duplicate.lastName}
+                </Link>
+              </p>
+            ) : null}
+          </section>
+
+          <section className="space-y-3">
+            <h3 className="text-sm font-semibold">Description</h3>
+            <Textarea
+              rows={4}
+              aria-label="Description"
+              placeholder="Add the most important information about your client that will be displayed on the page"
+              {...form.register("notes")}
+            />
+          </section>
         </div>
-        <div className="space-y-4">
-          <h3 className="text-sm font-semibold">Payment</h3>
-          {tax}
-          <h3 className="pt-2 text-sm font-semibold">Additional</h3>
-          {titleAndSource}
+
+        <div className="space-y-6">
+          <section className="space-y-5">
+            <h3 className="text-sm font-semibold">Payment</h3>
+            <div className="flex items-center justify-between gap-3">
+              <Label htmlFor="contact-tax-exempt">Tax exempt</Label>
+              <Controller
+                control={form.control}
+                name="taxExempt"
+                render={({ field }) => <Switch id="contact-tax-exempt" checked={!!field.value} onCheckedChange={field.onChange} />}
+              />
+            </div>
+            {taxExempt ? (
+              <Outlined label="Tax exempt reason" error={form.formState.errors.taxExemptReason?.message}>
+                <Controller
+                  control={form.control}
+                  name="taxExemptReason"
+                  render={({ field }) => (
+                    <Select value={field.value || ""} onValueChange={field.onChange}>
+                      <SelectTrigger className="h-11 w-full" aria-label="Tax exempt reason"><SelectValue placeholder="Choose a reason" /></SelectTrigger>
+                      <SelectContent>
+                        {TAX_EXEMPT_REASONS.map((r) => (
+                          <SelectItem key={r} value={r}>{r}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
+              </Outlined>
+            ) : null}
+          </section>
+
+          <section className="space-y-5">
+            <h3 className="text-sm font-semibold">Additional</h3>
+            <Outlined label="Ad source">
+              <Controller
+                control={form.control}
+                name="source"
+                render={({ field }) => (
+                  <Select value={field.value} onValueChange={field.onChange} disabled={isEdit}>
+                    <SelectTrigger className="h-11 w-full" aria-label="Ad source"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {Object.values(ContactSource).map((x) => (
+                        <SelectItem key={x} value={x}>{sourceLabel(x)}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+            </Outlined>
+            <Outlined label="Type">
+              <Controller
+                control={form.control}
+                name="type"
+                render={({ field }) => (
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <SelectTrigger className="h-11 w-full" aria-label="Type"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {Object.values(ContactType).map((t) => (
+                        <SelectItem key={t} value={t}>{contactTypeLabel(t)}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+            </Outlined>
+            <Outlined label="Title" htmlFor="ec-title" error={form.formState.errors.title?.message}>
+              <Input id="ec-title" className="h-11" {...form.register("title")} />
+            </Outlined>
+            {onDelete ? (
+              <button type="button" onClick={onDelete} className="inline-flex items-center gap-1.5 text-sm text-destructive hover:underline">
+                <Trash2 className="size-4" /> Delete client
+              </button>
+            ) : null}
+          </section>
         </div>
-        <div className="md:col-span-2">
-          <ContactAddressFields form={form} />
+
+        <div className="flex justify-center md:col-span-2">
+          <Button type="submit" className="min-w-24" disabled={pending}>
+            {pending ? <Loader2 className="size-4 animate-spin" /> : null} Save
+          </Button>
         </div>
-        {actions}
       </form>
     );
   }
@@ -345,6 +517,21 @@ export function ContactForm({
       {notes}
       {actions}
     </form>
+  );
+}
+
+/** Workiz's outlined field: the label sits on the top border. */
+function Outlined({ label, htmlFor, error, children, className }: { label: string; htmlFor?: string; error?: string; children: React.ReactNode; className?: string }) {
+  return (
+    <div className={cn("space-y-1", className)}>
+      <div className="relative">
+        <label htmlFor={htmlFor} className="absolute -top-2 left-2.5 z-10 bg-background px-1 text-[11px] leading-4 text-muted-foreground">
+          {label}
+        </label>
+        {children}
+      </div>
+      {error ? <p className="text-xs text-destructive">{error}</p> : null}
+    </div>
   );
 }
 

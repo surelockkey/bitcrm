@@ -213,7 +213,19 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
       <ServiceLocationDialog contact={contact} open={locationOpen} onOpenChange={setLocationOpen} />
       <ClientAddressSheet contact={contact} open={addressOpen} onOpenChange={setAddressOpen} />
       <PayInvoicesDialog invoices={invoices.data ?? []} open={payOpen} onOpenChange={setPayOpen} />
-      <EditClientDialog contact={contact} open={editing} onOpenChange={setEditing} />
+      <EditClientDialog
+        contact={contact}
+        open={editing}
+        onOpenChange={setEditing}
+        onDelete={
+          can("contacts", "delete")
+            ? () => {
+                setEditing(false);
+                setConfirmDelete(true);
+              }
+            : undefined
+        }
+      />
 
       {/* Workiz's right rail. Notes is the one BitCRM has to show. */}
       <div className="flex shrink-0 gap-2 border-t p-2 md:flex-col md:border-t-0 md:border-l">

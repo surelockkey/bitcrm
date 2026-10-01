@@ -12,21 +12,24 @@ export function EditClientDialog({
   contact,
   open,
   onOpenChange,
+  onDelete,
 }: {
   contact: Contact;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** The popup's "Delete client" (needs `contacts.delete`). */
+  onDelete?: () => void;
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
+      <DialogContent className="max-h-[92vh] overflow-y-auto px-6 sm:max-w-4xl">
         <DialogHeader>
           <DialogTitle>Edit client info</DialogTitle>
           <DialogDescription className="sr-only">
             {contact.firstName} {contact.lastName}
           </DialogDescription>
         </DialogHeader>
-        {open ? <ContactForm contact={contact} layout="dialog" onCancel={() => onOpenChange(false)} onDone={() => onOpenChange(false)} /> : null}
+        {open ? <ContactForm contact={contact} layout="dialog" onCancel={() => onOpenChange(false)} onDone={() => onOpenChange(false)} onDelete={onDelete} /> : null}
       </DialogContent>
     </Dialog>
   );
