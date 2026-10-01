@@ -200,6 +200,18 @@ describe('ContactsService', () => {
       );
     });
 
+    it('passes a billing address through to the row', async () => {
+      const existing = createMockContact();
+      const billingAddress = { street: '1 Billing Way', city: 'Columbus', state: 'OH', zip: '43235' };
+      cache.get.mockResolvedValue(existing);
+      repository.update.mockResolvedValue(createMockContact({ billingAddress }));
+
+      const result = await service.update('contact-1', { billingAddress } as any);
+
+      expect(repository.update).toHaveBeenCalledWith('contact-1', expect.objectContaining({ billingAddress }));
+      expect(result.billingAddress).toEqual(billingAddress);
+    });
+
     it('should normalize and update phone index when phones change', async () => {
       const existing = createMockContact({ phones: ['+14045551234'] });
       const updated = createMockContact({ phones: ['+15558675309'] });

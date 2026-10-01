@@ -22,8 +22,15 @@ export interface Contact {
    */
   phoneExtensions?: Record<string, string>;
   emails: string[];
-  /** Structured postal addresses (Google-autocompleted); a client may have several. */
+  /**
+   * Structured postal addresses (Google-autocompleted); a client may have
+   * several. The first one is the service address the client card shows.
+   */
   addresses: Address[];
+  /** Where invoices go, when that isn't the service address (Workiz's billing address). */
+  billingAddress?: Address;
+  /** The date of the client's latest job, "YYYY-MM-DD" — kept by the Workiz import. */
+  lastJobAt?: string;
   companyId?: string;
   type: ContactType;
   title?: string;

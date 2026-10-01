@@ -71,6 +71,12 @@ export class CreateContactDto {
   @Type(() => ContactAddressDto)
   addresses?: ContactAddressDto[];
 
+  @ApiPropertyOptional({ type: ContactAddressDto, description: 'Where invoices go, when not the service address' })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ContactAddressDto)
+  billingAddress?: ContactAddressDto;
+
   @ApiPropertyOptional({ example: 'company-uuid' })
   @IsOptional()
   @IsString()

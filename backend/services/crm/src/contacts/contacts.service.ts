@@ -134,6 +134,7 @@ export class ContactsService {
       phoneExtensions: normalizePhoneExtensions(dto.phoneExtensions, phones),
       emails: dto.emails || [],
       addresses: dto.addresses || [],
+      ...(dto.billingAddress && { billingAddress: dto.billingAddress }),
       companyId: dto.companyId,
       type: dto.type,
       title: dto.title,

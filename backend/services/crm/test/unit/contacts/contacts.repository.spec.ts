@@ -77,6 +77,33 @@ describe('ContactsRepository', () => {
       expect(result!.taxExemptReason).toBe('Non-profit');
     });
 
+    it('keeps the billing address and the last job date the Workiz import wrote', async () => {
+      // The client card shows ONE service address (addresses[0]) and ONE billing
+      // address, as Workiz does; both were on the row, the read whitelist dropped the second.
+      const contact = createMockContact();
+      const billingAddress = { street: '200 E Campus View Blvd ste 120', city: 'Columbus', state: 'OH', zip: '43235' };
+      dynamoDb.client.send.mockResolvedValue({
+        Item: { ...contact, billingAddress, lastJobAt: '2026-10-09', PK: `CONTACT#${contact.id}`, SK: 'METADATA' },
+      });
+
+      const result = await repository.findById('contact-1');
+
+      expect(result!.billingAddress).toEqual(billingAddress);
+      expect(result!.lastJobAt).toBe('2026-10-09');
+    });
+
+    it('leaves billingAddress and lastJobAt out when the row has none', async () => {
+      const contact = createMockContact();
+      dynamoDb.client.send.mockResolvedValue({
+        Item: { ...contact, PK: `CONTACT#${contact.id}`, SK: 'METADATA' },
+      });
+
+      const result = await repository.findById('contact-1');
+
+      expect(result).not.toHaveProperty('billingAddress');
+      expect(result).not.toHaveProperty('lastJobAt');
+    });
+
     it('should return null when not found', async () => {
       dynamoDb.client.send.mockResolvedValue({ Item: undefined });
 

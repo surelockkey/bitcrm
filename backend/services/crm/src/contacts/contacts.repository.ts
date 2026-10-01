@@ -333,6 +333,8 @@ export class ContactsRepository {
       emails: (item.emails as string[]) || [],
       // Legacy rows predate addresses — default to an empty list on read.
       addresses: (item.addresses as Address[]) || [],
+      ...(item.billingAddress ? { billingAddress: item.billingAddress as Address } : {}),
+      ...(item.lastJobAt ? { lastJobAt: item.lastJobAt as string } : {}),
       companyId: item.companyId as string | undefined,
       type: item.type as Contact['type'],
       title: item.title as string | undefined,
