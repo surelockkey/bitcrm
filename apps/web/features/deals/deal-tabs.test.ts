@@ -10,21 +10,26 @@ describe("deal tabs", () => {
     expect(parseDealTab(["items", "x"])).toBe("items");
   });
 
+  it("has no Messages tab — job texts live in the Inbox", () => {
+    expect(parseDealTab("messages")).toBeNull();
+    expect(visibleDealTabs({ estimates: true, invoices: true, payments: true })).not.toContain("messages");
+  });
+
   it("orders tabs and gates billing ones by permission", () => {
-    expect(visibleDealTabs({ estimates: false, invoices: false, messages: false })).toEqual([
+    expect(visibleDealTabs({ estimates: false, invoices: false })).toEqual([
       "details", "items", "attachments",
     ]);
-    expect(visibleDealTabs({ estimates: true, invoices: true, messages: true })).toEqual([
-      "details", "items", "estimates", "invoice", "attachments", "messages",
+    expect(visibleDealTabs({ estimates: true, invoices: true })).toEqual([
+      "details", "items", "estimates", "invoice", "attachments",
     ]);
   });
 
   it("shows the Payments tab (Workiz) next to Items only with payments.view", () => {
     expect(parseDealTab("payments")).toBe("payments");
-    expect(visibleDealTabs({ estimates: true, invoices: true, messages: true, payments: true })).toEqual([
-      "details", "items", "payments", "estimates", "invoice", "attachments", "messages",
+    expect(visibleDealTabs({ estimates: true, invoices: true, payments: true })).toEqual([
+      "details", "items", "payments", "estimates", "invoice", "attachments",
     ]);
-    expect(visibleDealTabs({ estimates: false, invoices: false, messages: false, payments: false })).not.toContain(
+    expect(visibleDealTabs({ estimates: false, invoices: false, payments: false })).not.toContain(
       "payments",
     );
   });
