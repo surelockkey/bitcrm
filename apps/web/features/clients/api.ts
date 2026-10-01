@@ -47,6 +47,10 @@ export const createContact = (
   body: CreateContactValues & { reassignPhones?: boolean },
 ): Promise<Contact> => http.post<Contact>("/crm/contacts", body);
 
+/** Only the client's tags — the card's chips save without touching the rest of the form. */
+export const setContactTags = (id: string, tagIds: string[]): Promise<Contact> =>
+  http.put<Contact>(`/crm/contacts/${id}`, { tagIds });
+
 export const updateContact = (id: string, body: UpdateContactValues): Promise<Contact> =>
   http.put<Contact>(`/crm/contacts/${id}`, body);
 

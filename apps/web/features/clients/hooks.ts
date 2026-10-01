@@ -132,6 +132,21 @@ export function useCreateContact() {
   });
 }
 
+/** The client card's tag chips: put a tag on or take it off, and refresh the card. */
+export function useSetContactTags(contactId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (tagIds: string[]) => api.setContactTags(contactId, tagIds),
+    onSuccess: (contact) => {
+      qc.setQueryData(queryKeys.contacts.detail(contactId), (prev: Contact | undefined) =>
+        prev ? { ...prev, tagIds: contact.tagIds ?? [] } : prev,
+      );
+      qc.invalidateQueries({ queryKey: queryKeys.contacts.detail(contactId) });
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+}
+
 export function useUpdateContact() {
   const invalidate = useInvalidateClients();
   return useMutation({

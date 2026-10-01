@@ -94,6 +94,7 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
           company={company}
           canEdit={can("contacts", "edit")}
           canDelete={can("contacts", "delete")}
+          canCreateTags={can("client_tags", "create")}
           showPortal={can("invoices") || can("estimates")}
           onEdit={() => setEditing(true)}
           onDelete={() => setConfirmDelete(true)}

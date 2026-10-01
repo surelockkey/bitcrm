@@ -89,6 +89,7 @@ const CONTACT = {
   source: "manual",
   notes: "Net 45 client. Tax exempt.",
   taxExempt: true,
+  tagIds: ["t-platinum", "t-taxfree"],
   lastJobAt: "2026-10-09",
   status: "active",
   createdBy: "u1",
@@ -127,6 +128,15 @@ describe("ContactDetailPage — the client card, laid out as Workiz's", () => {
     mocks.payments = [];
     server.use(
       http.get("*/crm/contacts/c1", () => HttpResponse.json({ success: true, data: CONTACT })),
+      http.get("*/deals/client-tags", () =>
+        HttpResponse.json({
+          success: true,
+          data: [
+            { id: "t-platinum", name: "PLATINUM", color: "blue", priority: 0, active: true },
+            { id: "t-taxfree", name: "tax free", color: "green", priority: 0, active: true },
+          ],
+        }),
+      ),
       http.get("*/crm/companies/co1", () =>
         HttpResponse.json({ success: true, data: { id: "co1", title: "CBRE Facilities Management", clientType: "commercial", phones: [], emails: [] } }),
       ),
@@ -147,6 +157,10 @@ describe("ContactDetailPage — the client card, laid out as Workiz's", () => {
     expect(within(panel).getByText("(855) 783-6342")).toBeInTheDocument();
     expect(within(panel).getByText("pendingvendorinvoice@cbre.com")).toBeInTheDocument();
     expect(within(panel).getByText("Tax exempt")).toBeInTheDocument();
+    // Workiz's tags, as chips with a way off and a way to add.
+    expect(await within(panel).findByText("PLATINUM")).toBeInTheDocument();
+    expect(within(panel).getByText("tax free")).toBeInTheDocument();
+    expect(within(panel).getByRole("button", { name: "Add tag" })).toBeInTheDocument();
 
     expect(within(panel).getByText("Service address").parentElement).toHaveTextContent("241 E Farm to Market Rd 1382, Cedar Hill, TX 75104");
     expect(within(panel).getByText("Billing address").parentElement).toHaveTextContent("200 E Campus View Blvd ste 120, Columbus, OH 43235");

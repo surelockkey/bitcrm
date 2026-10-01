@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { CallClientButton } from "@/features/telephony/components/call-client-button";
+import { ClientTagsField } from "@/features/client-tags/components/client-tags-field";
 import { PortalLinkCard } from "@/features/portal/components/portal-link-card";
 import { FieldList } from "./field-list";
 import { ContactTypeBadge, TaxExemptBadge } from "./client-badges";
@@ -29,6 +30,7 @@ export function ClientSummaryPanel({
   company,
   canEdit,
   canDelete,
+  canCreateTags,
   showPortal,
   onEdit,
   onDelete,
@@ -37,6 +39,8 @@ export function ClientSummaryPanel({
   company?: Company;
   canEdit: boolean;
   canDelete: boolean;
+  /** `client_tags.create`: the Add tag popup may make a new tag. */
+  canCreateTags: boolean;
   showPortal: boolean;
   onEdit: () => void;
   onDelete: () => void;
@@ -100,6 +104,8 @@ export function ClientSummaryPanel({
           action={(phone) => <CallClientButton to={phone} partyId={contact.id} />}
         />
         <FieldList label="Emails" icon={Mail} values={contact.emails} />
+        {/* Workiz's tags sit under the contact details: chips, then "+ Add tag". */}
+        <ClientTagsField contactId={contact.id} tagIds={contact.tagIds} canEdit={canEdit} canCreate={canCreateTags} />
         <div className="grid grid-cols-2 gap-3 text-sm">
           <div>
             <div className="text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">Source</div>

@@ -94,6 +94,13 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
     resource: "job_tags",
   },
   {
+    label: "Client Tags",
+    href: "/settings/client-tags",
+    description: "Colored labels for clients, as Workiz's PLATINUM or tax free. Added from the client card.",
+    icon: Tags,
+    resource: "client_tags",
+  },
+  {
     label: "Job Fields",
     href: "/settings/job-fields",
     description: "Which fields are required when creating a job — default and custom.",
