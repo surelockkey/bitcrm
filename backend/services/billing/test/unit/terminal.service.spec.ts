@@ -235,6 +235,34 @@ describe('Terminal — a card on the invoice (POST /invoices/:id/terminal-intent
     });
   });
 
+  it('refuses a retry of an attempt that did not go through — the phone starts a new one (balance and signature re-checked)', async () => {
+    const { service, ledger, stripe } = build();
+    await service.openForInvoice('deal-1', { amount: 60, attemptId: ATTEMPT }, tech());
+    ledger.payments.set(ATTEMPT, { ...ledger.payments.get(ATTEMPT)!, status: 'failed', failureReason: 'Cancelled on the device' });
+    await expect(service.openForInvoice('deal-1', { amount: 60, attemptId: ATTEMPT }, tech())).rejects.toThrow(
+      /did not go through/i,
+    );
+    expect(stripe.retrievePaymentIntent).not.toHaveBeenCalled();
+  });
+
+  it('a retry that finds the card already charged at Stripe (webhook not here yet) answers settled', async () => {
+    const { service, ledger, stripe, invoices } = build();
+    await service.openForInvoice('deal-1', { amount: 60, attemptId: ATTEMPT }, tech());
+    stripe.retrievePaymentIntent.mockImplementation(async (id: string) => ({
+      id,
+      object: 'payment_intent',
+      client_secret: `${id}_secret_1`,
+      status: 'succeeded',
+      metadata: { paymentId: ATTEMPT },
+    }));
+    await expect(service.openForInvoice('deal-1', { amount: 60, attemptId: ATTEMPT }, tech())).resolves.toMatchObject({
+      paymentId: ATTEMPT,
+      status: 'settled',
+    });
+    expect(ledger.payments.get(ATTEMPT)!.status).toBe('settled');
+    expect(invoices.applyAmountPaid).toHaveBeenLastCalledWith('deal-1', 60);
+  });
+
   it('refuses an attemptId re-used for another amount, another document or by another user (409)', async () => {
     const { service, estimates } = build();
     await service.openForInvoice('deal-1', { amount: 60, tipAmount: 5, attemptId: ATTEMPT }, tech());

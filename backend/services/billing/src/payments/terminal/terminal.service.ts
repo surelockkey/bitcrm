@@ -349,14 +349,22 @@ export class TerminalService {
     if (toCents(existing.amount) !== toCents(input.amount) || toCents(existing.tipAmount ?? 0) !== toCents(input.tipAmount)) {
       throw new ConflictException('This payment attempt was started for a different amount — start a new attempt');
     }
+    // A failed attempt is not handed out again: a new one re-checks the
+    // balance and the signature. (A decline is retried on the device with the
+    // intent it already holds — that needs no POST.)
+    if (existing.status === 'failed') throw attemptOver();
     // The row was written but the intent never was (a crash in between).
     if (!existing.stripePaymentIntentId) return this.attachIntent(existing, p);
 
     const intent = await this.stripe.retrievePaymentIntent(existing.stripePaymentIntentId);
-    if (intent.status === 'canceled' && existing.status !== 'settled') {
-      throw new ConflictException('This payment attempt was cancelled — start a new attempt');
+    let row = existing;
+    if (row.status === 'pending' && ['succeeded', 'processing', 'canceled'].includes(intent.status)) {
+      // It moved on at Stripe before its webhook got here: answer where it is now.
+      await this.handler.syncIntent(row);
+      row = (await this.repo.get(row.id)) ?? row;
     }
-    return answer(existing, intent);
+    if (row.status === 'failed') throw attemptOver();
+    return answer(row, intent);
   }
 
   /** Signature first: `signedAt` on the document, or any signature row on file. */
@@ -470,6 +478,9 @@ function parseRequest(raw: TerminalIntentRequest): Attempt {
   }
   return { attemptId, amount: raw.amount, tipAmount: round2(tip) };
 }
+
+const attemptOver = () =>
+  new ConflictException('This payment attempt did not go through — start a new attempt');
 
 /** An attempt nobody has paid with yet: pending, its intent made, no charge recorded. */
 const isOpenAttempt = (p: Payment): boolean =>
