@@ -296,6 +296,55 @@ describe('DealBillingService', () => {
       expect(result.deal.id).toBe('deal-1');
     });
 
+    // Workiz "This job already has items" → "Add to existing job items".
+    it('append adds the estimate lines beside the job’s own: nothing restored or removed, job tax and discount kept', async () => {
+      current = createMockDeal({ assignedTechIds: ['t1'], taxSource: 'default', taxRateId: 'd', discount: { type: 'amount', value: 1 } });
+      products.findByDeal.mockResolvedValueOnce([
+        createMockDealProduct({ lineId: 'line-old', productId: 'old', quantity: 2, fulfillment: 'sourced', sourceTechId: 't1' }),
+        createMockDealProduct({ lineId: 'line-svc', productId: 'svc-old', fulfillment: 'service' }),
+      ]);
+
+      await service.replaceAllProducts('deal-1', dto({
+        mode: 'append',
+        items: [line({ productId: 'old', quantity: 1 }), line({ productId: 's1', productType: 'service', name: 'Labor' })],
+        taxRateId: null,
+        discount: null,
+      }) as any);
+
+      expect(http.restoreStock).not.toHaveBeenCalled();
+      expect(products.removeProduct).not.toHaveBeenCalled();
+      expect(http.deductStock).toHaveBeenCalledWith(expect.objectContaining({
+        containerId: 't1', items: [{ productId: 'old', productName: 'Deadbolt', quantity: 1 }],
+      }));
+      const written = products.addProduct.mock.calls.map((c) => c[1]);
+      // New lines of their own, even for a product the job already has.
+      expect(written).toEqual([
+        expect.objectContaining({ productId: 'old', quantity: 1, fulfillment: 'sourced', lineId: expect.any(String) }),
+        expect.objectContaining({ productId: 's1', fulfillment: 'service', lineId: expect.any(String) }),
+      ]);
+      expect(written.map((r) => r.lineId)).not.toContain('line-old');
+      expect(repo.update.mock.calls[0][1]).toEqual({ itemCount: 4 });
+      expect(entries(TimelineEventType.ESTIMATE_SYNCED)[0]).toMatchObject({
+        details: { estimateNumber: 'AB12CD-1', itemCount: 2, mode: 'append' },
+      });
+    });
+
+    it('append rolls back only what it added when a write fails', async () => {
+      current = createMockDeal({ assignedTechIds: ['t1'] });
+      products.findByDeal.mockResolvedValueOnce([createMockDealProduct({ lineId: 'line-old', productId: 'old' })]);
+      products.addProduct.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('dynamo down'));
+
+      await expect(
+        service.replaceAllProducts('deal-1', dto({ mode: 'append', items: [line(), line({ productId: 'p2' })] }) as any),
+      ).rejects.toThrow('dynamo down');
+
+      const added = products.addProduct.mock.calls[0][1].lineId;
+      expect(products.removeProduct).toHaveBeenCalledWith('deal-1', added);
+      expect(products.removeProduct).not.toHaveBeenCalledWith('deal-1', 'line-old');
+      // Stock taken for the new lines goes back.
+      expect(http.restoreStock).toHaveBeenCalledWith(expect.objectContaining({ containerId: 't1' }));
+    });
+
     it('tries the next assigned tech, then falls back to to_order', async () => {
       current = createMockDeal({ assignedTechIds: ['t1', 't2'] });
       http.deductStock.mockImplementation(async ({ containerId, items }: any) => {

@@ -18,6 +18,7 @@ import { CallerCtx } from '../common/caller.decorator';
 import { Internal } from '../common/decorators/internal.decorator';
 import { MarkSentDto } from '../common/dto/sent.dto';
 import { CopyToJobDto } from './dto/copy-to-job.dto';
+import { SyncToJobDto } from './dto/sync-to-job.dto';
 import { CreateEstimateDto } from './dto/create-estimate.dto';
 import { EstimateItemDto, ItemTaxableDto, ReorderItemsDto } from './dto/estimate-item.dto';
 import { SetEstimateStatusDto } from './dto/estimate-status.dto';
@@ -176,13 +177,15 @@ export class EstimatesController {
   @RequirePermission('estimates', 'sync')
   @HttpCode(200)
   @ApiOperation({
-    summary: "Overwrite the job's items with this estimate",
+    summary: "Put this estimate's items on its job",
     description:
       '**Guard:** `estimates.sync`. Needs ≥ 1 item; refused for archived estimates. Marks the estimate won. ' +
+      'Body `{ mode }` (Workiz "This job already has items"): `replace` (default) overwrites the job\'s items, ' +
+      'tax and discount; `append` adds the estimate\'s lines beside the job\'s own. ' +
       '409 for a client estimate (no job): create a job for the client first.',
   })
-  async sync(@Param('id') id: string, @CallerCtx() caller: Caller) {
-    return { success: true, data: await this.estimates.syncToJob(id, caller) };
+  async sync(@Param('id') id: string, @Body() dto: SyncToJobDto, @CallerCtx() caller: Caller) {
+    return { success: true, data: await this.estimates.syncToJob(id, caller, dto?.mode ?? 'replace') };
   }
 
   @Post(':id/signatures')

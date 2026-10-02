@@ -702,6 +702,27 @@ describe('EstimatesService', () => {
       expect(events.estimate).toHaveBeenCalledWith(BillingEventType.ESTIMATE_SYNCED, expect.anything());
     });
 
+    it('Add to existing job items: asks deal-service to append, without touching the job’s tax or discount', async () => {
+      await service.addItem(id, itemDto(), caller());
+      await service.update(id, { discount: { type: 'amount', value: 5 } }, caller());
+      deal.replaceAllProducts.mockResolvedValueOnce({ items: [dealProduct(), dealProduct({ productId: 'p-2' })], deal: {} as never });
+
+      const res = await service.syncToJob(id, caller(), 'append');
+
+      const body = (deal.replaceAllProducts.mock.calls.at(-1) as unknown[])[1] as Record<string, unknown>;
+      expect(body).toMatchObject({ mode: 'append', estimateNumber: 'K4T9ZW-1', items: [expect.objectContaining({ productId: 'p-9' })] });
+      expect('taxRateId' in body).toBe(false);
+      expect('discount' in body).toBe(false);
+      expect(res.estimate).toMatchObject({ status: 'won', syncedAt: NOW });
+    });
+
+    it('replace stays the default and says so', async () => {
+      await service.addItem(id, itemDto(), caller());
+      await service.syncToJob(id, caller());
+      const body = (deal.replaceAllProducts.mock.calls.at(-1) as unknown[])[1] as Record<string, unknown>;
+      expect('mode' in body).toBe(false);
+    });
+
     it('does not force a tax rate onto the job for an exempt estimate', async () => {
       deal.getBillingView.mockResolvedValueOnce(
         billingView({ taxSource: 'exempt', taxRateId: undefined, taxRatePercent: undefined }),

@@ -252,6 +252,9 @@ export class DealBillingService {
   ): Promise<{ items: DealProduct[]; deal: Deal }> {
     const deal = await this.deals.findById(id);
     const actor: Actor = { id: dto.actorId, name: dto.actorName || 'Estimate sync' };
+    // Workiz "This job already has items": Replace (default) or Add to existing.
+    // Adding leaves the job's lines, their stock, its tax and discount as they are.
+    const append = dto.mode === 'append';
     const existing = await this.productsRepo.findByDeal(id);
     const existingById = new Map(existing.map((p) => [p.productId, p]));
 
@@ -261,9 +264,9 @@ export class DealBillingService {
     for (const line of merged) {
       types.set(line.productId, await this.isServiceLine(line));
     }
-    const taxUpdate = await this.syncTaxUpdate(deal, dto);
+    const taxUpdate = append ? {} : await this.syncTaxUpdate(deal, dto);
     const discountUpdate =
-      dto.discount === undefined
+      append || dto.discount === undefined
         ? {}
         : { discount: dto.discount === null ? null : this.validateDiscount(dto.discount) };
 
@@ -274,7 +277,7 @@ export class DealBillingService {
     let writing = false;
 
     try {
-      for (const line of existing) {
+      for (const line of append ? [] : existing) {
         if ((line.fulfillment ?? 'sourced') !== 'sourced') continue;
         const containerId =
           line.sourceTechId ??
@@ -296,11 +299,12 @@ export class DealBillingService {
           if (sourceTechId) fulfillment = 'sourced';
         }
 
-        const previous = existingById.get(line.productId);
+        const previous = append ? undefined : existingById.get(line.productId);
         rows.push({
           // A synced line that names the same product stays the same line,
-          // so nothing pointing at it is orphaned by a re-sync.
-          ...(previous && { lineId: previous.lineId }),
+          // so nothing pointing at it is orphaned by a re-sync. Added lines are
+          // new ones, with their id known up front so a failure can take them back.
+          ...(previous ? { lineId: previous.lineId } : append ? { lineId: randomUUID() } : {}),
           productId: line.productId,
           name: line.name,
           sku: line.sku,
@@ -324,7 +328,7 @@ export class DealBillingService {
 
       writing = true;
       const keep = new Set(rows.map((r) => r.lineId).filter(Boolean));
-      for (const line of existing) {
+      for (const line of append ? [] : existing) {
         if (!keep.has(line.lineId)) await this.productsRepo.removeProduct(id, line.lineId);
       }
       for (const row of rows) await this.productsRepo.addProduct(id, row);
@@ -335,7 +339,7 @@ export class DealBillingService {
     }
 
     const updated = await this.repository.update(id, {
-      itemCount: rows.length,
+      itemCount: append ? existing.length + rows.length : rows.length,
       ...taxUpdate,
       ...discountUpdate,
     });
@@ -345,6 +349,7 @@ export class DealBillingService {
     await this.addEntry(id, TimelineEventType.ESTIMATE_SYNCED, actor, {
       estimateNumber: dto.estimateNumber,
       itemCount: rows.length,
+      ...(append && { mode: 'append' }),
     });
     this.businessMetrics?.entityUpdated?.inc({ entity_type: 'deal' });
     this.publishEvent('deal.updated', { dealId: id, updatedBy: actor.id });
@@ -353,6 +358,7 @@ export class DealBillingService {
       itemCount: rows.length,
       estimateNumber: dto.estimateNumber,
       replacedBy: actor.id,
+      mode: append ? 'append' : 'replace',
     });
 
     return { items: await this.productsRepo.findByDeal(id), deal: updated };

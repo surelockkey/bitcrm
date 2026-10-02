@@ -66,6 +66,17 @@ export class ReplaceAllDealProductsDto {
   @IsString()
   estimateNumber!: string;
 
+  @ApiPropertyOptional({
+    enum: ['replace', 'append'],
+    default: 'replace',
+    description:
+      'Workiz "This job already has items": `replace` swaps the job\'s lines for these (default); `append` adds them ' +
+      'beside the job\'s own and leaves its lines, their stock, its tax and its discount alone.',
+  })
+  @IsOptional()
+  @IsIn(['replace', 'append'])
+  mode?: 'replace' | 'append';
+
   @ApiProperty({ type: [ReplaceAllDealProductItemDto] })
   @IsArray()
   @ValidateNested({ each: true })

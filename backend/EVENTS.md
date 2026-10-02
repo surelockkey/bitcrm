@@ -175,7 +175,7 @@ Job billing (tax / discount / items):
   unless `taxSource === 'manual'`; that write rides the same `deal.updated`.
 - `deal.product_updated` (`{dealId, productId, taxable}`) on
   `PATCH /:id/products/:productId/taxable` (the existing line-edit payload is unchanged).
-- `deal.products_replaced` (`{dealId, itemCount, estimateNumber, replacedBy}`) after
+- `deal.products_replaced` (`{dealId, itemCount, estimateNumber, replacedBy, mode}`; `mode` is `replace` or `append` — Workiz "Add to existing job items", `itemCount` then counts only the added lines) after
   `PUT internal/:id/products/replace-all` (estimate → job sync), alongside `deal.updated`.
 - Line rows carry `taxable` (absent ⇒ true) and `description`; the deal carries
   `itemCount` (backfill: `npm run backfill:deal-item-count -w backend/services/deal`)
