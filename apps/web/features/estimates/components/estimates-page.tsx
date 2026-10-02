@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ExternalLink, FileSpreadsheet, Search } from "lucide-react";
+import { ExternalLink, FileSpreadsheet, Plus, Search } from "lucide-react";
 import { toast } from "sonner";
 import {
   ESTIMATE_STATUSES,
@@ -45,6 +45,7 @@ import {
   type EstimateReportParams,
 } from "@/features/reports/billing/lib";
 import { DateRangeControl, ExportButton, ReportCard, money, useReportRange } from "@/features/reports/billing/components/report-bits";
+import { NewClientEstimateDialog } from "./new-client-estimate-dialog";
 import { estimateStatusLabel } from "../lib";
 import { EstimateStatusBadge } from "./estimate-status-badge";
 import { pagedSource } from "@/lib/paging/paged-source";
@@ -99,6 +100,7 @@ export function EstimatesPage() {
   const [searchInput, setSearchInput] = useState("");
   const search = useDebouncedValue(searchInput.trim(), 350);
   const [exporting, setExporting] = useState(false);
+  const [adding, setAdding] = useState(false);
   const { from, to } = range.range;
   const summary = useEstimateReportSummary({ from, to }, canView && !range.error);
 
@@ -128,11 +130,17 @@ export function EstimatesPage() {
     <div className="flex flex-1 flex-col">
       <div className="flex flex-wrap items-center gap-3 border-b px-6 py-3">
         <h1 className="text-lg font-semibold tracking-tight">Estimates</h1>
-        <p className="text-xs text-muted-foreground">Create estimates from a job&apos;s Estimates tab.</p>
-        <div className="ml-auto">
+        <div className="ml-auto flex flex-wrap items-center gap-3">
           <DateRangeControl presets={ESTIMATE_DATE_PRESETS} state={range} />
+          {/* Workiz: "+ Add New" beside the dates asks for the client, then opens the new estimate. */}
+          {can("estimates", "create") ? (
+            <Button className="h-9 gap-1.5 rounded-pill px-4 font-semibold" onClick={() => setAdding(true)}>
+              <Plus className="size-4" /> Add New
+            </Button>
+          ) : null}
         </div>
       </div>
+      <NewClientEstimateDialog open={adding} onOpenChange={setAdding} />
       <div className="flex-1 space-y-4 overflow-auto p-4 sm:p-6">
         {range.error ? (
           <p role="alert" className="text-sm text-destructive">

@@ -17,9 +17,10 @@ vi.mock("@/features/auth/use-permissions", () => ({
   useDenied: () => () => false,
   usePermissions: () => ({ can: () => true }),
 }));
-vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
+vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 vi.mock("@/features/deals/hooks", () => ({ useUserMap: () => ({ map: new Map(), users: [], isLoading: false }) }));
 vi.mock("@/features/clients/hooks", () => ({
+  useContactSearch: () => ({ data: [], isLoading: false, tooShort: true }),
   useContactsByIds: () => ({
     map: new Map([["c1", { firstName: "Jane", lastName: "Smith" }]]),
     isLoading: false,
@@ -161,5 +162,14 @@ describe("EstimatesPage — resizable columns", () => {
     for (const id of ["number", "name", "client", "created", "total", "status", "job", "deposit"]) {
       expect(screen.getByTestId(`resize-${id}`)).toBeInTheDocument();
     }
+  });
+});
+
+describe("EstimatesPage — Add New (Workiz)", () => {
+  it("Add New opens Create New Estimate, which asks for the client first", async () => {
+    renderWithClient(<EstimatesPage />);
+    await userEvent.click(screen.getByRole("button", { name: "Add New" }));
+    const dialog = await screen.findByRole("dialog", { name: "Create New Estimate" });
+    expect(within(dialog).getByRole("combobox", { name: "Name, email or phone" })).toBeInTheDocument();
   });
 });
