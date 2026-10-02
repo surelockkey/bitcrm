@@ -196,6 +196,9 @@ const hasJob = (invoice: Invoice): invoice is JobInvoice => typeof invoice.dealI
 /** How long a list count stays good enough. Matches the deals tab counts. */
 const COUNT_TTL_SECONDS = 30;
 
+/** How many of one client's documents the portal reads to build its inbox. */
+const CONTACT_DOCUMENTS_CAP = 1000;
+
 @Injectable()
 export class InvoicesService {
   private readonly logger = new Logger(InvoicesService.name);
@@ -460,8 +463,14 @@ export class InvoicesService {
     return this.repo.get(id);
   }
 
+  /**
+   * Every invoice of the client, newest first, as plain rows (no items) —
+   * what the portal sorts and pages its inbox from. Capped at 1000: the
+   * portal looks per-document things up only for the page it shows, so the
+   * old 200 that cut a big client's oldest documents off is no longer needed.
+   */
   listForContact(contactId: string): Promise<Invoice[]> {
-    return this.repo.list({ contactId, limit: 200 }).then((r) => r.items);
+    return this.repo.list({ contactId, limit: CONTACT_DOCUMENTS_CAP }).then((r) => r.items);
   }
 
   async list(

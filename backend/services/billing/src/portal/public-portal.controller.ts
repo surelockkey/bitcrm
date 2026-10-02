@@ -5,7 +5,7 @@ import type { Request } from 'express';
 import { DeclineEstimateDto, SignDocumentDto } from '../signatures/dto/sign.dto';
 import { PortalRateLimiter, clientIp } from './portal-rate-limiter';
 import { isPlausibleToken } from './portal-token';
-import { PortalService, portalUrl } from './portal.service';
+import { PortalService, portalUrl, type PortalInboxQuery } from './portal.service';
 
 @ApiTags('Client portal (public)')
 @Controller('public/portal')
@@ -19,11 +19,27 @@ export class PublicPortalController {
   @Public()
   @ApiOperation({
     summary: 'Client portal',
-    description: '**Guard:** none (bearer token in the path), rate limited per IP + token. Only sent documents.',
+    description:
+      '**Guard:** none (bearer token in the path), rate limited per IP + token. Only sent documents. ' +
+      'The inbox is paged: the first `limit` entries (10 by default, at most 100) and `inbox.nextCursor`; ' +
+      '`show` is the Inbox Display filter (`invoices,estimates,paid,unpaid`, all when absent).',
   })
-  async view(@Param('token') token: string, @Req() req: Request) {
+  async view(@Param('token') token: string, @Query() query: InboxQueryParams, @Req() req: Request) {
     await this.limiter.check(clientIp(req), token);
-    return { success: true, data: await this.portal.publicView(token) };
+    return { success: true, data: await this.portal.publicView(token, inboxQuery(query)) };
+  }
+
+  @Get(':token/inbox')
+  @Public()
+  @ApiOperation({
+    summary: 'Client portal inbox — one more page',
+    description:
+      '**Guard:** none (token), rate limited. "Load more" (`cursor` from the previous page) and the Inbox Display ' +
+      'filter (`show`). Only the page’s documents are looked up in the payment ledger. 400 on a cursor it did not issue.',
+  })
+  async inbox(@Param('token') token: string, @Query() query: InboxQueryParams, @Req() req: Request) {
+    await this.limiter.check(clientIp(req), token);
+    return { success: true, data: await this.portal.publicInbox(token, inboxQuery(query)) };
   }
 
   @Get(':token/:kind/:id/html')
@@ -119,6 +135,21 @@ export class PublicPortalController {
     const asAttachment = download === '1' || download === 'true';
     return { success: true, data: await this.portal.publicPdf(token, kind, id, asAttachment) };
   }
+}
+
+/** The paging query as it arrives; only the known keys go on to the service. */
+export interface InboxQueryParams {
+  cursor?: string;
+  limit?: string;
+  show?: string;
+}
+
+export function inboxQuery(q: InboxQueryParams = {}): PortalInboxQuery {
+  return {
+    ...(typeof q.cursor === 'string' && q.cursor && { cursor: q.cursor }),
+    ...(typeof q.limit === 'string' && q.limit && { limit: q.limit }),
+    ...(typeof q.show === 'string' && q.show && { show: q.show }),
+  };
 }
 
 /**

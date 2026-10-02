@@ -665,6 +665,8 @@ describe('InvoicesService', () => {
       await service.create('deal-1', caller());
       const all = await service.listForContact('contact-1');
       expect(all.map((x) => x.number).sort()).toEqual(['1001', 'K4T9ZW']);
+      // The portal pages the inbox itself: a client with hundreds of documents still sees all of them.
+      expect(repo.list).toHaveBeenLastCalledWith({ contactId: 'contact-1', limit: 1000 });
     });
   });
 });
