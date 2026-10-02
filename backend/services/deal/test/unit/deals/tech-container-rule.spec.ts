@@ -231,6 +231,28 @@ describe('DealsService — a technician adds stock only from his own container',
       expect(ctx.products.addProduct).toHaveBeenCalled();
     });
 
+    it("keeps the line's own van when the phone names none on an in-place edit — nothing moves", async () => {
+      // The office sourced it from tech-2; the technician only fixes the price.
+      ctx.products.findProduct.mockResolvedValue(hisLine({ sourceTechId: 'tech-2', priceClient: 45 }));
+      const { sourceTechId: _s, ...noSource } = fromHisVan;
+
+      await ctx.service.replaceProduct('deal-1', 'line-1', { ...noSource, priceClient: 48 } as any, tech, TECH);
+
+      expect(ctx.products.addProduct.mock.calls[0][1]).toMatchObject({ sourceTechId: 'tech-2', priceClient: 48 });
+      expect(ctx.http.restoreStock).toHaveBeenCalledWith(expect.objectContaining({ containerId: 'tech-2' }));
+      expect(ctx.http.deductStock).toHaveBeenCalledWith(expect.objectContaining({ containerId: 'tech-2' }));
+    });
+
+    it("refuses more of a line from someone else's van when the phone names none", async () => {
+      ctx.products.findProduct.mockResolvedValue(hisLine({ sourceTechId: 'tech-2' }));
+      const { sourceTechId: _s, ...noSource } = fromHisVan;
+
+      expect(
+        await refusal(ctx.service.replaceProduct('deal-1', 'line-1', { ...noSource, quantity: 3 } as any, tech, TECH)),
+      ).toBe(NOT_IN_VAN);
+      expect(ctx.http.restoreStock).not.toHaveBeenCalled();
+    });
+
     it('leaves the office as it was', async () => {
       ctx.products.findProduct.mockResolvedValue(hisLine());
 

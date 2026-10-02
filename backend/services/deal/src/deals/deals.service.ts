@@ -2065,18 +2065,19 @@ export class DealsService {
   }
 
   /**
-   * A technician's sourced line names no technician → his own van; he may
-   * only source from it anyway (the container rule). Anyone else's request is
-   * taken as sent.
+   * A technician's sourced line that names no technician: on an add, his own
+   * van (he may only source from it anyway — the container rule); on an edit,
+   * the van the line already comes from, so fixing a price never moves stock
+   * between vans. Anyone else's request is taken as sent.
    */
   private withOwnVan(
     dto: AddDealProductDto,
     fulfillment: DealProductFulfillment,
     technician: boolean,
-    caller: JwtUser,
+    van: string,
   ): AddDealProductDto {
     return technician && fulfillment === 'sourced' && !dto.sourceTechId
-      ? { ...dto, sourceTechId: caller.id }
+      ? { ...dto, sourceTechId: van }
       : dto;
   }
 
@@ -2090,7 +2091,7 @@ export class DealsService {
     assertDealInScope(deal, caller, dealScope);
     const fulfillment: DealProductFulfillment = request.fulfillment ?? 'sourced';
     const technician = isTechnicianScope(dealScope);
-    const dto = this.withOwnVan(request, fulfillment, technician, caller);
+    const dto = this.withOwnVan(request, fulfillment, technician, caller.id);
 
     const product = await this.validateProductFulfillment(dto, fulfillment);
     assertPriceInBand(dto.priceClient, product.priceClient);
@@ -2192,7 +2193,8 @@ export class DealsService {
 
     const fulfillment: DealProductFulfillment = request.fulfillment ?? 'sourced';
     const technician = isTechnicianScope(dealScope);
-    const dto = this.withOwnVan(request, fulfillment, technician, caller);
+    const ownVan = (existing.fulfillment ?? 'sourced') === 'sourced' && existing.sourceTechId;
+    const dto = this.withOwnVan(request, fulfillment, technician, ownVan || caller.id);
     // "Swap" means the line now names a different product. The line itself is
     // the same row either way — it is keyed by its own id — so a job may well
     // end up carrying one product on two lines, as a Workiz job does.
