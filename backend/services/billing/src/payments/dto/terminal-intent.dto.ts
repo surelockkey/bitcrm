@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsNumber, IsOptional, IsUUID, Min } from 'class-validator';
+import { IsNumber, IsOptional, IsString, IsUUID, Matches, Min } from 'class-validator';
 
 /** One card payment on a staff phone (Stripe Terminal / Tap to Pay). */
 export class TerminalIntentDto {
@@ -28,4 +28,17 @@ export class TerminalIntentDto {
   })
   @IsUUID()
   attemptId!: string;
+}
+
+/** "Type card manually": a card the technician typed on the phone, as the PaymentMethod the phone made from it. */
+export class CardIntentDto extends TerminalIntentDto {
+  @ApiProperty({
+    example: 'pm_1Q0PsLLkdIwHu7ixVk8cQ0e2',
+    description:
+      'The `pm_…` @stripe/stripe-react-native `createPaymentMethod` made from the typed card. Never a card number — ' +
+      'the card details go from the phone to Stripe only.',
+  })
+  @IsString()
+  @Matches(/^pm_[A-Za-z0-9_]{1,250}$/, { message: 'paymentMethodId must be a Stripe PaymentMethod id (pm_…)' })
+  paymentMethodId!: string;
 }
