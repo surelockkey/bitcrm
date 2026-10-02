@@ -4,6 +4,7 @@ import {
   Logger,
   NotFoundException,
   BadRequestException,
+  ConflictException,
   HttpException,
   UnprocessableEntityException,
   Optional,
@@ -2031,6 +2032,26 @@ export class DealsService {
     return product;
   }
 
+  /**
+   * A refused container deduction, told precisely. Inventory answers 404 when
+   * no container resolves for the technician at all — 409, that is no stock
+   * problem and "not enough" would send him to count his van; any other 4xx
+   * is a van short of the item (400, naming it). 5xx / network pass as they are.
+   */
+  private deductionRefused(error: unknown, productName: string): unknown {
+    if (!(error instanceof HttpException)) return error;
+    const status = error.getStatus();
+    if (status === 404) {
+      return new ConflictException('This technician has no container assigned');
+    }
+    if (status >= 400 && status < 500) {
+      return new BadRequestException(
+        `The selected technician doesn't have enough "${productName}" in their container to add to this deal.`,
+      );
+    }
+    return error;
+  }
+
   async addProduct(
     id: string,
     dto: AddDealProductDto,
@@ -2059,9 +2080,8 @@ export class DealsService {
         );
       }
 
-      // Deduct from that tech's container. A 4xx here (e.g. the tech doesn't
-      // carry enough of this product) is a client error, not a server fault —
-      // surface it as a clear message referencing the product by name.
+      // Deduct from that tech's container. A 4xx here (no container, or not
+      // enough of this product in it) is a client error, not a server fault.
       try {
         await this.internalHttp.deductStock({
           containerId: dto.sourceTechId,
@@ -2071,16 +2091,7 @@ export class DealsService {
           performedByName: caller.email,
         });
       } catch (error) {
-        if (
-          error instanceof HttpException &&
-          error.getStatus() >= 400 &&
-          error.getStatus() < 500
-        ) {
-          throw new BadRequestException(
-            `The selected technician doesn't have enough "${dto.name}" in their container to add to this deal.`,
-          );
-        }
-        throw error;
+        throw this.deductionRefused(error, dto.name);
       }
     }
 
@@ -2194,16 +2205,7 @@ export class DealsService {
         if (restoreTo) {
           await this.internalHttp.deductStock({ containerId: restoreTo, items: oldItems, ...stockMeta });
         }
-        if (
-          error instanceof HttpException &&
-          error.getStatus() >= 400 &&
-          error.getStatus() < 500
-        ) {
-          throw new BadRequestException(
-            `The selected technician doesn't have enough "${dto.name}" in their container to add to this deal.`,
-          );
-        }
-        throw error;
+        throw this.deductionRefused(error, dto.name);
       }
     }
 

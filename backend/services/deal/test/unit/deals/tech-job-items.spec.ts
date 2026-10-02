@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, HttpException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { GeocodingService, SnsPublisherService } from '@bitcrm/shared';
 import { DataScope, TimelineEventType } from '@bitcrm/types';
@@ -378,6 +378,50 @@ describe('DealsService — a technician adds, edits and removes items on his own
           service.replaceProduct('deal-1', 'line-1', { ...phoneLine, priceClient: 99 } as any, tech),
         ).rejects.toThrow(BadRequestException);
       });
+    });
+  });
+
+  /* ------------------------------------------------- no container at all */
+
+  describe("a technician with no container gets told so, not that he is short of stock", () => {
+    // Inventory answers a deduct from a technician no container resolves for
+    // with 404 `Container "<id>" not found`; a short van is its 400.
+    const noContainer = () => new HttpException('Container "tech-1" not found', 404);
+
+    it('adding a sourced line — 409, nothing written', async () => {
+      repo.findById.mockResolvedValue(onHisJob());
+      http.deductStock.mockRejectedValue(noContainer());
+
+      const err = await service.addProduct('deal-1', phoneLine as any, tech).then(() => undefined, (e: unknown) => e);
+
+      expect(err).toBeInstanceOf(ConflictException);
+      expect((err as ConflictException).getStatus()).toBe(409);
+      expect((err as Error).message).toBe('This technician has no container assigned');
+      expect(products.addProduct).not.toHaveBeenCalled();
+    });
+
+    it('editing a line to be sourced from him — 409, and the old line goes back where it was', async () => {
+      repo.findById.mockResolvedValue(createMockDeal({ assignedTechIds: ['tech-1', 'tech-2'] }));
+      products.findProduct.mockResolvedValue(createMockDealProduct({ sourceTechId: 'tech-2' }));
+      http.deductStock.mockRejectedValueOnce(noContainer());
+
+      const err = await service.replaceProduct('deal-1', 'line-1', phoneLine as any, tech).then(() => undefined, (e: unknown) => e);
+
+      expect(err).toBeInstanceOf(ConflictException);
+      expect((err as Error).message).toBe('This technician has no container assigned');
+      // Restored to tech-2's van, then taken back again by the compensation.
+      expect(http.restoreStock).toHaveBeenCalledWith(expect.objectContaining({ containerId: 'tech-2' }));
+      expect(http.deductStock).toHaveBeenLastCalledWith(expect.objectContaining({ containerId: 'tech-2' }));
+      expect(products.addProduct).not.toHaveBeenCalled();
+    });
+
+    it('still names the product when the van is merely short', async () => {
+      repo.findById.mockResolvedValue(onHisJob());
+      http.deductStock.mockRejectedValue(new HttpException('Insufficient stock', 400));
+
+      await expect(service.addProduct('deal-1', phoneLine as any, tech)).rejects.toThrow(
+        `The selected technician doesn't have enough "Kwikset Deadbolt" in their container to add to this deal.`,
+      );
     });
   });
 });
