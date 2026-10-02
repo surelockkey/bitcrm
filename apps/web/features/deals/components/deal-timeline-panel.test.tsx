@@ -515,3 +515,44 @@ describe("DealTimelinePanel — imported Workiz rows read human", () => {
     expect(screen.queryByText(/T10:00:00/)).not.toBeInTheDocument();
   });
 });
+
+describe("DealTimelinePanel — what the client did on the portal reads like Workiz", () => {
+  const show = (e: TimelineEntry) => {
+    timeline.entries = [e];
+    render(<DealTimelinePanel dealId="d1" canEdit />);
+    openPanel();
+  };
+
+  it("a portal view: Client viewed invoice / estimate, with the number", () => {
+    show(entry({ eventType: TimelineEventType.INVOICE_VIEWED, actorId: "client", actorName: "Client", details: { invoiceId: "d1", number: "O8E9NQ" } }));
+    expect(screen.getByText("Client viewed invoice")).toBeInTheDocument();
+    expect(screen.getByText(/#O8E9NQ/)).toBeInTheDocument();
+  });
+
+  it("an estimate view", () => {
+    show(entry({ eventType: TimelineEventType.ESTIMATE_VIEWED, actorId: "client", actorName: "Client", details: { estimateId: "e1", number: "K4T9ZW-1" } }));
+    expect(screen.getByText("Client viewed estimate")).toBeInTheDocument();
+    expect(screen.getByText(/#K4T9ZW-1/)).toBeInTheDocument();
+  });
+
+  it("approving is signing: Client signed estimate; declining: Client declined estimate", () => {
+    show(entry({ eventType: TimelineEventType.ESTIMATE_APPROVED, actorId: "client", actorName: "Jane Client", details: { estimateId: "e1", number: "K4T9ZW-1" } }));
+    expect(screen.getByText("Client signed estimate")).toBeInTheDocument();
+    expect(screen.getByText(/#K4T9ZW-1/)).toBeInTheDocument();
+  });
+
+  it("a decline", () => {
+    show(entry({ eventType: TimelineEventType.ESTIMATE_DECLINED, actorId: "client", details: { estimateId: "e1", number: "K4T9ZW-2" } }));
+    expect(screen.getByText("Client declined estimate")).toBeInTheDocument();
+  });
+
+  it("an invoice the client signed on the portal says Client; one signed on a tech's phone does not", () => {
+    show(entry({ eventType: TimelineEventType.INVOICE_SIGNED, actorId: "client", actorName: "Josh W", details: { invoiceId: "d1", number: "O8E9NQ", signedBy: "Josh W" } }));
+    expect(screen.getByText("Client signed invoice")).toBeInTheDocument();
+  });
+
+  it("a staff-collected signature", () => {
+    show(entry({ eventType: TimelineEventType.INVOICE_SIGNED, actorId: "u-olha", details: { invoiceId: "d1", number: "O8E9NQ", signedBy: "Josh W" } }));
+    expect(screen.getByText("Invoice signed")).toBeInTheDocument();
+  });
+});
