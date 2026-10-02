@@ -122,4 +122,14 @@ describe('DEFAULT_ROLES <-> RESOURCE_REGISTRY consistency', () => {
     expect(byId('role-dispatcher').permissions.reports).toMatchObject({ view_tech_statistics: true, view_profit: false });
     expect(byId('role-technician').permissions.reports).toMatchObject({ view_ad_statistics: false, view_profit: false });
   });
+
+  it("lets the Technician read the price book — items, their custom fields, item groups — but not its costs", () => {
+    // GET /inventory/products, /item-attributes and /item-groups are products.view;
+    // costCompany stays behind financials.view. Job lines are his under assigned_only.
+    const tech = DEFAULT_ROLES.find((r) => r.id === 'role-technician')!;
+    expect(tech.permissions.products).toMatchObject({ view: true, edit: false });
+    expect(tech.permissions.financials?.view).toBe(false);
+    expect(tech.permissions.deals).toMatchObject({ view: true, edit: true });
+    expect(tech.dataScope.deals).toBe('assigned_only');
+  });
 });
