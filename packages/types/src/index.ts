@@ -530,6 +530,8 @@ export type {
   TerminalLocation,
   TerminalPaymentIntent,
   TerminalIntentOutcome,
+  KeyedIntentStatus,
+  KeyedPaymentIntent,
   PaymentRefund,
   RefundStatus,
   PaymentSummary,

@@ -161,6 +161,18 @@ export class StripeEventsHandler {
   async syncIntent(payment: Payment): Promise<void> {
     if (!payment.stripePaymentIntentId) return;
     const intent = await this.stripe.retrievePaymentIntent(payment.stripePaymentIntentId, { expandCharge: true });
+    return this.assertIntent(intent);
+  }
+
+  /**
+   * An intent already in hand — what `paymentIntents.create` answered for a
+   * card typed on the phone (or the intent a decline came back with) — is
+   * asserted exactly as `syncIntent` asserts one it fetched: `succeeded`
+   * settles (with the card, when the charge is expanded), a decline fails
+   * with Stripe's words, an intent still waiting for the client (3-D Secure,
+   * no card yet) changes nothing. The webhook that follows is a no-op.
+   */
+  async assertIntent(intent: Stripe.PaymentIntent): Promise<void> {
     const type =
       intent.status === 'requires_payment_method'
         ? intent.last_payment_error

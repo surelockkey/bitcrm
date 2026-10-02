@@ -38,11 +38,15 @@ export type PaymentSource = (typeof PAYMENT_SOURCES)[number];
 
 /**
  * How a card reached Stripe, when it was not the client's own portal
- * checkout. `terminal` — card-present through Stripe Terminal on a staff
- * phone (Tap to Pay): the ledger row is written first, `pending`, then a
- * `card_present` PaymentIntent the device collects and confirms.
+ * checkout. Both are taken on a staff phone, and both write the ledger row
+ * first, `pending`:
+ *  - `terminal` — card-present through Stripe Terminal (Tap to Pay): then a
+ *    `card_present` PaymentIntent the device collects and confirms.
+ *  - `keyed` — the card typed in by the technician while the client is there
+ *    (Workiz "Credit card payment"): the phone turns it into a PaymentMethod
+ *    and billing creates AND confirms a `card` PaymentIntent with it.
  */
-export const PAYMENT_CHANNELS = ['terminal'] as const;
+export const PAYMENT_CHANNELS = ['terminal', 'keyed'] as const;
 export type PaymentChannel = (typeof PAYMENT_CHANNELS)[number];
 
 export interface Payment {
@@ -79,7 +83,7 @@ export interface Payment {
   /** Tip on top of `amount`, dollars. Never counts toward the balance. */
   tipAmount?: number;
   source: PaymentSource;
-  /** `terminal` for a card tapped on a staff phone (Stripe Terminal). Absent otherwise. */
+  /** `terminal` for a card tapped on a staff phone (Stripe Terminal), `keyed` for one typed in on it. Absent otherwise. */
   channel?: PaymentChannel;
   /** Cheque number, confirmation code, "paid to tech Mike" — staff's own note. */
   reference?: string;
@@ -344,6 +348,47 @@ export interface TerminalPaymentIntent {
   currency: string;
   /** The row now: `pending` until the card is charged; a retried attempt may already be `settled`. */
   status: PaymentStatus;
+}
+
+/**
+ * A Stripe PaymentIntent's own status, as the card-intent route answers it:
+ * `succeeded` (the row is settled), `requires_action` (3-D Secure — the phone
+ * runs `handleNextAction(clientSecret)`, then `…/sync`), `requires_payment_method`
+ * (declined — ask for another card under a NEW attempt id), `processing`, `canceled`.
+ */
+export type KeyedIntentStatus =
+  | 'succeeded'
+  | 'processing'
+  | 'requires_action'
+  | 'requires_payment_method'
+  | 'requires_confirmation'
+  | 'requires_capture'
+  | 'canceled';
+
+/**
+ * `POST /invoices/:id/card-intent` and `POST /estimates/:id/card-intent` (a
+ * deposit) — "Type card manually". HTTP 200 for every Stripe outcome.
+ */
+export interface KeyedPaymentIntent {
+  /** The ledger row — the request's `attemptId`. */
+  paymentId: string;
+  /** Stripe `pi_…`. */
+  intentId: string;
+  /** For `handleNextAction(clientSecret)` when `status` is `requires_action`. */
+  clientSecret: string;
+  /** What Stripe says the intent is now (not the row's status). */
+  status: KeyedIntentStatus;
+  /** Dollars toward the balance (or the deposit). */
+  amount: number;
+  /** Dollars on top, never toward the balance. */
+  tipAmount: number;
+  /** The service fee — `round2((amount + tip) × surchargePercent / 100)`; 0 when the account charges none. */
+  feeAmount: number;
+  /** `amount + tipAmount + feeAmount` — what the card is charged. */
+  total: number;
+  currency: string;
+  /** Why the card was not charged (Stripe's decline message) — with `requires_payment_method` / `canceled`. */
+  declineMessage?: string;
 }
 
 /** `POST /terminal-intents/:paymentId/sync` and `…/cancel`: the attempt now, and its job's ledger. */

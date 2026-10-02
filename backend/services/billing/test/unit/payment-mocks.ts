@@ -199,6 +199,15 @@ export function mockStripeService(over: Record<string, unknown> = {}) {
       metadata: input.metadata,
     })),
     cancelPaymentIntent: jest.fn(async (id: string, _reason?: string): Promise<any> => ({ id, object: 'payment_intent', status: 'canceled' })),
+    // "Type card manually": created AND confirmed in one call — by default it waits for 3-D Secure.
+    createKeyedIntent: jest.fn(async (input: any): Promise<any> => ({
+      id: `pi_${input.metadata.paymentId}`,
+      object: 'payment_intent',
+      client_secret: `pi_${input.metadata.paymentId}_secret_1`,
+      status: 'requires_action',
+      latest_charge: null,
+      metadata: input.metadata,
+    })),
     ...over,
   };
 }
