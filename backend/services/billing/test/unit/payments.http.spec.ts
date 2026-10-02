@@ -4,7 +4,7 @@ import { ValidationPipe, type INestApplication } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import request from 'supertest';
 import { HttpExceptionFilter } from '@bitcrm/shared';
-import { PaymentsController } from 'src/payments/payments.controller';
+import { DealPaymentsController, InvoicePaymentsController, PaymentsController } from 'src/payments/payments.controller';
 import { PaymentsService } from 'src/payments/payments.service';
 import { perms, user } from './mocks';
 
@@ -18,11 +18,13 @@ describe('Payments ledger routes (HTTP)', () => {
   let app: INestApplication;
   const payments = {
     sendReceipt: jest.fn(async (..._a: any[]): Promise<any> => ({ sent: true, sentTo: 'walter@example.com' })),
+    recordOfflineForDeal: jest.fn(async (..._a: any[]): Promise<any> => ({ id: 'p-dep', estimateId: 'est-1' })),
+    recordOffline: jest.fn(async (..._a: any[]): Promise<any> => ({ id: 'p-inv' })),
   };
 
   beforeAll(async () => {
     const mod = await Test.createTestingModule({
-      controllers: [PaymentsController],
+      controllers: [InvoicePaymentsController, DealPaymentsController, PaymentsController],
       providers: [
         {
           provide: APP_GUARD,
@@ -96,6 +98,34 @@ describe('Payments ledger routes (HTTP)', () => {
         expect(res.status).toBe(400);
       }
       expect(payments.sendReceipt).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('POST /deals/:dealId/payments — an offline deposit tied to its estimate', () => {
+    it('hands estimateId to the service with the rest of the payment', async () => {
+      const res = await http()
+        .post('/api/billing/deals/deal-1/payments')
+        .send({ amount: 100, method: 'cash', estimateId: 'est-1', takenAt: '2026-10-02T15:00:00.000Z' });
+      expect(res.status).toBe(201);
+      expect(res.body.data).toEqual({ id: 'p-dep', estimateId: 'est-1' });
+      const [dealId, body, caller] = payments.recordOfflineForDeal.mock.calls[0];
+      expect(dealId).toBe('deal-1');
+      expect({ ...body }).toEqual({ amount: 100, method: 'cash', estimateId: 'est-1', takenAt: '2026-10-02T15:00:00.000Z' });
+      expect(caller.user.id).toBe('tech-1');
+    });
+
+    it('400s an estimateId that is not an id', async () => {
+      for (const estimateId of [42, '', 'x'.repeat(201)]) {
+        const res = await http().post('/api/billing/deals/deal-1/payments').send({ amount: 10, method: 'cash', estimateId });
+        expect(res.status).toBe(400);
+      }
+      expect(payments.recordOfflineForDeal).not.toHaveBeenCalled();
+    });
+
+    it('leaves the invoice route as it was — a deposit is recorded on the job', async () => {
+      const res = await http().post('/api/billing/invoices/deal-1/payments').send({ amount: 10, method: 'cash', estimateId: 'est-1' });
+      expect(res.status).toBe(201);
+      expect(payments.recordOffline.mock.calls[0][1].estimateId).toBeUndefined();
     });
   });
 });

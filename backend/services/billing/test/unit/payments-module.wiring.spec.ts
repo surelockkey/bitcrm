@@ -40,12 +40,13 @@ describe('PaymentsModule wiring', () => {
     await mod.close();
   });
 
-  it('gives PaymentsService the companies (the receipt names the business)', async () => {
+  it('gives PaymentsService the companies (the receipt names the business) and the estimates (an offline deposit)', async () => {
     const mod = await Test.createTestingModule({
       imports: [PlatformStubs, IntegrationsModule, StripeModule.forRootAsync(), PaymentsModule],
     }).compile();
     const payments = mod.get(PaymentsService);
     expect((payments as any).profiles).toBeDefined();
+    expect((payments as any).estimates).toBeDefined();
     expect((payments as any).messaging).toBeDefined();
     await mod.close();
   });

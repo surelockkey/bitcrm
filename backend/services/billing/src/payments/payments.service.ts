@@ -12,6 +12,7 @@ import { tryNormalizePhone } from '@bitcrm/shared';
 import {
   BillingEventType,
   TimelineEventType,
+  estimateDepositDue,
   type Deal,
   type Invoice,
   type JobPaymentLedger,
@@ -28,6 +29,7 @@ import {
 import { isEmail } from 'class-validator';
 import { BusinessProfileService } from '../business-profile/business-profile.service';
 import { assertDealAccess, isAssignedOnly, type Caller } from '../common/access';
+import { EstimatesService } from '../estimates/estimates.service';
 import { BillingEventsPublisher } from '../integrations/billing-events.publisher';
 import { CrmClient } from '../integrations/crm.client';
 import { DealClient, type DealBillingView } from '../integrations/deal.client';
@@ -60,6 +62,11 @@ export interface RecordPaymentInput {
   reference?: string;
   note?: string;
   takenAt?: string;
+}
+
+/** The job's "Add payment": optionally an estimate's deposit (Workiz: the estimate's Deposits). */
+export interface RecordJobPaymentInput extends RecordPaymentInput {
+  estimateId?: string;
 }
 
 export interface RefundInput {
@@ -137,6 +144,7 @@ export class PaymentsService {
     @Optional() private readonly messaging?: MessagingClient,
     @Optional() private readonly report?: PaymentReportProjector,
     @Optional() private readonly profiles?: BusinessProfileService,
+    @Optional() private readonly estimates?: EstimatesService,
   ) {}
 
   // -------------------------------------------------------------- ledger read
@@ -307,34 +315,73 @@ export class PaymentsService {
   /**
    * The job's "Add payment" (Workiz). With an invoice it is exactly
    * `recordOffline`; without one the payment still lands in the job's ledger
-   * (invoice id === deal id) and the balance is the job's own total.
+   * (invoice id === deal id) and the balance is the job's own total. With
+   * `estimateId` it is that estimate's deposit — see `writeDeposit`.
    */
-  async recordOfflineForDeal(dealId: string, input: RecordPaymentInput, caller: Caller): Promise<Payment> {
+  async recordOfflineForDeal(dealId: string, input: RecordJobPaymentInput, caller: Caller): Promise<Payment> {
     const ctx = await this.jobContext(dealId, caller);
     assertOfflineMethod(input.method);
-    // The job's invoice (id === deal id) always has the job.
-    if (ctx.invoice && hasJob(ctx.invoice)) {
-      return this.writeOffline(
-        { ...invoiceOwner(ctx.invoice), ...jobDims(ctx.view.deal) },
-        await this.amountDue(ctx.invoice),
-        input,
-        caller,
-      );
-    }
     const deal = ctx.view.deal;
+    // The job's invoice (id === deal id) always has the job.
+    const invoice = ctx.invoice && hasJob(ctx.invoice) ? ctx.invoice : null;
+    const owner: PaymentOwner = invoice
+      ? { ...invoiceOwner(invoice), ...jobDims(deal) }
+      : {
+          invoiceId: deal.id,
+          dealId: deal.id,
+          contactId: deal.contactId,
+          ...(deal.companyId && { companyId: deal.companyId }),
+          ...jobDims(deal),
+        };
+    if (input.estimateId !== undefined) return this.writeDeposit(input.estimateId, owner, input, caller);
+    if (invoice) return this.writeOffline(owner, await this.amountDue(invoice), input, caller);
     const paid = amountPaidFrom(await this.repo.listByInvoice(deal.id));
-    const owner: PaymentOwner = {
-      invoiceId: deal.id,
-      dealId: deal.id,
-      contactId: deal.contactId,
-      ...(deal.companyId && { companyId: deal.companyId }),
-      ...jobDims(deal),
-    };
     return this.writeOffline(owner, balanceOf(jobTotal(ctx.view, paid), paid), input, caller);
   }
 
-  private async writeOffline(
+  /**
+   * A deposit taken by hand — cash, a cheque — for one of the job's estimates
+   * (Workiz: "for payments like cash or check, you'll need to manually record
+   * the payment" on the estimate's Deposits). It is stored as the portal's and
+   * the phone's card deposits are: on the JOB's ledger, tagged with the
+   * estimate — so the portal's deposit step, the estimate's deposit and the
+   * job's balance all count it. The ceiling is what is still owed of the
+   * deposit, as for a card deposit: not the job's balance, since the
+   * estimate's work may not be on the job yet.
+   */
+  private async writeDeposit(
+    estimateId: string,
     owner: PaymentOwner,
+    input: RecordPaymentInput,
+    caller: Caller,
+  ): Promise<Payment> {
+    const id = typeof estimateId === 'string' ? estimateId.trim() : '';
+    const estimate = id ? await this.requireEstimates().getStored(id) : null;
+    if (!estimate) throw new BadRequestException('That estimate was not found — the deposit cannot be recorded on it');
+    if (!estimate.dealId) {
+      throw new ConflictException('This estimate has no job to hold its deposit — copy it to a job first');
+    }
+    if (estimate.dealId !== owner.dealId) {
+      throw new ConflictException('This estimate belongs to another job — record its deposit on that job');
+    }
+    if (estimate.contactId !== owner.contactId) {
+      throw new ConflictException('This estimate belongs to another client — its deposit cannot be recorded here');
+    }
+    const depositDue = estimateDepositDue(estimate);
+    if (!(depositDue > 0)) throw new BadRequestException('This estimate does not ask for a deposit');
+    const paid = summarizePayments(
+      (await this.repo.listByInvoice(owner.invoiceId)).filter((p) => p.estimateId === estimate.id),
+    ).settled;
+    return this.writeOffline(
+      { ...owner, estimateId: estimate.id },
+      round2(Math.max(0, depositDue - paid)),
+      input,
+      caller,
+    );
+  }
+
+  private async writeOffline(
+    owner: PaymentOwner & { estimateId?: string },
     amountDue: number,
     input: RecordPaymentInput,
     caller: Caller,
@@ -652,6 +699,11 @@ export class PaymentsService {
 
   private clamp(requested: unknown, amountDue: number): number {
     return clampStaffAmount(requested, amountDue);
+  }
+
+  private requireEstimates(): EstimatesService {
+    if (!this.estimates) throw new Error('EstimatesService not wired');
+    return this.estimates;
   }
 
   /** Surfaces the optimistic-concurrency refusal as something a caller can act on. */

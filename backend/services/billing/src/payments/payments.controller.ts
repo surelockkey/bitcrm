@@ -9,7 +9,7 @@ import { LedgersByDealsDto } from './dto/ledgers-by-deals.dto';
 import { AllowedMethodsDto } from './dto/allowed-methods.dto';
 import { ListPaymentsQueryDto } from './dto/list-payments-query.dto';
 import { UpdatePaymentSettingsDto } from './dto/payment-settings.dto';
-import { RecordPaymentDto } from './dto/record-payment.dto';
+import { RecordJobPaymentDto, RecordPaymentDto } from './dto/record-payment.dto';
 import { RefundPaymentDto } from './dto/refund-payment.dto';
 import { SendReceiptDto } from './dto/send-receipt.dto';
 import { PaymentSettingsService } from './payment-settings.service';
@@ -96,9 +96,13 @@ export class DealPaymentsController {
     description:
       '**Guard:** `payments.collect` (technicians hold it with `assigned_only`). Cash, cheque, a card ' +
       'run in person or other — settled immediately, with or without an invoice. 400 above the balance ' +
-      '(the invoice’s, or the job total less what is paid); 404 when the job does not exist.',
+      '(the invoice’s, or the job total less what is paid); 404 when the job does not exist. With ' +
+      '`estimateId` it is that estimate’s deposit (Workiz: the estimate’s Deposits): tagged with the estimate ' +
+      'on the job’s ledger, so the portal, the estimate and the job all count it; refused above what is still ' +
+      'owed of the deposit (not the job’s balance — the estimate’s work may not be on the job yet). 400 for an ' +
+      'unknown estimate or one that asks for no deposit, 409 for another job’s or client’s, or a client estimate.',
   })
-  async record(@Param('dealId') dealId: string, @Body() dto: RecordPaymentDto, @CallerCtx() caller: Caller) {
+  async record(@Param('dealId') dealId: string, @Body() dto: RecordJobPaymentDto, @CallerCtx() caller: Caller) {
     return { success: true, data: await this.payments.recordOfflineForDeal(dealId, dto, caller) };
   }
 }
