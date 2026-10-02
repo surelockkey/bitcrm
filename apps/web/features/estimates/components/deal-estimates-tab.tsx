@@ -23,13 +23,12 @@ import { usePermissions } from "@/features/auth/use-permissions";
 import { useDealProducts } from "@/features/deals/hooks";
 import { formatMoney } from "@/features/billing/lib";
 import { useDealEstimates, useDeleteEstimate, useDuplicateEstimate } from "../hooks";
-import { formatEstimateCreated } from "../lib";
+import { formatEstimateCreated, proposalSend } from "../lib";
 import { EstimateStatusBadge } from "./estimate-status-badge";
 import { byCreated, optionLabel } from "./estimate-tabs";
 import { NewEstimateDialog } from "./new-estimate-dialog";
 import { SendProposalDialog } from "./send-proposal-dialog";
 
-const isOpen = (e: Pick<EstimateWithItems, "status">) => e.status === "unsent" || e.status === "pending";
 
 /** Each option keeps its colour down the left edge of its row (Workiz: green, blue, …). */
 const ACCENTS = ["bg-chart3", "bg-brand", "bg-chart5", "bg-chart4", "bg-chart7", "bg-chart2"];
@@ -76,7 +75,7 @@ export function DealEstimatesTab({
   const canDelete = can("estimates", "delete");
   const canSendAll = can("estimates", "send") && can("messages", "send");
   const list = byCreated(estimates ?? []);
-  const openOnes = list.filter((e) => isOpen(e) && !e.proposalId);
+  const sendAll = proposalSend(list);
 
   if (isLoading) {
     return (
@@ -101,7 +100,7 @@ export function DealEstimatesTab({
     <section aria-label="Job estimates" className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h3 className="text-lg">Estimates</h3>
-        {canSendAll && openOnes.length > 0 ? (
+        {canSendAll && sendAll.mode ? (
           <Button variant="default" size="lg" className="h-9 rounded-pill px-5 font-semibold" onClick={() => setSendingAll(true)}>
             <Send /> Send all (Proposal)
           </Button>
@@ -200,7 +199,7 @@ export function DealEstimatesTab({
       ) : null}
 
       {canSendAll && list[0] ? (
-        <SendProposalDialog deal={deal} contactId={list[0].contactId} open={sendingAll} onOpenChange={setSendingAll} />
+        <SendProposalDialog deal={deal} contactId={list[0].contactId} open={sendingAll} onOpenChange={setSendingAll} resend={sendAll.mode === "resend"} />
       ) : null}
 
       <AlertDialog open={deleting !== null} onOpenChange={(o) => !o && setDeleting(null)}>

@@ -209,3 +209,21 @@ export function formatEstimateCreated(iso: string, tz: string = DEFAULT_TZ): str
   );
   return `${parts.weekday} ${parts.month} ${parts.day}, ${parts.year} ${parts.hour}:${parts.minute} ${String(parts.dayPeriod).toLowerCase()}`;
 }
+
+/**
+ * What Workiz's "Send all (Proposal)" does for a job's estimates. Open
+ * estimates no proposal holds yet become a new proposal (`new`). When every
+ * open one is already in a proposal, the button stays and resends that
+ * proposal's portal link (`resend`): the proposal is created before the
+ * message goes out, so a failed email used to leave nothing to retry with.
+ * `count` is how many options the client would see.
+ */
+export function proposalSend(
+  estimates: Array<Pick<Estimate, "status" | "proposalId">>,
+): { mode: "new" | "resend" | null; count: number } {
+  const open = estimates.filter((e) => e.status === "unsent" || e.status === "pending");
+  const fresh = open.filter((e) => !e.proposalId).length;
+  if (fresh > 0) return { mode: "new", count: fresh };
+  if (open.length > 0) return { mode: "resend", count: open.length };
+  return { mode: null, count: 0 };
+}
