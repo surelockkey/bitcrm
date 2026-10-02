@@ -1,9 +1,10 @@
-import { Controller, Delete, Get, Param, Post } from '@nestjs/common';
+import { Controller, Delete, Get, Param, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, RequirePermission } from '@bitcrm/shared';
 import type { JwtUser } from '@bitcrm/types';
 import { RequireAnyPermission } from '../common/guards/any-permission.guard';
 import { PortalService } from './portal.service';
+import { inboxQuery, type InboxQueryParams } from './public-portal.controller';
 
 @ApiTags('Client portal')
 @ApiBearerAuth()
@@ -15,10 +16,21 @@ export class PortalLinksController {
   @RequirePermission('contacts', 'view')
   @ApiOperation({
     summary: 'Preview the client portal',
-    description: '**Guard:** `contacts.view`. Includes unsent documents (`preview: true`).',
+    description:
+      '**Guard:** `contacts.view`. Includes unsent documents (`preview: true`). Paged like the client’s portal (`limit`, `show`).',
   })
-  async preview(@Param('contactId') contactId: string) {
-    return { success: true, data: await this.portal.preview(contactId) };
+  async preview(@Param('contactId') contactId: string, @Query() query: InboxQueryParams) {
+    return { success: true, data: await this.portal.preview(contactId, inboxQuery(query)) };
+  }
+
+  @Get(':contactId/preview/inbox')
+  @RequirePermission('contacts', 'view')
+  @ApiOperation({
+    summary: 'Preview the client portal — one more inbox page',
+    description: '**Guard:** `contacts.view`. `cursor`, `limit`, `show` as on the client’s inbox; unsent documents included.',
+  })
+  async previewInbox(@Param('contactId') contactId: string, @Query() query: InboxQueryParams) {
+    return { success: true, data: await this.portal.previewInbox(contactId, inboxQuery(query)) };
   }
 
   @Get(':contactId')

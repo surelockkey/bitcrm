@@ -10,6 +10,9 @@ import {
   type Payment,
   type PortalDocumentSummary,
   type PortalJob,
+  type PortalInboxKey,
+  type PortalInboxPage,
+  type PortalInboxShow,
   type PortalLink,
   type PortalPaymentLine,
   type PortalProposalSummary,
@@ -29,6 +32,7 @@ import { formatAddress } from '../documents/document-context.builder';
 import { invoiceAwaitsSignature } from '../invoices/invoice-rules';
 import { InvoicesService, type SignInvoiceInput } from '../invoices/invoices.service';
 import { ProposalsService } from '../proposals/proposals.service';
+import { decodeInboxCursor, inboxLimit, inboxRows, pageInboxRows, parseInboxShow } from './portal-inbox';
 import { generatePortalToken, hashPortalToken, isPlausibleToken, recoverPortalToken } from './portal-token';
 import { PortalRepository, type StoredPortalLink } from './portal.repository';
 
@@ -39,6 +43,28 @@ type EstimateSource = Pick<
 >;
 
 const notFound = () => new NotFoundException('This link is no longer valid');
+
+/** `?cursor=&limit=&show=` of the portal and its inbox pages, as the controller hands them on. */
+export interface PortalInboxQuery {
+  cursor?: string;
+  limit?: number | string;
+  show?: string;
+}
+
+interface InboxRequest {
+  after?: PortalInboxKey;
+  limit: number;
+  show: PortalInboxShow[];
+}
+
+/** Everything the inbox is built from: the contact's documents the viewer may see, and who branded them. */
+interface PortalDocuments {
+  invoices: Invoice[];
+  estimates: Estimate[];
+  proposals: Omit<PortalProposalSummary, 'options'>[];
+  jobCompanies: Map<string, string>;
+  companies: BusinessProfile[];
+}
 
 function publicLink(link: StoredPortalLink): PortalLink {
   const { tokenHash: _hash, nonce: _n, token: _t, url: _u, replaced: _r, ...rest } = link;
@@ -117,17 +143,32 @@ export class PortalService {
     await this.repo.deleteLink(contactId, link.tokenHash);
   }
 
-  preview(contactId: string): Promise<PortalView> {
-    return this.buildView(contactId, true);
+  preview(contactId: string, query: PortalInboxQuery = {}): Promise<PortalView> {
+    return this.buildView(contactId, true, inboxRequest(query));
   }
 
-  async publicView(token: string): Promise<PortalView> {
+  /** The staff preview's "Load more" — unsent documents included. */
+  async previewInbox(contactId: string, query: PortalInboxQuery): Promise<PortalInboxPage> {
+    const request = inboxRequest(query);
+    return this.inboxPage(await this.documents(contactId, true), request);
+  }
+
+  /** The portal with the first page of the inbox (`limit` more, after a reload, keeps what the client had open). */
+  async publicView(token: string, query: PortalInboxQuery = {}): Promise<PortalView> {
+    const request = inboxRequest(query);
     const contactId = await this.resolveToken(token);
-    const view = await this.buildView(contactId, false);
+    const view = await this.buildView(contactId, false, request);
     await this.repo
       .touchViewed(contactId, new Date().toISOString())
       .catch((err: Error) => this.logger.warn(`lastViewedAt not recorded: ${err.message}`));
     return view;
+  }
+
+  /** "Load more" / "Inbox Display": one page of the inbox, without the header, the jobs or the payments. */
+  async publicInbox(token: string, query: PortalInboxQuery): Promise<PortalInboxPage> {
+    const request = inboxRequest(query);
+    const contactId = await this.resolveToken(token);
+    return this.inboxPage(await this.documents(contactId, false), request);
   }
 
   async publicPdf(token: string, kind: string, id: string, download = false): Promise<{ url: string }> {
@@ -228,64 +269,25 @@ export class PortalService {
    * job's company. A job's company comes from deal-service (one call per
    * view); an outage just falls back to the default company.
    */
-  private async buildView(contactId: string, preview: boolean): Promise<PortalView> {
-    const [contact, invoices, estimates, jobs, companies, payments, proposals] = await Promise.all([
+  private async buildView(contactId: string, preview: boolean, request: InboxRequest): Promise<PortalView> {
+    const [contact, docs, payments] = await Promise.all([
       this.crm.getContact(contactId).catch(() => null),
-      this.invoices.listForContact(contactId),
-      this.estimates.listForContact(contactId),
-      this.contactJobs(contactId),
-      this.profiles.listAll(),
+      this.documents(contactId, preview),
       this.paymentHistory(contactId),
-      this.proposals ? this.proposals.listForContact(contactId).catch(() => []) : Promise.resolve([]),
     ]);
     if (!contact && !preview) throw notFound();
-    const jobCompanies = new Map(jobs.filter((r) => r.businessProfileId).map((r) => [r.id, r.businessProfileId!]));
+    const jobs = docs.jobs;
 
-    const byId = new Map(companies.map((c) => [c.id, c]));
-    const fallback = companies.find((c) => c.isDefault) ?? companies[0];
-    // A client document (no job) is branded with the default company.
-    const companyOf = (dealId: string | undefined): BusinessProfile | undefined => {
-      const id = dealId ? jobCompanies.get(dealId) : undefined;
-      return (id && byId.get(id)) || fallback;
-    };
-
-    const visible = <T extends { sentAt?: string }>(docs: T[]) => (preview ? docs : docs.filter((d) => !!d.sentAt));
-    const shownInvoices = visible(invoices);
-    const shownEstimates = visible(estimates);
-
-    const lastSent = [...shownInvoices, ...shownEstimates]
+    const lastSent = [...docs.invoices, ...docs.estimates]
       .filter((d) => !!d.sentAt)
       .sort((a, b) => b.sentAt!.localeCompare(a.sentAt!))[0];
-    const headerId = lastSent?.dealId ? jobCompanies.get(lastSent.dealId) : undefined;
-    const business = await this.profiles.getPublic(headerId && byId.has(headerId) ? headerId : undefined);
-
-    const named = (s: PortalDocumentSummary, dealId: string | undefined): PortalDocumentSummary => {
-      const name = companyOf(dealId)?.name;
-      return name ? { ...s, companyName: name } : s;
-    };
-    const [payable, deposits] = await Promise.all([
-      this.payableFlags(shownInvoices),
-      this.depositFlags(shownEstimates),
+    const headerId = lastSent?.dealId ? docs.jobCompanies.get(lastSent.dealId) : undefined;
+    const known = new Set(docs.companies.map((c) => c.id));
+    const [business, inbox] = await Promise.all([
+      this.profiles.getPublic(headerId && known.has(headerId) ? headerId : undefined),
+      this.inboxPage(docs, request),
     ]);
-    const byDateDesc = (a: PortalDocumentSummary, b: PortalDocumentSummary) => b.date.localeCompare(a.date);
-    const estimateSummaries = (
-      await Promise.all(
-        shownEstimates.map(async (e) => ({
-          ...named(estimateSummary(e), e.dealId),
-          ...(deposits.get(e.id) ?? {}),
-          ...(await this.coverUrl(e)),
-        })),
-      )
-    ).sort(byDateDesc);
-    const byEstimateId = new Map(estimateSummaries.map((e) => [e.id, e]));
-    const proposalSummaries: PortalProposalSummary[] = proposals
-      .map((p) => ({
-        ...p,
-        options: p.estimateIds.map((id) => byEstimateId.get(id)).filter((e): e is PortalDocumentSummary => !!e),
-      }))
-      // Nothing sent in it that the client may see ⇒ nothing to show.
-      .filter((p) => p.options.length > 0)
-      .map((p) => ({ ...p, ...(p.options[0].companyName && { companyName: p.options[0].companyName }) }));
+
     return {
       business,
       client: {
@@ -296,12 +298,96 @@ export class PortalService {
       },
       jobs: portalJobs(jobs, new Date()),
       payments,
-      invoices: shownInvoices
+      invoices: inbox.invoices,
+      estimates: inbox.estimates,
+      proposals: inbox.proposals,
+      inbox: inbox.inbox,
+      preview,
+    };
+  }
+
+  /**
+   * The contact's documents the viewer may see (sent ones, or all of them in
+   * the preview) — read once, as plain rows. Nothing per document is looked
+   * up here: that is the page's job, ten at a time.
+   */
+  private async documents(contactId: string, preview: boolean): Promise<PortalDocuments & { jobs: ContactDealSummary[] }> {
+    const [invoices, estimates, jobs, companies, proposals] = await Promise.all([
+      this.invoices.listForContact(contactId),
+      this.estimates.listForContact(contactId),
+      this.contactJobs(contactId),
+      this.profiles.listAll(),
+      this.proposals ? this.proposals.listForContact(contactId).catch(() => []) : Promise.resolve([]),
+    ]);
+    const visible = <T extends { sentAt?: string }>(rows: T[]) => (preview ? rows : rows.filter((d) => !!d.sentAt));
+    return {
+      invoices: visible(invoices),
+      estimates: visible(estimates),
+      proposals,
+      jobs,
+      jobCompanies: new Map(jobs.filter((r) => r.businessProfileId).map((r) => [r.id, r.businessProfileId!])),
+      companies,
+    };
+  }
+
+  /**
+   * One page of the inbox in the shared order, and only now the expensive
+   * part for just that page: the payment ledger (Pay buttons, deposits),
+   * the cover images, the company names. A proposal on the page brings its
+   * options, which are not inbox entries of their own.
+   */
+  private async inboxPage(docs: PortalDocuments, request: InboxRequest): Promise<PortalInboxPage> {
+    const rows = inboxRows(docs.invoices, docs.estimates, docs.proposals, request.show);
+    const { page, nextCursor } = pageInboxRows(rows, request.after, request.limit);
+
+    const byId = new Map(docs.companies.map((c) => [c.id, c]));
+    const fallback = docs.companies.find((c) => c.isDefault) ?? docs.companies[0];
+    // A client document (no job) is branded with the default company.
+    const companyOf = (dealId: string | undefined): BusinessProfile | undefined => {
+      const id = dealId ? docs.jobCompanies.get(dealId) : undefined;
+      return (id && byId.get(id)) || fallback;
+    };
+    const named = (s: PortalDocumentSummary, dealId: string | undefined): PortalDocumentSummary => {
+      const name = companyOf(dealId)?.name;
+      return name ? { ...s, companyName: name } : s;
+    };
+
+    const ids = (kind: string) => new Set(page.filter((r) => r.kind === kind).map((r) => r.id));
+    const invoiceIds = ids('invoice');
+    const proposalIds = ids('proposal');
+    const pageProposals = docs.proposals.filter((p) => proposalIds.has(p.id));
+    const estimateIds = ids('estimate');
+    pageProposals.forEach((p) => p.estimateIds.forEach((id) => estimateIds.add(id)));
+    const pageInvoices = docs.invoices.filter((i) => invoiceIds.has(i.id));
+    const pageEstimates = docs.estimates.filter((e) => estimateIds.has(e.id));
+
+    const [payable, deposits, covers] = await Promise.all([
+      this.payableFlags(pageInvoices),
+      this.depositFlags(pageEstimates),
+      Promise.all(pageEstimates.map((e) => this.coverUrl(e))),
+    ]);
+    const byDateDesc = (a: PortalDocumentSummary, b: PortalDocumentSummary) => b.date.localeCompare(a.date);
+    const estimateSummaries = pageEstimates
+      .map((e, n) => ({ ...named(estimateSummary(e), e.dealId), ...(deposits.get(e.id) ?? {}), ...covers[n] }))
+      .sort(byDateDesc);
+    const byEstimateId = new Map(estimateSummaries.map((e) => [e.id, e]));
+    const order = new Map(page.map((r, n) => [r.ref, n]));
+    const proposals: PortalProposalSummary[] = pageProposals
+      .map((p) => ({
+        ...p,
+        options: p.estimateIds.map((id) => byEstimateId.get(id)).filter((e): e is PortalDocumentSummary => !!e),
+      }))
+      .filter((p) => p.options.length > 0)
+      .map((p) => ({ ...p, ...(p.options[0].companyName && { companyName: p.options[0].companyName }) }))
+      .sort((a, b) => (order.get(`proposal:${a.id}`) ?? 0) - (order.get(`proposal:${b.id}`) ?? 0));
+
+    return {
+      invoices: pageInvoices
         .map((i) => ({ ...named(invoiceSummary(i), i.dealId), ...(payable.get(i.id) ?? {}) }))
         .sort(byDateDesc),
       estimates: estimateSummaries,
-      proposals: proposalSummaries,
-      preview,
+      proposals,
+      inbox: { total: rows.length, ...(nextCursor && { nextCursor }) },
     };
   }
 
@@ -325,8 +411,10 @@ export class PortalService {
       const settings = await this.paymentSettings.get();
       // Both Stripe keys, or the client would be offered a form that cannot load.
       const stripeReady = !!this.stripe?.onlineReady;
-      for (const invoice of invoices) {
-        const summary = summarizePayments(await this.ledger.listByInvoice(invoice.id));
+      // One ledger read per invoice on the page, side by side rather than one after another.
+      const ledgers = await Promise.all(invoices.map((invoice) => this.ledger!.listByInvoice(invoice.id)));
+      for (const [n, invoice] of invoices.entries()) {
+        const summary = summarizePayments(ledgers[n]);
         const balanceDue = round2(Math.max(0, (invoice.totals?.total ?? 0) - summary.settled));
         const methods = this.paymentSettings.methodsFor(settings, invoice.allowedMethods, stripeReady);
         out.set(invoice.id, {
@@ -489,5 +577,14 @@ function estimateSummary(e: Estimate): PortalDocumentSummary {
     signatureNeeded: !!e.sentAt && (e.status === 'pending' || e.status === 'unsent'),
     signed: e.approvedVia === 'portal',
     ...(depositDue > 0 && { depositDue }),
+  };
+}
+
+/** The page the caller asked for — a bad cursor is a 400 before anything is read. */
+function inboxRequest(query: PortalInboxQuery): InboxRequest {
+  return {
+    ...(query.cursor && { after: decodeInboxCursor(query.cursor) }),
+    limit: inboxLimit(query.limit),
+    show: parseInboxShow(query.show),
   };
 }

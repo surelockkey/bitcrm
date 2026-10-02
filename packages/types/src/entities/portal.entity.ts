@@ -97,4 +97,45 @@ export interface PortalView {
   /** Newest first; failed attempts are left out. */
   payments: PortalPaymentLine[];
   preview: boolean;
+  /**
+   * The inbox is paged: `invoices`, `estimates` and `proposals` above hold its
+   * first page only (a proposal brings its options along). Absent from an
+   * older API, which sent everything at once.
+   */
+  inbox?: PortalInboxMeta;
+}
+
+/** Workiz "Inbox Display": which documents the inbox lists. Paid / Unpaid narrow the invoices. */
+export type PortalInboxShow = 'invoices' | 'estimates' | 'paid' | 'unpaid';
+export const PORTAL_INBOX_SHOW: readonly PortalInboxShow[] = ['invoices', 'estimates', 'paid', 'unpaid'];
+
+/** How many inbox entries the filter selects, and where the next page starts. */
+export interface PortalInboxMeta {
+  /** Entries in the whole inbox under the current filter (a proposal counts once). */
+  total: number;
+  /** Opaque; absent on the last page. */
+  nextCursor?: string;
+}
+
+/** GET …/portal/:token/inbox — one more page of the inbox. */
+export interface PortalInboxPage {
+  invoices: PortalDocumentSummary[];
+  estimates: PortalDocumentSummary[];
+  proposals: PortalProposalSummary[];
+  inbox: PortalInboxMeta;
+}
+
+/** Where an inbox entry sorts: its date (a document's date, a proposal's `sentAt`), then `<kind>:<id>`. */
+export interface PortalInboxKey {
+  at: string;
+  ref: string;
+}
+
+/**
+ * The inbox order — newest first, ties broken by `ref` — shared by the
+ * server that pages it and the portal that lists the pages, so an entry can
+ * never jump between pages or out of place.
+ */
+export function portalInboxCompare(a: PortalInboxKey, b: PortalInboxKey): number {
+  return b.at.localeCompare(a.at) || b.ref.localeCompare(a.ref);
 }

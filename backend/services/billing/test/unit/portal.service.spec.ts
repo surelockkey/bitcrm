@@ -490,6 +490,110 @@ describe('PortalService', () => {
     });
   });
 
+  describe('the paged inbox (10 at a time, then Load more)', () => {
+    const day = (n: number) => `2026-08-${String(n).padStart(2, '0')}`;
+    const many = (n: number) =>
+      Array.from({ length: n }, (_, k) =>
+        invoice({ id: `inv-${String(k + 1).padStart(2, '0')}`, number: `N${k + 1}`, invoiceDate: day(k + 1), sentAt: NOW }),
+      );
+    const withLedger = (ledger: { listByInvoice: jest.Mock }, proposals?: unknown) =>
+      new PortalService(
+        repo as never,
+        crm as never,
+        invoices as never,
+        estimates as never,
+        profiles as never,
+        deals as never,
+        ledger as never,
+        { get: jest.fn(async () => ({})), methodsFor: jest.fn(() => ['card']) } as never,
+        { onlineReady: true } as never,
+        proposals as never,
+      );
+
+    it('the portal opens with the 10 newest entries and the total; Load more walks the rest by cursor', async () => {
+      invoices.listForContact.mockResolvedValue(many(23));
+      estimates.listForContact.mockResolvedValue([]);
+      const ledger = { listByInvoice: jest.fn(async () => []) };
+      const svc = withLedger(ledger);
+      const { token } = await svc.createLink('contact-1', user());
+
+      const view = await svc.publicView(token!);
+      expect(view.invoices.map((i) => i.id)).toEqual(['inv-23', 'inv-22', 'inv-21', 'inv-20', 'inv-19', 'inv-18', 'inv-17', 'inv-16', 'inv-15', 'inv-14']);
+      expect(view.inbox).toEqual({ total: 23, nextCursor: expect.any(String) });
+      // The expensive part — the payment ledger — is asked about the page only.
+      expect(ledger.listByInvoice).toHaveBeenCalledTimes(10);
+
+      const second = await svc.publicInbox(token!, { cursor: view.inbox!.nextCursor });
+      expect(second.invoices.map((i) => i.id)[0]).toBe('inv-13');
+      expect(second.invoices).toHaveLength(10);
+      const third = await svc.publicInbox(token!, { cursor: second.inbox.nextCursor });
+      expect(third.invoices.map((i) => i.id)).toEqual(['inv-03', 'inv-02', 'inv-01']);
+      expect(third.inbox).toEqual({ total: 23 });
+      expect(third.invoices[0]).toMatchObject({ kind: 'invoice', payable: true, companyName: 'Sure Lock Key' });
+      // A page is not a visit.
+      expect(repo.touchViewed).toHaveBeenCalledTimes(1);
+    });
+
+    it('the full view can be asked for more than one page, so a reload keeps what the client already scrolled to', async () => {
+      invoices.listForContact.mockResolvedValue(many(23));
+      estimates.listForContact.mockResolvedValue([]);
+      const { token } = await service.createLink('contact-1', user());
+      const view = await service.publicView(token!, { limit: 20 });
+      expect(view.invoices).toHaveLength(20);
+      expect((await service.publicView(token!, { limit: 5000 })).invoices).toHaveLength(23);
+    });
+
+    it('Inbox Display narrows the inbox and its total on the server', async () => {
+      invoices.listForContact.mockResolvedValue([
+        invoice({ id: 'paid', sentAt: NOW, status: 'paid', totals: { total: 50, balanceDue: 0 } as never }),
+        invoice({ id: 'owing', sentAt: NOW }),
+      ]);
+      estimates.listForContact.mockResolvedValue([estimate({ sentAt: NOW })]);
+      const { token } = await service.createLink('contact-1', user());
+      const paidOnly = await service.publicInbox(token!, { show: 'invoices,paid' });
+      expect(paidOnly.invoices.map((i) => i.id)).toEqual(['paid']);
+      expect(paidOnly.estimates).toEqual([]);
+      expect(paidOnly.inbox.total).toBe(1);
+      const estimatesOnly = await service.publicView(token!, { show: 'estimates' });
+      expect(estimatesOnly.invoices).toEqual([]);
+      expect(estimatesOnly.inbox!.total).toBe(1);
+    });
+
+    it('a proposal is one inbox entry and brings its options along', async () => {
+      invoices.listForContact.mockResolvedValue([]);
+      estimates.listForContact.mockResolvedValue([
+        estimate({ id: 'opt-a', sentAt: NOW, proposalId: 'p1' }),
+        estimate({ id: 'opt-b', sentAt: NOW, proposalId: 'p1' }),
+        estimate({ id: 'solo', sentAt: NOW, estimateDate: '2026-09-01' }),
+      ]);
+      const proposals = {
+        listForContact: jest.fn(async () => [{ id: 'p1', number: '256', status: 'pending', sentAt: '2026-09-20T10:00:00.000Z', estimateIds: ['opt-a', 'opt-b'] }]),
+      };
+      const svc = withLedger({ listByInvoice: jest.fn(async () => []) }, proposals);
+      const { token } = await svc.createLink('contact-1', user());
+      const view = await svc.publicView(token!);
+      expect(view.inbox!.total).toBe(2);
+      expect(view.proposals.map((p) => [p.id, p.options.map((o) => o.id)])).toEqual([['p1', ['opt-a', 'opt-b']]]);
+      expect(view.estimates.map((e) => e.id).sort()).toEqual(['opt-a', 'opt-b', 'solo']);
+    });
+
+    it('the staff preview pages the same way, unsent documents included', async () => {
+      invoices.listForContact.mockResolvedValue(many(12).map((i, k) => (k % 2 ? { ...i, sentAt: undefined } : i)));
+      estimates.listForContact.mockResolvedValue([]);
+      const first = await service.preview('contact-1');
+      expect(first.invoices).toHaveLength(10);
+      expect(first.inbox!.total).toBe(12);
+      const rest = await service.previewInbox('contact-1', { cursor: first.inbox!.nextCursor });
+      expect(rest.invoices.map((i) => i.id)).toEqual(['inv-02', 'inv-01']);
+    });
+
+    it('400s a cursor it did not issue; 404s a bad token before anything is read', async () => {
+      const { token } = await service.createLink('contact-1', user());
+      await expect(service.publicInbox(token!, { cursor: 'garbage' })).rejects.toMatchObject({ status: 400 });
+      await expect(service.publicInbox('short', {})).rejects.toBeInstanceOf(NotFoundException);
+    });
+  });
+
   describe('public pdf', () => {
     let token: string;
     beforeEach(async () => {
