@@ -517,6 +517,32 @@ describe('stripe webhook — refunds initiated at Stripe', () => {
     expect(invoices.applyAmountPaid).toHaveBeenLastCalledWith('deal-1', 0);
   });
 
+  it('mirrors a refund of a card payment with a service fee up to amount + tip + fee (audit L3)', async () => {
+    const { handler, ledger } = build([
+      payment({
+        id: 'p1',
+        status: 'settled',
+        amount: 100,
+        tipAmount: 15,
+        feeAmount: 3.45,
+        stripePaymentIntentId: 'pi_1',
+        stripeChargeId: 'ch_1',
+      }),
+    ]);
+    await handler.receive(
+      event('charge.refunded', {
+        id: 'ch_1',
+        object: 'charge',
+        payment_intent: 'pi_1',
+        amount: 11_845,
+        amount_refunded: 11_845,
+        refunded: true,
+      }),
+    );
+    await handler.settle();
+    expect(ledger.payments.get('p1')).toMatchObject({ status: 'refunded', refundedAmount: 118.45 });
+  });
+
   it('asserts the refunded TOTAL rather than adding to it, so a replay is harmless', async () => {
     const { handler, ledger } = build([
       payment({ id: 'p1', status: 'settled', amount: 100, stripePaymentIntentId: 'pi_1', stripeChargeId: 'ch_1' }),

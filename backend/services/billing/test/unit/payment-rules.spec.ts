@@ -9,6 +9,7 @@ import {
   fromCents,
   refundableAmount,
   statusAfterRefund,
+  serviceFeeFor,
   summarizePayments,
   surchargeFor,
   toCents,
@@ -170,6 +171,19 @@ describe('payment-rules: money crosses the Stripe boundary once', () => {
     expect(surchargeFor(100, 3)).toBe(3);
     expect(surchargeFor(19.99, 3)).toBe(0.6);
   });
+
+  it('charges the phone’s service fee on the amount AND the tip, half-up to the cent — round2((amount + tip) × pct / 100)', () => {
+    expect(serviceFeeFor(60, 9, 3)).toBe(2.07);
+    // Workiz's own example: 3 % of $3,027.20 is $90.82.
+    expect(serviceFeeFor(2752, 275.2, 3)).toBe(90.82);
+    // Exactly half a cent rounds up — float dust does not turn 1.005 into 1.00.
+    expect(serviceFeeFor(33.5, 0, 3)).toBe(1.01);
+    expect(serviceFeeFor(12, 0.5, 1)).toBe(0.13);
+    // Off, or nonsense, is no fee.
+    expect(serviceFeeFor(100, 15, 0)).toBe(0);
+    expect(serviceFeeFor(100, 15, -1)).toBe(0);
+    expect(serviceFeeFor(Number.NaN, 0, 3)).toBe(0);
+  });
 });
 
 describe('payment-rules: status transitions never regress', () => {
@@ -279,6 +293,22 @@ describe('payment-rules: refunds', () => {
     // Only the whole charge, tip included, makes it `refunded`.
     expect(statusAfterRefund(tapped, 100)).toBe('settled');
     expect(statusAfterRefund(tapped, 115)).toBe('refunded');
+  });
+
+  it('gives back the service fee of a Stripe payment too — the card was charged amount + tip + fee (audit L3)', () => {
+    const keyed = payment({ amount: 100, tipAmount: 15, feeAmount: 3.45, stripePaymentIntentId: 'pi_1', source: 'field' });
+    expect(chargedAmount(keyed)).toBe(118.45);
+    expect(refundableAmount(keyed)).toBe(118.45);
+    expect(refundableAmount({ ...keyed, refundedAmount: 115 })).toBe(3.45);
+    // Only the whole charge — fee included — makes it `refunded`.
+    expect(statusAfterRefund(keyed, 115)).toBe('settled');
+    expect(statusAfterRefund(keyed, 118.45)).toBe('refunded');
+    // The portal's surcharge the same way: a full refund of $100 + $3 gives back $103.
+    const portal = payment({ amount: 100, feeAmount: 3, stripeSessionId: 'cs_1', stripePaymentIntentId: 'pi_2' });
+    expect(refundableAmount(portal)).toBe(103);
+    // The fee was never toward the balance, so refunding it never lowers what was paid below zero.
+    expect(summarizePayments([keyed]).settled).toBe(100);
+    expect(summarizePayments([{ ...keyed, refundedAmount: 118.45, status: 'refunded' }]).settled).toBe(0);
   });
 
   it('keeps the tip of an offline payment out of it — billing never took that money', () => {

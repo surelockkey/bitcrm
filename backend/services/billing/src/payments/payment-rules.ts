@@ -35,6 +35,19 @@ export function surchargeFor(amount: number, percent: number): number {
   return round2((amount * percent) / 100);
 }
 
+/**
+ * The "Service fee" on a card taken on a staff phone — Tap to Pay or typed
+ * in (Workiz shows it on both): `surchargePercent` of everything the card
+ * pays for, the amount AND the tip, rounded half-up to the cent. The phone
+ * shows the same number from the same formula,
+ * `round2((amount + tip) × pct / 100)`, so what the client is told is what
+ * the card is charged. Like the portal's surcharge, it never counts toward
+ * the balance.
+ */
+export function serviceFeeFor(amount: number, tip: number, percent: number): number {
+  return surchargeFor(amount + tip, percent);
+}
+
 const counts = (status: PaymentStatus) => COUNTED_PAYMENT_STATUSES.includes(status);
 
 /**
@@ -52,14 +65,15 @@ export const isStripeBacked = (p: Pick<Payment, 'stripePaymentIntentId' | 'strip
 
 /**
  * What the customer's card was charged for this payment, dollars: a payment
- * taken through Stripe carried its tip in the same charge (Tap to Pay sends
- * `amount + tipAmount`), so the tip is ours to give back. An offline row's
- * tip never passed through billing — only `amount` is.
+ * taken through Stripe carried its tip and its fee in the same charge (a
+ * phone sends `amount + tipAmount + feeAmount`, the portal its surcharge as a
+ * second line), so both are ours to give back. An offline row's tip never
+ * passed through billing — only `amount` is.
  */
 export function chargedAmount(
-  p: Pick<Payment, 'amount' | 'tipAmount' | 'stripePaymentIntentId' | 'stripeSessionId' | 'stripeChargeId'>,
+  p: Pick<Payment, 'amount' | 'tipAmount' | 'feeAmount' | 'stripePaymentIntentId' | 'stripeSessionId' | 'stripeChargeId'>,
 ): number {
-  return isStripeBacked(p) ? round2(p.amount + (p.tipAmount ?? 0)) : p.amount;
+  return isStripeBacked(p) ? round2(p.amount + (p.tipAmount ?? 0) + (p.feeAmount ?? 0)) : p.amount;
 }
 
 export function summarizePayments(payments: readonly Payment[]): PaymentSummary {
@@ -178,13 +192,14 @@ export function clampPaymentAmount(input: {
 
 type RefundBasis = Pick<
   Payment,
-  'amount' | 'tipAmount' | 'stripePaymentIntentId' | 'stripeSessionId' | 'stripeChargeId'
+  'amount' | 'tipAmount' | 'feeAmount' | 'stripePaymentIntentId' | 'stripeSessionId' | 'stripeChargeId'
 >;
 
 /**
- * What is still refundable: what was charged (`chargedAmount` — the tip of a
- * Stripe card payment included), less what already went back. Money that
- * never landed, or already came back, is not.
+ * What is still refundable: what was charged (`chargedAmount` — the tip and
+ * the fee of a Stripe card payment included, as card-network rules expect a
+ * surcharge to go back with the sale), less what already went back. Money
+ * that never landed, or already came back, is not.
  */
 export function refundableAmount(p: RefundBasis & Pick<Payment, 'refundedAmount' | 'status'>): number {
   if (!counts(p.status)) return 0;

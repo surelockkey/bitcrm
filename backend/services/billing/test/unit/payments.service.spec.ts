@@ -255,6 +255,20 @@ describe('PaymentsService — refunds', () => {
     expect(invoices.applyAmountPaid).toHaveBeenLastCalledWith('deal-1', 0);
   });
 
+  it('gives back the service fee as well — a full refund of $100 + $15 tip + $3 fee sends $118 to Stripe (audit L3)', async () => {
+    const ledger = fakeLedger([
+      payment({ id: 'p-fee', amount: 100, tipAmount: 15, feeAmount: 3, stripePaymentIntentId: 'pi_fee', source: 'field' }),
+    ]);
+    const { service, stripe, invoices } = build({ ledger });
+    const refund = await service.refund('p-fee', {}, caller());
+    expect(refund.amount).toBe(118);
+    expect(stripe.createRefund).toHaveBeenCalledWith(expect.objectContaining({ paymentIntentId: 'pi_fee', amount: 118 }));
+    expect(ledger.payments.get('p-fee')).toMatchObject({ status: 'refunded', refundedAmount: 118 });
+    expect(invoices.applyAmountPaid).toHaveBeenLastCalledWith('deal-1', 0);
+    // Nothing is left to give back.
+    await expect(service.refund('p-fee', { amount: 0.01 }, caller())).rejects.toThrow(ConflictException);
+  });
+
   it('keeps the offline ledger refundable with no Stripe configured', async () => {
     const ledger = fakeLedger([payment({ id: 'p-cash', amount: 60, method: 'cash', source: 'office' })]);
     const { service } = build({ ledger, stripe: null });

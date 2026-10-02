@@ -267,7 +267,7 @@ export class StripeEventsHandler {
     const payment = await this.resolve(charge.metadata, [charge.id, intentId(charge.payment_intent)]);
     if (!payment) return this.orphan('charge.refunded', charge.id);
 
-    // Up to what the card was charged — a Tap to Pay tip went through with the amount.
+    // Up to what the card was charged — a phone's tip and service fee went through with the amount.
     const refundedAmount = round2(Math.min(chargedAmount(payment), fromCents(charge.amount_refunded ?? 0)));
     const status = statusAfterRefund(payment, refundedAmount);
     if (refundedAmount === (payment.refundedAmount ?? 0) && status === payment.status) return;

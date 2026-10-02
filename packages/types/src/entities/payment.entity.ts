@@ -65,11 +65,16 @@ export interface Payment {
   status: PaymentStatus;
   /**
    * Given back so far, dollars. Never exceeds what was charged: `amount`, plus
-   * `tipAmount` on a payment taken through Stripe (its tip went through the
-   * same charge, so it can be refunded too).
+   * `tipAmount` and `feeAmount` on a payment taken through Stripe (they went
+   * through the same charge, so they can be refunded too).
    */
   refundedAmount: number;
-  /** Surcharge charged on top of `amount` (off by default — see PaymentSettings). */
+  /**
+   * Charged on top of `amount`, never toward the balance (off by default —
+   * `PaymentSettings.surchargePercent`): the portal's card surcharge, or the
+   * "Service fee" on a card taken on a staff phone (`surchargePercent` of
+   * `amount + tipAmount`).
+   */
   feeAmount?: number;
   /** Tip on top of `amount`, dollars. Never counts toward the balance. */
   tipAmount?: number;
