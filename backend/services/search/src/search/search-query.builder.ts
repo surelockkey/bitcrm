@@ -79,9 +79,30 @@ function buildMatchClause(q: string): Record<string, any> {
 }
 
 /**
+ * The same words without fuzziness, as a scoring bonus: an exact (or prefix)
+ * hit — "cbre" in "CBRE Facilities Management" — must outrank a typo-distance
+ * one ("Corey Barrettt").
+ */
+function exactBonus(q: string): Record<string, any> {
+  return { multi_match: { query: q, fields: FIELDS, operator: 'and', boost: EXACT_BOOST } };
+}
+const EXACT_BOOST = 3;
+
+/**
+ * Recency as a nudge, not a gate: the score is multiplied by 1 + 0.5·decay,
+ * so a fresh document gets up to half again and an old one keeps its full
+ * text relevance. A bare decay (multiplying by ~0 past a few months) buried
+ * every Workiz-imported client under any recent fuzzy match.
+ */
+const RECENCY_FUNCTIONS = [
+  { gauss: { updatedAt: { origin: 'now', scale: '30d', decay: 0.5 } }, weight: 0.5 },
+  { weight: 1 },
+];
+
+/**
  * Builds the OpenSearch request body. The text match runs against edge-ngram
- * indexed fields (so it matches prefixes for typeahead) and is wrapped in a
- * recency decay so newer entities rank higher among equally-relevant matches.
+ * indexed fields (so it matches prefixes for typeahead), an exact match
+ * scores above a fuzzy one, and recency nudges equally relevant matches.
  * Authorization + status hygiene live in the bool filter / must_not.
  */
 export function buildSearchBody(params: BuildSearchParams): Record<string, any> {
@@ -100,14 +121,13 @@ export function buildSearchBody(params: BuildSearchParams): Record<string, any> 
       query: {
         bool: {
           must: [buildMatchClause(q)],
+          should: [exactBonus(q)],
           filter,
           must_not: mustNot,
         },
       },
-      functions: [
-        { gauss: { updatedAt: { origin: 'now', scale: '30d', decay: 0.5 } } },
-      ],
-      score_mode: 'multiply',
+      functions: RECENCY_FUNCTIONS,
+      score_mode: 'sum',
       boost_mode: 'multiply',
     },
   };

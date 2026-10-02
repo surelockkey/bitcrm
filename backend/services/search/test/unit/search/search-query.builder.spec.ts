@@ -64,6 +64,27 @@ describe('buildSearchBody', () => {
       const fns = body.query.function_score.functions;
       expect(fns[0].gauss.updatedAt).toBeDefined();
     });
+
+    // A client imported from Workiz two years ago is still the client: «cbre»
+    // has to find CBRE, not a contact touched last week whose name is one typo away.
+    it('lets recency only nudge the order — an old document keeps two thirds of a new one’s weight', () => {
+      const fs = buildSearchBody({ q: 'cbre', authzClause: authz, mode: 'full' }).query.function_score;
+      expect(fs.functions).toEqual([
+        { gauss: { updatedAt: expect.any(Object) }, weight: 0.5 },
+        { weight: 1 },
+      ]);
+      expect(fs.score_mode).toBe('sum');
+      expect(fs.boost_mode).toBe('multiply');
+    });
+
+    it('ranks an exact match above a fuzzy one', () => {
+      for (const mode of ['full', 'typeahead'] as const) {
+        const should = boolOf(buildSearchBody({ q: 'cbre', authzClause: authz, mode })).should;
+        expect(should).toEqual([
+          { multi_match: { query: 'cbre', fields: expect.arrayContaining(['title^5']), operator: 'and', boost: 3 } },
+        ]);
+      }
+    });
   });
 
   describe('typeahead mode', () => {
