@@ -30,6 +30,7 @@ import { AssignTechsDto } from './dto/assign-techs.dto';
 import { UnassignTechDto } from './dto/unassign-tech.dto';
 import { ReorderDto } from './dto/reorder.dto';
 import { AddDealProductDto } from './dto/add-deal-product.dto';
+import { AddItemGroupDto } from './dto/add-item-group.dto';
 import { MarkProductOrderedDto } from './dto/mark-product-ordered.dto';
 import { UpdatePaymentStatusDto } from './dto/update-payment-status.dto';
 import { Internal } from '../common/decorators/internal.decorator';
@@ -524,19 +525,58 @@ export class DealsController {
     summary: 'Add a line item to a deal',
     description:
       '**Guard:** `deals.edit` permission required. ' +
+      'For a caller whose `deals` data scope is `assigned_only` (a technician), only on a job he is assigned to — 403 otherwise. ' +
       'Behavior depends on `fulfillment`: `sourced` (default) deducts the ' +
       "quantity from the source technician's container and requires an assigned " +
       'tech; `to_order` records a part the tech does not carry (no deduction); ' +
       '`service` adds a non-stockable service line (no deduction, no tech). The ' +
-      "product's inventory type must match — services only as `service` lines.",
+      "product's inventory type must match — services only as `service` lines. " +
+      "The line's `costCompany` / `costForTech` are the price book's (any sent are ignored); " +
+      "`priceClient` must stay within ±15% of the price book's price (400 otherwise). " +
+      '**Container rule** for a technician (`deals` scope `assigned_only`): a stock-managed product ' +
+      "(type `product`, `manageStock` not false) only `sourced` from HIS OWN container — " +
+      '`sourceTechId` absent defaults to him; `to_order` or another van is 400 "<name> isn\'t in your ' +
+      'container", more than the van holds is the 400 naming the product. Services and products whose ' +
+      'stock is not counted are exempt; the office is not bound. `customAttributes` absent → copied from the product.',
   })
   async addProduct(
     @Param('id') id: string,
     @Body() dto: AddDealProductDto,
     @CurrentUser() user: JwtUser,
+    @ResolvedPerms() perms: ResolvedPermissions,
   ) {
-    await this.dealsService.addProduct(id, dto, user);
+    await this.dealsService.addProduct(id, dto, user, perms?.dataScope?.deals);
     return { success: true, data: { added: true } };
+  }
+
+  @Post(':id/item-groups/:groupId')
+  @RequirePermission('deals', 'edit')
+  @ApiOperation({
+    summary: 'Add an item group to a job (Workiz "Add group")',
+    description:
+      '**Guard:** `deals.edit` permission required, and the same roster rule as adding a line (403 for a ' +
+      'technician not on the job). Every member of the group (`GET /inventory/item-groups/:id`) becomes ' +
+      "its own line in one call: the group's `quantity`, `priceClient`, `taxable`, `description` and " +
+      "`customAttributes` (the group's over the product's); `costCompany` / `costForTech` from the price " +
+      "book. The group's prices are NOT judged by the ±15% band — lines carry `priceSource: 'group'` and " +
+      '`itemGroupId`, and keep that exemption on an in-place edit at the same price. Exempt from the ' +
+      "technician's container rule: a service is a `service` line; a stock-managed product comes out of " +
+      'the source container (`sourced`) when it holds enough and is `to_order` otherwise (short, or no ' +
+      'container); a product whose stock is not counted is `sourced` without a deduction. Source: a ' +
+      "technician's own container; the office's `sourceTechId` (an assigned technician, 400 otherwise), " +
+      'else the caller when on the job, else none (products `to_order`). 404 unknown group, 400 empty ' +
+      'group or a member whose product is gone — before any stock moves. One timeline entry. 201 ' +
+      '`{ added, lines }` — the lines as written.',
+  })
+  async addItemGroup(
+    @Param('id') id: string,
+    @Param('groupId') groupId: string,
+    @Body() dto: AddItemGroupDto,
+    @CurrentUser() user: JwtUser,
+    @ResolvedPerms() perms: ResolvedPermissions,
+  ) {
+    const lines = await this.dealsService.addItemGroup(id, groupId, dto ?? {}, user, perms?.dataScope?.deals);
+    return { success: true, data: { added: lines.length, lines } };
   }
 
   @Put(':id/products/:productId')
@@ -544,19 +584,24 @@ export class DealsController {
   @ApiOperation({
     summary: 'Edit a line item (or swap it for another catalog product)',
     description:
-      '**Guard:** `deals.edit` permission required. The body is the complete ' +
+      '**Guard:** `deals.edit` permission required, and the same roster rule as add. The body is the complete ' +
       'new line — same shape and validation as add. Stock is reconciled: the ' +
       "old sourced line is restored to its source technician's container " +
       'before the new sourced line is deducted from the chosen one, so raising ' +
-      'a quantity only needs the delta in the van.',
+      'a quantity only needs the delta in the van. Costs come from the price book and ' +
+      'the ±15% band holds as on add, except for an imported Workiz line (or an item group line) edited in place ' +
+      'at its recorded price. The container rule of add binds a technician whenever the edit changes the ' +
+      'product, the quantity or the source; an edit of text, price, taxable or custom fields alone passes. ' +
+      "`customAttributes` absent → the line keeps its own (a swap: the new product's).",
   })
   async replaceProduct(
     @Param('id') id: string,
     @Param('productId') productId: string,
     @Body() dto: AddDealProductDto,
     @CurrentUser() user: JwtUser,
+    @ResolvedPerms() perms: ResolvedPermissions,
   ) {
-    await this.dealsService.replaceProduct(id, productId, dto, user);
+    await this.dealsService.replaceProduct(id, productId, dto, user, perms?.dataScope?.deals);
     return { success: true, data: { updated: true } };
   }
 
@@ -565,15 +610,17 @@ export class DealsController {
   @ApiOperation({
     summary: 'Mark a to-order line as ordered (or clear it)',
     description:
-      '**Guard:** `deals.edit` permission required. Only valid for `to_order` lines.',
+      '**Guard:** `deals.edit` permission required, and the same roster rule as add. ' +
+      'Only valid for `to_order` lines.',
   })
   async markProductOrdered(
     @Param('id') id: string,
     @Param('productId') productId: string,
     @Body() dto: MarkProductOrderedDto,
     @CurrentUser() user: JwtUser,
+    @ResolvedPerms() perms: ResolvedPermissions,
   ) {
-    await this.dealsService.markProductOrdered(id, productId, dto.ordered, user);
+    await this.dealsService.markProductOrdered(id, productId, dto.ordered, user, perms?.dataScope?.deals);
     return { success: true, data: { ordered: dto.ordered } };
   }
 
@@ -581,14 +628,15 @@ export class DealsController {
   @RequirePermission('deals', 'edit')
   @ApiOperation({
     summary: 'Remove product from deal (restores to tech container)',
-    description: '**Guard:** `deals.edit` permission required.',
+    description: '**Guard:** `deals.edit` permission required, and the same roster rule as add.',
   })
   async removeProduct(
     @Param('id') id: string,
     @Param('productId') productId: string,
     @CurrentUser() user: JwtUser,
+    @ResolvedPerms() perms: ResolvedPermissions,
   ) {
-    await this.dealsService.removeProduct(id, productId, user);
+    await this.dealsService.removeProduct(id, productId, user, perms?.dataScope?.deals);
     return { success: true, data: { removed: true } };
   }
 

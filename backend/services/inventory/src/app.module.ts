@@ -10,6 +10,7 @@ import { TransfersModule } from './transfers/transfers.module';
 import { ItemCategoriesModule } from './item-categories/item-categories.module';
 import { BrandsModule } from './brands/brands.module';
 import { ItemAttributesModule } from './item-attributes/item-attributes.module';
+import { ItemGroupsModule } from './item-groups/item-groups.module';
 import { UserContainersModule } from './user-containers/user-containers.module';
 import { ContainerTemplatesModule } from './container-templates/container-templates.module';
 
@@ -57,6 +58,7 @@ import { ContainerTemplatesModule } from './container-templates/container-templa
     ItemCategoriesModule,
     BrandsModule,
     ItemAttributesModule,
+    ItemGroupsModule,
   ],
   controllers: [AppController],
 })

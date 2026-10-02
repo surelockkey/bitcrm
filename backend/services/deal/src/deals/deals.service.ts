@@ -4,7 +4,7 @@ import {
   Logger,
   NotFoundException,
   BadRequestException,
-  ForbiddenException,
+  ConflictException,
   HttpException,
   UnprocessableEntityException,
   Optional,
@@ -20,7 +20,6 @@ import {
   SUPER_STATUS_ORDER,
   TERMINAL_SUPER_STATUSES,
   CLOSED_SUPER_STATUSES,
-  DataScope,
   DealStatus,
   DealPriority,
   TimelineEventType,
@@ -29,6 +28,7 @@ import {
   type Deal,
   type DealStats,
   type ServiceArea,
+  type DealProduct,
   type DealProductFulfillment,
   type Product,
   type TimelineEntry,
@@ -52,6 +52,18 @@ import {
   type SortDir,
   type DayWindow,
 } from './deals.repository';
+import {
+  assertFromOwnContainer,
+  assertPriceInBand,
+  catalogCosts,
+  editChangesStock,
+  isStockManaged,
+  isTechnicianScope,
+  keepsGroupPrice,
+  lineCustomAttributes,
+  priceBandApplies,
+} from './deal-line-rules';
+import { assertDealInScope } from './deal-scope';
 
 /** The jobs-list tab numbers; a closed status is `null` when no window bounds it. */
 export type DealCounts = Record<JobSuperStatus, number | null> & {
@@ -107,7 +119,7 @@ import { dealTotalsSnapshot } from './billing/deal-totals';
 import { aggregateDealStats, type DealStatsWindow } from './stats/deal-stats';
 import { TimelineRepository } from '../timeline/timeline.repository';
 import { DealProductsRepository } from '../products/deal-products.repository';
-import { InternalHttpService } from '../common/services/internal-http.service';
+import { InternalHttpService, type DeductStockDto } from '../common/services/internal-http.service';
 import { ServiceAreasService } from '../service-areas/service-areas.service';
 import { JobTypesService } from '../job-types/job-types.service';
 import { JobSourcesService } from '../job-sources/job-sources.service';
@@ -125,6 +137,7 @@ import { type AddNoteDto } from './dto/add-note.dto';
 import { type UpdateNoteDto } from './dto/update-note.dto';
 import { JobFieldSettingsService } from '../job-field-settings/job-field-settings.service';
 import { type AddDealProductDto } from './dto/add-deal-product.dto';
+import { type AddItemGroupDto } from './dto/add-item-group.dto';
 import { type UpdatePaymentStatusDto } from './dto/update-payment-status.dto';
 import { DealTaxResolver, type DealTaxSnapshot } from './billing/deal-tax.resolver';
 import { BusinessProfilesClient } from '../common/services/business-profiles.client';
@@ -1786,10 +1799,7 @@ export class DealsService {
     caller: JwtUser,
     dealScope?: string,
   ): void {
-    if (deal.assignedTechIds.includes(caller.id)) return;
-    if (dealScope === DataScope.ASSIGNED_ONLY) {
-      throw new ForbiddenException('Only a technician assigned to this job can do that');
-    }
+    assertDealInScope(deal, caller, dealScope);
   }
 
   /** A job nobody can work any more takes no technician actions. */
@@ -2034,11 +2044,59 @@ export class DealsService {
     return product;
   }
 
-  async addProduct(id: string, dto: AddDealProductDto, caller: JwtUser): Promise<void> {
+  /**
+   * A refused container deduction, told precisely. Inventory answers 404 when
+   * no container resolves for the technician at all — 409, that is no stock
+   * problem and "not enough" would send him to count his van; any other 4xx
+   * is a van short of the item (400, naming it). 5xx / network pass as they are.
+   */
+  private deductionRefused(error: unknown, productName: string): unknown {
+    if (!(error instanceof HttpException)) return error;
+    const status = error.getStatus();
+    if (status === 404) {
+      return new ConflictException('This technician has no container assigned');
+    }
+    if (status >= 400 && status < 500) {
+      return new BadRequestException(
+        `The selected technician doesn't have enough "${productName}" in their container to add to this deal.`,
+      );
+    }
+    return error;
+  }
+
+  /**
+   * A technician's sourced line that names no technician: on an add, his own
+   * van (he may only source from it anyway — the container rule); on an edit,
+   * the van the line already comes from, so fixing a price never moves stock
+   * between vans. Anyone else's request is taken as sent.
+   */
+  private withOwnVan(
+    dto: AddDealProductDto,
+    fulfillment: DealProductFulfillment,
+    technician: boolean,
+    van: string,
+  ): AddDealProductDto {
+    return technician && fulfillment === 'sourced' && !dto.sourceTechId
+      ? { ...dto, sourceTechId: van }
+      : dto;
+  }
+
+  async addProduct(
+    id: string,
+    request: AddDealProductDto,
+    caller: JwtUser,
+    dealScope?: string,
+  ): Promise<void> {
     const deal = await this.findById(id);
-    const fulfillment: DealProductFulfillment = dto.fulfillment ?? 'sourced';
+    assertDealInScope(deal, caller, dealScope);
+    const fulfillment: DealProductFulfillment = request.fulfillment ?? 'sourced';
+    const technician = isTechnicianScope(dealScope);
+    const dto = this.withOwnVan(request, fulfillment, technician, caller.id);
 
     const product = await this.validateProductFulfillment(dto, fulfillment);
+    assertPriceInBand(dto.priceClient, product.priceClient);
+    // A technician's stock comes out of his own van, or not at all.
+    if (technician) assertFromOwnContainer({ ...dto, fulfillment }, product, caller.id);
 
     // Only `sourced` lines are pulled from a technician's container and deduct
     // stock. `to_order` (a part the tech doesn't carry) and `service` (labor)
@@ -2055,9 +2113,8 @@ export class DealsService {
         );
       }
 
-      // Deduct from that tech's container. A 4xx here (e.g. the tech doesn't
-      // carry enough of this product) is a client error, not a server fault —
-      // surface it as a clear message referencing the product by name.
+      // Deduct from that tech's container. A 4xx here (no container, or not
+      // enough of this product in it) is a client error, not a server fault.
       try {
         await this.internalHttp.deductStock({
           containerId: dto.sourceTechId,
@@ -2067,18 +2124,12 @@ export class DealsService {
           performedByName: caller.email,
         });
       } catch (error) {
-        if (
-          error instanceof HttpException &&
-          error.getStatus() >= 400 &&
-          error.getStatus() < 500
-        ) {
-          throw new BadRequestException(
-            `The selected technician doesn't have enough "${dto.name}" in their container to add to this deal.`,
-          );
-        }
-        throw error;
+        throw this.deductionRefused(error, dto.name);
       }
     }
+
+    // The line's own copy of the custom field values: the request's, else the product's.
+    const customAttributes = lineCustomAttributes(dto.customAttributes ?? product.customAttributes);
 
     this.businessMetrics?.dealProductsAdded.inc();
     await this.productsRepo.addProduct(id, {
@@ -2086,8 +2137,7 @@ export class DealsService {
       name: dto.name,
       sku: dto.sku,
       quantity: dto.quantity,
-      costCompany: dto.costCompany,
-      costForTech: dto.costForTech,
+      ...catalogCosts(product),
       priceClient: dto.priceClient,
       fulfillment,
       // Only a sourced line records which technician supplied it.
@@ -2095,6 +2145,7 @@ export class DealsService {
       // Absent on the request → the catalog product's default (itself absent → taxable).
       taxable: dto.taxable ?? product.taxable ?? true,
       ...(dto.description !== undefined && { description: dto.description }),
+      ...(customAttributes && { customAttributes }),
       addedBy: caller.id,
       addedAt: new Date().toISOString(),
     });
@@ -2128,23 +2179,35 @@ export class DealsService {
   async replaceProduct(
     id: string,
     productId: string,
-    dto: AddDealProductDto,
+    request: AddDealProductDto,
     caller: JwtUser,
+    dealScope?: string,
   ): Promise<void> {
     const deal = await this.findById(id);
+    assertDealInScope(deal, caller, dealScope);
 
     const existing = await this.productsRepo.findProduct(id, productId);
     if (!existing) {
       throw new NotFoundException(`Product ${productId} not found on deal ${id}`);
     }
 
-    const fulfillment: DealProductFulfillment = dto.fulfillment ?? 'sourced';
+    const fulfillment: DealProductFulfillment = request.fulfillment ?? 'sourced';
+    const technician = isTechnicianScope(dealScope);
+    const ownVan = (existing.fulfillment ?? 'sourced') === 'sourced' && existing.sourceTechId;
+    const dto = this.withOwnVan(request, fulfillment, technician, ownVan || caller.id);
     // "Swap" means the line now names a different product. The line itself is
     // the same row either way — it is keyed by its own id — so a job may well
     // end up carrying one product on two lines, as a Workiz job does.
     const isSwap = dto.productId !== existing.productId;
 
     const product = await this.validateProductFulfillment(dto, fulfillment);
+    // An imported Workiz line edited in place keeps the price Workiz recorded.
+    if (priceBandApplies(dto, existing)) assertPriceInBand(dto.priceClient, product.priceClient);
+    // The container rule judges what the edit takes from a van — a new product,
+    // a new quantity or a new source; text, price or custom fields alone pass.
+    if (technician && editChangesStock(existing, { ...dto, fulfillment })) {
+      assertFromOwnContainer({ ...dto, fulfillment }, product, caller.id);
+    }
 
     if (fulfillment === 'sourced') {
       if (deal.assignedTechIds.length === 0) {
@@ -2187,16 +2250,7 @@ export class DealsService {
         if (restoreTo) {
           await this.internalHttp.deductStock({ containerId: restoreTo, items: oldItems, ...stockMeta });
         }
-        if (
-          error instanceof HttpException &&
-          error.getStatus() >= 400 &&
-          error.getStatus() < 500
-        ) {
-          throw new BadRequestException(
-            `The selected technician doesn't have enough "${dto.name}" in their container to add to this deal.`,
-          );
-        }
-        throw error;
+        throw this.deductionRefused(error, dto.name);
       }
     }
 
@@ -2204,6 +2258,12 @@ export class DealsService {
     // toggled it); a swap starts from the new catalog product's default.
     const taxable = dto.taxable ?? (isSwap ? product.taxable : existing.taxable) ?? true;
     const description = dto.description ?? (isSwap ? undefined : existing.description);
+    // Custom field values follow the same rule; the product itself is never written.
+    const customAttributes = lineCustomAttributes(
+      dto.customAttributes ?? (isSwap ? product.customAttributes : existing.customAttributes),
+    );
+    // The numbers the line ends up with — what the timeline diffs against.
+    const money = { quantity: dto.quantity, ...catalogCosts(product), priceClient: dto.priceClient };
 
     await this.productsRepo.addProduct(id, {
       // The same line, rewritten: a swap changes what it names, not which
@@ -2212,10 +2272,7 @@ export class DealsService {
       productId: dto.productId,
       name: dto.name,
       sku: dto.sku,
-      quantity: dto.quantity,
-      costCompany: dto.costCompany,
-      costForTech: dto.costForTech,
-      priceClient: dto.priceClient,
+      ...money,
       fulfillment,
       // Only a sourced line records which technician supplied it.
       ...(fulfillment === 'sourced' && { sourceTechId: dto.sourceTechId }),
@@ -2226,7 +2283,12 @@ export class DealsService {
       taxable,
       // A Workiz service fee edited in place stays out of the discount.
       ...(!isSwap && existing.discountable === false && { discountable: false }),
+      // An item group's line keeps its group; its price stays the group's
+      // (out of the band) only while the edit keeps that price.
+      ...(!isSwap && existing.itemGroupId && { itemGroupId: existing.itemGroupId }),
+      ...(keepsGroupPrice(dto, existing) && { priceSource: 'group' as const }),
       ...(description !== undefined && { description }),
+      ...(customAttributes && { customAttributes }),
       addedBy: existing.addedBy,
       addedAt: existing.addedAt,
       updatedBy: caller.id,
@@ -2240,7 +2302,7 @@ export class DealsService {
     // changed on the line (price, costs, qty) — not just that it was touched.
     const changes: Record<string, { from: unknown; to: unknown }> = {};
     for (const k of ['priceClient', 'costCompany', 'costForTech', 'quantity'] as const) {
-      if (existing[k] !== dto[k]) changes[k] = { from: existing[k], to: dto[k] };
+      if (existing[k] !== money[k]) changes[k] = { from: existing[k], to: money[k] };
     }
 
     await this.addTimelineEntry(id, TimelineEventType.PRODUCT_UPDATED, caller, {
@@ -2262,8 +2324,158 @@ export class DealsService {
     });
   }
 
-  async removeProduct(id: string, productId: string, caller: JwtUser): Promise<void> {
+  /**
+   * Workiz "Add group": every member of an item group becomes its own line, in
+   * one call — the group's quantity, price, taxable flag, description and
+   * custom field values (the group's over the product's); the costs from the
+   * price book. The group's prices are its own, so the ±15% band does not judge
+   * them (`priceSource: 'group'`), and a group is exempt from the technician's
+   * container rule: a stock-managed member comes out of the source container
+   * when it holds enough, and is added to order otherwise (a short van, or no
+   * container at all). Everything is read before any stock moves; a failure
+   * after that puts back what was taken. One timeline entry, one event.
+   *
+   * The source container: a technician's own, always; for the office the
+   * assigned technician it names, else the caller when he is on the job, else
+   * none (every product to order).
+   */
+  async addItemGroup(
+    id: string,
+    groupId: string,
+    dto: AddItemGroupDto,
+    caller: JwtUser,
+    dealScope?: string,
+  ): Promise<DealProduct[]> {
     const deal = await this.findById(id);
+    assertDealInScope(deal, caller, dealScope);
+
+    let source: string | undefined;
+    if (isTechnicianScope(dealScope)) {
+      source = caller.id;
+    } else if (dto?.sourceTechId) {
+      if (!deal.assignedTechIds.includes(dto.sourceTechId)) {
+        throw new BadRequestException('The chosen technician is not assigned to this deal');
+      }
+      source = dto.sourceTechId;
+    } else if (deal.assignedTechIds.includes(caller.id)) {
+      source = caller.id;
+    }
+
+    const group = await this.internalHttp.getItemGroup(groupId);
+    if (!group) throw new NotFoundException(`Item group ${groupId} not found`);
+    if (group.members.length === 0) {
+      throw new BadRequestException(`Item group "${group.name}" has no items`);
+    }
+
+    const catalog: Product[] = [];
+    for (const member of group.members) {
+      const product = await this.internalHttp.getProduct(member.productId);
+      if (!product) {
+        throw new BadRequestException(`Product "${member.name}" was not found in inventory`);
+      }
+      catalog.push(product);
+    }
+
+    const stockMeta = { dealId: id, performedBy: caller.id, performedByName: caller.email };
+    const taken: Array<{ containerId: string; items: DeductStockDto['items'] }> = [];
+    const addedAt = new Date().toISOString();
+    const lines: DealProduct[] = [];
+    try {
+      for (const [i, member] of group.members.entries()) {
+        const product = catalog[i];
+        const name = member.name || product.name;
+        let fulfillment: DealProductFulfillment;
+        if (product.type === ProductType.SERVICE) {
+          fulfillment = 'service';
+        } else if (!source) {
+          fulfillment = 'to_order';
+        } else if (!isStockManaged(product)) {
+          // Nothing is counted for it: from the van, without a deduction.
+          fulfillment = 'sourced';
+        } else {
+          const items = [{ productId: member.productId, productName: name, quantity: member.quantity }];
+          try {
+            await this.internalHttp.deductStock({ containerId: source, items, ...stockMeta });
+            taken.push({ containerId: source, items });
+            fulfillment = 'sourced';
+          } catch (error) {
+            // The van is short, or there is no van: the item is ordered instead.
+            if (!(error instanceof HttpException) || error.getStatus() >= 500) throw error;
+            fulfillment = 'to_order';
+          }
+        }
+        const customAttributes = lineCustomAttributes({
+          ...(product.customAttributes ?? {}),
+          ...member.customAttributes,
+        });
+        lines.push({
+          lineId: randomUUID(),
+          productId: member.productId,
+          name,
+          sku: product.sku,
+          quantity: member.quantity,
+          ...catalogCosts(product),
+          priceClient: member.priceClient,
+          priceSource: 'group',
+          itemGroupId: group.id,
+          fulfillment,
+          ...(fulfillment === 'sourced' && { sourceTechId: source }),
+          taxable: member.taxable,
+          ...(member.description && { description: member.description }),
+          ...(customAttributes && { customAttributes }),
+          addedBy: caller.id,
+          addedAt,
+        });
+      }
+    } catch (error) {
+      for (const { containerId, items } of taken) {
+        await this.internalHttp
+          .restoreStock({ containerId, items, ...stockMeta })
+          .catch((restoreError: Error) =>
+            this.logger.error(
+              `Item group ${groupId} on deal ${id}: could not put back ${items[0].productName} ` +
+                `to ${containerId}: ${restoreError.message}`,
+            ),
+          );
+      }
+      throw error;
+    }
+
+    for (const line of lines) await this.productsRepo.addProduct(id, line);
+    this.businessMetrics?.dealProductsAdded.inc(lines.length);
+
+    await this.refreshTotals(id);
+    await this.cache.invalidate(id);
+
+    await this.addTimelineEntry(id, TimelineEventType.PRODUCT_ADDED, caller, {
+      productName: group.name,
+      itemGroupId: group.id,
+      itemGroupName: group.name,
+      items: lines.map((l) => ({
+        productId: l.productId,
+        productName: l.name,
+        quantity: l.quantity,
+        fulfillment: l.fulfillment,
+      })),
+    });
+
+    this.publishEvent('deal.product_added', {
+      dealId: id,
+      itemGroupId: group.id,
+      productIds: lines.map((l) => l.productId),
+    });
+
+    return lines;
+  }
+
+  async removeProduct(
+    id: string,
+    productId: string,
+    caller: JwtUser,
+    dealScope?: string,
+  ): Promise<void> {
+    const deal = await this.findById(id);
+    assertDealInScope(deal, caller, dealScope);
 
     const product = await this.productsRepo.findProduct(id, productId);
     if (!product) {
@@ -2314,7 +2526,9 @@ export class DealsService {
     productId: string,
     ordered: boolean,
     caller: JwtUser,
+    dealScope?: string,
   ): Promise<void> {
+    assertDealInScope(await this.findById(id), caller, dealScope);
     const product = await this.productsRepo.findProduct(id, productId);
     if (!product) {
       throw new NotFoundException(`Product ${productId} not found on deal ${id}`);

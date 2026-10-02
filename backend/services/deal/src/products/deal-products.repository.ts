@@ -15,6 +15,7 @@ import {
 } from '@bitcrm/types';
 import { randomUUID } from 'crypto';
 import { DEALS_TABLE } from '../common/constants/dynamo.constants';
+import { lineCustomAttributes } from '../deals/deal-line-rules';
 
 /**
  * A job's lines: `PK = DEAL#<dealId>`, `SK = PRODUCT#<lineId>`.
@@ -204,6 +205,10 @@ export class DealProductsRepository {
   }
 
   private toProduct(item: Record<string, unknown>): DealProduct {
+    const customAttributes = lineCustomAttributes(
+      item.customAttributes as Record<string, string> | undefined,
+    );
+    const itemGroupId = (item.itemGroupId ?? item.entityGroupId) as string | undefined;
     return {
       // A row written before line ids was keyed by its product, so that is
       // the id every stored reference to it already uses.
@@ -229,6 +234,10 @@ export class DealProductsRepository {
       // Absent means discountable; only an explicit `false` is carried.
       ...(item.discountable === false && { discountable: false }),
       description: item.description as string | undefined,
+      // The line's own copy of its product's custom field values; text only.
+      ...(customAttributes && { customAttributes }),
+      // An item group added it; the importer names Workiz's `entity_group_id` so.
+      ...(itemGroupId && { itemGroupId }),
       addedBy: item.addedBy as string,
       addedAt: item.addedAt as string,
       updatedBy: item.updatedBy as string | undefined,

@@ -1,6 +1,7 @@
 import { IsString, IsNumber, Min, IsOptional, IsIn, IsBoolean, MaxLength } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { type DealProductFulfillment } from '@bitcrm/types';
+import { IsCustomAttributes } from './custom-attributes.validator';
 
 export class AddDealProductDto {
   @ApiPropertyOptional({
@@ -45,15 +46,36 @@ export class AddDealProductDto {
   @Min(1)
   quantity!: number;
 
-  @ApiProperty({ example: 15.0 })
+  // The line's costs are the price book's, read by the server from inventory
+  // (`costCompany` / `costTech`). Inventory leaves `costCompany` out of every
+  // catalog answer for a caller without `financials.view` — a technician, a
+  // dispatcher — so requiring it here made adding an item impossible for them.
+  // No client ever sent anything but the catalog's own numbers, so the fields
+  // are accepted for old clients and ignored.
+  @ApiPropertyOptional({
+    example: 15.0,
+    deprecated: true,
+    description: "Ignored — the server copies the price book's `costCompany`.",
+  })
+  @IsOptional()
   @IsNumber()
-  costCompany!: number;
+  costCompany?: number;
 
-  @ApiProperty({ example: 20.0 })
+  @ApiPropertyOptional({
+    example: 20.0,
+    deprecated: true,
+    description: "Ignored — the server copies the price book's `costTech`.",
+  })
+  @IsOptional()
   @IsNumber()
-  costForTech!: number;
+  costForTech?: number;
 
-  @ApiProperty({ example: 45.0 })
+  @ApiProperty({
+    example: 45.0,
+    description:
+      "The client price. Must stay within ±15% of the price book's `priceClient` (400 " +
+      'otherwise) — except on an imported Workiz line edited in place at its recorded price.',
+  })
   @IsNumber()
   priceClient!: number;
 
@@ -72,4 +94,18 @@ export class AddDealProductDto {
   @IsString()
   @MaxLength(2000)
   description?: string;
+
+  @ApiPropertyOptional({
+    type: 'object',
+    additionalProperties: { type: 'string', nullable: true },
+    example: { 'In Store Location': 'Aisle 4', Link_UHS: 'https://…' },
+    description:
+      "The line's custom field values (Workiz \"Edit item\" on a job line), keyed by the field " +
+      'NAME as `GET /inventory/item-attributes` lists them. Absent on add → copied from the ' +
+      "product; absent on an edit → the line keeps its own (a swap starts from the new product's). " +
+      'Sent, it is the complete set: `null` or `""` leaves a field empty. Never changes the product.',
+  })
+  @IsOptional()
+  @IsCustomAttributes()
+  customAttributes?: Record<string, string | null>;
 }

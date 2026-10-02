@@ -22,14 +22,19 @@ export type DealProductFulfillment =
  *   lines differ from today's catalog price and 110 865 sit outside ±15%, so
  *   the band must not judge them.
  *
- * Absent on every line BitCRM has written so far — readers must cope, and
+ * - `group`    — the item group's own price for the member (`POST
+ *   /deals/:id/item-groups/:groupId`). A group sets its prices apart from the
+ *   price book, so the band does not judge them either — while the line keeps
+ *   that price.
+ *
+ * Absent on every single line BitCRM writes — readers must cope, and
  * "absent" is what they must treat as "the ±15% band applies".
  *
- * Only `imported` is written by anything today (the Workiz importer);
- * `catalog` and `override` are reserved for the add-item dialog and are not
- * produced by any current code path, so do not branch on them.
+ * Written today: `imported` (the Workiz importer) and `group` (an item group
+ * added to a job). `catalog` and `override` are reserved for the add-item
+ * dialog and are not produced by any current code path, so do not branch on them.
  */
-export type DealProductPriceSource = 'catalog' | 'override' | 'imported';
+export type DealProductPriceSource = 'catalog' | 'override' | 'imported' | 'group';
 
 export interface DealProduct {
   /**
@@ -71,6 +76,16 @@ export interface DealProduct {
   discountable?: boolean;
   /** Optional client-facing description shown on estimates/invoices. */
   description?: string;
+  /**
+   * The line's custom field values (Workiz "Edit item" on a job line), keyed
+   * by the field NAME as `Product.customAttributes` is. Copied from the
+   * product when the line is added (from the group, over the product's, when
+   * it comes from an item group), then the line's own: editing them never
+   * changes the product. Absent when the line has none.
+   */
+  customAttributes?: Record<string, string>;
+  /** The item group the line was added from (`ItemGroup.id`). */
+  itemGroupId?: string;
   addedBy: string;
   addedAt: string;
   /** Set when the line was last edited (quantity/price change or product swap). */

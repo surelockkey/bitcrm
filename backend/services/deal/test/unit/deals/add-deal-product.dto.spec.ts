@@ -37,4 +37,27 @@ describe('AddDealProductDto', () => {
   it('accepts a client price of 0 — the price book is full of them', async () => {
     expect(await errorsFor({ ...line, priceClient: 0 })).toEqual([]);
   });
+
+  it("accepts a line without costs — a technician's price book read has no costCompany", async () => {
+    // Inventory strips `costCompany` for callers without `financials.view`
+    // (technicians, dispatchers); the server fills both costs in itself.
+    const { costCompany: _c, costForTech: _t, ...withoutCosts } = line;
+    expect(await errorsFor(withoutCosts)).toEqual([]);
+  });
+
+  it('accepts custom field values: field name → text, null or "" clearing one', async () => {
+    expect(
+      await errorsFor({ ...line, customAttributes: { 'In Store Location': 'Aisle 4', Link_UHS: '', SKU_CRM: null } }),
+    ).toEqual([]);
+  });
+
+  it('rejects custom field values that are not an object of text', async () => {
+    for (const customAttributes of [['a'], 'Aisle 4', { SKU_CRM: 5 }, { '  ': 'x' }]) {
+      expect(await errorsFor({ ...line, customAttributes })).toEqual(['customAttributes']);
+    }
+  });
+
+  it('still rejects a cost that is not a number', async () => {
+    expect(await errorsFor({ ...line, costCompany: 'free' })).toEqual(['costCompany']);
+  });
 });

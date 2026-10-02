@@ -52,20 +52,23 @@ describe('DealBillingController', () => {
     expect(route('byContact')).toEqual({ path: 'internal/by-contact/:contactId', method: RequestMethod.GET });
   });
 
+  // The writes carry the caller's `deals` data scope (a technician: assigned_only).
+  const perms = { dataScope: { deals: 'assigned_only' } } as any;
+
   it('wraps results in the envelope', async () => {
     expect(await controller.getTotals('d')).toEqual({ success: true, data: { total: 10 } });
 
-    await controller.setTax('d', { taxRateId: null }, user);
-    expect(service.setTax).toHaveBeenCalledWith('d', null, user);
+    await controller.setTax('d', { taxRateId: null }, user, perms);
+    expect(service.setTax).toHaveBeenCalledWith('d', null, user, 'assigned_only');
 
-    await controller.autoTax('d', user);
-    expect(service.autoTax).toHaveBeenCalledWith('d', user);
+    await controller.autoTax('d', user, perms);
+    expect(service.autoTax).toHaveBeenCalledWith('d', user, 'assigned_only');
 
-    await controller.setDiscount('d', { discount: { type: 'amount', value: 5 } }, user);
-    expect(service.setDiscount).toHaveBeenCalledWith('d', { type: 'amount', value: 5 }, user);
+    await controller.setDiscount('d', { discount: { type: 'amount', value: 5 } }, user, perms);
+    expect(service.setDiscount).toHaveBeenCalledWith('d', { type: 'amount', value: 5 }, user, 'assigned_only');
 
-    const taxable = await controller.setProductTaxable('d', 'p', { taxable: false }, user);
-    expect(service.setProductTaxable).toHaveBeenCalledWith('d', 'p', false, user);
+    const taxable = await controller.setProductTaxable('d', 'p', { taxable: false }, user, perms);
+    expect(service.setProductTaxable).toHaveBeenCalledWith('d', 'p', false, user, 'assigned_only');
     expect(taxable.success).toBe(true);
   });
 

@@ -10,6 +10,7 @@ import { BusinessMetricsService } from '@bitcrm/shared';
 import {
   type Company,
   type Contact,
+  type ItemGroup,
   type PersonName,
   type Product,
 } from '@bitcrm/types';
@@ -332,6 +333,27 @@ export class InternalHttpService {
       }
       this.businessMetrics?.internalHttpErrors.inc({ target_service: 'inventory', operation: 'getProduct' });
       throw this.toHttpError(error, 'Product lookup');
+    }
+  }
+
+  /**
+   * An item group, for "Add group" on a job — members with the group's own
+   * quantities and prices (no costs: the lines take those from the price book).
+   * Null when inventory has no such group (404); other failures are a 502.
+   */
+  async getItemGroup(groupId: string): Promise<ItemGroup | null> {
+    const timer = this.businessMetrics?.internalHttpDuration.startTimer({ target_service: 'inventory', operation: 'getItemGroup' });
+    try {
+      const response = await this.inventoryClient.get(
+        `/api/inventory/item-groups/internal/${encodeURIComponent(groupId)}`,
+      );
+      timer?.();
+      return response.data.data as ItemGroup;
+    } catch (error: any) {
+      timer?.();
+      if (error.response?.status === 404) return null;
+      this.businessMetrics?.internalHttpErrors.inc({ target_service: 'inventory', operation: 'getItemGroup' });
+      throw this.toHttpError(error, 'Item group lookup');
     }
   }
 

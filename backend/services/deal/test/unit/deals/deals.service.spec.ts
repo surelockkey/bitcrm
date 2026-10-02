@@ -1333,6 +1333,9 @@ describe('DealsService', () => {
   describe('markProductOrdered', () => {
     const caller = createMockJwtUser({ id: 'tech-1' });
 
+    // The job is read for the deals data-scope check before the line.
+    beforeEach(() => mockFindById());
+
     it('sets orderedAt on a to-order line', async () => {
       products.findProduct.mockResolvedValue(
         createMockDealProduct({ fulfillment: 'to_order' }),
@@ -1447,8 +1450,10 @@ describe('DealsService', () => {
     };
 
     beforeEach(() => {
+      // The price book entry the line's costs are copied from.
       http.getProduct.mockResolvedValue({
         id: 'product-2', name: 'Schlage Deadbolt', sku: 'SC-002', type: 'product',
+        costCompany: 18, costTech: 24, priceClient: 60,
       });
       // The line being edited exists; the swap target does not (no duplicate).
       products.findProduct.mockImplementation(async (_dealId: string, productId: string) =>
@@ -1715,6 +1720,10 @@ describe('DealsService', () => {
 
     it('logs no changes when the numbers stay the same', async () => {
       mockFindById(createMockDeal({ assignedTechIds: ['tech-1', 'tech-2'] }));
+      http.getProduct.mockResolvedValue({
+        id: 'product-2', name: 'Schlage Deadbolt', sku: 'SC-002', type: 'product',
+        costCompany: 15, costTech: 20, priceClient: 45,
+      });
 
       await service.replaceProduct(
         'deal-1',

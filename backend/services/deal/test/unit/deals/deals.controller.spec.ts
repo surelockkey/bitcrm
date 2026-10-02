@@ -1,6 +1,8 @@
 import { Test } from '@nestjs/testing';
 import { NotFoundException } from '@nestjs/common';
 import { JobSuperStatus } from '@bitcrm/types';
+import { PERMISSION_KEY } from '@bitcrm/shared';
+import { HTTP_CODE_METADATA } from '@nestjs/common/constants';
 import { DealsController } from 'src/deals/deals.controller';
 import { DealsService } from 'src/deals/deals.service';
 import { createMockDeal, createMockDealProduct, createMockJwtUser, createMockTimelineEntry } from '../mocks';
@@ -27,6 +29,9 @@ describe('DealsController', () => {
       assignTechs: jest.fn(),
       unassignTech: jest.fn(),
       addProduct: jest.fn(),
+      addItemGroup: jest.fn(),
+      replaceProduct: jest.fn(),
+      markProductOrdered: jest.fn(),
       removeProduct: jest.fn(),
       getProducts: jest.fn(),
       getTechDeals: jest.fn(),
@@ -259,28 +264,69 @@ describe('DealsController', () => {
     });
   });
 
-  describe('addProduct', () => {
-    it('should call service.addProduct', async () => {
+  describe('line items carry the caller\'s deals scope', () => {
+    const perms = { dataScope: { deals: 'assigned_only' } } as any;
+    const dto = { productId: 'p-1', name: 'Bolt', sku: 'B-1', quantity: 1, priceClient: 30 };
+
+    it('addProduct', async () => {
       const caller = createMockJwtUser();
       service.addProduct.mockResolvedValue(undefined);
 
-      const dto = { productId: 'p-1', name: 'Bolt', sku: 'B-1', quantity: 1, costCompany: 10, costForTech: 15, priceClient: 30 };
-      const result = await controller.addProduct('deal-1', dto as any, caller);
+      const result = await controller.addProduct('deal-1', dto as any, caller, perms);
 
       expect(result).toEqual({ success: true, data: { added: true } });
-      expect(service.addProduct).toHaveBeenCalledWith('deal-1', dto, caller);
+      expect(service.addProduct).toHaveBeenCalledWith('deal-1', dto, caller, 'assigned_only');
     });
-  });
 
-  describe('removeProduct', () => {
-    it('should call service.removeProduct', async () => {
+    it('addItemGroup — 201 with the lines it wrote', async () => {
+      const caller = createMockJwtUser();
+      const lines = [createMockDealProduct({ lineId: 'l-1' }), createMockDealProduct({ lineId: 'l-2' })];
+      service.addItemGroup.mockResolvedValue(lines);
+
+      const result = await controller.addItemGroup('deal-1', 'group-1', { sourceTechId: 'tech-2' }, caller, perms);
+
+      expect(result).toEqual({ success: true, data: { added: 2, lines } });
+      expect(service.addItemGroup).toHaveBeenCalledWith('deal-1', 'group-1', { sourceTechId: 'tech-2' }, caller, 'assigned_only');
+      expect(Reflect.getMetadata(PERMISSION_KEY, controller.addItemGroup)).toEqual({ resource: 'deals', action: 'edit' });
+      // A POST answers 201 unless told otherwise.
+      expect(Reflect.getMetadata(HTTP_CODE_METADATA, controller.addItemGroup)).toBeUndefined();
+    });
+
+    it('addItemGroup — takes an empty body', async () => {
+      const caller = createMockJwtUser();
+      service.addItemGroup.mockResolvedValue([]);
+
+      await controller.addItemGroup('deal-1', 'group-1', undefined as any, caller, perms);
+
+      expect(service.addItemGroup).toHaveBeenCalledWith('deal-1', 'group-1', {}, caller, 'assigned_only');
+    });
+
+    it('replaceProduct', async () => {
+      const caller = createMockJwtUser();
+
+      const result = await controller.replaceProduct('deal-1', 'line-1', dto as any, caller, perms);
+
+      expect(result).toEqual({ success: true, data: { updated: true } });
+      expect(service.replaceProduct).toHaveBeenCalledWith('deal-1', 'line-1', dto, caller, 'assigned_only');
+    });
+
+    it('markProductOrdered', async () => {
+      const caller = createMockJwtUser();
+
+      const result = await controller.markProductOrdered('deal-1', 'line-1', { ordered: true }, caller, perms);
+
+      expect(result).toEqual({ success: true, data: { ordered: true } });
+      expect(service.markProductOrdered).toHaveBeenCalledWith('deal-1', 'line-1', true, caller, 'assigned_only');
+    });
+
+    it('removeProduct', async () => {
       const caller = createMockJwtUser();
       service.removeProduct.mockResolvedValue(undefined);
 
-      const result = await controller.removeProduct('deal-1', 'product-1', caller);
+      const result = await controller.removeProduct('deal-1', 'product-1', caller, perms);
 
       expect(result).toEqual({ success: true, data: { removed: true } });
-      expect(service.removeProduct).toHaveBeenCalledWith('deal-1', 'product-1', caller);
+      expect(service.removeProduct).toHaveBeenCalledWith('deal-1', 'product-1', caller, 'assigned_only');
     });
   });
 
