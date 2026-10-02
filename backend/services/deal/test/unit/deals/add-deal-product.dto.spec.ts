@@ -37,4 +37,15 @@ describe('AddDealProductDto', () => {
   it('accepts a client price of 0 — the price book is full of them', async () => {
     expect(await errorsFor({ ...line, priceClient: 0 })).toEqual([]);
   });
+
+  it("accepts a line without costs — a technician's price book read has no costCompany", async () => {
+    // Inventory strips `costCompany` for callers without `financials.view`
+    // (technicians, dispatchers); the server fills both costs in itself.
+    const { costCompany: _c, costForTech: _t, ...withoutCosts } = line;
+    expect(await errorsFor(withoutCosts)).toEqual([]);
+  });
+
+  it('still rejects a cost that is not a number', async () => {
+    expect(await errorsFor({ ...line, costCompany: 'free' })).toEqual(['costCompany']);
+  });
 });

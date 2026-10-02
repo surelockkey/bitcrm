@@ -45,13 +45,29 @@ export class AddDealProductDto {
   @Min(1)
   quantity!: number;
 
-  @ApiProperty({ example: 15.0 })
+  // The line's costs are the price book's, read by the server from inventory
+  // (`costCompany` / `costTech`). Inventory leaves `costCompany` out of every
+  // catalog answer for a caller without `financials.view` — a technician, a
+  // dispatcher — so requiring it here made adding an item impossible for them.
+  // No client ever sent anything but the catalog's own numbers, so the fields
+  // are accepted for old clients and ignored.
+  @ApiPropertyOptional({
+    example: 15.0,
+    deprecated: true,
+    description: "Ignored — the server copies the price book's `costCompany`.",
+  })
+  @IsOptional()
   @IsNumber()
-  costCompany!: number;
+  costCompany?: number;
 
-  @ApiProperty({ example: 20.0 })
+  @ApiPropertyOptional({
+    example: 20.0,
+    deprecated: true,
+    description: "Ignored — the server copies the price book's `costTech`.",
+  })
+  @IsOptional()
   @IsNumber()
-  costForTech!: number;
+  costForTech?: number;
 
   @ApiProperty({ example: 45.0 })
   @IsNumber()

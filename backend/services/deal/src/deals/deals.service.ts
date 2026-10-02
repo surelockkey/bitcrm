@@ -52,6 +52,7 @@ import {
   type SortDir,
   type DayWindow,
 } from './deals.repository';
+import { catalogCosts } from './deal-line-rules';
 
 /** The jobs-list tab numbers; a closed status is `null` when no window bounds it. */
 export type DealCounts = Record<JobSuperStatus, number | null> & {
@@ -2086,8 +2087,7 @@ export class DealsService {
       name: dto.name,
       sku: dto.sku,
       quantity: dto.quantity,
-      costCompany: dto.costCompany,
-      costForTech: dto.costForTech,
+      ...catalogCosts(product),
       priceClient: dto.priceClient,
       fulfillment,
       // Only a sourced line records which technician supplied it.
@@ -2204,6 +2204,8 @@ export class DealsService {
     // toggled it); a swap starts from the new catalog product's default.
     const taxable = dto.taxable ?? (isSwap ? product.taxable : existing.taxable) ?? true;
     const description = dto.description ?? (isSwap ? undefined : existing.description);
+    // The numbers the line ends up with — what the timeline diffs against.
+    const money = { quantity: dto.quantity, ...catalogCosts(product), priceClient: dto.priceClient };
 
     await this.productsRepo.addProduct(id, {
       // The same line, rewritten: a swap changes what it names, not which
@@ -2212,10 +2214,7 @@ export class DealsService {
       productId: dto.productId,
       name: dto.name,
       sku: dto.sku,
-      quantity: dto.quantity,
-      costCompany: dto.costCompany,
-      costForTech: dto.costForTech,
-      priceClient: dto.priceClient,
+      ...money,
       fulfillment,
       // Only a sourced line records which technician supplied it.
       ...(fulfillment === 'sourced' && { sourceTechId: dto.sourceTechId }),
@@ -2240,7 +2239,7 @@ export class DealsService {
     // changed on the line (price, costs, qty) — not just that it was touched.
     const changes: Record<string, { from: unknown; to: unknown }> = {};
     for (const k of ['priceClient', 'costCompany', 'costForTech', 'quantity'] as const) {
-      if (existing[k] !== dto[k]) changes[k] = { from: existing[k], to: dto[k] };
+      if (existing[k] !== money[k]) changes[k] = { from: existing[k], to: money[k] };
     }
 
     await this.addTimelineEntry(id, TimelineEventType.PRODUCT_UPDATED, caller, {
