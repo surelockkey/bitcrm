@@ -596,10 +596,20 @@ describe('PortalService', () => {
 
   describe('what the client does lands in their chat (Workiz)', () => {
     const recorded = () => messaging.recordPortalEvent.mock.calls.map((c: unknown[]) => c[0]);
+    // The view is recorded after the page is answered; let those promises settle (timers are fake here).
+    const settle = async () => {
+      for (let i = 0; i < 20; i++) await Promise.resolve();
+    };
     let messaging: { recordPortalEvent: jest.Mock };
     let svc: PortalService;
+    let seen: Set<string>;
+    let redis: { client: { set: jest.Mock } };
     beforeEach(() => {
       messaging = { recordPortalEvent: jest.fn(async () => undefined) };
+      seen = new Set();
+      // SET … NX: only the first caller of the day gets "OK".
+      redis = { client: { set: jest.fn(async (key: string) => (seen.has(key) ? null : (seen.add(key), 'OK'))) } };
+      (deals as unknown as { addTimeline: jest.Mock }).addTimeline = jest.fn(async () => undefined);
       svc = new PortalService(
         repo as never,
         crm as never,
@@ -613,12 +623,14 @@ describe('PortalService', () => {
         undefined,
         undefined,
         messaging as never,
+        redis as never,
       );
     });
 
     it('opening a document on the portal records a view — once a day per document', async () => {
       const { token } = await svc.createLink('contact-1', user());
       await svc.publicHtml(token!, 'estimate', 'est-1');
+      await settle();
       expect(recorded()).toEqual([
         {
           contactId: 'contact-1',
@@ -628,6 +640,30 @@ describe('PortalService', () => {
           eventKey: 'viewed:estimate:est-1:2026-09-16',
         },
       ]);
+    });
+
+    it('the first view of the day also goes into the job’s history as Workiz’s "Client viewed …"; the next view that day writes nothing', async () => {
+      const addTimeline = (deals as unknown as { addTimeline: jest.Mock }).addTimeline;
+      const { token } = await svc.createLink('contact-1', user());
+      await svc.publicHtml(token!, 'invoice', 'deal-1');
+      await svc.publicHtml(token!, 'invoice', 'deal-1');
+      await svc.publicHtml(token!, 'estimate', 'est-1');
+      await settle();
+      expect(addTimeline.mock.calls).toEqual([
+        ['deal-1', 'invoice_viewed', 'client', { invoiceId: 'deal-1', number: 'K4T9ZW' }, 'Client'],
+        ['deal-1', 'estimate_viewed', 'client', { estimateId: 'est-1', number: 'K4T9ZW-1' }, 'Client'],
+      ]);
+      expect(recorded().map((e: any) => e.document.id)).toEqual(['deal-1', 'est-1']);
+      expect(redis.client.set).toHaveBeenCalledWith('billing:portal:viewed:invoice:deal-1:2026-09-16', '1', 'EX', 172800, 'NX');
+    });
+
+    it('with Redis down every view still counts — the history never loses one', async () => {
+      redis.client.set.mockRejectedValue(new Error('redis down'));
+      const addTimeline = (deals as unknown as { addTimeline: jest.Mock }).addTimeline;
+      const { token } = await svc.createLink('contact-1', user());
+      await svc.publicHtml(token!, 'estimate', 'est-1');
+      await settle();
+      expect(addTimeline).toHaveBeenCalledTimes(1);
     });
 
     it('approving (signing) and declining an estimate, and signing an invoice, say who did it', async () => {

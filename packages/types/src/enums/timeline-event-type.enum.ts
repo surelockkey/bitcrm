@@ -45,6 +45,9 @@ export enum TimelineEventType {
   /** The client approved / declined the estimate on the client portal (Workiz "Client signed estimate"). */
   ESTIMATE_APPROVED = 'estimate_approved',
   ESTIMATE_DECLINED = 'estimate_declined',
+  /** The client opened the estimate / invoice on the portal (Workiz "Client viewed estimate|invoice"); once a day per document. */
+  ESTIMATE_VIEWED = 'estimate_viewed',
+  INVOICE_VIEWED = 'invoice_viewed',
   /** The job's estimates went out together as a sales proposal (Workiz "Send all (proposal)"). */
   PROPOSAL_SENT = 'proposal_sent',
   /** A signature was collected on the invoice (portal or in person). */
