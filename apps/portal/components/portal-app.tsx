@@ -11,6 +11,7 @@ import {
   isInvalidPortalError,
   useLoad,
   type DocumentLoaders,
+  type InboxLoader,
   type PortalActions,
 } from "@bitcrm/portal-ui";
 // Imported by path, not from the barrel: these modules pull in Stripe.js, and
@@ -26,6 +27,7 @@ import {
   getPaymentOptions,
   getPaymentStatus,
   getPortal,
+  getPortalInbox,
   signInvoice,
   startDeposit,
   startPayment,
@@ -86,6 +88,9 @@ export function PortalApp({ token }: { token: string }) {
     }),
     [token],
   );
+
+  // Ten entries at a time; the filter and the cursor ride on the same token-gated route.
+  const loadInbox = useCallback<InboxLoader>((q) => getPortalInbox(token, q), [token]);
 
   const withKey = useCallback((session: Awaited<ReturnType<typeof startPayment>>) =>
     // The key belongs to the API response; the build-time one is a fallback
@@ -155,7 +160,7 @@ export function PortalApp({ token }: { token: string }) {
 
   return (
     <>
-      <PortalView view={view} loaders={loaders} actions={actions} scope={`token:${token}`} />
+      <PortalView view={view} loaders={loaders} actions={actions} scope={`token:${token}`} loadInbox={loadInbox} />
 
       {resumeDoc ? (
         <PaymentPanel

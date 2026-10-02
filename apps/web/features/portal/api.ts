@@ -1,4 +1,5 @@
-import type { PortalLink, PortalView } from "@bitcrm/types";
+import type { PortalInboxPage, PortalInboxShow, PortalLink, PortalView } from "@bitcrm/types";
+import { inboxQueryString } from "@bitcrm/portal-ui";
 import { http } from "@/lib/api/http";
 
 const BASE = "/billing/portal-links";
@@ -25,5 +26,12 @@ export const getPortalLinkUrl = (contactId: string): Promise<PortalLink> =>
 export const deletePortalLink = (contactId: string): Promise<unknown> =>
   http.delete<unknown>(`${BASE}/${contactId}`);
 
+/** The preview with the first page of the client's inbox (unsent documents included). */
 export const getPortalPreview = (contactId: string): Promise<PortalView> =>
   http.get<PortalView>(`${BASE}/${contactId}/preview`);
+
+/** One more page of the preview's inbox: Load more, Inbox Display, or a re-read. */
+export const getPortalPreviewInbox = (
+  contactId: string,
+  q: { cursor?: string; limit?: number; show?: PortalInboxShow[] },
+): Promise<PortalInboxPage> => http.get<PortalInboxPage>(`${BASE}/${contactId}/preview/inbox${inboxQueryString(q)}`);

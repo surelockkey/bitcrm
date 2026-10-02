@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import { Eye } from "lucide-react";
-import { PortalSkeleton, PortalView, type DocumentLoaders } from "@bitcrm/portal-ui";
+import type { PortalView as PortalViewData } from "@bitcrm/types";
+import { PortalSkeleton, PortalView, type DocumentLoaders, type InboxLoader } from "@bitcrm/portal-ui";
 import { Button } from "@/components/ui/button";
 import { toneClasses } from "@/lib/theme/tone";
 import { getApiErrorMessage } from "@/lib/api/errors";
@@ -10,6 +11,7 @@ import { useDenied } from "@/features/auth/use-permissions";
 import { NoAccess } from "@/features/billing/components/list-bits";
 import { getEstimateHtml, getEstimatePdfUrl } from "@/features/estimates/api";
 import { getInvoiceHtml, getInvoicePdfUrl } from "@/features/invoices/api";
+import { getPortalPreviewInbox } from "../api";
 import { usePortalPreview } from "../hooks";
 
 /** Staff preview of a client's portal (includes unsent documents). Same UI as the client's page. */
@@ -25,6 +27,9 @@ export function PortalPreviewPage({ contactId }: { contactId: string }) {
     }),
     [],
   );
+
+  // The client's inbox ten at a time, as the client pages it.
+  const loadInbox = useCallback<InboxLoader>((q) => getPortalPreviewInbox(contactId, q), [contactId]);
 
   if (denied("contacts")) return <NoAccess what="client portals" />;
 
@@ -49,9 +54,24 @@ export function PortalPreviewPage({ contactId }: { contactId: string }) {
             <Button variant="outline" size="sm" className="mt-3" onClick={() => q.refetch()}>Try again</Button>
           </div>
         ) : (
-          <PortalView view={{ ...q.data, preview: true }} loaders={loaders} scope={`preview:${contactId}`} />
+          <PortalView view={previewView(q.data)} loaders={loaders} scope={`preview:${contactId}`} loadInbox={loadInbox} />
         )}
       </div>
     </div>
   );
+}
+
+/**
+ * Stamped as a preview without minting a new object each render: the portal
+ * view reads a new object as a reload and re-reads the pages it had loaded.
+ */
+const previews = new WeakMap<object, PortalViewData>();
+function previewView(data: PortalViewData): PortalViewData {
+  if (data.preview) return data;
+  let stamped = previews.get(data);
+  if (!stamped) {
+    stamped = { ...data, preview: true };
+    previews.set(data, stamped);
+  }
+  return stamped;
 }
