@@ -128,6 +128,9 @@ export class RecipientOptedOutException extends HttpException {
 }
 
 /** How many recent lines are inspected for the email an outbound one replies to. */
+/** Loose RFC 5322 shape — enough to keep a typo like "not-an-email" off a thread. */
+const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 const THREAD_SCAN_LIMIT = 25;
 
 /** Statuses a resend is offered for: the provider gave up on the line, nothing more will come. */
@@ -607,7 +610,9 @@ export class SendService {
     if (!this.email?.configured) {
       throw new NotImplementedException('Email sending is not configured (MESSAGING_EMAIL_FROM)');
     }
-    const to = this.emailRecipient(conversation, dto.toAddress);
+    const target = await this.emailTarget(conversation, dto.toAddress);
+    conversation = target.conversation;
+    const to = target.to;
     if (await this.optOuts.isOptedOut('email', to)) throw new RecipientOptedOutException(to, 'email');
 
     const rendered = await this.render(conversation, dto);
@@ -1072,6 +1077,57 @@ export class SendService {
     }
     if (!phones.length) throw new BadRequestException('The conversation has no phone number to text');
     return phones[0];
+  }
+
+  /**
+   * The email a send goes to, with the thread's address list kept honest.
+   * A client thread copies the contact's emails from CRM once, when it is
+   * opened, and follows them through `contact.updated`; an address added to
+   * the contact that the event never reached, or one typed into the
+   * composer's To field for this client, used to be refused as "not one of
+   * the conversation email addresses". Now, on a client thread, such an
+   * address is adopted: as a `crm` pointer when the contact has it, else as
+   * a `manual` one — so the reply from it threads back here, exactly as an
+   * inbound mail from a new sender would (`email-thread.resolver`). Team
+   * threads keep the strict rule.
+   */
+  private async emailTarget(
+    conversation: Conversation,
+    toAddress: string | undefined,
+  ): Promise<{ to: string; conversation: Conversation }> {
+    const emails = conversation.addresses?.emails ?? [];
+    if (!toAddress) return { to: this.emailRecipient(conversation, undefined), conversation };
+    const normalised = toAddress.trim().toLowerCase();
+    if (emails.includes(normalised)) return { to: normalised, conversation };
+    if (isTeamKind(conversation.kind) || !EMAIL_SHAPE.test(normalised)) {
+      throw new BadRequestException('toAddress is not one of the conversation email addresses');
+    }
+    const contact = conversation.partyKind === 'contact' && conversation.partyId ? await this.crm.getContact(conversation.partyId) : null;
+    const known = (contact?.emails ?? []).some((e) => e.trim().toLowerCase() === normalised);
+    return { to: normalised, conversation: await this.adoptEmail(conversation, normalised, known ? 'crm' : 'manual') };
+  }
+
+  /** An address onto the thread + `ADDR#` — tolerant of a concurrent write, like `adoptPhone`. */
+  private async adoptEmail(conversation: Conversation, email: string, source: 'crm' | 'manual'): Promise<Conversation> {
+    const now = new Date().toISOString();
+    await this.conversations.putAddressPointer({
+      address: email,
+      conversationId: conversation.id,
+      partyKind: conversation.partyKind,
+      partyId: conversation.partyId,
+      source,
+      updatedAt: now,
+    });
+    try {
+      return await this.conversations.update(
+        conversation,
+        { addresses: { phones: conversation.addresses?.phones ?? [], emails: [email, ...(conversation.addresses?.emails ?? [])] } },
+        { at: now },
+      );
+    } catch (error) {
+      if (!(error instanceof StaleConversationError)) throw error;
+      return (await this.conversations.get(conversation.id)) ?? conversation;
+    }
   }
 
   /** One of the conversation's emails (lowercase), the first by default. */
