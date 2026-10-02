@@ -7,9 +7,10 @@ import {
   type PaymentSettings,
 } from '@bitcrm/types';
 import { PaymentVersionConflictError } from 'src/payments/payments.repository';
+import { PaymentsService } from 'src/payments/payments.service';
 import { computeInvoiceTotals, deriveInvoiceStatus } from 'src/invoices/invoice-rules';
 import { amountPaidFrom } from 'src/payments/payment-rules';
-import { billingView, dealProduct } from './mocks';
+import { billingView, dealProduct, mockCrmClient, mockProfileService } from './mocks';
 
 export const PAY_NOW = '2026-09-22T12:00:00.000Z';
 
@@ -170,6 +171,38 @@ export function fakeInvoices(seed: Invoice = invoice(), ledger?: FakeLedger) {
     setAllowedMethods: jest.fn(async () => ({ ...stored })),
     ledgerAmountPaid: jest.fn(async (id: string) => (ledger ? amountPaidFrom(await ledger.listByInvoice(id)) : 0)),
   };
+}
+
+/**
+ * A PaymentsService over a spec's own fakes that can SEND a receipt: messaging
+ * (on the caller's bearer), the client from crm, and the company that names
+ * the business — so a spec can receipt the row its real path just wrote.
+ */
+export function receiptSender(parts: {
+  ledger: FakeLedger;
+  invoices: ReturnType<typeof fakeInvoices>;
+  settings: unknown;
+  deal: unknown;
+  stripe?: unknown;
+  events?: unknown;
+}) {
+  const messaging = {
+    sendToContact: jest.fn(async (..._a: any[]) => undefined),
+    sendToNumber: jest.fn(async (..._a: any[]) => undefined),
+  };
+  const service = new PaymentsService(
+    parts.ledger as any,
+    parts.invoices as any,
+    parts.settings as any,
+    parts.deal as any,
+    parts.stripe as any,
+    parts.events as any,
+    mockCrmClient() as any,
+    messaging as any,
+    undefined,
+    mockProfileService() as any,
+  );
+  return { service, messaging };
 }
 
 export function mockStripeService(over: Record<string, unknown> = {}) {

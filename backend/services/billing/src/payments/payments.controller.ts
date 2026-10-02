@@ -177,8 +177,13 @@ export class PaymentsController {
       'thread), `channel: "sms"` + an E.164 `to` texts that number (one the client does not have gets its own ' +
       'thread), `channel` alone uses the client’s own address of that kind. No body: SMS when the contact has a ' +
       'number, otherwise email, as before. → `{ sent, sentTo? }`; `sent: false` when there is nowhere to send ' +
-      'it. 400 for an address that does not fit its channel, or `to` without `channel`; 409 before the payment ' +
-      'has actually been collected.',
+      'it. A card attempt made on a phone (`channel` `terminal` or `keyed`) that is `failed` — declined, ' +
+      'cancelled on the device, given up on — gets a DECLINED receipt instead (Apple Tap to Pay on iPhone ' +
+      '5.5.8: a receipt whatever the outcome): "Payment declined: $X for invoice N on YYYY-MM-DD (Visa ending ' +
+      'in 4242). No money was taken. Reason: …", emailed as "Your payment with <business name> was declined". ' +
+      '400 for an address that does not fit its channel, or `to` without `channel`; 409 while the money is ' +
+      'still in flight (`pending`), for a typed card Stripe never answered (it may have been charged), and for ' +
+      'any other payment that was not collected (a failed portal checkout or offline payment, a reversal).',
   })
   async receipt(
     @Param('paymentId') paymentId: string,

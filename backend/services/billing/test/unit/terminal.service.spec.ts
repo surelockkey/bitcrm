@@ -12,7 +12,7 @@ import { PaymentSettingsService } from 'src/payments/payment-settings.service';
 import { StripeEventsHandler } from 'src/payments/stripe/stripe-events.handler';
 import { TerminalService } from 'src/payments/terminal/terminal.service';
 import { DataScope, billingView, caller, dealProduct, mockDealClient, mockEvents, perms, profile } from './mocks';
-import { PAY_NOW, fakeInvoices, fakeLedger, invoice, mockStripeService, payment } from './payment-mocks';
+import { PAY_NOW, fakeInvoices, fakeLedger, invoice, mockStripeService, payment, receiptSender } from './payment-mocks';
 
 const SIGNED = '2026-09-22T11:00:00.000Z';
 const ATTEMPT = '0b9c6d2e-4f1a-4c3b-9d8e-7a6b5c4d3e2f';
@@ -585,6 +585,36 @@ describe('Terminal — cancel and sync (POST /terminal-intents/:paymentId/…)',
     stripe.retrievePaymentIntent.mockResolvedValueOnce(stripeIntent() as any);
     await service.sync('att-old', tech());
     expect(ledger.payments.get('att-old')!.status).toBe('settled');
+  });
+
+  it('sync: a declined tap can be receipted at once (Tap to Pay on iPhone 5.5.8) — the card and the bank’s reason as Stripe sent them', async () => {
+    const b = build({ ledger: fakeLedger([attempt({ amount: 60, tipAmount: 9 })]) });
+    b.stripe.retrievePaymentIntent.mockResolvedValueOnce(
+      stripeIntent({
+        status: 'requires_payment_method',
+        last_payment_error: { type: 'card_error', message: 'Your card has insufficient funds.' },
+        latest_charge: {
+          id: 'ch_dec',
+          object: 'charge',
+          payment_method_details: { type: 'card_present', card_present: { brand: 'visa', last4: '4242' } },
+        },
+      }) as any,
+    );
+    await b.service.sync('att-old', tech());
+    const { service: payments, messaging } = receiptSender(b);
+
+    await expect(
+      payments.sendReceipt('att-old', tech(), 'Bearer t', { channel: 'sms', to: '+14045550111' }),
+    ).resolves.toEqual({ sent: true, sentTo: '+14045550111' });
+    expect(messaging.sendToNumber).toHaveBeenCalledWith(
+      {
+        phone: '+14045550111',
+        body:
+          'Payment declined: $69.00 for invoice K4T9ZW on 2026-09-22 (Visa ending in 4242). ' +
+          'No money was taken. Reason: Your card has insufficient funds.',
+      },
+      'Bearer t',
+    );
   });
 
   it('sync: an intent still waiting for the card changes nothing', async () => {

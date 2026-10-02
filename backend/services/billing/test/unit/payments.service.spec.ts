@@ -1,9 +1,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
-import { BillingEventType, DataScope, MAX_SURCHARGE_PERCENT } from '@bitcrm/types';
+import { BillingEventType, DataScope, MAX_SURCHARGE_PERCENT, type Payment } from '@bitcrm/types';
 import { PaymentsService } from 'src/payments/payments.service';
 import { PaymentSettingsService } from 'src/payments/payment-settings.service';
-import { caller, mockCrmClient, mockDealClient, mockEvents } from './mocks';
+import { billingView, caller, mockCrmClient, mockDealClient, mockEvents } from './mocks';
 import { fakeInvoices, fakeLedger, invoice, mockStripeService, payment } from './payment-mocks';
 
 function build(over: { ledger?: ReturnType<typeof fakeLedger>; stripe?: any } = {}) {
@@ -507,6 +507,180 @@ describe('PaymentsService — a receipt to the address typed on the phone (Worki
     await service.sendReceipt('p1', caller(), 'Bearer abc', { channel: 'sms', to: '+14045550111' });
     expect(messaging.sendToContact).toHaveBeenCalledWith(expect.objectContaining({ dealId: JOB }), 'Bearer abc');
     expect(messaging.sendToNumber).toHaveBeenCalledWith(expect.objectContaining({ dealId: JOB }), 'Bearer abc');
+  });
+});
+
+describe('PaymentsService — a declined card’s receipt (Tap to Pay on iPhone 5.5.8: a receipt whatever the outcome)', () => {
+  const JOB = '6f1c2b8e-3d4a-4b5c-9e7f-0a1b2c3d4e5f';
+  const tech = () => caller(DataScope.ASSIGNED_ONLY, { id: 'tech-1' });
+
+  /** A card tapped on the technician’s phone and declined: Stripe named the card and said why. */
+  const declinedTap = (over: Partial<Payment> = {}): Payment =>
+    payment({
+      id: 'p1',
+      status: 'failed',
+      channel: 'terminal',
+      transactionMethod: 'Tap to Pay',
+      source: 'field',
+      takenBy: 'tech-1',
+      amount: 60,
+      tipAmount: 9,
+      feeAmount: 2.07,
+      stripePaymentIntentId: 'pi_1',
+      stripeChargeId: 'ch_1',
+      cardBrand: 'visa',
+      last4: '4242',
+      failureReason: 'Your card was declined.',
+      ...over,
+    });
+
+  it('emails it to the address on the screen — "Your payment with <business> was declined" — with the total asked, the card and Stripe’s reason', async () => {
+    const { service, messaging } = build({ ledger: fakeLedger([declinedTap()]) });
+
+    const res = await service.sendReceipt('p1', caller(), 'Bearer abc', { channel: 'email', to: ' Walter@Example.com ' });
+
+    expect(res).toEqual({ sent: true, sentTo: 'walter@example.com' });
+    expect(messaging.sendToContact).toHaveBeenCalledWith(
+      {
+        contactId: 'contact-1',
+        channel: 'email',
+        toAddress: 'walter@example.com',
+        subject: 'Your payment with Sure Lock Key was declined',
+        body:
+          'Payment declined: $71.07 for invoice K4T9ZW on 2026-09-22 (Visa ending in 4242). ' +
+          'No money was taken. Reason: Your card was declined.',
+      },
+      'Bearer abc',
+    );
+    expect(messaging.sendToNumber).not.toHaveBeenCalled();
+  });
+
+  it('texts a declined typed card to the number on the screen', async () => {
+    const typed = declinedTap({
+      channel: 'keyed',
+      transactionMethod: 'Keyed',
+      tipAmount: undefined,
+      feeAmount: undefined,
+      stripeChargeId: undefined,
+      cardBrand: undefined,
+      last4: undefined,
+      failureReason: 'Your card has insufficient funds.',
+    });
+    const { service, messaging } = build({ ledger: fakeLedger([typed]) });
+
+    await expect(service.sendReceipt('p1', caller(), 'Bearer abc', { channel: 'sms', to: '+14045550111' })).resolves.toEqual({
+      sent: true,
+      sentTo: '+14045550111',
+    });
+    expect(messaging.sendToNumber).toHaveBeenCalledWith(
+      {
+        phone: '+14045550111',
+        body: 'Payment declined: $60.00 for invoice K4T9ZW on 2026-09-22. No money was taken. Reason: Your card has insufficient funds.',
+      },
+      'Bearer abc',
+    );
+    expect(messaging.sendToContact).not.toHaveBeenCalled();
+  });
+
+  it('names the job when it has no invoice, and says only what Stripe told us about the card and why', async () => {
+    const cases: Array<[Partial<Payment>, string]> = [
+      [{}, '(Visa ending in 4242). No money was taken. Reason: Your card was declined.'],
+      [
+        { cardBrand: 'amex', last4: undefined, failureReason: 'Cancelled on the device' },
+        '(American Express). No money was taken. Reason: Cancelled on the device.',
+      ],
+      [{ cardBrand: undefined, last4: '0005', failureReason: undefined }, '(card ending in 0005). No money was taken.'],
+      [{ cardBrand: 'unknown', last4: undefined, failureReason: '  ' }, 'on 2026-09-22. No money was taken.'],
+    ];
+    for (const [over, ending] of cases) {
+      const { service, messaging } = build({
+        ledger: fakeLedger([declinedTap({ invoiceId: 'deal-2', dealId: 'deal-2', ...over })]),
+      });
+      await service.sendReceipt('p1', caller(), 'Bearer abc', { channel: 'email', to: 'walter@example.com' });
+      const [message] = messaging.sendToContact.mock.calls[0] as any[];
+      expect(message.body).toMatch(/^Payment declined: \$71\.07 for job K4T9ZW on 2026-09-22/);
+      expect(message.body.endsWith(ending)).toBe(true);
+    }
+  });
+
+  it('with no body it goes where any receipt goes — the client’s number, else their email — and still says it was declined', async () => {
+    const { service, crm, messaging } = build({ ledger: fakeLedger([declinedTap()]) });
+
+    await expect(service.sendReceipt('p1', caller(), 'Bearer abc')).resolves.toEqual({ sent: true, sentTo: '+18605550100' });
+    const [text] = messaging.sendToContact.mock.calls[0] as any[];
+    expect(text).toMatchObject({ contactId: 'contact-1', channel: 'sms' });
+    expect(text.body).toMatch(/^Payment declined: \$71\.07 for invoice K4T9ZW/);
+    expect(text.subject).toBeUndefined();
+
+    crm.getContact.mockResolvedValue({ id: 'contact-1', phones: [], emails: ['jane@example.com'] });
+    await expect(service.sendReceipt('p1', caller(), 'Bearer abc')).resolves.toEqual({ sent: true, sentTo: 'jane@example.com' });
+    expect(messaging.sendToContact).toHaveBeenLastCalledWith(
+      expect.objectContaining({ channel: 'email', subject: 'Your payment with Sure Lock Key was declined' }),
+      'Bearer abc',
+    );
+  });
+
+  it('keeps the receipt’s rules: the technician’s roster (and messaging’s check of the job), 400 for an address that is not one', async () => {
+    const { service, deal, messaging } = build({ ledger: fakeLedger([declinedTap({ invoiceId: JOB, dealId: JOB })]) });
+    deal.getBillingView.mockResolvedValue(billingView({ id: JOB, assignedTechIds: ['tech-1'] }));
+
+    await expect(
+      service.sendReceipt('p1', tech(), 'Bearer abc', { channel: 'email', to: 'walter@example.com' }),
+    ).resolves.toEqual({ sent: true, sentTo: 'walter@example.com' });
+    expect(messaging.sendToContact).toHaveBeenCalledWith(expect.objectContaining({ dealId: JOB }), 'Bearer abc');
+
+    await expect(service.sendReceipt('p1', tech(), 'Bearer abc', { channel: 'email', to: 'walter@' })).rejects.toThrow(
+      BadRequestException,
+    );
+    deal.getBillingView.mockResolvedValue(billingView({ id: JOB, assignedTechIds: ['someone-else'] }));
+    await expect(
+      service.sendReceipt('p1', tech(), 'Bearer abc', { channel: 'email', to: 'walter@example.com' }),
+    ).rejects.toThrow(ForbiddenException);
+    expect(messaging.sendToContact).toHaveBeenCalledTimes(1);
+  });
+
+  it('a typed card Stripe never answered is not a decline — the card may yet have been charged — so 409, nothing sent', async () => {
+    const unanswered = declinedTap({
+      channel: 'keyed',
+      stripePaymentIntentId: undefined,
+      stripeChargeId: undefined,
+      cardBrand: undefined,
+      last4: undefined,
+    });
+    const { service, messaging } = build({ ledger: fakeLedger([unanswered]) });
+    await expect(
+      service.sendReceipt('p1', caller(), 'Bearer abc', { channel: 'email', to: 'walter@example.com' }),
+    ).rejects.toThrow(
+      new ConflictException('Stripe has not said whether this card was charged — try the payment again before sending a receipt'),
+    );
+    expect(messaging.sendToContact).not.toHaveBeenCalled();
+  });
+
+  it('still 409s money in flight, and a failed payment that was not a card attempt on a phone — nothing is sent', async () => {
+    const rows = [
+      declinedTap({ id: 'tap-pending', status: 'pending', failureReason: undefined }),
+      payment({ id: 'cash-failed', status: 'failed', method: 'cash', source: 'office', takenBy: 'u-1' }),
+      payment({ id: 'checkout-expired', status: 'failed', stripeSessionId: 'cs_1', failureReason: 'The payment was not completed in time' }),
+      payment({
+        id: 'portal-declined',
+        status: 'failed',
+        stripeSessionId: 'cs_2',
+        stripePaymentIntentId: 'pi_9',
+        failureReason: 'Your card was declined.',
+      }),
+      declinedTap({ id: 'tap-reversed', status: 'reversed', failureReason: 'This payment was disputed (fraudulent)' }),
+    ];
+    const { service, messaging } = build({ ledger: fakeLedger(rows) });
+    for (const { id } of rows) {
+      await expect(service.sendReceipt(id, caller(), 'Bearer abc')).rejects.toThrow(
+        new ConflictException('There is no receipt to send until the payment has been collected'),
+      );
+      await expect(
+        service.sendReceipt(id, caller(), 'Bearer abc', { channel: 'email', to: 'walter@example.com' }),
+      ).rejects.toThrow(ConflictException);
+    }
+    expect(messaging.sendToContact).not.toHaveBeenCalled();
+    expect(messaging.sendToNumber).not.toHaveBeenCalled();
   });
 });
 

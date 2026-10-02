@@ -237,6 +237,11 @@ export class PaymentsService {
    * is texted on that number's own thread (messaging never adds a typed
    * number to the client's). The message names the job it is about, so
    * messaging checks an assigned technician against that job's roster.
+   *
+   * What it says (`receiptKind`): money collected gets the receipt for it; a
+   * card attempt made on a staff phone that did not go through gets a
+   * DECLINED receipt — Apple's Tap to Pay on iPhone rule 5.5.8 wants one sent
+   * "regardless of outcome (approved or declined)". Anything else is a 409.
    */
   async sendReceipt(
     paymentId: string,
@@ -247,9 +252,7 @@ export class PaymentsService {
     const target = receiptTarget(request);
     const payment = await this.require(paymentId);
     const { invoice, view } = await this.paymentContext(payment, caller);
-    if (payment.status !== 'settled' && payment.status !== 'refunded') {
-      throw new ConflictException('There is no receipt to send until the payment has been collected');
-    }
+    const declined = receiptKind(payment) === 'declined';
     if (!this.messaging || !this.crm || !authorization) return { sent: false };
 
     const contact = await this.crm.getContact(payment.contactId).catch(() => null);
@@ -261,10 +264,13 @@ export class PaymentsService {
 
     // A job without an invoice (Workiz: payments belong to the job) is named by its number.
     const what = invoice ? `invoice ${invoice.number}` : `job ${view.deal.dealNumber}`;
-    const balanceDue = invoice
-      ? invoice.totals?.balanceDue ?? 0
-      : await this.jobBalance(view, payment.invoiceId);
-    const body = receiptBody(payment, what, balanceDue);
+    const body = declined
+      ? declinedReceiptBody(payment, what)
+      : receiptBody(
+          payment,
+          what,
+          invoice ? invoice.totals?.balanceDue ?? 0 : await this.jobBalance(view, payment.invoiceId),
+        );
     const job = UUID.test(payment.dealId) ? { dealId: payment.dealId } : {};
 
     if (channel === 'sms' && target.to && !phones.some((p) => tryNormalizePhone(p) === target.to)) {
@@ -274,9 +280,11 @@ export class PaymentsService {
     const subject =
       channel !== 'email'
         ? undefined
-        : target.channel
-          ? `Your payment with ${await this.businessName(view)}`
-          : `Payment receipt — ${what}`;
+        : declined
+          ? `Your payment with ${await this.businessName(view)} was declined`
+          : target.channel
+            ? `Your payment with ${await this.businessName(view)}`
+            : `Payment receipt — ${what}`;
     await this.messaging.sendToContact(
       {
         contactId: payment.contactId,
@@ -766,6 +774,75 @@ function receiptBody(payment: Payment, what: string, balanceDue: number): string
     (refunded ? ` $${(payment.refundedAmount ?? 0).toFixed(2)} of it has been refunded.` : '') +
     ` Balance due: $${balanceDue.toFixed(2)}.`
   );
+}
+
+/**
+ * Which receipt a payment has, or a 409 when it has none:
+ *  - `paid` — the money was collected (`settled`, or `refunded` since).
+ *  - `declined` — a card attempt made on a staff phone, tapped (`terminal`)
+ *    or typed (`keyed`), that did not go through: declined, cancelled on the
+ *    device, replaced, given up on. Stripe has its intent and nothing was
+ *    taken. Apple's Tap to Pay on iPhone rule 5.5.8: a receipt "regardless of
+ *    outcome (approved or declined)".
+ * A typed card Stripe never answered has no intent on its row: the card MAY
+ * have been charged (its retry asks Stripe again), so no receipt may say it
+ * was not. Money still in flight (`pending`), a failed portal checkout or
+ * offline row, a reversal: nothing to receipt.
+ */
+function receiptKind(payment: Payment): 'paid' | 'declined' {
+  if (payment.status === 'settled' || payment.status === 'refunded') return 'paid';
+  if (payment.status === 'failed' && (payment.channel === 'terminal' || payment.channel === 'keyed')) {
+    if (payment.stripePaymentIntentId) return 'declined';
+    throw new ConflictException(
+      'Stripe has not said whether this card was charged — try the payment again before sending a receipt',
+    );
+  }
+  throw new ConflictException('There is no receipt to send until the payment has been collected');
+}
+
+/**
+ * A declined card's receipt: what the card was asked for (the tip and the
+ * service fee included — the total the client saw), the card and Stripe's
+ * reason when the row has them, and that nothing was taken.
+ */
+function declinedReceiptBody(payment: Payment, what: string): string {
+  const asked = round2(payment.amount + (payment.tipAmount ?? 0) + (payment.feeAmount ?? 0));
+  const card = cardLabel(payment);
+  const reason = asSentence(payment.failureReason);
+  return (
+    `Payment declined: $${asked.toFixed(2)} for ${what} on ${payment.takenAt.slice(0, 10)}` +
+    (card ? ` (${card})` : '') +
+    '. No money was taken.' +
+    (reason ? ` Reason: ${reason}` : '')
+  );
+}
+
+/** Stripe's `card.brand` / `card_present.brand`, as a client reads it (any other is shown as Stripe sent it). */
+const CARD_BRANDS: ReadonlyMap<string, string> = new Map([
+  ['amex', 'American Express'],
+  ['diners', 'Diners Club'],
+  ['discover', 'Discover'],
+  ['interac', 'Interac'],
+  ['jcb', 'JCB'],
+  ['mastercard', 'Mastercard'],
+  ['unionpay', 'UnionPay'],
+  ['visa', 'Visa'],
+]);
+
+/** "Visa ending in 4242", "Visa", "card ending in 4242" — or nothing when Stripe named no card. */
+function cardLabel(payment: Pick<Payment, 'cardBrand' | 'last4'>): string | undefined {
+  const raw = payment.cardBrand?.trim();
+  const brand = raw && raw !== 'unknown' ? CARD_BRANDS.get(raw) ?? raw : undefined;
+  const last4 = payment.last4?.trim();
+  if (!last4) return brand;
+  return `${brand ?? 'card'} ending in ${last4}`;
+}
+
+/** Stripe's message as a sentence ("Cancelled on the device" → "Cancelled on the device."). */
+function asSentence(text: string | undefined): string | undefined {
+  const value = text?.trim();
+  if (!value) return undefined;
+  return /[.!?]$/.test(value) ? value : `${value}.`;
 }
 
 /**

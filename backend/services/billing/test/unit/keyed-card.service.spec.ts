@@ -12,7 +12,7 @@ import { PaymentSettingsService } from 'src/payments/payment-settings.service';
 import { StripeEventsHandler } from 'src/payments/stripe/stripe-events.handler';
 import { TerminalService } from 'src/payments/terminal/terminal.service';
 import { DataScope, billingView, caller, dealProduct, mockDealClient, mockEvents, profile } from './mocks';
-import { PAY_NOW, fakeInvoices, fakeLedger, invoice, mockStripeService, payment } from './payment-mocks';
+import { PAY_NOW, fakeInvoices, fakeLedger, invoice, mockStripeService, payment, receiptSender } from './payment-mocks';
 
 /**
  * "Type card manually" (Workiz "Credit card payment"): the technician types
@@ -548,5 +548,38 @@ describe('Keyed card — cancel and sync (POST /terminal-intents/:paymentId/…)
       status: 'failed',
       failureReason: 'We are unable to authenticate your payment method.',
     });
+  });
+});
+
+describe('Keyed card — a receipt whatever the outcome (Tap to Pay on iPhone 5.5.8)', () => {
+  it('a declined typed card can be receipted at once, naming Stripe’s decline message', async () => {
+    const b = build();
+    b.stripe.createKeyedIntent.mockRejectedValueOnce(cardError());
+    await b.service.openCardForInvoice('deal-1', { amount: 60, attemptId: ATTEMPT, paymentMethodId: PM }, tech());
+    const { service: payments, messaging } = receiptSender(b);
+
+    await expect(
+      payments.sendReceipt(ATTEMPT, tech(), 'Bearer t', { channel: 'email', to: 'walter@example.com' }),
+    ).resolves.toEqual({ sent: true, sentTo: 'walter@example.com' });
+    const [message] = messaging.sendToContact.mock.calls[0] as any[];
+    expect(message.subject).toBe('Your payment with Sure Lock Key was declined');
+    expect(message.body).toMatch(/^Payment declined: \$60\.00 for invoice K4T9ZW on \d{4}-\d{2}-\d{2}/);
+    expect(message.body).toContain('No money was taken. Reason: Your card was declined.');
+  });
+
+  it('a typed card Stripe never answered has no receipt yet — the card may have been charged (409, nothing sent)', async () => {
+    const b = build();
+    b.stripe.createKeyedIntent.mockRejectedValueOnce(
+      Object.assign(new Error('An error occurred with our connection to Stripe.'), { type: 'StripeConnectionError' }),
+    );
+    await expect(
+      b.service.openCardForInvoice('deal-1', { amount: 60, attemptId: ATTEMPT, paymentMethodId: PM }, tech()),
+    ).rejects.toThrow(ServiceUnavailableException);
+    const { service: payments, messaging } = receiptSender(b);
+
+    await expect(
+      payments.sendReceipt(ATTEMPT, tech(), 'Bearer t', { channel: 'email', to: 'walter@example.com' }),
+    ).rejects.toThrow(/Stripe has not said whether this card was charged/);
+    expect(messaging.sendToContact).not.toHaveBeenCalled();
   });
 });
