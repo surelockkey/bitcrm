@@ -10,11 +10,16 @@ import type {
 } from "@bitcrm/types";
 import { http, apiFetchPaginated } from "@/lib/api/http";
 
-/** Single active server filter (backend applies only one, precedence-ordered). */
+/**
+ * Server filters. Role / department / status: one at a time (the backend
+ * applies one, precedence-ordered). `search` combines with any of them and
+ * looks through the whole directory, not the page on screen.
+ */
 export interface UserFilter {
   roleId?: string;
   department?: string;
   status?: string;
+  search?: string;
 }
 
 function toQuery(params: Record<string, string | undefined>): string {

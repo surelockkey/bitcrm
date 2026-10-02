@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Loader2, Search, TriangleAlert, UserPlus, UsersRound } from "lucide-react";
+import { Search, TriangleAlert, UserPlus, UsersRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -24,11 +24,7 @@ import { ListPagination } from "@/components/ui/list-pagination";
 import { pagedSource } from "@/lib/paging/paged-source";
 import { usePageSize } from "@/lib/paging/use-page-size";
 import { usePager } from "@/lib/paging/use-pager";
-
-function matches(u: User, q: string): boolean {
-  const hay = `${u.firstName} ${u.lastName} ${u.email} ${u.department}`.toLowerCase();
-  return hay.includes(q.toLowerCase());
-}
+import { useDebouncedValue } from "@/lib/use-debounced-value";
 
 export function UsersPage() {
   const { can } = usePermissions();
@@ -42,18 +38,23 @@ export function UsersPage() {
   );
 
   const [pageSize, setPageSize] = usePageSize("users");
-  const usersQuery = useUsers(filter, pageSize);
+  // The search runs on the server over the whole directory — filtering the
+  // rows on screen could never find someone on page two.
+  const term = useDebouncedValue(search.trim(), 300);
+  const query = useMemo<UserFilter>(() => (term ? { ...filter, search: term } : filter), [filter, term]);
+  const usersQuery = useUsers(query, pageSize, { keepPrevious: true });
   const { data: roles } = useRoles();
 
-  const count = useUsersCount(filter);
+  const count = useUsersCount(query);
   const pager = usePager(pagedSource(usersQuery), {
     total: count.data?.total,
     totalIsFloor: count.data?.atLeast,
     pageSize,
-    resetKey: JSON.stringify({ filter, pageSize }),
+    resetKey: JSON.stringify({ query, pageSize }),
   });
   const users = pager.items;
-  const visible = search ? users.filter((u) => matches(u, search)) : users;
+  const visible = users;
+  const shown = count.data && !count.data.atLeast ? count.data.total : visible.length;
 
   // Deep link (`?user=<id>`, e.g. from a name in the call log): open that
   // user's sheet — fetched directly, since they may sit past the loaded pages.
@@ -155,7 +156,7 @@ export function UsersPage() {
         </Select>
 
         <span className="ml-auto text-sm text-muted-foreground">
-          {visible.length} {visible.length === 1 ? "user" : "users"}
+          {shown} {shown === 1 ? "user" : "users"}
         </span>
       </div>
 
