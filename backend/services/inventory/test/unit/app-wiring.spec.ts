@@ -11,6 +11,7 @@ import { TransfersModule } from 'src/transfers/transfers.module';
 import { ItemCategoriesModule } from 'src/item-categories/item-categories.module';
 import { BrandsModule } from 'src/brands/brands.module';
 import { ItemAttributesModule } from 'src/item-attributes/item-attributes.module';
+import { ItemGroupsModule } from 'src/item-groups/item-groups.module';
 import { ContainersService } from 'src/containers/containers.service';
 import { TransfersService } from 'src/transfers/transfers.service';
 import { ProductStockService } from 'src/stock/product-stock.service';
@@ -20,6 +21,7 @@ import { ContainerTemplatesService } from 'src/container-templates/container-tem
 import { ItemCategoriesService } from 'src/item-categories/item-categories.service';
 import { BrandsService } from 'src/brands/brands.service';
 import { ItemAttributesService } from 'src/item-attributes/item-attributes.service';
+import { ItemGroupsService } from 'src/item-groups/item-groups.service';
 import { ProductsService } from 'src/products/products.service';
 
 /**
@@ -46,6 +48,7 @@ describe('inventory module graph', () => {
         ItemCategoriesModule,
         BrandsModule,
         ItemAttributesModule,
+        ItemGroupsModule,
       ],
     })
       .overrideProvider(DynamoDbService)
@@ -70,6 +73,8 @@ describe('inventory module graph', () => {
       BrandsService,
       // Custom fields: their own module, which ProductsModule imports to check an edit's names.
       ItemAttributesService,
+      // Item groups: read-only, served to the phone and to deal-service.
+      ItemGroupsService,
       ProductsService,
     ]) {
       expect(moduleRef.get(provider, { strict: false })).toBeInstanceOf(provider);
