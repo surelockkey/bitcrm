@@ -74,3 +74,18 @@ export function assertPriceInBand(price: number, catalogPrice: unknown): void {
     `Price must be between ${usd(min)} and ${usd(max)} (±15% of the price book)`,
   );
 }
+
+/**
+ * A line's custom field values as stored: only filled text values; `undefined`
+ * when none is left (the attribute is then not written at all).
+ */
+export function lineCustomAttributes(
+  values?: Record<string, string | null | undefined> | null,
+): Record<string, string> | undefined {
+  if (!values || typeof values !== 'object') return undefined;
+  const out: Record<string, string> = {};
+  for (const [name, value] of Object.entries(values)) {
+    if (typeof value === 'string' && value.trim()) out[name] = value;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}

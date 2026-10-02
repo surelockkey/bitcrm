@@ -1,6 +1,7 @@
 import { IsString, IsNumber, Min, IsOptional, IsIn, IsBoolean, MaxLength } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { type DealProductFulfillment } from '@bitcrm/types';
+import { IsCustomAttributes } from './custom-attributes.validator';
 
 export class AddDealProductDto {
   @ApiPropertyOptional({
@@ -93,4 +94,18 @@ export class AddDealProductDto {
   @IsString()
   @MaxLength(2000)
   description?: string;
+
+  @ApiPropertyOptional({
+    type: 'object',
+    additionalProperties: { type: 'string', nullable: true },
+    example: { 'In Store Location': 'Aisle 4', Link_UHS: 'https://…' },
+    description:
+      "The line's custom field values (Workiz \"Edit item\" on a job line), keyed by the field " +
+      'NAME as `GET /inventory/item-attributes` lists them. Absent on add → copied from the ' +
+      "product; absent on an edit → the line keeps its own (a swap starts from the new product's). " +
+      'Sent, it is the complete set: `null` or `""` leaves a field empty. Never changes the product.',
+  })
+  @IsOptional()
+  @IsCustomAttributes()
+  customAttributes?: Record<string, string | null>;
 }

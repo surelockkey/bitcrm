@@ -51,7 +51,12 @@ import {
   type SortDir,
   type DayWindow,
 } from './deals.repository';
-import { assertPriceInBand, catalogCosts, priceBandApplies } from './deal-line-rules';
+import {
+  assertPriceInBand,
+  catalogCosts,
+  lineCustomAttributes,
+  priceBandApplies,
+} from './deal-line-rules';
 import { assertDealInScope } from './deal-scope';
 
 /** The jobs-list tab numbers; a closed status is `null` when no window bounds it. */
@@ -2095,6 +2100,9 @@ export class DealsService {
       }
     }
 
+    // The line's own copy of the custom field values: the request's, else the product's.
+    const customAttributes = lineCustomAttributes(dto.customAttributes ?? product.customAttributes);
+
     this.businessMetrics?.dealProductsAdded.inc();
     await this.productsRepo.addProduct(id, {
       productId: dto.productId,
@@ -2109,6 +2117,7 @@ export class DealsService {
       // Absent on the request → the catalog product's default (itself absent → taxable).
       taxable: dto.taxable ?? product.taxable ?? true,
       ...(dto.description !== undefined && { description: dto.description }),
+      ...(customAttributes && { customAttributes }),
       addedBy: caller.id,
       addedAt: new Date().toISOString(),
     });
@@ -2213,6 +2222,10 @@ export class DealsService {
     // toggled it); a swap starts from the new catalog product's default.
     const taxable = dto.taxable ?? (isSwap ? product.taxable : existing.taxable) ?? true;
     const description = dto.description ?? (isSwap ? undefined : existing.description);
+    // Custom field values follow the same rule; the product itself is never written.
+    const customAttributes = lineCustomAttributes(
+      dto.customAttributes ?? (isSwap ? product.customAttributes : existing.customAttributes),
+    );
     // The numbers the line ends up with — what the timeline diffs against.
     const money = { quantity: dto.quantity, ...catalogCosts(product), priceClient: dto.priceClient };
 
@@ -2235,6 +2248,7 @@ export class DealsService {
       // A Workiz service fee edited in place stays out of the discount.
       ...(!isSwap && existing.discountable === false && { discountable: false }),
       ...(description !== undefined && { description }),
+      ...(customAttributes && { customAttributes }),
       addedBy: existing.addedBy,
       addedAt: existing.addedAt,
       updatedBy: caller.id,

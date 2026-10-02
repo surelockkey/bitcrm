@@ -200,6 +200,41 @@ describe('DealProductsRepository', () => {
       expect(flagged!.description).toBe('Rekey 2 locks');
     });
 
+    it("reads the line's custom field values back, text values only, absent when none", async () => {
+      const base = { PK: 'DEAL#deal-1', SK: 'PRODUCT#product-1', ...createMockDealProduct() };
+      dynamoDb.client.send
+        .mockResolvedValueOnce({ Item: base })
+        .mockResolvedValueOnce({
+          Item: { ...base, customAttributes: { 'In Store Location': 'Aisle 4', SKU_CRM: '', rate: 3 } },
+        })
+        .mockResolvedValueOnce({ Item: { ...base, customAttributes: {} } });
+
+      const plain = await repository.findProduct('deal-1', 'product-1');
+      const filled = await repository.findProduct('deal-1', 'product-1');
+      const empty = await repository.findProduct('deal-1', 'product-1');
+
+      expect(plain).not.toHaveProperty('customAttributes');
+      expect(filled!.customAttributes).toEqual({ 'In Store Location': 'Aisle 4' });
+      expect(empty).not.toHaveProperty('customAttributes');
+    });
+
+    it("reads the item group a line came from — the importer's entityGroupId too", async () => {
+      const base = { PK: 'DEAL#deal-1', SK: 'PRODUCT#product-1', ...createMockDealProduct() };
+      dynamoDb.client.send
+        .mockResolvedValueOnce({ Item: { ...base, itemGroupId: 'group-1', priceSource: 'group' } })
+        .mockResolvedValueOnce({ Item: { ...base, entityGroupId: 'group-2' } })
+        .mockResolvedValueOnce({ Item: base });
+
+      const added = await repository.findProduct('deal-1', 'product-1');
+      const imported = await repository.findProduct('deal-1', 'product-1');
+      const single = await repository.findProduct('deal-1', 'product-1');
+
+      expect(added!.itemGroupId).toBe('group-1');
+      expect(added!.priceSource).toBe('group');
+      expect(imported!.itemGroupId).toBe('group-2');
+      expect(single).not.toHaveProperty('itemGroupId');
+    });
+
     it('carries discountable only when a line is kept out of the discount', async () => {
       const base = { PK: 'DEAL#deal-1', SK: 'PRODUCT#product-1', ...createMockDealProduct() };
       dynamoDb.client.send
