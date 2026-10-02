@@ -43,6 +43,8 @@ export interface ReplaceAllRequest {
   actorName?: string;
   estimateNumber: string;
   items: ReplaceAllItem[];
+  /** Workiz "This job already has items": absent = replace; `append` adds beside the job's own lines. */
+  mode?: 'append';
   taxRateId?: string | null;
   /** The estimate's snapshot — used by deal-service only when `taxRateId` no longer resolves. */
   taxRateName?: string;

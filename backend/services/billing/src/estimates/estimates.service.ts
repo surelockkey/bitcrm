@@ -864,12 +864,18 @@ export class EstimatesService {
   // ------------------------------------------------------------------ sync
 
   /**
-   * Overwrites the job's items with the estimate's. A CLIENT estimate has no
-   * job: that is a 409 — "create a job from this estimate" needs a deal-service
-   * route that does not exist yet, so for now the job is created first (the
-   * client card's Create new → Job) and its own estimates are synced.
+   * Puts the estimate's items on its job. Workiz asks first when the job
+   * already has items: `replace` (default) overwrites them with the
+   * estimate's — its tax and discount too — and `append` adds the estimate's
+   * lines beside the job's own, leaving the job's tax and discount alone.
+   * A CLIENT estimate has no job: that is a 409 — the job is created first
+   * (the client card's Create new → Job) and its own estimates are synced.
    */
-  async syncToJob(id: string, caller: Caller): Promise<{ estimate: EstimateWithItems; itemCount: number }> {
+  async syncToJob(
+    id: string,
+    caller: Caller,
+    mode: 'replace' | 'append' = 'replace',
+  ): Promise<{ estimate: EstimateWithItems; itemCount: number }> {
     const { estimate, items } = await this.load(id, caller);
     if (!estimate.dealId) {
       throw new ConflictException(
@@ -878,7 +884,13 @@ export class EstimatesService {
     }
     assertSyncable(estimate, items.length);
 
-    const result = await this.deal.replaceAllProducts(estimate.dealId, this.replaceAllBody(estimate, items, caller));
+    const body = this.replaceAllBody(estimate, items, caller);
+    const result = await this.deal.replaceAllProducts(
+      estimate.dealId,
+      mode === 'append'
+        ? { actorId: body.actorId, actorName: body.actorName, estimateNumber: body.estimateNumber, items: body.items, mode: 'append' }
+        : body,
+    );
 
     const now = new Date().toISOString();
     const updated = await this.write(
