@@ -1,5 +1,11 @@
 import { BadRequestException } from '@nestjs/common';
-import { type DealProduct, type Product } from '@bitcrm/types';
+import {
+  DataScope,
+  ProductType,
+  type DealProduct,
+  type DealProductFulfillment,
+  type Product,
+} from '@bitcrm/types';
 
 /** A price-book amount as a line stores it: a finite number, else 0. */
 const amount = (value: unknown): number =>
@@ -88,4 +94,58 @@ export function lineCustomAttributes(
     if (typeof value === 'string' && value.trim()) out[name] = value;
   }
   return Object.keys(out).length > 0 ? out : undefined;
+}
+
+/**
+ * Whether stock is counted for this product — inventory's own rule
+ * (`ProductsService.isStockManaged`, `product-stock-index.ts`): a `product`
+ * whose row does not say `manageStock: false`. An absent flag (everything
+ * BitCRM itself wrote) is counted. Services never are.
+ */
+export function isStockManaged(product: Pick<Product, 'type' | 'manageStock'>): boolean {
+  return product.type === ProductType.PRODUCT && product.manageStock !== false;
+}
+
+/**
+ * Who the container rule binds: a caller whose `deals` data scope is
+ * `assigned_only` — the technician, by the same rule `assertDealInScope`
+ * applies to every job write. A wider scope is the office.
+ */
+export function isTechnicianScope(dealScope?: string): boolean {
+  return dealScope === DataScope.ASSIGNED_ONLY;
+}
+
+type StockSide = Pick<DealProduct, 'productId' | 'quantity' | 'fulfillment' | 'sourceTechId'>;
+
+/**
+ * Whether an edit changes what the line takes from a van: another product,
+ * another quantity, or another source (a van line turned to-order hands the
+ * stock back). A line that never moved stock (`to_order`, `imported`,
+ * `service`) and still does not is not a stock change.
+ */
+export function editChangesStock(existing: StockSide, next: StockSide): boolean {
+  const source = (line: StockSide) =>
+    (line.fulfillment ?? 'sourced') === 'sourced' ? `van:${line.sourceTechId ?? ''}` : 'none';
+  return (
+    next.productId !== existing.productId ||
+    next.quantity !== existing.quantity ||
+    source(next) !== source(existing)
+  );
+}
+
+/**
+ * The container rule (owner, 2026-10-02 — Workiz's): a technician puts a
+ * stock-managed product on a job only out of HIS OWN container (`sourced`,
+ * `sourceTechId` = him) — never `to_order`, never another van. That it holds
+ * enough is inventory's deduction to refuse. Services and products whose
+ * stock is not counted are exempt. 400 naming the product otherwise.
+ */
+export function assertFromOwnContainer(
+  line: { name: string; fulfillment: DealProductFulfillment; sourceTechId?: string },
+  product: Pick<Product, 'type' | 'manageStock'>,
+  callerId: string,
+): void {
+  if (!isStockManaged(product)) return;
+  if (line.fulfillment === 'sourced' && line.sourceTechId === callerId) return;
+  throw new BadRequestException(`${line.name} isn't in your container`);
 }

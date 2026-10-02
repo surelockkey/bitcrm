@@ -52,8 +52,11 @@ import {
   type DayWindow,
 } from './deals.repository';
 import {
+  assertFromOwnContainer,
   assertPriceInBand,
   catalogCosts,
+  editChangesStock,
+  isTechnicianScope,
   lineCustomAttributes,
   priceBandApplies,
 } from './deal-line-rules';
@@ -2057,18 +2060,38 @@ export class DealsService {
     return error;
   }
 
+  /**
+   * A technician's sourced line names no technician → his own van; he may
+   * only source from it anyway (the container rule). Anyone else's request is
+   * taken as sent.
+   */
+  private withOwnVan(
+    dto: AddDealProductDto,
+    fulfillment: DealProductFulfillment,
+    technician: boolean,
+    caller: JwtUser,
+  ): AddDealProductDto {
+    return technician && fulfillment === 'sourced' && !dto.sourceTechId
+      ? { ...dto, sourceTechId: caller.id }
+      : dto;
+  }
+
   async addProduct(
     id: string,
-    dto: AddDealProductDto,
+    request: AddDealProductDto,
     caller: JwtUser,
     dealScope?: string,
   ): Promise<void> {
     const deal = await this.findById(id);
     assertDealInScope(deal, caller, dealScope);
-    const fulfillment: DealProductFulfillment = dto.fulfillment ?? 'sourced';
+    const fulfillment: DealProductFulfillment = request.fulfillment ?? 'sourced';
+    const technician = isTechnicianScope(dealScope);
+    const dto = this.withOwnVan(request, fulfillment, technician, caller);
 
     const product = await this.validateProductFulfillment(dto, fulfillment);
     assertPriceInBand(dto.priceClient, product.priceClient);
+    // A technician's stock comes out of his own van, or not at all.
+    if (technician) assertFromOwnContainer({ ...dto, fulfillment }, product, caller.id);
 
     // Only `sourced` lines are pulled from a technician's container and deduct
     // stock. `to_order` (a part the tech doesn't carry) and `service` (labor)
@@ -2151,7 +2174,7 @@ export class DealsService {
   async replaceProduct(
     id: string,
     productId: string,
-    dto: AddDealProductDto,
+    request: AddDealProductDto,
     caller: JwtUser,
     dealScope?: string,
   ): Promise<void> {
@@ -2163,7 +2186,9 @@ export class DealsService {
       throw new NotFoundException(`Product ${productId} not found on deal ${id}`);
     }
 
-    const fulfillment: DealProductFulfillment = dto.fulfillment ?? 'sourced';
+    const fulfillment: DealProductFulfillment = request.fulfillment ?? 'sourced';
+    const technician = isTechnicianScope(dealScope);
+    const dto = this.withOwnVan(request, fulfillment, technician, caller);
     // "Swap" means the line now names a different product. The line itself is
     // the same row either way — it is keyed by its own id — so a job may well
     // end up carrying one product on two lines, as a Workiz job does.
@@ -2172,6 +2197,11 @@ export class DealsService {
     const product = await this.validateProductFulfillment(dto, fulfillment);
     // An imported Workiz line edited in place keeps the price Workiz recorded.
     if (priceBandApplies(dto, existing)) assertPriceInBand(dto.priceClient, product.priceClient);
+    // The container rule judges what the edit takes from a van — a new product,
+    // a new quantity or a new source; text, price or custom fields alone pass.
+    if (technician && editChangesStock(existing, { ...dto, fulfillment })) {
+      assertFromOwnContainer({ ...dto, fulfillment }, product, caller.id);
+    }
 
     if (fulfillment === 'sourced') {
       if (deal.assignedTechIds.length === 0) {
