@@ -175,6 +175,7 @@ export {
   ItemAttributeType,
   ITEM_ATTRIBUTE_TYPES,
 } from './entities/item-attribute.entity';
+export { ItemGroup, ItemGroupMember } from './entities/item-group.entity';
 export { Transfer, TransferItem } from './entities/transfer.entity';
 export { InventoryLogEntry } from './entities/inventory-log-entry.entity';
 export { StockItem } from './entities/stock-item.entity';
