@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import type { ComponentProps } from "react";
-import { Bot, Copy, Pencil, SquarePen, Star, Voicemail } from "lucide-react";
+import { BadgeDollarSign, Bot, Copy, Eye, Pencil, PenLine, SquarePen, Star, Voicemail, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -10,6 +10,7 @@ import { formatPhone } from "@/lib/phone";
 import type { FeedMessage } from "../api";
 import { channelLabel, formatMessageStamp, formatMessageTime, isFailedStatus, statusText } from "../lib";
 import { MessageAttachments } from "./message-attachments";
+import { estimateHref, invoiceHref } from "@/features/billing/components/client-documents";
 import { StatusTicks } from "./status-ticks";
 
 /** Lines that are events rather than conversation: voicemails, portal notices, system sends. */
@@ -53,6 +54,40 @@ function IconButton({ className, ...props }: ComponentProps<"button">) {
       )}
       {...props}
     />
+  );
+}
+
+const PORTAL_ICON = { viewed: Eye, signed: PenLine, declined: XCircle, payment: BadgeDollarSign } as const;
+
+/**
+ * What the client did on the portal, written by the system (Workiz puts
+ * these in the thread: "Viewed estimate #…", "… signed Invoice #…", "…
+ * submitted payment for invoice #…"): one centred line with its time and the
+ * document a click away — not a bubble, and no Edit Job.
+ */
+function PortalLine({ message }: { message: FeedMessage }) {
+  const kind = message.portalEvent!;
+  const Icon = PORTAL_ICON[kind] ?? Bot;
+  const docKind = message.entityType === "estimate" ? "estimate" : "invoice";
+  const href =
+    message.entityId && docKind === "estimate"
+      ? estimateHref({ id: message.entityId })
+      : message.entityId
+        ? invoiceHref({ id: message.entityId, dealId: message.dealId })
+        : null;
+  return (
+    <div className="flex w-full justify-center" data-direction="system" data-portal-event={kind} data-message-id={message.id}>
+      <div className="inline-flex max-w-[min(90%,36rem)] flex-wrap items-center justify-center gap-x-2 gap-y-0.5 rounded-pill border bg-muted/50 px-3 py-1.5 text-xs text-muted-foreground">
+        <Icon className="size-3.5 flex-none" aria-hidden />
+        <span className="font-medium text-foreground">{message.subject}</span>
+        <time dateTime={message.createdAt}>{formatMessageTime(message.createdAt)}</time>
+        {href ? (
+          <Link href={href} className="font-medium text-brand hover:underline">
+            Open {docKind}
+          </Link>
+        ) : null}
+      </div>
+    </div>
   );
 }
 
@@ -123,6 +158,7 @@ export function MessageBubble({
   /** Off inside a job's own tab, where every line is about that job. */
   showJob?: boolean;
 }) {
+  if (message.portalEvent) return <PortalLine message={message} />;
   if (isSystemNote(message)) return <SystemNote message={message} showJob={showJob} />;
 
   const outbound = message.direction === "outbound";
