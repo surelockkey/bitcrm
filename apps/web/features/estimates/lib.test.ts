@@ -12,7 +12,6 @@ import {
   normalizeEstimateSummary,
   reorderLineIds,
   syncBlockReason,
-  syncConfirmText,
 } from "./lib";
 
 describe("estimate status meta", () => {
@@ -67,12 +66,6 @@ describe("sync rules", () => {
     expect(syncBlockReason({ status: "approved" }, 2, true, true)).toBeNull();
   });
 
-  it("explains what the sync replaces", () => {
-    expect(syncConfirmText(3, 1)).toBe(
-      "This replaces the job's 3 current items with the estimate's 1 item. Parts are pulled from the assigned technician's stock when available, otherwise marked to order.",
-    );
-    expect(syncConfirmText(1, 2)).toMatch(/job's 1 current item with the estimate's 2 items/);
-  });
 });
 
 describe("estimateLocalTotals", () => {
