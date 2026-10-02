@@ -12,7 +12,7 @@ import {
   NotImplementedException,
   Optional,
 } from '@nestjs/common';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { getDataScopeFilter, hasPermission, normalizePhone, tryNormalizePhone } from '@bitcrm/shared';
 import {
   DataScope,
@@ -23,6 +23,7 @@ import {
   type ConversationSendOptions,
   type JwtUser,
   type Message,
+  type PortalEventRequest,
   type MessageAttachment,
   type MessageOrigin,
   type MessageStatus,
@@ -31,6 +32,7 @@ import {
   type SendChannelOption,
   type SendUnavailableReason,
 } from '@bitcrm/types';
+import { portalEventText } from './portal-event-text';
 import { UserLookupService } from '../api/access/user-lookup.service';
 import { messageSk } from '../common/constants/dynamo.constants';
 import { countersDelta } from '../conversations/conversation-keys';
@@ -998,6 +1000,62 @@ export class SendService {
     return { to: phone, conversation: await this.adoptPhone(conversation, phone), employee: true };
   }
 
+  // ------------------------------------------- the client's portal, in the thread
+
+  /**
+   * `POST /internal/portal-events` (billing): what the client did on the
+   * portal — viewed a document, signed it, declined an estimate, paid —
+   * written into their thread by the system, the way Workiz shows it. A
+   * centred note (`channel: note`, `origin: system`); nothing is sent to
+   * anyone. The client's thread is opened when they have none.
+   *
+   * One line per `eventKey`: it becomes the idempotency key, so billing's
+   * retry or a second view the same day writes nothing. A view is recorded
+   * quietly; a signature, a decline or a payment marks the thread unread and
+   * wakes the office like a client's text would.
+   */
+  async recordPortalEvent(req: PortalEventRequest): Promise<{ message: Message; duplicate: boolean }> {
+    const { conversation } = await this.conversationForContact(req.contactId);
+    const name =
+      req.event === 'viewed'
+        ? undefined
+        : req.actorName?.trim() || (await this.crm.getContact(req.contactId).catch(() => null))?.name;
+    const at = req.occurredAt ?? new Date().toISOString();
+    const message: Message = {
+      id: randomUUID(),
+      conversationId: conversation.id,
+      channel: 'note',
+      direction: 'inbound',
+      origin: 'system',
+      status: 'received',
+      subject: portalEventText(req, name),
+      entityType: req.document.kind,
+      entityId: req.document.id,
+      ...(req.dealId && { dealId: req.dealId }),
+      portalEvent: req.event,
+      createdAt: at,
+      updatedAt: at,
+    };
+    const markUnread = req.event !== 'viewed';
+    const result = await this.messages.appendOutbound({
+      message,
+      clientMessageId: portalEventMessageKey(req.eventKey),
+      createdBy: 'system',
+      conversation,
+      at,
+      markUnread,
+    });
+    if (result.duplicate) return { message, duplicate: true };
+
+    this.realtime?.messageUpserted(message, result.conversation, at);
+    if (markUnread) {
+      if (countersDelta(conversation, result.conversation)) this.pushInboxCounters();
+      void this.events.messageReceived(message, result.conversation);
+    }
+    void this.events.conversationUpdated(conversation.id);
+    return { message, duplicate: false };
+  }
+
   /** The employee's current number onto the thread + `ADDR#` — tolerant of a concurrent write. */
   private async adoptPhone(conversation: Conversation, phone: string): Promise<Conversation> {
     const now = new Date().toISOString();
@@ -1306,4 +1364,10 @@ export function ccOf(cc: string[] | undefined, to: string): string[] | undefined
     out.push(addr);
   }
   return out.length ? out : undefined;
+}
+
+/** A portal event's idempotency key: its `eventKey`, hashed into the uuid shape `CLIENTMSG#` keys take. */
+export function portalEventMessageKey(eventKey: string): string {
+  const h = createHash('sha256').update(`portal-event:${eventKey}`).digest('hex');
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20, 32)}`;
 }

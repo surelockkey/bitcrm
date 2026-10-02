@@ -92,6 +92,11 @@ describe('CrmContactsClient', () => {
     expect(await client.getContact('ct2')).toBeNull();
   });
 
+  it("carries the contact's name, for the portal lines written into its thread", async () => {
+    const { fetchImpl } = fakeFetch([{ status: 200, body: { data: { id: 'ct1', firstName: ' Jane ', lastName: 'Client', phones: [], emails: [] } } }]);
+    expect(await new CrmContactsClient(fetchImpl).getContact('ct1')).toEqual({ id: 'ct1', name: 'Jane Client', phones: [], emails: [] });
+  });
+
   it('resolves the owner of a number through internal/by-phones', async () => {
     const { fetchImpl, calls } = fakeFetch([
       { status: 200, body: { data: { '+14045551234': { kind: 'company', id: 'co1' } } } },

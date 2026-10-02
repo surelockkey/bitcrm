@@ -14,7 +14,11 @@ function build(over: { ledger?: ReturnType<typeof fakeLedger>; stripe?: any } = 
   const stripe = over.stripe === null ? undefined : (over.stripe ?? mockStripeService());
   const events = mockEvents();
   const crm = mockCrmClient();
-  const messaging = { sendToContact: jest.fn(async () => undefined), sendToNumber: jest.fn(async () => undefined) };
+  const messaging = {
+    sendToContact: jest.fn(async () => undefined),
+    sendToNumber: jest.fn(async () => undefined),
+    recordPortalEvent: jest.fn(async () => undefined),
+  };
   const profiles = { get: jest.fn(async (_id?: string | null) => ({ id: 'bp-1', name: 'Sure Lock Key' })) };
   const service = new PaymentsService(
     ledger as any,
@@ -701,5 +705,47 @@ describe('PaymentSettingsService — what an invoice may be paid with', () => {
   it('offers nothing without Stripe, whatever the document says', async () => {
     const s = settings();
     expect(s.methodsFor({ ...on }, ['card'], false)).toEqual([]);
+  });
+});
+
+describe('PaymentsService.syncLedger — a payment made on the portal lands in the client’s chat (Workiz)', () => {
+  const settle = (service: PaymentsService, p: Payment, event: BillingEventType, metadata?: Record<string, unknown>) =>
+    service.syncLedger(p, { event, actorId: 'system', ...(metadata && { metadata }) });
+
+  it('a client’s portal payment writes "… submitted payment for invoice #…" with the amount, once per payment', async () => {
+    const ledger = fakeLedger([payment()]);
+    const { service, messaging } = build({ ledger });
+    await settle(service, payment(), BillingEventType.PAYMENT_SUCCEEDED);
+    expect(messaging.recordPortalEvent).toHaveBeenCalledWith({
+      contactId: 'contact-1',
+      event: 'payment',
+      document: { kind: 'invoice', id: 'deal-1', number: expect.any(String) },
+      dealId: 'deal-1',
+      amount: 100,
+      eventKey: 'payment:pay-1',
+    });
+  });
+
+  it('a bank payment says so when it is submitted (pending) — the same key, so it clearing adds nothing', async () => {
+    const pending = payment({ method: 'bank', status: 'pending' });
+    const { service, messaging } = build({ ledger: fakeLedger([pending]) });
+    await settle(service, pending, BillingEventType.PAYMENT_PENDING);
+    expect(messaging.recordPortalEvent).toHaveBeenCalledWith(expect.objectContaining({ eventKey: 'payment:pay-1' }));
+  });
+
+  it('staff payments, failures, refunds and a dispute won back are not the client paying', async () => {
+    const { service, messaging } = build({ ledger: fakeLedger([payment()]) });
+    await settle(service, payment({ source: 'office' }), BillingEventType.PAYMENT_SUCCEEDED);
+    await settle(service, payment({ source: 'field', channel: 'terminal' }), BillingEventType.PAYMENT_SUCCEEDED);
+    await settle(service, payment({ status: 'failed' }), BillingEventType.PAYMENT_FAILED);
+    await settle(service, payment({ status: 'refunded' }), BillingEventType.PAYMENT_REFUNDED);
+    await settle(service, payment(), BillingEventType.PAYMENT_SUCCEEDED, { disputeId: 'dp_1', disputeStatus: 'won' });
+    expect(messaging.recordPortalEvent).not.toHaveBeenCalled();
+  });
+
+  it('the chat being down never fails the ledger', async () => {
+    const { service, messaging } = build({ ledger: fakeLedger([payment()]) });
+    messaging.recordPortalEvent.mockRejectedValue(new Error('messaging down'));
+    await expect(settle(service, payment(), BillingEventType.PAYMENT_SUCCEEDED)).resolves.toBeUndefined();
   });
 });

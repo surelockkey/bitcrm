@@ -330,7 +330,8 @@ export {
   EMAIL_BODY_MAX_LENGTH,
   MESSAGE_PREVIEW_LENGTH,
 } from './entities/message.entity';
-export type { Message, MessageAttachment } from './entities/message.entity';
+export type { Message, MessageAttachment, PortalEventKind, PortalEventRequest } from './entities/message.entity';
+export { PORTAL_EVENT_KINDS } from './entities/message.entity';
 export { MESSAGE_TEMPLATE_CHANNELS } from './entities/message-template.entity';
 export type {
   MessageTemplate,

@@ -628,3 +628,78 @@ describe('SendService — team notifications (§6)', () => {
     expect(events.messageReceived).not.toHaveBeenCalled();
   });
 });
+
+describe('SendService.recordPortalEvent — what the client did on the portal, written by the system', () => {
+  const signed = {
+    contactId: 'ct1',
+    event: 'signed' as const,
+    document: { kind: 'invoice' as const, id: 'inv1', number: 'O8E9NQ' },
+    dealId: 'd1',
+    actorName: 'Josh Wilenski',
+    eventKey: 'signed:invoice:inv1',
+  };
+
+  it('writes the line into the client’s thread: a centred system note, the thread marked unread, the office woken', async () => {
+    const { service, conversations, messages, queue, realtime, events } = makeService();
+    conversations.getByParty.mockResolvedValueOnce(createMockConversation({ id: 'c9' }) as never);
+    const res = await service.recordPortalEvent(signed);
+
+    const input = messages.appendOutbound.mock.calls[0][0] as any;
+    expect(input.message).toMatchObject({
+      conversationId: 'c9',
+      channel: 'note',
+      direction: 'inbound',
+      origin: 'system',
+      status: 'received',
+      subject: 'Josh Wilenski signed Invoice #O8E9NQ',
+      entityType: 'invoice',
+      entityId: 'inv1',
+      dealId: 'd1',
+      portalEvent: 'signed',
+    });
+    expect(input.message.body).toBeUndefined();
+    expect(input.markUnread).toBe(true);
+    // Nothing goes out: it is a record, not a text.
+    expect(queue.enqueue).not.toHaveBeenCalled();
+    expect(realtime.messageUpserted).toHaveBeenCalled();
+    expect(events.messageReceived).toHaveBeenCalled();
+    expect(res).toMatchObject({ duplicate: false });
+  });
+
+  it('one line per event: the same key always maps to the same idempotency key, another key to another', async () => {
+    const { service, conversations, messages } = makeService();
+    conversations.getByParty.mockResolvedValue(createMockConversation({ id: 'c9' }) as never);
+    await service.recordPortalEvent(signed);
+    await service.recordPortalEvent(signed);
+    await service.recordPortalEvent({ ...signed, eventKey: 'signed:invoice:inv1:2' });
+    const keys = messages.appendOutbound.mock.calls.map((c) => (c[0] as any).clientMessageId);
+    expect(keys[0]).toBe(keys[1]);
+    expect(keys[2]).not.toBe(keys[0]);
+    expect(keys[0]).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+  });
+
+  it('a repeat that was already written changes nothing on screen', async () => {
+    const { service, conversations, realtime } = makeService({ append: { duplicate: true, existing: { conversationId: 'c9', messageSk: `MSG#${T1}#first` } } });
+    conversations.getByParty.mockResolvedValueOnce(createMockConversation({ id: 'c9' }) as never);
+    await expect(service.recordPortalEvent(signed)).resolves.toMatchObject({ duplicate: true });
+    expect(realtime.messageUpserted).not.toHaveBeenCalled();
+  });
+
+  it('a view is written quietly — not unread, nobody woken', async () => {
+    const { service, conversations, messages, events } = makeService();
+    conversations.getByParty.mockResolvedValueOnce(createMockConversation({ id: 'c9' }) as never);
+    await service.recordPortalEvent({ ...signed, event: 'viewed', document: { kind: 'estimate', id: 'e1', number: 'K4T9ZW-1' }, eventKey: 'viewed:estimate:e1:2026-10-02' });
+    const input = messages.appendOutbound.mock.calls[0][0] as any;
+    expect(input.message.subject).toBe('Viewed estimate #K4T9ZW-1');
+    expect(input.markUnread).toBe(false);
+    expect(events.messageReceived).not.toHaveBeenCalled();
+  });
+
+  it('names the client from CRM when the portal did not, and opens their thread when they have none', async () => {
+    const { service, conversations, messages, crm } = makeService();
+    crm.getContact.mockResolvedValue({ id: 'ct1', name: 'Jane Client', phones: ['(404) 555-1234'], emails: [] } as never);
+    await service.recordPortalEvent({ ...signed, event: 'declined', actorName: undefined, document: { kind: 'estimate', id: 'e2', number: 'K4T9ZW-2' }, eventKey: 'declined:estimate:e2' });
+    expect(conversations.findOrCreate).toHaveBeenCalled();
+    expect((messages.appendOutbound.mock.calls[0][0] as any).message.subject).toBe('Jane Client declined estimate #K4T9ZW-2');
+  });
+});

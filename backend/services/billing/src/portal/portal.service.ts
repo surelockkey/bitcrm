@@ -9,6 +9,7 @@ import {
   type JwtUser,
   type Payment,
   type PortalDocumentSummary,
+  type PortalEventRequest,
   type PortalJob,
   type PortalInboxKey,
   type PortalInboxPage,
@@ -28,6 +29,7 @@ import { portalBaseUrl } from '../common/constants/services.constants';
 import { EstimatesService, type SignEstimateInput } from '../estimates/estimates.service';
 import { CrmClient } from '../integrations/crm.client';
 import { DealClient, type ContactDealSummary } from '../integrations/deal.client';
+import { MessagingClient } from '../integrations/messaging.client';
 import { formatAddress } from '../documents/document-context.builder';
 import { invoiceAwaitsSignature } from '../invoices/invoice-rules';
 import { InvoicesService, type SignInvoiceInput } from '../invoices/invoices.service';
@@ -97,6 +99,9 @@ export class PortalService {
     @Optional() @Inject(StripeService) private readonly stripe?: StripeService,
     @Optional() @Inject(ProposalsService) private readonly proposals?: ProposalsService,
     @Optional() @Inject(AssetsService) private readonly assets?: AssetsService,
+    // Workiz writes what the client does on the portal into their chat; the
+    // portal works the same without it.
+    @Optional() @Inject(MessagingClient) private readonly messaging?: MessagingClient,
   ) {}
 
   async getLink(contactId: string): Promise<PortalLink | null> {
@@ -172,14 +177,23 @@ export class PortalService {
   }
 
   async publicPdf(token: string, kind: string, id: string, download = false): Promise<{ url: string }> {
-    const source = await this.sentDocumentSource(token, kind, id);
+    const { source } = await this.sentDocumentSource(token, kind, id);
     return source.portalPdf(id, download);
   }
 
   /** The document as the on-screen HTML the portal shows first (the PDF is the download). */
   async publicHtml(token: string, kind: string, id: string): Promise<{ html: string }> {
-    const source = await this.sentDocumentSource(token, kind, id);
-    return source.portalHtml(id);
+    const { source, doc } = await this.sentDocumentSource(token, kind, id);
+    const html = await source.portalHtml(id);
+    // Opening it is the client reading it: "Viewed estimate #…" in their chat, once a day.
+    this.tell({
+      contactId: doc.contactId,
+      event: 'viewed',
+      document: { kind: kind as 'invoice' | 'estimate', id, number: doc.number },
+      ...(doc.dealId && { dealId: doc.dealId }),
+      eventKey: `viewed:${kind}:${id}:${businessDay()}`,
+    });
+    return html;
   }
 
   /** The contact a portal token belongs to. Throws the same 404 as everything else. */
@@ -210,6 +224,14 @@ export class PortalService {
   async approveEstimate(token: string, estimateId: string, input: SignEstimateInput): Promise<EstimateWithItems> {
     await this.sentEstimateFor(token, estimateId);
     const approved = await this.estimates.approveByClient(estimateId, input);
+    this.tell({
+      contactId: approved.contactId,
+      event: 'signed',
+      document: { kind: 'estimate', id: estimateId, number: approved.number },
+      ...(approved.dealId && { dealId: approved.dealId }),
+      actorName: input.signedBy,
+      eventKey: `signed:estimate:${estimateId}`,
+    });
     // An option of a proposal: the proposal is decided and the other options declined.
     await this.proposals?.onEstimateApproved(estimateId).catch((err: Error) =>
       this.logger.warn(`proposal not updated after approving ${estimateId}: ${err.message}`),
@@ -220,6 +242,13 @@ export class PortalService {
   async declineEstimate(token: string, estimateId: string, input: { reason?: string }): Promise<EstimateWithItems> {
     await this.sentEstimateFor(token, estimateId);
     const declined = await this.estimates.declineByClient(estimateId, input);
+    this.tell({
+      contactId: declined.contactId,
+      event: 'declined',
+      document: { kind: 'estimate', id: estimateId, number: declined.number },
+      ...(declined.dealId && { dealId: declined.dealId }),
+      eventKey: `declined:estimate:${estimateId}`,
+    });
     await this.proposals?.onEstimateDeclined(estimateId).catch((err: Error) =>
       this.logger.warn(`proposal not updated after declining ${estimateId}: ${err.message}`),
     );
@@ -229,7 +258,16 @@ export class PortalService {
   /** "Request signature" on an invoice: the client signs before paying. */
   async signInvoice(token: string, invoiceId: string, input: SignInvoiceInput): Promise<InvoiceView> {
     await this.sentInvoiceFor(token, invoiceId);
-    return this.invoices.signByClient(invoiceId, input);
+    const signed = await this.invoices.signByClient(invoiceId, input);
+    this.tell({
+      contactId: signed.contactId,
+      event: 'signed',
+      document: { kind: 'invoice', id: invoiceId, number: signed.number },
+      ...(signed.dealId && { dealId: signed.dealId }),
+      actorName: input.signedBy,
+      eventKey: `signed:invoice:${invoiceId}:${signed.signedAt ?? new Date().toISOString()}`,
+    });
+    return signed;
   }
 
   /** The token's own, SENT estimate — same 404 for "not yours", "not sent" and "doesn't exist". */
@@ -243,7 +281,11 @@ export class PortalService {
   }
 
   /** Resolves the token and proves the document is one of that contact's SENT ones. */
-  private async sentDocumentSource(token: string, kind: string, id: string): Promise<InvoiceSource | EstimateSource> {
+  private async sentDocumentSource(
+    token: string,
+    kind: string,
+    id: string,
+  ): Promise<{ source: InvoiceSource | EstimateSource; doc: Invoice | Estimate }> {
     const contactId = await this.resolveToken(token);
     const source: InvoiceSource | EstimateSource | null =
       kind === 'invoice' ? this.invoices : kind === 'estimate' ? this.estimates : null;
@@ -253,7 +295,18 @@ export class PortalService {
     if (!doc || doc.contactId !== contactId || !doc.sentAt) {
       throw new NotFoundException('Document not found');
     }
-    return source;
+    return { source, doc };
+  }
+
+  /**
+   * One line in the client's chat, fire-and-forget: the client's view or
+   * signature never waits on messaging, and never fails because of it.
+   */
+  private tell(event: PortalEventRequest): void {
+    if (!this.messaging) return;
+    this.messaging
+      .recordPortalEvent(event)
+      .catch((err: Error) => this.logger.warn(`portal ${event.event} of ${event.document.kind} ${event.document.id} not in the chat: ${err.message}`));
   }
 
   private async resolveToken(token: string): Promise<string> {
@@ -587,4 +640,9 @@ function inboxRequest(query: PortalInboxQuery): InboxRequest {
     limit: inboxLimit(query.limit),
     show: parseInboxShow(query.show),
   };
+}
+
+/** Today on the business clock (Connecticut), the window a document's view is counted in. */
+function businessDay(now = new Date()): string {
+  return now.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
 }
