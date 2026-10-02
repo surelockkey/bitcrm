@@ -4,8 +4,16 @@ import { ValidationPipe, type INestApplication } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import request from 'supertest';
 import { HttpExceptionFilter } from '@bitcrm/shared';
-import { DealPaymentsController, InvoicePaymentsController, PaymentsController } from 'src/payments/payments.controller';
+import { DEFAULT_PAYMENT_SETTINGS } from '@bitcrm/types';
+import {
+  DealPaymentsController,
+  InvoicePaymentsController,
+  PaymentSettingsController,
+  PaymentsController,
+} from 'src/payments/payments.controller';
+import { PaymentSettingsService } from 'src/payments/payment-settings.service';
 import { PaymentsService } from 'src/payments/payments.service';
+import { StripeService } from 'src/payments/stripe/stripe.service';
 import { perms, user } from './mocks';
 
 /**
@@ -21,10 +29,19 @@ describe('Payments ledger routes (HTTP)', () => {
     recordOfflineForDeal: jest.fn(async (..._a: any[]): Promise<any> => ({ id: 'p-dep', estimateId: 'est-1' })),
     recordOffline: jest.fn(async (..._a: any[]): Promise<any> => ({ id: 'p-inv' })),
   };
+  const settings = {
+    get: jest.fn(async () => ({ ...DEFAULT_PAYMENT_SETTINGS, surchargePercent: 3, tipsEnabled: true })),
+    update: jest.fn(async (patch: any) => ({ ...DEFAULT_PAYMENT_SETTINGS, ...patch })),
+  };
+  /** Which Stripe keys the environment has — flipped per test. */
+  const stripe = {
+    configured: { secretKey: true, webhookSecret: true, publishableKey: true },
+    publishableKey: 'pk_test_123',
+  };
 
   beforeAll(async () => {
     const mod = await Test.createTestingModule({
-      controllers: [InvoicePaymentsController, DealPaymentsController, PaymentsController],
+      controllers: [InvoicePaymentsController, DealPaymentsController, PaymentsController, PaymentSettingsController],
       providers: [
         {
           provide: APP_GUARD,
@@ -38,6 +55,8 @@ describe('Payments ledger routes (HTTP)', () => {
           },
         },
         { provide: PaymentsService, useValue: payments },
+        { provide: PaymentSettingsService, useValue: settings },
+        { provide: StripeService, useValue: stripe },
       ],
     }).compile();
     app = mod.createNestApplication();
@@ -126,6 +145,43 @@ describe('Payments ledger routes (HTTP)', () => {
       const res = await http().post('/api/billing/invoices/deal-1/payments').send({ amount: 10, method: 'cash', estimateId: 'est-1' });
       expect(res.status).toBe(201);
       expect(payments.recordOffline.mock.calls[0][1].estimateId).toBeUndefined();
+    });
+  });
+
+  describe('GET /payment-settings — the phone’s StripeProvider reads the publishable key here', () => {
+    afterEach(() => {
+      stripe.configured = { secretKey: true, webhookSecret: true, publishableKey: true };
+      stripe.publishableKey = 'pk_test_123';
+    });
+
+    it('answers the publishable key with the settings — public by design, unlike the secret one', async () => {
+      const res = await http().get('/api/billing/payment-settings');
+      expect(res.status).toBe(200);
+      expect(res.body.data).toMatchObject({
+        surchargePercent: 3,
+        tipsEnabled: true,
+        stripeConfigured: true,
+        stripe: { secretKey: true, webhookSecret: true, publishableKey: true },
+        publishableKey: 'pk_test_123',
+      });
+      expect(JSON.stringify(res.body)).not.toMatch(/sk_|whsec_|rk_/);
+    });
+
+    it('answers null when Stripe is not configured — no secret key, or no publishable key', async () => {
+      stripe.configured = { secretKey: false, webhookSecret: false, publishableKey: true };
+      let res = await http().get('/api/billing/payment-settings');
+      expect(res.body.data).toMatchObject({ stripeConfigured: false, publishableKey: null });
+
+      stripe.configured = { secretKey: true, webhookSecret: true, publishableKey: false };
+      stripe.publishableKey = '';
+      res = await http().get('/api/billing/payment-settings');
+      expect(res.body.data).toMatchObject({ stripeConfigured: false, publishableKey: null });
+    });
+
+    it('answers the same shape after PUT', async () => {
+      const res = await http().put('/api/billing/payment-settings').send({ surchargePercent: 2 });
+      expect(res.status).toBe(200);
+      expect(res.body.data).toMatchObject({ surchargePercent: 2, stripeConfigured: true, publishableKey: 'pk_test_123' });
     });
   });
 });

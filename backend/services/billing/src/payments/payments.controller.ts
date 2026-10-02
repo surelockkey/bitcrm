@@ -1,7 +1,7 @@
 import { Body, Controller, Delete, Get, Headers, HttpCode, Param, Patch, Post, Put, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, RequirePermission } from '@bitcrm/shared';
-import type { JwtUser } from '@bitcrm/types';
+import type { JwtUser, PaymentSettings, PaymentSettingsResponse } from '@bitcrm/types';
 import type { Caller } from '../common/access';
 import { CallerCtx } from '../common/caller.decorator';
 import { Internal } from '../common/decorators/internal.decorator';
@@ -215,20 +215,12 @@ export class PaymentSettingsController {
     summary: 'Account payment settings',
     description:
       '**Guard:** any authenticated user (every payment screen needs them). `stripe` reports which ' +
-      'keys are configured — the keys themselves are environment config and are never returned.',
+      'keys are configured; `publishableKey` is Stripe’s publishable key (`pk_…`, public by design — the ' +
+      'phone’s StripeProvider needs it to turn a typed card into a PaymentMethod), `null` while Stripe is not ' +
+      'configured. The secret key and the webhook secret are environment config and are never returned.',
   })
   async get() {
-    const configured = this.stripe.configured;
-    return {
-      success: true,
-      data: {
-        ...(await this.settings.get()),
-        // The settings page shows whether payments CAN be taken. Never a key,
-        // or any part of one — only whether each one is present.
-        stripeConfigured: configured.secretKey && configured.publishableKey,
-        stripe: configured,
-      },
-    };
+    return { success: true, data: this.view(await this.settings.get()) };
   }
 
   @Put()
@@ -240,15 +232,25 @@ export class PaymentSettingsController {
       'at 3 and `bankMinimum` cannot be negative.',
   })
   async update(@Body() dto: UpdatePaymentSettingsDto, @CurrentUser() user: JwtUser) {
-    const saved = await this.settings.update(dto, user.id);
+    return { success: true, data: this.view(await this.settings.update(dto, user.id)) };
+  }
+
+  /**
+   * The settings with what Stripe has: whether payments CAN be taken (each
+   * key present or not — never the secret key, or any part of it) and the
+   * PUBLISHABLE key, which is public by design: it ships inside every client
+   * that takes cards, and the phone needs it for its StripeProvider. `null`
+   * until both halves are configured, so a phone never offers a typed card
+   * the server cannot charge.
+   */
+  private view(settings: PaymentSettings): PaymentSettingsResponse {
     const configured = this.stripe.configured;
+    const ready = configured.secretKey && configured.publishableKey;
     return {
-      success: true,
-      data: {
-        ...saved,
-        stripeConfigured: configured.secretKey && configured.publishableKey,
-        stripe: configured,
-      },
+      ...settings,
+      stripeConfigured: ready,
+      stripe: configured,
+      publishableKey: ready && this.stripe.publishableKey ? this.stripe.publishableKey : null,
     };
   }
 }

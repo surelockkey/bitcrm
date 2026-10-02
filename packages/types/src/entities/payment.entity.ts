@@ -267,6 +267,21 @@ export const DEFAULT_PAYMENT_SETTINGS: PaymentSettings = {
 /** US card-network ceiling. Enforced server-side; Stripe rejects more anyway. */
 export const MAX_SURCHARGE_PERCENT = 3;
 
+/**
+ * `GET` / `PUT /payment-settings` — what every payment screen reads: the
+ * account settings, which halves of the Stripe integration are configured,
+ * and the publishable key the phone's `StripeProvider` needs to turn a typed
+ * card into a PaymentMethod. Never the secret key or the webhook secret.
+ */
+export interface PaymentSettingsResponse extends PaymentSettings {
+  /** Both keys are present — a card can actually be taken. */
+  stripeConfigured: boolean;
+  /** Which halves are present (flags only, never a key). */
+  stripe: { secretKey: boolean; webhookSecret: boolean; publishableKey: boolean };
+  /** Stripe's publishable key (`pk_…`) — public by design. `null` while Stripe is not configured. */
+  publishableKey: string | null;
+}
+
 /** What the portal needs to render a payment panel for one invoice. */
 export interface PortalPaymentOptions {
   invoiceId: string;

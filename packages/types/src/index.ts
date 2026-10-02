@@ -541,6 +541,7 @@ export type {
   PaymentSummary,
   JobPaymentLedger,
   PaymentSettings,
+  PaymentSettingsResponse,
   PortalPaymentOptions,
   PortalPaymentSession,
   PortalDepositOptions,
