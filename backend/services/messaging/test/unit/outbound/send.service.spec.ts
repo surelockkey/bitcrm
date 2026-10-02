@@ -297,12 +297,50 @@ describe('SendService.sendToConversation — email (M17)', () => {
     expect(messages.listByConversation).toHaveBeenCalledWith('c1', { limit: 25 });
   });
 
-  it('honours toAddress only when it is one of the conversation emails, case-insensitively', async () => {
-    const { service } = makeService({ conversation: withEmail, email: emailReady() });
+  it('honours toAddress case-insensitively, and refuses to email a client thread that has no address at all', async () => {
+    const { service, conversations } = makeService({ conversation: withEmail, email: emailReady() });
     expect((await service.sendToConversation('c1', emailDto({ toAddress: 'J.Doe@Work.co' }), { user, perms: perms() })).to).toBe('j.doe@work.co');
-    await expect(service.sendToConversation('c1', emailDto({ toAddress: 'other@x.co' }), { user, perms: perms() })).rejects.toMatchObject({ status: 400 });
+    expect(conversations.update).not.toHaveBeenCalled();
     const noEmail = makeService({ conversation: createMockConversation(), email: emailReady() });
     await expect(noEmail.service.sendToConversation('c1', emailDto(), { user, perms: perms() })).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('adopts an address the CRM contact has but the thread missed (a stale snapshot), as a crm pointer', async () => {
+    const { service, conversations, crm } = makeService({ conversation: withEmail, email: emailReady() });
+    crm.getContact.mockResolvedValueOnce({ id: 'ct1', phones: [], emails: ['jane@example.com', 'Billing@Example.com'] } as never);
+    const m = await service.sendToConversation('c1', emailDto({ toAddress: 'billing@example.com' }), { user, perms: perms() });
+    expect(m.to).toBe('billing@example.com');
+    expect(crm.getContact).toHaveBeenCalledWith('ct1');
+    expect(conversations.putAddressPointer).toHaveBeenCalledWith(
+      expect.objectContaining({ address: 'billing@example.com', conversationId: 'c1', partyKind: 'contact', partyId: 'ct1', source: 'crm' }),
+    );
+    expect(conversations.update).toHaveBeenCalledWith(
+      withEmail,
+      { addresses: { phones: ['+14045551234'], emails: ['billing@example.com', 'jane@example.com', 'j.doe@work.co'] } },
+      expect.anything(),
+    );
+  });
+
+  it('adopts an address typed into To that CRM does not know, as a manual pointer, so the reply threads back', async () => {
+    const { service, conversations, crm } = makeService({ conversation: withEmail, email: emailReady() });
+    const m = await service.sendToConversation('c1', emailDto({ toAddress: ' Other@X.co ' }), { user, perms: perms() });
+    expect(m.to).toBe('other@x.co');
+    expect(crm.getContact).toHaveBeenCalledWith('ct1');
+    expect(conversations.putAddressPointer).toHaveBeenCalledWith(expect.objectContaining({ address: 'other@x.co', source: 'manual' }));
+    expect(conversations.update).toHaveBeenCalledWith(
+      withEmail,
+      { addresses: { phones: ['+14045551234'], emails: ['other@x.co', 'jane@example.com', 'j.doe@work.co'] } },
+      expect.anything(),
+    );
+  });
+
+  it('refuses a malformed To address, and a foreign address on a team thread', async () => {
+    const { service, conversations } = makeService({ conversation: withEmail, email: emailReady() });
+    await expect(service.sendToConversation('c1', emailDto({ toAddress: 'not-an-email' }), { user, perms: perms() })).rejects.toMatchObject({ status: 400 });
+    expect(conversations.update).not.toHaveBeenCalled();
+    const team = createMockConversation({ kind: 'team', partyKind: 'user', partyId: 'u2', addresses: { phones: [], emails: ['ann@team.co'] } });
+    const teamSvc = makeService({ conversation: team, email: emailReady() });
+    await expect(teamSvc.service.sendToConversation('c1', emailDto({ toAddress: 'other@x.co' }), { user, perms: perms() })).rejects.toMatchObject({ status: 400 });
   });
 
   it('refuses an address on the email STOP list with 422 RECIPIENT_OPTED_OUT', async () => {
