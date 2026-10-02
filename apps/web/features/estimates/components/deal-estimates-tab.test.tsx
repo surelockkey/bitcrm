@@ -148,13 +148,51 @@ describe("DealEstimatesTab — the job's estimates as a list (Workiz)", () => {
 
   it("offers Send all (Proposal) while an open estimate is not in a proposal yet", async () => {
     mocks.perms.add("messages.send");
-    const { unmount } = renderWithClient(<Harness />);
+    renderWithClient(<Harness />);
     await screen.findByRole("table", { name: /estimates/i });
     expect(screen.getByRole("button", { name: /send all \(proposal\)/i })).toBeInTheDocument();
-    unmount();
+  });
+
+  it("keeps Send all (Proposal) once the proposal went out, and a retry resends it without making another", async () => {
+    mocks.perms.add("messages.send");
+    let created = 0;
+    let sms: Record<string, unknown> | undefined;
     server.use(
       http.get("*/billing/estimates/by-deal/d1", () =>
-        HttpResponse.json({ success: true, data: [{ ...estimate, proposalId: "p1" }] }),
+        HttpResponse.json({ success: true, data: [{ ...estimate, proposalId: "p1" }, { ...second, status: "pending", proposalId: "p1" }] }),
+      ),
+      http.get("*/crm/contacts/c1", () =>
+        HttpResponse.json({ success: true, data: { id: "c1", firstName: "Jane", lastName: "Client", phones: ["+18605550199"], emails: [], addresses: [] } }),
+      ),
+      http.get("*/billing/business-profiles", () => HttpResponse.json({ success: true, data: [{ id: "bp1", name: "Sure Lock Key", isDefault: true }] })),
+      http.post("*/billing/portal-links/c1/url", () =>
+        HttpResponse.json({ success: true, data: { contactId: "c1", createdBy: "u", createdAt: "t", url: "https://portal.test/tok_p", token: "tok_p" } }),
+      ),
+      http.post("*/billing/proposals", () => {
+        created += 1;
+        return HttpResponse.json({ success: false, message: "This job has no open estimate to send as a proposal" }, { status: 422 });
+      }),
+      http.post("*/messaging/messages", async ({ request }) => {
+        sms = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json({ success: true, data: { id: "m1", status: "queued" } }, { status: 202 });
+      }),
+    );
+    renderWithClient(<Harness />);
+    await screen.findByRole("table", { name: /estimates/i });
+    await user().click(screen.getByRole("button", { name: /send all \(proposal\)/i }));
+    const box = (await screen.findByLabelText("Message")) as HTMLTextAreaElement;
+    await waitFor(() => expect(box.value).toContain("https://portal.test/tok_p"));
+    await user().click(screen.getByRole("button", { name: /^send text$/i }));
+    await waitFor(() => expect(sms).toBeDefined());
+    expect(created).toBe(0);
+    expect(sms).toMatchObject({ contactId: "c1", channel: "sms", dealId: "d1" });
+  });
+
+  it("hides Send all (Proposal) once no estimate is open", async () => {
+    mocks.perms.add("messages.send");
+    server.use(
+      http.get("*/billing/estimates/by-deal/d1", () =>
+        HttpResponse.json({ success: true, data: [{ ...estimate, status: "won", proposalId: "p1" }] }),
       ),
     );
     renderWithClient(<Harness />);

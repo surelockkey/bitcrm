@@ -14,9 +14,8 @@ import { EstimateEditor } from "./estimate-editor";
 import { EstimateTabs, byCreated } from "./estimate-tabs";
 import { NewEstimateDialog } from "./new-estimate-dialog";
 import { SendProposalDialog } from "./send-proposal-dialog";
+import { proposalSend } from "../lib";
 
-const isOpen = (e: Pick<EstimateWithItems, "status" | "proposalId">) =>
-  (e.status === "unsent" || e.status === "pending") && !e.proposalId;
 
 /**
  * `/estimates/[id]` — every estimate's own page, as in Workiz.
@@ -74,7 +73,7 @@ function JobEstimatePage({ estimate, dealId }: { estimate: EstimateWithItems; de
 
   const list = byCreated(siblings?.length ? siblings : [estimate]);
   const canSendAll = can("estimates", "send") && can("messages", "send");
-  const openOnes = list.filter(isOpen);
+  const sendAll = proposalSend(list);
   const back = `/deals/${dealId}?tab=estimates`;
 
   return (
@@ -102,7 +101,7 @@ function JobEstimatePage({ estimate, dealId }: { estimate: EstimateWithItems; de
             }
             onOpenEstimate={(id) => router.push(`/estimates/${id}`)}
             onDeleted={() => router.push(back)}
-            onSendAll={canSendAll && openOnes.length > 1 ? () => setSendingAll(true) : undefined}
+            onSendAll={canSendAll && sendAll.mode && sendAll.count > 1 ? () => setSendingAll(true) : undefined}
           />
         ) : (
           <Skeleton className="h-48 w-full" />
@@ -119,7 +118,7 @@ function JobEstimatePage({ estimate, dealId }: { estimate: EstimateWithItems; de
         />
       ) : null}
       {deal && canSendAll ? (
-        <SendProposalDialog deal={deal} contactId={estimate.contactId} open={sendingAll} onOpenChange={setSendingAll} />
+        <SendProposalDialog deal={deal} contactId={estimate.contactId} open={sendingAll} onOpenChange={setSendingAll} resend={sendAll.mode === "resend"} />
       ) : null}
     </div>
   );

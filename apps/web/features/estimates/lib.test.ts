@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { ESTIMATE_STATUSES, type Estimate, type EstimateItem } from "@bitcrm/types";
 import {
   ESTIMATE_STATUS_META,
+  proposalSend,
   formatEstimateCreated,
   buildEstimateListQuery,
   estimateLocalTotals,
@@ -128,5 +129,26 @@ describe("formatEstimateCreated — Workiz's Created column", () => {
   it("is empty for a missing or broken date", () => {
     expect(formatEstimateCreated("")).toBe("");
     expect(formatEstimateCreated("not a date")).toBe("");
+  });
+});
+
+describe("proposalSend — what Send all (Proposal) does for the job's estimates", () => {
+  const e = (status: Estimate["status"], proposalId?: string) => ({ status, proposalId }) as Pick<Estimate, "status" | "proposalId">;
+
+  it("makes a new proposal from the open estimates no proposal holds yet", () => {
+    expect(proposalSend([e("pending"), e("unsent"), e("won")])).toEqual({ mode: "new", count: 2 });
+  });
+
+  it("resends the proposal already out when every open estimate is in it, so a failed message can be retried", () => {
+    expect(proposalSend([e("pending", "p1"), e("pending", "p1"), e("declined")])).toEqual({ mode: "resend", count: 2 });
+  });
+
+  it("prefers new options over a resend when both exist", () => {
+    expect(proposalSend([e("pending", "p1"), e("unsent")])).toEqual({ mode: "new", count: 1 });
+  });
+
+  it("has nothing to send once no estimate is open", () => {
+    expect(proposalSend([e("won", "p1"), e("declined", "p1")])).toEqual({ mode: null, count: 0 });
+    expect(proposalSend([])).toEqual({ mode: null, count: 0 });
   });
 });
