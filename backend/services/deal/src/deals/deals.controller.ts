@@ -529,7 +529,9 @@ export class DealsController {
       "quantity from the source technician's container and requires an assigned " +
       'tech; `to_order` records a part the tech does not carry (no deduction); ' +
       '`service` adds a non-stockable service line (no deduction, no tech). The ' +
-      "product's inventory type must match — services only as `service` lines.",
+      "product's inventory type must match — services only as `service` lines. " +
+      "The line's `costCompany` / `costForTech` are the price book's (any sent are ignored); " +
+      "`priceClient` must stay within ±15% of the price book's price (400 otherwise).",
   })
   async addProduct(
     @Param('id') id: string,
@@ -550,7 +552,9 @@ export class DealsController {
       'new line — same shape and validation as add. Stock is reconciled: the ' +
       "old sourced line is restored to its source technician's container " +
       'before the new sourced line is deducted from the chosen one, so raising ' +
-      'a quantity only needs the delta in the van.',
+      'a quantity only needs the delta in the van. Costs come from the price book and ' +
+      'the ±15% band holds as on add, except for an imported Workiz line edited in place ' +
+      'at its recorded price.',
   })
   async replaceProduct(
     @Param('id') id: string,

@@ -50,7 +50,7 @@ import {
   type SortDir,
   type DayWindow,
 } from './deals.repository';
-import { catalogCosts } from './deal-line-rules';
+import { assertPriceInBand, catalogCosts, priceBandApplies } from './deal-line-rules';
 import { assertDealInScope } from './deal-scope';
 
 /** The jobs-list tab numbers; a closed status is `null` when no window bounds it. */
@@ -2042,6 +2042,7 @@ export class DealsService {
     const fulfillment: DealProductFulfillment = dto.fulfillment ?? 'sourced';
 
     const product = await this.validateProductFulfillment(dto, fulfillment);
+    assertPriceInBand(dto.priceClient, product.priceClient);
 
     // Only `sourced` lines are pulled from a technician's container and deduct
     // stock. `to_order` (a part the tech doesn't carry) and `service` (labor)
@@ -2149,6 +2150,8 @@ export class DealsService {
     const isSwap = dto.productId !== existing.productId;
 
     const product = await this.validateProductFulfillment(dto, fulfillment);
+    // An imported Workiz line edited in place keeps the price Workiz recorded.
+    if (priceBandApplies(dto, existing)) assertPriceInBand(dto.priceClient, product.priceClient);
 
     if (fulfillment === 'sourced') {
       if (deal.assignedTechIds.length === 0) {

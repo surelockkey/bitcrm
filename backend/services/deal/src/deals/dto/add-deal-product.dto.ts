@@ -69,7 +69,12 @@ export class AddDealProductDto {
   @IsNumber()
   costForTech?: number;
 
-  @ApiProperty({ example: 45.0 })
+  @ApiProperty({
+    example: 45.0,
+    description:
+      "The client price. Must stay within ±15% of the price book's `priceClient` (400 " +
+      'otherwise) — except on an imported Workiz line edited in place at its recorded price.',
+  })
   @IsNumber()
   priceClient!: number;
 

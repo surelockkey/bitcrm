@@ -1,4 +1,4 @@
-import { ForbiddenException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { GeocodingService, SnsPublisherService } from '@bitcrm/shared';
 import { DataScope, TimelineEventType } from '@bitcrm/types';
@@ -239,6 +239,145 @@ describe('DealsService — a technician adds, edits and removes items on his own
       await service.addProduct('deal-1', { ...phoneLine, sourceTechId: 'tech-2' } as any, dispatcher, DataScope.DEPARTMENT);
 
       expect(products.addProduct).toHaveBeenCalled();
+    });
+  });
+
+  /* ------------------------------------------------------ the ±15% band */
+
+  describe('the client price stays within ±15% of the price book (as the web dialog holds it)', () => {
+    // Catalog $45.00 → $38.25 … $51.75.
+    const BAND_45 = 'Price must be between $38.25 and $51.75 (±15% of the price book)';
+
+    const refusal = async (promise: Promise<unknown>) => {
+      const err = (await promise.then(() => undefined, (e: unknown) => e)) as Error;
+      expect(err).toBeInstanceOf(BadRequestException);
+      return err.message as string;
+    };
+
+    it('refuses an added line priced above the band — 400, nothing deducted or written', async () => {
+      repo.findById.mockResolvedValue(onHisJob());
+
+      expect(await refusal(service.addProduct('deal-1', { ...phoneLine, priceClient: 52 } as any, tech))).toBe(BAND_45);
+      expect(http.deductStock).not.toHaveBeenCalled();
+      expect(products.addProduct).not.toHaveBeenCalled();
+    });
+
+    it('refuses an added line priced below the band', async () => {
+      repo.findById.mockResolvedValue(onHisJob());
+
+      expect(await refusal(service.addProduct('deal-1', { ...phoneLine, priceClient: 38 } as any, tech))).toBe(BAND_45);
+    });
+
+    it('accepts both edges of the band', async () => {
+      repo.findById.mockResolvedValue(onHisJob());
+
+      await service.addProduct('deal-1', { ...phoneLine, priceClient: 38.25 } as any, tech);
+      await service.addProduct('deal-1', { ...phoneLine, priceClient: 51.75 } as any, tech);
+
+      expect(products.addProduct).toHaveBeenCalledTimes(2);
+    });
+
+    it('holds for service and to-order lines too', async () => {
+      repo.findById.mockResolvedValue(onHisJob());
+      http.getProduct.mockResolvedValue({ ...catalog, type: 'service' });
+
+      await expect(
+        service.addProduct('deal-1', { ...phoneLine, fulfillment: 'service', priceClient: 90 } as any, tech),
+      ).rejects.toThrow(BadRequestException);
+
+      http.getProduct.mockResolvedValue(catalog);
+      await expect(
+        service.addProduct('deal-1', { ...phoneLine, fulfillment: 'to_order', priceClient: 90 } as any, tech),
+      ).rejects.toThrow(BadRequestException);
+      expect(products.addProduct).not.toHaveBeenCalled();
+    });
+
+    it('prints the band in dollars with thousands separators', async () => {
+      repo.findById.mockResolvedValue(onHisJob());
+      http.getProduct.mockResolvedValue({ ...catalog, priceClient: 2000 });
+
+      expect(await refusal(service.addProduct('deal-1', { ...phoneLine, priceClient: 1 } as any, tech))).toBe(
+        'Price must be between $1,700.00 and $2,300.00 (±15% of the price book)',
+      );
+    });
+
+    it('judges nothing when the price book has no price for the item', async () => {
+      repo.findById.mockResolvedValue(onHisJob());
+      http.getProduct.mockResolvedValue({ ...catalog, priceClient: undefined });
+
+      await service.addProduct('deal-1', { ...phoneLine, priceClient: 500 } as any, tech);
+
+      expect(products.addProduct).toHaveBeenCalled();
+    });
+
+    it('refuses an edit priced out of the band before any stock moves', async () => {
+      repo.findById.mockResolvedValue(onHisJob());
+      products.findProduct.mockResolvedValue(createMockDealProduct({ sourceTechId: 'tech-1' }));
+
+      expect(
+        await refusal(service.replaceProduct('deal-1', 'line-1', { ...phoneLine, priceClient: 60 } as any, tech)),
+      ).toBe(BAND_45);
+      expect(http.restoreStock).not.toHaveBeenCalled();
+      expect(http.deductStock).not.toHaveBeenCalled();
+      expect(products.addProduct).not.toHaveBeenCalled();
+    });
+
+    it('judges a BitCRM line by today\'s price book even when its price is unchanged', async () => {
+      // The web dialog does the same: only an imported line is exempt.
+      repo.findById.mockResolvedValue(onHisJob());
+      products.findProduct.mockResolvedValue(createMockDealProduct({ sourceTechId: 'tech-1', priceClient: 60 }));
+
+      await expect(
+        service.replaceProduct('deal-1', 'line-1', { ...phoneLine, priceClient: 60, quantity: 2 } as any, tech),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    describe('a line imported from Workiz keeps the price Workiz recorded', () => {
+      const imported = (over = {}) =>
+        createMockDealProduct({ fulfillment: 'imported', sourceTechId: undefined, priceClient: 99, ...over });
+
+      it('saves an in-place edit whose price is unchanged, however far from the catalog', async () => {
+        repo.findById.mockResolvedValue(onHisJob());
+        products.findProduct.mockResolvedValue(imported());
+
+        await service.replaceProduct('deal-1', 'line-1', { ...phoneLine, priceClient: 99, quantity: 2 } as any, tech);
+
+        expect(written()).toMatchObject({ priceClient: 99, quantity: 2 });
+      });
+
+      it('exempts a service line marked by priceSource as well', async () => {
+        repo.findById.mockResolvedValue(onHisJob());
+        products.findProduct.mockResolvedValue(
+          imported({ fulfillment: 'service', priceSource: 'imported' }),
+        );
+        http.getProduct.mockResolvedValue({ ...catalog, type: 'service' });
+
+        await service.replaceProduct(
+          'deal-1', 'line-1',
+          { ...phoneLine, fulfillment: 'service', sourceTechId: undefined, priceClient: 99 } as any,
+          tech,
+        );
+
+        expect(written()).toMatchObject({ priceClient: 99 });
+      });
+
+      it('judges a new price typed on it', async () => {
+        repo.findById.mockResolvedValue(onHisJob());
+        products.findProduct.mockResolvedValue(imported());
+
+        expect(
+          await refusal(service.replaceProduct('deal-1', 'line-1', { ...phoneLine, priceClient: 98 } as any, tech)),
+        ).toBe(BAND_45);
+      });
+
+      it('judges it once it is swapped for another item', async () => {
+        repo.findById.mockResolvedValue(onHisJob());
+        products.findProduct.mockResolvedValue(imported({ productId: 'product-9' }));
+
+        await expect(
+          service.replaceProduct('deal-1', 'line-1', { ...phoneLine, priceClient: 99 } as any, tech),
+        ).rejects.toThrow(BadRequestException);
+      });
     });
   });
 });
