@@ -31,7 +31,8 @@ describe('Stripe Terminal routes (HTTP)', () => {
     clientSecret: 'pi_1_secret_x',
     amount: 60,
     tipAmount: 9,
-    total: 69,
+    feeAmount: 2.07,
+    total: 71.07,
     currency: 'usd',
     status: 'pending',
   };

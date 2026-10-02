@@ -333,7 +333,13 @@ export interface TerminalPaymentIntent {
   amount: number;
   /** Dollars on top, never toward the balance. */
   tipAmount: number;
-  /** `amount + tipAmount` — what the card is charged. */
+  /**
+   * Workiz's "Service fee": `surchargePercent` of `amount + tipAmount`, half-up
+   * to the cent (`round2((amount + tip) × pct / 100)`). 0 when the account
+   * charges none. Never toward the balance.
+   */
+  feeAmount: number;
+  /** `amount + tipAmount + feeAmount` — what the card is charged. */
   total: number;
   currency: string;
   /** The row now: `pending` until the card is charged; a retried attempt may already be `settled`. */

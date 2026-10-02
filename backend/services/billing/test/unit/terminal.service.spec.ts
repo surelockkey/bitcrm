@@ -167,6 +167,7 @@ describe('Terminal — a card on the invoice (POST /invoices/:id/terminal-intent
       clientSecret: 'pi_new_secret_1',
       amount: 60,
       tipAmount: 9,
+      feeAmount: 0,
       total: 69,
       currency: 'usd',
       status: 'pending',
@@ -174,6 +175,7 @@ describe('Terminal — a card on the invoice (POST /invoices/:id/terminal-intent
     expect(stripe.createTerminalIntent).toHaveBeenCalledWith({
       amount: 60,
       tipAmount: 9,
+      feeAmount: 0,
       currency: 'usd',
       description: 'Invoice K4T9ZW',
       metadata: {
@@ -386,6 +388,51 @@ describe('Terminal — a card on the invoice (POST /invoices/:id/terminal-intent
     expect(ledger.payments.has(ATTEMPT)).toBe(false);
   });
 
+  it('adds the account’s service fee — surchargePercent of amount + tip — to the row and the charge, never to the balance', async () => {
+    const { service, ledger, stripe, settings, invoices } = build();
+    await settings.update({ surchargePercent: 3 }, 'u-1');
+
+    const res = await service.openForInvoice('deal-1', { amount: 60, tipAmount: 9, attemptId: ATTEMPT }, tech());
+
+    // 3 % of $69 = $2.07, charged with the rest.
+    expect(res).toMatchObject({ amount: 60, tipAmount: 9, feeAmount: 2.07, total: 71.07 });
+    expect(stripe.createTerminalIntent).toHaveBeenCalledWith(
+      expect.objectContaining({ amount: 60, tipAmount: 9, feeAmount: 2.07 }),
+    );
+    expect(ledger.payments.get(ATTEMPT)).toMatchObject({ amount: 60, tipAmount: 9, feeAmount: 2.07 });
+
+    // A retry answers the same numbers, whatever the settings say by then.
+    await settings.update({ surchargePercent: 1 }, 'u-1');
+    stripe.retrievePaymentIntent.mockImplementation(async (id: string) => ({
+      id,
+      client_secret: `${id}_secret_1`,
+      status: 'requires_payment_method',
+    }));
+    await expect(service.openForInvoice('deal-1', { amount: 60, tipAmount: 9, attemptId: ATTEMPT }, tech())).resolves.toMatchObject({
+      feeAmount: 2.07,
+      total: 71.07,
+    });
+
+    // Once the card is charged, only the $60 counts toward the invoice.
+    stripe.retrievePaymentIntent.mockResolvedValue({
+      id: res.intentId,
+      object: 'payment_intent',
+      status: 'succeeded',
+      metadata: { paymentId: ATTEMPT },
+    } as any);
+    await service.sync(ATTEMPT, tech());
+    expect(invoices.applyAmountPaid).toHaveBeenLastCalledWith('deal-1', 60);
+  });
+
+  it('charges no fee and leaves the row without one when the account has none (the default)', async () => {
+    const { service, ledger } = build();
+    await expect(service.openForInvoice('deal-1', { amount: 60, attemptId: ATTEMPT }, tech())).resolves.toMatchObject({
+      feeAmount: 0,
+      total: 60,
+    });
+    expect(ledger.payments.get(ATTEMPT)!.feeAmount).toBeUndefined();
+  });
+
   it('leaves no phantom row when Stripe refuses the intent', async () => {
     const { service, ledger, stripe } = build();
     stripe.createTerminalIntent.mockRejectedValueOnce(new Error('Stripe is down'));
@@ -404,7 +451,7 @@ describe('Terminal — a deposit on the estimate (POST /estimates/:id/terminal-i
       BadRequestException,
     );
     const res = await service.openForEstimate('est-1', { amount: 60, tipAmount: 5, attemptId: ATTEMPT }, tech());
-    expect(res).toMatchObject({ paymentId: ATTEMPT, amount: 60, tipAmount: 5, total: 65, status: 'pending' });
+    expect(res).toMatchObject({ paymentId: ATTEMPT, amount: 60, tipAmount: 5, feeAmount: 0, total: 65, status: 'pending' });
     expect(ledger.payments.get(ATTEMPT)).toMatchObject({
       invoiceId: 'deal-1',
       dealId: 'deal-1',
@@ -420,6 +467,19 @@ describe('Terminal — a deposit on the estimate (POST /estimates/:id/terminal-i
       }),
     );
     expect(stripe.createTerminalIntent.mock.calls[0][0].metadata.invoiceId).toBeUndefined();
+  });
+
+  it('adds the service fee to a deposit too — and the deposit still counts only its own amount', async () => {
+    const { service, settings, stripe, ledger } = build();
+    await settings.update({ surchargePercent: 2.5 }, 'u-1');
+    // 2.5 % of $100 + $10 = $2.75.
+    await expect(service.openForEstimate('est-1', { amount: 100, tipAmount: 10, attemptId: ATTEMPT }, tech())).resolves.toMatchObject({
+      amount: 100,
+      feeAmount: 2.75,
+      total: 112.75,
+    });
+    expect(stripe.createTerminalIntent).toHaveBeenCalledWith(expect.objectContaining({ amount: 100, tipAmount: 10, feeAmount: 2.75 }));
+    expect(ledger.payments.get(ATTEMPT)).toMatchObject({ estimateId: 'est-1', feeAmount: 2.75 });
   });
 
   it('needs no "approved" status — the signature on file is the gate', async () => {

@@ -61,9 +61,11 @@ export class TerminalController {
 
 const INTENT_DESCRIPTION =
   'Writes the `pending` ledger row FIRST, then a `card_present` PaymentIntent (automatic capture) for `amount + ' +
-  'tipAmount` — the phone collects and confirms it with the Terminal SDK, then calls `…/sync`. The same ' +
-  '`attemptId` answers the same payment and intent (409 if it is re-used for a different amount or document). ' +
-  '→ `{ paymentId, intentId, clientSecret, amount, tipAmount, total, currency, status }`. ' +
+  'tipAmount + feeAmount` — the phone collects and confirms it with the Terminal SDK, then calls `…/sync`. ' +
+  '`feeAmount` is the service fee when payment settings have `surchargePercent > 0`: round2((amount + tip) × pct / ' +
+  '100), stored on the payment, never toward the balance. The same `attemptId` answers the same payment and ' +
+  'intent (409 if it is re-used for a different amount or document). ' +
+  '→ `{ paymentId, intentId, clientSecret, amount, tipAmount, feeAmount, total, currency, status }`. ' +
   '409 "A signature is required before payment" until the client’s signature is on the document; 400 above what ' +
   'is owed, or when nothing is; 403 off the job’s roster; 503 without Stripe.';
 

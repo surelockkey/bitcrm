@@ -26,7 +26,7 @@ import { EstimatesService } from '../../estimates/estimates.service';
 import { DealClient } from '../../integrations/deal.client';
 import { SignaturesService } from '../../signatures/signatures.service';
 import { PaymentSettingsService } from '../payment-settings.service';
-import { round2, summarizePayments, toCents } from '../payment-rules';
+import { round2, serviceFeeFor, summarizePayments, toCents } from '../payment-rules';
 import { PaymentVersionConflictError, PaymentsRepository } from '../payments.repository';
 import { PaymentsService, clampStaffAmount, jobDims, type PaymentOwner } from '../payments.service';
 import { StripeEventsHandler } from '../stripe/stripe-events.handler';
@@ -271,6 +271,9 @@ export class TerminalService {
       );
     }
     const amount = clampStaffAmount(input.amount, owed > 0 ? ceiling : 0);
+    // Workiz's "Service fee": the account's surcharge on what the card pays for, tip included.
+    const { surchargePercent } = await this.settings.get();
+    const feeAmount = serviceFeeFor(amount, input.tipAmount, surchargePercent);
 
     const now = new Date().toISOString();
     const payment: Payment = {
@@ -282,6 +285,7 @@ export class TerminalService {
       status: 'pending',
       refundedAmount: 0,
       ...(input.tipAmount > 0 && { tipAmount: input.tipAmount }),
+      ...(feeAmount > 0 && { feeAmount }),
       source: isAssignedOnly(caller, 'payments') ? 'field' : 'office',
       channel: 'terminal',
       transactionMethod: TRANSACTION_METHOD,
@@ -309,6 +313,7 @@ export class TerminalService {
       intent = await this.stripe.createTerminalIntent({
         amount: payment.amount,
         tipAmount: payment.tipAmount ?? 0,
+        feeAmount: payment.feeAmount ?? 0,
         currency: payment.currency,
         description: p.description,
         metadata: {
@@ -497,13 +502,15 @@ function answer(payment: Payment, intent: Stripe.PaymentIntent): TerminalPayment
     throw new ServiceUnavailableException('Stripe did not return a client secret for this payment');
   }
   const tipAmount = payment.tipAmount ?? 0;
+  const feeAmount = payment.feeAmount ?? 0;
   return {
     paymentId: payment.id,
     intentId: intent.id,
     clientSecret: intent.client_secret,
     amount: payment.amount,
     tipAmount,
-    total: round2(payment.amount + tipAmount),
+    feeAmount,
+    total: round2(payment.amount + tipAmount + feeAmount),
     currency: payment.currency,
     status: payment.status,
   };

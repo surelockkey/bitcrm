@@ -44,6 +44,8 @@ export interface TerminalIntentInput {
   amount: number;
   /** Dollars on top, chosen on the phone BEFORE the tap (Tap to Pay has no on-reader tipping). */
   tipAmount: number;
+  /** The service fee on top (`surchargePercent` of amount + tip), dollars. 0 / absent when the account charges none. */
+  feeAmount?: number;
   currency: string;
   /** "Invoice K4T9ZW" / "Deposit for estimate K4T9ZW-1" — on the Stripe payment and the bank statement line. */
   description: string;
@@ -233,12 +235,13 @@ export class StripeService {
    * A card-present PaymentIntent the phone collects and CONFIRMS on the device
    * (server-side confirmation would skip the PIN prompt). Captured
    * automatically: Tap to Pay has no after-auth tipping, so the tip is chosen
-   * first and charged in the same amount — `amount + tipAmount`, in cents.
+   * first and charged in the same amount, with the service fee when the
+   * account has one — `amount + tipAmount + feeAmount`, in cents.
    */
   async createTerminalIntent(input: TerminalIntentInput): Promise<Stripe.PaymentIntent> {
     const intent = await this.client().paymentIntents.create(
       {
-        amount: toCents(input.amount) + toCents(input.tipAmount),
+        amount: toCents(input.amount) + toCents(input.tipAmount) + toCents(input.feeAmount ?? 0),
         currency: input.currency,
         payment_method_types: ['card_present'],
         capture_method: 'automatic',

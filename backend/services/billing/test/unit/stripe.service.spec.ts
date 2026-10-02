@@ -77,6 +77,16 @@ describe('StripeService — Stripe Terminal (Tap to Pay)', () => {
     expect(intent).toMatchObject({ id: 'pi_t1', client_secret: 'pi_t1_secret_x' });
   });
 
+  it('charges the service fee with the amount and the tip — all of it in cents', async () => {
+    const client = fakeStripeClient();
+    const stripe = new StripeService(client as any);
+    await stripe.createTerminalIntent({ ...intentInput, feeAmount: 3.47 });
+    expect(client.paymentIntents.create).toHaveBeenCalledWith(
+      expect.objectContaining({ amount: 11_897, payment_method_types: ['card_present'] }),
+      { idempotencyKey: 'terminal_p1' },
+    );
+  });
+
   it('refuses an intent Stripe returned without a client secret — the phone could not collect it', async () => {
     const client = fakeStripeClient();
     client.paymentIntents.create.mockResolvedValueOnce({ id: 'pi_t1', object: 'payment_intent', client_secret: null } as any);
