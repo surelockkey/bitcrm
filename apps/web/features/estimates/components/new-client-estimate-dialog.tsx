@@ -96,20 +96,23 @@ function ClientSearch({ onPick }: { onPick: (c: Contact) => void }) {
   const showList = !tooShort && query.trim().length >= 2;
 
   return (
-    <div className="relative">
-      <Search className="pointer-events-none absolute top-1/2 right-3 size-4 -translate-y-1/2 text-muted-foreground" />
-      <Input
-        role="combobox"
-        aria-label="Name, email or phone"
-        aria-expanded={showList}
-        aria-controls={listId}
-        aria-autocomplete="list"
-        placeholder="Name, email or phone"
-        className="h-11 pr-9"
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        autoFocus
-      />
+    <div>
+      {/* The magnifier belongs to the field, not to the field + list below it. */}
+      <div className="relative">
+        <Search className="pointer-events-none absolute top-1/2 right-3 size-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          role="combobox"
+          aria-label="Name, email or phone"
+          aria-expanded={showList}
+          aria-controls={listId}
+          aria-autocomplete="list"
+          placeholder="Name, email or phone"
+          className="h-11 pr-9"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          autoFocus
+        />
+      </div>
       {showList ? (
         <div id={listId} role="listbox" aria-label="Clients" className="mt-1 max-h-72 overflow-y-auto rounded-md border bg-popover shadow-md">
           {isLoading && matches.length === 0 ? (
