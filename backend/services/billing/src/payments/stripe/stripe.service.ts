@@ -55,6 +55,24 @@ export interface TerminalIntentInput {
   idempotencyKey: string;
 }
 
+/** A card the technician TYPED on the phone (card-not-present): created and confirmed in one call. */
+export interface KeyedIntentInput {
+  /** Dollars toward the balance / deposit. */
+  amount: number;
+  /** Dollars on top, chosen before the card is charged. */
+  tipAmount: number;
+  /** The service fee on top (`surchargePercent` of amount + tip), dollars; 0 when the account charges none. */
+  feeAmount: number;
+  currency: string;
+  /** `pm_…` the phone made from the typed card with @stripe/stripe-react-native — no card number reaches us. */
+  paymentMethodId: string;
+  description: string;
+  /** `paymentId` is the webhook's join; Stripe copies intent metadata onto the charge. */
+  metadata: Record<string, string>;
+  /** One per payment attempt: a retried POST gets the same intent — and the same outcome — back. */
+  idempotencyKey: string;
+}
+
 /** Raised when a webhook body is not signed by Stripe (or is too old). */
 export class WebhookSignatureError extends Error {
   constructor(message: string) {
@@ -254,6 +272,35 @@ export class StripeService {
       throw new ServiceUnavailableException('Stripe did not return a client secret for this payment');
     }
     return intent;
+  }
+
+  /**
+   * "Type card manually": a `card` PaymentIntent for `amount + tip + fee` (in
+   * cents), CONFIRMED in the same call with the PaymentMethod the phone
+   * created — the client is present, the technician typed their card.
+   * Captured automatically. `use_stripe_sdk` lets the phone finish a 3-D
+   * Secure step (`requires_action`) with `handleNextAction(clientSecret)`;
+   * the charge comes back expanded so the card's brand and last 4 land with
+   * the settlement. A decline is Stripe's error (`StripeCardError`, carrying
+   * the intent) and is left to the caller, untouched: it decides what a
+   * refused card means for the attempt.
+   */
+  async createKeyedIntent(input: KeyedIntentInput): Promise<Stripe.PaymentIntent> {
+    return this.client().paymentIntents.create(
+      {
+        amount: toCents(input.amount) + toCents(input.tipAmount) + toCents(input.feeAmount),
+        currency: input.currency,
+        payment_method: input.paymentMethodId,
+        payment_method_types: ['card'],
+        confirm: true,
+        capture_method: 'automatic',
+        use_stripe_sdk: true,
+        description: input.description,
+        metadata: input.metadata,
+        expand: ['latest_charge'],
+      },
+      { idempotencyKey: input.idempotencyKey },
+    );
   }
 
   async cancelPaymentIntent(

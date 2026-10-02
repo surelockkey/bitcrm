@@ -124,3 +124,57 @@ describe('StripeService — Stripe Terminal (Tap to Pay)', () => {
     await expect(stripe.cancelPaymentIntent('pi_t1', 'abandoned')).rejects.toThrow(ServiceUnavailableException);
   });
 });
+
+describe('StripeService — a card typed in on the phone (keyed, card-not-present)', () => {
+  const keyedInput = {
+    amount: 100,
+    tipAmount: 15,
+    feeAmount: 3.45,
+    currency: 'usd',
+    paymentMethodId: 'pm_1Abc',
+    description: 'Invoice K4T9ZW',
+    metadata: { paymentId: 'p1', invoiceId: 'deal-1', dealId: 'deal-1', contactId: 'contact-1', channel: 'keyed', env: 'local' },
+    idempotencyKey: 'keyed_p1',
+  };
+
+  it('creates AND confirms a `card` PaymentIntent with the phone’s PaymentMethod, for amount + tip + fee in cents', async () => {
+    const client = fakeStripeClient();
+    client.paymentIntents.create.mockResolvedValueOnce({
+      id: 'pi_k1',
+      object: 'payment_intent',
+      client_secret: 'pi_k1_secret_x',
+      status: 'succeeded',
+    } as any);
+    const stripe = new StripeService(client as any);
+    const intent = await stripe.createKeyedIntent(keyedInput);
+    expect(client.paymentIntents.create).toHaveBeenCalledWith(
+      {
+        amount: 11_845,
+        currency: 'usd',
+        payment_method: 'pm_1Abc',
+        payment_method_types: ['card'],
+        confirm: true,
+        capture_method: 'automatic',
+        use_stripe_sdk: true,
+        description: 'Invoice K4T9ZW',
+        metadata: { paymentId: 'p1', invoiceId: 'deal-1', dealId: 'deal-1', contactId: 'contact-1', channel: 'keyed', env: 'local' },
+        // The card that paid comes back with it — brand and last 4 land with the settlement.
+        expand: ['latest_charge'],
+      },
+      { idempotencyKey: 'keyed_p1' },
+    );
+    expect(intent).toMatchObject({ id: 'pi_k1', status: 'succeeded' });
+  });
+
+  it('lets Stripe’s own error through untouched — a decline is the caller’s to read', async () => {
+    const client = fakeStripeClient();
+    const declined = Object.assign(new Error('Your card was declined.'), { type: 'StripeCardError', rawType: 'card_error', statusCode: 402 });
+    client.paymentIntents.create.mockRejectedValueOnce(declined);
+    const stripe = new StripeService(client as any);
+    await expect(stripe.createKeyedIntent(keyedInput)).rejects.toBe(declined);
+  });
+
+  it('answers 503 when Stripe is not configured', async () => {
+    await expect(new StripeService(null).createKeyedIntent(keyedInput)).rejects.toThrow(ServiceUnavailableException);
+  });
+});
