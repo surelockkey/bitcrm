@@ -19,7 +19,7 @@ export const SUBSCRIBED_STRIPE_EVENTS = [
   'payment_intent.succeeded',
   'payment_intent.processing',
   'payment_intent.payment_failed',
-  // Tap to Pay: an attempt cancelled on the device, and the card that paid.
+  // Phone cards (Tap to Pay, typed): an attempt cancelled on the device, and the card that paid.
   'payment_intent.canceled',
   'charge.succeeded',
   'charge.refunded',
@@ -136,6 +136,9 @@ export class StripeEventsHandler {
     if (!this.stripe.available) return;
     if (payment.stripePaymentIntentId) {
       const intent = await this.stripe.retrievePaymentIntent(payment.stripePaymentIntentId);
+      if (payment.channel === 'keyed' && intent.status === 'requires_action') {
+        return this.abandonKeyed(payment, intent);
+      }
       const type = INTENT_EVENT[intent.status];
       if (!type) return;
       return this.onIntent(intent, type);
@@ -147,6 +150,25 @@ export class StripeEventsHandler {
     }
     if (session.status === 'complete') return this.onSession(session, 'checkout.session.completed');
     // Still open: the customer may yet finish it.
+  }
+
+  /**
+   * A card typed on a phone still waiting for its 3-D Secure step when the
+   * sweep comes round (past the sweep's age) was abandoned: the client is
+   * long gone. The intent is cancelled at Stripe — so it can never be
+   * charged later, behind everyone's back — and the payment fails with
+   * Stripe's cancellation. If Stripe will not cancel it (the step finished
+   * just now), what Stripe says happened is asserted instead.
+   */
+  private async abandonKeyed(payment: Payment, intent: Stripe.PaymentIntent): Promise<void> {
+    let cancelled: Stripe.PaymentIntent;
+    try {
+      cancelled = await this.stripe.cancelPaymentIntent(intent.id, 'abandoned');
+    } catch (err) {
+      this.logger.warn(`payment ${payment.id}: intent ${intent.id} was not cancelled (${(err as Error).message}) — asking Stripe again`);
+      return this.syncIntent(payment);
+    }
+    return this.onIntent(cancelled, 'payment_intent.canceled');
   }
 
   /**
@@ -249,7 +271,7 @@ export class StripeEventsHandler {
 
   /**
    * The charge that paid: the card's brand and last 4 for the payment row
-   * (Terminal's `card_present`, or an online `card`). Display data only — the
+   * (Terminal's `card_present`, or a `card` — typed on a phone, or online). Display data only — the
    * status is the intent events' business, so this never moves it.
    */
   private async onChargeSucceeded(charge: Stripe.Charge): Promise<void> {

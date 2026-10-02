@@ -324,6 +324,79 @@ describe('stripe webhook — a card tapped on the technician’s phone (card_pre
   });
 });
 
+describe('stripe webhook — a card typed in on the technician’s phone (keyed)', () => {
+  /** The row the card-intent route wrote: pending, intent recorded, $15 tip and a $3.45 service fee on top. */
+  const typed = (over: Partial<Payment> = {}) =>
+    payment({
+      id: 'p1',
+      status: 'pending',
+      source: 'field',
+      takenBy: 'tech-1',
+      channel: 'keyed',
+      transactionMethod: 'Keyed',
+      amount: 100,
+      tipAmount: 15,
+      feeAmount: 3.45,
+      stripePaymentIntentId: 'pi_1',
+      ...over,
+    });
+
+  it('settles on payment_intent.succeeded; the tip and the fee stay on the row and out of the balance', async () => {
+    const { handler, ledger, invoices } = build([typed()]);
+    await handler.receive(event('payment_intent.succeeded', intent({ amount: 11_845 })));
+    await handler.settle();
+    expect(ledger.payments.get('p1')).toMatchObject({ status: 'settled', amount: 100, tipAmount: 15, feeAmount: 3.45 });
+    expect(invoices.applyAmountPaid).toHaveBeenLastCalledWith('deal-1', 100);
+  });
+
+  it('fails on payment_intent.payment_failed with the bank’s reason — a 3-D Secure step that failed, say', async () => {
+    const { handler, ledger, events } = build([typed()]);
+    await handler.receive(
+      event(
+        'payment_intent.payment_failed',
+        intent({
+          status: 'requires_payment_method',
+          latest_charge: null,
+          last_payment_error: { type: 'card_error', message: 'We are unable to authenticate your payment method.' },
+        }),
+      ),
+    );
+    await handler.settle();
+    expect(ledger.payments.get('p1')).toMatchObject({
+      status: 'failed',
+      failureReason: 'We are unable to authenticate your payment method.',
+    });
+    expect(events.payment).toHaveBeenCalledWith(BillingEventType.PAYMENT_FAILED, expect.anything());
+  });
+
+  it('fails on payment_intent.canceled, saying why', async () => {
+    const { handler, ledger } = build([typed()]);
+    await handler.receive(
+      event('payment_intent.canceled', intent({ status: 'canceled', cancellation_reason: 'abandoned', latest_charge: null })),
+    );
+    await handler.settle();
+    expect(ledger.payments.get('p1')).toMatchObject({ status: 'failed', failureReason: 'The payment was cancelled (abandoned)' });
+  });
+
+  it('stores the typed card’s brand and last 4 from charge.succeeded (payment_method_details.card) and never moves the status', async () => {
+    const { handler, ledger, invoices } = build([typed()]);
+    await handler.receive(
+      event('charge.succeeded', {
+        id: 'ch_1',
+        object: 'charge',
+        status: 'succeeded',
+        amount: 11_845,
+        payment_intent: 'pi_1',
+        metadata: { paymentId: 'p1', dealId: 'deal-1', channel: 'keyed' },
+        payment_method_details: { type: 'card', card: { brand: 'amex', last4: '0005' } },
+      }),
+    );
+    await handler.settle();
+    expect(ledger.payments.get('p1')).toMatchObject({ status: 'pending', cardBrand: 'amex', last4: '0005', stripeChargeId: 'ch_1' });
+    expect(invoices.applyAmountPaid).not.toHaveBeenCalled();
+  });
+});
+
 describe('stripe webhook — two writers on one payment', () => {
   it('re-reads the row and asserts again when another write got there first', async () => {
     const { handler, ledger } = build([payment({ id: 'p1', status: 'pending', stripePaymentIntentId: 'pi_1' })]);

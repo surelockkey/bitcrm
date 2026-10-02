@@ -152,6 +152,34 @@ describe('payment report — lines (Workiz arithmetic)', () => {
     expect(paid).toMatchObject({ type: 'charge', amount: 69, tip: 9, last4: '4242', transactionMethod: 'Tap to Pay', collectedById: uid });
   });
 
+  it('a typed-card attempt is a line only once the card was tried — collected, or declined — like a Tap to Pay one', () => {
+    const uid = '0f8fad5b-d9cb-469f-a165-70867728950e';
+    const typed = payment({
+      channel: 'keyed',
+      status: 'pending',
+      source: 'field',
+      takenBy: uid,
+      transactionMethod: 'Keyed',
+      stripePaymentIntentId: 'pi_k',
+      amount: 60,
+      tipAmount: 9,
+      feeAmount: 2.07,
+    });
+    // Waiting for its 3-D Secure step, given up, replaced — or Stripe never answered: no money moved.
+    expect(isUnconfirmedCheckout(typed)).toBe(true);
+    expect(reportLines(typed, [], {}, TZ)).toEqual([]);
+    expect(reportLines({ ...typed, status: 'failed', failureReason: 'Replaced by a newer payment attempt' }, [], {}, TZ)).toEqual([]);
+    const { stripePaymentIntentId: _pi, ...noAnswer } = typed;
+    expect(reportLines({ ...noAnswer, status: 'failed', failureReason: 'Stripe did not answer' }, [], {}, TZ)).toEqual([]);
+    // A declined card has a charge: Workiz lists the failed attempt.
+    const declined = reportLines({ ...typed, status: 'failed', stripeChargeId: 'ch_k', failureReason: 'Your card was declined.' }, [], {}, TZ);
+    expect(declined).toHaveLength(1);
+    expect(declined[0]).toMatchObject({ status: 'failed', amount: 0, description: 'Your card was declined.' });
+    // Collected: a "Credit charge", with the card and how it was taken.
+    const [paid] = reportLines({ ...typed, status: 'settled', stripeChargeId: 'ch_k', last4: '4242' }, [], {}, TZ);
+    expect(paid).toMatchObject({ type: 'charge', amount: 69, tip: 9, last4: '4242', transactionMethod: 'Keyed', collectedById: uid });
+  });
+
   it('maps our five methods onto Workiz types', () => {
     expect(paymentReportType(payment({ method: 'card' }))).toBe('credit');
     expect(paymentReportType(payment({ method: 'card', stripePaymentIntentId: 'pi' }))).toBe('charge');
