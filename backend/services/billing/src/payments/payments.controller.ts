@@ -11,6 +11,7 @@ import { ListPaymentsQueryDto } from './dto/list-payments-query.dto';
 import { UpdatePaymentSettingsDto } from './dto/payment-settings.dto';
 import { RecordPaymentDto } from './dto/record-payment.dto';
 import { RefundPaymentDto } from './dto/refund-payment.dto';
+import { SendReceiptDto } from './dto/send-receipt.dto';
 import { PaymentSettingsService } from './payment-settings.service';
 import { PaymentsService } from './payments.service';
 import { StripeService } from './stripe/stripe.service';
@@ -163,19 +164,25 @@ export class PaymentsController {
   @RequirePermission('payments', 'collect')
   @HttpCode(200)
   @ApiOperation({
-    summary: 'Re-send the client their receipt',
+    summary: 'Send the client their receipt',
     description:
       '**Guard:** `payments.collect`. Goes out through messaging-service on the caller’s own bearer ' +
-      '(billing never texts or emails anyone itself) — SMS when the contact has a number, otherwise ' +
-      'email. → `{ sent, sentTo? }`; `sent: false` when the contact has no reachable address. ' +
-      '409 before the payment has actually been collected.',
+      '(billing never texts or emails anyone itself). Optional body `{ channel?: "email" | "sms", to? }` — ' +
+      'Workiz "Send a receipt?" with its editable Email field: `channel: "email"` + `to` emails that address ' +
+      '(subject "Your payment with <business name>"; an address the client does not have is taken onto their ' +
+      'thread), `channel: "sms"` + an E.164 `to` texts that number (one the client does not have gets its own ' +
+      'thread), `channel` alone uses the client’s own address of that kind. No body: SMS when the contact has a ' +
+      'number, otherwise email, as before. → `{ sent, sentTo? }`; `sent: false` when there is nowhere to send ' +
+      'it. 400 for an address that does not fit its channel, or `to` without `channel`; 409 before the payment ' +
+      'has actually been collected.',
   })
   async receipt(
     @Param('paymentId') paymentId: string,
+    @Body() dto: SendReceiptDto,
     @CallerCtx() caller: Caller,
     @Headers('authorization') authorization?: string,
   ) {
-    return { success: true, data: await this.payments.sendReceipt(paymentId, caller, authorization) };
+    return { success: true, data: await this.payments.sendReceipt(paymentId, caller, authorization, dto) };
   }
 
   @Delete(':paymentId')

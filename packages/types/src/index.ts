@@ -518,6 +518,7 @@ export {
   EMPTY_PAYMENT_SUMMARY,
   DEFAULT_PAYMENT_SETTINGS,
   MAX_SURCHARGE_PERCENT,
+  PAYMENT_RECEIPT_CHANNELS,
 } from './entities/payment.entity';
 export type {
   Payment,
@@ -532,6 +533,9 @@ export type {
   TerminalIntentOutcome,
   KeyedIntentStatus,
   KeyedPaymentIntent,
+  PaymentReceiptChannel,
+  PaymentReceiptRequest,
+  PaymentReceiptResult,
   PaymentRefund,
   RefundStatus,
   PaymentSummary,

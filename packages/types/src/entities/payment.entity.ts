@@ -397,6 +397,28 @@ export interface TerminalIntentOutcome {
   ledger: JobPaymentLedger;
 }
 
+/** How `POST /payments/:paymentId/receipt` may send a receipt. */
+export const PAYMENT_RECEIPT_CHANNELS = ['email', 'sms'] as const;
+export type PaymentReceiptChannel = (typeof PAYMENT_RECEIPT_CHANNELS)[number];
+
+/**
+ * `POST /payments/:paymentId/receipt` body (Workiz "Send a receipt?", whose
+ * Email field is editable). No body: the client's first number, else their
+ * first email. `channel` alone: the client's own address of that kind. With
+ * `to` (needs `channel`): that address — an email (taken onto the client's
+ * thread when it is new to it), or an E.164 number.
+ */
+export interface PaymentReceiptRequest {
+  channel?: PaymentReceiptChannel;
+  to?: string;
+}
+
+/** `POST /payments/:paymentId/receipt` — `sent: false` when there is nowhere to send it. */
+export interface PaymentReceiptResult {
+  sent: boolean;
+  sentTo?: string;
+}
+
 /** Created per payment attempt — never baked into the emailed link (24h expiry). */
 export interface PortalPaymentSession {
   /** Stripe Checkout Session client secret, for the embedded Payment Element. */

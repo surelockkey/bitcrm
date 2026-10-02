@@ -10,6 +10,22 @@ export interface SendClientMessage {
   body: string;
   /** Email only. */
   subject?: string;
+  /**
+   * The address to use instead of the thread's first: an email — taken onto
+   * the client's thread when it is new to it (messaging does that for a client
+   * thread) — or one of the client's numbers.
+   */
+  toAddress?: string;
+  /** The job it is about: messaging files the message under it and checks an `assigned_only` sender against its roster. */
+  dealId?: string;
+}
+
+/** A text to a bare number that is not one of the client's. */
+export interface SendNumberMessage {
+  /** E.164. */
+  phone: string;
+  body: string;
+  dealId?: string;
 }
 
 /**
@@ -38,8 +54,32 @@ export class MessagingClient {
         body: message.body,
         ...(message.subject && { subject: message.subject }),
         contactId: message.contactId,
+        ...(message.toAddress && { toAddress: message.toAddress }),
+        ...(message.dealId && { dealId: message.dealId }),
       },
       operation: 'sendClientMessage',
+      headers: { authorization },
+      timeoutMs: 15_000,
+    });
+  }
+
+  /**
+   * A text to a number that is not one of the client's (typed on the phone):
+   * messaging routes it as it routes any bare number — the thread that number
+   * already has, its owner's in CRM, or a new one keyed by it — and never
+   * adds the number to the client's thread.
+   */
+  async sendToNumber(message: SendNumberMessage, authorization: string): Promise<void> {
+    await this.http.request('/api/messaging/messages', {
+      method: 'POST',
+      body: {
+        clientMessageId: randomUUID(),
+        channel: 'sms',
+        body: message.body,
+        phone: message.phone,
+        ...(message.dealId && { dealId: message.dealId }),
+      },
+      operation: 'sendNumberMessage',
       headers: { authorization },
       timeoutMs: 15_000,
     });

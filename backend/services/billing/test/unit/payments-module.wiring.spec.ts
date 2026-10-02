@@ -4,6 +4,7 @@ import { Test } from '@nestjs/testing';
 import { DynamoDbService, PermissionCacheReader, RedisService, S3Service } from '@bitcrm/shared';
 import { IntegrationsModule } from 'src/integrations/integrations.module';
 import { PaymentsModule } from 'src/payments/payments.module';
+import { PaymentsService } from 'src/payments/payments.service';
 import { StripeModule } from 'src/payments/stripe/stripe.module';
 import { TerminalService } from 'src/payments/terminal/terminal.service';
 
@@ -36,6 +37,16 @@ describe('PaymentsModule wiring', () => {
     expect((terminal as any).estimates).toBeDefined();
     expect((terminal as any).profiles).toBeDefined();
     expect((terminal as any).signatures).toBeDefined();
+    await mod.close();
+  });
+
+  it('gives PaymentsService the companies (the receipt names the business)', async () => {
+    const mod = await Test.createTestingModule({
+      imports: [PlatformStubs, IntegrationsModule, StripeModule.forRootAsync(), PaymentsModule],
+    }).compile();
+    const payments = mod.get(PaymentsService);
+    expect((payments as any).profiles).toBeDefined();
+    expect((payments as any).messaging).toBeDefined();
     await mod.close();
   });
 });

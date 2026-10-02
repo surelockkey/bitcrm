@@ -8,6 +8,7 @@ import {
   NotFoundException,
   Optional,
 } from '@nestjs/common';
+import { tryNormalizePhone } from '@bitcrm/shared';
 import {
   BillingEventType,
   TimelineEventType,
@@ -17,11 +18,15 @@ import {
   type OnlinePaymentMethod,
   type Payment,
   type PaymentMethod,
+  type PaymentReceiptRequest,
+  type PaymentReceiptResult,
   type PaymentRefund,
   type PaymentStatus,
   type PaymentSummary,
   type RefundStatus,
 } from '@bitcrm/types';
+import { isEmail } from 'class-validator';
+import { BusinessProfileService } from '../business-profile/business-profile.service';
 import { assertDealAccess, isAssignedOnly, type Caller } from '../common/access';
 import { BillingEventsPublisher } from '../integrations/billing-events.publisher';
 import { CrmClient } from '../integrations/crm.client';
@@ -29,6 +34,7 @@ import { DealClient, type DealBillingView } from '../integrations/deal.client';
 import { computeInvoiceTotals } from '../invoices/invoice-rules';
 import { MessagingClient } from '../integrations/messaging.client';
 import { InvoicesService } from '../invoices/invoices.service';
+import { RECEIPT_E164 } from './dto/send-receipt.dto';
 import { PaymentSettingsService } from './payment-settings.service';
 import {
   PaymentAmountError,
@@ -130,6 +136,7 @@ export class PaymentsService {
     @Optional() private readonly crm?: CrmClient,
     @Optional() private readonly messaging?: MessagingClient,
     @Optional() private readonly report?: PaymentReportProjector,
+    @Optional() private readonly profiles?: BusinessProfileService,
   ) {}
 
   // -------------------------------------------------------------- ledger read
@@ -210,15 +217,26 @@ export class PaymentsService {
   }
 
   /**
-   * Re-sends the client their receipt. Billing never texts or emails anyone
+   * Sends the client their receipt. Billing never texts or emails anyone
    * itself — messaging owns client comms, and it is called on the CALLER's
    * bearer, exactly as the web app's "Send by text" dialog does.
+   *
+   * Where it goes (Workiz "Send a receipt?", whose Email field is editable):
+   * no `channel` — today's rule, the client's first number, else their first
+   * email; `channel` alone — the client's own address of that kind; `channel`
+   * + `to` — the address typed on the phone. An email the client does not
+   * have is taken onto their thread by messaging; a number they do not have
+   * is texted on that number's own thread (messaging never adds a typed
+   * number to the client's). The message names the job it is about, so
+   * messaging checks an assigned technician against that job's roster.
    */
   async sendReceipt(
     paymentId: string,
     caller: Caller,
     authorization?: string,
-  ): Promise<{ sent: boolean; sentTo?: string }> {
+    request: PaymentReceiptRequest = {},
+  ): Promise<PaymentReceiptResult> {
+    const target = receiptTarget(request);
     const payment = await this.require(paymentId);
     const { invoice, view } = await this.paymentContext(payment, caller);
     if (payment.status !== 'settled' && payment.status !== 'refunded') {
@@ -227,33 +245,49 @@ export class PaymentsService {
     if (!this.messaging || !this.crm || !authorization) return { sent: false };
 
     const contact = await this.crm.getContact(payment.contactId).catch(() => null);
-    const phone = contact?.phones?.[0];
-    const email = contact?.emails?.[0];
-    const sentTo = phone || email;
+    const phones = contact?.phones ?? [];
+    const emails = contact?.emails ?? [];
+    const channel: 'sms' | 'email' = target.channel ?? (phones[0] ? 'sms' : 'email');
+    const sentTo = target.to ?? (channel === 'sms' ? phones[0] : emails[0]);
     if (!sentTo) return { sent: false };
 
-    const refunded = (payment.refundedAmount ?? 0) > 0;
     // A job without an invoice (Workiz: payments belong to the job) is named by its number.
     const what = invoice ? `invoice ${invoice.number}` : `job ${view.deal.dealNumber}`;
     const balanceDue = invoice
       ? invoice.totals?.balanceDue ?? 0
       : await this.jobBalance(view, payment.invoiceId);
-    const body =
-      `Receipt for ${what}: $${payment.amount.toFixed(2)} received ` +
-      `(${payment.method}) on ${payment.takenAt.slice(0, 10)}.` +
-      (refunded ? ` $${(payment.refundedAmount ?? 0).toFixed(2)} of it has been refunded.` : '') +
-      ` Balance due: $${balanceDue.toFixed(2)}.`;
+    const body = receiptBody(payment, what, balanceDue);
+    const job = UUID.test(payment.dealId) ? { dealId: payment.dealId } : {};
 
+    if (channel === 'sms' && target.to && !phones.some((p) => tryNormalizePhone(p) === target.to)) {
+      await this.messaging.sendToNumber({ phone: target.to, body, ...job }, authorization);
+      return { sent: true, sentTo };
+    }
+    const subject =
+      channel !== 'email'
+        ? undefined
+        : target.channel
+          ? `Your payment with ${await this.businessName(view)}`
+          : `Payment receipt — ${what}`;
     await this.messaging.sendToContact(
       {
         contactId: payment.contactId,
-        channel: phone ? 'sms' : 'email',
+        channel,
         body,
-        ...(phone ? {} : { subject: `Payment receipt — ${what}` }),
+        ...(subject && { subject }),
+        ...(target.to && { toAddress: target.to }),
+        ...job,
       },
       authorization,
     );
     return { sent: true, sentTo };
+  }
+
+  /** The job's company — the one its documents render with — falling back to the default company. */
+  private async businessName(view: DealBillingView): Promise<string> {
+    const id = view.deal.businessProfileId ?? view.businessProfileId;
+    const company = await this.profiles?.get(id).catch(() => null);
+    return company?.name?.trim() || view.businessProfileName?.trim() || 'us';
   }
 
   // ------------------------------------------------------------ offline write
@@ -635,6 +669,52 @@ function jobTotal(view: DealBillingView, amountPaid: number): number {
 }
 
 const balanceOf = (total: number, amountPaid: number): number => round2(Math.max(0, total - amountPaid));
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * The receipt request, checked here as well as by the DTO (the service is
+ * called directly, too): an email for `email`, an E.164 number for `sms`, and
+ * `to` only with a `channel` — 400 otherwise. The email is lower-cased, as
+ * messaging keeps it.
+ */
+function receiptTarget(request: PaymentReceiptRequest | undefined): PaymentReceiptRequest {
+  const channel = request?.channel;
+  const to = request?.to;
+  if (channel !== undefined && channel !== 'email' && channel !== 'sms') {
+    throw new BadRequestException('channel must be email or sms');
+  }
+  if (to === undefined || to === null) return channel ? { channel } : {};
+  if (!channel) throw new BadRequestException('Say how to send the receipt: channel email or sms');
+  const value = typeof to === 'string' ? to.trim() : '';
+  if (channel === 'email') {
+    if (!isEmail(value)) throw new BadRequestException('That is not an email address');
+    return { channel, to: value.toLowerCase() };
+  }
+  if (!RECEIPT_E164.test(value)) {
+    throw new BadRequestException('A receipt is texted to an E.164 number, like +18605550100');
+  }
+  return { channel, to: value };
+}
+
+/** The receipt's text: what was received, what the card paid in all (tip, service fee), and what is still owed. */
+function receiptBody(payment: Payment, what: string, balanceDue: number): string {
+  const tip = payment.tipAmount ?? 0;
+  const fee = payment.feeAmount ?? 0;
+  const extras = [tip > 0 && `a $${tip.toFixed(2)} tip`, fee > 0 && `a $${fee.toFixed(2)} service fee`].filter(
+    (e): e is string => !!e,
+  );
+  const inAll = extras.length
+    ? `, plus ${extras.join(' and ')} — $${round2(payment.amount + tip + fee).toFixed(2)} in all.`
+    : '.';
+  const refunded = (payment.refundedAmount ?? 0) > 0;
+  return (
+    `Receipt for ${what}: $${payment.amount.toFixed(2)} received ` +
+    `(${payment.method}) on ${payment.takenAt.slice(0, 10)}${inAll}` +
+    (refunded ? ` $${(payment.refundedAmount ?? 0).toFixed(2)} of it has been refunded.` : '') +
+    ` Balance due: $${balanceDue.toFixed(2)}.`
+  );
+}
 
 /**
  * What staff may take against `amountDue` — the record-payment rule, shared
