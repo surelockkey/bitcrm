@@ -7,6 +7,8 @@ const INTERNAL_SECRET = process.env.INTERNAL_SERVICE_SECRET || '';
 /** What `POST /messages` needs of a contact to open its conversation. */
 export interface ContactAddresses {
   id: string;
+  /** "First Last", when CRM has one — the portal lines in the thread name the client. */
+  name?: string;
   phones: string[];
   emails: string[];
 }
@@ -44,11 +46,13 @@ export class CrmContactsClient {
         return null;
       }
       const body = (await res.json()) as {
-        data?: { id?: string; phones?: string[]; emails?: string[] } | null;
+        data?: { id?: string; firstName?: string; lastName?: string; phones?: string[]; emails?: string[] } | null;
       };
       if (!body.data?.id) return null;
+      const name = [body.data.firstName, body.data.lastName].map((p) => p?.trim()).filter(Boolean).join(' ');
       return {
         id: body.data.id,
+        ...(name && { name }),
         phones: body.data.phones ?? [],
         emails: (body.data.emails ?? []).map((e) => e.toLowerCase()),
       };

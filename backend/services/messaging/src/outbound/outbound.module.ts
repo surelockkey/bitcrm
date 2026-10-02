@@ -24,6 +24,7 @@ import { OUTBOUND_JOB_EVENT, OutboundQueueProducer } from './outbound-queue.prod
 import { OutboundRepository } from './outbound.repository';
 import { OutboundWorker } from './outbound.worker';
 import { SendController } from './send.controller';
+import { PortalEventsController } from './portal-events.controller';
 import { SendService } from './send.service';
 import { SenderResolver } from './sender.resolver';
 import { StatusCallbackService } from './status-callback.service';
@@ -58,7 +59,7 @@ export const OUTBOUND_SQS_CONSUMER = Symbol('OUTBOUND_SQS_CONSUMER');
     // M17: the email sender-address rules for the accept path and the worker the FIFO consumer hands `email` jobs to.
     EmailModule,
   ],
-  controllers: [SendController, OutboundAttachmentsController, StatusController],
+  controllers: [SendController, OutboundAttachmentsController, StatusController, PortalEventsController],
   providers: [
     { provide: OUTBOUND_CONFIG, useFactory: loadOutboundConfig },
     // M11 ↔ M9: `templateId` on a send is rendered server-side through the templates module.

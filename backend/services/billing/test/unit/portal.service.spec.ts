@@ -594,6 +594,62 @@ describe('PortalService', () => {
     });
   });
 
+  describe('what the client does lands in their chat (Workiz)', () => {
+    const recorded = () => messaging.recordPortalEvent.mock.calls.map((c: unknown[]) => c[0]);
+    let messaging: { recordPortalEvent: jest.Mock };
+    let svc: PortalService;
+    beforeEach(() => {
+      messaging = { recordPortalEvent: jest.fn(async () => undefined) };
+      svc = new PortalService(
+        repo as never,
+        crm as never,
+        invoices as never,
+        estimates as never,
+        profiles as never,
+        deals as never,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        messaging as never,
+      );
+    });
+
+    it('opening a document on the portal records a view — once a day per document', async () => {
+      const { token } = await svc.createLink('contact-1', user());
+      await svc.publicHtml(token!, 'estimate', 'est-1');
+      expect(recorded()).toEqual([
+        {
+          contactId: 'contact-1',
+          event: 'viewed',
+          document: { kind: 'estimate', id: 'est-1', number: 'K4T9ZW-1' },
+          dealId: 'deal-1',
+          eventKey: 'viewed:estimate:est-1:2026-09-16',
+        },
+      ]);
+    });
+
+    it('approving (signing) and declining an estimate, and signing an invoice, say who did it', async () => {
+      const { token } = await svc.createLink('contact-1', user());
+      await svc.approveEstimate(token!, 'est-1', { imageDataUrl: 'data:,', signedBy: 'Jane Client', ip: '1.1.1.1' } as never);
+      await svc.declineEstimate(token!, 'est-1', { reason: 'too much' });
+      await svc.signInvoice(token!, 'deal-1', { imageDataUrl: 'data:,', signedBy: 'Josh W', ip: '1.1.1.1' } as never);
+      expect(recorded()).toEqual([
+        expect.objectContaining({ event: 'signed', document: { kind: 'estimate', id: 'est-1', number: 'K4T9ZW-1' }, actorName: 'Jane Client', eventKey: 'signed:estimate:est-1' }),
+        expect.objectContaining({ event: 'declined', document: { kind: 'estimate', id: 'est-1', number: 'K4T9ZW-1' }, eventKey: 'declined:estimate:est-1' }),
+        expect.objectContaining({ event: 'signed', document: { kind: 'invoice', id: 'deal-1', number: 'K4T9ZW' }, actorName: 'Josh W', eventKey: expect.stringMatching(/^signed:invoice:deal-1:/) }),
+      ]);
+    });
+
+    it('the chat being down never costs the client their view or their signature', async () => {
+      messaging.recordPortalEvent.mockRejectedValue(new Error('messaging down'));
+      const { token } = await svc.createLink('contact-1', user());
+      await expect(svc.publicHtml(token!, 'invoice', 'deal-1')).resolves.toEqual({ html: '<html>invoice</html>' });
+      await expect(svc.approveEstimate(token!, 'est-1', { imageDataUrl: 'data:,', signedBy: 'J', ip: '1' } as never)).resolves.toBeDefined();
+    });
+  });
+
   describe('public pdf', () => {
     let token: string;
     beforeEach(async () => {

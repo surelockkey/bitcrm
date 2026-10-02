@@ -67,3 +67,23 @@ describe('MessagingClient — billing asks messaging, on the caller’s bearer',
     expect(calls[0].init.headers).toMatchObject({ authorization: 'Bearer abc' });
   });
 });
+
+describe('MessagingClient.recordPortalEvent — the portal line in the client’s thread', () => {
+  it('posts to messaging’s internal route on the service secret, not a caller’s bearer', async () => {
+    const { fetchImpl, calls } = fakeFetch();
+    const event = {
+      contactId: 'contact-1',
+      event: 'signed' as const,
+      document: { kind: 'invoice' as const, id: 'deal-1', number: 'K4T9ZW' },
+      dealId: 'deal-1',
+      actorName: 'Jane Client',
+      eventKey: 'signed:invoice:deal-1:2026-10-02T10:00:00.000Z',
+    };
+    await new MessagingClient(fetchImpl as any).recordPortalEvent(event);
+    expect(calls[0].url).toMatch(/\/api\/messaging\/internal\/portal-events$/);
+    expect(calls[0].init.method).toBe('POST');
+    expect(calls[0].init.headers).toHaveProperty('x-internal-secret');
+    expect(calls[0].init.headers).not.toHaveProperty('authorization');
+    expect(JSON.parse(calls[0].init.body)).toEqual(event);
+  });
+});

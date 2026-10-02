@@ -116,4 +116,34 @@ export interface Message {
   workizMeta?: Record<string, unknown>;
   /** `workiz:message:<id>` for imported lines. */
   externalId?: string;
+  /**
+   * A system line about what the client did on the portal (Workiz writes
+   * these into the thread: "Viewed estimate #…", "… signed Invoice #…",
+   * "… submitted payment for invoice #…"). `entityType` / `entityId` name the
+   * document.
+   */
+  portalEvent?: PortalEventKind;
+}
+
+/** What the client did on the portal that the thread records as a system line. */
+export const PORTAL_EVENT_KINDS = ['viewed', 'signed', 'declined', 'payment'] as const;
+export type PortalEventKind = (typeof PORTAL_EVENT_KINDS)[number];
+
+/**
+ * `POST /api/messaging/internal/portal-events` — billing tells messaging what
+ * the client did, messaging writes the system line into the client's thread.
+ */
+export interface PortalEventRequest {
+  contactId: string;
+  event: PortalEventKind;
+  document: { kind: 'invoice' | 'estimate'; id: string; number: string };
+  /** The job the document belongs to, when it has one. */
+  dealId?: string;
+  /** Who acted, when the portal knows better than CRM (the name typed under a signature). */
+  actorName?: string;
+  /** A payment's amount, in dollars. */
+  amount?: number;
+  /** One line per key: a retry or a second view the same day writes nothing new. */
+  eventKey: string;
+  occurredAt?: string;
 }

@@ -622,10 +622,46 @@ export class PaymentsService {
       balanceDue,
     });
 
+    this.tellChatOfPortalPayment(payment, opts, invoice?.number);
+
     // The Payments report re-derives this payment's lines from the ledger as
     // it now stands. Never throws — a lagging report is fixed by the next
     // write or by `rebuild:payment-report`.
     await this.report?.project(payment.id);
+  }
+
+  /**
+   * Workiz writes "… submitted payment for invoice #…" into the client's chat
+   * when they pay on the portal. Only the client's own portal payment, when
+   * it lands (settled card) or is submitted (pending bank debit) — one line
+   * per payment either way; never staff payments, failures, refunds or a
+   * dispute won back. Fire-and-forget: the ledger never waits on the chat.
+   */
+  private tellChatOfPortalPayment(
+    payment: Payment,
+    opts: { event: BillingEventType; metadata?: Record<string, unknown> },
+    invoiceNumber: string | undefined,
+  ): void {
+    if (!this.messaging || payment.source !== 'portal' || opts.metadata?.disputeId) return;
+    if (opts.event !== BillingEventType.PAYMENT_SUCCEEDED && opts.event !== BillingEventType.PAYMENT_PENDING) return;
+    const messaging = this.messaging;
+    void (async () => {
+      const deposit = payment.estimateId ? await this.estimates?.getStored(payment.estimateId) : undefined;
+      const document = deposit
+        ? { kind: 'estimate' as const, id: deposit.id, number: deposit.number }
+        : invoiceNumber
+          ? { kind: 'invoice' as const, id: payment.invoiceId, number: invoiceNumber }
+          : null;
+      if (!document) return;
+      await messaging.recordPortalEvent({
+        contactId: payment.contactId,
+        event: 'payment',
+        document,
+        dealId: payment.dealId,
+        amount: payment.amount,
+        eventKey: `payment:${payment.id}`,
+      });
+    })().catch((err: Error) => this.logger.warn(`portal payment ${payment.id} not in the chat: ${err.message}`));
   }
 
   /** What is still owed on an invoice, ledger included. */

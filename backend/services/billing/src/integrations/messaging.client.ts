@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Inject, Injectable, Optional } from '@nestjs/common';
 import { BusinessMetricsService } from '@bitcrm/shared';
+import type { PortalEventRequest } from '@bitcrm/types';
 import { MESSAGING_SERVICE_URL } from '../common/constants/services.constants';
 import { INTERNAL_FETCH, InternalHttp, defaultFetch, type FetchLike } from './internal-http';
 
@@ -82,6 +83,21 @@ export class MessagingClient {
       operation: 'sendNumberMessage',
       headers: { authorization },
       timeoutMs: 15_000,
+    });
+  }
+
+  /**
+   * What the client just did on the portal — viewed a document, signed it,
+   * declined an estimate, paid — for messaging to write into their thread as
+   * a system line (Workiz shows these in the chat). Service to service, on
+   * the internal secret: the client has no bearer and nobody on staff acted.
+   */
+  async recordPortalEvent(event: PortalEventRequest): Promise<void> {
+    await this.http.request('/api/messaging/internal/portal-events', {
+      method: 'POST',
+      body: event,
+      operation: 'recordPortalEvent',
+      timeoutMs: 5_000,
     });
   }
 }
