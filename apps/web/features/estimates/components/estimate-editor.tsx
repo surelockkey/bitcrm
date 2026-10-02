@@ -46,6 +46,7 @@ import { formatPhone } from "@/lib/phone";
 import { cn } from "@/lib/utils";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { useDealProducts } from "@/features/deals/hooks";
+import { SyncToJobDialog } from "./sync-to-job-dialog";
 import { formatMoney } from "@/features/billing/lib";
 import { useOpenPdf } from "@/features/billing/open-pdf";
 import { CommitInput, CommitTextarea, DocField } from "@/features/billing/components/document-field";
@@ -70,7 +71,7 @@ import {
   useSyncEstimateToJob,
   useUpdateEstimate,
 } from "../hooks";
-import { estimateLocalTotals, estimateTitle, syncBlockReason, syncConfirmText } from "../lib";
+import { estimateLocalTotals, estimateTitle, syncBlockReason } from "../lib";
 import { estimateHeaderSchema, type EstimateHeaderValues } from "../schemas";
 import { EstimateCoverField } from "./estimate-cover-field";
 import { EstimateItemsTable } from "./estimate-items-table";
@@ -164,6 +165,8 @@ export function EstimateEditor({
   const canSync = can("estimates", "sync");
   const syncBlocked = syncBlockReason(estimate, items.length, canSync, !!deal);
   const jobItemCount = jobProducts?.length ?? deal?.itemCount ?? 0;
+  // Workiz asks Replace / Add only when the job already has items; an empty job takes them at once.
+  const startSync = () => (jobItemCount > 0 ? setSyncing(true) : sync.mutate("replace"));
   // Server totals lag item edits by a refetch; the shared formula bridges it.
   const totals = isFetching ? localTotals : (estimate.totals ?? localTotals);
   const c = client.data;
@@ -234,7 +237,7 @@ export function EstimateEditor({
               <TooltipContent>{syncBlocked}</TooltipContent>
             </Tooltip>
           ) : (
-            <Button variant="outline" size="lg" className={pill} onClick={() => setSyncing(true)} disabled={sync.isPending}>
+            <Button variant="outline" size="lg" className={pill} onClick={startSync} disabled={sync.isPending}>
               {sync.isPending ? <Loader2 className="animate-spin" /> : <ArrowLeftRight />} Sync to job
             </Button>
           )}
@@ -281,7 +284,7 @@ export function EstimateEditor({
           </DropdownMenuItem>
         ) : null}
         {deal && canSync ? (
-          <DropdownMenuItem disabled={!!syncBlocked || sync.isPending} onSelect={() => setSyncing(true)}>
+          <DropdownMenuItem disabled={!!syncBlocked || sync.isPending} onSelect={startSync}>
             <ArrowLeftRight /> Sync to job
           </DropdownMenuItem>
         ) : null}
@@ -657,18 +660,14 @@ export function EstimateEditor({
         downloadPending={pdf.pending}
       />
 
-      <AlertDialog open={syncing} onOpenChange={setSyncing}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Sync estimate #{estimate.number} to the job?</AlertDialogTitle>
-            <AlertDialogDescription>{syncConfirmText(jobItemCount, items.length)}</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={() => sync.mutate()}>Replace job items</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <SyncToJobDialog
+        open={syncing}
+        onOpenChange={setSyncing}
+        onContinue={(mode) => {
+          setSyncing(false);
+          sync.mutate(mode);
+        }}
+      />
 
       {canText ? (
         <SendDocumentDialog

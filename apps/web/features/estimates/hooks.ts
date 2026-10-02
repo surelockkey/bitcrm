@@ -320,14 +320,14 @@ export function useMarkEstimateSent(id: string, dealId?: string) {
   });
 }
 
-/** Overwrite the job's items with the estimate's — refreshes the whole job. */
+/** Put the estimate's items on the job (replace them, or add beside them) — refreshes the whole job. */
 export function useSyncEstimateToJob(id: string, dealId?: string) {
   const qc = useQueryClient();
   const invalidate = useInvalidateEstimates();
   const put = usePutDetail();
   return useMutation({
-    mutationFn: () => api.syncEstimateToJob(id),
-    onSuccess: ({ estimate, itemCount }) => {
+    mutationFn: (mode: "replace" | "append" = "replace") => api.syncEstimateToJob(id, mode),
+    onSuccess: ({ estimate, itemCount }, mode) => {
       put(estimate);
       invalidate(dealId);
       if (dealId) {
@@ -338,7 +338,12 @@ export function useSyncEstimateToJob(id: string, dealId?: string) {
       }
       qc.invalidateQueries({ queryKey: ["deals", "list"] });
       qc.invalidateQueries({ queryKey: queryKeys.invoices.all() });
-      toast.success(`Job items replaced — ${itemCount} item${itemCount === 1 ? "" : "s"} synced from the estimate`);
+      const items = `${itemCount} item${itemCount === 1 ? "" : "s"}`;
+      toast.success(
+        mode === "append"
+          ? `Estimate items added to the job — it now has ${items}`
+          : `Job items replaced — ${items} synced from the estimate`,
+      );
     },
     onError: (e) => toast.error(getApiErrorMessage(e)),
   });

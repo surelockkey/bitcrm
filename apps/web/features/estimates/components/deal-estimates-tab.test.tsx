@@ -231,11 +231,11 @@ describe("DealEstimatesTab — the job's estimates as a list (Workiz)", () => {
 });
 
 describe("EstimateEditor — sync to job", () => {
-  it("confirms with item counts, syncs and refreshes the job", async () => {
-    let synced = false;
+  it("a job that already has items asks the Workiz question; Replace is the default and refreshes the job", async () => {
+    let body: unknown;
     server.use(
-      http.post("*/billing/estimates/e1/sync-to-job", () => {
-        synced = true;
+      http.post("*/billing/estimates/e1/sync-to-job", async ({ request }) => {
+        body = await request.json();
         return HttpResponse.json({ success: true, data: { estimate: { ...estimate, status: "won" }, itemCount: 1 } });
       }),
     );
@@ -243,17 +243,51 @@ describe("EstimateEditor — sync to job", () => {
     const spy = vi.spyOn(client, "invalidateQueries");
     const u = user();
     await u.click(await screen.findByRole("button", { name: /sync to job/i }));
-    expect(
-      await screen.findByText(/replaces the job's 3 current items with the estimate's 1 item/i),
-    ).toBeInTheDocument();
-    await u.click(screen.getByRole("button", { name: /replace job items/i }));
-    await waitFor(() => expect(synced).toBe(true));
-    await waitFor(() =>
-      expect(spy).toHaveBeenCalledWith({ queryKey: queryKeys.deals.products("d1") }),
-    );
+    const dialog = await screen.findByRole("dialog", { name: "This job already has items." });
+    expect(within(dialog).getByText("Please select how you want to proceed:")).toBeInTheDocument();
+    expect(within(dialog).getByRole("radio", { name: "Replace existing job items" })).toBeChecked();
+    expect(within(dialog).getByRole("radio", { name: "Add to existing job items" })).not.toBeChecked();
+    expect(within(dialog).getByRole("button", { name: "Cancel" })).toBeInTheDocument();
+    await u.click(within(dialog).getByRole("button", { name: "Continue" }));
+    await waitFor(() => expect(body).toEqual({ mode: "replace" }));
+    await waitFor(() => expect(spy).toHaveBeenCalledWith({ queryKey: queryKeys.deals.products("d1") }));
     expect(spy).toHaveBeenCalledWith({ queryKey: queryKeys.dealTotals("d1") });
     expect(spy).toHaveBeenCalledWith({ queryKey: queryKeys.deals.detail("d1") });
-    expect(toast.success).toHaveBeenCalledWith(expect.stringMatching(/1 item synced/));
+    expect(toast.success).toHaveBeenCalledWith(expect.stringMatching(/replaced.*1 item/i));
+  });
+
+  it("Add to existing job items appends the estimate's lines", async () => {
+    let body: unknown;
+    server.use(
+      http.post("*/billing/estimates/e1/sync-to-job", async ({ request }) => {
+        body = await request.json();
+        return HttpResponse.json({ success: true, data: { estimate: { ...estimate, status: "won" }, itemCount: 4 } });
+      }),
+    );
+    renderWithClient(<Editor />);
+    const u = user();
+    await u.click(await screen.findByRole("button", { name: /sync to job/i }));
+    const dialog = await screen.findByRole("dialog", { name: "This job already has items." });
+    await u.click(within(dialog).getByRole("radio", { name: "Add to existing job items" }));
+    await u.click(within(dialog).getByRole("button", { name: "Continue" }));
+    await waitFor(() => expect(body).toEqual({ mode: "append" }));
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith(expect.stringMatching(/added to the job/i)));
+  });
+
+  it("a job with no items yet takes the estimate's at once, without asking", async () => {
+    mocks.products = [];
+    let body: unknown;
+    server.use(
+      http.post("*/billing/estimates/e1/sync-to-job", async ({ request }) => {
+        body = await request.json();
+        return HttpResponse.json({ success: true, data: { estimate: { ...estimate, status: "won" }, itemCount: 1 } });
+      }),
+    );
+    renderWithClient(<Editor />);
+    await user().click(await screen.findByRole("button", { name: /sync to job/i }));
+    await waitFor(() => expect(body).toEqual({ mode: "replace" }));
+    expect(screen.queryByRole("dialog", { name: "This job already has items." })).not.toBeInTheDocument();
+    mocks.products = [{ productId: "a" }, { productId: "b" }, { productId: "c" }];
   });
 
   it("offers Send only to someone who may send both estimates and messages", async () => {

@@ -129,14 +129,6 @@ export function syncBlockReason(
   return null;
 }
 
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
-
-export function syncConfirmText(jobItems: number, estimateItems: number): string {
-  return (
-    `This replaces the job's ${plural(jobItems, "current item")} with the estimate's ${plural(estimateItems, "item")}. ` +
-    "Parts are pulled from the assigned technician's stock when available, otherwise marked to order."
-  );
-}
 
 /* --------------------------------------------------------------- items */
 

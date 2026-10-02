@@ -105,8 +105,12 @@ export const reorderEstimateItems = (id: string, lineIds: string[]): Promise<unk
 export const duplicateEstimate = (id: string): Promise<EstimateWithItems> =>
   http.post<EstimateWithItems>(`${BASE}/${id}/duplicate`);
 
-export const syncEstimateToJob = (id: string): Promise<{ estimate: EstimateWithItems; itemCount: number }> =>
-  http.post<{ estimate: EstimateWithItems; itemCount: number }>(`${BASE}/${id}/sync-to-job`);
+/** Workiz "This job already has items": `replace` the job's items, or `append` the estimate's beside them. */
+export const syncEstimateToJob = (
+  id: string,
+  mode: "replace" | "append" = "replace",
+): Promise<{ estimate: EstimateWithItems; itemCount: number }> =>
+  http.post<{ estimate: EstimateWithItems; itemCount: number }>(`${BASE}/${id}/sync-to-job`, { mode });
 
 /** Workiz "Copy to job": a client estimate's lines become the job's items; the estimate joins the job as won. */
 export const copyEstimateToJob = (id: string, dealId: string): Promise<{ estimate: EstimateWithItems; itemCount: number }> =>
