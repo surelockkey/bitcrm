@@ -1,5 +1,7 @@
 import { Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
+import { RedisService } from '@bitcrm/shared';
 import {
+  TimelineEventType,
   estimateDepositDue,
   type BusinessProfile,
   type Estimate,
@@ -102,6 +104,8 @@ export class PortalService {
     // Workiz writes what the client does on the portal into their chat; the
     // portal works the same without it.
     @Optional() @Inject(MessagingClient) private readonly messaging?: MessagingClient,
+    // Counts a document's portal view once a day (job history + chat).
+    @Optional() @Inject(RedisService) private readonly redis?: RedisService,
   ) {}
 
   async getLink(contactId: string): Promise<PortalLink | null> {
@@ -185,15 +189,50 @@ export class PortalService {
   async publicHtml(token: string, kind: string, id: string): Promise<{ html: string }> {
     const { source, doc } = await this.sentDocumentSource(token, kind, id);
     const html = await source.portalHtml(id);
-    // Opening it is the client reading it: "Viewed estimate #…" in their chat, once a day.
+    // Opening it is the client reading it — Workiz's "Client viewed invoice"
+    // in the job's history and "Viewed invoice #…" in the chat, once a day.
+    this.recordView(kind as 'invoice' | 'estimate', id, doc).catch((err: Error) =>
+      this.logger.warn(`portal view of ${kind} ${id} not recorded: ${err.message}`),
+    );
+    return html;
+  }
+
+  private async recordView(kind: 'invoice' | 'estimate', id: string, doc: Invoice | Estimate): Promise<void> {
+    const day = businessDay();
+    if (!(await this.firstViewOfDay(kind, id, day))) return;
     this.tell({
       contactId: doc.contactId,
       event: 'viewed',
-      document: { kind: kind as 'invoice' | 'estimate', id, number: doc.number },
+      document: { kind, id, number: doc.number },
       ...(doc.dealId && { dealId: doc.dealId }),
-      eventKey: `viewed:${kind}:${id}:${businessDay()}`,
+      eventKey: `viewed:${kind}:${id}:${day}`,
     });
-    return html;
+    if (doc.dealId && this.deals) {
+      await this.deals
+        .addTimeline(
+          doc.dealId,
+          kind === 'invoice' ? TimelineEventType.INVOICE_VIEWED : TimelineEventType.ESTIMATE_VIEWED,
+          'client',
+          { [kind === 'invoice' ? 'invoiceId' : 'estimateId']: id, number: doc.number },
+          'Client',
+        )
+        .catch((err: Error) => this.logger.warn(`portal view of ${kind} ${id} not in the job history: ${err.message}`));
+    }
+  }
+
+  /**
+   * True for the first open of this document today (SET … NX, kept two
+   * days). Without Redis — or with it down — every view counts: a doubled
+   * line beats a missing one, and the chat dedupes on its own.
+   */
+  private async firstViewOfDay(kind: string, id: string, day: string): Promise<boolean> {
+    if (!this.redis) return true;
+    try {
+      return (await this.redis.client.set(`billing:portal:viewed:${kind}:${id}:${day}`, '1', 'EX', 172800, 'NX')) === 'OK';
+    } catch (err) {
+      this.logger.warn(`portal view dedupe unavailable: ${(err as Error).message}`);
+      return true;
+    }
   }
 
   /** The contact a portal token belongs to. Throws the same 404 as everything else. */
