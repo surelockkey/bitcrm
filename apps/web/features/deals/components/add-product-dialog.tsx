@@ -273,7 +273,7 @@ function Configure({
   pending: boolean;
   backLabel?: string;
   submitLabel?: string;
-  /** Imported line: the ±15% band does not judge its price (see priceBandApplies). */
+  /** Imported or item-group line: the ±15% band does not judge its price (see priceBandApplies). */
   bandExempt?: boolean;
   /** Prefill when reconfiguring an existing line (edit mode, same product). */
   initial?: { quantity: number; price: number; taxable?: boolean; description?: string };

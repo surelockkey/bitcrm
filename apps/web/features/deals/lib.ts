@@ -165,12 +165,13 @@ export function isImportedLine(
  * Whether the ±15% band should judge this line's price. 128 460 of the
  * 156 612 matched historical lines differ from today's catalog price and
  * 110 865 sit outside the band — flagging them would make every one of those
- * lines unsavable, so an imported line is exempt.
+ * lines unsavable, so an imported line is exempt. So is a line an item group
+ * added: the group sets its own price, as the server's `keepsGroupPrice` holds.
  */
 export function priceBandApplies(
   line?: Pick<DealProduct, "fulfillment" | "priceSource"> | null,
 ): boolean {
-  return !isImportedLine(line);
+  return !isImportedLine(line) && line?.priceSource !== "group";
 }
 
 /* ------------------------------------------------------- date/time basis */

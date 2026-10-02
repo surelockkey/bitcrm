@@ -160,6 +160,14 @@ describe("price band (±15%)", () => {
     expect(isImportedLine({ priceSource: "imported" })).toBe(true);
   });
 
+  // An item group sets its members' prices apart from the price book (Workiz
+  // "Add group"); the server exempts those lines while they keep that price
+  // (deal-line-rules `keepsGroupPrice`), so the dialog must not flag them.
+  it("does not apply to a line an item group added", () => {
+    expect(priceBandApplies({ fulfillment: "sourced", priceSource: "group" })).toBe(false);
+    expect(priceBandApplies({ fulfillment: "service", priceSource: "group" })).toBe(false);
+  });
+
   it("still applies to every line BitCRM writes itself", () => {
     expect(priceBandApplies({ fulfillment: "sourced" })).toBe(true);
     expect(priceBandApplies({ fulfillment: "to_order" })).toBe(true);
