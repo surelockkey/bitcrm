@@ -4,7 +4,6 @@ import {
   Logger,
   NotFoundException,
   BadRequestException,
-  ForbiddenException,
   HttpException,
   UnprocessableEntityException,
   Optional,
@@ -20,7 +19,6 @@ import {
   SUPER_STATUS_ORDER,
   TERMINAL_SUPER_STATUSES,
   CLOSED_SUPER_STATUSES,
-  DataScope,
   DealStatus,
   DealPriority,
   TimelineEventType,
@@ -53,6 +51,7 @@ import {
   type DayWindow,
 } from './deals.repository';
 import { catalogCosts } from './deal-line-rules';
+import { assertDealInScope } from './deal-scope';
 
 /** The jobs-list tab numbers; a closed status is `null` when no window bounds it. */
 export type DealCounts = Record<JobSuperStatus, number | null> & {
@@ -1787,10 +1786,7 @@ export class DealsService {
     caller: JwtUser,
     dealScope?: string,
   ): void {
-    if (deal.assignedTechIds.includes(caller.id)) return;
-    if (dealScope === DataScope.ASSIGNED_ONLY) {
-      throw new ForbiddenException('Only a technician assigned to this job can do that');
-    }
+    assertDealInScope(deal, caller, dealScope);
   }
 
   /** A job nobody can work any more takes no technician actions. */
@@ -2035,8 +2031,14 @@ export class DealsService {
     return product;
   }
 
-  async addProduct(id: string, dto: AddDealProductDto, caller: JwtUser): Promise<void> {
+  async addProduct(
+    id: string,
+    dto: AddDealProductDto,
+    caller: JwtUser,
+    dealScope?: string,
+  ): Promise<void> {
     const deal = await this.findById(id);
+    assertDealInScope(deal, caller, dealScope);
     const fulfillment: DealProductFulfillment = dto.fulfillment ?? 'sourced';
 
     const product = await this.validateProductFulfillment(dto, fulfillment);
@@ -2130,8 +2132,10 @@ export class DealsService {
     productId: string,
     dto: AddDealProductDto,
     caller: JwtUser,
+    dealScope?: string,
   ): Promise<void> {
     const deal = await this.findById(id);
+    assertDealInScope(deal, caller, dealScope);
 
     const existing = await this.productsRepo.findProduct(id, productId);
     if (!existing) {
@@ -2261,8 +2265,14 @@ export class DealsService {
     });
   }
 
-  async removeProduct(id: string, productId: string, caller: JwtUser): Promise<void> {
+  async removeProduct(
+    id: string,
+    productId: string,
+    caller: JwtUser,
+    dealScope?: string,
+  ): Promise<void> {
     const deal = await this.findById(id);
+    assertDealInScope(deal, caller, dealScope);
 
     const product = await this.productsRepo.findProduct(id, productId);
     if (!product) {
@@ -2313,7 +2323,9 @@ export class DealsService {
     productId: string,
     ordered: boolean,
     caller: JwtUser,
+    dealScope?: string,
   ): Promise<void> {
+    assertDealInScope(await this.findById(id), caller, dealScope);
     const product = await this.productsRepo.findProduct(id, productId);
     if (!product) {
       throw new NotFoundException(`Product ${productId} not found on deal ${id}`);

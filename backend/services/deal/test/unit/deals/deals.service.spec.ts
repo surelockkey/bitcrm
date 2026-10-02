@@ -1333,6 +1333,9 @@ describe('DealsService', () => {
   describe('markProductOrdered', () => {
     const caller = createMockJwtUser({ id: 'tech-1' });
 
+    // The job is read for the deals data-scope check before the line.
+    beforeEach(() => mockFindById());
+
     it('sets orderedAt on a to-order line', async () => {
       products.findProduct.mockResolvedValue(
         createMockDealProduct({ fulfillment: 'to_order' }),

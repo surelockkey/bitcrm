@@ -3,8 +3,9 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, RequirePermission } from '@bitcrm/shared';
-import { type JwtUser } from '@bitcrm/types';
+import { type JwtUser, type ResolvedPermissions } from '@bitcrm/types';
 import { Internal } from '../../common/decorators/internal.decorator';
+import { ResolvedPerms } from '../../common/decorators/resolved-permissions.decorator';
 import { DealBillingService } from './deal-billing.service';
 import { SetDealTaxDto } from './dto/set-deal-tax.dto';
 import { SetDealDiscountDto } from './dto/set-deal-discount.dto';
@@ -44,10 +45,16 @@ export class DealBillingController {
     summary: "Set the job's tax rate by hand",
     description:
       '**Guard:** `deals.edit`. `{taxRateId}` (active rate) or `null` for no tax. The job ' +
-      'becomes `taxSource: manual`, so service-area/client changes stop re-resolving it.',
+      'becomes `taxSource: manual`, so service-area/client changes stop re-resolving it.' +
+      ' A caller whose `deals` data scope is `assigned_only` (a technician) only on a job he is assigned to — 403 otherwise.',
   })
-  async setTax(@Param('id') id: string, @Body() dto: SetDealTaxDto, @CurrentUser() user: JwtUser) {
-    const data = await this.service.setTax(id, dto.taxRateId, user);
+  async setTax(
+    @Param('id') id: string,
+    @Body() dto: SetDealTaxDto,
+    @CurrentUser() user: JwtUser,
+    @ResolvedPerms() perms: ResolvedPermissions,
+  ) {
+    const data = await this.service.setTax(id, dto.taxRateId, user, perms?.dataScope?.deals);
     return { success: true, data };
   }
 
@@ -56,10 +63,15 @@ export class DealBillingController {
   @ApiOperation({
     summary: "Re-resolve the job's tax automatically",
     description:
-      '**Guard:** `deals.edit`. Tax-exempt client → service-area default → account default → none.',
+      '**Guard:** `deals.edit`. Tax-exempt client → service-area default → account default → none.' +
+      ' A caller whose `deals` data scope is `assigned_only` (a technician) only on a job he is assigned to — 403 otherwise.',
   })
-  async autoTax(@Param('id') id: string, @CurrentUser() user: JwtUser) {
-    const data = await this.service.autoTax(id, user);
+  async autoTax(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtUser,
+    @ResolvedPerms() perms: ResolvedPermissions,
+  ) {
+    const data = await this.service.autoTax(id, user, perms?.dataScope?.deals);
     return { success: true, data };
   }
 
@@ -67,14 +79,17 @@ export class DealBillingController {
   @RequirePermission('deals', 'edit')
   @ApiOperation({
     summary: "Set or remove the job's discount",
-    description: '**Guard:** `deals.edit`. `{discount: {type: amount|percent, value}}` or `{discount: null}`.',
+    description:
+      '**Guard:** `deals.edit`. `{discount: {type: amount|percent, value}}` or `{discount: null}`.' +
+      ' A caller whose `deals` data scope is `assigned_only` (a technician) only on a job he is assigned to — 403 otherwise.',
   })
   async setDiscount(
     @Param('id') id: string,
     @Body() dto: SetDealDiscountDto,
     @CurrentUser() user: JwtUser,
+    @ResolvedPerms() perms: ResolvedPermissions,
   ) {
-    const data = await this.service.setDiscount(id, dto.discount, user);
+    const data = await this.service.setDiscount(id, dto.discount, user, perms?.dataScope?.deals);
     return { success: true, data };
   }
 
@@ -82,15 +97,16 @@ export class DealBillingController {
   @RequirePermission('deals', 'edit')
   @ApiOperation({
     summary: 'Toggle whether the job tax applies to a line',
-    description: '**Guard:** `deals.edit`. Returns the updated line.',
+    description: '**Guard:** `deals.edit`. Returns the updated line.' + ' A caller whose `deals` data scope is `assigned_only` (a technician) only on a job he is assigned to — 403 otherwise.',
   })
   async setProductTaxable(
     @Param('id') id: string,
     @Param('productId') productId: string,
     @Body() dto: SetProductTaxableDto,
     @CurrentUser() user: JwtUser,
+    @ResolvedPerms() perms: ResolvedPermissions,
   ) {
-    const data = await this.service.setProductTaxable(id, productId, dto.taxable, user);
+    const data = await this.service.setProductTaxable(id, productId, dto.taxable, user, perms?.dataScope?.deals);
     return { success: true, data };
   }
 

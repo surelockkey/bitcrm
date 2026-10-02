@@ -1,6 +1,7 @@
+import { ForbiddenException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { GeocodingService, SnsPublisherService } from '@bitcrm/shared';
-import { TimelineEventType } from '@bitcrm/types';
+import { DataScope, TimelineEventType } from '@bitcrm/types';
 import { DealsService } from 'src/deals/deals.service';
 import { DealsRepository } from 'src/deals/deals.repository';
 import { DealsCacheService } from 'src/deals/deals-cache.service';
@@ -161,6 +162,83 @@ describe('DealsService — a technician adds, edits and removes items on his own
         costCompany: { from: 10, to: 15 },
         costForTech: { from: 12, to: 20 },
       });
+    });
+  });
+
+  /* ------------------------------------------------------- only his jobs */
+
+  describe("a technician (deals scope assigned_only) touches only the jobs he is on", () => {
+    const someoneElses = () => createMockDeal({ assignedTechIds: ['tech-2'] });
+    const dispatcher = createMockJwtUser({ id: 'dispatcher-1', roleId: 'role-dispatcher' });
+
+    it('adds an item to his own job', async () => {
+      repo.findById.mockResolvedValue(onHisJob());
+
+      await service.addProduct('deal-1', phoneLine as any, tech, DataScope.ASSIGNED_ONLY);
+
+      expect(products.addProduct).toHaveBeenCalled();
+    });
+
+    it("refuses to add an item to someone else's job — 403, no stock moved, nothing written", async () => {
+      repo.findById.mockResolvedValue(someoneElses());
+
+      await expect(
+        service.addProduct('deal-1', { ...phoneLine, sourceTechId: 'tech-2' } as any, tech, DataScope.ASSIGNED_ONLY),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(http.deductStock).not.toHaveBeenCalled();
+      expect(products.addProduct).not.toHaveBeenCalled();
+    });
+
+    it("refuses to edit an item on someone else's job", async () => {
+      repo.findById.mockResolvedValue(someoneElses());
+      products.findProduct.mockResolvedValue(createMockDealProduct({ sourceTechId: 'tech-2' }));
+
+      await expect(
+        service.replaceProduct('deal-1', 'line-1', { ...phoneLine, sourceTechId: 'tech-2' } as any, tech, DataScope.ASSIGNED_ONLY),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(http.restoreStock).not.toHaveBeenCalled();
+      expect(http.deductStock).not.toHaveBeenCalled();
+      expect(products.addProduct).not.toHaveBeenCalled();
+    });
+
+    it("refuses to remove an item from someone else's job", async () => {
+      repo.findById.mockResolvedValue(someoneElses());
+      products.findProduct.mockResolvedValue(createMockDealProduct({ sourceTechId: 'tech-2' }));
+
+      await expect(
+        service.removeProduct('deal-1', 'line-1', tech, DataScope.ASSIGNED_ONLY),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(http.restoreStock).not.toHaveBeenCalled();
+      expect(products.removeProduct).not.toHaveBeenCalled();
+    });
+
+    it("refuses to mark an item ordered on someone else's job", async () => {
+      repo.findById.mockResolvedValue(someoneElses());
+      products.findProduct.mockResolvedValue(createMockDealProduct({ fulfillment: 'to_order' }));
+
+      await expect(
+        service.markProductOrdered('deal-1', 'line-1', true, tech, DataScope.ASSIGNED_ONLY),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(products.setOrderedAt).not.toHaveBeenCalled();
+    });
+
+    it('removes and marks ordered on his own job', async () => {
+      repo.findById.mockResolvedValue(onHisJob());
+      products.findProduct.mockResolvedValue(createMockDealProduct({ fulfillment: 'to_order' }));
+
+      await service.markProductOrdered('deal-1', 'line-1', true, tech, DataScope.ASSIGNED_ONLY);
+      await service.removeProduct('deal-1', 'line-1', tech, DataScope.ASSIGNED_ONLY);
+
+      expect(products.setOrderedAt).toHaveBeenCalled();
+      expect(products.removeProduct).toHaveBeenCalledWith('deal-1', 'line-1');
+    });
+
+    it('lets a dispatcher, whose scope is wider, work on any job of the board', async () => {
+      repo.findById.mockResolvedValue(someoneElses());
+
+      await service.addProduct('deal-1', { ...phoneLine, sourceTechId: 'tech-2' } as any, dispatcher, DataScope.DEPARTMENT);
+
+      expect(products.addProduct).toHaveBeenCalled();
     });
   });
 });

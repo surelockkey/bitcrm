@@ -524,6 +524,7 @@ export class DealsController {
     summary: 'Add a line item to a deal',
     description:
       '**Guard:** `deals.edit` permission required. ' +
+      'For a caller whose `deals` data scope is `assigned_only` (a technician), only on a job he is assigned to — 403 otherwise. ' +
       'Behavior depends on `fulfillment`: `sourced` (default) deducts the ' +
       "quantity from the source technician's container and requires an assigned " +
       'tech; `to_order` records a part the tech does not carry (no deduction); ' +
@@ -534,8 +535,9 @@ export class DealsController {
     @Param('id') id: string,
     @Body() dto: AddDealProductDto,
     @CurrentUser() user: JwtUser,
+    @ResolvedPerms() perms: ResolvedPermissions,
   ) {
-    await this.dealsService.addProduct(id, dto, user);
+    await this.dealsService.addProduct(id, dto, user, perms?.dataScope?.deals);
     return { success: true, data: { added: true } };
   }
 
@@ -544,7 +546,7 @@ export class DealsController {
   @ApiOperation({
     summary: 'Edit a line item (or swap it for another catalog product)',
     description:
-      '**Guard:** `deals.edit` permission required. The body is the complete ' +
+      '**Guard:** `deals.edit` permission required, and the same roster rule as add. The body is the complete ' +
       'new line — same shape and validation as add. Stock is reconciled: the ' +
       "old sourced line is restored to its source technician's container " +
       'before the new sourced line is deducted from the chosen one, so raising ' +
@@ -555,8 +557,9 @@ export class DealsController {
     @Param('productId') productId: string,
     @Body() dto: AddDealProductDto,
     @CurrentUser() user: JwtUser,
+    @ResolvedPerms() perms: ResolvedPermissions,
   ) {
-    await this.dealsService.replaceProduct(id, productId, dto, user);
+    await this.dealsService.replaceProduct(id, productId, dto, user, perms?.dataScope?.deals);
     return { success: true, data: { updated: true } };
   }
 
@@ -565,15 +568,17 @@ export class DealsController {
   @ApiOperation({
     summary: 'Mark a to-order line as ordered (or clear it)',
     description:
-      '**Guard:** `deals.edit` permission required. Only valid for `to_order` lines.',
+      '**Guard:** `deals.edit` permission required, and the same roster rule as add. ' +
+      'Only valid for `to_order` lines.',
   })
   async markProductOrdered(
     @Param('id') id: string,
     @Param('productId') productId: string,
     @Body() dto: MarkProductOrderedDto,
     @CurrentUser() user: JwtUser,
+    @ResolvedPerms() perms: ResolvedPermissions,
   ) {
-    await this.dealsService.markProductOrdered(id, productId, dto.ordered, user);
+    await this.dealsService.markProductOrdered(id, productId, dto.ordered, user, perms?.dataScope?.deals);
     return { success: true, data: { ordered: dto.ordered } };
   }
 
@@ -581,14 +586,15 @@ export class DealsController {
   @RequirePermission('deals', 'edit')
   @ApiOperation({
     summary: 'Remove product from deal (restores to tech container)',
-    description: '**Guard:** `deals.edit` permission required.',
+    description: '**Guard:** `deals.edit` permission required, and the same roster rule as add.',
   })
   async removeProduct(
     @Param('id') id: string,
     @Param('productId') productId: string,
     @CurrentUser() user: JwtUser,
+    @ResolvedPerms() perms: ResolvedPermissions,
   ) {
-    await this.dealsService.removeProduct(id, productId, user);
+    await this.dealsService.removeProduct(id, productId, user, perms?.dataScope?.deals);
     return { success: true, data: { removed: true } };
   }
 

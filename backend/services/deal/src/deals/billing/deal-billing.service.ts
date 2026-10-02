@@ -22,6 +22,7 @@ import {
 import { DealsRepository, type DealUpdate } from '../deals.repository';
 import { DealsCacheService } from '../deals-cache.service';
 import { DealsService } from '../deals.service';
+import { assertDealInScope } from '../deal-scope';
 import { DealProductsRepository, type DealProductDraft } from '../../products/deal-products.repository';
 import { TimelineRepository } from '../../timeline/timeline.repository';
 import { InternalHttpService } from '../../common/services/internal-http.service';
@@ -121,11 +122,17 @@ export class DealBillingService {
    * Pick the job's tax by hand (`taxSource: 'manual'`, so later market/client
    * changes stop overriding it). `null` means "no tax on this job".
    */
-  async setTax(id: string, taxRateId: string | null | undefined, caller: JwtUser): Promise<Deal> {
+  async setTax(
+    id: string,
+    taxRateId: string | null | undefined,
+    caller: JwtUser,
+    dealScope?: string,
+  ): Promise<Deal> {
     if (taxRateId === undefined) {
       throw new BadRequestException('taxRateId is required (use null for no tax)');
     }
     const existing = await this.deals.findById(id);
+    assertDealInScope(existing, caller, dealScope);
     let to: DealTaxSnapshot = {
       taxSource: 'manual', taxRateId: null, taxRateName: null, taxRatePercent: null,
     };
@@ -138,8 +145,9 @@ export class DealBillingService {
   }
 
   /** Drop any manual choice and re-resolve: exempt → service area tax → none. */
-  async autoTax(id: string, caller: JwtUser): Promise<Deal> {
+  async autoTax(id: string, caller: JwtUser, dealScope?: string): Promise<Deal> {
     const existing = await this.deals.findById(id);
+    assertDealInScope(existing, caller, dealScope);
     const to = await this.taxResolver.resolve({
       contactId: existing.contactId,
       companyId: existing.companyId,
@@ -152,12 +160,14 @@ export class DealBillingService {
     id: string,
     discount: DocumentDiscount | null | undefined,
     caller: JwtUser,
+    dealScope?: string,
   ): Promise<Deal> {
     if (discount === undefined) {
       throw new BadRequestException('discount is required (use null to remove it)');
     }
     const next = discount === null ? null : this.validateDiscount(discount);
     const existing = await this.deals.findById(id);
+    assertDealInScope(existing, caller, dealScope);
     const from = existing.discount ?? null;
 
     const deal = await this.repository.update(id, { discount: next });
@@ -173,8 +183,10 @@ export class DealBillingService {
     productId: string,
     taxable: boolean,
     caller: JwtUser,
+    dealScope?: string,
   ): Promise<DealProduct> {
     if (typeof taxable !== 'boolean') throw new BadRequestException('taxable must be a boolean');
+    assertDealInScope(await this.deals.findById(id), caller, dealScope);
     const existing = await this.productsRepo.findProduct(id, productId);
     if (!existing) throw new NotFoundException(`Product ${productId} not found on deal ${id}`);
 
