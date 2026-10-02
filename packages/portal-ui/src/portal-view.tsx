@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
   CalendarDays,
@@ -15,8 +15,11 @@ import {
   SlidersHorizontal,
   Wrench,
 } from "lucide-react";
+import { PORTAL_INBOX_SHOW } from "@bitcrm/types";
 import type {
   PortalDocumentSummary,
+  PortalInboxPage,
+  PortalInboxShow,
   PortalJob,
   PortalPaymentLine,
   PortalProposalSummary,
@@ -36,7 +39,14 @@ import {
   formatMoney,
   formatSentAt,
   formatYmd,
+  INBOX_SHOW_OPTIONS,
   inboxChip,
+  inboxCount,
+  inboxEntries,
+  inboxOf,
+  inboxSelectedCount,
+  isWholeInbox,
+  mergeInboxPage,
   isOpenEstimate,
   isOwing,
   proposalChip,
@@ -84,6 +94,12 @@ export interface PortalActions {
   onPayDeposit?: (doc: PortalDocumentSummary) => void;
 }
 
+/** One page of the inbox from the host: "Load more" passes the cursor, Inbox Display the filter. */
+export type InboxLoader = (query: { cursor?: string; limit: number; show: PortalInboxShow[] }) => Promise<PortalInboxPage>;
+
+/** "Load more" brings this many entries. */
+const INBOX_PAGE = 10;
+
 export type PortalSelection =
   | { kind: "invoice" | "estimate"; id: string; fromProposal?: string }
   | { kind: "proposal"; id: string }
@@ -114,15 +130,19 @@ export function PortalView({
   actions = {},
   scope = "portal",
   initialSelection = null,
+  loadInbox,
 }: {
   view: PortalViewData;
   loaders: DocumentLoaders;
   actions?: PortalActions;
+  /** Pages of the inbox (Load more, Inbox Display). Without it the inbox is what `view` holds. */
+  loadInbox?: InboxLoader;
   /** Tells one host's documents from another's (token, or preview contact). */
   scope?: string;
   initialSelection?: PortalSelection;
 }) {
   const view = normalize(raw);
+  const inbox = useInbox(raw, loadInbox);
   const [tab, setTab] = useState<"inbox" | "booking">("inbox");
   const [profile, setProfile] = useState(false);
   const [selected, setSelected] = useState<PortalSelection>(initialSelection);
@@ -176,7 +196,15 @@ export function PortalView({
               ))}
             </div>
             {tab === "inbox" ? (
-              <Inbox view={view} loaders={loaders} actions={actions} scope={scope} selected={selected} onSelect={setSelected} />
+              <Inbox
+                view={view}
+                inbox={inbox}
+                loaders={loaders}
+                actions={actions}
+                scope={scope}
+                selected={selected}
+                onSelect={setSelected}
+              />
             ) : (
               <Booking jobs={view.jobs} businessName={view.business.name} />
             )}
@@ -229,23 +257,105 @@ function PortalHeader({ business }: { business: PortalViewData["business"] }) {
 
 /* ------------------------------------------------------------------- inbox */
 
-type InboxEntry =
-  | { kind: "doc"; doc: PortalDocumentSummary; sentAt: string }
-  | { kind: "proposal"; proposal: PortalProposalSummary; sentAt: string };
+interface InboxState {
+  /** The host's view this state was last taken from: a reload hands a new one. */
+  source: PortalViewData;
+  data: PortalInboxPage;
+  show: PortalInboxShow[];
+  pending: "more" | "filter" | "refresh" | null;
+  failed: "more" | "filter" | null;
+  /** How many entries to re-read after a reload (what the client had scrolled to). */
+  refreshLimit: number;
+}
 
-function inboxEntries(view: PortalViewData): InboxEntry[] {
-  const inProposal = new Set(view.proposals.flatMap((p) => p.estimateIds));
-  const docs: InboxEntry[] = [...view.invoices, ...view.estimates.filter((e) => !inProposal.has(e.id))].map((doc) => ({
-    kind: "doc",
-    doc,
-    sentAt: doc.date,
+interface Inbox {
+  data: PortalInboxPage;
+  show: PortalInboxShow[];
+  pending: InboxState["pending"];
+  failed: InboxState["failed"];
+  /** Null without a host loader, or on the last page. */
+  loadMore: (() => void) | null;
+  /** Null without a host loader. */
+  applyShow: ((show: PortalInboxShow[]) => void) | null;
+}
+
+/**
+ * The inbox the client is reading: the view's first page, then whatever
+ * "Load more" and Inbox Display brought. When the host reloads the view (a
+ * payment, a signature), the client keeps everything they had scrolled to —
+ * the same number of entries is read again, under the same filter.
+ */
+function useInbox(raw: PortalViewData, loadInbox?: InboxLoader): Inbox {
+  const [state, setState] = useState<InboxState>(() => ({
+    source: raw,
+    data: inboxOf(raw),
+    show: [...PORTAL_INBOX_SHOW],
+    pending: null,
+    failed: null,
+    refreshLimit: 0,
   }));
-  const proposals: InboxEntry[] = view.proposals.map((proposal) => ({ kind: "proposal", proposal, sentAt: proposal.sentAt }));
-  return [...docs, ...proposals].sort((a, b) => b.sentAt.localeCompare(a.sentAt));
+  // Only the latest request may land: a filter applied mid "Load more" wins.
+  const latest = useRef(0);
+
+  if (state.source !== raw) {
+    const fresh = inboxOf(raw);
+    const loaded = inboxCount(state.data);
+    if (!loadInbox || (isWholeInbox(state.show) && loaded <= inboxCount(fresh))) {
+      setState({ ...state, source: raw, data: fresh, pending: null, failed: null });
+    } else {
+      setState({ ...state, source: raw, pending: "refresh", failed: null, refreshLimit: Math.min(loaded, 100) });
+    }
+  }
+
+  const { pending, source, refreshLimit, show } = state;
+  useEffect(() => {
+    if (pending !== "refresh" || !loadInbox) return;
+    const id = ++latest.current;
+    loadInbox({ limit: refreshLimit, show }).then(
+      (data) => latest.current === id && setState((s) => ({ ...s, data, pending: null })),
+      // The reloaded first page is still better than nothing.
+      () => latest.current === id && setState((s) => ({ ...s, data: isWholeInbox(s.show) ? inboxOf(s.source) : s.data, pending: null })),
+    );
+  }, [pending, source, refreshLimit, show, loadInbox]);
+
+  const cursor = state.data.inbox.nextCursor;
+  const loadMore = useCallback(() => {
+    if (!loadInbox || !cursor) return;
+    const id = ++latest.current;
+    setState((s) => ({ ...s, pending: "more", failed: null }));
+    loadInbox({ cursor, limit: INBOX_PAGE, show }).then(
+      (page) => latest.current === id && setState((s) => ({ ...s, data: mergeInboxPage(s.data, page), pending: null })),
+      () => latest.current === id && setState((s) => ({ ...s, pending: null, failed: "more" })),
+    );
+  }, [loadInbox, cursor, show]);
+
+  const applyShow = useCallback(
+    (next: PortalInboxShow[]) => {
+      if (!loadInbox) return;
+      const ordered = PORTAL_INBOX_SHOW.filter((s) => next.includes(s));
+      const id = ++latest.current;
+      setState((s) => ({ ...s, show: ordered, pending: "filter", failed: null }));
+      loadInbox({ limit: INBOX_PAGE, show: ordered }).then(
+        (data) => latest.current === id && setState((s) => ({ ...s, data, pending: null })),
+        () => latest.current === id && setState((s) => ({ ...s, pending: null, failed: "filter" })),
+      );
+    },
+    [loadInbox],
+  );
+
+  return {
+    data: state.data,
+    show: state.show,
+    pending: state.pending,
+    failed: state.failed,
+    loadMore: loadInbox && cursor ? loadMore : null,
+    applyShow: loadInbox ? applyShow : null,
+  };
 }
 
 function Inbox({
   view,
+  inbox,
   loaders,
   actions,
   scope,
@@ -253,34 +363,53 @@ function Inbox({
   onSelect,
 }: {
   view: PortalViewData;
+  inbox: Inbox;
   loaders: DocumentLoaders;
   actions: PortalActions;
   scope: string;
   selected: PortalSelection;
   onSelect: (s: PortalSelection) => void;
 }) {
-  const entries = inboxEntries(view);
-  const byId = new Map([...view.invoices, ...view.estimates].map((d) => [`${d.kind}:${d.id}`, d] as const));
+  const lists = inbox.data;
+  const entries = inboxEntries(lists);
+  const byId = new Map([...lists.invoices, ...lists.estimates].map((d) => [`${d.kind}:${d.id}`, d] as const));
   const current = selected && selected.kind !== "proposal" ? (byId.get(`${selected.kind}:${selected.id}`) ?? null) : null;
-  const proposal = selected?.kind === "proposal" ? (view.proposals.find((p) => p.id === selected.id) ?? null) : null;
+  const proposal = selected?.kind === "proposal" ? (lists.proposals.find((p) => p.id === selected.id) ?? null) : null;
   const parent =
     selected && selected.kind !== "proposal" && selected.fromProposal
-      ? view.proposals.find((p) => p.id === selected.fromProposal)
+      ? lists.proposals.find((p) => p.id === selected.fromProposal)
       : undefined;
+  const filtered = !isWholeInbox(inbox.show);
 
   return (
     <div className="flex flex-1 flex-col md:grid md:grid-cols-[minmax(320px,390px)_1fr]">
       <section aria-label="Your inbox" className={cx("space-y-3 py-4 md:pr-5", selected && "hidden md:block")}>
         <div className="flex items-center justify-between">
-          <h2 className="text-xl font-semibold">Your Inbox ({entries.length})</h2>
-          <SlidersHorizontal className="size-4 text-[#637075]" aria-hidden />
+          <h2 className="text-xl font-semibold">Your Inbox ({lists.inbox.total})</h2>
+          {inbox.applyShow ? (
+            <InboxDisplay value={inbox.show} onApply={inbox.applyShow} busy={inbox.pending === "filter"} />
+          ) : (
+            <SlidersHorizontal className="size-4 text-[#637075]" aria-hidden />
+          )}
         </div>
-        {entries.length === 0 ? (
+        {inbox.failed === "filter" ? (
+          <p role="alert" className="text-sm text-[#e05c5c]">
+            We couldn&apos;t apply that filter. Please try again.
+          </p>
+        ) : null}
+        {entries.length === 0 && filtered && inbox.pending !== "filter" ? (
+          <div className={cx("space-y-3 rounded-lg border border-dashed border-[#e9ebec] p-6 text-center text-sm", SOFT)}>
+            <p>Nothing matches your Inbox Display choice.</p>
+            <button type="button" onClick={() => inbox.applyShow?.([...PORTAL_INBOX_SHOW])} className={cx("font-semibold", linkBlue)}>
+              Show everything
+            </button>
+          </div>
+        ) : entries.length === 0 && inbox.pending !== "filter" ? (
           <p className={cx("rounded-lg border border-dashed border-[#e9ebec] p-6 text-center text-sm", SOFT)}>
             Nothing to show yet. Your estimates and invoices will appear here as soon as {view.business.name} sends them.
           </p>
         ) : (
-          <ul className="space-y-3">
+          <ul className={cx("space-y-3 transition-opacity", inbox.pending === "filter" && "opacity-50")} aria-busy={inbox.pending === "filter" || undefined}>
             {entries.map((e) =>
               e.kind === "doc" ? (
                 <li key={`${e.doc.kind}-${e.doc.id}`}>
@@ -303,6 +432,19 @@ function Inbox({
             )}
           </ul>
         )}
+        {inbox.failed === "more" ? (
+          <p role="alert" className="text-center text-sm text-[#e05c5c]">
+            We couldn&apos;t load more. Please try again.
+          </p>
+        ) : null}
+        {inbox.loadMore && entries.length > 0 ? (
+          <div className="flex justify-center pt-1 pb-2">
+            <button type="button" onClick={inbox.loadMore} disabled={inbox.pending !== null} className={cx(outlineButton, "min-w-40")}>
+              {inbox.pending === "more" ? <Loader2 className="size-4 animate-spin" aria-hidden /> : null}
+              Load more
+            </button>
+          </div>
+        ) : null}
       </section>
 
       <section
@@ -334,6 +476,103 @@ function Inbox({
         )}
       </section>
     </div>
+  );
+}
+
+/**
+ * Workiz's "Inbox Display": the round settings button opens a small sheet —
+ * Display All, a dashed rule, Invoices / Estimates / Paid / Unpaid, then
+ * "N Selected" and Done. Nothing is asked for until Done.
+ */
+function InboxDisplay({
+  value,
+  onApply,
+  busy,
+}: {
+  value: PortalInboxShow[];
+  onApply: (show: PortalInboxShow[]) => void;
+  busy: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState<PortalInboxShow[]>(value);
+  const box = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    const onDown = (e: MouseEvent) => {
+      if (box.current && !box.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("mousedown", onDown);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("mousedown", onDown);
+    };
+  }, [open]);
+
+  const all = isWholeInbox(draft);
+  const toggle = (v: PortalInboxShow) =>
+    setDraft((d) => PORTAL_INBOX_SHOW.filter((s) => (s === v ? !d.includes(s) : d.includes(s))));
+  const done = () => {
+    setOpen(false);
+    const changed = draft.length !== value.length || draft.some((s) => !value.includes(s));
+    if (changed) onApply(draft);
+  };
+
+  return (
+    <div ref={box} className="relative">
+      <button
+        type="button"
+        aria-label="Inbox display"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        disabled={busy}
+        onClick={() => {
+          if (!open) setDraft(value);
+          setOpen((o) => !o);
+        }}
+        className="flex size-11 items-center justify-center rounded-full border-[1.5px] border-[#50d58c] text-[#50d58c] transition-colors hover:bg-[#eefbf4] focus-visible:ring-2 focus-visible:ring-[#6aa8ee] focus-visible:outline-none disabled:opacity-60"
+      >
+        {busy ? <Loader2 className="size-5 animate-spin" aria-hidden /> : <SlidersHorizontal className="size-5" aria-hidden />}
+      </button>
+      {open ? (
+        <div
+          role="dialog"
+          aria-label="Inbox Display:"
+          className="absolute top-full right-0 z-30 mt-2 w-[min(18rem,calc(100vw-2rem))] overflow-hidden rounded-xl bg-white shadow-[0_12px_40px_rgba(59,75,82,0.25)]"
+        >
+          <p className="bg-[#3b4b52] px-5 py-3 text-[15px] font-semibold text-white">Inbox Display:</p>
+          <div className="px-5 py-2">
+            <InboxCheck label="Display All" checked={all} onChange={() => setDraft(all ? [] : [...PORTAL_INBOX_SHOW])} />
+            <div className="my-1 border-t-2 border-dashed border-[#e9ebec]" aria-hidden />
+            {INBOX_SHOW_OPTIONS.map((o) => (
+              <InboxCheck key={o.value} label={o.label} checked={draft.includes(o.value)} onChange={() => toggle(o.value)} />
+            ))}
+          </div>
+          <div className="flex items-center justify-between border-t border-[#e9ebec] px-5 py-3">
+            <span className="text-sm font-medium text-[#9ea6aa]">{inboxSelectedCount(draft)} Selected</span>
+            <button
+              type="button"
+              onClick={done}
+              disabled={draft.length === 0}
+              className="inline-flex h-8 items-center rounded-full bg-[#6aa8ee] px-5 text-sm font-semibold text-white hover:bg-[#5b9be6] focus-visible:ring-2 focus-visible:ring-[#3b4b52] focus-visible:outline-none disabled:opacity-50"
+            >
+              Done
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function InboxCheck({ label, checked, onChange }: { label: string; checked: boolean; onChange: () => void }) {
+  return (
+    <label className="flex cursor-pointer items-center gap-4 py-2 text-[15px] font-medium text-[#637075]">
+      <input type="checkbox" checked={checked} onChange={onChange} className="size-5 flex-none cursor-pointer accent-[#3b4b52]" />
+      {label}
+    </label>
   );
 }
 

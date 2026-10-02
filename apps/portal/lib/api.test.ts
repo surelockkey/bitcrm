@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PublicApiError } from "@bitcrm/portal-ui";
-import { getDocumentHtml, getDocumentPdfUrl, getPaymentOptions, getPaymentStatus, getPortal, publicGet, startPayment } from "./api";
+import { getDocumentHtml, getDocumentPdfUrl, getPaymentOptions, getPaymentStatus, getPortal, getPortalInbox, publicGet, startPayment } from "./api";
 
 function stubFetch(status: number, body: unknown) {
   const fetchMock = vi.fn(async () => new Response(JSON.stringify(body), { status }));
@@ -48,6 +48,19 @@ describe("portal endpoints", () => {
       "https://api.bitcrm.tech-slk.com/api/billing/public/portal/tok/invoice/d%201/html",
       "https://api.bitcrm.tech-slk.com/api/billing/public/portal/tok/invoice/d%201/pdf",
       "https://api.bitcrm.tech-slk.com/api/billing/public/portal/tok/invoice/d%201/pdf?download=1",
+    ]);
+  });
+});
+
+describe("inbox pages", () => {
+  it("asks for one page by cursor and filter; the whole inbox needs no show, the default size no limit", async () => {
+    const f = stubFetch(200, { success: true, data: {} });
+    await getPortalInbox("tok", { cursor: "c/1", limit: 10, show: ["invoices", "unpaid"] });
+    await getPortalInbox("tok", { limit: 25, show: ["invoices", "estimates", "paid", "unpaid"] });
+    const urls = f.mock.calls.map((c) => (c as unknown as [string])[0]);
+    expect(urls).toEqual([
+      "https://api.bitcrm.tech-slk.com/api/billing/public/portal/tok/inbox?cursor=c%2F1&show=invoices%2Cunpaid",
+      "https://api.bitcrm.tech-slk.com/api/billing/public/portal/tok/inbox?limit=25",
     ]);
   });
 });

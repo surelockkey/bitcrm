@@ -1,4 +1,14 @@
-import type { Address, EstimateStatus, InvoiceStatus, PortalDocumentSummary, PortalProposalSummary, PortalView } from "@bitcrm/types";
+import { PORTAL_INBOX_SHOW, portalInboxCompare } from "@bitcrm/types";
+import type {
+  Address,
+  EstimateStatus,
+  InvoiceStatus,
+  PortalDocumentSummary,
+  PortalInboxPage,
+  PortalInboxShow,
+  PortalProposalSummary,
+  PortalView,
+} from "@bitcrm/types";
 
 /** Class names that are truthy, joined. (No Tailwind-merge: nothing here needs to override.) */
 export const cx = (...parts: Array<string | false | null | undefined>): string => parts.filter(Boolean).join(" ");
@@ -268,4 +278,81 @@ export function calendarDataUrl(job: { number: string; jobType?: string; address
     "END:VCALENDAR",
   ];
   return `data:text/calendar;charset=utf-8,${encodeURIComponent(lines.join("\r\n"))}`;
+}
+
+/* ------------------------------------------------------------ paged inbox */
+
+/** One line of the inbox: a document, or a proposal standing for its options. */
+export type InboxEntry =
+  | { kind: "doc"; doc: PortalDocumentSummary }
+  | { kind: "proposal"; proposal: PortalProposalSummary };
+
+type InboxLists = Pick<PortalInboxPage, "invoices" | "estimates" | "proposals">;
+
+/**
+ * The inbox in the server's own order (`portalInboxCompare`: date, then
+ * kind:id), so a page appended under "Load more" lands exactly where the
+ * server put it. An estimate that is an option of a listed proposal is not a
+ * line of its own.
+ */
+export function inboxEntries(lists: InboxLists): InboxEntry[] {
+  const inProposal = new Set(lists.proposals.flatMap((p) => p.estimateIds));
+  const keyed: Array<{ at: string; ref: string; entry: InboxEntry }> = [
+    ...lists.invoices.map((doc) => ({ at: doc.date ?? "", ref: `invoice:${doc.id}`, entry: { kind: "doc" as const, doc } })),
+    ...lists.estimates
+      .filter((e) => !inProposal.has(e.id))
+      .map((doc) => ({ at: doc.date ?? "", ref: `estimate:${doc.id}`, entry: { kind: "doc" as const, doc } })),
+    ...lists.proposals.map((proposal) => ({
+      at: proposal.sentAt ?? "",
+      ref: `proposal:${proposal.id}`,
+      entry: { kind: "proposal" as const, proposal },
+    })),
+  ];
+  return keyed.sort(portalInboxCompare).map((k) => k.entry);
+}
+
+/** How many inbox lines these lists make. */
+export const inboxCount = (lists: InboxLists): number => inboxEntries(lists).length;
+
+/** The view's first page as an inbox page (an older API sends everything and no `inbox`). */
+export function inboxOf(view: Pick<PortalView, "invoices" | "estimates" | "proposals" | "inbox">): PortalInboxPage {
+  const lists = { invoices: view.invoices ?? [], estimates: view.estimates ?? [], proposals: view.proposals ?? [] };
+  return { ...lists, inbox: view.inbox ?? { total: inboxCount(lists) } };
+}
+
+/** "Load more": the next page after what is loaded, nothing twice; its cursor and total win. */
+export function mergeInboxPage(current: PortalInboxPage, next: PortalInboxPage): PortalInboxPage {
+  const add = <T extends { id: string }>(have: T[], more: T[]) => {
+    const seen = new Set(have.map((x) => x.id));
+    return [...have, ...more.filter((x) => !seen.has(x.id))];
+  };
+  return {
+    invoices: add(current.invoices, next.invoices),
+    estimates: add(current.estimates, next.estimates),
+    proposals: add(current.proposals, next.proposals),
+    inbox: next.inbox,
+  };
+}
+
+/** Workiz's "Inbox Display" boxes, in their order. */
+export const INBOX_SHOW_OPTIONS: ReadonlyArray<{ value: PortalInboxShow; label: string }> = [
+  { value: "invoices", label: "Invoices" },
+  { value: "estimates", label: "Estimates" },
+  { value: "paid", label: "Paid" },
+  { value: "unpaid", label: "Unpaid" },
+];
+
+export const isWholeInbox = (show: readonly PortalInboxShow[]): boolean => PORTAL_INBOX_SHOW.every((s) => show.includes(s));
+
+/** "N Selected" as Workiz counts it: the four boxes, and Display All too once all four are on. */
+export const inboxSelectedCount = (show: readonly PortalInboxShow[]): number => show.length + (isWholeInbox(show) ? 1 : 0);
+
+/** `?cursor=&limit=&show=` for an inbox page: the defaults (ten, everything) are left out. */
+export function inboxQueryString(q: { cursor?: string; limit?: number; show?: readonly PortalInboxShow[] }): string {
+  const params = new URLSearchParams();
+  if (q.cursor) params.set("cursor", q.cursor);
+  if (q.limit && q.limit !== 10) params.set("limit", String(q.limit));
+  if (q.show && !isWholeInbox(q.show)) params.set("show", q.show.join(","));
+  const qs = params.toString();
+  return qs ? `?${qs}` : "";
 }

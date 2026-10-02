@@ -90,6 +90,19 @@ function route(map: Array<[string, unknown]>) {
 
 afterEach(() => window.history.replaceState({}, "", "/"));
 
+describe("PortalApp — the paged inbox", () => {
+  it("Load more reads the next page off the token's inbox route", async () => {
+    const more = { invoices: [{ ...view.invoices[0], id: "d0", number: "1041", date: "2026-09-01" }], estimates: [], proposals: [], inbox: { total: 2 } };
+    const f = vi.fn(async (url: string) => (url.includes("/inbox") ? ok(more) : ok({ ...view, inbox: { total: 2, nextCursor: "cur" } })));
+    vi.stubGlobal("fetch", f);
+    render(<PortalApp token="tok" />);
+    await userEvent.click(await screen.findByRole("button", { name: "Load more" }));
+    expect(await screen.findByRole("button", { name: "Invoice #1041" })).toBeInTheDocument();
+    const urls = f.mock.calls.map((c) => (c as unknown as [string])[0]);
+    expect(urls).toContain("https://api.bitcrm.tech-slk.com/api/billing/public/portal/tok/inbox?cursor=cur");
+  });
+});
+
 describe("PortalApp — paying", () => {
   it("opens the payment panel from the invoice and asks what this invoice accepts", async () => {
     const f = route([["/payment-options", options], ["portal/tok", payableView]]);

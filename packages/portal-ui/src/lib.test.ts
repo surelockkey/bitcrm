@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type { PortalDocumentSummary } from "@bitcrm/types";
+import type { PortalDocumentSummary, PortalInboxPage, PortalProposalSummary } from "@bitcrm/types";
 import {
   PublicApiError,
+  inboxCount,
+  inboxEntries,
+  inboxSelectedCount,
+  mergeInboxPage,
   businessAddressLine,
   businessInitials,
   formatMoney,
@@ -89,5 +93,47 @@ describe("statusMeta", () => {
     expect(statusMeta({ kind: "invoice", status: "overdue" }).label).toBe("Overdue");
     expect(statusMeta({ kind: "estimate", status: "approved" }).label).toBe("Approved");
     expect(statusMeta({ kind: "invoice", status: "mystery" as never }).label).toBe("mystery");
+  });
+});
+
+
+describe("the paged inbox", () => {
+  const prop = (over: Partial<PortalProposalSummary>): PortalProposalSummary => ({
+    id: "p1", number: "256", status: "pending", sentAt: "2026-09-20T10:00:00.000Z", estimateIds: ["e2"], options: [], ...over,
+  });
+  const page = (over: Partial<PortalInboxPage>): PortalInboxPage => ({
+    invoices: [], estimates: [], proposals: [], inbox: { total: 0 }, ...over,
+  });
+
+  it("orders entries the way the server pages them: date first, then kind:id, a proposal standing for its options", () => {
+    const entries = inboxEntries({
+      invoices: [inv({ id: "a", date: "2026-09-01" }), inv({ id: "b", date: "2026-09-01" })],
+      estimates: [
+        { ...inv({ id: "e1", date: "2026-09-10" }), kind: "estimate", status: "pending" },
+        { ...inv({ id: "e2", date: "2026-09-10" }), kind: "estimate", status: "pending", proposalId: "p1" },
+      ],
+      proposals: [prop({})],
+    });
+    expect(entries.map((e) => (e.kind === "doc" ? `${e.doc.kind}:${e.doc.id}` : `proposal:${e.proposal.id}`))).toEqual([
+      "proposal:p1",
+      "estimate:e1",
+      "invoice:b",
+      "invoice:a",
+    ]);
+    expect(inboxCount({ invoices: [inv({})], estimates: [], proposals: [prop({})] })).toBe(2);
+  });
+
+  it("appends a page without repeating what is already there, and takes its cursor and total", () => {
+    const first = page({ invoices: [inv({ id: "a" }), inv({ id: "b" })], inbox: { total: 4, nextCursor: "c1" } });
+    const merged = mergeInboxPage(first, page({ invoices: [inv({ id: "b" }), inv({ id: "c" })], proposals: [prop({})], inbox: { total: 4 } }));
+    expect(merged.invoices.map((i) => i.id)).toEqual(["a", "b", "c"]);
+    expect(merged.proposals.map((p) => p.id)).toEqual(["p1"]);
+    expect(merged.inbox).toEqual({ total: 4 });
+  });
+
+  it("counts Inbox Display like Workiz: the four boxes, plus Display All when all four are on", () => {
+    expect(inboxSelectedCount(["invoices", "estimates", "paid", "unpaid"])).toBe(5);
+    expect(inboxSelectedCount(["invoices", "unpaid"])).toBe(2);
+    expect(inboxSelectedCount([])).toBe(0);
   });
 });

@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { PortalView as PortalViewData } from "@bitcrm/types";
+import type { PortalInboxPage, PortalView as PortalViewData } from "@bitcrm/types";
 import { InvalidPortalLink, PortalLoadError, PortalView } from "./portal-view";
 import type { DocumentLoaders } from "./document-viewer";
 
@@ -214,5 +214,113 @@ describe("chip shape", () => {
     const chip = source.split("const chip =")[1].split(";")[0];
     expect(chip).toContain("rounded-chip");
     expect(chip).not.toContain("rounded-full");
+  });
+});
+
+describe("the paged inbox — Load more and Inbox Display", () => {
+  const inv = (n: number) => ({
+    kind: "invoice" as const, id: `i${n}`, number: `N${n}`, date: `2026-08-${String(n).padStart(2, "0")}`, status: "due" as const,
+    total: n, balanceDue: n, sent: true,
+  });
+  const paged: PortalViewData = {
+    ...view,
+    estimates: [],
+    proposals: [],
+    invoices: [inv(20), inv(19)],
+    inbox: { total: 3, nextCursor: "cur-1" },
+  };
+  const nextPage: PortalInboxPage = { invoices: [inv(18)], estimates: [], proposals: [], inbox: { total: 3 } };
+  const cards = () => within(screen.getByRole("region", { name: "Your inbox" })).getAllByRole("button", { name: /^Invoice #/ }).map((b) => b.getAttribute("aria-label"));
+
+  it("shows the whole inbox's count, and Load more brings the next ten until there are no more", async () => {
+    const loadInbox = vi.fn(async () => nextPage);
+    render(<PortalView view={paged} loaders={loaders} loadInbox={loadInbox} />);
+    expect(screen.getByRole("heading", { name: "Your Inbox (3)" })).toBeInTheDocument();
+    expect(cards()).toEqual(["Invoice #N20", "Invoice #N19"]);
+    await userEvent.click(screen.getByRole("button", { name: "Load more" }));
+    expect(loadInbox).toHaveBeenCalledWith({ cursor: "cur-1", limit: 10, show: ["invoices", "estimates", "paid", "unpaid"] });
+    expect(await screen.findByRole("button", { name: "Invoice #N18" })).toBeInTheDocument();
+    expect(cards()).toEqual(["Invoice #N20", "Invoice #N19", "Invoice #N18"]);
+    expect(screen.queryByRole("button", { name: "Load more" })).not.toBeInTheDocument();
+  });
+
+  it("says when Load more failed and lets the client try again", async () => {
+    const loadInbox = vi.fn().mockRejectedValueOnce(new Error("offline")).mockResolvedValueOnce(nextPage);
+    render(<PortalView view={paged} loaders={loaders} loadInbox={loadInbox} />);
+    await userEvent.click(screen.getByRole("button", { name: "Load more" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/couldn.t load more/i);
+    await userEvent.click(screen.getByRole("button", { name: "Load more" }));
+    expect(await screen.findByRole("button", { name: "Invoice #N18" })).toBeInTheDocument();
+  });
+
+  it("the settings button opens Inbox Display: Display All, Invoices, Estimates, Paid, Unpaid, N Selected, Done", async () => {
+    const filtered: PortalInboxPage = { invoices: [inv(19)], estimates: [], proposals: [], inbox: { total: 1 } };
+    const loadInbox = vi.fn(async () => filtered);
+    render(<PortalView view={paged} loaders={loaders} loadInbox={loadInbox} />);
+    await userEvent.click(screen.getByRole("button", { name: "Inbox display" }));
+    const menu = screen.getByRole("dialog", { name: "Inbox Display:" });
+    for (const box of ["Display All", "Invoices", "Estimates", "Paid", "Unpaid"]) {
+      expect(within(menu).getByRole("checkbox", { name: box })).toBeChecked();
+    }
+    expect(within(menu).getByText("5 Selected")).toBeInTheDocument();
+
+    await userEvent.click(within(menu).getByRole("checkbox", { name: "Paid" }));
+    expect(within(menu).getByRole("checkbox", { name: "Display All" })).not.toBeChecked();
+    expect(within(menu).getByText("3 Selected")).toBeInTheDocument();
+    // Nothing is asked for until Done.
+    expect(loadInbox).not.toHaveBeenCalled();
+    await userEvent.click(within(menu).getByRole("button", { name: "Done" }));
+
+    expect(loadInbox).toHaveBeenCalledWith({ limit: 10, show: ["invoices", "estimates", "unpaid"] });
+    expect(await screen.findByRole("heading", { name: "Your Inbox (1)" })).toBeInTheDocument();
+    expect(cards()).toEqual(["Invoice #N19"]);
+    expect(screen.queryByRole("dialog", { name: "Inbox Display:" })).not.toBeInTheDocument();
+  });
+
+  it("Display All turns every box off and on; Done needs at least one", async () => {
+    render(<PortalView view={paged} loaders={loaders} loadInbox={vi.fn(async () => nextPage)} />);
+    await userEvent.click(screen.getByRole("button", { name: "Inbox display" }));
+    const menu = screen.getByRole("dialog", { name: "Inbox Display:" });
+    await userEvent.click(within(menu).getByRole("checkbox", { name: "Display All" }));
+    for (const box of ["Invoices", "Estimates", "Paid", "Unpaid"]) {
+      expect(within(menu).getByRole("checkbox", { name: box })).not.toBeChecked();
+    }
+    expect(within(menu).getByText("0 Selected")).toBeInTheDocument();
+    expect(within(menu).getByRole("button", { name: "Done" })).toBeDisabled();
+    await userEvent.click(within(menu).getByRole("checkbox", { name: "Display All" }));
+    expect(within(menu).getByRole("checkbox", { name: "Unpaid" })).toBeChecked();
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "Inbox Display:" })).not.toBeInTheDocument();
+  });
+
+  it("a filter that matches nothing says so, with a way back to everything", async () => {
+    const none: PortalInboxPage = { invoices: [], estimates: [], proposals: [], inbox: { total: 0 } };
+    const loadInbox = vi.fn().mockResolvedValueOnce(none).mockResolvedValueOnce({ ...nextPage, invoices: [inv(20)] });
+    render(<PortalView view={paged} loaders={loaders} loadInbox={loadInbox} />);
+    await userEvent.click(screen.getByRole("button", { name: "Inbox display" }));
+    await userEvent.click(screen.getByRole("checkbox", { name: "Invoices" }));
+    await userEvent.click(screen.getByRole("button", { name: "Done" }));
+    expect(await screen.findByText(/nothing matches/i)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Show everything" }));
+    expect(loadInbox).toHaveBeenLastCalledWith({ limit: 10, show: ["invoices", "estimates", "paid", "unpaid"] });
+    expect(await screen.findByRole("button", { name: "Invoice #N20" })).toBeInTheDocument();
+  });
+
+  it("after a reload (a payment, a signature) the client keeps everything they had scrolled to", async () => {
+    const refreshed: PortalInboxPage = { invoices: [inv(20), inv(19), { ...inv(18), status: "paid", balanceDue: 0 }], estimates: [], proposals: [], inbox: { total: 3 } };
+    const loadInbox = vi.fn().mockResolvedValueOnce(nextPage).mockResolvedValueOnce(refreshed);
+    const { rerender } = render(<PortalView view={paged} loaders={loaders} loadInbox={loadInbox} />);
+    await userEvent.click(screen.getByRole("button", { name: "Load more" }));
+    await screen.findByRole("button", { name: "Invoice #N18" });
+    rerender(<PortalView view={{ ...paged }} loaders={loaders} loadInbox={loadInbox} />);
+    expect(loadInbox).toHaveBeenLastCalledWith({ limit: 3, show: ["invoices", "estimates", "paid", "unpaid"] });
+    expect(await screen.findByText("PAID")).toBeInTheDocument();
+    expect(cards()).toEqual(["Invoice #N20", "Invoice #N19", "Invoice #N18"]);
+  });
+
+  it("without a page loader (an older host) the inbox reads as before: no Load more, no filter", () => {
+    render(<PortalView view={paged} loaders={loaders} />);
+    expect(screen.queryByRole("button", { name: "Load more" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Inbox display" })).not.toBeInTheDocument();
   });
 });

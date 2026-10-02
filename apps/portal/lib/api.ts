@@ -4,11 +4,13 @@ import type {
   OnlinePaymentMethod,
   PortalDepositOptions,
   PortalDocumentSummary,
+  PortalInboxPage,
+  PortalInboxShow,
   PortalPaymentOptions,
   PortalPaymentSession,
   PortalView,
 } from "@bitcrm/types";
-import { PublicApiError, unwrapEnvelope, type PortalPaymentStatus } from "@bitcrm/portal-ui";
+import { PublicApiError, inboxQueryString, unwrapEnvelope, type PortalPaymentStatus } from "@bitcrm/portal-ui";
 import { env } from "./env";
 
 /**
@@ -53,7 +55,12 @@ const base = (token: string) => `/billing/public/portal/${encodeURIComponent(tok
 const docBase = (token: string, kind: PortalDocumentSummary["kind"], id: string) =>
   `${base(token)}/${kind}/${encodeURIComponent(id)}`;
 
+/** The portal with the first page of the inbox. */
 export const getPortal = (token: string) => publicGet<PortalView>(base(token));
+
+/** One more page of the inbox: "Load more" (cursor), Inbox Display (show), or a reload's re-read (limit). */
+export const getPortalInbox = (token: string, q: { cursor?: string; limit?: number; show?: PortalInboxShow[] }) =>
+  publicGet<PortalInboxPage>(`${base(token)}/inbox${inboxQueryString(q)}`);
 
 /** The document as a web page (what the portal shows first). */
 export const getDocumentHtml = (token: string, doc: PortalDocumentSummary) =>
