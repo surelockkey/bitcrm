@@ -340,6 +340,16 @@ export interface TerminalLocation {
   address?: { line1: string; line2?: string; city: string; state: string; postalCode: string; country: string };
 }
 
+/**
+ * `GET /terminal/location` — the Location, and whether the CALLER may accept
+ * Apple's Tap to Pay on iPhone terms on their phone (the first `connectReader`
+ * asks for it once per Stripe account): only an account administrator, the
+ * holder of `settings.edit`. Anyone else sees Tap to Pay as the account has it.
+ */
+export interface TerminalLocationStatus extends TerminalLocation {
+  canAcceptTerms: boolean;
+}
+
 /** `POST /invoices/:id/terminal-intent` and `POST /estimates/:id/terminal-intent` (a deposit). */
 export interface TerminalPaymentIntent {
   /** The ledger row — the request's `attemptId`. */

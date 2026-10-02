@@ -10,6 +10,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import type Stripe from 'stripe';
+import { hasPermission } from '@bitcrm/shared';
 import {
   estimateDepositDue,
   type Address,
@@ -20,6 +21,7 @@ import {
   type TerminalConnectionToken,
   type TerminalIntentOutcome,
   type TerminalLocation,
+  type TerminalLocationStatus,
   type TerminalPaymentIntent,
 } from '@bitcrm/types';
 import { BusinessProfileService } from '../../business-profile/business-profile.service';
@@ -143,9 +145,10 @@ export class TerminalService {
     return this.stripe.createConnectionToken(terminalLocationId);
   }
 
-  async location(): Promise<TerminalLocation> {
+  /** The account's Location, and whether this caller may accept Apple's Tap to Pay terms (see `canAcceptTapToPayTerms`). */
+  async location(caller: Caller): Promise<TerminalLocationStatus> {
     const { terminalLocationId } = await this.settings.get();
-    return { locationId: terminalLocationId ?? null };
+    return { locationId: terminalLocationId ?? null, canAcceptTerms: canAcceptTapToPayTerms(caller) };
   }
 
   /**
@@ -645,6 +648,21 @@ export class TerminalService {
     if (!this.profiles) throw new Error('BusinessProfileService not wired');
     return this.profiles;
   }
+}
+
+/**
+ * Who may accept Apple's Tap to Pay on iPhone terms — the step the first
+ * `connectReader` on an iPhone shows, once per Stripe account. Accepting them
+ * binds the BUSINESS (Apple asks for the merchant's own Apple ID), so it is
+ * an account administrator's act, not any technician's: the holder of
+ * `settings.edit` — the permission that changes the account's payment
+ * settings and every other account-wide setting. Super Admin holds it by
+ * definition (`hasPermission`, as the permission guard does); permissions
+ * that could not be resolved grant nothing. Everyone else sees Tap to Pay as
+ * the account has it, read-only.
+ */
+export function canAcceptTapToPayTerms(caller: Caller): boolean {
+  return hasPermission(caller.perms, 'settings', 'edit');
 }
 
 /** Which deployment made a Stripe object (`metadata.env`) — so environments sharing an account never confuse each other's. */

@@ -52,7 +52,7 @@ describe('Stripe Terminal routes (HTTP)', () => {
   };
   const terminal = {
     connectionToken: jest.fn(async () => ({ secret: 'pst_test_1' })),
-    location: jest.fn(async () => ({ locationId: null })),
+    location: jest.fn(async (..._a: any[]): Promise<any> => ({ locationId: null, canAcceptTerms: false })),
     ensureLocation: jest.fn(async () => ({ locationId: 'tml_1' })),
     openForInvoice: jest.fn(async (..._a: any[]): Promise<any> => intent),
     openForEstimate: jest.fn(async (..._a: any[]): Promise<any> => intent),
@@ -115,7 +115,9 @@ describe('Stripe Terminal routes (HTTP)', () => {
   });
 
   it('GET and POST /terminal/location', async () => {
-    expect((await http().get('/api/billing/terminal/location')).body.data).toEqual({ locationId: null });
+    expect((await http().get('/api/billing/terminal/location')).body.data).toEqual({ locationId: null, canAcceptTerms: false });
+    // Whether THIS caller may accept Apple's Tap to Pay terms is the caller's — the service is told who asks.
+    expect(terminal.location).toHaveBeenCalledWith(expect.objectContaining({ user: expect.objectContaining({ id: 'tech-1' }) }));
     const res = await http().post('/api/billing/terminal/location').send({});
     expect(res.status).toBe(200);
     expect(res.body.data).toEqual({ locationId: 'tml_1' });

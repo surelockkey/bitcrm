@@ -36,11 +36,13 @@ export class TerminalController {
   @ApiOperation({
     summary: 'The Terminal Location Tap to Pay readers connect under',
     description:
-      '**Guard:** `payments.collect`. One per business account, kept in payment settings. → `{ locationId }` ' +
-      '(`null` until `POST /terminal/location` has created it) — pass it to `connectReader`.',
+      '**Guard:** `payments.collect`. One per business account, kept in payment settings. → `{ locationId, ' +
+      'canAcceptTerms }` — `locationId` is `null` until `POST /terminal/location` has created it (pass it to ' +
+      '`connectReader`); `canAcceptTerms` says whether the CALLER may accept Apple’s Tap to Pay on iPhone terms ' +
+      '(once per Stripe account, binding the business): only an account administrator, who holds `settings.edit`.',
   })
-  async location() {
-    return { success: true, data: await this.terminal.location() };
+  async location(@CallerCtx() caller: Caller) {
+    return { success: true, data: await this.terminal.location(caller) };
   }
 
   @Post('location')

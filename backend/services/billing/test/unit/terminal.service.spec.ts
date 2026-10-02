@@ -11,7 +11,7 @@ import { PaymentsService } from 'src/payments/payments.service';
 import { PaymentSettingsService } from 'src/payments/payment-settings.service';
 import { StripeEventsHandler } from 'src/payments/stripe/stripe-events.handler';
 import { TerminalService } from 'src/payments/terminal/terminal.service';
-import { DataScope, billingView, caller, dealProduct, mockDealClient, mockEvents, profile } from './mocks';
+import { DataScope, billingView, caller, dealProduct, mockDealClient, mockEvents, perms, profile } from './mocks';
 import { PAY_NOW, fakeInvoices, fakeLedger, invoice, mockStripeService, payment } from './payment-mocks';
 
 const SIGNED = '2026-09-22T11:00:00.000Z';
@@ -110,7 +110,25 @@ describe('Terminal — the connection token and the Location', () => {
 
   it('has no Location until one is created', async () => {
     const { service } = build();
-    await expect(service.location()).resolves.toEqual({ locationId: null });
+    await expect(service.location(tech())).resolves.toMatchObject({ locationId: null });
+  });
+
+  it('lets only an account administrator — the holder of settings.edit — accept Apple’s Tap to Pay terms', async () => {
+    const { service } = build();
+    const technician = {
+      ...tech(),
+      perms: { ...perms(DataScope.ASSIGNED_ONLY), permissions: { ...perms().permissions, settings: { view: true, edit: false } } },
+    };
+    await expect(service.location(caller())).resolves.toMatchObject({ canAcceptTerms: true });
+    await expect(service.location(technician)).resolves.toMatchObject({ canAcceptTerms: false });
+    // Super Admin bypasses the matrix, as the permission guard does.
+    const superAdmin = {
+      ...caller(),
+      perms: { ...perms(), roleName: 'Super Admin', isSystemRole: true, permissions: {} } as any,
+    };
+    await expect(service.location(superAdmin)).resolves.toMatchObject({ canAcceptTerms: true });
+    // Permissions that could not be resolved grant nothing.
+    await expect(service.location({ user: tech().user, perms: null })).resolves.toMatchObject({ canAcceptTerms: false });
   });
 
   it('creates ONE Location from the default company’s address and keeps its id in payment settings', async () => {
@@ -127,7 +145,7 @@ describe('Terminal — the connection token and the Location', () => {
       idempotencyKey: expect.stringMatching(/^terminal_location_/),
     });
     expect((await settings.get()).terminalLocationId).toBe('tml_1');
-    await expect(service.location()).resolves.toEqual({ locationId: 'tml_1' });
+    await expect(service.location(caller())).resolves.toEqual({ locationId: 'tml_1', canAcceptTerms: true });
 
     // Asking again changes nothing — still one Location.
     await expect(service.ensureLocation(caller())).resolves.toEqual({ locationId: 'tml_1' });

@@ -529,6 +529,7 @@ export type {
   PaymentChannel,
   TerminalConnectionToken,
   TerminalLocation,
+  TerminalLocationStatus,
   TerminalPaymentIntent,
   TerminalIntentOutcome,
   KeyedIntentStatus,
