@@ -305,6 +305,8 @@ export function createMockInternalHttpService() {
     getCompany: jest.fn().mockResolvedValue(null),
     // Jobs-list side-load: names of the clients on the page (never numbers).
     getContactNames: jest.fn().mockResolvedValue([]),
+    // Item groups: none unless a spec gives one.
+    getItemGroup: jest.fn().mockResolvedValue(null),
     // Default: the referenced product exists and is a stockable product-type,
     // with the costs and price the internal route answers (nothing stripped).
     getProduct: jest.fn().mockResolvedValue({

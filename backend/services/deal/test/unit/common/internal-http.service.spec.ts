@@ -10,17 +10,19 @@ describe('InternalHttpService', () => {
   let crmPost: jest.Mock;
   let userGet: jest.Mock;
   let inventoryPost: jest.Mock;
+  let inventoryGet: jest.Mock;
 
   beforeEach(() => {
     crmGet = jest.fn();
     crmPost = jest.fn();
     userGet = jest.fn();
     inventoryPost = jest.fn();
+    inventoryGet = jest.fn();
 
     mockedAxios.create.mockImplementation((config: any) => {
       if (config.baseURL?.includes('4002')) return { get: crmGet, post: crmPost } as any;
       if (config.baseURL?.includes('4001')) return { get: userGet, post: jest.fn() } as any;
-      if (config.baseURL?.includes('4004')) return { get: jest.fn(), post: inventoryPost } as any;
+      if (config.baseURL?.includes('4004')) return { get: inventoryGet, post: inventoryPost } as any;
       return {} as any;
     });
 
@@ -267,6 +269,28 @@ describe('InternalHttpService', () => {
         dealId: 'd-1', performedBy: 'u-1', performedByName: 'test',
       };
       await expect(service.deductStock(dto)).rejects.toMatchObject({ status: 502 });
+    });
+  });
+
+  describe('getItemGroup', () => {
+    it("reads inventory's internal item-group route", async () => {
+      const group = { id: 'g-1', name: 'Front door', members: [] };
+      inventoryGet.mockResolvedValue({ data: { success: true, data: group } });
+
+      await expect(service.getItemGroup('g-1')).resolves.toEqual(group);
+      expect(inventoryGet).toHaveBeenCalledWith('/api/inventory/item-groups/internal/g-1');
+    });
+
+    it('answers null for a group inventory does not have', async () => {
+      inventoryGet.mockRejectedValue({ response: { status: 404, data: {} } });
+
+      await expect(service.getItemGroup('nope')).resolves.toBeNull();
+    });
+
+    it('maps inventory being down to a 502', async () => {
+      inventoryGet.mockRejectedValue(new Error('ECONNREFUSED'));
+
+      await expect(service.getItemGroup('g-1')).rejects.toMatchObject({ status: 502 });
     });
   });
 

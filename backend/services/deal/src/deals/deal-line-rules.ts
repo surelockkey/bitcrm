@@ -48,20 +48,35 @@ export function isImportedLine(
 }
 
 /**
- * Whether the band judges this write. Every added line and every edit is
- * judged, except an imported Workiz line edited in place at the price Workiz
- * recorded — most historical lines sit outside today's band, and flagging
- * them would make them unsavable. The exemption waives the band for that
- * price only: a new price typed on the line, or a swap to another item, is
- * judged. The web dialog's rule (`priceBandApplies` + `price === storedPrice`).
+ * Whether the band judges this write. Every added single line and every edit
+ * is judged, except a line edited in place at the price it was given apart
+ * from the price book: an imported Workiz line (most historical lines sit
+ * outside today's band, and flagging them would make them unsavable) or an
+ * item group's line (`keepsGroupPrice`). The exemption waives the band for
+ * that price only: a new price typed on the line, or a swap to another item,
+ * is judged. The web dialog's rule (`priceBandApplies` + `price === storedPrice`).
  */
 export function priceBandApplies(
   line: { productId: string; priceClient: number },
   existing?: Pick<DealProduct, 'productId' | 'priceClient' | 'fulfillment' | 'priceSource'> | null,
 ): boolean {
-  return !(
-    existing &&
-    isImportedLine(existing) &&
+  if (!existing) return true;
+  const inPlace = line.productId === existing.productId && line.priceClient === existing.priceClient;
+  return !(inPlace && (isImportedLine(existing) || keepsGroupPrice(line, existing)));
+}
+
+/**
+ * A line an item group added (`priceSource: 'group'`), edited in place at the
+ * group's price. The group set that price apart from the price book, so the
+ * band does not judge it — as long as the line keeps it. A new price, or a
+ * swap to another item, is judged and ends the exemption.
+ */
+export function keepsGroupPrice(
+  line: { productId: string; priceClient: number },
+  existing: Pick<DealProduct, 'productId' | 'priceClient' | 'priceSource'>,
+): boolean {
+  return (
+    existing.priceSource === 'group' &&
     line.productId === existing.productId &&
     line.priceClient === existing.priceClient
   );

@@ -28,6 +28,7 @@ import {
   type Deal,
   type DealStats,
   type ServiceArea,
+  type DealProduct,
   type DealProductFulfillment,
   type Product,
   type TimelineEntry,
@@ -56,7 +57,9 @@ import {
   assertPriceInBand,
   catalogCosts,
   editChangesStock,
+  isStockManaged,
   isTechnicianScope,
+  keepsGroupPrice,
   lineCustomAttributes,
   priceBandApplies,
 } from './deal-line-rules';
@@ -116,7 +119,7 @@ import { dealTotalsSnapshot } from './billing/deal-totals';
 import { aggregateDealStats, type DealStatsWindow } from './stats/deal-stats';
 import { TimelineRepository } from '../timeline/timeline.repository';
 import { DealProductsRepository } from '../products/deal-products.repository';
-import { InternalHttpService } from '../common/services/internal-http.service';
+import { InternalHttpService, type DeductStockDto } from '../common/services/internal-http.service';
 import { ServiceAreasService } from '../service-areas/service-areas.service';
 import { JobTypesService } from '../job-types/job-types.service';
 import { JobSourcesService } from '../job-sources/job-sources.service';
@@ -134,6 +137,7 @@ import { type AddNoteDto } from './dto/add-note.dto';
 import { type UpdateNoteDto } from './dto/update-note.dto';
 import { JobFieldSettingsService } from '../job-field-settings/job-field-settings.service';
 import { type AddDealProductDto } from './dto/add-deal-product.dto';
+import { type AddItemGroupDto } from './dto/add-item-group.dto';
 import { type UpdatePaymentStatusDto } from './dto/update-payment-status.dto';
 import { DealTaxResolver, type DealTaxSnapshot } from './billing/deal-tax.resolver';
 import { BusinessProfilesClient } from '../common/services/business-profiles.client';
@@ -2277,6 +2281,10 @@ export class DealsService {
       taxable,
       // A Workiz service fee edited in place stays out of the discount.
       ...(!isSwap && existing.discountable === false && { discountable: false }),
+      // An item group's line keeps its group; its price stays the group's
+      // (out of the band) only while the edit keeps that price.
+      ...(!isSwap && existing.itemGroupId && { itemGroupId: existing.itemGroupId }),
+      ...(keepsGroupPrice(dto, existing) && { priceSource: 'group' as const }),
       ...(description !== undefined && { description }),
       ...(customAttributes && { customAttributes }),
       addedBy: existing.addedBy,
@@ -2312,6 +2320,150 @@ export class DealsService {
       quantity: dto.quantity,
       fulfillment,
     });
+  }
+
+  /**
+   * Workiz "Add group": every member of an item group becomes its own line, in
+   * one call — the group's quantity, price, taxable flag, description and
+   * custom field values (the group's over the product's); the costs from the
+   * price book. The group's prices are its own, so the ±15% band does not judge
+   * them (`priceSource: 'group'`), and a group is exempt from the technician's
+   * container rule: a stock-managed member comes out of the source container
+   * when it holds enough, and is added to order otherwise (a short van, or no
+   * container at all). Everything is read before any stock moves; a failure
+   * after that puts back what was taken. One timeline entry, one event.
+   *
+   * The source container: a technician's own, always; for the office the
+   * assigned technician it names, else the caller when he is on the job, else
+   * none (every product to order).
+   */
+  async addItemGroup(
+    id: string,
+    groupId: string,
+    dto: AddItemGroupDto,
+    caller: JwtUser,
+    dealScope?: string,
+  ): Promise<DealProduct[]> {
+    const deal = await this.findById(id);
+    assertDealInScope(deal, caller, dealScope);
+
+    let source: string | undefined;
+    if (isTechnicianScope(dealScope)) {
+      source = caller.id;
+    } else if (dto?.sourceTechId) {
+      if (!deal.assignedTechIds.includes(dto.sourceTechId)) {
+        throw new BadRequestException('The chosen technician is not assigned to this deal');
+      }
+      source = dto.sourceTechId;
+    } else if (deal.assignedTechIds.includes(caller.id)) {
+      source = caller.id;
+    }
+
+    const group = await this.internalHttp.getItemGroup(groupId);
+    if (!group) throw new NotFoundException(`Item group ${groupId} not found`);
+    if (group.members.length === 0) {
+      throw new BadRequestException(`Item group "${group.name}" has no items`);
+    }
+
+    const catalog: Product[] = [];
+    for (const member of group.members) {
+      const product = await this.internalHttp.getProduct(member.productId);
+      if (!product) {
+        throw new BadRequestException(`Product "${member.name}" was not found in inventory`);
+      }
+      catalog.push(product);
+    }
+
+    const stockMeta = { dealId: id, performedBy: caller.id, performedByName: caller.email };
+    const taken: Array<{ containerId: string; items: DeductStockDto['items'] }> = [];
+    const addedAt = new Date().toISOString();
+    const lines: DealProduct[] = [];
+    try {
+      for (const [i, member] of group.members.entries()) {
+        const product = catalog[i];
+        const name = member.name || product.name;
+        let fulfillment: DealProductFulfillment;
+        if (product.type === ProductType.SERVICE) {
+          fulfillment = 'service';
+        } else if (!source) {
+          fulfillment = 'to_order';
+        } else if (!isStockManaged(product)) {
+          // Nothing is counted for it: from the van, without a deduction.
+          fulfillment = 'sourced';
+        } else {
+          const items = [{ productId: member.productId, productName: name, quantity: member.quantity }];
+          try {
+            await this.internalHttp.deductStock({ containerId: source, items, ...stockMeta });
+            taken.push({ containerId: source, items });
+            fulfillment = 'sourced';
+          } catch (error) {
+            // The van is short, or there is no van: the item is ordered instead.
+            if (!(error instanceof HttpException) || error.getStatus() >= 500) throw error;
+            fulfillment = 'to_order';
+          }
+        }
+        const customAttributes = lineCustomAttributes({
+          ...(product.customAttributes ?? {}),
+          ...member.customAttributes,
+        });
+        lines.push({
+          lineId: randomUUID(),
+          productId: member.productId,
+          name,
+          sku: product.sku,
+          quantity: member.quantity,
+          ...catalogCosts(product),
+          priceClient: member.priceClient,
+          priceSource: 'group',
+          itemGroupId: group.id,
+          fulfillment,
+          ...(fulfillment === 'sourced' && { sourceTechId: source }),
+          taxable: member.taxable,
+          ...(member.description && { description: member.description }),
+          ...(customAttributes && { customAttributes }),
+          addedBy: caller.id,
+          addedAt,
+        });
+      }
+    } catch (error) {
+      for (const { containerId, items } of taken) {
+        await this.internalHttp
+          .restoreStock({ containerId, items, ...stockMeta })
+          .catch((restoreError: Error) =>
+            this.logger.error(
+              `Item group ${groupId} on deal ${id}: could not put back ${items[0].productName} ` +
+                `to ${containerId}: ${restoreError.message}`,
+            ),
+          );
+      }
+      throw error;
+    }
+
+    for (const line of lines) await this.productsRepo.addProduct(id, line);
+    this.businessMetrics?.dealProductsAdded.inc(lines.length);
+
+    await this.refreshTotals(id);
+    await this.cache.invalidate(id);
+
+    await this.addTimelineEntry(id, TimelineEventType.PRODUCT_ADDED, caller, {
+      productName: group.name,
+      itemGroupId: group.id,
+      itemGroupName: group.name,
+      items: lines.map((l) => ({
+        productId: l.productId,
+        productName: l.name,
+        quantity: l.quantity,
+        fulfillment: l.fulfillment,
+      })),
+    });
+
+    this.publishEvent('deal.product_added', {
+      dealId: id,
+      itemGroupId: group.id,
+      productIds: lines.map((l) => l.productId),
+    });
+
+    return lines;
   }
 
   async removeProduct(

@@ -1,6 +1,8 @@
 import { Test } from '@nestjs/testing';
 import { NotFoundException } from '@nestjs/common';
 import { JobSuperStatus } from '@bitcrm/types';
+import { PERMISSION_KEY } from '@bitcrm/shared';
+import { HTTP_CODE_METADATA } from '@nestjs/common/constants';
 import { DealsController } from 'src/deals/deals.controller';
 import { DealsService } from 'src/deals/deals.service';
 import { createMockDeal, createMockDealProduct, createMockJwtUser, createMockTimelineEntry } from '../mocks';
@@ -27,6 +29,7 @@ describe('DealsController', () => {
       assignTechs: jest.fn(),
       unassignTech: jest.fn(),
       addProduct: jest.fn(),
+      addItemGroup: jest.fn(),
       replaceProduct: jest.fn(),
       markProductOrdered: jest.fn(),
       removeProduct: jest.fn(),
@@ -273,6 +276,29 @@ describe('DealsController', () => {
 
       expect(result).toEqual({ success: true, data: { added: true } });
       expect(service.addProduct).toHaveBeenCalledWith('deal-1', dto, caller, 'assigned_only');
+    });
+
+    it('addItemGroup — 201 with the lines it wrote', async () => {
+      const caller = createMockJwtUser();
+      const lines = [createMockDealProduct({ lineId: 'l-1' }), createMockDealProduct({ lineId: 'l-2' })];
+      service.addItemGroup.mockResolvedValue(lines);
+
+      const result = await controller.addItemGroup('deal-1', 'group-1', { sourceTechId: 'tech-2' }, caller, perms);
+
+      expect(result).toEqual({ success: true, data: { added: 2, lines } });
+      expect(service.addItemGroup).toHaveBeenCalledWith('deal-1', 'group-1', { sourceTechId: 'tech-2' }, caller, 'assigned_only');
+      expect(Reflect.getMetadata(PERMISSION_KEY, controller.addItemGroup)).toEqual({ resource: 'deals', action: 'edit' });
+      // A POST answers 201 unless told otherwise.
+      expect(Reflect.getMetadata(HTTP_CODE_METADATA, controller.addItemGroup)).toBeUndefined();
+    });
+
+    it('addItemGroup — takes an empty body', async () => {
+      const caller = createMockJwtUser();
+      service.addItemGroup.mockResolvedValue([]);
+
+      await controller.addItemGroup('deal-1', 'group-1', undefined as any, caller, perms);
+
+      expect(service.addItemGroup).toHaveBeenCalledWith('deal-1', 'group-1', {}, caller, 'assigned_only');
     });
 
     it('replaceProduct', async () => {

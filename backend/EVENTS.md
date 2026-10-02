@@ -125,7 +125,10 @@ A deal line item (`SK=PRODUCT#<productId>`) carries a `fulfillment` of `sourced`
 tech doesn't carry — no stock movement, toggleable to ordered via
 `PATCH /deals/:id/products/:productId/ordered`), or `service` (a non-stockable service
 line — no stock, no source tech). `deal.product_added` carries
-`{dealId, productId, quantity, fulfillment}`. Only `sourced` lines call inventory's
+`{dealId, productId, quantity, fulfillment}` for one line, and
+`{dealId, itemGroupId, productIds}` — ONE event for all of them — when an item group
+added its members (`POST /deals/:id/item-groups/:groupId`); consumers re-read the job
+by `dealId` either way. Only `sourced` lines call inventory's
 internal deduct/restore. Service-type inventory products may only be added as `service`
 lines; inventory rejects them from all stock operations (receive/transfer/deduct).
 
