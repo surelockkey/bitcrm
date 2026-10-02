@@ -103,8 +103,11 @@ const META: Record<TimelineEventType, { icon: typeof Sparkles; label: string }> 
   [TimelineEventType.ESTIMATE_SYNCED]: { icon: FileCheck2, label: "Estimate synced to job" },
   [TimelineEventType.ESTIMATE_DELETED]: { icon: FileX, label: "Estimate deleted" },
   // The client's own decisions on the portal (Workiz "Client signed estimate").
-  [TimelineEventType.ESTIMATE_APPROVED]: { icon: FileCheck2, label: "Estimate approved by client" },
-  [TimelineEventType.ESTIMATE_DECLINED]: { icon: FileX, label: "Estimate declined by client" },
+  // What the client did on the portal, in Workiz's words.
+  [TimelineEventType.ESTIMATE_APPROVED]: { icon: FileCheck2, label: "Client signed estimate" },
+  [TimelineEventType.ESTIMATE_DECLINED]: { icon: FileX, label: "Client declined estimate" },
+  [TimelineEventType.ESTIMATE_VIEWED]: { icon: Eye, label: "Client viewed estimate" },
+  [TimelineEventType.INVOICE_VIEWED]: { icon: Eye, label: "Client viewed invoice" },
   [TimelineEventType.PROPOSAL_SENT]: { icon: Send, label: "Proposal sent" },
   [TimelineEventType.INVOICE_SIGNED]: { icon: FileCheck2, label: "Invoice signed" },
   [TimelineEventType.PAYMENT_RECEIVED]: { icon: BadgeDollarSign, label: "Payment received" },
@@ -142,6 +145,21 @@ const FIELD_LABEL: Record<string, string> = {
   contactId: "Client",
   subStatusId: "Sub-status",
 };
+
+/** A signature the client gave on the portal (actor "client") reads as Workiz's "Client signed invoice". */
+function labelOf(entry: TimelineEntry): string {
+  if (entry.eventType === TimelineEventType.INVOICE_SIGNED && entry.actorId === "client") return "Client signed invoice";
+  return (META[entry.eventType] ?? LEGACY_META[entry.eventType] ?? fallbackMeta(entry.eventType)).label;
+}
+
+/** The client's portal events name their document: "#O8E9NQ". */
+const DOCUMENT_EVENTS = new Set<string>([
+  TimelineEventType.ESTIMATE_VIEWED,
+  TimelineEventType.INVOICE_VIEWED,
+  TimelineEventType.ESTIMATE_APPROVED,
+  TimelineEventType.ESTIMATE_DECLINED,
+  TimelineEventType.INVOICE_SIGNED,
+]);
 
 /** Backend-generated keys carry structure: `sequences.<techId>`, `product.<id>.ordered`. */
 function fieldLabel(key: string, lk: Lookups): string {
@@ -425,6 +443,9 @@ function detail(entry: TimelineEntry, lk: Lookups): string | null {
   if (entry.eventType === TimelineEventType.SEEN_BY_TECH) {
     return typeof d.techId === "string" ? lk.userName(d.techId) : null;
   }
+  if (DOCUMENT_EVENTS.has(entry.eventType) && typeof d.number === "string") {
+    return `#${d.number}`;
+  }
   return null;
 }
 
@@ -463,8 +484,7 @@ export function matchesFilter(entry: TimelineEntry, filter: TimelineFilter): boo
 }
 
 export function entryHaystack(entry: TimelineEntry, lk: Lookups): string {
-  const meta = META[entry.eventType];
-  return [meta?.label ?? entry.eventType, detail(entry, lk), entry.note, entry.actorName]
+  return [labelOf(entry), detail(entry, lk), entry.note, entry.actorName]
     .filter(Boolean)
     .join(" ")
     .toLowerCase();
@@ -756,6 +776,7 @@ export function EntryRow({
   onDelete?: () => void;
 }) {
   const meta = META[entry.eventType] ?? LEGACY_META[entry.eventType] ?? fallbackMeta(entry.eventType);
+  const label = labelOf(entry);
   const Icon = meta.icon;
   const d = detail(entry, lookups);
   const changeLines = itemChangeLines(entry);
@@ -770,7 +791,7 @@ export function EntryRow({
       <div className="min-w-0 flex-1 text-sm">
         <div className="flex items-start gap-1">
           <span className="min-w-0 flex-1">
-            <span className="font-medium">{meta.label}</span>
+            <span className="font-medium">{label}</span>
             {job ? (
               <span className="text-muted-foreground">
                 {" "}· Job:{" "}
