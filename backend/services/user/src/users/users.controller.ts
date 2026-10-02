@@ -74,7 +74,9 @@ export class UsersController {
   @RequirePermission("users", "view")
   @ApiOperation({
     summary: "List users with filters",
-    description: "**Guard:** `users.view` permission required.",
+    description:
+      "**Guard:** `users.view` permission required. `search` looks through the whole directory " +
+      "(name, email, department, phone; every word must match) and pages the matches by name.",
   })
   async list(@Query() query: ListUsersQueryDto) {
     return this.usersService.list(query);
@@ -213,7 +215,7 @@ export class UsersController {
     summary: "How many users the list holds",
     description:
       "**Guard:** `users.view` permission required. Takes the same filters as the list " +
-      "(`roleId`, `department`, `status`; `cursor` and `limit` are ignored) and answers " +
+      "(`roleId`, `department`, `status`, `search`; `cursor` and `limit` are ignored) and answers " +
       "`{ total, atLeast }` — the row count behind \"Page 2 of 7\". `atLeast` means the walk " +
       "stopped on a ceiling, which the panel renders as `7+`. Cached for thirty seconds.",
   })

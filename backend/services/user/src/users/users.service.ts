@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
@@ -423,6 +424,11 @@ export class UsersService implements OnModuleInit {
    * and an index walk would be waste.
    */
   async count(query: ListUsersQueryDto): Promise<ListCount> {
+    const search = query.search?.trim();
+    if (search) {
+      // The matches themselves: a search pages them, so it counts them too.
+      return { total: (await this.searchMatches(query, search)).length, atLeast: false };
+    }
     // `CountRowsResult`, not `ListCount`: the directory always has a number,
     // and `cachedCount` will not take the nullable form that billing needs.
     const take = async (): Promise<CountRowsResult> => {
@@ -450,6 +456,8 @@ export class UsersService implements OnModuleInit {
 
   async list(query: ListUsersQueryDto) {
     const limit = query.limit ?? 20;
+    const search = query.search?.trim();
+    if (search) return this.searchPage(query, search, limit);
 
     let result: { items: User[]; nextCursor?: string };
 
@@ -479,6 +487,41 @@ export class UsersService implements OnModuleInit {
         count: result.items.length,
       },
     };
+  }
+
+  /**
+   * Search on the Users page: the whole directory, not the page on screen.
+   * The directory is a team (hundreds, not millions), so it is read once
+   * (`listAllUsers`, the same walk dispatch uses), filtered by the page's
+   * role / department / status and every word of the search, sorted by name
+   * and paged by offset. The cursor says it came from here.
+   */
+  private async searchPage(query: ListUsersQueryDto, search: string, limit: number) {
+    const offset = searchOffset(query.cursor);
+    const matches = await this.searchMatches(query, search);
+    const items = matches.slice(offset, offset + limit);
+    const next = offset + limit < matches.length ? `${SEARCH_CURSOR}${offset + limit}` : undefined;
+    return {
+      success: true as const,
+      data: items,
+      pagination: { nextCursor: next, count: items.length },
+    };
+  }
+
+  private async searchMatches(query: ListUsersQueryDto, search: string): Promise<User[]> {
+    const terms = search.toLowerCase().split(/\s+/).filter(Boolean);
+    const all = await this.listAllUsers();
+    return all
+      .filter((u) => !query.roleId || u.roleId === query.roleId)
+      .filter((u) => !query.department || u.department === query.department)
+      .filter((u) => !query.status || u.status === query.status)
+      .filter((u) => matchesSearch(u, terms))
+      .sort(
+        (a, b) =>
+          `${a.firstName ?? ''} ${a.lastName ?? ''}`.localeCompare(`${b.firstName ?? ''} ${b.lastName ?? ''}`, 'en', {
+            sensitivity: 'base',
+          }) || a.id.localeCompare(b.id),
+      );
   }
 
   /**
@@ -952,4 +995,29 @@ function mfaAfterPhoneChange(
   phone: string | undefined,
 ): Partial<User> {
   return user.smsMfaEnabled && user.phone !== phone ? { smsMfaEnabled: false } : {};
+}
+
+/** A search page's cursor: where the next page starts in the sorted matches. */
+const SEARCH_CURSOR = 'search:';
+
+function searchOffset(cursor: string | undefined): number {
+  if (!cursor) return 0;
+  const n = cursor.startsWith(SEARCH_CURSOR) ? Number(cursor.slice(SEARCH_CURSOR.length)) : NaN;
+  if (!Number.isInteger(n) || n < 0) throw new BadRequestException('Invalid cursor for a search');
+  return n;
+}
+
+/**
+ * Every word of the search appears somewhere in the user's name, email,
+ * department or phone, ignoring case; a word of digits also matches the
+ * phone with its punctuation stripped ("5550123" finds "(404) 555-0123").
+ */
+export function matchesSearch(u: Pick<User, 'firstName' | 'lastName' | 'email' | 'department' | 'phone'>, terms: string[]): boolean {
+  const hay = [u.firstName, u.lastName, u.email, u.department, u.phone].filter(Boolean).join(' ').toLowerCase();
+  const phoneDigits = (u.phone ?? '').replace(/\D/g, '');
+  return terms.every((t) => {
+    if (hay.includes(t)) return true;
+    const digits = t.replace(/\D/g, '');
+    return digits.length >= 3 && digits === t.replace(/[\s()+.-]/g, '') && phoneDigits.includes(digits);
+  });
 }
