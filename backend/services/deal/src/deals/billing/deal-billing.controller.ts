@@ -97,7 +97,9 @@ export class DealBillingController {
   @RequirePermission('deals', 'edit')
   @ApiOperation({
     summary: 'Toggle whether the job tax applies to a line',
-    description: '**Guard:** `deals.edit`. Returns the updated line.' + ' A caller whose `deals` data scope is `assigned_only` (a technician) only on a job he is assigned to — 403 otherwise.',
+    description:
+      '**Guard:** `deals.edit`. Returns the updated line.' +
+      ' A caller whose `deals` data scope is `assigned_only` (a technician) only on a job he is assigned to — 403 otherwise.',
   })
   async setProductTaxable(
     @Param('id') id: string,
