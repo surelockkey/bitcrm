@@ -555,6 +555,52 @@ describe("DealDetailPage (editable, single save)", () => {
     expect(mocks.createContact).not.toHaveBeenCalled();
   });
 
+  /**
+   * A job imported from Workiz carries its own name for the client (the
+   * "Just here" pin), and the client box shows it. That is the job's name,
+   * not an edit of the client record: the page opens clean, saving anything
+   * else never writes the job's name into the contact, and Reset puts the
+   * job's name back rather than the contact's.
+   */
+  describe("a job with its own name for the client", () => {
+    const pinned: Deal = { ...deal, clientName: { firstName: "Clinic", lastName: "Of Weatherford" } };
+
+    it("opens clean — Save stays off", () => {
+      dealState = pinned;
+      render(<DealDetailPage dealId="d1" />);
+
+      expect(screen.getByDisplayValue("Clinic")).toBeInTheDocument();
+      expect(saveButton()).toBeDisabled();
+    });
+
+    it("saving a new phone keeps the contact's own name", async () => {
+      dealState = pinned;
+      const u = user();
+      render(<DealDetailPage dealId="d1" />);
+
+      await u.click(screen.getByRole("button", { name: /add phone/i }));
+      await u.type(screen.getAllByPlaceholderText("Phone number")[1], "2028398283");
+      await u.click(saveButton());
+
+      expect(screen.queryByText("Change client")).not.toBeInTheDocument();
+      expect(mocks.updateContact).toHaveBeenCalledTimes(1);
+      expect(mocks.updateContact.mock.calls[0][0].body).toMatchObject({ firstName: "Jane", lastName: "Smith" });
+      expect(mocks.updateDeal).not.toHaveBeenCalled();
+    });
+
+    it("Reset puts the job's name back and leaves the page clean", async () => {
+      dealState = pinned;
+      const u = user();
+      render(<DealDetailPage dealId="d1" />);
+
+      await u.type(poInput(), "X-1");
+      await u.click(screen.getByRole("button", { name: "Reset" }));
+
+      expect(screen.getByDisplayValue("Clinic")).toBeInTheDocument();
+      expect(saveButton()).toBeDisabled();
+    });
+  });
+
   it("only asks about the client when the client itself changed", async () => {
     const u = user();
     render(<DealDetailPage dealId="d1" />);
