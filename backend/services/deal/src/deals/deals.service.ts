@@ -1507,6 +1507,10 @@ export class DealsService {
    * so the New Job form can suggest who can do the work (right job type, in the
    * service area) before the deal exists. Same scoring and shape as
    * getQualifiedTechs; distance is measured from the given point when present.
+   *
+   * No area but a point: the area is resolved here, from the point, the way a
+   * new deal's is — so a caller with only an address asks once rather than
+   * resolving the area first and asking again with it.
    */
   async rankQualifiedTechsFor(params: {
     jobTypeId: string;
@@ -1514,7 +1518,12 @@ export class DealsService {
     lat?: number;
     lng?: number;
   }) {
-    const candidates = await this.eligibility.listAll();
+    const resolveArea =
+      !params.serviceAreaId && params.lat !== undefined && params.lng !== undefined
+        ? this.serviceAreas.resolvePoint({ lat: params.lat, lng: params.lng })
+        : null;
+    const [candidates, resolvedArea] = await Promise.all([this.eligibility.listAll(), resolveArea]);
+    const serviceAreaId = params.serviceAreaId ?? resolvedArea?.id;
 
     return candidates
       .map((tech) => {
@@ -1530,7 +1539,7 @@ export class DealsService {
         if (params.jobTypeId && !tech.jobTypeIds.includes(params.jobTypeId)) {
           reasons.push('missing_job_type');
         }
-        if (!params.serviceAreaId || !tech.serviceAreaIds.includes(params.serviceAreaId)) {
+        if (!serviceAreaId || !tech.serviceAreaIds.includes(serviceAreaId)) {
           reasons.push('outside_area');
         }
 

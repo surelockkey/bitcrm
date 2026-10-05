@@ -10,7 +10,13 @@ describe('TechnicianEligibilityRepository (unit)', () => {
     repo = new TechnicianEligibilityRepository(dynamoDb as never);
   });
 
-  it('upsert writes a TECH_ELIGIBILITY# item', async () => {
+  /**
+   * Every technician lives in ONE partition, so the whole roster is a Query.
+   * Each used to be its own `TECH_ELIGIBILITY#<id>` partition, which left a
+   * Scan of the entire deals table as the only way to list them — five
+   * seconds on dev, growing with every imported job, on every job page.
+   */
+  it('upsert writes the item into the one eligibility partition', async () => {
     dynamoDb.client.send.mockResolvedValue({});
     await repo.upsert({
       technicianId: 'tech-1',
@@ -20,8 +26,8 @@ describe('TechnicianEligibilityRepository (unit)', () => {
       updatedAt: '2026-06-30T00:00:00.000Z',
     });
     const item = dynamoDb.client.send.mock.calls[0][0].input.Item;
-    expect(item.PK).toBe('TECH_ELIGIBILITY#tech-1');
-    expect(item.SK).toBe('ELIGIBILITY');
+    expect(item.PK).toBe('TECH_ELIGIBILITY');
+    expect(item.SK).toBe('TECH#tech-1');
     expect(item.assignable).toBe(true);
   });
 
@@ -34,8 +40,17 @@ describe('TechnicianEligibilityRepository (unit)', () => {
     dynamoDb.client.send.mockResolvedValue({});
     await repo.remove('tech-1');
     expect(dynamoDb.client.send.mock.calls[0][0].input.Key).toEqual({
-      PK: 'TECH_ELIGIBILITY#tech-1',
-      SK: 'ELIGIBILITY',
+      PK: 'TECH_ELIGIBILITY',
+      SK: 'TECH#tech-1',
+    });
+  });
+
+  it('get reads the item by its key in the eligibility partition', async () => {
+    dynamoDb.client.send.mockResolvedValue({ Item: { technicianId: 'tech-1', assignable: true } });
+    expect(await repo.get('tech-1')).toMatchObject({ technicianId: 'tech-1' });
+    expect(dynamoDb.client.send.mock.calls[0][0].input.Key).toEqual({
+      PK: 'TECH_ELIGIBILITY',
+      SK: 'TECH#tech-1',
     });
   });
 
@@ -58,8 +73,8 @@ describe('TechnicianEligibilityRepository (unit)', () => {
 
       expect(dynamoDb.client.send).toHaveBeenCalledTimes(1);
       expect(dynamoDb.client.send.mock.calls[0][0].input.RequestItems.BitCRM_Deals.Keys).toEqual([
-        { PK: 'TECH_ELIGIBILITY#tech-1', SK: 'ELIGIBILITY' },
-        { PK: 'TECH_ELIGIBILITY#tech-2', SK: 'ELIGIBILITY' },
+        { PK: 'TECH_ELIGIBILITY', SK: 'TECH#tech-1' },
+        { PK: 'TECH_ELIGIBILITY', SK: 'TECH#tech-2' },
       ]);
       expect(out.map((r) => r.firstName)).toEqual(['Ada', 'Bo']);
     });
@@ -91,37 +106,69 @@ describe('TechnicianEligibilityRepository (unit)', () => {
     });
   });
 
-  it('listAll scans the eligibility partition prefix', async () => {
+  it('listAll queries the one eligibility partition — never a Scan', async () => {
     dynamoDb.client.send.mockResolvedValue({ Items: [{ technicianId: 'tech-1', assignable: true }] });
     const out = await repo.listAll();
-    const input = dynamoDb.client.send.mock.calls[0][0].input;
-    expect(input.FilterExpression).toContain('begins_with(PK, :pk)');
-    expect(input.ExpressionAttributeValues[':pk']).toBe('TECH_ELIGIBILITY#');
+    const command = dynamoDb.client.send.mock.calls[0][0];
+    expect(command.constructor.name).toBe('QueryCommand');
+    expect(command.input.KeyConditionExpression).toBe('PK = :pk');
+    expect(command.input.ExpressionAttributeValues[':pk']).toBe('TECH_ELIGIBILITY');
     expect(out).toHaveLength(1);
   });
 
-  /**
-   * The Scan's 1MB budget is spent on deals — the rows this filter throws away
-   * — long before the eligibility partition is exhausted, so page one can hold
-   * almost none of it. What the picker offers and what the boot reconcile can
-   * remove are both exactly this list.
-   */
-  it('listAll follows LastEvaluatedKey to the end of the table', async () => {
+  /** A Query page tops out at 1MB too; the picker must still see everyone. */
+  it('listAll follows LastEvaluatedKey to the end of the partition', async () => {
     dynamoDb.client.send
       .mockResolvedValueOnce({
         Items: [{ technicianId: 'tech-1', assignable: true }],
-        LastEvaluatedKey: { PK: 'DEAL#999', SK: 'METADATA' },
+        LastEvaluatedKey: { PK: 'TECH_ELIGIBILITY', SK: 'TECH#tech-1' },
       })
       .mockResolvedValueOnce({
-        Items: [{ technicianId: 'test-tech-ct-3', assignable: true }],
+        Items: [{ technicianId: 'tech-2', assignable: true }],
       });
 
     const out = await repo.listAll();
 
-    expect(out.map((r) => r.technicianId)).toEqual(['tech-1', 'test-tech-ct-3']);
+    expect(out.map((r) => r.technicianId)).toEqual(['tech-1', 'tech-2']);
     expect(dynamoDb.client.send.mock.calls[1][0].input.ExclusiveStartKey).toEqual({
-      PK: 'DEAL#999',
-      SK: 'METADATA',
+      PK: 'TECH_ELIGIBILITY',
+      SK: 'TECH#tech-1',
+    });
+  });
+
+  /**
+   * The rows written before the move: one `TECH_ELIGIBILITY#<id>` partition
+   * each. Only the boot migration reads them, and only while the new
+   * partition is still empty — so this Scan runs once per environment.
+   */
+  describe('the pre-move layout', () => {
+    it('listLegacy scans for the old per-technician partitions, to the end of the table', async () => {
+      dynamoDb.client.send
+        .mockResolvedValueOnce({
+          Items: [{ technicianId: 'tech-1', assignable: true }],
+          LastEvaluatedKey: { PK: 'DEAL#999', SK: 'METADATA' },
+        })
+        .mockResolvedValueOnce({ Items: [{ technicianId: 'tech-2', assignable: true }] });
+
+      const out = await repo.listLegacy();
+
+      const first = dynamoDb.client.send.mock.calls[0][0].input;
+      expect(first.FilterExpression).toBe('begins_with(PK, :pk)');
+      expect(first.ExpressionAttributeValues[':pk']).toBe('TECH_ELIGIBILITY#');
+      expect(dynamoDb.client.send.mock.calls[1][0].input.ExclusiveStartKey).toEqual({
+        PK: 'DEAL#999',
+        SK: 'METADATA',
+      });
+      expect(out.map((r) => r.technicianId)).toEqual(['tech-1', 'tech-2']);
+    });
+
+    it('removeLegacy deletes the old-layout row', async () => {
+      dynamoDb.client.send.mockResolvedValue({});
+      await repo.removeLegacy('tech-1');
+      expect(dynamoDb.client.send.mock.calls[0][0].input.Key).toEqual({
+        PK: 'TECH_ELIGIBILITY#tech-1',
+        SK: 'ELIGIBILITY',
+      });
     });
   });
 });

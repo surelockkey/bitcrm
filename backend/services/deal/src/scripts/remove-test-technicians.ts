@@ -8,7 +8,7 @@ import { DEALS_TABLE } from '../common/constants/dynamo.constants';
 
 /**
  * Remove the ten fake technicians a seeding script wrote into the live deals
- * table (`test-tech-ct-1` … `-10`, PK `TECH_ELIGIBILITY#<id>`). They were
+ * table (`test-tech-ct-1` … `-10`). They were
  * eligibility rows and nothing else — no user, no login, no role — so they
  * could be offered for a Connecticut job and found nowhere else, which is
  * exactly how the owner met them.
@@ -42,19 +42,26 @@ async function main() {
   console.log(apply ? 'Deleting.\n' : 'Dry run — nothing is deleted. Add --yes to delete.\n');
 
   let found = 0;
+  // Where they were seeded (one partition each), and where the boot migration
+  // moves eligibility rows to (one shared partition).
+  const keysOf = (id: string) => [
+    { PK: `TECH_ELIGIBILITY#${id}`, SK: 'ELIGIBILITY' },
+    { PK: 'TECH_ELIGIBILITY', SK: `TECH#${id}` },
+  ];
   for (const id of SEEDED_IDS) {
-    const key = { PK: `TECH_ELIGIBILITY#${id}`, SK: 'ELIGIBILITY' };
-    const { Item } = await client.send(new GetCommand({ TableName: DEALS_TABLE, Key: key }));
-    if (!Item) {
-      console.log(`  · ${id} — not there`);
-      continue;
+    let here = false;
+    for (const key of keysOf(id)) {
+      const { Item } = await client.send(new GetCommand({ TableName: DEALS_TABLE, Key: key }));
+      if (!Item) continue;
+      here = true;
+      const name = [Item.firstName, Item.lastName].filter(Boolean).join(' ') || '(no name)';
+      console.log(`  ${apply ? '-' : '?'} ${id} — ${name} (${key.PK})`);
+      // Deleting by the exact key of a row this script named itself: nothing
+      // else in the table can match, and a row already gone is not an error.
+      if (apply) await client.send(new DeleteCommand({ TableName: DEALS_TABLE, Key: key }));
     }
-    found += 1;
-    const name = [Item.firstName, Item.lastName].filter(Boolean).join(' ') || '(no name)';
-    console.log(`  ${apply ? '-' : '?'} ${id} — ${name}`);
-    // Deleting by the exact key of a row this script named itself: nothing
-    // else in the table can match, and a row already gone is not an error.
-    if (apply) await client.send(new DeleteCommand({ TableName: DEALS_TABLE, Key: key }));
+    if (here) found += 1;
+    else console.log(`  · ${id} — not there`);
   }
 
   console.log(

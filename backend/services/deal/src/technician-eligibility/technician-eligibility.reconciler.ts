@@ -30,11 +30,36 @@ export class TechnicianEligibilityReconciler implements OnModuleInit {
 
   async onModuleInit(): Promise<void> {
     try {
+      await this.moveLegacyRows();
+    } catch (err) {
+      this.logger.warn(`Moving pre-move eligibility rows failed: ${(err as Error).message}`);
+    }
+    try {
       await this.reconcile();
     } catch (err) {
       this.logger.warn(
         `Technician eligibility reconcile on boot failed: ${(err as Error).message}`,
       );
+    }
+  }
+
+  /**
+   * The rows moved from one partition per technician into one shared
+   * partition (so listing them is a Query, not a Scan of every deal). While
+   * the new partition is empty, carry the old rows over — copy, then delete,
+   * so a crash in between leaves a duplicate the next boot tidies, never a
+   * gap. This needs nothing from user-service, so dispatch keeps its
+   * technicians even when user-service is down at the first boot.
+   */
+  private async moveLegacyRows(): Promise<void> {
+    if ((await this.repository.listAll()).length > 0) return;
+    const legacy = await this.repository.listLegacy();
+    for (const row of legacy) {
+      await this.repository.upsert(row);
+      await this.repository.removeLegacy(row.technicianId);
+    }
+    if (legacy.length) {
+      this.logger.log(`Moved ${legacy.length} eligibility rows into the shared partition`);
     }
   }
 
