@@ -8,15 +8,13 @@ const mocks = vi.hoisted(() => ({
   config: { data: { technicianLine: "+14045550140" }, isError: false, isLoading: false } as Record<string, unknown>,
 }));
 
-vi.mock("@tanstack/react-query", () => ({
-  useQuery: () => mocks.code,
-}));
 vi.mock("@/features/auth/use-permissions", () => ({
   useDenied: () => () => false,
   usePermissions: () => ({ can: mocks.can }),
 }));
 vi.mock("../config-hooks", () => ({
   useTelephonyConfig: () => mocks.config,
+  useJobCode: () => mocks.code,
 }));
 
 describe("JobDialCard", () => {

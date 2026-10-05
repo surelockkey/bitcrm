@@ -14,6 +14,8 @@ export function useServiceAreas(enabled = true) {
     queryKey: queryKeys.serviceAreas.list(),
     queryFn: api.listServiceAreas,
     enabled,
+    // A catalog, like the job types and sources beside it.
+    staleTime: 5 * 60_000,
   });
 }
 

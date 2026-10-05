@@ -53,9 +53,9 @@ vi.mock("@/features/auth/use-permissions", () => ({
 
 // Catalog widgets fetch via react-query; stub them so the page renders without
 // a QueryClient. None are relevant to the single-save flow.
-// The catalogs the page now asks for up front have their own test; here they
-// are simply in, so the page renders.
-vi.mock("../job-page-catalogs", () => ({ useJobPageCatalogs: () => ({ ready: true }) }));
+// Everything the page asks for up front has its own test
+// (deal-detail-page.loading.test.tsx); here it is simply in, so the page renders.
+vi.mock("../job-page-data", () => ({ useJobPageData: () => ({ ready: true }) }));
 // The note is a rich-text editor with its own tests; here it stands in as a
 // plain box, because what these tests are about is the single Save.
 vi.mock("./deal-notes-card", () => ({

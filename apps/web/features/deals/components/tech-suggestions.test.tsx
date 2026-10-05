@@ -2,8 +2,9 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import type { QualifiedTech } from "../api";
 
-const { suggested, resolvedArea } = vi.hoisted(() => ({
+const { suggested, resolvedArea, asked } = vi.hoisted(() => ({
   suggested: { data: [] as QualifiedTech[], isLoading: false },
+  asked: [] as { params: Record<string, unknown>; enabled: boolean }[],
   resolvedArea: { data: undefined as { id: string; name: string } | undefined },
 }));
 
@@ -11,7 +12,10 @@ const { suggested, resolvedArea } = vi.hoisted(() => ({
 let directory = new Map<string, { id: string; firstName: string; lastName: string }>();
 
 vi.mock("../hooks", () => ({
-  useSuggestedTechs: () => suggested,
+  useSuggestedTechs: (params: Record<string, unknown>, enabled: boolean) => {
+    asked.push({ params, enabled });
+    return suggested;
+  },
   useUserMap: () => ({ map: directory }),
 }));
 vi.mock("@/features/service-areas/hooks", () => ({
@@ -31,6 +35,29 @@ const tech = (over: Partial<QualifiedTech>): QualifiedTech => ({
 });
 
 const open = () => fireEvent.click(screen.getByLabelText("Assign team members"));
+
+/**
+ * The server resolves the area from the address itself. Asking with the area
+ * the browser resolved meant waiting for that first and then asking again —
+ * two requests one behind the other on every job opened.
+ */
+describe("TechSuggestions — what it asks", () => {
+  beforeEach(() => {
+    asked.length = 0;
+  });
+
+  it("asks with the job type and the address alone — never the area", () => {
+    resolvedArea.data = undefined;
+    const { rerender } = render(
+      <TechSuggestions jobTypeId="jt-x" address={{ lat: 41.7, lng: -72.6 }} selected={[]} onChange={vi.fn()} />,
+    );
+    resolvedArea.data = { id: "sa-ct", name: "CT" };
+    rerender(<TechSuggestions jobTypeId="jt-x" address={{ lat: 41.7, lng: -72.6 }} selected={[]} onChange={vi.fn()} />);
+
+    for (const call of asked) expect(call.params).toEqual({ jobTypeId: "jt-x", lat: 41.7, lng: -72.6 });
+    expect(asked.every((c) => c.enabled)).toBe(true);
+  });
+});
 
 describe("TechSuggestions — select", () => {
   beforeEach(() => {

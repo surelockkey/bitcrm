@@ -80,7 +80,7 @@ import { DealNotesCard } from "./deal-notes-card";
 import { DealProductsTab } from "./deal-products-tab";
 import { DealTimelinePanel } from "./deal-timeline-panel";
 import { DealAttachmentsTab } from "./deal-attachments-tab";
-import { useJobPageCatalogs } from "../job-page-catalogs";
+import { useJobPageData } from "../job-page-data";
 import { useAttachments } from "../attachments-hooks";
 import { AssignedTechs } from "./assigned-techs";
 import { SendToTechCard } from "./send-to-tech-card";
@@ -154,10 +154,10 @@ export function DealDetailPage({
     syncUrl("estimates", id);
   };
   const { data: attachments } = useAttachments(dealId);
-  // Every catalog the job's fields need, asked for together with the job
-  // itself rather than by each select once the job is already in. Without
-  // this the page filled in waves and a dispatcher watched the fields arrive.
-  const catalogs = useJobPageCatalogs();
+  // Everything the page shows, asked for together with the job itself rather
+  // than by each block once it has mounted. Without this the page filled in
+  // waves and a dispatcher watched the fields arrive.
+  const page = useJobPageData(dealId);
   const attachmentCount = attachments?.length ?? 0;
   usePageHistoryLabel(deal ? `Job (${deal.dealNumber})` : undefined);
   // Workiz "Viewed job in app": an assigned technician opening the job is what
@@ -166,7 +166,7 @@ export function DealDetailPage({
 
   // One skeleton, then the page: showing each field the moment its own data
   // lands is what made the job look like it was still loading.
-  if (isLoading || !deal || !catalogs.ready)
+  if (isLoading || !deal || !page.ready)
     return <div className="p-6"><Skeleton className="h-64 w-full" /></div>;
 
   const canEdit = can("deals", "edit");

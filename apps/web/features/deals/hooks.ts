@@ -146,6 +146,9 @@ export function useDealAssignments(id: string, enabled = true) {
     queryKey: queryKeys.deals.assignments(id),
     queryFn: () => api.getDealAssignments(id),
     enabled,
+    // The job page asks for this up front; its card must not ask again as it
+    // mounts a moment later. A send invalidates it, so nothing waits on this.
+    staleTime: 30_000,
   });
 }
 
@@ -166,6 +169,8 @@ export function useSuggestedTechs(
     queryKey: ["deals", "suggested-techs", params],
     queryFn: () => api.suggestQualifiedTechs(params),
     enabled,
+    // As long as the area it is resolved against (useResolvedServiceArea).
+    staleTime: 60_000,
   });
 }
 
@@ -223,6 +228,8 @@ export function useUserMap(ids?: string[]) {
     queryKey: queryKeys.technicians.userMap(),
     queryFn: () => fetchAllUsers(),
     enabled: !permsLoading && canList,
+    // The same cache entry the Technicians page holds for five minutes.
+    staleTime: 5 * 60_000,
   });
 
   const names = useQuery({

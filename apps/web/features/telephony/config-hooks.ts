@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { fetchTelephonyConfig } from "./api";
+import { fetchJobCode, fetchTelephonyConfig } from "./api";
 
 /**
  * Workspace telephony settings the browser needs.
@@ -16,6 +16,15 @@ export function useTelephonyConfig() {
   return useQuery({
     queryKey: ["telephony-config"],
     queryFn: fetchTelephonyConfig,
+    staleTime: 5 * 60_000,
+  });
+}
+
+/** The code a caller keys to reach this job from any phone. */
+export function useJobCode(dealId: string) {
+  return useQuery({
+    queryKey: ["job-code", dealId],
+    queryFn: () => fetchJobCode(dealId),
     staleTime: 5 * 60_000,
   });
 }

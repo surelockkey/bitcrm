@@ -1,11 +1,9 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
 import { Phone } from "lucide-react";
-import { fetchJobCode } from "../api";
 import { formatPhone } from "@/lib/phone";
 import { usePermissions } from "@/features/auth/use-permissions";
-import { useTelephonyConfig } from "../config-hooks";
+import { useJobCode, useTelephonyConfig } from "../config-hooks";
 
 /** Spoken and read in pairs — "47 29 13" is far easier to key than "472913". */
 function groupCode(code: string): string {
@@ -41,11 +39,7 @@ export function JobDialCard({ dealId }: { dealId: string }) {
     isLoading: configLoading,
   } = useTelephonyConfig();
   const technicianLine = config?.technicianLine;
-  const { data: ext, isError } = useQuery({
-    queryKey: ["job-code", dealId],
-    queryFn: () => fetchJobCode(dealId),
-    staleTime: 5 * 60_000,
-  });
+  const { data: ext, isError } = useJobCode(dealId);
   // Only somebody who can actually designate a line is worth sending to the
   // settings page; for everybody else that is a dead end.
   const { can } = usePermissions();

@@ -1,6 +1,6 @@
 "use client";
 
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { queryKeys } from "@/lib/query-keys";
 import { getApiErrorMessage } from "@/lib/api/errors";
@@ -18,13 +18,20 @@ export function useAttachments(dealId: string) {
  * thumbnails). The URL expires in 300s, so it's cached for less than that and
  * re-requested on the next render after expiry.
  */
+const attachmentUrlQuery = (dealId: string, attachmentId: string) => ({
+  queryKey: queryKeys.deals.attachmentUrl(dealId, attachmentId),
+  queryFn: () => api.getAttachmentDownloadUrl(dealId, attachmentId),
+  staleTime: 4 * 60_000,
+  gcTime: 4 * 60_000,
+});
+
 export function useAttachmentUrl(dealId: string, attachmentId: string) {
-  return useQuery({
-    queryKey: queryKeys.deals.attachmentUrl(dealId, attachmentId),
-    queryFn: () => api.getAttachmentDownloadUrl(dealId, attachmentId),
-    staleTime: 4 * 60_000,
-    gcTime: 4 * 60_000,
-  });
+  return useQuery(attachmentUrlQuery(dealId, attachmentId));
+}
+
+/** The same URLs for several files at once — what the job page asks for up front. */
+export function useAttachmentUrls(dealId: string, attachmentIds: string[]) {
+  return useQueries({ queries: attachmentIds.map((id) => attachmentUrlQuery(dealId, id)) });
 }
 
 export function useUploadAttachment(dealId: string) {
