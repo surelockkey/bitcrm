@@ -43,8 +43,10 @@ export function TechSuggestions({
   const [open, setOpen] = useState(false);
   const hasAddress = address.lat !== undefined && address.lng !== undefined;
   const { data: area } = useResolvedServiceArea(address.lat, address.lng);
+  // The server resolves the area from the address itself: asking with the
+  // area resolved here meant waiting for it, then asking a second time.
   const query = useSuggestedTechs(
-    { jobTypeId: jobTypeId || undefined, serviceAreaId: area?.id, lat: address.lat, lng: address.lng },
+    { jobTypeId: jobTypeId || undefined, lat: address.lat, lng: address.lng },
     hasAddress,
   );
 

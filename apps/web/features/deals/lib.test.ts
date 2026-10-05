@@ -496,6 +496,29 @@ describe("buildDealPatch", () => {
     expect(buildDealPatch(full, dealDraftFromDeal(full))).toBeNull();
   });
 
+  /**
+   * Tens of thousands of notes came over from Workiz as plain text. The note
+   * editor opens each as paragraphs and hands that HTML back before anyone
+   * types — the same words in the editor's markup are the same note, not an
+   * edit, or every imported job opens with Save lit and a leave-page prompt.
+   */
+  it("reads a plain-text note and the editor's HTML of it as the same note", () => {
+    const d = deal({ notes: "Door arm leaks oil.\nStaff entrance only" });
+    const draft = { ...dealDraftFromDeal(d), notes: "<p>Door arm leaks oil.</p><p>Staff entrance only</p>" };
+    expect(buildDealPatch(d, draft)).toBeNull();
+  });
+
+  it("ignores the runs of spaces the editor collapses", () => {
+    const d = deal({ notes: "Gate code  4521" });
+    expect(buildDealPatch(d, { ...dealDraftFromDeal(d), notes: "<p>Gate code 4521</p>" })).toBeNull();
+  });
+
+  it("still sends a note whose words changed", () => {
+    const d = deal({ notes: "Door arm leaks oil." });
+    const draft = { ...dealDraftFromDeal(d), notes: "<p>Door arm replaced.</p>" };
+    expect(buildDealPatch(d, draft)).toEqual({ notes: "<p>Door arm replaced.</p>" });
+  });
+
   it("sends the external company as a changed key, and clears it when emptied", () => {
     const d = deal();
     const set = buildDealPatch(d, { ...dealDraftFromDeal(d), externalCompanyId: "ec-1" });

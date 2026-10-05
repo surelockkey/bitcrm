@@ -98,6 +98,9 @@ export function useContact(id: string) {
     queryFn: () => api.getContact(id),
     // Callers pass "" when there is no contact in hand yet.
     enabled: !!id,
+    // A page that asked for the client up front must not have every block
+    // that shows it ask again as it mounts. Edits invalidate it outright.
+    staleTime: 30_000,
   });
 }
 

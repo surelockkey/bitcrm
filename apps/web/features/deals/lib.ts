@@ -25,6 +25,7 @@ import type { UpdateContactValues } from "@/features/clients/schemas";
 import type { DealCounts } from "./api";
 import { personName } from "./person-name";
 import type { UpdateDealValues } from "./schemas";
+import { noteToHtml } from "./note-html";
 
 /* ----------------------------------------------------------- super-statuses */
 
@@ -556,6 +557,16 @@ const sameCustomFields = (
   return true;
 };
 
+/**
+ * One note, however it is written down: a plain-text note and the editor's
+ * HTML of it are the same words. The editor also collapses runs of spaces,
+ * so those do not count either.
+ */
+const sameNote = (a: string, b: string): boolean => {
+  const words = (note: string) => noteToHtml(note).replace(/\s+/g, " ").trim();
+  return words(a) === words(b);
+};
+
 /** Optional string fields where an emptied draft value means "clear it". */
 const OPTIONAL_DEAL_FIELDS = [
   "sourceId", "businessProfileId", "externalCompanyId", "poNumber", "workOrderId", "scheduledDate", "scheduledEndDate", "scheduledTimeSlot",
@@ -605,7 +616,12 @@ export function buildDealPatch(deal: Deal, draft: DealDraft): UpdateDealValues |
   }
   for (const key of ["notes", "internalNotes"] as const) {
     const next = draft[key].trim();
-    if (next !== base[key]) { patch[key] = next; dirty = true; }
+    if (next === base[key]) continue;
+    // The note editor hands an imported plain-text note back as HTML before
+    // anyone types; that is the same note, not an edit.
+    if (key === "notes" && sameNote(next, base[key])) continue;
+    patch[key] = next;
+    dirty = true;
   }
   // Custom-field answers ride the same single Save: send the whole current
   // answer map (like `address`) only when something actually changed.

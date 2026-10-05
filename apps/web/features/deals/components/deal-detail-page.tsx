@@ -80,7 +80,7 @@ import { DealNotesCard } from "./deal-notes-card";
 import { DealProductsTab } from "./deal-products-tab";
 import { DealTimelinePanel } from "./deal-timeline-panel";
 import { DealAttachmentsTab } from "./deal-attachments-tab";
-import { useJobPageCatalogs } from "../job-page-catalogs";
+import { useJobPageData } from "../job-page-data";
 import { useAttachments } from "../attachments-hooks";
 import { AssignedTechs } from "./assigned-techs";
 import { SendToTechCard } from "./send-to-tech-card";
@@ -154,10 +154,10 @@ export function DealDetailPage({
     syncUrl("estimates", id);
   };
   const { data: attachments } = useAttachments(dealId);
-  // Every catalog the job's fields need, asked for together with the job
-  // itself rather than by each select once the job is already in. Without
-  // this the page filled in waves and a dispatcher watched the fields arrive.
-  const catalogs = useJobPageCatalogs();
+  // Everything the page shows, asked for together with the job itself rather
+  // than by each block once it has mounted. Without this the page filled in
+  // waves and a dispatcher watched the fields arrive.
+  const page = useJobPageData(dealId);
   const attachmentCount = attachments?.length ?? 0;
   usePageHistoryLabel(deal ? `Job (${deal.dealNumber})` : undefined);
   // Workiz "Viewed job in app": an assigned technician opening the job is what
@@ -166,7 +166,7 @@ export function DealDetailPage({
 
   // One skeleton, then the page: showing each field the moment its own data
   // lands is what made the job look like it was still loading.
-  if (isLoading || !deal || !catalogs.ready)
+  if (isLoading || !deal || !page.ready)
     return <div className="p-6"><Skeleton className="h-64 w-full" /></div>;
 
   const canEdit = can("deals", "edit");
@@ -419,19 +419,6 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
   // A changed service address is also offered to the client's saved list — but
   // that's a contact write, so it (and any client-field edit) is gated on
   // `contacts.edit`. Without it, a deals-only editor never touches the contact.
-  const contactBody =
-    canEditClient && contact && clientDraft
-      ? buildContactBody(contact, clientDraft, dealPatch?.address ? dealDraft.address : undefined)
-      : null;
-  const dirty = !!dealPatch || !!contactBody;
-  const pending = update.isPending || updateContact.isPending;
-  // A half-typed phone must not ride a Save into the client record; the
-  // input itself is already explaining what's wrong, live.
-  const phonesOk =
-    !clientDraft || clientDraft.phones.every((p) => !p.trim() || isValidPhone(p));
-
-  const { confirm } = useUnsavedChanges(dirty);
-
   // A rename is the only client edit that prompts: it either follows the
   // client record or stays a per-job label. Phones/emails live on the client
   // record alone, so they save straight through. The rename is measured
@@ -443,6 +430,24 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
     !!clientDraft &&
     (clientDraft.firstName.trim() !== baseFirstName ||
       clientDraft.lastName.trim() !== baseLastName);
+  // The client box shows the job's name for the client, so the name only
+  // counts as an edit against that — never against the contact's own name,
+  // which a job imported with its own name for the client never matches.
+  const contactBody =
+    canEditClient && contact && clientDraft
+      ? buildContactBody(contact, clientDraft, dealPatch?.address ? dealDraft.address : undefined, {
+          includeName: nameChanged,
+        })
+      : null;
+  const dirty = !!dealPatch || !!contactBody || (canEditClient && nameChanged);
+  const pending = update.isPending || updateContact.isPending;
+  // A half-typed phone must not ride a Save into the client record; the
+  // input itself is already explaining what's wrong, live.
+  const phonesOk =
+    !clientDraft || clientDraft.phones.every((p) => !p.trim() || isValidPhone(p));
+
+  const { confirm } = useUnsavedChanges(dirty);
+
   // A service location the client doesn't have on file yet.
   const newAddress =
     contact && dealPatch?.address && !addressInList(dealDraft.address, contact.addresses)
@@ -487,13 +492,15 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
       contact,
       clientDraft,
       decision.address === "save" ? newAddress : undefined,
-      { includeName: decision.applyToClient },
+      // Only a rename the dispatcher made, and chose to apply, reaches the
+      // contact — the job's own name for the client never does.
+      { includeName: nameChanged && decision.applyToClient },
     );
     if (body) updateContact.mutate({ id: contact.id, body });
   };
   const reset = () => {
     setDealDraft(dealDraftFromDeal(deal));
-    setClientDraft(contact ? clientDraftFromContact(contact) : null);
+    setClientDraft(contact ? clientDraftFromContact(contact, deal.clientName) : null);
   };
 
   return (
