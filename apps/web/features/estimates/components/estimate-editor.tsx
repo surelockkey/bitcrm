@@ -13,7 +13,6 @@ import {
   Link2,
   Loader2,
   Send,
-  StickyNote,
   Trash2,
   Undo2,
   Wrench,
@@ -79,8 +78,17 @@ import { EstimateStatusBadge } from "./estimate-status-badge";
 import { EstimateStatusSelect } from "./estimate-status-select";
 import { SetDepositDialog, depositLabel } from "./set-deposit-dialog";
 
-/** Workiz's outline pill ("Actions ▾", "Price book", "Sync to Job"). */
-const pill = "h-9 rounded-pill border-foreground/60 px-4 font-semibold";
+/**
+ * The page's buttons speak the top band's language: the same near-square
+ * corner, hairline border and white-on-grey as its fields. Yellow is kept for
+ * the next step (Send, Add item); everything else is a quiet white button.
+ */
+const primaryButton = "h-9 rounded-md px-4 font-semibold shadow-xs";
+const secondaryButton = "h-9 rounded-md border-border bg-card px-3.5 font-medium shadow-xs [&_svg]:text-muted-foreground";
+/** Price book · Sync to job · Create new job: one strip, divided like the band's columns. */
+const segment =
+  "h-full rounded-none border-0 border-r border-r-border px-3.5 font-medium last:border-r-0 focus-visible:ring-inset [&_svg]:text-muted-foreground";
+const segmentOff = "cursor-not-allowed opacity-50 hover:bg-transparent";
 
 /**
  * One estimate, laid out as Workiz lays its estimate page out. Two layouts,
@@ -192,10 +200,10 @@ export function EstimateEditor({
       <Tooltip>
         <TooltipTrigger asChild>
           <Button
-            variant="outline"
+            variant="ghost"
             size="lg"
             aria-disabled="true"
-            className={cn(pill, "cursor-not-allowed opacity-50")}
+            className={cn(segment, segmentOff)}
             onClick={(e) => e.preventDefault()}
           >
             <Briefcase /> Create new job
@@ -204,7 +212,7 @@ export function EstimateEditor({
         <TooltipContent>Add at least one item first</TooltipContent>
       </Tooltip>
     ) : (
-      <Button asChild variant="outline" size="lg" className={pill}>
+      <Button asChild variant="ghost" size="lg" className={segment}>
         <Link href={createJobHref}>
           <Briefcase /> Create new job
         </Link>
@@ -213,8 +221,12 @@ export function EstimateEditor({
 
   // Workiz's job-estimate toolbar: Price book · Sync to job · Create new job. A client's: Price book.
   const toolbar = (
-    <>
-      <Button asChild variant="outline" size="lg" className={pill}>
+    <div
+      role="group"
+      aria-label="Estimate tools"
+      className="flex h-9 max-w-full overflow-x-auto overflow-y-hidden rounded-md border bg-card shadow-xs"
+    >
+      <Button asChild variant="ghost" size="lg" className={segment}>
         <Link href="/inventory/items">
           <BookOpen /> Price book
         </Link>
@@ -225,10 +237,10 @@ export function EstimateEditor({
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
-                  variant="outline"
+                  variant="ghost"
                   size="lg"
                   aria-disabled="true"
-                  className={cn(pill, "cursor-not-allowed opacity-50")}
+                  className={cn(segment, segmentOff)}
                   onClick={(e) => e.preventDefault()}
                 >
                   <ArrowLeftRight /> Sync to job
@@ -237,21 +249,21 @@ export function EstimateEditor({
               <TooltipContent>{syncBlocked}</TooltipContent>
             </Tooltip>
           ) : (
-            <Button variant="outline" size="lg" className={pill} onClick={startSync} disabled={sync.isPending}>
+            <Button variant="ghost" size="lg" className={segment} onClick={startSync} disabled={sync.isPending}>
               {sync.isPending ? <Loader2 className="animate-spin" /> : <ArrowLeftRight />} Sync to job
             </Button>
           )}
           {canSync ? createJobButton : null}
         </>
       ) : null}
-    </>
+    </div>
   );
 
   const actionsMenu = (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="lg" className={pill}>
-          <ChevronDown /> Actions
+        <Button variant="outline" size="lg" className={secondaryButton}>
+          Actions <ChevronDown />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="min-w-56">
@@ -313,13 +325,12 @@ export function EstimateEditor({
     </DropdownMenu>
   );
 
-  const sendClass = "h-9 rounded-pill px-5 font-semibold";
   const sendButton = canText ? (
     onSendAll ? (
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="default" size="lg" className={sendClass}>
-            <Send /> Send
+          <Button variant="default" size="lg" className={primaryButton}>
+            <Send /> Send <ChevronDown className="-mr-1 opacity-70" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="min-w-52">
@@ -332,7 +343,7 @@ export function EstimateEditor({
         </DropdownMenuContent>
       </DropdownMenu>
     ) : (
-      <Button variant="default" size="lg" className={sendClass} onClick={() => setSending(true)}>
+      <Button variant="default" size="lg" className={primaryButton} onClick={() => setSending(true)}>
         <Send /> Send
       </Button>
     )
@@ -563,7 +574,14 @@ export function EstimateEditor({
       {/* Items */}
       <section className="space-y-4 rounded-lg border bg-card p-4">
         <h3 className="border-b pb-2 text-lg font-semibold">Items</h3>
-        <EstimateItemsTable estimateId={estimate.id} dealId={dealId} items={items} canEdit={canEdit} toolbar={toolbar} />
+        <EstimateItemsTable
+          estimateId={estimate.id}
+          dealId={dealId}
+          items={items}
+          canEdit={canEdit}
+          toolbar={toolbar}
+          addClassName={primaryButton}
+        />
 
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div className="flex items-baseline gap-3 text-sm lg:pl-1">
@@ -606,25 +624,28 @@ export function EstimateEditor({
         </div>
       </section>
 
-      {/* Notes · Signatures */}
-      <div className="grid gap-4 lg:grid-cols-2">
-        <section className="space-y-2 rounded-lg border bg-card p-4">
-          <h3 className="flex items-center gap-1.5 border-b pb-2 text-base font-semibold">
-            <StickyNote className="size-4 text-muted-foreground" aria-hidden /> Notes
+      {/* Notes · Signatures — one card like the top band: white column, then the grey one. */}
+      <div className="grid overflow-hidden rounded-lg border bg-card lg:grid-cols-2">
+        <section className="min-w-0 space-y-1.5 p-4">
+          <h3 className="text-sm font-semibold">
+            <label htmlFor="estimate-notes">Notes</label>
           </h3>
+          {/* Reads as text, like the Description above; the frame shows on hover and while typing. */}
           <CommitTextarea
             id="estimate-notes"
             aria-label="Estimate notes"
-            rows={5}
+            rows={3}
             maxLength={5000}
             placeholder="Shown on the estimate (scope, warranty, validity…)"
             value={estimate.notes ?? ""}
             disabled={!canEdit}
             onCommit={(notes) => saveHeader({ notes })}
+            className="-mx-2.5 w-[calc(100%+1.25rem)] resize-none border-transparent bg-transparent text-muted-foreground shadow-none hover:border-input focus-visible:border-ring focus-visible:text-foreground disabled:cursor-default disabled:bg-transparent disabled:opacity-100 disabled:hover:border-transparent dark:bg-transparent dark:disabled:bg-transparent"
           />
         </section>
-        <div id="estimate-signatures">
+        <div id="estimate-signatures" className="border-t lg:border-t-0 lg:border-l">
           <SignaturesSection
+            variant="band"
             signatures={estimate.signatures ?? []}
             signerName={clientFullName}
             canSign={canEdit}

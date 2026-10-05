@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
 
 const SOURCE_LABEL = { portal: "Client portal", app: "In person" } as const;
 
@@ -28,6 +29,9 @@ function formatSignedAt(iso: string): string {
  * Workiz "Signatures": every signature the document collected — on the
  * client portal (approving an estimate, signing an invoice before paying) or
  * in person — and "Sign" to take one here, the way the technician's phone does.
+ *
+ * `band` drops the section's own frame for a page that sets it in a card of
+ * its own: the grey band, a plain heading, a white Sign like the band's selects.
  */
 export function SignaturesSection({
   signatures,
@@ -35,6 +39,7 @@ export function SignaturesSection({
   canSign,
   onSign,
   saving,
+  variant = "card",
 }: {
   signatures: DocumentSignatureView[];
   /** Pre-filled "Signed by": the client's name. */
@@ -42,7 +47,9 @@ export function SignaturesSection({
   canSign: boolean;
   onSign: (input: { imageDataUrl: string; signedBy: string }) => Promise<unknown> | void;
   saving?: boolean;
+  variant?: "card" | "band";
 }) {
+  const band = variant === "band";
   const [signing, setSigning] = useState(false);
   const [name, setName] = useState(signerName);
   const [image, setImage] = useState<string | null>(null);
@@ -59,13 +66,18 @@ export function SignaturesSection({
   };
 
   return (
-    <section className="space-y-2 rounded-lg border p-4">
+    <section className={cn("space-y-2 p-4", band ? "h-full bg-muted/60" : "rounded-lg border")}>
       <div className="flex items-center justify-between gap-2">
         <h3 className="flex items-center gap-1.5 text-sm font-semibold">
-          <PenLine className="size-4 text-muted-foreground" aria-hidden /> Signatures
+          {band ? null : <PenLine className="size-4 text-muted-foreground" aria-hidden />} Signatures
         </h3>
         {canSign ? (
-          <Button variant="brand" size="sm" onClick={openSign}>
+          <Button
+            variant={band ? "outline" : "brand"}
+            size="sm"
+            className={band ? "-my-1.5 h-8 rounded-md bg-card px-3 font-medium [&_svg]:text-muted-foreground" : undefined}
+            onClick={openSign}
+          >
             <PenLine /> Sign
           </Button>
         ) : null}

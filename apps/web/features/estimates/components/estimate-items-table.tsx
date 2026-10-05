@@ -19,6 +19,7 @@ export function EstimateItemsTable({
   items,
   canEdit,
   toolbar,
+  addClassName,
 }: {
   estimateId: string;
   dealId?: string;
@@ -26,6 +27,8 @@ export function EstimateItemsTable({
   canEdit: boolean;
   /** Buttons beside "Add item" (Price book, Sync to Job / Create new job). */
   toolbar?: ReactNode;
+  /** The estimate page's look for "Add item". */
+  addClassName?: string;
 }) {
   const { can } = usePermissions();
   const add = useAddEstimateItem(estimateId, dealId);
@@ -41,6 +44,7 @@ export function EstimateItemsTable({
       showCost={can("financials", "view")}
       emptyText="No items on this estimate yet."
       toolbar={toolbar}
+      addClassName={addClassName}
       pending={{
         add: add.isPending,
         update: update.isPending,

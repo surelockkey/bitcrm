@@ -61,6 +61,8 @@ export interface DocumentItemsTableProps {
   onTaxable: (lineId: string, taxable: boolean) => void;
   /** Buttons beside "Add item" (Workiz: Price book, Sync to Job …). */
   toolbar?: ReactNode;
+  /** The page's own look for "Add item"; Workiz's yellow pill when left out. */
+  addClassName?: string;
   /** Show the Cost column with the margin (staff who may see money). */
   showCost?: boolean;
 }
@@ -85,6 +87,7 @@ export function DocumentItemsTable({
   onReorder,
   onTaxable,
   toolbar,
+  addClassName = "rounded-pill px-4 font-semibold",
   showCost = true,
 }: DocumentItemsTableProps) {
   const [adding, setAdding] = useState(false);
@@ -164,7 +167,7 @@ export function DocumentItemsTable({
 
       {canEdit ? (
         <div className="flex flex-wrap items-center gap-2">
-          <Button variant="default" size="lg" className="rounded-pill px-4 font-semibold" onClick={() => setAdding(true)}>
+          <Button variant="default" size="lg" className={addClassName} onClick={() => setAdding(true)}>
             <Plus /> Add item
           </Button>
           {toolbar}
