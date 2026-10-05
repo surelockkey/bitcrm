@@ -1089,6 +1089,37 @@ describe('DealsService', () => {
       expect(result[0].reasons).not.toContain('missing_job_type');
     });
 
+    /**
+     * The job page asks with the address alone: waiting in the browser for
+     * the area to resolve first, then asking again with it, put two
+     * five-second requests one behind the other on every job opened.
+     */
+    it('resolves the area from the point when none is given', async () => {
+      eligibility.listAll.mockResolvedValue([
+        {
+          technicianId: 't-in',
+          jobTypeIds: ['jt-x'],
+          serviceAreaIds: ['sa-y'],
+          assignable: true,
+          updatedAt: '2026-04-16T10:00:00.000Z',
+        },
+      ]);
+      serviceAreas.resolvePoint.mockResolvedValue({ id: 'sa-y', name: 'North Metro' });
+
+      const result = await service.rankQualifiedTechsFor({ jobTypeId: 'jt-x', lat: 33.749, lng: -84.388 });
+
+      expect(serviceAreas.resolvePoint).toHaveBeenCalledWith({ lat: 33.749, lng: -84.388 });
+      expect(result[0].eligible).toBe(true);
+    });
+
+    it('takes a given area as it is — no resolving behind it', async () => {
+      eligibility.listAll.mockResolvedValue([]);
+
+      await service.rankQualifiedTechsFor({ jobTypeId: 'jt-x', serviceAreaId: 'sa-y', lat: 33.749, lng: -84.388 });
+
+      expect(serviceAreas.resolvePoint).not.toHaveBeenCalled();
+    });
+
     it('marks everyone outside_area when no service area is given', async () => {
       eligibility.listAll.mockResolvedValue([
         {

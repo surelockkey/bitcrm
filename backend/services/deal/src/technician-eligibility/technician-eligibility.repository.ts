@@ -4,14 +4,28 @@ import {
   GetCommand,
   PutCommand,
   DeleteCommand,
+  QueryCommand,
   ScanCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { DynamoDbService } from '@bitcrm/shared';
 import { DEALS_TABLE } from '../common/constants/dynamo.constants';
 import { type TechnicianEligibility } from './technician-eligibility.types';
 
-const PK_PREFIX = 'TECH_ELIGIBILITY#';
-const SK = 'ELIGIBILITY';
+/**
+ * Every technician in one partition, keyed by id inside it — so the whole
+ * roster is one Query. A roster is dozens of small rows, far below anything
+ * a single partition minds.
+ */
+const PK = 'TECH_ELIGIBILITY';
+const keyOf = (technicianId: string) => ({ PK, SK: `TECH#${technicianId}` });
+
+/**
+ * The layout before that: one `TECH_ELIGIBILITY#<id>` partition per
+ * technician, which only a Scan of the whole deals table could list. Read by
+ * the boot migration alone.
+ */
+const LEGACY_PK_PREFIX = 'TECH_ELIGIBILITY#';
+const LEGACY_SK = 'ELIGIBILITY';
 
 /** DynamoDB's hard ceiling on one BatchGetItem. */
 const BATCH_GET_CHUNK = 100;
@@ -26,7 +40,7 @@ export class TechnicianEligibilityRepository {
     await this.dynamoDb.client.send(
       new PutCommand({
         TableName: DEALS_TABLE,
-        Item: { PK: `${PK_PREFIX}${e.technicianId}`, SK, ...e },
+        Item: { ...keyOf(e.technicianId), ...e },
       }),
     );
   }
@@ -35,7 +49,7 @@ export class TechnicianEligibilityRepository {
     const result = await this.dynamoDb.client.send(
       new GetCommand({
         TableName: DEALS_TABLE,
-        Key: { PK: `${PK_PREFIX}${technicianId}`, SK },
+        Key: keyOf(technicianId),
       }),
     );
     return result.Item ? this.toEntity(result.Item) : null;
@@ -61,7 +75,7 @@ export class TechnicianEligibilityRepository {
         new BatchGetCommand({
           RequestItems: {
             [DEALS_TABLE]: {
-              Keys: chunk.map((id) => ({ PK: `${PK_PREFIX}${id}`, SK })),
+              Keys: chunk.map(keyOf),
             },
           },
         }),
@@ -75,21 +89,16 @@ export class TechnicianEligibilityRepository {
     await this.dynamoDb.client.send(
       new DeleteCommand({
         TableName: DEALS_TABLE,
-        Key: { PK: `${PK_PREFIX}${technicianId}`, SK },
+        Key: keyOf(technicianId),
       }),
     );
   }
 
   /**
-   * Every projected technician, paged to exhaustion.
-   *
-   * A Scan spends its 1MB budget on what the table holds before the filter
-   * runs, and this table is overwhelmingly deals — so one page can come back
-   * with a handful of eligibility rows, or none, however many are stored. Both
-   * readers take what this returns as the whole truth: the assignment dialog
-   * offers exactly these people, so a technician left out is simply missing
-   * from the picker; and the boot reconcile removes the rows user-service no
-   * longer vouches for, so a row it cannot see is a row it can never remove.
+   * Every projected technician: one Query of the eligibility partition, paged
+   * to exhaustion. Both readers take what this returns as the whole truth —
+   * the assignment dialog and the suggestions offer exactly these people, and
+   * the boot reconcile removes the rows user-service no longer vouches for.
    */
   async listAll(): Promise<TechnicianEligibility[]> {
     const rows: TechnicianEligibility[] = [];
@@ -97,10 +106,10 @@ export class TechnicianEligibilityRepository {
 
     do {
       const result = await this.dynamoDb.client.send(
-        new ScanCommand({
+        new QueryCommand({
           TableName: DEALS_TABLE,
-          FilterExpression: 'begins_with(PK, :pk)',
-          ExpressionAttributeValues: { ':pk': PK_PREFIX },
+          KeyConditionExpression: 'PK = :pk',
+          ExpressionAttributeValues: { ':pk': PK },
           ExclusiveStartKey: lastKey,
         }),
       );
@@ -109,6 +118,41 @@ export class TechnicianEligibilityRepository {
     } while (lastKey);
 
     return rows;
+  }
+
+  /**
+   * The rows still in the pre-move layout. A Scan spends its 1MB budget on
+   * what the table holds before the filter runs — overwhelmingly deals — so it
+   * pages to the end of the table; the boot migration is its only caller, and
+   * only while the new partition is empty.
+   */
+  async listLegacy(): Promise<TechnicianEligibility[]> {
+    const rows: TechnicianEligibility[] = [];
+    let lastKey: Record<string, unknown> | undefined;
+
+    do {
+      const result = await this.dynamoDb.client.send(
+        new ScanCommand({
+          TableName: DEALS_TABLE,
+          FilterExpression: 'begins_with(PK, :pk)',
+          ExpressionAttributeValues: { ':pk': LEGACY_PK_PREFIX },
+          ExclusiveStartKey: lastKey,
+        }),
+      );
+      rows.push(...(result.Items || []).map(this.toEntity));
+      lastKey = result.LastEvaluatedKey;
+    } while (lastKey);
+
+    return rows;
+  }
+
+  async removeLegacy(technicianId: string): Promise<void> {
+    await this.dynamoDb.client.send(
+      new DeleteCommand({
+        TableName: DEALS_TABLE,
+        Key: { PK: `${LEGACY_PK_PREFIX}${technicianId}`, SK: LEGACY_SK },
+      }),
+    );
   }
 
   private toEntity(item: Record<string, unknown>): TechnicianEligibility {

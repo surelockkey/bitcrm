@@ -1,7 +1,13 @@
 import { TechnicianEligibilityReconciler } from '../../../src/technician-eligibility/technician-eligibility.reconciler';
 
 describe('TechnicianEligibilityReconciler (unit)', () => {
-  let repo: { upsert: jest.Mock; remove: jest.Mock; listAll: jest.Mock };
+  let repo: {
+    upsert: jest.Mock;
+    remove: jest.Mock;
+    listAll: jest.Mock;
+    listLegacy: jest.Mock;
+    removeLegacy: jest.Mock;
+  };
   let http: { listAssignableTechnicians: jest.Mock };
   let reconciler: TechnicianEligibilityReconciler;
 
@@ -14,7 +20,13 @@ describe('TechnicianEligibilityReconciler (unit)', () => {
   });
 
   beforeEach(() => {
-    repo = { upsert: jest.fn(), remove: jest.fn(), listAll: jest.fn().mockResolvedValue([]) };
+    repo = {
+      upsert: jest.fn(),
+      remove: jest.fn(),
+      listAll: jest.fn().mockResolvedValue([]),
+      listLegacy: jest.fn().mockResolvedValue([]),
+      removeLegacy: jest.fn(),
+    };
     http = { listAssignableTechnicians: jest.fn() };
     reconciler = new TechnicianEligibilityReconciler(repo as never, http as never);
   });
@@ -102,6 +114,54 @@ describe('TechnicianEligibilityReconciler (unit)', () => {
       await reconciler.onModuleInit();
 
       expect(repo.remove).not.toHaveBeenCalled();
+    });
+  });
+
+  /**
+   * The rows moved from one partition per technician into one partition for
+   * all of them. Boot carries the old rows over before anything else, and
+   * without user-service: were the move left to the reconcile alone, a
+   * user-service that is down at the first boot would leave dispatch with no
+   * technicians to suggest at all.
+   */
+  describe('moving the pre-move rows', () => {
+    it('copies each old row into the new partition, then deletes the old one', async () => {
+      repo.listLegacy.mockResolvedValue([projected('t1'), projected('t2')]);
+      http.listAssignableTechnicians.mockResolvedValue(null);
+
+      await reconciler.onModuleInit();
+
+      expect(repo.upsert).toHaveBeenCalledWith(projected('t1'));
+      expect(repo.upsert).toHaveBeenCalledWith(projected('t2'));
+      expect(repo.removeLegacy).toHaveBeenCalledWith('t1');
+      expect(repo.removeLegacy).toHaveBeenCalledWith('t2');
+      // Copied before deleted: a crash between the two leaves a duplicate, never a gap.
+      const copied = repo.upsert.mock.invocationCallOrder[repo.upsert.mock.calls.findIndex(([e]) => e.technicianId === 't1')];
+      const deleted = repo.removeLegacy.mock.invocationCallOrder[repo.removeLegacy.mock.calls.findIndex(([id]) => id === 't1')];
+      expect(copied).toBeLessThan(deleted);
+    });
+
+    it('leaves the old layout alone once the new partition holds anyone', async () => {
+      repo.listAll.mockResolvedValue([projected('t1')]);
+      http.listAssignableTechnicians.mockResolvedValue([
+        { technicianId: 't1', jobTypeIds: ['jt-1'], serviceAreaIds: ['sa-1'] },
+      ]);
+
+      await reconciler.onModuleInit();
+
+      expect(repo.listLegacy).not.toHaveBeenCalled();
+      expect(repo.removeLegacy).not.toHaveBeenCalled();
+    });
+
+    it('a failed move does not stop the reconcile', async () => {
+      repo.listLegacy.mockRejectedValue(new Error('ProvisionedThroughputExceeded'));
+      http.listAssignableTechnicians.mockResolvedValue([
+        { technicianId: 't1', jobTypeIds: ['jt-1'], serviceAreaIds: ['sa-1'] },
+      ]);
+
+      await reconciler.onModuleInit();
+
+      expect(repo.upsert).toHaveBeenCalledWith(expect.objectContaining({ technicianId: 't1' }));
     });
   });
 });
