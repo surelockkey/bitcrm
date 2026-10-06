@@ -9,6 +9,7 @@ import {
   formatDuration,
   formatEndpoint,
   isLive,
+  linkedDealIds,
   statusTone,
   recentCallerIds,
   formatCallAgo,
@@ -23,6 +24,13 @@ describe("isLive", () => {
     expect(isLive({ status: "completed" })).toBe(false);
     expect(isLive({ status: "no-answer" })).toBe(false);
     expect(isLive({})).toBe(false);
+  });
+});
+
+describe("linkedDealIds", () => {
+  it("names each linked job once, in the order the rows do", () => {
+    expect(linkedDealIds([{ dealId: "d2" }, {}, { dealId: "d1" }, { dealId: "d2" }])).toEqual(["d2", "d1"]);
+    expect(linkedDealIds([{}, {}])).toEqual([]);
   });
 });
 

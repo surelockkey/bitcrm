@@ -11,8 +11,9 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/features/auth/use-permissions", () => ({
-  useDenied: () => () => false,
-  usePermissions: () => ({ can: mocks.can }),
+  // The permissions are in: refused exactly where `can` says no.
+  useDenied: () => (resource: string, action?: string) => !mocks.can(resource, action),
+  usePermissions: () => ({ can: mocks.can, isLoading: false }),
 }));
 vi.mock("../call-groups-hooks", () => ({
   useCallGroups: () => ({ data: mocks.groups, isLoading: false }),

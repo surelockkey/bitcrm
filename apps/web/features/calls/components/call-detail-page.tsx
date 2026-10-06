@@ -2,8 +2,9 @@
 
 import { PhoneIncoming, PhoneOutgoing } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
-import { usePermissions } from "@/features/auth/use-permissions";
-import { useCallDetail } from "../hooks";
+import { usePageReady } from "@/lib/use-page-ready";
+import { useDenied, usePermissions } from "@/features/auth/use-permissions";
+import { useCallPageData } from "../calls-page-data";
 import { useCallStream } from "../use-call-stream";
 import {
   callParty,
@@ -36,13 +37,18 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
 
 export function CallDetailPage({ callId }: { callId: string }) {
   const { can } = usePermissions();
-  const query = useCallDetail(callId);
+  const denied = useDenied();
+  // The call and everything its blocks print, asked for at once.
+  const { detail: query, allIn } = useCallPageData(callId);
   const call: CallRecord | undefined = query.data;
   const canView = can("calls");
   // Keep a live call's detail fresh (status/timer/recording) via SSE.
   useCallStream(canView && !!call && isLive(call));
+  // One skeleton, then the page whole — and it stays: a relink or a live
+  // update redraws a block, never the page.
+  const shown = usePageReady(allIn);
 
-  if (!canView) {
+  if (denied("calls")) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
         <h2 className="text-lg font-medium">No access</h2>
@@ -53,7 +59,7 @@ export function CallDetailPage({ callId }: { callId: string }) {
     );
   }
 
-  if (query.isLoading || !call) {
+  if (!shown || !call) {
     return (
       <div className="space-y-4 p-6">
         <Skeleton className="h-8 w-64" />

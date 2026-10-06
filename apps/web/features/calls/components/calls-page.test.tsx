@@ -26,15 +26,16 @@ vi.mock("../hooks", () => ({
     return { ...mocks.list, fetchNextPage: mocks.fetchNextPage };
   },
   // Лічильник сторінок: цим тестам байдуже число, важливо, що панель не падає
-  // без нього.
-  useCallsCount: () => ({ data: undefined }),
+  // без нього — тож він «не відповів».
+  useCallsCount: () => ({ data: undefined, isError: true }),
 }));
 vi.mock("../use-call-stream", () => ({ useCallStream: () => undefined }));
 vi.mock("@/features/auth/use-permissions", () => ({
   useDenied: () => () => false,
   usePermissions: () => ({ can: () => true }),
 }));
-vi.mock("@/features/call-tags/hooks", () => ({ useCallTags: () => ({ data: [] }) }));
+// The live strip and the catalogs the rows print from: all in.
+vi.mock("../calls-page-data", () => ({ useCallLogData: () => ({ callTags: [], allIn: true }) }));
 vi.mock("./live-calls", () => ({ LiveCalls: () => <div /> }));
 vi.mock("./calls-table", () => ({
   CallsTable: ({ calls }: { calls: Array<{ callSid: string }> }) => (

@@ -62,6 +62,7 @@ export function ConversationList({
   selectedId,
   onSelect,
   onNewConversation,
+  rowsShown,
   className,
 }: {
   state: ListState;
@@ -69,9 +70,14 @@ export function ConversationList({
   selectedId?: string;
   onSelect: (id: string) => void;
   onNewConversation?: () => void;
+  /**
+   * Whether the rows may be drawn — the inbox holds them until the category
+   * numbers are in as well. On its own the list draws them once they load.
+   */
+  rowsShown?: boolean;
   className?: string;
 }) {
-  const { canSend } = useMessagingAccess();
+  const { canSend, isLoading: accessLoading } = useMessagingAccess();
   const [searching, setSearching] = useState(state.search.length > 0);
   const filter = useMemo(
     () => ({ view: state.view, kind: state.view === "all" ? state.kind : undefined }),
@@ -129,7 +135,13 @@ export function ConversationList({
 
   return (
     <div className={cn("flex min-h-0 flex-col", className)}>
-      <div className="flex h-14 shrink-0 items-center gap-1 border-b px-2" data-testid="list-toolbar">
+      {/* Out of sight until the permissions say whether "New message" is
+          one of its buttons: drawn without it, the group button stood in its
+          place and slid over when it arrived. */}
+      <div
+        className={cn("flex h-14 shrink-0 items-center gap-1 border-b px-2", accessLoading && "invisible")}
+        data-testid="list-toolbar"
+      >
         {searching ? (
           <div className="flex flex-1 items-center gap-1">
             <Search className="ml-1 size-4 shrink-0 text-muted-foreground" />
@@ -213,7 +225,7 @@ export function ConversationList({
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto" data-testid="conversation-list">
-        {query.isLoading ? (
+        {!(rowsShown ?? !query.isLoading) ? (
           <div className="space-y-3 p-3">
             <Skeleton className="h-12 w-full" />
             <Skeleton className="h-12 w-full" />

@@ -16,7 +16,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import { formatPhone } from "@/lib/phone";
-import { usePermissions } from "@/features/auth/use-permissions";
+import { settled, usePageReady } from "@/lib/use-page-ready";
+import { useDenied, usePermissions } from "@/features/auth/use-permissions";
 import type { CallFlow, CallFlowNode } from "@bitcrm/types";
 import { useCallGroups } from "../call-groups-hooks";
 import { useCallFlows, useDeleteCallFlow } from "../call-flows-hooks";
@@ -69,9 +70,15 @@ function describe(flow: CallFlow, groupName: (id: string) => string): string {
  * online, which is what every number did before this existed.
  */
 export function CallFlowsPage() {
-  const { can } = usePermissions();
-  const { data: flows, isLoading } = useCallFlows(can("settings"));
-  const { data: groups } = useCallGroups(can("settings"));
+  const { can, isLoading: permissionsLoading } = usePermissions();
+  const denied = useDenied();
+  const flowsQuery = useCallFlows(can("settings"));
+  const groupsQuery = useCallGroups(can("settings"));
+  const { data: flows } = flowsQuery;
+  const { data: groups } = groupsQuery;
+  // The flows wait for the groups they ring: drawn first, every summary said
+  // "ring a deleted group" until the names came and rewrote it.
+  const ready = usePageReady(!permissionsLoading && settled(flowsQuery) && settled(groupsQuery));
   const remove = useDeleteCallFlow();
 
   const [editing, setEditing] = useState<CallFlow | undefined>();
@@ -82,7 +89,8 @@ export function CallFlowsPage() {
   const groupName = (id: string) =>
     (groups ?? []).find((g) => g.id === id)?.name ?? "a deleted group";
 
-  if (!can("settings")) {
+  // Refused only once the permissions say so — not while they are coming.
+  if (denied("settings")) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
         <h2 className="text-lg font-medium">No access</h2>
@@ -113,7 +121,7 @@ export function CallFlowsPage() {
         ) : null}
       </div>
 
-      {isLoading ? (
+      {!ready ? (
         <div className="space-y-2">
           <Skeleton className="h-16 w-full" />
           <Skeleton className="h-16 w-full" />

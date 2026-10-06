@@ -17,10 +17,11 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import { usePermissions } from "@/features/auth/use-permissions";
+import { useDenied, usePermissions } from "@/features/auth/use-permissions";
 import { SEND_TO_TECH_CHANNEL_LABEL } from "@/features/deals/lib";
 import { useNumbers } from "@/features/telephony/numbers-hooks";
 import { formatPhone } from "@/lib/phone";
+import { settled, usePageReady } from "@/lib/use-page-ready";
 import { cn } from "@/lib/utils";
 import { useMessagingSettings, useUpdateMessagingSettings } from "../hooks";
 import {
@@ -57,10 +58,16 @@ function Field({ label, hint, error, children }: { label: string; hint?: string;
 
 /** Settings → Messaging: sender, prefix / signature, tech texts, quiet hours, links, STOP/HELP, business profile. */
 export function MessagingSettingsPage() {
-  const { can } = usePermissions();
+  const { can, isLoading: permissionsLoading } = usePermissions();
+  const denied = useDenied();
   const canEdit = can("settings", "edit");
-  const { data: settings, isLoading } = useMessagingSettings(can("settings"));
-  const { data: numbers } = useNumbers(can("settings"));
+  const settingsQuery = useMessagingSettings(can("settings"));
+  const numbersQuery = useNumbers(can("settings"));
+  const { data: settings } = settingsQuery;
+  const { data: numbers } = numbersQuery;
+  // The form waits for the numbers too: drawn first, the default sender was
+  // a free-text box that turned into the number picker when they came.
+  const ready = usePageReady(!permissionsLoading && settled(settingsQuery) && settled(numbersQuery));
   const save = useUpdateMessagingSettings();
 
   // The form is the server document with the user's edits laid over it:
@@ -94,7 +101,8 @@ export function MessagingSettingsPage() {
     save.mutate(toSettingsBody(parsed.data), { onSuccess: () => setDraft({}) });
   };
 
-  if (!can("settings")) {
+  // Refused only once the permissions say so — not while they are coming.
+  if (denied("settings")) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
         <h2 className="text-lg font-medium">No access</h2>
@@ -102,7 +110,7 @@ export function MessagingSettingsPage() {
       </div>
     );
   }
-  if (isLoading) return <Skeleton className="h-96 w-full max-w-3xl" />;
+  if (!ready) return <Skeleton className="h-96 w-full max-w-3xl" />;
 
   const smsPre = countSegments(form.smsPre + form.signature);
 

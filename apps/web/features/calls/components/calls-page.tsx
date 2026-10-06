@@ -18,10 +18,12 @@ import { pagedSource } from "@/lib/paging/paged-source";
 import { usePageSize } from "@/lib/paging/use-page-size";
 import { usePager } from "@/lib/paging/use-pager";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
-import { usePermissions } from "@/features/auth/use-permissions";
-import { useCallTags } from "@/features/call-tags/hooks";
+import { settled, usePageReady } from "@/lib/use-page-ready";
+import { cn } from "@/lib/utils";
+import { useDenied, usePermissions } from "@/features/auth/use-permissions";
 import { activeCallTags } from "@/features/call-tags/lib";
-import { useCallsList , useCallsCount } from "../hooks";
+import { useCallLogData } from "../calls-page-data";
+import { useCallsList, useCallsCount } from "../hooks";
 import { useCallStream } from "../use-call-stream";
 import { STATUS_LABEL, type CallsFilter, type CallStatus } from "../lib";
 import { CallsTable, CallsTableSkeleton } from "./calls-table";
@@ -31,6 +33,7 @@ const STATUS_OPTIONS = Object.keys(STATUS_LABEL) as CallStatus[];
 
 export function CallsPage() {
   const { can } = usePermissions();
+  const denied = useDenied();
 
   const [number, setNumber] = useState("");
   const [direction, setDirection] = useState("all");
@@ -70,17 +73,30 @@ export function CallsPage() {
       seen.add(call.callSid);
       return true;
     });
-  }, [query.data]);
+    // The page's own rows: turning to page 2 changes them without changing
+    // the query's data, which already holds both pages.
+  }, [pager.items]);
 
   const canView = can("calls");
-  // The catalog sits behind `settings.view`; without it there is nothing to
-  // offer in the filter, so don't fire a request that is certain to 403.
-  const { data: callTags } = useCallTags(can("settings"));
-  const tagOptions = activeCallTags(callTags);
+  // The live strip and every catalog the rows print from. The call-tag
+  // catalog sits behind `settings.view`; without it there is nothing to offer
+  // in the filter, so the request that is certain to 403 is never made.
+  const data = useCallLogData();
+  const tagOptions = activeCallTags(data.callTags);
   // Real-time updates while the page is open.
   useCallStream(canView);
 
-  if (!canView) {
+  // One skeleton, then the log whole. The rows wait for what they print (the
+  // page brings its linked jobs; the catalogs are `data`) and for the number
+  // under them; the live strip and the filters above wait with them — drawn
+  // first, the strip pushed the table down when it landed, and the tag filter
+  // pushed the date picker aside. The filters and the strip are drawn once
+  // and stay; the rows start over when the filters change, like any new list.
+  const allIn = data.allIn && settled(query) && settled(count);
+  const pageShown = usePageReady(allIn);
+  const rowsShown = usePageReady(allIn, JSON.stringify({ filter, pageSize }));
+
+  if (denied("calls")) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
         <h2 className="text-lg font-medium">No access</h2>
@@ -102,10 +118,10 @@ export function CallsPage() {
         </div>
       </div>
 
-      <LiveCalls />
+      {pageShown ? <LiveCalls /> : null}
 
       {/* Filters */}
-      <div className="flex flex-wrap items-center gap-2">
+      <div className={cn("flex flex-wrap items-center gap-2", !pageShown && "invisible")}>
         <div className="relative">
           <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
@@ -172,7 +188,7 @@ export function CallsPage() {
       ) : null}
 
       {/* History */}
-      {query.isLoading ? (
+      {!rowsShown ? (
         <CallsTableSkeleton />
       ) : calls.length === 0 ? (
         <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed py-14 text-center">

@@ -24,6 +24,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { settled, usePageReady } from "@/lib/use-page-ready";
 import { useDeleteTemplate, useMessagingAccess, useTemplates, useUpdateTemplate } from "../hooks";
 import { TemplateFormDialog } from "./template-form-dialog";
 
@@ -37,15 +38,24 @@ const snippet = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/\s+/g, 
 
 /** Settings → Message templates: the canned texts the composer offers. */
 export function TemplatesPage() {
-  const { canViewTemplates, canCreateTemplates, canEditTemplates, canDeleteTemplates } = useMessagingAccess();
-  const { data: templates, isLoading } = useTemplates({ includeInactive: true }, canViewTemplates);
+  const {
+    isLoading: accessLoading,
+    canViewTemplates,
+    canCreateTemplates,
+    canEditTemplates,
+    canDeleteTemplates,
+  } = useMessagingAccess();
+  const templatesQuery = useTemplates({ includeInactive: true }, canViewTemplates);
+  const { data: templates } = templatesQuery;
+  const ready = usePageReady(!accessLoading && settled(templatesQuery));
   const update = useUpdateTemplate();
   const del = useDeleteTemplate();
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<MessageTemplate | undefined>();
   const [deleting, setDeleting] = useState<MessageTemplate | undefined>();
 
-  if (!canViewTemplates) {
+  // Refused only once the permissions say so — not while they are coming.
+  if (!accessLoading && !canViewTemplates) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
         <h2 className="text-lg font-medium">No access</h2>
@@ -82,7 +92,7 @@ export function TemplatesPage() {
         ) : null}
       </div>
 
-      {isLoading ? (
+      {!ready ? (
         <div className="space-y-2">
           <Skeleton className="h-12 w-full" />
           <Skeleton className="h-12 w-full" />

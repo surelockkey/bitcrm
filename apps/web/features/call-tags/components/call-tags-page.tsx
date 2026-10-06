@@ -25,7 +25,8 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
-import { usePermissions } from "@/features/auth/use-permissions";
+import { settled, usePageReady } from "@/lib/use-page-ready";
+import { useDenied, usePermissions } from "@/features/auth/use-permissions";
 import { useArchiveCallTag, useCallTags, useRestoreCallTag } from "../hooks";
 import { tagColorClasses } from "../lib";
 import { CallTagFormDialog } from "./call-tag-form-dialog";
@@ -36,10 +37,13 @@ import { CallTagFormDialog } from "./call-tag-form-dialog";
  * tags stay listed, because the calls that carry them are still in the log.
  */
 export function CallTagsPage() {
-  const { can } = usePermissions();
+  const { can, isLoading: permissionsLoading } = usePermissions();
+  const denied = useDenied();
   const canView = can("settings");
   const canEdit = can("settings", "edit");
-  const { data: callTags, isLoading } = useCallTags(canView);
+  const callTagsQuery = useCallTags(canView);
+  const { data: callTags } = callTagsQuery;
+  const ready = usePageReady(!permissionsLoading && settled(callTagsQuery));
   const archive = useArchiveCallTag();
   const restore = useRestoreCallTag();
 
@@ -47,7 +51,8 @@ export function CallTagsPage() {
   const [editing, setEditing] = useState<CallTag | undefined>();
   const [archiving, setArchiving] = useState<CallTag | undefined>();
 
-  if (!canView) {
+  // Refused only once the permissions say so — not while they are coming.
+  if (denied("settings")) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
         <h2 className="text-lg font-medium">No access</h2>
@@ -84,7 +89,7 @@ export function CallTagsPage() {
         ) : null}
       </div>
 
-      {isLoading ? (
+      {!ready ? (
         <div className="space-y-2">
           <Skeleton className="h-12 w-full" />
           <Skeleton className="h-12 w-full" />

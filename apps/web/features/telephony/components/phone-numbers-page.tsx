@@ -23,9 +23,12 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { formatPhone } from "@/lib/phone";
-import { usePermissions } from "@/features/auth/use-permissions";
+import { settled, usePageReady } from "@/lib/use-page-ready";
+import { useDenied, usePermissions } from "@/features/auth/use-permissions";
 import { JobSourceSelect } from "@/features/job-sources/components/job-source-select";
+import { useActiveJobSources } from "@/features/job-sources/active-hooks";
 import { BusinessProfileSelect } from "@/features/business-profiles/components/business-profile-select";
+import { useActiveBusinessProfiles } from "@/features/business-profiles/hooks";
 import {
   useNumbers,
   useNumberSettings,
@@ -37,9 +40,21 @@ import type { OwnedNumber } from "../numbers-api";
 import { BuyNumberDialog } from "./buy-number-dialog";
 
 export function PhoneNumbersPage() {
-  const { can } = usePermissions();
-  const { data: numbers, isLoading } = useNumbers(true);
-  const { data: numberSettings } = useNumberSettings(can("settings"));
+  const { can, isLoading: permissionsLoading } = usePermissions();
+  const denied = useDenied();
+  const numbersQuery = useNumbers(true);
+  const settingsQuery = useNumberSettings(can("settings"));
+  const { data: numbers } = numbersQuery;
+  const { data: numberSettings } = settingsQuery;
+  // What the pickers in each row name their value from — asked for here, by
+  // the same hooks the pickers call, rather than by the pickers once the
+  // table is up: "No source" used to turn into the source's name a beat
+  // after the rows were drawn.
+  const sources = useActiveJobSources();
+  const companies = useActiveBusinessProfiles();
+  const ready = usePageReady(
+    !permissionsLoading && [numbersQuery, settingsQuery, sources, companies].every(settled),
+  );
   const updateSettings = useUpdateNumberSettings();
   const release = useReleaseNumber();
   const setTechLine = useSetTechnicianLine();
@@ -51,7 +66,8 @@ export function PhoneNumbersPage() {
   const settingsOf = (phoneNumber: string) =>
     numberSettings?.find((s) => s.phoneNumber === phoneNumber);
 
-  if (!can("settings")) {
+  // Refused only once the permissions say so — not while they are coming.
+  if (denied("settings")) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
         <h2 className="text-lg font-medium">No access</h2>
@@ -85,7 +101,7 @@ export function PhoneNumbersPage() {
         ) : null}
       </div>
 
-      {isLoading ? (
+      {!ready ? (
         <div className="space-y-2">
           <Skeleton className="h-12 w-full" />
           <Skeleton className="h-12 w-full" />

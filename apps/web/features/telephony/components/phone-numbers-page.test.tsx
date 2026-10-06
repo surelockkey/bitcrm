@@ -70,6 +70,14 @@ vi.mock("@/features/business-profiles/components/business-profile-select", () =>
     </span>
   ),
 }));
+// The catalogs the pickers name their values from; the page asks for them
+// up front so the rows are drawn named.
+vi.mock("@/features/job-sources/active-hooks", () => ({
+  useActiveJobSources: () => ({ data: [] }),
+}));
+vi.mock("@/features/business-profiles/hooks", () => ({
+  useActiveBusinessProfiles: () => ({ data: [], active: [] }),
+}));
 
 beforeEach(() => {
   mocks.can.mockReturnValue(true);

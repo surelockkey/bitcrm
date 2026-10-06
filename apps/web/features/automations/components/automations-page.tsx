@@ -15,6 +15,8 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { settled, usePageReady } from "@/lib/use-page-ready";
+import { cn } from "@/lib/utils";
 import { useJobSources } from "@/features/job-sources/hooks";
 import { useJobStatuses } from "@/features/job-statuses/hooks";
 import { useJobTags } from "@/features/job-tags/hooks";
@@ -55,8 +57,9 @@ const ALL = "all";
  * with the Workiz sentence under each name, how often it has fired, and a switch.
  */
 export function AutomationsPage() {
-  const { canView, canEdit } = useAutomationsAccess();
-  const { data: rules, isLoading } = useAutomations(canView);
+  const { canView, canEdit, isLoading: accessLoading } = useAutomationsAccess();
+  const rulesQuery = useAutomations(canView);
+  const rules = rulesQuery.data;
   const update = useUpdateAutomation();
   const duplicate = useDuplicateAutomation();
   const migrate = useMigrateAutomations();
@@ -77,10 +80,14 @@ export function AutomationsPage() {
   const [deleting, setDeleting] = useState<AutomationRule | undefined>();
 
   // Ids in a rule read as uuids; the catalogs turn them back into names.
-  const { data: tags } = useJobTags();
-  const { data: types } = useJobTypes();
-  const { data: sources } = useJobSources();
-  const { data: statuses } = useJobStatuses();
+  const tagsQuery = useJobTags();
+  const typesQuery = useJobTypes();
+  const sourcesQuery = useJobSources();
+  const statusesQuery = useJobStatuses();
+  const { data: tags } = tagsQuery;
+  const { data: types } = typesQuery;
+  const { data: sources } = sourcesQuery;
+  const { data: statuses } = statusesQuery;
   const labels = useMemo<AutomationLabelMap>(() => {
     const map: AutomationLabelMap = {};
     for (const row of [...(tags ?? []), ...(types ?? []), ...(sources ?? []), ...(statuses ?? [])]) {
@@ -108,7 +115,16 @@ export function AutomationsPage() {
   // An empty workspace is a fact about the answer, not about the wait: while
   // the list is loading stay on the rules, so the skeleton is what a reader
   // sees instead of the library flashing up and being replaced.
-  const activeTab = tab ?? (isLoading || all.length ? "mine" : "library");
+  //
+  // And the numbers wait with the rules, and the rules with the catalogs:
+  // "0 of 0 rules are on" over the skeleton changed under the reader when the
+  // rules came, and a sentence written with raw ids re-wrapped its card — and
+  // moved every card below — when the names arrived. One skeleton, then all
+  // of it in one frame; the page never goes back to the skeleton after.
+  const ready = usePageReady(
+    !accessLoading && [rulesQuery, tagsQuery, typesQuery, sourcesQuery, statusesQuery].every(settled),
+  );
+  const activeTab = tab ?? (!ready || all.length ? "mine" : "library");
 
   const clearFilters = () => {
     setSearch("");
@@ -122,7 +138,8 @@ export function AutomationsPage() {
     setCreating(true);
   };
 
-  if (!canView) {
+  // Refused only once the permissions say so — not while they are coming.
+  if (!accessLoading && !canView) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
         <h2 className="text-lg font-medium">No access</h2>
@@ -136,11 +153,13 @@ export function AutomationsPage() {
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-lg font-semibold tracking-tight">Automations</h1>
-          <p className="text-sm text-muted-foreground">
+          <p className={cn("text-sm text-muted-foreground", !ready && "invisible")}>
             What the system sends on its own. {running} of {all.length} rules are on.
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        {/* Two of these buttons are an editor's: drawn before the permissions
+            said so, the rest slid aside when they arrived. */}
+        <div className={cn("flex flex-wrap items-center gap-2", accessLoading && "invisible")}>
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -185,7 +204,7 @@ export function AutomationsPage() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setTab}>
-        <TabsList>
+        <TabsList className={cn(!ready && "invisible")}>
           <TabsTrigger value="library">Library</TabsTrigger>
           <TabsTrigger value="mine">My automations · {all.length}</TabsTrigger>
         </TabsList>
@@ -259,7 +278,7 @@ export function AutomationsPage() {
             </Select>
           </div>
 
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <div className={cn("flex items-center gap-2 text-sm text-muted-foreground", !ready && "invisible")}>
             <span>
               {narrowed ? `${visible.length} of ${all.length} rules` : `${all.length} rules`}
             </span>
@@ -270,7 +289,7 @@ export function AutomationsPage() {
             ) : null}
           </div>
 
-          {isLoading ? (
+          {!ready ? (
             <div className="space-y-2">
               <Skeleton className="h-20 w-full" />
               <Skeleton className="h-20 w-full" />

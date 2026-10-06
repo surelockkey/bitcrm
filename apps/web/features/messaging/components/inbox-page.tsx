@@ -5,9 +5,17 @@ import { useSearchParams } from "next/navigation";
 import type { ConversationKind } from "@bitcrm/types";
 import { CONVERSATION_KINDS } from "@bitcrm/types";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { settled, usePageReady } from "@/lib/use-page-ready";
 import { cn } from "@/lib/utils";
 import { INBOX_VIEWS, type InboxView } from "../api";
-import { useConversation, useMessagingAccess, usePartyNames } from "../hooks";
+import {
+  useConversation,
+  useConversations,
+  useInboxCounters,
+  useMessagingAccess,
+  usePartyNames,
+  useTemplates,
+} from "../hooks";
 import { useInboxNavigate } from "../inbox-url";
 import { conversationTitle, type ListState } from "../lib";
 import { ConversationList } from "./conversation-list";
@@ -31,7 +39,7 @@ const isKind = (v: string | null): v is ConversationKind =>
 export function InboxPage() {
   const params = useSearchParams();
   const navigate = useInboxNavigate();
-  const { canView, isLoading } = useMessagingAccess();
+  const { canView, canSend, isLoading } = useMessagingAccess();
 
   const selectedId = params.get("c") ?? undefined;
   const view: InboxView = isView(params.get("view")) ? (params.get("view") as InboxView) : "all";
@@ -50,9 +58,27 @@ export function InboxPage() {
     if (next.view !== view || next.kind !== kind) navigate({ view: next.view, kind: next.kind });
   };
 
+  // The category numbers and the rows come from two requests that answer on
+  // their own beats, and each number pushed its unread dot aside when it
+  // landed. Both are asked for here (the same queries the columns read), and
+  // the numbers, the dots and the rows are drawn in one frame: the numbers
+  // once and kept, the rows again for each category, like any new list.
+  const counters = useInboxCounters();
+  const listFilter = useMemo(() => ({ view, kind: view === "all" ? kind : undefined }), [view, kind]);
+  const list = useConversations(listFilter);
+  const inboxIn = !isLoading && settled(counters) && settled(list);
+  const countsShown = usePageReady(inboxIn);
+  const rowsShown = usePageReady(inboxIn, JSON.stringify(listFilter));
+
   const { data: selected } = useConversation(selectedId);
   const names = usePartyNames(selected ? [selected] : []);
   const title = selected ? conversationTitle(selected, names) : "";
+  // What the inbox draws into an open thread: its title, and the quick
+  // replies over its composer (the same query the chips read). The thread
+  // waits for them — the title used to change from a number to a name, and
+  // the chips to land on top of the composer, after the thread was up.
+  const quickReplies = useTemplates({ channel: "sms" }, canSend && !!selectedId);
+  const threadExtrasIn = !names.isLoading && settled(quickReplies);
 
   if (!isLoading && !canView) {
     return (
@@ -71,6 +97,7 @@ export function InboxPage() {
         onStateChange={onListState}
         collapsed={collapsed}
         onToggleCollapsed={toggleCollapsed}
+        countsShown={countsShown}
         className="max-md:hidden"
       />
 
@@ -85,6 +112,7 @@ export function InboxPage() {
           selectedId={selectedId}
           onSelect={(id) => navigate({ c: id })}
           onNewConversation={() => setComposingNew(true)}
+          rowsShown={rowsShown}
           className="w-full"
         />
       </aside>
@@ -99,6 +127,7 @@ export function InboxPage() {
             key={selectedId}
             conversationId={selectedId}
             title={title}
+            extrasIn={threadExtrasIn}
             onBack={() => navigate({ c: undefined })}
             onToggleInfo={() => setInfoOpen(true)}
             onForward={(m) => {
