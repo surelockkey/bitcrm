@@ -18,6 +18,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { DateTimeRangePicker } from "@/components/ui/date-time-range-picker";
 import { DAY_END, DAY_START, toIsoInstant, toLocalParts } from "@/lib/date-range";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
+import { settled, usePageReady } from "@/lib/use-page-ready";
 import { useDenied, usePermissions } from "@/features/auth/use-permissions";
 import { NoAccess } from "@/features/clients/components/contacts-page";
 import { useUserMap } from "@/features/deals/hooks";
@@ -119,6 +120,10 @@ export function JobsReportPage({ today: todayProp }: { today?: string } = {}) {
   const ready = settingsQuery.isFetched || byChoice !== null;
   const report = useJobsReport(reportParams(state), ready);
   const data = report.data;
+  // A browser that remembers its "By:" asks before the settings are in, and
+  // the table was drawn with the default columns, then redrawn with the
+  // account's own: every column slid. It waits for the columns it shows.
+  const shown = usePageReady([report, settingsQuery].every(settled));
 
   const money = data?.money ?? can("financials");
   const columns = inReportOrder(localColumns ?? settings.columns).filter((c) => money || c !== "total");
@@ -262,7 +267,7 @@ export function JobsReportPage({ today: todayProp }: { today?: string } = {}) {
           <p role="alert" className="text-sm text-destructive">
             {report.error instanceof Error ? report.error.message : "Could not load the report."}
           </p>
-        ) : !data ? (
+        ) : !shown || !data ? (
           <div role="status" aria-label="Loading jobs" className="space-y-2">
             <Skeleton className="h-10 w-full" />
             {Array.from({ length: 8 }, (_, i) => (
