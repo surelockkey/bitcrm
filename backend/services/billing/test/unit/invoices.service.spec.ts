@@ -660,6 +660,18 @@ describe('InvoicesService', () => {
       }
     });
 
+    /**
+     * A payment schedule's View (Workiz): the invoice as it stands, but with
+     * the Balance due of the one payment being shown.
+     */
+    it('renders a PDF whose balance due is the one asked for — a scheduled payment', async () => {
+      const inv = await noJob();
+      await service.pdf(inv.id, false, caller(), { balanceDue: 12.34 });
+      const source = (documents.pdf.mock.calls.at(-1) as unknown[])[0] as { doc: { totals: { balanceDue: number; total: number } } };
+      expect(source.doc.totals.balanceDue).toBe(12.34);
+      expect(source.doc.totals.total).toBe(inv.totals.total);
+    });
+
     it("lists a client's invoices with and without a job together", async () => {
       await noJob();
       await service.create('deal-1', caller());

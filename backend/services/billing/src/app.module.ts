@@ -20,6 +20,7 @@ import { EstimatesModule } from './estimates/estimates.module';
 import { IntegrationsModule } from './integrations/integrations.module';
 import { InvoicesModule } from './invoices/invoices.module';
 import { PaymentsModule } from './payments/payments.module';
+import { PaymentScheduleModule } from './payment-schedule/payment-schedule.module';
 import { StripeModule } from './payments/stripe/stripe.module';
 import { PortalModule } from './portal/portal.module';
 import { ProposalsModule } from './proposals/proposals.module';
@@ -92,6 +93,8 @@ const DEAL_EVENTS_QUEUE_URL = process.env.BILLING_DEAL_EVENTS_QUEUE_URL;
     // Last: its `invoices/:id/payments` and `public/portal/...` routes are
     // deeper than the ones above and must not shadow them.
     PaymentsModule,
+    // After the ledger it reads; its routes are its own (`deals/:dealId/payment-schedule…`).
+    PaymentScheduleModule,
     // Internal reads for deal-service's Tax report (`reports/internal/*`).
     BillingReportsModule,
     DealEventsModule,

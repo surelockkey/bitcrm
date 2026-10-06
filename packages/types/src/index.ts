@@ -437,6 +437,16 @@ export type {
 } from './billing/totals';
 export type { TaxRate } from './entities/tax-rate.entity';
 export { INVOICE_STATUSES } from './entities/invoice.entity';
+export { PAYMENT_SCHEDULE_METHODS } from './entities/payment-schedule.entity';
+export type {
+  PaymentSchedule,
+  PaymentScheduleEntry,
+  PaymentScheduleLine,
+  PaymentScheduleMethod,
+  PaymentScheduleStatus,
+  PaymentScheduleView,
+  SavePaymentScheduleBody,
+} from './entities/payment-schedule.entity';
 export type { Invoice, InvoiceItem, InvoiceStatus, InvoiceView, BillingLine } from './entities/invoice.entity';
 export { ESTIMATE_STATUSES } from './entities/estimate.entity';
 export type {
