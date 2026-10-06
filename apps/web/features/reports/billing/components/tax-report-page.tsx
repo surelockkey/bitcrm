@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/table";
 import { getApiErrorMessage } from "@/lib/api/errors";
+import { settled, usePageReady } from "@/lib/use-page-ready";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { cn } from "@/lib/utils";
 import { useDenied, usePermissions } from "@/features/auth/use-permissions";
@@ -59,7 +60,7 @@ const KPI: Record<TaxReportBasis, string> = {
  * tax rate; This month by default; "Tax to show", search, CSV.
  */
 export function TaxReportPage() {
-  const { can } = usePermissions();
+  const { can, isLoading: permsLoading } = usePermissions();
   const denied = useDenied();
   const canView = can("reports", "view") && can("financials", "view");
   const range = useReportRange(DEFAULT_TAX_PRESET);
@@ -78,6 +79,11 @@ export function TaxReportPage() {
   const params = { basis, by, from: from ?? "", to: to ?? "", tax: tax || undefined, search: search || undefined };
   const ready = canView && !range.error && !!from && !!to;
   const q = useTaxReport(params, ready);
+  // The figure was drawn as "—" with its caption beside it, and the caption
+  // slid when the figure came; "Tax to show" widened when the rates came.
+  // They come with the report. (Until the role is read the report is not
+  // asked for, which is not an answer.)
+  const shown = usePageReady(!permsLoading && settled(q));
 
   // A new question starts on its first page — reset while rendering, not in an effect.
   const key = JSON.stringify(params);
@@ -171,95 +177,110 @@ export function TaxReportPage() {
           </p>
         ) : null}
 
-        <div className="flex flex-wrap items-baseline gap-2">
-          <span className="font-mono text-2xl font-semibold tabular-nums" data-testid="tax-kpi">
-            {q.isLoading ? "—" : money(q.data?.totalAmount)}
-          </span>
-          <span className="text-sm text-muted-foreground">{KPI[basis]}</span>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <select
-            aria-label="Tax to show"
-            className="h-9 rounded-md border bg-transparent px-2 text-sm"
-            value={tax}
-            onChange={(e) => setTax(e.target.value)}
-          >
-            <option value="">All taxes</option>
-            {(q.data?.taxes ?? []).map((t) => (
-              <option key={t.key} value={t.key}>
-                {t.name} ({t.rate.toFixed(2)}%)
-              </option>
-            ))}
-          </select>
-          <div className="relative w-full max-w-xs">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input className="h-9 pl-8" placeholder="Search" aria-label="Search" value={searchInput} onChange={(e) => setSearchInput(e.target.value)} />
-          </div>
-          <span className="flex-1" />
-          <ExportButton busy={exporting} disabled={!ready} onClick={() => void runExport()} />
-        </div>
-
-        {q.isLoading && ready ? (
-          <div role="status" aria-label="Loading the tax report" className="space-y-2">
-            {Array.from({ length: 4 }, (_, i) => (
-              <Skeleton key={i} className="h-10 w-full" />
-            ))}
-          </div>
-        ) : q.isError ? (
-          <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
-            <p>{getApiErrorMessage(q.error, "Couldn't load the tax report")}</p>
-            <Button variant="outline" size="sm" className="mt-3" onClick={() => q.refetch()}>
-              Try again
-            </Button>
+        {!shown ? (
+          // The figure, the rates and the table, while the report is on its way.
+          <div role="status" aria-label="Loading the tax report" className="space-y-4">
+            <Skeleton className="h-8 w-64" />
+            <Skeleton className="h-9 w-full" />
+            <div className="space-y-2">
+              {Array.from({ length: 4 }, (_, i) => (
+                <Skeleton key={i} className="h-10 w-full" />
+              ))}
+            </div>
           </div>
         ) : (
           <>
-            <div className={cn("overflow-x-auto border", q.isPlaceholderData && "opacity-60")}>
-              <Table>
-                <TableHeader>
-                  <TableRow className="hover:bg-transparent">
-                    {COLUMNS[basis].map((c) => (
-                      <SortHead key={c.id} id={c.id} label={c.label} sort={sort ?? ("" as Col)} dir={dir} onSort={onSort} right={c.right} />
-                    ))}
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {pageRows.map((r) => (
-                    <TableRow key={r.key}>
-                      <TableCell className="font-medium">{r.name || "—"}</TableCell>
-                      <TableCell className="text-muted-foreground">{r.description}</TableCell>
-                      <TableCell className="text-right tabular-nums">{r.rate.toFixed(2)}%</TableCell>
-                      <TableCell className="text-right font-mono tabular-nums">{money(r.amount)}</TableCell>
-                      <TableCell className="text-right font-mono tabular-nums">{money(r.taxableAmount)}</TableCell>
-                      {basis === "accrual" ? (
-                        <TableCell className={cn("text-right font-mono tabular-nums", (r.nonTaxableAmount ?? 0) < 0 && "text-destructive")}>
-                          {money(r.nonTaxableAmount)}
-                        </TableCell>
-                      ) : null}
-                      <TableCell className="text-right tabular-nums">{r.jobs.toLocaleString("en-US")}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-              {q.data && rows.length === 0 ? (
-                <div className="flex flex-col items-center gap-2 p-12 text-center text-muted-foreground">
-                  <Percent className="size-6" />
-                  <p className="text-sm">No taxed jobs in this period.</p>
-                </div>
-              ) : null}
+            <div className="flex flex-wrap items-baseline gap-2">
+              <span className="font-mono text-2xl font-semibold tabular-nums" data-testid="tax-kpi">
+                {q.isLoading ? "—" : money(q.data?.totalAmount)}
+              </span>
+              <span className="text-sm text-muted-foreground">{KPI[basis]}</span>
             </div>
-            <ReportFooter
-              page={page}
-              pageSize={pageSize}
-              total={rows.length}
-              shown={pageRows.length}
-              onPage={setPage}
-              onPageSize={(s) => {
-                setPageSize(s);
-                setPage(1);
-              }}
-            />
+
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                aria-label="Tax to show"
+                className="h-9 rounded-md border bg-transparent px-2 text-sm"
+                value={tax}
+                onChange={(e) => setTax(e.target.value)}
+              >
+                <option value="">All taxes</option>
+                {(q.data?.taxes ?? []).map((t) => (
+                  <option key={t.key} value={t.key}>
+                    {t.name} ({t.rate.toFixed(2)}%)
+                  </option>
+                ))}
+              </select>
+              <div className="relative w-full max-w-xs">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input className="h-9 pl-8" placeholder="Search" aria-label="Search" value={searchInput} onChange={(e) => setSearchInput(e.target.value)} />
+              </div>
+              <span className="flex-1" />
+              <ExportButton busy={exporting} disabled={!ready} onClick={() => void runExport()} />
+            </div>
+
+            {q.isLoading && ready ? (
+              <div role="status" aria-label="Loading the tax report" className="space-y-2">
+                {Array.from({ length: 4 }, (_, i) => (
+                  <Skeleton key={i} className="h-10 w-full" />
+                ))}
+              </div>
+            ) : q.isError ? (
+              <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
+                <p>{getApiErrorMessage(q.error, "Couldn't load the tax report")}</p>
+                <Button variant="outline" size="sm" className="mt-3" onClick={() => q.refetch()}>
+                  Try again
+                </Button>
+              </div>
+            ) : (
+              <>
+                <div className={cn("overflow-x-auto border", q.isPlaceholderData && "opacity-60")}>
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="hover:bg-transparent">
+                        {COLUMNS[basis].map((c) => (
+                          <SortHead key={c.id} id={c.id} label={c.label} sort={sort ?? ("" as Col)} dir={dir} onSort={onSort} right={c.right} />
+                        ))}
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {pageRows.map((r) => (
+                        <TableRow key={r.key}>
+                          <TableCell className="font-medium">{r.name || "—"}</TableCell>
+                          <TableCell className="text-muted-foreground">{r.description}</TableCell>
+                          <TableCell className="text-right tabular-nums">{r.rate.toFixed(2)}%</TableCell>
+                          <TableCell className="text-right font-mono tabular-nums">{money(r.amount)}</TableCell>
+                          <TableCell className="text-right font-mono tabular-nums">{money(r.taxableAmount)}</TableCell>
+                          {basis === "accrual" ? (
+                            <TableCell className={cn("text-right font-mono tabular-nums", (r.nonTaxableAmount ?? 0) < 0 && "text-destructive")}>
+                              {money(r.nonTaxableAmount)}
+                            </TableCell>
+                          ) : null}
+                          <TableCell className="text-right tabular-nums">{r.jobs.toLocaleString("en-US")}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                  {q.data && rows.length === 0 ? (
+                    <div className="flex flex-col items-center gap-2 p-12 text-center text-muted-foreground">
+                      <Percent className="size-6" />
+                      <p className="text-sm">No taxed jobs in this period.</p>
+                    </div>
+                  ) : null}
+                </div>
+                <ReportFooter
+                  page={page}
+                  pageSize={pageSize}
+                  total={rows.length}
+                  shown={pageRows.length}
+                  onPage={setPage}
+                  onPageSize={(s) => {
+                    setPageSize(s);
+                    setPage(1);
+                  }}
+                />
+              </>
+            )}
           </>
         )}
       </div>
