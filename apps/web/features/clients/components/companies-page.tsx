@@ -20,6 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { settled, usePageReady } from "@/lib/use-page-ready";
 import { usePermissions, useDenied } from "@/features/auth/use-permissions";
 import { useCompanies } from "../hooks";
 import { clientTypeLabel, searchCompanies } from "../lib";
@@ -31,13 +32,17 @@ const ALL = "all";
 
 export function CompaniesPage() {
   const router = useRouter();
-  const { can  } = usePermissions();
+  const { can, isLoading: permsLoading } = usePermissions();
   const denied = useDenied();
   const [search, setSearch] = useState("");
   const [type, setType] = useState<string>(ALL);
   const [creating, setCreating] = useState(false);
 
   const companiesQuery = useCompanies();
+  // The rows, their number and the button over them go up in one frame — the
+  // number used to read "0 companies" until the rows came, and the button
+  // turned up whenever the permissions did. Search and type filter in hand.
+  const ready = usePageReady(!permsLoading && settled(companiesQuery));
 
   const filtered = useMemo(() => {
     const all = companiesQuery.data ?? [];
@@ -56,7 +61,7 @@ export function CompaniesPage() {
             Commercial, government, and multi-site residential accounts.
           </p>
         </div>
-        {can("companies", "create") ? (
+        {ready && can("companies", "create") ? (
           <Button variant="brand" className="gap-1.5" onClick={() => setCreating(true)}>
             <Plus className="size-4" /> New company
           </Button>
@@ -83,12 +88,12 @@ export function CompaniesPage() {
           </SelectContent>
         </Select>
         <span className="ml-auto text-sm text-muted-foreground">
-          {filtered.length} {filtered.length === 1 ? "company" : "companies"}
+          {ready ? `${filtered.length} ${filtered.length === 1 ? "company" : "companies"}` : null}
         </span>
       </div>
 
       <div className="flex-1 overflow-y-auto p-6">
-        {companiesQuery.isLoading ? (
+        {!ready ? (
           <Skeleton className="h-64 w-full" />
         ) : filtered.length === 0 ? (
           <EmptyState

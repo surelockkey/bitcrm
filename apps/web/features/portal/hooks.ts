@@ -12,6 +12,10 @@ export function usePortalLink(contactId: string, enabled = true) {
     queryKey: queryKeys.portal.link(contactId),
     queryFn: () => api.getPortalLink(contactId),
     enabled: enabled && !!contactId,
+    // The client card asks for the link with the client; the portal card that
+    // shows it mounts a moment later and must not ask again. Creating,
+    // regenerating and disabling the link invalidate it outright.
+    staleTime: 30_000,
   });
 }
 

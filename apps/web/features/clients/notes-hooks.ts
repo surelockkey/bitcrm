@@ -14,6 +14,10 @@ export function useContactNotes(contactId: string, enabled = true) {
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.pagination.nextCursor,
     enabled: enabled && !!contactId,
+    // The client card asks for them with the client; the rail's badge mounts
+    // a moment later and must not ask again. Adding, editing and deleting a
+    // note invalidate them outright.
+    staleTime: 30_000,
   });
 }
 

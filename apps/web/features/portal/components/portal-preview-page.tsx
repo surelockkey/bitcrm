@@ -7,17 +7,26 @@ import { PortalSkeleton, PortalView, type DocumentLoaders, type InboxLoader } fr
 import { Button } from "@/components/ui/button";
 import { toneClasses } from "@/lib/theme/tone";
 import { getApiErrorMessage } from "@/lib/api/errors";
+import { settled, usePageReady } from "@/lib/use-page-ready";
 import { useDenied } from "@/features/auth/use-permissions";
 import { NoAccess } from "@/features/billing/components/list-bits";
 import { getEstimateHtml, getEstimatePdfUrl } from "@/features/estimates/api";
 import { getInvoiceHtml, getInvoicePdfUrl } from "@/features/invoices/api";
 import { getPortalPreviewInbox } from "../api";
 import { usePortalPreview } from "../hooks";
+import { useImageReady } from "../use-image-ready";
 
 /** Staff preview of a client's portal (includes unsent documents). Same UI as the client's page. */
 export function PortalPreviewPage({ contactId }: { contactId: string }) {
   const denied = useDenied();
   const q = usePortalPreview(contactId);
+  // The business's logo sizes itself once its bytes arrive and then pushes
+  // the business name across; the preview waits for it behind the skeleton
+  // (a logo that fails or hangs holds it no longer than a moment). Once up,
+  // the preview stays up — a refetch keeps the logo it has until the new one
+  // has loaded.
+  const logoReady = useImageReady(q.data?.business.logoUrl);
+  const ready = usePageReady(settled(q) && logoReady, contactId);
   // Staff read documents with their own session; the client's page does the same by token.
   const loaders = useMemo<DocumentLoaders>(
     () => ({
@@ -46,7 +55,7 @@ export function PortalPreviewPage({ contactId }: { contactId: string }) {
         Preview — unsent documents are shown with an UNSENT label. The client only sees sent documents.
       </div>
       <div className="flex-1 overflow-auto bg-white [color-scheme:light]">
-        {q.isLoading ? (
+        {!ready ? (
           <PortalSkeleton />
         ) : q.isError || !q.data ? (
           <div className="mx-auto max-w-md rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">

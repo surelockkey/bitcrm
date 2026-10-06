@@ -12,7 +12,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { settled, usePageReady } from "@/lib/use-page-ready";
 import { usePermissions } from "@/features/auth/use-permissions";
+import { useJobSources } from "@/features/job-sources/hooks";
 import { useCompany, useCompanyContacts, useDeleteCompany } from "../hooks";
 import { extensionOf, formatPhoneWithExtension } from "../lib";
 import { ClientTypeBadge, PlatinumBadge } from "./client-badges";
@@ -30,15 +32,28 @@ import { ClientEstimatesList, ClientInvoicesList } from "@/features/billing/comp
 
 export function CompanyDetailPage({ companyId }: { companyId: string }) {
   const router = useRouter();
-  const { can } = usePermissions();
-  const { data: company, isLoading } = useCompany(companyId);
+  const { can, isLoading: permsLoading } = usePermissions();
+  const companyQuery = useCompany(companyId);
+  const company = companyQuery.data;
   const contacts = useCompanyContacts(companyId);
+  // The Contacts tab names its people's ad sources: asked for with the page,
+  // so the tab opens whole rather than with raw ids that turn into names.
+  const jobSources = useJobSources();
   const del = useDeleteCompany();
   const [editing, setEditing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [addingContact, setAddingContact] = useState(false);
 
-  if (isLoading || !company) {
+  // One skeleton, then the page whole: the "Contacts · N" number, and the
+  // buttons and tabs the permissions decide, came in after the company and
+  // squeezed the header across. Once up it stays up — the edit form lives
+  // here — and another company starts over.
+  const ready = usePageReady(
+    !permsLoading && settled(companyQuery) && settled(contacts) && settled(jobSources),
+    companyId,
+  );
+
+  if (!ready || !company) {
     return <div className="p-6"><Skeleton className="h-64 w-full" /></div>;
   }
 

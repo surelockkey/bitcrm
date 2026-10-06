@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronDown, CreditCard, FileSpreadsheet, FileText, Home, MessageSquareText, Wrench } from "lucide-react";
 import type { Deal } from "@bitcrm/types";
@@ -10,13 +10,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { ClientCallsLog } from "@/features/calls/components/client-calls-log";
-import { useDealsPage } from "@/features/deals/hooks";
 import { useCreateClientEstimate, useEstimatesForContacts } from "@/features/estimates/hooks";
 import { useCreateClientInvoice, useInvoicesForContacts } from "@/features/invoices/hooks";
-import { usePaymentList } from "@/features/payments/hooks";
 import { ClientEstimatesList, ClientInvoicesList } from "@/features/billing/components/client-documents";
 import { accountToday } from "@/features/reports/report-dates";
 import { amountDueByDeal, byJobDateDesc, clientAddressRows, clientKpis } from "../client-page";
+import { countSoFar, useClientJobs, useClientPageData, useClientPayments } from "../client-page-data";
 import { useCompany, useContact, useDeleteContact } from "../hooks";
 import { contactName } from "../lib";
 import { ClientAddressesTab } from "./client-addresses-tab";
@@ -32,8 +31,6 @@ import { ClientRail } from "./client-rail";
 import { ClientSummaryPanel } from "./client-summary-panel";
 import { DeleteClientDialog } from "./delete-client-dialog";
 
-const JOBS_PAGE = 50;
-
 /**
  * The client card, laid out as Workiz's (/root/client/<id>): the summary
  * column on the left, the four cards and "Create new" up top, then the
@@ -43,7 +40,9 @@ const JOBS_PAGE = 50;
 export function ContactDetailPage({ contactId }: { contactId: string }) {
   const router = useRouter();
   const { can } = usePermissions();
-  const { data: contact, isLoading } = useContact(contactId);
+  // Everything the card shows, asked for at once; the card goes up whole.
+  const { ready } = useClientPageData(contactId);
+  const { data: contact } = useContact(contactId);
   const { data: company } = useCompany(contact?.companyId ?? "");
   const del = useDeleteContact();
   const [editing, setEditing] = useState(false);
@@ -57,19 +56,19 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
   const money = can("financials", "view");
   // The client's jobs and nothing else: a `sort=schedule` here once took the
   // schedule index, which has no client key, and the card showed the whole
-  // account. The order Workiz shows (by job date) is applied below.
-  const jobs = useDealsPage({ contactId, limit: JOBS_PAGE }, !!contact);
-  const deals = useMemo<Deal[]>(() => (jobs.data?.pages.flatMap((p) => p.data) ?? []).slice().sort(byJobDateDesc), [jobs.data]);
+  // account. The order Workiz shows (by job date) is applied below. Every
+  // page is walked by `useClientPageData`.
+  const jobs = useClientJobs(contactId);
+  const jobPages = useMemo(() => jobs.data?.pages.map((p) => p.data) ?? [], [jobs.data]);
+  const deals = useMemo<Deal[]>(() => jobPages.flat().sort(byJobDateDesc), [jobPages]);
   const invoices = useInvoicesForContacts([contactId], can("invoices"));
   const estimates = useEstimatesForContacts([contactId], can("estimates"));
   // The client's payments, every page, so the tab's badge is a number and the
   // tab itself pages them locally (as Jobs does).
-  const payments = usePaymentList({ contactId, limit: 100 }, !!contact && can("payments"));
-  const paymentRows = useMemo(() => payments.data?.pages.flatMap((p) => p.items) ?? [], [payments.data]);
-  const { hasNextPage: morePayments, isFetchingNextPage: fetchingPayments, fetchNextPage: fetchPayments } = payments;
-  useEffect(() => {
-    if (morePayments && !fetchingPayments) void fetchPayments();
-  }, [morePayments, fetchingPayments, fetchPayments]);
+  const payments = useClientPayments(contactId, can("payments"));
+  const paymentPages = useMemo(() => payments.data?.pages.map((p) => p.items) ?? [], [payments.data]);
+  const paymentRows = useMemo(() => paymentPages.flat(), [paymentPages]);
+  const morePayments = payments.hasNextPage;
   // Workiz: Create new → Estimate / Invoice make the client's document at once
   // (no job — "either a job or a client") and open it on its own page.
   const createEstimate = useCreateClientEstimate();
@@ -80,15 +79,9 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
   const addressRows = useMemo(() => (contact ? clientAddressRows(contact, deals) : []), [contact, deals]);
   const dealsById = useMemo(() => new Map(deals.map((d) => [d.id, d])), [deals]);
 
-  // The card wants every job of the client: the Jobs tab pages them with an
-  // exact "Page 1 of 76", the Addresses tab counts jobs per address, and the
-  // tab's badge is a number, not "99+". Pages come one after another.
-  const { hasNextPage, isFetchingNextPage, fetchNextPage } = jobs;
-  useEffect(() => {
-    if (hasNextPage && !isFetchingNextPage) void fetchNextPage();
-  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+  const hasNextPage = jobs.hasNextPage;
 
-  if (isLoading || !contact) {
+  if (!ready || !contact) {
     return (
       <div className="p-6">
         <Skeleton className="h-64 w-full" />
@@ -97,8 +90,11 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
   }
 
   const remove = () => del.mutate(contact.id, { onSuccess: () => router.push("/contacts") });
-  const jobsCount = `${deals.length}${hasNextPage ? "+" : ""}`;
-  const paymentsCount = `${paymentRows.length}${morePayments ? "+" : ""}`;
+  // A big client's numbers say "at least" while the rest of its pages are
+  // counted, and change once, when the count is final.
+  const jobsCount = countSoFar(jobPages, hasNextPage);
+  const paymentsCount = countSoFar(paymentPages, morePayments);
+  const addressesCount = countSoFar(jobPages, hasNextPage, (rows) => clientAddressRows(contact, rows).length);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto md:flex-row md:overflow-hidden">
@@ -195,7 +191,7 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
                 </TabsTrigger>
               ) : null}
               <TabsTrigger value="addresses" className="px-2">
-                Addresses <Count n={String(addressRows.length)} />
+                Addresses <Count n={addressesCount} />
               </TabsTrigger>
               {can("calls") ? (
                 <TabsTrigger value="calls" className="px-2">
