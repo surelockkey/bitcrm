@@ -5,10 +5,10 @@ import Link from "next/link";
 import { Briefcase, Loader2, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { usePermissions } from "@/features/auth/use-permissions";
-import { useDeal } from "@/features/deals/hooks";
 import { ChangeClientDialog } from "./change-client-dialog";
 import { LinkJobDialog } from "./link-job-dialog";
 import { useJobTypeName } from "@/features/job-types/lib";
+import { useCallJob } from "../hooks";
 import { counterparty, formatEndpoint, type CallRecord } from "../lib";
 
 /**
@@ -21,7 +21,7 @@ export function CallAssociations({ call }: { call: CallRecord }) {
   const { can } = usePermissions();
   const [changingClient, setChangingClient] = useState(false);
   const [changingJob, setChangingJob] = useState(false);
-  const { data: deal, isLoading: dealLoading } = useDeal(call.dealId ?? "");
+  const { data: deal, isLoading: dealLoading } = useCallJob(call.dealId);
   const jobTypeName = useJobTypeName();
 
   const client = counterparty(call);

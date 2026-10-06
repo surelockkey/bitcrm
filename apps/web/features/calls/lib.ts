@@ -120,6 +120,15 @@ export function isLive(call: Pick<CallRecord, "status">): boolean {
   return !!call.status && LIVE_STATUSES.includes(call.status);
 }
 
+/**
+ * The jobs a page of calls is linked to, once each, in the order the rows
+ * name them — the one list both the page's fetch and the table's read are
+ * keyed by, so the table finds the jobs the page already brought.
+ */
+export function linkedDealIds(calls: Pick<CallRecord, "dealId">[]): string[] {
+  return [...new Set(calls.map((c) => c.dealId).filter((id): id is string => !!id))];
+}
+
 export const STATUS_LABEL: Record<CallStatus, string> = {
   queued: "Queued",
   initiated: "Starting…",

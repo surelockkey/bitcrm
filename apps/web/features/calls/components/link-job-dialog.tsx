@@ -47,16 +47,24 @@ export function LinkJobDialog({
   const searching = q.length > 0;
   const isCode = JOB_CODE.test(query.trim());
 
+  // Nothing is read while the dialog is closed. It stays mounted on the call
+  // page, and "no client yet" there used to mean the workspace's open jobs —
+  // four lists, page after page — read on every visit for a list nobody had
+  // opened.
+  const open = !!call;
   // Untyped: this client's latest jobs off the contact index — or, for a
   // caller nobody has identified, the workspace's open jobs, newest first.
-  const clientJobs = useDealsPage({ contactId: clientContactId, limit: 40 }, Boolean(clientContactId) && !searching);
-  const openJobs = useDealsWindow({}, { enabled: !clientContactId && !searching });
+  const clientJobs = useDealsPage(
+    { contactId: clientContactId, limit: 40 },
+    open && Boolean(clientContactId) && !searching,
+  );
+  const openJobs = useDealsWindow({}, { enabled: open && !clientContactId && !searching });
   // Typed: a Job ID goes straight to the server; anything else (a name, an
   // address) is a search-service question, hydrated in one call.
-  const byCode = useDealsPage({ search: query.trim().toUpperCase(), limit: 5 }, searching && isCode);
-  const found = useGlobalSearch(searching && !isCode ? query : "", { types: ["deal"], mode: "full", limit: 40 });
+  const byCode = useDealsPage({ search: query.trim().toUpperCase(), limit: 5 }, open && searching && isCode);
+  const found = useGlobalSearch(open && searching && !isCode ? query : "", { types: ["deal"], mode: "full", limit: 40 });
   const hitIds = (found.data?.hits ?? []).map((h) => h.entityId);
-  const byText = useDealsByIds(hitIds, searching && !isCode);
+  const byText = useDealsByIds(hitIds, open && searching && !isCode);
 
   const deals: Deal[] = !searching
     ? clientContactId

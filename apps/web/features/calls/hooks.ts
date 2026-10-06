@@ -12,8 +12,9 @@ import { toast } from "sonner";
 import type { PaginatedResponse } from "@bitcrm/types";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { queryKeys } from "@/lib/query-keys";
+import { getDeal, getDealsByIds } from "@/features/deals/api";
 import * as api from "./api";
-import type { CallRecord, CallsFilter } from "./lib";
+import { linkedDealIds, type CallRecord, type CallsFilter } from "./lib";
 
 type CallPages = InfiniteData<PaginatedResponse<CallRecord>, string | undefined>;
 
@@ -68,12 +69,42 @@ export function useCallsCount(filter: CallsFilter) {
   });
 }
 
+/**
+ * Bring the jobs a page of calls is linked to into the cache, under the key
+ * the table reads them by (`useDealsByIds(linkedDealIds(rows))`).
+ *
+ * Never throws: a page whose jobs could not be read still shows its calls,
+ * with a dash where the job would be.
+ */
+function prefetchLinkedDeals(qc: QueryClient, calls: CallRecord[]): Promise<void> {
+  const ids = linkedDealIds(calls);
+  if (!ids.length) return Promise.resolve();
+  return qc.prefetchQuery({
+    queryKey: queryKeys.deals.byIds(ids),
+    queryFn: () => getDealsByIds(ids),
+    // `useDealsByIds`'s own: the table mounting on these rows reads them, it
+    // does not ask again.
+    staleTime: 30_000,
+  });
+}
+
 export function useCallsList(filter: CallsFilter, limit = 25) {
+  const qc = useQueryClient();
   return useInfiniteQuery({
     // Розмір сторінки — частина ключа: інакше вибір «по 100» читав би кеш,
     // складений по 25.
     queryKey: queryKeys.calls.list({ ...filter, limit }),
-    queryFn: ({ pageParam }) => api.listCalls(filter, pageParam, limit),
+    // A page arrives with the jobs its rows are linked to. Asked for by the
+    // table once the rows were drawn, they landed a beat later — the Job
+    // column pulsed, and the job-tag chips that came after were taller than
+    // the dash they replaced, so every row below slid down. Here the page
+    // (the first, the next one, a refetch after a call ends) is only handed
+    // over once its jobs are in.
+    queryFn: async ({ pageParam }) => {
+      const page = await api.listCalls(filter, pageParam, limit);
+      await prefetchLinkedDeals(qc, page.data);
+      return page;
+    },
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.pagination.nextCursor,
   });
@@ -157,11 +188,17 @@ export function useSetCallParty() {
   });
 }
 
-export function useLiveCalls() {
+/** `enabled`: a page that shows the strip only for a call still going asks only then. */
+export function useLiveCalls(enabled = true) {
   return useQuery({
     queryKey: queryKeys.calls.live(),
     queryFn: api.getLiveCalls,
+    enabled,
     refetchInterval: LIVE_FALLBACK_POLL_MS,
+    // Fresh for as long as the poll's own beat: the call log asks for this
+    // before it draws the strip, and the strip mounting a moment later must
+    // read that answer rather than ask again. The stream patches it between.
+    staleTime: LIVE_FALLBACK_POLL_MS,
     // A tab that was hidden while a call started should show it on return,
     // rather than waiting out the next interval.
     refetchOnWindowFocus: true,
@@ -200,5 +237,22 @@ export function useCallDetail(sid: string, seed?: CallRecord) {
     // Callers pass "" when there is no call in hand yet.
     enabled: !!sid,
     placeholderData: seed,
+  });
+}
+
+/**
+ * The job a call is linked to — `useDeal`'s own query (same key, same
+ * request), held fresh for half a minute.
+ *
+ * The call page asks for it before it draws, and the Associations block
+ * reading it once drawn must find that answer rather than ask again — which a
+ * query that goes stale at once does the moment the block mounts.
+ */
+export function useCallJob(dealId: string | undefined) {
+  return useQuery({
+    queryKey: queryKeys.deals.detail(dealId ?? ""),
+    queryFn: () => getDeal(dealId as string),
+    enabled: !!dealId,
+    staleTime: 30_000,
   });
 }

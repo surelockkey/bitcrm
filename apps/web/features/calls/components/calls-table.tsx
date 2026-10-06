@@ -23,6 +23,7 @@ import {
   callParty,
   formatCallTime,
   formatDuration,
+  linkedDealIds,
   type CallRecord,
 } from "../lib";
 import { CallPartyCell } from "./call-party-cell";
@@ -131,11 +132,9 @@ export function CallsTable({ calls }: { calls: CallRecord[] }) {
   // fetch its own (`useDeal(call.dealId)`), so twenty-five calls meant
   // twenty-five requests landing at twenty-five different moments — the Job
   // and Job-tags columns filled in one at a time, which is what the page
-  // looked like it was doing.
-  const dealIds = useMemo(
-    () => [...new Set(calls.map((c) => c.dealId).filter((id): id is string => !!id))],
-    [calls],
-  );
+  // looked like it was doing. The log's page brings these jobs with it
+  // (`useCallsList`), under this same key, so here they are read, not fetched.
+  const dealIds = useMemo(() => linkedDealIds(calls), [calls]);
   const { data: linkedDeals, isLoading: dealsLoading } = useDealsByIds(dealIds);
   const dealsById = useMemo(
     () => new Map((linkedDeals ?? []).map((d) => [d.id, d])),
