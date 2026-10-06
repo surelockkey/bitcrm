@@ -17,6 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DAY_END, DAY_START, toIsoInstant, toLocalParts } from "@/lib/date-range";
+import { settled, usePageReady } from "@/lib/use-page-ready";
 import { useDenied } from "@/features/auth/use-permissions";
 import { NoAccess } from "@/features/clients/components/contacts-page";
 import { useJobTags } from "@/features/job-tags/hooks";
@@ -98,8 +99,14 @@ export function JobStatisticsPage({ today: todayProp }: { today?: string } = {})
       ...(tagIds.length > 0 && { tagIds }),
     }),
   );
-  const areas = (useServiceAreas().data ?? []).filter((a) => a.active).sort((a, b) => a.name.localeCompare(b.name));
-  const tags = activeJobTags(useJobTags().data);
+  const areasQuery = useServiceAreas();
+  const tagsQuery = useJobTags();
+  const areas = (areasQuery.data ?? []).filter((a) => a.active).sort((a, b) => a.name.localeCompare(b.name));
+  const tags = activeJobTags(tagsQuery.data);
+  // The tags row came a beat after the filter bar, between it and the
+  // figures, and pushed everything under it down; the area select widened
+  // when its areas came. The filters, the tags and the figures come together.
+  const ready = usePageReady([stats, areasQuery, tagsQuery].every(settled));
 
   if (denied("reports", "view")) return <NoAccess entity="reports" />;
 
@@ -111,76 +118,91 @@ export function JobStatisticsPage({ today: todayProp }: { today?: string } = {})
         <h1 className="text-lg font-semibold tracking-tight">Job Statistics</h1>
       </div>
 
-      {/* Workiz's filter bar: area, By Time, the period. */}
-      <div className="flex flex-wrap items-center gap-3 border-b px-4 py-3 sm:px-6">
-        <select
-          aria-label="Service area"
-          className="h-9 rounded-md border bg-transparent px-2 text-sm"
-          value={serviceAreaId}
-          onChange={(e) => setServiceAreaId(e.target.value)}
-        >
-          <option value={ALL}>All Service Areas</option>
-          {areas.map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.name}
-            </option>
-          ))}
-        </select>
-        <div role="radiogroup" aria-label="By Time" className="flex items-center gap-3 text-sm">
-          <span className="text-muted-foreground">By Time:</span>
-          {BY_TIME.map((b) => (
-            <label key={b} className="flex items-center gap-1.5">
-              <input type="radio" name="by-time" checked={by === b} onChange={() => setBy(b)} />
-              {JOB_STATISTICS_BY_LABEL[b]}
-            </label>
-          ))}
-        </div>
-        <span className="flex-1" />
-        <select
-          aria-label="Date preset"
-          className="h-9 rounded-md border bg-transparent px-2 text-sm"
-          value={preset}
-          onChange={(e) => setPreset(e.target.value as JobsReportPreset)}
-        >
-          {STATISTICS_PRESETS.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.label}
-            </option>
-          ))}
-        </select>
-        <DateTimeRangePicker
-          dateOnly
-          label="Days"
-          value={{ from: toIsoInstant(range.from, DAY_START), to: toIsoInstant(range.to, DAY_END) }}
-          onChange={(r) => {
-            const from = toLocalParts(r.from)?.date ?? range.from;
-            setCustom({ from, to: toLocalParts(r.to)?.date ?? from });
-            setPreset("custom");
-          }}
-        />
-      </div>
-
-      {tags.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1.5 border-b px-4 py-2 sm:px-6" aria-label="Tags">
-          <span className="mr-1 text-xs text-muted-foreground">Tags:</span>
-          <TagChip label="All" pressed={tagIds.length === 0} onClick={() => setTagIds([])} />
-          {tags.map((t) => (
-            <TagChip key={t.id} label={t.name} pressed={tagIds.includes(t.id)} onClick={() => toggleTag(t.id)} />
-          ))}
-        </div>
-      )}
-
-      {stats.error ? (
-        <p role="alert" className="p-6 text-sm text-destructive">
-          {stats.error instanceof Error ? stats.error.message : "Could not load the report."}
-        </p>
-      ) : !stats.data ? (
-        <div role="status" aria-label="Loading report" className="space-y-3 p-6">
-          <Skeleton className="h-24 w-full" />
-          <Skeleton className="h-48 w-full" />
+      {!ready ? (
+        // One block for the filters, the tags and the figures while any is on its way.
+        <div role="status" aria-label="Loading report">
+          <div className="border-b px-4 py-3 sm:px-6">
+            <Skeleton className="h-9 w-full" />
+          </div>
+          <div className="space-y-3 p-6">
+            <Skeleton className="h-24 w-full" />
+            <Skeleton className="h-48 w-full" />
+          </div>
         </div>
       ) : (
-        <Report stats={stats.data} />
+        <>
+          {/* Workiz's filter bar: area, By Time, the period. */}
+          <div className="flex flex-wrap items-center gap-3 border-b px-4 py-3 sm:px-6">
+            <select
+              aria-label="Service area"
+              className="h-9 rounded-md border bg-transparent px-2 text-sm"
+              value={serviceAreaId}
+              onChange={(e) => setServiceAreaId(e.target.value)}
+            >
+              <option value={ALL}>All Service Areas</option>
+              {areas.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                </option>
+              ))}
+            </select>
+            <div role="radiogroup" aria-label="By Time" className="flex items-center gap-3 text-sm">
+              <span className="text-muted-foreground">By Time:</span>
+              {BY_TIME.map((b) => (
+                <label key={b} className="flex items-center gap-1.5">
+                  <input type="radio" name="by-time" checked={by === b} onChange={() => setBy(b)} />
+                  {JOB_STATISTICS_BY_LABEL[b]}
+                </label>
+              ))}
+            </div>
+            <span className="flex-1" />
+            <select
+              aria-label="Date preset"
+              className="h-9 rounded-md border bg-transparent px-2 text-sm"
+              value={preset}
+              onChange={(e) => setPreset(e.target.value as JobsReportPreset)}
+            >
+              {STATISTICS_PRESETS.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.label}
+                </option>
+              ))}
+            </select>
+            <DateTimeRangePicker
+              dateOnly
+              label="Days"
+              value={{ from: toIsoInstant(range.from, DAY_START), to: toIsoInstant(range.to, DAY_END) }}
+              onChange={(r) => {
+                const from = toLocalParts(r.from)?.date ?? range.from;
+                setCustom({ from, to: toLocalParts(r.to)?.date ?? from });
+                setPreset("custom");
+              }}
+            />
+          </div>
+
+          {tags.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5 border-b px-4 py-2 sm:px-6" aria-label="Tags">
+              <span className="mr-1 text-xs text-muted-foreground">Tags:</span>
+              <TagChip label="All" pressed={tagIds.length === 0} onClick={() => setTagIds([])} />
+              {tags.map((t) => (
+                <TagChip key={t.id} label={t.name} pressed={tagIds.includes(t.id)} onClick={() => toggleTag(t.id)} />
+              ))}
+            </div>
+          )}
+
+          {stats.error ? (
+            <p role="alert" className="p-6 text-sm text-destructive">
+              {stats.error instanceof Error ? stats.error.message : "Could not load the report."}
+            </p>
+          ) : !stats.data ? (
+            <div role="status" aria-label="Loading report" className="space-y-3 p-6">
+              <Skeleton className="h-24 w-full" />
+              <Skeleton className="h-48 w-full" />
+            </div>
+          ) : (
+            <Report stats={stats.data} />
+          )}
+        </>
       )}
     </div>
   );
