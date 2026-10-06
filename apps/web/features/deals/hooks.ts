@@ -1,12 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef } from "react";
-import {
-  useInfiniteQuery,
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import type {
   Deal,
@@ -89,6 +84,9 @@ export function useDealCounts(params: DealCountsParams, enabled = true) {
     queryFn: () => api.getDealCounts(params),
     staleTime: 30_000,
     enabled,
+    // A filter change asks again; the tabs keep the numbers they have until
+    // the new ones are in, rather than blanking out and coming back.
+    placeholderData: keepPreviousData,
   });
 }
 
