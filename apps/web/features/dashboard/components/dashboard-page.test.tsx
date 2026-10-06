@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { screen } from "@testing-library/react";
 import { renderWithClient } from "@/test/render-with-client";
-import { useDashboardReady } from "../bundle-context";
 import { DashboardPage } from "./dashboard-page";
 
 const grants: Record<string, boolean> = { "dashboard.view_jobs_by_status": true };
@@ -13,14 +12,12 @@ vi.mock("@/features/auth/use-permissions", () => ({
   }),
 }));
 
-const bundle = { isPending: false };
+const bundle = { isPending: false, data: { at: 1 } as unknown, isError: false, fetchStatus: "idle" };
 vi.mock("../hooks", () => ({ useDashboardBundle: () => bundle }));
 
 vi.mock("./dashboard-widgets", () => {
   const stub = (id: string) => {
-    const Stub = ({ className }: { className?: string }) => (
-      <div data-testid={id} className={className} data-ready={String(useDashboardReady())} />
-    );
+    const Stub = ({ className }: { className?: string }) => <div data-testid={id} className={className} />;
     Stub.displayName = id;
     return Stub;
   };
@@ -39,9 +36,7 @@ vi.mock("./dashboard-widgets", () => {
 });
 
 vi.mock("./jobs-by-status-card", () => ({
-  JobsByStatusCard: ({ className }: { className?: string }) => (
-    <div data-testid="jobs-by-status" className={className} data-ready={String(useDashboardReady())} />
-  ),
+  JobsByStatusCard: ({ className }: { className?: string }) => <div data-testid="jobs-by-status" className={className} />,
 }));
 
 /**
@@ -130,18 +125,28 @@ describe("DashboardPage", () => {
     grants["financials.view"] = false;
   });
 
-  // Картки чекають на пакет і заповнюються разом, а не по одній.
-  it("holds every card while the opening bundle is on its way, then lets them all go", () => {
+  // Поки пакет у дорозі — один скелет замість карток; потім усі картки разом.
+  it("draws no card while the opening bundle is on its way, then every card at once", () => {
     grants["dashboard.view_top_sources"] = true;
-    bundle.isPending = true;
+    Object.assign(bundle, { isPending: true, data: undefined, fetchStatus: "fetching" });
     const { unmount } = renderWithClient(<DashboardPage />);
-    expect(screen.getByTestId("top-sources").dataset.ready).toBe("false");
-    expect(screen.getByTestId("jobs-by-status").dataset.ready).toBe("false");
+    expect(screen.getByRole("status", { name: "Loading the dashboard" })).toBeInTheDocument();
+    expect(screen.queryByTestId("top-sources")).toBeNull();
+    expect(screen.queryByTestId("jobs-by-status")).toBeNull();
     unmount();
 
-    bundle.isPending = false;
+    Object.assign(bundle, { isPending: false, data: { at: 1 }, fetchStatus: "idle" });
     renderWithClient(<DashboardPage />);
-    expect(screen.getByTestId("top-sources").dataset.ready).toBe("true");
+    expect(screen.queryByRole("status", { name: "Loading the dashboard" })).toBeNull();
+    expect(screen.getByTestId("top-sources")).toBeInTheDocument();
+    expect(screen.getByTestId("jobs-by-status")).toBeInTheDocument();
     grants["dashboard.view_top_sources"] = false;
+  });
+
+  it("lets the cards go when the bundle fails — they fetch on their own", () => {
+    Object.assign(bundle, { isPending: false, data: undefined, isError: true, fetchStatus: "idle" });
+    renderWithClient(<DashboardPage />);
+    expect(screen.getByTestId("jobs-by-status")).toBeInTheDocument();
+    Object.assign(bundle, { data: { at: 1 }, isError: false });
   });
 });
