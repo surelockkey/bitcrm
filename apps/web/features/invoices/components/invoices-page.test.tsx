@@ -133,7 +133,8 @@ describe("InvoicesPage", () => {
     const u = user();
     await u.click(await screen.findByRole("button", { name: /4 invoices Unsent/ }));
     await waitFor(() => expect(listCalls.some((p) => p.get("sent") === "unsent")).toBe(true));
-    await u.selectOptions(screen.getByLabelText("Date range"), "this_month");
+    await u.click(screen.getByRole("button", { name: /date range/i }));
+    await u.click(screen.getByRole("button", { name: "This month" }));
     await waitFor(() => expect(summaryCalls.some((p) => /-01$/.test(p.get("from") ?? ""))).toBe(true));
     expect(listCalls.some((p) => /-01$/.test(p.get("from") ?? ""))).toBe(true);
   });
