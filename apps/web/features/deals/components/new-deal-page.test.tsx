@@ -71,6 +71,10 @@ vi.mock("../hooks", () => ({
   useCreateDeal: () => ({ mutate: mocks.createDeal, isPending: false }),
   // The extracted ClientPicker searches the loaded contact book.
 }));
+// Every hook the form reads is stubbed above, so everything is already in:
+// the form is up from the first render (the load itself is covered by
+// new-deal-page.loading.test.tsx).
+vi.mock("../new-job-page-data", () => ({ useNewJobPageData: () => ({ ready: true }) }));
 vi.mock("@/features/calls/hooks", () => ({
   useLinkCallToDeal: () => ({ mutate: mocks.linkCall, isPending: false }),
 }));
