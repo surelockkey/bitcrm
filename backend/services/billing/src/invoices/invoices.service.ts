@@ -805,9 +805,14 @@ export class InvoicesService {
 
   // ------------------------------------------------------------- documents
 
-  async pdf(id: string, download: boolean, caller: Caller): Promise<{ url: string }> {
+  /**
+   * The invoice as a PDF. `override.balanceDue` prints another Balance due —
+   * a payment schedule's View shows the one payment being asked for (Workiz);
+   * the figure comes from the schedule, never from a client.
+   */
+  async pdf(id: string, download: boolean, caller: Caller, override?: { balanceDue: number }): Promise<{ url: string }> {
     const doc = await this.get(id, caller);
-    return this.renderPdf(doc, download);
+    return this.renderPdf(override ? { ...doc, totals: { ...doc.totals, balanceDue: override.balanceDue } } : doc, download);
   }
 
   async html(id: string, caller: Caller): Promise<{ html: string }> {
