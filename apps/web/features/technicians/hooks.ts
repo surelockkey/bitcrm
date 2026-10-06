@@ -134,6 +134,7 @@ export function useAssignments(id: string) {
   return useQuery({
     queryKey: queryKeys.technicians.assignments(id),
     queryFn: () => api.getAssignments(id),
+    staleTime: 30_000,
   });
 }
 
