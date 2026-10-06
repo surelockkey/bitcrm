@@ -24,7 +24,8 @@ describe("SETTINGS_GROUPS", () => {
 
   it("file each section under the block Workiz keeps it in", () => {
     const labelsOf = (group: string) => SETTINGS_GROUPS.find((g) => g.label === group)?.sections.map((s) => s.label);
-    expect(labelsOf("General Settings")).toEqual(["General", "Companies", "Automations", "Documents"]);
+    // General is the settings screen itself (the rail's first link), not a tile on it.
+    expect(labelsOf("General Settings")).toEqual(["Companies", "Automations", "Documents"]);
     expect(labelsOf("Users & Roles")).toEqual(["Users", "Roles"]);
     expect(labelsOf("Job Settings")).toEqual([
       "Service Areas",
@@ -58,8 +59,9 @@ describe("SETTINGS_GROUPS", () => {
     const pages = readdirSync(dir, { withFileTypes: true })
       .filter((e) => e.isDirectory() && existsSync(path.join(dir, e.name, "page.tsx")))
       .map((e) => `/settings/${e.name}`);
-    // /settings/automations only redirects old bookmarks to the module.
-    const listed = [...SETTINGS_GROUPS.flatMap((g) => g.sections.map((s) => s.href)), "/settings/automations"];
+    // These two only redirect old bookmarks: to the module, and to the settings screen.
+    const redirects = ["/settings/automations", "/settings/general"];
+    const listed = [...SETTINGS_GROUPS.flatMap((g) => g.sections.map((s) => s.href)), ...redirects];
     expect(pages.length).toBeGreaterThan(10);
     expect(pages.filter((p) => !listed.includes(p))).toEqual([]);
   });
@@ -79,9 +81,8 @@ describe("visibleSettingsGroups", () => {
   });
 
   it("drops a block left with nothing in it, rather than draw a bare heading", () => {
-    // Nothing granted: only the unguarded General page is left, in its block.
-    const groups = visibleSettingsGroups(() => false);
-    expect(groups.map((g) => g.label)).toEqual(["General Settings"]);
-    expect(groups[0].sections.map((s) => s.label)).toEqual(["General"]);
+    const groups = visibleSettingsGroups((r) => r === "users");
+    expect(groups.map((g) => g.label)).toEqual(["Users & Roles"]);
+    expect(groups[0].sections.map((s) => s.label)).toEqual(["Users"]);
   });
 });
