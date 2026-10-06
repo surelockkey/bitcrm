@@ -21,7 +21,8 @@ const permissions = vi.hoisted(() => ({
   },
 }));
 vi.mock("@/features/auth/use-permissions", () => ({
-  useDenied: () => () => false,
+  // The permissions are in: a refusal is whatever `can` says.
+  useDenied: () => (resource: string, action = "view") => !permissions.value.can(resource, action),
   usePermissions: () => permissions.value,
 }));
 
