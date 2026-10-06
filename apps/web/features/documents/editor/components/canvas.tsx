@@ -1,6 +1,6 @@
 "use client";
 
-import { useLayoutEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type { DocumentRenderContext } from "@bitcrm/types";
 import { rendererCanvasCss, rendererFontHref } from "../../lib";
 import { useEditorStore } from "../store";
@@ -36,20 +36,20 @@ ${SCOPE} a{pointer-events:none}
  *
  * Waiting for the ResizeObserver's first report drew the paper at full size
  * for a frame and then zoomed it to fit, so every section shrank and slid
- * under the reader the moment the editor opened. The layout effect reads the
- * width in the commit that mounts the element; the observer follows it after.
+ * under the reader the moment the editor opened. The ref reads the width in
+ * the commit that attaches the element — an update React applies before the
+ * browser paints — and the observer follows it after.
  */
 function useElementWidth<T extends Element>() {
-  const [el, ref] = useState<T | null>(null);
   const [width, setWidth] = useState(0);
-  useLayoutEffect(() => {
+  const ref = useCallback((el: T | null) => {
     if (!el) return;
     setWidth(el.getBoundingClientRect().width);
     if (typeof ResizeObserver === "undefined") return;
     const ro = new ResizeObserver(([e]) => setWidth(e.contentRect.width));
     ro.observe(el);
     return () => ro.disconnect();
-  }, [el]);
+  }, []);
   return { ref, width };
 }
 
