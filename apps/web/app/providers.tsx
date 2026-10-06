@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QUERY_DEFAULTS } from "@/lib/query-defaults";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { ThemeProvider } from "next-themes";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -31,15 +32,7 @@ const showQueryDevtools = process.env.NEXT_PUBLIC_RQ_DEVTOOLS === "1";
 export function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(
     () =>
-      new QueryClient({
-        defaultOptions: {
-          queries: {
-            staleTime: 30_000,
-            retry: 1,
-            refetchOnWindowFocus: false,
-          },
-        },
-      }),
+      new QueryClient({ defaultOptions: QUERY_DEFAULTS }),
   );
 
   return (

@@ -193,6 +193,36 @@ describe("PortalView — the Workiz layout", () => {
   });
 });
 
+/**
+ * The logo has no width until it has loaded, so the company's name beside it
+ * slid sideways a moment after the page appeared. The name now waits, out of
+ * sight in the place it will keep, for the logo to load (or fail, or two
+ * seconds to pass) and appears where it stays.
+ */
+describe("the header does not slide", () => {
+  const nameBlock = () => screen.getAllByText("Acme Locks")[0].parentElement as HTMLElement;
+
+  it("keeps the name out of sight until the logo has loaded", async () => {
+    const { container } = render(<PortalView view={view} loaders={loaders} />);
+    expect(nameBlock().className).toMatch(/\binvisible\b/);
+
+    const logo = container.querySelector("header img") as HTMLImageElement;
+    logo.dispatchEvent(new Event("load"));
+    await vi.waitFor(() => expect(nameBlock().className).not.toMatch(/\binvisible\b/));
+  });
+
+  it("shows the name if the logo fails to load", async () => {
+    const { container } = render(<PortalView view={view} loaders={loaders} />);
+    (container.querySelector("header img") as HTMLImageElement).dispatchEvent(new Event("error"));
+    await vi.waitFor(() => expect(nameBlock().className).not.toMatch(/\binvisible\b/));
+  });
+
+  it("shows the name at once when there is no logo", () => {
+    render(<PortalView view={{ ...view, business: { ...view.business, logoUrl: undefined } }} loaders={loaders} />);
+    expect(nameBlock().className).not.toMatch(/\binvisible\b/);
+  });
+});
+
 describe("page states", () => {
   it("a dead link names the business when it knows it", () => {
     render(<InvalidPortalLink businessName="Acme Locks" />);
