@@ -25,15 +25,21 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { usePermissions } from "@/features/auth/use-permissions";
+import { settled, usePageReady } from "@/lib/use-page-ready";
+import { useDenied, usePermissions } from "@/features/auth/use-permissions";
 import { useClientTags, useDeleteClientTag } from "../hooks";
 import { tagColorClasses } from "../lib";
 import { ClientTagFormDialog } from "./client-tag-form-dialog";
 
 export function ClientTagsPage() {
-  const { can } = usePermissions();
-  const { data: clientTags, isLoading } = useClientTags();
+  const { can, isLoading: permsLoading } = usePermissions();
+  const denied = useDenied();
+  const tagsQuery = useClientTags();
+  const clientTags = tagsQuery.data;
   const del = useDeleteClientTag();
+  // The tags and the buttons the permissions decide go up together, behind
+  // one skeleton — the button used to turn up on its own beat.
+  const ready = usePageReady(!permsLoading && settled(tagsQuery));
 
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<ClientTag | undefined>();
@@ -43,7 +49,8 @@ export function ClientTagsPage() {
   const canEdit = can("client_tags", "edit");
   const canDelete = can("client_tags", "delete");
 
-  if (!can("client_tags", "view")) {
+  // Refused only once the permissions say so — not while they are on their way.
+  if (denied("client_tags", "view")) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
         <h2 className="text-lg font-medium">No access</h2>
@@ -72,14 +79,14 @@ export function ClientTagsPage() {
             Colored labels for deals. A deal can carry as many as you like.
           </p>
         </div>
-        {canCreate ? (
+        {ready && canCreate ? (
           <Button variant="brand" className="h-9 gap-1.5" onClick={openNew}>
             <Plus className="size-4" /> New client tag
           </Button>
         ) : null}
       </div>
 
-      {isLoading ? (
+      {!ready ? (
         <div className="space-y-2">
           <Skeleton className="h-12 w-full" />
           <Skeleton className="h-12 w-full" />
