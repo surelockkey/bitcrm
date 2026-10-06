@@ -18,14 +18,19 @@ vi.mock("@/features/auth/use-permissions", () => ({
   usePermissions: () => ({ can: () => true }),
 }));
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
-vi.mock("@/features/deals/hooks", () => ({ useUserMap: () => ({ map: new Map(), users: [], isLoading: false }) }));
-vi.mock("@/features/clients/hooks", () => ({
-  useContactSearch: () => ({ data: [], isLoading: false, tooShort: true }),
-  useContactsByIds: () => ({
-    map: new Map([["c1", { firstName: "Jane", lastName: "Smith" }]]),
-    isLoading: false,
-  }),
-}));
+// The same object on every render, as the real hooks' memoised maps are: the
+// list keeps what it shows by their identity.
+vi.mock("@/features/deals/hooks", () => {
+  const users = { map: new Map(), users: [], isLoading: false };
+  return { useUserMap: () => users };
+});
+vi.mock("@/features/clients/hooks", () => {
+  const contacts = { map: new Map([["c1", { firstName: "Jane", lastName: "Smith" }]]), isLoading: false };
+  return {
+    useContactSearch: () => ({ data: [], isLoading: false, tooShort: true }),
+    useContactsByIds: () => contacts,
+  };
+});
 
 import { EstimatesPage } from "./estimates-page";
 

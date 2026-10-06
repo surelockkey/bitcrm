@@ -28,6 +28,9 @@ import { ResizableHead } from "@/components/ui/resizable-head";
 import { useColumnWidths } from "@/lib/table/use-column-widths";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
+import { settled, usePageReady } from "@/lib/use-page-ready";
+import { cn } from "@/lib/utils";
+import { heldPager, useHeldView } from "@/features/billing/use-held-view";
 import { usePermissions, useDenied } from "@/features/auth/use-permissions";
 import { useContactsByIds } from "@/features/clients/hooks";
 import { contactName } from "@/features/clients/lib";
@@ -92,7 +95,7 @@ const UPDATED_ON: Partial<Record<EstimateStatus, keyof Estimate>> = {
  * columns and its CSV.
  */
 export function EstimatesPage() {
-  const { can } = usePermissions();
+  const { can, isLoading: permsLoading } = usePermissions();
   const denied = useDenied();
   const canView = can("estimates", "view");
   const range = useReportRange(DEFAULT_ESTIMATE_PRESET);
@@ -102,11 +105,13 @@ export function EstimatesPage() {
   const [exporting, setExporting] = useState(false);
   const [adding, setAdding] = useState(false);
   const { from, to } = range.range;
-  const summary = useEstimateReportSummary({ from, to }, canView && !range.error);
-
-  // `canView` still gates the query — it must not fetch on a maybe.
-  // The refusal is the other way round: only once the answer is in.
-  if (denied("estimates", "view")) return <NoAccess what="estimates" />;
+  // `canView` still gates the queries — they must not fetch on a maybe. Until
+  // the permissions answer, a disabled query is not an empty answer: the cards
+  // would read "0 Worth $0.00" and the list "No estimates yet".
+  const enabled = canView && !range.error;
+  const summary = useEstimateReportSummary({ from, to }, enabled);
+  // Another date window keeps the numbers on the cards until its own are in.
+  const cards = useHeldView(summary.data, [summary.data], !permsLoading && settled(summary));
 
   const params: Omit<EstimateReportParams, "cursor"> = {
     ...(from && { from }),
@@ -114,6 +119,15 @@ export function EstimatesPage() {
     ...(status !== "all" && { status }),
     ...(search && { search }),
   };
+  const list = useEstimateRows(params, enabled, !permsLoading);
+  // The cards with their numbers, the rows and the names beside them come up
+  // in one frame — the numbers widen the cards and the names the rows, so
+  // anything drawn before them moved when they landed.
+  const ready = usePageReady(cards.shown && list.shown);
+
+  // The refusal is the other way round: only once the answer is in.
+  if (denied("estimates", "view")) return <NoAccess what="estimates" />;
+
   const runExport = async () => {
     setExporting(true);
     try {
@@ -130,7 +144,9 @@ export function EstimatesPage() {
     <div className="flex flex-1 flex-col">
       <div className="flex flex-wrap items-center gap-3 border-b px-6 py-3">
         <h1 className="text-lg font-semibold tracking-tight">Estimates</h1>
-        <div className="ml-auto flex flex-wrap items-center gap-3">
+        {/* Held invisible, at its height, until the page is up: "Add New" waits
+            for the permissions and would push the dates aside when it came. */}
+        <div className={cn("ml-auto flex flex-wrap items-center gap-3", !ready && "invisible")}>
           <DateRangeControl presets={ESTIMATE_DATE_PRESETS} state={range} />
           {/* Workiz: "+ Add New" beside the dates asks for the client, then opens the new estimate. */}
           {can("estimates", "create") ? (
@@ -147,64 +163,92 @@ export function EstimatesPage() {
             {range.error}
           </p>
         ) : null}
-        <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6" aria-label="Filter by status">
-          {ESTIMATE_STATUSES.map((s) => {
-            const card = summary.data?.[s];
-            return (
-              <ReportCard
-                key={s}
-                value={`${(card?.count ?? 0).toLocaleString("en-US")} Worth ${money(card?.amount)}`}
-                caption={ESTIMATE_STATUS_LABELS[s]}
-                swatch={ESTIMATE_STATUS_COLORS[s]}
-                loading={summary.isLoading}
-                active={status === s}
-                onClick={() => setStatus(status === s ? "all" : s)}
-              />
-            );
-          })}
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <select
-            aria-label="Status"
-            className="h-9 rounded-md border bg-transparent px-2 text-sm"
-            value={status}
-            onChange={(e) => setStatus(e.target.value as EstimateStatus | "all")}
-          >
-            <option value="all">All statuses</option>
-            {ESTIMATE_STATUSES.map((s) => (
-              <option key={s} value={s}>
-                {ESTIMATE_STATUS_LABELS[s]}
-              </option>
-            ))}
-          </select>
-          <div className="relative w-full max-w-xs">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input className="h-9 pl-8" placeholder="Search estimate # or name" aria-label="Search" value={searchInput} onChange={(e) => setSearchInput(e.target.value)} />
-          </div>
-          {summary.data ? (
-            <span className="text-xs text-muted-foreground tabular-nums">
-              {summary.data.total.count.toLocaleString("en-US")} estimates · {money(summary.data.total.amount)}
-            </span>
-          ) : null}
-          <span className="flex-1" />
-          <ExportButton busy={exporting} disabled={!!range.error} onClick={() => void runExport()} />
-        </div>
-        <EstimatesTable params={params} status={status === "all" ? undefined : status} enabled={canView && !range.error} />
+        {ready ? (
+          <>
+            <div
+              className={cn("grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6", cards.held && "opacity-60")}
+              aria-label="Filter by status"
+              aria-busy={cards.held || undefined}
+            >
+              {ESTIMATE_STATUSES.map((s) => {
+                const card = cards.view?.[s];
+                return (
+                  <ReportCard
+                    key={s}
+                    value={`${(card?.count ?? 0).toLocaleString("en-US")} Worth ${money(card?.amount)}`}
+                    caption={ESTIMATE_STATUS_LABELS[s]}
+                    swatch={ESTIMATE_STATUS_COLORS[s]}
+                    active={status === s}
+                    onClick={() => setStatus(status === s ? "all" : s)}
+                  />
+                );
+              })}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                aria-label="Status"
+                className="h-9 rounded-md border bg-transparent px-2 text-sm"
+                value={status}
+                onChange={(e) => setStatus(e.target.value as EstimateStatus | "all")}
+              >
+                <option value="all">All statuses</option>
+                {ESTIMATE_STATUSES.map((s) => (
+                  <option key={s} value={s}>
+                    {ESTIMATE_STATUS_LABELS[s]}
+                  </option>
+                ))}
+              </select>
+              <div className="relative w-full max-w-xs">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input className="h-9 pl-8" placeholder="Search estimate # or name" aria-label="Search" value={searchInput} onChange={(e) => setSearchInput(e.target.value)} />
+              </div>
+              {cards.view ? (
+                <span className="text-xs text-muted-foreground tabular-nums">
+                  {cards.view.total.count.toLocaleString("en-US")} estimates · {money(cards.view.total.amount)}
+                </span>
+              ) : null}
+              <span className="flex-1" />
+              <ExportButton busy={exporting} disabled={!!range.error} onClick={() => void runExport()} />
+            </div>
+            <EstimatesTable list={list} status={status === "all" ? undefined : status} />
+          </>
+        ) : (
+          <EstimatesSkeleton />
+        )}
       </div>
     </div>
   );
 }
 
-function EstimatesTable({
-  params,
-  status,
-  enabled,
-}: {
-  params: Omit<EstimateReportParams, "cursor">;
-  status?: EstimateStatus;
-  enabled: boolean;
-}) {
-  const router = useRouter();
+/** The page before its first frame: the six cards, the filters, the list. */
+function EstimatesSkeleton() {
+  return (
+    <div className="space-y-4" aria-busy="true" aria-label="Loading estimates">
+      <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6">
+        {ESTIMATE_STATUSES.map((s) => (
+          <Skeleton key={s} className="h-18 rounded-lg" />
+        ))}
+      </div>
+      <Skeleton className="h-9 w-full max-w-md" />
+      <Skeleton className="h-64 w-full" />
+    </div>
+  );
+}
+
+/** Rows have no identity of their own while there are none; one empty list keeps the held view still. */
+const NO_ROWS: Estimate[] = [];
+
+/**
+ * The list as the reader sees it: a page of rows, the clients and authors
+ * printed beside them and the pager under them — complete, or the previous
+ * complete one while the next is on its way.
+ *
+ * The clients are a second round trip that cannot start until the rows say
+ * whose names to ask for, and authors of estimates made here come from the
+ * user directory. Rows drawn before them filled in a beat later (an author's
+ * "Added by" line makes the row taller and pushes every row under it).
+ */
+function useEstimateRows(params: Omit<EstimateReportParams, "cursor">, enabled: boolean, permsIn: boolean) {
   const [pageSize, setPageSize] = usePageSize("estimates");
   const q = useEstimateReport({ ...params, limit: pageSize }, enabled);
   const count = useEstimateReportCount(params, enabled);
@@ -214,18 +258,35 @@ function EstimatesTable({
     pageSize,
     resetKey: JSON.stringify({ params, pageSize }),
   });
-  const rows: Estimate[] = pager.items;
-  const { map: contacts } = useContactsByIds(rows.map((r) => r.contactId));
-  const { map: users } = useUserMap(rows.filter((r) => !r.createdByName).map((r) => r.createdBy));
+  const rows: Estimate[] = pager.items.length ? pager.items : NO_ROWS;
+  const contacts = useContactsByIds(rows.map((r) => r.contactId));
+  const authorIds = rows.filter((r) => !r.createdByName).map((r) => r.createdBy);
+  const users = useUserMap(authorIds);
+  const complete =
+    permsIn &&
+    settled(q) &&
+    settled(count) &&
+    !contacts.isLoading &&
+    !(authorIds.length > 0 && users.isLoading);
+  const held = useHeldView(
+    { rows, contacts: contacts.map, users: users.map, pager, error: q.error },
+    [rows, contacts.map, users.map, pager.page, pager.total, q.error],
+    complete,
+  );
+  return { ...held, pageSize, setPageSize, retry: () => void q.refetch() };
+}
+
+function EstimatesTable({ list, status }: { list: ReturnType<typeof useEstimateRows>; status?: EstimateStatus }) {
+  const router = useRouter();
+  const { rows, contacts, users, pager, error } = list.view;
   // The reader's own widths for this list; the declarations only set the start.
   const { widthOf, setWidth, reset } = useColumnWidths("estimates", COLUMN_WIDTHS);
 
-  if (q.isLoading) return <Skeleton className="h-64 w-full" />;
-  if (q.isError) {
+  if (error) {
     return (
       <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
-        <p>{getApiErrorMessage(q.error, "Couldn't load estimates")}</p>
-        <Button variant="outline" size="sm" className="mt-3" onClick={() => q.refetch()}>Try again</Button>
+        <p>{getApiErrorMessage(error, "Couldn't load estimates")}</p>
+        <Button variant="outline" size="sm" className="mt-3" onClick={list.retry}>Try again</Button>
       </div>
     );
   }
@@ -246,7 +307,8 @@ function EstimatesTable({
   };
 
   return (
-    <div className="space-y-3">
+    // The previous set, dimmed, while the next one is on its way.
+    <div className={cn("space-y-3", list.held && "opacity-60")} aria-busy={list.held || undefined}>
       <div className="overflow-x-auto border">
         <Table className="table-fixed">
           <colgroup>
@@ -320,7 +382,7 @@ function EstimatesTable({
           </TableBody>
         </Table>
       </div>
-      <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} />
+      <ListPagination pager={list.held ? heldPager(pager) : pager} size={list.pageSize} onSizeChange={list.setPageSize} />
     </div>
   );
 }

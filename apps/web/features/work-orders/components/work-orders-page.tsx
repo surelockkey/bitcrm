@@ -34,7 +34,8 @@ import {
 } from "@/components/ui/dialog";
 import { ResizableHead } from "@/components/ui/resizable-head";
 import { useColumnWidths } from "@/lib/table/use-column-widths";
-import { usePermissions } from "@/features/auth/use-permissions";
+import { settled, usePageReady } from "@/lib/use-page-ready";
+import { useDenied, usePermissions } from "@/features/auth/use-permissions";
 import { useCompanies } from "@/features/clients/hooks";
 import { formatDate } from "@/features/users/lib";
 import { useWorkOrders, useCreateWorkOrder, useDeleteWorkOrder } from "../hooks";
@@ -65,18 +66,24 @@ const COLUMN_WIDTHS: Record<string, number> = Object.fromEntries(
 );
 
 export function WorkOrdersPage() {
-  const { can } = usePermissions();
+  const { can, isLoading: permsLoading } = usePermissions();
+  const denied = useDenied();
   const [companyId, setCompanyId] = useState("all");
   const [status, setStatus] = useState("all");
   const [query, setQuery] = useState("");
   const [creating, setCreating] = useState(false);
 
-  const canView = can("work_orders", "view");
   const canCreate = can("work_orders", "create");
   const canDelete = can("work_orders", "delete");
 
-  const { data: workOrders, isLoading } = useWorkOrders();
-  const { data: companies } = useCompanies();
+  const workOrdersQuery = useWorkOrders();
+  const companiesQuery = useCompanies();
+  const workOrders = workOrdersQuery.data;
+  const companies = companiesQuery.data;
+  // The rows come up with their clients named (the companies are a request
+  // of their own) and once the permissions have answered — until then a
+  // refusal is not known, and neither is the delete button on every row.
+  const ready = usePageReady(!permsLoading && settled(workOrdersQuery) && settled(companiesQuery));
   const del = useDeleteWorkOrder();
   // The reader's own widths for this list; the declarations only set the
   // start. Read before the no-access branch below — a hook has no branches.
@@ -98,7 +105,8 @@ export function WorkOrdersPage() {
     [workOrders, companyId, status, query],
   );
 
-  if (!canView) {
+  // A refusal only once the answer is in — before it, `can` says no to all.
+  if (denied("work_orders", "view")) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
         <h2 className="text-lg font-medium">No access</h2>
@@ -138,7 +146,7 @@ export function WorkOrdersPage() {
       </div>
 
       <div className="flex-1 overflow-auto p-6">
-        {isLoading ? (
+        {!ready ? (
           <Skeleton className="h-64 w-full" />
         ) : rows.length === 0 ? (
           <div className="flex flex-col items-center gap-2 p-12 text-center text-muted-foreground">

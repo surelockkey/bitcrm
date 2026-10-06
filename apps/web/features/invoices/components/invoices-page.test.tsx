@@ -19,9 +19,12 @@ vi.mock("@/features/auth/use-permissions", () => ({
   useDenied: () => () => !mocks.canView,
   usePermissions: () => ({ can: () => mocks.canView }),
 }));
-vi.mock("@/features/clients/hooks", () => ({
-  useContactsByIds: () => ({ map: new Map([["c1", { firstName: "Jane", lastName: "Smith" }]]), isLoading: false }),
-}));
+// The same object on every render, as the real hook's memoised map is: the
+// list keeps what it shows by its identity.
+vi.mock("@/features/clients/hooks", () => {
+  const contacts = { map: new Map([["c1", { firstName: "Jane", lastName: "Smith" }]]), isLoading: false };
+  return { useContactsByIds: () => contacts };
+});
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), loading: vi.fn(() => "t1") }));
 vi.mock("sonner", () => ({ toast }));
 

@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
-import { usePermissions } from "@/features/auth/use-permissions";
+import { useDenied, usePermissions } from "@/features/auth/use-permissions";
 import { NoAccess } from "@/features/billing/components/list-bits";
 import { usePaymentSettings, useUpdatePaymentSettings } from "../hooks";
 import { SURCHARGE_WARNING } from "../lib";
@@ -68,7 +68,8 @@ function Field({
  * warning by the field.
  */
 export function PaymentSettingsPage() {
-  const { can } = usePermissions();
+  const { can, isLoading: permsLoading } = usePermissions();
+  const denied = useDenied();
   const canRead = can("settings");
   const canEdit = can("settings", "edit");
   const { data: settings, isLoading } = usePaymentSettings(canRead);
@@ -101,8 +102,10 @@ export function PaymentSettingsPage() {
     save.mutate(toSettingsBody(parsed.data), { onSuccess: () => setDraft({}) });
   };
 
-  if (!canRead) return <NoAccess what="settings" />;
-  if (isLoading) return <Skeleton className="h-96 w-full max-w-3xl" />;
+  // A refusal only once the answer is in — before it, `can` says no to all,
+  // and the settings are not asked for yet: one skeleton covers both.
+  if (denied("settings")) return <NoAccess what="settings" />;
+  if (permsLoading || isLoading) return <Skeleton className="h-96 w-full max-w-3xl" />;
 
   const online = form.onlinePaymentsEnabled;
   const stripeReady = settings?.stripeConfigured === true;

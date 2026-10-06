@@ -9,7 +9,9 @@ import { getApiErrorMessage } from "@/lib/api/errors";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { useContact } from "@/features/clients/hooks";
 import { contactName } from "@/features/clients/lib";
+import { usePageReady } from "@/lib/use-page-ready";
 import { useInvoice } from "../hooks";
+import { useInvoiceViewData } from "../invoice-view-data";
 import { InvoiceDetail } from "./deal-invoice-tab";
 
 /**
@@ -19,16 +21,22 @@ import { InvoiceDetail } from "./deal-invoice-tab";
  */
 export function StandaloneInvoicePage({ invoiceId }: { invoiceId: string }) {
   const router = useRouter();
-  const { can } = usePermissions();
-  const { data: invoice, isLoading, isError, error } = useInvoice(invoiceId);
-  const { data: contact } = useContact(invoice?.contactId ?? "");
-
+  const { can, isLoading: permsLoading } = usePermissions();
+  const { data: invoice, isError, error } = useInvoice(invoiceId);
   const dealId = invoice?.dealId;
+  // A job's invoice only passes through on its way to the job: nothing more
+  // is asked for it here. A client's comes up whole — its client, payments
+  // and pickers with it.
+  const own = invoice === undefined ? undefined : dealId ? null : invoice;
+  const { data: contact } = useContact(own?.contactId ?? "");
+  const { allIn } = useInvoiceViewData({ invoice: own, canEditItems: can("invoices", "edit") });
+  const ready = usePageReady(!permsLoading && allIn);
+
   useEffect(() => {
     if (dealId) router.replace(`/deals/${dealId}?tab=invoice`);
   }, [dealId, router]);
 
-  if (isLoading || dealId) {
+  if (dealId || (!ready && !isError)) {
     return (
       <div className="p-6">
         <Skeleton className="h-48 w-full" />

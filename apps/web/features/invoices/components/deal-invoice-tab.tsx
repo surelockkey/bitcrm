@@ -36,6 +36,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { queryKeys } from "@/lib/query-keys";
 import { getApiErrorMessage } from "@/lib/api/errors";
+import { usePageReady } from "@/lib/use-page-ready";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { useDealProducts } from "@/features/deals/hooks";
 import { DealProductsTab } from "@/features/deals/components/deal-products-tab";
@@ -62,6 +63,7 @@ import {
   useSignInvoice,
   useUpdateInvoice,
 } from "../hooks";
+import { useInvoiceViewData } from "../invoice-view-data";
 import { PAYMENT_TERMS_OPTIONS, canCreateInvoice, dueDateForTerms } from "../lib";
 import { invoiceEditSchema, type InvoicePatch } from "../schemas";
 import { InvoiceItemsTable } from "./invoice-items-table";
@@ -73,9 +75,13 @@ import { InvoiceStatusBadge } from "./invoice-status-badge";
  */
 export function DealInvoiceTab({ deal, canEditItems }: { deal: Deal; canEditItems: boolean }) {
   const { can } = usePermissions();
-  const { data: invoice, isLoading, isError, error, refetch } = useInvoiceByDeal(deal.id);
+  const { data: invoice, isError, error, refetch } = useInvoiceByDeal(deal.id);
+  // The tab comes up whole — the invoice with the job's items, its payments
+  // and its pickers — rather than filling in and pushing its sections down.
+  // A new invoice (made from "No invoice yet") is a new first frame.
+  const { allIn } = useInvoiceViewData({ invoice, deal, canEditItems });
+  const ready = usePageReady(allIn, invoice?.id ?? "none");
 
-  if (isLoading) return <Skeleton className="h-48 w-full" />;
   if (isError) {
     return (
       <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
@@ -84,6 +90,7 @@ export function DealInvoiceTab({ deal, canEditItems }: { deal: Deal; canEditItem
       </div>
     );
   }
+  if (!ready) return <Skeleton className="h-48 w-full" />;
   if (!invoice) return <NoInvoice deal={deal} canCreate={can("invoices", "create")} />;
   return <InvoiceDetail deal={deal} invoice={invoice} canEditItems={canEditItems} />;
 }

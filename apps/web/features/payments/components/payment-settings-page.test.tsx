@@ -9,6 +9,8 @@ import { renderWithClient } from "@/test/render-with-client";
 const mocks = vi.hoisted(() => ({ perms: new Set(["settings.view", "settings.edit"]) }));
 vi.mock("@/features/auth/use-permissions", () => ({
   usePermissions: () => ({ can: (r: string, a = "view") => mocks.perms.has(`${r}.${a}`) }),
+  // This suite asserts the refusal, so `useDenied` mirrors its own `can`.
+  useDenied: () => (r: string, a = "view") => !mocks.perms.has(`${r}.${a}`),
 }));
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), message: vi.fn() }));
 vi.mock("sonner", () => ({ toast }));
