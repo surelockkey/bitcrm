@@ -5,6 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { env } from "@/lib/env";
 import { getIdToken } from "@/stores/auth-store";
 import { queryKeys } from "@/lib/query-keys";
+import { refreshOnReconnect } from "@/lib/refresh-on-reconnect";
 import { useMe } from "@/features/auth/use-me";
 import { MESSAGING_EVENTS_PATH } from "./api";
 import { applyRealtimeEvent } from "./cache";
@@ -32,15 +33,17 @@ export function useMessagingStream(enabled: boolean) {
   useEffect(() => {
     if (!enabled) return;
 
+    // Anything that happened while we were away is on the server, not in a
+    // frame we missed: refresh what is on screen — but not on the first
+    // connect, which missed nothing the page did not just ask for.
+    const refresh = refreshOnReconnect(() => void qc.invalidateQueries({ queryKey: queryKeys.messaging.all() }));
     const stream = openMessagingStream({
       url: `${env.apiBaseUrl}${MESSAGING_EVENTS_PATH}`,
       getToken: getIdToken,
       onEvent: (event) => applyRealtimeEvent(qc, event, meRef.current),
       onConnect: () => {
         setConnected(true);
-        // Anything that happened while we were away is on the server, not
-        // in a frame we missed: refresh what is on screen.
-        void qc.invalidateQueries({ queryKey: queryKeys.messaging.all() });
+        refresh();
       },
       onDisconnect: () => setConnected(false),
     });

@@ -6,6 +6,7 @@ import { env } from "@/lib/env";
 import { getIdToken } from "@/stores/auth-store";
 import { queryKeys } from "@/lib/query-keys";
 import { openSharedSseStream } from "@/lib/shared-sse-stream";
+import { refreshOnReconnect } from "@/lib/refresh-on-reconnect";
 import { createDealChangeBatcher, DEALS_STREAM_PATH, parseDealFrame } from "./live";
 import { useDealsStreamStore } from "./stream-store";
 
@@ -27,6 +28,9 @@ export function useDealsStream(enabled: boolean) {
     if (!enabled) return;
 
     const batcher = createDealChangeBatcher(qc, CHANGE_BATCH_MS);
+    // Whatever changed while we were away came in no frame: refresh — but not
+    // on the first connect, which missed nothing the page did not just ask for.
+    const refresh = refreshOnReconnect(() => void qc.invalidateQueries({ queryKey: queryKeys.deals.all() }));
     const stream = openSharedSseStream("deals", {
       url: `${env.apiBaseUrl}${DEALS_STREAM_PATH}`,
       getToken: getIdToken,
@@ -34,8 +38,7 @@ export function useDealsStream(enabled: boolean) {
       onEvent: () => batcher.changed(),
       onConnect: () => {
         setConnected(true);
-        // Whatever changed while we were away came in no frame: refresh.
-        void qc.invalidateQueries({ queryKey: queryKeys.deals.all() });
+        refresh();
       },
       onDisconnect: () => setConnected(false),
     });
