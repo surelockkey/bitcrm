@@ -1,9 +1,7 @@
 "use client";
 
 import { MapPin, Wrench } from "lucide-react";
-import type { User } from "@bitcrm/types";
 import { cn } from "@/lib/utils";
-import { useReverseGeocode } from "../use-reverse-geocode";
 import {
   technicianStatus,
   formatAge,
@@ -108,6 +106,8 @@ function TechRow({
 export function TechList({
   userIds,
   positions,
+  addresses,
+  now,
   userMap,
   hoveredId,
   selectedId,
@@ -117,6 +117,14 @@ export function TechList({
   /** Every technician's userId, so offline ones appear too. */
   userIds: string[];
   positions: TechnicianPosition[];
+  /**
+   * userId → the street they are on. Looked up by the page with everything
+   * else it shows, so each row is drawn with its address line rather than
+   * growing one when the lookup lands.
+   */
+  addresses: Map<string, string>;
+  /** What a live fix's age is counted from: when the fixes were read. */
+  now: number;
   userMap: Map<string, DirectoryUser>;
   hoveredId: string | null;
   selectedId: string | null;
@@ -124,8 +132,6 @@ export function TechList({
   onSelect: (id: string) => void;
 }) {
   const byId = new Map(positions.map((p) => [p.userId, p]));
-  const addresses = useReverseGeocode(positions);
-  const now = Date.now();
 
   const rows = userIds
     .map((userId) => {

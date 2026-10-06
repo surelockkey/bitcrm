@@ -38,8 +38,10 @@ vi.mock("@vis.gl/react-google-maps", () => ({
     },
   ),
   useMap: () => fakeMap,
-  // The roster reverse-geocodes via this; null → it simply shows no address.
+  // The roster reverse-geocodes via these. Maps cannot load in jsdom: a failed
+  // load means no streets, and nothing for the board to wait on.
   useMapsLibrary: () => null,
+  useApiLoadingStatus: () => "FAILED",
 }));
 
 // With a non-null map, the clusterer would build a real instance from our fake.
@@ -79,7 +81,8 @@ const permissions = vi.hoisted(() => ({
   },
 }));
 vi.mock("@/features/auth/use-permissions", () => ({
-  useDenied: () => () => false,
+  // The permissions are in: a refusal is whatever `can` says.
+  useDenied: () => (resource: string, action = "view") => !permissions.value.can(resource, action),
   usePermissions: () => permissions.value,
 }));
 

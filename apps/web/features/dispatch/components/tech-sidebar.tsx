@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   DndContext,
   KeyboardSensor,
@@ -25,7 +25,6 @@ import { Button } from "@/components/ui/button";
 import { StageBadge } from "@/features/deals/components/deal-badges";
 import { useJobTypeName } from "@/features/job-types/lib";
 import { techColor } from "../tech-color";
-import { useReverseGeocode } from "../use-reverse-geocode";
 import {
   formatAge,
   isInTimeOrder,
@@ -122,6 +121,7 @@ function JobRow({
  */
 export function TechSidebar({
   position,
+  address,
   name,
   jobs,
   clientName,
@@ -131,6 +131,8 @@ export function TechSidebar({
   onSelectJob,
 }: {
   position: TechnicianPosition;
+  /** The street they are on — the board looked it up with the roster. */
+  address?: string;
   name: string;
   /** The technician's jobs today, ordered by time slot. */
   jobs: Deal[];
@@ -141,16 +143,17 @@ export function TechSidebar({
   onClose: () => void;
   onSelectJob: (dealId: string) => void;
 }) {
-  // Only the selected technician is geocoded here — cheap, and cached by coords.
-  const address = useReverseGeocode([position]).get(position.userId);
   const availability = technicianAvailability(jobs, position);
   const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${position.lat},${position.lng}`;
 
-  // Local order for optimistic drag; resyncs whenever the server's job set changes.
+  // Local order for optimistic drag; resyncs whenever the server's job set
+  // changes — in the same render, not an effect's extra one after it.
   const [items, setItems] = useState<Deal[]>(jobs);
-  useEffect(() => {
+  const [itemsOf, setItemsOf] = useState<Deal[]>(jobs);
+  if (itemsOf !== jobs) {
+    setItemsOf(jobs);
     setItems(jobs);
-  }, [jobs]);
+  }
 
   const sensors = useSensors(
     // A small drag threshold keeps a plain click on the grip from starting a drag.
