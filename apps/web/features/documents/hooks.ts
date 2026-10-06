@@ -7,6 +7,7 @@ import type { BusinessProfile, BusinessProfileView, DocumentRenderContext, Docum
 import { sampleRenderContext } from "@bitcrm/document-renderer";
 import { queryKeys } from "@/lib/query-keys";
 import { getApiErrorMessage } from "@/lib/api/errors";
+import { settled } from "@/lib/use-page-ready";
 import * as api from "./api";
 import { isVersionConflict } from "./lib";
 import { useDefaultBusinessProfile } from "@/features/business-profiles/hooks";
@@ -174,6 +175,14 @@ export function useUploadAsset() {
 
 /** Resolves asset ids to (cached, presigned) URLs. Unresolved ids are omitted. */
 export function useAssetUrls(assetIds: string[]): Record<string, string> {
+  return useAssetUrlsState(assetIds).urls;
+}
+
+/**
+ * The same, and whether every one of them has answered (a failure counts) —
+ * for a page that shows its pictures with the rest rather than after it.
+ */
+export function useAssetUrlsState(assetIds: string[]): { urls: Record<string, string>; ready: boolean } {
   const idsKey = [...new Set(assetIds.filter(Boolean))].sort().join("\n");
   const ids = useMemo(() => (idsKey ? idsKey.split("\n") : []), [idsKey]);
   const results = useQueries({
@@ -188,14 +197,16 @@ export function useAssetUrls(assetIds: string[]): Record<string, string> {
   // A stable string of the resolved values keeps the returned map referentially
   // stable between renders (it feeds memoized block rendering).
   const key = results.map((r) => r.data ?? "").join("\n");
-  return useMemo(() => {
-    const urls = key.split("\n");
+  const ready = results.every(settled);
+  const urls = useMemo(() => {
+    const values = key.split("\n");
     const out: Record<string, string> = {};
     ids.forEach((id, i) => {
-      if (urls[i]) out[id] = urls[i];
+      if (values[i]) out[id] = values[i];
     });
     return out;
   }, [ids, key]);
+  return { urls, ready };
 }
 
 /* -------------------------------------------------------------- previews */

@@ -22,7 +22,9 @@ import { usePermissions } from "@/features/auth/use-permissions";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { queryKeys } from "@/lib/query-keys";
 import { getTemplate } from "../../api";
-import { useAssetUrls, useBusinessProfile, useDocumentTemplate, useSampleContext, useSaveTemplate } from "../../hooks";
+import { settled, usePageReady } from "@/lib/use-page-ready";
+import { useBusinessProfiles } from "@/features/business-profiles/hooks";
+import { useAssetUrlsState, useBusinessProfile, useDocumentTemplate, useSampleContext, useSaveTemplate } from "../../hooks";
 import { collectAssetIds, isVersionConflict, kindHasDefault } from "../../lib";
 import { templateNameSchema } from "../../schemas";
 import { selectIsDirty, useEditorStore } from "../store";
@@ -65,7 +67,9 @@ export function TemplateEditorPage({ templateId }: { templateId: string }) {
   const canEdit = can("document_templates", "edit");
   const isDesktop = useIsDesktop();
 
-  const query = useDocumentTemplate(templateId, canView, { fresh: true });
+  // Asked for at once, not after the permissions: a reader without access is
+  // refused once they are known, and everyone else is spared the wait.
+  const query = useDocumentTemplate(templateId, permsLoading || canView, { fresh: true });
   const loaded = useEditorStore((s) => s.templateId === templateId && !!s.draft);
   const kind = useEditorStore((s) => s.draft?.kind ?? "invoice");
   const mode = useEditorUi((s) => s.mode);
@@ -75,12 +79,12 @@ export function TemplateEditorPage({ templateId }: { templateId: string }) {
   const [errors, setErrors] = useState<string[] | null>(null);
 
   // Load once the fresh copy arrives (or the cached one if the refetch failed).
-  const ready = !!query.data && (query.isFetchedAfterMount || !query.isFetching);
+  const fresh = !!query.data && (query.isFetchedAfterMount || !query.isFetching);
   useEffect(() => {
-    if (ready && query.data && useEditorStore.getState().templateId !== templateId) {
+    if (fresh && query.data && useEditorStore.getState().templateId !== templateId) {
       useEditorStore.getState().load(query.data);
     }
-  }, [ready, query.data, templateId]);
+  }, [fresh, query.data, templateId]);
 
   useEffect(
     () => () => {
@@ -100,9 +104,18 @@ export function TemplateEditorPage({ templateId }: { templateId: string }) {
   }, []);
 
   const { data: profile } = useBusinessProfile();
-  const assetIdsKey = useEditorStore((s) => (s.draft ? collectAssetIds(s.draft.content).join("\n") : EMPTY_ASSETS));
-  const assets = useAssetUrls(assetIdsKey ? assetIdsKey.split("\n") : []);
-  const ctx = useSampleContext(kind, profile, assets);
+  const companies = useBusinessProfiles();
+  // The pictures the template holds are asked for with the template itself —
+  // off the fetched copy until the draft is loaded, off the draft after.
+  const draftAssetIds = useEditorStore((s) => (s.draft ? collectAssetIds(s.draft.content).join("\n") : null));
+  const assetIdsKey = draftAssetIds ?? (query.data ? collectAssetIds(query.data).join("\n") : EMPTY_ASSETS);
+  const assets = useAssetUrlsState(assetIdsKey ? assetIdsKey.split("\n") : []);
+  const ctx = useSampleContext(kind, profile, assets.urls);
+
+  // The editor stays behind its skeleton until what the paper prints is in:
+  // the company (its logo) and the pictures. They used to land after the
+  // editor was up and push the sections about.
+  const ready = usePageReady(loaded && settled(companies) && assets.ready);
 
   const doSave = useCallback(
     async (overwrite = false) => {
@@ -210,7 +223,7 @@ export function TemplateEditorPage({ templateId }: { templateId: string }) {
     );
   }
 
-  if (!loaded) {
+  if (!loaded || !ready) {
     return (
       <Shell>
         <div className="flex h-14 items-center gap-3 border-b px-3">
