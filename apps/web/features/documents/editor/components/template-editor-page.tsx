@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -23,6 +23,7 @@ import { getApiErrorMessage } from "@/lib/api/errors";
 import { queryKeys } from "@/lib/query-keys";
 import { getTemplate } from "../../api";
 import { settled, usePageReady } from "@/lib/use-page-ready";
+import { useImagesReady } from "@/lib/use-images-ready";
 import { useBusinessProfiles } from "@/features/business-profiles/hooks";
 import { useAssetUrlsState, useBusinessProfile, useDocumentTemplate, useSampleContext, useSaveTemplate } from "../../hooks";
 import { collectAssetIds, isVersionConflict, kindHasDefault } from "../../lib";
@@ -113,9 +114,16 @@ export function TemplateEditorPage({ templateId }: { templateId: string }) {
   const ctx = useSampleContext(kind, profile, assets.urls);
 
   // The editor stays behind its skeleton until what the paper prints is in:
-  // the company (its logo) and the pictures. They used to land after the
-  // editor was up and push the sections about.
-  const ready = usePageReady(loaded && settled(companies) && assets.ready);
+  // the company (its logo) and the pictures — their addresses, and then the
+  // pictures themselves, since an <img> sized by its own picture has no height
+  // until its bytes arrive. They used to land after the editor was up and
+  // push the sections about.
+  const pictures = useMemo(
+    () => [profile?.logoUrl, ...Object.values(assets.urls)].filter((u): u is string => !!u),
+    [profile?.logoUrl, assets.urls],
+  );
+  const picturesIn = useImagesReady(pictures);
+  const ready = usePageReady(loaded && settled(companies) && assets.ready && picturesIn);
 
   const doSave = useCallback(
     async (overwrite = false) => {
