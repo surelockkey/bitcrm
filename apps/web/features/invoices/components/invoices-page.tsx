@@ -32,6 +32,8 @@ import { cn } from "@/lib/utils";
 import { queryKeys } from "@/lib/query-keys";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
+import { settled, usePageReady } from "@/lib/use-page-ready";
+import { heldPager, useHeldView } from "@/features/billing/use-held-view";
 import { usePermissions, useDenied } from "@/features/auth/use-permissions";
 import { useContactsByIds } from "@/features/clients/hooks";
 import { contactName } from "@/features/clients/lib";
@@ -151,7 +153,7 @@ function needsColumns(canCreate: boolean): Col[] {
  * CSV. The Needs invoice tab keeps the bulk "Create invoices".
  */
 export function InvoicesPage() {
-  const { can } = usePermissions();
+  const { can, isLoading: permsLoading } = usePermissions();
   const denied = useDenied();
   const canView = can("invoices", "view");
   const [view, setView] = useState<View>("invoices");
@@ -161,25 +163,36 @@ export function InvoicesPage() {
   const search = useDebouncedValue(searchInput.trim(), 350);
   const [exporting, setExporting] = useState(false);
   const { from, to } = range.range;
-  const summary = useInvoiceReportSummary({ from, to }, canView && !range.error);
+  // `canView` still gates the queries — they must not fetch on a maybe. Until
+  // the permissions answer, a disabled query is not an empty answer: the cards
+  // would read "$0.00" and the list "No invoices match".
+  const enabled = canView && !range.error;
+  const summary = useInvoiceReportSummary({ from, to }, enabled);
+  // Another date window keeps the numbers on the cards until its own are in.
+  const cards = useHeldView(summary.data, [summary.data], !permsLoading && settled(summary));
 
-  // `canView` still gates the query — it must not fetch on a maybe.
-  // The refusal is the other way round: only once the answer is in.
-  if (denied("invoices", "view")) return <NoAccess what="invoices" />;
-
-  const s = summary.data;
-  const only = (key: InvoiceFilterKey) => {
-    setView("invoices");
-    setSelected([key]);
-  };
-  const toggle = (key: InvoiceFilterKey) =>
-    setSelected((cur) => (cur.includes(key) ? cur.filter((k) => k !== key) : [...cur, key]));
   const params: Omit<InvoiceReportParams, "cursor"> = {
     ...(from && { from }),
     ...(to && { to }),
     ...splitInvoiceFilters(selected),
     ...(search && { search }),
   };
+  const list = useInvoiceRows(params, enabled, !permsLoading);
+  // The cards, the view switch with its number, the rows and the clients
+  // beside them come up in one frame. The summary is the slowest answer, and
+  // "Needs invoice · 29" widened the switch and slid the dates beside it.
+  const ready = usePageReady(cards.shown && list.shown);
+
+  // The refusal is the other way round: only once the answer is in.
+  if (denied("invoices", "view")) return <NoAccess what="invoices" />;
+
+  const s = cards.view;
+  const only = (key: InvoiceFilterKey) => {
+    setView("invoices");
+    setSelected([key]);
+  };
+  const toggle = (key: InvoiceFilterKey) =>
+    setSelected((cur) => (cur.includes(key) ? cur.filter((k) => k !== key) : [...cur, key]));
   const runExport = async () => {
     setExporting(true);
     try {
@@ -198,7 +211,9 @@ export function InvoicesPage() {
     <div className="flex flex-1 flex-col">
       <div className="flex flex-wrap items-center gap-3 border-b px-6 py-3">
         <h1 className="text-lg font-semibold tracking-tight">Invoices</h1>
-        <div className="ml-auto flex flex-wrap items-center gap-3">
+        {/* Held invisible, at its height, until the page is up: the switch is
+            drawn with its number rather than widening beside the dates. */}
+        <div className={cn("ml-auto flex flex-wrap items-center gap-3", !ready && "invisible")}>
           <DateRangeControl presets={INVOICE_DATE_PRESETS} state={range} />
           <div role="tablist" aria-label="View" className="flex rounded-md border p-0.5">
             {(
@@ -231,76 +246,106 @@ export function InvoicesPage() {
             {range.error}
           </p>
         ) : null}
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
-          <ReportCard
-            value={money(s?.due.amount)}
-            caption={`Due from ${s?.due.count ?? 0} invoices`}
-            loading={summary.isLoading}
-            active={isOnly("status:due")}
-            onClick={() => only("status:due")}
-          />
-          <ReportCard
-            value={money(s?.overdue.amount)}
-            caption={`Overdue from ${s?.overdue.count ?? 0} invoices`}
-            border="border-l-red-600"
-            loading={summary.isLoading}
-            active={isOnly("status:overdue")}
-            onClick={() => only("status:overdue")}
-          />
-          <ReportCard
-            value={`${s?.unsent.count ?? 0} invoices`}
-            caption="Unsent"
-            border="border-l-sky-500"
-            loading={summary.isLoading}
-            active={isOnly("sent:unsent")}
-            onClick={() => only("sent:unsent")}
-          />
-          <ReportCard
-            value={`${s?.needInvoices.count ?? 0} jobs`}
-            caption="Need invoices"
-            border="border-l-amber-500"
-            loading={summary.isLoading}
-            active={view === "needs"}
-            onClick={() => setView("needs")}
-          />
-        </div>
-
-        {view === "invoices" ? (
+        {ready ? (
           <>
-            <div className="flex flex-wrap items-center gap-2">
-              <FilterResults groups={FILTER_GROUPS} selected={selected} onToggle={toggle} />
-              {selected.map((key) => (
-                <Badge key={key} variant="outline" className="gap-1 font-normal">
-                  {FILTER_LABELS.get(key) ?? key}
-                  <button type="button" aria-label={`Remove ${FILTER_LABELS.get(key) ?? key}`} onClick={() => toggle(key)}>
-                    <X className="size-3" />
-                  </button>
-                </Badge>
-              ))}
-              {selected.length ? (
-                <Button variant="ghost" size="sm" className="h-8" onClick={() => setSelected([])}>
-                  Clear
-                </Button>
-              ) : null}
-              <div className="relative w-full max-w-xs">
-                <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                <Input className="h-9 pl-8" placeholder="Search invoice # or name" aria-label="Search" value={searchInput} onChange={(e) => setSearchInput(e.target.value)} />
-              </div>
-              <span className="flex-1" />
-              <ExportButton busy={exporting} disabled={!!range.error} onClick={() => void runExport()} />
+            <div
+              className={cn("grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4", cards.held && "opacity-60")}
+              aria-busy={cards.held || undefined}
+            >
+              <ReportCard
+                value={money(s?.due.amount)}
+                caption={`Due from ${s?.due.count ?? 0} invoices`}
+                active={isOnly("status:due")}
+                onClick={() => only("status:due")}
+              />
+              <ReportCard
+                value={money(s?.overdue.amount)}
+                caption={`Overdue from ${s?.overdue.count ?? 0} invoices`}
+                border="border-l-red-600"
+                active={isOnly("status:overdue")}
+                onClick={() => only("status:overdue")}
+              />
+              <ReportCard
+                value={`${s?.unsent.count ?? 0} invoices`}
+                caption="Unsent"
+                border="border-l-sky-500"
+                active={isOnly("sent:unsent")}
+                onClick={() => only("sent:unsent")}
+              />
+              <ReportCard
+                value={`${s?.needInvoices.count ?? 0} jobs`}
+                caption="Need invoices"
+                border="border-l-amber-500"
+                active={view === "needs"}
+                onClick={() => setView("needs")}
+              />
             </div>
-            <InvoicesTable params={params} enabled={canView && !range.error} />
+            {view === "invoices" ? (
+              <>
+                <div className="flex flex-wrap items-center gap-2">
+                  <FilterResults groups={FILTER_GROUPS} selected={selected} onToggle={toggle} />
+                  {selected.map((key) => (
+                    <Badge key={key} variant="outline" className="gap-1 font-normal">
+                      {FILTER_LABELS.get(key) ?? key}
+                      <button type="button" aria-label={`Remove ${FILTER_LABELS.get(key) ?? key}`} onClick={() => toggle(key)}>
+                        <X className="size-3" />
+                      </button>
+                    </Badge>
+                  ))}
+                  {selected.length ? (
+                    <Button variant="ghost" size="sm" className="h-8" onClick={() => setSelected([])}>
+                      Clear
+                    </Button>
+                  ) : null}
+                  <div className="relative w-full max-w-xs">
+                    <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input className="h-9 pl-8" placeholder="Search invoice # or name" aria-label="Search" value={searchInput} onChange={(e) => setSearchInput(e.target.value)} />
+                  </div>
+                  <span className="flex-1" />
+                  <ExportButton busy={exporting} disabled={!!range.error} onClick={() => void runExport()} />
+                </div>
+                <InvoicesTable list={list} />
+              </>
+            ) : (
+              <NeedsInvoiceTable canCreate={can("invoices", "create")} />
+            )}
           </>
         ) : (
-          <NeedsInvoiceTable canCreate={can("invoices", "create")} />
+          <InvoicesSkeleton />
         )}
       </div>
     </div>
   );
 }
 
-function InvoicesTable({ params, enabled }: { params: Omit<InvoiceReportParams, "cursor">; enabled: boolean }) {
-  const router = useRouter();
+/** The page before its first frame: the four cards, the filters, the list. */
+function InvoicesSkeleton() {
+  return (
+    <div className="space-y-4" aria-busy="true" aria-label="Loading invoices">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        {[0, 1, 2, 3].map((i) => (
+          <Skeleton key={i} className="h-18 rounded-lg" />
+        ))}
+      </div>
+      <Skeleton className="h-9 w-full max-w-md" />
+      <Skeleton className="h-64 w-full" />
+    </div>
+  );
+}
+
+/** Rows have no identity of their own while there are none; one empty list keeps the held view still. */
+const NO_ROWS: InvoiceReportRow[] = [];
+
+/**
+ * The list as the reader sees it: a page of rows, the clients printed beside
+ * them (the name, and the email or phone under it) and the pager under them —
+ * complete, or the previous complete one while the next is on its way.
+ *
+ * The clients are a second round trip that cannot start until the rows say
+ * whose names to ask for; rows drawn before them grew a line when they
+ * landed and pushed every row under them.
+ */
+function useInvoiceRows(params: Omit<InvoiceReportParams, "cursor">, enabled: boolean, permsIn: boolean) {
   const [pageSize, setPageSize] = usePageSize("invoices");
   const q = useInvoiceReport({ ...params, limit: pageSize }, enabled);
   const count = useInvoiceReportCount(params, enabled);
@@ -310,17 +355,28 @@ function InvoicesTable({ params, enabled }: { params: Omit<InvoiceReportParams, 
     pageSize,
     resetKey: JSON.stringify({ params, pageSize }),
   });
-  const rows: InvoiceReportRow[] = pager.items;
-  const { map: contacts } = useContactsByIds(rows.map((r) => r.contactId));
+  const rows: InvoiceReportRow[] = pager.items.length ? pager.items : NO_ROWS;
+  const contacts = useContactsByIds(rows.map((r) => r.contactId));
+  const complete = permsIn && settled(q) && settled(count) && !contacts.isLoading;
+  const held = useHeldView(
+    { rows, contacts: contacts.map, pager, error: q.error },
+    [rows, contacts.map, pager.page, pager.total, q.error],
+    complete,
+  );
+  return { ...held, pageSize, setPageSize, retry: () => void q.refetch() };
+}
+
+function InvoicesTable({ list }: { list: ReturnType<typeof useInvoiceRows> }) {
+  const router = useRouter();
+  const { rows, contacts, pager, error } = list.view;
   // The reader's own widths for this list; the declarations only set the start.
   const { widthOf, setWidth, reset } = useColumnWidths("invoices", INVOICE_WIDTHS);
 
-  if (q.isLoading) return <Skeleton className="h-64 w-full" />;
-  if (q.isError) {
+  if (error) {
     return (
       <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
-        <p>{getApiErrorMessage(q.error, "Couldn't load invoices")}</p>
-        <Button variant="outline" size="sm" className="mt-3" onClick={() => q.refetch()}>Try again</Button>
+        <p>{getApiErrorMessage(error, "Couldn't load invoices")}</p>
+        <Button variant="outline" size="sm" className="mt-3" onClick={list.retry}>Try again</Button>
       </div>
     );
   }
@@ -336,7 +392,8 @@ function InvoicesTable({ params, enabled }: { params: Omit<InvoiceReportParams, 
   const open = (inv: InvoiceReportRow) => router.push(invoiceHref(inv));
 
   return (
-    <div className="space-y-3">
+    // The previous set, dimmed, while the next one is on its way.
+    <div className={cn("space-y-3", list.held && "opacity-60")} aria-busy={list.held || undefined}>
       <div className="overflow-x-auto border">
         <Table className="table-fixed">
           <colgroup>
@@ -425,7 +482,7 @@ function InvoicesTable({ params, enabled }: { params: Omit<InvoiceReportParams, 
           </TableBody>
         </Table>
       </div>
-      <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} />
+      <ListPagination pager={list.held ? heldPager(pager) : pager} size={list.pageSize} onSizeChange={list.setPageSize} />
     </div>
   );
 }
