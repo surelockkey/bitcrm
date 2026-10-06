@@ -188,10 +188,21 @@ export function DealsPage() {
   // all. A latch that survived a tab switch sent the page straight past the
   // skeleton into "No jobs", which then filled in a moment later — the empty
   // state is an answer, and it was the wrong one.
+  //
+  // The rows also wait for what they print beside them and above them: the
+  // job types (else the Job type column fills in a beat later), the names of
+  // an opted-in Dispatcher column, and the tab numbers — which come drawn with
+  // the tabs, in the same frame as the rows, because tabs drawn first slid
+  // across when their numbers arrived.
   const listKey = JSON.stringify(listParams);
   const [painted, setPainted] = useState<string | null>(null);
-  if (painted !== listKey && !dealsQuery.isLoading) setPainted(listKey);
+  const countsIn = countsQuery.data !== undefined || countsQuery.isError;
+  const jobTypesIn = jobTypesQuery.data !== undefined || jobTypesQuery.isError;
+  const namesIn = !(visibleFields.dispatcher && directoryLoading);
+  if (painted !== listKey && !dealsQuery.isLoading && countsIn && jobTypesIn && namesIn) setPainted(listKey);
   const firstPaintPending = painted !== listKey;
+  // Once drawn, the tabs stay: another tab or filter keeps them, numbers and all.
+  const tabsShown = painted !== null;
 
   if (denied("deals", "view")) return <NoAccess entity="deals" />;
 
@@ -250,7 +261,11 @@ export function DealsPage() {
       </div>
 
       {/* Status tabs */}
-      <div className="flex gap-1 overflow-x-auto border-b px-6" role="tablist" aria-label="Job status">
+      <div
+        className={cn("flex gap-1 overflow-x-auto border-b px-6", !tabsShown && "invisible")}
+        role="tablist"
+        aria-label="Job status"
+      >
         {JOB_TABS.map((t) => {
           const active = t === tab;
           return (
@@ -267,11 +282,7 @@ export function DealsPage() {
               )}
             >
               {jobTabLabel(t)}
-              {/*
-                The counts arrive after the tabs are painted. A chip that grows
-                from "…" to a number nudges every tab to its right, so it holds
-                room for a four-digit count from the first frame.
-              */}
+              {/* The tabs are drawn with their numbers, so a chip never grows under the reader. */}
               <span
                 className={cn(
                   "inline-flex min-w-7 justify-center rounded-chip px-1.5 py-0.5 text-[11px] font-semibold tabular-nums",

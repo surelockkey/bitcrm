@@ -28,6 +28,7 @@ import { usePermissions } from "@/features/auth/use-permissions";
 import { InboxNavBadge } from "@/features/messaging/components/inbox-nav-badge";
 import { Plus } from "lucide-react";
 import { Button } from "../ui/button";
+import { cn } from "@/lib/utils";
 
 function isActive(pathname: string, href: string): boolean {
   return href === "/" ? pathname === "/" : pathname.startsWith(href);
@@ -55,7 +56,7 @@ function NavLink({ item, pathname }: { item: NavItem; pathname: string }) {
 
 export function AppSidebar() {
   const pathname = usePathname();
-  const { can, isTechnician } = usePermissions();
+  const { can, isTechnician, isLoading: permsLoading } = usePermissions();
 
   return (
     <Sidebar collapsible="icon">
@@ -86,7 +87,11 @@ export function AppSidebar() {
             a margin that changed with the sidebar would make the line jump
             while the width animates. */}
         <div data-slot="brand-rule" className="-mx-2 border-b" />
-        {can("deals", "create") ? (
+        {permsLoading ? (
+          // The permissions land a beat after the shell paints. Hold the New
+          // Job row's room meanwhile, or its arrival pushes the menu down.
+          <div data-slot="new-job-held" aria-hidden className="h-9" />
+        ) : can("deals", "create") ? (
           // Workiz's: a yellow dot with a plus and a label on a plain white
           // row, which becomes a bordered oval under the cursor. The yellow
           // stays in the dot — the row itself carries none of it.
@@ -110,7 +115,9 @@ export function AppSidebar() {
         ) : null}
       </SidebarHeader>
 
-      <SidebarContent>
+      {/* Its items depend on the permissions too: out of sight until they are
+          known, so the menu is drawn once, where it stays. */}
+      <SidebarContent className={cn(permsLoading && "invisible")}>
         {isTechnician ? (
           <SidebarGroup>
             <SidebarMenu>

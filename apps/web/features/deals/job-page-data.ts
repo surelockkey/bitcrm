@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
 import type { CustomFieldValue, Deal } from "@bitcrm/types";
+import { settled, usePageReady } from "@/lib/use-page-ready";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { useContact } from "@/features/clients/hooks";
 import { useCustomFields } from "@/features/custom-fields/hooks";
@@ -14,16 +14,6 @@ import { useJobCode, useTelephonyConfig } from "@/features/telephony/config-hook
 import { useAttachments, useAttachmentUrls } from "./attachments-hooks";
 import { useDeal, useDealAssignments, useSuggestedTechs, useUserMap } from "./hooks";
 import { useJobPageCatalogs } from "./job-page-catalogs";
-
-/** A query is in once it answered, failed, or was never going to be asked. */
-interface QueryState {
-  data: unknown;
-  isError: boolean;
-  isPending: boolean;
-  fetchStatus: "fetching" | "paused" | "idle";
-}
-const settled = (q: QueryState) =>
-  q.data !== undefined || q.isError || (q.isPending && q.fetchStatus === "idle");
 
 const NO_IDS: string[] = [];
 
@@ -102,7 +92,5 @@ export function useJobPageData(dealId: string): { ready: boolean } {
 
   // Once shown, the page stays shown (the page is keyed by job, so the next
   // job starts behind the skeleton again).
-  const [shown, setShown] = useState(false);
-  if (allIn && !shown) setShown(true);
-  return { ready: shown || allIn };
+  return { ready: usePageReady(allIn) };
 }
