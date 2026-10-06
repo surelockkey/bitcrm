@@ -15,6 +15,7 @@ import {
 import { DataScope, InventoryStatus } from "@bitcrm/types";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
+import { settled, usePageReady } from "@/lib/use-page-ready";
 import { useAllLocations } from "@/features/inventory/stock/hooks";
 import { LocationStockDialog } from "@/features/inventory/stock/components/location-stock-dialog";
 import { ContainerTemplateBar } from "@/features/inventory/templates/components/container-template-bar";
@@ -33,7 +34,6 @@ import { ContainerCreateDialog } from "./container-create-dialog";
 import { ContainerEditDialog } from "./container-edit-dialog";
 import { MyContainerView } from "./my-container-view";
 import { ListPagination } from "@/components/ui/list-pagination";
-import { arraySource } from "@/lib/paging/array-source";
 import { pagedSource } from "@/lib/paging/paged-source";
 import { usePageSize } from "@/lib/paging/use-page-size";
 import { usePager } from "@/lib/paging/use-pager";
@@ -112,15 +112,6 @@ function Fleet() {
     resetKey: JSON.stringify({ filter, pageSize }),
   });
   const containers = pager.items;
-  // Nothing on screen yet: the table draws itself, a page of skeleton rows tall.
-  const loading = query.isLoading && !query.data;
-  const empty = !loading && containers.length === 0;
-  const skeletonRows = useSkeletonRows(
-    TABLE_KEY,
-    pageSize,
-    count.data?.total,
-    loading || pager.isStale ? undefined : containers.length,
-  );
 
   // Departments are free text on the van; the whole fleet names them, not one page.
   const locations = useAllLocations();
@@ -140,13 +131,27 @@ function Fleet() {
   // directory where the backfill left only an id.
   const assignments = useUserContainers();
   const unnamed = useMemo(() => unnamedUserIds(assignments.data ?? []), [assignments.data]);
-  const { names } = useUserNames(unnamed);
+  const { names, isLoading: namesLoading } = useUserNames(unnamed);
   const users = useMemo(() => {
     const rows = assignments.data ?? [];
     const byVan = containerUserNames(rows, names);
     const byUser = new Map(rows.map((r) => [r.userId, r] as const));
     return new Map(containers.map((c) => [c.id, usersOfContainer(c, byVan, byUser)] as const));
   }, [assignments.data, names, containers]);
+
+  // One skeleton, then the fleet whole: the rows wait for the count (the
+  // pager's "of N") and for who works from each van — named a beat after the
+  // rows, the Users column read "+1" and then changed. Latched: a new filter
+  // keeps the rows on screen, dimmed, not a skeleton.
+  const ready = usePageReady(settled(query) && settled(count) && settled(assignments) && !namesLoading);
+  const loading = !ready;
+  const empty = !loading && containers.length === 0;
+  const skeletonRows = useSkeletonRows(
+    TABLE_KEY,
+    pageSize,
+    count.data?.total,
+    loading || pager.isStale ? undefined : containers.length,
+  );
 
   return (
     <div className="flex flex-1 flex-col">
@@ -168,8 +173,10 @@ function Fleet() {
           holdKey={JSON.stringify(filter)}
           scrollKey={`${pager.page}:${pageSize}`}
           pager={
-            empty ? null : (
-              <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} reserveSpace />
+            // Drawn with the rows, never under the skeleton, where the rows
+            // would move it when they land.
+            loading || empty ? null : (
+              <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} />
             )
           }
         >
@@ -330,12 +337,12 @@ const noop = () => {};
 
 /**
  * The fleet as it will look, before anything is known: the toolbar and a
- * page of skeleton rows. It reads nothing — not the list, not "my van".
+ * page of skeleton rows — and no pager, which the rows would move. It reads
+ * nothing — not the list, not "my van".
  */
 function FleetFrame() {
-  const [pageSize, setPageSize] = usePageSize(TABLE_KEY);
+  const [pageSize] = usePageSize(TABLE_KEY);
   const skeletonRows = useSkeletonRows(TABLE_KEY, pageSize, undefined, undefined);
-  const pager = usePager(arraySource<never>([], pageSize, true), {});
   return (
     <div className="flex flex-1 flex-col">
       <FleetToolbar
@@ -360,7 +367,6 @@ function FleetFrame() {
           onEdit={noop}
           onStock={noop}
         />
-        <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} reserveSpace />
       </div>
     </div>
   );

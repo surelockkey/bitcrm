@@ -39,6 +39,7 @@ export function TemplatesTable({
   onApply,
   loading = false,
   skeletonRows = 0,
+  stale = false,
 }: {
   templates: ContainerTemplate[];
   /** Template id → how many vans name it. */
@@ -50,9 +51,17 @@ export function TemplatesTable({
   /** First load: the same table, a page of skeleton rows. */
   loading?: boolean;
   skeletonRows?: number;
+  /** Another status's rows, held (dimmed) while its own load. */
+  stale?: boolean;
 }) {
   return (
-    <InventoryTable tableKey={TEMPLATES_TABLE_KEY} columns={TEMPLATE_COLUMNS} loading={loading} skeletonRows={skeletonRows}>
+    <InventoryTable
+      tableKey={TEMPLATES_TABLE_KEY}
+      columns={TEMPLATE_COLUMNS}
+      loading={loading}
+      skeletonRows={skeletonRows}
+      stale={stale}
+    >
       {templates.map((t) => {
         const archived = t.status === InventoryStatus.ARCHIVED;
         return (

@@ -252,7 +252,7 @@ describe("TransfersPage — nothing jumps", () => {
     expect(area).not.toContainElement(screen.getByTestId("list-pagination"));
   });
 
-  it("draws the real table while the first page loads, with the pager's space held", () => {
+  it("draws the real table while the first page loads, and no pager for the rows to move", () => {
     mocks.list = { isLoading: true, isPlaceholderData: false, noData: true };
     render(<TransfersPage />);
 
@@ -264,7 +264,7 @@ describe("TransfersPage — nothing jumps", () => {
       "When",
     ]);
     expect(screen.getAllByTestId("skeleton-row").length).toBeGreaterThan(0);
-    expect(screen.getByTestId("list-pagination")).toHaveAttribute("aria-busy", "true");
+    expect(screen.queryByTestId("list-pagination")).toBeNull();
   });
 
   it("keeps the rows on screen, dimmed, while another type loads", () => {
@@ -289,12 +289,13 @@ describe("TransfersPage — nothing jumps", () => {
 
   // Every route used to read "Warehouse → Container" and then change its
   // text once the fleet arrived.
-  it("lets a route's location names wait for the names, instead of printing a placeholder word", () => {
+  // Drawn before the names, every route showed grey bars (or the word
+  // "Warehouse") and changed a beat later: the rows wait for the names.
+  it("waits for the location names before it draws a route", () => {
     mocks.namesLoading = true;
     render(<TransfersPage />);
-    const route = document.querySelectorAll("tbody td")[1] as HTMLElement;
-    expect(route).not.toHaveTextContent("Warehouse");
-    expect(route).not.toHaveTextContent("Container");
-    expect(route.querySelectorAll("[data-testid=route-name-pending]")).toHaveLength(2);
+    expect(screen.queryByTestId("route-name-pending")).toBeNull();
+    expect(document.querySelector("tbody")).not.toHaveTextContent("Warehouse");
+    expect(screen.getAllByTestId("skeleton-row").length).toBeGreaterThan(0);
   });
 });

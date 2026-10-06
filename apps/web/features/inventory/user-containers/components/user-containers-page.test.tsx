@@ -227,12 +227,12 @@ describe("UserContainersPage — access", () => {
  * page on screen while the directory downloads.
  */
 describe("UserContainersPage — a stable first frame", () => {
-  it("draws the real table while the first page loads, with the pager's space held", () => {
+  it("draws the real table while the first page loads, and no pager for the rows to move", () => {
     mocks.usersLoading = true;
     renderWithClient(<UserContainersPage />);
     expect([...document.querySelectorAll("thead th")].map((th) => th.textContent)).toContain("Container");
     expect(screen.getAllByTestId("skeleton-row").length).toBeGreaterThan(0);
-    expect(screen.getByTestId("list-pagination")).toHaveAttribute("aria-busy", "true");
+    expect(screen.queryByTestId("list-pagination")).toBeNull();
   });
 
   it("waits for the assignments before it draws a row — no Not set that turns into a van", () => {
@@ -242,13 +242,15 @@ describe("UserContainersPage — a stable first frame", () => {
     expect(screen.getAllByTestId("skeleton-row").length).toBeGreaterThan(0);
   });
 
-  it("lets a user without a row wait for the fleet, rather than reading Not set first", () => {
+  // A user without a row of their own may work from a legacy van the fleet
+  // names: the table waits for the fleet, rather than drawing grey bars (or
+  // "Not set") in that row and changing them a beat later.
+  it("waits for the fleet before it draws a row — no grey bars that turn into a van", () => {
     mocks.locationsLoading = true;
     renderWithClient(<UserContainersPage />);
-    // Taras has his row: named at once. Olha has none: her van may be a legacy one.
-    expect(rowOf("Taras Koval")).toHaveTextContent("Van 1");
-    expect(rowOf("Olha Melnyk")).not.toHaveTextContent("Not set");
-    expect(rowOf("Olha Melnyk").querySelector("[data-testid=assignment-pending]")).not.toBeNull();
+    expect(screen.queryByText("Olha Melnyk")).toBeNull();
+    expect(screen.queryByTestId("assignment-pending")).toBeNull();
+    expect(screen.getAllByTestId("skeleton-row").length).toBeGreaterThan(0);
   });
 
   it("keeps the page on screen, dimmed, while a search downloads the directory", async () => {

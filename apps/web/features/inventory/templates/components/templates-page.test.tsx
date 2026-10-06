@@ -185,12 +185,12 @@ describe("TemplatesPage — old links with a popup in the query", () => {
 });
 
 describe("TemplatesPage — nothing jumps, and it pages", () => {
-  it("draws the real table while the templates load, with the pager's space held", () => {
+  it("draws the real table while the templates load, and no pager for the rows to move", () => {
     mocks.templatesLoading = true;
     renderWithClient(<TemplatesPage />);
     expect([...document.querySelectorAll("thead th")].map((th) => th.textContent)).toContain("Used by");
     expect(screen.getAllByTestId("skeleton-row").length).toBeGreaterThan(0);
-    expect(screen.getByTestId("list-pagination")).toHaveAttribute("aria-busy", "true");
+    expect(screen.queryByTestId("list-pagination")).toBeNull();
   });
 
   it("never flashes No access while permissions are still loading", () => {
@@ -200,14 +200,22 @@ describe("TemplatesPage — nothing jumps, and it pages", () => {
     expect(screen.getByRole("button", { name: "New template" })).toBeDisabled();
   });
 
-  // "Used by" counted 0 until the whole fleet arrived, then changed.
-  it("lets Used by wait for the fleet instead of printing a 0 that changes", () => {
+  // "Used by" counted 0 until the whole fleet arrived, then changed; then it
+  // drew grey bars, then the numbers. The rows wait for the fleet instead.
+  it("waits for the fleet before it draws a row — Used by never changes under the reader", () => {
     mocks.locationsLoading = true;
     renderWithClient(<TemplatesPage />);
-    const row = screen.getByText("Standard van").closest("tr") as HTMLElement;
-    const cell = row.querySelectorAll("td")[4];
-    expect(cell).not.toHaveTextContent("0");
-    expect(cell.querySelector("[data-testid=used-by-pending]")).not.toBeNull();
+    expect(screen.queryByText("Standard van")).toBeNull();
+    expect(screen.queryByTestId("used-by-pending")).toBeNull();
+    expect(screen.getAllByTestId("skeleton-row").length).toBeGreaterThan(0);
+  });
+
+  // The row's menu depends on the permissions: drawn before them, it popped in.
+  it("waits for the permissions before it draws a row", () => {
+    mocks.permsLoading = true;
+    renderWithClient(<TemplatesPage />);
+    expect(screen.queryByText("Standard van")).toBeNull();
+    expect(screen.getAllByTestId("skeleton-row").length).toBeGreaterThan(0);
   });
 
   it("pages a long list instead of drawing it whole", () => {

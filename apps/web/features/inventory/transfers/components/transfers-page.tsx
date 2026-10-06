@@ -19,6 +19,7 @@ import { ListPagination } from "@/components/ui/list-pagination";
 import { pagedSource } from "@/lib/paging/paged-source";
 import { usePageSize } from "@/lib/paging/use-page-size";
 import { usePager } from "@/lib/paging/use-pager";
+import { settled, usePageReady } from "@/lib/use-page-ready";
 
 /** Workiz's type chips. The server filters by them, the count included. */
 const TYPE_CHIPS: { value: TransferType | "all"; label: string }[] = [
@@ -52,8 +53,12 @@ export function TransfersPage() {
     resetKey: JSON.stringify({ filter, pageSize }),
   });
   const transfers = pager.items;
-  // Nothing on screen yet: the table draws itself, a page of skeleton rows tall.
-  const loading = query.isLoading && !query.data;
+  // One skeleton, then the journal whole: the rows wait for the count (the
+  // pager's "of N") and for the names of the warehouses and vans their
+  // routes run between — drawn first, every route showed grey bars, then
+  // names. Latched: another type keeps the rows on screen, dimmed.
+  const ready = usePageReady(settled(query) && settled(count) && !names.isLoading);
+  const loading = !ready;
   const failed = query.isError && !query.data;
   const empty = !failed && !loading && transfers.length === 0;
   const skeletonRows = useSkeletonRows(
@@ -117,8 +122,10 @@ export function TransfersPage() {
           holdKey={JSON.stringify(filter)}
           scrollKey={`${pager.page}:${pageSize}`}
           pager={
-            failed || empty ? null : (
-              <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} reserveSpace />
+            // Drawn with the rows, never under the skeleton, where the rows
+            // would move it when they land.
+            loading || failed || empty ? null : (
+              <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} />
             )
           }
         >

@@ -16,6 +16,9 @@ export function useContainerTemplates(status: InventoryStatus = InventoryStatus.
     queryFn: () => api.listContainerTemplates(status),
     enabled,
     staleTime: 30_000,
+    // Another status asked for: the list on screen stays (dimmed) until the
+    // next one lands — not table → skeleton → table.
+    placeholderData: keepPreviousData,
   });
 }
 
