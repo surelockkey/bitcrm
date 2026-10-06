@@ -80,12 +80,19 @@ export function InboxCategories({
   onStateChange,
   collapsed,
   onToggleCollapsed,
+  countsShown = true,
   className,
 }: {
   state: ListState;
   onStateChange: (next: ListState) => void;
   collapsed: boolean;
   onToggleCollapsed: () => void;
+  /**
+   * Whether the numbers and the unread dots may be drawn. The inbox holds
+   * them until the rows are in too, so all of it lands in one frame — a
+   * number arriving on its own pushed its dot aside. Their room stays held.
+   */
+  countsShown?: boolean;
   className?: string;
 }) {
   const { data: counters } = useInboxCounters();
@@ -146,7 +153,7 @@ export function InboxCategories({
                     className={cn(railButton, selected && "bg-muted text-foreground")}
                   >
                     <Icon className="size-5" />
-                    {count.unread ? (
+                    {count.unread && countsShown ? (
                       <span
                         data-testid="unread-dot"
                         aria-hidden
@@ -203,7 +210,10 @@ export function InboxCategories({
                   )}
                 >
                   <span>{cat.label}</span>
-                  <span className="flex items-center gap-1.5 tabular-nums" data-testid={`category-count-${cat.value}`}>
+                  <span
+                    className={cn("flex items-center gap-1.5 tabular-nums", !countsShown && "invisible")}
+                    data-testid={`category-count-${cat.value}`}
+                  >
                     {count.unread ? (
                       <span data-testid="unread-dot" aria-hidden className="size-1.5 rounded-full bg-destructive" />
                     ) : null}

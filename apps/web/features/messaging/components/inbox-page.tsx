@@ -5,9 +5,16 @@ import { useSearchParams } from "next/navigation";
 import type { ConversationKind } from "@bitcrm/types";
 import { CONVERSATION_KINDS } from "@bitcrm/types";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { settled, usePageReady } from "@/lib/use-page-ready";
 import { cn } from "@/lib/utils";
 import { INBOX_VIEWS, type InboxView } from "../api";
-import { useConversation, useMessagingAccess, usePartyNames } from "../hooks";
+import {
+  useConversation,
+  useConversations,
+  useInboxCounters,
+  useMessagingAccess,
+  usePartyNames,
+} from "../hooks";
 import { useInboxNavigate } from "../inbox-url";
 import { conversationTitle, type ListState } from "../lib";
 import { ConversationList } from "./conversation-list";
@@ -50,6 +57,18 @@ export function InboxPage() {
     if (next.view !== view || next.kind !== kind) navigate({ view: next.view, kind: next.kind });
   };
 
+  // The category numbers and the rows come from two requests that answer on
+  // their own beats, and each number pushed its unread dot aside when it
+  // landed. Both are asked for here (the same queries the columns read), and
+  // the numbers, the dots and the rows are drawn in one frame: the numbers
+  // once and kept, the rows again for each category, like any new list.
+  const counters = useInboxCounters();
+  const listFilter = useMemo(() => ({ view, kind: view === "all" ? kind : undefined }), [view, kind]);
+  const list = useConversations(listFilter);
+  const inboxIn = !isLoading && settled(counters) && settled(list);
+  const countsShown = usePageReady(inboxIn);
+  const rowsShown = usePageReady(inboxIn, JSON.stringify(listFilter));
+
   const { data: selected } = useConversation(selectedId);
   const names = usePartyNames(selected ? [selected] : []);
   const title = selected ? conversationTitle(selected, names) : "";
@@ -71,6 +90,7 @@ export function InboxPage() {
         onStateChange={onListState}
         collapsed={collapsed}
         onToggleCollapsed={toggleCollapsed}
+        countsShown={countsShown}
         className="max-md:hidden"
       />
 
@@ -85,6 +105,7 @@ export function InboxPage() {
           selectedId={selectedId}
           onSelect={(id) => navigate({ c: id })}
           onNewConversation={() => setComposingNew(true)}
+          rowsShown={rowsShown}
           className="w-full"
         />
       </aside>

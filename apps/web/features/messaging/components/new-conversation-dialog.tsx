@@ -44,6 +44,28 @@ export function NewConversationDialog({
   /** Text the composer opens with — a message being forwarded. */
   initialBody?: string;
 }) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="gap-0 p-0 sm:max-w-lg">
+        {/* The body — and all it reads — exists only while the dialog is
+            open. Mounted with the inbox, it read every company in the account,
+            page after page, on each visit, for a search nobody had opened.
+            Closing it also forgets the half-typed search on its own. */}
+        <NewConversationBody onClose={() => onOpenChange(false)} onCreated={onCreated} initialBody={initialBody} />
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function NewConversationBody({
+  onClose,
+  onCreated,
+  initialBody,
+}: {
+  onClose: () => void;
+  onCreated: (conversationId: string) => void;
+  initialBody?: string;
+}) {
   const { can } = usePermissions();
   const [query, setQuery] = useState("");
   const [target, setTarget] = useState<Target | null>(null);
@@ -64,121 +86,111 @@ export function NewConversationDialog({
   }, [contacts, debounced, companyNames, can]);
   const typedPhone = normalizePhone(debounced);
 
-  const close = (next: boolean) => {
-    onOpenChange(next);
-    if (!next) {
-      setQuery("");
-      setTarget(null);
-    }
-  };
-
   const sendFirst = async (body: SendMessageBody) => {
     if (!target) return;
     const message = await send.mutateAsync(
       target.kind === "contact" ? { ...body, contactId: target.contact.id } : { ...body, phone: target.phone },
     );
-    close(false);
+    onClose();
     onCreated(message.conversationId);
   };
 
   return (
-    <Dialog open={open} onOpenChange={close}>
-      <DialogContent className="gap-0 p-0 sm:max-w-lg">
-        <DialogHeader className="border-b px-4 py-3">
-          <DialogTitle className="flex items-center gap-2 text-base">
-            {target ? (
-              <Button variant="ghost" size="icon-sm" onClick={() => setTarget(null)} aria-label="Pick someone else">
-                <ChevronLeft className="size-4" />
-              </Button>
-            ) : (
-              <MessageSquarePlus className="size-4 text-muted-foreground" />
-            )}
-            {target
-              ? target.kind === "contact"
-                ? `Text ${contactName(target.contact)}`
-                : `Text ${formatPhone(target.phone)}`
-              : "New message"}
-          </DialogTitle>
-          <DialogDescription>
-            {target
-              ? target.kind === "contact"
-                ? formatPhone(target.contact.phones[0] ?? "") || "No number on file — the send will be refused."
-                : "Nobody in CRM has this number; the thread opens as Unknown."
-              : "Find a client, or type a number."}
-          </DialogDescription>
-        </DialogHeader>
+    <>
+      <DialogHeader className="border-b px-4 py-3">
+        <DialogTitle className="flex items-center gap-2 text-base">
+          {target ? (
+            <Button variant="ghost" size="icon-sm" onClick={() => setTarget(null)} aria-label="Pick someone else">
+              <ChevronLeft className="size-4" />
+            </Button>
+          ) : (
+            <MessageSquarePlus className="size-4 text-muted-foreground" />
+          )}
+          {target
+            ? target.kind === "contact"
+              ? `Text ${contactName(target.contact)}`
+              : `Text ${formatPhone(target.phone)}`
+            : "New message"}
+        </DialogTitle>
+        <DialogDescription>
+          {target
+            ? target.kind === "contact"
+              ? formatPhone(target.contact.phones[0] ?? "") || "No number on file — the send will be refused."
+              : "Nobody in CRM has this number; the thread opens as Unknown."
+            : "Find a client, or type a number."}
+        </DialogDescription>
+      </DialogHeader>
 
-        {target ? (
-          <Composer
-            contactId={target.kind === "contact" ? target.contact.id : undefined}
-            onSend={sendFirst}
-            autoFocus
-            initialText={initialBody}
-            placeholder="Type your message here..."
-          />
-        ) : (
-          <div className="p-3">
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                autoFocus
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Name, phone or email…"
-                aria-label="Find a client"
-                className="h-9 pl-8"
-              />
-            </div>
-            <ul className="mt-2 max-h-72 divide-y overflow-y-auto rounded-lg border" aria-label="Matches">
-              {hits.map((c) => (
-                <li key={c.id}>
-                  <button
-                    type="button"
-                    onClick={() => setTarget({ kind: "contact", contact: c })}
-                    className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-accent"
-                  >
-                    <span className="grid size-8 place-items-center rounded-full bg-muted text-muted-foreground">
-                      <UserRound className="size-4" />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-medium">{contactName(c)}</span>
-                      <span className="block truncate text-xs text-muted-foreground">
-                        {[c.phones[0] ? formatPhone(c.phones[0]) : c.phonesMasked ? "number hidden" : undefined, c.emails[0], c.companyId ? companyNames.get(c.companyId) : undefined]
-                          .filter(Boolean)
-                          .join(" · ")}
-                      </span>
-                    </span>
-                  </button>
-                </li>
-              ))}
-              {typedPhone && !hits.some((c) => c.phones.includes(typedPhone)) ? (
-                <li>
-                  <button
-                    type="button"
-                    onClick={() => setTarget({ kind: "phone", phone: typedPhone })}
-                    className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-accent"
-                  >
-                    <span className="grid size-8 place-items-center rounded-full bg-muted text-muted-foreground">
-                      <Phone className="size-4" />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-medium">Text {formatPhone(typedPhone)}</span>
-                      <span className="block truncate text-xs text-muted-foreground">Not a client yet</span>
-                    </span>
-                  </button>
-                </li>
-              ) : null}
-              {hits.length === 0 && !typedPhone ? (
-                <li className="px-3 py-6 text-center text-xs text-muted-foreground">
-                  {debounced.trim().length < MIN_QUERY
-                    ? "Start typing a name, a number or an email."
-                    : "No client matches. A full phone number can be texted directly."}
-                </li>
-              ) : null}
-            </ul>
+      {target ? (
+        <Composer
+          contactId={target.kind === "contact" ? target.contact.id : undefined}
+          onSend={sendFirst}
+          autoFocus
+          initialText={initialBody}
+          placeholder="Type your message here..."
+        />
+      ) : (
+        <div className="p-3">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              autoFocus
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Name, phone or email…"
+              aria-label="Find a client"
+              className="h-9 pl-8"
+            />
           </div>
-        )}
-      </DialogContent>
-    </Dialog>
+          <ul className="mt-2 max-h-72 divide-y overflow-y-auto rounded-lg border" aria-label="Matches">
+            {hits.map((c) => (
+              <li key={c.id}>
+                <button
+                  type="button"
+                  onClick={() => setTarget({ kind: "contact", contact: c })}
+                  className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-accent"
+                >
+                  <span className="grid size-8 place-items-center rounded-full bg-muted text-muted-foreground">
+                    <UserRound className="size-4" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium">{contactName(c)}</span>
+                    <span className="block truncate text-xs text-muted-foreground">
+                      {[c.phones[0] ? formatPhone(c.phones[0]) : c.phonesMasked ? "number hidden" : undefined, c.emails[0], c.companyId ? companyNames.get(c.companyId) : undefined]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </span>
+                  </span>
+                </button>
+              </li>
+            ))}
+            {typedPhone && !hits.some((c) => c.phones.includes(typedPhone)) ? (
+              <li>
+                <button
+                  type="button"
+                  onClick={() => setTarget({ kind: "phone", phone: typedPhone })}
+                  className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-accent"
+                >
+                  <span className="grid size-8 place-items-center rounded-full bg-muted text-muted-foreground">
+                    <Phone className="size-4" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium">Text {formatPhone(typedPhone)}</span>
+                    <span className="block truncate text-xs text-muted-foreground">Not a client yet</span>
+                  </span>
+                </button>
+              </li>
+            ) : null}
+            {hits.length === 0 && !typedPhone ? (
+              <li className="px-3 py-6 text-center text-xs text-muted-foreground">
+                {debounced.trim().length < MIN_QUERY
+                  ? "Start typing a name, a number or an email."
+                  : "No client matches. A full phone number can be texted directly."}
+              </li>
+            ) : null}
+          </ul>
+        </div>
+      )}
+    </>
   );
 }
