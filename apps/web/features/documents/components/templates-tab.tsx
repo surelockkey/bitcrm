@@ -18,17 +18,29 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { useJobTypes } from "@/features/job-types/hooks";
 import { useServiceAreas } from "@/features/service-areas/hooks";
-import { useDeleteTemplate, useDocumentTemplates, useDuplicateTemplate, useSetDefaultTemplate } from "../hooks";
+import { settled, usePageReady } from "@/lib/use-page-ready";
+import {
+  useAssetUrlsState,
+  useDeleteTemplate,
+  useDocumentTemplates,
+  useDocumentTemplatesInFull,
+  useDuplicateTemplate,
+  useSetDefaultTemplate,
+} from "../hooks";
 import { useBusinessProfiles } from "@/features/business-profiles/hooks";
-import { KIND_LABELS, autoApplySummary, groupTemplatesByKind } from "../lib";
+import { KIND_LABELS, autoApplySummary, collectAssetIds, groupTemplatesByKind } from "../lib";
 import { NewTemplateDialog } from "./new-template-dialog";
 import { TemplateCard } from "./template-card";
 
-export function TemplatesTab({ canEdit }: { canEdit: boolean }) {
-  const { data, isLoading, isError, error, refetch } = useDocumentTemplates();
-  const { data: jobTypes } = useJobTypes();
-  const { data: serviceAreas } = useServiceAreas();
-  const { data: companies } = useBusinessProfiles();
+export function TemplatesTab({ canEdit, permsLoading = false }: { canEdit: boolean; permsLoading?: boolean }) {
+  const listQuery = useDocumentTemplates();
+  const { data, isError, error, refetch } = listQuery;
+  const jobTypesQuery = useJobTypes();
+  const serviceAreasQuery = useServiceAreas();
+  const companiesQuery = useBusinessProfiles();
+  const jobTypes = jobTypesQuery.data;
+  const serviceAreas = serviceAreasQuery.data;
+  const companies = companiesQuery.data;
   const duplicate = useDuplicateTemplate();
   const setDefault = useSetDefaultTemplate();
   const del = useDeleteTemplate();
@@ -37,6 +49,22 @@ export function TemplatesTab({ canEdit }: { canEdit: boolean }) {
   const [deleting, setDeleting] = useState<DocumentTemplateSummary | null>(null);
 
   const templates = useMemo(() => data ?? [], [data]);
+
+  // What every card draws, asked for with the list: its template in full (for
+  // the page in it) and the pictures that page holds. Each card used to ask
+  // for its own once it was on screen, and its page filled in after the card.
+  const details = useDocumentTemplatesInFull(templates.map((t) => t.id));
+  const assetIds = details.flatMap((d) => collectAssetIds(d.data));
+  const assets = useAssetUrlsState(assetIds);
+
+  // One skeleton until the cards can come whole: the button that needs the
+  // permissions, the pages, and the job types, areas and companies the
+  // "Auto-applies to …" lines name.
+  const ready = usePageReady(
+    !permsLoading &&
+      [listQuery, jobTypesQuery, serviceAreasQuery, companiesQuery, ...details].every(settled) &&
+      assets.ready,
+  );
   const groups = useMemo(() => groupTemplatesByKind(templates), [templates]);
   const names = useMemo(
     () => ({
@@ -50,7 +78,7 @@ export function TemplatesTab({ canEdit }: { canEdit: boolean }) {
   const onDuplicate = useCallback((t: DocumentTemplateSummary) => duplicate.mutate(t.id), [duplicate]);
   const onSetDefault = useCallback((t: DocumentTemplateSummary) => setDefault.mutate(t.id), [setDefault]);
 
-  if (isLoading) {
+  if (!ready) {
     return (
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {Array.from({ length: 4 }, (_, i) => (

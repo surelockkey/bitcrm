@@ -80,6 +80,22 @@ export function useDocumentTemplate(id: string, enabled = true, opts: { fresh?: 
   });
 }
 
+/**
+ * Several templates in full, under the same keys and terms as
+ * `useDocumentTemplate` — so a card that reads its own template a moment
+ * later finds it and asks for nothing.
+ */
+export function useDocumentTemplatesInFull(ids: string[]) {
+  return useQueries({
+    queries: ids.map((id) => ({
+      queryKey: queryKeys.documentTemplates.detail(id),
+      queryFn: () => api.getTemplate(id),
+      staleTime: Infinity,
+      refetchOnWindowFocus: false,
+    })),
+  });
+}
+
 function useInvalidateTemplates() {
   const qc = useQueryClient();
   return () => qc.invalidateQueries({ queryKey: queryKeys.documentTemplates.list() });

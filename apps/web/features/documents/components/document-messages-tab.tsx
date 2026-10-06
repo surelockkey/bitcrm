@@ -29,13 +29,15 @@ type MessageKey = (typeof KINDS)[number]["subject"] | (typeof KINDS)[number]["me
  * "Edit template"): the subject and message the Send panel starts from, per
  * document, with short codes. Every message must keep the portal link.
  */
-export function DocumentMessagesTab({ canEdit }: { canEdit: boolean }) {
+export function DocumentMessagesTab({ canEdit, permsLoading = false }: { canEdit: boolean; permsLoading?: boolean }) {
   const { data, isLoading } = useDocumentSettings();
   const save = useUpdateDocumentSettings();
   const [draft, setDraft] = useState<Partial<Record<MessageKey, string>>>({});
   const settings: DocumentSettings = { ...DEFAULT_DOCUMENT_SETTINGS, ...(data ?? {}) };
 
-  if (isLoading) return <Skeleton className="h-96 w-full max-w-2xl" />;
+  // Until the permissions are in too: the form came up read-only and grew
+  // its Save button a beat later.
+  if (isLoading || permsLoading) return <Skeleton className="h-96 w-full max-w-2xl" />;
 
   const valueOf = (k: MessageKey) => draft[k] ?? settings[k];
   const missingLink = KINDS.filter((k) => !valueOf(k.message).includes(PORTAL_LINK_SHORT_CODE)).map((k) => k.label);
