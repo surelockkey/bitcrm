@@ -172,13 +172,15 @@ describe("WarehousesPage — popups are state, not the URL", () => {
 describe("WarehousesPage — a stable first frame", () => {
   const headers = () => [...document.querySelectorAll("thead th")].map((th) => th.textContent);
 
-  it("draws the real table while the first page loads, with the pager's space held", () => {
+  // Under a page of skeleton rows the pager sat below the fold, and three
+  // warehouses pulled it up the screen: it comes with the rows instead.
+  it("draws the real table while the first page loads, and no pager for the rows to move", () => {
     mocks.list = { isLoading: true, isPlaceholderData: false, noData: true };
     renderWithClient(<WarehousesPage />);
 
     expect(headers()).toEqual(["Name", "Description", "Items", "SKUs", "Actions"]);
     expect(screen.getAllByTestId("skeleton-row").length).toBeGreaterThan(0);
-    expect(screen.getByTestId("list-pagination")).toHaveAttribute("aria-busy", "true");
+    expect(screen.queryByTestId("list-pagination")).toBeNull();
   });
 
   it("keeps the rows on screen, dimmed, while a new search loads", () => {

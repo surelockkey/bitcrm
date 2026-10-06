@@ -336,15 +336,16 @@ describe("ContainersPage — a stable first frame", () => {
     expect(mocks.listFilters).toEqual([]);
     expect(screen.getAllByTestId("skeleton-row").length).toBeGreaterThan(0);
     expect([...document.querySelectorAll("thead th")].map((th) => th.textContent)).toContain("Users");
-    expect(screen.getByTestId("list-pagination")).toBeInTheDocument();
+    // No pager under the skeleton: the rows would move it when they land.
+    expect(screen.queryByTestId("list-pagination")).toBeNull();
   });
 
-  it("draws the real table while the first page loads, with the pager's space held", () => {
+  it("draws the real table while the first page loads, and no pager for the rows to move", () => {
     mocks.list = { isLoading: true, isPlaceholderData: false, noData: true };
     renderWithClient(<ContainersPage />);
 
     expect(screen.getAllByTestId("skeleton-row").length).toBeGreaterThan(0);
-    expect(screen.getByTestId("list-pagination")).toHaveAttribute("aria-busy", "true");
+    expect(screen.queryByTestId("list-pagination")).toBeNull();
   });
 
   it("keeps the rows on screen, dimmed, while a new search loads", () => {

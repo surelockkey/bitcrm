@@ -19,6 +19,7 @@ import { NoAccess } from "@/features/inventory/components/no-access";
 import { useSkeletonRows } from "@/features/inventory/components/use-skeleton-rows";
 import { ManageStockDialog } from "@/features/inventory/stock/components/manage-stock-dialog";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
+import { settled, usePageReady } from "@/lib/use-page-ready";
 import { usePopup } from "@/features/inventory/use-popup";
 import { useItemCategories, useProducts, useProductsCount } from "../hooks";
 import { productsToCsv, type ProductFilter } from "../lib";
@@ -72,8 +73,12 @@ export function ProductsPage() {
     resetKey: JSON.stringify({ filter, pageSize }),
   });
   const products = pager.items;
-  // Nothing on screen yet: the table draws itself, a page of skeleton rows tall.
-  const loading = query.isLoading && !query.data;
+  // One skeleton, then the list whole: the rows wait for the permissions
+  // (the Cost column, the row menus) and for the count (the pager's "of N"),
+  // which came a beat after them. Latched: a new filter keeps the rows on
+  // screen, dimmed, not a skeleton.
+  const ready = usePageReady(!permsLoading && settled(query) && settled(count));
+  const loading = !ready;
   const skeletonRows = useSkeletonRows(
     TABLE_KEY,
     pageSize,
@@ -112,7 +117,10 @@ export function ProductsPage() {
     downloadCsv(productsToCsv(products, { withCost: money }), "items.csv");
 
   return (
-    <div className="flex flex-1 flex-col">
+    // The frame drawn while the permissions load is a guess at what they
+    // allow; once they answer it is drawn anew, not reshuffled — a role the
+    // guess was wrong for (no New item, no Cost) sees no control slide across.
+    <div key={permsLoading ? "guess" : "known"} className="flex flex-1 flex-col">
       {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-2 px-6 py-3">
         <div className="relative w-full max-w-xs">
@@ -197,8 +205,11 @@ export function ProductsPage() {
           holdKey={JSON.stringify(filter)}
           scrollKey={`${pager.page}:${pageSize}`}
           pager={
-            failed || empty ? null : (
-              <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} reserveSpace />
+            // Drawn with the rows, never under the skeleton: fifty placeholder
+            // rows on a first visit put it below the fold, and the real ones
+            // pulled it up into the middle of the screen.
+            loading || failed || empty ? null : (
+              <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} />
             )
           }
         >

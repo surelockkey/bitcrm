@@ -19,7 +19,8 @@ const BRANDS: CatalogConfig = {
 
 /** The Price Book's Brands tab. */
 export function BrandsPage() {
-  const { can } = usePermissions();
-  const query = useBrands(can("brands", "view"));
+  const { can, isLoading } = usePermissions();
+  // Asked for beside the permissions, not after them; the server guards it.
+  const query = useBrands(isLoading || can("brands", "view"));
   return <CatalogTab config={BRANDS} query={query} />;
 }

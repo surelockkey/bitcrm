@@ -15,6 +15,7 @@ import { ListPagination } from "@/components/ui/list-pagination";
 import { arraySource } from "@/lib/paging/array-source";
 import { usePageSize } from "@/lib/paging/use-page-size";
 import { usePager } from "@/lib/paging/use-pager";
+import { settled, usePageReady } from "@/lib/use-page-ready";
 import { useDenied, usePermissions } from "@/features/auth/use-permissions";
 import { NoAccess } from "@/features/inventory/components/no-access";
 import { ListBody } from "@/features/inventory/components/list-body";
@@ -57,7 +58,17 @@ function Templates() {
   // the table still pages, under the same panel as every other list.
   const query = useContainerTemplates(status);
   const all = useMemo(() => query.data ?? [], [query.data]);
-  const loading = query.isLoading && !query.data;
+
+  // Used by: the vans naming each template, across the whole fleet.
+  const locations = useAllLocations();
+
+  // One skeleton, then the list whole: the rows wait for the fleet (Used by
+  // printed grey bars, then the numbers) and for the permissions (the row's
+  // menu popped in after the rows). Latched: another status keeps the rows on
+  // screen, dimmed, not a skeleton.
+  const ready = usePageReady(!permsLoading && settled(query) && !locations.isLoading);
+  const loading = !ready;
+  const stale = query.isPlaceholderData;
   const [pageSize, setPageSize] = usePageSize(TEMPLATES_TABLE_KEY);
   const pager = usePager(arraySource(all, pageSize, loading), {
     total: loading ? undefined : all.length,
@@ -71,11 +82,9 @@ function Templates() {
     TEMPLATES_TABLE_KEY,
     pageSize,
     undefined,
-    loading ? undefined : templates.length,
+    loading || stale ? undefined : templates.length,
   );
 
-  // Used by: the vans naming each template, across the whole fleet.
-  const locations = useAllLocations();
   const usedBy = useMemo(() => {
     const counts = new Map<string, number>();
     for (const l of locations.data) {
@@ -116,8 +125,10 @@ function Templates() {
           holdKey={status}
           scrollKey={`${pager.page}:${pageSize}`}
           pager={
-            failed || empty ? null : (
-              <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} reserveSpace />
+            // Drawn with the rows, never under the skeleton, where the rows
+            // would move it when they land.
+            loading || failed || empty ? null : (
+              <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} />
             )
           }
         >
@@ -155,6 +166,7 @@ function Templates() {
                 usedByPending={locations.isLoading}
                 loading={loading}
                 skeletonRows={skeletonRows}
+                stale={stale}
                 onEdit={(t) => open({ kind: "template", id: t.id })}
                 onApply={(t) => open({ kind: "apply", templateId: t.id, containerId: null })}
               />

@@ -17,6 +17,7 @@ import { NoAccess } from "@/features/inventory/components/no-access";
 import { ListBody } from "@/features/inventory/components/list-body";
 import { useSkeletonRows } from "@/features/inventory/components/use-skeleton-rows";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
+import { settled, usePageReady } from "@/lib/use-page-ready";
 import { ListPagination } from "@/components/ui/list-pagination";
 import { pagedSource } from "@/lib/paging/paged-source";
 import { usePageSize } from "@/lib/paging/use-page-size";
@@ -72,8 +73,11 @@ export function WarehousesPage() {
   });
   const warehouses = pager.items;
   const filtered = !!filter.search || status !== InventoryStatus.ACTIVE;
-  // Nothing on screen yet: the table draws itself, a page of skeleton rows tall.
-  const loading = query.isLoading && !query.data;
+  // One skeleton, then the list whole — the rows wait for the count, whose
+  // "of N" came a beat after them. Latched: a new filter keeps the rows on
+  // screen, dimmed, not a skeleton.
+  const ready = usePageReady(settled(query) && settled(count));
+  const loading = !ready;
   const failed = query.isError && !query.data;
   const empty = !failed && !loading && warehouses.length === 0;
   const skeletonRows = useSkeletonRows(
@@ -132,8 +136,11 @@ export function WarehousesPage() {
           holdKey={JSON.stringify(filter)}
           scrollKey={`${pager.page}:${pageSize}`}
           pager={
-            failed || empty ? null : (
-              <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} reserveSpace />
+            // Drawn with the rows, never under the skeleton: fifty placeholder
+            // rows on a first visit put it below the fold, and three
+            // warehouses pulled it up into the middle of the screen.
+            loading || failed || empty ? null : (
+              <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} />
             )
           }
         >

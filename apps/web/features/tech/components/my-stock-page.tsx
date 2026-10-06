@@ -5,6 +5,7 @@ import { PackageX, Search, Truck } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import { usePageReady } from "@/lib/use-page-ready";
 import { useDenied } from "@/features/auth/use-permissions";
 import { NoAccess } from "@/features/clients/components/contacts-page";
 import { useContainerStockView, useMyContainer } from "@/features/inventory/containers/hooks";
@@ -24,6 +25,10 @@ export function MyStockPage() {
   const { data: container, isLoading: containerLoading, isError: containerError } = useMyContainer();
   const stock = useContainerStockView(container?.id ?? "", Boolean(container?.id));
   const [search, setSearch] = useState("");
+  // One skeleton until the van and what is on it are both in: drawn as each
+  // arrived, the van's name and counts stood over three grey cards that then
+  // turned into the parts. Latched — a refetch never takes the list away.
+  const ready = usePageReady(!containerLoading && (!container || !stock.isLoading));
 
   const rows = useMemo(
     () => sortStockRows(filterStockRows(stock.rows, search)),
@@ -32,7 +37,7 @@ export function MyStockPage() {
 
   if (denied("containers", "view")) return <NoAccess entity="stock" />;
 
-  if (containerLoading) {
+  if (!ready) {
     return (
       <div className="space-y-3 p-4">
         <Skeleton className="h-6 w-40" />

@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { ListPagination } from "@/components/ui/list-pagination";
 import { queryKeys } from "@/lib/query-keys";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
+import { settled, usePageReady } from "@/lib/use-page-ready";
 import { arraySource } from "@/lib/paging/array-source";
 import { pagedSource } from "@/lib/paging/paged-source";
 import { usePageSize } from "@/lib/paging/use-page-size";
@@ -122,10 +123,16 @@ function Assignments() {
     pending: !rowsByUser.has(u.id) && locations.isLoading,
   }));
 
-  // A row is drawn once it is whole: the user and their assignment. Drawn
-  // before the assignments, every row read "Not set" and then changed.
-  const loading =
-    (!searched && usersQ.isLoading && !usersQ.data) || (assignments.isLoading && !assignments.data);
+  // One skeleton, then the table whole: a row is drawn once it is complete —
+  // the user, their assignment and the van it names — and the pager with its
+  // "of N". Drawn before the assignments, every row read "Not set" and then
+  // changed; before the fleet, a user without a row of their own showed grey
+  // bars where their van would be. Latched: a search or a new page size
+  // keeps the rows on screen, dimmed, not a skeleton.
+  const ready = usePageReady(
+    settled(usersQ) && settled(count) && settled(assignments) && !locations.isLoading,
+  );
+  const loading = !ready;
   const stale = pager.isStale || (searching && !directory.data);
   const skeletonRows = useSkeletonRows(
     TABLE_KEY,
@@ -161,8 +168,10 @@ function Assignments() {
           holdKey={searched ? term : ""}
           scrollKey={`${pager.page}:${pageSize}`}
           pager={
-            failed || empty ? null : (
-              <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} reserveSpace />
+            // Drawn with the rows, never under the skeleton, where the rows
+            // would move it when they land.
+            loading || failed || empty ? null : (
+              <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} />
             )
           }
         >
