@@ -13,12 +13,18 @@ export const isInboxRoute = (pathname: string | null | undefined) =>
 /** A client card (`/contacts/<id>`): its own left column wants the room the nav takes. */
 const CLIENT_CARD_ROUTE = /^\/contacts\/[^/]+$/;
 
-/** Routes that own the screen: the Inbox and a client card fold the nav to its icon rail. */
+/** Settings bring their own left rail of sections; two rails side by side is one too many. */
+const SETTINGS_ROUTE_PREFIX = "/settings";
+
+const isSettingsRoute = (pathname: string) =>
+  pathname === SETTINGS_ROUTE_PREFIX || pathname.startsWith(`${SETTINGS_ROUTE_PREFIX}/`);
+
+/** Routes that own the screen: the Inbox, a client card and settings fold the nav to its icon rail. */
 export const isSidebarFoldedRoute = (pathname: string | null | undefined) =>
-  isInboxRoute(pathname) || (!!pathname && CLIENT_CARD_ROUTE.test(pathname));
+  isInboxRoute(pathname) || (!!pathname && (CLIENT_CARD_ROUTE.test(pathname) || isSettingsRoute(pathname)));
 
 /**
- * Folds the navigation sidebar while the Inbox or a client card is open and
+ * Folds the navigation sidebar while the Inbox, a client card or settings are open and
  * unfolds it again on the way out — only when this component did the folding, so a sidebar the
  * user collapsed themselves stays collapsed. Renders nothing; mounts inside
  * `SidebarProvider` (see `AppShell`). Mobile uses the sheet sidebar, which is

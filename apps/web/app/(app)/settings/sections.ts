@@ -38,6 +38,13 @@ export interface SettingsGroup {
 }
 
 /**
+ * The rail's first link: the settings screen itself, every block on it. It
+ * used to open a page of its own that held nothing but "preferences will
+ * live here"; /settings/general now sends old links here.
+ */
+export const SETTINGS_HOME = { label: "General", href: "/settings", icon: SlidersHorizontal };
+
+/**
  * The settings, in Workiz's blocks and Workiz's order: its settings page is
  * a heading per block over that block's tiles, and the office moving over
  * from it looks for Call Flows under Calls & Text.
@@ -46,12 +53,6 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
   {
     label: "General Settings",
     sections: [
-      {
-        label: "General",
-        href: "/settings/general",
-        description: "Workspace-wide preferences.",
-        icon: SlidersHorizontal,
-      },
       {
         label: "Companies",
         href: "/settings/companies",

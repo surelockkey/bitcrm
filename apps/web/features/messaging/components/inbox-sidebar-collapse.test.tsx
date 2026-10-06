@@ -45,6 +45,13 @@ describe("isSidebarFoldedRoute", () => {
     expect(isSidebarFoldedRoute("/companies/x")).toBe(false);
     expect(isSidebarFoldedRoute(null)).toBe(false);
   });
+
+  it("folds across settings, whose own rail wants the room the nav takes", () => {
+    expect(isSidebarFoldedRoute("/settings")).toBe(true);
+    expect(isSidebarFoldedRoute("/settings/job-types")).toBe(true);
+    expect(isSidebarFoldedRoute("/settings/documents/abc")).toBe(true);
+    expect(isSidebarFoldedRoute("/settings-old")).toBe(false);
+  });
 });
 
 describe("InboxSidebarCollapse", () => {
@@ -70,6 +77,24 @@ describe("InboxSidebarCollapse", () => {
       </SidebarProvider>,
     ));
     expect(view.getByTestId("open").textContent).toBe("true");
+  });
+
+  it("keeps the sidebar folded from one settings section to the next, and unfolds it on the way out", () => {
+    const at = (path: string) => {
+      pathname = path;
+      act(() => view.rerender(
+        <SidebarProvider defaultOpen>
+          <InboxSidebarCollapse />
+          <OpenProbe />
+        </SidebarProvider>,
+      ));
+      return view.getByTestId("open").textContent;
+    };
+    pathname = "/deals";
+    const view = mount(true);
+    expect(at("/settings")).toBe("false");
+    expect(at("/settings/job-types")).toBe("false");
+    expect(at("/deals")).toBe("true");
   });
 
   it("leaves a sidebar the user had already collapsed alone", () => {
