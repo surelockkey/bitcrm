@@ -33,8 +33,10 @@ import { diffCells, isSuperAdmin, normalizeMatrix, type Schema } from "@/feature
 import { PermissionMatrixEditor } from "@/features/roles/components/permission-matrix";
 import { DataScopeEditor } from "@/features/roles/components/data-scope-editor";
 import { StageTransitionsEditor } from "@/features/roles/components/stage-transitions-editor";
+import { settled, usePageReady } from "@/lib/use-page-ready";
 import {
   useClearUserPermissions,
+  useRoles,
   useSetUserPermissions,
   useUser,
   useUserPermissions,
@@ -47,16 +49,31 @@ import {
   type OverridesDraft,
 } from "../overrides";
 
-/** Loader + access gate for `/admin/users/[id]/permissions`. */
+/**
+ * Loader + access gate for `/admin/users/[id]/permissions`.
+ *
+ * Everything the editor shows is asked for at once — what needs only the id
+ * with the user, their role the moment the user lands — and the page waits
+ * for all of it behind one skeleton. It used to ask in three rounds, the last
+ * (every role, for whether you outrank this user) only once it was on screen.
+ */
 export function UserPermissionsPage({ userId }: { userId: string }) {
   const router = useRouter();
-  const { can } = usePermissions();
+  const { can, isLoading: permsLoading } = usePermissions();
   const userQuery = useUser(userId);
+  const resolvedQuery = useUserPermissions(userId);
+  const schemaQuery = useRoleSchema();
+  const rolesQuery = useRoles();
+  const roleId = userQuery.data?.roleId ?? "";
+  const roleQuery = useRole(roleId, !!roleId);
+  const ready = usePageReady(
+    !permsLoading && [userQuery, resolvedQuery, schemaQuery, rolesQuery, roleQuery].every(settled),
+  );
 
-  if (!can("users", "view")) {
+  if (!permsLoading && !can("users", "view")) {
     return <CenterMessage title="No access" body="You don't have permission to view users." />;
   }
-  if (userQuery.isLoading) return <EditorSkeleton />;
+  if (!ready) return <EditorSkeleton />;
   if (userQuery.isError || !userQuery.data) {
     return (
       <CenterMessage
@@ -70,17 +87,31 @@ export function UserPermissionsPage({ userId }: { userId: string }) {
       />
     );
   }
-  return <UserPermissionsLoader user={userQuery.data} />;
+  return (
+    <UserPermissionsLoader
+      user={userQuery.data}
+      resolvedQuery={resolvedQuery}
+      roleQuery={roleQuery}
+      schema={schemaQuery.data}
+    />
+  );
 }
 
-/** Second stage: needs the user before it can fetch their role + resolved set. */
-function UserPermissionsLoader({ user }: { user: User }) {
+/** Second stage: the user's role and resolved set, already asked for above. */
+function UserPermissionsLoader({
+  user,
+  resolvedQuery,
+  roleQuery,
+  schema,
+}: {
+  user: User;
+  resolvedQuery: ReturnType<typeof useUserPermissions>;
+  roleQuery: ReturnType<typeof useRole>;
+  schema: Schema | undefined;
+}) {
   const router = useRouter();
-  const resolvedQuery = useUserPermissions(user.id);
-  const roleQuery = useRole(user.roleId);
-  const { data: schema } = useRoleSchema();
 
-  if (resolvedQuery.isLoading || roleQuery.isLoading || !schema) return <EditorSkeleton />;
+  if (!schema) return <EditorSkeleton />;
   if (roleQuery.isError || !roleQuery.data) {
     return (
       <CenterMessage

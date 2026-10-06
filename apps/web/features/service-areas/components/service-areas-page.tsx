@@ -25,14 +25,20 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { usePermissions } from "@/features/auth/use-permissions";
+import { settled, usePageReady } from "@/lib/use-page-ready";
 import { serviceAreaTaxLabel } from "@/features/billing/lib";
 import { useServiceAreas, useDeleteServiceArea } from "../hooks";
 import { describeArea } from "../lib";
 import { ServiceAreaFormDialog } from "./service-area-form-dialog";
 
 export function ServiceAreasPage() {
-  const { can } = usePermissions();
-  const { data: areas, isLoading } = useServiceAreas();
+  const { can, isLoading: permsLoading } = usePermissions();
+  const areasQuery = useServiceAreas();
+  const areas = areasQuery.data;
+  // One skeleton until both the user and the list are in: the "New" button
+  // and the rows come in the same frame, and nobody is refused for the beat
+  // their permissions are still on the way.
+  const ready = usePageReady(!permsLoading && settled(areasQuery));
   const del = useDeleteServiceArea();
 
   const [formOpen, setFormOpen] = useState(false);
@@ -43,7 +49,7 @@ export function ServiceAreasPage() {
   const canEdit = can("service_areas", "edit");
   const canDelete = can("service_areas", "delete");
 
-  if (!can("service_areas", "view")) {
+  if (!permsLoading && !can("service_areas", "view")) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
         <h2 className="text-lg font-medium">No access</h2>
@@ -72,14 +78,14 @@ export function ServiceAreasPage() {
             Territories used to auto-assign jobs and match technicians. Areas can&apos;t overlap.
           </p>
         </div>
-        {canCreate ? (
+        {ready && canCreate ? (
           <Button variant="brand" className="h-9 gap-1.5" onClick={openNew}>
             <Plus className="size-4" /> New service area
           </Button>
         ) : null}
       </div>
 
-      {isLoading ? (
+      {!ready ? (
         <div className="space-y-2">
           <Skeleton className="h-12 w-full" />
           <Skeleton className="h-12 w-full" />

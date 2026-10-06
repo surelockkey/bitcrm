@@ -2,13 +2,28 @@
 
 import Link from "next/link";
 import { ChevronRight } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { SETTINGS_SECTIONS } from "./sections";
 
-/** The settings landing list — choose a section, then edit it. */
+/**
+ * The settings landing list — choose a section, then edit it.
+ *
+ * Which sections show depends on the permissions, so until they are in the
+ * list is one skeleton: drawn early, it stood at its one unguarded row and
+ * then grew to twenty under the reader.
+ */
 export function SettingsIndex() {
-  const { can } = usePermissions();
+  const { can, isLoading } = usePermissions();
   const visible = SETTINGS_SECTIONS.filter((s) => !s.resource || can(s.resource));
+
+  if (isLoading) {
+    return (
+      <div className="max-w-2xl">
+        <Skeleton className="h-96 w-full rounded-lg" />
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-2xl">

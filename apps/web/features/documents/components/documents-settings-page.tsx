@@ -18,7 +18,7 @@ type Tab = (typeof TABS)[number];
  * Email options). Company details live in Settings → Companies.
  */
 export function DocumentsSettingsPage() {
-  const { can } = usePermissions();
+  const { can, isLoading: permsLoading } = usePermissions();
   const router = useRouter();
   const pathname = usePathname();
   const search = useSearchParams();
@@ -27,7 +27,9 @@ export function DocumentsSettingsPage() {
   const raw = search.get("tab");
   const tab: Tab = (TABS as readonly string[]).includes(raw ?? "") ? (raw as Tab) : "templates";
 
-  if (!can("document_templates", "view")) {
+  // Refuse only once the permissions are known — not for the beat they are
+  // still on the way.
+  if (!permsLoading && !can("document_templates", "view")) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
         <h2 className="text-lg font-medium">No access</h2>
@@ -70,14 +72,16 @@ export function DocumentsSettingsPage() {
           <TabsTrigger value="defaults">Defaults</TabsTrigger>
           <TabsTrigger value="messages">Messages</TabsTrigger>
         </TabsList>
+        {/* Each tab waits for the permissions too: what it may offer — "New
+            template", Save — comes with the rest, not a beat after it. */}
         <TabsContent value="templates" className="pt-4">
-          <TemplatesTab canEdit={canEditTemplates} />
+          <TemplatesTab canEdit={canEditTemplates} permsLoading={permsLoading} />
         </TabsContent>
         <TabsContent value="defaults" className="pt-4">
-          <DocumentDefaultsTab canEdit={canEditSettings} />
+          <DocumentDefaultsTab canEdit={canEditSettings} permsLoading={permsLoading} />
         </TabsContent>
         <TabsContent value="messages" className="pt-4">
-          <DocumentMessagesTab canEdit={canEditSettings} />
+          <DocumentMessagesTab canEdit={canEditSettings} permsLoading={permsLoading} />
         </TabsContent>
       </Tabs>
     </div>

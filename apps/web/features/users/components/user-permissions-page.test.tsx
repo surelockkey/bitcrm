@@ -74,6 +74,8 @@ vi.mock("../hooks", () => ({
   }),
   useSetUserPermissions: () => ({ mutate: vi.fn(), isPending: false }),
   useClearUserPermissions: () => ({ mutate: vi.fn(), isPending: false }),
+  // The page asks for every role up front (whether you outrank this user).
+  useRoles: () => ({ data: [role] }),
 }));
 vi.mock("@/features/roles/hooks", () => ({
   useRole: () => ({ data: role, isLoading: false, isError: false }),

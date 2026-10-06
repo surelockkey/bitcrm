@@ -37,6 +37,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { usePermissions } from "@/features/auth/use-permissions";
+import { settled, usePageReady } from "@/lib/use-page-ready";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { formatPhone } from "@/lib/phone";
 import { cn } from "@/lib/utils";
@@ -50,9 +51,13 @@ import { CompanyFormDialog } from "./company-form-dialog";
 
 /** Settings → Companies: the brands jobs, invoices and estimates are issued under. */
 export function CompaniesSettingsPage() {
-  const { can } = usePermissions();
+  const { can, isLoading: permsLoading } = usePermissions();
   const canEdit = can("settings", "edit");
-  const { data, isLoading, isError, error, refetch } = useBusinessProfiles();
+  const companiesQuery = useBusinessProfiles();
+  const { data, isError, error, refetch } = companiesQuery;
+  // One skeleton until both the user and the companies are in: "Add company"
+  // and the cards come in the same frame.
+  const ready = usePageReady(!permsLoading && settled(companiesQuery));
   const setDefault = useSetDefaultBusinessProfile();
   const update = useUpdateBusinessProfile();
 
@@ -86,14 +91,14 @@ export function CompaniesSettingsPage() {
             Your business companies — names, logos and details used on jobs, invoices and estimates.
           </p>
         </div>
-        {canEdit ? (
+        {ready && canEdit ? (
           <Button variant="brand" className="h-9 gap-1.5" onClick={() => open(null)}>
             <Plus className="size-4" /> Add company
           </Button>
         ) : null}
       </div>
 
-      {isLoading ? (
+      {!ready ? (
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           <Skeleton className="h-28 w-full" />
           <Skeleton className="h-28 w-full" />

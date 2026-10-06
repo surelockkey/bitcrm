@@ -107,18 +107,26 @@ export function useUserMap() {
   });
 }
 
+/**
+ * `staleTime` here and below: a page asks for what it shows up front and then
+ * mounts the blocks that read it — a reader mounting a moment later must find
+ * the answer, not ask again. A save still invalidates and refetches.
+ */
 export function useProfile(id: string, enabled = true) {
   return useQuery({
     queryKey: queryKeys.technicians.profile(id),
     queryFn: () => api.getProfile(id),
     enabled: enabled && Boolean(id),
+    staleTime: 30_000,
   });
 }
 
-export function useOnboarding(id: string) {
+export function useOnboarding(id: string, enabled = true) {
   return useQuery({
     queryKey: queryKeys.technicians.onboarding(id),
     queryFn: () => api.getOnboarding(id),
+    enabled: enabled && Boolean(id),
+    staleTime: 30_000,
   });
 }
 
@@ -126,6 +134,7 @@ export function useAssignments(id: string) {
   return useQuery({
     queryKey: queryKeys.technicians.assignments(id),
     queryFn: () => api.getAssignments(id),
+    staleTime: 30_000,
   });
 }
 

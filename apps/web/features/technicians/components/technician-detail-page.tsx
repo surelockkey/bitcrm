@@ -10,7 +10,10 @@ import { initials } from "@/features/users/lib";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { TextButton } from "@/features/messaging/components/text-button";
 import { WorkingHoursEditor } from "@/features/schedule/components/working-hours-editor";
-import { useProfile, useUserMap } from "../hooks";
+import { settled, usePageReady } from "@/lib/use-page-ready";
+import { useServiceAreas } from "@/features/service-areas/hooks";
+import { useJobTypesLoading } from "@/features/job-types/lib";
+import { useAssignments, useProfile, useUserMap } from "../hooks";
 import { techName, techUser, technicianEditRights } from "../lib";
 import {
   AVAILABILITY_NOT_CONNECTED,
@@ -41,9 +44,19 @@ import { DocumentsTab } from "./documents-tab";
  */
 export function TechnicianDetailPage({ technicianId }: { technicianId: string }) {
   const router = useRouter();
-  const { can, me, isTechnician } = usePermissions();
+  const { can, me, isTechnician, isLoading: permsLoading } = usePermissions();
   const query = useProfile(technicianId);
-  const { data: userMap } = useUserMap();
+  const userMapQuery = useUserMap();
+  const userMap = userMapQuery.data;
+  // What the Profile tab shows besides the profile, asked for with it: the
+  // technician's assignments and the catalogs that name them. Each used to
+  // land on its own and push down every block under it.
+  const assignments = useAssignments(technicianId);
+  const areas = useServiceAreas();
+  const jobTypesLoading = useJobTypesLoading();
+  const ready = usePageReady(
+    !permsLoading && [query, userMapQuery, assignments, areas].every(settled) && !jobTypesLoading,
+  );
 
   const rights = technicianEditRights({
     canEdit: can("technicians", "edit"),
@@ -52,10 +65,10 @@ export function TechnicianDetailPage({ technicianId }: { technicianId: string })
     canEditUser: can("users", "edit"),
   });
 
-  if (!can("technicians", "view")) {
+  if (!permsLoading && !can("technicians", "view")) {
     return <Center title="No access" body="You don't have permission to view technicians." />;
   }
-  if (query.isLoading) return <DetailSkeleton />;
+  if (!ready) return <DetailSkeleton />;
   if (query.isError || !query.data) {
     return (
       <Center

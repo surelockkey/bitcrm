@@ -27,13 +27,15 @@ interface Draft {
  * with (Workiz: the notes, the deposit's "Set for future estimates", the Send
  * panel's "Request signature", the proposal manager's unselected options).
  */
-export function DocumentDefaultsTab({ canEdit }: { canEdit: boolean }) {
+export function DocumentDefaultsTab({ canEdit, permsLoading = false }: { canEdit: boolean; permsLoading?: boolean }) {
   const { data, isLoading } = useDocumentSettings();
   const save = useUpdateDocumentSettings();
   const [draft, setDraft] = useState<Draft>({});
   const settings: DocumentSettings = { ...DEFAULT_DOCUMENT_SETTINGS, ...(data ?? {}) };
 
-  if (isLoading) return <Skeleton className="h-80 w-full max-w-2xl" />;
+  // Until the permissions are in too: the form came up read-only and grew
+  // its Save button a beat later.
+  if (isLoading || permsLoading) return <Skeleton className="h-80 w-full max-w-2xl" />;
 
   const storedMode: "amount" | "percent" = settings.depositAmount ? "amount" : "percent";
   const storedValue = settings.depositAmount ? String(settings.depositAmount) : String(settings.depositPercentage ?? 0);

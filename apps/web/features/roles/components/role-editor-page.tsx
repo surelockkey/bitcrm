@@ -38,6 +38,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { usePermissions } from "@/features/auth/use-permissions";
+import { settled, usePageReady } from "@/lib/use-page-ready";
 import { useRole, useRoles, useRoleSchema, useRoleMembers, useUpdateRole } from "../hooks";
 import { useRoleAccess, type RoleEditability } from "../use-role-access";
 import { roleDetailsSchema } from "../schemas";
@@ -101,14 +103,25 @@ function isDirty(draft: RoleDraft, role: Role, schema: Schema): boolean {
  */
 export function RoleEditorPage({ roleId }: { roleId: string }) {
   const router = useRouter();
+  const { isLoading: permsLoading } = usePermissions();
   const roleQuery = useRole(roleId);
-  const { data: schema } = useRoleSchema();
+  const schemaQuery = useRoleSchema();
+  const schema = schemaQuery.data;
   const { canViewRoles } = useRoleAccess();
+  // What the editor shows besides the role, asked for with it: who holds the
+  // role (the Members tab's count, the save warning) and every role (whether
+  // this one ranks below yours — read-only or not). The members used to be
+  // asked for only once the editor was up, and the tab grew " · 3" after.
+  const allRoles = useRoles();
+  const members = useRoleMembers(roleId);
+  const ready = usePageReady(
+    !permsLoading && [roleQuery, schemaQuery, allRoles, members].every(settled),
+  );
 
-  if (!canViewRoles) {
+  if (!permsLoading && !canViewRoles) {
     return <CenterMessage title="No access" body="You don't have permission to view roles." />;
   }
-  if (roleQuery.isLoading || !schema) return <EditorSkeleton />;
+  if (!ready || !schema) return <EditorSkeleton />;
   if (roleQuery.isError || !roleQuery.data) {
     return (
       <CenterMessage
