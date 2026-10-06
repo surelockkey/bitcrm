@@ -74,7 +74,24 @@ let server: FakeServer;
 const realRect = HTMLElement.prototype.getBoundingClientRect;
 const realMatchMedia = window.matchMedia;
 
+/** jsdom never loads a picture: a stand-in that loads after `imageDelayMs`. */
+const imagesLoaded = new Set<string>();
+let imageDelayMs = 0;
+class FakeImage {
+  onload: (() => void) | null = null;
+  onerror: (() => void) | null = null;
+  set src(value: string) {
+    setTimeout(() => {
+      imagesLoaded.add(value);
+      this.onload?.();
+    }, imageDelayMs);
+  }
+}
+
 beforeEach(() => {
+  imagesLoaded.clear();
+  imageDelayMs = 0;
+  vi.stubGlobal("Image", FakeImage);
   HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
     if (!this.classList.contains("doc-canvas")) return realRect.call(this);
     const box = { x: 0, y: 0, top: 0, left: 0, width: CANVAS_WIDTH, right: CANVAS_WIDTH, height: 900, bottom: 900 };
@@ -135,5 +152,36 @@ describe("TemplateEditorPage — loading", () => {
     const fit = String(Math.min(1, (CANVAS_WIDTH - 120) / 816));
     expect(first.frame()).toEqual({ zoom: fit, logo: true, picture: true });
     expect(duplicates(server.requests)).toEqual([]);
+  });
+
+  /**
+   * The logo is an `<img>` sized by its own picture: until its bytes arrive it
+   * has no height, then the header grows and every section below it moves.
+   * The editor now waits for the pictures it prints (at most two seconds).
+   */
+  it("waits for the logo's picture, so the header does not grow under the reader", async () => {
+    imageDelayMs = 150;
+    server = installFakeServer([
+      { match: /\/users\/me$/, reply: () => me, delayMs: 10 },
+      { match: /\/billing\/templates\/tpl-1$/, reply: () => template(), delayMs: 20 },
+      { match: /\/billing\/business-profiles$/, reply: () => [company], delayMs: 40 },
+      { match: /\/billing\/assets\/asset-pic\/url$/, reply: () => ({ url: "https://cdn.example.com/pic.png" }), delayMs: 20 },
+      { match: /\/deals\/job-types$/, reply: () => [] },
+      { match: /\/deals\/service-areas$/, reply: () => [] },
+    ]);
+    const first = watchFirstFrame(editorUp, () => ({
+      logo: imagesLoaded.has(company.logoUrl),
+      picture: imagesLoaded.has("https://cdn.example.com/pic.png"),
+    }));
+
+    renderWithClient(
+      <TooltipProvider>
+        <TemplateEditorPage templateId="tpl-1" />
+      </TooltipProvider>,
+    );
+    await screen.findByRole("button", { name: "Rename template House invoice" }, { timeout: 3000 });
+    first.stop();
+
+    expect(first.frame()).toEqual({ logo: true, picture: true });
   });
 });
