@@ -14,11 +14,12 @@ import {
 } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useDenied } from "@/features/auth/use-permissions";
+import { useDenied, usePermissions } from "@/features/auth/use-permissions";
 import { NoAccess } from "@/features/clients/components/contacts-page";
 import { useUserMap } from "@/features/deals/hooks";
 import { personName } from "@/features/deals/person-name";
 import { getApiErrorMessage } from "@/lib/api/errors";
+import { settled, usePageReady } from "@/lib/use-page-ready";
 import { pagedSource } from "@/lib/paging/paged-source";
 import { usePager } from "@/lib/paging/use-pager";
 import { ACTIVITY_PRESETS, REPORT_PRESET_LABEL, reportPresetRange, type ReportPreset } from "../report-dates";
@@ -66,7 +67,8 @@ export function ActivityPage({ today }: { today: string }) {
     resetKey: JSON.stringify({ ...filter, pageSize }),
   });
 
-  const { map: userMap, users } = useUserMap();
+  const { isLoading: permsLoading } = usePermissions();
+  const { map: userMap, users, isLoading: namesLoading } = useUserMap();
   const directoryName = (id: string) => personName(userMap.get(id));
   const team = useMemo(
     () =>
@@ -76,6 +78,12 @@ export function ActivityPage({ today }: { today: string }) {
         .sort((a, b) => a.name.localeCompare(b.name)),
     [users],
   );
+
+  // The footer stood under grey rows from the first frame: the rows pushed it
+  // down, its "of N" grew it a beat later, and the User column turned from
+  // stored e-mails into names when the directory came. The table, the total
+  // and the names come in one frame.
+  const ready = usePageReady([list, count].every(settled) && !permsLoading && !namesLoading);
 
   if (blocked) return <NoAccess entity="reports" />;
 
@@ -160,6 +168,13 @@ export function ActivityPage({ today }: { today: string }) {
           <p role="alert" className="text-sm text-destructive">
             Pick a start day on or before the end day.
           </p>
+        ) : !ready ? (
+          // The table and its footer, while the rows, the total or the names are on their way.
+          <div role="status" aria-label="Loading activity" className="space-y-2">
+            {Array.from({ length: 6 }, (_, i) => (
+              <Skeleton key={i} className="h-9 w-full" />
+            ))}
+          </div>
         ) : list.error ? (
           <p role="alert" className="text-sm text-destructive">
             {getApiErrorMessage(list.error)}

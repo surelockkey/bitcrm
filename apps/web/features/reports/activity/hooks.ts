@@ -19,12 +19,16 @@ export function useActivity(filter: ActivityFilter, limit: number, enabled = tru
   });
 }
 
-/** "of N" — the server keeps it a minute. */
+/**
+ * "of N" — the server keeps it a minute. A new filter keeps the old total on
+ * screen until its own is in, as the rows do, rather than blanking it.
+ */
 export function useActivityCount(filter: ActivityFilter, enabled = true) {
   return useQuery({
     queryKey: queryKeys.activity.count(filter),
     queryFn: () => http.get<ListCount>(`/deals/activity/count?${activityParams(filter)}`),
     staleTime: 60_000,
+    placeholderData: keepPreviousData,
     enabled,
   });
 }
