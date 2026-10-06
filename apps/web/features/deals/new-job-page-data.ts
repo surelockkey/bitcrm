@@ -4,7 +4,7 @@ import { settled, usePageReady } from "@/lib/use-page-ready";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { useBusinessProfiles } from "@/features/business-profiles/hooks";
 import { useCallDetail } from "@/features/calls/hooks";
-import { useCompanies, useContact, useContactSearch } from "@/features/clients/hooks";
+import { useCompanies, useContact, useContactByPhone, useContactSearch } from "@/features/clients/hooks";
 import { useCustomFields } from "@/features/custom-fields/hooks";
 import { useExternalCompanies } from "@/features/external-companies/hooks";
 import { useJobFieldSettings } from "@/features/job-field-settings/hooks";
@@ -74,6 +74,11 @@ export function useNewJobPageData({
   const call = useCallDetail(callSid ?? "");
   const query = phone?.trim() ?? "";
   const search = useContactSearch(query.length >= SEARCH_MIN ? query : "", SEARCH_LIMIT);
+  // …and checked for an exact owner, as the picker does before it offers to
+  // create them — so a Create clicked at once adopts that client, not a twin.
+  const digits = query.replace(/\D/g, "");
+  const isPhone = digits.length >= 7 && digits.length >= query.length - 6;
+  const owner = useContactByPhone(isPhone ? query : "", isPhone);
 
   // The client's address → its area (and the company it defaults to), and
   // who can go there — the same questions the Service Location card and the
@@ -85,7 +90,7 @@ export function useNewJobPageData({
 
   const allIn =
     !permsLoading &&
-    [...catalogs, contact, call, suggestions].every(settled) &&
+    [...catalogs, contact, call, owner, suggestions].every(settled) &&
     !search.isLoading &&
     !area.isFetching;
 

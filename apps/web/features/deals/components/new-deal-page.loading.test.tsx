@@ -122,6 +122,10 @@ const routes: FakeRoute[] = [
     reply: () => [{ id: "t1", firstName: "Bo", lastName: "Diaz", eligible: true, reasons: [], jobTypeIds: [], serviceAreaIds: ["sa-1"] }],
     delayMs: 30,
   },
+  // An unknown caller's number: the client book's search has nobody yet, but
+  // the number already belongs to a client.
+  { match: /\/search$/, reply: () => ({ hits: [], total: 0 }), delayMs: 30 },
+  { match: /\/crm\/contacts\/search\/by-phone$/, reply: () => contact, delayMs: 60 },
 ];
 
 let server: FakeServer;
@@ -214,6 +218,19 @@ describe("NewDealPage — one load, not waves", () => {
     const after = server.requests.slice(watch.frame()!.requestsSoFar).filter((r) => !r.startsWith("/users?"));
     expect(after).toEqual([]);
     expect(duplicates(server.requests)).toEqual([]);
+  });
+
+  it("opened for an unknown caller: the new-client card says whose number it is from the first frame", async () => {
+    nav.params = "callSid=CA1&phone=%2B14045550123";
+    const watch = watchFirstFrame(formIsUp, () => ({
+      draft: !!screen.queryByPlaceholderText("First name"),
+      owner: !!screen.queryByText(/a client already has this phone/i),
+    }));
+    renderWithClient(<NewDealPage />);
+    await screen.findByRole("button", { name: /create job/i }, { timeout: 3000 });
+    watch.stop();
+
+    expect(watch.frame()).toEqual({ draft: true, owner: true });
   });
 
   it("once shown, the form never goes back to a skeleton", async () => {
