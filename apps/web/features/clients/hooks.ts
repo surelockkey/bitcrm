@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import type { Address, ClientType, Company, Contact, CompanyDocumentType } from "@bitcrm/types";
 import { queryKeys } from "@/lib/query-keys";
@@ -45,8 +45,13 @@ export function useContactsPage(companyId?: string, enabled = true, limit?: numb
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.pagination.nextCursor,
     enabled,
+    // Інший розмір сторінки — новий набір; поки він іде, на екрані лишаються
+    // старі рядки й числа під ними (притемнені), а не порожнеча.
+    placeholderData: keepPreviousData,
   });
 }
+
+const NO_IDS: string[] = [];
 
 /**
  * Contacts matching typed text — a name, a phone, an email — answered by
@@ -55,12 +60,24 @@ export function useContactsPage(companyId?: string, enabled = true, limit?: numb
  */
 export function useContactSearch(query: string, limit = 50) {
   const found = useGlobalSearch(query, { types: ["contact"], mode: "full", limit });
-  const ids = (found.data?.hits ?? []).map((h) => h.entityId);
+  const hits = found.data?.hits;
+  // Kept by identity while the hits are the same, so the rows are too.
+  const ids = useMemo(() => (hits ? hits.map((h) => h.entityId) : NO_IDS), [hits]);
   const hydrated = useContactsByIds(ids);
   const data = useMemo(() => ids.map((id) => hydrated.map.get(id)).filter((c): c is Contact => Boolean(c)), [ids, hydrated.map]);
+  const typed = query.trim();
   return {
     data,
     isLoading: found.isSearching || (ids.length > 0 && hydrated.isLoading),
+    /**
+     * The rows are the answer to the text as typed now, contacts and all —
+     * not the last search's, held while the next one is debounced or asked
+     * for. A failed search counts as answered: it has nothing more coming.
+     */
+    answered:
+      typed.length < 2 ||
+      found.isError ||
+      (found.query === typed && found.data !== undefined && !found.isPlaceholderData && !(ids.length > 0 && hydrated.isLoading)),
     /** True while the text is too short to search. */
     tooShort: found.tooShort,
   };

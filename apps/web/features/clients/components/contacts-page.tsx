@@ -16,15 +16,22 @@ import {
 import { pagedSource } from "@/lib/paging/paged-source";
 import { usePageSize } from "@/lib/paging/use-page-size";
 import { usePager } from "@/lib/paging/use-pager";
+import { settled } from "@/lib/use-page-ready";
+import { cn } from "@/lib/utils";
 import { usePermissions, useDenied } from "@/features/auth/use-permissions";
-import { useContactsPage, useContactSearch, useCompaniesByIds , useContactsCount } from "../hooks";
+import { useJobSources } from "@/features/job-sources/hooks";
+import type { Contact } from "@bitcrm/types";
+import { useContactsPage, useContactSearch, useCompaniesByIds, useContactsCount } from "../hooks";
+import { useLastWhole } from "../use-last-whole";
 import { ContactsTable } from "./contacts-table";
 import { ContactForm } from "./contact-form";
 import { MergeContactsDialog } from "./merge-contacts-dialog";
 
+const NO_ROWS: Contact[] = [];
+
 export function ContactsPage() {
   const router = useRouter();
-  const { can  } = usePermissions();
+  const { can, isLoading: permsLoading } = usePermissions();
   const denied = useDenied();
   const [search, setSearch] = useState("");
   const [creating, setCreating] = useState(false);
@@ -36,6 +43,9 @@ export function ContactsPage() {
   const [pageSize, setPageSize] = usePageSize("contacts");
   const pageQuery = useContactsPage(undefined, !searching, pageSize);
   const found = useContactSearch(searching ? search : "");
+  // The Source column names its ad sources: asked for with the rows, not by
+  // the column once it is on screen.
+  const jobSources = useJobSources();
 
   // Пошук відповідає сервісом пошуку, не сторінками CRM — тоді лічильник
   // списку ні до чого.
@@ -46,9 +56,10 @@ export function ContactsPage() {
     pageSize,
     resetKey: String(pageSize),
   });
-  const filtered = searching ? found.data : pager.items;
+  const rows = searching ? found.data : pager.items;
+  const filtered = rows.length ? rows : NO_ROWS;
   // Назви компаній — лише тих, що в рядках на екрані.
-  const { map: companyMap } = useCompaniesByIds(
+  const companies = useCompaniesByIds(
     useMemo(() => filtered.map((c) => c.companyId).filter((id): id is string => !!id), [filtered]),
   );
   // Пошук дублікатів дивиться на все, що встигли погортати, а не на одну
@@ -57,7 +68,20 @@ export function ContactsPage() {
     () => pageQuery.data?.pages.flatMap((p) => p.data) ?? [],
     [pageQuery.data],
   );
-  const isLoading = searching ? found.isLoading : pageQuery.isLoading;
+
+  // The rows go up whole: with their companies, their sources, the count
+  // under them and the buttons over them — they used to arrive in five waves.
+  // A new search, page or page size keeps the set on screen (dimmed) until
+  // the next one is whole, rather than emptying the list or showing rows
+  // whose Company column fills in a beat later.
+  const listIn = settled(pageQuery) && !pageQuery.isPlaceholderData && settled(count);
+  const whole =
+    !permsLoading && settled(jobSources) && !companies.isLoading && (searching ? found.answered : listIn);
+  const view = useMemo(
+    () => ({ rows: filtered, companyMap: companies.map, searching }),
+    [filtered, companies.map, searching],
+  );
+  const { shown, stale } = useLastWhole(view, whole);
 
   if (denied("contacts", "view")) return <NoAccess entity="contacts" />;
 
@@ -72,12 +96,12 @@ export function ContactsPage() {
         </div>
         <div className="flex items-center gap-2">
           {/* Merge soft-deletes the duplicates, so it follows the delete permission (backend guard). */}
-          {can("contacts", "delete") ? (
+          {shown && can("contacts", "delete") ? (
             <Button variant="outline" className="gap-1.5" onClick={() => setMerging(true)}>
               <Merge className="size-4" /> Merge
             </Button>
           ) : null}
-          {can("contacts", "create") ? (
+          {shown && can("contacts", "create") ? (
             <Button variant="brand" className="gap-1.5" onClick={() => setCreating(true)}>
               <Plus className="size-4" /> New contact
             </Button>
@@ -96,30 +120,32 @@ export function ContactsPage() {
           />
         </div>
         <span className="ml-auto text-sm text-muted-foreground">
-          {searching
-            ? `${filtered.length} ${filtered.length === 1 ? "match" : "matches"}`
-            : `Showing ${filtered.length}`}
+          {!shown
+            ? null
+            : shown.searching
+              ? `${shown.rows.length} ${shown.rows.length === 1 ? "match" : "matches"}`
+              : `Showing ${shown.rows.length}`}
         </span>
       </div>
 
       <div className="flex-1 overflow-y-auto p-6">
-        {isLoading ? (
+        {!shown ? (
           <Skeleton className="h-64 w-full" />
-        ) : filtered.length === 0 ? (
+        ) : shown.rows.length === 0 ? (
           <EmptyState
             icon={<Users className="size-6" />}
-            title={search ? "No matching contacts" : "No contacts yet"}
-            hint={search ? "Try a different search." : "Create your first contact to get started."}
+            title={shown.searching ? "No matching contacts" : "No contacts yet"}
+            hint={shown.searching ? "Try a different search." : "Create your first contact to get started."}
           />
         ) : (
-          <>
-            <ContactsTable contacts={filtered} companyMap={companyMap} />
+          <div aria-busy={stale || undefined} className={cn(stale && "opacity-60")}>
+            <ContactsTable contacts={shown.rows} companyMap={shown.companyMap} />
             {/* Знайдене пошуковим сервісом приходить одним набором — там
                 гортати нема чого. */}
-            {searching ? null : (
+            {shown.searching ? null : (
               <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} />
             )}
-          </>
+          </div>
         )}
       </div>
 
