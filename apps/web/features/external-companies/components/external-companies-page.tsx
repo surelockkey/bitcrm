@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { formatPhone } from "@/features/clients/lib";
 import { usePermissions } from "@/features/auth/use-permissions";
+import { settled, usePageReady } from "@/lib/use-page-ready";
 import {
   useExternalCompanies,
   useDeleteExternalCompany,
@@ -36,8 +37,13 @@ import { searchExternalCompanies } from "../lib";
 import { ExternalCompanyFormDialog } from "./external-company-form-dialog";
 
 export function ExternalCompaniesPage() {
-  const { can } = usePermissions();
-  const { data: companies, isLoading } = useExternalCompanies();
+  const { can, isLoading: permsLoading } = usePermissions();
+  const companiesQuery = useExternalCompanies();
+  const companies = companiesQuery.data;
+  // One skeleton until both the user and the list are in: the "New" button
+  // and the rows come in the same frame, and nobody is refused for the beat
+  // their permissions are still on the way.
+  const ready = usePageReady(!permsLoading && settled(companiesQuery));
   const del = useDeleteExternalCompany();
   const toggle = useToggleExternalCompany();
 
@@ -55,7 +61,7 @@ export function ExternalCompaniesPage() {
     [companies, search],
   );
 
-  if (!can("external_companies", "view")) {
+  if (!permsLoading && !can("external_companies", "view")) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
         <h2 className="text-lg font-medium">No access</h2>
@@ -84,7 +90,7 @@ export function ExternalCompaniesPage() {
             Partners that send you work. A job can record which one referred it.
           </p>
         </div>
-        {canCreate ? (
+        {ready && canCreate ? (
           <Button variant="brand" className="h-9 gap-1.5" onClick={openNew}>
             <Plus className="size-4" /> New company
           </Button>
@@ -102,7 +108,7 @@ export function ExternalCompaniesPage() {
         />
       </div>
 
-      {isLoading ? (
+      {!ready ? (
         <div className="space-y-2">
           <Skeleton className="h-12 w-full" />
           <Skeleton className="h-12 w-full" />

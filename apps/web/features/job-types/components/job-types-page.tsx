@@ -25,13 +25,19 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { usePermissions } from "@/features/auth/use-permissions";
+import { settled, usePageReady } from "@/lib/use-page-ready";
 import { useJobTypes, useDeleteJobType } from "../hooks";
 import { JobTypeFormDialog } from "./job-type-form-dialog";
 
 export function JobTypesPage() {
-  const { can } = usePermissions();
-  const { data: jobTypes, isLoading } = useJobTypes();
+  const { can, isLoading: permsLoading } = usePermissions();
+  const jobTypesQuery = useJobTypes();
+  const jobTypes = jobTypesQuery.data;
   const del = useDeleteJobType();
+  // One skeleton until both the user and the list are in: the "New" button
+  // and the rows come in the same frame, and nobody is refused for the beat
+  // their permissions are still on the way.
+  const ready = usePageReady(!permsLoading && settled(jobTypesQuery));
 
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<JobType | undefined>();
@@ -41,7 +47,7 @@ export function JobTypesPage() {
   const canEdit = can("job_types", "edit");
   const canDelete = can("job_types", "delete");
 
-  if (!can("job_types", "view")) {
+  if (!permsLoading && !can("job_types", "view")) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
         <h2 className="text-lg font-medium">No access</h2>
@@ -70,14 +76,14 @@ export function JobTypesPage() {
             The kinds of work you dispatch. Jobs pick one; technicians are approved for them.
           </p>
         </div>
-        {canCreate ? (
+        {ready && canCreate ? (
           <Button variant="brand" className="h-9 gap-1.5" onClick={openNew}>
             <Plus className="size-4" /> New job type
           </Button>
         ) : null}
       </div>
 
-      {isLoading ? (
+      {!ready ? (
         <div className="space-y-2">
           <Skeleton className="h-12 w-full" />
           <Skeleton className="h-12 w-full" />

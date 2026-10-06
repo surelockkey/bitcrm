@@ -25,6 +25,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { usePermissions } from "@/features/auth/use-permissions";
+import { settled, usePageReady } from "@/lib/use-page-ready";
 import { useCustomFields, useDeleteCustomField } from "../hooks";
 import { groupFields } from "../lib";
 import { CustomFieldFormDialog } from "./custom-field-form-dialog";
@@ -42,8 +43,13 @@ const TYPE_LABELS: Record<CustomFieldType, string> = {
 };
 
 export function CustomFieldsPage() {
-  const { can } = usePermissions();
-  const { data: fields, isLoading } = useCustomFields();
+  const { can, isLoading: permsLoading } = usePermissions();
+  const fieldsQuery = useCustomFields();
+  const fields = fieldsQuery.data;
+  // One skeleton until both the user and the list are in: the "New" button
+  // and the rows come in the same frame, and nobody is refused for the beat
+  // their permissions are still on the way.
+  const ready = usePageReady(!permsLoading && settled(fieldsQuery));
   const del = useDeleteCustomField();
 
   const [formOpen, setFormOpen] = useState(false);
@@ -56,7 +62,7 @@ export function CustomFieldsPage() {
 
   const groups = useMemo(() => groupFields(fields ?? []), [fields]);
 
-  if (!can("custom_fields", "view")) {
+  if (!permsLoading && !can("custom_fields", "view")) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
         <h2 className="text-lg font-medium">No access</h2>
@@ -85,14 +91,14 @@ export function CustomFieldsPage() {
             User-defined fields on deals, filed under group headings and scoped to job types.
           </p>
         </div>
-        {canCreate ? (
+        {ready && canCreate ? (
           <Button variant="brand" className="h-9 gap-1.5" onClick={openNew}>
             <Plus className="size-4" /> New custom field
           </Button>
         ) : null}
       </div>
 
-      {isLoading ? (
+      {!ready ? (
         <div className="space-y-2">
           <Skeleton className="h-12 w-full" />
           <Skeleton className="h-12 w-full" />

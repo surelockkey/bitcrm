@@ -26,13 +26,19 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { usePermissions } from "@/features/auth/use-permissions";
+import { settled, usePageReady } from "@/lib/use-page-ready";
 import { useJobTags, useDeleteJobTag } from "../hooks";
 import { tagColorClasses } from "../lib";
 import { JobTagFormDialog } from "./job-tag-form-dialog";
 
 export function JobTagsPage() {
-  const { can } = usePermissions();
-  const { data: jobTags, isLoading } = useJobTags();
+  const { can, isLoading: permsLoading } = usePermissions();
+  const jobTagsQuery = useJobTags();
+  const jobTags = jobTagsQuery.data;
+  // One skeleton until both the user and the list are in: the "New" button
+  // and the rows come in the same frame, and nobody is refused for the beat
+  // their permissions are still on the way.
+  const ready = usePageReady(!permsLoading && settled(jobTagsQuery));
   const del = useDeleteJobTag();
 
   const [formOpen, setFormOpen] = useState(false);
@@ -43,7 +49,7 @@ export function JobTagsPage() {
   const canEdit = can("job_tags", "edit");
   const canDelete = can("job_tags", "delete");
 
-  if (!can("job_tags", "view")) {
+  if (!permsLoading && !can("job_tags", "view")) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
         <h2 className="text-lg font-medium">No access</h2>
@@ -72,14 +78,14 @@ export function JobTagsPage() {
             Colored labels for deals. A deal can carry as many as you like.
           </p>
         </div>
-        {canCreate ? (
+        {ready && canCreate ? (
           <Button variant="brand" className="h-9 gap-1.5" onClick={openNew}>
             <Plus className="size-4" /> New job tag
           </Button>
         ) : null}
       </div>
 
-      {isLoading ? (
+      {!ready ? (
         <div className="space-y-2">
           <Skeleton className="h-12 w-full" />
           <Skeleton className="h-12 w-full" />

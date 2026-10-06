@@ -18,13 +18,19 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { usePermissions } from "@/features/auth/use-permissions";
+import { settled, usePageReady } from "@/lib/use-page-ready";
 import { useJobStatuses, useDeleteJobStatus } from "../hooks";
 import { groupJobStatuses, statusColorClasses } from "../lib";
 import { JobStatusFormDialog } from "./job-status-form-dialog";
 
 export function JobStatusesPage() {
-  const { can } = usePermissions();
-  const { data: statuses, isLoading } = useJobStatuses();
+  const { can, isLoading: permsLoading } = usePermissions();
+  const statusesQuery = useJobStatuses();
+  const statuses = statusesQuery.data;
+  // One skeleton until both the user and the list are in: the groups come
+  // with their "Add status" buttons and their rows in one frame, and nobody
+  // is refused for the beat their permissions are still on the way.
+  const ready = usePageReady(!permsLoading && settled(statusesQuery));
   const del = useDeleteJobStatus();
 
   const [formOpen, setFormOpen] = useState(false);
@@ -36,7 +42,7 @@ export function JobStatusesPage() {
   const canEdit = can("job_statuses", "edit");
   const canDelete = can("job_statuses", "delete");
 
-  if (!can("job_statuses", "view")) {
+  if (!permsLoading && !can("job_statuses", "view")) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
         <h2 className="text-lg font-medium">No access</h2>
@@ -71,7 +77,7 @@ export function JobStatusesPage() {
         </p>
       </div>
 
-      {isLoading ? (
+      {!ready ? (
         <div className="space-y-2">
           <Skeleton className="h-20 w-full" />
           <Skeleton className="h-20 w-full" />
