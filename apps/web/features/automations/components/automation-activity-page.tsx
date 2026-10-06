@@ -15,7 +15,9 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getApiErrorMessage } from "@/lib/api/errors";
-import { useAutomations, useAutomationsAccess, useAutomationRunsFeed , useAutomationRunsFeedCount } from "../hooks";
+import { settled, usePageReady } from "@/lib/use-page-ready";
+import { cn } from "@/lib/utils";
+import { useAutomations, useAutomationsAccess, useAutomationRunsFeed, useAutomationRunsFeedCount } from "../hooks";
 import { OUTCOME_LABEL, formatFiredAt } from "../lib";
 import { RunActions, RunLine, RunOutcomeBadge } from "./automation-activity-run";
 import { ListPagination } from "@/components/ui/list-pagination";
@@ -67,7 +69,8 @@ export function AutomationActivityPage() {
   // query key each time and the feed would refetch forever.
   const since = useMemo(() => sinceInstant(sinceKey), [sinceKey]);
 
-  const { data: rules, isError: rulesFailed } = useAutomations(canView);
+  const rulesQuery = useAutomations(canView);
+  const { data: rules, isError: rulesFailed } = rulesQuery;
   const [pageSize, setPageSize] = usePageSize("automation-activity");
   const feed = useAutomationRunsFeed(
     {
@@ -87,12 +90,22 @@ export function AutomationActivityPage() {
     },
     canView,
   );
+  const feedKey = JSON.stringify({ ruleId, outcome, sinceKey, pageSize });
   const pager = usePager(pagedSource(feed, (page: { items: AutomationRun[] }) => page.items), {
     total: count.data?.total,
     totalIsFloor: count.data?.atLeast,
     pageSize,
-    resetKey: JSON.stringify({ ruleId, outcome, sinceKey, pageSize }),
+    resetKey: feedKey,
   });
+
+  // One skeleton, then the firings whole. They used to land first and be
+  // rewritten under the reader — "Rule 1a2b3c4d" until the rules came with
+  // the names, the "of N" under them later still. The filters wait with them
+  // the first time (a rule picked by link names itself from the same list);
+  // the firings start over when a filter changes, like any new list.
+  const allIn = !loadingAccess && [rulesQuery, feed, count].every(settled);
+  const pageShown = usePageReady(allIn);
+  const feedShown = usePageReady(allIn, feedKey);
   const runs = useMemo(() => {
     // Refetching re-reads the page: a firing logged in between can shift a row
     // and arrive twice (duplicate React keys, and a reader counting it twice).
@@ -155,7 +168,7 @@ export function AutomationActivityPage() {
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
+      <div className={cn("flex flex-wrap items-center gap-2", !pageShown && "invisible")}>
         <Select value={ruleId} onValueChange={setRuleId}>
           <SelectTrigger className="h-9 w-64" aria-label="Rule">
             <SelectValue />
@@ -205,7 +218,7 @@ export function AutomationActivityPage() {
 
       {/* The feed is held back until the permission is known, so waiting on
           it must read as the wait it is and not as an empty workspace. */}
-      {loadingAccess || feed.isPending ? (
+      {!feedShown ? (
         <div className="space-y-2">
           <Skeleton className="h-20 w-full" />
           <Skeleton className="h-20 w-full" />
