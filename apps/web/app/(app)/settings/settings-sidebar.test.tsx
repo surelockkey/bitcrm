@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 
 const perms = vi.hoisted(() => ({ isLoading: true }));
 vi.mock("next/navigation", () => ({ usePathname: () => "/settings/general" }));
@@ -35,5 +35,15 @@ describe("SettingsSidebar", () => {
     const nav = screen.getByRole("navigation");
     expect(nav.className).not.toMatch(/\binvisible\b/);
     expect(screen.getAllByRole("link").length).toBeGreaterThan(5);
+  });
+
+  it("files its links under the same blocks as the settings page", () => {
+    perms.isLoading = false;
+    render(<SettingsSidebar />);
+    expect(screen.getAllByRole("group")).toHaveLength(5);
+    const job = screen.getByRole("group", { name: "Job Settings" });
+    expect(within(job).getByText("Job Settings")).toBeInTheDocument();
+    expect(within(job).getByRole("link", { name: /Job Types/ })).toHaveAttribute("href", "/settings/job-types");
+    expect(within(job).queryByRole("link", { name: /Call Flows/ })).toBeNull();
   });
 });
