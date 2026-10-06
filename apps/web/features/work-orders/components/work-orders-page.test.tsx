@@ -14,7 +14,8 @@ const permissions = vi.hoisted(() => ({
   value: { can: (_r: string, _a: string): boolean => true },
 }));
 vi.mock("@/features/auth/use-permissions", () => ({
-  useDenied: () => () => false,
+  // This suite asserts the refusal, so `useDenied` mirrors its own `can`.
+  useDenied: () => (r: string, a = "view") => !permissions.value.can(r, a),
   usePermissions: () => permissions.value,
 }));
 
