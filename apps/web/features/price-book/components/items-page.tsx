@@ -21,6 +21,7 @@ import { productsToCsv } from "@/features/inventory/products/lib";
 import { ProductDialog } from "@/features/inventory/products/components/product-dialog";
 import { ImportProductsDialog } from "@/features/inventory/products/components/import-products-dialog";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
+import { settled, usePageReady } from "@/lib/use-page-ready";
 import { cn } from "@/lib/utils";
 import { pagedSource } from "@/lib/paging/paged-source";
 import { usePageSize } from "@/lib/paging/use-page-size";
@@ -49,12 +50,21 @@ const byName = (a: string, b: string) => a.localeCompare(b);
  * The Price Book's Items tab — every item, product or service, stock-managed
  * or not. Every filter goes to the server; a page is never filtered here.
  * Items open in the same Edit / Create popup Inventory uses.
+ *
+ * It loads without moving: the toolbar and the columns are in place from the
+ * first frame, and the rows come in one frame with everything they print —
+ * their brands, and the pager's "of N".
  */
 export function ItemsPage() {
-  const { can } = usePermissions();
+  const { can, isLoading: permsLoading } = usePermissions();
   const denied = useDenied();
   const money = can("financials", "view");
-  const canCreate = can("products", "create");
+  // Until the permissions answer, every control is drawn (and off): a toolbar
+  // that gained Category, Brand, Import and New item a moment in wrapped onto
+  // a second line and threw Export CSV across the screen.
+  const canCreate = permsLoading || can("products", "create");
+  const canCategories = permsLoading || can("product_categories", "view");
+  const canBrands = permsLoading || can("brands", "view");
 
   const [filters, setFilters] = useState<PriceBookFilters>(DEFAULT_FILTERS);
   const [importOpen, setImportOpen] = useState(false);
@@ -77,17 +87,26 @@ export function ItemsPage() {
     resetKey: JSON.stringify({ filter, pageSize }),
   });
   const items = pager.items;
+
+  // Every category and brand the catalogs know (archived too — items still
+  // carry them), not the handful on the page being shown. Asked for beside
+  // the permissions, not after them — the server guards the catalogs.
+  const categoryCatalog = useItemCategories(canCategories);
+  const brandCatalog = useBrands(canBrands);
+
+  // One skeleton, then the page whole: the rows wait for the permissions
+  // (they decide the columns), the count (the pager's "of N") and the brands
+  // (the Brand column) — drawn before them, they filled in a beat later.
+  // Latched: a new filter keeps the rows on screen, dimmed, not a skeleton.
+  const ready = usePageReady(
+    !permsLoading && settled(query) && settled(count) && (!canBrands || settled(brandCatalog)),
+  );
   const skeletonRows = useSkeletonRows(
     ITEMS_TABLE_KEY,
     pageSize,
     count.data?.total,
-    query.isLoading || query.isPlaceholderData ? undefined : items.length,
+    !ready || query.isPlaceholderData ? undefined : items.length,
   );
-
-  // Every category and brand the catalogs know (archived too — items still
-  // carry them), not the handful on the page being shown.
-  const categoryCatalog = useItemCategories(can("product_categories", "view"));
-  const brandCatalog = useBrands(can("brands", "view"));
   const categories = useMemo(
     () => [...new Set((categoryCatalog.data ?? []).map((c) => c.name))].sort(byName),
     [categoryCatalog.data],
@@ -115,7 +134,10 @@ export function ItemsPage() {
   const filtered = isFiltered(filters);
 
   return (
-    <div className="flex flex-1 flex-col">
+    // The frame drawn while the permissions load is a guess at what they
+    // allow; once they answer it is drawn anew, not reshuffled — a role the
+    // guess was wrong for (no New item, no Cost) sees no control slide across.
+    <div key={permsLoading ? "guess" : "known"} className="flex flex-1 flex-col">
       <div data-testid="price-book-toolbar" className="flex flex-wrap items-center gap-2 px-6 py-3">
         <div className="relative w-full max-w-xs">
           <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -134,8 +156,14 @@ export function ItemsPage() {
           <SelectItem value={ProductType.SERVICE}>Service</SelectItem>
         </FilterSelect>
 
-        {can("product_categories", "view") ? (
-          <FilterSelect label="Category" value={filters.category} onChange={set("category")} width="w-44">
+        {canCategories ? (
+          <FilterSelect
+            label="Category"
+            value={filters.category}
+            onChange={set("category")}
+            width="w-44"
+            disabled={permsLoading}
+          >
             <SelectItem value="all">All categories</SelectItem>
             {categories.map((c) => (
               <SelectItem key={c} value={c}>
@@ -145,8 +173,14 @@ export function ItemsPage() {
           </FilterSelect>
         ) : null}
 
-        {can("brands", "view") ? (
-          <FilterSelect label="Brand" value={filters.brandId} onChange={set("brandId")} width="w-40">
+        {canBrands ? (
+          <FilterSelect
+            label="Brand"
+            value={filters.brandId}
+            onChange={set("brandId")}
+            width="w-40"
+            disabled={permsLoading}
+          >
             <SelectItem value="all">All brands</SelectItem>
             {brands.map((b) => (
               <SelectItem key={b.id} value={b.id}>
@@ -178,7 +212,7 @@ export function ItemsPage() {
         <Button
           variant="outline"
           className="h-9 gap-1.5"
-          disabled={items.length === 0}
+          disabled={!ready || items.length === 0}
           title="Export the items on this page"
           onClick={() => downloadCsv(productsToCsv(items, { withCost: money }), "price-book.csv")}
         >
@@ -186,13 +220,18 @@ export function ItemsPage() {
           Export CSV
         </Button>
         {canCreate ? (
-          <Button variant="outline" className="h-9 gap-1.5" onClick={() => setImportOpen(true)}>
+          <Button
+            variant="outline"
+            className="h-9 gap-1.5"
+            disabled={permsLoading}
+            onClick={() => setImportOpen(true)}
+          >
             <Upload className="size-4" />
             Import CSV
           </Button>
         ) : null}
         {canCreate ? (
-          <Button className="h-9 gap-1.5 px-3.5" onClick={() => open({ kind: "new" })}>
+          <Button className="h-9 gap-1.5 px-3.5" disabled={permsLoading} onClick={() => open({ kind: "new" })}>
             <PackagePlus className="size-4" />
             New item
           </Button>
@@ -206,20 +245,18 @@ export function ItemsPage() {
           <>
             <ItemsTable
               items={items}
-              showCost={money}
+              showCost={permsLoading || money}
               brandNames={brandNames}
               onEdit={(p: Product) => open({ kind: "edit", id: p.id })}
-              loading={query.isLoading}
+              loading={!ready}
               skeletonRows={skeletonRows}
               stale={query.isPlaceholderData}
               empty={<EmptyState filtered={filtered} />}
             />
-            {/* The bar's room is kept while the first page loads, so nothing
-                under the table moves when the rows land. */}
+            {/* Drawn with the rows, its total and all — never under the
+                skeleton, where the rows would move it when they land. */}
             <div data-testid="pager-slot" className="min-h-14">
-              {query.isLoading ? null : (
-                <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} />
-              )}
+              {ready ? <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} /> : null}
             </div>
           </>
         )}
@@ -245,16 +282,18 @@ function FilterSelect<V extends string>({
   value,
   onChange,
   width,
+  disabled,
   children,
 }: {
   label: string;
   value: V;
   onChange: (value: V) => void;
   width: string;
+  disabled?: boolean;
   children: React.ReactNode;
 }) {
   return (
-    <Select value={value} onValueChange={(v) => onChange(v as V)}>
+    <Select value={value} onValueChange={(v) => onChange(v as V)} disabled={disabled}>
       <SelectTrigger className={cn("h-9", width)} aria-label={label}>
         <SelectValue placeholder={label} />
       </SelectTrigger>

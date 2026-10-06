@@ -22,7 +22,8 @@ const CATEGORIES: CatalogConfig = {
 
 /** The Price Book's Categories tab. */
 export function CategoriesPage() {
-  const { can } = usePermissions();
-  const query = useItemCategories(can("product_categories", "view"));
+  const { can, isLoading } = usePermissions();
+  // Asked for beside the permissions, not after them; the server guards it.
+  const query = useItemCategories(isLoading || can("product_categories", "view"));
   return <CatalogTab config={CATEGORIES} query={query} />;
 }

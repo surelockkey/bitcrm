@@ -23,6 +23,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
+import { usePageReady } from "@/lib/use-page-ready";
 import { useDenied, usePermissions } from "@/features/auth/use-permissions";
 import { usePopup } from "@/features/inventory/use-popup";
 import { RowIconAction } from "@/features/inventory/components/row-icon-action";
@@ -83,7 +84,7 @@ export function CatalogTab({
   config: CatalogConfig;
   query: { data?: CatalogRow[]; isLoading: boolean; isError: boolean; refetch?: () => unknown };
 }) {
-  const { can } = usePermissions();
+  const { can, isLoading: permsLoading } = usePermissions();
   const denied = useDenied();
   const canCreate = can(config.resource, "create");
   const canEdit = can(config.resource, "edit");
@@ -97,8 +98,11 @@ export function CatalogTab({
   }, [query.data, search]);
 
   // A catalog the permissions haven't enabled yet has no data and isn't
-  // "loading" either — it is still a skeleton, not an empty catalog.
-  const loading = query.isLoading || (query.data === undefined && !query.isError);
+  // "loading" either — it is still a skeleton, not an empty catalog. The
+  // rows also wait for the permissions, which decide their Actions cell:
+  // drawn first, every row grew its pencil and kebab a beat later.
+  const ready = usePageReady(!permsLoading && (query.data !== undefined || query.isError));
+  const loading = !ready;
   const tableKey = `price-book-${config.kind}`;
   const skeletonRows = useSkeletonRows(
     tableKey,
