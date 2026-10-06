@@ -13,6 +13,8 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Role } from "@bitcrm/types";
+import { usePermissions } from "@/features/auth/use-permissions";
+import { settled, usePageReady } from "@/lib/use-page-ready";
 import { useRoles, useRoleMemberCounts } from "../hooks";
 import { useRoleAccess } from "../use-role-access";
 import { RolesTable } from "./roles-table";
@@ -27,6 +29,7 @@ function matchesType(role: Role, filter: TypeFilter): boolean {
 }
 
 export function RolesPage() {
+  const { isLoading: permsLoading } = usePermissions();
   const { canViewRoles, canCreateRoles } = useRoleAccess();
   const rolesQuery = useRoles();
   const [search, setSearch] = useState("");
@@ -34,7 +37,11 @@ export function RolesPage() {
   const [createOpen, setCreateOpen] = useState(false);
 
   const roles = useMemo(() => rolesQuery.data ?? [], [rolesQuery.data]);
-  const counts = useRoleMemberCounts(roles.map((r) => r.id));
+  const { counts, ready: countsIn } = useRoleMemberCounts(roles.map((r) => r.id));
+  // The table waits for every role's member count: the cells used to fill
+  // one request at a time under grey bars, and "0 roles" turned into the
+  // number. The "New role" button comes with them.
+  const ready = usePageReady(!permsLoading && settled(rolesQuery) && countsIn);
 
   const visible = roles.filter((r) => {
     if (!matchesType(r, type)) return false;
@@ -43,7 +50,7 @@ export function RolesPage() {
     return hay.includes(search.toLowerCase());
   });
 
-  if (!canViewRoles) {
+  if (!permsLoading && !canViewRoles) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
         <h2 className="text-lg font-medium">No access</h2>
@@ -63,7 +70,7 @@ export function RolesPage() {
             Define what each role can see and do. Higher priority manages lower.
           </p>
         </div>
-        {canCreateRoles ? (
+        {ready && canCreateRoles ? (
           <Button
             variant="brand"
             className="h-9 gap-1.5 px-3.5"
@@ -96,12 +103,12 @@ export function RolesPage() {
           </SelectContent>
         </Select>
         <span className="ml-auto text-sm text-muted-foreground">
-          {visible.length} {visible.length === 1 ? "role" : "roles"}
+          {ready ? `${visible.length} ${visible.length === 1 ? "role" : "roles"}` : null}
         </span>
       </div>
 
       <div className="flex-1 px-6 pb-6">
-        {rolesQuery.isLoading ? (
+        {!ready ? (
           <TableSkeleton />
         ) : rolesQuery.isError ? (
           <ErrorState onRetry={() => rolesQuery.refetch()} />
