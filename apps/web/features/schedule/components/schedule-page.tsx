@@ -17,14 +17,11 @@ import {
 } from "@/components/ui/select";
 import { queryKeys } from "@/lib/query-keys";
 import { getApiErrorMessage } from "@/lib/api/errors";
-import { usePermissions } from "@/features/auth/use-permissions";
-import { useDealsWindow, useUserMap } from "@/features/deals/hooks";
-import { useContactsByIds } from "@/features/clients/hooks";
-import { useAllTechnicians } from "@/features/technicians/hooks";
+import { useDenied, usePermissions } from "@/features/auth/use-permissions";
 import * as dealApi from "@/features/deals/api";
 import { todayISO } from "@/features/dispatch/lib";
-import { useCalendarEvents } from "../hooks";
-import { weekDays, dealConflicts, eventOnDate, filterTechnicians, type ConflictReason } from "../lib";
+import { dealConflicts, eventOnDate, filterTechnicians, type ConflictReason } from "../lib";
+import { useScheduleBoard, type ScheduleBoard, type ScheduleView } from "../use-schedule-board";
 import { DayGrid, type RescheduleTarget } from "./day-grid";
 import { WeekGrid } from "./week-grid";
 import { TimeOffDialog } from "./time-off-dialog";
@@ -34,10 +31,22 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const shift = (iso: string, days: number) =>
   new Date(Date.parse(`${iso}T00:00:00Z`) + days * MS_PER_DAY).toISOString().slice(0, 10);
 
+/** Before the first grid is in: nothing to draw yet. */
+const NO_BOARD: ScheduleBoard = {
+  view: "day",
+  date: "",
+  deals: [],
+  events: [],
+  contacts: new Map(),
+  profiles: [],
+  users: new Map(),
+};
+
 export function SchedulePage() {
   const { can } = usePermissions();
+  const denied = useDenied();
   const qc = useQueryClient();
-  const [view, setView] = useState<"day" | "week">("day");
+  const [view, setView] = useState<ScheduleView>("day");
   const [date, setDate] = useState(todayISO());
   const [timeOffOpen, setTimeOffOpen] = useState(false);
   const [pending, setPending] = useState<RescheduleTarget | null>(null);
@@ -47,24 +56,16 @@ export function SchedulePage() {
   const canView = can("deals", "view");
   const canManage = can("technicians", "edit");
 
-  const week = useMemo(() => weekDays(date), [date]);
-  const [from, to] = view === "day" ? [date, date] : [week[0], week[6]];
-  // The board holds one day or one week — never the whole table.
-  const { data: deals } = useDealsWindow({ from, to }, { poll: true });
-  const { profiles, isLoading: techsLoading } = useAllTechnicians(canView);
-  const { map: users } = useUserMap();
-  const contactIds = useMemo(() => (deals ?? []).map((d) => d.contactId), [deals]);
-  const { map: contacts } = useContactsByIds(contactIds);
+  // The grid as it was last complete: the day or week picked in the toolbar
+  // replaces it once all of that one is in, not piece by piece.
+  const { board } = useScheduleBoard({ view, date }, canView);
+  const { deals, events, contacts, profiles, users } = board ?? NO_BOARD;
 
   const visibleProfiles = useMemo(
     () => filterTechnicians(profiles, users, { activeOnly, query }),
     [profiles, users, activeOnly, query],
   );
   const techIds = useMemo(() => visibleProfiles.map((p) => p.userId), [visibleProfiles]);
-  const allTechIds = useMemo(() => profiles.map((p) => p.userId), [profiles]);
-
-  // Fetch events for the whole roster so toggling filters never refetches.
-  const { data: events } = useCalendarEvents(allTechIds, from, to, canView);
 
   const profileMap = useMemo(() => {
     const m = new Map<string, TechnicianProfile>();
@@ -100,19 +101,21 @@ export function SchedulePage() {
       ),
       scheduledTimeSlot: pending.newSlot,
     };
-    const sameDay = (deals ?? []).filter(
+    const sameDay = deals.filter(
       (d) =>
         d.id !== preview.id &&
         d.scheduledDate === preview.scheduledDate &&
         d.assignedTechIds.includes(pending.newTechId),
     );
-    const techEvents = (events ?? []).filter(
+    const techEvents = events.filter(
       (e) => e.technicianId === pending.newTechId && preview.scheduledDate && eventOnDate(e, preview.scheduledDate),
     );
     return dealConflicts(preview, sameDay, techEvents, profileMap.get(pending.newTechId) ?? {});
   }, [pending, deals, events, profileMap]);
 
-  if (!canView) {
+  // Refused only once the permissions say so — not on every refresh while
+  // they are still on their way.
+  if (denied("deals", "view")) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
         <h2 className="text-lg font-medium">No access</h2>
@@ -125,7 +128,7 @@ export function SchedulePage() {
     <div className="flex flex-1 flex-col">
       <div className="flex flex-wrap items-center gap-3 border-b px-6 py-3">
         <h1 className="text-lg font-semibold tracking-tight">Schedule</h1>
-        <Tabs value={view} onValueChange={(v) => setView(v as "day" | "week")}>
+        <Tabs value={view} onValueChange={(v) => setView(v as ScheduleView)}>
           <TabsList>
             <TabsTrigger value="day">Day</TabsTrigger>
             <TabsTrigger value="week">Week</TabsTrigger>
@@ -171,22 +174,26 @@ export function SchedulePage() {
           </SelectContent>
         </Select>
 
-        <span className="ml-auto text-xs text-muted-foreground">
-          {techIds.length} {techIds.length === 1 ? "technician" : "technicians"}
-        </span>
+        {/* Counted once the roster and its names are in — a "0" that becomes
+            "69" a moment later is a number the reader never needed. */}
+        {board ? (
+          <span className="ml-auto text-xs text-muted-foreground">
+            {techIds.length} {techIds.length === 1 ? "technician" : "technicians"}
+          </span>
+        ) : null}
       </div>
 
       <div className="flex-1 overflow-auto p-4">
-        {techsLoading ? (
+        {!board ? (
           <p className="p-8 text-center text-sm text-muted-foreground">Loading technicians…</p>
         ) : techIds.length === 0 ? (
           <p className="p-8 text-center text-sm text-muted-foreground">No technicians to schedule.</p>
-        ) : view === "day" ? (
+        ) : board.view === "day" ? (
           <DayGrid
-            dateISO={date}
+            dateISO={board.date}
             techIds={techIds}
-            deals={deals ?? []}
-            events={events ?? []}
+            deals={deals}
+            events={events}
             profiles={profileMap}
             users={users}
             contacts={contacts}
@@ -195,10 +202,10 @@ export function SchedulePage() {
           />
         ) : (
           <WeekGrid
-            anchorISO={date}
+            anchorISO={board.date}
             techIds={techIds}
-            deals={deals ?? []}
-            events={events ?? []}
+            deals={deals}
+            events={events}
             users={users}
             onPickDay={(d) => {
               setDate(d);

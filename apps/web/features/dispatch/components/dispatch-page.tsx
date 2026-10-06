@@ -14,13 +14,10 @@ import {
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { env } from "@/lib/env";
-import { usePermissions } from "@/features/auth/use-permissions";
-import { useDealsWindow, useReorderDeals, useUserMap } from "@/features/deals/hooks";
-import { useContactsByIds } from "@/features/clients/hooks";
-import { useAllTechnicians, useTechnicianLocations } from "@/features/technicians/hooks";
+import { useDenied, usePermissions } from "@/features/auth/use-permissions";
+import { useReorderDeals } from "@/features/deals/hooks";
 import { useJobTypes } from "@/features/job-types/hooks";
 import { activeJobTypes } from "@/features/job-types/lib";
-import { useServiceAreas } from "@/features/service-areas/hooks";
 import {
   dealClientName,
   filterDeals,
@@ -38,13 +35,8 @@ import { TechList } from "./tech-list";
 import { JobSidebar } from "./job-sidebar";
 import { TechSidebar } from "./tech-sidebar";
 import { LastUpdated } from "./last-updated";
-import {
-  splitByLocation,
-  technicianPositions,
-  mergeLivePositions,
-  techJobsToday,
-  todayISO,
-} from "../lib";
+import { splitByLocation, techJobsToday, todayISO } from "../lib";
+import { useDispatchBoard, type DispatchBoard } from "../use-dispatch-board";
 
 const ALL = "all";
 
@@ -94,8 +86,35 @@ type View = "split" | "map" | "list";
 /** Which marker layers the map draws. */
 type Layer = "both" | "jobs" | "techs";
 
+/** Before the first board is in: nothing to read yet. */
+const NO_BOARD: DispatchBoard = {
+  window: {},
+  deals: [],
+  failed: false,
+  updatedAt: 0,
+  contacts: new Map(),
+  users: new Map(),
+  profiles: [],
+  technicians: [],
+  fixesAt: 0,
+  addresses: new Map(),
+  areas: [],
+};
+
 export function DispatchPage() {
+  return (
+    // One Maps loader for the whole page — the map and the roster's reverse
+    // geocoding share it, and it starts loading with the page rather than
+    // once the jobs are in. Passes through untouched when there's no key.
+    <MapsProvider>
+      <DispatchBoardPage />
+    </MapsProvider>
+  );
+}
+
+function DispatchBoardPage() {
   const { can } = usePermissions();
+  const denied = useDenied();
 
   const [view, setView] = useState<View>("split");
   const [layer, setLayer] = useState<Layer>("both");
@@ -136,9 +155,11 @@ export function DispatchPage() {
 
   // A selection in one layer is meaningless in the other — a picked job has no
   // marker in "Techs" and vice versa. Clear it when the layer changes.
-  useEffect(() => {
+  const pickLayer = (next: Layer) => {
+    if (next === layer) return;
+    setLayer(next);
     setSelectedId(null);
-  }, [layer]);
+  };
 
   // The board holds the open jobs of every date, or every job of the chosen
   // days — a closed job is only read inside a date window.
@@ -146,22 +167,27 @@ export function DispatchPage() {
     const { from, to } = datePresetRange(datePreset, todayISO());
     return { from, to, statuses: statusGroups };
   }, [datePreset, statusGroups]);
-  const query = useDealsWindow(boardWindow, { poll: true });
-  const contactIds = useMemo(() => (query.data ?? []).map((d) => d.contactId), [query.data]);
-  const { map: contacts } = useContactsByIds(contactIds);
-  const { map: users } = useUserMap();
   // Technician profiles are manager+ only — firing the query regardless would
   // 403 on every load for a dispatcher who can see the map but not the roster.
   const canSeeTechs = can("technicians", "view");
-  const { profiles } = useAllTechnicians(canSeeTechs);
-  const { data: liveLocations } = useTechnicianLocations(canSeeTechs);
   // Only fetch the catalog when the viewer can read it — dispatchers without the
   // permission would 403 on every load.
   const canSeeAreas = can("service_areas", "view");
-  const { data: serviceAreasData } = useServiceAreas(canSeeAreas);
+  // Everything the board draws, held back until all of it is in — and from
+  // then on the last complete board while another window loads.
+  const { board, query } = useDispatchBoard(boardWindow, { techs: canSeeTechs, areas: canSeeAreas });
+  const {
+    window: shownWindow,
+    deals,
+    contacts,
+    users,
+    profiles,
+    technicians,
+    fixesAt,
+    addresses,
+    areas: serviceAreasData,
+  } = board ?? NO_BOARD;
   const reorder = useReorderDeals();
-
-  const deals = useMemo(() => query.data ?? [], [query.data]);
 
   // Per-deal display names: a job's own "Just here" rename wins over the
   // contact record's name.
@@ -178,30 +204,28 @@ export function DispatchPage() {
     [deals],
   );
 
-  const filtered = useMemo(() => {
-    const { from, to } = datePresetRange(datePreset, todayISO());
-    return filterDeals(
-      deals,
-      {
-        search,
-        serviceArea: serviceArea === ALL ? undefined : serviceArea,
-        jobTypeId: jobTypeId === ALL ? undefined : jobTypeId,
-        statusGroups,
-        dateFrom: from,
-        dateTo: to,
-      },
-      contacts,
-    );
-  }, [deals, search, serviceArea, jobTypeId, statusGroups, datePreset, contacts]);
+  // The days and statuses filter by the window the shown jobs were read for:
+  // a new pick keeps the board as it is until its own jobs are in, then turns
+  // it over once — rather than re-filtering the old jobs now and changing
+  // again when the new ones land. The rest filters on the spot.
+  const filtered = useMemo(
+    () =>
+      filterDeals(
+        deals,
+        {
+          search,
+          serviceArea: serviceArea === ALL ? undefined : serviceArea,
+          jobTypeId: jobTypeId === ALL ? undefined : jobTypeId,
+          statusGroups: shownWindow.statuses,
+          dateFrom: shownWindow.from,
+          dateTo: shownWindow.to,
+        },
+        contacts,
+      ),
+    [deals, search, serviceArea, jobTypeId, shownWindow, contacts],
+  );
 
   const { mapped, unmapped } = useMemo(() => splitByLocation(filtered), [filtered]);
-
-  const technicians = useMemo(() => {
-    const derived = technicianPositions(profiles, deals, todayISO());
-    // A real GPS fix beats the inferred home/last-job position when the
-    // technician is online.
-    return mergeLivePositions(derived, liveLocations ?? [], Date.now());
-  }, [profiles, deals, liveLocations]);
 
   // The layer toggle only hides markers; the job list stays as the work queue.
   const showJobLayer = layer !== "techs";
@@ -211,7 +235,7 @@ export function DispatchPage() {
   // Memoized so the overlay's polygons only rebuild when the set actually
   // changes, not on every unrelated render (hover, selection, poll).
   const mapAreas = useMemo(
-    () => (showAreas ? serviceAreasData ?? [] : []),
+    () => (showAreas ? serviceAreasData : []),
     [showAreas, serviceAreasData],
   );
 
@@ -247,7 +271,9 @@ export function DispatchPage() {
     if (mapped.length > 0) select(mapped[0].id);
   };
 
-  if (!can("deals", "view")) {
+  // Refused only once the permissions say so — not on every refresh while
+  // they are still on their way.
+  if (denied("deals", "view")) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
         <h2 className="text-lg font-medium">No access</h2>
@@ -271,13 +297,21 @@ export function DispatchPage() {
     return names.length ? names.join(", ") : undefined;
   };
 
+  // One wait for the whole board, then the board in one frame: the toolbar's
+  // toggles hang on the permissions and its count on the jobs, so it comes
+  // with them rather than reflowing as they land.
+  if (!board) {
+    return (
+      <div className="flex flex-1 items-center justify-center">
+        <Loader2 className="size-5 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
   const showMap = view !== "list";
   const showList = view !== "map";
 
   return (
-    // One Maps loader for the whole page — the map and the roster's reverse
-    // geocoding share it. Passes through untouched when there's no key.
-    <MapsProvider>
     <div className="flex flex-1 flex-col overflow-hidden">
       <div className="flex flex-wrap items-center gap-2 border-b px-6 py-3">
         <div className="mr-auto">
@@ -286,7 +320,7 @@ export function DispatchPage() {
             Showing {filtered.length} of {deals.length} jobs
             {unmapped.length > 0 ? ` · ${unmapped.length} without coordinates` : ""}
             {" · "}
-            <LastUpdated at={query.dataUpdatedAt} />
+            <LastUpdated at={board.updatedAt} />
           </p>
         </div>
 
@@ -366,7 +400,7 @@ export function DispatchPage() {
                 size="sm"
                 variant={layer === opt.value ? "secondary" : "ghost"}
                 className="h-7 gap-1.5 px-3 text-xs"
-                onClick={() => setLayer(opt.value)}
+                onClick={() => pickLayer(opt.value)}
                 title={opt.title}
               >
                 <opt.icon className="size-3.5" />
@@ -407,11 +441,7 @@ export function DispatchPage() {
         </div>
       </div>
 
-      {query.isLoading ? (
-        <div className="flex flex-1 items-center justify-center">
-          <Loader2 className="size-5 animate-spin text-muted-foreground" />
-        </div>
-      ) : query.isError ? (
+      {board.failed ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
           <TriangleAlert className="size-6 text-destructive" />
           <div className="font-medium">Couldn&apos;t load jobs</div>
@@ -430,6 +460,8 @@ export function DispatchPage() {
                   <TechList
                     userIds={profiles.map((p) => p.userId)}
                     positions={technicians}
+                    addresses={addresses}
+                    now={fixesAt}
                     userMap={users}
                     hoveredId={hoveredId}
                     selectedId={selectedId}
@@ -508,6 +540,7 @@ export function DispatchPage() {
           ) : selectedTech ? (
             <TechSidebar
               position={selectedTech}
+              address={addresses.get(selectedTech.userId)}
               name={nameOf(selectedTech.userId) ?? "Technician"}
               jobs={selectedTechJobs}
               clientName={(d) => dealClientNames.get(d.id) ?? "Unknown client"}
@@ -526,7 +559,6 @@ export function DispatchPage() {
         <EditDealSheet deal={selected} open onOpenChange={setEditing} />
       ) : null}
     </div>
-    </MapsProvider>
   );
 }
 

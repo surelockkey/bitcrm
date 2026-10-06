@@ -7,7 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { useDenied } from "@/features/auth/use-permissions";
 import { NoAccess } from "@/features/clients/components/contacts-page";
-import { useMyJobs } from "../hooks";
+import { useMyJobsPage } from "../my-jobs-data";
 import { PULL_THRESHOLD_PX, usePullToRefresh } from "../use-pull-to-refresh";
 import { InstallHint } from "./install-hint";
 import { TechJobCard } from "./tech-job-card";
@@ -21,7 +21,10 @@ import { TeamChatBadge } from "./team-chat-badge";
  */
 export function MyJobsPage() {
   const denied = useDenied();
-  const jobs = useMyJobs();
+  // The day and everything its cards print, in one wait: `me` before the
+  // list can be asked for, the list before its clients — the waits read as
+  // one to the person holding the phone, and the day is drawn whole.
+  const { jobs, contacts, ready } = useMyJobsPage();
   const scrollRef = useRef<HTMLDivElement>(null);
   const { pull, refreshing } = usePullToRefresh(scrollRef, () => jobs.refetch());
 
@@ -29,9 +32,7 @@ export function MyJobsPage() {
 
   const total = jobs.groups.reduce((n, g) => n + g.deals.length, 0);
   const busy = refreshing || jobs.isRefetching;
-  // `me` has to resolve before the list can be asked for at all, so the two
-  // waits read as one to the person holding the phone.
-  const loading = !jobs.ready || jobs.isLoading;
+  const loading = !ready;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -42,7 +43,8 @@ export function MyJobsPage() {
             {loading ? "Loading your day…" : `${total} job${total === 1 ? "" : "s"} on your list`}
           </p>
         </div>
-        <TeamChatBadge />
+        {/* With its unread count, not bare and then wider. */}
+        {loading ? null : <TeamChatBadge />}
         <Button
           type="button"
           variant="outline"
@@ -112,6 +114,7 @@ export function MyJobsPage() {
                       <TechJobCard
                         key={deal.id}
                         deal={deal}
+                        contact={contacts.get(deal.contactId)}
                         position={group.dateIso ? i + 1 : undefined}
                       />
                     ))}

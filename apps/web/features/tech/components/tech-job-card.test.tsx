@@ -18,7 +18,7 @@ const push = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
 
 const contactData = vi.hoisted(() => ({ value: undefined as Contact | undefined }));
-vi.mock("@/features/clients/hooks", () => ({ useContact: () => ({ data: contactData.value }) }));
+// The list hands each card its client (see my-jobs-data).
 vi.mock("@/features/job-types/lib", () => ({
   useJobTypesLoading: () => false,
   useJobTypeName: () => (id: string | undefined) => (id === "jt1" ? "Lockout" : "—"),
@@ -76,7 +76,7 @@ describe("TechJobCard", () => {
   });
 
   it("leads with the time, the client and where to go", () => {
-    render(<TechJobCard deal={deal()} position={2} />);
+    render(<TechJobCard contact={contactData.value} deal={deal()} position={2} />);
 
     expect(screen.getByText("9:00 AM – 12:00 PM")).toBeInTheDocument();
     expect(screen.getByText("Jane Smith")).toBeInTheDocument();
@@ -87,6 +87,7 @@ describe("TechJobCard", () => {
   it("navigates by coordinates when the job is geocoded", () => {
     render(
       <TechJobCard
+        contact={contactData.value}
         deal={deal({ address: { street: "1 Main St", city: "Hartford", state: "CT", zip: "06103", lat: 41.76, lng: -72.67 } })}
       />,
     );
@@ -98,14 +99,14 @@ describe("TechJobCard", () => {
   });
 
   it("opens the technician's own job page on a tap, not the office one", async () => {
-    render(<TechJobCard deal={deal()} />);
+    render(<TechJobCard contact={contactData.value} deal={deal()} />);
     await userEvent.click(screen.getByText("Jane Smith"));
 
     expect(push).toHaveBeenCalledWith("/my-jobs/d1");
   });
 
   it("does not open the job when the action row is used", async () => {
-    render(<TechJobCard deal={deal()} />);
+    render(<TechJobCard contact={contactData.value} deal={deal()} />);
     await userEvent.click(screen.getByRole("button", { name: "Call client" }));
 
     expect(push).not.toHaveBeenCalled();
@@ -113,7 +114,7 @@ describe("TechJobCard", () => {
 
   it("still offers the call when the number is masked, without showing digits", () => {
     contactData.value = { ...CONTACT, phones: [], phonesMasked: true } as Contact;
-    render(<TechJobCard deal={deal()} />);
+    render(<TechJobCard contact={contactData.value} deal={deal()} />);
 
     expect(screen.getByRole("button", { name: "Call client" })).toBeInTheDocument();
     expect(screen.queryByText(/404/)).not.toBeInTheDocument();
@@ -122,6 +123,7 @@ describe("TechJobCard", () => {
   it("shows the confirm and arrival stamps once they exist", () => {
     render(
       <TechJobCard
+        contact={contactData.value}
         deal={deal({ techConfirmedAt: "2026-09-16T13:00:00Z", arrivedAt: "2026-09-16T13:30:00Z" })}
       />,
     );

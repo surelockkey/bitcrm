@@ -11,6 +11,7 @@ import type { Contact, CustomFieldValue } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
@@ -37,6 +38,7 @@ import {
 import { toast } from "sonner";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { useCreateDeal } from "../hooks";
+import { useNewJobPageData } from "../new-job-page-data";
 import { updateDeal as updateDealApi, assignTechs as assignTechsApi } from "../api";
 import { requestAttachmentUpload, uploadAttachmentBytes } from "../attachments-api";
 import { useLinkCallToDeal } from "@/features/calls/hooks";
@@ -109,6 +111,16 @@ export function NewDealPage() {
     setCreatedId(created && c ? c.id : null);
   };
 
+  // Everything the form shows when it opens — its catalogs, and what the link
+  // brought (the client, their area and team, the call) — asked for at once;
+  // the form waits behind one skeleton and then appears whole, for good.
+  const page = useNewJobPageData({
+    contactId: prefillContactId,
+    callSid,
+    phone: prefillPhone,
+    address: prefilledAddress(prefilled.data ?? null, prefillAddress),
+  });
+
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
       <div className="flex flex-wrap items-center gap-3 border-b px-6 py-4">
@@ -124,24 +136,39 @@ export function NewDealPage() {
             address — when one resolves or is swapped, instead of writing to the
             form from render. Nothing typed is lost: picking a client is the
             first step, before any of the job fields exist. */}
-        <DealForm
-          key={contact?.id ?? "no-client"}
-          contact={contact}
-          onContact={setContact}
-          createdHere={!!contact && contact.id === createdId}
-          prefillPhone={prefillPhone}
-          prefillSourceId={prefillSourceId}
-          prefillCompanyId={prefillCompanyId}
-          prefillAddress={prefillAddress}
-          then={then}
-          callSid={callSid}
-          callsToLink={callsToLink}
-          onCallsToLink={setCallsToLink}
-          tagIds={tagIds}
-        />
+        {page.ready ? (
+          <DealForm
+            key={contact?.id ?? "no-client"}
+            contact={contact}
+            onContact={setContact}
+            createdHere={!!contact && contact.id === createdId}
+            prefillPhone={prefillPhone}
+            prefillSourceId={prefillSourceId}
+            prefillCompanyId={prefillCompanyId}
+            prefillAddress={prefillAddress}
+            then={then}
+            callSid={callSid}
+            callsToLink={callsToLink}
+            onCallsToLink={setCallsToLink}
+            tagIds={tagIds}
+          />
+        ) : (
+          <div className="mx-auto w-full max-w-5xl px-6 py-6">
+            <Skeleton className="h-64 w-full" />
+          </div>
+        )}
       </div>
     </div>
   );
+}
+
+/**
+ * Where a new job starts out: the client's address the link points at
+ * (`address=1`), their first one by default, or none for `address=new`.
+ */
+function prefilledAddress(contact: Contact | null, which?: string | null) {
+  if (which === "new") return undefined;
+  return contact?.addresses?.[Number(which ?? 0) || 0];
 }
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
@@ -262,7 +289,7 @@ function DealForm({
       jobTypeId: "",
       serviceArea: "",
       address: (() => {
-        const picked = prefillAddress === "new" ? undefined : contact?.addresses?.[Number(prefillAddress ?? 0) || 0];
+        const picked = prefilledAddress(contact, prefillAddress);
         return picked
           ? {
               street: picked.street,
