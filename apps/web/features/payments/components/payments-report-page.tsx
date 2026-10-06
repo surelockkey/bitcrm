@@ -40,8 +40,9 @@ import {
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { toneClasses } from "@/lib/theme/tone";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
+import { settled, usePageReady } from "@/lib/use-page-ready";
 import { cn } from "@/lib/utils";
-import { usePermissions } from "@/features/auth/use-permissions";
+import { useDenied, usePermissions } from "@/features/auth/use-permissions";
 import { NoAccess, StatTile } from "@/features/billing/components/list-bits";
 import { useUserMap } from "@/features/deals/hooks";
 import { useServiceAreas } from "@/features/service-areas/hooks";
@@ -96,7 +97,8 @@ const COLUMNS = [
  * Technician), search, server paging and the CSV export.
  */
 export function PaymentsReportPage() {
-  const { can } = usePermissions();
+  const { can, isLoading: permsLoading } = usePermissions();
+  const denied = useDenied();
   const canView = can("payments");
 
   const [preset, setPreset] = useState<PaymentDatePreset>(DEFAULT_PAYMENT_PRESET);
@@ -126,6 +128,10 @@ export function PaymentsReportPage() {
     [range.from, range.to, selected, search, dir, size],
   );
   const q = usePaymentReport(params, canView && !customError);
+  // The tiles and the rows come up together, once the permissions have
+  // answered: until then the report is not asked for, and an unasked report
+  // is not an empty one.
+  const ready = usePageReady(!permsLoading && settled(q));
 
   // A new question starts from its first page — reset while rendering, not
   // in an effect, so no frame shows page 3 of a set that has none.
@@ -152,7 +158,8 @@ export function PaymentsReportPage() {
     return m;
   }, [groups]);
 
-  if (!canView) return <NoAccess what="payments" />;
+  // A refusal only once the answer is in — before it, `can` says no to all.
+  if (denied("payments")) return <NoAccess what="payments" />;
 
   const pages = q.data?.pages ?? [];
   const totals = pages[0]?.totals;
@@ -252,148 +259,172 @@ export function PaymentsReportPage() {
           </p>
         ) : null}
 
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:max-w-xl">
-          <StatTile
-            label="Total amount"
-            loading={q.isLoading}
-            value={reportMoney(totals?.amount ?? 0)}
-            hint={totals ? `${totals.count.toLocaleString("en-US")} payment${totals.count === 1 ? "" : "s"}` : undefined}
-          />
-          <StatTile label="Total tips" loading={q.isLoading} value={reportMoney(totals?.tips ?? 0)} />
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative w-full max-w-xs">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              className="h-9 pl-8"
-              placeholder="Search job #, confirmation, card, amount"
-              aria-label="Search"
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-            />
-          </div>
-          <FilterResults groups={groups} selected={selected} onToggle={toggle} />
-          {selected.map((key) => (
-            <Badge key={key} variant="outline" className="gap-1 font-normal">
-              {labelOf.get(key) ?? key.slice(key.indexOf(":") + 1)}
-              <button type="button" aria-label={`Remove ${labelOf.get(key) ?? key}`} onClick={() => toggle(key)}>
-                <X className="size-3" />
-              </button>
-            </Badge>
-          ))}
-          {selected.length ? (
-            <Button variant="ghost" size="sm" className="h-8" onClick={() => setSelected([])}>
-              Clear
-            </Button>
-          ) : null}
-          <span className="flex-1" />
-          <Button variant="outline" size="sm" className="h-9 gap-1.5" onClick={() => void runExport()} disabled={exporting || !!customError}>
-            <Download className="size-3.5" /> {exporting ? "Exporting…" : "Export"}
-          </Button>
-        </div>
-
-        {q.isLoading ? (
-          <div role="status" aria-label="Loading payments" className="space-y-2">
-            {Array.from({ length: 6 }, (_, i) => (
-              <Skeleton key={i} className="h-10 w-full" />
-            ))}
-          </div>
-        ) : q.isError ? (
-          <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
-            <p>{getApiErrorMessage(q.error, "Couldn't load payments")}</p>
-            <Button variant="outline" size="sm" className="mt-3" onClick={() => q.refetch()}>
-              Try again
-            </Button>
-          </div>
-        ) : (
+        {ready ? (
           <>
-            <div className={cn("overflow-x-auto border", q.isPlaceholderData && "opacity-60")}>
-              <Table>
-                <TableHeader>
-                  <TableRow className="hover:bg-transparent">
-                    {COLUMNS.map((c) =>
-                      c === "Payment date" ? (
-                        <TableHead key={c} className="whitespace-nowrap">
-                          <button
-                            type="button"
-                            className="inline-flex items-center gap-1 hover:text-foreground"
-                            aria-label={`Sort by payment date, ${dir === "desc" ? "oldest" : "newest"} first`}
-                            onClick={() => setDir((d) => (d === "desc" ? "asc" : "desc"))}
-                          >
-                            Payment date
-                            {dir === "desc" ? <ArrowDown className="size-3" /> : <ArrowUp className="size-3" />}
-                          </button>
-                        </TableHead>
-                      ) : (
-                        <TableHead key={c} className={cn("whitespace-nowrap", (c === "Amount" || c === "Tip") && "text-right")}>
-                          {c}
-                        </TableHead>
-                      ),
-                    )}
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {rows.map((r) => (
-                    <ReportRow key={`${r.kind}:${r.id}`} row={r} />
-                  ))}
-                </TableBody>
-              </Table>
-              {rows.length === 0 ? (
-                <div className="flex flex-col items-center gap-2 p-12 text-center text-muted-foreground">
-                  <CreditCard className="size-6" />
-                  <p className="text-sm">No payments match these filters.</p>
-                </div>
-              ) : null}
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:max-w-xl">
+              <StatTile
+                label="Total amount"
+                loading={q.isLoading}
+                value={reportMoney(totals?.amount ?? 0)}
+                hint={totals ? `${totals.count.toLocaleString("en-US")} payment${totals.count === 1 ? "" : "s"}` : undefined}
+              />
+              <StatTile label="Total tips" loading={q.isLoading} value={reportMoney(totals?.tips ?? 0)} />
             </div>
 
-            <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-              <label className="flex items-center gap-1.5">
-                Rows
-                <select
-                  aria-label="Rows per page"
-                  className="h-8 rounded-md border bg-transparent px-2 text-sm text-foreground"
-                  value={size}
-                  onChange={(e) => setSize(Number(e.target.value))}
-                >
-                  {REPORT_PAGE_SIZES.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <span className="tabular-nums">
-                Showing {fromRow.toLocaleString("en-US")} to {toRow.toLocaleString("en-US")} of{" "}
-                {total.toLocaleString("en-US")} results
-              </span>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative w-full max-w-xs">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  className="h-9 pl-8"
+                  placeholder="Search job #, confirmation, card, amount"
+                  aria-label="Search"
+                  value={searchInput}
+                  onChange={(e) => setSearchInput(e.target.value)}
+                />
+              </div>
+              <FilterResults groups={groups} selected={selected} onToggle={toggle} />
+              {selected.map((key) => (
+                <Badge key={key} variant="outline" className="gap-1 font-normal">
+                  {labelOf.get(key) ?? key.slice(key.indexOf(":") + 1)}
+                  <button type="button" aria-label={`Remove ${labelOf.get(key) ?? key}`} onClick={() => toggle(key)}>
+                    <X className="size-3" />
+                  </button>
+                </Badge>
+              ))}
+              {selected.length ? (
+                <Button variant="ghost" size="sm" className="h-8" onClick={() => setSelected([])}>
+                  Clear
+                </Button>
+              ) : null}
               <span className="flex-1" />
-              <span className="tabular-nums">
-                Page {current} of {pageCount}
-              </span>
-              <Button
-                variant="outline"
-                size="icon"
-                className="size-8"
-                aria-label="Previous page"
-                disabled={current <= 1}
-                onClick={() => setPage(current - 1)}
-              >
-                <ChevronLeft className="size-4" />
-              </Button>
-              <Button
-                variant="outline"
-                size="icon"
-                className="size-8"
-                aria-label="Next page"
-                disabled={!canNext || q.isPlaceholderData}
-                onClick={() => void goNext()}
-              >
-                <ChevronRight className="size-4" />
+              <Button variant="outline" size="sm" className="h-9 gap-1.5" onClick={() => void runExport()} disabled={exporting || !!customError}>
+                <Download className="size-3.5" /> {exporting ? "Exporting…" : "Export"}
               </Button>
             </div>
+
+            {q.isLoading ? (
+              <div role="status" aria-label="Loading payments" className="space-y-2">
+                {Array.from({ length: 6 }, (_, i) => (
+                  <Skeleton key={i} className="h-10 w-full" />
+                ))}
+              </div>
+            ) : q.isError ? (
+              <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
+                <p>{getApiErrorMessage(q.error, "Couldn't load payments")}</p>
+                <Button variant="outline" size="sm" className="mt-3" onClick={() => q.refetch()}>
+                  Try again
+                </Button>
+              </div>
+            ) : (
+              <>
+                <div className={cn("overflow-x-auto border", q.isPlaceholderData && "opacity-60")}>
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="hover:bg-transparent">
+                        {COLUMNS.map((c) =>
+                          c === "Payment date" ? (
+                            <TableHead key={c} className="whitespace-nowrap">
+                              <button
+                                type="button"
+                                className="inline-flex items-center gap-1 hover:text-foreground"
+                                aria-label={`Sort by payment date, ${dir === "desc" ? "oldest" : "newest"} first`}
+                                onClick={() => setDir((d) => (d === "desc" ? "asc" : "desc"))}
+                              >
+                                Payment date
+                                {dir === "desc" ? <ArrowDown className="size-3" /> : <ArrowUp className="size-3" />}
+                              </button>
+                            </TableHead>
+                          ) : (
+                            <TableHead key={c} className={cn("whitespace-nowrap", (c === "Amount" || c === "Tip") && "text-right")}>
+                              {c}
+                            </TableHead>
+                          ),
+                        )}
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {rows.map((r) => (
+                        <ReportRow key={`${r.kind}:${r.id}`} row={r} />
+                      ))}
+                    </TableBody>
+                  </Table>
+                  {rows.length === 0 ? (
+                    <div className="flex flex-col items-center gap-2 p-12 text-center text-muted-foreground">
+                      <CreditCard className="size-6" />
+                      <p className="text-sm">No payments match these filters.</p>
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+                  <label className="flex items-center gap-1.5">
+                    Rows
+                    <select
+                      aria-label="Rows per page"
+                      className="h-8 rounded-md border bg-transparent px-2 text-sm text-foreground"
+                      value={size}
+                      onChange={(e) => setSize(Number(e.target.value))}
+                    >
+                      {REPORT_PAGE_SIZES.map((s) => (
+                        <option key={s} value={s}>
+                          {s}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <span className="tabular-nums">
+                    Showing {fromRow.toLocaleString("en-US")} to {toRow.toLocaleString("en-US")} of{" "}
+                    {total.toLocaleString("en-US")} results
+                  </span>
+                  <span className="flex-1" />
+                  <span className="tabular-nums">
+                    Page {current} of {pageCount}
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="size-8"
+                    aria-label="Previous page"
+                    disabled={current <= 1}
+                    onClick={() => setPage(current - 1)}
+                  >
+                    <ChevronLeft className="size-4" />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="size-8"
+                    aria-label="Next page"
+                    disabled={!canNext || q.isPlaceholderData}
+                    onClick={() => void goNext()}
+                  >
+                    <ChevronRight className="size-4" />
+                  </Button>
+                </div>
+              </>
+            )}
           </>
+        ) : (
+          <PaymentsReportSkeleton />
         )}
+      </div>
+    </div>
+  );
+}
+
+/** The report before its first frame: the two tiles, the filters, the rows. */
+function PaymentsReportSkeleton() {
+  return (
+    <div role="status" aria-label="Loading payments" className="space-y-4">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:max-w-xl">
+        <Skeleton className="h-20 rounded-lg" />
+        <Skeleton className="h-20 rounded-lg" />
+      </div>
+      <Skeleton className="h-9 w-full max-w-md" />
+      <div className="space-y-2">
+        {Array.from({ length: 6 }, (_, i) => (
+          <Skeleton key={i} className="h-10 w-full" />
+        ))}
       </div>
     </div>
   );
