@@ -5,8 +5,9 @@ import Link from "next/link";
 import { ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 import { NoAccess } from "@/features/clients/components/contacts-page";
-import { useDenied } from "@/features/auth/use-permissions";
+import { useDenied, usePermissions } from "@/features/auth/use-permissions";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { REPORT_TILES, type ReportTile } from "../hub/report-tiles";
 
@@ -22,6 +23,10 @@ export { REPORT_TILES };
  */
 export function ReportsPage({ built }: { built?: readonly string[] }) {
   const denied = useDenied();
+  // Until the role is read nothing is refused, so every tile was drawn and
+  // the ones the role may not open were taken out a moment later — the tiles
+  // after them moved up a place. The tiles wait for the role.
+  const { isLoading } = usePermissions();
 
   if (denied("reports", "view")) return <NoAccess entity="reports" />;
 
@@ -35,13 +40,21 @@ export function ReportsPage({ built }: { built?: readonly string[] }) {
         <h1 className="text-lg font-semibold tracking-tight">Reports</h1>
       </div>
 
-      <ul aria-label="Reports" className="grid grid-cols-1 gap-3 p-6 md:grid-cols-2 xl:grid-cols-3">
-        {tiles.map((tile) => (
-          <li key={tile.name} className="min-w-0">
-            <ReportTileCard tile={tile} built={tile.href !== undefined && isBuilt(tile.href)} />
-          </li>
-        ))}
-      </ul>
+      {isLoading ? (
+        <div role="status" aria-label="Loading reports" className="grid grid-cols-1 gap-3 p-6 md:grid-cols-2 xl:grid-cols-3">
+          {REPORT_TILES.map((t) => (
+            <Skeleton key={t.name} className="h-[4.25rem] rounded-lg" />
+          ))}
+        </div>
+      ) : (
+        <ul aria-label="Reports" className="grid grid-cols-1 gap-3 p-6 md:grid-cols-2 xl:grid-cols-3">
+          {tiles.map((tile) => (
+            <li key={tile.name} className="min-w-0">
+              <ReportTileCard tile={tile} built={tile.href !== undefined && isBuilt(tile.href)} />
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/table";
 import { getApiErrorMessage } from "@/lib/api/errors";
+import { settled, usePageReady } from "@/lib/use-page-ready";
 import { cn } from "@/lib/utils";
 import { useDenied, usePermissions } from "@/features/auth/use-permissions";
 import { NoAccess } from "@/features/billing/components/list-bits";
@@ -37,7 +38,7 @@ const COLUMNS: { id: AgingSort; label: string; right?: boolean }[] = [
  * by default), paged, exported as Workiz's CSV.
  */
 export function AgingInvoicesPage() {
-  const { can } = usePermissions();
+  const { can, isLoading: permsLoading } = usePermissions();
   const denied = useDenied();
   const canView = can("invoices", "view");
   const [bucket, setBucket] = useState<AgingBucket>("all");
@@ -47,6 +48,11 @@ export function AgingInvoicesPage() {
   const [pageSize, setPageSize] = useState<number>(DEFAULT_REPORT_PAGE_SIZE);
   const [exporting, setExporting] = useState(false);
   const q = useAging({ bucket, sort, dir, page, pageSize }, canView);
+  // The cards were drawn holding "—" and the figures came a beat later — a
+  // right-aligned "$235,074.06" starts far left of a "—", so every one slid —
+  // and the index note landed above the cards. They all come with the report.
+  // (Until the role is read the report is not asked for, which is not an answer.)
+  const ready = usePageReady(!permsLoading && settled(q));
 
   if (denied("invoices", "view")) return <NoAccess what="invoices" />;
 
@@ -83,109 +89,127 @@ export function AgingInvoicesPage() {
       </div>
 
       <div className="min-w-0 flex-1 space-y-4 overflow-auto p-4 sm:p-6">
-        {r && !r.indexReady ? (
-          <p role="status" className="text-xs text-muted-foreground">
-            The unpaid-invoice index is not built on this environment yet — figures come from a full read and are slower.
-          </p>
-        ) : null}
-
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-5">
-          {AGING_BUCKETS.map((b) => {
-            const card = r?.cards[b];
-            const caption =
-              b === "all" ? `${(card?.count ?? 0).toLocaleString("en-US")} ${AGING_BUCKET_LABELS.all}` : `${AGING_BUCKET_LABELS[b]} (${card?.count ?? 0})`;
-            return (
-              <ReportCard
-                key={b}
-                value={money(card?.amount)}
-                caption={caption}
-                border={AGING_TONES[b]}
-                active={bucket === b}
-                loading={q.isLoading}
-                onClick={() => pick(b)}
-              />
-            );
-          })}
-        </div>
-
-        <div className="flex items-center justify-end">
-          <ExportButton busy={exporting} onClick={() => void runExport()} />
-        </div>
-
-        {q.isLoading ? (
-          <div role="status" aria-label="Loading invoices" className="space-y-2">
-            {Array.from({ length: 6 }, (_, i) => (
-              <Skeleton key={i} className="h-10 w-full" />
-            ))}
-          </div>
-        ) : q.isError ? (
-          <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
-            <p>{getApiErrorMessage(q.error, "Couldn't load the report")}</p>
-            <Button variant="outline" size="sm" className="mt-3" onClick={() => q.refetch()}>
-              Try again
-            </Button>
+        {!ready ? (
+          // The cards and the table, while the report is on its way.
+          <div role="status" aria-label="Loading invoices" className="space-y-4">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-5">
+              {AGING_BUCKETS.map((b) => (
+                <Skeleton key={b} className="h-[4.5rem] rounded-lg" />
+              ))}
+            </div>
+            <div className="space-y-2">
+              {Array.from({ length: 6 }, (_, i) => (
+                <Skeleton key={i} className="h-10 w-full" />
+              ))}
+            </div>
           </div>
         ) : (
           <>
-            <div className={cn("overflow-x-auto border", q.isPlaceholderData && "opacity-60")}>
-              <Table>
-                <TableHeader>
-                  <TableRow className="hover:bg-transparent">
-                    {COLUMNS.map((c) => (
-                      <SortHead key={c.id} id={c.id} label={c.label} sort={sort} dir={dir} onSort={onSort} right={c.right} />
-                    ))}
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {(r?.items ?? []).map((row) => (
-                    <TableRow key={row.invoiceId} className="align-top">
-                      <TableCell className="whitespace-nowrap font-mono">
-                        <Link
-                          // A client invoice (no job) lives on its own page.
-                          href={row.dealId ? `/deals/${row.dealId}?tab=invoice` : `/invoices/${row.invoiceId}`}
-                          className="text-primary hover:underline"
-                        >
-                          {row.number}
-                        </Link>
-                      </TableCell>
-                      <TableCell className="max-w-48 truncate">{row.name ?? ""}</TableCell>
-                      <TableCell className="max-w-56">
-                        <Link href={`/contacts/${row.contactId}`} className="block truncate hover:underline">
-                          {row.clientName ?? "—"}
-                        </Link>
-                        {row.clientEmail || row.clientPhone ? (
-                          <span className="block truncate text-xs text-muted-foreground">{row.clientEmail ?? row.clientPhone}</span>
-                        ) : null}
-                      </TableCell>
-                      <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">{money(row.total)}</TableCell>
-                      <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">{money(row.balance)}</TableCell>
-                      <TableCell className="whitespace-nowrap tabular-nums">{workizDate(row.dueDate)}</TableCell>
-                      <TableCell className="whitespace-nowrap tabular-nums text-muted-foreground">{workizDate(row.createdAt)}</TableCell>
-                      <TableCell className={cn("whitespace-nowrap text-right tabular-nums", row.daysLate >= 90 && "text-red-700 dark:text-red-400")}>
-                        {row.daysLate}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-              {r && r.items.length === 0 ? (
-                <div className="flex flex-col items-center gap-2 p-12 text-center text-muted-foreground">
-                  <ReceiptText className="size-6" />
-                  <p className="text-sm">No unpaid invoices here.</p>
-                </div>
-              ) : null}
+            {r && !r.indexReady ? (
+              <p role="status" className="text-xs text-muted-foreground">
+                The unpaid-invoice index is not built on this environment yet — figures come from a full read and are slower.
+              </p>
+            ) : null}
+
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-5">
+              {AGING_BUCKETS.map((b) => {
+                const card = r?.cards[b];
+                const caption =
+                  b === "all" ? `${(card?.count ?? 0).toLocaleString("en-US")} ${AGING_BUCKET_LABELS.all}` : `${AGING_BUCKET_LABELS[b]} (${card?.count ?? 0})`;
+                return (
+                  <ReportCard
+                    key={b}
+                    value={money(card?.amount)}
+                    caption={caption}
+                    border={AGING_TONES[b]}
+                    active={bucket === b}
+                    loading={q.isLoading}
+                    onClick={() => pick(b)}
+                  />
+                );
+              })}
             </div>
-            <ReportFooter
-              page={page}
-              pageSize={pageSize}
-              total={r?.total ?? 0}
-              shown={r?.items.length ?? 0}
-              onPage={setPage}
-              onPageSize={(s) => {
-                setPageSize(s);
-                setPage(1);
-              }}
-            />
+
+            <div className="flex items-center justify-end">
+              <ExportButton busy={exporting} onClick={() => void runExport()} />
+            </div>
+
+            {q.isLoading ? (
+              <div role="status" aria-label="Loading invoices" className="space-y-2">
+                {Array.from({ length: 6 }, (_, i) => (
+                  <Skeleton key={i} className="h-10 w-full" />
+                ))}
+              </div>
+            ) : q.isError ? (
+              <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
+                <p>{getApiErrorMessage(q.error, "Couldn't load the report")}</p>
+                <Button variant="outline" size="sm" className="mt-3" onClick={() => q.refetch()}>
+                  Try again
+                </Button>
+              </div>
+            ) : (
+              <>
+                <div className={cn("overflow-x-auto border", q.isPlaceholderData && "opacity-60")}>
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="hover:bg-transparent">
+                        {COLUMNS.map((c) => (
+                          <SortHead key={c.id} id={c.id} label={c.label} sort={sort} dir={dir} onSort={onSort} right={c.right} />
+                        ))}
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {(r?.items ?? []).map((row) => (
+                        <TableRow key={row.invoiceId} className="align-top">
+                          <TableCell className="whitespace-nowrap font-mono">
+                            <Link
+                              // A client invoice (no job) lives on its own page.
+                              href={row.dealId ? `/deals/${row.dealId}?tab=invoice` : `/invoices/${row.invoiceId}`}
+                              className="text-primary hover:underline"
+                            >
+                              {row.number}
+                            </Link>
+                          </TableCell>
+                          <TableCell className="max-w-48 truncate">{row.name ?? ""}</TableCell>
+                          <TableCell className="max-w-56">
+                            <Link href={`/contacts/${row.contactId}`} className="block truncate hover:underline">
+                              {row.clientName ?? "—"}
+                            </Link>
+                            {row.clientEmail || row.clientPhone ? (
+                              <span className="block truncate text-xs text-muted-foreground">{row.clientEmail ?? row.clientPhone}</span>
+                            ) : null}
+                          </TableCell>
+                          <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">{money(row.total)}</TableCell>
+                          <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">{money(row.balance)}</TableCell>
+                          <TableCell className="whitespace-nowrap tabular-nums">{workizDate(row.dueDate)}</TableCell>
+                          <TableCell className="whitespace-nowrap tabular-nums text-muted-foreground">{workizDate(row.createdAt)}</TableCell>
+                          <TableCell className={cn("whitespace-nowrap text-right tabular-nums", row.daysLate >= 90 && "text-red-700 dark:text-red-400")}>
+                            {row.daysLate}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                  {r && r.items.length === 0 ? (
+                    <div className="flex flex-col items-center gap-2 p-12 text-center text-muted-foreground">
+                      <ReceiptText className="size-6" />
+                      <p className="text-sm">No unpaid invoices here.</p>
+                    </div>
+                  ) : null}
+                </div>
+                <ReportFooter
+                  page={page}
+                  pageSize={pageSize}
+                  total={r?.total ?? 0}
+                  shown={r?.items.length ?? 0}
+                  onPage={setPage}
+                  onPageSize={(s) => {
+                    setPageSize(s);
+                    setPage(1);
+                  }}
+                />
+              </>
+            )}
           </>
         )}
       </div>

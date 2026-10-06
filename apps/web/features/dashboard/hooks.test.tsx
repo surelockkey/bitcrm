@@ -3,7 +3,6 @@ import type { ReactNode } from "react";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
-import { DashboardReady } from "./bundle-context";
 import { useDashboardBundle, useRangeWidget } from "./hooks";
 
 const api = vi.hoisted(() => ({
@@ -48,6 +47,29 @@ describe("useRangeWidget", () => {
 
     expect(fetch).toHaveBeenLastCalledWith({ from: "2026-09-14", to: "2026-09-28" }, { refresh: true });
     expect(result.current.data).toEqual({ rebuilt: true });
+  });
+
+  // Another "Last N Days" keeps the card's chart up until the new one is in:
+  // a card that blanked to its skeleton shrank, and every card under it moved.
+  it("a new range keeps the current answer on screen until its own arrives", async () => {
+    let answerSecond: (v: unknown) => void = () => {};
+    const fetch = vi.fn((w: { from: string }) =>
+      w.from === "2026-09-14" ? Promise.resolve({ days: 14 }) : new Promise((r) => (answerSecond = r)),
+    );
+    const { Wrapper } = wrapper();
+    const { result, rerender } = renderHook(({ range }: { range: 7 | 14 }) => useRangeWidget("top-sources", fetch, range, now), {
+      wrapper: Wrapper,
+      initialProps: { range: 14 },
+    });
+    await waitFor(() => expect(result.current.data).toEqual({ days: 14 }));
+
+    rerender({ range: 7 });
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+    expect(result.current.data).toEqual({ days: 14 });
+    expect(result.current.isLoading).toBe(false);
+
+    act(() => answerSecond({ days: 7 }));
+    await waitFor(() => expect(result.current.data).toEqual({ days: 7 }));
   });
 
   it("a remount within minutes is served from memory, not the network", async () => {
@@ -117,23 +139,5 @@ describe("useDashboardBundle", () => {
     await waitFor(() => expect(result.current.isPending).toBe(false));
 
     expect(client.getQueryData(queryKeys.dashboard.widget("recent-calls"))).toEqual([]);
-  });
-});
-
-describe("a card while the bundle is on its way", () => {
-  it("does not fetch on its own, and shows as loading", async () => {
-    const fetch = vi.fn(async () => ({ slices: [] }));
-    const { client } = wrapper();
-    const Waiting = ({ children }: { children: ReactNode }) => (
-      <QueryClientProvider client={client}>
-        <DashboardReady.Provider value={false}>{children}</DashboardReady.Provider>
-      </QueryClientProvider>
-    );
-
-    const { result } = renderHook(() => useRangeWidget("top-sources", fetch, 14, now), { wrapper: Waiting });
-    await new Promise((r) => setTimeout(r, 20));
-
-    expect(fetch).not.toHaveBeenCalled();
-    expect(result.current.isLoading).toBe(true);
   });
 });

@@ -1,10 +1,9 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { useQuery, useQueryClient, type QueryKey } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, useQueryClient, type QueryKey } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import * as api from "./api";
-import { useDashboardReady } from "./bundle-context";
 import { DEFAULT_RANGE, localDay, rangeWindow, type DashboardRange } from "./jobs-by-status";
 
 /**
@@ -20,17 +19,20 @@ const SNAPSHOT_GC_MS = 30 * 60_000;
  * A widget read from a server snapshot. `refetch` — the card's refresh button
  * — asks the server to rebuild it (`refresh=1`) and puts the answer in the
  * cache, so the button means "count again", not "fetch the same snapshot".
+ *
+ * Another "Last N Days" keeps the card's current answer on screen until its
+ * own is in: a card that blanked to its skeleton shrank, and every card under
+ * it moved up and back down.
  */
 function useSnapshot<T>(queryKey: QueryKey, fetch: (opts?: api.SnapshotRequest) => Promise<T>) {
   const client = useQueryClient();
-  const ready = useDashboardReady();
   const [rebuilding, setRebuilding] = useState(false);
   const query = useQuery({
     queryKey,
     queryFn: () => fetch(undefined),
     staleTime: SNAPSHOT_STALE_MS,
     gcTime: SNAPSHOT_GC_MS,
-    enabled: ready,
+    placeholderData: keepPreviousData,
   });
   const key = JSON.stringify(queryKey);
   const refetch = useCallback(async () => {
@@ -43,12 +45,7 @@ function useSnapshot<T>(queryKey: QueryKey, fetch: (opts?: api.SnapshotRequest) 
     // `fetch` is a module-level function per widget; the key names the window.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [client, key]);
-  return {
-    ...query,
-    isLoading: query.isLoading || (!ready && query.data === undefined),
-    isFetching: query.isFetching || rebuilding,
-    refetch,
-  };
+  return { ...query, isFetching: query.isFetching || rebuilding, refetch };
 }
 
 /**
@@ -76,11 +73,9 @@ export function useRangeWidget<T>(
   return useSnapshot(queryKeys.dashboard.widget(name, window), (opts) => fetch(window, opts));
 }
 
-/** A live widget: read as it is, but still held back while the bundle is on its way. */
+/** A live widget: read as it is. */
 function useLive<T>(queryKey: QueryKey, queryFn: () => Promise<T>) {
-  const ready = useDashboardReady();
-  const query = useQuery({ queryKey, queryFn, staleTime: 30_000, enabled: ready });
-  return { ...query, isLoading: query.isLoading || (!ready && query.data === undefined) };
+  return useQuery({ queryKey, queryFn, staleTime: 30_000 });
 }
 
 /** "Today", on the account's calendar — live, not a snapshot. */
@@ -100,8 +95,8 @@ export function useRecentCalls() {
 /**
  * The dashboard's opening read: two requests — one per service — instead of
  * one per card. Each answer is laid into the cache entry of the card that
- * shows it, under exactly the key that card's own hook asks with, so when the
- * cards are let go they find their data and paint together.
+ * shows it, under exactly the key that card's own hook asks with, so the
+ * cards — drawn once it has settled — find their data and paint together.
  *
  * The two services settle independently: one failing leaves the other's
  * cards filled, and the failed ones simply fetch on their own.
