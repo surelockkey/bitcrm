@@ -281,6 +281,10 @@ PAYMENT#<id>       / METADATA        a payment; GSI1 PAYMENTS, GSI2 CONTACT#<id>
 INVOICE#<dealId>   / PAYMENT#<createdAt>#<id>   the SAME payment, adjacent to its invoice — one Query reads a
                                      job's ledger. Both copies are written in one TransactWrite
 PAYMENT#<id>       / REFUND#<createdAt>#<id>    refunds under their payment (Stripe allows several partials)
+PAYMENT_SCHEDULE#<dealId> / METADATA   a job's payment schedule (Workiz): `method` (percent | amount) + `entries`
+                                     (id, percent|amount, dueDate, note). Its own partition — a job has one before it
+                                     has an invoice; dollars and paid / overdue / due / future are worked out on read
+                                     against the job's ledger (`payment-schedule.rules.ts`), never stored
 PAYMENT#<id>       / REPORT          the Payments report's pointer: which PAYLINE rows the payment has and what each
                                      added to its bucket (the delta base); `rev`-guarded
 PAYLINE#<YYYY-MM>  / <at>#<lineId>   one line of the Payments report — a payment on its PAYMENT date (tip included),
