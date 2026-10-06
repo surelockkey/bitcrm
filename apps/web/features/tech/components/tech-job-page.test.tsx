@@ -37,6 +37,9 @@ vi.mock("@/features/telephony/components/call-client-button", () => ({
   CallClientButton: () => <button type="button">Call client</button>,
 }));
 vi.mock("./tech-actions", () => ({ TechActions: () => <div data-testid="tech-actions" /> }));
+// Every hook the page reads is stubbed above, so everything is already in
+// (the load itself is covered by tech-job-page.loading.test.tsx).
+vi.mock("../tech-job-page-data", () => ({ useTechJobPageData: () => ({ ready: true }) }));
 vi.mock("./tech-photo-capture", () => ({ TechPhotoCapture: () => <div data-testid="tech-photos" /> }));
 
 const CONTACT: Contact = {

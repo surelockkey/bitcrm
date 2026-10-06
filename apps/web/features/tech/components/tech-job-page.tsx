@@ -18,6 +18,7 @@ import { NoAccess } from "@/features/clients/components/contacts-page";
 import { formatPhone } from "@/lib/phone";
 import { TECHNICIAN_HOME } from "@/lib/nav/nav-config";
 import { addressLine, formatSlot, navigationUrl } from "../lib";
+import { useTechJobPageData } from "../tech-job-page-data";
 import { TechActions } from "./tech-actions";
 import { TechPhotoCapture } from "./tech-photo-capture";
 
@@ -29,7 +30,9 @@ import { TechPhotoCapture } from "./tech-photo-capture";
  */
 export function TechJobPage({ dealId }: { dealId: string }) {
   const denied = useDenied();
-  const { data: deal, isLoading, isError } = useDeal(dealId);
+  // One wait for the job and everything it shows, then the job whole.
+  const page = useTechJobPageData(dealId);
+  const { data: deal, isError } = useDeal(dealId);
   const { data: contact } = useContact(deal?.contactId ?? "");
   const jobTypeName = useJobTypeName();
   const subStatusName = useJobStatusName();
@@ -38,7 +41,7 @@ export function TechJobPage({ dealId }: { dealId: string }) {
 
   if (denied("deals", "view")) return <NoAccess entity="jobs" />;
 
-  if (isLoading) {
+  if (!page.ready) {
     return (
       <div className="space-y-3 p-4">
         <Skeleton className="h-6 w-32" />

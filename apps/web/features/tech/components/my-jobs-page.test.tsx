@@ -20,7 +20,14 @@ vi.mock("@/features/auth/use-permissions", () => ({
 }));
 
 const jobs = vi.fn();
-vi.mock("../hooks", () => ({ useMyJobs: () => jobs() }));
+// The day as the page's data hook hands it over; its own wait (clients, job
+// types, the chat count) is covered by my-jobs-page.loading.test.tsx.
+vi.mock("../my-jobs-data", () => ({
+  useMyJobsPage: () => {
+    const day = jobs();
+    return { jobs: day, contacts: new Map(), ready: day.ready && !day.isLoading };
+  },
+}));
 
 // The card is covered by its own test; here it stands in for "a job is listed".
 vi.mock("./tech-job-card", () => ({

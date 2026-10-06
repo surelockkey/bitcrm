@@ -3,8 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { CheckCheck, ChevronRight, Clock, MapPin, MapPinCheck, Navigation } from "lucide-react";
-import type { Deal } from "@bitcrm/types";
-import { useContact } from "@/features/clients/hooks";
+import type { Contact, Deal } from "@bitcrm/types";
 import { formatPhone } from "@/lib/phone";
 import { dealClientName, isUrgent } from "@/features/deals/lib";
 import { PriorityFlag, StageBadge } from "@/features/deals/components/deal-badges";
@@ -23,10 +22,22 @@ export const techJobHref = (dealId: string): string => `/my-jobs/${dealId}`;
  * with the number itself masked when the viewer may not see it — and the
  * status. Tapping the card opens the job; the action row swallows its own
  * taps so a Navigate never also opens the job.
+ *
+ * The client comes with the card — the list names every job's client in one
+ * ask before it is drawn — rather than being asked for by the card once it
+ * is on screen, which grew each card a Call row a beat after it appeared.
  */
-export function TechJobCard({ deal, position }: { deal: Deal; position?: number }) {
+export function TechJobCard({
+  deal,
+  contact,
+  position,
+}: {
+  deal: Deal;
+  /** The job's client, if crm still has them. */
+  contact?: Contact;
+  position?: number;
+}) {
   const router = useRouter();
-  const { data: contact } = useContact(deal.contactId);
   const jobTypeName = useJobTypeName();
   const subStatusName = useJobStatusName();
   const client = dealClientName(deal, contact);
