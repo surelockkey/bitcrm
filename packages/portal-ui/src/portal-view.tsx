@@ -217,19 +217,53 @@ export function PortalView({
 
 /* ------------------------------------------------------------------ header */
 
+/** How long the name waits for a logo that neither loads nor fails. */
+const LOGO_WAIT_MS = 2000;
+
+/**
+ * Whether the logo has had its say: loaded, failed, or taken too long. Until
+ * then it has no width, and whatever stands beside it would slide when it got
+ * one. A logo already in the cache (`complete` before React could listen)
+ * counts at once.
+ */
+function useLogoSettled(src: string | undefined) {
+  const ref = useRef<HTMLImageElement>(null);
+  const [settledFor, setSettledFor] = useState<string | null>(null);
+  useEffect(() => {
+    if (!src) return;
+    if (ref.current?.complete) {
+      setSettledFor(src);
+      return;
+    }
+    const timer = setTimeout(() => setSettledFor(src), LOGO_WAIT_MS);
+    return () => clearTimeout(timer);
+  }, [src]);
+  const settle = () => setSettledFor(src ?? null);
+  return { ref, settled: !src || settledFor === src, onLoad: settle, onError: settle };
+}
+
 function PortalHeader({ business }: { business: PortalViewData["business"] }) {
+  const logo = useLogoSettled(business.logoUrl);
   return (
     <header className="w-full bg-white shadow-[0_2px_8px_rgba(59,75,82,0.10)]">
       <div className="mx-auto flex w-full max-w-[1180px] flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 sm:px-6 lg:px-8">
         {business.logoUrl ? (
           // eslint-disable-next-line @next/next/no-img-element -- signed URL from the API, not a static asset
-          <img src={business.logoUrl} alt="" className="h-10 w-auto max-w-[140px] flex-none object-contain sm:h-12" />
+          <img
+            ref={logo.ref}
+            src={business.logoUrl}
+            alt=""
+            onLoad={logo.onLoad}
+            onError={logo.onError}
+            className="h-10 w-auto max-w-[140px] flex-none object-contain sm:h-12"
+          />
         ) : (
           <span aria-hidden className="flex size-10 flex-none items-center justify-center rounded-md bg-[#3b4b52] text-sm font-semibold text-white">
             {businessInitials(business.name)}
           </span>
         )}
-        <div className="min-w-0 flex-1">
+        {/* Out of sight, in its place, until the logo beside it has a width. */}
+        <div className={logo.settled ? "min-w-0 flex-1" : "invisible min-w-0 flex-1"}>
           <p className="truncate text-[17px] leading-tight font-semibold sm:text-xl">{business.name}</p>
           {business.description ? <p className="truncate text-xs text-[#9ea6aa] sm:text-sm">{business.description}</p> : null}
         </div>

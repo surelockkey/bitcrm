@@ -2,6 +2,7 @@ import { vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactElement } from "react";
+import { QUERY_DEFAULTS } from "@/lib/query-defaults";
 
 /**
  * A page as the browser loads it, for the tests that keep pages from jumping.
@@ -93,9 +94,15 @@ export function installFakeServer(routes: FakeRoute[], { delayMs = 20 }: { delay
   return server;
 }
 
-/** Render with a fresh QueryClient (no retries — a failure should show at once). */
+/**
+ * Render with a fresh QueryClient on the app's own defaults (`QUERY_DEFAULTS`
+ * — so a page refetches on mount here exactly when it would in the browser),
+ * minus retries: a failure should show at once.
+ */
 export function renderWithClient(ui: ReactElement) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const client = new QueryClient({
+    defaultOptions: { ...QUERY_DEFAULTS, queries: { ...QUERY_DEFAULTS.queries, retry: false } },
+  });
   return { client, ...render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>) };
 }
 
