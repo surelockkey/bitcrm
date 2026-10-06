@@ -9,12 +9,14 @@ import { SETTINGS_SECTIONS } from "./sections";
 /** GitHub-style left rail: pick a settings section, edit it on the right. */
 export function SettingsSidebar() {
   const pathname = usePathname();
-  const { can } = usePermissions();
+  const { can, isLoading } = usePermissions();
 
   const visible = SETTINGS_SECTIONS.filter((s) => !s.resource || can(s.resource));
 
   return (
-    <nav className="flex shrink-0 flex-col gap-0.5 md:w-56">
+    // Which sections the reader may open lands a beat after the page paints:
+    // out of sight until then, the rail is drawn once rather than growing.
+    <nav className={cn("flex shrink-0 flex-col gap-0.5 md:w-56", isLoading && "invisible")}>
       {visible.map((section) => {
         const active = pathname === section.href;
         const Icon = section.icon;
