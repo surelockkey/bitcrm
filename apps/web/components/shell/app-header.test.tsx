@@ -20,9 +20,10 @@ vi.mock("@/stores/ui-store", () => ({
 
 // The inbox button reads permissions and the unread counters; neither has a
 // provider here, so both are handed in.
+const perms = { isLoading: false };
 vi.mock("@/features/auth/use-permissions", () => ({
   useDenied: () => () => false,
-  usePermissions: () => ({ can: () => true, isTechnician: false, isLoading: false }),
+  usePermissions: () => ({ can: () => true, isTechnician: false, isLoading: perms.isLoading }),
 }));
 const countersMock = vi.fn(() => ({ data: undefined as { unreadConversations: number } | undefined }));
 vi.mock("@/features/messaging/hooks", () => ({
@@ -40,6 +41,26 @@ function renderHeader() {
 }
 
 describe("AppHeader", () => {
+  /**
+   * The inbox button and the user's name wait on who is signed in. Arriving
+   * after the search box was drawn, they pushed it 140px left on every page
+   * load; the cluster now stays out of sight until it can be drawn whole.
+   */
+  it("keeps the search and the controls out of sight until the user is known", () => {
+    perms.isLoading = true;
+    renderHeader();
+    const cluster = screen.getByRole("button", { name: /search deals/i }).parentElement!;
+    expect(cluster.className).toMatch(/\binvisible\b/);
+    perms.isLoading = false;
+  });
+
+  it("shows them once the user is known", () => {
+    perms.isLoading = false;
+    renderHeader();
+    const cluster = screen.getByRole("button", { name: /search deals/i }).parentElement!;
+    expect(cluster.className).not.toMatch(/\binvisible\b/);
+  });
+
   // New Job lives in the sidebar header now — see app-sidebar.test.tsx.
   it("does not render a New Job button", () => {
     renderHeader();

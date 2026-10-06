@@ -100,6 +100,39 @@ describe("AppSidebar", () => {
     expect(newJob.className).toContain("hover:border-border");
   });
 
+  /**
+   * The permissions arrive a beat after the shell paints. The New Job row used
+   * to appear then and push the whole menu 44px down on every page load; now
+   * its room is held while they load, and the menu — whose items depend on
+   * them too — stays out of sight until it can be drawn where it will stay.
+   */
+  describe("while the permissions are on their way", () => {
+    it("holds the New Job row's room, so the menu never moves when it arrives", () => {
+      permissionsMock.mockReturnValue({ can: () => false, isTechnician: false, isLoading: true });
+      const { container } = renderSidebar();
+
+      const held = container.querySelector('[data-slot="new-job-held"]');
+      expect(held).not.toBeNull();
+      expect(held!.className).toMatch(/\bh-9\b/);
+    });
+
+    it("keeps the menu out of sight until it can be drawn in its place", () => {
+      permissionsMock.mockReturnValue({ can: () => false, isTechnician: false, isLoading: true });
+      const { container } = renderSidebar();
+
+      expect(container.querySelector('[data-sidebar="content"]')!.className).toMatch(/\binvisible\b/);
+    });
+
+    it("shows the menu and the button once they are in", () => {
+      permissionsMock.mockReturnValue({ can: () => true, isTechnician: false, isLoading: false });
+      const { container } = renderSidebar();
+
+      expect(container.querySelector('[data-slot="new-job-held"]')).toBeNull();
+      expect(screen.getByRole("link", { name: /create new job/i })).toBeInTheDocument();
+      expect(container.querySelector('[data-sidebar="content"]')!.className).not.toMatch(/\binvisible\b/);
+    });
+  });
+
   it("hides the New Job button without the create permission", () => {
     permissionsMock.mockReturnValue({
       can: (_r: string, action?: string) => action !== "create",
