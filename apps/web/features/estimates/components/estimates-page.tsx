@@ -150,7 +150,7 @@ export function EstimatesPage() {
           <DateRangeControl presets={ESTIMATE_DATE_PRESETS} state={range} />
           {/* Workiz: "+ Add New" beside the dates asks for the client, then opens the new estimate. */}
           {can("estimates", "create") ? (
-            <Button className="h-9 gap-1.5 rounded-pill px-4 font-semibold" onClick={() => setAdding(true)}>
+            <Button className="h-9 gap-1.5 rounded-md px-4 font-semibold shadow-xs" onClick={() => setAdding(true)}>
               <Plus className="size-4" /> Add New
             </Button>
           ) : null}

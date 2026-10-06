@@ -159,7 +159,8 @@ describe("EstimatesPage — no jumping", () => {
     });
     observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true });
     summaryNow = summary(7);
-    fireEvent.change(screen.getByLabelText("Date range"), { target: { value: "last_month" } });
+    fireEvent.click(screen.getByRole("button", { name: /date range/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Last month" }));
     await screen.findByText("7 Worth $3,813.21", {}, { timeout: 3000 });
     observer.disconnect();
 

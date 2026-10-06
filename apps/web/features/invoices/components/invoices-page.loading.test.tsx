@@ -142,7 +142,8 @@ describe("InvoicesPage — no jumping", () => {
     });
     observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true });
     summaryNow = summary(77);
-    fireEvent.change(screen.getByLabelText("Date range"), { target: { value: "last_month" } });
+    fireEvent.click(screen.getByRole("button", { name: /date range/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Last month" }));
     await screen.findByText("$77.00", {}, { timeout: 3000 });
     observer.disconnect();
 

@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
-import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Download } from "lucide-react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { ArrowDown, ArrowUp, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { TableHead } from "@/components/ui/table";
@@ -31,6 +31,36 @@ export function useReportRange(initial: DatePreset) {
   return { preset, setPreset, customFrom, setCustomFrom, customTo, setCustomTo, range, error, today };
 }
 
+/** "Sep 6", or "Sep 6, 2025" outside the current year — a business-day key, read as a calendar day. */
+function dayLabel(key: string, thisYear: string): string {
+  const d = new Date(`${key}T12:00:00`);
+  return d.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    ...(key.slice(0, 4) !== thisYear && { year: "numeric" }),
+  });
+}
+
+/** The days a period covers, as the button prints them: "Sep 6", "Sep 6 – Oct 6". */
+function daysLabel(range: { from?: string; to?: string }, today: string): string | null {
+  const year = today.slice(0, 4);
+  if (range.from && range.to) {
+    return range.from === range.to
+      ? dayLabel(range.from, year)
+      : `${dayLabel(range.from, year)} – ${dayLabel(range.to, year)}`;
+  }
+  if (range.from) return `From ${dayLabel(range.from, year)}`;
+  if (range.to) return `Until ${dayLabel(range.to, year)}`;
+  return null;
+}
+
+/**
+ * The period of a billing list, the way the app picks dates elsewhere (the
+ * jobs board's "Any date"): one button with a calendar, the period and its
+ * days on it, opening the list of Workiz's periods — and, for Custom, the two
+ * days in the same panel. The periods still count on the business clock
+ * (`useReportRange`), so "Today" is the business's today wherever the reader is.
+ */
 export function DateRangeControl({
   presets,
   state,
@@ -40,31 +70,111 @@ export function DateRangeControl({
   state: ReturnType<typeof useReportRange>;
   label?: string;
 }) {
-  const { preset, setPreset, customFrom, setCustomFrom, customTo, setCustomTo, range } = state;
+  const { preset, setPreset, customFrom, setCustomFrom, customTo, setCustomTo, range, today } = state;
+  const [open, setOpen] = useState(false);
+  const listRef = useRef<HTMLDivElement>(null);
+
+  // Workiz's list is long and All time sits near its end: open on the period in use.
+  useEffect(() => {
+    if (!open) return;
+    listRef.current?.querySelector<HTMLElement>('[aria-pressed="true"]')?.scrollIntoView?.({ block: "nearest" });
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open]);
+
+  const title = presets.find((p) => p.value === preset)?.label ?? preset;
+  const days = daysLabel(range, today);
+
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <select
-        aria-label={label}
-        className="h-9 rounded-md border bg-transparent px-2 text-sm"
-        value={preset}
-        onChange={(e) => setPreset(e.target.value as DatePreset)}
+    <div className="relative">
+      <button
+        type="button"
+        aria-label={`${label}: ${days ? `${title}, ${days}` : title}`}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+        className="flex h-9 items-center gap-2 rounded-md border bg-card px-3 text-sm shadow-xs transition-colors hover:bg-muted/50"
       >
-        {presets.map((p) => (
-          <option key={p.value} value={p.value}>
-            {p.label}
-          </option>
-        ))}
-      </select>
-      {preset === "custom" ? (
+        <CalendarDays className="size-4 shrink-0 text-muted-foreground" />
+        <span className="whitespace-nowrap font-medium">{title}</span>
+        {days ? <span className="whitespace-nowrap tabular-nums text-muted-foreground">{days}</span> : null}
+        <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
+      </button>
+
+      {open ? (
         <>
-          <Input type="date" aria-label="From" className="h-9 w-40" value={customFrom} max={customTo || undefined} onChange={(e) => setCustomFrom(e.target.value)} />
-          <Input type="date" aria-label="To" className="h-9 w-40" value={customTo} min={customFrom || undefined} onChange={(e) => setCustomTo(e.target.value)} />
+          <button
+            type="button"
+            tabIndex={-1}
+            aria-label="Close the periods"
+            className="fixed inset-0 z-10 cursor-default"
+            onClick={() => setOpen(false)}
+          />
+          <div
+            role="dialog"
+            aria-label={label}
+            className="absolute right-0 top-full z-20 mt-1 w-64 rounded-lg border bg-popover p-1.5 shadow-md"
+          >
+            <div ref={listRef} className="max-h-[min(60vh,22rem)] overflow-y-auto overscroll-contain">
+              {presets.map((p) => {
+                const active = p.value === preset;
+                return (
+                  <button
+                    key={p.value}
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() => {
+                      setPreset(p.value);
+                      // Custom needs its two days, which are picked right here.
+                      if (p.value !== "custom") setOpen(false);
+                    }}
+                    className={cn(
+                      "flex w-full items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-left text-sm hover:bg-muted",
+                      active && "bg-muted font-medium",
+                    )}
+                  >
+                    {p.label}
+                    {active ? <Check className="size-4 shrink-0 text-muted-foreground" /> : null}
+                  </button>
+                );
+              })}
+            </div>
+            {preset === "custom" ? (
+              <div className="mt-1.5 grid grid-cols-2 gap-2 border-t px-1 pt-2 pb-1">
+                <label className="space-y-1 text-xs font-medium text-muted-foreground">
+                  <span>From</span>
+                  <Input
+                    type="date"
+                    aria-label="From"
+                    className="h-8 px-2 text-sm"
+                    value={customFrom}
+                    max={customTo || undefined}
+                    onChange={(e) => setCustomFrom(e.target.value)}
+                  />
+                </label>
+                <label className="space-y-1 text-xs font-medium text-muted-foreground">
+                  <span>To</span>
+                  <Input
+                    type="date"
+                    aria-label="To"
+                    className="h-8 px-2 text-sm"
+                    value={customTo}
+                    min={customFrom || undefined}
+                    onChange={(e) => setCustomTo(e.target.value)}
+                  />
+                </label>
+              </div>
+            ) : null}
+          </div>
         </>
-      ) : (
-        <span className="text-xs tabular-nums text-muted-foreground">
-          {range.from && range.to ? `${range.from} – ${range.to}` : "All time"}
-        </span>
-      )}
+      ) : null}
     </div>
   );
 }

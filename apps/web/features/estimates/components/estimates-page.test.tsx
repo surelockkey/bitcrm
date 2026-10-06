@@ -122,17 +122,31 @@ describe("EstimatesPage", () => {
     const u = userEvent.setup({ pointerEventsCheck: 0 });
     await u.click(await screen.findByRole("button", { name: /Worth .* Won$/ }));
     await waitFor(() => expect(listCalls.some((p) => p.get("status") === "won")).toBe(true));
-    await u.selectOptions(screen.getByLabelText("Date range"), "last_month");
+    await u.click(screen.getByRole("button", { name: /date range/i }));
+    await u.click(screen.getByRole("button", { name: "Last month" }));
     await waitFor(() => expect(summaryCalls.some((p) => /-01$/.test(p.get("from") ?? ""))).toBe(true));
     await u.click(screen.getByRole("button", { name: /export/i }));
     await waitFor(() => expect(exportCalls).toHaveLength(1));
     expect(exportCalls[0].get("status")).toBe("won");
   });
 
+  /**
+   * The estimate page's own buttons (Send, Add item) are near-square since
+   * 2026-10-05; the list's "Add New" now matches them instead of Workiz's pill.
+   */
+  it("draws Add New with the estimate page's square corners, not a pill", async () => {
+    renderWithClient(<EstimatesPage />);
+    const add = await screen.findByRole("button", { name: /add new/i });
+    expect(add.className).toMatch(/\brounded-md\b/);
+    expect(add.className).not.toMatch(/rounded-pill/);
+  });
+
   it("offers Workiz's presets for this page — no Last 3 months, no Recent", async () => {
     renderWithClient(<EstimatesPage />);
-    const select = await screen.findByLabelText("Date range");
-    const options = within(select).getAllByRole("option").map((o) => o.textContent);
+    const u = userEvent.setup({ pointerEventsCheck: 0 });
+    await u.click(await screen.findByRole("button", { name: /date range/i }));
+    const panel = screen.getByRole("dialog", { name: "Date range" });
+    const options = within(panel).getAllByRole("button").map((o) => o.textContent);
     expect(options[0]).toBe("Custom");
     expect(options).toContain("All time");
     expect(options).not.toContain("Last 3 months");
