@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePermissions } from "@/features/auth/use-permissions";
+import { settled, usePageReady } from "@/lib/use-page-ready";
 import { useTechnicians, useUserMap, usePendingAssignments , useTechniciansCount } from "../hooks";
 import { TechniciansTable } from "./technicians-table";
 import { AssignmentsQueueDialog } from "./assignments-queue-dialog";
@@ -22,17 +23,29 @@ import { usePageSize } from "@/lib/paging/use-page-size";
 import { usePager } from "@/lib/paging/use-pager";
 
 export function TechniciansPage() {
-  const { can } = usePermissions();
+  const { can, isLoading: permsLoading } = usePermissions();
   const [status, setStatus] = useState("all");
   const [queueOpen, setQueueOpen] = useState(false);
 
   const [pageSize, setPageSize] = usePageSize("technicians");
   const query = useTechnicians(status === "all" ? undefined : status, true, pageSize);
-  const { data: userMap } = useUserMap();
+  const userMapQuery = useUserMap();
+  const userMap = userMapQuery.data;
   const canApprove = can("job_types", "approve");
-  const { data: pending } = usePendingAssignments(canApprove);
+  const pendingQuery = usePendingAssignments(canApprove);
+  const pending = pendingQuery.data;
 
   const count = useTechniciansCount(status === "all" ? undefined : status);
+
+  // The rows wait for the names they print (profiles hold none — rows read
+  // "Unknown technician" until the directory came in), the count under them
+  // and the review queue beside the filter, and come in one frame with them.
+  // A new filter is a new first paint of the list; the review button, once
+  // up, stays.
+  const allIn =
+    !permsLoading && [query, count, userMapQuery, pendingQuery].every(settled);
+  const pageUp = usePageReady(allIn);
+  const listReady = usePageReady(allIn, `${status}:${pageSize}`);
   const pager = usePager(pagedSource(query), {
     total: count.data?.total,
     totalIsFloor: count.data?.atLeast,
@@ -42,7 +55,7 @@ export function TechniciansPage() {
   const technicians = pager.items;
   const pendingCount = (pending?.jobTypes.length ?? 0) + (pending?.serviceAreas.length ?? 0);
 
-  if (!can("technicians", "view")) {
+  if (!permsLoading && !can("technicians", "view")) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
         <h2 className="text-lg font-medium">No access</h2>
@@ -83,7 +96,7 @@ export function TechniciansPage() {
           </SelectContent>
         </Select>
 
-        {canApprove && pendingCount > 0 ? (
+        {pageUp && canApprove && pendingCount > 0 ? (
           <Button
             variant="outline"
             size="sm"
@@ -100,7 +113,7 @@ export function TechniciansPage() {
       </div>
 
       <div className="flex-1 px-6 pb-6">
-        {query.isLoading ? (
+        {!listReady ? (
           <div className="space-y-2 rounded-lg border p-4">
             {Array.from({ length: 5 }).map((_, i) => (
               <div key={i} className="flex items-center gap-3">
