@@ -40,11 +40,16 @@ ${SCOPE} a{pointer-events:none}
  * the commit that attaches the element — an update React applies before the
  * browser paints — and the observer follows it after.
  */
-function useElementWidth<T extends Element>() {
+export function useElementWidth<T extends Element>() {
   const [width, setWidth] = useState(0);
   const ref = useCallback((el: T | null) => {
     if (!el) return;
-    setWidth(el.getBoundingClientRect().width);
+    // The content box, padding excluded — what the observer reports below. A
+    // first read that counted the padding fitted the paper at one size and
+    // the observer re-fitted it at another a frame later.
+    const style = getComputedStyle(el);
+    const padding = (parseFloat(style.paddingLeft) || 0) + (parseFloat(style.paddingRight) || 0);
+    setWidth(el.getBoundingClientRect().width - padding);
     if (typeof ResizeObserver === "undefined") return;
     const ro = new ResizeObserver(([e]) => setWidth(e.contentRect.width));
     ro.observe(el);
