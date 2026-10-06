@@ -14,6 +14,7 @@ import {
   useInboxCounters,
   useMessagingAccess,
   usePartyNames,
+  useTemplates,
 } from "../hooks";
 import { useInboxNavigate } from "../inbox-url";
 import { conversationTitle, type ListState } from "../lib";
@@ -38,7 +39,7 @@ const isKind = (v: string | null): v is ConversationKind =>
 export function InboxPage() {
   const params = useSearchParams();
   const navigate = useInboxNavigate();
-  const { canView, isLoading } = useMessagingAccess();
+  const { canView, canSend, isLoading } = useMessagingAccess();
 
   const selectedId = params.get("c") ?? undefined;
   const view: InboxView = isView(params.get("view")) ? (params.get("view") as InboxView) : "all";
@@ -72,6 +73,12 @@ export function InboxPage() {
   const { data: selected } = useConversation(selectedId);
   const names = usePartyNames(selected ? [selected] : []);
   const title = selected ? conversationTitle(selected, names) : "";
+  // What the inbox draws into an open thread: its title, and the quick
+  // replies over its composer (the same query the chips read). The thread
+  // waits for them — the title used to change from a number to a name, and
+  // the chips to land on top of the composer, after the thread was up.
+  const quickReplies = useTemplates({ channel: "sms" }, canSend && !!selectedId);
+  const threadExtrasIn = !names.isLoading && settled(quickReplies);
 
   if (!isLoading && !canView) {
     return (
@@ -120,6 +127,7 @@ export function InboxPage() {
             key={selectedId}
             conversationId={selectedId}
             title={title}
+            extrasIn={threadExtrasIn}
             onBack={() => navigate({ c: undefined })}
             onToggleInfo={() => setInfoOpen(true)}
             onForward={(m) => {

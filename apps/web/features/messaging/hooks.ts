@@ -226,7 +226,10 @@ export function useFlaggedMessages(enabled = true) {
  * teammate by id through `POST /users/by-ids` — never the whole directory.
  * Nothing is fetched the viewer may not list.
  */
-export function usePartyNames(conversations: InboxConversation[]): PartyNames {
+export function usePartyNames(conversations: InboxConversation[]): PartyNames & {
+  /** A name asked for is still on its way — a title drawn now would change under the reader. */
+  isLoading: boolean;
+} {
   const { can } = usePermissions();
   const qc = useQueryClient();
 
@@ -268,7 +271,7 @@ export function usePartyNames(conversations: InboxConversation[]): PartyNames {
     const name = `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim();
     if (name) known.users.set(u.id, name);
   }
-  return known;
+  return { ...known, isLoading: contacts.isLoading || companies.isLoading || users.isLoading };
 }
 
 /* ------------------------------------------------------------ mutations */

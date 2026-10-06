@@ -4,6 +4,7 @@ import { useEffect, useMemo, type ReactNode } from "react";
 import { Ban } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
+import { settled, usePageReady } from "@/lib/use-page-ready";
 import { cn } from "@/lib/utils";
 import { useUserMap } from "@/features/deals/hooks";
 import type { FeedMessage, InboxConversation, TextLookupParams } from "../api";
@@ -45,6 +46,7 @@ export function ConversationThread({
   onForward,
   footer,
   embedded = false,
+  extrasIn = true,
   className,
 }: {
   conversationId: string;
@@ -57,6 +59,11 @@ export function ConversationThread({
   footer?: (ctx: { conversation: InboxConversation; optedOut: boolean }) => ReactNode;
   /** Inside a contact / company / job card: no header of its own. */
   embedded?: boolean;
+  /**
+   * Whether what the caller draws into the thread is in — the inbox's title
+   * and the quick replies over its composer. The thread is held until it is.
+   */
+  extrasIn?: boolean;
   className?: string;
 }) {
   const { canManage, canSend } = useMessagingAccess();
@@ -72,7 +79,7 @@ export function ConversationThread({
     () => [...new Set(messages.map((m) => m.sentByUserId).filter((id): id is string => !!id))],
     [messages],
   );
-  const { map: userMap } = useUserMap(authorIds);
+  const { map: userMap, isLoading: authorsLoading } = useUserMap(authorIds);
   const authorNames = useMemo(() => {
     const m = new Map<string, string>();
     for (const [id, u] of userMap) m.set(id, `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() || id);
@@ -82,6 +89,12 @@ export function ConversationThread({
   const conversation = detail.data;
   const lookup = useTextLookup(textLookupParamsFor(conversation));
   const optedOut = lookup.data?.optOut?.status === "opted_out";
+
+  // One skeleton, then the thread whole: the header, the messages with their
+  // authors named, the opt-out banner if there is one, and the composer. Each
+  // used to land on its own beat, and every one of them moved the feed — the
+  // banner and the composer squeeze it from below. Held once, never again.
+  const shown = usePageReady(settled(detail) && settled(feed) && settled(lookup) && !authorsLoading && extrasIn);
 
   // Mark read: once per newest message, only when there is something to clear.
   const newest = messages[0];
@@ -116,7 +129,7 @@ export function ConversationThread({
 
   return (
     <div className={cn("flex min-h-0 flex-1 flex-col", className)} data-testid="conversation-thread">
-      {embedded ? null : conversation ? (
+      {embedded ? null : shown && conversation ? (
         <ThreadHeader
           conversation={conversation}
           title={title}
@@ -125,15 +138,19 @@ export function ConversationThread({
           onToggleInfo={onToggleInfo}
         />
       ) : (
-        <div className="flex items-center gap-2 border-b px-3 py-2">
+        // The header's own box: a shorter stand-in let the feed below it
+        // slide down when the header came.
+        <div className="flex h-14 shrink-0 items-center gap-2 border-b px-4">
           <Skeleton className="size-6 rounded-full" />
           <Skeleton className="h-4 w-40" />
         </div>
       )}
 
       <MessageFeed
-        messages={messages}
-        isLoading={feed.isLoading}
+        // Handed over only once shown: the feed scrolls to the newest line
+        // the first time it has lines, and that must be the frame it is seen.
+        messages={shown ? messages : []}
+        isLoading={!shown}
         hasOlder={feed.hasNextPage}
         isFetchingOlder={feed.isFetchingNextPage}
         onLoadOlder={() => feed.fetchNextPage()}
@@ -148,7 +165,7 @@ export function ConversationThread({
         recap={!embedded}
       />
 
-      {optedOut ? (
+      {shown && optedOut ? (
         <Alert className="mx-3 mb-2 border-amber-500/40 bg-amber-500/5">
           <Ban className="size-4 text-amber-600" />
           <AlertTitle>This number opted out of texts</AlertTitle>
@@ -158,7 +175,7 @@ export function ConversationThread({
         </Alert>
       ) : null}
 
-      {conversation && footer ? footer({ conversation, optedOut }) : null}
+      {shown && conversation && footer ? footer({ conversation, optedOut }) : null}
     </div>
   );
 }
