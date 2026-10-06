@@ -5,6 +5,7 @@ import { JOB_REQUIRABLE_FIELDS, type CustomFieldDefinition } from "@bitcrm/types
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { usePermissions } from "@/features/auth/use-permissions";
+import { settled, usePageReady } from "@/lib/use-page-ready";
 import { useCustomFields, useUpdateCustomField } from "@/features/custom-fields/hooks";
 import { groupFields } from "@/features/custom-fields/lib";
 import { useJobFieldSettings, useUpdateJobFieldSettings } from "../hooks";
@@ -15,11 +16,17 @@ import { useJobFieldSettings, useUpdateJobFieldSettings } from "../hooks";
  * Read-only without `settings.edit`.
  */
 export function JobFieldsPage() {
-  const { can } = usePermissions();
+  const { can, isLoading: permsLoading } = usePermissions();
   const canEdit = can("settings", "edit");
-  const { data: settings, isLoading } = useJobFieldSettings();
+  const settingsQuery = useJobFieldSettings();
+  const settings = settingsQuery.data;
   const update = useUpdateJobFieldSettings();
-  const { data: customFieldDefs } = useCustomFields();
+  const customFieldsQuery = useCustomFields();
+  const customFieldDefs = customFieldsQuery.data;
+  // The two cards used to load apart, and whichever came second moved the
+  // other: one skeleton holds both until both lists — and the right to edit
+  // them — are in.
+  const ready = usePageReady(!permsLoading && settled(settingsQuery) && settled(customFieldsQuery));
 
   const toggleBuiltin = (id: string) => {
     if (!settings) return;
@@ -39,47 +46,51 @@ export function JobFieldsPage() {
         </p>
       </div>
 
-      <div className="rounded-xl border bg-card p-4">
-        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Default fields
-        </h2>
-        {isLoading || !settings ? (
-          <Skeleton className="h-40 w-full" />
-        ) : (
-          <div className="divide-y">
-            {JOB_REQUIRABLE_FIELDS.map((f) => (
-              <div key={f.id} className="flex items-center justify-between py-2.5">
-                <span className="text-sm">{f.label}</span>
-                <Switch
-                  aria-label={f.label}
-                  checked={Boolean(settings.requiredFields[f.id])}
-                  disabled={!canEdit || update.isPending}
-                  onCheckedChange={() => toggleBuiltin(f.id)}
-                />
+      {!ready ? (
+        <Skeleton className="h-96 w-full rounded-xl" />
+      ) : (
+        <>
+          <div className="rounded-xl border bg-card p-4">
+            <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Default fields
+            </h2>
+            {settings ? (
+              <div className="divide-y">
+                {JOB_REQUIRABLE_FIELDS.map((f) => (
+                  <div key={f.id} className="flex items-center justify-between py-2.5">
+                    <span className="text-sm">{f.label}</span>
+                    <Switch
+                      aria-label={f.label}
+                      checked={Boolean(settings.requiredFields[f.id])}
+                      disabled={!canEdit || update.isPending}
+                      onCheckedChange={() => toggleBuiltin(f.id)}
+                    />
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </div>
+
+          <div className="rounded-xl border bg-card p-4">
+            <h2 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Custom fields
+            </h2>
+            <p className="mb-3 text-xs text-muted-foreground">
+              Toggling writes the field&apos;s own Required flag — the same one Settings → Custom Fields edits.
+            </p>
+            {groupFields((customFieldDefs ?? []).filter((f) => f.active)).map(({ group, fields }) => (
+              <div key={group} className="mb-3 last:mb-0">
+                <h3 className="mb-1 text-xs font-medium text-muted-foreground">{group}</h3>
+                <div className="divide-y">
+                  {fields.map((f) => (
+                    <CustomFieldRow key={f.id} field={f} canEdit={canEdit} />
+                  ))}
+                </div>
               </div>
             ))}
           </div>
-        )}
-      </div>
-
-      <div className="rounded-xl border bg-card p-4">
-        <h2 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Custom fields
-        </h2>
-        <p className="mb-3 text-xs text-muted-foreground">
-          Toggling writes the field&apos;s own Required flag — the same one Settings → Custom Fields edits.
-        </p>
-        {groupFields((customFieldDefs ?? []).filter((f) => f.active)).map(({ group, fields }) => (
-          <div key={group} className="mb-3 last:mb-0">
-            <h3 className="mb-1 text-xs font-medium text-muted-foreground">{group}</h3>
-            <div className="divide-y">
-              {fields.map((f) => (
-                <CustomFieldRow key={f.id} field={f} canEdit={canEdit} />
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
+        </>
+      )}
     </div>
   );
 }
