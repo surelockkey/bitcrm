@@ -27,6 +27,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { DAY_END, DAY_START, toIsoInstant, toLocalParts } from "@/lib/date-range";
+import { settled, usePageReady } from "@/lib/use-page-ready";
 import { useDenied } from "@/features/auth/use-permissions";
 import { NoAccess } from "@/features/clients/components/contacts-page";
 import { useExternalCompanies } from "@/features/external-companies/hooks";
@@ -143,10 +144,19 @@ export function CommissionsPage({ today }: { today: string }) {
   };
   const report = useCommissionReport(denied("commission", "view") ? null : filters);
 
-  const jobTypes = useJobTypes().data ?? [];
-  const areas = useServiceAreas().data ?? [];
-  const companies = useExternalCompanies().data ?? [];
-  const sources = useJobSources().data ?? [];
+  const jobTypesQuery = useJobTypes();
+  const areasQuery = useServiceAreas();
+  const companiesQuery = useExternalCompanies();
+  const sourcesQuery = useJobSources();
+  const jobTypes = jobTypesQuery.data ?? [];
+  const areas = areasQuery.data ?? [];
+  const companies = companiesQuery.data ?? [];
+  const sources = sourcesQuery.data ?? [];
+  // A select is as wide as its widest option: drawn before its catalog, each
+  // one widened as the catalog came — the ad groups seconds after the rest —
+  // and pushed every filter after it along, wrapping the row onto the report.
+  // The filters wait for their options and the report, and come with it.
+  const ready = usePageReady([report, jobTypesQuery, areasQuery, companiesQuery, sourcesQuery].every(settled));
 
   if (denied("commission", "view")) return <NoAccess entity="the commissions report" />;
 
@@ -235,111 +245,124 @@ export function CommissionsPage({ today }: { today: string }) {
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 border-b px-6 py-3 print:hidden">
-        <select aria-label="Job type" className={selectClass} value={jobTypeId} onChange={(e) => reset(setJobTypeId)(e.target.value)}>
-          <option value={ALL}>Job Type</option>
-          {jobTypes.map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.name}
-            </option>
-          ))}
-        </select>
-        <select aria-label="Technician" className={selectClass} value={techId} onChange={(e) => reset(setTechId)(e.target.value)}>
-          <option value={ALL}>{mode === "tech" ? "Select Technician" : "All Technicians"}</option>
-          {techId && !techOptions.some((t) => t.techId === techId) && <option value={techId}>{techId}</option>}
-          {techOptions.map((t) => (
-            <option key={t.techId} value={t.techId}>
-              {`${t.techName ?? t.techId}  [${t.jobs}]`}
-            </option>
-          ))}
-        </select>
-        <select
-          aria-label="Service area"
-          className={selectClass}
-          value={serviceAreaId}
-          onChange={(e) => reset(setServiceAreaId)(e.target.value)}
-        >
-          <option value={ALL}>All Service Areas</option>
-          {areas.map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.name}
-            </option>
-          ))}
-        </select>
-        {/* External Company and Ad Group exclude each other, as in Workiz. */}
-        <select
-          aria-label="External company"
-          className={selectClass}
-          value={externalCompanyId}
-          disabled={Boolean(sourceId)}
-          onChange={(e) => reset(setExternalCompanyId)(e.target.value)}
-        >
-          <option value={ALL}>External Company</option>
-          <option value="only">External Only</option>
-          {companies.map((c) => (
-            <option key={c.id} value={c.id}>
-              {companyJobs.has(c.id) ? `${c.name}  [${companyJobs.get(c.id)}]` : c.name}
-            </option>
-          ))}
-        </select>
-        <select
-          aria-label="Ad group"
-          className={selectClass}
-          value={sourceId}
-          disabled={Boolean(externalCompanyId)}
-          onChange={(e) => reset(setSourceId)(e.target.value)}
-        >
-          <option value={ALL}>Ad Group</option>
-          {sources.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name}
-            </option>
-          ))}
-        </select>
-        <div className="relative">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
-          <Input
-            aria-label="Search"
-            placeholder="Search"
-            className="h-9 w-48 pl-8"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </div>
-        <span className="flex-1" />
-        <Button variant="outline" size="sm" className="h-9 gap-1.5" onClick={() => void exportCsv()} disabled={exporting || picking}>
-          <Download className="size-4" aria-hidden />
-          Export
-        </Button>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm" className="h-9 gap-1.5" disabled={picking}>
-              <Columns3 className="size-4" aria-hidden />
-              Fields
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="max-h-96 overflow-y-auto">
-            <DropdownMenuLabel>Columns</DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            {commissionColumns(mode).map((c) => (
-              <DropdownMenuCheckboxItem
-                key={c.id}
-                checked={choice[c.id] ?? c.default}
-                onCheckedChange={() => toggleColumn(c)}
-                onSelect={(e) => e.preventDefault()}
-              >
-                {c.label}
-              </DropdownMenuCheckboxItem>
+      {ready ? (
+        <div className="flex flex-wrap items-center gap-2 border-b px-6 py-3 print:hidden">
+          <select aria-label="Job type" className={selectClass} value={jobTypeId} onChange={(e) => reset(setJobTypeId)(e.target.value)}>
+            <option value={ALL}>Job Type</option>
+            {jobTypes.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+              </option>
             ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-        <Button variant="outline" size="sm" className="h-9 gap-1.5" onClick={() => window.print()} disabled={picking}>
-          <Printer className="size-4" aria-hidden />
-          Print
-        </Button>
-      </div>
+          </select>
+          <select aria-label="Technician" className={selectClass} value={techId} onChange={(e) => reset(setTechId)(e.target.value)}>
+            <option value={ALL}>{mode === "tech" ? "Select Technician" : "All Technicians"}</option>
+            {techId && !techOptions.some((t) => t.techId === techId) && <option value={techId}>{techId}</option>}
+            {techOptions.map((t) => (
+              <option key={t.techId} value={t.techId}>
+                {`${t.techName ?? t.techId}  [${t.jobs}]`}
+              </option>
+            ))}
+          </select>
+          <select
+            aria-label="Service area"
+            className={selectClass}
+            value={serviceAreaId}
+            onChange={(e) => reset(setServiceAreaId)(e.target.value)}
+          >
+            <option value={ALL}>All Service Areas</option>
+            {areas.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}
+              </option>
+            ))}
+          </select>
+          {/* External Company and Ad Group exclude each other, as in Workiz. */}
+          <select
+            aria-label="External company"
+            className={selectClass}
+            value={externalCompanyId}
+            disabled={Boolean(sourceId)}
+            onChange={(e) => reset(setExternalCompanyId)(e.target.value)}
+          >
+            <option value={ALL}>External Company</option>
+            <option value="only">External Only</option>
+            {companies.map((c) => (
+              <option key={c.id} value={c.id}>
+                {companyJobs.has(c.id) ? `${c.name}  [${companyJobs.get(c.id)}]` : c.name}
+              </option>
+            ))}
+          </select>
+          <select
+            aria-label="Ad group"
+            className={selectClass}
+            value={sourceId}
+            disabled={Boolean(externalCompanyId)}
+            onChange={(e) => reset(setSourceId)(e.target.value)}
+          >
+            <option value={ALL}>Ad Group</option>
+            {sources.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
+          </select>
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+            <Input
+              aria-label="Search"
+              placeholder="Search"
+              className="h-9 w-48 pl-8"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+          <span className="flex-1" />
+          <Button variant="outline" size="sm" className="h-9 gap-1.5" onClick={() => void exportCsv()} disabled={exporting || picking}>
+            <Download className="size-4" aria-hidden />
+            Export
+          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="h-9 gap-1.5" disabled={picking}>
+                <Columns3 className="size-4" aria-hidden />
+                Fields
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="max-h-96 overflow-y-auto">
+              <DropdownMenuLabel>Columns</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {commissionColumns(mode).map((c) => (
+                <DropdownMenuCheckboxItem
+                  key={c.id}
+                  checked={choice[c.id] ?? c.default}
+                  onCheckedChange={() => toggleColumn(c)}
+                  onSelect={(e) => e.preventDefault()}
+                >
+                  {c.label}
+                </DropdownMenuCheckboxItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <Button variant="outline" size="sm" className="h-9 gap-1.5" onClick={() => window.print()} disabled={picking}>
+            <Printer className="size-4" aria-hidden />
+            Print
+          </Button>
+        </div>
+      ) : null}
 
-      {report.error ? (
+      {!ready ? (
+        // One block for the filters and the report while either is on its way.
+        <div role="status" aria-label="Loading report" className="print:hidden">
+          <div className="border-b px-6 py-3">
+            <Skeleton className="h-9 w-full" />
+          </div>
+          <div className="space-y-3 p-6">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-64 w-full" />
+          </div>
+        </div>
+      ) : report.error ? (
         <p role="alert" className="p-6 text-sm text-destructive">
           {report.error instanceof Error ? report.error.message : "Could not load the report."}
         </p>
