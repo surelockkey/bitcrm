@@ -27,10 +27,12 @@ export function useRoles(enabled = true) {
   });
 }
 
-export function useRole(id: string) {
+/** `enabled`: a page that learns the role id from another answer holds it until then. */
+export function useRole(id: string, enabled = true) {
   return useQuery({
     queryKey: queryKeys.roles.detail(id),
     queryFn: () => api.getRole(id),
+    enabled: enabled && !!id,
   });
 }
 

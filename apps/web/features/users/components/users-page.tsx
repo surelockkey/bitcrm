@@ -15,6 +15,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import type { User } from "@bitcrm/types";
 import { usePermissions } from "@/features/auth/use-permissions";
+import { settled, usePageReady } from "@/lib/use-page-ready";
 import { useRoles, useUser, useUsers , useUsersCount } from "../hooks";
 import type { UserFilter } from "../api";
 import { CreateUserSheet } from "./create-user-sheet";
@@ -27,7 +28,7 @@ import { usePager } from "@/lib/paging/use-pager";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 
 export function UsersPage() {
-  const { can } = usePermissions();
+  const { can, isLoading: permsLoading } = usePermissions();
   const router = useRouter();
   const searchParams = useSearchParams();
   const [filter, setFilter] = useState<UserFilter>({});
@@ -43,9 +44,14 @@ export function UsersPage() {
   const term = useDebouncedValue(search.trim(), 300);
   const query = useMemo<UserFilter>(() => (term ? { ...filter, search: term } : filter), [filter, term]);
   const usersQuery = useUsers(query, pageSize, { keepPrevious: true });
-  const { data: roles } = useRoles();
+  const rolesQuery = useRoles();
+  const roles = rolesQuery.data;
 
   const count = useUsersCount(query);
+  // The rows wait for the role names they print (a custom role read as its
+  // id until the roles came) and the total above them; "New user" comes with
+  // them. Once up, the list keeps its rows under a new filter.
+  const ready = usePageReady(!permsLoading && [usersQuery, count, rolesQuery].every(settled));
   const pager = usePager(pagedSource(usersQuery), {
     total: count.data?.total,
     totalIsFloor: count.data?.atLeast,
@@ -79,7 +85,7 @@ export function UsersPage() {
     if (linkedId) router.replace("/admin/users");
   };
 
-  if (!can("users", "view")) {
+  if (!permsLoading && !can("users", "view")) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
         <h2 className="text-lg font-medium">No access</h2>
@@ -100,7 +106,7 @@ export function UsersPage() {
             Manage accounts, roles, and access.
           </p>
         </div>
-        {can("users", "create") ? (
+        {ready && can("users", "create") ? (
           <Button
             variant="brand"
             className="h-9 gap-1.5 px-3.5"
@@ -156,13 +162,13 @@ export function UsersPage() {
         </Select>
 
         <span className="ml-auto text-sm text-muted-foreground">
-          {shown} {shown === 1 ? "user" : "users"}
+          {ready ? `${shown} ${shown === 1 ? "user" : "users"}` : null}
         </span>
       </div>
 
       {/* Body */}
       <div className="flex-1 px-6 pb-6">
-        {usersQuery.isLoading ? (
+        {!ready ? (
           <TableSkeleton />
         ) : usersQuery.isError ? (
           <ErrorState onRetry={() => usersQuery.refetch()} />
