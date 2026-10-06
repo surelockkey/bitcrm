@@ -4,12 +4,12 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
-import type { EstimateWithItems } from "@bitcrm/types";
+import type { Deal, EstimateWithItems } from "@bitcrm/types";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { usePermissions } from "@/features/auth/use-permissions";
-import { useDeal, useDealProducts } from "@/features/deals/hooks";
-import { useDealEstimates, useDuplicateEstimate, useEstimate } from "../hooks";
+import { useDuplicateEstimate } from "../hooks";
+import { useEstimatePageData } from "../estimate-page-data";
 import { EstimateEditor } from "./estimate-editor";
 import { EstimateTabs, byCreated } from "./estimate-tabs";
 import { NewEstimateDialog } from "./new-estimate-dialog";
@@ -24,12 +24,16 @@ import { proposalSend } from "../lib";
  *   Actions ▾ and Send ▾ (this estimate, or all of them as a proposal).
  * - A CLIENT's estimate (no job): the client layout — Client, Bill to, the
  *   estimate's number, name, date and status.
+ *
+ * Shown once, whole: one skeleton until the estimate, its job, the job's
+ * other estimates, the client and the pickers' lists are all in.
  */
 export function StandaloneEstimatePage({ estimateId }: { estimateId: string }) {
   const router = useRouter();
-  const { data: estimate, isLoading, isError, error } = useEstimate(estimateId);
+  const data = useEstimatePageData(estimateId);
+  const { data: estimate, isError, error } = data.estimate;
 
-  if (isLoading) {
+  if (!data.ready) {
     return (
       <div className="p-6">
         <Skeleton className="h-48 w-full" />
@@ -46,7 +50,17 @@ export function StandaloneEstimatePage({ estimateId }: { estimateId: string }) {
     );
   }
 
-  if (estimate.dealId) return <JobEstimatePage estimate={estimate} dealId={estimate.dealId} />;
+  if (estimate.dealId) {
+    return (
+      <JobEstimatePage
+        estimate={estimate}
+        dealId={estimate.dealId}
+        deal={data.deal.data}
+        siblings={data.siblings.data}
+        jobItemCount={data.jobProducts.data?.length}
+      />
+    );
+  }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
@@ -61,12 +75,22 @@ export function StandaloneEstimatePage({ estimateId }: { estimateId: string }) {
   );
 }
 
-function JobEstimatePage({ estimate, dealId }: { estimate: EstimateWithItems; dealId: string }) {
+function JobEstimatePage({
+  estimate,
+  dealId,
+  deal,
+  siblings,
+  jobItemCount,
+}: {
+  estimate: EstimateWithItems;
+  dealId: string;
+  /** The page asked for these up front; they stay live through its own observers. */
+  deal: Deal | undefined;
+  siblings: EstimateWithItems[] | undefined;
+  jobItemCount: number | undefined;
+}) {
   const router = useRouter();
   const { can } = usePermissions();
-  const { data: deal } = useDeal(dealId);
-  const { data: jobProducts } = useDealProducts(dealId);
-  const { data: siblings } = useDealEstimates(dealId);
   const duplicate = useDuplicateEstimate(dealId);
   const [creating, setCreating] = useState(false);
   const [sendingAll, setSendingAll] = useState(false);
@@ -89,6 +113,7 @@ function JobEstimatePage({ estimate, dealId }: { estimate: EstimateWithItems; de
             key={estimate.id}
             estimateId={estimate.id}
             deal={deal}
+            jobItemCount={jobItemCount}
             tabs={
               <EstimateTabs
                 estimates={list}
@@ -104,14 +129,17 @@ function JobEstimatePage({ estimate, dealId }: { estimate: EstimateWithItems; de
             onSendAll={canSendAll && sendAll.mode && sendAll.count > 1 ? () => setSendingAll(true) : undefined}
           />
         ) : (
-          <Skeleton className="h-48 w-full" />
+          // The job itself could not be loaded.
+          <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
+            This estimate&apos;s job couldn&apos;t be loaded.
+          </div>
         )}
       </div>
 
       {creating ? (
         <NewEstimateDialog
           dealId={dealId}
-          jobItemCount={jobProducts?.length ?? deal?.itemCount ?? 0}
+          jobItemCount={jobItemCount ?? deal?.itemCount ?? 0}
           open
           onOpenChange={setCreating}
           onCreated={(e) => router.push(`/estimates/${e.id}`)}

@@ -69,8 +69,13 @@ const estimate: EstimateWithItems = {
 function Harness({ initial = null, startCreating }: { initial?: string | null; startCreating?: boolean }) {
   return <DealEstimatesTab deal={deal} estimateId={initial} startCreating={startCreating} />;
 }
-/** The estimate itself — it now opens on a page of its own (`/estimates/[id]`). */
-const Editor = () => <EstimateEditor estimateId="e1" deal={deal} onOpenEstimate={() => {}} />;
+/**
+ * The estimate itself — it now opens on a page of its own (`/estimates/[id]`),
+ * which holds the job's items and tells the editor how many there are.
+ */
+const Editor = () => (
+  <EstimateEditor estimateId="e1" deal={deal} jobItemCount={mocks.products.length} onOpenEstimate={() => {}} />
+);
 const second: EstimateWithItems = {
   ...estimate, id: "e2", number: "1042-2", name: undefined, status: "unsent",
   createdAt: "2026-09-16T12:00:00.000Z", totals: { ...totals, total: 120, subtotal: 120 },

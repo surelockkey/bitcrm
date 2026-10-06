@@ -30,6 +30,9 @@ export function useEstimate(id: string) {
     queryKey: queryKeys.estimates.detail(id),
     queryFn: () => api.getEstimate(id),
     enabled: !!id,
+    // The page asks for the estimate up front; the editor mounting under it
+    // must not ask again. Edits invalidate it outright.
+    staleTime: 30_000,
   });
 }
 

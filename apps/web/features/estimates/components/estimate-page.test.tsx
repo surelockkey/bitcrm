@@ -18,7 +18,8 @@ vi.mock("@/features/auth/use-permissions", () => ({
   usePermissions: () => ({ can: () => true }),
 }));
 vi.mock("@/features/deals/hooks", () => ({
-  useDealProducts: () => ({ data: undefined, isLoading: false }),
+  // An answered query: the page waits for the job's items before it shows.
+  useDealProducts: () => ({ data: [], isLoading: false, isError: false, isPending: false, fetchStatus: "idle" }),
   useDeal: (id: string) => ({
     data: id ? { id, dealNumber: "1042", contactId: "c1", assignedTechIds: [], address: { street: "1 Main St", city: "Hartford", state: "CT", zip: "06103" } } : undefined,
     isLoading: false,
@@ -67,6 +68,7 @@ beforeEach(() => {
   server.use(
     http.get("*/billing/templates", () => HttpResponse.json({ success: true, data: [] })),
     http.get("*/billing/document-settings", () => HttpResponse.json({ success: true, data: {} })),
+    http.get("*/deals/tax-rates", () => HttpResponse.json({ success: true, data: [] })),
   );
 });
 

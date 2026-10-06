@@ -44,7 +44,6 @@ import { getApiErrorMessage } from "@/lib/api/errors";
 import { formatPhone } from "@/lib/phone";
 import { cn } from "@/lib/utils";
 import { usePermissions } from "@/features/auth/use-permissions";
-import { useDealProducts } from "@/features/deals/hooks";
 import { SyncToJobDialog } from "./sync-to-job-dialog";
 import { formatMoney } from "@/features/billing/lib";
 import { useOpenPdf } from "@/features/billing/open-pdf";
@@ -107,6 +106,7 @@ const segmentOff = "cursor-not-allowed opacity-50 hover:bg-transparent";
 export function EstimateEditor({
   estimateId,
   deal,
+  jobItemCount: jobItems,
   tabs,
   onOpenEstimate,
   onDeleted,
@@ -114,6 +114,12 @@ export function EstimateEditor({
 }: {
   estimateId: string;
   deal?: Deal;
+  /**
+   * How many items the job has now (the page holds the job's items) — Sync
+   * asks Replace / Add only when there are some. The job's own count stands
+   * in when it is not given.
+   */
+  jobItemCount?: number;
   /** The job's estimate tabs, rendered left of Actions / Send (Workiz). Absent on a page of its own. */
   tabs?: ReactNode;
   onOpenEstimate: (id: string) => void;
@@ -125,7 +131,6 @@ export function EstimateEditor({
   const { can } = usePermissions();
   const dealId = deal?.id;
   const { data: estimate, isLoading, isError, error, isFetching } = useEstimate(estimateId);
-  const { data: jobProducts } = useDealProducts(dealId ?? "", !!dealId);
   const update = useUpdateEstimate(estimateId, dealId);
   const setStatus = useSetEstimateStatus(estimateId, dealId);
   const markSent = useMarkEstimateSent(estimateId, dealId);
@@ -172,7 +177,7 @@ export function EstimateEditor({
   const canDelete = can("estimates", "delete");
   const canSync = can("estimates", "sync");
   const syncBlocked = syncBlockReason(estimate, items.length, canSync, !!deal);
-  const jobItemCount = jobProducts?.length ?? deal?.itemCount ?? 0;
+  const jobItemCount = jobItems ?? deal?.itemCount ?? 0;
   // Workiz asks Replace / Add only when the job already has items; an empty job takes them at once.
   const startSync = () => (jobItemCount > 0 ? setSyncing(true) : sync.mutate("replace"));
   // Server totals lag item edits by a refetch; the shared formula bridges it.
