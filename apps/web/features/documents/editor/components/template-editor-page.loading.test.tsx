@@ -148,10 +148,40 @@ describe("TemplateEditorPage — loading", () => {
     await settle();
     first.stop();
 
-    // Letter paper is 816px wide; the canvas keeps 120px for the section labels.
-    const fit = String(Math.min(1, (CANVAS_WIDTH - 120) / 816));
+    // Letter paper is 816px wide; the canvas keeps 120px for the section labels,
+    // and is fitted to its content box — its padding excluded, as the browser's
+    // ResizeObserver reports it.
+    const canvasStyle = getComputedStyle(document.querySelector(".doc-canvas")!);
+    const padding = (parseFloat(canvasStyle.paddingLeft) || 0) + (parseFloat(canvasStyle.paddingRight) || 0);
+    const fit = String(Math.min(1, (CANVAS_WIDTH - padding - 120) / 816));
     expect(first.frame()).toEqual({ zoom: fit, logo: true, picture: true });
     expect(duplicates(server.requests)).toEqual([]);
+  });
+
+  /**
+   * The paper is fitted to the canvas's width. A tall template overflows, the
+   * scroller grows a scrollbar, the width drops and the paper was fitted
+   * again a frame later — every section shrank and slid. The scroller keeps
+   * the scrollbar's room from the start, so the width never changes.
+   */
+  it("keeps the scrollbar's room, so the paper is fitted once", async () => {
+    server = installFakeServer([
+      { match: /\/users\/me$/, reply: () => me, delayMs: 10 },
+      { match: /\/billing\/templates\/tpl-1$/, reply: () => template(), delayMs: 20 },
+      { match: /\/billing\/business-profiles$/, reply: () => [company], delayMs: 20 },
+      { match: /\/billing\/assets\/asset-pic\/url$/, reply: () => ({ url: "https://cdn.example.com/pic.png" }), delayMs: 20 },
+      { match: /\/deals\/job-types$/, reply: () => [] },
+      { match: /\/deals\/service-areas$/, reply: () => [] },
+    ]);
+    renderWithClient(
+      <TooltipProvider>
+        <TemplateEditorPage templateId="tpl-1" />
+      </TooltipProvider>,
+    );
+    await screen.findByRole("button", { name: "Rename template House invoice" }, { timeout: 3000 });
+
+    const scroller = document.querySelector(".doc-canvas")!.parentElement!;
+    expect(scroller.className).toMatch(/\[scrollbar-gutter:stable\]/);
   });
 
   /**

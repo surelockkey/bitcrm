@@ -343,7 +343,10 @@ export function TemplateEditorPage({ templateId }: { templateId: string }) {
                 <MousePointerClick className="size-4" /> Live preview — click a block to edit it.
               </div>
             )}
-            <div className="min-h-0 flex-1 overflow-auto">
+            {/* The scrollbar's room is kept from the start: the paper is fitted to
+                this width, and a scrollbar appearing under a tall template
+                would narrow it and re-fit the paper a frame later. */}
+            <div className="min-h-0 flex-1 overflow-auto [scrollbar-gutter:stable]">
               {mode === "edit" ? <TemplateCanvas ctx={ctx} /> : <LivePreview ctx={ctx} />}
             </div>
           </main>
