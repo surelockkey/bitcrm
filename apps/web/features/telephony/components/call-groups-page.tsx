@@ -15,7 +15,8 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
-import { usePermissions } from "@/features/auth/use-permissions";
+import { settled, usePageReady } from "@/lib/use-page-ready";
+import { useDenied, usePermissions } from "@/features/auth/use-permissions";
 import type { CallGroupWithMembers } from "@bitcrm/types";
 import { useCallGroups, useDeleteCallGroup } from "../call-groups-hooks";
 import { CallGroupEditor } from "./call-group-editor";
@@ -28,8 +29,11 @@ import { CallGroupEditor } from "./call-group-editor";
  * each reachable on their softphone, their own phone, or both.
  */
 export function CallGroupsPage() {
-  const { can } = usePermissions();
-  const { data: groups, isLoading } = useCallGroups(can("settings"));
+  const { can, isLoading: permissionsLoading } = usePermissions();
+  const denied = useDenied();
+  const groupsQuery = useCallGroups(can("settings"));
+  const { data: groups } = groupsQuery;
+  const ready = usePageReady(!permissionsLoading && settled(groupsQuery));
   const remove = useDeleteCallGroup();
 
   const [editing, setEditing] = useState<CallGroupWithMembers | undefined>();
@@ -38,7 +42,8 @@ export function CallGroupsPage() {
 
   const canManage = can("settings", "edit");
 
-  if (!can("settings")) {
+  // Refused only once the permissions say so — not while they are coming.
+  if (denied("settings")) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
         <h2 className="text-lg font-medium">No access</h2>
@@ -70,7 +75,7 @@ export function CallGroupsPage() {
         ) : null}
       </div>
 
-      {isLoading ? (
+      {!ready ? (
         <div className="space-y-2">
           <Skeleton className="h-16 w-full" />
           <Skeleton className="h-16 w-full" />
