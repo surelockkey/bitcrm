@@ -210,6 +210,8 @@ describe("ContactDetailPage — the client card, laid out as Workiz's", () => {
           pagination: { count: 2, notesCount: 2 },
         }),
       ),
+      // The card asks for the portal link with the client (the card itself is stubbed here).
+      http.get("*/billing/portal-links/c1", () => HttpResponse.json({ success: true, data: null })),
       http.get("*/deals/attachments/by-contact/c1", () =>
         HttpResponse.json({
           success: true,
@@ -338,10 +340,13 @@ describe("ContactDetailPage — the client card, laid out as Workiz's", () => {
   });
 
   it("asks for every page of the client's jobs as the card opens, so the count and the pages are exact", async () => {
+    // A big client: the card goes up after its first four pages, and the
+    // Jobs number says "at least" until the rest are counted.
+    mocks.deals.pages = [0, 1, 2, 3].map(() => mocks.deals.pages[0]);
     mocks.deals.hasNextPage = true;
     await renderPage();
     await waitFor(() => expect(mocks.deals.fetchNextPage).toHaveBeenCalled());
-    expect(screen.getByRole("tab", { name: /^Jobs/ })).toHaveTextContent("3+");
+    expect(screen.getByRole("tab", { name: /^Jobs/ })).toHaveTextContent("12+");
   });
 
   it("the Addresses tab lists each distinct address once, with its job count and total", async () => {
