@@ -32,7 +32,8 @@ import { initials, formatDate } from "@/features/users/lib";
 import { formatPhone, isValidPhone } from "@/lib/phone";
 import { useUpdateUser, useUpdateMyPhone } from "@/features/users/hooks";
 import { updateUserSchema, type UpdateUserValues } from "@/features/users/schemas";
-import { useOnboarding } from "@/features/technicians/hooks";
+import { useOnboarding, useProfile } from "@/features/technicians/hooks";
+import { settled, usePageReady } from "@/lib/use-page-ready";
 import { onboardingPct } from "@/features/technicians/lib";
 import { TechnicianAssignments } from "@/features/technicians/components/assignments-section";
 import { DocumentsTab } from "@/features/technicians/components/documents-tab";
@@ -40,18 +41,24 @@ import { CommissionTab } from "@/features/technicians/components/commission-tab"
 import { SelfProfileForm } from "./self-profile-form";
 import { TwoStepCard } from "./two-step-card";
 
+/**
+ * The heading and the column are drawn from the first frame; the cards wait in
+ * that column under one skeleton until everything they show is in.
+ *
+ * The loading state used to be a box of its own — narrow and centred — which
+ * the page then took over, full width with a heading on top: everything on
+ * screen jumped sideways and down at once. A technician's own section asks
+ * for its onboarding and its profile up front too, so it comes with the rest
+ * rather than after it.
+ */
 export function ProfilePage() {
-  const { data: me, isLoading } = useMe();
+  const { data: me } = useMe();
   const { can, isTechnician, roleName } = usePermissions();
 
-  if (isLoading || !me) {
-    return (
-      <div className="mx-auto w-full max-w-4xl space-y-4 p-6">
-        <Skeleton className="h-40 w-full" />
-        <Skeleton className="h-24 w-full" />
-      </div>
-    );
-  }
+  const technicianId = me && isTechnician ? me.id : "";
+  const onboarding = useOnboarding(technicianId, !!technicianId);
+  const techProfile = useProfile(technicianId, !!technicianId);
+  const ready = usePageReady(!!me && settled(onboarding) && settled(techProfile));
 
   return (
     <div className="flex flex-1 flex-col">
@@ -61,10 +68,19 @@ export function ProfilePage() {
       </div>
       <div className="flex-1 overflow-y-auto">
         <div className="mx-auto max-w-4xl space-y-6 px-6 py-6">
-          <AccountCard me={me} roleName={roleName} canEdit={can("users", "edit")} />
-          <SecurityCard email={me.email} />
-          <TwoStepCard me={me} />
-          {isTechnician ? <TechnicianSelfService technicianId={me.id} /> : null}
+          {!ready || !me ? (
+            <>
+              <Skeleton className="h-40 w-full" />
+              <Skeleton className="h-24 w-full" />
+            </>
+          ) : (
+            <>
+              <AccountCard me={me} roleName={roleName} canEdit={can("users", "edit")} />
+              <SecurityCard email={me.email} />
+              <TwoStepCard me={me} />
+              {isTechnician ? <TechnicianSelfService technicianId={me.id} /> : null}
+            </>
+          )}
         </div>
       </div>
     </div>
