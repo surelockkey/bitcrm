@@ -14,8 +14,11 @@ vi.mock("@/features/auth/use-permissions", () => ({
   useDenied: () => () => false,
   usePermissions: () => ({ can: (r: string, a = "view") => mocks.perms.has(`${r}.${a}`) }),
 }));
+// The tab waits for the job's items and totals before it shows: the items
+// answered, the totals never asked for (the job's items block is a stub here).
 vi.mock("@/features/deals/hooks", () => ({
-  useDealProducts: () => ({ data: mocks.products, isLoading: false }),
+  useDealProducts: () => ({ data: mocks.products, isLoading: false, isError: false, isPending: false, fetchStatus: "idle" }),
+  useDealTotals: () => ({ data: undefined, isLoading: false, isError: false, isPending: true, fetchStatus: "idle" }),
 }));
 vi.mock("@/features/deals/components/deal-products-tab", () => ({
   DealProductsTab: ({
@@ -56,6 +59,7 @@ beforeEach(() => {
   server.use(
     http.get("*/billing/templates", () => HttpResponse.json({ success: true, data: [] })),
     http.get("*/billing/document-settings", () => HttpResponse.json({ success: true, data: {} })),
+    http.get("*/deals/tax-rates", () => HttpResponse.json({ success: true, data: [] })),
     http.get("*/crm/contacts/c1", () =>
       HttpResponse.json({ success: true, data: { id: "c1", firstName: "Jane", lastName: "Client", phones: [], emails: [], addresses: [] } }),
     ),

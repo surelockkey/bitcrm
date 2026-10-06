@@ -22,12 +22,14 @@ vi.mock("@/features/clients/hooks", () => ({
 }));
 vi.mock("@/features/deals/hooks", () => ({
   useDealProducts: () => ({ data: undefined, isLoading: false }),
+  useDealTotals: () => ({ data: undefined, isLoading: false }),
 }));
 vi.mock("@/features/deals/components/deal-products-tab", () => ({
   DealProductsTab: () => <div data-testid="job-items" />,
 }));
 vi.mock("@/features/payments/hooks", () => ({
-  useInvoicePayments: () => ({ data: undefined }),
+  // Never asked here (the payments section is a stub): the page does not wait on it.
+  useInvoicePayments: () => ({ data: undefined, isError: false, isPending: true, fetchStatus: "idle" }),
   useSetAllowedMethods: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 vi.mock("@/features/payments/components/invoice-payments-section", () => ({
