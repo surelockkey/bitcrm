@@ -36,7 +36,7 @@ describe("SettingsIndex — loading", () => {
     const frames: { links: number; skeletons: number }[] = [];
     let last = "";
     const observer = new MutationObserver(() => {
-      const f = { links: document.querySelectorAll("a[href^='/settings'], a[href='/automations']").length, skeletons: skeletonCount() };
+      const f = { links: document.querySelectorAll("a[href^='/settings'], a[href^='/admin'], a[href='/automations']").length, skeletons: skeletonCount() };
       const key = JSON.stringify(f);
       if (key !== last) {
         frames.push(f);
