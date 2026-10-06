@@ -6,6 +6,7 @@ import type { CallTrackingGroupBy, CallTrackingReport } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { settled, usePageReady } from "@/lib/use-page-ready";
 import { useDenied, usePermissions } from "@/features/auth/use-permissions";
 import { NoAccess } from "@/features/clients/components/contacts-page";
 import { LineChart } from "@/features/dashboard/components/line-chart";
@@ -43,7 +44,7 @@ const GRAPH_STEPS: GraphBy[] = ["hour", "day", "week", "month"];
  * needs `calls.view` too — Workiz's "Call Reports" restriction.
  */
 export function CallTrackingPage({ today }: { today: string }) {
-  const { can } = usePermissions();
+  const { can, isLoading: permsLoading } = usePermissions();
   const denied = useDenied();
   const money = can("financials");
   const blocked = denied("reports", "view") || denied("calls", "view");
@@ -61,6 +62,11 @@ export function CallTrackingPage({ today }: { today: string }) {
     () => new Map((sources.data ?? []).map((s) => [s.id, s.name])),
     [sources.data],
   );
+  // The report was drawn the moment it came: the ad groups' names (a catalog
+  // sometimes seconds slow) filled the Ad group column in later, and with the
+  // role still being read the Revenue card and column came a beat after. The
+  // report comes with its names and its money.
+  const ready = usePageReady(!permsLoading && [report, sources].every(settled));
 
   if (blocked) return <NoAccess entity="reports" />;
 
@@ -125,7 +131,7 @@ export function CallTrackingPage({ today }: { today: string }) {
         <p role="alert" className="p-6 text-sm text-destructive">
           {report.error instanceof Error ? report.error.message : "Could not load the report."}
         </p>
-      ) : !report.data ? (
+      ) : !ready || !report.data ? (
         <div role="status" aria-label="Loading report" className="space-y-3 p-6">
           <Skeleton className="h-20 w-full" />
           <Skeleton className="h-56 w-full" />
