@@ -32,22 +32,26 @@ const SUPER_DOT: Record<JobSuperStatus, string> = {
 export const superDotColor = (s: JobSuperStatus): string => SUPER_DOT[s] ?? SUPER_DOT[JobSuperStatus.SUBMITTED];
 
 export type StatusMenuRow =
-  | { kind: "super"; value: string; label: string; superStatus: JobSuperStatus }
-  | { kind: "sub"; value: string; label: string; superStatus: JobSuperStatus; color: JobTagColor };
+  | { kind: "super"; value: string; label: string; superStatus: JobSuperStatus; disabled: boolean }
+  | { kind: "sub"; value: string; label: string; superStatus: JobSuperStatus; color: JobTagColor; disabled: false };
 
 /**
  * One flat list for the menu: each super-status, then its active sub-statuses
- * indented under it. Unlike Workiz, a super-status that has sub-statuses stays
- * selectable on its own — BitCRM has always allowed a bare status.
+ * indented under it. As in Workiz, a super-status that has sub-statuses is a
+ * grey heading, not a choice — one of its sub-statuses is picked — while one
+ * without any ("Submitted", "Done") is picked as it is.
  */
 export function statusMenuRows(list: DealSubStatus[] | undefined): StatusMenuRow[] {
   const active = activeJobStatuses(list);
-  return STATUS_MENU_ORDER.flatMap((group): StatusMenuRow[] => [
-    { kind: "super", value: `${SUPER_PREFIX}${group}`, label: superStatusLabel(group), superStatus: group },
-    ...active
-      .filter((s) => s.group === group)
-      .map((s): StatusMenuRow => ({ kind: "sub", value: s.id, label: s.name, superStatus: group, color: s.color })),
-  ]);
+  return STATUS_MENU_ORDER.flatMap((group): StatusMenuRow[] => {
+    const subs = active.filter((s) => s.group === group);
+    return [
+      { kind: "super", value: `${SUPER_PREFIX}${group}`, label: superStatusLabel(group), superStatus: group, disabled: subs.length > 0 },
+      ...subs.map(
+        (s): StatusMenuRow => ({ kind: "sub", value: s.id, label: s.name, superStatus: group, color: s.color, disabled: false }),
+      ),
+    ];
+  });
 }
 
 /** The menu value of a job's current status. */
