@@ -116,8 +116,9 @@ describe("ActivityPage — no jumping", () => {
       if (skeletonCount() > 0 || !footer()?.textContent?.includes("results")) blanked = true;
     });
     observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true });
-    fireEvent.change(screen.getByRole("combobox", { name: "Date preset" }), { target: { value: "yesterday" } });
-    await screen.findByText("Showing 1 to 3 of 1,234 results", {}, { timeout: 3000 });
+    fireEvent.click(screen.getByRole("button", { name: /^Date range:/ }));
+    fireEvent.click(screen.getByRole("option", { name: "Yesterday" }));
+    await screen.findByText("Showing 1 to 3 of 1234 results", {}, { timeout: 3000 });
     observer.disconnect();
 
     expect(blanked).toBe(false);
