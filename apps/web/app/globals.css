@@ -107,6 +107,27 @@
   --color-wz-toast-success: var(--wz-toast-success);
   --color-wz-toast-warning: var(--wz-toast-warning);
   --color-wz-toast-info: var(--wz-toast-info);
+  --color-wz-chart-canceled: var(--wz-chart-canceled);
+  --color-wz-chart-open: var(--wz-chart-open);
+  --color-wz-chart-done: var(--wz-chart-done);
+  --color-wz-chart-track: var(--wz-chart-track);
+  --color-wz-chart-axis: var(--wz-chart-axis);
+  --color-wz-stat-green: var(--wz-stat-green);
+  --color-wz-stat-slate: var(--wz-stat-slate);
+  --color-wz-stat-yellow: var(--wz-stat-yellow);
+  --color-wz-dash-label: var(--wz-dash-label);
+  --color-wz-dash-value: var(--wz-dash-value);
+  --color-wz-dash-rule: var(--wz-dash-rule);
+  --color-wz-chevron: var(--wz-chevron);
+  --color-wz-pie-yellow: var(--wz-pie-yellow);
+  --color-wz-series1: var(--wz-series1);
+  --color-wz-series2: var(--wz-series2);
+  --color-wz-series3: var(--wz-series3);
+  --color-wz-series4: var(--wz-series4);
+  --color-wz-series5: var(--wz-series5);
+  --color-wz-series6: var(--wz-series6);
+  --color-wz-series7: var(--wz-series7);
+  --color-wz-series8: var(--wz-series8);
   --font-sans: var(--font-sans);
   --font-mono: var(--font-geist-mono);
   --font-heading: var(--font-sans);
@@ -222,6 +243,27 @@
   --wz-toast-success: #83c795;
   --wz-toast-warning: #f7a336;
   --wz-toast-info: #58abc3;
+  --wz-chart-canceled: #ef8f7f;
+  --wz-chart-open: #fdf098;
+  --wz-chart-done: #a3ddb2;
+  --wz-chart-track: #eaeaea;
+  --wz-chart-axis: #e5e5e5;
+  --wz-stat-green: #99d3a9;
+  --wz-stat-slate: #7a8b98;
+  --wz-stat-yellow: #ffd503;
+  --wz-dash-label: #a0a0a0;
+  --wz-dash-value: #6d6d6d;
+  --wz-dash-rule: #ececec;
+  --wz-chevron: #687886;
+  --wz-pie-yellow: #ffe145;
+  --wz-series1: #2f4b7c;
+  --wz-series2: #ff7c43;
+  --wz-series3: #665191;
+  --wz-series4: #d45087;
+  --wz-series5: #003f5c;
+  --wz-series6: #f95d6a;
+  --wz-series7: #a05195;
+  --wz-series8: #ffa600;
   /* Workiz corners are tight; the stock shadcn 0.625rem is far too round.
      5px puts \`rounded-md\` (×0.8) on exactly Workiz's 4px field corner —
      inputs, selects, textareas, menus — and \`rounded-sm\` on its 3px chip. */
