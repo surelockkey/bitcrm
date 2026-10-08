@@ -51,29 +51,34 @@ export const EMPTY_JOBS_LIST_STATE: JobsListState = {
 
 /**
  * What `GET /deals` (and `/deals/counts`) can answer, so the page asks only
- * for what it will get. Each flag names the parameters the backend has to
- * accept before it may be turned on — see the jobslist parity notes.
+ * for what it will get. Each flag names the parameters the backend takes
+ * (main 974cf6d8, `backend/jobs-list-search`).
  */
 export interface JobsListCaps {
   /**
    * Several values per filter, any-of: `techIds`, `jobTypeIds`,
-   * `serviceAreas`, `businessProfileIds` (comma lists) and `tagIds` with
-   * `tagMatch=any`. Until then each group keeps one value — a second pick
-   * replaces the first — because `tagIds=a,b` means all-of today.
+   * `serviceAreas`, `businessProfileIds` (comma lists, ≤ 50 each) and
+   * `tagIds` with `tagMatch=any`. Off, each group keeps one value — a second
+   * pick replaces the first — because a bare `tagIds=a,b` means all-of.
    */
   multiValue: boolean;
-  /** `unpaid=true`: only jobs with an amount due above zero. */
+  /** `unpaid=true`: only jobs with money still owed. */
   unpaid: boolean;
   /**
-   * `q=<text>`: the list's own free-text search inside the tab and filters —
-   * client name, phone digits, job ID prefix, city, job type. Until then the
-   * search service answers the text (`jobsSearchRoute`).
+   * `q=<text>`: the list's own search inside the tab and every filter —
+   * client name ("Just here" too), Job ID ("5TU7", "#5TU7"), phone digits
+   * (for a caller with `contacts.view_numbers`), street / city / state /
+   * zip, job name, emails, client company, job type. Off, only a sure job
+   * code is looked up (`search`).
    */
   textSearch: boolean;
 }
 
-/** main 03eb84e2: deal-service takes `unpaid=true` on the list and the counts. */
-export const JOBS_LIST_CAPS: JobsListCaps = { multiValue: false, unpaid: true, textSearch: false };
+/** main 974cf6d8: any-of lists, `unpaid=true` and `q`, on the list and the counts. */
+export const JOBS_LIST_CAPS: JobsListCaps = { multiValue: true, unpaid: true, textSearch: true };
+
+/** The server takes `q` up to this long (`@MaxLength(200)`). */
+export const JOBS_SEARCH_MAX = 200;
 
 /** The `GET /deals` query the jobs page sends — one status or the undated ones, in visit order. */
 export interface DealsListParams {
@@ -103,12 +108,12 @@ export interface DealsListParams {
   jobTypeIds?: string;
   serviceAreas?: string;
   businessProfileIds?: string;
-  tagMatch?: "any";
+  tagMatch?: "any" | "all";
   /** `JobsListCaps.unpaid`. */
   unpaid?: boolean;
-  /** A job code — the only text the server searches by itself today. */
+  /** A job code, looked up exactly. */
   search?: string;
-  /** Free text — `JobsListCaps.textSearch`. */
+  /** The Search box's text — `JobsListCaps.textSearch`. */
   q?: string;
   sort?: "schedule" | "created";
   dir?: "asc" | "desc";
@@ -116,36 +121,43 @@ export interface DealsListParams {
   cursor?: string;
 }
 
-/** The `GET /deals/counts` query: the list's filters, minus the tab, the sort, the search and the paging. */
+/**
+ * The `GET /deals/counts` query: the list's filters, minus the tab, the sort
+ * and the paging. `q` only on the one count a search adds
+ * (`toSearchCountsParams`).
+ */
 export type DealCountsParams = Omit<
   DealsListParams,
-  "superStatus" | "unscheduled" | "sort" | "dir" | "limit" | "cursor" | "search" | "q"
+  "superStatus" | "unscheduled" | "sort" | "dir" | "limit" | "cursor" | "search"
 >;
 
 /** Six characters of letters and digits, the way a Job ID is typed. */
 export const JOB_CODE = /^[A-Z0-9]{6}$/i;
 
 /**
- * The jobs page's Search box takes names and phones as well, so it is
- * stricter: six characters mixing letters and digits. Six letters alone
- * ("Dustin") is as likely a name and six digits a phone fragment — those go
- * to the text search, which finds a code as well.
+ * On a backend without `q`, the Search box can still find a job by its
+ * code — but only one surely shaped like one: six characters mixing letters
+ * and digits. Six letters alone ("Dustin") is as likely a name and six
+ * digits a phone fragment.
  */
 const SURE_JOB_CODE = /^(?=.*\d)(?=.*[A-Z])[A-Z0-9]{6}$/i;
 
 /**
- * Where the Search box's text is answered: a job code by the list's own
- * lookup, other text by the list's `q` once it has one, and by the search
- * service until then.
+ * Where the Search box's text is answered: by the list's own `q` — as Workiz
+ * sends whatever is in its box — or, on a backend without it, by the exact
+ * code lookup when the text is surely a code.
  */
-export function jobsSearchRoute(text: string, caps: JobsListCaps = JOBS_LIST_CAPS): "none" | "code" | "list" | "service" {
+export function jobsSearchRoute(text: string, caps: JobsListCaps = JOBS_LIST_CAPS): "none" | "code" | "list" {
   const q = text.trim();
   if (!q) return "none";
-  if (SURE_JOB_CODE.test(q)) return "code";
-  return caps.textSearch ? "list" : "service";
+  if (caps.textSearch) return "list";
+  return SURE_JOB_CODE.test(q) ? "code" : "none";
 }
 
-/** One group's values: the single-value parameter today, the any-of list later. */
+/** The Search box's text as `q`: trimmed, and no longer than the server takes. */
+const searchText = (state: JobsListState) => state.search.trim().slice(0, JOBS_SEARCH_MAX);
+
+/** One group's values: the any-of list, or the first value on an older backend. */
 function group(
   out: DealCountsParams,
   values: string[],
@@ -196,13 +208,31 @@ export function toListParams(
   };
   if (state.tab === "unscheduled") out.unscheduled = true;
   else out.superStatus = state.tab;
-  const q = state.search.trim();
+  const q = searchText(state);
   const route = jobsSearchRoute(q, caps);
-  if (route === "code") out.search = q.toUpperCase();
-  else if (route === "list") out.q = q;
+  if (route === "list") out.q = q;
+  else if (route === "code") out.search = q.toUpperCase();
   return out;
 }
 
+/**
+ * The numbers on the tabs, as Workiz shows them: every tab counted under the
+ * filters but not the search…
+ */
 export function toCountsParams(state: JobsListState, caps: JobsListCaps = JOBS_LIST_CAPS): DealCountsParams {
   return sharedFilters(state, caps);
+}
+
+/**
+ * …and, while something is typed, the same filters once more with `q` — the
+ * open tab's chip shows that number (Workiz: "Submitted 210" → "1"), the
+ * others keep theirs. `null` when there is nothing to count.
+ */
+export function toSearchCountsParams(
+  state: JobsListState,
+  caps: JobsListCaps = JOBS_LIST_CAPS,
+): DealCountsParams | null {
+  const q = searchText(state);
+  if (jobsSearchRoute(q, caps) !== "list") return null;
+  return { ...sharedFilters(state, caps), q };
 }

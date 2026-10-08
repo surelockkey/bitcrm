@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { cleanup, fireEvent, screen } from "@testing-library/react";
 import { ClientType, DealPriority, DealStatus, JobSuperStatus } from "@bitcrm/types";
 import type { Deal } from "@bitcrm/types";
+import { DEFAULT_VISIBLE } from "../fields";
+import { useJobFieldsStore } from "../fields-store";
 import {
   duplicates,
   installFakeServer,
@@ -81,16 +83,20 @@ const routes: FakeRoute[] = [
   {
     match: /\/deals$/,
     raw: true,
-    reply: () => ({
-      success: true,
-      data: [row(1), row(2), row(3)],
-      pagination: {},
-      included: { technicians: [], clients: [1, 2, 3].map((n) => ({ id: `c${n}`, firstName: "Client", lastName: `${n}` })) },
-    }),
+    // Searched (`q`), the list answers the one job the search finds.
+    reply: (url) => {
+      const ns = url.searchParams.get("q") ? [7] : [1, 2, 3];
+      return {
+        success: true,
+        data: ns.map(row),
+        pagination: {},
+        included: { technicians: [], clients: ns.map((n) => ({ id: `c${n}`, firstName: "Client", lastName: `${n}` })) },
+      };
+    },
   },
   // The order the browser sees on a slow afternoon: the rows first, then the
-  // numbers, then the job types.
-  { match: /\/deals\/counts$/, reply: () => countsNow, delayMs: 60 },
+  // numbers, then the job types. Searched, the open tab counts one job.
+  { match: /\/deals\/counts$/, reply: (url) => (url.searchParams.get("q") ? counts(1) : countsNow), delayMs: 60 },
   { match: /\/deals\/job-types$/, reply: () => [{ id: "jt-lockout", name: "Lockout", active: true }], delayMs: 120 },
   { match: /\/deals\/job-tags$/, reply: () => [] },
   { match: /\/deals\/job-sources$/, reply: () => [] },
@@ -122,6 +128,7 @@ const chips = () => [...tabStrip()!.querySelectorAll('[role="tab"] span')].map((
 const rowsUp = () => !!screen.queryByText("101");
 
 beforeEach(() => {
+  useJobFieldsStore.setState({ visible: { ...DEFAULT_VISIBLE }, order: [] });
   countsNow = counts(198);
   server = installFakeServer(routes);
 });
@@ -147,6 +154,22 @@ describe("DealsPage — no jumping", () => {
     expect(watch.frame()).toEqual({ stripShown: true, submitted: "198", jobType: true, phone: true, skeletons: 0 });
   });
 
+  /**
+   * Audit L19: Workiz has its five tabs up before the rows; ours left their
+   * 70px blank. The strip still waits for its numbers, so five grey tabs
+   * hold its place meanwhile, and they go in the frame the real ones come.
+   */
+  it("holds the tab strip's place with five grey tabs while the list loads", async () => {
+    // The strip and what holds its place.
+    const tabsArea = () => tabStrip()!.parentElement!;
+    renderWithClient(<DealsPage />);
+    expect(stripShown()).toBe(false);
+    expect(skeletonCount(tabsArea())).toBe(5);
+
+    await screen.findByText("101", {}, { timeout: 3000 });
+    expect(skeletonCount(tabsArea())).toBe(0);
+  });
+
   it("never shows the tabs without their numbers", async () => {
     let blank = false;
     const observer = new MutationObserver(() => {
@@ -164,6 +187,38 @@ describe("DealsPage — no jumping", () => {
     observer.disconnect();
 
     expect(blank).toBe(false);
+  });
+
+  /**
+   * Workiz keeps its rows while a search is out, then shows the found ones
+   * with the open tab's searched number. The rows come back before the
+   * searched count here: the frame must still change once, not twice.
+   */
+  it("a search swaps the rows and the open tab's number in one frame, without a skeleton", async () => {
+    // No client column, so no contacts to wait for: the searched rows land
+    // well before the searched count, and only the gate can keep them apart.
+    useJobFieldsStore.setState({ visible: { ...DEFAULT_VISIBLE, client: false }, order: [] });
+    renderWithClient(<DealsPage />);
+    await screen.findByText("101", {}, { timeout: 3000 });
+
+    let skeleton = false;
+    const observer = new MutationObserver(() => {
+      if (skeletonCount() > 0) skeleton = true;
+    });
+    observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true });
+    const watch = watchFirstFrame(
+      () => !!screen.queryByText("107"),
+      () => ({ submitted: chips()[0], oldRows: !!screen.queryByText("101") }),
+    );
+    fireEvent.change(screen.getByRole("textbox", { name: "Search" }), { target: { value: "Dustin" } });
+    await screen.findByText("107", {}, { timeout: 3000 });
+    watch.stop();
+    observer.disconnect();
+
+    expect(watch.frame()).toEqual({ submitted: "1", oldRows: false });
+    expect(skeleton).toBe(false);
+    // The other tabs kept their unsearched numbers.
+    expect(chips()[2]).toBe("233");
   });
 
   it("asks for each thing once", async () => {

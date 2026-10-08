@@ -151,8 +151,10 @@ export function WzScheduleBlock({
 
 /**
  * "It's 7:53 AM in Princeton" beside the card title (newJob-module__timeNotice:
- * Workiz's clock.svg, 4px gap, 4px / 8px padding, 11px/16px, the time bold),
- * ticking with the clock in the job's zone.
+ * 4px / 8px padding, 11px/16px, the time bold), ticking with the clock in the
+ * job's zone. Workiz's markup carries a clock.svg that never paints
+ * (new_12_client_picked_scroll0 shows none) — only its 4px gap survives, so
+ * the words start 12px after the title.
  */
 export function WzTimeNotice({ tz = DEFAULT_TZ, place }: { tz?: string; place: string }) {
   const [now, setNow] = useState(() => new Date().toISOString());
@@ -163,26 +165,10 @@ export function WzTimeNotice({ tz = DEFAULT_TZ, place }: { tz?: string; place: s
   return (
     <span
       data-testid="wz-time-notice"
-      className="inline-flex items-center gap-1 pt-1 pl-2 align-top text-[11px] leading-4 font-normal text-foreground"
+      className="inline-flex items-center gap-1 pt-1 pl-3 align-top text-[11px] leading-4 font-normal text-foreground"
     >
-      <WzClockIcon />
       It&apos;s <b className="font-bold">{clockInTz(now, tz)}</b> in {place}
     </span>
-  );
-}
-
-/** Workiz's clock.svg (assets.workiz.com/latest/_assets/svg/clock.svg), 14px, ink. */
-function WzClockIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden className="shrink-0">
-      <path
-        d="M1 7a6 6 0 1 0 12 0A6 6 0 0 0 1 7Z"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path d="M9.652 7H7V4.348" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
   );
 }
 
@@ -200,7 +186,9 @@ export function WzViewSchedule({ href, className }: { href: string; className?: 
       data-slot="wz-button"
       data-variant="secondary"
       className={cn(
-        "relative inline-flex max-h-10 shrink-0 cursor-pointer flex-row items-center justify-center gap-1 rounded-pill px-3 py-[6.5px] outline-none transition-colors",
+        // Not shrink-0: beside a long team notice Workiz's pill gives way and
+        // its words wrap ("View / schedule", new_12_client_picked_scroll0).
+        "relative inline-flex max-h-10 min-w-0 cursor-pointer flex-row items-center justify-center gap-1 rounded-pill px-3 py-[6.5px] outline-none transition-colors",
         "border border-foreground bg-transparent hover:bg-wz-secondary-hover active:bg-wz-secondary-active focus-visible:ring-2 focus-visible:ring-wz-focus",
         className,
       )}
@@ -211,7 +199,7 @@ export function WzViewSchedule({ href, className }: { href: string; className?: 
       >
         <WzCalendarOutlineIcon />
       </span>
-      <span className="flex items-center px-1 text-[13px] leading-[19px] font-semibold tracking-[0.2px] text-foreground">
+      <span className="flex items-center px-1 text-center text-[13px] leading-[19px] font-semibold tracking-[0.2px] text-foreground">
         View schedule
       </span>
     </a>

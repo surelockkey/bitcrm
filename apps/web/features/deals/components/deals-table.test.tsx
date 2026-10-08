@@ -229,20 +229,23 @@ describe("DealsTable", () => {
       "City",
       "State",
       "Job Type",
+      "Zip code",
+      "Total Price",
+      "Choose Company",
     ]);
   });
 
   it("an empty list says No Jobs Found across the grid, under its header", () => {
     render(<DealsTable deals={[]} contactMap={contactMap} userMap={userMap} onOpen={vi.fn()} />);
     expect(screen.getByText("No Jobs Found")).toBeInTheDocument();
-    expect(screen.getAllByRole("columnheader")).toHaveLength(8);
+    expect(screen.getAllByRole("columnheader")).toHaveLength(11);
   });
 
   it("has no separate far-right new-tab column anymore", () => {
     render(
       <DealsTable deals={[deal()]} contactMap={contactMap} userMap={userMap} onOpen={vi.fn()} />,
     );
-    expect(screen.getAllByRole("columnheader")).toHaveLength(8);
+    expect(screen.getAllByRole("columnheader")).toHaveLength(11);
     expect(screen.queryByText("Open in new tab")).toBeNull();
   });
 
@@ -257,17 +260,17 @@ describe("DealsTable", () => {
       />,
     );
     expect(screen.queryByRole("columnheader", { name: "Tags" })).toBeNull();
-    expect(screen.getAllByRole("columnheader")).toHaveLength(7);
+    expect(screen.getAllByRole("columnheader")).toHaveLength(10);
     // Cells stay aligned with the remaining headers.
     const row = screen.getByText("Jane Smith").closest("tr")!;
-    expect(row.querySelectorAll("td")).toHaveLength(7);
+    expect(row.querySelectorAll("td")).toHaveLength(10);
   });
 
-  it("renders the default columns when no visibility is passed", () => {
+  it("renders Workiz's default columns when no visibility is passed", () => {
     render(
       <DealsTable deals={[deal()]} contactMap={contactMap} userMap={userMap} onOpen={vi.fn()} />,
     );
-    expect(screen.getAllByRole("columnheader")).toHaveLength(8);
+    expect(screen.getAllByRole("columnheader")).toHaveLength(11);
   });
 
   it("can show any deal field — e.g. Source resolved through the catalog", () => {
@@ -298,7 +301,7 @@ describe("DealsTable", () => {
     expect(screen.getByText("Allied Dispatch Solutions")).toBeInTheDocument();
   });
 
-  it("can show the job's company (hidden by default)", () => {
+  it("shows the job's company as Workiz's Choose Company, on by default, and hides it on request", () => {
     const props = {
       deals: [deal({ businessProfileId: "bp-2", businessProfileName: "KeyPro" })],
       contactMap,
@@ -306,10 +309,10 @@ describe("DealsTable", () => {
       onOpen: vi.fn(),
     };
     const { rerender } = render(<DealsTable {...props} visibleFields={DEFAULT_VISIBLE} />);
-    expect(screen.queryByRole("columnheader", { name: "Company" })).not.toBeInTheDocument();
-    rerender(<DealsTable {...props} visibleFields={{ ...DEFAULT_VISIBLE, company: true }} />);
-    expect(screen.getByRole("columnheader", { name: "Company" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Choose Company" })).toBeInTheDocument();
     expect(screen.getByText("KeyPro")).toBeInTheDocument();
+    rerender(<DealsTable {...props} visibleFields={{ ...DEFAULT_VISIBLE, company: false }} />);
+    expect(screen.queryByRole("columnheader", { name: "Choose Company" })).not.toBeInTheDocument();
   });
 
   it("renders an enabled custom field as a column with the deal's answer", () => {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ChevronDown, ChevronLeft, ChevronRight, Plus, Search, TriangleAlert, X } from "lucide-react";
@@ -14,7 +14,8 @@ import { usePageSize } from "@/lib/paging/use-page-size";
 import { usePager, type Pager } from "@/lib/paging/use-pager";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { DEFAULT_TZ } from "@/lib/timezone";
-import { useDealCounts, useDealsPage, useJobsSearch, useUserMap, type DirectoryUser } from "../hooks";
+import { useDealCounts, useDealsPage, useUserMap, type DirectoryUser } from "../hooks";
+import type { DealCounts } from "../api";
 import { mergeIncluded } from "../included";
 import { useContactsByIds } from "@/features/clients/hooks";
 import { useAllTechnicians } from "@/features/technicians/hooks";
@@ -22,22 +23,24 @@ import { useServiceAreas } from "@/features/service-areas/hooks";
 import {
   EMPTY_JOBS_LIST_STATE,
   JOBS_LIST_CAPS,
-  jobsSearchRoute,
+  JOBS_SEARCH_MAX,
   toCountsParams,
   toListParams,
+  toSearchCountsParams,
   type JobsListState,
 } from "../query-params";
-import { jobTabLabel, sortJobs, tabCount, type JobTab } from "../lib";
+import { jobTabLabel, tabCount, type JobTab } from "../lib";
 import { JobSuperStatus } from "@bitcrm/types";
 import { useBusinessProfiles } from "@/features/business-profiles/hooks";
 import { useJobTypes } from "@/features/job-types/hooks";
-import { activeJobTypes, useJobTypeName } from "@/features/job-types/lib";
+import { activeJobTypes } from "@/features/job-types/lib";
 import { useJobTags } from "@/features/job-tags/hooks";
 import { activeJobTags } from "@/features/job-tags/lib";
 import { useJobFieldsStore } from "../fields-store";
-import type { FilterCatalogs } from "../job-filters";
-import { matchesJobSearch, matchesListState, orderSearchResults } from "../jobs-search";
+import { filterAreas, orderTechs, type FilterCatalogs } from "../job-filters";
+import { canGoNext, pageText, showingText, withSearchedTab } from "../list-numbers";
 import { DealsTable, DealsTableSkeleton } from "./deals-table";
+import { Skeleton } from "@/components/ui/skeleton";
 import { DealQuickView } from "./deal-quick-view";
 import { FieldsMenu } from "./fields-menu";
 import { JobsFilterControl } from "./jobs-filter-control";
@@ -54,6 +57,9 @@ const WORKIZ_TABS: JobTab[] = [
 /** Workiz's page-size select offers these (list_01 `select._pageSize`). */
 const JOBS_PAGE_SIZES = [5, 10, 20, 25, 50, 100] as const;
 
+/** About the width of each tab's label and chip (13px 500), for the strip's placeholders. */
+const TAB_PLACEHOLDER_WIDTHS = [100, 105, 97, 191, 118] as const;
+
 /** How long the Search box waits after the last key — Workiz fires ~300ms after it. */
 const SEARCH_DEBOUNCE_MS = 300;
 
@@ -67,30 +73,8 @@ interface Frame {
   contacts: Map<string, Contact>;
   clientNames: Map<string, PersonName>;
   pager: Pager<Deal>;
-  /** The open tab's number, when the frame was a search's. */
-  count: number;
-  searched: boolean;
-}
-
-/** The search's hits as one page: "Showing 1 to N of N results", Page 1 of 1. */
-function onePage(rows: Deal[]): Pager<Deal> {
-  return {
-    page: 1,
-    items: rows,
-    from: rows.length ? 1 : 0,
-    to: rows.length,
-    total: rows.length,
-    totalPages: 1,
-    canPrev: false,
-    canNext: false,
-    isLoading: false,
-    isFetching: false,
-    isStale: false,
-    window: [1],
-    next: async () => {},
-    prev: () => {},
-    goto: async () => {},
-  };
+  /** The tab numbers the frame was drawn with. */
+  counts: DealCounts | undefined;
 }
 
 /**
@@ -98,6 +82,10 @@ function onePage(rows: Deal[]): Pager<Deal> {
  * "Filter results" control with "+ Create New" beside it, the five status
  * tabs with their counts, a grey strip holding the Search box, "Show unpaid
  * jobs", the page size and "Fields", then the grid and Workiz's pager.
+ *
+ * Everything — the Search box's text included — is a parameter of
+ * `GET /deals` (`toListParams`): the server searches inside the tab and the
+ * filters and pages the result, as Workiz's own list does.
  */
 export function DealsPage() {
   const { can } = usePermissions();
@@ -105,7 +93,6 @@ export function DealsPage() {
   const router = useRouter();
   const jobTypesQuery = useJobTypes();
   const jobTagsQuery = useJobTags();
-  const jobTypeName = useJobTypeName();
   const { data: companies } = useBusinessProfiles();
   const { data: serviceAreas, isLoading: areasLoading } = useServiceAreas();
 
@@ -113,28 +100,35 @@ export function DealsPage() {
   const [searchText, setSearchText] = useState("");
   const search = useDebouncedValue(searchText, SEARCH_DEBOUNCE_MS);
   const [openId, setOpenId] = useState<string | null>(null);
+  const { ref: scrollerRef, width: viewWidth } = useClientWidth<HTMLDivElement>();
   const visibleFields = useJobFieldsStore((s) => s.visible);
   const fieldOrder = useJobFieldsStore((s) => s.order);
 
   // What the server is asked for: the controls, with the search text as it
   // stood 300ms after the last key.
   const listState: JobsListState = useMemo(() => ({ ...state, search }), [state, search]);
-  const route = jobsSearchRoute(search, caps);
-  const searchMode = route === "service";
 
   const [pageSize, setPageSize] = usePageSize("jobs", { sizes: JOBS_PAGE_SIZES });
   const listParams = useMemo(() => toListParams(listState, pageSize, caps), [listState, pageSize]);
+  // The tabs' numbers: every tab without the search, and — while something is
+  // typed — the same filters once more with it, for the open tab's chip.
   const countsParams = useMemo(() => toCountsParams(listState, caps), [listState]);
+  const searchCountsParams = useMemo(() => toSearchCountsParams(listState, caps), [listState]);
 
-  const dealsQuery = useDealsPage(listParams, !searchMode);
+  const dealsQuery = useDealsPage(listParams);
   const countsQuery = useDealCounts(countsParams);
-  const found = useJobsSearch(search, searchMode);
+  const searchedQuery = useDealCounts(searchCountsParams ?? countsParams, searchCountsParams !== null);
+  const searching = searchCountsParams !== null;
+  const counts = withSearchedTab(countsQuery.data, searching ? searchedQuery.data : undefined, state.tab);
 
   // Одна сторінка, а не все пройдене: таблиця показує рівно те, що просили,
-  // і клієнтів під неї резолвимо теж лише на цю сторінку.
+  // і клієнтів під неї резолвимо теж лише на цю сторінку. A page can come
+  // back short with more behind it (a closed status searched without a date
+  // window runs out of reading budget); the pager numbers what it holds.
+  const tabTotal = counts?.[state.tab];
   const pager = usePager(pagedSource(dealsQuery), {
-    total: countsQuery.data?.[state.tab] ?? undefined,
-    totalIsFloor: state.tab !== "unscheduled" && countsQuery.data?.atLeast?.includes(state.tab),
+    total: tabTotal === undefined ? undefined : tabTotal,
+    totalIsFloor: state.tab !== "unscheduled" && counts?.atLeast?.includes(state.tab),
     pageSize,
     resetKey: JSON.stringify(listParams),
   });
@@ -143,16 +137,10 @@ export function DealsPage() {
   // technicians assigned on the page and the clients of its jobs, names only.
   const names = useMemo(() => mergeIncluded(dealsQuery.data?.pages), [dealsQuery.data]);
 
-  // The search service's candidates, before the Workiz rules narrow them —
-  // their clients are what those rules read.
-  const candidates = useMemo(() => (searchMode ? (found.data?.deals ?? []) : []), [searchMode, found.data]);
-  const pageDeals = searchMode ? candidates : pager.items;
-
-  // The contacts: Workiz prints the client's number under the name, and the
-  // search rules match it — so they are asked for whenever a column shows
-  // one, or a search reads one.
-  const contactIds = useMemo(() => pageDeals.map((d) => d.contactId), [pageDeals]);
-  const needsContacts = Boolean(visibleFields.client || visibleFields.phone || visibleFields.email || searchMode);
+  // The contacts: Workiz prints the client's number under the name, so they
+  // are asked for whenever a column shows a number or an email.
+  const contactIds = useMemo(() => pager.items.map((d) => d.contactId), [pager.items]);
+  const needsContacts = Boolean(visibleFields.client || visibleFields.phone || visibleFields.email);
   const { map: contactMap, isLoading: contactsLoading } = useContactsByIds(contactIds, needsContacts);
 
   // The tech filter lists the roster, not whoever happens to be on this page.
@@ -162,25 +150,25 @@ export function DealsPage() {
 
   // What the table prints for a person. The technicians came with the rows,
   // so the Tech column is named on the first frame; the directory fills the
-  // opt-in columns `included` does not carry, and every search hit.
+  // opt-in columns `included` does not carry.
   const tableNames = useMemo(() => {
     const m = new Map<string, DirectoryUser>(directory);
     for (const [id, person] of names.technicians) m.set(id, person);
     return m;
   }, [directory, names]);
 
-  // Filter results' columns, from the catalogs.
+  // Filter results' columns, from the catalogs — each in its own order, as
+  // Workiz keeps them: the team in the order it joined, the tags in catalog
+  // order, the areas A→Z without Workiz's default "All areas".
   const catalogs: FilterCatalogs = useMemo(
     () => ({
-      techs: technicians
-        .map(({ userId }) => {
-          const u = directory.get(userId);
-          return { id: userId, name: u ? `${u.firstName} ${u.lastName}`.trim() : userId };
-        })
-        .sort((a, b) => a.name.localeCompare(b.name)),
+      techs: orderTechs(technicians, (id) => {
+        const u = directory.get(id);
+        return u ? `${u.firstName} ${u.lastName}`.trim() : id;
+      }),
       tags: activeJobTags(jobTagsQuery.data).map((t) => ({ id: t.id, name: t.name, color: t.color })),
       jobTypes: activeJobTypes(jobTypesQuery.data).map((t) => ({ id: t.id, name: t.name })),
-      areas: (serviceAreas ?? []).filter((a) => a.active).map((a) => ({ name: a.name })),
+      areas: filterAreas(serviceAreas).map((a) => ({ name: a.name })),
       companies: (companies ?? []).map((c) => ({ id: c.id, name: c.active ? c.name : `${c.name} (archived)` })),
     }),
     [technicians, directory, jobTagsQuery.data, jobTypesQuery.data, serviceAreas, companies],
@@ -193,65 +181,42 @@ export function DealsPage() {
     [areaZone],
   );
 
-  const visible = useMemo(() => {
-    if (searchMode) {
-      const hits = candidates.filter(
-        (d) =>
-          matchesListState(d, listState) &&
-          matchesJobSearch(d, search, {
-            contact: contactMap.get(d.contactId),
-            jobTypeName,
-          }),
-      );
-      return orderSearchResults(hits, state.sort);
-    }
-    // The server already orders by day; the hour sorts are settled here.
-    if (state.sort === "hour_asc" || state.sort === "hour_desc") {
-      return sortJobs(pager.items, { key: "hour", dir: state.sort === "hour_asc" ? "asc" : "desc" });
-    }
-    return pager.items;
-  }, [searchMode, candidates, listState, search, contactMap, jobTypeName, state.sort, pager.items]);
-
-  const counts = countsQuery.data;
-  const searching = route !== "none";
+  // The server orders the rows (by visit, either way — the Scheduled header).
+  const visible = pager.items;
 
   // Hold the first paint for everything the frame prints, and nothing else:
-  // the rows (or the search's hits), the tab numbers, the job types, the
+  // the rows, the tab numbers (the searched one too), the job types, the
   // client numbers under the names, the zones of the Scheduled cells, and an
   // opted-in Dispatcher column's names. Latched per list and per page: every
   // tab, filter, search and page is its own set, and starts with no rows at
   // all — a latch that survived it sent the page straight past the skeleton
   // into "No Jobs Found", which then filled in a moment later.
-  const paintKey = `${JSON.stringify(listParams)}|${searchMode ? `search:${search}` : pager.page}`;
+  const paintKey = `${JSON.stringify(listParams)}|${pager.page}`;
   const [painted, setPainted] = useState<string | null>(null);
-  const rowsIn = searchMode ? found.data !== undefined || found.isError : !dealsQuery.isLoading;
+  const rowsIn = !dealsQuery.isLoading;
   const countsIn = countsQuery.data !== undefined || countsQuery.isError;
+  // The searched number belongs to this very text: an earlier one's, kept
+  // on screen as placeholder data, is not an answer.
+  const searchedIn = !searching || (searchedQuery.data !== undefined && !searchedQuery.isPlaceholderData) || searchedQuery.isError;
   const jobTypesIn = jobTypesQuery.data !== undefined || jobTypesQuery.isError;
-  const namesIn = !((visibleFields.dispatcher || searchMode) && directoryLoading);
+  const namesIn = !(visibleFields.dispatcher && directoryLoading);
   const contactsIn = !(needsContacts && contactsLoading);
-  const searchPager: Pager<Deal> | null = searchMode ? onePage(visible) : null;
-  // The same list with no search text: typing changes only the search, and
-  // Workiz keeps the rows it has on screen until the new ones are in.
-  const baseKey = `${JSON.stringify(toListParams({ ...listState, search: "" }, pageSize, caps))}`;
+  // The same list with no search text: typing changes only the search (and
+  // turning a page only the page), and Workiz keeps the rows it has on
+  // screen until the new ones are in.
+  const baseKey = JSON.stringify(toListParams({ ...listState, search: "" }, pageSize, caps));
   const [shown, setShown] = useState<Frame | null>(null);
-  if (painted !== paintKey && rowsIn && countsIn && jobTypesIn && namesIn && contactsIn && !areasLoading) {
+  if (painted !== paintKey && rowsIn && countsIn && searchedIn && jobTypesIn && namesIn && contactsIn && !areasLoading) {
     setPainted(paintKey);
-    setShown({
-      base: baseKey,
-      rows: visible,
-      contacts: contactMap,
-      clientNames: names.clients,
-      pager: searchPager ?? pager,
-      count: visible.length,
-      searched: searching,
-    });
+    setShown({ base: baseKey, rows: visible, contacts: contactMap, clientNames: names.clients, pager, counts });
   }
   const firstPaintPending = painted !== paintKey;
-  // While a new search is out, the last whole frame of the same list stands.
+  // While a new search or page is out, the last whole frame of the same list stands.
   const held = firstPaintPending && shown?.base === baseKey ? shown : null;
   // Once drawn, the tabs stay: another tab or filter keeps them, numbers and all.
   const tabsShown = painted !== null;
-  const isError = searchMode ? found.isError : dealsQuery.isError;
+  const tabCounts = held ? held.counts : counts;
+  const isError = dealsQuery.isError;
 
   if (denied("deals", "view")) return <NoAccess entity="deals" />;
 
@@ -266,13 +231,19 @@ export function DealsPage() {
     onSortScheduled: () => setState((s) => ({ ...s, sort: s.sort === "day_desc" ? "none" : "day_desc" })),
     zoneOf,
     accountZone: DEFAULT_TZ,
+    viewWidth,
   } as const;
 
   return (
-    <div className="flex flex-1 flex-col text-[#404040]">
+    // The page scrolls itself, inside the shell, the way Workiz's main
+    // container does: the top bar stays put, and the grid's header sticks to
+    // the top while 50 tall rows go under it (audit L1). It scrolls sideways
+    // too, for a wide set of columns — the controls above the grid hold
+    // still (`sticky left-0`), only the grid moves.
+    <div ref={scrollerRef} className="flex min-h-0 flex-1 flex-col overflow-auto text-[#404040]" data-slot="jobs-scroller">
       {/* Filter results + Create New: list_01 puts the control 20px in, 49px
           high, and the yellow pill 16px to its right, tops aligned. */}
-      <div className="flex items-start gap-4 px-5 pt-[34px]">
+      <div className="sticky left-0 flex items-start gap-4 px-5 pt-[34px]">
         <JobsFilterControl state={state} onChange={setState} catalogs={catalogs} caps={caps} />
         {can("deals", "create") ? (
           <Button
@@ -289,46 +260,57 @@ export function DealsPage() {
 
       {/* Status tabs: 13px, the open one 600 with a 2px #3b4b52 underline,
           the rest 500 #566d76; a grey count chip beside each. */}
-      <div
-        className={cn("mt-[27px] flex overflow-x-auto border-b border-[#c4c4c4] pt-1", !tabsShown && "invisible")}
-        role="tablist"
-        aria-label="Job status"
-      >
-        {WORKIZ_TABS.map((t) => {
-          const active = t === state.tab;
-          // Searching, the open tab's chip counts what was found (Workiz).
-          const n =
-            active && held && held.searched
-              ? held.count.toLocaleString()
-              : active && searching && !firstPaintPending
-                ? visible.length.toLocaleString()
-                : counts
-                  ? tabCount(counts, t)
-                  : " ";
-          return (
-            <button
-              key={t}
-              role="tab"
-              aria-selected={active}
-              onClick={() => setState((s) => ({ ...s, tab: t }))}
-              className={cn(
-                // -mb-px: the underline sits on the strip's own rule, as Workiz's does.
-                "-mb-px flex shrink-0 items-center gap-2 border-b-2 px-5 pt-2.5 pb-[7px] text-[13px] leading-[19px] tracking-[0.4px] whitespace-nowrap",
-                active ? "border-[#3b4b52] font-semibold text-[#3b4b52]" : "border-transparent font-medium text-[#566d76] hover:text-[#3b4b52]",
-              )}
-            >
-              {jobTabLabel(t)}
-              {/* The tabs are drawn with their numbers, so a chip never grows under the reader. */}
-              <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-[10px] bg-border px-1.5 text-[11px] leading-4 font-semibold text-[#3b4b52] tabular-nums">
-                {n}
-              </span>
-            </button>
-          );
-        })}
+      <div className="sticky left-0 mt-[27px] shrink-0">
+        {/* Until its numbers are in, the strip is held by five grey tabs over
+            its own rule — Workiz has its tabs up before the rows (audit L19).
+            They go in the frame the strip shows. Beside the strip, not in it:
+            its overflow would clip the rule. */}
+        {!tabsShown ? (
+          <div aria-hidden data-slot="tabs-placeholder" className="absolute inset-0 flex items-center border-b border-[#c4c4c4] pt-1">
+            {TAB_PLACEHOLDER_WIDTHS.map((w, i) => (
+              <Skeleton key={i} className="mx-5 h-4" style={{ width: w }} />
+            ))}
+          </div>
+        ) : null}
+        <div
+          // The rule is an inset shadow, inside the strip's box: a border sat
+          // outside it, where the overflow clipped the tab's bar off it.
+          className={cn("flex overflow-x-auto pt-1 shadow-[inset_0_-1px_0_#c4c4c4]", !tabsShown && "invisible")}
+          role="tablist"
+          aria-label="Job status"
+        >
+          {WORKIZ_TABS.map((t) => {
+            const active = t === state.tab;
+            // Searching, the open tab's chip counts what was found (Workiz);
+            // `withSearchedTab` put that number in its place.
+            const n = tabCounts
+              ? tabCount(tabCounts, t)
+              : " ";
+            return (
+              <button
+                key={t}
+                role="tab"
+                aria-selected={active}
+                onClick={() => setState((s) => ({ ...s, tab: t }))}
+                className={cn(
+                  // The 2px bar covers the strip's rule, as Workiz's does (pixels L19).
+                  "flex shrink-0 items-center gap-2 border-b-2 px-5 pt-2.5 pb-[7px] text-[13px] leading-[19px] tracking-[0.4px] whitespace-nowrap",
+                  active ? "border-[#3b4b52] font-semibold text-[#3b4b52]" : "border-transparent font-medium text-[#566d76] hover:text-[#3b4b52]",
+                )}
+              >
+                {jobTabLabel(t)}
+                {/* The tabs are drawn with their numbers, so a chip never grows under the reader. */}
+                <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-[10px] bg-border px-1.5 text-[11px] leading-4 font-semibold text-[#3b4b52] tabular-nums">
+                  {n}
+                </span>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* The grey strip: Search, Show unpaid jobs, and at the right the page size and Fields. */}
-      <div className="flex min-h-[71px] flex-wrap items-center gap-x-[18px] gap-y-2 border-t border-[#dddddd] bg-muted px-[21px] py-[15px]">
+      <div className="sticky left-0 flex min-h-[71px] shrink-0 flex-wrap items-center gap-x-[18px] gap-y-2 border-t border-[#dddddd] bg-muted px-[21px] py-[15px]">
         <SearchBox value={searchText} onChange={setSearchText} />
         {caps.unpaid ? (
           <label className="flex h-10 cursor-pointer items-center gap-2 text-sm whitespace-nowrap text-[#404040]">
@@ -357,14 +339,11 @@ export function DealsPage() {
         ) : firstPaintPending ? (
           <DealsTableSkeleton visibleFields={visibleFields} order={fieldOrder} />
         ) : isError ? (
-          <DealsError
-            onRetry={() => (searchMode ? found.refetch() : dealsQuery.refetch())}
-            isRetrying={searchMode ? found.isFetching : dealsQuery.isFetching}
-          />
+          <DealsError onRetry={() => dealsQuery.refetch()} isRetrying={dealsQuery.isFetching} />
         ) : (
           <>
             <DealsTable deals={visible} contactMap={contactMap} clientNames={names.clients} {...tableProps} />
-            <JobsPagination pager={searchPager ?? pager} />
+            <JobsPagination pager={pager} />
           </>
         )}
       </div>
@@ -375,6 +354,23 @@ export function DealsPage() {
 }
 
 /**
+ * An element's inner width, kept current. 0 where nothing is laid out (jsdom),
+ * so a consumer falls back to its own width.
+ */
+function useClientWidth<T extends HTMLElement>() {
+  // A callback ref: the element may arrive after the first render.
+  const [el, ref] = useState<T | null>(null);
+  const [width, setWidth] = useState(0);
+  useEffect(() => {
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => setWidth(el.clientWidth));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [el]);
+  return { ref, width };
+}
+
+/**
  * Workiz's table Search (list_01: 348×40, 1px #9ea6aa, radius 4, 13px text
  * between 44px sides, a magnifier at the left; blue border while focused;
  * a round × once there is text).
@@ -382,10 +378,11 @@ export function DealsPage() {
 function SearchBox({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   return (
     <div className="relative w-[348px] max-w-full">
-      <Search className="pointer-events-none absolute top-1/2 left-4 size-4 -translate-y-1/2 text-[#3b4b52]" />
+      <Search className="pointer-events-none absolute top-1/2 left-[15px] size-[18px] -translate-y-1/2 text-[#3b4b52]" strokeWidth={1.75} />
       <input
         aria-label="Search"
         placeholder="Search"
+        maxLength={JOBS_SEARCH_MAX}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         className="h-10 w-full rounded-[4px] border border-[#9ea6aa] bg-background px-11 text-[13px] leading-4 text-[#3b4b52] outline-none placeholder:text-[#9ea6aa] focus:border-[#6aa8ee]"
@@ -397,7 +394,7 @@ function SearchBox({ value, onChange }: { value: string; onChange: (v: string) =
           onClick={() => onChange("")}
           className="absolute top-1/2 right-[5px] grid size-[26px] -translate-y-1/2 place-items-center rounded-full bg-[#f3f6f7] text-[#768287] hover:text-[#3b4b52]"
         >
-          <X className="size-4" />
+          <X className="size-[13px]" strokeWidth={2.75} />
         </button>
       ) : null}
     </div>
@@ -420,7 +417,7 @@ function PageSizeSelect({ value, onChange }: { value: number; onChange: (n: numb
           </option>
         ))}
       </select>
-      <ChevronDown className="pointer-events-none absolute top-1/2 right-2.5 size-4 -translate-y-1/2 text-[#444444]" />
+      <ChevronDown className="pointer-events-none absolute top-1/2 right-2 size-[18px] -translate-y-1/2 text-[#444444]" strokeWidth={1.5} />
     </div>
   );
 }
@@ -429,43 +426,35 @@ function PageSizeSelect({ value, onChange }: { value: number; onChange: (n: numb
  * Workiz's pager (list_07_bottom): "Showing 1 to 50 of 208 results" at the
  * left of a 64px bar; round ‹ › buttons either side of "Page 1 of 5" in its
  * middle. The cursor list cannot jump to page 7, so there are no numbers to
- * click — exactly Workiz's own control.
+ * click — exactly Workiz's own control. A list the server did not count
+ * says only what is on screen ("Showing 1 to 37 results", "Page 2").
  */
 function JobsPagination({ pager }: { pager: Pager<Deal> }) {
-  const total =
-    typeof pager.total === "number" ? ` of ${pager.total.toLocaleString()}${pager.totalIsFloor ? "+" : ""}` : "";
-  const pages =
-    pager.totalPages === undefined
-      ? ""
-      : ` of ${Math.max(pager.totalPages, 1).toLocaleString()}${pager.totalPagesIsFloor ? "+" : ""}`;
+  // list_07: the round buttons look the same on the first and last page —
+  // #404040 on #fafafa, no fading — they simply do nothing there. The
+  // glyphs are Workiz's thin 18px chevrons.
   const round =
-    "grid size-[30px] place-items-center rounded-full bg-[#fafafa] text-[#404040] hover:bg-[#ededed] disabled:pointer-events-none disabled:opacity-40";
+    "grid size-[30px] place-items-center rounded-full bg-[#fafafa] text-[#404040] enabled:hover:bg-[#ededed] disabled:cursor-default";
   return (
     <div
       data-testid="list-pagination"
-      className="relative flex h-16 items-center border-t-2 border-black/10 px-2.5 text-sm shadow-[0_0_15px_rgba(0,0,0,0.1)]"
+      className="sticky left-0 flex h-16 w-full items-center border-t-2 border-black/10 px-2.5 text-sm shadow-[0_0_15px_rgba(0,0,0,0.1)]"
     >
-      <span className="tabular-nums">
-        {/* Workiz says "Showing 1 to 0 of 0 results" for an empty list — and so do we. */}
-        Showing {(pager.to === 0 ? 1 : pager.from).toLocaleString()} to {pager.to.toLocaleString()}
-        {total} results
-      </span>
+      <span className="tabular-nums">{showingText(pager)}</span>
       <div className="absolute left-1/2 flex -translate-x-1/2 items-center gap-[50px]">
         <button type="button" aria-label="Previous page" disabled={!pager.canPrev} onClick={() => pager.prev()} className={round}>
-          <ChevronLeft className="size-4" />
+          <ChevronLeft className="size-[18px]" strokeWidth={1.5} />
         </button>
-        <span className="tabular-nums whitespace-nowrap">
-          Page {pager.page.toLocaleString()}
-          {pages}
-        </span>
+        <span className="tabular-nums whitespace-nowrap">{pageText(pager)}</span>
         <button
           type="button"
           aria-label="Next page"
-          disabled={!pager.canNext || pager.isFetching}
+          // The count knows the last page: no "Page 2 of 1" (audit L8).
+          disabled={!canGoNext(pager)}
           onClick={() => void pager.next()}
           className={round}
         >
-          <ChevronRight className="size-4" />
+          <ChevronRight className="size-[18px]" strokeWidth={1.5} />
         </button>
       </div>
     </div>

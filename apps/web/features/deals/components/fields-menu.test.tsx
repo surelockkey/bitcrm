@@ -85,7 +85,7 @@ describe("FieldsMenu — Workiz's Visible fields panel", () => {
       "Job Type",
       "Zip code",
       "Total Price",
-      "Company",
+      "Choose Company",
       "Source",
       "Address",
       "Created by",
@@ -112,21 +112,34 @@ describe("FieldsMenu — Workiz's Visible fields panel", () => {
 
   it("a ticked field moves to the end of USED FIELDS, but nothing changes until Save fields", async () => {
     const u = await openPanel();
-    await u.click(screen.getByRole("checkbox", { name: "Zip code" }));
-    expect(names().slice(0, 9)).toEqual(["Job ID", "Client", "Tech", "Tags", "City", "State", "Scheduled", "Job Type", "Zip code"]);
+    await u.click(screen.getByRole("checkbox", { name: "Source" }));
+    expect(names().slice(0, 12)).toEqual([
+      "Job ID",
+      "Client",
+      "Tech",
+      "Tags",
+      "City",
+      "State",
+      "Scheduled",
+      "Job Type",
+      "Zip code",
+      "Total Price",
+      "Choose Company",
+      "Source",
+    ]);
     await u.click(screen.getByRole("checkbox", { name: "Tags" }));
     expect(screen.getByRole("checkbox", { name: "Tags" })).toHaveAttribute("aria-checked", "false");
 
     // The table has not seen any of it yet.
-    expect(useJobFieldsStore.getState().visible.zip).toBe(false);
+    expect(useJobFieldsStore.getState().visible.source).toBe(false);
     expect(useJobFieldsStore.getState().visible.tags).toBe(true);
 
     await u.click(screen.getByRole("button", { name: "Save fields" }));
     expect(screen.queryByRole("dialog")).toBeNull();
     const s = useJobFieldsStore.getState();
-    expect(s.visible.zip).toBe(true);
+    expect(s.visible.source).toBe(true);
     expect(s.visible.tags).toBe(false);
-    expect(s.order).toEqual(["client", "tech", "city", "state", "scheduled", "jobType", "zip"]);
+    expect(s.order).toEqual(["client", "tech", "city", "state", "scheduled", "jobType", "zip", "total", "company", "source"]);
   });
 
   it("Cancel drops the draft", async () => {

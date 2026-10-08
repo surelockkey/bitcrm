@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { Loader2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -9,7 +8,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
+import { WzButton } from "@/components/workiz";
 import type { Address, Contact } from "@bitcrm/types";
 import { contactName, formatAddress, formatPhone } from "../lib";
 
@@ -39,7 +38,10 @@ export interface ClientSaveDecision {
  * record or only on this job: a second property is worth keeping, a one-off
  * site visit isn't.
  *
- * Only the questions that actually apply are shown.
+ * Only the questions that actually apply are shown. It is asked from the
+ * Workiz-style New Job page, so its choices and buttons are Workiz's: #ccc
+ * boxes, the yellow focus edge on the chosen one, the outline and yellow
+ * pills.
  */
 export function ClientSaveDialog({
   open,
@@ -81,7 +83,7 @@ export function ClientSaveDialog({
 
         {clientChanged ? (
           <fieldset className="space-y-2">
-            <legend className="mb-1 text-sm font-medium">
+            <legend className="mb-1 text-[14px] leading-4 font-medium text-wz-strong">
               {contactName(original)} → {edits.firstName} {edits.lastName}
               {edits.phone ? ` · ${formatPhone(edits.phone)}` : ""}
             </legend>
@@ -108,7 +110,7 @@ export function ClientSaveDialog({
 
         {newAddress ? (
           <fieldset className="space-y-2">
-            <legend className="mb-1 text-sm font-medium">
+            <legend className="mb-1 text-[14px] leading-4 font-medium text-wz-strong">
               {formatAddress(newAddress)}
             </legend>
             <Choice
@@ -126,29 +128,17 @@ export function ClientSaveDialog({
           </fieldset>
         ) : null}
 
-        <div className="flex items-center justify-between border-t pt-3">
-          <span className="text-xs text-muted-foreground">
+        <div className="flex items-center justify-between border-t border-wz-rule pt-3">
+          <span className="text-[12px] leading-4 text-wz-label">
             Past calls keep whoever they were with.
           </span>
           <div className="flex gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={pending}
-              onClick={onCancel}
-            >
+            <WzButton variant="secondary" size="regular" disabled={pending} onClick={onCancel}>
               Back
-            </Button>
-            <Button
-              variant="brand"
-              size="sm"
-              className="gap-1.5"
-              disabled={pending}
-              onClick={() => onConfirm({ client, address })}
-            >
-              {pending ? <Loader2 className="size-3.5 animate-spin" /> : null}
+            </WzButton>
+            <WzButton size="regular" loading={pending} onClick={() => onConfirm({ client, address })}>
               Save job
-            </Button>
+            </WzButton>
           </div>
         </div>
       </DialogContent>
@@ -171,8 +161,8 @@ function Choice({
     <label
       className={
         checked
-          ? "flex cursor-pointer gap-3 rounded-lg border border-brand bg-brand/5 p-3"
-          : "flex cursor-pointer gap-3 rounded-lg border p-3 hover:bg-accent"
+          ? "flex cursor-pointer gap-3 rounded-[4px] border border-wz-focus bg-white p-3"
+          : "flex cursor-pointer gap-3 rounded-[4px] border border-input bg-white p-3 hover:border-wz-field-hover"
       }
     >
       <input
@@ -182,8 +172,8 @@ function Choice({
         onChange={onSelect}
       />
       <span className="flex flex-col gap-0.5">
-        <span className="text-sm font-medium">{title}</span>
-        <span className="text-xs text-muted-foreground">{detail}</span>
+        <span className="text-[14px] leading-4 font-medium text-wz-strong">{title}</span>
+        <span className="text-[12px] leading-4 text-wz-label">{detail}</span>
       </span>
     </label>
   );

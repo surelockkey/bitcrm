@@ -132,3 +132,45 @@ describe("JobDialCard", () => {
     expect(container).toBeEmptyDOMElement();
   });
 });
+
+/**
+ * The job page's Details tab draws the same dial-in the way Workiz draws its
+ * masked number (job_b_01_details): "Masked number", then the shared line in
+ * bold and the job's code after a "#" — "(203) 769-9944 #6872".
+ */
+describe("JobDialCard — Workiz's compact 'Masked number'", () => {
+  beforeEach(() => {
+    mocks.code = { data: { code: "4729" }, isError: false };
+    mocks.can.mockReturnValue(true);
+    mocks.config = { data: { technicianLine: "+14045550140" }, isError: false, isLoading: false };
+  });
+
+  it("reads 'Masked number' over the line in bold and '#code'", () => {
+    render(<JobDialCard dealId="deal-1" variant="workiz" />);
+
+    expect(screen.getByText("Masked number")).toBeInTheDocument();
+    expect(screen.getByText("(404) 555-0140").tagName).toBe("B");
+    expect(screen.getByTestId("job-dial-in").textContent).toBe("(404) 555-0140 #4729");
+  });
+
+  it("keeps the how-to as the block's tooltip", () => {
+    render(<JobDialCard dealId="deal-1" variant="workiz" />);
+
+    expect(screen.getByTestId("job-dial-in")).toHaveAttribute("title", expect.stringMatching(/confirm the client/i));
+  });
+
+  it("still says the dial-in is not set up, in the same small print", () => {
+    mocks.config = { data: { technicianLine: undefined }, isError: false, isLoading: false };
+    render(<JobDialCard dealId="deal-1" variant="workiz" />);
+
+    expect(screen.getByText("Masked number")).toBeInTheDocument();
+    expect(screen.getByText(/not set up/i)).toBeInTheDocument();
+  });
+
+  it("says when the code could not be issued", () => {
+    mocks.code = { data: undefined, isError: true };
+    render(<JobDialCard dealId="deal-1" variant="workiz" />);
+
+    expect(screen.getByText(/could not be issued/i)).toBeInTheDocument();
+  });
+});

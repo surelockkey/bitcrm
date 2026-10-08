@@ -3,7 +3,7 @@
 import type { CustomFieldValue, Deal } from "@bitcrm/types";
 import { settled, usePageReady } from "@/lib/use-page-ready";
 import { usePermissions } from "@/features/auth/use-permissions";
-import { useContact } from "@/features/clients/hooks";
+import { useCompany, useContact } from "@/features/clients/hooks";
 import { useCustomFields } from "@/features/custom-fields/hooks";
 import { applicableFields } from "@/features/custom-fields/lib";
 import { useInvoiceByDeal } from "@/features/invoices/hooks";
@@ -15,6 +15,9 @@ import { useAttachments, useAttachmentUrls } from "./attachments-hooks";
 import { useDealEstimates } from "@/features/estimates/hooks";
 import { useActiveJobTypes } from "@/features/job-types/active-hooks";
 import { useJobType } from "@/features/job-types/hooks";
+import { useActiveJobSources } from "@/features/job-sources/active-hooks";
+import { useJobSource } from "@/features/job-sources/hooks";
+import { activeJobSources } from "@/features/job-sources/lib";
 import { useDeal, useDealAssignments, useDealTimeline, useSuggestedTechs, useUserMap } from "./hooks";
 import { useJobPageCatalogs } from "./job-page-catalogs";
 
@@ -80,6 +83,8 @@ export function useJobPageData(dealId: string): { ready: boolean } {
   const lng = deal?.address?.lng;
   const techIds = deal?.assignedTechIds ?? NO_IDS;
   const contact = useContact(deal?.contactId ?? "");
+  // Details' "Company name": the client's CRM company, once the client is in.
+  const company = useCompany(contact.data?.companyId ?? "");
   const area = useEffectiveServiceArea(lat, lng, undefined);
   const users = useUserMap(techIds);
   const assignments = useDealAssignments(dealId, techIds.length > 0);
@@ -94,6 +99,14 @@ export function useJobPageData(dealId: string): { ready: boolean } {
   const archivedType = useJobType(
     deal?.jobTypeId ?? "",
     !!deal?.jobTypeId && !!activeTypes.data && !activeTypes.data.some((t) => t.id === deal.jobTypeId),
+  );
+
+  // Likewise Job source: a source the catalog archived (imported jobs name
+  // some) is asked for by itself, as the Details form's select does.
+  const activeSources = useActiveJobSources();
+  const archivedSource = useJobSource(
+    deal?.sourceId ?? "",
+    !!deal?.sourceId && !!activeSources.data && !activeJobSources(activeSources.data).some((s) => s.id === deal.sourceId),
   );
 
   const allIn =
@@ -115,6 +128,8 @@ export function useJobPageData(dealId: string): { ready: boolean } {
       messages,
       estimates,
       archivedType,
+      archivedSource,
+      company,
       ...files,
     ].every(settled) &&
     !area.isFetching &&

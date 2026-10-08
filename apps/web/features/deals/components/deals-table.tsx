@@ -45,6 +45,7 @@ import {
   formatStamp,
   isTerminalStatus,
   isUrgent,
+  tagsNewestFirst,
 } from "../lib";
 import { workizFromNow, workizScheduleCell } from "../schedule-cell";
 import type { JobsSort } from "../query-params";
@@ -63,7 +64,17 @@ import type { DirectoryUser } from "@/features/deals/hooks";
  *   #cfcfcf rule between columns, clipped rather than wrapped;
  * - rows zebra (#f7f7f7 on the odd ones), rgba(0,0,0,.05) under the cursor.
  */
-const HEAD = "h-[41px] border-b border-r border-input bg-muted px-2.5 text-sm leading-[21px] font-medium text-[#404040]";
+// The header sticks to the top of the page's scroller while the rows go
+// under it, as Workiz's does (list_07_bottom: header pinned at y=56).
+const HEAD =
+  "sticky top-0 z-10 h-[42px] border-b border-r border-input bg-muted px-2.5 text-sm leading-[21px] font-medium text-[#404040]";
+/**
+ * Workiz's grid frame: 1px #ddd on all four sides, as wide as its columns.
+ * Separate borders, so the sticky header keeps its rules while scrolled
+ * (a collapsed border stays behind with the table).
+ */
+const FRAME = "border border-[#dddddd]";
+const TABLE = "table-fixed w-full border-separate border-spacing-0";
 const CELL = "overflow-hidden border-r border-dotted border-table-border p-5 align-top text-sm leading-4 text-[#404040]";
 
 /** The job number: Workiz's Job ID column, always first and never hideable. */
@@ -101,8 +112,8 @@ export function DealsTableSkeleton({
   const { widthOf } = useColumnWidths("jobs", columnDefaults(columns));
 
   return (
-    <div className="overflow-x-auto border-y border-[#dddddd]" aria-busy role="status" aria-label="Loading jobs">
-      <Table className="table-fixed" contained={false} style={{ width: tableWidth(columns, widthOf) }}>
+    <div className={FRAME} style={{ width: tableWidth(columns, widthOf) }} aria-busy role="status" aria-label="Loading jobs">
+      <Table className={TABLE} contained={false}>
         <colgroup>
           <col style={{ width: widthOf(NUMBER_COLUMN) }} />
           {columns.map((c) => (
@@ -175,6 +186,7 @@ export function DealsTable({
   zoneOf,
   accountZone = DEFAULT_TZ,
   emptyText = "No Jobs Found",
+  viewWidth,
 }: {
   deals: Deal[];
   /**
@@ -218,6 +230,8 @@ export function DealsTable({
   /** The account's clock — the first line of every Scheduled cell. */
   accountZone?: string;
   emptyText?: string;
+  /** How much of the grid is on screen (the page scroller's width) — where "No Jobs Found" centres. */
+  viewWidth?: number;
 }) {
   const jobTypeName = useJobTypeName();
   const sourceName = useJobSourceName();
@@ -303,7 +317,8 @@ export function DealsTable({
       case "dispatcher":
         return <span>{personCell(d.assignedDispatcherId)}</span>;
       case "tags":
-        return d.tagIds?.length ? <JobTagChips ids={d.tagIds} solid /> : null;
+        // Newest first, as Workiz lists them (audit L17).
+        return d.tagIds?.length ? <JobTagChips ids={tagsNewestFirst(d.tagIds)} solid /> : null;
       case "status":
         return (
           <>
@@ -415,7 +430,9 @@ export function DealsTable({
         : "";
 
   return (
-    <div className="relative overflow-x-auto border-y border-[#dddddd]">
+    // No scroller of its own: the page scrolls both ways, so the header can
+    // stick to its top (an overflow-x box here would trap it).
+    <div className={cn("relative", FRAME)} style={{ width: tableWidth(columns, widthOf) }}>
       {/*
         `table-fixed` with a declared width per column. A contact (a number,
         an email) lands a frame after the rows, and with auto layout every
@@ -423,7 +440,7 @@ export function DealsTable({
         reader's cursor. Fixed widths make the first painted frame the final
         one, whatever fills in afterwards.
       */}
-      <Table className="table-fixed" contained={false} style={{ width: tableWidth(columns, widthOf) }}>
+      <Table className={TABLE} contained={false}>
         <colgroup>
           <col style={{ width: widthOf(NUMBER_COLUMN) }} />
           {columns.map((c) => (
@@ -431,7 +448,7 @@ export function DealsTable({
           ))}
         </colgroup>
         <TableHeader>
-          <TableRow className={cn("border-0 hover:bg-transparent", deals.length === 0 && "opacity-50")}>
+          <TableRow className="border-0 hover:bg-transparent">
             <ResizableHead
               columnId={NUMBER_COLUMN}
               label="Job ID"
@@ -497,7 +514,8 @@ export function DealsTable({
                     onOpen(d);
                   }}
                   onContextMenu={(e) => e.stopPropagation()}
-                  className="mt-[5px] rounded-[3px] bg-[#61747d] px-1 py-px text-xs leading-4 font-medium tracking-[0.4px] text-white opacity-0 group-hover/id:opacity-100 focus-visible:opacity-100"
+                  // jobslist_wz_jobid_hover: 80×18, 12px/500 white on #61747d, r3.
+                  className="mt-[5px] rounded-[3px] bg-[#61747d] px-[5.5px] py-px text-xs leading-4 font-medium tracking-[0.4px] text-white opacity-0 group-hover/id:opacity-100 focus-visible:opacity-100"
                 >
                   Quick view
                 </button>
@@ -523,13 +541,56 @@ export function DealsTable({
           ))}
         </TableBody>
       </Table>
-      {deals.length === 0 ? (
-        // jobslist_wz_search_zzqxwv: 20px #3e4b51, 252px into the blank rows.
-        <h3 className="pointer-events-none absolute inset-x-0 top-[294px] text-center text-xl leading-[25px] font-normal text-[#3e4b51]">
-          {emptyText}
-        </h3>
-      ) : null}
+      {deals.length === 0 ? <EmptyWash text={emptyText} viewWidth={viewWidth} /> : null}
     </div>
+  );
+}
+
+/**
+ * Workiz's empty grid (audit_pixels_list_search_empty): a white 60% wash over
+ * the whole table — header, zebra rows and rules alike — and on it a laptop
+ * with a checklist in a pale disc, "No Jobs Found" (20px #3e4b51) under it.
+ */
+function EmptyWash({ text, viewWidth }: { text: string; viewWidth?: number }) {
+  return (
+    // Over the sticky header too (z-20 > its z-10): Workiz washes it all.
+    <div className="pointer-events-none absolute inset-0 z-20 bg-white/60">
+      {/* Centred in the part of the grid on screen, not across columns
+          scrolled out of view to the right. */}
+      <div className="sticky left-0 flex flex-col items-center pt-[145px]" style={{ width: viewWidth || "100%" }}>
+        <EmptyJobsPicture />
+        <h3 className="mt-[44px] text-xl leading-[25px] font-normal text-[#3e4b51]">{text}</h3>
+      </div>
+    </div>
+  );
+}
+
+/** The picture over "No Jobs Found": a laptop showing a checklist, two items ticked yellow. */
+function EmptyJobsPicture() {
+  const line = "#c9d0d3";
+  return (
+    <svg aria-hidden width="156" height="106" viewBox="0 0 156 106" fill="none">
+      <ellipse cx="78" cy="53" rx="78" ry="53" fill="#f2f3f4" />
+      {/* the screen */}
+      <rect x="22" y="24" width="112" height="72" rx="3" fill="#ffffff" stroke={line} strokeWidth="1.5" />
+      <rect x="30" y="31" width="10" height="4" rx="1" fill={line} />
+      {/* the checklist window */}
+      <rect x="38" y="34" width="86" height="56" rx="2" fill="#ffffff" stroke={line} />
+      {[0, 1, 2].map((i) => (
+        <g key={i} transform={`translate(0 ${i * 18})`}>
+          <rect x="44" y="40" width="60" height="12" rx="1.5" fill="#eef1f2" />
+          <rect x="48" y="44" width="30" height="1.5" rx="0.75" fill={line} />
+          <rect x="48" y="48" width="22" height="1.5" rx="0.75" fill={line} />
+          <rect x="108" y="40" width="12" height="12" rx="2" fill={i < 2 ? "#fad400" : "#e3e7e9"} />
+          {i < 2 ? (
+            <path d="M111 46.5l2.2 2.2 4-4.4" stroke="#ffffff" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+          ) : null}
+        </g>
+      ))}
+      {/* the base */}
+      <path d="M10 98h136l-6 5H16z" fill="#ffffff" stroke={line} strokeWidth="1.5" strokeLinejoin="round" />
+      <rect x="66" y="98" width="24" height="2" rx="1" fill={line} />
+    </svg>
   );
 }
 

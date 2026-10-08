@@ -440,6 +440,30 @@ describe("CallClientButton — masked bridge", () => {
     });
   });
 
+  /**
+   * The job page's Details tab draws the call inside the Phone box, as Workiz
+   * does (job_b_01_details): a 40px icon button, the handset in ink, the same
+   * picker behind it.
+   */
+  describe("workiz variant", () => {
+    it("is Workiz's 40px icon button inside the Phone box", () => {
+      render(<CallClientButton to="" dealId="deal-1" contactId="contact-1" variant="workiz" />);
+
+      const trigger = screen.getByRole("button", { name: /call client/i });
+      expect(trigger).toHaveTextContent("");
+      expect(trigger).toHaveAttribute("data-variant", "workiz");
+      expect(trigger.className).toMatch(/size-10/);
+    });
+
+    it("opens the same two-ends picker", async () => {
+      render(<CallClientButton to="" dealId="deal-1" contactId="contact-1" variant="workiz" />);
+
+      await userEvent.click(screen.getByRole("button", { name: /call client/i }));
+
+      expect(screen.getByRole("button", { name: /my phone/i })).toBeInTheDocument();
+    });
+  });
+
   it("names the masked action so it is findable", () => {
     render(<CallClientButton to="" dealId="deal-1" contactId="contact-1" />);
 
