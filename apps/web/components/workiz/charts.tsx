@@ -309,7 +309,9 @@ export function WzBarChart({
   });
   const rad = (rotation * Math.PI) / 180;
   const padLeft = rotation ? Math.cos(rad) * first + 3 : first / 2 + 3;
-  const padRight = rotation ? Math.sin(rad) * 5.04 + 3 : lastW / 2 + 3;
+  // An empty chart keeps ~31px on the right (rep_jobstats_wz_15_empty_overview).
+  const padRight =
+    n === 0 ? 30.7 : rotation ? Math.sin(rad) * 5.04 + 3 : lastW / 2 + 3;
   const left = Math.max(yAxisWidth, padLeft);
   const right = width - padRight;
   const plotBottom = height - (28 + Math.sin(rad) * labelWidth);
@@ -524,7 +526,8 @@ function arc(
  * Workiz's breakdown pie (Chart.js 2 `pie`, aspect 2:1): slices from 12
  * o'clock, clockwise, 2px white edges; the legend below in centred lines of
  * 10×12 boxes and 12px #666 names. Without slices: "No data found" (h3,
- * 18px/25px #3e4b51), as Workiz writes it.
+ * 18px/25px #3e4b51) right under the title with 21px below it, as Workiz
+ * writes it (rep_jobstats_wz_15_empty_sources).
  */
 export function WzPieChart({
   slices,
@@ -542,7 +545,7 @@ export function WzPieChart({
   if (!slices.length) {
     return (
       <div ref={ref} className={className}>
-        <p className="mt-[25px] text-center text-lg leading-[25px] text-wz-tab-bar">
+        <p className="pb-[21px] text-center text-lg leading-[25px] text-wz-tab-bar">
           No data found
         </p>
       </div>

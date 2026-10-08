@@ -61,7 +61,9 @@ let server: FakeServer;
 
 const { JobStatisticsPage } = await import("./job-statistics-page");
 
-const areaSelect = () => document.querySelector<HTMLSelectElement>('select[aria-label="Service area"]');
+const areaSelect = () => screen.queryByRole("combobox", { name: "Service area" });
+// Workiz's tag cloud: every tag a chip over the report.
+const tagChips = () => !!screen.queryByRole("button", { name: "VIP" });
 const kpisUp = () => !!screen.queryByText("Jobs Done");
 const loadingBlock = () => document.querySelector('[role="status"][aria-label="Loading report"]');
 
@@ -80,8 +82,8 @@ describe("JobStatisticsPage — no jumping", () => {
       () => !!areaSelect() || kpisUp(),
       () => ({
         kpis: kpisUp(),
-        areas: [...(areaSelect()?.options ?? [])].some((o) => o.textContent === "North"),
-        tags: !!screen.queryByRole("button", { name: "Tags" }),
+        areas: !!areaSelect(),
+        tags: tagChips(),
         skeletons: skeletonCount(),
       }),
     );
@@ -120,7 +122,7 @@ describe("JobStatisticsPage — no jumping", () => {
 
     let blanked = false;
     const observer = new MutationObserver(() => {
-      if (skeletonCount() > 0 || !kpisUp() || !screen.queryByRole("button", { name: "Tags" })) blanked = true;
+      if (skeletonCount() > 0 || !kpisUp() || !tagChips()) blanked = true;
     });
     observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true });
     fireEvent.click(screen.getByRole("radio", { name: "Created" }));

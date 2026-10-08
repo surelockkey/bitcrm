@@ -1,11 +1,18 @@
 import { describe, expect, it } from "vitest";
 import type { JobStatisticsDay, JobStatisticsRow, JobStatisticsTable } from "@bitcrm/types";
 import {
+  DEFAULT_SORT,
   STATISTICS_PRESETS,
+  cellText,
   columnsFor,
   groupSeries,
-  pieOf,
+  nextSort,
+  pieSlices,
   rowName,
+  seriesLabel,
+  wzMoney,
+  wzNumber,
+  wzPercent,
   searchRows,
   sortRows,
   sourcesOf,
@@ -40,12 +47,13 @@ describe("statisticsParams", () => {
       "Custom",
       "Today",
       "Yesterday",
-      "This week (Sun-Today)",
-      "This week (Mon-Today)",
+      // Workiz's own spelling, the missing space included (rep_jobstats_wz_07_period_open).
+      "This week(Sun - Today)",
+      "This week (Mon - Today)",
       "Last 7 days",
-      "Last week (Sun-Sat)",
-      "Last week (Mon-Sun)",
-      "Last business week (Mon-Fri)",
+      "Last week (Sun - Sat)",
+      "Last week (Mon - Sun)",
+      "Last business week (Mon - Fri)",
       "Last 14 days",
       "This month",
       "Last 30 days",
@@ -57,27 +65,96 @@ describe("statisticsParams", () => {
 
 describe("groupSeries", () => {
   const days: JobStatisticsDay[] = [
-    { date: "2026-08-31", jobs: 1, canceled: 0, done: 1, sales: 10.1, profit: 5 }, // Monday
-    { date: "2026-09-01", jobs: 2, canceled: 1, done: 1, sales: 20.2, profit: 8 },
-    { date: "2026-09-07", jobs: 1, canceled: 0, done: 0, sales: 0, profit: 0 }, // next Monday
+    { date: "2026-08-30", jobs: 1, canceled: 0, done: 1, sales: 10.1, profit: 5 }, // Sunday
+    { date: "2026-09-05", jobs: 2, canceled: 1, done: 1, sales: 20.2, profit: 8 }, // Saturday
+    { date: "2026-09-06", jobs: 1, canceled: 0, done: 0, sales: 0, profit: 0 }, // next Sunday
   ];
 
   it("keeps days as they are", () => {
     expect(groupSeries(days, "day")).toEqual(days);
   });
 
-  it("sums Monday-started weeks and calendar months, keyed by their first day, to the cent", () => {
+  it("sums Sunday-started weeks and calendar months, keyed by their first day, to the cent", () => {
     expect(groupSeries(days, "week")).toEqual([
-      { date: "2026-08-31", jobs: 3, canceled: 1, done: 2, sales: 30.3, profit: 13 },
-      { date: "2026-09-07", jobs: 1, canceled: 0, done: 0, sales: 0, profit: 0 },
+      { date: "2026-08-30", jobs: 3, canceled: 1, done: 2, sales: 30.3, profit: 13 },
+      { date: "2026-09-06", jobs: 1, canceled: 0, done: 0, sales: 0, profit: 0 },
     ]);
     expect(groupSeries(days, "month").map((d) => d.date)).toEqual(["2026-08-01", "2026-09-01"]);
+  });
+
+  // Workiz live, This month 01–08.10.26 by week: 365 jobs (Oct 1–3) under
+  // "09/30/2026" and 587 (Oct 4–8) under "10/07/2026" — MySQL's Sunday weeks.
+  it("splits Workiz's October the way Workiz does", () => {
+    const oct = [102, 141, 122, 94, 141, 122, 99, 131].map((jobs, i) => ({ date: `2026-10-0${i + 1}`, jobs, canceled: 0, done: 0 }));
+    expect(groupSeries(oct, "week").map((w) => [w.date, w.jobs])).toEqual([
+      ["2026-09-27", 365],
+      ["2026-10-04", 587],
+    ]);
+  });
+
+  // Workiz's series is a GROUP BY of the period's jobs: a day without a job
+  // is no bar and no label, and a period without one is an empty chart.
+  it("leaves out the days, weeks and months without a job, as Workiz's GROUP BY does", () => {
+    const sparse = [
+      { date: "2026-10-01", jobs: 2, canceled: 0, done: 1 },
+      { date: "2026-10-02", jobs: 0, canceled: 0, done: 0 },
+      { date: "2026-10-03", jobs: 1, canceled: 1, done: 0 },
+    ];
+    expect(groupSeries(sparse, "day").map((d) => d.date)).toEqual(["2026-10-01", "2026-10-03"]);
+    expect(groupSeries([{ date: "2026-10-02", jobs: 0, canceled: 0, done: 0 }], "week")).toEqual([]);
   });
 
   it("leaves the money out when the answer has none", () => {
     expect(groupSeries([{ date: "2026-09-01", jobs: 2, canceled: 1, done: 1 }], "month")).toEqual([
       { date: "2026-09-01", jobs: 2, canceled: 1, done: 1 },
     ]);
+  });
+});
+
+describe("seriesLabel", () => {
+  it("names a bar as Workiz does: the day, the week's Wednesday, the month", () => {
+    expect(seriesLabel("2026-10-01", "day")).toBe("10/01/2026");
+    expect(seriesLabel("2026-09-27", "week")).toBe("09/30/2026");
+    expect(seriesLabel("2026-12-27", "week")).toBe("12/30/2026");
+    expect(seriesLabel("2026-10-01", "month")).toBe("10/26");
+  });
+});
+
+describe("Workiz's numbers", () => {
+  it("prints a table figure with its thousands, the cents only when there are any", () => {
+    expect(wzNumber(1745)).toBe("1,745");
+    expect(wzNumber(325)).toBe("325");
+    expect(wzNumber(0)).toBe("0");
+    expect(wzNumber(46.7)).toBe("46.70");
+    expect(wzNumber(1435.65)).toBe("1,435.65");
+    expect(wzNumber(724691.3)).toBe("724,691.30");
+    expect(wzNumber(-12.5)).toBe("-12.50");
+    expect(wzNumber(undefined)).toBe("0");
+  });
+
+  it("prints a percent the same way", () => {
+    expect(wzPercent(100)).toBe("100%");
+    expect(wzPercent(44.9)).toBe("44.90%");
+    expect(wzPercent(15.15)).toBe("15.15%");
+    expect(wzPercent(0)).toBe("0%");
+  });
+
+  // An empty period's KPIs read "0" in Workiz (rep_jobstats_wz_15_empty_overview).
+  it("prints the KPI money with cents always, a nothing as a bare 0", () => {
+    expect(wzMoney(133524.6)).toBe("133,524.60");
+    expect(wzMoney(12)).toBe("12.00");
+    expect(wzMoney(0)).toBe("0");
+    expect(wzMoney(undefined)).toBe("0");
+  });
+
+  it("prints a cell by its column, Totals' raw counts without a comma where Workiz has them", () => {
+    expect(cellText(3935, "count")).toBe("3,935");
+    expect(cellText(3935, "count", { bareCounts: true })).toBe("3935");
+    expect(cellText(2713, "count", { bareCounts: true })).toBe("2713");
+    expect(cellText(68.95, "pct")).toBe("68.95%");
+    expect(cellText(724691.3, "money")).toBe("724,691.30");
+    expect(cellText("SURE CT", "text")).toBe("SURE CT");
+    expect(cellText(undefined, "text")).toBe("");
   });
 });
 
@@ -104,9 +181,9 @@ describe("tables", () => {
     expect(totalsOf([row("a", "A", 3, 1, 1), row("b", "B", 1, 1, 0)])).toEqual({ all: 4, done: 2, open: 1, canceled: 1, canceledPct: 25 });
   });
 
-  it("spells blanks out", () => {
-    expect(rowName("tech", row("unassigned", "", 1, 0, 1, { techIds: [] }))).toBe("Unassigned");
-    expect(rowName("sources", row("ad:", "", 1, 0, 1, { kind: "ad" }))).toBe("No source");
+  it("spells blanks out — Workiz's own words where it has a row for them", () => {
+    expect(rowName("tech", row("unassigned", "", 1, 0, 1, { techIds: [] }))).toBe("unassigned");
+    expect(rowName("sources", row("ad:", "", 1, 0, 1, { kind: "ad" }))).toBe("unknown");
     expect(rowName("sources", row("ad-id:x", "", 1, 0, 1, { kind: "ad" }))).toBe("Unknown source");
     expect(rowName("area", row("zip:", "", 1, 0, 1), "zip")).toBe("No zip");
     expect(rowName("area", row("city:", "", 1, 0, 1), "city")).toBe("No city");
@@ -154,18 +231,35 @@ describe("tables", () => {
     expect(searchRows(rows, " ", (r) => r.label)).toHaveLength(2);
   });
 
-  it("cuts a pie to the three biggest and Other, percents of the whole", () => {
-    const rows = [row("a", "A", 10, 4, 0), row("b", "B", 10, 3, 0), row("c", "C", 10, 1, 0), row("d", "D", 10, 1, 0), row("e", "E", 10, 1, 0), row("z", "Z", 10, 0, 0)];
-    expect(pieOf(rows, "done", (r) => r.label)).toEqual([
-      { key: "a", name: "A", count: 4, percent: 40 },
-      { key: "b", name: "B", count: 3, percent: 30 },
-      { key: "c", name: "C", count: 1, percent: 10 },
-      { key: "__other__", name: "Other", count: 2, percent: 20 },
+  // Workiz's pies (json.qty / json.dollar): a slice for every row with a Done
+  // job, alphabetical like the table, coloured from its fixed 50-colour list.
+  it("gives a pie a slice per row with a Done job, in name order, Workiz's colours", () => {
+    const rows = [row("b", "B", 10, 3, 0, { gross: 30 }), row("z", "Z", 10, 0, 0, { gross: 0 }), row("a", "A", 10, 4, 0, { gross: 0 })];
+    expect(pieSlices(rows, "done", (r) => r.label)).toEqual([
+      { key: "a", name: "A", value: 4, color: "#FF6633" },
+      { key: "b", name: "B", value: 3, color: "#FFB399" },
     ]);
-    // Four rows or fewer: every one its own slice.
-    expect(pieOf(rows.slice(0, 4), "done", (r) => r.label).map((s) => s.name)).toEqual(["A", "B", "C", "D"]);
-    expect(pieOf(sources.rows, "gross", (r) => r.label).map((s) => s.name)).toEqual(["SURE TX DENISON GMB", "Papas Lock Out Service"]);
-    expect(pieOf([row("x", "X", 1, 0, 1)], "done", (r) => r.label)).toEqual([]);
+    // By Sales Amount keeps a Done row whose amount is nothing, as Workiz does.
+    expect(pieSlices(rows, "gross", (r) => r.label).map((s) => [s.name, s.value])).toEqual([
+      ["A", 0],
+      ["B", 30],
+    ]);
+    expect(pieSlices([row("x", "X", 1, 0, 1)], "done", (r) => r.label)).toEqual([]);
+  });
+
+  it("runs out of colours after fifty as Chart.js does, to its pale grey", () => {
+    const many = Array.from({ length: 52 }, (_, i) => row(`r${i}`, `R${String(i).padStart(2, "0")}`, 1, 1, 0));
+    const slices = pieSlices(many, "done", (r) => r.label);
+    expect(slices[49].color).toBe("#6666FF");
+    expect(slices[50].color).toBe("rgba(0,0,0,0.1)");
+  });
+
+  it("sorts like DataTables: a new column ascending, the same column flipped", () => {
+    expect(nextSort(DEFAULT_SORT, "all")).toEqual({ key: "all", dir: "asc" });
+    expect(nextSort({ key: "all", dir: "asc" }, "all")).toEqual({ key: "all", dir: "desc" });
+    expect(nextSort({ key: "all", dir: "desc" }, "all")).toEqual({ key: "all", dir: "asc" });
+    expect(nextSort(null, "name")).toEqual({ key: "name", dir: "asc" });
+    expect(DEFAULT_SORT).toEqual({ key: "name", dir: "asc" });
   });
 
   it("exports the table as Workiz's Export List: header, rows, Totals last", () => {

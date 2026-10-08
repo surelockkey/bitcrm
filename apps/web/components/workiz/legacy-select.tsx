@@ -173,11 +173,13 @@ export function WzLegacySelect({
       ) : null}
       {open ? (
         <>
-          {/* The caret the list hangs from. */}
+          {/* The caret the list hangs from: the top half of a turned square, over the list's edge. */}
           <span
             aria-hidden
-            className="absolute top-[34px] left-6 z-50 size-3 rotate-45 border-t border-l border-input bg-background"
-          />
+            className="absolute top-[33px] left-[21px] z-50 h-2 w-[18px] overflow-hidden"
+          >
+            <span className="absolute top-0.5 left-[3px] size-3 rotate-45 border-t border-l border-input bg-background" />
+          </span>
           <div
             id={listId}
             role="listbox"

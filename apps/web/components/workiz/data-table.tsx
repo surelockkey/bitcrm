@@ -64,90 +64,93 @@ export function WzDataTable({
           />
         </div>
       ) : null}
-      <table
-        aria-label={ariaLabel}
-        className="w-full border-collapse border-r border-b border-r-table-border border-b-input bg-background tracking-[0.4px] text-wz-text [border-right-style:dotted]"
-      >
-        <thead>
-          <tr>
-            {columns.map((c, i) => {
-              const on = i === sortedAt;
-              return (
-                <th
-                  key={c.key}
-                  scope="col"
-                  aria-sort={
-                    on
-                      ? sort!.dir === "asc"
-                        ? "ascending"
-                        : "descending"
-                      : "none"
-                  }
-                  className="border border-input p-0 text-left align-middle text-sm leading-4 font-medium capitalize"
-                >
-                  <button
-                    type="button"
-                    onClick={() => onSort(c.key)}
-                    className="flex w-full cursor-pointer items-center px-[18px] py-[15px] text-left capitalize outline-none hover:text-[#0059a0] focus-visible:text-[#0059a0]"
-                  >
-                    {on ? (
-                      <span
-                        aria-hidden
-                        className="mr-[5px] ml-px text-[8px] leading-none"
-                      >
-                        {sort!.dir === "asc" ? "▼" : "▲"}
-                      </span>
-                    ) : null}
-                    {c.label}
-                  </button>
-                </th>
-              );
-            })}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.length === 0 ? (
+      {/* A narrow window scrolls the grid sideways, as DataTables' responsive table does. */}
+      <div className="overflow-x-auto">
+        <table
+          aria-label={ariaLabel}
+          className="w-full border-collapse border-r border-b border-r-table-border border-b-input bg-background tracking-[0.4px] text-wz-text [border-right-style:dotted]"
+        >
+          <thead>
             <tr>
-              <td
-                colSpan={columns.length}
-                className="h-[83px] text-center text-[15px] leading-4 font-medium"
-              >
-                No Records Found
-              </td>
+              {columns.map((c, i) => {
+                const on = i === sortedAt;
+                return (
+                  <th
+                    key={c.key}
+                    scope="col"
+                    aria-sort={
+                      on
+                        ? sort!.dir === "asc"
+                          ? "ascending"
+                          : "descending"
+                        : "none"
+                    }
+                    className="border border-input p-0 text-left align-middle text-sm leading-4 font-medium capitalize"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => onSort(c.key)}
+                      className="flex w-full cursor-pointer items-center px-[18px] py-[15px] text-left capitalize outline-none hover:text-[#0059a0] focus-visible:text-[#0059a0]"
+                    >
+                      {on ? (
+                        <span
+                          aria-hidden
+                          className="mr-[5px] ml-px text-[8px] leading-none"
+                        >
+                          {sort!.dir === "asc" ? "▼" : "▲"}
+                        </span>
+                      ) : null}
+                      {c.label}
+                    </button>
+                  </th>
+                );
+              })}
             </tr>
-          ) : (
-            rows.map((r) => (
-              <tr key={r.key}>
-                {r.cells.map((cell, i) => (
+          </thead>
+          <tbody>
+            {rows.length === 0 ? (
+              <tr>
+                <td
+                  colSpan={columns.length}
+                  className="h-[83px] text-center text-[15px] leading-4 font-medium"
+                >
+                  No Records Found
+                </td>
+              </tr>
+            ) : (
+              rows.map((r) => (
+                <tr key={r.key}>
+                  {r.cells.map((cell, i) => (
+                    <td
+                      key={columns[i]?.key ?? i}
+                      className={cn(
+                        "border-t border-l border-t-[#e6e6e6] border-l-table-border pt-5 pr-2.5 pb-5 pl-5 align-top text-[13px] leading-4 [border-left-style:dotted]",
+                        i === sortedAt && "bg-[#f1f1f1]",
+                      )}
+                    >
+                      {cell}
+                    </td>
+                  ))}
+                </tr>
+              ))
+            )}
+          </tbody>
+          {footer ? (
+            <tfoot>
+              <tr>
+                {footer.map((cell, i) => (
                   <td
                     key={columns[i]?.key ?? i}
-                    className={cn(
-                      "border-t border-l border-t-[#e6e6e6] border-l-table-border pt-5 pr-2.5 pb-5 pl-5 align-top text-[13px] leading-4 [border-left-style:dotted]",
-                      i === sortedAt && "bg-[#f1f1f1]",
-                    )}
+                    className="border border-input px-[18px] py-[15px] text-sm leading-4"
                   >
                     {cell}
                   </td>
                 ))}
               </tr>
-            ))
-          )}
-        </tbody>
-        {footer ? (
-          <tfoot>
-            <tr>
-              {footer.map((cell, i) => (
-                <td
-                  key={columns[i]?.key ?? i}
-                  className="border border-input px-[18px] py-[15px] text-sm leading-4"
-                >
-                  {cell}
-                </td>
-              ))}
-            </tr>
-          </tfoot>
-        ) : null}
-      </table>
+            </tfoot>
+          ) : null}
+        </table>
+      </div>
     </div>
   );
 }

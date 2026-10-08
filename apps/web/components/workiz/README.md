@@ -299,6 +299,49 @@ Spec with every measurement and capture name:
 - **`WzRail`** / **`WzRailButton`** / **`WzRailPanel`** — the right rail strip,
   its icons (red count, optional caption) and the 350px panel chrome.
 
+## The legacy report kit (2026-10-08, agent `rep_jobstats`)
+
+Several Workiz reports (Job Statistics first) are old PHP pages Workiz
+iframes into its app: a grey (#f7f7f7) page with Developr-theme controls,
+Chart.js 2 charts and DataTables grids. Captures `rep_jobstats_wz_*`; notes
+`workiz-data-parser/docs/import/app-parity-2026-10-08/rep_jobstats.md`.
+Import each from its file (`@/components/workiz/<file>`).
+
+- **`WzButtonGroup`** (`button-group.tsx`) `options` `value` `onChange`
+  `aria-label` — `span.button-group` radios ("By Time: Created | Scheduled |
+  Closed", "Day | Week | Month"): 32px, 13px, #ececec with 2px white rules,
+  the chosen one #ddd. A radio group with arrow keys.
+- **`WzPeriodPicker`** (`period-picker.tsx`) `presets` `preset` `range`
+  `onPresetChange` `onCustomChange` `today` — `.date_picker_gen`: a 262px
+  #ddd box, the period's name over "Oct 01 , 2026 - Oct 08 , 2026"; the
+  presets hang under it (35px rows, #e1e1e1 hover); Custom adds From / To
+  inputs that open Workiz's Glow calendar and apply once both are picked.
+  `wzRangeText(from, to)` prints the days.
+- **`WzLegacySelect`** (`legacy-select.tsx`) `options` `value` `onChange`
+  `searchable` `aria-label` — `span.select.replacement`: 32px #f7f7f7 box,
+  1px #ccc, a 26px chevron box; the list hangs on a caret, chosen row
+  rgba(0,0,0,.75); `searchable` puts a "Search" box in the control.
+- **`WzTagFilter`** (`tag-filter.tsx`) `tags={id,name,className}` `selected`
+  `onToggle` `after` — the tag cloud: 11px capital chips on their colour,
+  rgba(0,0,0,.75) when chosen; `after` sits on the last line.
+- **`WzStatList`** (`stat-list.tsx`) `items={key,value,caption:[a,b]}` —
+  `ul.stats`: 72px rows, a 48px light figure, a two-line 16px caption.
+- **`WzBarChart`**, **`WzPieChart`** (`charts.tsx`) — Chart.js 2 redrawn in
+  SVG with its own geometry (read off Workiz's live `Chart.instances`):
+  12px 'Helvetica Neue' #666, top legend of 40×12 boxes, `beginAtZero` ticks
+  (`chartTicks`, `tickLabel`), labels tipped to 50° and thinned when crowded
+  (`xLabelLayout`), bars at 80% × 90% of their category, Chart.js's tooltip;
+  pies 2:1 with a centred legend below (`legendLines`, `pieLayout`) that
+  swallows the pie when too long, as Workiz's does; "No data found" without
+  slices. Each draws an sr-only table of its numbers.
+- **`WzDataTable`** (`data-table.tsx`) `columns` `rows` `footer` `sort`
+  `onSort` `search` — DataTables: 14px/500 #666 header boxes (#0059a0
+  hovered, ▼/▲ on the sorted one), 13px rows ruled #e6e6e6 / dotted #cfcfcf,
+  the sorted column #f1f1f1, a Totals footer, "No Records Found", and the
+  optional "search" strip.
+- **`WzTabBar variant="legacy"`** — `standard-tabs`: 16px/500, 15px 45px, a
+  4px #3e4b51 bar; give the row `-mb-px` over the white #ccc-edged box.
+
 ## Known differences from Workiz (deliberate or unmeasurable)
 - Sub-pixel: Workiz's own fractional layout makes some glyphs land ±1px
   differently from ours in screenshots (e.g. two Workiz selects with identical
