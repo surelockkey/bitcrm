@@ -333,7 +333,18 @@ element of every widget) under `jobs_parity_2026-10-08`, notes in
   `WZ_PIE_COLORS` fixes an order from the same palette.
 
 Colours on these take CSS values (`var(--wz-chart-done)`), not classes, so a
-series can carry any token.
+series can carry any token. Tooltips open the way chart.js 2 opens them
+(`wzTipSide`: level with the point towards the chart's middle, under a point
+near the top) with its 5px caret.
+
+Letter-spacing inside a widget is Workiz's, not the app's 0.4px: body text
+0.075px, stat labels 0.167857px, 28px figures 0.223809px, pie names
+-0.072px, pie percents 0.45px (the `.deep.json` captures). The body box is
+97.76% of the card (`pr-[calc(20px+2.24%)]`), as Workiz's grid column is.
+
+`WzDrawer` has a `head="band"` option (default `plain`, unchanged): Workiz's
+older right pane — a 49px #f7f7f7 band with the title centred and a #eeeeee
+rule — used by the dashboard's "Dashboard widgets" panel.
 
 ## Known differences from Workiz (deliberate or unmeasurable)
 - Sub-pixel: Workiz's own fractional layout makes some glyphs land ±1px
