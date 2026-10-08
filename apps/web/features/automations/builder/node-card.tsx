@@ -37,10 +37,10 @@ import type { ChainNode, ChainNodeKind } from "./types";
 const KIND_STYLE: Record<ChainNodeKind, { Icon: typeof Zap; tile: string }> = {
   trigger: { Icon: Zap, tile: "bg-brand/10 text-brand" },
   condition: { Icon: Filter, tile: "bg-secondary text-secondary-foreground" },
-  send: { Icon: MessageSquare, tile: "bg-primary/10 text-primary" },
-  add_tag: { Icon: Tag, tile: "bg-primary/10 text-primary" },
-  change_sub_status: { Icon: ToggleRight, tile: "bg-primary/10 text-primary" },
-  webhook: { Icon: Webhook, tile: "bg-primary/10 text-primary" },
+  send: { Icon: MessageSquare, tile: "bg-accent text-wz-link" },
+  add_tag: { Icon: Tag, tile: "bg-accent text-wz-link" },
+  change_sub_status: { Icon: ToggleRight, tile: "bg-accent text-wz-link" },
+  webhook: { Icon: Webhook, tile: "bg-accent text-wz-link" },
   wait: { Icon: Clock, tile: "bg-muted text-muted-foreground" },
 };
 

@@ -106,6 +106,9 @@ export class ServiceAreasRepository {
       ...(item.defaultBusinessProfileId
         ? { defaultBusinessProfileId: item.defaultBusinessProfileId as string }
         : {}),
+      // Same full-Put hazard — and the boot coverage self-heal Puts every
+      // imported zips area, so an unmapped colour would vanish on a reboot.
+      ...(item.color ? { color: item.color as string } : {}),
       createdBy: item.createdBy as string,
       createdAt: item.createdAt as string,
       updatedAt: item.updatedAt as string,

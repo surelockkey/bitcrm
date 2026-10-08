@@ -21,6 +21,11 @@ function useHydrated() {
  * Trail of the last visited pages ("SETTINGS # USERS # JOBS"), rendered under
  * the header on every authenticated page. Also the single place that records
  * navigations into the history store.
+ *
+ * Drawn as Workiz's `SAJhistory` strip (audit_pixels L12, uikit_wz_*): 11px
+ * regular capitals tracked 0.4px, every crumb ink #3b4b52 — the current one
+ * no bolder — "#" between them in the same ink, 20px in, and no rule under
+ * the strip.
  */
 export function PageHistoryBar() {
   const pathname = usePathname();
@@ -40,14 +45,14 @@ export function PageHistoryBar() {
   return (
     <nav
       aria-label="Recently visited"
-      className="flex h-9 shrink-0 items-center gap-2 overflow-x-auto border-b px-4 text-xs font-medium uppercase tracking-wide"
+      className="flex h-9 shrink-0 items-center gap-[5px] overflow-x-auto px-5 text-[11px] leading-4 font-normal tracking-[0.4px] text-foreground uppercase"
     >
       {visits.map((v, i) => {
         const current = i === visits.length - 1;
         return (
           <Fragment key={v.path}>
             {i > 0 ? (
-              <span aria-hidden className="text-muted-foreground/50">
+              <span aria-hidden className="text-foreground">
                 #
               </span>
             ) : null}
@@ -55,10 +60,8 @@ export function PageHistoryBar() {
               href={v.path}
               aria-current={current ? "page" : undefined}
               className={cn(
-                "whitespace-nowrap transition-colors",
-                current
-                  ? "font-semibold text-foreground"
-                  : "text-muted-foreground hover:text-foreground",
+                "whitespace-nowrap hover:underline",
+                current ? "text-wz-strong" : "text-foreground",
               )}
             >
               {v.label}

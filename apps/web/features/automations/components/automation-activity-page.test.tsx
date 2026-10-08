@@ -92,7 +92,7 @@ describe("AutomationActivityPage", () => {
     expect(within(rows).getByText("On my way")).toBeInTheDocument();
     expect(within(rows).getAllByText("The job was canceled.")).toHaveLength(2);
     expect(within(rows).getAllByRole("link", { name: "Open job d-1" })).toHaveLength(3);
-    expect(screen.getByText("Showing 1–3")).toBeInTheDocument();
+    expect(screen.getByText("Showing 1 to 3 results")).toBeInTheDocument();
   });
 
   it("gives a firing that sent nothing its reason once, not twice", async () => {
@@ -217,7 +217,7 @@ describe("AutomationActivityPage", () => {
       expect(screen.getByRole("button", { name: "Next page" })).toBeDisabled(),
     );
     // Пройдене нікуди не діло́ся — назад іде без жодного запиту.
-    await user.click(screen.getByRole("button", { name: "Page 1" }));
+    await user.click(screen.getByRole("button", { name: "Previous page" }));
     expect(await screen.findByTestId("activity-r-1")).toBeInTheDocument();
   });
 

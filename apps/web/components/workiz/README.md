@@ -239,6 +239,66 @@ part bold, grey 14px subtitle 10px under; hover / `active` `#deebff`.
 navigation is the caller's (it owns the input); `splitMatch(text, query)` is
 exported.
 
+## The app-wide kit (2026-10-08, agent `uikit`)
+
+The whole app is to look like Workiz. Two layers do it:
+
+1. **`components/ui/*` are Workiz now.** Every screen that imports `Button`,
+   `Input`, `Select`, `Table`, `Dialog`… gets the Workiz look without being
+   touched. Same exports, props and variants as before.
+2. **This folder adds the pieces with no shadcn counterpart** (list chrome,
+   the Actions menu, the side drawer, tab rows, the rail), lifted from the
+   jobs pages so every list and record page can share them.
+
+Spec with every measurement and capture name:
+`workiz-data-parser/docs/import/jobs-parity-2026-10-08/uikit.md`.
+
+### What `components/ui` maps to
+
+| Primitive | Workiz look |
+| --- | --- |
+| `Button` | Button-module. `default` / `brand` → yellow primary pill; `outline` → secondary (1px ink edge); `ghost` → tertiary; `secondary` → blue accent pill; `destructive` → red danger pill (#f45e44); `link` → #6aa8ee 13px/600. Sizes: default 32px (regular), `sm` 26px (compact), `lg` 40px (big), `xs` 24px; `icon*` are IconButton squares (24 r4 / 32 r8 / 40 r8); outline + icon = the toolbar's square #ccc button. Disabled = #eff1f1 / #9ea6aa, not faded. |
+| `Input`, `Textarea` | 40px box, 1px #ccc (#b3b3b3 hovered, #ffd400 focused), 4px corner, #808080 placeholder, Workiz disabled greys, #e35a36 when invalid. Label stays above (the 48px floating-label field is `WzTextField`). |
+| `Select` | react-select: same box; focused/open = no edge + 1px #ffd400 ring; 1px separator + #ccc chevron; menu 8px below, two-part shadow, 14px rows, #deebff focused, #2684ff chosen. `size="sm"` 32px, no separator. |
+| `Label` | 13px/500 ink. |
+| `Checkbox` | the browser's 13px box, #767676 edge, ticked #6aa8ee. |
+| `Switch` | 40×20 green #50d58c / #bbbbbb, 16px knob. |
+| `Tabs` | `default` = scheduler segmented box; `line` = small tabs (13px, 2px bar); `page` (new) = big tabs (16px, 3px bar). |
+| `Table` | react-table grid: 41px #f7f7f7 header with solid #ccc rules, 20px top-aligned cells with dotted #cfcfcf rules, zebra, rgba(0,0,0,.05) hover over the zebra too; `TableHead sort="asc"\|"desc"` (new) draws the 3px bar + `aria-sort`; `density="compact"` (new, the default inside Dialog/Sheet) packs cells to 12px / 8px. |
+| `Dialog`, `AlertDialog` | modal: 16px corners, 24px in, `0 3px 9px rgba(0,0,0,.5)`, black 30% backdrop **without blur**, 18px/600 title, footer on white with big 40px buttons. |
+| `Sheet` | side drawer: #666 at 60% backdrop **without blur**, soft edge shadow, 422px, 18px/600 title, #607890 ×. |
+| `DropdownMenu` | the Actions menu: 216px min, 2px corners, its shadow, 50px slate rows ruled #cad3d6; check/radio items read like react-select options. |
+| `Tooltip` | MUI dark chip: ink, r4, 8px 12px, 12px/500 white, no arrow. |
+| `Badge` | 11px/500 chip, 1px 4px; `secondary` #6aa8ee, `destructive` #f45e44, `outline` white #ccc. |
+| `Card` | New Job card: r8, `0 2px 8px rgba(0,0,0,.067)`, 24px in, 18px/500 title. |
+| `ListPagination` | `WzPager` + a Workiz page-size box. No page numbers (Workiz has none). |
+| `Toaster` | redux-toastr colours: success #83c795, error #f45e44, warning #f7a336, info #58abc3, 440px, top-centre. |
+| `Command` | options like react-select's. |
+| shell breadcrumb | 11px/400 capitals, all ink, 20px in, no rule. |
+
+### Kit components
+
+- **`WzPager`** `pager={Pager}` `end={…}` `loading` `nav` — the list footer
+  ("Showing 1 to 50 of 208 results", ‹ "Page 1 of 5" ›). `wzPagerSummary`,
+  `wzPagerPages` give the words.
+- **`WzListToolbar`** — the 71px #f7f7f7 strip; **`WzSearchBox`** `value`
+  `onChange` — the 348×40 Search with the round ×; **`WzPageSizeSelect`**
+  `value` `sizes` `onChange` — the native 75×34 box; **`WzToolbarButton`** —
+  "Export" / "Fields" (34px, #ccc, see-through).
+- **`WzDrawer`** `open` `onOpenChange` `title` `trigger` `footer` — the
+  "Visible fields" panel (opaque footer); **`WzDrawerSection`** `title` —
+  "USED FIELDS".
+- **`WzActionsMenu`** `items={{key,label,icon,onSelect,destructive}[]}` —
+  "Actions ▾" with Workiz's caret.
+- **`WzTabBar`** `variant="small"|"page"|"job"` `tabs={{value,label,count,sublabel}[]}`
+  — the three Workiz tab rows, with arrow-key navigation.
+- **`wzPill(tone, size)`** — the job page's 34px pill classes for non-button
+  elements (identical to `features/deals/components/job-pills.ts`).
+- **`WzTableEmpty`** `title` `art` — the white wash + "No Jobs Found".
+- **`WzFilterChip`** `label` `colorClassName` `onRemove` — "tag: Needs a call ×".
+- **`WzRail`** / **`WzRailButton`** / **`WzRailPanel`** — the right rail strip,
+  its icons (red count, optional caption) and the 350px panel chrome.
+
 ## Known differences from Workiz (deliberate or unmeasurable)
 - Sub-pixel: Workiz's own fractional layout makes some glyphs land ±1px
   differently from ours in screenshots (e.g. two Workiz selects with identical

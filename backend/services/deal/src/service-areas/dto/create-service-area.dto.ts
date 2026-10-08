@@ -1,6 +1,6 @@
 import {
   IsString, IsOptional, IsEnum, IsArray, IsBoolean, IsInt,
-  IsNumber, Min, Max, ValidateNested, ArrayMinSize, MinLength, MaxLength,
+  IsNumber, Min, Max, ValidateNested, ArrayMinSize, MinLength, MaxLength, Matches,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
@@ -48,6 +48,9 @@ export class ServiceAreaTaxDto {
   ratePercent!: number;
 }
 
+/** `#rrggbb`, or '' (= clear). Anything else is refused — see `ServiceArea.color`. */
+export const SERVICE_AREA_COLOR_INPUT = /^(#[0-9a-fA-F]{6})?$/;
+
 export class CreateServiceAreaDto {
   @ApiPropertyOptional({
     example: '+14045550100',
@@ -81,6 +84,17 @@ export class CreateServiceAreaDto {
   @IsOptional()
   @IsString()
   defaultBusinessProfileId?: string | null;
+
+  @ApiPropertyOptional({
+    example: '#dc143c',
+    nullable: true,
+    description:
+      'Chip colour, `#rrggbb` (stored lower-case). Workiz paints a service area as a chip — white ' +
+      'text on this colour — in Filter results. Null or an empty string clears it.',
+  })
+  @IsOptional()
+  @Matches(SERVICE_AREA_COLOR_INPUT, { message: 'color must be a #rrggbb hex colour' })
+  color?: string | null;
 
   @ApiProperty({ example: 'Atlanta Metro' })
   @IsString()

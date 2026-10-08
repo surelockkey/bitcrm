@@ -163,6 +163,7 @@ export class TechnicianEligibilityRepository {
       assignable: Boolean(item.assignable),
       firstName: item.firstName as string | undefined,
       lastName: item.lastName as string | undefined,
+      ...(item.workizName ? { workizName: item.workizName as string } : {}),
       department: item.department as string | undefined,
       homeAddress: item.homeAddress as TechnicianEligibility['homeAddress'],
       updatedAt: item.updatedAt as string,

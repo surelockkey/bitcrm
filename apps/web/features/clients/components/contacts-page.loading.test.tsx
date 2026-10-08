@@ -177,7 +177,7 @@ describe("ContactsPage — no jumping", () => {
       if (screen.queryByText("Tim Hart") && !screen.queryByText("Gamma Works")) rowsWithoutCompany = true;
     });
     observer.observe(document.body, { childList: true, subtree: true, characterData: true });
-    fireEvent.click(screen.getByRole("button", { name: "Page 2" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next page" }));
     await screen.findByText("Tim Hart", {}, { timeout: 3000 });
     observer.disconnect();
 

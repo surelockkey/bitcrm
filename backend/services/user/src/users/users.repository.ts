@@ -354,6 +354,9 @@ export class UsersRepository {
       email: item.email as string,
       firstName: item.firstName as string,
       lastName: item.lastName as string,
+      // Workiz's whole name for an imported person ("(2) TX - Daniel Munoz");
+      // the screens that mirror Workiz print it. Absent on users made here.
+      workizName: (item.workizName as string | undefined) || undefined,
       roleId: (item.roleId as string) || '',
       department: item.department as string,
       // Their own number. Every read goes through here, so omitting it didn't

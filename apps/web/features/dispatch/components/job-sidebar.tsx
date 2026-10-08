@@ -77,7 +77,7 @@ export function JobSidebar({
               href={googleMapsLink(deal.address)}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
+              className="inline-flex items-center gap-1 text-sm text-wz-link hover:underline"
             >
               <MapPin className="size-3.5" /> Open in Google Maps
               <ArrowUpRight className="size-3" />

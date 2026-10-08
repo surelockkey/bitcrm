@@ -1,11 +1,16 @@
 import {
   IsString, IsOptional, IsEnum, IsArray, IsBoolean, IsInt,
-  ValidateNested, ArrayMinSize,
+  ValidateNested, ArrayMinSize, Matches,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { ServiceAreaType } from '@bitcrm/types';
-import { ZipEntryDto, GeoPointDto, ServiceAreaTaxDto } from './create-service-area.dto';
+import {
+  ZipEntryDto,
+  GeoPointDto,
+  ServiceAreaTaxDto,
+  SERVICE_AREA_COLOR_INPUT,
+} from './create-service-area.dto';
 
 /**
  * All fields optional. Geometry (`coverage`) is only recomputed when `type`
@@ -45,6 +50,17 @@ export class UpdateServiceAreaDto {
   @IsOptional()
   @IsString()
   defaultBusinessProfileId?: string | null;
+
+  @ApiPropertyOptional({
+    example: '#dc143c',
+    nullable: true,
+    description:
+      'Chip colour, `#rrggbb` (stored lower-case). Workiz paints a service area as a chip — white ' +
+      'text on this colour — in Filter results. Null or an empty string clears it.',
+  })
+  @IsOptional()
+  @Matches(SERVICE_AREA_COLOR_INPUT, { message: 'color must be a #rrggbb hex colour' })
+  color?: string | null;
 
   @ApiPropertyOptional({ example: 'Atlanta Metro' })
   @IsOptional()

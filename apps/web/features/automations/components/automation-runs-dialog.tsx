@@ -75,7 +75,7 @@ export function AutomationRunsDialog({
         <p className="text-xs text-muted-foreground">
           <Link
             href={`/automations/activity?rule=${encodeURIComponent(rule.id)}`}
-            className="text-primary hover:underline"
+            className="text-wz-link hover:underline"
           >
             See every firing of this rule in Activity
           </Link>

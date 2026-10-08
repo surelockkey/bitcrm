@@ -157,8 +157,8 @@ export function DateTimeRangePicker({
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
         className={cn(
-          "flex h-9 items-center gap-2 rounded-md border px-3 text-left text-sm hover:border-border/80",
-          !hasRange && "text-muted-foreground",
+          "flex h-10 items-center gap-2 rounded-md border border-input bg-card px-3 text-left text-sm text-foreground hover:border-wz-field-hover aria-expanded:border-transparent aria-expanded:shadow-[0_0_0_1px_var(--wz-focus)]",
+          !hasRange && "text-wz-placeholder",
         )}
       >
         <CalendarDays className="size-4 shrink-0 text-muted-foreground" />
@@ -197,18 +197,19 @@ export function DateTimeRangePicker({
           <div
             ref={panelRef}
             data-slot="date-range-panel"
-            className="absolute left-0 top-full z-20 mt-1 w-max max-w-[calc(100vw-1rem)] max-h-[calc(100vh-7rem)] overflow-auto overscroll-contain rounded-lg border bg-popover p-3 shadow-md"
+            className="absolute left-0 top-full z-20 mt-2 w-max max-w-[calc(100vw-1rem)] max-h-[calc(100vh-7rem)] overflow-auto overscroll-contain rounded-[4px] bg-popover p-3 shadow-[0_0_0_1px_rgba(0,0,0,0.1),0_4px_11px_rgba(0,0,0,0.1)]"
           >
             <div className="flex gap-3">
               {/* Presets */}
-              <div className="flex w-24 shrink-0 flex-col gap-0.5 border-r pr-3 sm:w-32">
+              <div className="flex w-24 shrink-0 flex-col border-r border-wz-frame pr-3 sm:w-32">
                 <button
                   type="button"
                   aria-pressed={!hasRange}
                   onClick={clear}
                   className={cn(
-                    "rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted",
-                    !hasRange && "bg-muted font-medium",
+                    // Workiz's period list (est_period_open): 37px rows ruled #ddd.
+                    "px-2.5 py-2.5 text-left text-sm leading-4 text-wz-strong hover:bg-wz-secondary-hover",
+                    !hasRange && "bg-muted font-semibold",
                   )}
                 >
                   All time
@@ -227,8 +228,8 @@ export function DateTimeRangePicker({
                         setView(new Date(anchor.getFullYear(), anchor.getMonth(), 1));
                       }}
                       className={cn(
-                        "rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted",
-                        active && "bg-muted font-medium",
+                        "border-t border-wz-frame px-2.5 py-2.5 text-left text-sm leading-4 text-wz-strong hover:bg-wz-secondary-hover",
+                        active && "bg-muted font-semibold",
                       )}
                     >
                       {PRESET_LABEL[preset]}

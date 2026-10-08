@@ -127,7 +127,7 @@ export function AssignmentsSection({
           <button
             type="button"
             onClick={() => setAssignOpen(true)}
-            className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+            className="inline-flex items-center gap-1 text-xs font-medium text-wz-link hover:underline"
           >
             <Plus className="size-3" /> {copy.assign}
           </button>

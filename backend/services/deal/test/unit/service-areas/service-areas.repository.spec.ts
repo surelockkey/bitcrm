@@ -64,6 +64,23 @@ describe('ServiceAreasRepository', () => {
     expect(bare).not.toHaveProperty('defaultBusinessProfileId');
   });
 
+  /**
+   * Same full-Put hazard: update() and the boot coverage self-heal both
+   * rewrite the row from what `toEntity` returned, so a colour it does not
+   * map is deleted by the next edit — or by a reboot, with nobody touching it.
+   */
+  it('round-trips the chip colour, and leaves it absent on an area without one', async () => {
+    dynamoDb.client.send.mockResolvedValue({ Item: { ...createMockServiceArea({ id: 'a-9' }), color: '#dc143c' } });
+    expect((await repository.get('a-9'))?.color).toBe('#dc143c');
+
+    dynamoDb.client.send.mockResolvedValue({ Item: createMockServiceArea({ id: 'a-9' }) });
+    expect(await repository.get('a-9')).not.toHaveProperty('color');
+
+    dynamoDb.client.send.mockResolvedValue({});
+    await repository.put(createMockServiceArea({ id: 'a-1', color: '#b8860b' } as any));
+    expect(dynamoDb.client.send.mock.calls[2][0].input.Item.color).toBe('#b8860b');
+  });
+
   it('does not surface the legacy defaultTaxRateId attribute', async () => {
     dynamoDb.client.send.mockResolvedValue({
       Item: { ...createMockServiceArea({ id: 'a-9' }), defaultTaxRateId: 'tax-1' },

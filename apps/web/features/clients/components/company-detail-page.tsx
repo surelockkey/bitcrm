@@ -71,7 +71,7 @@ export function CompanyDetailPage({ companyId }: { companyId: string }) {
           <div className="truncate font-semibold">{company.title}</div>
           <div className="truncate text-xs text-muted-foreground">
             {company.address || "No address"}
-            {company.website ? <> · <span className="text-primary">{company.website}</span></> : null}
+            {company.website ? <> · <span className="text-wz-link">{company.website}</span></> : null}
           </div>
         </div>
         {company.isPlatinum ? <PlatinumBadge /> : null}
