@@ -169,7 +169,7 @@ export const getCollectedToday = async (day: string): Promise<number> =>
  */
 export async function nameScoreboard(board: DashboardScoreboard): Promise<DashboardScoreboard> {
   const [named] = await nameScoreboards([board]);
-  return named;
+  return named ?? board;
 }
 
 /** Several boards named with one lookup (the opening bundle has two). */
