@@ -108,11 +108,11 @@ describe("schedule value rules", () => {
 
   it("switching Scheduled off clears the schedule; on again starts from now in the job's zone", () => {
     expect(withScheduled(v, false, "America/Chicago")).toEqual({ date: "", endDate: "", slot: "", allDay: false });
-    // 13:53 UTC = 8:53 AM Chicago → floored to 08:45, an hour long.
+    // 13:53 UTC = 8:53 AM Chicago → up to 09:00, an hour long.
     expect(withScheduled({ date: "", endDate: "", slot: "", allDay: false }, true, "America/Chicago", new Date("2026-10-08T13:53:00Z"))).toEqual({
       date: "2026-10-08",
       endDate: "2026-10-08",
-      slot: "08:45-09:45",
+      slot: "09:00-10:00",
       allDay: false,
     });
     // Already scheduled: on is a no-op.
