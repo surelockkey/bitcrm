@@ -84,6 +84,35 @@ describe('TechnicianEligibilityEventHandler (unit)', () => {
       expect(repo.upsert).not.toHaveBeenCalled();
     });
 
+    /**
+     * The projection prints the name (jobs list `included`, Assign A Tech) —
+     * Workiz's whole name when there is one — so a rename is re-read too, or
+     * the old name stayed on every chip until deal-service restarted.
+     */
+    it('re-reads and stores the name, Workiz name included, when someone is renamed', async () => {
+      http.getTechnicianEligibility.mockResolvedValue({
+        ...assignable,
+        firstName: 'Daniel',
+        lastName: 'Munoz',
+        workizName: '(2) TX - Daniel Munoz',
+      });
+
+      await handler.handleTechUpdated({ technicianId: 'tech-1', changedFields: ['name'] });
+
+      expect(http.getTechnicianEligibility).toHaveBeenCalledWith('tech-1');
+      expect(repo.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({ firstName: 'Daniel', lastName: 'Munoz', workizName: '(2) TX - Daniel Munoz' }),
+      );
+    });
+
+    it('stores no Workiz name for someone who has none (a rename dropped it)', async () => {
+      http.getTechnicianEligibility.mockResolvedValue({ ...assignable, firstName: 'Dan' });
+
+      await handler.handleTechUpdated({ technicianId: 'tech-1', changedFields: ['name'] });
+
+      expect(repo.upsert.mock.calls[0][0]).not.toHaveProperty('workizName');
+    });
+
     it('ignores changes that do not touch eligibility (no fetch)', async () => {
       await handler.handleTechUpdated({ technicianId: 'tech-1', changedFields: ['commission'] });
 

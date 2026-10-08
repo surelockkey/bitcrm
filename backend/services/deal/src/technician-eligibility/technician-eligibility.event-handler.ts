@@ -1,7 +1,7 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { BusinessMetricsService } from '@bitcrm/shared';
 import {
-  affectsEligibility,
+  affectsProjection,
   UserEventType,
   type TechApprovedEvent,
   type TechUpdatedEvent,
@@ -49,6 +49,7 @@ export class TechnicianEligibilityEventHandler {
       assignable: true,
       firstName: e.firstName,
       lastName: e.lastName,
+      ...(e.workizName && { workizName: e.workizName }),
       department: e.department,
       homeAddress: e.homeAddress,
       updatedAt: new Date().toISOString(),
@@ -75,10 +76,11 @@ export class TechnicianEligibilityEventHandler {
   }
 
   async handleTechUpdated(payload: TechUpdatedEvent): Promise<void> {
-    // Approvals, the technician role, and the account being switched off are
-    // the three things that move someone in or out of dispatch; the shared
-    // predicate is what keeps this list honest with the publisher's.
-    if (!affectsEligibility(payload.changedFields)) return;
+    // Approvals, the technician role, the account being switched off and the
+    // field-team flag move someone in or out of dispatch; a rename changes the
+    // name the projection prints. The shared predicate is what keeps this list
+    // honest with the publisher's.
+    if (!affectsProjection(payload.changedFields)) return;
     await this.track(UserEventType.TECH_UPDATED, () => this.refresh(payload.technicianId));
   }
 }

@@ -91,6 +91,7 @@ export class TechnicianEligibilityReconciler implements OnModuleInit {
         assignable: true,
         firstName: a.firstName,
         lastName: a.lastName,
+        ...(a.workizName && { workizName: a.workizName }),
         department: a.department,
         homeAddress: a.homeAddress,
         updatedAt: now,

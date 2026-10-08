@@ -14,6 +14,12 @@ export interface TechnicianEligibility {
   assignable: boolean;
   firstName?: string;
   lastName?: string;
+  /**
+   * Workiz's whole name for the person ("(2) TX - Daniel Munoz") — what Workiz
+   * prints on a Tech chip and in Assign A Tech. Only for someone imported and
+   * not renamed since (`User.workizName`).
+   */
+  workizName?: string;
   department?: string;
   /**
    * Origin for the distance ranking; absent until the profile is geocoded.

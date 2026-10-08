@@ -95,6 +95,32 @@ describe('DealsService.includedFor', () => {
     });
   });
 
+  /**
+   * Workiz prints its whole name for a technician ("(2) TX - Daniel Munoz") on
+   * every Tech chip; the projection keeps it for an imported person, and it
+   * travels with the name — on technicians only, and only when there is one.
+   */
+  it('carries a technician’s Workiz name when the projection holds one', async () => {
+    eligibility.getMany.mockResolvedValue([
+      { ...techRow('t-1', 'Daniel', 'Munoz'), workizName: '(2) TX - Daniel Munoz' },
+      techRow('t-2', 'Ana', 'Tech'),
+    ]);
+    internalHttp.getContactNames.mockResolvedValue([
+      { id: 'c-1', firstName: 'Bo', lastName: 'Client', workizName: 'not a client field' } as any,
+    ]);
+
+    const included = await service.includedFor([
+      createMockDeal({ contactId: 'c-1', assignedTechIds: ['t-1', 't-2'] }),
+    ]);
+
+    expect(included.technicians).toEqual([
+      { id: 't-1', firstName: 'Daniel', lastName: 'Munoz', workizName: '(2) TX - Daniel Munoz' },
+      { id: 't-2', firstName: 'Ana', lastName: 'Tech' },
+    ]);
+    expect(included.technicians[1]).not.toHaveProperty('workizName');
+    expect(included.clients).toEqual([{ id: 'c-1', firstName: 'Bo', lastName: 'Client' }]);
+  });
+
   // Клієнти не чекають на техніків: обидва джерела питаються одночасно.
   it('asks crm without waiting for the technician read', async () => {
     let releaseTechs: (rows: unknown[]) => void = () => undefined;

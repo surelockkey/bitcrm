@@ -66,7 +66,8 @@ export class DealsController {
     description:
       '**Guard:** `deals.view` permission required. DataScope enforced. The page carries an `included` block — ' +
       'the names of the technicians and clients its jobs refer to — so the browser does not fetch them in two ' +
-      'further round trips. Names only: numbers and emails stay in crm, which masks them per caller. ' +
+      'further round trips. Names only: numbers and emails stay in crm, which masks them per caller. A ' +
+      'technician imported from Workiz also carries `workizName` ("(2) TX - Daniel Munoz"), the name Workiz prints. ' +
       '`q` is the Workiz Search box (client name, Job ID, phone digits, address, job type, job name, email, ' +
       'company) inside the tab and filters; it matches phone digits only for a caller with ' +
       '`contacts.view_numbers`. `techIds` / `jobTypeIds` / `serviceAreas` / `businessProfileIds` (comma lists) ' +
