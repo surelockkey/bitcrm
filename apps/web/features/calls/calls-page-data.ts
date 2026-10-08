@@ -9,6 +9,7 @@ import { useJobTypes } from "@/features/job-types/hooks";
 import { useRoles } from "@/features/users/hooks";
 import { useCallDetail, useCallJob, useLiveCalls } from "./hooks";
 import { isLive } from "./lib";
+import { useMainNumber } from "./main-number";
 
 /**
  * Everything the call log prints around and inside its rows, asked for by the
@@ -33,10 +34,14 @@ export function useCallLogData() {
   const roles = useRoles();
   const sources = useJobSources();
   const jobTags = useJobTags();
+  // The number pill beside the heading — drawn with the page, not after it.
+  const main = useMainNumber();
 
   return {
     callTags: callTags.data,
-    allIn: !permissionsLoading && [live, callTags, roles, sources, jobTags].every(settled),
+    liveCount: live.data?.length ?? 0,
+    mainNumber: main.number,
+    allIn: !permissionsLoading && main.settled && [live, callTags, roles, sources, jobTags].every(settled),
   };
 }
 

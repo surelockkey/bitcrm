@@ -124,8 +124,8 @@ describe("CallPartyCell", () => {
           onAddClient={onAddClient}
         />,
       );
-      expect(screen.getByText("+380 95 860 1427")).toBeInTheDocument();
-      expect(screen.queryByRole("link")).not.toBeInTheDocument();
+      // No record to open — only Workiz's dial link on the number itself.
+      expect(screen.getByRole("link", { name: "+380 95 860 1427" })).toHaveAttribute("href", "tel:+380958601427");
 
       await user.click(screen.getByRole("button", { name: /add client/i }));
       expect(onAddClient).toHaveBeenCalledWith("+380958601427");

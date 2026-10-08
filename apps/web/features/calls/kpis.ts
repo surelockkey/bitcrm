@@ -49,7 +49,8 @@ export function callsKpis({
   summary,
   showMoney,
 }: {
-  count?: { total: number; atLeast?: boolean };
+  /** `GET /telephony/calls/count`; `total: null` = no number for this caller. */
+  count?: { total: number | null; atLeast?: boolean };
   summary?: CallsSummary;
   showMoney: boolean;
 }): KpiCard[] {
@@ -66,7 +67,7 @@ export function callsKpis({
       aside: `${summary.callers} callers`,
       alert: false,
     });
-  } else if (count) {
+  } else if (count && typeof count.total === "number") {
     cards.push({ id: "calls", label: "CALLS", value: floor(count.total, count.atLeast), alert: false });
   }
   if (summary) {

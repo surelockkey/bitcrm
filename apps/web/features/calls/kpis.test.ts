@@ -60,5 +60,7 @@ describe("callsKpis", () => {
 
   it("draws nothing when there is no number at all", () => {
     expect(callsKpis({ showMoney: true })).toEqual([]);
+    // The count endpoint answers `total: null` when it has no number for this caller.
+    expect(callsKpis({ count: { total: null }, showMoney: true })).toEqual([]);
   });
 });

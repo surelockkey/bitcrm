@@ -28,6 +28,7 @@ import { cn } from "@/lib/utils";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { useArchiveCallTag, useCallTags } from "../hooks";
 import { activeCallTags, callTagMap, tagColorClasses } from "../lib";
+import { tagSolidClasses } from "@/features/job-tags/lib";
 import { CallTagChips } from "./call-tag-chips";
 import { CallTagFormDialog } from "./call-tag-form-dialog";
 
@@ -126,6 +127,7 @@ export function CallTagCombobox({
   stopPropagation,
   /** Skip the catalog request when the viewer cannot read it (403). */
   catalogEnabled = true,
+  look = "chips",
   className,
 }: {
   value: string[];
@@ -133,6 +135,14 @@ export function CallTagCombobox({
   disabled?: boolean;
   stopPropagation?: boolean;
   catalogEnabled?: boolean;
+  /**
+   * `chips` (default): removable chips and an "Add tag" button. `cell`: the
+   * call log's Tags cell as Workiz draws it (callspage_wz_03_row_hover_tags)
+   * — solid 19px chips (13px white on the tag's colour, 4px corners, 0 4px),
+   * the whole cell the picker's trigger, outlined in link blue under the
+   * cursor; tags come off in the picker.
+   */
+  look?: "chips" | "cell";
   className?: string;
 }) {
   const { data, isLoading } = useCallTags(catalogEnabled);
@@ -162,14 +172,43 @@ export function CallTagCombobox({
       value.includes(id) ? value.filter((v) => v !== id) : [...value, id],
     );
 
+  const cell = look === "cell";
+
   return (
     <div
-      className={cn("flex flex-wrap items-center gap-1.5", className)}
+      className={cn(
+        cell
+          ? // Workiz's tagsWrapper: 4px inside the cell's edges (-16px against its
+            // 20px padding), 4px in, a 1px edge that shows under the cursor.
+            "relative -m-4 flex min-h-[72px] flex-wrap content-start items-start gap-x-1 gap-y-0.5 rounded-[2px] border border-transparent p-1 hover:border-wz-link"
+          : "flex flex-wrap items-center gap-1.5",
+        cell && open && "border-wz-link",
+        className,
+      )}
       onClick={stopPropagation ? (e) => e.stopPropagation() : undefined}
     >
       {/* Read-only is the plain chip row — the same one the rest of the app
           renders — so there is one answer to what a call's tags look like. */}
-      {disabled ? (
+      {cell ? (
+        value.map((id) => {
+          const tag = map.get(id);
+          if (!tag && isLoading) {
+            return <span key={id} className="inline-block h-[19px] w-16 animate-pulse rounded-[4px] bg-muted" />;
+          }
+          return (
+            <span
+              key={id}
+              className={cn(
+                "pointer-events-none inline-block h-[19px] max-w-full truncate rounded-[4px] px-1 text-[13px] leading-[19px] text-white",
+                tag ? tagSolidClasses(tag.color) : "bg-wz-caption",
+                tag && !tag.active && "opacity-60",
+              )}
+            >
+              {tag?.name ?? id}
+            </span>
+          );
+        })
+      ) : disabled ? (
         <CallTagChips ids={value} enabled={catalogEnabled} />
       ) : (
         value.map((id) => {
@@ -209,20 +248,26 @@ export function CallTagCombobox({
       )}
 
       {disabled ? (
-        value.length === 0 ? (
+        value.length === 0 && !cell ? (
           <span className="text-sm text-muted-foreground">—</span>
         ) : null
       ) : (
-        <div className="relative">
+        // In the cell look the trigger covers the whole cell, so it is placed
+        // against the cell's box, not this wrapper's.
+        <div className={cell ? undefined : "relative"}>
           <Popover.Root open={open} onOpenChange={setOpen}>
             <Popover.Trigger asChild>
-              <button
-                type="button"
-                aria-expanded={open}
-                className="inline-flex items-center gap-1 rounded-chip border border-dashed px-2 py-0.5 text-xs font-medium text-muted-foreground hover:bg-muted/50 hover:text-foreground"
-              >
-                <Plus className="size-3" /> Add tag
-              </button>
+              {cell ? (
+                <button type="button" aria-expanded={open} aria-label="Edit tags" className="absolute inset-0 rounded-[2px]" />
+              ) : (
+                <button
+                  type="button"
+                  aria-expanded={open}
+                  className="inline-flex items-center gap-1 rounded-chip border border-dashed px-2 py-0.5 text-xs font-medium text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                >
+                  <Plus className="size-3" /> Add tag
+                </button>
+              )}
             </Popover.Trigger>
 
             {open ? <PanelBackdrop onClose={() => setOpen(false)} /> : null}

@@ -3,6 +3,7 @@ import type { PaginatedResponse, ListCount } from "@bitcrm/types";
 import { env } from "@/lib/env";
 import { getIdToken } from "@/stores/auth-store";
 import { filterToParams, type CallRecord, type CallsFilter } from "./lib";
+import type { CallsSummary } from "./kpis";
 
 const BASE = "/telephony/calls";
 
@@ -24,6 +25,17 @@ export function countCalls(filter: CallsFilter): Promise<ListCount> {
   qs.delete("cursor");
   qs.delete("limit");
   return http.get<ListCount>(`${BASE}/count?${qs.toString()}`);
+}
+
+/**
+ * The stat cards' numbers for the calls a filter selects — Workiz's `aggs`
+ * (calls, callers, missed, active, jobs, revenue). Proposed endpoint: until
+ * the telephony service serves it the request fails and the page draws only
+ * the CALLS card, from `countCalls`.
+ */
+export function getCallsSummary(filter: CallsFilter): Promise<CallsSummary> {
+  const qs = filterToParams(filter);
+  return http.get<CallsSummary>(`${BASE}/stats/summary?${qs.toString()}`);
 }
 
 /**

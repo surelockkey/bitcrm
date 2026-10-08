@@ -70,6 +70,22 @@ export function useCallsCount(filter: CallsFilter) {
 }
 
 /**
+ * The stat cards over the log, for the same filters as the rows. The
+ * endpoint is new (see `getCallsSummary`): a server without it answers 404,
+ * which is an answer — the page draws CALLS from the count and moves on —
+ * so it is neither retried nor allowed to hold the page up.
+ */
+export function useCallsSummary(filter: CallsFilter, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.calls.summary(filter),
+    queryFn: () => api.getCallsSummary(filter),
+    enabled,
+    staleTime: 30_000,
+    retry: false,
+  });
+}
+
+/**
  * Bring the jobs a page of calls is linked to into the cache, under the key
  * the table reads them by (`useDealsByIds(linkedDealIds(rows))`).
  *

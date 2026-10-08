@@ -121,6 +121,13 @@ describe("labelForPath", () => {
     expect(labelForPath("/price-book/brands")).toBe("Price Book Brands");
   });
 
+  it("titles the Phone section's tabs as Workiz's breadcrumb does, not as a call", () => {
+    expect(labelForPath("/calls/numbers")).toBe("Numbers");
+    expect(labelForPath("/calls/flows")).toBe("Call Flows");
+    expect(labelForPath("/calls/groups")).toBe("Call groups");
+    expect(labelForPath("/calls/texting")).toBe("Text Messages");
+  });
+
   it("ignores query strings and trailing slashes", () => {
     expect(labelForPath("/deals/")).toBe("Jobs");
   });

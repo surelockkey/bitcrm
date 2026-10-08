@@ -17,7 +17,9 @@ import { cn } from "@/lib/utils";
  */
 export function WzPageHeader({ title, pill, end }: { title: string; pill?: ReactNode; end?: ReactNode }) {
   return (
-    <div className="sticky left-0 flex min-h-9 items-center gap-4 px-6 pt-[15px]">
+    // shrink-0: in a scrolling flex column the 36px floor would otherwise be
+    // all it got, its 15px top eaten.
+    <div className="sticky left-0 flex min-h-9 shrink-0 items-center gap-4 px-6 pt-[15px]">
       <h2 className="text-[25px] leading-8 font-medium text-foreground">{title}</h2>
       {pill}
       {end ? <div className="ml-auto">{end}</div> : null}
@@ -108,7 +110,7 @@ export function WzStatCard({
       <small className={cn("block text-[10px] leading-[14px] font-medium tracking-[0.4px] text-wz-slate uppercase", tone)}>
         {label}
       </small>
-      <div className="mt-2 flex h-8 items-center justify-between gap-3">
+      <div className="mt-2 flex h-[30px] items-center justify-between gap-3">
         <span className={cn("text-[25px] leading-[30px] font-medium whitespace-nowrap text-foreground tabular-nums", tone)}>{value}</span>
         {aside ? <span className="truncate text-[13px] leading-[19px] text-wz-outline-label">{aside}</span> : null}
       </div>
@@ -148,7 +150,8 @@ export function WzBadgeIconButton({
       {count > 0 ? (
         <span
           aria-hidden
-          className="absolute -top-1.5 left-6 grid h-[22px] min-w-[22px] place-items-center rounded-full border-2 border-wz-secondary-hover bg-wz-danger px-1 text-[10px] leading-none font-medium text-white tabular-nums"
+          // A disc at one digit, a capsule past it: half the height as the corner.
+          className="absolute -top-1.5 left-6 grid h-[22px] min-w-[22px] place-items-center rounded-[11px] border-2 border-wz-secondary-hover bg-wz-danger px-1 text-[10px] leading-none font-medium text-white tabular-nums"
         >
           {count}
         </span>

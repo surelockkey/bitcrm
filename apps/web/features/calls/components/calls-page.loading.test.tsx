@@ -97,6 +97,13 @@ const routes: FakeRoute[] = [
   },
   // The order the browser sees: the rows first, everything they print later.
   { match: /\/telephony\/calls\/count$/, reply: () => ({ total: 3, atLeast: false }), delayMs: 90 },
+  // The stat cards' numbers, and the number pill beside the heading.
+  {
+    match: /\/telephony\/calls\/stats\/summary$/,
+    reply: () => ({ calls: 3, callers: 2, missed: 1, active: 1, jobs: 1, revenue: 120, atLeast: false }),
+    delayMs: 110,
+  },
+  { match: /\/messaging\/settings$/, reply: () => ({ defaultSenderNumber: "+12034036303" }), delayMs: 100 },
   {
     match: /\/telephony\/calls\/live$/,
     reply: () => [call(9, { status: "in-progress", fromParty: { kind: "contact", id: "c9", name: "Live Caller" } })],
@@ -129,9 +136,11 @@ const renderPage = () =>
 const rowsUp = () => !!screen.queryByText("Jane Roe");
 /** The grey bars a cell shows while what it prints is still on its way. */
 const placeholders = () => document.querySelectorAll(".animate-pulse.bg-muted").length;
-/** The row of filters: the search box's wrapper's parent. */
-const filterBar = () => screen.queryByPlaceholderText("Search by number…")?.parentElement?.parentElement ?? null;
-const filtersShown = () => !!filterBar() && !filterBar()!.className.split(/\s+/).includes("invisible");
+/** The filter row, the cards and the strip: drawn invisible until the page is whole. */
+const controls = () => screen.queryByTestId("calls-controls");
+const filtersShown = () => !!controls() && !controls()!.className.split(/\s+/).includes("invisible");
+/** The headset's red count of calls in progress. */
+const liveCount = () => screen.queryByRole("button", { name: "Monitor calls" })?.textContent ?? "";
 
 beforeEach(() => {
   localStorage.clear();
@@ -145,16 +154,17 @@ afterEach(() => {
 });
 
 describe("CallsPage — no jumping", () => {
-  it("draws the rows with everything they print, the live strip and the filters in one frame", async () => {
+  it("draws the rows with everything they print, the cards, the pill, the live count and the filters in one frame", async () => {
     const watch = watchFirstFrame(rowsUp, () => ({
-      job: !!screen.queryByText("#1042"),
-      jobTag: !!screen.queryByText("Warranty"),
+      job: !!screen.queryByText("Job 1042"),
       role: !!screen.queryByText("Front desk"),
       source: !!screen.queryByText("Yard signs"),
       callTag: !!screen.queryByText("Spam caller"),
       total: /of 3/.test(screen.queryByTestId("list-pagination")?.textContent ?? ""),
-      live: !!screen.queryByText("Live Caller"),
-      filters: filtersShown() && !!screen.queryByRole("combobox", { name: "Call tag" }),
+      cards: !!screen.queryByRole("group", { name: "MISSED CALLS" }),
+      pill: !!screen.queryByText("(203) 403-6303"),
+      live: liveCount() === "1",
+      filters: filtersShown(),
       placeholders: placeholders(),
       skeletons: skeletonCount(),
     }));
@@ -164,11 +174,12 @@ describe("CallsPage — no jumping", () => {
 
     expect(watch.frame()).toEqual({
       job: true,
-      jobTag: true,
       role: true,
       source: true,
       callTag: true,
       total: true,
+      cards: true,
+      pill: true,
       live: true,
       filters: true,
       placeholders: 0,
@@ -176,10 +187,13 @@ describe("CallsPage — no jumping", () => {
     });
   });
 
-  it("never shows the filters without the tag filter, or above a live strip still to come", async () => {
+  it("never shows the filters before the cards, the pill and the live count are in", async () => {
     let early = false;
     const observer = new MutationObserver(() => {
-      if (filtersShown() && (!screen.queryByRole("combobox", { name: "Call tag" }) || !screen.queryByText("Live Caller"))) {
+      if (
+        filtersShown() &&
+        (!screen.queryByRole("group", { name: "MISSED CALLS" }) || !screen.queryByText("(203) 403-6303") || liveCount() !== "1")
+      ) {
         early = true;
       }
     });
@@ -215,7 +229,7 @@ describe("CallsPage — no jumping", () => {
 
     const watch = watchFirstFrame(
       () => !!screen.queryByText("Lee Park"),
-      () => ({ job: !!screen.queryByText("#2001"), jobTag: !!screen.queryByText("Warranty"), placeholders: placeholders() }),
+      () => ({ job: !!screen.queryByText("Job 2001"), placeholders: placeholders() }),
     );
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Next page" }));
@@ -223,7 +237,7 @@ describe("CallsPage — no jumping", () => {
     await screen.findByText("Lee Park", {}, { timeout: 3000 });
     watch.stop();
 
-    expect(watch.frame()).toEqual({ job: true, jobTag: true, placeholders: 0 });
+    expect(watch.frame()).toEqual({ job: true, placeholders: 0 });
     // The rows of the first page are gone, not left under the second's numbers.
     expect(screen.queryByText("Jane Roe")).not.toBeInTheDocument();
   });
