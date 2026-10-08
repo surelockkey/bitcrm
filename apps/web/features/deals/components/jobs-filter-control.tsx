@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Popover } from "radix-ui";
 import { ChevronDown, X } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -51,6 +51,7 @@ export function JobsFilterControl({
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const controlRef = useRef<HTMLDivElement>(null);
+  const menuId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
 
   const chips = filterChips(state, catalogs);
@@ -170,6 +171,7 @@ export function JobsFilterControl({
                 aria-label="Filter results"
                 role="combobox"
                 aria-expanded={open}
+                aria-controls={menuId}
                 aria-autocomplete="list"
                 autoComplete="off"
                 value={query}
@@ -204,6 +206,7 @@ export function JobsFilterControl({
 
       <Popover.Portal>
         <Popover.Content
+          id={menuId}
           align="start"
           side="bottom"
           sideOffset={8}

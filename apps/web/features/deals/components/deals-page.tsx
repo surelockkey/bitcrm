@@ -328,13 +328,13 @@ export function DealsPage() {
       </div>
 
       {/* The grey strip: Search, Show unpaid jobs, and at the right the page size and Fields. */}
-      <div className="flex min-h-[71px] flex-wrap items-center gap-x-[18px] gap-y-2 border-t border-[#dddddd] bg-muted px-5 py-[15px]">
+      <div className="flex min-h-[71px] flex-wrap items-center gap-x-[18px] gap-y-2 border-t border-[#dddddd] bg-muted px-[21px] py-[15px]">
         <SearchBox value={searchText} onChange={setSearchText} />
         {caps.unpaid ? (
           <label className="flex h-10 cursor-pointer items-center gap-2 text-sm whitespace-nowrap text-[#404040]">
             <input
               type="checkbox"
-              className="size-[13px] accent-[#0075ff]"
+              className="size-[13px] accent-[#6aa8ee]"
               checked={state.unpaid}
               onChange={(e) => setState((s) => ({ ...s, unpaid: e.target.checked }))}
             />
@@ -446,7 +446,8 @@ function JobsPagination({ pager }: { pager: Pager<Deal> }) {
       className="relative flex h-16 items-center border-t-2 border-black/10 px-2.5 text-sm shadow-[0_0_15px_rgba(0,0,0,0.1)]"
     >
       <span className="tabular-nums">
-        Showing {pager.from.toLocaleString()} to {pager.to.toLocaleString()}
+        {/* Workiz says "Showing 1 to 0 of 0 results" for an empty list — and so do we. */}
+        Showing {(pager.to === 0 ? 1 : pager.from).toLocaleString()} to {pager.to.toLocaleString()}
         {total} results
       </span>
       <div className="absolute left-1/2 flex -translate-x-1/2 items-center gap-[50px]">

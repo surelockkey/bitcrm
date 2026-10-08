@@ -415,7 +415,7 @@ export function DealsTable({
         : "";
 
   return (
-    <div className="overflow-x-auto border-y border-[#dddddd]">
+    <div className="relative overflow-x-auto border-y border-[#dddddd]">
       {/*
         `table-fixed` with a declared width per column. A contact (a number,
         an email) lands a frame after the rows, and with auto layout every
@@ -511,12 +511,30 @@ export function DealsTable({
               ))}
             </TableRow>
           ))}
+          {/* Workiz's grid never runs shorter than ten rows (react-table
+              `minRows`): blank striped rows, 57px each, keep the rules going. */}
+          {Array.from({ length: Math.max(0, MIN_ROWS - deals.length) }, (_, i) => (
+            <TableRow key={`pad-${i}`} aria-hidden className="h-[57px] border-0 hover:bg-transparent">
+              <TableCell className={CELL} />
+              {columns.map((c) => (
+                <TableCell key={c.id} className={CELL} />
+              ))}
+            </TableRow>
+          ))}
         </TableBody>
       </Table>
-      {deals.length === 0 ? <EmptyRows text={emptyText} /> : null}
+      {deals.length === 0 ? (
+        // jobslist_wz_search_zzqxwv: 20px #3e4b51, 252px into the blank rows.
+        <h3 className="pointer-events-none absolute inset-x-0 top-[294px] text-center text-xl leading-[25px] font-normal text-[#3e4b51]">
+          {emptyText}
+        </h3>
+      ) : null}
     </div>
   );
 }
+
+/** Workiz pads its grid to this many rows. */
+const MIN_ROWS = 10;
 
 /**
  * The Scheduled cell, Workiz's four lines: the visit on the account's clock;
@@ -554,14 +572,3 @@ function ScheduledCell({ deal, zone, accountZone, now }: { deal: Deal; zone?: st
   );
 }
 
-/** Workiz's empty grid: the striped rows stay, "No Jobs Found" sits across them. */
-function EmptyRows({ text }: { text: string }) {
-  return (
-    <div className="relative">
-      {Array.from({ length: 10 }, (_, i) => (
-        <div key={i} className={cn("h-14", i % 2 === 0 ? "bg-black/[0.03]" : "bg-background")} />
-      ))}
-      <h3 className="absolute inset-x-0 top-[140px] text-center text-xl leading-[25px] font-normal text-[#3e4b51]">{text}</h3>
-    </div>
-  );
-}

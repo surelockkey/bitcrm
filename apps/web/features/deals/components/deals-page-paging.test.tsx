@@ -300,6 +300,8 @@ describe("DealsPage — Search across every job", () => {
       vi.advanceTimersByTime(350);
     });
     expect(screen.getByText("No Jobs Found")).toBeInTheDocument();
+    // Workiz's own wording for nothing found (jobslist_wz_search_zzqxwv).
+    expect(screen.getByText("Showing 1 to 0 of 0 results")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Clear search" }));
     expect(screen.getByRole("textbox", { name: "Search" })).toHaveValue("");
   });

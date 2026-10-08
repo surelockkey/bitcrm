@@ -256,7 +256,8 @@ function FieldRow({
           checked={checked}
           disabled={locked}
           onCheckedChange={() => onToggle?.()}
-          className="size-[13px] rounded-[2px] border-[#767676] data-[state=checked]:border-[#0075ff] data-[state=checked]:bg-[#0075ff] disabled:opacity-100 [&_svg]:size-2.5"
+          // list_02: Workiz's tick is its link blue, #6aa8ee.
+          className="size-[13px] rounded-[2px] border-[#767676] data-[state=checked]:border-[#6aa8ee] data-[state=checked]:bg-[#6aa8ee] disabled:opacity-100 [&_svg]:size-2.5"
         />
         <span className="truncate text-sm leading-[21px] font-medium tracking-[0.4px]">{option.label}</span>
       </label>

@@ -483,13 +483,21 @@ describe("zebra striping", () => {
       <DealsTable deals={rows} contactMap={contactMap} userMap={userMap} onOpen={vi.fn()} />,
     );
     const bodyRows = Array.from(
-      container.querySelectorAll("tbody tr"),
+      container.querySelectorAll("tbody tr:not([aria-hidden])"),
     ) as HTMLElement[];
     expect(bodyRows).toHaveLength(3);
     // The striping lives on the primitive's tbody, so every table gets it.
     expect(container.querySelector("tbody")?.className).toContain(
       "[&>tr:nth-child(odd)]:bg-muted",
     );
+  });
+
+  it("pads a short list with blank striped rows to ten, as Workiz's grid does", () => {
+    const { container } = render(
+      <DealsTable deals={[deal(), { ...deal(), id: "d2" }]} contactMap={contactMap} userMap={userMap} onOpen={vi.fn()} />,
+    );
+    expect(container.querySelectorAll("tbody tr")).toHaveLength(10);
+    expect(container.querySelectorAll('tbody tr[aria-hidden="true"]')).toHaveLength(8);
   });
 });
 
