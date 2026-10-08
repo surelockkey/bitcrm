@@ -213,17 +213,20 @@ export class ContactsService {
     return contact;
   }
 
-  async list(query: { companyId?: string; limit?: number; cursor?: string }) {
+  async list(query: { companyId?: string; limit?: number; cursor?: string; tagIds?: string }) {
     // Query params arrive as strings (no global ValidationPipe/transform), so
     // coerce to a number — DynamoDB's `Limit` rejects a string with a
     // SerializationException. Clamp to the DTO's intended 1..100 range.
     const limit = Math.min(Math.max(Number(query.limit) || 20, 1), 100);
+    const tagIds = parseTagIds(query.tagIds);
+    // Asked with the tags only when some are picked, so an untagged list reads as it always did.
+    const filters = tagIds.length ? [{ tagIds }] : [];
 
     if (query.companyId) {
-      return this.repository.findByCompany(query.companyId, limit, query.cursor);
+      return this.repository.findByCompany(query.companyId, limit, query.cursor, ...filters);
     }
 
-    return this.repository.findAll(limit, query.cursor);
+    return this.repository.findAll(limit, query.cursor, ...filters);
   }
 
   async findAll(limit: number, cursor?: string) {
@@ -235,16 +238,22 @@ export class ContactsService {
    * It branches as `list` does, so the panel sizes itself against the rows
    * actually under it.
    */
-  async count(query: { companyId?: string }): Promise<ListCount> {
+  async count(query: { companyId?: string; tagIds?: string }): Promise<ListCount> {
+    const tagIds = parseTagIds(query.tagIds);
+    const filters = tagIds.length ? [{ tagIds }] : [];
     const take = () =>
       query.companyId
-        ? this.repository.countByCompany(query.companyId)
-        : this.repository.countAll();
+        ? this.repository.countByCompany(query.companyId, ...filters)
+        : this.repository.countAll(...filters);
 
     if (!this.redis) return take();
     return cachedCount(
       this.redis.client,
-      countCacheKey('contacts', { companyId: query.companyId }),
+      countCacheKey('contacts', {
+        companyId: query.companyId,
+        // Sorted: the same tags picked in another order are the same question.
+        tags: tagIds.length ? [...tagIds].sort().join(',') : undefined,
+      }),
       COUNT_TTL_SECONDS,
       take,
     );
@@ -594,4 +603,13 @@ export class ContactsService {
         this.logger.warn(`Failed to publish ${eventType}: ${err.message}`);
       });
   }
+}
+
+/**
+ * `?tagIds=a,b` → `['a', 'b']`: Workiz's "Filter results" TAGS, comma-separated
+ * on the wire. Blank entries and repeats are dropped.
+ */
+export function parseTagIds(raw: string | undefined): string[] {
+  if (!raw) return [];
+  return [...new Set(String(raw).split(',').map((t) => t.trim()).filter(Boolean))];
 }

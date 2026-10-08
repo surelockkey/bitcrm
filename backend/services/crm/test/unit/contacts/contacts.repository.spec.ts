@@ -185,6 +185,16 @@ describe('ContactsRepository', () => {
       expect(result.items).toHaveLength(1);
       expect(dynamoDb.client.send).toHaveBeenCalledTimes(1);
     });
+
+    it('narrows the roster to the picked tags', async () => {
+      dynamoDb.client.send.mockResolvedValue({ Items: [] });
+
+      await repository.findByCompany('company-1', 20, undefined, { tagIds: ['tag-1'] });
+
+      const input = dynamoDb.client.send.mock.calls[0][0].input;
+      expect(input.FilterExpression).toContain('#status = :active');
+      expect(input.FilterExpression).toContain('(contains(#tagIds, :tag0))');
+    });
   });
 
   describe('findAll', () => {
@@ -222,6 +232,29 @@ describe('ContactsRepository', () => {
       const input = dynamoDb.client.send.mock.calls[0][0].input;
       expect(input.FilterExpression).toContain('SK = :sk');
       expect(input.ExpressionAttributeValues[':sk']).toBe('METADATA');
+    });
+
+    it('keeps a contact carrying ANY of the picked tags (Workiz Filter results → TAGS)', async () => {
+      dynamoDb.client.send.mockResolvedValue({ Items: [] });
+
+      await repository.findAll(10, undefined, { tagIds: ['tag-1', 'tag-2'] });
+
+      const input = dynamoDb.client.send.mock.calls[0][0].input;
+      expect(input.FilterExpression).toContain('(contains(#tagIds, :tag0) OR contains(#tagIds, :tag1))');
+      expect(input.FilterExpression).toContain('SK = :sk');
+      expect(input.ExpressionAttributeNames['#tagIds']).toBe('tagIds');
+      expect(input.ExpressionAttributeValues[':tag0']).toBe('tag-1');
+      expect(input.ExpressionAttributeValues[':tag1']).toBe('tag-2');
+    });
+
+    it('asks nothing about tags when none are picked', async () => {
+      dynamoDb.client.send.mockResolvedValue({ Items: [] });
+
+      await repository.findAll(10, undefined, { tagIds: [] });
+
+      const input = dynamoDb.client.send.mock.calls[0][0].input;
+      expect(input.FilterExpression).not.toContain('tagIds');
+      expect(input.ExpressionAttributeNames['#tagIds']).toBeUndefined();
     });
   });
 
@@ -369,6 +402,24 @@ describe('ContactsRepository', () => {
       });
 
       expect((await repository.countAll()).atLeast).toBe(true);
+    });
+
+    it('counts only the contacts carrying one of the picked tags', async () => {
+      dynamoDb.client.send.mockResolvedValue({ Count: 3 });
+
+      expect(await repository.countAll({ tagIds: ['tag-1'] })).toEqual({ total: 3, atLeast: false });
+      const sent = dynamoDb.client.send.mock.calls[0][0];
+      expect(sent.input.FilterExpression).toContain('(contains(#tagIds, :tag0))');
+      expect(sent.input.ExpressionAttributeValues[':tag0']).toBe('tag-1');
+    });
+
+    it('counts a company roster by tags on the company index', async () => {
+      dynamoDb.client.send.mockResolvedValue({ Count: 1 });
+
+      await repository.countByCompany('comp-1', { tagIds: ['tag-1', 'tag-2'] });
+      const sent = dynamoDb.client.send.mock.calls[0][0];
+      expect(sent.input.IndexName).toBeDefined();
+      expect(sent.input.FilterExpression).toContain('(contains(#tagIds, :tag0) OR contains(#tagIds, :tag1))');
     });
   });
 });

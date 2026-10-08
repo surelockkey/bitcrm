@@ -182,6 +182,23 @@ describe('ContactsService', () => {
 
       expect(repository.findByCompany).toHaveBeenCalledWith('company-1', 20, undefined);
     });
+
+    // Workiz's "Filter results" → TAGS: a client with ANY of the picked tags.
+    it('narrows the list to the picked client tags (comma-separated, trimmed)', async () => {
+      repository.findAll.mockResolvedValue({ items: [], nextCursor: undefined });
+
+      await service.list({ limit: 10, tagIds: 'tag-1, tag-2,' });
+
+      expect(repository.findAll).toHaveBeenCalledWith(10, undefined, { tagIds: ['tag-1', 'tag-2'] });
+    });
+
+    it('narrows a company roster by tags too', async () => {
+      repository.findByCompany.mockResolvedValue({ items: [], nextCursor: undefined });
+
+      await service.list({ companyId: 'company-1', limit: 10, tagIds: 'tag-1' });
+
+      expect(repository.findByCompany).toHaveBeenCalledWith('company-1', 10, undefined, { tagIds: ['tag-1'] });
+    });
   });
 
   describe('update', () => {
@@ -372,6 +389,30 @@ describe('ContactsService', () => {
       await service.count({});
 
       expect(repository.countAll).toHaveBeenCalledTimes(1);
+    });
+
+    it('counts the tagged list with the same tags the list was narrowed by', async () => {
+      repository.countAll.mockResolvedValue({ total: 268, atLeast: false });
+
+      expect(await service.count({ tagIds: 'tag-1,tag-2' })).toEqual({ total: 268, atLeast: false });
+      expect(repository.countAll).toHaveBeenCalledWith({ tagIds: ['tag-1', 'tag-2'] });
+    });
+
+    it('keeps a tagged count apart from the whole count in the cache', async () => {
+      repository.countAll
+        .mockResolvedValueOnce({ total: 585, atLeast: false })
+        .mockResolvedValueOnce({ total: 12, atLeast: false });
+
+      expect(await service.count({})).toEqual({ total: 585, atLeast: false });
+      expect(await service.count({ tagIds: 'tag-1' })).toEqual({ total: 12, atLeast: false });
+    });
+
+    it('counts a company roster by tags too', async () => {
+      repository.countByCompany.mockResolvedValue({ total: 2, atLeast: false });
+
+      await service.count({ companyId: 'comp-1', tagIds: 'tag-1' });
+
+      expect(repository.countByCompany).toHaveBeenCalledWith('comp-1', { tagIds: ['tag-1'] });
     });
   });
 });
