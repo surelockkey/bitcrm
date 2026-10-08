@@ -116,9 +116,25 @@ vi.mock("@/components/ui/alert-dialog", () => ({
   ),
 }));
 
+// The client's SMS thread is its own sheet with its own tests; here it only
+// has to open.
+vi.mock("@/features/clients/components/client-chat-sheet", () => ({
+  ClientChatSheet: ({ open, name }: { open: boolean; name: string }) =>
+    open ? <div role="dialog" aria-label={`Chat with ${name}`} /> : null,
+}));
+
 import { DealTimelinePanel } from "./deal-timeline-panel";
 
-const openPanel = () => fireEvent.click(screen.getByRole("button", { name: /timeline/i }));
+/** The rail's Timeline icon: Workiz opens the panel on Activities. */
+const openPanel = () => fireEvent.click(screen.getByRole("button", { name: /^timeline$/i }));
+/** The rail's notes icon: the same panel, on Notes. */
+const openNotes = () => fireEvent.click(screen.getByRole("button", { name: /^notes/i }));
+/** Radix Select needs real pointer events, so these go through userEvent. */
+const u = () => userEvent.setup({ pointerEventsCheck: 0 });
+async function chooseFilter(name: RegExp) {
+  await u().click(screen.getByRole("combobox", { name: /timeline filter/i }));
+  await u().click(screen.getByRole("option", { name }));
+}
 
 beforeEach(() => {
   updateNoteMutate.mockReset();
@@ -126,19 +142,69 @@ beforeEach(() => {
   timeline.entries = historyEntries;
 });
 
-describe("DealTimelinePanel — history, filters, search", () => {
-  it("keeps the panel closed until the hanging handle is clicked", async () => {
+describe("DealTimelinePanel — Workiz's right rail", () => {
+  it("is a strip of icons down the right edge until one is clicked", async () => {
     render(<DealTimelinePanel dealId="d1" canEdit />);
 
+    expect(screen.getByRole("toolbar", { name: /job rail/i })).toBeInTheDocument();
     expect(screen.queryByRole("complementary")).not.toBeInTheDocument();
 
-    const handle = screen.getByRole("button", { name: /timeline/i });
+    const handle = screen.getByRole("button", { name: /^timeline$/i });
     expect(handle).toHaveAttribute("aria-expanded", "false");
     await userEvent.click(handle);
 
-    expect(screen.getByRole("complementary")).toBeInTheDocument();
+    // The panel takes the strip's place, as in Workiz.
+    expect(screen.getByRole("complementary", { name: /job timeline/i })).toBeInTheDocument();
+    expect(screen.queryByRole("toolbar", { name: /job rail/i })).not.toBeInTheDocument();
   });
 
+  it("counts the job's notes on the notes icon", () => {
+    render(<DealTimelinePanel dealId="d1" canEdit />);
+
+    expect(screen.getByRole("button", { name: "Notes (1)" })).toHaveTextContent("1");
+  });
+
+  it("shows no badge on a job without notes", () => {
+    timeline.entries = historyEntries.filter((e) => e.eventType !== TimelineEventType.NOTE_ADDED);
+    render(<DealTimelinePanel dealId="d1" canEdit />);
+
+    expect(screen.getByRole("button", { name: "Notes" })).toHaveTextContent("");
+  });
+
+  it("opens each icon's own filter: Timeline → Activities, notes → Notes, phone → Calls", async () => {
+    render(<DealTimelinePanel dealId="d1" canEdit />);
+
+    openNotes();
+    expect(screen.getByRole("combobox", { name: /timeline filter/i })).toHaveTextContent("Notes (1)");
+    expect(screen.getByText(/Called the client/)).toBeInTheDocument();
+    expect(screen.queryByText(/normal → urgent/i)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /close timeline/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^calls$/i }));
+    expect(screen.getByRole("combobox", { name: /timeline filter/i })).toHaveTextContent("Calls (0)");
+
+    fireEvent.click(screen.getByRole("button", { name: /close timeline/i }));
+    openPanel();
+    expect(screen.getByRole("combobox", { name: /timeline filter/i })).toHaveTextContent("Activities (2)");
+  });
+
+  it("opens the client's SMS thread from the chat icon and from 'Message Client'", () => {
+    render(<DealTimelinePanel dealId="d1" canEdit client={{ id: "c1", name: "Jane Smith", phone: "+14045551234" }} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /message client/i }));
+    expect(screen.getByRole("dialog", { name: "Chat with Jane Smith" })).toBeInTheDocument();
+  });
+
+  it("offers no chat without a client to text", () => {
+    render(<DealTimelinePanel dealId="d1" canEdit />);
+
+    expect(screen.queryByRole("button", { name: /message client/i })).not.toBeInTheDocument();
+    openPanel();
+    expect(screen.queryByRole("button", { name: /message client/i })).not.toBeInTheDocument();
+  });
+});
+
+describe("DealTimelinePanel — history, filters, search", () => {
   it("shows who changed what, from what to what", async () => {
     render(<DealTimelinePanel dealId="d1" canEdit />);
     openPanel();
@@ -152,14 +218,32 @@ describe("DealTimelinePanel — history, filters, search", () => {
     expect(screen.getByText(/Max K\./)).toBeInTheDocument();
   });
 
+  it("says when, the way Workiz does — 'a day ago', the exact time on hover", () => {
+    timeline.entries = [entry({ eventType: TimelineEventType.FIELD_UPDATED, timestamp: new Date(Date.now() - 26 * 3600_000).toISOString(), details: { field: "priority", oldValue: "normal", newValue: "urgent" } })];
+    render(<DealTimelinePanel dealId="d1" canEdit />);
+    openPanel();
+
+    expect(screen.getByText("a day ago")).toHaveAttribute("title");
+  });
+
   it("filters the timeline down to notes", async () => {
     render(<DealTimelinePanel dealId="d1" canEdit />);
     openPanel();
 
-    await userEvent.click(screen.getByRole("button", { name: /^notes$/i }));
+    await chooseFilter(/^notes/i);
 
     expect(screen.getByText(/Called the client/)).toBeInTheDocument();
     expect(screen.queryByText(/normal → urgent/i)).not.toBeInTheDocument();
+  });
+
+  it("shows everything under All", async () => {
+    render(<DealTimelinePanel dealId="d1" canEdit />);
+    openPanel();
+
+    await chooseFilter(/^all \(3\)/i);
+
+    expect(screen.getByText(/Called the client/)).toBeInTheDocument();
+    expect(screen.getByText(/normal → urgent/i)).toBeInTheDocument();
   });
 
   it("filters down to real linked calls — no demo data anywhere", async () => {
@@ -180,18 +264,24 @@ describe("DealTimelinePanel — history, filters, search", () => {
     expect(screen.queryByText(/demo/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/integration is in progress/i)).not.toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: /^calls$/i }));
+    await chooseFilter(/^calls/i);
 
     expect(screen.getByText(/Incoming · \(404\) 555-1234 · 4:32 · recorded/)).toBeInTheDocument();
     expect(screen.queryByText(/normal → urgent/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Called the client/)).not.toBeInTheDocument();
   });
 
-  it("has no Messages filter until an SMS feed actually exists", () => {
+  it("has no Messages filter until an SMS feed actually exists", async () => {
     render(<DealTimelinePanel dealId="d1" canEdit />);
     openPanel();
 
-    expect(screen.queryByRole("button", { name: /^messages$/i })).not.toBeInTheDocument();
+    await u().click(screen.getByRole("combobox", { name: /timeline filter/i }));
+    expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual([
+      "All (3)",
+      "Activities (2)",
+      "Notes (1)",
+      "Calls (0)",
+    ]);
   });
 
   it("the Activities filter shows changes but not notes or calls", async () => {
@@ -207,45 +297,54 @@ describe("DealTimelinePanel — history, filters, search", () => {
     render(<DealTimelinePanel dealId="d1" canEdit />);
     openPanel();
 
-    await userEvent.click(screen.getByRole("button", { name: /^activities$/i }));
-
+    expect(screen.getByRole("combobox", { name: /timeline filter/i })).toHaveTextContent("Activities (2)");
     expect(screen.getByText(/normal → urgent/i)).toBeInTheDocument();
     expect(screen.getByText(/Submitted → In Progress/i)).toBeInTheDocument();
     expect(screen.queryByText(/Called the client/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Incoming/)).not.toBeInTheDocument();
   });
 
-  it("searches across the timeline", async () => {
+  it("searches across the timeline behind the magnifier", async () => {
     render(<DealTimelinePanel dealId="d1" canEdit />);
     openPanel();
 
-    await userEvent.type(screen.getByPlaceholderText(/search/i), "priority");
+    await userEvent.click(screen.getByRole("button", { name: /search the timeline/i }));
+    await userEvent.type(screen.getByPlaceholderText("Search activities"), "priority");
 
     expect(screen.getByText(/normal → urgent/i)).toBeInTheDocument();
-    expect(screen.queryByText(/Called the client/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Submitted → In Progress/i)).not.toBeInTheDocument();
   });
 
-  it("lets an editor add a note", async () => {
+  it("lets an editor add a note: 'Add note' opens the box, Save posts it", async () => {
     render(<DealTimelinePanel dealId="d1" canEdit />);
     openPanel();
 
-    expect(screen.getByPlaceholderText(/add a note/i)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Add note" }));
+    const box = screen.getByRole("textbox", { name: /new note/i });
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    await userEvent.type(box, "Gate code 1234");
+    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
   });
 
-  it("keeps the chosen filter when the panel is closed and reopened", async () => {
+  it("offers no 'Add note' to a read-only viewer", () => {
+    render(<DealTimelinePanel dealId="d1" canEdit={false} />);
+    openPanel();
+
+    expect(screen.queryByRole("button", { name: "Add note" })).not.toBeInTheDocument();
+  });
+
+  it("keeps the chosen filter when the panel is collapsed and expanded again", async () => {
     render(<DealTimelinePanel dealId="d1" canEdit />);
-    const handle = screen.getByRole("button", { name: /timeline/i });
+    openPanel();
+    await chooseFilter(/^calls/i);
 
-    await userEvent.click(handle);
-    await userEvent.click(screen.getByRole("button", { name: /^calls$/i }));
-
-    // The panel slides away (stays mounted for the animation) but must leave
-    // the accessibility tree; its state survives the round trip.
+    // Collapsing gives the page its width back; the arrow brings the panel
+    // back as it was left.
     await userEvent.click(screen.getByRole("button", { name: /close timeline/i }));
     expect(screen.queryByRole("complementary")).not.toBeInTheDocument();
 
-    await userEvent.click(handle);
-    expect(screen.getByRole("button", { name: /^calls$/i })).toHaveAttribute("aria-pressed", "true");
+    await userEvent.click(screen.getByRole("button", { name: /expand panel/i }));
+    expect(screen.getByRole("combobox", { name: /timeline filter/i })).toHaveTextContent("Calls (0)");
   });
 });
 
@@ -256,7 +355,7 @@ describe("DealTimelinePanel — notes editing and actor names", () => {
 
   it("shows the actor's name, not their email", () => {
     render(<DealTimelinePanel dealId="d1" canEdit />);
-    openPanel();
+    openNotes();
 
     expect(screen.getByText(/Roman Senyshyn/)).toBeInTheDocument();
     expect(screen.queryByText(/roman@surelockkey\.com/)).not.toBeInTheDocument();
@@ -265,16 +364,17 @@ describe("DealTimelinePanel — notes editing and actor names", () => {
   it("falls back to the stored actor name when the id is not a known user", () => {
     timeline.entries = [entry({ actorId: "sys", actorName: "Payment Service" })];
     render(<DealTimelinePanel dealId="d1" canEdit />);
-    openPanel();
+    openNotes();
 
     expect(screen.getByText(/Payment Service/)).toBeInTheDocument();
   });
 
-  it("edits a note in place and saves through the notes endpoint", () => {
+  it("edits a note in place from its ⋮ and saves through the notes endpoint", () => {
     render(<DealTimelinePanel dealId="d1" canEdit />);
-    openPanel();
+    openNotes();
 
-    fireEvent.click(screen.getByRole("button", { name: "Edit note" }));
+    fireEvent.click(screen.getByRole("button", { name: "Note actions" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Edit note" }));
     const box = screen.getByDisplayValue("Call the client back");
     fireEvent.change(box, { target: { value: "Client called back already" } });
     fireEvent.click(screen.getByRole("button", { name: "Save note" }));
@@ -291,9 +391,10 @@ describe("DealTimelinePanel — notes editing and actor names", () => {
 
   it("deletes a note after a confirmation", () => {
     render(<DealTimelinePanel dealId="d1" canEdit />);
-    openPanel();
+    openNotes();
 
-    fireEvent.click(screen.getByRole("button", { name: "Delete note" }));
+    fireEvent.click(screen.getByRole("button", { name: "Note actions" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Delete note" }));
     expect(deleteNoteMutate).not.toHaveBeenCalled();
 
     const confirm = screen.getByRole("alertdialog");
@@ -306,10 +407,9 @@ describe("DealTimelinePanel — notes editing and actor names", () => {
 
   it("offers no note actions to read-only users", () => {
     render(<DealTimelinePanel dealId="d1" canEdit={false} />);
-    openPanel();
+    openNotes();
 
-    expect(screen.queryByRole("button", { name: "Edit note" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Delete note" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Note actions" })).not.toBeInTheDocument();
   });
 
   it("spells out item money changes on a product_updated entry", () => {
@@ -416,6 +516,16 @@ describe("DealTimelinePanel — every event reads human", () => {
       }),
     );
     expect(screen.getByText(/Client name: — → Janet Poole/)).toBeInTheDocument();
+  });
+
+  it("names a Job name change in words, not as the field's key", () => {
+    show(
+      entry({
+        eventType: TimelineEventType.FIELD_UPDATED,
+        details: { field: "jobName", oldValue: null, newValue: "Back gate" },
+      }),
+    );
+    expect(screen.getByText(/Job name: — → Back gate/)).toBeInTheDocument();
   });
 
   it("resolves tag ids to tag names", () => {

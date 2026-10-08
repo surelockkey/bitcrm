@@ -120,6 +120,21 @@ describe("DealEstimatesTab — the job's estimates as a list (Workiz)", () => {
     expect(screen.queryByRole("heading", { name: "Items" })).not.toBeInTheDocument();
   });
 
+  it("shows a job without estimates the Workiz way: 'You don't have any estimates yet' and + Add Estimate", async () => {
+    server.use(http.get("*/billing/estimates/by-deal/d1", () => HttpResponse.json({ success: true, data: [] })));
+    renderWithClient(<Harness />);
+    expect(await screen.findByRole("heading", { name: "You don't have any estimates yet" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /add estimate/i })).toBeInTheDocument();
+    expect(screen.queryByRole("table", { name: /estimates/i })).not.toBeInTheDocument();
+  });
+
+  it("marks each estimate's status with Workiz's coloured dot", async () => {
+    renderWithClient(<Harness />);
+    const table = await screen.findByRole("table", { name: /estimates/i });
+    const dot = within(table).getByText("Pending").previousElementSibling as HTMLElement;
+    expect(dot).toHaveStyle({ backgroundColor: "#FBAB33" });
+  });
+
   it("Add Estimate makes one copying the job items and opens its page", async () => {
     let body: unknown;
     server.use(

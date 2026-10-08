@@ -23,7 +23,11 @@ const mocks = vi.hoisted(() => ({
   // Per-resource so a deals-editor without contacts.edit can be simulated.
   perms: { deals: false, contacts: false },
   attachments: [] as { id: string }[],
-  invoice: null as { status: string } | null,
+  invoice: null as { status: string; dueDate?: string } | null,
+  estimates: [] as { id: string }[],
+  // Per-action, for the Actions menu and the invoice pill.
+  denied: new Set<string>(),
+  moveStatus: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -46,7 +50,9 @@ vi.mock("next/link", () => ({
 vi.mock("@/features/auth/use-permissions", () => ({
   useDenied: () => () => false,
   usePermissions: () => ({
-    can: (resource: string) => (resource === "contacts" ? mocks.perms.contacts : mocks.perms.deals),
+    can: (resource: string, action = "view") =>
+      !mocks.denied.has(`${resource}.${action}`) &&
+      (resource === "contacts" ? mocks.perms.contacts : mocks.perms.deals),
     isTechnician: false,
   }),
 }));
@@ -64,6 +70,25 @@ vi.mock("./deal-notes-card", () => ({
   ),
 }));
 vi.mock("@/features/job-statuses/components/job-status-select", () => ({ JobStatusSelect: () => null }));
+// The header's status picker reads the status catalog; its menu logic has its
+// own tests (status-menu.test.ts).
+vi.mock("@/features/job-statuses/components/job-status-menu", () => ({ JobStatusMenu: () => null }));
+// "Lockout" under the Details tab comes from the active job types.
+vi.mock("@/features/job-types/active-hooks", () => ({
+  useActiveJobTypes: () => ({ data: [{ id: "jt-lockout", name: "Lockout", active: true }] }),
+}));
+vi.mock("@/features/job-types/hooks", () => ({
+  useJobType: () => ({ data: undefined }),
+  useJobTypes: () => ({ data: [] }),
+}));
+// "N estimates" under the Estimates tab.
+vi.mock("@/features/estimates/hooks", () => ({
+  useDealEstimates: () => ({ data: mocks.estimates }),
+}));
+// The rail's chat icon opens the client's SMS thread; it has its own tests.
+vi.mock("@/features/clients/components/client-chat-sheet", () => ({
+  ClientChatSheet: ({ open }: { open: boolean }) => (open ? <div role="dialog" aria-label="Client chat" /> : null),
+}));
 vi.mock("@/features/job-tags/components/job-tag-combobox", () => ({ JobTagCombobox: () => null }));
 // Interactive stubs: a click drives the field's onChange so a test can prove the
 // value lands in the draft (not auto-committed) and rides out on the single Save.
@@ -193,7 +218,7 @@ vi.mock("../hooks", () => ({
   useUpdateDeal: () => ({ mutate: mocks.updateDeal, isPending: false }),
   useSetDealTags: () => ({ mutate: vi.fn(), isPending: false }),
   useAssignTechs: () => ({ mutate: vi.fn(), isPending: false }),
-  useMoveStatus: () => ({ mutate: vi.fn() }),
+  useMoveStatus: () => ({ mutate: mocks.moveStatus }),
   useChangeDealClient: () => ({ mutate: mocks.changeClient, isPending: false }),
   useDealTimeline: () => ({
     data: { pages: [] },
@@ -235,6 +260,9 @@ vi.mock("@/features/payments/components/deal-payments-tab", () => ({
   DealPaymentsTab: () => <div data-testid="payments-tab" />,
   paymentsTabCaption: () => null,
 }));
+vi.mock("./deal-products-tab", () => ({
+  DealProductsTab: () => <div data-testid="items-tab" />,
+}));
 vi.mock("@/features/invoices/components/deal-invoice-tab", () => ({
   DealInvoiceTab: () => <div data-testid="invoice-tab" />,
 }));
@@ -260,6 +288,9 @@ beforeEach(() => {
   dealState = deal;
   mocks.attachments = [];
   mocks.invoice = null;
+  mocks.estimates = [];
+  mocks.denied = new Set();
+  mocks.moveStatus.mockClear();
   mocks.push.mockClear();
   mocks.updateDeal.mockClear();
   mocks.updateContact.mockClear();
@@ -292,7 +323,7 @@ describe("DealDetailPage — scrolling", () => {
     const page = screen.getByTestId("job-page-scroll");
     expect(page.className).toMatch(/overflow-y-auto/);
     expect(page).toContainElement(screen.getByText("#1042"));
-    expect(page).toContainElement(screen.getByRole("button", { name: /^details$/i }));
+    expect(page).toContainElement(screen.getByRole("tab", { name: /^details$/i }));
     expect(page).toContainElement(screen.getByRole("link", { name: /view client/i }));
   });
 
@@ -373,20 +404,151 @@ describe("DealDetailPage (read only)", () => {
   });
 });
 
-describe("DealDetailPage — attachments tab count", () => {
-  it("shows how many files are attached right on the tab", () => {
+describe("DealDetailPage — Workiz's two-line tabs", () => {
+  it("says how many files are attached under the tab's name", () => {
     mocks.attachments = [{ id: "a1" }, { id: "a2" }, { id: "a3" }];
     render(<DealDetailPage dealId="d1" />);
 
-    const tab = screen.getByRole("button", { name: /attachments/i });
-    expect(within(tab).getByText("3")).toBeInTheDocument();
+    const tab = screen.getByRole("tab", { name: "Attachments" });
+    expect(tab).toHaveAccessibleDescription("3 attachments");
   });
 
-  it("keeps the tab plain while there are no files", () => {
+  it("writes 0 for a job without files, as Workiz does", () => {
     render(<DealDetailPage dealId="d1" />);
 
-    const tab = screen.getByRole("button", { name: /attachments/i });
-    expect(within(tab).queryByText(/\d/)).toBeNull();
+    expect(screen.getByRole("tab", { name: "Attachments" })).toHaveAccessibleDescription("0 attachments");
+  });
+
+  it("names the job type under Details and the items' total under Items", () => {
+    mocks.perms.deals = true;
+    dealState = { ...deal, totals: { subtotal: 150, discount: 0, tax: 0, total: 150, cost: 0 } };
+    render(<DealDetailPage dealId="d1" />);
+
+    expect(screen.getByRole("tab", { name: "Details" })).toHaveAccessibleDescription("Lockout");
+    expect(screen.getByRole("tab", { name: "Items" })).toHaveAccessibleDescription("$150.00");
+    expect(screen.getByRole("tab", { name: "Payments" })).toHaveAccessibleDescription("$150.00 balance");
+    expect(screen.getByRole("tab", { name: "Estimates" })).toHaveAccessibleDescription("0 estimates");
+    expect(screen.getByRole("tab", { name: "Invoice" })).toHaveAccessibleDescription("No invoice");
+  });
+
+  it("marks the open tab", async () => {
+    mocks.perms.deals = true;
+    render(<DealDetailPage dealId="d1" />);
+
+    expect(screen.getByRole("tab", { name: "Details" })).toHaveAttribute("aria-selected", "true");
+    await user().click(screen.getByRole("tab", { name: "Items" }));
+    expect(screen.getByRole("tab", { name: "Items" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Details" })).toHaveAttribute("aria-selected", "false");
+  });
+});
+
+describe("DealDetailPage — the header, as Workiz lays it out", () => {
+  it("titles the job 'Job #1042 - Jane Smith', the client's name a link to the client", () => {
+    render(<DealDetailPage dealId="d1" />);
+
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Job #1042 - Jane Smith");
+    expect(screen.getByRole("link", { name: "Jane Smith" })).toHaveAttribute("href", "/contacts/c1");
+  });
+
+  it("titles the job with the job's own name for the client when it has one", () => {
+    dealState = { ...deal, clientName: { firstName: "Clinic", lastName: "" } };
+    render(<DealDetailPage dealId="d1" />);
+
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Job #1042 - Clinic");
+  });
+
+  it("drops the old header bits: no 'You can edit', no Delete button, no status badge", () => {
+    mocks.perms.deals = true;
+    render(<DealDetailPage dealId="d1" />);
+
+    expect(screen.queryByText(/you can edit/i)).toBeNull();
+    expect(screen.queryByRole("button", { name: /^delete$/i })).toBeNull();
+  });
+
+  it("edits the job name inline and saves it trimmed", async () => {
+    mocks.perms.deals = true;
+    render(<DealDetailPage dealId="d1" />);
+
+    await user().click(screen.getByRole("button", { name: "Edit job name" }));
+    await user().type(screen.getByRole("textbox", { name: "Job name" }), "  Back gate {Enter}");
+
+    expect(mocks.updateDeal).toHaveBeenCalledWith({ jobName: "Back gate" });
+  });
+
+  it("clears the job name with null", async () => {
+    mocks.perms.deals = true;
+    dealState = { ...deal, jobName: "Back gate" };
+    render(<DealDetailPage dealId="d1" />);
+
+    expect(screen.getByText("Back gate")).toBeInTheDocument();
+    await user().click(screen.getByRole("button", { name: "Edit job name" }));
+    await user().clear(screen.getByRole("textbox", { name: "Job name" }));
+    await user().click(screen.getByRole("button", { name: "Save job name" }));
+
+    expect(mocks.updateDeal).toHaveBeenCalledWith({ jobName: null });
+  });
+
+  it("offers no job-name pencil to a viewer", () => {
+    render(<DealDetailPage dealId="d1" />);
+
+    expect(screen.queryByRole("button", { name: "Edit job name" })).toBeNull();
+  });
+
+  it("Actions holds Job Done and Delete Job; Job Done moves the job to Done", async () => {
+    mocks.perms.deals = true;
+    render(<DealDetailPage dealId="d1" />);
+
+    await user().click(screen.getByRole("button", { name: "Actions" }));
+    const items = screen.getAllByRole("menuitem").map((i) => i.textContent);
+    expect(items).toEqual(["Job Done", "Delete Job"]);
+
+    await user().click(screen.getByRole("menuitem", { name: "Job Done" }));
+    expect(mocks.moveStatus).toHaveBeenCalledWith({ superStatus: JobSuperStatus.DONE }, expect.anything());
+  });
+
+  it("Delete Job asks first", async () => {
+    mocks.perms.deals = true;
+    render(<DealDetailPage dealId="d1" />);
+
+    await user().click(screen.getByRole("button", { name: "Actions" }));
+    await user().click(screen.getByRole("menuitem", { name: "Delete Job" }));
+    expect(screen.getByText("Delete job #1042?")).toBeInTheDocument();
+  });
+
+  it("keeps Delete Job from someone without deals.delete", async () => {
+    mocks.perms.deals = true;
+    mocks.denied = new Set(["deals.delete"]);
+    render(<DealDetailPage dealId="d1" />);
+
+    await user().click(screen.getByRole("button", { name: "Actions" }));
+    expect(screen.getAllByRole("menuitem").map((i) => i.textContent)).toEqual(["Job Done"]);
+  });
+
+  it("has no Actions at all for a viewer", () => {
+    render(<DealDetailPage dealId="d1" />);
+
+    expect(screen.queryByRole("button", { name: "Actions" })).toBeNull();
+  });
+
+  it("Create Invoice opens the Invoice tab; it reads View Invoice once there is one", async () => {
+    mocks.perms.deals = true;
+    const { unmount } = render(<DealDetailPage dealId="d1" />);
+
+    await user().click(screen.getByRole("button", { name: "Create Invoice" }));
+    expect(screen.getByTestId("invoice-tab")).toBeInTheDocument();
+    unmount();
+
+    mocks.invoice = { status: "due" };
+    render(<DealDetailPage dealId="d1" />);
+    expect(screen.getByRole("button", { name: "View Invoice" })).toBeInTheDocument();
+  });
+
+  it("hides Create Invoice from someone who may not make one", () => {
+    mocks.perms.deals = true;
+    mocks.denied = new Set(["invoices.create"]);
+    render(<DealDetailPage dealId="d1" />);
+
+    expect(screen.queryByRole("button", { name: "Create Invoice" })).toBeNull();
   });
 });
 
@@ -425,7 +587,8 @@ describe("DealDetailPage (editable, single save)", () => {
     // alone and empty on every imported job.
     expect(screen.getByPlaceholderText(/what needs doing/i)).toBeInTheDocument();
     expect(screen.queryByPlaceholderText(/internal dispatcher notes/i)).toBeNull();
-    expect(screen.queryByRole("button", { name: /edit/i })).toBeNull();
+    // (The header's "Edit job name" pencil is the job's name, not its note.)
+    expect(screen.queryByRole("button", { name: /^edit( note)?$/i })).toBeNull();
   });
 
   it("saves only the changed deal keys, once, on Save", async () => {
@@ -760,25 +923,27 @@ describe("DealDetailPage — billing tabs and deep links", () => {
 
     expect(screen.getByTestId("estimates-tab")).toHaveAttribute("data-estimate", "e1");
 
-    await user().click(screen.getByRole("button", { name: /^invoice$/i }));
+    await user().click(screen.getByRole("tab", { name: /^invoice$/i }));
     expect(screen.getByTestId("invoice-tab")).toBeInTheDocument();
     expect(`${window.location.pathname}${window.location.search}`).toBe("/deals/d1?tab=invoice");
 
-    await user().click(screen.getByRole("button", { name: /^details$/i }));
+    await user().click(screen.getByRole("tab", { name: /^details$/i }));
     expect(`${window.location.pathname}${window.location.search}`).toBe("/deals/d1");
   });
 
   it("falls back to Details when the linked tab isn't permitted", () => {
     mocks.perms.deals = false;
     render(<DealDetailPage dealId="d1" initialTab="invoice" />);
-    expect(screen.queryByRole("button", { name: /^invoice$/i })).toBeNull();
+    expect(screen.queryByRole("tab", { name: /^invoice$/i })).toBeNull();
     expect(screen.queryByTestId("invoice-tab")).toBeNull();
   });
 
-  it("shows the invoice status in the header", () => {
+  // The header's "Invoice: Overdue" badge moved under the Invoice tab, in the
+  // grey line Workiz gives every tab.
+  it("shows the invoice status under the Invoice tab", () => {
     mocks.perms.deals = true;
     mocks.invoice = { status: "overdue" };
     render(<DealDetailPage dealId="d1" />);
-    expect(screen.getByRole("button", { name: /invoice overdue/i })).toHaveTextContent("Overdue");
+    expect(screen.getByRole("tab", { name: "Invoice" })).toHaveAccessibleDescription("Overdue");
   });
 });

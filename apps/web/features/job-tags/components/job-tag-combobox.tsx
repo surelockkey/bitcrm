@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowUpDown, Check, Pencil, Plus, Trash2, X } from "lucide-react";
+import { ArrowUpDown, Check, Pencil, Plus, Search, Trash2, X } from "lucide-react";
+import { Command as CommandPrimitive } from "cmdk";
 import type { JobTag } from "@bitcrm/types";
 import {
   Command,
@@ -25,7 +26,7 @@ import {
 import { cn } from "@/lib/utils";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { useDeleteJobTag, useJobTags } from "../hooks";
-import { activeJobTags, jobTagMap, tagColorClasses } from "../lib";
+import { activeJobTags, jobTagMap, tagColorClasses, tagSolidClasses } from "../lib";
 import { JobTagFormDialog } from "./job-tag-form-dialog";
 
 /** Sort orders offered by the picker's "Sort by" menu, as in Workiz. */
@@ -60,11 +61,19 @@ export function JobTagCombobox({
   value,
   onChange,
   disabled,
+  variant = "default",
 }: {
   value: string[];
   onChange: (ids: string[]) => void;
   disabled?: boolean;
+  /**
+   * `workiz`: the job page header's dress (job_b_02_tags_add) — solid
+   * colour chips with the × inside, a bare blue "+" and Workiz's tag window.
+   * The jobs list and the new-job form keep the default look.
+   */
+  variant?: "default" | "workiz";
 }) {
+  const wz = variant === "workiz";
   const { data, isLoading } = useJobTags();
   const { can } = usePermissions();
   const del = useDeleteJobTag();
@@ -88,12 +97,38 @@ export function JobTagCombobox({
     onChange(value.includes(id) ? value.filter((v) => v !== id) : [...value, id]);
 
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
+    <div className={cn("flex flex-wrap items-center", wz ? "gap-1" : "gap-1.5")}>
       {value.map((id) => {
         const tag = map.get(id);
         // Until the catalog loads, a skeleton beats flashing the raw id.
         if (!tag && isLoading) {
           return <span key={id} className="inline-block h-5 w-16 animate-pulse rounded-full bg-muted" />;
+        }
+        if (wz) {
+          // Workiz chip: 24px, solid colour, 14px/500 white, r3, the × in the
+          // chip's own right padding (pad 4 24 4 8).
+          return (
+            <span
+              key={id}
+              className={cn(
+                "relative inline-flex h-6 items-center rounded-[3px] pl-2 text-[14px] leading-4 font-medium",
+                disabled ? "pr-2" : "pr-6",
+                tag ? tagSolidClasses(tag.color) : "bg-muted text-muted-foreground",
+              )}
+            >
+              {tag?.name ?? id}
+              {!disabled ? (
+                <button
+                  type="button"
+                  onClick={() => toggle(id)}
+                  className="absolute top-1/2 right-1.5 grid size-3.5 -translate-y-1/2 place-items-center opacity-90 hover:opacity-100"
+                  aria-label={`Remove ${tag?.name ?? "tag"}`}
+                >
+                  <X className="size-3.5" strokeWidth={1.75} />
+                </button>
+              ) : null}
+            </span>
+          );
         }
         return (
           <span
@@ -114,29 +149,55 @@ export function JobTagCombobox({
       })}
 
       {disabled ? (
-        value.length === 0 ? <span className="text-sm text-muted-foreground">—</span> : null
+        value.length === 0 ? <span className={cn("text-muted-foreground", wz ? "text-[13px]" : "text-sm")}>—</span> : null
       ) : (
-        <div className="relative">
-          <button
-            type="button"
-            onClick={() => setOpen((o) => !o)}
-            aria-expanded={open}
-            className="inline-flex items-center gap-1 rounded-chip border border-dashed px-2 py-0.5 text-xs font-medium text-muted-foreground hover:bg-muted/50 hover:text-foreground"
-          >
-            <Plus className="size-3" /> Add tag
-          </button>
+        <div className={cn("relative", wz && "ml-1")}>
+          {wz ? (
+            <button
+              type="button"
+              onClick={() => setOpen((o) => !o)}
+              aria-expanded={open}
+              aria-label="Add tag"
+              title="Add tag"
+              // Workiz: a bare 24px "+" in #3da6e1; hover/open tints it #e5f1ff.
+              className="grid size-6 place-items-center rounded-[4px] text-[#3da6e1] hover:bg-accent aria-expanded:bg-accent"
+            >
+              <Plus className="size-4" strokeWidth={1.5} />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setOpen((o) => !o)}
+              aria-expanded={open}
+              className="inline-flex items-center gap-1 rounded-chip border border-dashed px-2 py-0.5 text-xs font-medium text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+            >
+              <Plus className="size-3" /> Add tag
+            </button>
+          )}
 
           {open ? (
             <>
               <button type="button" aria-label="Close" className="fixed inset-0 z-10 cursor-default" onClick={() => setOpen(false)} />
-              <div className="absolute left-0 top-full z-20 mt-1 w-80 overflow-hidden rounded-lg border bg-popover shadow-md">
-                <div className="flex items-center justify-between px-3 pb-1 pt-2.5">
-                  <span className="text-sm font-semibold">Available tags ({active.length})</span>
+              <div
+                className={cn(
+                  "absolute left-0 top-full z-20 overflow-hidden bg-popover",
+                  wz
+                    ? "w-[338px] rounded-[8px] p-4 shadow-[0_8px_16px_rgba(59,75,82,0.15),0_0_4px_rgba(59,75,82,0.05)]"
+                    : "mt-1 w-80 rounded-lg border shadow-md",
+                )}
+              >
+                <div className={cn("flex items-center justify-between", wz ? "pt-1 pb-4" : "px-3 pb-1 pt-2.5")}>
+                  <span className={wz ? "text-[16px] leading-6 font-semibold tracking-[0.2px] text-foreground" : "text-sm font-semibold"}>
+                    Available tags ({active.length})
+                  </span>
                   {canCreate ? (
                     <button
                       type="button"
                       onClick={() => setCreating(true)}
-                      className="inline-flex items-center gap-1 text-xs font-medium text-brand hover:underline"
+                      className={cn(
+                        "inline-flex items-center gap-1 hover:underline",
+                        wz ? "text-[13px] leading-[19px] font-semibold text-[#6aa8ee]" : "text-xs font-medium text-brand",
+                      )}
                     >
                       <Plus className="size-3.5" /> Create new
                     </button>
@@ -144,9 +205,22 @@ export function JobTagCombobox({
                 </div>
 
                 <Command loop>
-                  <div className="flex items-center gap-1 pr-1">
+                  <div className={cn("flex items-center", wz ? "gap-2.5" : "gap-1 pr-1")}>
                     <div className="flex-1">
-                      <CommandInput autoFocus placeholder="Search tags…" className="h-9" value={query} onValueChange={setQuery} />
+                      {wz ? (
+                        <div className="relative">
+                          <Search className="pointer-events-none absolute top-1/2 left-4 size-4 -translate-y-1/2 text-foreground" />
+                          <CommandPrimitive.Input
+                            autoFocus
+                            placeholder="Search tags"
+                            value={query}
+                            onValueChange={setQuery}
+                            className="h-10 w-full rounded-[4px] border border-[#6aa8ee] bg-white pr-3 pl-11 text-[13px] text-foreground outline-none placeholder:text-[#9ea6aa]"
+                          />
+                        </div>
+                      ) : (
+                        <CommandInput autoFocus placeholder="Search tags…" className="h-9" value={query} onValueChange={setQuery} />
+                      )}
                     </div>
                     <div className="relative">
                       <button
@@ -156,11 +230,12 @@ export function JobTagCombobox({
                         aria-expanded={sortOpen}
                         onClick={() => setSortOpen((o) => !o)}
                         className={cn(
-                          "grid size-8 flex-none place-items-center rounded-md text-muted-foreground hover:bg-muted/60 hover:text-foreground",
+                          "grid size-8 flex-none place-items-center rounded-md hover:bg-muted/60 hover:text-foreground",
+                          wz ? "text-foreground" : "text-muted-foreground",
                           sortOpen && "bg-muted/60 text-foreground",
                         )}
                       >
-                        <ArrowUpDown className="size-4" />
+                        <ArrowUpDown className={wz ? "size-5" : "size-4"} strokeWidth={wz ? 1.5 : 2} />
                       </button>
 
                       {sortOpen ? (
@@ -188,17 +263,25 @@ export function JobTagCombobox({
                       ) : null}
                     </div>
                   </div>
-                  <CommandList className="max-h-64">
+                  <CommandList className={wz ? "mt-4 max-h-[188px]" : "max-h-64"}>
                     <CommandEmpty>No tags found.</CommandEmpty>
-                    <CommandGroup>
+                    <CommandGroup className={wz ? "p-0" : undefined}>
                       {listed.map((tag) => {
                         const checked = value.includes(tag.id);
                         return (
-                          <CommandItem key={tag.id} value={tag.name} onSelect={() => toggle(tag.id)} className="group gap-2">
+                          <CommandItem
+                            key={tag.id}
+                            value={tag.name}
+                            onSelect={() => toggle(tag.id)}
+                            className={cn("group gap-2", wz && "h-[35px] px-0 py-0 data-selected:bg-transparent")}
+                          >
                             <span
                               className={cn(
-                                "inline-flex items-center rounded-chip border px-2 py-0.5 text-xs font-medium",
-                                tagColorClasses(tag.color),
+                                // Workiz's window lists tags as solid 19px labels (13px/500 white, r4).
+                                wz
+                                  ? "inline-flex h-[19px] items-center rounded-[4px] px-1 text-[13px] leading-[19px] font-medium"
+                                  : "inline-flex items-center rounded-chip border px-2 py-0.5 text-xs font-medium",
+                                wz ? tagSolidClasses(tag.color) : tagColorClasses(tag.color),
                               )}
                             >
                               {tag.name}

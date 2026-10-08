@@ -2,7 +2,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, within } from "@testing-library/react";
 import type { DealAttachmentMeta } from "@bitcrm/types";
 
-const { deleteMutate, updateMutate, downloadUrlFor } = vi.hoisted(() => ({
+const { deleteMutate, updateMutate, downloadUrlFor, listed } = vi.hoisted(() => ({
+  listed: { empty: false },
   deleteMutate: vi.fn(),
   updateMutate: vi.fn(),
   downloadUrlFor: vi.fn(async () => ({ downloadUrl: "https://s3.example/signed.pdf" })),
@@ -33,7 +34,7 @@ const pdf: DealAttachmentMeta = {
 };
 
 vi.mock("../attachments-hooks", () => ({
-  useAttachments: () => ({ data: [photo, pdf], isLoading: false }),
+  useAttachments: () => ({ data: listed.empty ? [] : [photo, pdf], isLoading: false }),
   useDeleteAttachment: () => ({ mutate: deleteMutate, isPending: false }),
   useUploadAttachment: () => ({ mutate: vi.fn(), isPending: false }),
   useUpdateAttachment: () => ({ mutate: updateMutate, isPending: false }),
@@ -144,8 +145,47 @@ describe("DealAttachmentsTab — Workiz-style rows", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 });
+describe("DealAttachmentsTab — Workiz's tab", () => {
+  beforeEach(() => {
+    listed.empty = false;
+  });
+
+  it("heads the list 'Attachments' with a yellow Upload for an editor", () => {
+    render(<DealAttachmentsTab dealId="d1" canEdit />);
+    expect(screen.getByRole("heading", { name: "Attachments" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Upload" })).toBeInTheDocument();
+  });
+
+  it("offers no Upload to a viewer", () => {
+    render(<DealAttachmentsTab dealId="d1" canEdit={false} />);
+    expect(screen.queryByRole("button", { name: "Upload" })).not.toBeInTheDocument();
+  });
+
+  it("stamps each file the Workiz way: 8/1/2026 at 6:00 AM", () => {
+    render(<DealAttachmentsTab dealId="d1" canEdit={false} />);
+    // 10:00 UTC is 6:00 AM on business (New York) time.
+    expect(screen.getByText("8/1/2026 at 6:00 AM")).toBeInTheDocument();
+  });
+
+  it("invites '+ Upload files' on a job with no files", () => {
+    listed.empty = true;
+    render(<DealAttachmentsTab dealId="d1" canEdit />);
+    expect(screen.getByRole("button", { name: "+ Upload files" })).toBeInTheDocument();
+  });
+
+  it("just says so to a viewer when there are no files", () => {
+    listed.empty = true;
+    render(<DealAttachmentsTab dealId="d1" canEdit={false} />);
+    expect(screen.getByText("No attachments yet")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "+ Upload files" })).not.toBeInTheDocument();
+  });
+});
+
 describe("DealAttachmentsTab — opening a file", () => {
-  beforeEach(() => useFilePreviewStore.setState({ file: null }));
+  beforeEach(() => {
+    listed.empty = false;
+    useFilePreviewStore.setState({ file: null });
+  });
 
   it("shows the file in the preview window, not in another tab", async () => {
     render(<DealAttachmentsTab dealId="d1" canEdit />);

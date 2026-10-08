@@ -25,6 +25,9 @@ import {
 } from "../hooks";
 import { formatMoney } from "../lib";
 import { AddProductDialog } from "./add-product-dialog";
+import { ItemsArt } from "./job-empty-art";
+import { JobItemsTotals } from "./job-items-totals";
+import { PILL_OUTLINE, PILL_YELLOW } from "./job-pills";
 
 function FulfillmentBadge({ product }: { product: DealProduct }) {
   const f = product.fulfillment ?? "sourced";
@@ -58,15 +61,49 @@ function FulfillmentBadge({ product }: { product: DealProduct }) {
   return null; // `sourced` is the default — no badge needed.
 }
 
+/**
+ * Workiz's item tag (job_b items: "SERVICE"): 10px capitals in an outlined
+ * lozenge under the name. Ours names how the line is fulfilled, each in a
+ * Workiz status colour; a van-stock line (the default) carries none.
+ */
+const WZ_TAG: Record<string, { label: string; color: string } | undefined> = {
+  service: { label: "Service", color: "#6aa8ee" },
+  imported: { label: "Imported", color: "#9ea6aa" },
+  to_order: { label: "To order", color: "#fbab33" },
+  ordered: { label: "Ordered", color: "#3acf7d" },
+};
+
+function WorkizItemTag({ product }: { product: DealProduct }) {
+  const f = product.fulfillment ?? "sourced";
+  const tag = WZ_TAG[f === "to_order" && product.orderedAt ? "ordered" : f];
+  if (!tag) return null;
+  return (
+    <span
+      className="inline-flex h-[18px] items-center rounded-[10px] border px-2 text-[10px] leading-4 uppercase"
+      style={{ color: tag.color, borderColor: tag.color }}
+    >
+      {tag.label}
+    </span>
+  );
+}
+
 const th = "px-3 py-2.5 text-left text-[13px] font-semibold";
 const td = "px-3 py-3 align-top";
 const cell = cn(td, "border-b border-l border-dashed");
+
+/** Workiz's grid (job_b_tab_items): 47px bold heads, dotted #cfcfcf rules, 15/10/15/15 padding. */
+const wzTh = "h-[47px] border-r border-b border-dotted border-[#cfcfcf] py-[15px] pr-2.5 pl-[15px] text-left text-[14px] leading-4 font-bold";
+const wzTd = "border-r border-b border-r-[#cfcfcf] border-b-[#e6e6e6] border-dotted [border-bottom-style:solid] py-[15px] pr-2.5 pl-[15px] align-top text-[14px] leading-4";
 
 export function DealProductsTab({
   deal,
   canEdit,
   showPayments = false,
   paymentSummary,
+  variant = "shared",
+  showCost = false,
+  balance,
+  due,
 }: {
   deal: Deal;
   canEdit: boolean;
@@ -78,6 +115,18 @@ export function DealProductsTab({
    * by a beat.
    */
   paymentSummary?: PaymentSummary;
+  /**
+   * `job`: the job page's Items tab in Workiz's dress — "Job Items", the
+   * ruled grid and the grey-box totals. `shared` (the Invoice tab) keeps the
+   * summary card.
+   */
+  variant?: "shared" | "job";
+  /** Job variant: the Cost column and "Job costing" (financials.view). */
+  showCost?: boolean;
+  /** Job variant: what is still owed (the ledger's balance, else the job row's). */
+  balance?: number;
+  /** Job variant: the invoice's due date, already formatted. */
+  due?: string;
 }) {
   const { data: products, isLoading } = useDealProducts(deal.id);
   const totalsQuery = useDealTotals(deal.id);
@@ -111,6 +160,189 @@ export function DealProductsTab({
   const totals = paymentSummary ? applyAmountPaid(snapshot, paymentSummary.settled) : snapshot;
 
   if (isLoading) return <Skeleton className="h-40 w-full" />;
+
+  const dialog = (
+    <AddProductDialog
+      dealId={deal.id}
+      techIds={deal.assignedTechIds}
+      open={adding || !!editing}
+      editing={editing ?? undefined}
+      onOpenChange={(v) => {
+        if (!v) {
+          setAdding(false);
+          setEditing(null);
+        } else {
+          setAdding(true);
+        }
+      }}
+    />
+  );
+
+  const markOrderedButton = (p: DealProduct) =>
+    canEdit && (p.fulfillment ?? "sourced") === "to_order" ? (
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          markOrdered.mutate({ lineId: p.lineId, ordered: !p.orderedAt });
+        }}
+        disabled={markOrdered.isPending}
+        className={cn(
+          "mt-1 inline-flex items-center gap-1 text-[11px] font-medium",
+          p.orderedAt ? "text-muted-foreground hover:text-foreground" : "text-amber-700 hover:text-amber-800 dark:text-amber-400",
+        )}
+      >
+        <Check className="size-3" />
+        {p.orderedAt ? "Mark not ordered" : "Mark ordered"}
+      </button>
+    ) : null;
+
+  const taxableCheckbox = (p: DealProduct, className?: string) => (
+    <label className={cn("inline-flex items-center gap-2", className)}>
+      <Checkbox
+        checked={p.taxable !== false}
+        disabled={!canEdit}
+        onCheckedChange={(v) => setTaxable.mutate({ lineId: p.lineId, taxable: v === true })}
+        aria-label={`${p.name} is taxable`}
+      />
+      <span>{p.taxable !== false ? "Yes" : "No"}</span>
+    </label>
+  );
+
+  if (variant === "job") {
+    const withActions = canEdit && items.length > 0;
+    return (
+      <section aria-labelledby="job-items-heading" className="text-[#404040]">
+        <div className="flex items-end justify-between border-b border-[#cad3d6] pb-2.5">
+          <h2 id="job-items-heading" className="text-[18px] leading-[22px] font-semibold">
+            Job Items
+          </h2>
+        </div>
+
+        <div className="mt-[15px] overflow-x-auto">
+          <table className="w-full min-w-[52rem] border-separate border-spacing-0">
+            <thead>
+              <tr>
+                <th className={wzTh}>Item</th>
+                <th className={cn(wzTh, "w-[160px]")}>Quantity</th>
+                <th className={cn(wzTh, "w-[160px]")}>Price</th>
+                {showCost ? <th className={cn(wzTh, "w-[160px]")}>Cost</th> : null}
+                <th className={cn(wzTh, "w-[160px]")}>Amount</th>
+                <th className={cn(wzTh, "w-[160px]", !withActions && "border-r-0")}>Taxable</th>
+                {withActions ? <th className={cn(wzTh, "w-[106px] border-r-0")}>Actions</th> : null}
+              </tr>
+            </thead>
+            {items.length > 0 ? (
+              <tbody>
+                {items.map((p) => (
+                  <tr
+                    key={p.lineId}
+                    className={cn(canEdit && "cursor-pointer hover:bg-[#f8f8f8]")}
+                    onClick={canEdit ? () => setEditing(p) : undefined}
+                  >
+                    <td className={wzTd}>
+                      {canEdit ? (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditing(p);
+                          }}
+                          aria-label={`Edit ${p.name}`}
+                          className="text-left hover:underline"
+                        >
+                          {p.name}
+                        </button>
+                      ) : (
+                        <span>{p.name}</span>
+                      )}
+                      {p.description ? (
+                        <p className="mt-1 line-clamp-2 text-[12px] whitespace-pre-line text-[#666666]">{p.description}</p>
+                      ) : null}
+                      <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                        <WorkizItemTag product={p} />
+                        <span className="font-mono text-[11px] text-[#9ea6aa]">
+                          {p.sku} · tech {formatMoney(p.costForTech)}
+                        </span>
+                      </div>
+                      {markOrderedButton(p)}
+                    </td>
+                    <td className={cn(wzTd, "tabular-nums")}>{p.quantity.toFixed(2)}</td>
+                    <td className={cn(wzTd, "tabular-nums")}>{formatMoney(p.priceClient)}</td>
+                    {showCost ? <td className={cn(wzTd, "tabular-nums")}>{formatMoney(p.costCompany)}</td> : null}
+                    <td className={cn(wzTd, "tabular-nums")}>{formatMoney(p.priceClient * p.quantity)}</td>
+                    <td className={cn(wzTd, !withActions && "border-r-0")} onClick={(e) => e.stopPropagation()}>
+                      {taxableCheckbox(p)}
+                    </td>
+                    {withActions ? (
+                      <td className={cn(wzTd, "border-r-0")}>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            remove.mutate(p.lineId);
+                          }}
+                          disabled={remove.isPending}
+                          className="grid size-8 place-items-center rounded-[8px] text-foreground hover:bg-[#f3f6f7] hover:text-destructive"
+                          aria-label={`Remove ${p.name}`}
+                        >
+                          {remove.isPending ? <Loader2 className="size-5 animate-spin" /> : <Trash2 className="size-5" strokeWidth={1.25} />}
+                        </button>
+                      </td>
+                    ) : null}
+                  </tr>
+                ))}
+              </tbody>
+            ) : null}
+          </table>
+        </div>
+
+        {items.length === 0 ? (
+          // Workiz's empty grid: art and "Add items" in a 232px band.
+          <div className="flex h-[232px] flex-col items-center justify-center gap-1 border-b border-[#e6e6e6]">
+            <ItemsArt />
+            {canEdit ? (
+              <button type="button" onClick={() => setAdding(true)} className="text-[16px] leading-[19px] text-[#404040] hover:underline">
+                Add items
+              </button>
+            ) : (
+              <span className="text-[16px] leading-[19px]">No items</span>
+            )}
+          </div>
+        ) : null}
+
+        {canEdit ? (
+          <div className="mt-5 flex flex-wrap items-center gap-2.5">
+            <button type="button" className={PILL_YELLOW} onClick={() => setAdding(true)}>
+              <Plus /> Add item
+            </button>
+            <Link href="/inventory/items" className={PILL_OUTLINE}>
+              <BookOpen strokeWidth={1.5} /> Price book
+            </Link>
+          </div>
+        ) : null}
+
+        <JobItemsTotals
+          totals={totals}
+          balance={balance ?? Math.max(0, totals.total - totals.amountPaid)}
+          due={due}
+          cost={showCost ? deal.totals?.cost : undefined}
+          taxRateId={deal.taxRateId}
+          taxRateName={deal.taxRateName}
+          taxSource={deal.taxSource}
+          discount={deal.discount}
+          canEdit={canEdit}
+          pending={setTax.isPending || resetTax.isPending || setDiscount.isPending}
+          onTaxChange={(taxRateId) => setTax.mutate(taxRateId)}
+          onResetTaxAuto={() => resetTax.mutate()}
+          onDiscountChange={(d) => setDiscount.mutate(d)}
+          exemptLabel={contact?.taxExemptReason}
+        />
+
+        {dialog}
+      </section>
+    );
+  }
 
   return (
     <div className="space-y-3">
@@ -166,39 +398,13 @@ export function DealProductsTab({
                       <p className="mt-0.5 line-clamp-2 text-xs whitespace-pre-line text-muted-foreground">{p.description}</p>
                     ) : null}
                     <div className="font-mono text-[11px] text-muted-foreground">{p.sku} · tech {formatMoney(p.costForTech)}</div>
-                    {canEdit && (p.fulfillment ?? "sourced") === "to_order" ? (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          markOrdered.mutate({ lineId: p.lineId, ordered: !p.orderedAt });
-                        }}
-                        disabled={markOrdered.isPending}
-                        className={cn(
-                          "mt-1 inline-flex items-center gap-1 text-[11px] font-medium",
-                          p.orderedAt ? "text-muted-foreground hover:text-foreground" : "text-amber-700 hover:text-amber-800 dark:text-amber-400",
-                        )}
-                      >
-                        <Check className="size-3" />
-                        {p.orderedAt ? "Mark not ordered" : "Mark ordered"}
-                      </button>
-                    ) : null}
+                    {markOrderedButton(p)}
                   </td>
                   <td className={cn(cell, "tabular-nums")}>{p.quantity.toFixed(2)}</td>
                   <td className={cn(cell, "font-mono tabular-nums")}>{formatMoney(p.priceClient)}</td>
                   <td className={cn(cell, "font-mono tabular-nums")}>{formatMoney(p.priceClient * p.quantity)}</td>
                   <td className={cell} onClick={(e) => e.stopPropagation()}>
-                    <label className="inline-flex items-center gap-2">
-                      <Checkbox
-                        checked={p.taxable !== false}
-                        disabled={!canEdit}
-                        onCheckedChange={(v) =>
-                          setTaxable.mutate({ lineId: p.lineId, taxable: v === true })
-                        }
-                        aria-label={`${p.name} is taxable`}
-                      />
-                      <span className="text-sm">{p.taxable !== false ? "Yes" : "No"}</span>
-                    </label>
+                    {taxableCheckbox(p, "[&>span]:text-sm")}
                   </td>
                   {canEdit ? (
                     <td className={cn(cell, "text-center")}>
@@ -250,20 +456,7 @@ export function DealProductsTab({
         />
       </div>
 
-      <AddProductDialog
-        dealId={deal.id}
-        techIds={deal.assignedTechIds}
-        open={adding || !!editing}
-        editing={editing ?? undefined}
-        onOpenChange={(v) => {
-          if (!v) {
-            setAdding(false);
-            setEditing(null);
-          } else {
-            setAdding(true);
-          }
-        }}
-      />
+      {dialog}
     </div>
   );
 }
