@@ -7,6 +7,17 @@ export interface User {
   email: string;
   firstName: string;
   lastName: string;
+  /**
+   * The person's whole name as Workiz printed it — "(2) TX - Daniel Munoz",
+   * group and region prefix included — kept by the Workiz import beside the
+   * split `firstName` / `lastName` ("Daniel" / "Munoz"). Workiz shows exactly
+   * this on every tech chip, so screens that mirror Workiz print
+   * `workizName ?? \`${firstName} ${lastName}\``.
+   *
+   * Read-only: absent on anyone created here, and dropped by user-service the
+   * moment the person is renamed here (it would no longer name them).
+   */
+  workizName?: string;
   roleId: string;
   department: string;
   /**

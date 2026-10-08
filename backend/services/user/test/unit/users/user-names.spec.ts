@@ -57,6 +57,24 @@ describe('UsersService.namesByIds', () => {
     expect(JSON.stringify(user)).not.toContain('role-');
   });
 
+  /**
+   * Workiz's whole name for the person ("(2) TX - Daniel Munoz") is a name
+   * too — it is what Workiz prints on the person's chip — so it rides along
+   * when the import left one, and is simply absent otherwise.
+   */
+  it('carries the Workiz name of an imported user, and nothing more', async () => {
+    const { service } = makeService({
+      'u-1': {
+        id: 'u-1', firstName: 'Daniel', lastName: 'Munoz', workizName: '(2) TX - Daniel Munoz',
+        email: 'd@x.com', phone: '+14045550111', roleId: 'role-technician', department: 'Field', status: 'active',
+      },
+    });
+
+    await expect(service.namesByIds(['u-1'])).resolves.toEqual([
+      { id: 'u-1', firstName: 'Daniel', lastName: 'Munoz', workizName: '(2) TX - Daniel Munoz' },
+    ]);
+  });
+
   it('silently omits ids that do not exist', async () => {
     const { service } = makeService();
 

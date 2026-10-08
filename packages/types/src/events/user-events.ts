@@ -51,6 +51,12 @@ export const TechChangedField = {
   STATUS: 'status',
   /** The person was switched onto, or off, the field team. */
   FIELD_TEAM: 'fieldTeamMember',
+  /**
+   * The person was renamed (first or last name; the Workiz name goes with it).
+   * Moves nobody in or out of dispatch, but deal-service's projection prints
+   * the name — see `affectsProjection`.
+   */
+  NAME: 'name',
 } as const;
 
 export type TechChangedField =
@@ -69,6 +75,18 @@ export function affectsEligibility(changedFields?: string[]): boolean {
     TechChangedField.FIELD_TEAM,
   ];
   return Boolean(changedFields?.some((f) => relevant.includes(f)));
+}
+
+/**
+ * Whether a `tech.updated` can have changed anything deal-service's technician
+ * projection holds: who is eligible (`affectsEligibility`), or the name it
+ * prints on the jobs list and in Assign A Tech.
+ */
+export function affectsProjection(changedFields?: string[]): boolean {
+  return (
+    affectsEligibility(changedFields) ||
+    Boolean(changedFields?.includes(TechChangedField.NAME))
+  );
 }
 
 export interface TechApprovedEvent {

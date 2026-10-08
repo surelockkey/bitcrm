@@ -281,6 +281,16 @@ export interface PersonName {
 }
 
 /**
+ * A technician's name as a screen prints it. `workizName` is the whole name
+ * Workiz printed for the person ("(2) TX - Daniel Munoz"), present only on
+ * someone imported from Workiz and not renamed here since — see
+ * `User.workizName`. Print `workizName ?? \`${firstName} ${lastName}\``.
+ */
+export interface TechnicianName extends PersonName {
+  workizName?: string;
+}
+
+/**
  * The rows a page of jobs refers to, sent **with** that page instead of
  * fetched again once the browser has read the ids out of it.
  *
@@ -296,8 +306,8 @@ export interface PersonName {
  * masks per caller as it always has.
  */
 export interface JobsListIncluded {
-  /** Technicians assigned on this page. */
-  technicians: PersonName[];
+  /** Technicians assigned on this page — with the Workiz name when they have one. */
+  technicians: TechnicianName[];
   /** Clients of the jobs on this page. */
   clients: PersonName[];
 }

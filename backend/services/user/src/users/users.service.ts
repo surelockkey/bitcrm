@@ -61,6 +61,8 @@ export interface TechnicianEligibilityInfo {
   serviceAreaIds: string[];
   firstName?: string;
   lastName?: string;
+  /** Workiz's whole name for the person, when the import left one (`User.workizName`). */
+  workizName?: string;
   department?: string;
   homeAddress?: { lat: number; lng: number };
 }
@@ -73,6 +75,11 @@ export interface UserName {
   id: string;
   firstName: string;
   lastName: string;
+  /**
+   * Workiz's whole name for the person ("(2) TX - Daniel Munoz") — a name, not
+   * a detail: it is what Workiz prints on their chip. Only when there is one.
+   */
+  workizName?: string;
 }
 
 /** One request may not sweep a generated id space. */
@@ -83,6 +90,17 @@ function withoutUndefined<T extends object>(o: T): T {
   return Object.fromEntries(
     Object.entries(o).filter(([, v]) => v !== undefined),
   ) as T;
+}
+
+/** Whether an edit changes the person's first or last name. */
+function isRename(
+  existing: Pick<User, 'firstName' | 'lastName'>,
+  dto: Pick<UpdateUserDto, 'firstName' | 'lastName'>,
+): boolean {
+  return (
+    (dto.firstName !== undefined && dto.firstName !== existing.firstName) ||
+    (dto.lastName !== undefined && dto.lastName !== existing.lastName)
+  );
 }
 
 /** How long a list count stays good enough. Matches the deals tab counts. */
@@ -167,6 +185,7 @@ export class UsersService implements OnModuleInit {
         serviceAreaIds: entry.serviceAreaIds,
         firstName: user.firstName,
         lastName: user.lastName,
+        ...(user.workizName && { workizName: user.workizName }),
         department: user.department,
         homeAddress: mappable
           ? { lat: home.lat as number, lng: home.lng as number }
@@ -220,6 +239,7 @@ export class UsersService implements OnModuleInit {
       serviceAreaIds,
       firstName: user?.firstName,
       lastName: user?.lastName,
+      ...(user?.workizName && { workizName: user.workizName }),
       department: user?.department,
       homeAddress: mappable ? { lat: home.lat as number, lng: home.lng as number } : undefined,
     };
@@ -624,7 +644,12 @@ export class UsersService implements OnModuleInit {
 
     return found
       .filter((u): u is NonNullable<typeof u> => Boolean(u))
-      .map((u) => ({ id: u.id, firstName: u.firstName, lastName: u.lastName }));
+      .map((u) => ({
+        id: u.id,
+        firstName: u.firstName,
+        lastName: u.lastName,
+        ...(u.workizName && { workizName: u.workizName }),
+      }));
   }
 
   async findManyByPhone(phones: string[]): Promise<Record<string, User>> {
@@ -664,6 +689,11 @@ export class UsersService implements OnModuleInit {
     // partial update simply did not mention: spread as-is, one
     // `PUT { fieldTeamMember }` wiped a person's name, department and phone.
     const attrs: Partial<User> & UpdateUserDto = withoutUndefined(dto);
+    // Renamed here, the person is no longer who Workiz's whole name says — so
+    // that name goes, or every chip would print the old one for good. An
+    // explicit undefined is the repository's REMOVE.
+    const renamed = isRename(existingUser, dto);
+    if (renamed && existingUser.workizName) attrs.workizName = undefined;
     if (dto.phone !== undefined) {
       attrs.phone = await this.applyPhoneChange(
         id,
@@ -693,6 +723,9 @@ export class UsersService implements OnModuleInit {
       await this.ensureTechnicianProfile(updatedUser);
       this.publishTechUpdated(id, TechChangedField.FIELD_TEAM);
     }
+    // deal-service's technician projection prints the name (jobs list, Assign
+    // A Tech); without this it kept the old one until its next boot.
+    if (renamed) this.publishTechUpdated(id, TechChangedField.NAME);
     return updatedUser;
   }
 
