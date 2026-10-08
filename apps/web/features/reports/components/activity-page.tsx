@@ -169,7 +169,8 @@ export function ActivityPage({ today: todayProp }: { today?: string } = {}) {
       label: "Job Id",
       cell: (r) =>
         r.dealId && r.jobRef ? (
-          <Link href={`/deals/${r.dealId}`} className="text-foreground no-underline hover:underline">
+          // Ink, and no change under the cursor (rep_activity_wz_03d_job_hover).
+          <Link href={`/deals/${r.dealId}`} className="text-foreground no-underline">
             {r.jobRef}
           </Link>
         ) : (
