@@ -50,9 +50,9 @@ const mocks = vi.hoisted(() => ({
   directoryLoading: false,
   /** The jobs query is in flight and has nothing yet — a tab switch. */
   listLoading: false,
-  /** What the search service + by-ids answered, per text; and every text asked. */
-  searchHits: [] as unknown[],
-  searchCalls: [] as { text: string; enabled: boolean }[],
+  /** What `/deals/counts` answers when asked with `q`; and every searched count asked for. */
+  searchedCounts: {} as Record<string, number | null>,
+  searchedCountsParams: [] as unknown[],
 }));
 
 vi.mock("../hooks", () => ({
@@ -69,22 +69,18 @@ vi.mock("../hooks", () => ({
       refetch: vi.fn(),
     };
   },
-  useDealCounts: (params: unknown) => {
+  useDealCounts: (params: Record<string, unknown>, enabled = true) => {
+    if (!enabled) return { data: undefined, isLoading: false, isPlaceholderData: false };
+    if ("q" in params) {
+      mocks.searchedCountsParams.push(params);
+      return { data: mocks.searchedCounts, isLoading: false, isPlaceholderData: false };
+    }
     mocks.countsParams.push(params);
-    return { data: mocks.counts, isLoading: false };
+    return { data: mocks.counts, isLoading: false, isPlaceholderData: false };
   },
   useUserMap: (ids?: string[]) => {
     mocks.userMapIds.push(ids);
     return { map: new Map(), isLoading: mocks.directoryLoading };
-  },
-  useJobsSearch: (text: string, enabled: boolean) => {
-    mocks.searchCalls.push({ text, enabled });
-    return {
-      data: enabled ? { deals: mocks.searchHits, capped: false } : undefined,
-      isError: false,
-      isFetching: false,
-      refetch: vi.fn(),
-    };
   },
 }));
 vi.mock("@/features/clients/hooks", () => ({
@@ -101,8 +97,15 @@ vi.mock("@/features/service-areas/hooks", () => ({
 }));
 vi.mock("@/features/job-types/hooks", () => ({ useJobTypes: () => ({ data: [] }) }));
 vi.mock("@/features/job-types/lib", () => ({ useJobTypesLoading: () => false, activeJobTypes: () => [], useJobTypeName: () => () => "Lockout" }));
-vi.mock("@/features/job-tags/hooks", () => ({ useJobTags: () => ({ data: [] }) }));
-vi.mock("@/features/job-tags/lib", () => ({ activeJobTags: () => [], tagSolidClasses: () => "" }));
+vi.mock("@/features/job-tags/hooks", () => ({
+  useJobTags: () => ({
+    data: [
+      { id: "g1", name: "Needs a call", color: "blue", active: true, priority: 0 },
+      { id: "g2", name: "Pics attached", color: "amber", active: true, priority: 0 },
+    ],
+  }),
+}));
+vi.mock("@/features/job-tags/lib", () => ({ activeJobTags: (tags?: unknown[]) => tags ?? [], tagSolidClasses: () => "" }));
 vi.mock("@/features/job-tags/components/job-tag-chips", () => ({ JobTagChips: () => null }));
 vi.mock("@/features/custom-fields/hooks", () => ({ useCustomFields: () => ({ data: [] }) }));
 vi.mock("@/features/external-companies/lib", () => ({ useExternalCompanyName: () => () => "—" }));
@@ -145,8 +148,8 @@ beforeEach(() => {
   mocks.contactsLoading = false;
   mocks.userMapIds = [];
   mocks.directoryLoading = false;
-  mocks.searchHits = [];
-  mocks.searchCalls = [];
+  mocks.searchedCounts = {};
+  mocks.searchedCountsParams = [];
   nav.push.mockClear();
 });
 afterEach(() => {
@@ -230,7 +233,7 @@ describe("DealsPage — what it asks the server for", () => {
     expect(screen.getAllByRole("row")[1].textContent).toContain("B22222");
   });
 
-  it("the hour window travels as parameters; so does a job code typed in Search", async () => {
+  it("the hour window travels as parameters; so does what is typed in Search, as q", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     render(<DealsPage />);
     openFilter();
@@ -239,11 +242,12 @@ describe("DealsPage — what it asks the server for", () => {
     expect(lastPageParams()).toMatchObject({ hourFrom: "08:00", hourTo: "12:00" });
     fireEvent.change(screen.getByRole("textbox", { name: "Search" }), { target: { value: "862n5b" } });
     // Workiz waits ~300ms after the last key.
-    expect(lastPageParams()).not.toHaveProperty("search");
+    expect(lastPageParams()).not.toHaveProperty("q");
     await act(async () => {
       vi.advanceTimersByTime(350);
     });
-    expect(lastPageParams()).toMatchObject({ search: "862N5B" });
+    expect(lastPageParams()).toMatchObject({ q: "862n5b", hourFrom: "08:00", hourTo: "12:00", superStatus: "submitted" });
+    expect(lastPageParams()).not.toHaveProperty("search");
   });
 
   it("“Show unpaid jobs” asks the list and the counts for unpaid=true", () => {
@@ -253,57 +257,108 @@ describe("DealsPage — what it asks the server for", () => {
     expect(mocks.countsParams[mocks.countsParams.length - 1]).toEqual({ unpaid: true });
   });
 
-  it("a tech picked in Filter results is a server parameter, shown as a chip", () => {
+  /** Workiz: two techs picked → jobs of either (OR inside a group), each its own chip. */
+  it("techs picked in Filter results add up as an any-of list, each a chip", () => {
     render(<DealsPage />);
     openFilter();
     fireEvent.click(screen.getByRole("option", { name: "t1" }));
-    expect(lastPageParams()).toMatchObject({ techId: "t1" });
+    expect(lastPageParams()).toMatchObject({ techIds: "t1" });
+    expect(lastPageParams()).not.toHaveProperty("techId");
     expect(screen.getByText("user: t1")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Remove user: t1" }));
-    expect(lastPageParams()).not.toHaveProperty("techId");
+    expect(lastPageParams()).not.toHaveProperty("techIds");
+  });
+
+  it("two tags picked travel as tagIds with tagMatch=any", () => {
+    render(<DealsPage />);
+    openFilter();
+    fireEvent.click(screen.getByRole("option", { name: "Needs a call" }));
+    openFilter();
+    fireEvent.click(screen.getByRole("option", { name: "Pics attached" }));
+    expect(lastPageParams()).toMatchObject({ tagIds: "g1,g2", tagMatch: "any" });
+    expect(mocks.countsParams[mocks.countsParams.length - 1]).toMatchObject({ tagIds: "g1,g2", tagMatch: "any" });
+    expect(screen.getByText("tag: Needs a call")).toBeInTheDocument();
+    expect(screen.getByText("tag: Pics attached")).toBeInTheDocument();
   });
 });
 
 /**
- * Free text: the search service finds candidates across every job; the page
- * keeps those on its tab that match the Workiz way.
+ * Workiz searches on the server, inside the open tab and the filters, and
+ * counts only the open tab under the search (jobslist_wz_search_Dustin:
+ * "Submitted 1 · In Progress 6 · Pending 338").
  */
-describe("DealsPage — Search across every job", () => {
-  it("free text goes to the search service, not the list; the hits on the tab are shown", async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
-    mocks.searchHits = [
-      { ...deal, id: "s1", dealNumber: "S11111", address: { street: "1 Main", city: "Princeton", state: "TX", zip: "1" } },
-      { ...deal, id: "s2", dealNumber: "S22222", superStatus: JobSuperStatus.PENDING, address: { street: "1 Main", city: "Princeton", state: "TX", zip: "1" } },
-      // A fuzzy near miss the engine returned: Workiz would not show it.
-      { ...deal, id: "s3", dealNumber: "S33333", address: { street: "1 Main", city: "Prince", state: "TX", zip: "1" } },
-    ];
-    render(<DealsPage />);
-    fireEvent.change(screen.getByRole("textbox", { name: "Search" }), { target: { value: "Princeton" } });
+describe("DealsPage — Search, on the server", () => {
+  const type = async (text: string) => {
+    fireEvent.change(screen.getByRole("textbox", { name: "Search" }), { target: { value: text } });
     await act(async () => {
       vi.advanceTimersByTime(350);
     });
-    expect(mocks.searchCalls[mocks.searchCalls.length - 1]).toEqual({ text: "Princeton", enabled: true });
-    expect(lastPageParams()).not.toHaveProperty("search");
-    const rows = screen.getAllByRole("row").slice(1);
+  };
+
+  it("asks the list for q inside the tab, and shows what it answers", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    render(<DealsPage />);
+    mocks.pages = [{ data: [{ ...deal, id: "s1", dealNumber: "5TU7ZA" }], pagination: { count: 1 } }];
+    mocks.searchedCounts = { ...mocks.counts, submitted: 1, done: null, canceled: null };
+    await type("Dustin");
+    expect(lastPageParams()).toEqual({ superStatus: "submitted", sort: "schedule", dir: "asc", limit: 50, q: "Dustin" });
+    const rows = screen.getAllByRole("row").filter((r) => !r.hasAttribute("aria-hidden")).slice(1);
     expect(rows).toHaveLength(1);
-    expect(rows[0].textContent).toContain("S11111");
-    // The open tab's chip counts what was found.
-    expect(screen.getByRole("tab", { name: /Submitted/ }).textContent).toContain("1");
-    expect(screen.getByText("Showing 1 to 1 of 1 results")).toBeInTheDocument();
+    expect(rows[0].textContent).toContain("5TU7ZA");
   });
 
-  it("an × clears the search", async () => {
+  it("counts every tab without q, and the searched number once with it — the open tab shows that one", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     render(<DealsPage />);
-    fireEvent.change(screen.getByRole("textbox", { name: "Search" }), { target: { value: "zzqxwv" } });
-    await act(async () => {
-      vi.advanceTimersByTime(350);
-    });
+    mocks.pages = [{ data: [deal], pagination: { count: 1 } }];
+    mocks.searchedCounts = { ...mocks.counts, submitted: 1, pending: 2, done: null, canceled: null };
+    await type("Dustin");
+    expect(mocks.countsParams[mocks.countsParams.length - 1]).toEqual({});
+    expect(mocks.searchedCountsParams[mocks.searchedCountsParams.length - 1]).toEqual({ q: "Dustin" });
+    expect(screen.getByRole("tab", { name: /^Submitted/ }).textContent).toBe("Submitted1");
+    // The other tabs keep their unsearched numbers.
+    expect(screen.getByRole("tab", { name: /^Pending/ }).textContent).toContain("264");
+    // The pager counts against the searched number.
+    expect(screen.getByText("Showing 1 to 1 of 1 results")).toBeInTheDocument();
+    expect(screen.getByText("Page 1 of 1")).toBeInTheDocument();
+  });
+
+  it("asks for no searched count while the box is empty", () => {
+    render(<DealsPage />);
+    expect(mocks.searchedCountsParams).toEqual([]);
+  });
+
+  it("an × clears the search; nothing found reads Workiz's way", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    render(<DealsPage />);
+    mocks.pages = [{ data: [], pagination: { count: 0 } }];
+    mocks.searchedCounts = { ...mocks.counts, submitted: 0 };
+    await type("zzqxwv");
     expect(screen.getByText("No Jobs Found")).toBeInTheDocument();
     // Workiz's own wording for nothing found (jobslist_wz_search_zzqxwv).
     expect(screen.getByText("Showing 1 to 0 of 0 results")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Clear search" }));
     expect(screen.getByRole("textbox", { name: "Search" })).toHaveValue("");
+  });
+
+  /**
+   * A closed status searched without a date window is not counted (null),
+   * and its page can come back short with more behind it.
+   */
+  it("an uncounted, short page says what is on screen and still offers the next page", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    render(<DealsPage />);
+    openFilter();
+    fireEvent.click(screen.getByRole("option", { name: "Done" }));
+    mocks.pages = [{ data: [deal], pagination: { count: 1, nextCursor: "more" } }];
+    mocks.hasNextPage = true;
+    mocks.searchedCounts = { ...mocks.counts, done: null, canceled: null };
+    await type("Dustin");
+    expect(lastPageParams()).toMatchObject({ superStatus: "done", q: "Dustin" });
+    expect(screen.getByText("Showing 1 to 1 results")).toBeInTheDocument();
+    expect(screen.getByText("Page 1")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+    expect(mocks.fetchNextPage).toHaveBeenCalled();
   });
 });
 

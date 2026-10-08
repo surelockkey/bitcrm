@@ -50,7 +50,6 @@ vi.mock("../hooks", () => ({
   }),
   useDealCounts: () => ({ data: mocks.counts, isLoading: false }),
   useUserMap: () => ({ map: new Map(), isLoading: false }),
-  useJobsSearch: () => ({ data: undefined, isError: false, isFetching: false, refetch: vi.fn() }),
 }));
 vi.mock("@/features/clients/hooks", () => ({
   useContactsByIds: () => ({ map: mocks.contactMap, isLoading: false }),
@@ -332,10 +331,11 @@ describe("DealsPage company filter", () => {
 
   it("narrows the list to one company — as a server parameter, from Filter results", () => {
     render(<DealsPage />);
-    expect(lastPageParams()).not.toHaveProperty("businessProfileId");
+    expect(lastPageParams()).not.toHaveProperty("businessProfileIds");
     openFilter();
     fireEvent.click(screen.getByRole("option", { name: "KeyPro" }));
-    expect(lastPageParams()).toMatchObject({ businessProfileId: "bp-2" });
+    // An any-of list, like every Filter results group.
+    expect(lastPageParams()).toMatchObject({ businessProfileIds: "bp-2" });
     expect(screen.getByText("company: KeyPro")).toBeInTheDocument();
   });
 });

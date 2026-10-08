@@ -6,20 +6,21 @@ import {
   jobsSearchRoute,
   toCountsParams,
   toListParams,
+  toSearchCountsParams,
   type JobsListCaps,
   type JobsListState,
 } from "./query-params";
 
 const base: JobsListState = { ...EMPTY_JOBS_LIST_STATE };
 
-/** A backend before `unpaid=true` (main 8b16d4c8): one value per filter, no unpaid, no free text. */
-const today: JobsListCaps = { multiValue: false, unpaid: false, textSearch: false };
-/** What it serves once it takes every parameter the Workiz control needs. */
-const later: JobsListCaps = { multiValue: true, unpaid: true, textSearch: true };
+/** An older backend (main 8b16d4c8): one value per filter, no unpaid, no free text. */
+const old: JobsListCaps = { multiValue: false, unpaid: false, textSearch: false };
+/** main 974cf6d8 (`backend/jobs-list-search`): any-of lists, `unpaid`, and `q`. */
+const now: JobsListCaps = { multiValue: true, unpaid: true, textSearch: true };
 
 describe("the jobs list's capabilities", () => {
-  it("ships with main 03eb84e2's backend: unpaid=true, one value per filter, no free-text list search", () => {
-    expect(JOBS_LIST_CAPS).toEqual({ multiValue: false, unpaid: true, textSearch: false });
+  it("ships with main 974cf6d8's backend: any-of lists, unpaid=true and q", () => {
+    expect(JOBS_LIST_CAPS).toEqual(now);
   });
 });
 
@@ -63,53 +64,17 @@ describe("toListParams — the jobs page asks the server for exactly what it sho
     });
   });
 
-  it("today: each filter travels as its own single-value parameter", () => {
-    expect(
-      toListParams(
-        {
-          ...base,
-          techIds: ["t1"],
-          jobTypeIds: ["jt"],
-          serviceAreas: ["Atlanta"],
-          tagIds: ["tag"],
-          businessProfileIds: ["bp"],
-          hourFrom: "08:00",
-          hourTo: "12:00",
-        },
-        50,
-        today,
-      ),
-    ).toMatchObject({
-      techId: "t1",
-      jobTypeId: "jt",
-      serviceArea: "Atlanta",
-      tagIds: "tag",
-      businessProfileId: "bp",
+  it("several values per group travel as any-of lists (Workiz: OR inside a group)", () => {
+    const p = toListParams({
+      ...base,
+      techIds: ["t1", "t2"],
+      jobTypeIds: ["jt1", "jt2"],
+      serviceAreas: ["A", "B"],
+      tagIds: ["a", "b"],
+      businessProfileIds: ["bp1", "bp2"],
       hourFrom: "08:00",
       hourTo: "12:00",
     });
-  });
-
-  it("today: never sends two tags — the server would read them as all-of, Workiz means any-of", () => {
-    const p = toListParams({ ...base, tagIds: ["a", "b"], techIds: ["t1", "t2"] }, 50, today);
-    expect(p.tagIds).toBe("a");
-    expect(p.techId).toBe("t1");
-    expect(p).not.toHaveProperty("techIds");
-  });
-
-  it("later: several values per group travel as any-of lists", () => {
-    const p = toListParams(
-      {
-        ...base,
-        techIds: ["t1", "t2"],
-        jobTypeIds: ["jt1", "jt2"],
-        serviceAreas: ["A", "B"],
-        tagIds: ["a", "b"],
-        businessProfileIds: ["bp1", "bp2"],
-      },
-      50,
-      later,
-    );
     expect(p).toMatchObject({
       techIds: "t1,t2",
       jobTypeIds: "jt1,jt2",
@@ -117,15 +82,34 @@ describe("toListParams — the jobs page asks the server for exactly what it sho
       tagIds: "a,b",
       tagMatch: "any",
       businessProfileIds: "bp1,bp2",
+      hourFrom: "08:00",
+      hourTo: "12:00",
     });
     expect(p).not.toHaveProperty("techId");
     expect(p).not.toHaveProperty("jobTypeId");
+    expect(p).not.toHaveProperty("serviceArea");
+    expect(p).not.toHaveProperty("businessProfileId");
   });
 
-  it("“Show unpaid jobs” travels only once the server can answer it", () => {
-    expect(toListParams({ ...base, unpaid: true }, 50, today)).not.toHaveProperty("unpaid");
-    expect(toListParams({ ...base, unpaid: true }, 50, later)).toMatchObject({ unpaid: true });
-    expect(toListParams({ ...base, unpaid: false }, 50, later)).not.toHaveProperty("unpaid");
+  it("one value is a list of one — the any-of parameters take a single value too", () => {
+    expect(toListParams({ ...base, techIds: ["t1"], tagIds: ["a"] })).toMatchObject({
+      techIds: "t1",
+      tagIds: "a",
+      tagMatch: "any",
+    });
+  });
+
+  it("an older backend gets one value per group, as single-value parameters", () => {
+    const p = toListParams({ ...base, tagIds: ["a", "b"], techIds: ["t1", "t2"], serviceAreas: ["A"] }, 50, old);
+    expect(p).toMatchObject({ tagIds: "a", techId: "t1", serviceArea: "A" });
+    expect(p).not.toHaveProperty("techIds");
+    expect(p).not.toHaveProperty("tagMatch");
+  });
+
+  it("“Show unpaid jobs” travels as unpaid=true", () => {
+    expect(toListParams({ ...base, unpaid: true })).toMatchObject({ unpaid: true });
+    expect(toListParams({ ...base, unpaid: false })).not.toHaveProperty("unpaid");
+    expect(toListParams({ ...base, unpaid: true }, 50, old)).not.toHaveProperty("unpaid");
   });
 
   it("the day sorts flip the direction; the hour sorts stay in schedule order (sorted on the page)", () => {
@@ -134,69 +118,72 @@ describe("toListParams — the jobs page asks the server for exactly what it sho
     expect(toListParams({ ...base, sort: "hour_desc" })).toMatchObject({ sort: "schedule", dir: "asc" });
   });
 
-  it("a search that looks like a job code goes to the server; free text does not, today", () => {
-    expect(toListParams({ ...base, search: " 862n5b " }, 50, today)).toMatchObject({ search: "862N5B" });
-    expect(toListParams({ ...base, search: "Smith" }, 50, today)).not.toHaveProperty("search");
-    expect(toListParams({ ...base, search: "Smith" }, 50, today)).not.toHaveProperty("q");
+  /**
+   * Workiz sends whatever is in the box (`sSearch`), inside the tab. So does
+   * ours: `q`, which matches the Job ID as well — a code included, so the tab
+   * number counted under the same `q` agrees with the rows.
+   */
+  it("the Search box's text is q, trimmed, inside the tab — a job code too", () => {
+    expect(toListParams({ ...base, search: " Dustin " })).toMatchObject({ q: "Dustin", superStatus: "submitted" });
+    expect(toListParams({ ...base, search: "5TU7ZA" })).toMatchObject({ q: "5TU7ZA" });
+    expect(toListParams({ ...base, search: "5TU7ZA" })).not.toHaveProperty("search");
+    expect(toListParams({ ...base, search: "   " })).not.toHaveProperty("q");
   });
 
-  it("later: free text is the list's own `q`, inside the tab", () => {
-    expect(toListParams({ ...base, search: " Dustin " }, 50, later)).toMatchObject({
-      q: "Dustin",
-      superStatus: "submitted",
-    });
-    expect(toListParams({ ...base, search: "5TU7ZA" }, 50, later)).toMatchObject({ search: "5TU7ZA" });
-    expect(toListParams({ ...base, search: "5TU7ZA" }, 50, later)).not.toHaveProperty("q");
+  it("an older backend looks up a job code by itself and ignores other text", () => {
+    expect(toListParams({ ...base, search: " 862n5b " }, 50, old)).toMatchObject({ search: "862N5B" });
+    expect(toListParams({ ...base, search: "Smith" }, 50, old)).not.toHaveProperty("search");
+    expect(toListParams({ ...base, search: "Smith" }, 50, old)).not.toHaveProperty("q");
+  });
+
+  it("q is at most 200 characters, as the server takes it", () => {
+    expect(toListParams({ ...base, search: "x".repeat(250) }).q).toHaveLength(200);
   });
 });
 
 describe("jobsSearchRoute — where the Search box's text is answered", () => {
   it("nothing typed is no search", () => {
-    expect(jobsSearchRoute("", today)).toBe("none");
-    expect(jobsSearchRoute("   ", today)).toBe("none");
+    expect(jobsSearchRoute("", now)).toBe("none");
+    expect(jobsSearchRoute("   ", now)).toBe("none");
   });
 
-  it("a six-character job code is looked up by the list itself", () => {
-    expect(jobsSearchRoute("5tu7za", today)).toBe("code");
-    expect(jobsSearchRoute("5TU7ZA", later)).toBe("code");
-  });
-
-  it("today, any other text goes to the search service", () => {
-    expect(jobsSearchRoute("Dustin", today)).toBe("service");
-    expect(jobsSearchRoute("469 396", today)).toBe("service");
-    expect(jobsSearchRoute("5TU7", today)).toBe("service");
+  it("any text is the list's own q", () => {
+    for (const q of ["Dustin", "469 396", "5TU7", "#5TU7", "5TU7ZA", "JJENBF"]) expect(jobsSearchRoute(q, now), q).toBe("list");
   });
 
   /**
    * "Dustin" is six letters, "396817" six digits: shaped like a code, but a
-   * name and a phone fragment. Only letters mixed with digits is surely a
-   * code; an all-letter code (JJENBF) still turns up through the search
-   * service, which indexes the Job ID too.
+   * name and a phone fragment. Only letters mixed with digits is surely a code.
    */
-  it("six letters, or six digits, is not taken for a code", () => {
-    expect(jobsSearchRoute("Dustin", today)).toBe("service");
-    expect(jobsSearchRoute("JJENBF", today)).toBe("service");
-    expect(jobsSearchRoute("396817", today)).toBe("service");
-    expect(jobsSearchRoute("MS9277", today)).toBe("code");
-  });
-
-  it("once the list searches text itself, it goes there", () => {
-    expect(jobsSearchRoute("Dustin", later)).toBe("list");
+  it("an older backend: only a sure code is searched", () => {
+    expect(jobsSearchRoute("MS9277", old)).toBe("code");
+    expect(jobsSearchRoute("Dustin", old)).toBe("none");
+    expect(jobsSearchRoute("396817", old)).toBe("none");
   });
 });
 
-describe("toCountsParams — the tab numbers ignore the tab itself", () => {
-  it("drops the status, the sort, the search and the paging but keeps every filter", () => {
+describe("toCountsParams — the tab numbers, as Workiz shows them", () => {
+  it("drop the status, the sort, the search and the paging but keep every filter", () => {
     expect(
-      toCountsParams(
-        { ...base, tab: JobSuperStatus.DONE, techIds: ["t1"], dateFrom: "2026-09-23", sort: "day_desc", search: "5TU7ZA" },
-        today,
-      ),
-    ).toEqual({ techId: "t1", scheduledFrom: "2026-09-23", scheduledTo: "2026-09-23" });
+      toCountsParams({ ...base, tab: JobSuperStatus.DONE, techIds: ["t1"], dateFrom: "2026-09-23", sort: "day_desc", search: "5TU7ZA" }),
+    ).toEqual({ techIds: "t1", scheduledFrom: "2026-09-23", scheduledTo: "2026-09-23" });
   });
 
-  it("carries unpaid once the server can count it", () => {
-    expect(toCountsParams({ ...base, unpaid: true }, later)).toEqual({ unpaid: true });
-    expect(toCountsParams({ ...base, unpaid: true }, today)).toEqual({});
+  it("carry unpaid", () => {
+    expect(toCountsParams({ ...base, unpaid: true })).toEqual({ unpaid: true });
+  });
+});
+
+describe("toSearchCountsParams — the one extra count a search asks for", () => {
+  it("is the same filters plus q", () => {
+    expect(toSearchCountsParams({ ...base, techIds: ["t1"], search: " Dustin " })).toEqual({ techIds: "t1", q: "Dustin" });
+  });
+
+  it("is nothing without a search", () => {
+    expect(toSearchCountsParams({ ...base, techIds: ["t1"], search: "  " })).toBeNull();
+  });
+
+  it("is nothing on a backend without q", () => {
+    expect(toSearchCountsParams({ ...base, search: "Dustin" }, old)).toBeNull();
   });
 });
