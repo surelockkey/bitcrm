@@ -103,6 +103,7 @@
   --color-wz-disc-hover: var(--wz-disc-hover);
   --color-wz-band: var(--wz-band);
   --color-wz-close-icon: var(--wz-close-icon);
+  --color-wz-scrim: var(--wz-scrim);
   --color-wz-toast-success: var(--wz-toast-success);
   --color-wz-toast-warning: var(--wz-toast-warning);
   --color-wz-toast-info: var(--wz-toast-info);
@@ -217,6 +218,7 @@
   --wz-disc-hover: #ededed;
   --wz-band: #fafcfc;
   --wz-close-icon: #607890;
+  --wz-scrim: #666666;
   --wz-toast-success: #83c795;
   --wz-toast-warning: #f7a336;
   --wz-toast-info: #58abc3;

@@ -56,8 +56,9 @@ describe("a dialog", () => {
 });
 
 describe("a sheet", () => {
-  it("is Workiz's side drawer: 36% black behind it, no blur, a soft edge shadow", () => {
-    // list_02 / uikit_wz_clients_fields: white → #a3a3a3 behind the panel.
+  it("is Workiz's side drawer: #666 at 60% behind it, no blur, a soft edge shadow", () => {
+    // list_02 / uikit_wz_clients_fields / jobdetails_wz_address_open:
+    // `.right-pane-container` rgb(102,102,102) — white → #a3a3a3, #ccc → #8f8f8f.
     render(
       <Sheet open>
         <SheetContent>
@@ -66,7 +67,7 @@ describe("a sheet", () => {
       </Sheet>,
     );
     const overlay = document.querySelector("[data-slot=sheet-overlay]");
-    expect(cls(overlay)).toContain("bg-black/36");
+    expect(cls(overlay)).toContain("bg-wz-scrim/60");
     expect((overlay?.className ?? "").toString()).not.toContain("blur");
     expect(cls(screen.getByText("Visible fields"))).toEqual(expect.arrayContaining(["text-lg", "font-semibold"]));
   });

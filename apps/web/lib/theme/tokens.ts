@@ -189,6 +189,10 @@ export const LIGHT = {
   wzBand: "#fafcfc",
   // A drawer's close ×.
   wzCloseIcon: "#607890",
+  // A side panel's backdrop: `.right-pane-container` is #666 at 60% opacity
+  // (list_02_fields_menu, jobdetails_wz_address_open — white → #a3a3a3,
+  // #ccc → #8f8f8f). Modals dim with plain black at 30% instead.
+  wzScrim: "#666666",
   // Toasts (redux-toastr): success, warning, info; errors are wzDanger.
   wzToastSuccess: "#83c795",
   wzToastWarning: "#f7a336",

@@ -10,8 +10,8 @@ import { XIcon } from "lucide-react"
 
 /*
  * Workiz's side drawer (list_02 "Visible fields", uikit_wz_clients_fields,
- * the job page's Address pane): white, the page dimmed to 36% black behind it
- * with no blur, a soft `-4px 0 8px rgba(0,0,0,.12)` edge instead of a rule,
+ * the job page's Address pane): white, the page dimmed behind it by #666 at
+ * 60% (`.right-pane-container`) with no blur, a soft `-4px 0 8px rgba(0,0,0,.12)` edge instead of a rule,
  * 422px on the right. Head: an 18px/600 ink title 24px in, a #607890 × at
  * the top right. Body 24px in. Footer: the buttons bottom right on white.
  */
@@ -46,7 +46,7 @@ function SheetOverlay({
     <SheetPrimitive.Overlay
       data-slot="sheet-overlay"
       className={cn(
-        "fixed inset-0 z-50 bg-black/36 duration-100 data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
+        "fixed inset-0 z-50 bg-wz-scrim/60 duration-100 data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
         className
       )}
       {...props}
