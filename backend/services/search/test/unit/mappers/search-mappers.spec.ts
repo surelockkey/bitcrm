@@ -237,6 +237,26 @@ describe('search-mappers', () => {
       const doc = mapContact(contact);
       expect(doc.keywords).toEqual(expect.arrayContaining(['5550100', '0100']));
     });
+
+    // Workiz's Clients search finds a client by its address ("Long Hill").
+    it('indexes every service address and the billing address', () => {
+      const doc = mapContact({
+        ...contact,
+        addresses: [
+          { street: '757 Long Hill Ave', unit: 'Apt 2', city: 'Shelton', state: 'CT', zip: '06484' },
+          { street: '1 Main St', city: 'Hartford', state: 'CT', zip: '06103' },
+        ],
+        billingAddress: { street: 'PO Box 9', city: 'Avon', state: 'CT', zip: '06001' },
+      } as Contact);
+      expect(doc.keywords).toEqual(
+        expect.arrayContaining(['757 Long Hill Ave', 'Apt 2', 'Shelton', 'CT', '06484', '1 Main St', 'Hartford', 'PO Box 9', 'Avon']),
+      );
+    });
+
+    it('copes with a contact that has no addresses at all', () => {
+      const doc = mapContact({ ...contact, addresses: undefined } as unknown as Contact);
+      expect(doc.keywords).toContain('john@acme.com');
+    });
   });
 
   describe('mapCompany', () => {

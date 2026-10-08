@@ -158,6 +158,10 @@ export function mapContact(contact: Contact): SearchDocument {
       ...(contact.emails || []),
       ...withPhoneVariants(contact.phones),
       contact.title,
+      // Workiz's Clients search finds a client by where it lives ("Long Hill").
+      ...[...(contact.addresses ?? []), contact.billingAddress].flatMap((a) =>
+        a ? [a.street, a.unit, a.city, a.state, a.zip] : [],
+      ),
     ]),
     body: contact.notes,
     url: `/contacts/${contact.id}`,
