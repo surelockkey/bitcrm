@@ -22,8 +22,10 @@ import {
  * raw ids to names. And a search emptied the list ("No matching contacts")
  * before the skeleton and then the matches came.
  *
- * Now the rows come with everything printed beside them, in one frame, and a
- * new search or page keeps the rows it has until the next set is whole.
+ * Now the rows come with everything printed beside them — the KPI cards over
+ * them (Workiz's Clients page) and the pager under them included — in one
+ * frame, and a new search or page keeps the rows it has until the next set
+ * is whole.
  */
 
 vi.mock("next/navigation", () => ({
@@ -71,6 +73,14 @@ const FOUND = person("c9", "Jade", "Moss", "co2");
 const COMPANIES = [company("co1", "Acme Storage"), company("co2", "Beta Holdings"), company("co3", "Gamma Works")];
 
 const routes: FakeRoute[] = [
+  // The KPI cards' numbers: they come up with the rows, not after them.
+  {
+    match: /\/billing\/invoices\/balances$/,
+    reply: () => ({ dueAmount: 100, dueCount: 2, overdueAmount: 50, overdueCount: 1, dueClientCount: 2, overdueClientCount: 1 }),
+    delayMs: 90,
+  },
+  { match: /\/billing\/estimates\/summary$/, reply: () => ({ pending: { count: 7, amount: 1200 } }), delayMs: 70 },
+  { match: /\/deals\/client-tags$/, reply: () => [] },
   {
     match: /\/crm\/contacts$/,
     raw: true,
@@ -91,19 +101,22 @@ const routes: FakeRoute[] = [
     },
     delayMs: 40,
   },
-  { match: /\/search$/, reply: () => ({ query: "ja", mode: "full", groups: [], hits: [{ type: "contact", entityId: "c9" }] }) },
+  { match: /\/search$/, reply: () => ({ query: "ja", mode: "full", groups: [], hits: [{ type: "contact", entityId: "c9" }], total: 1 }) },
   { match: /\/crm\/contacts\/by-ids$/, method: "POST", reply: () => [FOUND] },
 ];
 
 let server: FakeServer;
 
 const { ContactsPage } = await import("./contacts-page");
+const { useClientFieldsStore } = await import("../clients-fields-store");
 
 const text = () => document.body.textContent ?? "";
 const rowsUp = () => !!screen.queryByText("Jane Smith");
 
 beforeEach(() => {
   server = installFakeServer(routes);
+  // The columns that print something fetched beside the rows: the company, the ad source.
+  useClientFieldsStore.setState({ used: ["name", "company", "source", "phone", "created"] });
 });
 
 afterEach(() => {
@@ -116,16 +129,16 @@ describe("ContactsPage — no jumping", () => {
     const watch = watchFirstFrame(rowsUp, () => ({
       company: screen.queryAllByText("Acme Storage").length > 0,
       source: screen.queryAllByText("Google Ads").length > 0,
-      showing: text().includes("Showing 3"),
-      total: text().includes("of 4,641"),
-      newContact: !!screen.queryByRole("button", { name: /new contact/i }),
+      showing: text().includes("Showing 1 to 3 of 4,641 results"),
+      cards: !!screen.queryByRole("group", { name: "Clients" }) && text().includes("Due from 2 clients") && text().includes("Estimates Pending $1,200"),
+      addClient: !!screen.queryByRole("button", { name: /add client/i }),
       skeletons: skeletonCount(),
     }));
     renderWithClient(<ContactsPage />);
     await screen.findByText("Jane Smith", {}, { timeout: 3000 });
     watch.stop();
 
-    expect(watch.frame()).toEqual({ company: true, source: true, showing: true, total: true, newContact: true, skeletons: 0 });
+    expect(watch.frame()).toEqual({ company: true, source: true, showing: true, cards: true, addClient: true, skeletons: 0 });
   });
 
   it("never says 'Showing 0' while the rows are on their way", async () => {
@@ -155,15 +168,17 @@ describe("ContactsPage — no jumping", () => {
 
     const seen = { empty: false, skeleton: false, zero: false, rowsWithoutCompany: false };
     const observer = new MutationObserver(() => {
-      if (text().includes("No matching contacts")) seen.empty = true;
+      if (text().includes("No Records Found")) seen.empty = true;
       if (skeletonCount() > 0) seen.skeleton = true;
-      if (/\b0 matches|Showing 0/.test(text())) seen.zero = true;
+      if (/Showing 1 to 0/.test(text())) seen.zero = true;
       if (screen.queryByText("Jade Moss") && !screen.queryByText("Beta Holdings")) seen.rowsWithoutCompany = true;
     });
     observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true });
-    fireEvent.change(screen.getByPlaceholderText("Search name, phone, email"), { target: { value: "ja" } });
-    await screen.findByText("1 match", {}, { timeout: 3000 });
+    // Workiz asks ~1 s after the last key.
+    fireEvent.change(screen.getByRole("textbox", { name: "Search" }), { target: { value: "ja" } });
+    await screen.findByText("Showing 1 to 1 of 1 results", {}, { timeout: 4000 });
     observer.disconnect();
+    expect(screen.getByText("Jade Moss")).toBeInTheDocument();
 
     expect(seen).toEqual({ empty: false, skeleton: false, zero: false, rowsWithoutCompany: false });
   });

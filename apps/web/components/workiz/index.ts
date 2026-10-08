@@ -50,3 +50,16 @@ export { WzPageHeader, WzHeaderPill, WzTabLinks, WzStatCard, WzBadgeIconButton }
 export { WzDateRangePicker, type WzDateRange, type WzDateRangePickerProps } from "./date-range-picker";
 export { WzAddFilter, WzFilterField, WzFilterOptions } from "./filter-bar";
 export { formatWzDay, formatWzDayRange, formatUsDay, parseUsDay, ordinal } from "./dates";
+
+// List-page pieces (Clients list).
+// KPI card with the coloured left rule (`._fCard`, Clients list) — not the Phone page's `WzStatCard`.
+export { WzKpiCard, WzKpiCardSkeleton, type WzKpiTone } from "./kpi-card";
+export {
+  WzFilterSelect,
+  filterSelectGroups,
+  type WzFilterGroup,
+  type WzFilterOption,
+  type WzFilterPick,
+} from "./filter-select";
+export { WzFieldsPanel, fieldsPanelLists, toggleField, moveField, type WzFieldOption } from "./fields-panel";
+export { WzTableNoData } from "./no-data";

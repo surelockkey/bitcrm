@@ -1,163 +1,277 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type MouseEvent } from "react";
 import { useRouter } from "next/navigation";
-import { Merge, Plus, Search, Users } from "lucide-react";
+import { BarChart3, CalendarDays, Diamond, Mail, MapPin, Merge, Phone, Plus, Users } from "lucide-react";
+import type { Contact } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { ListPagination } from "@/components/ui/list-pagination";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { WzFieldsPanel, type WzFieldOption } from "@/components/workiz/fields-panel";
+import { WzFilterSelect, type WzFilterGroup, type WzFilterPick } from "@/components/workiz/filter-select";
+import { WzPager, type WzPagerState } from "@/components/workiz/pager";
+import { WzKpiCard, WzKpiCardSkeleton } from "@/components/workiz/kpi-card";
+import { WzListToolbar, WzPageSizeSelect, WzSearchBox, WzToolbarButton } from "@/components/workiz/toolbar";
 import { pagedSource } from "@/lib/paging/paged-source";
 import { usePageSize } from "@/lib/paging/use-page-size";
 import { usePager } from "@/lib/paging/use-pager";
+import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { settled } from "@/lib/use-page-ready";
-import { cn } from "@/lib/utils";
 import { usePermissions, useDenied } from "@/features/auth/use-permissions";
 import { useJobSources } from "@/features/job-sources/hooks";
-import type { Contact } from "@bitcrm/types";
-import { useContactsPage, useContactSearch, useCompaniesByIds, useContactsCount } from "../hooks";
+import { useClientTags } from "@/features/client-tags/hooks";
+import { activeClientTags, tagSolidClasses } from "@/features/client-tags/lib";
+import { useEstimateSummary } from "@/features/estimates/hooks";
+import { useClientBalances, useCompaniesByIds, useContactSearchPage, useContactsCount, useContactsPage } from "../hooks";
 import { useLastWhole } from "../use-last-whole";
-import { ContactsTable } from "./contacts-table";
+import { useClientFieldsStore } from "../clients-fields-store";
+import {
+  CLIENT_DEFAULT_PAGE_SIZE,
+  CLIENT_FIELDS,
+  CLIENT_PAGE_SIZES,
+  CLIENT_SEARCH_DEBOUNCE_MS,
+  clientKpis,
+  searchPager,
+  type ClientFieldIcon,
+} from "../clients-list";
+import { ClientsGrid, ClientsGridSkeleton } from "./clients-grid";
 import { ContactForm } from "./contact-form";
 import { MergeContactsDialog } from "./merge-contacts-dialog";
 
 const NO_ROWS: Contact[] = [];
 
+/** The panel's glyphs (Workiz's `wfi-*`), by their nearest lucide twins. */
+const FIELD_ICONS: Record<ClientFieldIcon, React.ReactNode> = {
+  users: <Users />,
+  location: <MapPin />,
+  phone: <Phone />,
+  calendar: <CalendarDays />,
+  email: <Mail />,
+  source: <BarChart3 />,
+  type: <Diamond />,
+};
+const FIELD_OPTIONS: WzFieldOption[] = CLIENT_FIELDS.map((f) => ({ id: f.id, label: f.label, icon: FIELD_ICONS[f.icon] }));
+
+/** The footer's numbers, frozen with the rows they describe. */
+type FooterNumbers = Pick<WzPagerState, "page" | "from" | "to" | "total" | "totalIsFloor" | "totalPages" | "totalPagesIsFloor">;
+
+/**
+ * The Clients list, as Workiz draws `/root/clients/` (captures
+ * `pg_contacts_wz_*`): four KPI cards; "Filter results" (client tags) with
+ * "+ Add Client" at the right; the grey strip — Search, the page size,
+ * "Merge" (ours, where Workiz has Export) and "Fields"; the grid — Name
+ * (email or number under it, then the tags) | Address | Phone | Created,
+ * or the columns the Visible fields panel saved; Workiz's pager under it.
+ *
+ * Everything the grid shows comes from the server a page at a time: the CRM
+ * pages the list (tags included), the search service pages the Search box's
+ * matches with their total. Workiz asks ~1 s after the last key; so does this.
+ * One skeleton, then the whole page; a new page, search or filter keeps the
+ * rows on screen under a white wash until the next set is whole.
+ */
 export function ContactsPage() {
   const router = useRouter();
   const { can, isLoading: permsLoading } = usePermissions();
   const denied = useDenied();
-  const [search, setSearch] = useState("");
   const [creating, setCreating] = useState(false);
   const [merging, setMerging] = useState(false);
 
-  // Untyped: the list a page at a time, as the CRM pages it. Typed: the
-  // search service answers, hydrated in one call — never the whole table.
-  const searching = search.trim().length >= 2;
-  const [pageSize, setPageSize] = usePageSize("contacts");
-  const pageQuery = useContactsPage(undefined, !searching, pageSize);
-  const found = useContactSearch(searching ? search : "");
-  // The Source column names its ad sources: asked for with the rows, not by
-  // the column once it is on screen.
-  const jobSources = useJobSources();
+  // Search: the text as typed, and as asked — 1 s after the last key. Cleared
+  // text asks at once (the × or a select-all-delete), as there is nothing to wait for.
+  const [searchText, setSearchText] = useState("");
+  const settledText = useDebouncedValue(searchText.trim(), CLIENT_SEARCH_DEBOUNCE_MS);
+  const query = searchText.trim() ? settledText : "";
+  const searching = query.length > 0;
 
-  // Пошук відповідає сервісом пошуку, не сторінками CRM — тоді лічильник
-  // списку ні до чого.
-  const count = useContactsCount(undefined, !searching);
+  // Filter results → TAGS (any of them, as Workiz's).
+  const [picks, setPicks] = useState<WzFilterPick[]>([]);
+  const tagIds = useMemo(() => picks.filter((p) => p.group === "tag").map((p) => p.value), [picks]);
+
+  const [pageSize, setPageSize] = usePageSize("clients", { sizes: CLIENT_PAGE_SIZES, fallback: CLIENT_DEFAULT_PAGE_SIZE });
+  const columns = useClientFieldsStore((s) => s.used);
+  const saveColumns = useClientFieldsStore((s) => s.save);
+
+  // The list a page at a time.
+  const pageQuery = useContactsPage(undefined, !searching, pageSize, tagIds);
+  const count = useContactsCount(undefined, !searching, tagIds);
   const pager = usePager(pagedSource(pageQuery), {
     total: count.data?.total,
     totalIsFloor: count.data?.atLeast,
     pageSize,
-    resetKey: String(pageSize),
+    resetKey: `${pageSize}|${tagIds.join(",")}`,
   });
-  const rows = searching ? found.data : pager.items;
-  const filtered = rows.length ? rows : NO_ROWS;
-  // Назви компаній — лише тих, що в рядках на екрані.
-  const companies = useCompaniesByIds(
-    useMemo(() => filtered.map((c) => c.companyId).filter((id): id is string => !!id), [filtered]),
-  );
-  // Пошук дублікатів дивиться на все, що встигли погортати, а не на одну
-  // сторінку: два записи однієї людини рідко стоять поруч.
-  const loaded = useMemo(
-    () => pageQuery.data?.pages.flatMap((p) => p.data) ?? [],
-    [pageQuery.data],
+
+  // The search a page at a time; a new text, size or filter starts at page 1.
+  const [searchPage, setSearchPage] = useState(1);
+  const searchKey = `${query}|${pageSize}|${tagIds.join(",")}`;
+  const [seenSearchKey, setSeenSearchKey] = useState(searchKey);
+  if (seenSearchKey !== searchKey) {
+    setSeenSearchKey(searchKey);
+    if (searchPage !== 1) setSearchPage(1);
+  }
+  const found = useContactSearchPage(query, searchPage, pageSize);
+  // The search service knows nothing of tags: a picked tag narrows its page here.
+  const foundRows = useMemo(
+    () => (tagIds.length ? found.rows.filter((c) => c.tagIds?.some((t) => tagIds.includes(t))) : found.rows),
+    [found.rows, tagIds],
   );
 
-  // The rows go up whole: with their companies, their sources, the count
-  // under them and the buttons over them — they used to arrive in five waves.
-  // A new search, page or page size keeps the set on screen (dimmed) until
-  // the next one is whole, rather than emptying the list or showing rows
-  // whose Company column fills in a beat later.
+  // The cards: the whole list's count, and the money the viewer may see.
+  const allCount = useContactsCount(undefined, true);
+  const seesInvoices = !permsLoading && can("invoices", "view");
+  const seesEstimates = !permsLoading && can("estimates", "view");
+  const balances = useClientBalances(seesInvoices);
+  const estimateSummary = useEstimateSummary(seesEstimates);
+
+  const clientTags = useClientTags();
+  const tagMap = useMemo(() => new Map((clientTags.data ?? []).map((t) => [t.id, t])), [clientTags.data]);
+  const filterGroups: WzFilterGroup[] = useMemo(
+    () => [
+      {
+        id: "tag",
+        title: "Tags",
+        chipPrefix: "tag",
+        options: activeClientTags(clientTags.data).map((t) => ({ value: t.id, label: t.name, colorClassName: tagSolidClasses(t.color) })),
+      },
+    ],
+    [clientTags.data],
+  );
+
+  // What the columns print beside the rows, asked for only when shown.
+  const showsCompany = columns.includes("company");
+  const showsSource = columns.includes("source");
+  const jobSources = useJobSources();
+  // A server from before the tag filter sends every row: the picked tags still hold here.
+  const listRows = useMemo(
+    () => (tagIds.length ? pager.items.filter((c) => c.tagIds?.some((t) => tagIds.includes(t))) : pager.items),
+    [pager.items, tagIds],
+  );
+  const rows = searching ? foundRows : listRows.length ? listRows : NO_ROWS;
+  const companies = useCompaniesByIds(
+    useMemo(
+      () => (showsCompany ? rows.map((c) => c.companyId).filter((id): id is string => !!id) : []),
+      [rows, showsCompany],
+    ),
+  );
+  // Merge looks across everything paged through, not one page: two records
+  // of one person seldom sit side by side.
+  const loaded = useMemo(() => pageQuery.data?.pages.flatMap((p) => p.data) ?? [], [pageQuery.data]);
+
+  const footer: WzPagerState = searching
+    ? searchPager({ page: searchPage, size: pageSize, total: tagIds.length ? undefined : found.total, rows: foundRows.length, setPage: setSearchPage })
+    : pager;
+  const { page, from, to, total, totalIsFloor, totalPages, totalPagesIsFloor } = footer;
+
+  // Whole: the rows with everything printed beside them, the cards' numbers,
+  // the tag catalog the chips are named from — up together, in one frame.
   const listIn = settled(pageQuery) && !pageQuery.isPlaceholderData && settled(count);
+  const cardsIn = settled(allCount) && settled(balances) && settled(estimateSummary);
   const whole =
-    !permsLoading && settled(jobSources) && !companies.isLoading && (searching ? found.answered : listIn);
+    !permsLoading &&
+    cardsIn &&
+    settled(clientTags) &&
+    (!showsSource || settled(jobSources)) &&
+    !(showsCompany && companies.isLoading) &&
+    (searching ? found.answered : listIn);
   const view = useMemo(
-    () => ({ rows: filtered, companyMap: companies.map, searching }),
-    [filtered, companies.map, searching],
+    () => ({
+      rows,
+      companyMap: companies.map,
+      searching,
+      numbers: { page, from, to, total, totalIsFloor, totalPages, totalPagesIsFloor } as FooterNumbers,
+    }),
+    // The numbers by value: the pager is a new object every render.
+    [rows, companies.map, searching, page, from, to, total, totalIsFloor, totalPages, totalPagesIsFloor],
   );
   const { shown, stale } = useLastWhole(view, whole);
 
   if (denied("contacts", "view")) return <NoAccess entity="contacts" />;
 
+  const kpis = clientKpis({
+    clients: typeof allCount.data?.total === "number" ? { total: allCount.data.total, atLeast: allCount.data.atLeast } : undefined,
+    invoices: seesInvoices && balances.data ? balances.data : undefined,
+    estimates: seesEstimates && estimateSummary.data ? estimateSummary.data.pending : undefined,
+  });
+
+  const open = (c: Contact, e: MouseEvent) => {
+    const url = `/contacts/${c.id}`;
+    if (e.metaKey || e.ctrlKey || e.button === 1) window.open(url, "_blank", "noopener,noreferrer");
+    else router.push(url);
+  };
+
+  // While a new set is out, ‹ › wait for it: their page numbers belong to it.
+  const pagerState: WzPagerState | null = shown
+    ? {
+        ...shown.numbers,
+        canPrev: !stale && shown.numbers.page > 1,
+        canNext: !stale && footer.canNext,
+        isFetching: stale,
+        prev: () => (searching ? setSearchPage((p) => Math.max(1, p - 1)) : pager.prev()),
+        next: () => (searching ? setSearchPage((p) => p + 1) : pager.next()),
+      }
+    : null;
+
   return (
-    <div className="flex flex-1 flex-col">
-      <div className="flex items-center justify-between gap-4 border-b px-6 py-4">
-        <div>
-          <h1 className="text-lg font-semibold tracking-tight">Contacts</h1>
-          <p className="text-sm text-muted-foreground">
-            People — residents and company representatives.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          {/* Merge soft-deletes the duplicates, so it follows the delete permission (backend guard). */}
-          {shown && can("contacts", "delete") ? (
-            <Button variant="outline" className="gap-1.5" onClick={() => setMerging(true)}>
-              <Merge className="size-4" /> Merge
-            </Button>
-          ) : null}
-          {shown && can("contacts", "create") ? (
-            <Button variant="brand" className="gap-1.5" onClick={() => setCreating(true)}>
-              <Plus className="size-4" /> New contact
-            </Button>
-          ) : null}
-        </div>
+    // The page scrolls itself inside the shell, as Workiz's main container does.
+    <div className="flex min-h-0 flex-1 flex-col overflow-auto text-wz-strong" data-slot="clients-scroller">
+      {/* The KPI cards: 317×81, 31px apart, 20px in (pg_contacts_wz_01: x=220, y=126). */}
+      <div className="grid grid-cols-2 gap-[31px] px-5 pt-[34px] xl:grid-cols-4">
+        {shown
+          ? kpis.map((k) => <WzKpiCard key={k.key} value={k.value} caption={k.caption} tone={k.tone} label={k.label} />)
+          : (["ink", "orange", "red", "ink"] as const).map((tone, i) => <WzKpiCardSkeleton key={i} tone={tone} />)}
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 border-b px-6 py-3">
-        <div className="relative w-full max-w-xs">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            className="h-9 pl-8"
-            placeholder="Search name, phone, email"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </div>
-        <span className="ml-auto text-sm text-muted-foreground">
-          {!shown
-            ? null
-            : shown.searching
-              ? `${shown.rows.length} ${shown.rows.length === 1 ? "match" : "matches"}`
-              : `Showing ${shown.rows.length}`}
-        </span>
-      </div>
-
-      <div className="flex-1 overflow-y-auto p-6">
-        {!shown ? (
-          <Skeleton className="h-64 w-full" />
-        ) : shown.rows.length === 0 ? (
-          <EmptyState
-            icon={<Users className="size-6" />}
-            title={shown.searching ? "No matching contacts" : "No contacts yet"}
-            hint={shown.searching ? "Try a different search." : "Create your first contact to get started."}
-          />
+      {/* Filter results (664×38) and "+ Add Client" at the right, tops aligned.
+          Workiz's "Show Franchises Clients" row sits between — we have no franchises. */}
+      <div className="mt-[44px] flex items-start gap-4 px-5">
+        {shown ? (
+          <WzFilterSelect groups={filterGroups} value={picks} onChange={setPicks} className="w-[664px] max-w-full" />
         ) : (
-          <div aria-busy={stale || undefined} className={cn(stale && "opacity-60")}>
-            <ContactsTable contacts={shown.rows} companyMap={shown.companyMap} />
-            {/* Знайдене пошуковим сервісом приходить одним набором — там
-                гортати нема чого. */}
-            {shown.searching ? null : (
-              <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} />
-            )}
-          </div>
+          <Skeleton className="h-[38px] w-[664px] max-w-full" />
         )}
+        {shown && can("contacts", "create") ? (
+          <Button className="ml-auto h-8 shrink-0 gap-[3px] border-0 px-3" onClick={() => setCreating(true)}>
+            <Plus className="size-5" strokeWidth={2} />
+            <span className="px-1">Add Client</span>
+          </Button>
+        ) : null}
       </div>
 
-      <MergeContactsDialog
-        open={merging}
-        onOpenChange={setMerging}
-        contacts={loaded}
-      />
+      {/* The grey strip: Search; the page size, Merge (ours, in Export's place) and Fields at the right. */}
+      <WzListToolbar className="mt-[63px]">
+        <WzSearchBox value={searchText} onChange={setSearchText} maxLength={100} />
+        <div className="ml-auto flex items-center gap-4">
+          <WzPageSizeSelect value={pageSize} sizes={CLIENT_PAGE_SIZES} onChange={setPageSize} />
+          {/* Merge soft-deletes the duplicates, so it follows the delete permission (backend guard). */}
+          {!permsLoading && can("contacts", "delete") ? (
+            <WzToolbarButton onClick={() => setMerging(true)}>
+              <Merge strokeWidth={1.75} />
+              Merge
+            </WzToolbarButton>
+          ) : null}
+          <WzFieldsPanel options={FIELD_OPTIONS} used={columns} onSave={saveColumns} />
+        </div>
+      </WzListToolbar>
+
+      {/* The grid runs edge to edge, then the pager. */}
+      {!shown ? (
+        <ClientsGridSkeleton columns={columns} />
+      ) : (
+        <div aria-busy={stale || undefined} className="relative">
+          <ClientsGrid contacts={shown.rows} columns={columns} companyMap={shown.companyMap} tagMap={tagMap} onOpen={open} />
+          {pagerState ? <WzPager pager={pagerState} nav /> : null}
+          {/* Workiz keeps the rows it has under a white wash until the next set is in. */}
+          {stale ? <div aria-hidden className="pointer-events-none absolute inset-0 z-20 bg-white/60" /> : null}
+        </div>
+      )}
+
+      <MergeContactsDialog open={merging} onOpenChange={setMerging} contacts={loaded} />
 
       <Dialog open={creating} onOpenChange={setCreating}>
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
-          <DialogHeader><DialogTitle>New contact</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle>Add Client</DialogTitle>
+          </DialogHeader>
           <ContactForm
             onCancel={() => setCreating(false)}
             onDone={(c) => {

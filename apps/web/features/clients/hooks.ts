@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import type { Address, ClientType, Company, Contact, CompanyDocumentType } from "@bitcrm/types";
 import { queryKeys } from "@/lib/query-keys";
 import { useGlobalSearch } from "@/features/search/use-global-search";
+import { globalSearch } from "@/features/search/api";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import * as api from "./api";
 import type {
@@ -28,20 +29,30 @@ import { contactName } from "./lib";
  * Скільки всього рядків під тими самими фільтрами — з цього панель робить
  * «Page 2 of 7». Сервер тримає число тридцять секунд, тож і тут стільки ж.
  */
-export function useContactsCount(companyId?: string, enabled = true) {
+export function useContactsCount(companyId?: string, enabled = true, tagIds: readonly string[] = []) {
+  const tags = sortedTags(tagIds);
   return useQuery({
-    queryKey: queryKeys.contacts.count(companyId ?? null),
-    queryFn: () => api.countContacts(companyId),
+    // Untagged, the key is what it always was: the cards and other lists share it.
+    queryKey: tags.length ? [...queryKeys.contacts.count(companyId ?? null), tags] : queryKeys.contacts.count(companyId ?? null),
+    queryFn: () => api.countContacts(companyId, tags),
     staleTime: 30_000,
     enabled,
   });
 }
 
-export function useContactsPage(companyId?: string, enabled = true, limit?: number) {
+/** The same tags in any order are the same list: sorted, so they make one key and one request. */
+function sortedTags(tagIds: readonly string[]): string[] {
+  return [...new Set(tagIds)].sort();
+}
+
+export function useContactsPage(companyId?: string, enabled = true, limit?: number, tagIds: readonly string[] = []) {
+  const tags = sortedTags(tagIds);
   return useInfiniteQuery({
     // Розмір сторінки в ключі: сторінки по 25 і по 100 — різні набори.
-    queryKey: [...queryKeys.contacts.page(companyId), limit ?? null],
-    queryFn: ({ pageParam }) => api.listContacts(companyId, pageParam, limit),
+    queryKey: tags.length
+      ? [...queryKeys.contacts.page(companyId), limit ?? null, tags]
+      : [...queryKeys.contacts.page(companyId), limit ?? null],
+    queryFn: ({ pageParam }) => api.listContacts(companyId, pageParam, limit, tags),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.pagination.nextCursor,
     enabled,
@@ -81,6 +92,54 @@ export function useContactSearch(query: string, limit = 50) {
     /** True while the text is too short to search. */
     tooShort: found.tooShort,
   };
+}
+
+/**
+ * One page of the Clients list's Search: the search service answers the page
+ * and how many matched in all, and the contacts are hydrated in one call, in
+ * the service's order. Workiz searches from the first character, so does
+ * this; blank text is idle. The page's own debounce decides when `query`
+ * changes. `answered` — the rows on hand belong to this very text and page.
+ */
+export function useContactSearchPage(query: string, page: number, size: number) {
+  const q = query.trim();
+  const found = useQuery({
+    queryKey: [...queryKeys.search.global(q, "full", ["contact"]), page, size],
+    queryFn: () => globalSearch({ q, mode: "full", types: ["contact"], page, size }),
+    enabled: q.length > 0,
+    placeholderData: keepPreviousData,
+    staleTime: 30_000,
+  });
+  const hits = found.data?.hits;
+  const ids = useMemo(() => (hits ? hits.map((h) => h.entityId) : NO_IDS), [hits]);
+  const hydrated = useContactsByIds(ids);
+  const rows = useMemo(
+    () => (q ? ids.map((id) => hydrated.map.get(id)).filter((c): c is Contact => Boolean(c)) : NO_CONTACTS),
+    [q, ids, hydrated.map],
+  );
+  const hydrating = ids.length > 0 && hydrated.isLoading;
+  return {
+    rows,
+    total: q ? found.data?.total : undefined,
+    answered: !q || found.isError || (found.data !== undefined && !found.isPlaceholderData && !hydrating),
+    isFetching: found.isFetching || hydrating,
+    isError: found.isError,
+  };
+}
+
+const NO_CONTACTS: Contact[] = [];
+
+/**
+ * The Due / Past due cards over the Clients list. Under the invoices' key, so
+ * a payment or a new invoice (which invalidate `invoices`) refreshes them.
+ */
+export function useClientBalances(enabled: boolean) {
+  return useQuery({
+    queryKey: [...queryKeys.invoices.all(), "client-balances"],
+    queryFn: api.getClientBalances,
+    enabled,
+    staleTime: 30_000,
+  });
 }
 
 /**

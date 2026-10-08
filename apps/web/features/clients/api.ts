@@ -22,10 +22,13 @@ export function listContacts(
   companyId?: string,
   cursor?: string,
   limit = PAGE,
+  /** Client tags: contacts carrying ANY of them (Workiz Filter results → TAGS). */
+  tagIds: readonly string[] = [],
 ): Promise<PaginatedResponse<Contact>> {
   const q = new URLSearchParams({ limit: String(limit) });
   if (companyId) q.set("companyId", companyId);
   if (cursor) q.set("cursor", cursor);
+  if (tagIds.length) q.set("tagIds", tagIds.join(","));
   return apiFetchPaginated<Contact>(`/crm/contacts?${q}`);
 }
 
@@ -75,12 +78,35 @@ export interface MergeContactsBody {
 export const mergeContacts = (body: MergeContactsBody): Promise<Contact> =>
   http.post<Contact>("/crm/contacts/merge", body);
 
+/** The open balances behind the Clients page's Due / Past due cards. */
+export interface ClientBalances {
+  dueAmount: number;
+  overdueAmount: number;
+  /** Clients with any open balance — absent on a billing service from before it. */
+  dueClientCount?: number;
+  overdueClientCount?: number;
+}
+
+/**
+ * Billing's `GET /invoices/balances` (UnpaidIndex, quick). A billing service
+ * from before that route answers 404 (`/invoices/:id`); its invoice summary
+ * carries the same balances, only slower — the cards still read.
+ */
+export async function getClientBalances(): Promise<ClientBalances> {
+  try {
+    return await http.get<ClientBalances>("/billing/invoices/balances");
+  } catch {
+    return http.get<ClientBalances>("/billing/invoices/summary");
+  }
+}
+
 /* --------------------------------------------------------------- companies */
 
 /** Скільки контактів під цим фільтром — число для «Page 2 of 7». */
-export function countContacts(companyId?: string): Promise<ListCount> {
+export function countContacts(companyId?: string, tagIds: readonly string[] = []): Promise<ListCount> {
   const q = new URLSearchParams();
   if (companyId) q.set("companyId", companyId);
+  if (tagIds.length) q.set("tagIds", tagIds.join(","));
   const s = q.toString();
   return http.get<ListCount>(`/crm/contacts/count${s ? `?${s}` : ""}`);
 }
