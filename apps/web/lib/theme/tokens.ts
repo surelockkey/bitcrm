@@ -111,6 +111,54 @@ export const LIGHT = {
   chart6: "#008300",
   chart7: "#4a3aa7",
   chart8: "#e34948",
+
+  // The Workiz form kit (components/workiz). Every value is a computed style
+  // or a rule read off app.workiz.com — the captures and the stylesheet dump
+  // under workiz-data-parser/data/ui_reference/jobs_parity_2026-10-08 — so
+  // the New Job form and the job page's Details tab match field for field.
+  // Text field: the floating label, the typed value, the yellow focus edge
+  // (#ffd400 — a hair brighter than the button yellow), new_01_empty and
+  // formkit_focus_empty.
+  wzLabel: "#8c8c8c",
+  wzText: "#666666",
+  wzFocus: "#ffd400",
+  // Select (react-select): placeholder, value, hover edge, option text and
+  // the focused / chosen option fills, new_02_job_type_open and
+  // formkit_country_open. The placeholder grey is also the textarea's.
+  wzPlaceholder: "#808080",
+  wzValue: "#333333",
+  wzFieldHover: "#b3b3b3",
+  wzStrong: "#404040",
+  wzOptionFocus: "#deebff",
+  wzOptionSelected: "#2684ff",
+  // The time list's focused row (formkit_time_hover2) — their information_100.
+  wzOptionSoft: "#c2deff",
+  // A disabled control, as react-select draws one.
+  wzDisabled: "#f2f2f2",
+  wzDisabledBorder: "#e6e6e6",
+  // The newer outlined fields (Starts / Ends / At) and the upload tiles: the
+  // edge, the resting label, the disabled grey, and the blue the edge turns
+  // while focused — the same blue as their links ("Set recurring schedule").
+  wzOutline: "#9ea6aa",
+  wzOutlineLabel: "#768287",
+  wzOutlineDisabled: "#bfc4c7",
+  wzLink: "#6aa8ee",
+  // Messages: "Please select a service area…", "Required field".
+  wzError: "#e35a36",
+  // The Scheduled toggle, on and off.
+  wzSwitchOn: "#50d58c",
+  wzSwitchOff: "#bbbbbb",
+  // The job page's section rule under "Client", "Schedule", "Job"…
+  wzRule: "#cad3d6",
+  // Upload tile fill, and the "You can choose up to 5 files" caption.
+  wzTile: "#f7f8f8",
+  wzCaption: "#999999",
+  // Button states: the yellow pill hovered / pressed, the outline pill
+  // hovered / pressed (formkit_create_hover, formkit_viewschedule_hover).
+  wzPrimaryHover: "#eac300",
+  wzPrimaryActive: "#dcb802",
+  wzSecondaryHover: "#f3f6f7",
+  wzSecondaryActive: "#c8ced0",
 } as const satisfies Record<string, string>;
 
 /** Pairs that carry running text: WCAG AA, 4.5:1. */
