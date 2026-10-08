@@ -113,7 +113,7 @@ export function DealEstimatesTab({
         </div>
       ) : (
         <>
-          <div className="flex min-h-[61px] flex-wrap items-center justify-between gap-3 py-2.5">
+          <div className="flex min-h-[61px] flex-wrap items-start justify-between gap-3 pt-3">
             <h3 className="text-[16px] leading-[19px] font-normal text-[#404040]">Estimates</h3>
             {canSendAll && sendAll.mode ? (
               <button type="button" className={PILL_YELLOW} onClick={() => setSendingAll(true)}>

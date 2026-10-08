@@ -559,7 +559,9 @@ export function DealTimelinePanel({
       {open ? (
         <aside
           aria-label="Job timeline"
-          className="flex w-[350px] max-w-[85vw] shrink-0 flex-col overflow-hidden bg-white shadow-[-3px_0_8px_rgba(0,0,0,0.12)]"
+          // In the page's flow, narrowing it, as Workiz does; on a phone it
+          // floats over the page instead of squeezing it to nothing.
+          className="flex w-[350px] max-w-[85vw] shrink-0 flex-col overflow-hidden bg-white shadow-[-3px_0_8px_rgba(0,0,0,0.12)] max-md:fixed max-md:inset-y-0 max-md:right-0 max-md:z-40"
         >
           <PanelBody
             dealId={dealId}
@@ -634,7 +636,8 @@ function RailIcon({
       <Icon className="size-[22px]" strokeWidth={1.25} />
       {badge ? (
         // Workiz: a 20px #f45e44 disc, 11px/500 white, riding the icon's top right.
-        <span className="absolute -top-3.5 left-[13px] grid h-5 min-w-5 place-items-center rounded-full bg-[#f45e44] px-1 text-[11px] leading-5 font-medium text-white tabular-nums">
+        // (rounded-pill: a disc at one digit, a lozenge at "99+".)
+        <span className="absolute -top-3.5 left-[13px] grid h-5 min-w-5 place-items-center rounded-pill bg-[#f45e44] px-1 text-[11px] leading-5 font-medium text-white tabular-nums">
           {badge}
         </span>
       ) : null}
@@ -917,11 +920,8 @@ function PanelBody({
   );
 }
 
-/** Workiz draws a note with a pen-in-square and a call with a phone; the rest keep their event icon. */
-function rowIcon(entry: TimelineEntry): typeof Sparkles {
-  if (entry.eventType === TimelineEventType.NOTE_ADDED) return SquarePen;
-  return (META[entry.eventType] ?? LEGACY_META[entry.eventType] ?? fallbackMeta(entry.eventType)).icon;
-}
+/** Workiz draws a note with a pen-in-square; the rest keep their event icon. */
+const NOTE_ROW_META = { icon: SquarePen, label: "Note" };
 
 /**
  * One row of the job's Timeline the way Workiz draws it (job_b_03_rail0):
@@ -952,7 +952,11 @@ function JobEntryRow({
   onSaveEdit: (note: string) => void;
   onDelete: () => void;
 }) {
-  const Icon = rowIcon(entry);
+  const meta =
+    entry.eventType === TimelineEventType.NOTE_ADDED
+      ? NOTE_ROW_META
+      : META[entry.eventType] ?? LEGACY_META[entry.eventType] ?? fallbackMeta(entry.eventType);
+  const Icon = meta.icon;
   const label = labelOf(entry);
   const d = detail(entry, lookups);
   const changeLines = itemChangeLines(entry);

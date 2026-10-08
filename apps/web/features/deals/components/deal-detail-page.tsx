@@ -165,7 +165,7 @@ export function DealDetailPage({
               <DetailsTab deal={deal} canEdit={canEdit} />
             </div>
             {tab === "items" ? (
-              <TabPanel tab="items" className="px-10 pt-10 pb-12">
+              <TabPanel tab="items" className="px-4 pt-10 pb-12 md:px-10">
                 <DealProductsTab
                   deal={deal}
                   canEdit={canEdit}
@@ -177,22 +177,22 @@ export function DealDetailPage({
               </TabPanel>
             ) : null}
             {tab === "payments" ? (
-              <TabPanel tab="payments" className="px-5 pt-10 pb-12">
+              <TabPanel tab="payments" className="px-2 pt-10 pb-12 md:px-5">
                 <DealPaymentsTab deal={deal} />
               </TabPanel>
             ) : null}
             {tab === "estimates" ? (
-              <TabPanel tab="estimates" className="px-10 pt-10 pb-12">
+              <TabPanel tab="estimates" className="px-4 pt-10 pb-12 md:px-10">
                 <DealEstimatesTab deal={deal} estimateId={estimateId} onEstimateChange={openEstimate} startCreating={startCreatingEstimate} />
               </TabPanel>
             ) : null}
             {tab === "invoice" ? (
-              <TabPanel tab="invoice" className="px-10 pt-10 pb-12">
+              <TabPanel tab="invoice" className="px-4 pt-10 pb-12 md:px-10">
                 <DealInvoiceTab deal={deal} canEditItems={canEdit} />
               </TabPanel>
             ) : null}
             {tab === "attachments" ? (
-              <TabPanel tab="attachments" className="px-5 pt-5 pb-12">
+              <TabPanel tab="attachments" className="px-4 pt-5 pb-12 md:px-5">
                 <DealAttachmentsTab dealId={dealId} canEdit={canEdit} />
               </TabPanel>
             ) : null}

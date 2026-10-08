@@ -171,8 +171,12 @@ export const markArrived = (id: string, body: MarkArrivedBody = {}): Promise<Dea
 
 /* --------------------------------------------------------------- timeline */
 
+/**
+ * A page of the job's Timeline — the server's largest (100), because the
+ * right rail counts notes and the filter its options off the first page.
+ */
 export function getTimeline(id: string, cursor?: string): Promise<PaginatedResponse<TimelineEntry>> {
-  const q = new URLSearchParams({ limit: "30" });
+  const q = new URLSearchParams({ limit: "100" });
   if (cursor) q.set("cursor", cursor);
   return apiFetchPaginated<TimelineEntry>(`/deals/${id}/timeline?${q}`);
 }

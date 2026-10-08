@@ -66,7 +66,7 @@ export function JobHeader({
   const actions = jobActions({ superStatus: deal.superStatus, canEdit, canDelete });
 
   return (
-    <div className="px-10 pt-5">
+    <div className="px-4 pt-5 md:px-10">
       <div className="flex min-h-[34px] flex-wrap items-center gap-x-3 gap-y-2">
         <h1 className="text-[18px] leading-[27px] font-semibold text-foreground">
           Job <span>#{deal.dealNumber}</span>
