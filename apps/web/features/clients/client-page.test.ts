@@ -1,6 +1,17 @@
 import { describe, it, expect } from "vitest";
-import type { Address, Contact, Deal, Estimate, Invoice } from "@bitcrm/types";
-import { clientKpis, clientAddressRows, filterAddressRows, amountDueByDeal, jobDateLabel, byJobDateDesc } from "./client-page";
+import type { Address, Contact, Deal, Estimate, Invoice, Payment } from "@bitcrm/types";
+import {
+  clientKpis,
+  clientAddressRows,
+  filterAddressRows,
+  amountDueByDeal,
+  pastDueByDeal,
+  jobDateLabel,
+  clientJobDate,
+  byJobDateDesc,
+  wzMoney,
+  wzPhone,
+} from "./client-page";
 
 const addr = (street: string, city = "Dallas", zip = "75201", unit?: string): Address => ({
   street,
@@ -23,7 +34,7 @@ const deal = (o: { id: string; address: Address; total?: number }): Deal =>
   ({ id: o.id, dealNumber: o.id.toUpperCase(), address: o.address, totals: o.total === undefined ? undefined : { total: o.total } }) as unknown as Deal;
 
 describe("clientKpis — Workiz's four cards over the client's invoices and estimates", () => {
-  it("adds up what is due, what is past its due date, and all revenue; counts estimates", () => {
+  it("adds up what is due and what is past its due date; revenue is what was paid on the invoices; counts estimates", () => {
     const invoices = [
       invoice({ id: "a", total: 100, balanceDue: 100, dueDate: "2026-09-01" }), // past due
       invoice({ id: "b", total: 250, balanceDue: 50, dueDate: "2026-10-20" }), // due, not yet late
@@ -34,9 +45,25 @@ describe("clientKpis — Workiz's four cards over the client's invoices and esti
     expect(clientKpis(invoices, estimates, "2026-10-01")).toEqual({
       pastDue: 100,
       due: 150,
-      totalRevenue: 650,
+      totalRevenue: 500,
       estimates: 2,
     });
+  });
+
+  // Workiz's TOTAL REVENUE is the client's payments (checked on 13 clients
+  // against the export: revenue == payments, not invoiced − due).
+  it("with the client's payments in hand, revenue is what they paid: settled money, less refunds", () => {
+    const invoices = [invoice({ id: "a", total: 100, balanceDue: 100, dueDate: "2026-09-01" })];
+    const pay = (o: Partial<Payment>) => ({ amount: 0, refundedAmount: 0, status: "settled", ...o }) as Payment;
+    const payments = [
+      pay({ id: "p1", amount: 200 }),
+      pay({ id: "p2", amount: 50, refundedAmount: 20 }),
+      pay({ id: "p3", amount: 75, refundedAmount: 75, status: "refunded" }),
+      pay({ id: "p4", amount: 999, status: "pending" }),
+      pay({ id: "p5", amount: 999, status: "failed" }),
+    ];
+    expect(clientKpis(invoices, [], "2026-10-01", payments).totalRevenue).toBe(230);
+    expect(clientKpis(invoices, [], "2026-10-01", []).totalRevenue).toBe(0);
   });
 
   it("an invoice due today is not past due yet, and nothing is negative", () => {
@@ -78,6 +105,16 @@ describe("clientAddressRows — one row per distinct address, as Workiz's Addres
     expect(rows[0]).toMatchObject({ isService: true, isBilling: true });
   });
 
+  it("adds up the balances still due, and past due, on the jobs at each address", () => {
+    const deals = [
+      deal({ id: "d1", address: addr("300 Convent St", "San Antonio", "78205"), total: 100 }),
+      deal({ id: "d2", address: addr("300 Convent St", "San Antonio", "78205"), total: 50 }),
+    ];
+    const rows = clientAddressRows(contact, deals, { due: new Map([["d1", 30], ["d2", 20]]), pastDue: new Map([["d1", 30]]) });
+    expect(rows[1]).toMatchObject({ jobs: 2, total: 150, due: 50, pastDue: 30 });
+    expect(rows[0]).toMatchObject({ due: 0, pastDue: 0 });
+  });
+
   it("filterAddressRows searches street, city, state and zip, ignoring case", () => {
     const rows = clientAddressRows(contact, []);
     expect(filterAddressRows(rows, "convent").map((r) => r.address.city)).toEqual(["San Antonio"]);
@@ -98,6 +135,52 @@ describe("job row helpers", () => {
     expect(jobDateLabel({ scheduledDate: "2026-10-09", scheduledTimeSlot: "11:00-12:00" } as Deal)).toBe("Fri Oct 09, 2026 11:00 am");
     expect(jobDateLabel({ scheduledDate: "2026-10-07", allDay: true } as Deal)).toBe("Wed Oct 07, 2026");
     expect(jobDateLabel({} as Deal)).toBe("Unscheduled");
+  });
+});
+
+describe("Workiz's printing", () => {
+  it("wzMoney: plain grouped figures with two decimals, no currency sign", () => {
+    expect(wzMoney(67291)).toBe("67,291.00");
+    expect(wzMoney(202.654)).toBe("202.65");
+    expect(wzMoney(0)).toBe("0.00");
+    expect(wzMoney(-12.5)).toBe("-12.50");
+  });
+
+  it('wzPhone: a US number as "(505) 228 - 5946", foreign ones as they are, an extension after', () => {
+    expect(wzPhone("+15052285946")).toBe("(505) 228 - 5946");
+    expect(wzPhone("+15052285946", "102")).toBe("(505) 228 - 5946 ext. 102");
+    expect(wzPhone("+380958601427")).toBe("+380 95 860 1427");
+  });
+});
+
+describe("pastDueByDeal — Workiz's Past Due column", () => {
+  it("is the invoice's balance once its due date has passed, else zero", () => {
+    const map = pastDueByDeal(
+      [
+        invoice({ id: "a", dealId: "d1", total: 100, balanceDue: 40, dueDate: "2026-09-30" }),
+        invoice({ id: "b", dealId: "d2", total: 100, balanceDue: 40, dueDate: "2026-10-01" }),
+        { ...invoice({ id: "c", total: 5, balanceDue: 5, dueDate: "2026-01-01" }), dealId: undefined } as unknown as Invoice,
+      ],
+      "2026-10-01",
+    );
+    expect(map.get("d1")).toBe(40);
+    expect(map.get("d2")).toBe(0);
+    expect(map.size).toBe(2);
+  });
+});
+
+describe("clientJobDate — the Job Date column on the account's clock", () => {
+  it("converts a visit booked on the job's own clock to the account's, zero-padded", () => {
+    const d = { scheduledDate: "2026-09-21", scheduledTimeSlot: "17:00-19:00" } as Deal;
+    expect(clientJobDate(d, "America/Los_Angeles", "America/New_York")).toBe("Mon Sep 21, 2026 08:00 pm");
+    expect(clientJobDate(d, undefined, "America/New_York")).toBe("Mon Sep 21, 2026 05:00 pm");
+  });
+
+  it("an all-day visit keeps the day alone; no date reads Unscheduled", () => {
+    expect(clientJobDate({ scheduledDate: "2026-10-09", scheduledTimeSlot: "08:00-09:00", allDay: true } as Deal, undefined, "America/New_York")).toBe(
+      "Fri Oct 09, 2026",
+    );
+    expect(clientJobDate({} as Deal, undefined, "America/New_York")).toBe("Unscheduled");
   });
 });
 

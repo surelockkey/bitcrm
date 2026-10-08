@@ -1,4 +1,6 @@
-import type { Address, Contact, Deal, Estimate, Invoice } from "@bitcrm/types";
+import { COUNTED_PAYMENT_STATUSES, type Address, type Contact, type Deal, type Estimate, type Invoice, type Payment } from "@bitcrm/types";
+import { formatPhoneWithExtension } from "@/lib/phone";
+import { workizScheduleCell } from "@/features/deals/schedule-cell";
 import { addressKey } from "./lib";
 
 /** Workiz's four cards over the client's documents: Past due, Due, Total revenue, Estimates. */
@@ -14,18 +16,44 @@ const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 /**
  * `today` is the account's "YYYY-MM-DD". An invoice is past due the day
  * AFTER its due date; one due today still only counts as due.
+ *
+ * TOTAL REVENUE is what the client has paid — Workiz's number is the sum of
+ * the client's payments (13 clients checked against the export: it equals
+ * the payments, not invoiced − due). With the payments in hand (`payments`,
+ * for a viewer who may read them) it is their settled money less refunds;
+ * without them, what the invoices say was paid on them.
  */
-export function clientKpis(invoices: Invoice[], estimates: Estimate[], today: string): ClientKpis {
+export function clientKpis(invoices: Invoice[], estimates: Estimate[], today: string, payments?: Payment[]): ClientKpis {
   let pastDue = 0;
   let due = 0;
-  let totalRevenue = 0;
+  let paidOnInvoices = 0;
   for (const inv of invoices) {
     const balance = Math.max(0, inv.totals?.balanceDue ?? 0);
     due += balance;
     if (balance > 0 && inv.dueDate < today) pastDue += balance;
-    totalRevenue += inv.totals?.total ?? 0;
+    paidOnInvoices += inv.totals?.amountPaid ?? 0;
   }
+  const totalRevenue = payments
+    ? payments
+        .filter((p) => COUNTED_PAYMENT_STATUSES.includes(p.status))
+        .reduce((sum, p) => sum + (p.amount ?? 0) - (p.refundedAmount ?? 0), 0)
+    : paidOnInvoices;
   return { pastDue: round2(pastDue), due: round2(due), totalRevenue: round2(totalRevenue), estimates: estimates.length };
+}
+
+const GROUPED = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/** Workiz's grid figures: "67,291.00" — grouped, two decimals, no currency sign. */
+export function wzMoney(n: number): string {
+  return GROUPED.format(Math.round((n + Number.EPSILON) * 100) / 100);
+}
+
+/**
+ * Workiz's phone on the client card: "(505) 228 - 5946", the dash spaced out;
+ * a foreign number keeps its international grouping; an extension follows.
+ */
+export function wzPhone(phone: string, extension?: string): string {
+  return formatPhoneWithExtension(phone, extension).replace(/^(\(\d{3}\) \d{3})-(\d{4})/, "$1 - $2");
 }
 
 /** One line of Workiz's Addresses tab. */
@@ -39,14 +67,23 @@ export interface ClientAddressRow {
   jobs: number;
   /** Those jobs' totals added up. */
   total: number;
+  /** What is still owed on those jobs' invoices (Workiz's Due). */
+  due: number;
+  /** The part of it past its due date (Workiz's past_due). */
+  pastDue: number;
 }
 
 /**
  * One row per distinct address (street + unit + zip, case-insensitive): the
  * client's own list, the billing address, and any job address not on the
  * client. The service address leads; the rest keep the order they came in.
+ * `balances` (dealId → due / past due) adds up Workiz's Due and past_due.
  */
-export function clientAddressRows(contact: Pick<Contact, "addresses" | "billingAddress">, deals: Deal[]): ClientAddressRow[] {
+export function clientAddressRows(
+  contact: Pick<Contact, "addresses" | "billingAddress">,
+  deals: Deal[],
+  balances?: { due: Map<string, number>; pastDue: Map<string, number> },
+): ClientAddressRow[] {
   const rows = new Map<string, ClientAddressRow>();
   const add = (address: Address, flags: Partial<Pick<ClientAddressRow, "isService" | "isBilling">> = {}) => {
     const key = addressKey(address);
@@ -56,7 +93,16 @@ export function clientAddressRows(contact: Pick<Contact, "addresses" | "billingA
       row.isBilling ||= !!flags.isBilling;
       return row;
     }
-    const fresh: ClientAddressRow = { key, address, isService: !!flags.isService, isBilling: !!flags.isBilling, jobs: 0, total: 0 };
+    const fresh: ClientAddressRow = {
+      key,
+      address,
+      isService: !!flags.isService,
+      isBilling: !!flags.isBilling,
+      jobs: 0,
+      total: 0,
+      due: 0,
+      pastDue: 0,
+    };
     rows.set(key, fresh);
     return fresh;
   };
@@ -68,6 +114,8 @@ export function clientAddressRows(contact: Pick<Contact, "addresses" | "billingA
     const row = add(deal.address);
     row.jobs += 1;
     row.total = round2(row.total + (deal.totals?.total ?? 0));
+    row.due = round2(row.due + (balances?.due.get(deal.id) ?? 0));
+    row.pastDue = round2(row.pastDue + (balances?.pastDue.get(deal.id) ?? 0));
   }
   return [...rows.values()];
 }
@@ -90,6 +138,33 @@ export function amountDueByDeal(invoices: Invoice[]): Map<string, number> {
     if (inv.dealId) map.set(inv.dealId, Math.max(0, inv.totals?.balanceDue ?? 0));
   }
   return map;
+}
+
+/**
+ * dealId → the part of its invoice's balance that is past due (Workiz's Past
+ * Due column): the whole balance once the due date has passed, else 0.
+ */
+export function pastDueByDeal(invoices: Invoice[], today: string): Map<string, number> {
+  const map = new Map<string, number>();
+  for (const inv of invoices) {
+    if (!inv.dealId) continue;
+    const balance = Math.max(0, inv.totals?.balanceDue ?? 0);
+    map.set(inv.dealId, inv.dueDate < today ? balance : 0);
+  }
+  return map;
+}
+
+/**
+ * Workiz's Job Date column: the visit on the account's clock ("Mon Sep 21,
+ * 2026 08:00 pm") — a visit is stored on the clock of the zone it was booked
+ * in (`zone`: the job's own, else its service area's; absent = the
+ * account's), the same conversion as the jobs list's Scheduled cell.
+ */
+export function clientJobDate(deal: Pick<Deal, "scheduledDate" | "scheduledTimeSlot" | "allDay">, zone: string | undefined, accountZone: string): string {
+  return workizScheduleCell(
+    { scheduledDate: deal.scheduledDate, scheduledTimeSlot: deal.allDay ? undefined : deal.scheduledTimeSlot, zone },
+    accountZone,
+  ).when;
 }
 
 const DAY = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
