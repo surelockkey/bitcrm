@@ -1,5 +1,4 @@
 import type {
-  DashboardShare,
   JobStatisticsBy,
   JobStatisticsDay,
   JobStatisticsRow,
@@ -18,17 +17,17 @@ import type { JobsReportPreset } from "../jobs/lib";
 
 /* ---------------------------------------------------------------- toolbar */
 
-/** Workiz's Job Statistics presets, in its order ("This year" / "Last year" are the Jobs report's only). */
+/** Workiz's Job Statistics presets, in its order and its spelling ("This year" / "Last year" are the Jobs report's only). */
 export const STATISTICS_PRESETS: { id: JobsReportPreset; label: string }[] = [
   { id: "custom", label: "Custom" },
   { id: "today", label: "Today" },
   { id: "yesterday", label: "Yesterday" },
-  { id: "this_week_sun", label: "This week (Sun-Today)" },
-  { id: "this_week_mon", label: "This week (Mon-Today)" },
+  { id: "this_week_sun", label: "This week(Sun - Today)" },
+  { id: "this_week_mon", label: "This week (Mon - Today)" },
   { id: "last_7", label: "Last 7 days" },
-  { id: "last_week_sun", label: "Last week (Sun-Sat)" },
-  { id: "last_week_mon", label: "Last week (Mon-Sun)" },
-  { id: "last_business_week", label: "Last business week (Mon-Fri)" },
+  { id: "last_week_sun", label: "Last week (Sun - Sat)" },
+  { id: "last_week_mon", label: "Last week (Mon - Sun)" },
+  { id: "last_business_week", label: "Last business week (Mon - Fri)" },
   { id: "last_14", label: "Last 14 days" },
   { id: "this_month", label: "This month" },
   { id: "last_30", label: "Last 30 days" },
@@ -65,19 +64,73 @@ const shift = (day: string, days: number): string => {
   return d.toISOString().slice(0, 10);
 };
 
+/**
+ * A day's bucket. Workiz's weeks are MySQL's: Sunday to Saturday (checked
+ * live — 01–03.10.26 in one week, 04–08.10.26 in the next).
+ */
 function startOf(day: string, grain: Grain): string {
   if (grain === "month") return `${day.slice(0, 7)}-01`;
-  if (grain === "week") {
-    const dow = new Date(`${day}T00:00:00.000Z`).getUTCDay(); // 0 = Sunday
-    return shift(day, dow === 0 ? -6 : 1 - dow);
-  }
+  if (grain === "week") return shift(day, -new Date(`${day}T00:00:00.000Z`).getUTCDay()); // 0 = Sunday
   return day;
+}
+
+/**
+ * A bar's name under the chart, as Workiz prints it: the day "10/01/2026",
+ * a week by its Wednesday ("09/30/2026" for 27.09–03.10), a month "10/26".
+ */
+export function seriesLabel(key: string, grain: Grain): string {
+  const day = grain === "week" ? shift(key, 3) : key;
+  const [y, m, d] = day.split("-");
+  return grain === "month" ? `${m}/${y.slice(2)}` : `${m}/${d}/${y}`;
 }
 
 const cents = (n: number | undefined): number => Math.round((n ?? 0) * 100);
 
-/** Days summed into Monday-started weeks or calendar months, keyed by their first day — in cents, so nothing drifts. */
-export function groupSeries(days: JobStatisticsDay[], grain: Grain): JobStatisticsDay[] {
+/* ---------------------------------------------------------------- numbers */
+
+const grouped = (n: number, decimals: number): string =>
+  n.toLocaleString("en-US", { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+
+/**
+ * A table figure as Workiz prints it: thousands grouped, two decimals unless
+ * the value is whole ("1,745", "325", "46.70", "724,691.30").
+ */
+export function wzNumber(n: number | undefined): string {
+  const c = cents(n);
+  return grouped(c / 100, c % 100 === 0 ? 0 : 2);
+}
+
+/** A percent the same way: "100%", "44.90%". */
+export const wzPercent = (n: number | undefined): string => `${wzNumber(n)}%`;
+
+/** The KPI money: always the cents, no currency sign ("133,524.60"); nothing at all is "0". */
+export const wzMoney = (n: number | undefined): string => (cents(n) === 0 ? "0" : grouped(cents(n) / 100, 2));
+
+/**
+ * A table cell by its column's format. `bareCounts`: Workiz's Totals row on
+ * Sources, Tech and Dispatcher prints All, Done and Open as the raw numbers
+ * its server sends ("3935"), the rest grouped.
+ */
+export function cellText(
+  value: string | number | undefined,
+  format: StatisticsColumn["format"],
+  opts: { bareCounts?: boolean } = {},
+): string {
+  if (format === "text") return String(value ?? "");
+  const n = Number(value) || 0;
+  if (format === "pct") return wzPercent(n);
+  if (format === "count" && opts.bareCounts) return String(Math.round(n));
+  return wzNumber(n);
+}
+
+/**
+ * The chart's bars: days, or days summed into Sunday-started weeks or
+ * calendar months keyed by their first day — in cents, so nothing drifts.
+ * A day without a job is left out, as Workiz leaves it out.
+ */
+export function groupSeries(all: JobStatisticsDay[], grain: Grain): JobStatisticsDay[] {
+  // Workiz's series is a GROUP BY of the period's jobs: no job, no bar.
+  const days = all.filter((d) => d.jobs > 0);
   if (grain === "day") return days;
   const out = new Map<string, { row: JobStatisticsDay; sales?: number; profit?: number }>();
   for (const d of days) {
@@ -139,10 +192,11 @@ export function rowName(tab: JobStatisticsTab, row: JobStatisticsRow, drill: Are
   if (row.label) return row.label;
   switch (tab) {
     case "sources":
+      // Workiz's row for jobs without an ad group is "unknown".
       if (row.kind === "external") return "Unknown company";
-      return row.key.startsWith("ad-id:") ? "Unknown source" : "No source";
+      return row.key.startsWith("ad-id:") ? "Unknown source" : "unknown";
     case "tech":
-      return row.techIds?.length ? "Unknown user" : "Unassigned";
+      return row.techIds?.length ? "Unknown user" : "unassigned";
     case "area":
       return drill === "zip" ? "No zip" : drill === "city" ? "No city" : "No name";
     case "dispatcher":
@@ -216,6 +270,20 @@ export function cellValue(row: JobStatisticsRow, key: ColumnKey, name: string): 
 
 const collator = new Intl.Collator("en", { sensitivity: "base", numeric: true });
 
+export interface TableSort {
+  key: ColumnKey;
+  dir: "asc" | "desc";
+}
+
+/** DataTables' default: the first column, A to Z. */
+export const DEFAULT_SORT: TableSort = { key: "name", dir: "asc" };
+
+/** A header click, DataTables' way: another column (or the first click on an unsorted grid) starts ascending, the same column flips. */
+export function nextSort(cur: TableSort | null, key: ColumnKey): TableSort {
+  if (!cur || cur.key !== key) return { key, dir: "asc" };
+  return { key, dir: cur.dir === "asc" ? "desc" : "asc" };
+}
+
 /** Workiz sorts its tables in the browser, on any column. */
 export function sortRows(
   rows: JobStatisticsRow[],
@@ -244,28 +312,49 @@ export function searchRows(rows: JobStatisticsRow[], q: string, nameOf: (r: JobS
 
 /* ------------------------------------------------------------------- pies */
 
-const PIE_SLICES = 4;
+/**
+ * Workiz's `colorArray` (statistics_report.source.html): its pies take the
+ * n-th colour for the n-th slice; Chart.js v2 paints the slices past the
+ * fiftieth its default `rgba(0,0,0,0.1)`.
+ */
+export const WZ_PIE_COLORS = [
+  "#FF6633", "#FFB399", "#FF33FF", "#FFFF99", "#00B3E6", "#E6B333", "#3366E6", "#999966", "#99FF99", "#B34D4D",
+  "#80B300", "#809900", "#E6B3B3", "#6680B3", "#66991A", "#FF99E6", "#CCFF1A", "#FF1A66", "#E6331A", "#33FFCC",
+  "#66994D", "#B366CC", "#4D8000", "#B33300", "#CC80CC", "#66664D", "#991AFF", "#E666FF", "#4DB3FF", "#1AB399",
+  "#E666B3", "#33991A", "#CC9999", "#B3B31A", "#00E680", "#4D8066", "#809980", "#E6FF80", "#1AFF33", "#999933",
+  "#FF3380", "#CCCC00", "#66E64D", "#4D80CC", "#9900B3", "#E64D66", "#4DB380", "#FF4D4D", "#99E6E6", "#6666FF",
+] as const;
+const PIE_FALLBACK = "rgba(0,0,0,0.1)";
+
+export interface PieSlice {
+  key: string;
+  name: string;
+  value: number;
+  color: string;
+}
 
 /**
- * A pie's slices: the three biggest rows and "Other" for the rest, so the
- * percents are of the whole (Workiz draws every row; four read). `measure`
- * is Done Jobs, or Gross for "By Sales Amount" — Workiz draws Profit under
- * that title; this draws what the title says.
+ * A pie, Workiz's way (`json.qty` / `json.dollar`): a slice for every row
+ * with a Done job, in name order, coloured from Workiz's list. `measure` is
+ * Done Jobs, or Gross for "By Sales Amount" — Workiz draws the profit under
+ * that title; this draws what the title says (and what a caller without the
+ * profit grant may see).
  */
-export function pieOf(
+export function pieSlices(
   rows: JobStatisticsRow[],
   measure: "done" | "gross",
   nameOf: (r: JobStatisticsRow) => string,
-): DashboardShare[] {
-  const value = (r: JobStatisticsRow) => (measure === "done" ? r.done : (r.gross ?? 0));
-  const ranked = rows.filter((r) => value(r) > 0).sort((a, b) => value(b) - value(a));
-  const total = ranked.reduce((n, r) => n + value(r), 0);
-  if (!total) return [];
-  const head = ranked.length > PIE_SLICES ? ranked.slice(0, PIE_SLICES - 1) : ranked;
-  const rest = ranked.slice(head.length);
-  const slices = head.map((r) => ({ key: r.key, name: nameOf(r), count: value(r) }));
-  if (rest.length) slices.push({ key: "__other__", name: "Other", count: rest.reduce((n, r) => n + value(r), 0) });
-  return slices.map((s) => ({ ...s, count: round2(s.count), percent: round2((s.count / total) * 100) }));
+): PieSlice[] {
+  return rows
+    .filter((r) => r.done > 0)
+    .map((r) => ({ r, name: nameOf(r) }))
+    .sort((a, b) => collator.compare(a.name, b.name))
+    .map(({ r, name }, i) => ({
+      key: r.key,
+      name,
+      value: round2(measure === "done" ? r.done : (r.gross ?? 0)),
+      color: WZ_PIE_COLORS[i] ?? PIE_FALLBACK,
+    }));
 }
 
 /* -------------------------------------------------------------------- CSV */

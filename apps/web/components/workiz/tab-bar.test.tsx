@@ -57,6 +57,14 @@ describe("WzTabBar", () => {
     expect(cls(open.querySelector("[data-slot=wz-tab-bar-line]")!)).toContain("h-[3px]");
   });
 
+  it("draws the legacy report tabs (Job Statistics): 16px medium open or not, 45px sides, a 4px bar at the foot", () => {
+    render(<WzTabBar variant="legacy" aria-label="Job Statistics" tabs={TABS} value="jobs" onValueChange={() => {}} />);
+    const open = screen.getByRole("tab", { name: /Jobs/ });
+    expect(cls(open)).toEqual(expect.arrayContaining(["text-base", "font-medium", "px-[45px]"]));
+    expect(cls(screen.getByRole("tab", { name: /Calls/ }))).toEqual(expect.arrayContaining(["font-medium", "text-foreground"]));
+    expect(cls(open.querySelector("[data-slot=wz-tab-bar-line]")!)).toEqual(expect.arrayContaining(["h-1", "bottom-0"]));
+  });
+
   it("draws the job page's two-line tabs: a 12px line under each name, equal widths, a 4px bar", () => {
     render(
       <WzTabBar
