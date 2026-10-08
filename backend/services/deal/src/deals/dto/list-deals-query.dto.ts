@@ -1,4 +1,4 @@
-import { IsOptional, IsString, IsEnum, IsInt, IsIn, Min, Max } from 'class-validator';
+import { IsOptional, IsString, IsEnum, IsInt, IsIn, Min, Max, MaxLength } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { JobSuperStatus, DealPriority, DealStatus, ClientType } from '@bitcrm/types';
@@ -59,15 +59,76 @@ export class ListDealsQueryDto {
   @IsEnum(DealPriority)
   priority?: DealPriority;
 
-  @ApiPropertyOptional({ description: 'Comma-separated job-tag ids; a deal must carry all of them.' })
+  @ApiPropertyOptional({
+    description: 'Comma-separated job-tag ids; a deal must carry all of them — or any of them with `tagMatch=any`.',
+  })
   @IsOptional()
   @IsString()
   tagIds?: string;
+
+  @ApiPropertyOptional({
+    enum: ['all', 'any'],
+    description: 'How `tagIds` combine: `all` (the default) or `any` (Workiz "Filter results": OR inside a group).',
+  })
+  @IsOptional()
+  @IsIn(['all', 'any'])
+  tagMatch?: 'all' | 'any';
+
+  // ---- Workiz "Filter results": several picks in a group are ANY-of -------
+
+  @ApiPropertyOptional({
+    example: 'tech-1,tech-2',
+    description:
+      'Comma-separated technician ids: jobs with ANY of them assigned (at most 50). Narrows on top of `techId` and ' +
+      'of an `assigned_only` caller’s own jobs, never widens them.',
+  })
+  @IsOptional()
+  @IsString()
+  techIds?: string;
+
+  @ApiPropertyOptional({
+    example: 'jt-1,jt-2',
+    description: 'Comma-separated catalog job-type ids, any-of (at most 50). With `jobTypeId` the two are one group.',
+  })
+  @IsOptional()
+  @IsString()
+  jobTypeIds?: string;
+
+  @ApiPropertyOptional({
+    example: 'Dallas,Fort Worth',
+    description: 'Comma-separated service-area NAMES (as `serviceArea`), any-of (at most 50). With `serviceArea` one group.',
+  })
+  @IsOptional()
+  @IsString()
+  serviceAreas?: string;
+
+  @ApiPropertyOptional({
+    example: 'bp-default,bp-2',
+    description: 'Comma-separated company (business profile) ids, any-of (at most 50). With `businessProfileId` one group.',
+  })
+  @IsOptional()
+  @IsString()
+  businessProfileIds?: string;
 
   @ApiPropertyOptional({ description: 'Deal-number search, e.g. "1042" or "#1042".' })
   @IsOptional()
   @IsString()
   search?: string;
+
+  @ApiPropertyOptional({
+    example: 'dustin',
+    description:
+      'The jobs list\'s Search box (Workiz): a case-insensitive piece of the client\'s name (the "Just here" name on ' +
+      'the job too), the Job ID ("5TU7" finds 5TU7ZA), phone digits in any format ("469 396", 4+ digits; only for a ' +
+      'caller with `contacts.view_numbers`), the street / city / state / zip, the job type, the job name, an email or ' +
+      'the client\'s company. Never the technician or the tags. Applied inside `superStatus` / `unscheduled` and every ' +
+      'other filter, fully paged; `/deals/counts` takes it too. Jobs written before the search attributes existed ' +
+      'match only after `backfill:deal-search`.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  q?: string;
 
   @ApiPropertyOptional({
     enum: ['true', 'false'],

@@ -64,6 +64,12 @@ import {
   priceBandApplies,
 } from './deal-line-rules';
 import { assertDealInScope } from './deal-scope';
+import {
+  clientSearchAttributes,
+  foldSearchText,
+  parseTextSearch,
+  type ClientSearchAttributes,
+} from './deal-search';
 
 /** The jobs-list tab numbers; a closed status is `null` when no window bounds it. */
 export type DealCounts = Record<JobSuperStatus, number | null> & {
@@ -111,6 +117,22 @@ function daysBetween(from: string, to: string): string[] {
 const REPORT_WINDOW_MAX_DAYS = 92;
 /** 20 000 jobs — far past a quarter of this business; a guard, not a limit anyone meets. */
 const STATS_MAX_PAGES = 200;
+/**
+ * Values one "Filter results" group may carry (`techIds=a,b,…`). Workiz's
+ * menu lists a few dozen at most; the cap keeps every `IN` far below
+ * DynamoDB's 100 operands and the whole expression below its 4 KB.
+ */
+const LIST_FILTER_MAX_VALUES = 50;
+
+/** What a list / counts caller may do beyond the query itself. */
+export interface ListOptions {
+  /**
+   * `contacts.view_numbers`: may the Search box match phone digits? Searching
+   * BY a number confirms whose it is, so a caller whose numbers are masked
+   * does not (crm guards `GET /contacts/search/by-phone` the same way).
+   */
+  numbers?: boolean;
+}
 import { type SendToTechDto } from './dto/send-to-tech.dto';
 import { type RecordSentToTechDto } from './dto/record-sent-to-tech.dto';
 import { isDealNumberCode } from './deal-number.util';
@@ -552,7 +574,11 @@ export class DealsService {
       updatedAt: now,
     };
 
-    await this.repository.create(deal);
+    // The client's half of the jobs-list search comes from crm — best effort:
+    // without it the job is found by its own fields until crm's next
+    // `contact.updated` (or the backfill) fills it in. Never on the answer.
+    const clientSearch = await this.clientSearchOrNothing(dto.contactId);
+    await this.repository.create(clientSearch ? { ...deal, ...clientSearch } : deal);
     this.businessMetrics?.entityCreated.inc({ entity_type: 'deal' });
 
     await this.addTimelineEntry(deal.id, TimelineEventType.CREATED, caller, {}, undefined, deal.contactId);
@@ -592,12 +618,13 @@ export class DealsService {
     query: ListDealsQueryDto,
     caller: JwtUser,
     dataScope?: string,
+    opts: ListOptions = {},
   ) {
     // Query params arrive as strings (no global ValidationPipe/transform), so
     // coerce — a string Limit makes DynamoDB throw SerializationException.
     const limit = Math.min(Math.max(Number(query.limit) || 20, 1), 100);
 
-    const filters = this.listFilters(query, caller, dataScope);
+    const filters = await this.withTextSearch(this.listFilters(query, caller, dataScope), query.q, opts);
 
     // A Job ID code is one lookup on its reservation, then the deal itself,
     // checked against the tab and filters it was searched under. Only a
@@ -607,7 +634,11 @@ export class DealsService {
       const dealId = await this.repository.findIdByNumber(filters.dealNumber);
       if (dealId === null) return { items: [], nextCursor: undefined };
       if (dealId) {
-        const deals = await this.repository.findByIds([dealId]);
+        // `q` beside the code is matched on the raw row (the search halves
+        // are not on `Deal`), so the repository filters that one.
+        const deals = filters.text
+          ? await this.repository.findByIds([dealId], filters)
+          : await this.repository.findByIds([dealId]);
         return {
           items: deals.filter((d) => this.matchesListQuery(d, query, filters)),
           nextCursor: undefined,
@@ -818,9 +849,47 @@ export class DealsService {
     if (filters.subStatusId && deal.subStatusId !== filters.subStatusId) return false;
     if (filters.companyId && deal.companyId !== filters.companyId) return false;
     if (filters.createdBy && deal.createdBy !== filters.createdBy) return false;
-    if (filters.tagIds?.length && !filters.tagIds.every((t) => deal.tagIds.includes(t))) return false;
+    if (filters.tagIds?.length) {
+      const has = (t: string) => deal.tagIds.includes(t);
+      if (filters.tagMatch === 'any' ? !filters.tagIds.some(has) : !filters.tagIds.every(has)) return false;
+    }
+    const anyOf = (list: string[] | undefined, value: string | undefined) => !list?.length || list.includes(value as string);
+    if (!anyOf(filters.jobTypeIds, deal.jobTypeId)) return false;
+    if (!anyOf(filters.serviceAreas, deal.serviceArea)) return false;
+    if (!anyOf(filters.businessProfileIds, deal.businessProfileId)) return false;
+    if (filters.techIds?.length && !filters.techIds.some((t) => deal.assignedTechIds.includes(t))) return false;
     if (filters.unpaid && !hasBalanceDue(deal)) return false;
     return true;
+  }
+
+  /**
+   * The Search box's text (`q`) as a filter: folded, its digits when it reads
+   * as a phone and the caller may search by one, and the catalog job types
+   * whose name contains it — matched here, at query time, so renaming a type
+   * never leaves stale rows behind. Archived types count: old jobs keep them.
+   */
+  private async withTextSearch(filters: DealFilters, q: string | undefined, opts: ListOptions): Promise<DealFilters> {
+    const search = parseTextSearch(q, { numbers: opts.numbers === true });
+    if (!search) return filters;
+    const jobTypeIds = (await this.jobTypes.list())
+      .filter((t) => foldSearchText(t.name).includes(search.text))
+      .map((t) => t.id);
+    return { ...filters, text: jobTypeIds.length ? { ...search, jobTypeIds } : search };
+  }
+
+  /**
+   * One "Filter results" group: the single-value parameter as before, or —
+   * when the comma list is given — the list, with the single value folded in
+   * (`jobTypeId=a&jobTypeIds=b,c` is a, b or c). Trimmed, blanks dropped,
+   * once each; more than `LIST_FILTER_MAX_VALUES` is refused.
+   */
+  private filterGroup(single: string | undefined, list: string | undefined, name: string): { single?: string; list?: string[] } {
+    if (list === undefined || list === null) return { single: single || undefined };
+    const values = [...new Set([single, ...String(list).split(',')].map((v) => v?.trim()).filter((v): v is string => Boolean(v)))];
+    if (values.length > LIST_FILTER_MAX_VALUES) {
+      throw new BadRequestException(`${name} takes at most ${LIST_FILTER_MAX_VALUES} values`);
+    }
+    return values.length ? { list: values } : {};
   }
 
   /**
@@ -836,16 +905,26 @@ export class DealsService {
     }
 
     const search = query.search?.trim();
+    const jobTypes = this.filterGroup(query.jobTypeId, query.jobTypeIds, 'jobTypeIds');
+    const areas = this.filterGroup(query.serviceArea, query.serviceAreas, 'serviceAreas');
+    const companies = this.filterGroup(query.businessProfileId, query.businessProfileIds, 'businessProfileIds');
+    // `techId` stays its own constraint (an `assigned_only` caller's scope is
+    // written into it above); the list is any-of on top of it.
+    const techs = this.filterGroup(undefined, query.techIds, 'techIds');
+    const tagIds = this.filterGroup(undefined, query.tagIds, 'tagIds').list;
     return {
-      jobTypeId: query.jobTypeId,
+      jobTypeId: jobTypes.single,
+      ...(jobTypes.list && { jobTypeIds: jobTypes.list }),
       sourceId: query.sourceId,
-      businessProfileId: query.businessProfileId || undefined,
-      serviceArea: query.serviceArea,
+      businessProfileId: companies.single,
+      ...(companies.list && { businessProfileIds: companies.list }),
+      serviceArea: areas.single,
+      ...(areas.list && { serviceAreas: areas.list }),
+      ...(techs.list && { techIds: techs.list }),
       clientType: query.clientType,
       priority: query.priority,
-      tagIds: query.tagIds
-        ? query.tagIds.split(',').map((t) => t.trim()).filter(Boolean)
-        : undefined,
+      tagIds,
+      ...(query.tagMatch === 'any' && { tagMatch: 'any' as const }),
       dealNumber: this.parseDealNumberSearch(search),
       needsInvoice:
         query.needsInvoice === true || query.needsInvoice === 'true' ? true : undefined,
@@ -940,8 +1019,8 @@ export class DealsService {
     return result;
   }
 
-  async counts(query: ListDealsQueryDto, caller: JwtUser, dataScope?: string): Promise<DealCounts> {
-    const filters = this.listFilters(query, caller, dataScope);
+  async counts(query: ListDealsQueryDto, caller: JwtUser, dataScope?: string, opts: ListOptions = {}): Promise<DealCounts> {
+    const filters = await this.withTextSearch(this.listFilters(query, caller, dataScope), query.q, opts);
     const report = this.parseReportWindows(query);
     const window = report ? {} : (this.parseScheduleWindow({ ...query, unscheduled: undefined, sort: undefined }) ?? {});
     const bounded = Boolean(window.from);
@@ -965,14 +1044,18 @@ export class DealsService {
       const [statuses, undatedByStatus] = await Promise.all([
         Promise.all(
           SUPER_STATUS_ORDER.map(async (status) =>
-            this.repository.countBySchedule(
-              status,
-              { from: window.from, to: window.to },
-              filters,
-              // Відкриті статуси малі за визначенням — їх рахуємо до кінця;
-              // закритий без вікна — лише до стелі.
-              !bounded && CLOSED_SUPER_STATUSES.has(status) ? CLOSED_COUNT_CAP : undefined,
-            ),
+            // Під пошуком закритий статус без вікна не рахуємо зовсім: стеля
+            // рахує ЗБІГИ, тож рідкісне ім'я прочитало б увесь Canceled (~246 тис.).
+            !bounded && CLOSED_SUPER_STATUSES.has(status) && filters.text
+              ? null
+              : this.repository.countBySchedule(
+                  status,
+                  { from: window.from, to: window.to },
+                  filters,
+                  // Відкриті статуси малі за визначенням — їх рахуємо до кінця;
+                  // закритий без вікна — лише до стелі.
+                  !bounded && CLOSED_SUPER_STATUSES.has(status) ? CLOSED_COUNT_CAP : undefined,
+                ),
           ),
         ),
         Promise.all(open.map((status) => this.repository.countBySchedule(status, { unscheduled: true }, filters))),
@@ -1285,6 +1368,9 @@ export class DealsService {
     }
 
     await this.repository.reassignContact(id, contactId);
+    // The jobs-list search now finds the job by its new client.
+    const clientSearch = await this.clientSearchOrNothing(contactId);
+    if (clientSearch) await this.repository.setClientSearch(id, clientSearch);
     // The new client may be tax-exempt (or the old one was).
     const taxChange = await this.reresolveTax(existing, { contactId });
     if (taxChange) {
@@ -2616,11 +2702,16 @@ export class DealsService {
   async reassignContact(oldContactId: string, newContactId: string): Promise<number> {
     let cursor: string | undefined;
     let count = 0;
+    // The survivor's half of the jobs-list search, asked once for every job
+    // that moves. crm also sends `contact.updated` for the survivor, which
+    // restamps them all again — whichever lands last, they agree.
+    const clientSearch = await this.clientSearchOrNothing(newContactId);
 
     do {
       const page = await this.repository.findByContact(oldContactId, 100, cursor);
       for (const deal of page.items) {
         await this.repository.reassignContact(deal.id, newContactId);
+        if (clientSearch) await this.repository.setClientSearch(deal.id, clientSearch);
         await this.cache.invalidate(deal.id);
         await this.timelineRepo.addEntry({
           id: randomUUID(),
@@ -2643,6 +2734,45 @@ export class DealsService {
     } while (cursor);
 
     return count;
+  }
+
+  /**
+   * crm's `contact.updated`: the client's name, numbers, emails or company
+   * may have changed, so their half of the jobs-list search is rewritten on
+   * every job of theirs that holds an older one. A client crm no longer has
+   * changes nothing; crm not answering THROWS, so SQS delivers the event
+   * again instead of the jobs keeping a stale name. Answers rows written.
+   */
+  async refreshClientSearch(contactId: string): Promise<number> {
+    const clientSearch = await this.clientSearchOf(contactId);
+    if (!clientSearch) return 0;
+    const written = await this.repository.restampClientSearch(contactId, clientSearch);
+    if (written) this.logger.log(`Client ${contactId}: search restamped on ${written} job(s)`);
+    return written;
+  }
+
+  /**
+   * The client's half of the jobs-list search, from crm's internal (unmasked)
+   * read of the contact and its company; null when crm has no such contact.
+   * Throws when crm cannot answer. The numbers land on the row only as
+   * search digits — `toDeal` never reads them back, so no response carries
+   * them.
+   */
+  private async clientSearchOf(contactId: string): Promise<ClientSearchAttributes | null> {
+    const contact = await this.internalHttp.getContact(contactId);
+    if (!contact) return null;
+    const company = contact.companyId ? await this.internalHttp.getCompany(contact.companyId) : null;
+    return clientSearchAttributes(contact, company?.title);
+  }
+
+  /** `clientSearchOf` for a write that must not fail on crm's account: nothing instead of an error. */
+  private async clientSearchOrNothing(contactId: string): Promise<ClientSearchAttributes | undefined> {
+    try {
+      return (await this.clientSearchOf(contactId)) ?? undefined;
+    } catch (error) {
+      this.logger.warn(`Client ${contactId}: search attributes unavailable (${(error as Error).message})`);
+      return undefined;
+    }
   }
 
   /**

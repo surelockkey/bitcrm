@@ -7,6 +7,7 @@ import {
   ScanCommand,
   UpdateCommand,
   BatchGetCommand,
+  type QueryCommandInput,
 } from '@aws-sdk/lib-dynamodb';
 import { DynamoDbService, scanPage } from '@bitcrm/shared';
 import {
@@ -31,6 +32,14 @@ import {
 import { generateDealNumberCode } from './deal-number.util';
 import { BALANCE_DUE_FILTER, hasBalanceDue } from './deal-balance';
 import { dayStartUtc, jobEndAt, shiftDay, type ReportDateSource } from './report/report-dates';
+import {
+  DEAL_SEARCH_INPUTS,
+  dealSearchAttributes,
+  matchesTextSearch,
+  textSearchExpression,
+  type ClientSearchAttributes,
+  type DealTextSearch,
+} from './deal-search';
 
 export interface PaginatedResult {
   items: Deal[];
@@ -206,6 +215,54 @@ export interface DealFilters {
   /** Hour-of-day window on `slotStart` (`HH:MM`, inclusive). Undated / all-day visits never match. */
   hourFrom?: string;
   hourTo?: string;
+  /**
+   * The jobs list's Search box (`q`): a piece of the client's name, the Job
+   * ID, phone digits, the address, the job type… — see `deal-search.ts`.
+   * Matched against the row's `searchText` / `clientSearchText` (+ digits),
+   * so rows written before those attributes match nothing until the backfill.
+   */
+  text?: DealTextSearch;
+  /**
+   * Workiz "Filter results": several picks in one group are ANY-of (OR inside
+   * a group, AND across groups). One value is an equality, several an `IN`.
+   * They narrow on top of the single-value fields above, never widen them.
+   */
+  jobTypeIds?: string[];
+  serviceAreas?: string[];
+  businessProfileIds?: string[];
+  /** Any of these technicians is on the job; `techId` (the scope) still narrows on top. */
+  techIds?: string[];
+  /** `tagIds` all-of (the default, as before) or any-of. */
+  tagMatch?: 'any' | 'all';
+}
+
+/**
+ * How many reads one partition may cost a page before it hands a cursor back
+ * instead of reading on. A read after the first asks up to
+ * `FILL_MAX_READ_ROWS` rows and DynamoDB stops each at 1 MB, so this is at
+ * most ~20 MB — every open status partition many times over (the largest,
+ * Submitted, is ~660 imported jobs), and a bounded slice of a closed one
+ * (Canceled ≈ 246 k, Done ≈ 121 k), which is then paged honestly.
+ */
+export const FILL_MAX_READS = 20;
+/** Rows asked of one read after the first; DynamoDB cuts every read at 1 MB anyway. */
+export const FILL_MAX_READ_ROWS = 1000;
+
+/**
+ * Rows to ask the next read for: what the page still lacks, scaled by how
+ * many rows it took to find each match so far (with a margin), so a page
+ * that the filter barely thins costs one more small read and a selective
+ * search goes straight to big ones.
+ */
+function nextReadLimit(need: number, matched: number, scanned: number): number {
+  if (matched <= 0) return FILL_MAX_READ_ROWS;
+  return Math.min(FILL_MAX_READ_ROWS, Math.max(need, Math.ceil(((need * scanned) / matched) * 1.2)));
+}
+
+/** One partition's share of a page: the rows that passed the filter, and where DynamoDB stopped. */
+interface FilledRead {
+  items: Record<string, unknown>[];
+  lastEvaluatedKey?: Record<string, unknown>;
 }
 
 /**
@@ -301,10 +358,13 @@ export class DealsRepository {
     }
     if (filters?.tagIds?.length) {
       names['#tagIds'] = 'tagIds';
-      filters.tagIds.forEach((t, i) => {
-        parts.push(`contains(#tagIds, :tag${i})`);
+      const legs = filters.tagIds.map((t, i) => {
         values[`:tag${i}`] = t;
+        return `contains(#tagIds, :tag${i})`;
       });
+      // All-of by default (as it always was); Workiz's "Filter results" is any-of.
+      if (filters.tagMatch === 'any' && legs.length > 1) parts.push(`(${legs.join(' OR ')})`);
+      else parts.push(...legs);
     }
     // The technician narrows any index that is not already keyed by them —
     // this is how `assigned_only` holds on the status / contact / dispatcher
@@ -313,6 +373,34 @@ export class DealsRepository {
       parts.push('contains(#assignedTechIds, :techId)');
       names['#assignedTechIds'] = 'assignedTechIds';
       values[':techId'] = filters.techId;
+    }
+    // Several technicians picked in "Filter results": any of them. ANDed with
+    // the scope technician above, so it can only narrow an `assigned_only` list.
+    if (filters?.techIds?.length) {
+      names['#assignedTechIds'] = 'assignedTechIds';
+      const legs = filters.techIds.map((t, i) => {
+        values[`:techAny${i}`] = t;
+        return `contains(#assignedTechIds, :techAny${i})`;
+      });
+      parts.push(legs.length === 1 ? legs[0] : `(${legs.join(' OR ')})`);
+    }
+    const anyOf = (attr: string, list: string[] | undefined) => {
+      if (!list?.length) return;
+      names[`#${attr}`] = attr;
+      const operands = list.map((v, i) => {
+        values[`:${attr}_${i}`] = v;
+        return `:${attr}_${i}`;
+      });
+      parts.push(operands.length === 1 ? `#${attr} = ${operands[0]}` : `#${attr} IN (${operands.join(', ')})`);
+    };
+    anyOf('jobTypeId', filters?.jobTypeIds);
+    anyOf('serviceArea', filters?.serviceAreas);
+    anyOf('businessProfileId', filters?.businessProfileIds);
+    if (filters?.text) {
+      const t = textSearchExpression(filters.text);
+      parts.push(t.expression);
+      Object.assign(names, t.names);
+      Object.assign(values, t.values);
     }
     if (filters?.subStatusId) eq('subStatusId', filters.subStatusId);
     if (filters?.superStatus) eq('superStatus', filters.superStatus);
@@ -330,10 +418,23 @@ export class DealsRepository {
   /**
    * In-memory equivalent of `dealFilterExpression`, used after a BatchGet where
    * the filter can't run in the query (findByTech resolves deals from
-   * assignment rows, then filters the fetched metadata).
+   * assignment rows, then filters the fetched metadata). `row` is the raw
+   * item: the search halves are matched on it, never on the `Deal`.
    */
-  private matchesFilters(deal: Deal, filters?: DealFilters, status: string = DealStatus.ACTIVE): boolean {
+  private matchesFilters(
+    deal: Deal,
+    filters?: DealFilters,
+    status: string = DealStatus.ACTIVE,
+    row?: Record<string, unknown>,
+  ): boolean {
     if (deal.status !== status) return false;
+    if (filters?.text && !(row && matchesTextSearch(row, filters.text))) return false;
+    const anyOf = (list: string[] | undefined, value: string | undefined) => !list?.length || list.includes(value as string);
+    if (!anyOf(filters?.jobTypeIds, deal.jobTypeId)) return false;
+    if (!anyOf(filters?.serviceAreas, deal.serviceArea)) return false;
+    if (!anyOf(filters?.businessProfileIds, deal.businessProfileId)) return false;
+    if (filters?.techIds?.length && !filters.techIds.some((t) => deal.assignedTechIds.includes(t))) return false;
+    if (filters?.tagMatch === 'any' && filters.tagIds?.length && !filters.tagIds.some((t) => deal.tagIds.includes(t))) return false;
     if (filters?.jobTypeId && deal.jobTypeId !== filters.jobTypeId) return false;
     if (filters?.sourceId && deal.sourceId !== filters.sourceId) return false;
     if (filters?.businessProfileId && deal.businessProfileId !== filters.businessProfileId) return false;
@@ -341,7 +442,7 @@ export class DealsRepository {
     if (filters?.clientType && deal.clientType !== filters.clientType) return false;
     if (filters?.priority && deal.priority !== filters.priority) return false;
     if (filters?.dealNumber !== undefined && String(deal.dealNumber) !== String(filters.dealNumber)) return false;
-    if (filters?.tagIds?.length && !filters.tagIds.every((t) => deal.tagIds.includes(t))) return false;
+    if (filters?.tagMatch !== 'any' && filters?.tagIds?.length && !filters.tagIds.every((t) => deal.tagIds.includes(t))) return false;
     if (filters?.needsInvoice && (!(deal.itemCount && deal.itemCount > 0) || deal.invoiceId)) return false;
     if (filters?.unpaid && !hasBalanceDue(deal)) return false;
     if (filters?.techId && !deal.assignedTechIds.includes(filters.techId)) return false;
@@ -357,7 +458,14 @@ export class DealsRepository {
     return true;
   }
 
-  async create(deal: Deal): Promise<void> {
+  /**
+   * A new job's METADATA row: the index keys, the job itself and the job's
+   * own search half (`searchText` / `searchDigits`). The client's half
+   * (`clientSearchText` / `clientSearchDigits`) comes from crm, so the service
+   * brings it along on `deal` when crm answered; without it the job is found
+   * by its own fields until `contact.updated` or the backfill fills it in.
+   */
+  async create(deal: Deal & Partial<ClientSearchAttributes>): Promise<void> {
     await this.dynamoDb.client.send(
       new PutCommand({
         TableName: this.tableName,
@@ -375,6 +483,7 @@ export class DealsRepository {
           ...closedIndexKeys(deal),
           ...endIndexKeys(deal),
           ...deal,
+          ...dealSearchAttributes(deal as unknown as Record<string, unknown>),
         },
         ConditionExpression: 'attribute_not_exists(PK)',
       }),
@@ -401,25 +510,89 @@ export class DealsRepository {
     cursor?: string,
     filters?: DealFilters,
   ): Promise<PaginatedResult> {
+    return this.onePartitionPage(DEALS_GSI1_NAME, 'GSI1PK', 'GSI1SK', `STATUS#${superStatus}`, limit, cursor, filters);
+  }
+
+  /**
+   * One partition of an index, newest first, as a FILLED page (`fillPartition`)
+   * with the plain DynamoDB-key cursor these reads have always handed out.
+   */
+  private async onePartitionPage(
+    indexName: string,
+    pkAttr: string,
+    skAttr: string,
+    pk: string,
+    limit: number,
+    cursor: string | undefined,
+    filters: DealFilters | undefined,
+  ): Promise<PaginatedResult> {
     const f = this.dealFilterExpression(filters);
-    const result = await this.dynamoDb.client.send(
-      new QueryCommand({
+    const page = await this.fillPartition(
+      {
         TableName: this.tableName,
-        IndexName: DEALS_GSI1_NAME,
-        KeyConditionExpression: 'GSI1PK = :pk',
+        IndexName: indexName,
+        KeyConditionExpression: `${pkAttr} = :pk`,
         FilterExpression: f.expression,
-        ExpressionAttributeValues: { ':pk': `STATUS#${superStatus}`, ...f.values },
+        ExpressionAttributeValues: { ':pk': pk, ...f.values },
         ExpressionAttributeNames: f.names,
         ScanIndexForward: false,
-        Limit: limit,
-        ExclusiveStartKey: this.decodeCursor(cursor),
-      }),
+      },
+      limit,
+      this.decodeCursor(cursor),
     );
-
+    if (page.items.length > limit) {
+      // Overshot: cut to the page and resume right after the last row kept.
+      const kept = page.items.slice(0, limit);
+      const last = kept[kept.length - 1];
+      return {
+        items: kept.map((i) => this.toDeal(i)),
+        nextCursor: this.encodeCursor({ PK: last.PK, SK: last.SK, [pkAttr]: last[pkAttr], [skAttr]: last[skAttr] }),
+      };
+    }
     return {
-      items: (result.Items || []).map((i) => this.toDeal(i)),
-      nextCursor: this.encodeCursor(result.LastEvaluatedKey),
+      items: page.items.map((i) => this.toDeal(i)),
+      nextCursor: this.encodeCursor(page.lastEvaluatedKey),
     };
+  }
+
+  /**
+   * A page's worth of rows from ONE index partition, however many the filter
+   * drops on the way.
+   *
+   * DynamoDB applies `Limit` to the rows it READS and filters afterwards, so a
+   * single Query of 50 rows under a selective filter (the Search box, a rare
+   * tag) answers two jobs or none and a cursor — a page that looks like the
+   * end of the list. This reads on until it holds `limit` rows, the partition
+   * ends, or `FILL_MAX_READS` reads are spent. The first read asks exactly
+   * `limit` rows, so an unfiltered page costs what it always did; later reads
+   * scale with the match rate seen so far.
+   *
+   * May return more than `limit` rows (the last read overshot): the caller
+   * keeps a page and resumes after its last row. Fewer than `limit` WITH a
+   * `lastEvaluatedKey` means the budget ran out: everything up to that key
+   * has been read, nothing after it.
+   */
+  private async fillPartition(
+    input: Omit<QueryCommandInput, 'Limit' | 'ExclusiveStartKey'>,
+    limit: number,
+    startKey: Record<string, unknown> | undefined,
+  ): Promise<FilledRead> {
+    const items: Record<string, unknown>[] = [];
+    let key = startKey;
+    let scanned = 0;
+    let readLimit = limit;
+    for (let reads = 0; reads < FILL_MAX_READS; reads++) {
+      const result = await this.dynamoDb.client.send(
+        new QueryCommand({ ...input, Limit: readLimit, ...(key ? { ExclusiveStartKey: key } : {}) }),
+      );
+      const got = result.Items ?? [];
+      items.push(...got);
+      scanned += result.ScannedCount ?? got.length;
+      key = result.LastEvaluatedKey;
+      if (!key || items.length >= limit) break;
+      readLimit = nextReadLimit(limit - items.length, items.length, scanned);
+    }
+    return { items, lastEvaluatedKey: key };
   }
 
   /**
@@ -704,8 +877,9 @@ export class DealsRepository {
    * One query per partition, merged in sort-key order, with a
    * `{partition: lastKey}` cursor (base64url) so every partition resumes
    * exactly after its last consumed row. Each partition is asked for a full
-   * page and only the merged head is kept — a few rows over the fetch,
-   * never a partition read past what the page needs.
+   * page — filled past the rows the filter drops (`fillPartition`) — and
+   * only the merged head is kept: a few rows over the fetch, never a
+   * partition read past what the page needs or its read budget.
    */
   private async fanOut(
     read: IndexRead,
@@ -722,14 +896,10 @@ export class DealsRepository {
       read.partitions.map(async (partition) => {
         // 'done' marks a partition already read to its end on an earlier page.
         if (cursors[partition.name] === 'done') {
-          return {
-            name: partition.name,
-            items: [] as Record<string, unknown>[],
-            lastEvaluatedKey: undefined as Record<string, unknown> | undefined,
-          };
+          return { name: partition.name, items: [] as Record<string, unknown>[], lastEvaluatedKey: undefined };
         }
-        const result = await this.dynamoDb.client.send(
-          new QueryCommand({
+        const page = await this.fillPartition(
+          {
             TableName: this.tableName,
             IndexName: read.indexName,
             KeyConditionExpression: read.keyCondition,
@@ -737,26 +907,27 @@ export class DealsRepository {
             ExpressionAttributeNames: this.expressionNames(read.keyCondition, f.names, read.pkAttr, read.skAttr),
             ExpressionAttributeValues: { ':pk': partition.pk, ...read.keyValues, ...f.values },
             ScanIndexForward: dir === 'asc',
-            Limit: limit,
-            ExclusiveStartKey: cursors[partition.name] as Record<string, unknown> | undefined,
-          }),
+          },
+          limit,
+          cursors[partition.name] as Record<string, unknown> | undefined,
         );
-        return { name: partition.name, items: result.Items ?? [], lastEvaluatedKey: result.LastEvaluatedKey };
+        return { name: partition.name, ...page };
       }),
     );
-
-    if (pages.length === 1) {
-      const [page] = pages;
-      return {
-        items: page.items.map((i) => this.toDeal(i)),
-        nextCursor: page.lastEvaluatedKey ? this.encodePartitionCursors({ [page.name]: page.lastEvaluatedKey }) : undefined,
-      };
-    }
 
     // k-way merge on the sort key; each partition keeps its own position.
     const heads = pages.map((p) => ({ ...p, pos: 0 }));
     const taken: Record<string, unknown>[] = [];
     const before = (a: string, b: string) => (dir === 'asc' ? a < b : a > b);
+    // A partition that stopped on its read budget short of a page has not
+    // been read past its last evaluated key: a row of another partition that
+    // sorts after that point may not be taken yet, or the page would print it
+    // above a row of this partition that comes earlier. (A partition that
+    // filled its page needs no such bound: the page holds at most `limit`.)
+    const frontier = pages
+      .filter((p) => p.lastEvaluatedKey && p.items.length < limit)
+      .map((p) => p.lastEvaluatedKey![read.skAttr] as string)
+      .reduce<string | undefined>((bound, sk) => (bound === undefined || before(sk, bound) ? sk : bound), undefined);
     while (taken.length < limit) {
       let best: (typeof heads)[number] | undefined;
       for (const h of heads) {
@@ -764,6 +935,7 @@ export class DealsRepository {
         if (!best || before(h.items[h.pos][read.skAttr] as string, best.items[best.pos][read.skAttr] as string)) best = h;
       }
       if (!best) break;
+      if (frontier !== undefined && before(frontier, best.items[best.pos][read.skAttr] as string)) break;
       taken.push(best.items[best.pos]);
       best.pos += 1;
     }
@@ -909,11 +1081,19 @@ export class DealsRepository {
     );
 
     const dealIds = (result.Items || []).map((i) => i.dealId as string);
-    const deals = await this.batchGetDeals(dealIds);
+    const rows = await this.batchGetRows(dealIds);
     return {
-      items: deals.filter((d) => this.matchesFilters(d, filters)),
+      items: this.filterRows(rows, filters),
       nextCursor: this.encodeCursor(result.LastEvaluatedKey),
     };
+  }
+
+  /** Raw rows → the deals that pass `filters` (search halves matched on the raw row). */
+  private filterRows(rows: Record<string, unknown>[], filters?: DealFilters): Deal[] {
+    return rows
+      .map((row) => ({ row, deal: this.toDeal(row) }))
+      .filter(({ row, deal }) => this.matchesFilters(deal, filters, DealStatus.ACTIVE, row))
+      .map(({ deal }) => deal);
   }
 
   async findByContact(
@@ -922,25 +1102,7 @@ export class DealsRepository {
     cursor?: string,
     filters?: DealFilters,
   ): Promise<PaginatedResult> {
-    const f = this.dealFilterExpression(filters);
-    const result = await this.dynamoDb.client.send(
-      new QueryCommand({
-        TableName: this.tableName,
-        IndexName: DEALS_GSI3_NAME,
-        KeyConditionExpression: 'GSI3PK = :pk',
-        FilterExpression: f.expression,
-        ExpressionAttributeValues: { ':pk': `CONTACT#${contactId}`, ...f.values },
-        ExpressionAttributeNames: f.names,
-        ScanIndexForward: false,
-        Limit: limit,
-        ExclusiveStartKey: this.decodeCursor(cursor),
-      }),
-    );
-
-    return {
-      items: (result.Items || []).map((i) => this.toDeal(i)),
-      nextCursor: this.encodeCursor(result.LastEvaluatedKey),
-    };
+    return this.onePartitionPage(DEALS_GSI3_NAME, 'GSI3PK', 'GSI3SK', `CONTACT#${contactId}`, limit, cursor, filters);
   }
 
   async findByDispatcher(
@@ -949,25 +1111,7 @@ export class DealsRepository {
     cursor?: string,
     filters?: DealFilters,
   ): Promise<PaginatedResult> {
-    const f = this.dealFilterExpression(filters);
-    const result = await this.dynamoDb.client.send(
-      new QueryCommand({
-        TableName: this.tableName,
-        IndexName: DEALS_GSI4_NAME,
-        KeyConditionExpression: 'GSI4PK = :pk',
-        FilterExpression: f.expression,
-        ExpressionAttributeValues: { ':pk': `DISPATCHER#${dispatcherId}`, ...f.values },
-        ExpressionAttributeNames: f.names,
-        ScanIndexForward: false,
-        Limit: limit,
-        ExclusiveStartKey: this.decodeCursor(cursor),
-      }),
-    );
-
-    return {
-      items: (result.Items || []).map((i) => this.toDeal(i)),
-      nextCursor: this.encodeCursor(result.LastEvaluatedKey),
-    };
+    return this.onePartitionPage(DEALS_GSI4_NAME, 'GSI4PK', 'GSI4SK', `DISPATCHER#${dispatcherId}`, limit, cursor, filters);
   }
 
   async findAll(
@@ -1274,14 +1418,19 @@ export class DealsRepository {
     };
   }
 
-  /** The deals of a set of ids, in the order asked; missing ones are absent. */
-  async findByIds(ids: string[]): Promise<Deal[]> {
-    return this.batchGetDeals(ids);
+  /**
+   * The deals of a set of ids, in the order asked; missing ones are absent.
+   * With `filters`, only the active ones that pass them — the search halves
+   * included, matched on the raw rows.
+   */
+  async findByIds(ids: string[], filters?: DealFilters): Promise<Deal[]> {
+    if (filters) return this.filterRows(await this.batchGetRows(ids), filters);
+    return (await this.batchGetRows(ids)).map((row) => this.toDeal(row));
   }
 
-  private async batchGetDeals(ids: string[]): Promise<Deal[]> {
+  private async batchGetRows(ids: string[]): Promise<Record<string, unknown>[]> {
     if (!ids.length) return [];
-    const deals: Deal[] = [];
+    const rows: Record<string, unknown>[] = [];
     for (let i = 0; i < ids.length; i += 100) {
       const chunk = ids.slice(i, i + 100);
       const res = await this.dynamoDb.client.send(
@@ -1293,11 +1442,11 @@ export class DealsRepository {
           },
         }),
       );
-      for (const item of res.Responses?.[this.tableName] ?? []) deals.push(this.toDeal(item));
+      rows.push(...(res.Responses?.[this.tableName] ?? []));
     }
     // Preserve the tech-index order the caller asked for.
-    const byId = new Map(deals.map((d) => [d.id, d]));
-    return ids.map((id) => byId.get(id)).filter((d): d is Deal => Boolean(d));
+    const byId = new Map(rows.map((r) => [r.id as string, r]));
+    return ids.map((id) => byId.get(id)).filter((r): r is Record<string, unknown> => Boolean(r));
   }
 
   async update(id: string, attrs: DealUpdate): Promise<Deal> {
@@ -1356,15 +1505,98 @@ export class DealsRepository {
     // The schedule index key is built from four attributes, and a partial
     // update knows only the ones it carries — so it is restamped from the
     // row as it stands after the write, in a second, cheap write that only
-    // scheduling / status changes pay for.
+    // scheduling / status changes pay for. The search half is the same story
+    // for the fields the jobs list's Search box reads.
+    let row = result.Attributes!;
     if (Object.keys(attrs).some((k) => INDEX_KEY_FIELDS.has(k))) {
-      return this.restampIndexKeys(id, result.Attributes!);
+      row = await this.restampIndexKeys(id, row);
     }
-    return this.toDeal(result.Attributes!);
+    if (Object.keys(attrs).some((k) => DEAL_SEARCH_INPUTS.has(k))) {
+      row = await this.restampSearch(id, row);
+    }
+    return this.toDeal(row);
+  }
+
+  /**
+   * The job's own search half, recomputed from the whole row after a write
+   * that touched one of its inputs — and written only when it changed.
+   */
+  private async restampSearch(id: string, row: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const next = dealSearchAttributes(row);
+    if (row.searchText === next.searchText && row.searchDigits === next.searchDigits) return row;
+    await this.dynamoDb.client.send(
+      new UpdateCommand({
+        TableName: this.tableName,
+        Key: { PK: `DEAL#${id}`, SK: 'METADATA' },
+        UpdateExpression: 'SET searchText = :searchText, searchDigits = :searchDigits',
+        ExpressionAttributeValues: { ':searchText': next.searchText, ':searchDigits': next.searchDigits },
+        ConditionExpression: 'attribute_exists(PK)',
+      }),
+    );
+    return { ...row, ...next };
+  }
+
+  /** The client's search half on one job — after a client change or a merge. */
+  async setClientSearch(dealId: string, attrs: ClientSearchAttributes): Promise<void> {
+    await this.dynamoDb.client.send(
+      new UpdateCommand({
+        TableName: this.tableName,
+        Key: { PK: `DEAL#${dealId}`, SK: 'METADATA' },
+        UpdateExpression: 'SET clientSearchText = :clientSearchText, clientSearchDigits = :clientSearchDigits',
+        ExpressionAttributeValues: { ':clientSearchText': attrs.clientSearchText, ':clientSearchDigits': attrs.clientSearchDigits },
+        ConditionExpression: 'attribute_exists(PK)',
+      }),
+    );
+  }
+
+  /**
+   * The client's search half on EVERY job of one client (crm's
+   * `contact.updated`: a rename, a new number, an email): walks the client's
+   * partition of the contact index — deleted jobs too, they are cheap and may
+   * be restored — and rewrites only the rows whose half differs. Answers how
+   * many rows were written. A job deleted under the walk is skipped.
+   */
+  async restampClientSearch(contactId: string, attrs: ClientSearchAttributes): Promise<number> {
+    let written = 0;
+    let startKey: Record<string, unknown> | undefined;
+    do {
+      const page = await this.dynamoDb.client.send(
+        new QueryCommand({
+          TableName: this.tableName,
+          IndexName: DEALS_GSI3_NAME,
+          KeyConditionExpression: 'GSI3PK = :pk',
+          ExpressionAttributeValues: { ':pk': `CONTACT#${contactId}` },
+          ProjectionExpression: 'PK, SK, clientSearchText, clientSearchDigits',
+          ExclusiveStartKey: startKey,
+        }),
+      );
+      const stale = (page.Items ?? []).filter(
+        (r) =>
+          r.SK === 'METADATA' &&
+          typeof r.PK === 'string' &&
+          (r.clientSearchText !== attrs.clientSearchText || r.clientSearchDigits !== attrs.clientSearchDigits),
+      );
+      for (let i = 0; i < stale.length; i += 25) {
+        const done = await Promise.all(
+          stale.slice(i, i + 25).map(async (r) => {
+            try {
+              await this.setClientSearch((r.PK as string).slice('DEAL#'.length), attrs);
+              return 1;
+            } catch (error) {
+              if ((error as Error).name === 'ConditionalCheckFailedException') return 0;
+              throw error;
+            }
+          }),
+        );
+        written += done.reduce<number>((a, b) => a + b, 0);
+      }
+      startKey = page.LastEvaluatedKey;
+    } while (startKey);
+    return written;
   }
 
   /** The schedule, closed and end index keys, recomputed from the whole row. */
-  private async restampIndexKeys(id: string, row: Record<string, unknown>): Promise<Deal> {
+  private async restampIndexKeys(id: string, row: Record<string, unknown>): Promise<Record<string, unknown>> {
     const deal = this.toDeal(row);
     const schedule = statusScheduleKeys(deal);
     const closed = closedIndexKeys(deal);
@@ -1403,7 +1635,7 @@ export class DealsRepository {
         ReturnValues: 'ALL_NEW',
       }),
     );
-    return this.toDeal(result.Attributes!);
+    return result.Attributes!;
   }
 
   /**

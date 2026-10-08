@@ -213,7 +213,13 @@ DEAL#<id>          / METADATA        GSI1 STATUS#<s> / <createdAt>#…, GSI5 STA
                                      the Jobs report's three "By:" dates. GSI7 (EndIndex) is written on create and on
                                      every scheduling update; rows older than it (every Workiz import) need
                                      `npm run backfill:end-index -w backend/services/deal -- --apply`, or "By: Job end
-                                     date" does not list them
+                                     date" does not list them. The jobs list's Search box (`GET /deals?q=`) matches
+                                     `contains()` on four folded attributes of this row (`deals/deal-search.ts`, never
+                                     read back into `Deal`): `searchText` / `searchDigits` (the job's own fields, written
+                                     by the repository on create and on every update of an input) and
+                                     `clientSearchText` / `clientSearchDigits` (crm's contact: on create, client change,
+                                     merge and `contact.updated`); the job type is matched via the catalog at query
+                                     time. Rows older than them need `backfill:deal-search` (see §10)
 DEAL#<id>          / ASSIGN#<techId> assignment adjacency, on TechIndex — what findByTech reads
 DEAL#<id>          / PRODUCT#<id>    line item; fulfillment: sourced | to_order | service
 DEAL#<id>          / ATTACH#<id>     a job's file; sparse GSI10 ContactActivityIndex CONTACTFILE#<contactId> / <uploadedAt>#<id>
@@ -582,6 +588,17 @@ tests, and — if it emits events — the types in `@bitcrm/types` plus a row in
   `thumbKey`); until it has run, those items show the placeholder. New
   uploads get theirs from `POST /products/:id/photo/complete`. It walks GSI4
   `PRODUCTS#ALL` (no Scan), is idempotent, and needs the S3 bucket too.
+- **The jobs list's Search box reads derived attributes, and imported jobs have none until a
+  backfill.** `GET /deals?q=` (and `/deals/counts?q=`) filter on `searchText` / `clientSearchText`
+  (+ `*Digits`) of the METADATA row; a row without them is never found. Run in
+  `backend/services/deal` after the deploy that ships it and after every Workiz import:
+  `npm run backfill:deal-search -- --apply` (dry run without `--apply`; `--segments` /
+  `--concurrency`; reads crm's contacts + companies tables directly, so on dev also set
+  `CONTACTS_TABLE` / `COMPANIES_TABLE`; idempotent, conditional on `updatedAt`). The client's half
+  stays current only while `contact.updated` reaches deal-service (`user-events-to-deal` subscribed
+  to `contact-events`, Terraform). List pages are FILLED under any filter (`fillPartition`: reads on
+  past the rows the filter drops, ≤ 20 reads a partition per request); a search in a huge closed
+  status (Done, Canceled) may still answer a short page WITH a cursor, and its count is `null`.
 - **Redis DB 0 is dev, DB 15 is tests.** Don't flush the wrong one.
 - **Taxes live on service areas.** There is no tax-rate catalog: `ServiceArea.tax`
   (`{name, ratePercent}`) is the rate, exposed read-only as a `TaxRate` whose id is

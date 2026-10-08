@@ -286,8 +286,14 @@ module "sns_sqs" {
     user-events-to-inventory = {
       topic_subscriptions = ["user-events"]
     }
+    # deal-service's one queue (the consumer takes a single URL, hence the
+    # name): user-events for the eligibility projection, plus contact-events —
+    # contact.merged re-points a merged client's jobs, contact.updated restamps
+    # the client's half of the jobs-list search (clientSearchText) on each of
+    # their jobs. Without contact-events here a renamed client is still found
+    # by the old name until `backfill:deal-search` runs again.
     user-events-to-deal = {
-      topic_subscriptions = ["user-events"]
+      topic_subscriptions = ["user-events", "contact-events"]
     }
     # Global search CQRS index: one queue fanned out from every domain topic.
     search-index = {

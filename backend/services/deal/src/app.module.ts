@@ -123,6 +123,13 @@ export class AppModule implements OnModuleInit {
         'contact.merged',
         (p) => this.dealsEventHandler!.handleContactMerged(p),
       );
+      // The client's half of the jobs-list search (`deal-search.ts`). Both
+      // contact events reach this queue only once it is subscribed to the
+      // contact-events topic (infra/dev/data_plane.tf, `user-events-to-deal`).
+      this.sqsConsumer.registerHandler(
+        'contact.updated',
+        (p) => this.dealsEventHandler!.handleContactUpdated(p),
+      );
     }
 
     if (this.eligibilityHandler) {
