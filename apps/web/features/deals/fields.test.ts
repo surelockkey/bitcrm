@@ -52,11 +52,26 @@ describe("JOB_FIELDS registry", () => {
     }
   });
 
-  it("keeps the classic columns on by default and the new ones off", () => {
-    for (const id of ["client", "tech", "tags", "city", "state", "scheduled", "jobType"]) {
-      expect(DEFAULT_VISIBLE[id]).toBe(true);
-    }
-    for (const id of ["phone", "source", "externalCompany", "company", "poNumber", "createdAt"]) {
+  /**
+   * Workiz's USED FIELDS on this account (list_02_fields_menu): Job ID,
+   * Client, Tech, Tags, City, State, Scheduled, Job Type, Zip code, Total
+   * Price, Choose Company — a migrating dispatcher starts with the same set
+   * (audit L16).
+   */
+  it("starts with Workiz's used fields on, in Workiz's order, and the rest off", () => {
+    expect(Object.keys(DEFAULT_VISIBLE).filter((id) => DEFAULT_VISIBLE[id])).toEqual([
+      "client",
+      "tech",
+      "tags",
+      "city",
+      "state",
+      "scheduled",
+      "jobType",
+      "zip",
+      "total",
+      "company",
+    ]);
+    for (const id of ["phone", "source", "externalCompany", "poNumber", "createdAt"]) {
       expect(DEFAULT_VISIBLE[id]).toBe(false);
     }
   });
@@ -128,6 +143,8 @@ describe("Workiz field names", () => {
     expect(label("zip")).toBe("Zip code");
     expect(label("serviceArea")).toBe("Service area");
     expect(label("createdBy")).toBe("Created by");
+    // The company the job is done under — Workiz's "Choose Company" (audit_pixels L17).
+    expect(label("company")).toBe("Choose Company");
   });
 
   it("offers End, Time in Status and Job name, off by default", () => {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ChevronDown, ChevronLeft, ChevronRight, Plus, Search, TriangleAlert, X } from "lucide-react";
@@ -96,6 +96,7 @@ export function DealsPage() {
   const [searchText, setSearchText] = useState("");
   const search = useDebouncedValue(searchText, SEARCH_DEBOUNCE_MS);
   const [openId, setOpenId] = useState<string | null>(null);
+  const { ref: scrollerRef, width: viewWidth } = useClientWidth<HTMLDivElement>();
   const visibleFields = useJobFieldsStore((s) => s.visible);
   const fieldOrder = useJobFieldsStore((s) => s.order);
 
@@ -226,13 +227,19 @@ export function DealsPage() {
     onSortScheduled: () => setState((s) => ({ ...s, sort: s.sort === "day_desc" ? "none" : "day_desc" })),
     zoneOf,
     accountZone: DEFAULT_TZ,
+    viewWidth,
   } as const;
 
   return (
-    <div className="flex flex-1 flex-col text-[#404040]">
+    // The page scrolls itself, inside the shell, the way Workiz's main
+    // container does: the top bar stays put, and the grid's header sticks to
+    // the top while 50 tall rows go under it (audit L1). It scrolls sideways
+    // too, for a wide set of columns — the controls above the grid hold
+    // still (`sticky left-0`), only the grid moves.
+    <div ref={scrollerRef} className="flex min-h-0 flex-1 flex-col overflow-auto text-[#404040]" data-slot="jobs-scroller">
       {/* Filter results + Create New: list_01 puts the control 20px in, 49px
           high, and the yellow pill 16px to its right, tops aligned. */}
-      <div className="flex items-start gap-4 px-5 pt-[34px]">
+      <div className="sticky left-0 flex items-start gap-4 px-5 pt-[34px]">
         <JobsFilterControl state={state} onChange={setState} catalogs={catalogs} caps={caps} />
         {can("deals", "create") ? (
           <Button
@@ -250,7 +257,7 @@ export function DealsPage() {
       {/* Status tabs: 13px, the open one 600 with a 2px #3b4b52 underline,
           the rest 500 #566d76; a grey count chip beside each. */}
       <div
-        className={cn("mt-[27px] flex overflow-x-auto border-b border-[#c4c4c4] pt-1", !tabsShown && "invisible")}
+        className={cn("sticky left-0 mt-[27px] flex shrink-0 overflow-x-auto border-b border-[#c4c4c4] pt-1", !tabsShown && "invisible")}
         role="tablist"
         aria-label="Job status"
       >
@@ -284,7 +291,7 @@ export function DealsPage() {
       </div>
 
       {/* The grey strip: Search, Show unpaid jobs, and at the right the page size and Fields. */}
-      <div className="flex min-h-[71px] flex-wrap items-center gap-x-[18px] gap-y-2 border-t border-[#dddddd] bg-muted px-[21px] py-[15px]">
+      <div className="sticky left-0 flex min-h-[71px] shrink-0 flex-wrap items-center gap-x-[18px] gap-y-2 border-t border-[#dddddd] bg-muted px-[21px] py-[15px]">
         <SearchBox value={searchText} onChange={setSearchText} />
         {caps.unpaid ? (
           <label className="flex h-10 cursor-pointer items-center gap-2 text-sm whitespace-nowrap text-[#404040]">
@@ -328,6 +335,23 @@ export function DealsPage() {
 }
 
 /**
+ * An element's inner width, kept current. 0 where nothing is laid out (jsdom),
+ * so a consumer falls back to its own width.
+ */
+function useClientWidth<T extends HTMLElement>() {
+  // A callback ref: the element may arrive after the first render.
+  const [el, ref] = useState<T | null>(null);
+  const [width, setWidth] = useState(0);
+  useEffect(() => {
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => setWidth(el.clientWidth));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [el]);
+  return { ref, width };
+}
+
+/**
  * Workiz's table Search (list_01: 348×40, 1px #9ea6aa, radius 4, 13px text
  * between 44px sides, a magnifier at the left; blue border while focused;
  * a round × once there is text).
@@ -335,7 +359,7 @@ export function DealsPage() {
 function SearchBox({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   return (
     <div className="relative w-[348px] max-w-full">
-      <Search className="pointer-events-none absolute top-1/2 left-4 size-4 -translate-y-1/2 text-[#3b4b52]" />
+      <Search className="pointer-events-none absolute top-1/2 left-[15px] size-[18px] -translate-y-1/2 text-[#3b4b52]" strokeWidth={1.75} />
       <input
         aria-label="Search"
         placeholder="Search"
@@ -351,7 +375,7 @@ function SearchBox({ value, onChange }: { value: string; onChange: (v: string) =
           onClick={() => onChange("")}
           className="absolute top-1/2 right-[5px] grid size-[26px] -translate-y-1/2 place-items-center rounded-full bg-[#f3f6f7] text-[#768287] hover:text-[#3b4b52]"
         >
-          <X className="size-4" />
+          <X className="size-[13px]" strokeWidth={2.75} />
         </button>
       ) : null}
     </div>
@@ -374,7 +398,7 @@ function PageSizeSelect({ value, onChange }: { value: number; onChange: (n: numb
           </option>
         ))}
       </select>
-      <ChevronDown className="pointer-events-none absolute top-1/2 right-2.5 size-4 -translate-y-1/2 text-[#444444]" />
+      <ChevronDown className="pointer-events-none absolute top-1/2 right-2 size-[18px] -translate-y-1/2 text-[#444444]" strokeWidth={1.5} />
     </div>
   );
 }
@@ -395,7 +419,7 @@ function JobsPagination({ pager }: { pager: Pager<Deal> }) {
   return (
     <div
       data-testid="list-pagination"
-      className="relative flex h-16 items-center border-t-2 border-black/10 px-2.5 text-sm shadow-[0_0_15px_rgba(0,0,0,0.1)]"
+      className="sticky left-0 flex h-16 w-full items-center border-t-2 border-black/10 px-2.5 text-sm shadow-[0_0_15px_rgba(0,0,0,0.1)]"
     >
       <span className="tabular-nums">{showingText(pager)}</span>
       <div className="absolute left-1/2 flex -translate-x-1/2 items-center gap-[50px]">
