@@ -79,6 +79,20 @@ export function jobActions({
   return actions;
 }
 
+/* ------------------------------------------------------------------- tags */
+
+/**
+ * The header shows the tags newest first (`tagsNewestFirst`, as the list
+ * and Workiz do); what the picker hands back is in that shown order. The job
+ * keeps them in the order they were added, so: what stays keeps its place,
+ * and a new tag goes on the end — which is where "newest" reads from.
+ */
+export function storedTagOrder(stored: string[], picked: string[]): string[] {
+  const keep = new Set(picked);
+  const had = new Set(stored);
+  return [...stored.filter((id) => keep.has(id)), ...picked.filter((id) => !had.has(id))];
+}
+
 /* ------------------------------------------------------- Message Client */
 
 /** The last ten digits — "(571) 531-0137" and "+15715310137" are one number. */

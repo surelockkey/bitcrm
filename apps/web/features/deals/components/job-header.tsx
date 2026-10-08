@@ -26,8 +26,8 @@ import { cn } from "@/lib/utils";
 import { JobStatusMenu } from "@/features/job-statuses/components/job-status-menu";
 import { JobTagCombobox } from "@/features/job-tags/components/job-tag-combobox";
 import { useDeleteDeal, useMoveStatus, useSetDealTags, useUpdateDeal } from "../hooks";
-import { isUrgent } from "../lib";
-import { dealJobName, jobActions, jobNamePatch, type JobAction } from "../job-shell";
+import { isUrgent, tagsNewestFirst } from "../lib";
+import { dealJobName, jobActions, jobNamePatch, storedTagOrder, type JobAction } from "../job-shell";
 import { workOrderHref } from "@/features/work-orders/lib";
 import { PriorityFlag } from "./deal-badges";
 import { PILL_OUTLINE, PILL_YELLOW } from "./job-pills";
@@ -137,10 +137,13 @@ export function JobHeader({
       <HeaderRow label="Tags:" className="mt-[17px] min-h-6">
         <JobTagCombobox
           variant="workiz"
-          value={deal.tagIds ?? []}
+          // Newest first, as Workiz (and the jobs list) shows them.
+          value={tagsNewestFirst(deal.tagIds)}
           onChange={(ids) => {
             const added = ids.length > (deal.tagIds?.length ?? 0);
-            setTags.mutate(ids, { onSuccess: () => toast.success(added ? "Tag added" : "Tag removed") });
+            setTags.mutate(storedTagOrder(deal.tagIds ?? [], ids), {
+              onSuccess: () => toast.success(added ? "Tag added" : "Tag removed"),
+            });
           }}
           disabled={!canEdit}
         />

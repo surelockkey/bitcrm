@@ -11,6 +11,7 @@ import {
   jobClientName,
   jobDueDate,
   jobNamePatch,
+  storedTagOrder,
   workizDate,
   workizDateTime,
 } from "./job-shell";
@@ -74,6 +75,17 @@ describe("Actions menu — Workiz's Job Done / View Work Order / Duplicate Job /
     expect(jobActions({ ...base, workOrderId: "wo-1", canViewWorkOrders: true })).toEqual(["done", "work_order", "delete"]);
     expect(jobActions({ ...base, workOrderId: "wo-1", canViewWorkOrders: false })).toEqual(["done", "delete"]);
     expect(jobActions({ ...base, canViewWorkOrders: true })).toEqual(["done", "delete"]);
+  });
+});
+
+describe("the header's Tags row: newest first, stored in the order added", () => {
+  it("keeps the stored order of what stays and adds a new tag at the end (it shows first)", () => {
+    // Shown newest first: [c, b, a]; the picker hands back [c, b, a, d] after adding d.
+    expect(storedTagOrder(["a", "b", "c"], ["c", "b", "a", "d"])).toEqual(["a", "b", "c", "d"]);
+  });
+
+  it("drops a removed tag without reordering the rest", () => {
+    expect(storedTagOrder(["a", "b", "c"], ["c", "a"])).toEqual(["a", "c"]);
   });
 });
 
