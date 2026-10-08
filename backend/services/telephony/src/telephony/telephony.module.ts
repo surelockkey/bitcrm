@@ -2,6 +2,7 @@ import { forwardRef, Module } from '@nestjs/common';
 import { TelephonyController } from './telephony.controller';
 import { TelephonyService } from './telephony.service';
 import { TelephonySettingsService } from './telephony-settings.service';
+import { MainNumberService } from './main-number.service';
 import { TELEPHONY_CONFIG, loadTelephonyConfig } from './telephony.config';
 import { NumbersModule } from '../numbers/numbers.module';
 
@@ -14,6 +15,7 @@ import { NumbersModule } from '../numbers/numbers.module';
   providers: [
     TelephonyService,
     TelephonySettingsService,
+    MainNumberService,
     { provide: TELEPHONY_CONFIG, useFactory: loadTelephonyConfig },
   ],
   exports: [TelephonyService, TelephonySettingsService, TELEPHONY_CONFIG],
