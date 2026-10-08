@@ -243,7 +243,7 @@ export function ContactsPage() {
         <div className="ml-auto flex items-center gap-4">
           <WzPageSizeSelect value={pageSize} sizes={CLIENT_PAGE_SIZES} onChange={setPageSize} />
           {/* Merge soft-deletes the duplicates, so it follows the delete permission (backend guard). */}
-          {shown && can("contacts", "delete") ? (
+          {!permsLoading && can("contacts", "delete") ? (
             <WzToolbarButton onClick={() => setMerging(true)}>
               <Merge strokeWidth={1.75} />
               Merge
