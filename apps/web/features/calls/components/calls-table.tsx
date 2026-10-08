@@ -1,108 +1,91 @@
 "use client";
 
-import { Fragment, useState , useMemo } from "react";
+import { Fragment, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
+import { Pause, Play } from "lucide-react";
+import type { Deal } from "@bitcrm/types";
 import { Skeleton } from "@/components/ui/skeleton";
-import { PhoneIncoming, PhoneOutgoing, Play, X } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ResizableHead } from "@/components/ui/resizable-head";
+import { WzTableEmpty } from "@/components/workiz/table-empty";
 import { useColumnWidths } from "@/lib/table/use-column-widths";
+import { cn } from "@/lib/utils";
+import { usePermissions } from "@/features/auth/use-permissions";
 import { useDealsByIds } from "@/features/deals/hooks";
 import { useJobSourceName } from "@/features/job-sources/lib";
 import { JobTagChips } from "@/features/job-tags/components/job-tag-chips";
-import {
-  answeredBy,
-  callParty,
-  formatCallTime,
-  formatDuration,
-  linkedDealIds,
-  type CallRecord,
-} from "../lib";
+import { useCallFieldsStore, visibleCallColumns, type CallColumn } from "../fields";
+import { answeredBy, callParty, linkedDealIds, type CallRecord } from "../lib";
+import { formatWzCallDuration, formatWzCallTime } from "../workiz-format";
 import { CallPartyCell } from "./call-party-cell";
 import { CallQuickView } from "./call-quick-view";
-import { CallStatusBadge } from "./call-status-badge";
+import { CallStatusGlyph } from "./call-status-glyph";
 import { CallTagsCell } from "./call-tags-cell";
 import { NewClientFromCallDialog } from "./new-client-from-call-dialog";
 import { RecordingPreview } from "./recording-preview";
 
 /**
- * Every column, in order, with the width the table lays it out at.
- *
- * `table-fixed`, on purpose. Several of these columns are filled by their own
- * queries — the answering agent, the call flow, the source, the linked job and
- * its tags — and they land after the rows do. With auto layout the browser
- * re-measures every column as each one arrives, and the whole grid shifts
- * sideways under the reader. Fixed widths make the first painted frame the
- * final geometry; a long value is clipped instead of shoving its neighbours.
+ * Workiz's call grid (callspage_wz_01 / _02): the app's Workiz `Table` in a
+ * 1px #ddd frame, the header pinned to the page scroller's top, 80px rows of
+ * 20px cells (14px/16px #404040, dotted #cfcfcf rules), the Time column
+ * marked as the one the rows are ordered by (newest first: the bar at the
+ * foot). `table-fixed`, every column at a declared width, so a value that
+ * lands late never shoves its neighbours — and a long one is clipped.
  */
-const COLUMNS = [
-  // The arrow column: `COLUMN_MIN_WIDTH`, not narrower. A default below the
-  // floor a drag clamps to would announce a width its own handle calls
-  // illegal, and could never be dragged back to.
-  { key: "expand", label: "", width: 56 },
-  { key: "from", label: "From", width: 180 },
-  { key: "to", label: "To", width: 180 },
-  { key: "status", label: "Status", width: 130 },
-  { key: "answeredBy", label: "Answered by", width: 160 },
-  { key: "flow", label: "Call flow", width: 200 },
-  { key: "source", label: "Source", width: 200 },
-  { key: "tags", label: "Tags", width: 160 },
-  { key: "jobTags", label: "Job tags", width: 160 },
-  { key: "job", label: "Job", width: 90 },
-  { key: "started", label: "Started", width: 170 },
-  { key: "duration", label: "Duration", width: 100 },
-  { key: "rec", label: "Rec", width: 60 },
-] as const;
+const FRAME = "relative border border-wz-frame";
+/** Separate borders: the pinned header keeps its rules while the rows scroll under it. */
+const TABLE = "table-fixed w-full border-separate border-spacing-0";
+const HEAD = "sticky top-0 z-10 bg-muted border-b border-input";
+/** Workiz's 20px all round (the Table's fixed layout would give 10px sides), top-aligned. */
+const CELL = "overflow-hidden whitespace-nowrap p-5 align-top";
 
-/** Kept in one place so the preview row spans them all. */
-const COLUMN_COUNT = COLUMNS.length;
+/** Workiz pads its grid to ten rows (react-table `minRows`). */
+const MIN_ROWS = 10;
+
+/** The widths this table remembers; a key of its own, so old widths of other columns don't apply. */
+const TABLE_KEY = "calls-workiz";
+
+const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
+/** A job's money, as the jobs list's Total column reads it. */
+const jobTotal = (d: Deal) => d.totals?.total ?? d.actualTotal ?? d.estimatedTotal;
+
+/** The columns this viewer sees, in the order saved in the Fields drawer. */
+function useColumns(): CallColumn[] {
+  const { can } = usePermissions();
+  const visible = useCallFieldsStore((s) => s.visible);
+  const order = useCallFieldsStore((s) => s.order);
+  return visibleCallColumns(visible, order, can("financials", "view"));
+}
+
+function useWidths(columns: CallColumn[]) {
+  const defaults = useMemo(() => Object.fromEntries(columns.map((c) => [c.id, c.width])), [columns]);
+  return useColumnWidths(TABLE_KEY, defaults);
+}
+
+/** The grid's own width: its columns', or the page's when that is wider. */
+const gridWidth = (columns: CallColumn[], widthOf: (id: string) => number) =>
+  `max(100%, ${columns.reduce((sum, c) => sum + widthOf(c.id), 0)}px)`;
 
 /**
- * The widths above, as the starting point `useColumnWidths` remembers from.
- *
- * Declared once, at module scope: the table and its skeleton read the same
- * object, so the shell is laid out exactly where the rows will land.
+ * The grid's shell while the log is in flight: the same frame, header and
+ * widths, rows of the same 80px — the first painted frame already has the
+ * geometry the calls land into.
  */
-const COLUMN_DEFAULTS: Record<string, number> = Object.fromEntries(
-  COLUMNS.map((c) => [c.key, c.width] as const),
-);
-
-/** The preference this table's widths are saved under; `usePageSize`'s name. */
-const TABLE_KEY = "calls";
-
-/**
- * The table's shell while the log is still in flight.
- *
- * The same header and the same column widths as the real thing, and rows of
- * the same height — so the first painted frame already has the geometry the
- * calls land into. Three grey bars followed by a full table is a jump the
- * reader watches happen.
- */
-export function CallsTableSkeleton({ rows = 12 }: { rows?: number }) {
-  // The reader's saved widths, so the shell is the geometry the rows land in.
-  // No handles here: there is nothing to resize until there is a table.
-  const { widthOf } = useColumnWidths(TABLE_KEY, COLUMN_DEFAULTS);
-
+export function CallsTableSkeleton({ rows = MIN_ROWS }: { rows?: number }) {
+  const columns = useColumns();
+  const { widthOf } = useWidths(columns);
   return (
-    <div className="overflow-x-auto border" aria-busy role="status" aria-label="Loading calls">
-      <Table className="table-fixed">
+    <div className={FRAME} style={{ width: gridWidth(columns, widthOf) }} aria-busy role="status" aria-label="Loading calls">
+      <Table className={TABLE} contained={false}>
         <colgroup>
-          {COLUMNS.map((c) => (
-            <col key={c.key} style={{ width: widthOf(c.key) }} />
+          {columns.map((c) => (
+            <col key={c.id} style={{ width: widthOf(c.id) }} />
           ))}
         </colgroup>
         <TableHeader>
           <TableRow>
-            {COLUMNS.map((c) => (
-              <TableHead key={c.key} className="truncate">
+            {columns.map((c) => (
+              <TableHead key={c.id} className={cn(HEAD, "truncate")} sort={c.id === "time" ? "desc" : undefined}>
                 {c.label}
               </TableHead>
             ))}
@@ -110,9 +93,9 @@ export function CallsTableSkeleton({ rows = 12 }: { rows?: number }) {
         </TableHeader>
         <TableBody>
           {Array.from({ length: rows }, (_, i) => (
-            <TableRow key={i} className="hover:bg-transparent">
-              {COLUMNS.map((c) => (
-                <TableCell key={c.key}>
+            <TableRow key={i} aria-hidden className="h-20">
+              {columns.map((c) => (
+                <TableCell key={c.id} className={CELL}>
                   <Skeleton className="h-4 w-full" />
                 </TableCell>
               ))}
@@ -124,22 +107,23 @@ export function CallsTableSkeleton({ rows = 12 }: { rows?: number }) {
   );
 }
 
-export function CallsTable({ calls }: { calls: CallRecord[] }) {
+export function CallsTable({
+  calls,
+  empty,
+}: {
+  calls: CallRecord[];
+  /** What the white wash says over an empty grid (Workiz: "No … Found"). */
+  empty?: ReactNode;
+}) {
   const sourceName = useJobSourceName();
-  // The reader's own widths for this table; `COLUMNS` only sets the start.
-  const { widthOf, setWidth, reset } = useColumnWidths(TABLE_KEY, COLUMN_DEFAULTS);
-  // One request for every job on the page, not one per row. Each row used to
-  // fetch its own (`useDeal(call.dealId)`), so twenty-five calls meant
-  // twenty-five requests landing at twenty-five different moments — the Job
-  // and Job-tags columns filled in one at a time, which is what the page
-  // looked like it was doing. The log's page brings these jobs with it
-  // (`useCallsList`), under this same key, so here they are read, not fetched.
+  const columns = useColumns();
+  // The reader's own widths for this table; the registry only sets the start.
+  const { widthOf, setWidth, reset } = useWidths(columns);
+  // One request for every job on the page, not one per row — and the page
+  // brings these with its rows (`useCallsList`), so here they are read.
   const dealIds = useMemo(() => linkedDealIds(calls), [calls]);
   const { data: linkedDeals, isLoading: dealsLoading } = useDealsByIds(dealIds);
-  const dealsById = useMemo(
-    () => new Map((linkedDeals ?? []).map((d) => [d.id, d])),
-    [linkedDeals],
-  );
+  const dealsById = useMemo(() => new Map((linkedDeals ?? []).map((d) => [d.id, d])), [linkedDeals]);
   // The number an unknown caller is being turned into a client for.
   const [addingFor, setAddingFor] = useState<string | null>(null);
   // The call whose recording is playing inline; one preview at a time.
@@ -147,31 +131,102 @@ export function CallsTable({ calls }: { calls: CallRecord[] }) {
   // The call open in the side preview panel.
   const [quickViewSid, setQuickViewSid] = useState<string | null>(null);
 
+  const cell = (call: CallRecord, column: CallColumn): ReactNode => {
+    const deal = call.dealId ? dealsById.get(call.dealId) : undefined;
+    switch (column.id) {
+      case "status":
+        return <CallStatusGlyph call={call} />;
+      case "from":
+        return <CallPartyCell party={callParty(call, "from")} onAddClient={setAddingFor} />;
+      case "to":
+        return <CallPartyCell party={callParty(call, "to")} onAddClient={setAddingFor} />;
+      case "time":
+        return (
+          <>
+            <div className="leading-4">{formatWzCallTime(call.startedAt)}</div>
+            <div className="mt-[5px] flex items-center gap-1.5 text-xs leading-4 text-wz-caption">
+              {formatWzCallDuration(call.durationSeconds)}
+              {call.recordingSid ? (
+                <button
+                  type="button"
+                  aria-label={previewSid === call.callSid ? "Close player" : "Play recording"}
+                  onClick={(e) => {
+                    // The row opens the side preview; this stays put.
+                    e.stopPropagation();
+                    setPreviewSid((sid) => (sid === call.callSid ? null : call.callSid));
+                  }}
+                  className="grid size-4 place-items-center rounded-full bg-wz-link text-white hover:bg-brand"
+                >
+                  {previewSid === call.callSid ? (
+                    <Pause className="size-2.5 fill-current" strokeWidth={0} />
+                  ) : (
+                    <Play className="size-2.5 translate-x-px fill-current" strokeWidth={0} />
+                  )}
+                </button>
+              ) : null}
+            </div>
+          </>
+        );
+      case "flow":
+        // Clipped with an ellipsis, the whole name on hover: flow and source
+        // names run long ("SURE TX MCKINNEY (UNIVERSITY) LSA -").
+        return call.flowName ? <span className="block truncate" title={call.flowName}>{call.flowName}</span> : null;
+      case "source": {
+        const name = call.sourceId ? sourceName(call.sourceId) : "";
+        return name ? <span className="block truncate" title={name}>{name}</span> : null;
+      }
+      case "tags":
+        return <CallTagsCell call={call} inRow look="cell" />;
+      case "answeredBy": {
+        const who = answeredBy(call);
+        return who ? <span className="block truncate" title={who}>{who}</span> : null;
+      }
+      case "job":
+        if (!call.dealId) return null;
+        if (dealsLoading && !deal) return <span className="inline-block h-4 w-12 animate-pulse rounded bg-muted" />;
+        return deal ? (
+          <Link
+            href={`/deals/${deal.id}`}
+            // The row click opens the side preview; this goes to the job instead.
+            onClick={(e) => e.stopPropagation()}
+            className="block truncate text-wz-close-icon no-underline hover:underline"
+          >
+            Job {deal.dealNumber}
+          </Link>
+        ) : null;
+      case "revenue": {
+        // Workiz leaves a job with nothing billed blank ("Job 375982", no revenue).
+        const total = deal ? jobTotal(deal) : undefined;
+        return typeof total === "number" && total > 0 ? <span className="tabular-nums">{money.format(total)}</span> : null;
+      }
+      case "jobTags":
+        // The linked job's tags — a different question from the call's own.
+        return deal?.tagIds?.length ? <JobTagChips ids={deal.tagIds} max={2} /> : null;
+    }
+  };
+
   return (
-    <div className="overflow-x-auto border">
-      <Table className="table-fixed">
+    <div className={FRAME} style={{ width: gridWidth(columns, widthOf) }}>
+      <Table className={TABLE} contained={false}>
         <colgroup>
-          {COLUMNS.map((c) => (
-            <col key={c.key} style={{ width: widthOf(c.key) }} />
+          {columns.map((c) => (
+            <col key={c.id} style={{ width: widthOf(c.id) }} />
           ))}
         </colgroup>
         <TableHeader>
-          {/* The call's own tags, as in Workiz; the linked job's tags are a
-              separate column so neither answer has to stand in for the other. */}
           <TableRow>
-            {COLUMNS.map((c) => (
+            {columns.map((c) => (
               <ResizableHead
-                key={c.key}
-                columnId={c.key}
-                // The arrow column carries no visible title, but the handle
-                // beside it still has to be nameable.
-                label={c.label || "Direction"}
-                width={widthOf(c.key)}
-                onResize={(px) => setWidth(c.key, px)}
+                key={c.id}
+                columnId={c.id}
+                label={c.label}
+                width={widthOf(c.id)}
+                onResize={(px) => setWidth(c.id, px)}
                 onReset={reset}
-                className={c.key === "duration" || c.key === "rec" ? "text-right" : undefined}
+                sort={c.id === "time" ? "desc" : undefined}
+                className={HEAD}
               >
-                {c.label || <span className="sr-only">Direction</span>}
+                {c.label}
               </ResizableHead>
             ))}
           </TableRow>
@@ -180,118 +235,42 @@ export function CallsTable({ calls }: { calls: CallRecord[] }) {
           {calls.map((call) => (
             <Fragment key={call.callSid}>
               <TableRow
-                className="cursor-pointer"
-                // Left click opens the side preview; right click jumps
-                // straight into the call page in a new tab, like the job list.
+                className="group/row h-20 cursor-pointer"
+                // Left click opens the side preview; right click opens the
+                // call's own page in a new tab, like the job list.
                 onClick={() => setQuickViewSid(call.callSid)}
                 onContextMenu={(e) => {
                   e.preventDefault();
-                  window.open(
-                    `/calls/${call.callSid}`,
-                    "_blank",
-                    "noopener,noreferrer",
-                  );
+                  window.open(`/calls/${call.callSid}`, "_blank", "noopener,noreferrer");
                 }}
               >
-                <TableCell>
-                  {call.direction === "inbound" ? (
-                    <PhoneIncoming className="size-4 text-muted-foreground" />
-                  ) : (
-                    <PhoneOutgoing className="size-4 text-muted-foreground" />
-                  )}
-                </TableCell>
-                <TableCell>
-                  <CallPartyCell
-                    party={callParty(call, "from")}
-                    onAddClient={setAddingFor}
-                  />
-                </TableCell>
-                <TableCell>
-                  <CallPartyCell
-                    party={callParty(call, "to")}
-                    onAddClient={setAddingFor}
-                  />
-                </TableCell>
-                <TableCell>
-                  <CallStatusBadge status={call.status} />
-                </TableCell>
-                <TableCell className="text-sm">
-                  {answeredBy(call) ?? <Dash />}
-                </TableCell>
-                {/*
-                  Truncated, with the whole value on hover. Call flows and ad
-                  group sources carry names like "SURE TX MCKINNEY (UNIVERSITY)
-                  LSA -", far past any column width worth giving them; under
-                  `table-fixed` an unclipped cell does not widen its column, it
-                  spills over the next one.
-                */}
-                <TableCell className="truncate text-sm" title={call.flowName ?? undefined}>
-                  {call.flowName ?? <Dash />}
-                </TableCell>
-                <TableCell
-                  className="truncate text-sm"
-                  title={call.sourceId ? sourceName(call.sourceId) : undefined}
-                >
-                  {call.sourceId ? sourceName(call.sourceId) : <Dash />}
-                </TableCell>
-                <TableCell className="overflow-hidden">
-                  <CallTagsCell call={call} inRow />
-                </TableCell>
-                <TableCell>
-                  {call.dealId ? <CallJobTagsCell deal={dealsById.get(call.dealId)} /> : <Dash />}
-                </TableCell>
-                <TableCell>
-                  {call.dealId ? (
-                    <CallJobCell deal={dealsById.get(call.dealId)} isLoading={dealsLoading} />
-                  ) : (
-                    <Dash />
-                  )}
-                </TableCell>
-                <TableCell className="text-muted-foreground">
-                  {formatCallTime(call.startedAt)}
-                </TableCell>
-                <TableCell className="text-right font-mono text-sm tabular-nums">
-                  {formatDuration(call.durationSeconds)}
-                </TableCell>
-                <TableCell className="text-right">
-                  {call.recordingSid ? (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="ml-auto size-7"
-                      aria-label={
-                        previewSid === call.callSid
-                          ? "Close player"
-                          : "Play recording"
-                      }
-                      onClick={(e) => {
-                        // The row click opens the call page; this stays put.
-                        e.stopPropagation();
-                        setPreviewSid((sid) =>
-                          sid === call.callSid ? null : call.callSid,
-                        );
-                      }}
-                    >
-                      {previewSid === call.callSid ? (
-                        <X className="size-4" />
-                      ) : (
-                        <Play className="size-4" />
-                      )}
-                    </Button>
-                  ) : null}
-                </TableCell>
+                {columns.map((c) => (
+                  <TableCell key={c.id} className={CELL}>
+                    {cell(call, c)}
+                  </TableCell>
+                ))}
               </TableRow>
               {previewSid === call.callSid ? (
                 <TableRow className="hover:bg-transparent">
-                  <TableCell colSpan={COLUMN_COUNT} className="bg-muted/30 py-2">
+                  <TableCell colSpan={columns.length} className="bg-muted/30 px-5 py-2">
                     <RecordingPreview callSid={call.callSid} />
                   </TableCell>
                 </TableRow>
               ) : null}
             </Fragment>
           ))}
+          {/* Workiz's grid never runs shorter than ten rows: blank striped
+              rows keep the rules going. */}
+          {Array.from({ length: Math.max(0, MIN_ROWS - calls.length) }, (_, i) => (
+            <TableRow key={`pad-${i}`} aria-hidden className="h-20">
+              {columns.map((c) => (
+                <TableCell key={c.id} className={CELL} />
+              ))}
+            </TableRow>
+          ))}
         </TableBody>
       </Table>
+      {calls.length === 0 && empty ? <WzTableEmpty title={empty} /> : null}
 
       <CallQuickView
         callSid={quickViewSid}
@@ -302,51 +281,7 @@ export function CallsTable({ calls }: { calls: CallRecord[] }) {
         onOpenChange={(open) => !open && setQuickViewSid(null)}
       />
 
-      <NewClientFromCallDialog
-        phone={addingFor}
-        onClose={() => setAddingFor(null)}
-      />
+      <NewClientFromCallDialog phone={addingFor} onClose={() => setAddingFor(null)} />
     </div>
   );
-}
-
-function Dash() {
-  return <span className="text-muted-foreground">—</span>;
-}
-
-/**
- * The job a call is attached to, as a link. Fetched per deal id — the query
- * cache collapses repeat rows (and the Tags cell) into one request.
- */
-function CallJobCell({
-  deal,
-  isLoading,
-}: {
-  deal?: { id: string; dealNumber: string };
-  isLoading: boolean;
-}) {
-  if (isLoading) {
-    return <span className="inline-block h-4 w-12 animate-pulse rounded bg-muted" />;
-  }
-  if (!deal) return <Dash />;
-  return (
-    <Link
-      href={`/deals/${deal.id}`}
-      className="font-medium underline-offset-2 hover:text-brand hover:underline"
-      // The row click opens the side preview; this goes to the job instead.
-      onClick={(e) => e.stopPropagation()}
-    >
-      #{deal.dealNumber}
-    </Link>
-  );
-}
-
-/**
- * The linked job's tags — a different question from the call's own tags in
- * the column beside it, which is why both columns exist: the job is
- * "Warranty", the call that booked it "SPAM CALLER".
- */
-function CallJobTagsCell({ deal }: { deal?: { tagIds?: string[] } }) {
-  if (!deal?.tagIds?.length) return <Dash />;
-  return <JobTagChips ids={deal.tagIds} max={2} />;
 }

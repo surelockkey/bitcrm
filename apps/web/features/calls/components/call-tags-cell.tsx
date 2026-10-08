@@ -23,10 +23,13 @@ export function CallTagsCell({
   call,
   /** Inside a clickable table row — keep clicks off the row. */
   inRow,
+  look,
   className,
 }: {
   call: Pick<CallRecord, "callSid" | "tagIds">;
   inRow?: boolean;
+  /** The call log's Workiz cell (`cell`), or plain chips elsewhere. */
+  look?: "chips" | "cell";
   className?: string;
 }) {
   const { can } = usePermissions();
@@ -70,6 +73,7 @@ export function CallTagsCell({
       disabled={!canTag}
       catalogEnabled={canRead}
       stopPropagation={inRow}
+      look={look}
       className={className}
     />
   );

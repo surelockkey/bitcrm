@@ -299,6 +299,35 @@ Spec with every measurement and capture name:
 - **`WzRail`** / **`WzRailButton`** / **`WzRailPanel`** — the right rail strip,
   its icons (red count, optional caption) and the 350px panel chrome.
 
+### Section-page pieces (agent `callspage`, Workiz Phone)
+
+Measured off `callspage_wz_*` (notes: `jobs-parity-2026-10-08/callspage.md`).
+
+- **`WzPageHeader`** `title` `pill` `end` — h2 25px/32px 500 ink, 24px in;
+  **`WzHeaderPill`** `icon` — the grey 36px pill beside it (`#f3f6f7`, r8).
+- **`WzTabLinks`** `tabs={{id,label,href}[]}` `active` `label` — Workiz's
+  legacy tab strip as *links* (sub-routes): 13px, 15px 25px, idle 500
+  `#768287`, open 600 `#404040` over a 4px `#3e4b51` bar, 1px `#ccc` rule.
+  `WzTabBar` stays the one for in-page tabs.
+- **`WzStatCard`** `label` `value` `aside` `alert` — StatCard-module: 1px
+  `#e8e8e8`, r8, 16px; 10px/500 capitals over a 25px/500 number; `alert`
+  turns both `#f45e44` (MISSED CALLS > 0). Cards share a row with `flex-1`.
+- **`WzBadgeIconButton`** `label` `icon` `count` — the 40px grey icon button
+  with the red 22px count (the headset "Monitor calls").
+- **`WzDateRangePicker`** `presets` `value={preset,from,to}` `rangeOf`
+  `onChange` — the 250px `._picker` box: preset name over "Oct 8th, 2026 -
+  Oct 8th, 2026", a 37px-row list under it, Custom → From:/To: MM/DD/YYYY
+  inputs (read on blur/Enter, nonsense put back, To follows From).
+  `formatWzDay`, `formatWzDayRange`, `formatUsDay`, `parseUsDay`, `ordinal`.
+- **`WzAddFilter`** `kinds` `onAdd` — "+ Add filter" (32px r20 tertiary) and
+  its 274px menu with "Search filters"; **`WzFilterField`** `name` `value`
+  `open` `onOpenChange` `onRemove` — the grey "Direction is (any) ⌃ ×" chip
+  (`#dfe2e3`, 13px `#6aa8ee`) with its panel; **`WzFilterOptions`**
+  `searchLabel` `options` `selected` `multi` `onApply` — the panel: search,
+  36px rows (Select All when `multi`; radios when the filter takes one
+  value), "Apply" (14px/600 `#3589e9`). (Not the same as `WzFilterChip`, the
+  react-select multi-value chip of "Filter results".)
+
 ## Known differences from Workiz (deliberate or unmeasurable)
 - Sub-pixel: Workiz's own fractional layout makes some glyphs land ±1px
   differently from ours in screenshots (e.g. two Workiz selects with identical

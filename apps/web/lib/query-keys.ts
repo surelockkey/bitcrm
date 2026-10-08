@@ -22,6 +22,8 @@ export const queryKeys = {
       ["telephony", "numbers", "available", params] as const,
     /** Teammates a live call can be handed to or pulled onto. */
     transferTargets: () => ["telephony", "transfer-targets"] as const,
+    /** The same teammates with the viewer among them (call groups, the call log's User filter). */
+    teammates: () => ["telephony", "transfer-targets", "with-self"] as const,
     callGroups: () => ["telephony", "call-groups"] as const,
     callFlows: () => ["telephony", "call-flows"] as const,
   },
@@ -55,6 +57,8 @@ export const queryKeys = {
     active: () => ["calls", "active"] as const,
     /** Reports → Call Tracking (`GET /telephony/calls/stats/tracking`). */
     tracking: (params?: unknown) => ["calls", "tracking", params] as const,
+    /** The call log's stat cards (`GET /telephony/calls/stats/summary`). */
+    summary: (filters?: unknown) => ["calls", "summary", filters] as const,
   },
 
   search: {

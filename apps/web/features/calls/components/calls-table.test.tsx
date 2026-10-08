@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { CallRecord } from "../lib";
+import { DEFAULT_CALL_FIELDS, useCallFieldsStore } from "../fields";
 import { CallsTable, CallsTableSkeleton } from "./calls-table";
 
 const push = vi.fn();
@@ -85,6 +86,8 @@ const call = (over: Partial<CallRecord>): CallRecord =>
   }) as CallRecord;
 
 beforeEach(() => {
+  localStorage.clear();
+  useCallFieldsStore.setState({ visible: { ...DEFAULT_CALL_FIELDS }, order: [] });
   push.mockClear();
   fetchRecordingBlob.mockReset();
   fetchRecordingBlob.mockResolvedValue(new Blob(["audio"]));
@@ -166,7 +169,8 @@ describe("CallsTable recording preview", () => {
     detail.mockReturnValue(rec);
     render(<CallsTable calls={[rec]} />);
 
-    await user.click(screen.getByText("Completed"));
+    // Workiz's Time column: 10:00 UTC is 6:00 AM in New York.
+    await user.click(screen.getByText("Tue Aug 11th, 6:00AM"));
 
     expect(push).not.toHaveBeenCalled();
     const panel = await screen.findByRole("dialog");
@@ -195,12 +199,19 @@ describe("CallsTable recording preview", () => {
       />,
     );
 
-    expect(screen.getByText("Call flow")).toBeInTheDocument();
-    expect(screen.getByText("Source")).toBeInTheDocument();
-    expect(screen.getByText("Answered by")).toBeInTheDocument();
-    expect(screen.getByText("Tags")).toBeInTheDocument();
-    expect(screen.getByText("Job tags")).toBeInTheDocument();
-    expect(screen.getByText("Job")).toBeInTheDocument();
+    // Workiz's ten columns, by Workiz's names (callspage_wz_01).
+    expect(screen.getAllByRole("columnheader").map((h) => h.textContent)).toEqual([
+      "Status",
+      "From",
+      "To",
+      "Time",
+      "Call Flow",
+      "Ad Source",
+      "Tags",
+      "Answered By",
+      "Jobs & Leads",
+      "Revenue",
+    ]);
 
     expect(screen.getByText("Main line")).toBeInTheDocument();
     expect(screen.getByText("Google Ads")).toBeInTheDocument();
@@ -223,19 +234,25 @@ describe("CallsTable recording preview", () => {
     expect(screen.getByText("Bob Reed")).toBeInTheDocument();
   });
 
-  it("shows the linked job's number and tags, linking to the job", () => {
+  it("shows the linked job as Workiz's 'Job 1042' link, and its tags once that column is on", () => {
+    useCallFieldsStore.setState({ visible: { ...DEFAULT_CALL_FIELDS, jobTags: true }, order: [] });
     render(<CallsTable calls={[call({ callSid: "CA1", dealId: "d1" })]} />);
 
-    const link = screen.getByRole("link", { name: "#1042" });
+    const link = screen.getByRole("link", { name: "Job 1042" });
     expect(link).toHaveAttribute("href", "/deals/d1");
     expect(screen.getByText("tags:t1,t2")).toBeInTheDocument();
+  });
+
+  it("leaves the job's tags out until the reader adds the column", () => {
+    render(<CallsTable calls={[call({ callSid: "CA1", dealId: "d1" })]} />);
+    expect(screen.queryByText("tags:t1,t2")).not.toBeInTheDocument();
   });
 
   it("opening the job link does not open the side preview", async () => {
     const user = userEvent.setup();
     render(<CallsTable calls={[call({ callSid: "CA1", dealId: "d1" })]} />);
 
-    await user.click(screen.getByRole("link", { name: "#1042" }));
+    await user.click(screen.getByRole("link", { name: "Job 1042" }));
 
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
@@ -246,7 +263,7 @@ describe("CallsTable recording preview", () => {
     detail.mockReturnValue(rec);
     render(<CallsTable calls={[rec]} />);
 
-    await user.click(screen.getByText("Completed"));
+    await user.click(screen.getByText("Tue Aug 11th, 6:00AM"));
     await screen.findByRole("dialog");
 
     await user.keyboard("{Escape}");
@@ -302,7 +319,7 @@ describe("CallsTable — one request for the page's jobs", () => {
   it("still names the job it was given", () => {
     render(<CallsTable calls={[call({ callSid: "c1", dealId: "d1" })]} />);
 
-    expect(screen.getByText("#1042")).toBeInTheDocument();
+    expect(screen.getByText("Job 1042")).toBeInTheDocument();
   });
 });
 
@@ -356,13 +373,14 @@ describe("CallsTable — long flow and source names", () => {
 
   it("clips the call flow instead of letting it run into Source", () => {
     render(<CallsTable calls={[call({ callSid: "CA1", flowName: long })]} />);
-    const cell = screen.getByText(long).closest("td");
-    expect(cell?.className).toContain("truncate");
+    // Workiz's "(3-TX-GMB) SURE…": an ellipsis inside a cell that hides the rest.
+    expect(screen.getByText(long).className).toContain("truncate");
+    expect(screen.getByText(long).closest("td")?.className).toContain("overflow-hidden");
   });
 
   it("keeps the whole flow name available on hover", () => {
     render(<CallsTable calls={[call({ callSid: "CA1", flowName: long })]} />);
-    expect(screen.getByText(long).closest("td")).toHaveAttribute("title", long);
+    expect(screen.getByText(long)).toHaveAttribute("title", long);
   });
 
   // Ширина колонки задана в colgroup; min-width на клітинці перемагала б її
@@ -382,10 +400,7 @@ describe("CallsTable — long flow and source names", () => {
  * тягнути нема чого, а ручка в ній була б клікабельною пусткою.
  */
 describe("CallsTable — resizable columns", () => {
-  const ids = [
-    "expand", "from", "to", "status", "answeredBy", "flow", "source",
-    "tags", "jobTags", "job", "started", "duration", "rec",
-  ];
+  const ids = ["status", "from", "to", "time", "flow", "source", "tags", "answeredBy", "job", "revenue"];
 
   it("puts a drag handle on every column header", () => {
     render(<CallsTable calls={[call({ callSid: "CA1" })]} />);

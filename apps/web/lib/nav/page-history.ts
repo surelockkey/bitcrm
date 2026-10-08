@@ -82,6 +82,12 @@ const STATIC_LABELS: Record<string, string> = {
   "/price-book/items": "Price Book",
   "/price-book/categories": "Price Book Categories",
   "/price-book/brands": "Price Book Brands",
+  // The Phone section's tabs, as Workiz's breadcrumb names them ("Calls #
+  // Numbers"); under /calls they would otherwise read as a single call.
+  "/calls/numbers": "Numbers",
+  "/calls/flows": "Call Flows",
+  "/calls/groups": "Call groups",
+  "/calls/texting": "Text Messages",
   "/profile": "My Profile",
   ...Object.fromEntries(TECHNICIAN_NAV.map((i) => [i.href, i.label])),
 };

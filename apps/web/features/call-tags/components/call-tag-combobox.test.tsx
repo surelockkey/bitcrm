@@ -383,3 +383,33 @@ describe("CallTagCombobox — the tags on one call", () => {
     expect(screen.queryByRole("option", { name: /WRONG NUMBER/ })).not.toBeInTheDocument();
   });
 });
+
+/**
+ * The call log's Tags cell (callspage_wz_03_row_hover_tags): Workiz draws the
+ * tags as solid chips and makes the whole cell the way into the picker.
+ */
+describe("CallTagCombobox — the call log's cell look", () => {
+  beforeEach(() => {
+    canMock.mockReturnValue(true);
+    catalog.loading = false;
+  });
+
+  it("draws solid chips without their own ×, and opens the picker from the cell", () => {
+    const onChange = vi.fn();
+    render(<CallTagCombobox look="cell" value={["ct-spam"]} onChange={onChange} />);
+    const chip = screen.getByText("SPAM CALLER");
+    expect(chip.className).toContain("text-white");
+    expect(screen.queryByRole("button", { name: /remove/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /add tag/i })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit tags" }));
+    fireEvent.click(screen.getByRole("option", { name: /SPAM CALLER/ }));
+    expect(onChange).toHaveBeenCalledWith([]);
+  });
+
+  it("is empty, not a dash, when a read-only call has no tags", () => {
+    const { container } = render(<CallTagCombobox look="cell" disabled value={[]} onChange={vi.fn()} />);
+    expect(container).not.toHaveTextContent("—");
+    expect(screen.queryByRole("button", { name: "Edit tags" })).not.toBeInTheDocument();
+  });
+});
