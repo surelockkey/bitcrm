@@ -91,7 +91,7 @@ export function WzDateRangePicker({ presets, value, onChange, rangeOf, className
           id={listId}
           role="listbox"
           aria-label="Date presets"
-          className="absolute top-full -right-px -left-px z-30 border border-wz-frame bg-background shadow-[0_2px_6px_rgba(0,0,0,0.08)]"
+          className="absolute top-full -right-px -left-px z-30 border border-wz-frame bg-background"
         >
           {presets.map((p) => (
             <li
@@ -106,7 +106,9 @@ export function WzDateRangePicker({ presets, value, onChange, rangeOf, className
                   pick(p.id);
                 }
               }}
-              className="cursor-pointer border-t border-wz-frame p-2.5 first:border-t-0 hover:bg-muted"
+              // rep_jobs_wz_06b_date_hover: no shadow under the list, and the row
+              // under the cursor is #e1e1e1 (Workiz's `_picker_options li:hover`).
+              className="cursor-pointer border-t border-wz-frame p-2.5 first:border-t-0 hover:bg-[#e1e1e1]"
             >
               {p.label}
             </li>
