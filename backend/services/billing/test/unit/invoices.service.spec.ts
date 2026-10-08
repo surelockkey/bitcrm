@@ -482,6 +482,41 @@ describe('InvoicesService', () => {
     });
   });
 
+  /**
+   * Workiz's Clients page cards: "$495,463.70 / Due from 335 clients" and
+   * "$121,011.91 / Past due from 260 clients" — how many CLIENTS owe, not how
+   * many invoices. Due counts every open balance (past due included); past due
+   * only the overdue ones.
+   */
+  describe('summary — clients who owe', () => {
+    const inv = (id: string, contactId: string, status: Invoice['status'], balanceDue: number) =>
+      ({ id, dealId: id, contactId, status, totals: { balanceDue } }) as unknown as Invoice;
+
+    it('counts each owing client once, past-due ones in both', async () => {
+      repo.store.set('i1', inv('i1', 'c1', 'due', 100));
+      repo.store.set('i2', inv('i2', 'c1', 'overdue', 50));
+      repo.store.set('i3', inv('i3', 'c2', 'due', 10));
+      repo.store.set('i4', inv('i4', 'c3', 'overdue', 5));
+      repo.store.set('i5', inv('i5', 'c4', 'paid', 0));
+
+      const s = await service.summary(caller());
+
+      expect(s.dueClientCount).toBe(3);
+      expect(s.overdueClientCount).toBe(2);
+      // The invoice-level numbers stay what they were.
+      expect(s).toMatchObject({ dueCount: 2, dueAmount: 110, overdueCount: 2, overdueAmount: 55 });
+    });
+
+    it('says zero when nobody owes', async () => {
+      repo.store.set('i5', inv('i5', 'c4', 'paid', 0));
+
+      const s = await service.summary(caller());
+
+      expect(s.dueClientCount).toBe(0);
+      expect(s.overdueClientCount).toBe(0);
+    });
+  });
+
   describe('list', () => {
     it('filters to the technician’s own jobs under assigned_only', async () => {
       repo.store.set('deal-1', { id: 'deal-1', dealId: 'deal-1' } as Invoice);

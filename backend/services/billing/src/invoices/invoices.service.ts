@@ -107,6 +107,10 @@ export interface InvoiceSummary {
   paidAmount: number;
   paidCount: number;
   needsInvoiceCount: number;
+  /** Clients with any open balance (due or overdue) — Workiz's "Due from N clients". */
+  dueClientCount: number;
+  /** Clients with an overdue balance — Workiz's "Past due from N clients". */
+  overdueClientCount: number;
 }
 
 export interface NeedingInvoiceRow {
@@ -543,21 +547,30 @@ export class InvoicesService {
       paidAmount: 0,
       paidCount: 0,
       needsInvoiceCount: 0,
+      dueClientCount: 0,
+      overdueClientCount: 0,
     };
+    const owing = new Set<string>();
+    const pastDue = new Set<string>();
     for (const inv of all) {
       const balance = inv.totals?.balanceDue ?? 0;
       if (inv.status === 'due') {
         s.dueCount++;
         s.dueAmount += balance;
+        owing.add(inv.contactId);
       } else if (inv.status === 'overdue') {
         s.overdueCount++;
         s.overdueAmount += balance;
+        owing.add(inv.contactId);
+        pastDue.add(inv.contactId);
       } else if (inv.status === 'paid') {
         s.paidCount++;
         s.paidAmount += inv.totals?.amountPaid ?? inv.totals?.total ?? 0;
       }
       if (!inv.sentAt) s.unsentCount++;
     }
+    s.dueClientCount = owing.size;
+    s.overdueClientCount = pastDue.size;
     s.dueAmount = round2(s.dueAmount);
     s.overdueAmount = round2(s.overdueAmount);
     s.paidAmount = round2(s.paidAmount);
