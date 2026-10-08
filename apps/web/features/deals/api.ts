@@ -42,6 +42,8 @@ export interface QualifiedTech {
   id: string;
   firstName?: string;
   lastName?: string;
+  /** The name Workiz prints for them ("(2) TX - Daniel Munoz"); absent for anyone made or renamed here. */
+  workizName?: string;
   department?: string;
   jobTypeIds?: string[];
   serviceAreaIds?: string[];

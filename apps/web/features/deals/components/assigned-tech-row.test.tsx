@@ -17,6 +17,14 @@ describe("AssignedTechRow", () => {
     expect(screen.getByText("Reonquez Thompson")).toBeInTheDocument();
   });
 
+  it("shows the name Workiz prints for them (job page Team row), the avatar keeping their own initial", () => {
+    const { container } = render(
+      <AssignedTechRow techId="u1" user={{ ...tech, firstName: "Daniel", lastName: "Munoz", workizName: "(2) TX - Daniel Munoz" }} />,
+    );
+    expect(screen.getByText("(2) TX - Daniel Munoz")).toBeInTheDocument();
+    expect(container.querySelector("[data-slot='tech-avatar']")).toHaveTextContent("D");
+  });
+
   it("never shows the id while the directory is still on its way", () => {
     const { container } = render(<AssignedTechRow techId="u1" user={undefined} />);
     expect(container.textContent).not.toContain("u1");

@@ -25,7 +25,8 @@ export function AssignedTechRow({
   className,
 }: {
   techId: string;
-  user: { firstName?: string; lastName?: string; email?: string } | undefined;
+  /** `workizName` ("(2) TX - Daniel Munoz") is what Workiz prints, when the import kept it. */
+  user: { firstName?: string; lastName?: string; workizName?: string; email?: string } | undefined;
   onRemove?: (techId: string) => void;
   /** The buttons this screen offers for this person. */
   children?: React.ReactNode;

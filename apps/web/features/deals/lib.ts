@@ -121,15 +121,6 @@ export function tabCounts(deals: Pick<Deal, "superStatus" | "scheduledDate">[]):
   return counts;
 }
 
-/**
- * A job's tags the way Workiz lists them: newest first. The job keeps them in
- * the order they were added (the import keeps Workiz's own), so the list
- * reads them backwards — a copy, the stored order is left alone.
- */
-export function tagsNewestFirst(tagIds: string[] | undefined): string[] {
-  return [...(tagIds ?? [])].reverse();
-}
-
 /* ------------------------------------------------------------------ labels */
 
 // Job types are now a managed catalog — resolve ids to names with

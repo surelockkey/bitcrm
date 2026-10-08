@@ -195,6 +195,15 @@ describe("team (Assign team members)", () => {
     ]);
   });
 
+  it("names a tech the way Workiz does — the Workiz name when there is one", () => {
+    const daniel = { ...tech("d", true), firstName: "Daniel", lastName: "Munoz", workizName: "(2) TX - Daniel  Munoz" };
+    const eli = { ...tech("e", false, ["outside_area"]), firstName: "Eli", lastName: "Szender", workizName: "(3) CT - Eli Szender" };
+    expect(teamOptions([daniel, eli], [], () => undefined)).toEqual([
+      { value: "d", label: "(2) TX - Daniel Munoz" },
+      { value: "e", label: "(3) CT - Eli Szender (outside this service area)", disabled: true },
+    ]);
+  });
+
   it("keeps a picked tech that is not on the list, named from the directory", () => {
     const opts = teamOptions([tech("a", true)], ["z"], (id) => (id === "z" ? "Zoe Imported" : undefined));
     expect(opts).toContainEqual({ value: "z", label: "Zoe Imported" });

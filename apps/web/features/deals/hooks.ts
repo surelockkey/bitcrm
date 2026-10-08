@@ -178,11 +178,12 @@ export function useSuggestedTechs(
 /**
  * What a name join needs, and no more.
  *
- * A restricted viewer only ever gets these three fields back, so this is the
- * honest type for a shared user map — widening it to `User` would let a
+ * A restricted viewer only ever gets these fields back (`POST /users/by-ids`:
+ * the id, the name, and the Workiz name when the import kept one), so this is
+ * the honest type for a shared user map — widening it to `User` would let a
  * consumer read an email or a phone that is simply absent for them.
  */
-export type DirectoryUser = Pick<User, "id" | "firstName" | "lastName"> & {
+export type DirectoryUser = Pick<User, "id" | "firstName" | "lastName" | "workizName"> & {
   /**
    * Present only when the viewer may list users. Several screens fall back to
    * it when somebody has no name set — a restricted viewer simply falls

@@ -6,6 +6,7 @@ import type { DirectoryUser } from "@/features/deals/hooks";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { DEFAULT_TZ } from "@/lib/timezone";
+import { personName } from "../person-name";
 import { techColor } from "../tech-color";
 import { workizDateTime } from "../schedule-cell";
 
@@ -31,8 +32,8 @@ export function TechCell({
     // list_01: each chip, and the row of marks, on its own 24px line.
     <div className="flex flex-col items-start *:mb-2.5">
       {techIds.map((id) => {
-        const u = userMap.get(id);
-        const name = `${u?.firstName ?? ""} ${u?.lastName ?? ""}`.trim();
+        // Workiz's own name for them when the import kept it ("(2) TX - …").
+        const name = personName(userMap.get(id)) ?? "";
         // The directory arrives a moment after the jobs do. A uuid in this
         // column is worse than nothing — unreadable, and it looks broken — so
         // the chip keeps its colour and waits for the name.

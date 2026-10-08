@@ -1,19 +1,21 @@
-import type { JobsListIncluded, PersonName } from "@bitcrm/types";
+import type { JobsListIncluded, PersonName, TechnicianName } from "@bitcrm/types";
 
 /**
  * The names a loaded jobs list refers to, as lookups.
  *
- * `technicians` is keyed by user id, `clients` by contact id.
+ * `technicians` is keyed by user id, `clients` by contact id. A technician
+ * imported from Workiz also carries the name Workiz prints for them
+ * (`workizName`, "(2) TX - Daniel Munoz") — `personName` prefers it.
  *
  * **Names only.** The side-load carries exactly `{ id, firstName, lastName }`
- * by design: crm masks a contact's numbers for a caller without
+ * (+ a technician's `workizName`) by design: crm masks a contact's numbers for a caller without
  * `contacts.view_numbers` and deal-service masks nothing, so a number that
  * travelled with the rows would hand every holder of `deals.view` what that
  * grant exists to withhold. A column that shows a number asks crm for the
  * contact, exactly as it always has.
  */
 export interface JobsListNames {
-  technicians: Map<string, PersonName>;
+  technicians: Map<string, TechnicianName>;
   clients: Map<string, PersonName>;
 }
 
@@ -33,7 +35,7 @@ export interface JobsListNames {
 export function mergeIncluded(
   pages: readonly { included?: JobsListIncluded }[] | undefined,
 ): JobsListNames {
-  const technicians = new Map<string, PersonName>();
+  const technicians = new Map<string, TechnicianName>();
   const clients = new Map<string, PersonName>();
   for (const page of pages ?? []) {
     for (const t of page.included?.technicians ?? []) technicians.set(t.id, t);

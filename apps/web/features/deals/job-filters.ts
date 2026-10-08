@@ -26,8 +26,11 @@ export interface FilterCatalogs {
   /** In catalog order (`activeJobTags`: priority, then name). */
   tags: { id: string; name: string; color: JobTagColor }[];
   jobTypes: { id: string; name: string }[];
-  /** `filterAreas`. */
-  areas: { name: string }[];
+  /**
+   * `filterAreas`. `color` (`#rrggbb`) is the area's Workiz chip colour —
+   * absent on an area that has none, which Workiz prints as plain words.
+   */
+  areas: { name: string; color?: string }[];
   companies: { id: string; name: string }[];
 }
 

@@ -470,13 +470,15 @@ describe("DealDetailPage — the header, as Workiz lays it out", () => {
     expect(mocks.moveStatus).toHaveBeenCalledWith({ superStatus: JobSuperStatus.DONE }, expect.anything());
   });
 
-  // Pixel audit L9: Workiz lists a job's tags newest first, as the list now does.
-  it("shows the job's tags newest first, and a tag added goes on the end of what the job keeps", () => {
+  // Workiz prints a job's tags in catalog order (the picker's workiz dress
+  // does that); the header hands it the job's own list, and a tag added goes
+  // on the end of what the job keeps.
+  it("hands the picker the job's tags as kept, and a tag added goes on the end", () => {
     mocks.perms.deals = true;
     dealState = { ...deal, tagIds: ["t-old", "t-mid", "t-new"] };
     render(<DealDetailPage dealId="d1" />);
 
-    expect(screen.getByTestId("job-tags")).toHaveTextContent("t-new,t-mid,t-old");
+    expect(screen.getByTestId("job-tags")).toHaveTextContent("t-old,t-mid,t-new");
     mocks.tagPicker!.onChange(["t-new", "t-mid", "t-old", "t-added"]);
     expect(mocks.setTags).toHaveBeenCalledWith(["t-old", "t-mid", "t-new", "t-added"], expect.anything());
   });

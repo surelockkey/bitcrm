@@ -33,6 +33,14 @@ describe("TechCell", () => {
     expect(screen.getByText("Yeter Mizrahi")).toBeInTheDocument();
   });
 
+  it("names the technician the way Workiz does when the import kept Workiz's name", () => {
+    const workiz = new Map<string, DirectoryUser>([
+      ["u3", { id: "u3", firstName: "Daniel", lastName: "Munoz", workizName: "(2) TX - Daniel  Munoz" }],
+    ]);
+    render(<TechCell deal={deal({ assignedTechIds: ["u3"] })} userMap={workiz} />);
+    expect(screen.getByLabelText("Technician")).toHaveTextContent("(2) TX - Daniel Munoz");
+  });
+
   it("never prints a raw id at a dispatcher", () => {
     // The directory arrives a moment after the jobs do, and a uuid in the Tech
     // column is worse than nothing: it is unreadable and it looks broken.

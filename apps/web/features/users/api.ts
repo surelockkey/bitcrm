@@ -127,6 +127,8 @@ export interface UserName {
   id: string;
   firstName: string;
   lastName: string;
+  /** The name Workiz prints for them ("(2) TX - Daniel Munoz"), when the import kept one. */
+  workizName?: string;
 }
 
 /**

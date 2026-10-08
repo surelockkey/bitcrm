@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useId, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
 import { Popover } from "radix-ui";
 import { ChevronDown, X } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -30,6 +30,9 @@ const COLUMNS: FilterGroupId[][] = [["tech"], ["tag"], ["type"], ["status", "com
 
 /** Option text for the groups Workiz draws as plain words; the rest are chips. */
 const PLAIN: FilterGroupId[] = ["type", "status", "company"];
+
+/** A chip's colour: a palette class (techs, tags) or an exact `#rrggbb` (areas). */
+type Paint = { className?: string; style?: CSSProperties };
 
 /**
  * Workiz's "Filter results" (list_03_filter_open, jobslist_wz_filter_*): a
@@ -68,18 +71,24 @@ export function JobsFilterControl({
   const groups = useMemo(() => filterGroups(catalogs, state, query), [catalogs, state, query]);
   const flat = useMemo(() => groups.flatMap((g) => g.options), [groups]);
   const tagColor = useMemo(() => new Map(catalogs.tags.map((t) => [t.id, t.color])), [catalogs.tags]);
+  const areaColor = useMemo(() => new Map(catalogs.areas.map((a) => [a.name, a.color])), [catalogs.areas]);
   const columns = COLUMNS.map((ids) => groups.filter((g) => ids.includes(g.id))).filter((c) => c.length > 0);
 
   /**
-   * The chip / option colour: a tech's own, a tag's own, an area's — Workiz
-   * colours its areas, our catalog keeps no colour, so each area gets a
-   * steady one of its own. Job types, statuses and companies are words.
+   * The chip / option colour: a tech's own, a tag's own, an area's own
+   * `#rrggbb` — Workiz paints an area in its `bgcN`, and the chip a pick
+   * leaves carries the same class. An area without a colour, like job
+   * types, statuses and companies, is words.
    */
-  const colour = (kind: string, value: string): string | null => {
-    if (kind === "tech" || kind === "area") return techColor(value);
+  const colour = (kind: string, value: string): Paint | null => {
+    if (kind === "tech") return { className: techColor(value) };
+    if (kind === "area") {
+      const hex = areaColor.get(value);
+      return hex ? { style: { backgroundColor: hex } } : null;
+    }
     if (kind === "tag") {
       const c = tagColor.get(value);
-      return c ? tagSolidClasses(c) : null;
+      return c ? { className: tagSolidClasses(c) } : null;
     }
     return null;
   };
@@ -136,7 +145,9 @@ export function JobsFilterControl({
             className={cn("block h-8 w-full truncate px-3 text-left leading-8", i === active && "bg-[#deebff]")}
           >
             {c ? (
-              <span className={cn("rounded-[3px] px-1 py-px text-sm leading-4 font-medium text-white", c)}>{o.label}</span>
+              <span className={cn("rounded-[3px] px-1 py-px text-sm leading-4 font-medium text-white", c.className)} style={c.style}>
+                {o.label}
+              </span>
             ) : (
               o.label
             )}
@@ -261,7 +272,7 @@ export function JobsFilterControl({
  * round a 24px block in the option's colour (radius 3, 4px sides), the label
  * (6px in) and its own × segment behind a #ccc rule (jobslist_wz_filter_three).
  */
-function Chip({ chip, colour, onRemove }: { chip: FilterChip; colour: string | null; onRemove: () => void }) {
+function Chip({ chip, colour, onRemove }: { chip: FilterChip; colour: Paint | null; onRemove: () => void }) {
   return (
     <span
       className="inline-flex h-[26px] max-w-[22rem] items-stretch rounded-chip border border-input bg-background"
@@ -270,9 +281,9 @@ function Chip({ chip, colour, onRemove }: { chip: FilterChip; colour: string | n
       <span
         className={cn(
           "flex min-w-0 items-stretch overflow-hidden rounded-[3px] pl-1",
-          colour ?? "bg-[#e6e6e6] text-[#333333]",
-          colour && "text-white",
+          colour ? cn(colour.className, "text-white") : "bg-[#e6e6e6] text-[#333333]",
         )}
+        style={colour?.style}
       >
         <span className="truncate py-[3px] pr-[3px] pl-1.5 text-[11.9px] leading-4 font-medium">{chip.label}</span>
         <button

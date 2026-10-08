@@ -4,7 +4,7 @@
  * clients of the rows it holds — never the whole table.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { ClientType, DealPriority, DealStatus, JobSuperStatus } from "@bitcrm/types";
 import type { Deal } from "@bitcrm/types";
 import { DEFAULT_VISIBLE } from "../fields";
@@ -53,6 +53,10 @@ const mocks = vi.hoisted(() => ({
   /** What `/deals/counts` answers when asked with `q`; and every searched count asked for. */
   searchedCounts: {} as Record<string, number | null>,
   searchedCountsParams: [] as unknown[],
+  /** The user directory behind the tech filter. */
+  directory: new Map<string, unknown>(),
+  /** The service-area catalog. */
+  areas: [] as unknown[],
 }));
 
 vi.mock("../hooks", () => ({
@@ -80,7 +84,7 @@ vi.mock("../hooks", () => ({
   },
   useUserMap: (ids?: string[]) => {
     mocks.userMapIds.push(ids);
-    return { map: new Map(), isLoading: mocks.directoryLoading };
+    return { map: mocks.directory, isLoading: mocks.directoryLoading };
   },
 }));
 vi.mock("@/features/clients/hooks", () => ({
@@ -93,7 +97,7 @@ vi.mock("@/features/technicians/hooks", () => ({
   useAllTechnicians: () => ({ profiles: [{ userId: "t1" }], isLoading: false }),
 }));
 vi.mock("@/features/service-areas/hooks", () => ({
-  useServiceAreas: () => ({ data: [{ id: "a1", name: "Phoenix", active: true, timezone: "America/Phoenix" }] }),
+  useServiceAreas: () => ({ data: mocks.areas }),
 }));
 vi.mock("@/features/job-types/hooks", () => ({ useJobTypes: () => ({ data: [] }) }));
 vi.mock("@/features/job-types/lib", () => ({ useJobTypesLoading: () => false, activeJobTypes: () => [], useJobTypeName: () => () => "Lockout" }));
@@ -150,6 +154,8 @@ beforeEach(() => {
   mocks.directoryLoading = false;
   mocks.searchedCounts = {};
   mocks.searchedCountsParams = [];
+  mocks.directory = new Map();
+  mocks.areas = [{ id: "a1", name: "Phoenix", active: true, timezone: "America/Phoenix" }];
   nav.push.mockClear();
 });
 afterEach(() => {
@@ -492,6 +498,68 @@ describe("DealsPage — the names that arrive with the rows", () => {
     withNames();
     render(<DealsPage />);
     expect(mocks.userMapIds[mocks.userMapIds.length - 1]).toEqual(["t1"]);
+  });
+
+  it("prints a technician's Workiz name in the Tech column when the side-load carries one", () => {
+    withNames();
+    mocks.pages[0].included!.technicians = [{ ...tech, workizName: "(2) TX - Ann  Lee" }];
+    render(<DealsPage />);
+    expect(screen.getByLabelText("Technician")).toHaveTextContent("(2) TX - Ann Lee");
+  });
+});
+
+/**
+ * Filter results the way Workiz fills it (jobslist_wz_filter_open): the
+ * TECHS column names each person as Workiz does ("(1) YAKOV SZENDER"), and
+ * SERVICE AREAS paints each area as a chip in its own colour — white
+ * 14px/500 on the colour, radius 3 — as does the chip a pick leaves in the
+ * box (Workiz's chip carries the option's own `bgcN`). An area with no
+ * colour stays plain words, like a job type.
+ */
+describe("DealsPage — Filter results with Workiz's names and area colours", () => {
+  it("lists a technician by the Workiz name, and the pick's chip says it too", () => {
+    mocks.directory = new Map([["t1", { id: "t1", firstName: "Yakov", lastName: "Szender", workizName: "(1) YAKOV  SZENDER" }]]);
+    render(<DealsPage />);
+    openFilter();
+    fireEvent.click(screen.getByRole("option", { name: "(1) YAKOV SZENDER" }));
+    expect(screen.getByText("user: (1) YAKOV SZENDER")).toBeInTheDocument();
+  });
+
+  it("paints an area with a colour as Workiz's chip, and leaves one without as words", () => {
+    mocks.areas = [
+      { id: "a1", name: "North Carolina", active: true, color: "#dc143c" },
+      { id: "a2", name: "Tucson", active: true },
+    ];
+    render(<DealsPage />);
+    openFilter();
+
+    const nc = within(screen.getByRole("option", { name: "North Carolina" })).getByText("North Carolina");
+    expect(nc.tagName).toBe("SPAN");
+    expect(nc).toHaveStyle({ backgroundColor: "#dc143c" });
+    expect(nc.className).toContain("text-white");
+    expect(nc.className).toContain("rounded-[3px]");
+
+    const tucson = screen.getByRole("option", { name: "Tucson" });
+    expect(tucson.querySelector("span")).toBeNull();
+  });
+
+  it("paints the chip a coloured area leaves in the box; a colourless one keeps the plain chip", () => {
+    mocks.areas = [
+      { id: "a1", name: "North Carolina", active: true, color: "#dc143c" },
+      { id: "a2", name: "Tucson", active: true },
+    ];
+    render(<DealsPage />);
+    openFilter();
+    fireEvent.click(screen.getByRole("option", { name: "North Carolina" }));
+    openFilter();
+    fireEvent.click(screen.getByRole("option", { name: "Tucson" }));
+
+    const painted = screen.getByText("metro: North Carolina").parentElement!;
+    expect(painted).toHaveStyle({ backgroundColor: "#dc143c" });
+    expect(painted.className).toContain("text-white");
+    const plain = screen.getByText("metro: Tucson").parentElement!;
+    expect(plain.getAttribute("style")).toBeNull();
+    expect(plain.className).toContain("bg-[#e6e6e6]");
   });
 });
 

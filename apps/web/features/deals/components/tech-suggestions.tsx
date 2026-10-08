@@ -16,8 +16,8 @@ export const REASON: Record<IneligibilityReason, string> = {
   outside_area: "outside this service area",
 };
 
-export const techName = (t: QualifiedTech) =>
-  `${t.firstName ?? ""} ${t.lastName ?? ""}`.trim() || "Technician";
+/** The Workiz name when they have one, else first + last (`personName`). */
+export const techName = (t: QualifiedTech) => personName(t) ?? "Technician";
 
 /**
  * Workiz-style "Assign team members" select. States:

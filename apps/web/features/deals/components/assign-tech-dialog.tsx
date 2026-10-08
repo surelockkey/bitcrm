@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils";
 import { initials } from "@/features/clients/lib";
 import { useAssignTechs, useQualifiedTechs } from "../hooks";
 import { useTechStock } from "../tech-stock";
+import { personName } from "../person-name";
 import type { IneligibilityReason, QualifiedTech } from "../api";
 
 const REASON_LABEL: Record<IneligibilityReason, string> = {
@@ -61,10 +62,12 @@ export function AssignTechDialog({
 
   const techs = useMemo(() => qualified.data ?? [], [qualified.data]);
   const filtered = useMemo(() => {
-    const s = search.trim().toLowerCase();
+    const s = search.trim().toLowerCase().replace(/\s+/g, " ");
     if (!s) return techs;
+    // What the row prints (the Workiz name, "(2) TX - …") and the plain
+    // first + last both match, so "tx" and "munoz" find the same person.
     return techs.filter((t) =>
-      `${t.firstName ?? ""} ${t.lastName ?? ""}`.toLowerCase().includes(s),
+      [personName(t) ?? "", `${t.firstName ?? ""} ${t.lastName ?? ""}`].some((n) => n.toLowerCase().includes(s)),
     );
   }, [techs, search]);
 
@@ -193,8 +196,10 @@ function TechRow({
   locked?: boolean;
 }) {
   const [showItems, setShowItems] = useState(false);
-  const name = `${tech.firstName ?? ""} ${tech.lastName ?? ""}`.trim() || tech.id;
-  const parts = name.split(" ");
+  // Workiz's name for them when they have one ("(2) TX - Daniel Munoz").
+  const name = personName(tech) ?? tech.id;
+  // The initials stay the person's own: a Workiz name opens with its prefix.
+  const parts = (`${tech.firstName ?? ""} ${tech.lastName ?? ""}`.trim() || name).split(/\s+/);
   const distance =
     typeof tech.distanceMiles === "number" ? `${tech.distanceMiles.toFixed(1)} mi from home` : null;
 

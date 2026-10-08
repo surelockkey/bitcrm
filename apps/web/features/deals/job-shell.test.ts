@@ -79,9 +79,9 @@ describe("Actions menu — Workiz's Job Done / View Work Order / Duplicate Job /
   });
 });
 
-describe("the header's Tags row: newest first, stored in the order added", () => {
-  it("keeps the stored order of what stays and adds a new tag at the end (it shows first)", () => {
-    // Shown newest first: [c, b, a]; the picker hands back [c, b, a, d] after adding d.
+describe("the header's Tags row: shown in catalog order, stored in the order added", () => {
+  it("keeps the stored order of what stays and adds a new tag at the end", () => {
+    // Whatever order the picker hands back ([c, b, a, d] after adding d).
     expect(storedTagOrder(["a", "b", "c"], ["c", "b", "a", "d"])).toEqual(["a", "b", "c", "d"]);
   });
 

@@ -17,6 +17,7 @@ import { DEFAULT_TZ } from "@/lib/timezone";
 import { useDealCounts, useDealsPage, useUserMap, type DirectoryUser } from "../hooks";
 import type { DealCounts } from "../api";
 import { mergeIncluded } from "../included";
+import { personName } from "../person-name";
 import { useContactsByIds } from "@/features/clients/hooks";
 import { useAllTechnicians } from "@/features/technicians/hooks";
 import { useServiceAreas } from "@/features/service-areas/hooks";
@@ -162,13 +163,12 @@ export function DealsPage() {
   // order, the areas A→Z without Workiz's default "All areas".
   const catalogs: FilterCatalogs = useMemo(
     () => ({
-      techs: orderTechs(technicians, (id) => {
-        const u = directory.get(id);
-        return u ? `${u.firstName} ${u.lastName}`.trim() : id;
-      }),
+      // Named as Workiz names them: "(2) TX - Daniel Munoz" (`personName`).
+      techs: orderTechs(technicians, (id) => personName(directory.get(id)) ?? id),
       tags: activeJobTags(jobTagsQuery.data).map((t) => ({ id: t.id, name: t.name, color: t.color })),
       jobTypes: activeJobTypes(jobTypesQuery.data).map((t) => ({ id: t.id, name: t.name })),
-      areas: filterAreas(serviceAreas).map((a) => ({ name: a.name })),
+      // With Workiz's chip colour, where the area has one.
+      areas: filterAreas(serviceAreas).map((a) => ({ name: a.name, color: a.color })),
       companies: (companies ?? []).map((c) => ({ id: c.id, name: c.active ? c.name : `${c.name} (archived)` })),
     }),
     [technicians, directory, jobTagsQuery.data, jobTypesQuery.data, serviceAreas, companies],
