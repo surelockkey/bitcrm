@@ -16,6 +16,7 @@ import {
   Query,
   Res, Optional,
   Req,
+  Headers,
 } from '@nestjs/common';
 import { type Response } from 'express';
 import { Readable } from 'stream';
@@ -33,6 +34,7 @@ import {
 } from './calls.repository';
 import { callsFilterFromQuery, type CallsQueryParams } from './call-query';
 import { partyNamesText } from './call-search';
+import { CallsExportService } from './calls-export.service';
 import { ConferenceService, type MonitorMode } from '../voice/conference.service';
 import { UserNamesService, type UserSummary } from '../common/user-names.service';
 import {
@@ -170,6 +172,7 @@ export class CallsController {
     // Optional: only imported calls keep their audio here, and a service
     // without storage configured must still boot.
     @Optional() private readonly s3?: S3Service,
+    @Optional() private readonly exporter?: CallsExportService,
   ) {}
 
   /**
@@ -402,6 +405,70 @@ export class CallsController {
     const data = await this.callsService.summary(await this.filterFor(query, user), { withRevenue });
     if (!withRevenue) delete data.revenue;
     return { success: true, data };
+  }
+
+  // Declared before ':sid' — one segment, so the param route would take it.
+  @Get('export.csv')
+  @RequirePermission('calls', 'view')
+  @ApiOperation({
+    summary: 'The call log as CSV — Workiz’s "Export"',
+    description:
+      '**Guard:** `calls.view` (the permission matrix has no separate export action — the other CSV exports ' +
+      'are guarded by their view grant too). Takes the list’s filters (`cursor` and `limit` are ignored) and ' +
+      'streams `text/csv` with Workiz’s columns: Status, From, To, Time, Call Flow, Ad Source, Tags, ' +
+      'Answered By, Jobs & Leads, Revenue — newest first, every row of the selection up to 100 000. Revenue is ' +
+      'dropped without `financials.view`, the numbers without `contacts.view_numbers`; job numbers are read ' +
+      'as the viewer (`deals.view`). Time is Workiz’s "Thu Oct 8th, 3:15PM" on the account clock.',
+  })
+  async exportCsv(
+    @Query() query: CallsQueryParams = {},
+    @CurrentUser() user: JwtUser | undefined,
+    @Req() req: { resolvedPermissions?: ResolvedPermissions },
+    @Res() res: Response,
+    @Headers('authorization') authorization?: string,
+  ): Promise<void> {
+    if (!this.exporter) throw new HttpException('Export unavailable', 503);
+    const filter = await this.filterFor(query, user);
+    const maySeeNumbers = await this.maySeeNumbers(user);
+    const day = (v?: string) => (v ?? '').slice(0, 10);
+    const name = `calls-${day(filter.dateFrom)}_${day(filter.dateTo)}.csv`.replace(/[^\w.-]/g, '');
+
+    let started = false;
+    const sink = {
+      write: (chunk: string): Promise<void> => {
+        if (!started) {
+          started = true;
+          res.status(200);
+          res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+          res.setHeader('Content-Disposition', `attachment; filename="${name}"`);
+          res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition');
+          res.setHeader('Cache-Control', 'no-store');
+          res.setHeader('X-Content-Type-Options', 'nosniff');
+        }
+        return new Promise((resolve) => {
+          if (res.write(chunk)) resolve();
+          else res.once('drain', () => resolve());
+        });
+      },
+    };
+    try {
+      await this.exporter.stream(
+        filter,
+        {
+          money: hasPermission(req?.resolvedPermissions, 'financials', 'view'),
+          maySeeNumbers,
+          authorization,
+          name: (records) => this.withNames(records),
+        },
+        sink,
+      );
+      res.end();
+    } catch (err) {
+      // Before the first byte this is an ordinary error response.
+      if (!started) throw err;
+      this.logger.error(`Calls export failed mid-stream: ${(err as Error).message}`);
+      res.destroy(err as Error);
+    }
   }
 
 
