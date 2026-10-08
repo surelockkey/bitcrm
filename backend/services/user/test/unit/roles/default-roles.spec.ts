@@ -123,6 +123,26 @@ describe('DEFAULT_ROLES <-> RESOURCE_REGISTRY consistency', () => {
     expect(byId('role-technician').permissions.reports).toMatchObject({ view_ad_statistics: false, view_profit: false });
   });
 
+  // Workiz Home's widgets that read billing, the schedule and the activity log
+  // (pg_dashboard, 2026-10-08): each is shared with a role like every other
+  // widget — the office roles see it, the Technician (who lands on My Jobs) does not.
+  it('registers the Invoices, Estimates, Coming up and Recent Activity widgets, granted like the rest', () => {
+    const added = ['view_invoices', 'view_estimates', 'view_coming_up', 'view_recent_activity'];
+    expect(RESOURCE_REGISTRY.dashboard).toEqual(expect.arrayContaining(added));
+    for (const role of DEFAULT_ROLES) {
+      const dashboard = role.permissions.dashboard as Record<string, boolean>;
+      for (const action of added) {
+        expect({ role: role.id, action, on: dashboard[action] }).toEqual({
+          role: role.id,
+          action,
+          on: dashboard.view_jobs,
+        });
+      }
+    }
+    const tech = DEFAULT_ROLES.find((r) => r.id === 'role-technician')!;
+    expect(tech.permissions.dashboard).toMatchObject({ view_invoices: false, view_recent_activity: false });
+  });
+
   it("lets the Technician read the price book — items, their custom fields, item groups — but not its costs", () => {
     // GET /inventory/products, /item-attributes and /item-groups are products.view;
     // costCompany stays behind financials.view. Job lines are his under assigned_only.

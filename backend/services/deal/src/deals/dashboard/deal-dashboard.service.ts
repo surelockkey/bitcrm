@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { DASHBOARD_RANGES, dashboardWindow } from '@bitcrm/types';
+import { DASHBOARD_PRESETS, dashboardPresetWindow } from '@bitcrm/types';
 import type {
   DashboardJobsNow,
   DashboardSales,
@@ -19,7 +19,7 @@ import { InternalHttpService } from '../../common/services/internal-http.service
 import type { ListDealsQueryDto } from '../dto/list-deals-query.dto';
 import { jobsNowOf, salesOf, scoreboardOf, todayOf, topShares } from '../stats/dashboard-widgets';
 
-/** The same ceiling as every report window; the widgets offer at most thirty days. */
+/** The same ceiling as every report window; "Last 3 months" reaches exactly it. */
 const WINDOW_MAX_DAYS = 92;
 /**
  * A snapshot lives until the next nightly run replaces it, with slack for a
@@ -194,14 +194,21 @@ export class DealDashboardService {
    */
   async warm(now: Date, caller: JwtUser = SYSTEM_CALLER): Promise<void> {
     const fresh = { fresh: true };
-    for (const days of DASHBOARD_RANGES) {
-      const window = dashboardWindow(days, now);
+    // Workiz's four ranges (this week, the 14 days, this month, the last three
+    // months) — what the web's pickers offer. A preset that lands on the same
+    // days as another (this week on a Monday is just today) is built once.
+    const windows = [
+      ...new Map(
+        DASHBOARD_PRESETS.map((p) => dashboardPresetWindow(p, now)).map((w) => [`${w.from}:${w.to}`, w]),
+      ).values(),
+    ];
+    for (const window of windows) {
       await this.aggregate('created', window, caller, false, fresh);
       await this.aggregate('closed', window, caller, true, fresh);
       await this.aggregate('closed', window, caller, false, fresh);
     }
-    for (const days of DASHBOARD_RANGES) {
-      await this.deals.jobsByStatus(dashboardWindow(days, now), fresh);
+    for (const window of windows) {
+      await this.deals.jobsByStatus(window, fresh);
     }
   }
 

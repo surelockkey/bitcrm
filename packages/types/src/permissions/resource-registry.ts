@@ -108,6 +108,14 @@ export const RESOURCE_REGISTRY = {
     'view_recent_calls',
     'view_jobs',
     'view_today',
+    // Workiz Home's widgets over billing, the schedule and the activity log.
+    // Each reads an endpoint guarded by its own resource (invoices.view,
+    // estimates.view, deals.view, reports.view); the grant decides whether
+    // the card is on the role's dashboard at all.
+    'view_invoices',
+    'view_estimates',
+    'view_coming_up',
+    'view_recent_activity',
   ],
   // `collect` takes money (portal sends + offline records); `refund` gives it
   // back and is deliberately not a technician's to hold.

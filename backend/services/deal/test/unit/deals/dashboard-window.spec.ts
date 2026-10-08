@@ -1,4 +1,11 @@
-import { DASHBOARD_TIMEZONE, dashboardDay, dashboardWindow, msUntilDailyAt } from '@bitcrm/types';
+import {
+  DASHBOARD_PRESETS,
+  DASHBOARD_TIMEZONE,
+  dashboardDay,
+  dashboardPresetWindow,
+  dashboardWindow,
+  msUntilDailyAt,
+} from '@bitcrm/types';
 
 /**
  * Вікна дашборда рахуються в часовому поясі акаунта, а не браузера й не
@@ -29,6 +36,59 @@ describe('dashboard time', () => {
 
     it('ends on the New York day even late in the evening', () => {
       expect(dashboardWindow(7, new Date('2026-09-29T02:30:00Z'))).toEqual({ from: '2026-09-21', to: '2026-09-28' });
+    });
+  });
+
+  /**
+   * Workiz Home's range picker: "This week (Mon-Today)", "Last 14 days", "This
+   * month", "Last 3 months" (its main.js `eEl`; the dates as its own picker
+   * defines them, the 14 days as its chart draws them — both ends included).
+   * Oct 8 2026 is a Thursday.
+   */
+  describe('dashboardPresetWindow', () => {
+    const thu = new Date('2026-10-08T15:00:00Z');
+
+    it('this week runs from Monday to today', () => {
+      expect(dashboardPresetWindow('this_week', thu)).toEqual({ from: '2026-10-05', to: '2026-10-08' });
+    });
+
+    it('this week on a Monday is just Monday, and on a Sunday reaches back to Monday', () => {
+      expect(dashboardPresetWindow('this_week', new Date('2026-10-05T15:00:00Z'))).toEqual({
+        from: '2026-10-05',
+        to: '2026-10-05',
+      });
+      expect(dashboardPresetWindow('this_week', new Date('2026-10-11T15:00:00Z'))).toEqual({
+        from: '2026-10-05',
+        to: '2026-10-11',
+      });
+    });
+
+    it('last 14 days is the chart Workiz draws: fifteen days, both ends', () => {
+      expect(dashboardPresetWindow('last_14_days', thu)).toEqual(dashboardWindow(14, thu));
+    });
+
+    it('this month runs from the 1st to today', () => {
+      expect(dashboardPresetWindow('this_month', thu)).toEqual({ from: '2026-10-01', to: '2026-10-08' });
+    });
+
+    it('last 3 months are the three whole months before this one — never more than 92 days', () => {
+      expect(dashboardPresetWindow('last_three', thu)).toEqual({ from: '2026-07-01', to: '2026-09-30' });
+      expect(dashboardPresetWindow('last_three', new Date('2027-01-15T15:00:00Z'))).toEqual({
+        from: '2026-10-01',
+        to: '2026-12-31',
+      });
+    });
+
+    it('reads the day in New York', () => {
+      // 02:30 UTC on Nov 1 is still Oct 31 in New York.
+      expect(dashboardPresetWindow('this_month', new Date('2026-11-01T02:30:00Z'))).toEqual({
+        from: '2026-10-01',
+        to: '2026-10-31',
+      });
+    });
+
+    it('offers the four presets in Workiz order', () => {
+      expect(DASHBOARD_PRESETS).toEqual(['this_week', 'last_14_days', 'this_month', 'last_three']);
     });
   });
 
