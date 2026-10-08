@@ -1,9 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Link2, Phone, X } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Switch } from "@/components/ui/switch";
+import { Phone, X } from "lucide-react";
+import { WzButton, WzSwitch } from "@/components/workiz";
 import {
   Dialog,
   DialogContent,
@@ -26,6 +25,10 @@ import {
  * The call you're on is included by default and says so plainly — creating a
  * job mid-call is nearly always about that call. It can be switched off and
  * back on before saving, and earlier calls with the same client can be added.
+ *
+ * Workiz has no such card; it lives on our New Job page only, so it is drawn
+ * with the Workiz kit like the cards around it (the green switch, the
+ * outline pill, 14px ink rows in #ccc boxes).
  */
 export function CallsToLink({
   callSid,
@@ -54,18 +57,12 @@ export function CallsToLink({
   if (!callSid && extras.length === 0) {
     return (
       <div className="flex items-center justify-between gap-3">
-        <p className="text-sm text-muted-foreground">
+        <p className="text-[14px] leading-4 text-wz-strong">
           No calls attached to this job yet.
         </p>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="gap-1.5"
-          onClick={() => setPicking(true)}
-        >
-          <Link2 className="size-3.5" /> Link call
-        </Button>
+        <WzButton variant="secondary" size="regular" onClick={() => setPicking(true)}>
+          Link call
+        </WzButton>
         <CallPicker
           open={picking}
           contactId={contactId}
@@ -81,22 +78,16 @@ export function CallsToLink({
   const client = call ? counterparty(call) : null;
 
   return (
-    <div className="space-y-3">
+    <div className="flex flex-col gap-2.5">
       {callSid ? (
-        <div
-          className={
-            currentOn
-              ? "flex items-start justify-between gap-3 rounded-lg border border-brand/40 bg-brand/5 p-3"
-              : "flex items-start justify-between gap-3 rounded-lg border border-dashed p-3"
-          }
-        >
+        <div className="flex items-start justify-between gap-3 rounded-[4px] border border-input bg-white px-2.5 py-3">
           <div className="min-w-0">
-            <div className="text-sm font-medium">
+            <div className="text-[14px] leading-4 font-medium text-wz-strong">
               {currentOn
                 ? "This call will be linked to the job"
                 : "This call won't be linked"}
             </div>
-            <div className="mt-0.5 truncate text-xs text-muted-foreground">
+            <div className="mt-1.5 truncate text-[12px] leading-4 text-wz-label">
               {call ? (
                 <>
                   {client?.name ? `${client.name} · ` : ""}
@@ -111,7 +102,7 @@ export function CallsToLink({
               )}
             </div>
           </div>
-          <Switch
+          <WzSwitch
             checked={currentOn}
             onCheckedChange={toggleCurrent}
             aria-label="Link this call to the job"
@@ -120,7 +111,7 @@ export function CallsToLink({
       ) : null}
 
       {extras.length > 0 ? (
-        <ul className="divide-y rounded-lg border">
+        <ul className="divide-y divide-input rounded-[4px] border border-input bg-white">
           {extras.map((sid) => (
             <ExtraCallRow
               key={sid}
@@ -131,15 +122,11 @@ export function CallsToLink({
         </ul>
       ) : null}
 
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        className="gap-1.5"
-        onClick={() => setPicking(true)}
-      >
-        <Link2 className="size-3.5" /> Link another call
-      </Button>
+      <div>
+        <WzButton variant="secondary" size="regular" onClick={() => setPicking(true)}>
+          Link another call
+        </WzButton>
+      </div>
 
       <CallPicker
         open={picking}
@@ -157,13 +144,13 @@ function ExtraCallRow({ sid, onRemove }: { sid: string; onRemove: () => void }) 
   const client = call ? counterparty(call) : null;
 
   return (
-    <li className="flex items-center gap-3 px-3 py-2 text-sm">
-      <Phone className="size-3.5 shrink-0 text-muted-foreground" />
+    <li className="flex items-center gap-3 px-2.5 py-2 text-[14px] leading-4 text-wz-strong">
+      <Phone className="size-3.5 shrink-0 text-wz-label" />
       <div className="min-w-0 flex-1 truncate">
         {call ? (
           <>
             {client?.name ?? formatEndpoint(client?.number)}
-            <span className="text-muted-foreground">
+            <span className="text-wz-label">
               {" · "}
               {formatCallTime(call.startedAt)}
             </span>
@@ -172,15 +159,14 @@ function ExtraCallRow({ sid, onRemove }: { sid: string; onRemove: () => void }) 
           sid
         )}
       </div>
-      <Button
+      <button
         type="button"
-        variant="ghost"
-        size="sm"
-        className="size-7 p-0"
+        aria-label="Remove call"
+        className="flex size-7 cursor-pointer items-center justify-center rounded-[4px] text-wz-text hover:bg-wz-secondary-hover"
         onClick={onRemove}
       >
         <X className="size-3.5" />
-      </Button>
+      </button>
     </li>
   );
 }

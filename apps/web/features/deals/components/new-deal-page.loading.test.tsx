@@ -131,24 +131,26 @@ const routes: FakeRoute[] = [
 let server: FakeServer;
 
 /** The form is up: its Create button is on screen. */
-const formIsUp = () => !!screen.queryByRole("button", { name: /create job/i });
+const formIsUp = () => !!screen.queryByRole("button", { name: "Create" });
 
-/** The cards in the order they stand on the page. */
+/** The cards in the order they stand on the page (their titles, without the Scheduled clock). */
 const cardTitles = () =>
-  Array.from(document.querySelectorAll("form .rounded-xl > div:first-child")).map((el) => el.textContent?.trim());
+  Array.from(document.querySelectorAll("form section[data-slot=wz-card] h5")).map((el) =>
+    el.firstChild?.textContent?.trim(),
+  );
 
 function watchFormFirstFrame() {
   return watchFirstFrame(formIsUp, () => ({
     requestsSoFar: server.requests.length,
     cards: cardTitles(),
-    companyLoading: screen.queryAllByText("Loading…").length > 0,
-    requiredSource: screen.queryAllByText("Job source").some((el) => !!el.querySelector(".text-destructive")),
-    clientName: screen.queryAllByDisplayValue("Ivy").length > 0,
+    companyLoading: screen.queryAllByText(/Loading/).length > 0,
+    customFieldShown: screen.queryAllByRole("textbox", { name: "Gate code" }).length > 0,
+    clientName: screen.queryAllByDisplayValue("Ivy Quill").length > 0,
     street: screen.queryAllByDisplayValue("12 Birch Ln").length > 0,
     area: screen.queryAllByText("North Metro").length > 0,
     detecting: screen.queryAllByText(/detecting/i).length > 0,
     findingTechs: screen.queryAllByText(/finding technicians/i).length > 0,
-    techSummary: screen.queryAllByText(/can do any job type/i).length > 0,
+    techSummary: screen.queryAllByText(/can perform/i).length > 0,
     callLoading: screen.queryAllByText(/loading the call/i).length > 0,
     skeletons: skeletonCount(),
   }));
@@ -170,27 +172,20 @@ describe("NewDealPage — one load, not waves", () => {
   it("shows the form only once its catalogs are in — the cards in their final order", async () => {
     const watch = watchFormFirstFrame();
     renderWithClient(<NewDealPage />);
-    await screen.findByRole("button", { name: /create job/i }, { timeout: 3000 });
+    await screen.findByRole("button", { name: "Create" }, { timeout: 3000 });
     watch.stop();
 
     const first = watch.frame()!;
-    // The custom-field card is there from the first frame, ahead of Work order.
-    expect(first.cards).toEqual([
-      "Client Details",
-      "Service Location",
-      "Job Details",
-      "Scheduled",
-      "Access",
-      "Work order / Platinum",
-    ]);
-    expect(first).toMatchObject({ companyLoading: false, requiredSource: true, skeletons: 0 });
+    // The custom-field card is there from the first frame, after Workiz's four.
+    expect(first.cards).toEqual(["Client Details", "Service Location", "Job Details", "Scheduled", "Access"]);
+    expect(first).toMatchObject({ companyLoading: false, customFieldShown: true, skeletons: 0 });
   });
 
   it("opened from a call: the caller, their area, the team and the call are all there in the first frame", async () => {
     nav.params = "contactId=c1&callSid=CA1";
     const watch = watchFormFirstFrame();
     renderWithClient(<NewDealPage />);
-    await screen.findByRole("button", { name: /create job/i }, { timeout: 3000 });
+    await screen.findByRole("button", { name: "Create" }, { timeout: 3000 });
     watch.stop();
 
     expect(watch.frame()).toMatchObject({
@@ -209,7 +204,7 @@ describe("NewDealPage — one load, not waves", () => {
     nav.params = "contactId=c1&callSid=CA1";
     const watch = watchFormFirstFrame();
     renderWithClient(<NewDealPage />);
-    await screen.findByRole("button", { name: /create job/i }, { timeout: 3000 });
+    await screen.findByRole("button", { name: "Create" }, { timeout: 3000 });
     watch.stop();
     await settle();
 
@@ -223,11 +218,11 @@ describe("NewDealPage — one load, not waves", () => {
   it("opened for an unknown caller: the new-client card says whose number it is from the first frame", async () => {
     nav.params = "callSid=CA1&phone=%2B14045550123";
     const watch = watchFirstFrame(formIsUp, () => ({
-      draft: !!screen.queryByPlaceholderText("First name"),
+      draft: screen.queryAllByDisplayValue("(404) 555-0123").length > 0,
       owner: !!screen.queryByText(/a client already has this phone/i),
     }));
     renderWithClient(<NewDealPage />);
-    await screen.findByRole("button", { name: /create job/i }, { timeout: 3000 });
+    await screen.findByRole("button", { name: "Create" }, { timeout: 3000 });
     watch.stop();
 
     expect(watch.frame()).toEqual({ draft: true, owner: true });
@@ -236,7 +231,7 @@ describe("NewDealPage — one load, not waves", () => {
   it("once shown, the form never goes back to a skeleton", async () => {
     nav.params = "contactId=c1&callSid=CA1";
     const { client } = renderWithClient(<NewDealPage />);
-    await screen.findByRole("button", { name: /create job/i }, { timeout: 3000 });
+    await screen.findByRole("button", { name: "Create" }, { timeout: 3000 });
 
     let lost = false;
     const observer = new MutationObserver(() => {
@@ -254,6 +249,6 @@ describe("NewDealPage — one load, not waves", () => {
     server.fail(/\/deals\/custom-fields$/);
     renderWithClient(<NewDealPage />);
 
-    expect(await screen.findByRole("button", { name: /create job/i }, { timeout: 3000 })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Create" }, { timeout: 3000 })).toBeInTheDocument();
   });
 });

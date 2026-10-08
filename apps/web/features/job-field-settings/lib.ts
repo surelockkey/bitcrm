@@ -6,6 +6,7 @@ interface JobFormInput {
     serviceArea?: string;
     jobTypeId?: string;
     sourceId?: string;
+    externalCompanyId?: string;
     scheduledDate?: string;
     notes?: string;
     poNumber?: string;
@@ -23,6 +24,7 @@ const FILLED: Record<string, (i: JobFormInput) => boolean> = {
   serviceArea: (i) => Boolean(i.values.serviceArea?.trim()),
   jobType: (i) => Boolean(i.values.jobTypeId),
   source: (i) => Boolean(i.values.sourceId),
+  externalCompany: (i) => Boolean(i.values.externalCompanyId),
   scheduled: (i) => Boolean(i.values.scheduledDate),
   description: (i) => Boolean(i.values.notes?.trim()),
   poNumber: (i) => Boolean(i.values.poNumber?.trim()),
