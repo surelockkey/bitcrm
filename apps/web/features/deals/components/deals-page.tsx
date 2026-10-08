@@ -40,6 +40,7 @@ import { useJobFieldsStore } from "../fields-store";
 import { filterAreas, orderTechs, type FilterCatalogs } from "../job-filters";
 import { canGoNext, pageText, showingText, withSearchedTab } from "../list-numbers";
 import { DealsTable, DealsTableSkeleton } from "./deals-table";
+import { Skeleton } from "@/components/ui/skeleton";
 import { DealQuickView } from "./deal-quick-view";
 import { FieldsMenu } from "./fields-menu";
 import { JobsFilterControl } from "./jobs-filter-control";
@@ -55,6 +56,9 @@ const WORKIZ_TABS: JobTab[] = [
 
 /** Workiz's page-size select offers these (list_01 `select._pageSize`). */
 const JOBS_PAGE_SIZES = [5, 10, 20, 25, 50, 100] as const;
+
+/** About the width of each tab's label and chip (13px 500), for the strip's placeholders. */
+const TAB_PLACEHOLDER_WIDTHS = [100, 105, 97, 191, 118] as const;
 
 /** How long the Search box waits after the last key — Workiz fires ~300ms after it. */
 const SEARCH_DEBOUNCE_MS = 300;
@@ -256,38 +260,53 @@ export function DealsPage() {
 
       {/* Status tabs: 13px, the open one 600 with a 2px #3b4b52 underline,
           the rest 500 #566d76; a grey count chip beside each. */}
-      <div
-        className={cn("sticky left-0 mt-[27px] flex shrink-0 overflow-x-auto border-b border-[#c4c4c4] pt-1", !tabsShown && "invisible")}
-        role="tablist"
-        aria-label="Job status"
-      >
-        {WORKIZ_TABS.map((t) => {
-          const active = t === state.tab;
-          // Searching, the open tab's chip counts what was found (Workiz);
-          // `withSearchedTab` put that number in its place.
-          const n = tabCounts
-            ? tabCount(tabCounts, t)
-            : " ";
-          return (
-            <button
-              key={t}
-              role="tab"
-              aria-selected={active}
-              onClick={() => setState((s) => ({ ...s, tab: t }))}
-              className={cn(
-                // -mb-px: the underline sits on the strip's own rule, as Workiz's does.
-                "-mb-px flex shrink-0 items-center gap-2 border-b-2 px-5 pt-2.5 pb-[7px] text-[13px] leading-[19px] tracking-[0.4px] whitespace-nowrap",
-                active ? "border-[#3b4b52] font-semibold text-[#3b4b52]" : "border-transparent font-medium text-[#566d76] hover:text-[#3b4b52]",
-              )}
-            >
-              {jobTabLabel(t)}
-              {/* The tabs are drawn with their numbers, so a chip never grows under the reader. */}
-              <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-[10px] bg-border px-1.5 text-[11px] leading-4 font-semibold text-[#3b4b52] tabular-nums">
-                {n}
-              </span>
-            </button>
-          );
-        })}
+      <div className="sticky left-0 mt-[27px] shrink-0">
+        {/* Until its numbers are in, the strip is held by five grey tabs over
+            its own rule — Workiz has its tabs up before the rows (audit L19).
+            They go in the frame the strip shows. Beside the strip, not in it:
+            its overflow would clip the rule. */}
+        {!tabsShown ? (
+          <div aria-hidden data-slot="tabs-placeholder" className="absolute inset-0 flex items-center border-b border-[#c4c4c4] pt-1">
+            {TAB_PLACEHOLDER_WIDTHS.map((w, i) => (
+              <Skeleton key={i} className="mx-5 h-4" style={{ width: w }} />
+            ))}
+          </div>
+        ) : null}
+        <div
+          // The rule is an inset shadow, inside the strip's box: a border sat
+          // outside it, where the overflow clipped the tab's bar off it.
+          className={cn("flex overflow-x-auto pt-1 shadow-[inset_0_-1px_0_#c4c4c4]", !tabsShown && "invisible")}
+          role="tablist"
+          aria-label="Job status"
+        >
+          {WORKIZ_TABS.map((t) => {
+            const active = t === state.tab;
+            // Searching, the open tab's chip counts what was found (Workiz);
+            // `withSearchedTab` put that number in its place.
+            const n = tabCounts
+              ? tabCount(tabCounts, t)
+              : " ";
+            return (
+              <button
+                key={t}
+                role="tab"
+                aria-selected={active}
+                onClick={() => setState((s) => ({ ...s, tab: t }))}
+                className={cn(
+                  // The 2px bar covers the strip's rule, as Workiz's does (pixels L19).
+                  "flex shrink-0 items-center gap-2 border-b-2 px-5 pt-2.5 pb-[7px] text-[13px] leading-[19px] tracking-[0.4px] whitespace-nowrap",
+                  active ? "border-[#3b4b52] font-semibold text-[#3b4b52]" : "border-transparent font-medium text-[#566d76] hover:text-[#3b4b52]",
+                )}
+              >
+                {jobTabLabel(t)}
+                {/* The tabs are drawn with their numbers, so a chip never grows under the reader. */}
+                <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-[10px] bg-border px-1.5 text-[11px] leading-4 font-semibold text-[#3b4b52] tabular-nums">
+                  {n}
+                </span>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* The grey strip: Search, Show unpaid jobs, and at the right the page size and Fields. */}

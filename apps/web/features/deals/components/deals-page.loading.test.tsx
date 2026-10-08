@@ -154,6 +154,22 @@ describe("DealsPage — no jumping", () => {
     expect(watch.frame()).toEqual({ stripShown: true, submitted: "198", jobType: true, phone: true, skeletons: 0 });
   });
 
+  /**
+   * Audit L19: Workiz has its five tabs up before the rows; ours left their
+   * 70px blank. The strip still waits for its numbers, so five grey tabs
+   * hold its place meanwhile, and they go in the frame the real ones come.
+   */
+  it("holds the tab strip's place with five grey tabs while the list loads", async () => {
+    // The strip and what holds its place.
+    const tabsArea = () => tabStrip()!.parentElement!;
+    renderWithClient(<DealsPage />);
+    expect(stripShown()).toBe(false);
+    expect(skeletonCount(tabsArea())).toBe(5);
+
+    await screen.findByText("101", {}, { timeout: 3000 });
+    expect(skeletonCount(tabsArea())).toBe(0);
+  });
+
   it("never shows the tabs without their numbers", async () => {
     let blank = false;
     const observer = new MutationObserver(() => {
