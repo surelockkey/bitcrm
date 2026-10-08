@@ -6,7 +6,7 @@
  */
 
 import { DEFAULT_ADDRESS_COUNTRY } from "@bitcrm/types";
-import type { Address, Contact, Deal } from "@bitcrm/types";
+import type { Address, Company, Contact, Deal } from "@bitcrm/types";
 import { addressInList } from "@/features/clients/lib";
 import type { UpdateContactValues } from "@/features/clients/schemas";
 import { isValidPhone } from "@/lib/phone";
@@ -91,6 +91,11 @@ export function removePhoneRow(draft: ClientDraft, index: number): ClientDraft {
 
 export interface DetailsSaveInput {
   deal: Deal;
+  /**
+   * Workiz's "Company name": what the box started with (the client's company,
+   * else the job's own record of it) and what it says now.
+   */
+  company?: { base: string; typed: string };
   /** Undefined until the client has loaded. */
   contact: Contact | undefined;
   dealDraft: DealDraft;
@@ -112,6 +117,8 @@ export interface DetailsSavePlan {
   ask: boolean;
   /** Every phone row is empty or a whole number. */
   phonesOk: boolean;
+  /** The Company name box says something else now (contacts.edit only). */
+  companyChanged: boolean;
 }
 
 /**
@@ -121,7 +128,7 @@ export interface DetailsSavePlan {
  * the client record alone and save straight through; only a rename or a new
  * address asks.
  */
-export function planDetailsSave({ deal, contact, dealDraft, clientDraft, canEditClient }: DetailsSaveInput): DetailsSavePlan {
+export function planDetailsSave({ deal, contact, dealDraft, clientDraft, canEditClient, company }: DetailsSaveInput): DetailsSavePlan {
   const dealPatch = buildDealPatch(deal, dealDraft);
   const baseFirst = deal.clientName?.firstName ?? contact?.firstName ?? "";
   const baseLast = deal.clientName?.lastName ?? contact?.lastName ?? "";
@@ -139,12 +146,15 @@ export function planDetailsSave({ deal, contact, dealDraft, clientDraft, canEdit
           includeName: nameChanged,
         })
       : null;
+  const companyChanged =
+    canEditClient && !!contact && !!company && company.typed.trim() !== company.base.trim();
   return {
     dealPatch,
     nameChanged,
     newAddress,
     contactBody,
-    dirty: !!dealPatch || !!contactBody || (canEditClient && nameChanged),
+    companyChanged,
+    dirty: !!dealPatch || !!contactBody || (canEditClient && nameChanged) || companyChanged,
     ask: canEditClient && !!contact && (nameChanged || !!newAddress),
     phonesOk: !clientDraft || clientDraft.phones.every((p) => !p.trim() || isValidPhone(p)),
   };
@@ -177,6 +187,62 @@ export function commitDetailsSave(
         })
       : null;
   return { dealPatch: Object.keys(patch).length ? patch : null, contactBody };
+}
+
+/* ----------------------------------------------------------- company name */
+
+export type CompanyResolution =
+  | { kind: "keep" }
+  | { kind: "clear" }
+  | { kind: "link"; id: string }
+  | { kind: "create"; title: string };
+
+/**
+ * What a typed "Company name" means for the client's CRM company — the same
+ * reading the New Job page gives it: the client's own company while the box
+ * still says its name, nothing once emptied, a company with that title (any
+ * case) when one exists, else a new one.
+ */
+export function resolveCompanyName({
+  typed,
+  currentId,
+  currentTitle,
+  companies,
+}: {
+  typed: string;
+  currentId: string | undefined;
+  currentTitle: string;
+  companies: Pick<Company, "id" | "title">[] | undefined;
+}): CompanyResolution {
+  const title = typed.trim();
+  if (!title) return { kind: "clear" };
+  if (currentId && title.toLowerCase() === currentTitle.trim().toLowerCase()) return { kind: "keep" };
+  const hit = (companies ?? []).find((c) => c.title.trim().toLowerCase() === title.toLowerCase());
+  return hit ? { kind: "link", id: hit.id } : { kind: "create", title };
+}
+
+/**
+ * The contact PUT (it replaces, not merges) carrying a new company: the
+ * body the other edits made, else the contact as it is.
+ */
+export function contactBodyWithCompany(
+  c: Contact,
+  body: UpdateContactValues | null,
+  companyId: string | undefined,
+): UpdateContactValues {
+  const base: UpdateContactValues = body ?? {
+    firstName: c.firstName,
+    lastName: c.lastName,
+    phones: c.phones,
+    phoneExtensions: { ...(c.phoneExtensions ?? {}) },
+    emails: c.emails,
+    addresses: c.addresses,
+    companyId: c.companyId,
+    type: c.type,
+    title: c.title,
+    notes: c.notes,
+  };
+  return { ...base, companyId };
 }
 
 /* ------------------------------------------------------------------- team */

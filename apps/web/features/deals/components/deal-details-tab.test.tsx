@@ -29,6 +29,9 @@ const mocks = vi.hoisted(() => ({
   contact: null as unknown as Contact,
   users: new Map<string, { firstName?: string; lastName?: string; phone?: string; email?: string }>(),
   customFields: [] as unknown[],
+  company: undefined as { id: string; title: string } | undefined,
+  createCompany: vi.fn(async (body: { title: string }) => ({ id: "co-new", title: body.title })),
+  fetchAllCompanies: vi.fn(async () => [{ id: "co-2", title: "Zelli" }]),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -59,7 +62,10 @@ vi.mock("@/features/auth/use-permissions", () => ({
 vi.mock("@/features/clients/hooks", () => ({
   useContact: () => ({ data: mocks.contact }),
   useUpdateContact: () => ({ mutate: mocks.updateContact, isPending: false }),
+  useCompany: (id: string) => ({ data: id && mocks.company?.id === id ? mocks.company : undefined }),
+  useCreateCompany: () => ({ mutateAsync: mocks.createCompany, isPending: false }),
 }));
+vi.mock("@/features/clients/api", () => ({ fetchAllCompanies: mocks.fetchAllCompanies }));
 
 vi.mock("../hooks", () => ({
   useUpdateDeal: () => ({ mutate: mocks.updateDeal, isPending: false }),
@@ -208,6 +214,9 @@ beforeEach(() => {
   mocks.contact = baseContact;
   mocks.users = new Map([["t1", { firstName: "Bo", lastName: "Diaz", phone: "+14045550001" }]]);
   mocks.customFields = [gateCode];
+  mocks.company = undefined;
+  mocks.createCompany.mockClear();
+  mocks.fetchAllCompanies.mockClear();
   for (const f of [mocks.push, mocks.updateDeal, mocks.updateContact, mocks.assignTechs, mocks.sendToTech]) f.mockClear();
 });
 
@@ -251,6 +260,15 @@ describe("DetailsTab — Workiz's layout", () => {
     expect(within(client).getByLabelText("Phone")).toHaveValue("(404) 555-1234");
     expect(within(client).getByLabelText("Email")).toHaveValue("");
     expect(within(client).getByRole("combobox", { name: "Service area" })).toBeInTheDocument();
+  });
+
+  /** On the job page Workiz writes the area plainly ("SURE LOCK DALLAS TX"); New Job adds "(0 miles away)". */
+  it("names the service area plainly, as Workiz's job page does", () => {
+    renderTab();
+    const area = within(section("Client")).getByRole("combobox", { name: "Service area" }).closest("[data-slot=wz-select]");
+
+    expect(area).toHaveTextContent("North GA");
+    expect(area).not.toHaveTextContent(/miles away/);
   });
 
   it("leaves nothing of the old form: no PRIMARY badge, no +1 prefix, no View client link", () => {
@@ -520,6 +538,67 @@ describe("DetailsTab — the client", () => {
 
     expect(within(section("Client")).getByText("Number hidden")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Call number 0" })).toHaveAttribute("data-variant", "workiz");
+  });
+});
+
+describe("DetailsTab — Company name", () => {
+  it("shows the client's company in Workiz's Company name box", () => {
+    mocks.company = { id: "co-1", title: "Acme Locks" };
+    mocks.contact = { ...baseContact, companyId: "co-1" };
+    renderTab();
+
+    expect(screen.getByLabelText("Company name")).toHaveValue("Acme Locks");
+    expect(saveButton()).toBeDisabled();
+  });
+
+  it("falls back to the job's own record of it (Workiz imports)", () => {
+    renderTab({ ...deal, clientCompanyName: "Clinic Of Weatherford" });
+    expect(screen.getByLabelText("Company name")).toHaveValue("Clinic Of Weatherford");
+  });
+
+  it("links the client to an existing company with that title, without asking", async () => {
+    const u = user();
+    renderTab();
+
+    await u.type(screen.getByLabelText("Company name"), "zelli");
+    await u.click(saveButton());
+
+    expect(screen.queryByText("Change client")).toBeNull();
+    await waitFor(() => expect(mocks.updateContact).toHaveBeenCalledTimes(1));
+    expect(mocks.createCompany).not.toHaveBeenCalled();
+    expect(mocks.updateContact.mock.calls[0][0]).toMatchObject({ id: "c1", body: { firstName: "Jane", companyId: "co-2" } });
+    expect(mocks.updateDeal).not.toHaveBeenCalled();
+  });
+
+  it("makes a new company for a title nobody has, then links it", async () => {
+    const u = user();
+    renderTab();
+
+    await u.type(screen.getByLabelText("Company name"), "New Co");
+    await u.click(saveButton());
+
+    await waitFor(() => expect(mocks.updateContact).toHaveBeenCalledTimes(1));
+    expect(mocks.createCompany).toHaveBeenCalledWith(expect.objectContaining({ title: "New Co" }));
+    expect(mocks.updateContact.mock.calls[0][0].body).toMatchObject({ companyId: "co-new" });
+  });
+
+  it("takes the client off its company when the box is emptied", async () => {
+    const u = user();
+    mocks.company = { id: "co-1", title: "Acme Locks" };
+    mocks.contact = { ...baseContact, companyId: "co-1" };
+    renderTab();
+
+    await u.clear(screen.getByLabelText("Company name"));
+    await u.click(saveButton());
+
+    await waitFor(() => expect(mocks.updateContact).toHaveBeenCalledTimes(1));
+    expect(mocks.updateContact.mock.calls[0][0].body.companyId).toBeUndefined();
+  });
+
+  it("is read only without contacts.edit", () => {
+    mocks.perms.contacts = false;
+    renderTab();
+    expect(screen.getByLabelText("Company name")).toBeDisabled();
   });
 });
 

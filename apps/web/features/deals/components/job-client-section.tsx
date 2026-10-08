@@ -3,7 +3,7 @@
 import { useState, type ReactNode } from "react";
 import { MapPin, MessageSquareText, Signpost, Trash2 } from "lucide-react";
 import type { Address, Contact, Deal } from "@bitcrm/types";
-import { WzFieldGroup, WzLink, WzSectionHeader, WzTextField } from "@/components/workiz";
+import { WzFieldGroup, WzLink, WzSectionHeader, WzSelect, WzTextField } from "@/components/workiz";
 import { cn } from "@/lib/utils";
 import {
   capNationalDigits,
@@ -25,7 +25,8 @@ import type { ClientDraft } from "../lib";
 import { addPhoneRow, addressSummary, phoneRows, removePhoneRow, type PhoneRow } from "../job-details-form";
 import { directionsHref, JobAddressPane } from "./job-address-pane";
 import { MaskedClientPhones } from "./masked-client-phones";
-import { WzServiceAreaSelect } from "./workiz";
+import { useEffectiveServiceArea, useServiceAreas } from "@/features/service-areas/hooks";
+import { serviceAreaOptions } from "./workiz/options";
 
 /**
  * A row of the Details form (`details-module__row`): 10px under the one
@@ -51,6 +52,8 @@ export function JobClientSection({
   contact,
   draft,
   onDraftChange,
+  companyName,
+  onCompanyNameChange,
   canEditClient,
   canEdit,
   address,
@@ -62,7 +65,10 @@ export function JobClientSection({
   contact: Contact | undefined;
   draft: ClientDraft | null;
   onDraftChange: (draft: ClientDraft) => void;
-  /** `contacts.edit`: name, phones and email. */
+  /** Workiz's "Company name": the client's CRM company. */
+  companyName: string;
+  onCompanyNameChange: (name: string) => void;
+  /** `contacts.edit`: name, company, phones and email. */
   canEditClient: boolean;
   /** `deals.edit`: the job's address and area. */
   canEdit: boolean;
@@ -100,14 +106,16 @@ export function JobClientSection({
             </WzFieldGroup>
           </DetailsRow>
 
-          {/* Workiz's "Company name" is the job's own record of it; we keep
-              the client's company on the client, so the box only shows a
-              name the job came with (Workiz imports). */}
-          {deal.clientCompanyName ? (
-            <DetailsRow>
-              <WzTextField label="Company name" value={deal.clientCompanyName} disabled readOnly />
-            </DetailsRow>
-          ) : null}
+          {/* The client's CRM company, matched (or made) by title on Save —
+              as the New Job page reads the same box. */}
+          <DetailsRow>
+            <WzTextField
+              label="Company name"
+              value={companyName}
+              disabled={!canEditClient}
+              onChange={(e) => onCompanyNameChange(e.target.value)}
+            />
+          </DetailsRow>
 
           {contact.phonesMasked ? (
             <MaskedClientPhones phoneCount={contact.phoneCount ?? 0} dealId={deal.id} contactId={contact.id} />
@@ -174,8 +182,7 @@ export function JobClientSection({
       ) : null}
 
       <DetailsRow>
-        <WzServiceAreaSelect
-          shape="square"
+        <JobServiceAreaSelect
           lat={address.lat}
           lng={address.lng}
           value={serviceAreaId || undefined}
@@ -184,6 +191,42 @@ export function JobClientSection({
         />
       </DetailsRow>
     </section>
+  );
+}
+
+/* ------------------------------------------------------------ service area */
+
+/**
+ * "Service area" on the job page: the job's area by name ("SURE LOCK DALLAS
+ * TX" — New Job's "(0 miles away)" is not on this page), found from the
+ * address as everywhere else (a hand-picked area, else the one the address
+ * is in, else the nearest). Same queries as the page loader asks.
+ */
+function JobServiceAreaSelect({
+  lat,
+  lng,
+  value,
+  disabled,
+  onChange,
+}: {
+  lat?: number;
+  lng?: number;
+  value: string | undefined;
+  disabled?: boolean;
+  onChange: (id: string) => void;
+}) {
+  const { data: areas } = useServiceAreas();
+  const effective = useEffectiveServiceArea(lat, lng, value);
+  return (
+    <WzSelect
+      label="Service area"
+      shape="square"
+      options={serviceAreaOptions(areas, value)}
+      value={value || effective.area?.id || ""}
+      valueLabel={effective.area?.name}
+      disabled={disabled}
+      onChange={onChange}
+    />
   );
 }
 

@@ -3,7 +3,7 @@
 import type { CustomFieldValue, Deal } from "@bitcrm/types";
 import { settled, usePageReady } from "@/lib/use-page-ready";
 import { usePermissions } from "@/features/auth/use-permissions";
-import { useContact } from "@/features/clients/hooks";
+import { useCompany, useContact } from "@/features/clients/hooks";
 import { useCustomFields } from "@/features/custom-fields/hooks";
 import { applicableFields } from "@/features/custom-fields/lib";
 import { useInvoiceByDeal } from "@/features/invoices/hooks";
@@ -81,6 +81,8 @@ export function useJobPageData(dealId: string): { ready: boolean } {
   const lng = deal?.address?.lng;
   const techIds = deal?.assignedTechIds ?? NO_IDS;
   const contact = useContact(deal?.contactId ?? "");
+  // Details' "Company name": the client's CRM company, once the client is in.
+  const company = useCompany(contact.data?.companyId ?? "");
   const area = useEffectiveServiceArea(lat, lng, undefined);
   const users = useUserMap(techIds);
   const assignments = useDealAssignments(dealId, techIds.length > 0);
@@ -124,6 +126,7 @@ export function useJobPageData(dealId: string): { ready: boolean } {
       estimates,
       archivedType,
       archivedSource,
+      company,
       ...files,
     ].every(settled) &&
     !area.isFetching &&

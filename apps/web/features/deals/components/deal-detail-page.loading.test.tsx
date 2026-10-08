@@ -91,6 +91,7 @@ const deal: Deal = {
 
 /** What the server holds for the job now — a test may move it after the page is up. */
 let currentDeal: Deal = deal;
+let currentContact: Contact = contact;
 
 const area = { id: "sa-1", name: "North Metro", active: true, priority: 1, timezone: "America/New_York" };
 
@@ -108,7 +109,9 @@ const routes: FakeRoute[] = [
   { match: /\/deals\/custom-fields$/, reply: () => [] },
   { match: /\/deals\/job-statuses$/, reply: () => [] },
   { match: /\/deals\/job-tags$/, reply: () => [] },
-  { match: /\/crm\/contacts\/c1$/, reply: () => contact },
+  { match: /\/crm\/contacts\/c1$/, reply: () => currentContact },
+  // Company name: the client's CRM company.
+  { match: /\/crm\/companies\/co-1$/, reply: () => ({ id: "co-1", title: "Acme Locks" }) },
   { match: /\/messaging\/settings$/, reply: () => ({}) },
   { match: /\/deals\/service-areas$/, reply: () => [area] },
   { match: /\/deals\/service-areas\/resolve$/, reply: () => area },
@@ -176,6 +179,7 @@ function renderPage() {
 
 beforeEach(() => {
   currentDeal = deal;
+  currentContact = contact;
   server = installFakeServer(routes);
 });
 
@@ -275,6 +279,17 @@ describe("DealDetailPage — one load, not waves", () => {
     watch.stop();
 
     expect(watch.frame()).toEqual({ sourceName: true });
+  });
+
+  /** Company name names the client's company, which is asked for with the page. */
+  it("shows the client's company in the first frame", async () => {
+    currentContact = { ...contact, companyId: "co-1" };
+    const watch = watchFirstFrame(jobIsUp, () => ({ company: !!screen.queryByDisplayValue("Acme Locks") }));
+    renderPage();
+    await screen.findByText("#1042", {}, { timeout: 3000 });
+    watch.stop();
+
+    expect(watch.frame()).toEqual({ company: true });
   });
 
   it("a request that fails does not hold the job off the screen", async () => {

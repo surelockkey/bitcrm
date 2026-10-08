@@ -88,7 +88,9 @@ export function JobTeamSection({
           serviceAreaId={serviceAreaId}
           value={techIds}
           onChange={onChange}
-          className="mr-px"
+          // details-module__row: the count line sits 10px under the select
+          // (the New Job card puts it 13px under).
+          className="mr-px [&_[data-testid=wz-team-notice]]:mt-2"
         />
       ) : techIds.length === 0 ? (
         <p className="text-[14px] leading-4 text-wz-caption">No technician assigned</p>

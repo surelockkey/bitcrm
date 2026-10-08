@@ -15,10 +15,14 @@
  */
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { DealPriority, type Deal } from "@bitcrm/types";
+import { toast } from "sonner";
+import { ClientType, DealPriority, type Contact, type Deal } from "@bitcrm/types";
 import { WzActionBar, WzButton, WzSectionHeader, WzSelect } from "@/components/workiz";
 import { usePermissions } from "@/features/auth/use-permissions";
-import { useContact, useUpdateContact } from "@/features/clients/hooks";
+import { getApiErrorMessage } from "@/lib/api/errors";
+import { fetchAllCompanies } from "@/features/clients/api";
+import { useCompany, useContact, useCreateCompany, useUpdateContact } from "@/features/clients/hooks";
+import type { UpdateContactValues } from "@/features/clients/schemas";
 import { useCustomFields } from "@/features/custom-fields/hooks";
 import { applicableFields, workizOrderedGroups } from "@/features/custom-fields/lib";
 import { WzCustomFields } from "@/features/custom-fields/components/wz-custom-fields";
@@ -26,7 +30,7 @@ import { useResolvedServiceArea } from "@/features/service-areas/hooks";
 import { DEFAULT_TZ } from "@/lib/timezone";
 import { useAssignTechs, useUpdateDeal } from "../hooks";
 import { clientDraftFromContact, dealDraftFromDeal, type ClientDraft, type DealDraft } from "../lib";
-import { commitDetailsSave, planDetailsSave } from "../job-details-form";
+import { commitDetailsSave, contactBodyWithCompany, planDetailsSave, resolveCompanyName } from "../job-details-form";
 import { ChangeClientDialog, type ClientSaveDecision } from "./change-client-dialog";
 import { DetailsRow, JobClientSection } from "./job-client-section";
 import { JobNoteEditor } from "./job-note-editor";
@@ -50,6 +54,34 @@ function ColumnsRow({ children }: { children: ReactNode }) {
 /** `details-module__section`: 350–500px, 25px in, 175px clear of the next column, 40px under. */
 const SECTION = "mb-10 md:mr-[175px] md:ml-[25px] md:min-w-[350px] md:max-w-[500px]";
 
+/**
+ * Workiz's Save bar runs to the screen's right edge, under the rail, so its
+ * button is centred on the page minus the sidebar whether or not the
+ * Timeline is open (job_b_01_details, job_b_03_rail0). Ours ends at the
+ * rail; this is how far right the button must move to sit where Workiz's
+ * does.
+ */
+function useBarShift(): [(el: HTMLDivElement | null) => void, number] {
+  const [el, setEl] = useState<HTMLDivElement | null>(null);
+  const [shift, setShift] = useState(0);
+  useEffect(() => {
+    if (!el) return;
+    const measure = () => {
+      const r = el.getBoundingClientRect();
+      setShift(r.width ? Math.max(0, Math.round((window.innerWidth - r.right) / 2)) : 0);
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    const ro = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    ro?.observe(el);
+    return () => {
+      window.removeEventListener("resize", measure);
+      ro?.disconnect();
+    };
+  }, [el]);
+  return [setEl, shift];
+}
+
 const PRIORITY_OPTIONS = [
   { value: DealPriority.NORMAL, label: "Normal" },
   { value: DealPriority.URGENT, label: "Urgent" },
@@ -62,7 +94,14 @@ export function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) 
   const update = useUpdateDeal(deal.id);
   const assignTechs = useAssignTechs(deal.id);
   const updateContact = useUpdateContact();
+  const createCompany = useCreateCompany();
   const canEditClient = can("contacts", "edit");
+  // Workiz's "Company name" is our client's CRM company (else the name the
+  // job came with from Workiz); `null` while the box is untouched.
+  const { data: clientCompany } = useCompany(contact?.companyId ?? "");
+  const baseCompany = clientCompany?.title ?? deal.clientCompanyName ?? "";
+  const [companyTyped, setCompanyTyped] = useState<string | null>(null);
+  const company = { base: baseCompany, typed: companyTyped ?? baseCompany };
 
   // One draft per side — every field below is a controlled input writing here,
   // and the single Save at the bottom persists whatever actually changed.
@@ -70,7 +109,7 @@ export function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) 
   const [clientDraft, setClientDraft] = useState<ClientDraft | null>(() =>
     contact ? clientDraftFromContact(contact, deal.clientName) : null,
   );
-  const input = { deal, contact, dealDraft, clientDraft, canEditClient };
+  const input = { deal, contact, dealDraft, clientDraft, canEditClient, company };
   const plan = planDetailsSave(input);
 
   const syncedDealId = useRef(deal.id);
@@ -119,10 +158,42 @@ export function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) 
     setAsking(false);
     const out = commitDetailsSave(input, decision);
     if (out.dealPatch) update.mutate(out.dealPatch);
-    if (out.contactBody && contact) updateContact.mutate({ id: contact.id, body: out.contactBody });
+    if (!contact) return;
+    if (plan.companyChanged) void saveWithCompany(contact, out.contactBody);
+    else if (out.contactBody) updateContact.mutate({ id: contact.id, body: out.contactBody });
+  };
+
+  /**
+   * A changed Company name: the client's own company while it still says its
+   * name, a company with that title, or a new one — then the contact, once,
+   * with everything else edited alongside it.
+   */
+  const saveWithCompany = async (c: Contact, body: UpdateContactValues | null) => {
+    try {
+      const r = resolveCompanyName({
+        typed: company.typed,
+        currentId: c.companyId,
+        currentTitle: clientCompany?.title ?? "",
+        companies: company.typed.trim() ? await fetchAllCompanies() : [],
+      });
+      const companyId =
+        r.kind === "clear"
+          ? undefined
+          : r.kind === "link"
+            ? r.id
+            : r.kind === "create"
+              ? (await createCompany.mutateAsync({ title: r.title, clientType: ClientType.COMMERCIAL, phones: [], emails: [] })).id
+              : c.companyId;
+      setCompanyTyped(null);
+      if (r.kind === "keep" && !body) return;
+      updateContact.mutate({ id: c.id, body: contactBodyWithCompany(c, body, companyId) });
+    } catch (e) {
+      toast.error(getApiErrorMessage(e));
+    }
   };
 
   const notesEditable = canEdit && !isTechnician;
+  const [barRef, barShift] = useBarShift();
 
   return (
     <>
@@ -137,6 +208,8 @@ export function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) 
                 contact={contact}
                 draft={clientDraft}
                 onDraftChange={setClientDraft}
+                companyName={company.typed}
+                onCompanyNameChange={setCompanyTyped}
                 canEditClient={canEditClient}
                 canEdit={canEdit}
                 address={dealDraft.address}
@@ -152,7 +225,8 @@ export function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) 
                 layout="section"
                 // Workiz's Starts / At columns are 48% each (a 4% gap), so they
                 // fit the 350px column the open Timeline leaves.
-                className="[&_.grid]:grid-cols-[48%_48%]"
+                // View schedule is at least 160px wide there (showScheduleButton).
+                className="[&_.grid]:grid-cols-[48%_48%] [&_a[data-slot=wz-button]]:min-w-[160px]"
                 tz={jobTz}
                 disabled={!canEdit}
                 viewScheduleHref="/schedule"
@@ -296,10 +370,11 @@ export function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) 
           page's scroll region, so it stays on screen while the fields scroll
           under it. Workiz has no Reset: leaving with unsaved edits asks first. */}
       {canEdit || canEditClient ? (
-        <WzActionBar className="sticky bottom-0 z-10">
+        <WzActionBar ref={barRef} className="sticky bottom-0 z-10">
           <WzButton
             size="big"
             className="min-w-[200px]"
+            style={barShift ? { transform: `translateX(${barShift}px)` } : undefined}
             loading={pending}
             disabled={!plan.dirty || !plan.phonesOk}
             onClick={save}

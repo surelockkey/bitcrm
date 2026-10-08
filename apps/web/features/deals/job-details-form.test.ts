@@ -8,15 +8,17 @@ import {
   DealStatus,
   JobSuperStatus,
 } from "@bitcrm/types";
-import type { Contact, Deal } from "@bitcrm/types";
+import type { Company, Contact, Deal } from "@bitcrm/types";
 import { clientDraftFromContact, dealDraftFromDeal } from "./lib";
 import {
   addPhoneRow,
   addressSummary,
   commitDetailsSave,
+  contactBodyWithCompany,
   phoneRows,
   planDetailsSave,
   removePhoneRow,
+  resolveCompanyName,
   withTech,
   withoutTech,
 } from "./job-details-form";
@@ -278,5 +280,81 @@ describe("team add / remove", () => {
   it("takes a tech off the team and keeps the others' order", () => {
     expect(withoutTech(["t1", "t2", "t3"], "t2")).toEqual(["t1", "t3"]);
     expect(withoutTech(["t1"], "t9")).toEqual(["t1"]);
+  });
+});
+
+/* ---------------------------------------------------------- company name */
+
+describe("Company name — the client's CRM company, by title", () => {
+  const acme = { id: "co-1", title: "Acme Locks" } as Company;
+  const others = [acme, { id: "co-2", title: "Zelli" } as Company];
+
+  it("keeps the company when the box still says its name", () => {
+    expect(resolveCompanyName({ typed: " Acme Locks ", currentId: "co-1", currentTitle: "Acme Locks", companies: others })).toEqual({
+      kind: "keep",
+    });
+  });
+
+  it("takes the client off its company when the box is emptied", () => {
+    expect(resolveCompanyName({ typed: "  ", currentId: "co-1", currentTitle: "Acme Locks", companies: others })).toEqual({
+      kind: "clear",
+    });
+  });
+
+  it("links an existing company with the same title, in any case", () => {
+    expect(resolveCompanyName({ typed: "zelli", currentId: "co-1", currentTitle: "Acme Locks", companies: others })).toEqual({
+      kind: "link",
+      id: "co-2",
+    });
+  });
+
+  it("makes a new company for a title nobody has", () => {
+    expect(resolveCompanyName({ typed: "New Co ", currentId: undefined, currentTitle: "", companies: others })).toEqual({
+      kind: "create",
+      title: "New Co",
+    });
+  });
+
+  it("puts the company on the contact's whole PUT body, even when nothing else changed", () => {
+    const c = contact({ companyId: "co-1", emails: ["a@b.c"] });
+
+    expect(contactBodyWithCompany(c, null, "co-2")).toMatchObject({
+      firstName: "Jane",
+      lastName: "Smith",
+      phones: ["+14045551234"],
+      emails: ["a@b.c"],
+      companyId: "co-2",
+    });
+    expect(contactBodyWithCompany(c, null, undefined)).toHaveProperty("companyId", undefined);
+  });
+
+  it("counts a changed Company name as an edit that saves without asking", () => {
+    const d = deal();
+    const c = contact();
+    const plan = planDetailsSave({
+      deal: d,
+      contact: c,
+      dealDraft: dealDraftFromDeal(d),
+      clientDraft: clientDraftFromContact(c),
+      canEditClient: true,
+      company: { base: "", typed: "Acme Locks" },
+    });
+
+    expect(plan).toMatchObject({ dirty: true, ask: false, companyChanged: true });
+  });
+
+  it("ignores the Company name for someone without contacts.edit", () => {
+    const d = deal();
+    const c = contact();
+    const plan = planDetailsSave({
+      deal: d,
+      contact: c,
+      dealDraft: dealDraftFromDeal(d),
+      clientDraft: clientDraftFromContact(c),
+      canEditClient: false,
+      company: { base: "", typed: "Acme Locks" },
+    });
+
+    expect(plan).toMatchObject({ dirty: false, companyChanged: false });
   });
 });

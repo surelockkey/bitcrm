@@ -3,13 +3,16 @@
 import { useMemo, useState } from "react";
 import { ChevronRight, X } from "lucide-react";
 import type { Address } from "@bitcrm/types";
-import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
+import { Dialog } from "radix-ui";
 import { WzButton, WzFieldGroup, WzSelect, WzTextField } from "@/components/workiz";
 import { AddressMap } from "@/features/clients/components/address-map";
 import { addressKey } from "@/features/clients/lib";
 import { addressSummary } from "../job-details-form";
 import { AddressAutocomplete } from "./address-autocomplete";
 import { WzCountrySelect, WzStateSelect } from "./workiz";
+
+/** "Client properties" value for a job address the client does not have on file. */
+const JOB_ADDRESS = "__job_address__";
 
 /** Google Maps directions to the address, as the box's road-sign icon and the pane's last row. */
 export function directionsHref(a: Address): string {
@@ -43,19 +46,22 @@ export function JobAddressPane({
   onApply: (address: Address) => void;
 }) {
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent
-        side="right"
-        showCloseButton={false}
-        // right-pane-content: 400px, white, no gaps of its own.
-        className="gap-0 bg-white p-0 text-wz-strong data-[side=right]:w-[400px] data-[side=right]:max-w-full data-[side=right]:sm:max-w-[400px]"
-      >
-        {/* Remounted per opening, so the fields start from the job's address. */}
-        {open ? (
-          <PaneBody value={value} clientAddresses={clientAddresses} onApply={onApply} onClose={() => onOpenChange(false)} />
-        ) : null}
-      </SheetContent>
-    </Sheet>
+    <Dialog.Root open={open} onOpenChange={onOpenChange}>
+      <Dialog.Portal>
+        {/* right-pane-container: the page dimmed to 64%, no blur. */}
+        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/[0.36] data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0" />
+        {/* right-pane-content: 400px from the right edge, white, full height. */}
+        <Dialog.Content
+          aria-describedby={undefined}
+          className="fixed inset-y-0 right-0 z-50 flex w-[400px] max-w-full flex-col bg-white text-wz-strong outline-none data-[state=closed]:animate-out data-[state=closed]:slide-out-to-right data-[state=open]:animate-in data-[state=open]:slide-in-from-right"
+        >
+          {/* Remounted per opening, so the fields start from the job's address. */}
+          {open ? (
+            <PaneBody value={value} clientAddresses={clientAddresses} onApply={onApply} onClose={() => onOpenChange(false)} />
+          ) : null}
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }
 
@@ -83,14 +89,19 @@ function PaneBody({
     });
   }, [clientAddresses]);
   const options = properties.map((a) => ({ value: addressKey(a), label: addressSummary(a) }));
-  const picked = options.some((o) => o.value === addressKey(draft)) ? addressKey(draft) : "";
+  // The property the job is booked at; one the client does not have on file
+  // still reads as the job's address.
+  const picked = options.some((o) => o.value === addressKey(draft))
+    ? addressKey(draft)
+    : addressSummary(draft)
+      ? JOB_ADDRESS
+      : "";
 
   return (
     <>
       {/* The grey 49px head: "Address" centred, 18px/600, the × at the right. */}
       <div className="relative flex h-[49px] shrink-0 items-center justify-center rounded-[3px] border border-[#eeeeee] bg-[#f7f7f7]">
-        <SheetTitle className="font-sans text-[18px] leading-[19px] font-semibold text-[#3b4c53]">Address</SheetTitle>
-        <SheetDescription className="sr-only">The job&apos;s service address.</SheetDescription>
+        <Dialog.Title className="text-[18px] leading-[19px] font-semibold text-[#3b4c53]">Address</Dialog.Title>
         <button
           type="button"
           aria-label="Close"
@@ -102,13 +113,14 @@ function PaneBody({
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2.5">
-        {properties.length ? (
+        {properties.length || picked ? (
           <div className="mb-2.5">
             <h5 className="mt-2 mb-2.5 text-[14px] leading-4 font-semibold text-foreground">Client properties</h5>
             <WzSelect
               label="Client properties"
               options={options}
               value={picked}
+              valueLabel={addressSummary(draft)}
               searchable={false}
               onChange={(key) => {
                 const found = properties.find((a) => addressKey(a) === key);
@@ -126,15 +138,22 @@ function PaneBody({
         </div>
 
         <WzFieldGroup join="seamless" className="mb-2.5">
-          <div className="min-w-0 flex-1" data-slot="wz-address-street">
+          {/* Drawn as the kit's floating-label box: the words float once
+              there is a street (our Places input has no label of its own). */}
+          <div className="relative min-w-0 flex-1 [&_svg]:hidden" data-slot="wz-address-street">
             <AddressAutocomplete
               value={draft.street}
               ariaLabel="Address"
               placeholder="Address"
               onChange={(street) => set({ street })}
               onSelect={(a) => set({ street: a.street, city: a.city, state: a.state, zip: a.zip, lat: a.lat, lng: a.lng })}
-              className="h-12 rounded-[2px] border-input text-[16px] text-wz-text shadow-none focus-visible:border-wz-focus focus-visible:ring-0"
+              className="h-12 rounded-[2px] border-input bg-white pt-3 pr-2.5 pl-2.5 text-[16px] leading-4 text-wz-text shadow-none placeholder:text-wz-label focus-visible:border-wz-focus focus-visible:ring-0 md:text-[16px]"
             />
+            {draft.street ? (
+              <span className="pointer-events-none absolute top-[2px] left-[0.65rem] text-[12px] leading-5 text-wz-label">
+                Address
+              </span>
+            ) : null}
           </div>
           <WzTextField label="Unit" className="w-[151px] flex-none" value={draft.unit ?? ""} onChange={(e) => set({ unit: e.target.value })} />
         </WzFieldGroup>
