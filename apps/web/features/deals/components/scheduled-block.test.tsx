@@ -1,6 +1,13 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
-import { ScheduledBlock } from "./scheduled-block";
+import {
+  ScheduledBlock,
+  slotTimes,
+  withAllDay,
+  withEndTime,
+  withScheduled,
+  withStartTime,
+} from "./scheduled-block";
 
 const base = {
   date: "2026-08-19",
@@ -68,5 +75,47 @@ describe("ScheduledBlock", () => {
   it("has no recurring-schedule control", () => {
     render(<ScheduledBlock {...base} onChange={vi.fn()} />);
     expect(screen.queryByText(/recurring/i)).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * The rules behind the block, shared with the Workiz schedule block
+ * (workiz/schedule-block.tsx) so both forms schedule a job the same way.
+ */
+describe("schedule value rules", () => {
+  const v = { date: "2026-08-19", endDate: "", slot: "08:00-09:00", allDay: false };
+
+  it("reads the start and end times out of the slot", () => {
+    expect(slotTimes("08:00-09:30")).toEqual(["08:00", "09:30"]);
+    expect(slotTimes("")).toEqual(["", ""]);
+  });
+
+  it("a new start keeps the end; a start with no end yet ends when it starts", () => {
+    expect(withStartTime(v, "10:00").slot).toBe("10:00-09:00");
+    expect(withStartTime({ ...v, slot: "" }, "10:00").slot).toBe("10:00-10:00");
+    expect(withStartTime(v, "").slot).toBe("");
+  });
+
+  it("a new end needs a start; without one the slot is left alone", () => {
+    expect(withEndTime(v, "11:00").slot).toBe("08:00-11:00");
+    expect(withEndTime({ ...v, slot: "" }, "11:00").slot).toBe("");
+  });
+
+  it("all-day drops the times", () => {
+    expect(withAllDay(v, true)).toEqual({ ...v, allDay: true, slot: "" });
+    expect(withAllDay({ ...v, allDay: true, slot: "" }, false)).toEqual({ ...v, allDay: false, slot: "" });
+  });
+
+  it("switching Scheduled off clears the schedule; on again starts from now in the job's zone", () => {
+    expect(withScheduled(v, false, "America/Chicago")).toEqual({ date: "", endDate: "", slot: "", allDay: false });
+    // 13:53 UTC = 8:53 AM Chicago → floored to 08:45, an hour long.
+    expect(withScheduled({ date: "", endDate: "", slot: "", allDay: false }, true, "America/Chicago", new Date("2026-10-08T13:53:00Z"))).toEqual({
+      date: "2026-10-08",
+      endDate: "2026-10-08",
+      slot: "08:45-09:45",
+      allDay: false,
+    });
+    // Already scheduled: on is a no-op.
+    expect(withScheduled(v, true, "America/Chicago")).toBe(v);
   });
 });

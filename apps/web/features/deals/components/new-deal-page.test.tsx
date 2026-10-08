@@ -605,8 +605,8 @@ describe("NewDealPage — Workiz layout", () => {
     render(<NewDealPage />);
 
     const titles = screen.getAllByText(/^(Extra Info|Tech)$/).map((el) => el.textContent);
-    // Tech comes before Extra Info, as on the Workiz form.
-    expect(titles).toEqual(["Tech", "Extra Info"]);
+    // Extra Info leads, as on the Workiz form (new_01_empty_scroll1).
+    expect(titles).toEqual(["Extra Info", "Tech"]);
     expect(screen.getByText("Check Image Front")).toBeInTheDocument();
     expect(screen.getByText("Jobs Dispatch")).toBeInTheDocument();
     // No single monolithic "Custom fields" card anymore.
