@@ -355,6 +355,32 @@ them from their files (`@/components/workiz/grouped-filter`, …).
   The list under the box: no shadow, `#e1e1e1` under the cursor (measured,
   rep_jobs_wz_06b_date_hover).
 
+### Report grid (agent `rep_activity`, Activity report)
+
+Measured off `rep_activity_wz_*` (notes:
+`workiz-data-parser/docs/import/app-parity-2026-10-08/rep_activity.md`).
+
+- **`WzReportGrid`** (`report-grid.tsx`) `columns={{id,label,width?,sortable?,cell}[]}`
+  `rows` `rowKey` `sort={{column,dir}|null}` `onSort(column)` `loading` `busy`
+  `emptyText` `footer` — react-table's report grid for any report whose
+  server pages and sorts: 1px `#ddd` frame, 42px `#f7f7f7` header (sticky,
+  solid `#ccc` rules, the 3px sort bar), 20px top-aligned cells cut at the
+  edge, dotted `#cfcfcf` rules, zebra, hover `.05`; never shorter than ten
+  rows (blank 56px rows over a `.05` rule); "No Records Found" 204px down
+  with the band's right edge on the middle; `loading` = header and blank rows
+  under a white-80% veil with three 13px ink dots. Columns without `width`
+  share the width alike (Workiz's `flex: 100`). `footer` puts the pager inside
+  the frame, right under the rows, as `.pagination-bottom`. Workiz opens a
+  report unsorted (`sort={null}`: no bar); **`wzNextSort(dir)`** gives
+  react-table's click (unsorted → asc → desc → asc).
+- **`WzDateRangePicker` `rangeText={(value) => string | undefined}`** (new,
+  optional) — words in place of the days: Activity's "All time" box reads
+  "All time" twice (Workiz sends no dates for it).
+- **`WzPager` `plainNumbers`** (new, optional) — "Showing 1 to 10 of 4392
+  results", "Page 1 of 440": react-table prints its counts without thousands
+  separators, in every Workiz capture (370338, 8806…). Off by default so
+  existing lists keep theirs; the coordinator may flip it kit-wide.
+
 ## The legacy report kit (2026-10-08, agent `rep_jobstats`)
 
 Several Workiz reports (Job Statistics first) are old PHP pages Workiz

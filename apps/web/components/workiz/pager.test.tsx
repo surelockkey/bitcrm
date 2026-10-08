@@ -81,4 +81,12 @@ describe("WzPager", () => {
     render(<WzPager pager={base} end={<span>Rows</span>} />);
     expect(screen.getByText("Rows")).toBeInTheDocument();
   });
+
+  // react-table prints its numbers raw: "Showing 1 to 10 of 4392 results",
+  // "Page 1 of 440" (rep_activity_wz_06, and every Workiz capture since).
+  it("with `plainNumbers`, prints the counts without thousands separators, as Workiz", () => {
+    render(<WzPager pager={{ ...base, to: 10, total: 4392, totalPages: 440, page: 1 }} plainNumbers />);
+    expect(screen.getByText("Showing 1 to 10 of 4392 results")).toBeInTheDocument();
+    expect(screen.getByText("Page 1 of 440")).toBeInTheDocument();
+  });
 });
