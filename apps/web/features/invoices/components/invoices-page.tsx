@@ -466,7 +466,7 @@ function InvoicesTable({ list }: { list: ReturnType<typeof useInvoiceRows> }) {
                       <Link
                         href={`/deals/${inv.dealId}`}
                         onClick={(e) => e.stopPropagation()}
-                        className="truncate font-mono text-primary hover:underline"
+                        className="truncate font-mono text-wz-link hover:underline"
                       >
                         {inv.number}
                       </Link>
@@ -617,7 +617,7 @@ function NeedsInvoiceTable({ canCreate }: { canCreate: boolean }) {
                   </TableCell>
                 ) : null}
                 <TableCell className="truncate">
-                  <Link href={`/deals/${j.id}?tab=items`} className="font-mono font-medium text-primary hover:underline">
+                  <Link href={`/deals/${j.id}?tab=items`} className="font-mono font-medium text-wz-link hover:underline">
                     #{j.dealNumber}
                   </Link>
                 </TableCell>

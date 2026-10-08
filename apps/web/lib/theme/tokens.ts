@@ -159,6 +159,44 @@ export const LIGHT = {
   wzPrimaryActive: "#dcb802",
   wzSecondaryHover: "#f3f6f7",
   wzSecondaryActive: "#c8ced0",
+
+  // The app-wide kit (components/ui restyled to Workiz, components/workiz
+  // shared pieces). Read off Workiz's Button-module / IconButton-module /
+  // niceBox / redux-toastr rules and the uikit_wz_* captures.
+  // The red "danger" pill (Button-module danger) — also Workiz's counter
+  // badges and the overdue red — hovered / pressed.
+  wzDanger: "#f45e44",
+  wzDangerHover: "#d42a0c",
+  wzDangerActive: "#ae230a",
+  // The blue "accent" pill ("Upgrade plan") hovered.
+  wzAccentHover: "#1874dc",
+  // A disabled pill: pale fill, grey words (the login's "Verify").
+  wzDisabledFill: "#eff1f1",
+  // Slate text: Actions-menu rows, idle small tabs (Tabs-module).
+  wzSlate: "#566d76",
+  // The bar under the open tab, and KPI card titles.
+  wzTabBar: "#3e4b51",
+  // The rule under a row of small tabs.
+  wzTabRule: "#c4c4c4",
+  // The grid's frame, the list toolbar's top rule, section rules.
+  wzFrame: "#dddddd",
+  // The browser checkbox's edge (Workiz forms use the native box).
+  wzNativeCheck: "#767676",
+  // The pager's round ‹ › discs, resting / hovered.
+  wzDisc: "#fafafa",
+  wzDiscHover: "#ededed",
+  // The page-explain band behind "Job Types — Add your job types…".
+  wzBand: "#fafcfc",
+  // A drawer's close ×.
+  wzCloseIcon: "#607890",
+  // A side panel's backdrop: `.right-pane-container` is #666 at 60% opacity
+  // (list_02_fields_menu, jobdetails_wz_address_open — white → #a3a3a3,
+  // #ccc → #8f8f8f). Modals dim with plain black at 30% instead.
+  wzScrim: "#666666",
+  // Toasts (redux-toastr): success, warning, info; errors are wzDanger.
+  wzToastSuccess: "#83c795",
+  wzToastWarning: "#f7a336",
+  wzToastInfo: "#58abc3",
 } as const satisfies Record<string, string>;
 
 /** Pairs that carry running text: WCAG AA, 4.5:1. */

@@ -143,7 +143,7 @@ describe("Price Book — Items", () => {
     await screen.findByText("Test item 1", {}, { timeout: 3000 });
     watch.stop();
 
-    expect(watch.frame()).toEqual({ brand: 2, pager: expect.stringContaining("Showing 1–3 of 3"), skeletons: 0 });
+    expect(watch.frame()).toEqual({ brand: 2, pager: expect.stringContaining("Showing 1 to 3 of 3 results"), skeletons: 0 });
   });
 
   it("puts no pager under the skeleton, where the rows would move it", async () => {

@@ -86,7 +86,7 @@ export function CompaniesTable({ companies }: { companies: Company[] }) {
                     <span className="text-muted-foreground">—</span>
                   )}
                 </TableCell>
-                <TableCell className="truncate text-sm text-primary">
+                <TableCell className="truncate text-sm text-wz-link">
                   {c.website || <span className="text-muted-foreground">—</span>}
                 </TableCell>
                 <TableCell className="truncate text-sm text-muted-foreground">

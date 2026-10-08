@@ -32,3 +32,14 @@ export { WzCard, WzSectionHeader, WzActionBar, type WzCardProps, type WzSectionH
 export { WzUploadField, type WzUploadFieldProps, type WzUploadedFile } from "./upload";
 export { WzFieldError, WzNotice } from "./messages";
 export { WzSuggestionList, WzSuggestion, splitMatch, type WzSuggestionProps } from "./suggestions";
+
+// The app-wide kit: list chrome, menus, drawers, tabs, the rail.
+export { WzPager, wzPagerSummary, wzPagerPages, type WzPagerState } from "./pager";
+export { WzListToolbar, WzSearchBox, WzPageSizeSelect, WzToolbarButton } from "./toolbar";
+export { WzDrawer, WzDrawerSection } from "./drawer";
+export { WzActionsMenu, type WzMenuAction } from "./menu";
+export { WzTabBar, type WzTab } from "./tab-bar";
+export { wzPill, type WzPillTone, type WzPillSize } from "./pill";
+export { WzTableEmpty } from "./table-empty";
+export { WzFilterChip } from "./filter-chip";
+export { WzRail, WzRailButton, WzRailPanel } from "./rail";

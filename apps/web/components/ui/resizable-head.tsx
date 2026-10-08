@@ -26,6 +26,7 @@ export function ResizableHead({
   width,
   onResize,
   onReset,
+  sort,
   className,
   children,
 }: {
@@ -36,6 +37,8 @@ export function ResizableHead({
   onResize: (px: number) => void;
   /** Double-click, or Home: put this column back to its default. */
   onReset?: () => void;
+  /** This column orders the rows: Workiz's 3px bar and `aria-sort` (see TableHead). */
+  sort?: "asc" | "desc";
   className?: string;
   children?: ReactNode;
 }) {
@@ -80,7 +83,7 @@ export function ResizableHead({
     // Named explicitly: the handle is a child, and without this the header's
     // accessible name would be computed from its contents as
     // "Client Resize Client".
-    <TableHead aria-label={label} className={cn("group relative truncate", className)}>
+    <TableHead aria-label={label} sort={sort} className={cn("group relative truncate", className)}>
       {children ?? label}
       <span
         role="separator"

@@ -1,0 +1,151 @@
+"use client";
+
+import { useId, useRef, type KeyboardEvent, type ReactNode } from "react";
+
+import { cn } from "@/lib/utils";
+
+export interface WzTab {
+  value: string;
+  label: string;
+  /** A grey counter after the name (small tabs): "Jobs 1", "Estimates 0". */
+  count?: ReactNode;
+  /** The 12px line under the name (job tabs): "$0.00 balance", "3 attachments". */
+  sublabel?: ReactNode;
+  disabled?: boolean;
+}
+
+/**
+ * Workiz's tab rows, one per `variant`:
+ *
+ * - `small` (default) — the client page, Custom fields, the jobs list status
+ *   tabs (Tabs-module; uikit_wz_client_page): a 1px #c4c4c4 rule under the
+ *   row; 13px/19px words 20px apart, slate #566d76 (500) at rest, ink 600
+ *   when open over a 2px ink bar that covers the rule; a 20px #dfe2e3
+ *   counter (11px/600 ink) after the name.
+ * - `page` — the big Price book tabs (`_tabs`): a 1px #ccc rule, 16px/500
+ *   #404040 words, 15px 25px; 600 when open over a 3px #3e4b51 bar.
+ * - `job` — the job page's tab bar (job_b_01_details, now
+ *   features/deals/components/job-tab-bar.tsx): equal widths, a 16px/500
+ *   name over a 12px line, a 4px #3e4b51 bar along the open tab's foot.
+ *
+ * Tabs, not buttons: one Tab stop, the arrow keys / Home / End move between
+ * them and open the one they land on (audit_dispatcher: the job tabs did not
+ * answer the arrow keys).
+ */
+export function WzTabBar({
+  tabs,
+  value,
+  onValueChange,
+  variant = "small",
+  className,
+  "aria-label": ariaLabel,
+}: {
+  tabs: readonly WzTab[];
+  value: string;
+  onValueChange: (value: string) => void;
+  variant?: "small" | "page" | "job";
+  className?: string;
+  "aria-label": string;
+}) {
+  const id = useId();
+  const refs = useRef<(HTMLButtonElement | null)[]>([]);
+
+  const move = (e: KeyboardEvent<HTMLDivElement>) => {
+    const enabled = tabs.map((t, i) => (t.disabled ? -1 : i)).filter((i) => i >= 0);
+    if (!enabled.length) return;
+    // From the tab that has the focus (the open one, until the keys move it).
+    const focused = refs.current.indexOf(e.target as HTMLButtonElement);
+    const at = enabled.indexOf(focused >= 0 ? focused : tabs.findIndex((t) => t.value === value));
+    let next: number | undefined;
+    if (e.key === "ArrowRight") next = enabled[(at + 1) % enabled.length];
+    else if (e.key === "ArrowLeft") next = enabled[(at - 1 + enabled.length) % enabled.length];
+    else if (e.key === "Home") next = enabled[0];
+    else if (e.key === "End") next = enabled[enabled.length - 1];
+    if (next === undefined) return;
+    e.preventDefault();
+    refs.current[next]?.focus();
+    onValueChange(tabs[next].value);
+  };
+
+  return (
+    <div
+      role="tablist"
+      aria-label={ariaLabel}
+      data-slot="wz-tab-bar"
+      data-variant={variant}
+      onKeyDown={move}
+      className={cn(
+        "flex overflow-x-auto",
+        variant === "small" && "border-b border-wz-tab-rule",
+        variant === "page" && "border-b border-input",
+        variant === "job" && "h-[88px]",
+        className,
+      )}
+    >
+      {tabs.map((t, i) => {
+        const open = t.value === value;
+        const sub = `${id}-${i}-sub`;
+        return (
+          <button
+            key={t.value}
+            ref={(el) => {
+              refs.current[i] = el;
+            }}
+            type="button"
+            role="tab"
+            aria-selected={open}
+            tabIndex={open ? 0 : -1}
+            disabled={t.disabled}
+            onClick={() => onValueChange(t.value)}
+            {...(variant === "job" ? { "aria-label": t.label, "aria-describedby": sub } : {})}
+            className={cn(
+              "relative outline-none focus-visible:bg-accent/60 disabled:cursor-not-allowed disabled:opacity-50",
+              variant === "small" && [
+                "flex shrink-0 items-center gap-2 px-5 pt-2.5 pb-[9px] text-[13px] leading-[19px] tracking-[0.4px] whitespace-nowrap",
+                open ? "font-semibold text-foreground" : "font-medium text-wz-slate hover:text-foreground",
+              ],
+              variant === "page" && [
+                "flex shrink-0 items-center px-[25px] py-[15px] text-base leading-4 whitespace-nowrap text-wz-strong",
+                open ? "font-semibold" : "font-medium",
+              ],
+              variant === "job" && "flex min-w-[112px] flex-1 flex-col items-center px-3 pt-4 text-center",
+            )}
+          >
+            {variant === "job" ? (
+              <>
+                <span className="text-[16px] leading-4 font-medium text-wz-strong">{t.label}</span>
+                <span id={sub} className="mt-2 max-w-full truncate text-[12px] leading-4 text-wz-strong">
+                  {t.sublabel}
+                </span>
+              </>
+            ) : (
+              <>
+                {t.label}
+                {t.count !== undefined && t.count !== null ? (
+                  <span
+                    data-slot="wz-tab-count"
+                    className="inline-flex h-5 min-w-5 items-center justify-center rounded-[10px] bg-border px-1.5 text-[11px] leading-4 font-semibold text-foreground tabular-nums"
+                  >
+                    {t.count}
+                  </span>
+                ) : null}
+              </>
+            )}
+            {open ? (
+              <span
+                aria-hidden
+                data-slot="wz-tab-bar-line"
+                className={cn(
+                  "absolute inset-x-0",
+                  variant === "small" && "-bottom-px h-0.5 bg-foreground",
+                  variant === "page" && "bottom-0 h-[3px] bg-wz-tab-bar",
+                  variant === "job" && "bottom-0 h-1 bg-wz-tab-bar",
+                )}
+              />
+            ) : null}
+          </button>
+        );
+      })}
+    </div>
+  );
+}

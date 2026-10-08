@@ -88,6 +88,25 @@
   --color-wz-primary-active: var(--wz-primary-active);
   --color-wz-secondary-hover: var(--wz-secondary-hover);
   --color-wz-secondary-active: var(--wz-secondary-active);
+  /* The app-wide kit (components/ui → Workiz). */
+  --color-wz-danger: var(--wz-danger);
+  --color-wz-danger-hover: var(--wz-danger-hover);
+  --color-wz-danger-active: var(--wz-danger-active);
+  --color-wz-accent-hover: var(--wz-accent-hover);
+  --color-wz-disabled-fill: var(--wz-disabled-fill);
+  --color-wz-slate: var(--wz-slate);
+  --color-wz-tab-bar: var(--wz-tab-bar);
+  --color-wz-tab-rule: var(--wz-tab-rule);
+  --color-wz-frame: var(--wz-frame);
+  --color-wz-native-check: var(--wz-native-check);
+  --color-wz-disc: var(--wz-disc);
+  --color-wz-disc-hover: var(--wz-disc-hover);
+  --color-wz-band: var(--wz-band);
+  --color-wz-close-icon: var(--wz-close-icon);
+  --color-wz-scrim: var(--wz-scrim);
+  --color-wz-toast-success: var(--wz-toast-success);
+  --color-wz-toast-warning: var(--wz-toast-warning);
+  --color-wz-toast-info: var(--wz-toast-info);
   --font-sans: var(--font-sans);
   --font-mono: var(--font-geist-mono);
   --font-heading: var(--font-sans);
@@ -185,8 +204,28 @@
   --wz-primary-active: #dcb802;
   --wz-secondary-hover: #f3f6f7;
   --wz-secondary-active: #c8ced0;
-  /* Workiz corners are tight; the stock shadcn 0.625rem is far too round. */
-  --radius: 0.375rem;
+  --wz-danger: #f45e44;
+  --wz-danger-hover: #d42a0c;
+  --wz-danger-active: #ae230a;
+  --wz-accent-hover: #1874dc;
+  --wz-disabled-fill: #eff1f1;
+  --wz-slate: #566d76;
+  --wz-tab-bar: #3e4b51;
+  --wz-tab-rule: #c4c4c4;
+  --wz-frame: #dddddd;
+  --wz-native-check: #767676;
+  --wz-disc: #fafafa;
+  --wz-disc-hover: #ededed;
+  --wz-band: #fafcfc;
+  --wz-close-icon: #607890;
+  --wz-scrim: #666666;
+  --wz-toast-success: #83c795;
+  --wz-toast-warning: #f7a336;
+  --wz-toast-info: #58abc3;
+  /* Workiz corners are tight; the stock shadcn 0.625rem is far too round.
+     5px puts \`rounded-md\` (×0.8) on exactly Workiz's 4px field corner —
+     inputs, selects, textareas, menus — and \`rounded-sm\` on its 3px chip. */
+  --radius: 0.3125rem;
 }
 
 

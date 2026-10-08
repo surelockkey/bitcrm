@@ -108,7 +108,7 @@ export function RunEntity({ run }: { run: AutomationRun }) {
   return (
     <span className="inline-flex flex-wrap items-center gap-1">
       {entity.href ? (
-        <Link href={entity.href} aria-label={entity.label} className="text-primary hover:underline">
+        <Link href={entity.href} aria-label={entity.label} className="text-wz-link hover:underline">
           {entity.text}
         </Link>
       ) : (
@@ -120,7 +120,7 @@ export function RunEntity({ run }: { run: AutomationRun }) {
           <Link
             href={href as string}
             aria-label={`Open job ${run.dealId}`}
-            className="text-primary hover:underline"
+            className="text-wz-link hover:underline"
           >
             Job {shortId(run.dealId as string)}
           </Link>
@@ -184,7 +184,7 @@ function RunActionRow({ action }: { action: AutomationRunAction }) {
             <button
               type="button"
               aria-expanded={open}
-              className="mt-1 text-primary hover:underline"
+              className="mt-1 text-wz-link hover:underline"
               onClick={() => setOpen((v) => !v)}
             >
               {open ? "Show less" : "Show the whole message"}
@@ -199,7 +199,7 @@ function RunActionRow({ action }: { action: AutomationRunAction }) {
         <p className="mt-1">
           <Link
             href={`/messages?c=${encodeURIComponent(action.conversationId)}`}
-            className="text-primary hover:underline"
+            className="text-wz-link hover:underline"
           >
             Open the thread
           </Link>

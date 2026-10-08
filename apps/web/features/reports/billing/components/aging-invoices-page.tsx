@@ -165,7 +165,7 @@ export function AgingInvoicesPage() {
                             <Link
                               // A client invoice (no job) lives on its own page.
                               href={row.dealId ? `/deals/${row.dealId}?tab=invoice` : `/invoices/${row.invoiceId}`}
-                              className="text-primary hover:underline"
+                              className="text-wz-link hover:underline"
                             >
                               {row.number}
                             </Link>
