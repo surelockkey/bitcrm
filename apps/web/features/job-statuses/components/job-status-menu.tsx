@@ -64,7 +64,7 @@ export function JobStatusMenu({
         <span className="min-w-0 flex-1 truncate">{current?.name ?? superStatusLabel(value.superStatus)}</span>
         {disabled ? null : (
           <SelectPrimitive.Icon asChild>
-            <ChevronDown className="size-4 shrink-0 text-[#333333]" strokeWidth={2.5} />
+            <ChevronDown className="size-5 shrink-0 text-foreground" strokeWidth={1.75} />
           </SelectPrimitive.Icon>
         )}
       </SelectPrimitive.Trigger>

@@ -620,7 +620,7 @@ export function DealTimelinePanel({
           aria-label="Job timeline"
           // In the page's flow, narrowing it, as Workiz does; on a phone it
           // floats over the page instead of squeezing it to nothing.
-          className="flex w-[350px] max-w-[85vw] shrink-0 flex-col overflow-hidden bg-white shadow-[-3px_0_8px_rgba(0,0,0,0.12)] max-md:fixed max-md:inset-y-0 max-md:right-0 max-md:z-40"
+          className="flex w-[350px] max-w-[85vw] shrink-0 flex-col overflow-hidden bg-white shadow-[-3px_0_8px_rgba(0,0,0,0.12)] max-md:fixed max-md:inset-y-0 max-md:right-0 max-md:z-40 md:relative md:z-10 md:-mt-9"
         >
           <PanelBody
             dealId={dealId}
@@ -650,7 +650,7 @@ export function DealTimelinePanel({
             role="toolbar"
             aria-label="Job rail"
             aria-orientation="vertical"
-            className="flex w-[55px] shrink-0 flex-col items-center bg-white shadow-[-3px_0_8px_rgba(0,0,0,0.12)]"
+            className="relative z-10 -mt-9 flex w-[55px] shrink-0 flex-col items-center bg-white shadow-[-3px_0_8px_rgba(0,0,0,0.12)]"
           >
             {/* The 62px #f7f7f7 cap with Workiz's "←". */}
             <div className="flex h-[62px] w-full justify-center bg-[#f7f7f7] pt-2.5">

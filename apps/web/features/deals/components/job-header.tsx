@@ -251,7 +251,8 @@ function ActionsMenu({ deal, actions, onDone }: { deal: Deal; actions: JobAction
       <DropdownMenu modal={false}>
         <DropdownMenuTrigger asChild>
           <button type="button" className={PILL_OUTLINE}>
-            <ChevronDown strokeWidth={1.5} />
+            {/* Workiz wfi-down: an 18px thin chevron. */}
+            <ChevronDown className="size-[18px]!" strokeWidth={1.25} />
             Actions
           </button>
         </DropdownMenuTrigger>

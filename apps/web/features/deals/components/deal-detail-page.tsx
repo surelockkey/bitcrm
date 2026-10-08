@@ -129,7 +129,9 @@ export function DealDetailPage({
   const chatPhone = jobChatPhone(deal.phones, contact?.phones);
 
   return (
-    <div className="flex min-h-0 flex-1 overflow-hidden">
+    // Clipped, but 36px of grace: Workiz's rail runs from the top bar down,
+    // over the breadcrumb strip, and ours rises into it (audit_pixels J1).
+    <div className="flex min-h-0 flex-1 overflow-clip [overflow-clip-margin:36px]">
       {/* The page scrolls as one, as Workiz's does: the header, the status
           rows and the tabs ride up with the fields rather than standing over
           a window that scrolls on its own. Only the Save bar stays pinned.
@@ -161,7 +163,7 @@ export function DealDetailPage({
             <JobTabBar tabs={tabs} active={tab} onSelect={setTab} sublabels={sublabels} />
           </div>
 
-          <div className="flex flex-1 flex-col border-t border-[#cad3d6]">
+          <div className="flex flex-1 flex-col">
             {/* Details stays mounted (just hidden) so its unsaved draft survives a
                 hop to the other tabs. It spans the whole height of its content, so
                 the sticky Save bar at its foot stays on screen all the way down. */}
