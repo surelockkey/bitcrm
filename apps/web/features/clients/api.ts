@@ -22,10 +22,13 @@ export function listContacts(
   companyId?: string,
   cursor?: string,
   limit = PAGE,
+  /** Client tags: contacts carrying ANY of them (Workiz Filter results → TAGS). */
+  tagIds: readonly string[] = [],
 ): Promise<PaginatedResponse<Contact>> {
   const q = new URLSearchParams({ limit: String(limit) });
   if (companyId) q.set("companyId", companyId);
   if (cursor) q.set("cursor", cursor);
+  if (tagIds.length) q.set("tagIds", tagIds.join(","));
   return apiFetchPaginated<Contact>(`/crm/contacts?${q}`);
 }
 
@@ -78,9 +81,10 @@ export const mergeContacts = (body: MergeContactsBody): Promise<Contact> =>
 /* --------------------------------------------------------------- companies */
 
 /** Скільки контактів під цим фільтром — число для «Page 2 of 7». */
-export function countContacts(companyId?: string): Promise<ListCount> {
+export function countContacts(companyId?: string, tagIds: readonly string[] = []): Promise<ListCount> {
   const q = new URLSearchParams();
   if (companyId) q.set("companyId", companyId);
+  if (tagIds.length) q.set("tagIds", tagIds.join(","));
   const s = q.toString();
   return http.get<ListCount>(`/crm/contacts/count${s ? `?${s}` : ""}`);
 }
