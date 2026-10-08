@@ -277,7 +277,9 @@ function PhoneLine({
           // The number the job was created with is bound to it for good.
           disabled={!canEdit || row.locked}
           onChange={onPhone}
-          inputClassName={icons > 2 ? "pr-[127px]" : icons === 0 ? "pr-2.5" : undefined}
+          // Workiz lets the number run up to its icons (no padding kept for
+          // them), so "(469) 396-8179" fits the 350px column too.
+          inputClassName={icons > 2 ? "pr-[120px]" : icons === 0 ? "pr-2.5" : "pr-[80px]"}
           endAdornment={
             icons ? (
               <>
