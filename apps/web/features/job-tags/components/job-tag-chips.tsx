@@ -38,7 +38,9 @@ export function JobTagChips({
   return (
     <div
       className={cn(
-        solid ? "flex flex-col items-start gap-0.5" : "flex flex-wrap items-center gap-1",
+        // Workiz's list gives each tag a 24px line, the chip at its top
+        // (list_01: tags at y 379, 403, 427 in a 72px-tall cell).
+        solid ? "flex flex-col items-start *:mb-2.5" : "flex flex-wrap items-center gap-1",
         className,
       )}
     >
@@ -52,10 +54,12 @@ export function JobTagChips({
           <span
             key={id}
             className={cn(
-              "inline-flex max-w-[190px] items-center truncate",
+              "inline-flex items-center",
               solid
-                ? "rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
-                : "rounded-chip border px-2 py-0.5 text-[11px] font-medium",
+                ? // Workiz's tag chip: 10px/500 capitals on a 14px line, 4px
+                  // sides, radius 2 — clipped by its cell, not ellipsised.
+                  "rounded-chip px-1 text-[10px] leading-[14px] font-medium tracking-[0.4px] whitespace-nowrap uppercase"
+                : "max-w-[190px] truncate rounded-chip border px-2 py-0.5 text-[11px] font-medium",
               tag
                 ? solid
                   ? tagSolidClasses(tag.color)

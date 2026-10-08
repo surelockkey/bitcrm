@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DEFAULT_VISIBLE } from "../fields";
 import { useJobFieldsStore } from "../fields-store";
@@ -32,7 +32,7 @@ import { FieldsMenu } from "./fields-menu";
 
 beforeEach(() => {
   localStorage.clear();
-  useJobFieldsStore.setState({ visible: { ...DEFAULT_VISIBLE } });
+  useJobFieldsStore.setState({ visible: { ...DEFAULT_VISIBLE }, order: [] });
 });
 
 async function openPanel() {
@@ -42,40 +42,128 @@ async function openPanel() {
   return u;
 }
 
-describe("FieldsMenu", () => {
+const panel = () => screen.getByRole("dialog", { name: "Visible fields" });
+/** The field names in the order the panel lists them. */
+const names = () =>
+  within(panel())
+    .getAllByRole("checkbox")
+    .map((c) => c.closest("label")?.textContent?.trim());
+
+describe("FieldsMenu — Workiz's Visible fields panel", () => {
   it("renders a Fields button", () => {
     render(<FieldsMenu />);
     expect(screen.getByRole("button", { name: /fields/i })).toBeInTheDocument();
   });
 
-  it("opens the Visible fields panel offering every deal field, custom included", async () => {
+  it("opens the panel offering every deal field, custom included", async () => {
     await openPanel();
-    expect(screen.getByText("Visible fields")).toBeInTheDocument();
-    // Classic column: on by default. New and custom fields: offered, off.
+    expect(within(panel()).getByText("Search fields")).toBeInTheDocument();
+    expect(within(panel()).getByPlaceholderText("Type field name here")).toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: "Client" })).toHaveAttribute("aria-checked", "true");
     expect(screen.getByRole("checkbox", { name: "Source" })).toHaveAttribute("aria-checked", "false");
     expect(screen.getByRole("checkbox", { name: "Gate Code" })).toHaveAttribute("aria-checked", "false");
   });
 
-  it("unchecking a field hides it in the store; the panel stays open", async () => {
+  it("lists Job ID first under USED FIELDS, always on", async () => {
+    await openPanel();
+    expect(names().slice(0, 3)).toEqual(["Job ID", "Client", "Tech"]);
+    expect(screen.getByRole("checkbox", { name: "Job ID" })).toBeDisabled();
+  });
+
+  it("groups the fields into USED and UNSELECTED", async () => {
+    await openPanel();
+    expect(within(panel()).getByText("Used fields")).toBeInTheDocument();
+    expect(within(panel()).getByText("Unselected fields")).toBeInTheDocument();
+    expect(names()).toEqual([
+      "Job ID",
+      "Client",
+      "Tech",
+      "Tags",
+      "City",
+      "State",
+      "Scheduled",
+      "Job Type",
+      "Zip code",
+      "Total Price",
+      "Company",
+      "Source",
+      "Address",
+      "Created by",
+      "End",
+      "Phone",
+      "Email",
+      "Service area",
+      "External Company",
+      "Time in Status",
+      "Job name",
+      "Client type",
+      "Dispatcher",
+      "Status",
+      "Priority",
+      "Sent",
+      "Seen",
+      "PO number",
+      "Payment status",
+      "Notes",
+      "Created",
+      "Gate Code",
+    ]);
+  });
+
+  it("a ticked field moves to the end of USED FIELDS, but nothing changes until Save fields", async () => {
+    const u = await openPanel();
+    await u.click(screen.getByRole("checkbox", { name: "Zip code" }));
+    expect(names().slice(0, 9)).toEqual(["Job ID", "Client", "Tech", "Tags", "City", "State", "Scheduled", "Job Type", "Zip code"]);
+    await u.click(screen.getByRole("checkbox", { name: "Tags" }));
+    expect(screen.getByRole("checkbox", { name: "Tags" })).toHaveAttribute("aria-checked", "false");
+
+    // The table has not seen any of it yet.
+    expect(useJobFieldsStore.getState().visible.zip).toBe(false);
+    expect(useJobFieldsStore.getState().visible.tags).toBe(true);
+
+    await u.click(screen.getByRole("button", { name: "Save fields" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    const s = useJobFieldsStore.getState();
+    expect(s.visible.zip).toBe(true);
+    expect(s.visible.tags).toBe(false);
+    expect(s.order).toEqual(["client", "tech", "city", "state", "scheduled", "jobType", "zip"]);
+  });
+
+  it("Cancel drops the draft", async () => {
     const u = await openPanel();
     await u.click(screen.getByRole("checkbox", { name: "Tags" }));
-    expect(useJobFieldsStore.getState().visible.tags).toBe(false);
-    // Still open so several fields can be toggled in one go.
-    expect(screen.getByRole("checkbox", { name: "Tags" })).toHaveAttribute("aria-checked", "false");
+    await u.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(useJobFieldsStore.getState().visible.tags).toBe(true);
+
+    // Reopened, the panel starts again from what is saved.
+    await u.click(screen.getByRole("button", { name: /fields/i }));
+    expect(screen.getByRole("checkbox", { name: "Tags" })).toHaveAttribute("aria-checked", "true");
+  });
+
+  it("opens on the saved order", async () => {
+    useJobFieldsStore.setState({ visible: { ...DEFAULT_VISIBLE }, order: ["scheduled", "client"] });
+    await openPanel();
+    expect(names().slice(0, 4)).toEqual(["Job ID", "Scheduled", "Client", "Tech"]);
+  });
+
+  it("each used field has a handle to drag it by", async () => {
+    await openPanel();
+    expect(screen.getByRole("button", { name: "Move Client" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Move Job ID" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Move Source" })).toBeNull();
+  });
+
+  it("Search fields narrows both lists", async () => {
+    const u = await openPanel();
+    await u.type(screen.getByPlaceholderText("Type field name here"), "gate");
+    expect(names()).toEqual(["Gate Code"]);
   });
 
   it("reflects fields already hidden in the store", async () => {
-    useJobFieldsStore.setState({
-      visible: { ...DEFAULT_VISIBLE, scheduled: false },
-    });
+    useJobFieldsStore.setState({ visible: { ...DEFAULT_VISIBLE, scheduled: false }, order: [] });
     await openPanel();
     expect(screen.getByRole("checkbox", { name: "Scheduled" })).toHaveAttribute("aria-checked", "false");
     expect(screen.getByRole("checkbox", { name: "Client" })).toHaveAttribute("aria-checked", "true");
-  });
-
-  it("does not offer the job number", async () => {
-    await openPanel();
-    expect(screen.queryByRole("checkbox", { name: /job\s?#/i })).toBeNull();
   });
 });

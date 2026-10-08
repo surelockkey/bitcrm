@@ -23,6 +23,11 @@ vi.mock("next/link", () => ({
     </a>
   ),
 }));
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
+  usePathname: () => "/deals",
+  useSearchParams: () => new URLSearchParams(),
+}));
 
 vi.mock("@/features/auth/use-permissions", () => ({
   useDenied: () => () => false,
@@ -45,6 +50,7 @@ vi.mock("../hooks", () => ({
   }),
   useDealCounts: () => ({ data: mocks.counts, isLoading: false }),
   useUserMap: () => ({ map: new Map(), isLoading: false }),
+  useJobsSearch: () => ({ data: undefined, isError: false, isFetching: false, refetch: vi.fn() }),
 }));
 vi.mock("@/features/clients/hooks", () => ({
   useContactsByIds: () => ({ map: mocks.contactMap, isLoading: false }),
@@ -60,7 +66,7 @@ vi.mock("@/features/job-types/lib", () => ({
   useJobTypeName: () => () => "Lockout",
 }));
 vi.mock("@/features/job-tags/hooks", () => ({ useJobTags: () => ({ data: [] }) }));
-vi.mock("@/features/job-tags/lib", () => ({ activeJobTags: () => [] }));
+vi.mock("@/features/job-tags/lib", () => ({ activeJobTags: () => [], tagSolidClasses: () => "" }));
 vi.mock("@/features/job-tags/components/job-tag-chips", () => ({ JobTagChips: () => null }));
 vi.mock("@/features/custom-fields/hooks", () => ({
   useCustomFields: () => ({
@@ -145,9 +151,12 @@ const lastPageParams = () => mocks.pageParams[mocks.pageParams.length - 1] as Re
 mocks.deals = [deal];
 mocks.contactMap = new Map([[contact.id, contact]]);
 
+
+const openFilter = () => fireEvent.mouseDown(screen.getByRole("combobox", { name: "Filter results" }));
+
 beforeEach(() => {
   localStorage.clear();
-  useJobFieldsStore.setState({ visible: { ...DEFAULT_VISIBLE } });
+  useJobFieldsStore.setState({ visible: { ...DEFAULT_VISIBLE }, order: [] });
 });
 
 // Ordering and the day / hour windows are the server's now (see
@@ -158,14 +167,16 @@ describe("DealsPage hour sort — settled within the loaded rows", () => {
     mocks.deals = [deal];
   });
 
-  it("Hour ↓ puts the later slot first", () => {
+  it("Filter results → Sort → Latest hour first puts the later slot first", () => {
     mocks.deals = [
       { ...deal, id: "d1", dealNumber: "A11111", scheduledDate: "2026-08-18", scheduledTimeSlot: "07:00-08:00" },
       { ...deal, id: "d2", dealNumber: "B22222", scheduledDate: "2026-08-18", scheduledTimeSlot: "15:00-16:00" },
     ];
     render(<DealsPage />);
-    fireEvent.change(screen.getByRole("combobox", { name: "Sort jobs" }), { target: { value: "hour_desc" } });
+    openFilter();
+    fireEvent.click(screen.getByRole("option", { name: "Latest hour first" }));
     expect(screen.getAllByRole("row")[1].textContent).toContain("B22222");
+    expect(screen.getByText("sort: Latest hour first")).toBeInTheDocument();
   });
 });
 
@@ -179,31 +190,27 @@ describe("DealsPage date filtering — schedule only", () => {
     mocks.deals = [deal];
   });
 
-  it("has no date-basis switch — the day range is the visit-date window the server is asked for", () => {
+  it("the day range under SCHEDULED is the visit-date window the server is asked for", () => {
     render(<DealsPage />);
-
     expect(screen.queryByLabelText("Date basis")).not.toBeInTheDocument();
 
-    const dayButton = (day: string) =>
-      screen.getAllByRole("button", { name: day }).find((b) => b.classList.contains("size-8"))!;
-    fireEvent.click(screen.getByRole("button", { name: "Days" }));
-    fireEvent.click(dayButton("18"));
-    fireEvent.click(dayButton("18"));
-
+    openFilter();
+    fireEvent.change(screen.getByLabelText("From day"), { target: { value: "2026-08-18" } });
     expect(lastPageParams()).toMatchObject({ scheduledFrom: "2026-08-18", scheduledTo: "2026-08-18" });
+    fireEvent.change(screen.getByLabelText("To day"), { target: { value: "2026-08-20" } });
+    expect(lastPageParams()).toMatchObject({ scheduledFrom: "2026-08-18", scheduledTo: "2026-08-20" });
+    expect(screen.getByText("scheduled: Aug 18 – Aug 20")).toBeInTheDocument();
   });
 
   it("offers only Today as a one-click range — a job board has no past to filter", () => {
     render(<DealsPage />);
-
-    fireEvent.click(screen.getByRole("button", { name: "Days" }));
-    expect(screen.getByRole("button", { name: "All time" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Today" })).toBeInTheDocument();
+    openFilter();
+    fireEvent.click(screen.getByRole("button", { name: "Today" }));
+    expect(lastPageParams()).toMatchObject({ scheduledFrom: "2026-08-27", scheduledTo: "2026-08-27" });
     for (const label of ["Yesterday", "Last 7 days", "Last 30 days", "This month", "Last month", "This year"]) {
       expect(screen.queryByRole("button", { name: label })).not.toBeInTheDocument();
     }
   });
-
 });
 
 describe("DealsPage overdue marker", () => {
@@ -218,7 +225,7 @@ describe("DealsPage overdue marker", () => {
 
   it("shows how long ago a passed slot was, Workiz-style", () => {
     mocks.deals = [
-      { ...deal, id: "d1", dealNumber: "A11111", scheduledDate: "2026-08-27", scheduledTimeSlot: "09:00-10:00" },
+      { ...deal, id: "d1", dealNumber: "A11111", scheduledDate: "2026-08-27", scheduledTimeSlot: "09:00-10:00", jobTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone },
     ];
     render(<DealsPage />);
 
@@ -234,11 +241,13 @@ describe("DealsPage overdue marker", () => {
         superStatus: JobSuperStatus.DONE,
         scheduledDate: "2026-08-27",
         scheduledTimeSlot: "09:00-10:00",
+        jobTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       },
     ];
     render(<DealsPage />);
 
-    fireEvent.click(screen.getByRole("tab", { name: /^done\s?\d+$/i }));
+    openFilter();
+    fireEvent.click(screen.getByRole("option", { name: "Done" }));
     expect(screen.getByText(/A11111/)).toBeInTheDocument();
     expect(screen.queryByText("3 hours ago")).not.toBeInTheDocument();
   });
@@ -250,15 +259,14 @@ describe("DealsPage fields visibility", () => {
     expect(screen.getByRole("button", { name: /fields/i })).toBeInTheDocument();
   });
 
-  it("unchecking a field hides its column immediately", async () => {
+  it("unticking a field hides its column once the fields are saved", async () => {
     const u = userEvent.setup();
     render(<DealsPage />);
     expect(screen.getByRole("columnheader", { name: "Tags" })).toBeInTheDocument();
 
     await u.click(screen.getByRole("button", { name: /fields/i }));
     await u.click(screen.getByRole("checkbox", { name: "Tags" }));
-    // The modal panel hides the page from the a11y tree while open.
-    await u.keyboard("{Escape}");
+    await u.click(screen.getByRole("button", { name: "Save fields" }));
 
     expect(screen.queryByRole("columnheader", { name: "Tags" })).toBeNull();
     expect(screen.getByRole("columnheader", { name: "Client" })).toBeInTheDocument();
@@ -276,18 +284,18 @@ describe("DealsPage fields visibility", () => {
     expect(screen.getByRole("checkbox", { name: "PO number" })).toBeInTheDocument();
 
     // Search narrows the list.
-    await u.type(screen.getByPlaceholderText(/search fields/i), "gate");
+    await u.type(screen.getByPlaceholderText("Type field name here"), "gate");
     expect(screen.getByRole("checkbox", { name: "Gate Code" })).toBeInTheDocument();
     expect(screen.queryByRole("checkbox", { name: "Source" })).toBeNull();
   });
 
-  it("toggling a custom field on adds its column with the deal's answer", async () => {
+  it("ticking a custom field adds its column with the deal's answer", async () => {
     const u = userEvent.setup();
     render(<DealsPage />);
 
     await u.click(screen.getByRole("button", { name: /fields/i }));
     await u.click(screen.getByRole("checkbox", { name: "Gate Code" }));
-    await u.keyboard("{Escape}");
+    await u.click(screen.getByRole("button", { name: "Save fields" }));
 
     expect(screen.getByRole("columnheader", { name: "Gate Code" })).toBeInTheDocument();
     expect(screen.getByText("4417")).toBeInTheDocument();
@@ -298,6 +306,7 @@ describe("DealsPage fields visibility", () => {
     const first = render(<DealsPage />);
     await u.click(screen.getByRole("button", { name: /fields/i }));
     await u.click(screen.getByRole("checkbox", { name: "Scheduled" }));
+    await u.click(screen.getByRole("button", { name: "Save fields" }));
     first.unmount();
 
     // Simulate the reload: memory is wiped but the disk survives. Resetting
@@ -306,7 +315,7 @@ describe("DealsPage fields visibility", () => {
     // state a fresh module load would boot from.
     const saved = localStorage.getItem("bitcrm.jobs-fields")!;
     expect(saved).toContain('"scheduled":false');
-    useJobFieldsStore.setState({ visible: { ...DEFAULT_VISIBLE } });
+    useJobFieldsStore.setState({ visible: { ...DEFAULT_VISIBLE }, order: [] });
     localStorage.setItem("bitcrm.jobs-fields", saved);
     await useJobFieldsStore.persist.rehydrate();
 
@@ -321,12 +330,12 @@ describe("DealsPage company filter", () => {
     mocks.deals = [deal];
   });
 
-  it("narrows the list to one company — as a server parameter", async () => {
-    const u = userEvent.setup();
+  it("narrows the list to one company — as a server parameter, from Filter results", () => {
     render(<DealsPage />);
     expect(lastPageParams()).not.toHaveProperty("businessProfileId");
-    await u.click(screen.getByRole("combobox", { name: "Company filter" }));
-    await u.click(await screen.findByRole("option", { name: "KeyPro" }));
+    openFilter();
+    fireEvent.click(screen.getByRole("option", { name: "KeyPro" }));
     expect(lastPageParams()).toMatchObject({ businessProfileId: "bp-2" });
+    expect(screen.getByText("company: KeyPro")).toBeInTheDocument();
   });
 });

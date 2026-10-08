@@ -20,6 +20,8 @@ import type { CreateDealValues, UpdateDealValues, AddProductValues } from "./sch
 import type { DealCountsParams, DealsListParams } from "./query-params";
 import { windowRequests, type DealsWindow } from "./window";
 import { useDealsStreamStore } from "./stream-store";
+import { globalSearch } from "@/features/search/api";
+import { searchHitIds } from "./jobs-search";
 
 /* ------------------------------------------------------------- queries */
 
@@ -73,6 +75,41 @@ export function useDealsByIds(ids: string[], enabled = true) {
     queryKey: queryKeys.deals.byIds(wanted),
     queryFn: () => api.getDealsByIds(wanted),
     enabled: enabled && wanted.length > 0,
+    staleTime: 30_000,
+  });
+}
+
+/** How many search hits the jobs page hydrates — `POST /deals/by-ids` takes at most a hundred. */
+export const JOBS_SEARCH_CAP = 100;
+const JOBS_SEARCH_PAGE = 50;
+
+/**
+ * The Search box's free text, across every job: the search service finds
+ * the candidates, `POST /deals/by-ids` brings them back as jobs. The page
+ * then keeps the ones on its tab, under its filters, that match the text
+ * the Workiz way (`jobs-search.ts`). One query, under `deals`, so the live
+ * stream refreshes it like the list.
+ *
+ * At most `JOBS_SEARCH_CAP` hits, the most relevant first; `capped` says
+ * when the engine had more.
+ */
+export function useJobsSearch(text: string, enabled = true) {
+  const q = text.trim();
+  return useQuery({
+    queryKey: queryKeys.deals.search(q),
+    queryFn: async () => {
+      const first = await globalSearch({ q, mode: "full", types: ["deal"], size: JOBS_SEARCH_PAGE, page: 1 });
+      const ids = searchHitIds(first.hits ?? []);
+      const total = first.total ?? ids.length;
+      if (total > JOBS_SEARCH_PAGE) {
+        const second = await globalSearch({ q, mode: "full", types: ["deal"], size: JOBS_SEARCH_PAGE, page: 2 });
+        for (const id of searchHitIds(second.hits ?? [])) if (!ids.includes(id)) ids.push(id);
+      }
+      const wanted = ids.slice(0, JOBS_SEARCH_CAP);
+      const deals = await api.getDealsByIds(wanted);
+      return { deals, capped: total > wanted.length };
+    },
+    enabled: enabled && q.length > 0,
     staleTime: 30_000,
   });
 }
