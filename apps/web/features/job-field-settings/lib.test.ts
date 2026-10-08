@@ -52,4 +52,12 @@ describe("missingRequiredJobFields", () => {
     );
     expect(out).toEqual([]);
   });
+
+  it("counts a picked external company (it was never checked, so a required one always blocked)", () => {
+    const required = settings({ externalCompany: true });
+    expect(missingRequiredJobFields(required, { values })).toEqual([
+      { id: "externalCompany", label: "External company" },
+    ]);
+    expect(missingRequiredJobFields(required, { values: { ...values, externalCompanyId: "x1" } })).toEqual([]);
+  });
 });

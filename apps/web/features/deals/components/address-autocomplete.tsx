@@ -14,6 +14,8 @@ export interface ParsedAddress {
   city: string;
   state: string;
   zip: string;
+  /** ISO alpha-2 from Google ("US", "CA"). */
+  country?: string;
   lat?: number;
   lng?: number;
 }
@@ -118,18 +120,14 @@ function PlainInput({ value, onChange, placeholder, className, autoFocus, id, ar
   );
 }
 
-function PlacesInput({
-  value,
-  onChange,
-  onSelect,
-  placeholder = "Start typing an address…",
-  country = "us",
-  className,
-  autoFocus,
-  id,
-  ariaLabel,
-  suggestions,
-}: Props) {
+/**
+ * The Google Places side of an address box, shared by the plain input below
+ * and the Workiz address field (workiz/address-field.tsx): predictions for
+ * the typed text (220ms after the last keystroke, from 3 characters,
+ * restricted to `country`), and the parsed address of a chosen one — one
+ * billing session per pick. Needs the shared MapsProvider above it.
+ */
+export function usePlacesAutocomplete(country = "us") {
   const placesLib = useMapsLibrary("places");
   const serviceRef = useRef<InstanceType<NonNullable<Window["google"]>["maps"]["places"]["AutocompleteService"]> | null>(null);
   const placesRef = useRef<InstanceType<NonNullable<Window["google"]>["maps"]["places"]["PlacesService"]> | null>(null);
@@ -137,10 +135,8 @@ function PlacesInput({
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [ready, setReady] = useState(false);
-  const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [predictions, setPredictions] = useState<PlacePrediction[]>([]);
-  const [active, setActive] = useState(0);
 
   useEffect(() => {
     if (!placesLib) return;
@@ -157,7 +153,6 @@ function PlacesInput({
   const query = (input: string) => {
     if (!serviceRef.current || input.trim().length < 3) {
       setPredictions([]);
-      setOpen(false);
       return;
     }
     setLoading(true);
@@ -171,23 +166,20 @@ function PlacesInput({
       (preds) => {
         setLoading(false);
         setPredictions(preds ?? []);
-        setActive(0);
-        setOpen((preds ?? []).length > 0);
       },
     );
   };
 
-  const handleChange = (v: string) => {
-    onChange(v);
+  /** Ask for predictions for this text, once typing pauses. */
+  const request = (input: string) => {
     if (!ready) return;
     if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => query(v), 220);
+    timer.current = setTimeout(() => query(input), 220);
   };
 
-  const choose = (pred: PlacePrediction) => {
-    setOpen(false);
+  /** The parsed address behind a prediction (null when Google says no). */
+  const details = (pred: PlacePrediction, onDetails: (addr: ParsedAddress) => void) => {
     setPredictions([]);
-    onChange(pred.structured_formatting?.main_text ?? pred.description);
     const places = placesRef.current;
     const g = window.google;
     if (!places || !g) return;
@@ -196,11 +188,53 @@ function PlacesInput({
       (place, status) => {
         // Start a fresh billing session after a completed selection.
         sessionRef.current = new g.maps.places.AutocompleteSessionToken();
-        if (place && status === g.maps.places.PlacesServiceStatus.OK) {
-          onSelect(parsePlace(place));
-        }
+        if (place && status === g.maps.places.PlacesServiceStatus.OK) onDetails(parsePlace(place));
       },
     );
+  };
+
+  return { ready, loading, predictions, request, details, clear: () => setPredictions([]) };
+}
+
+function PlacesInput({
+  value,
+  onChange,
+  onSelect,
+  placeholder = "Start typing an address…",
+  country = "us",
+  className,
+  autoFocus,
+  id,
+  ariaLabel,
+  suggestions,
+}: Props) {
+  const places = usePlacesAutocomplete(country);
+  const predictions = places.predictions;
+  const loading = places.loading;
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(0);
+
+  // Open the list whenever a fresh set of predictions arrives.
+  const [seen, setSeen] = useState(predictions);
+  if (seen !== predictions) {
+    setSeen(predictions);
+    setActive(0);
+    setOpen(predictions.length > 0);
+  }
+
+  const handleChange = (v: string) => {
+    onChange(v);
+    if (v.trim().length < 3) {
+      places.clear();
+      setOpen(false);
+    }
+    places.request(v);
+  };
+
+  const choose = (pred: PlacePrediction) => {
+    setOpen(false);
+    onChange(pred.structured_formatting?.main_text ?? pred.description);
+    places.details(pred, onSelect);
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {

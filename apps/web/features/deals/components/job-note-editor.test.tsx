@@ -39,6 +39,11 @@ describe("JobNoteEditor", () => {
     expect(container.querySelector("[data-placeholder]")).not.toBeNull();
   });
 
+  it("takes the placeholder it is given (New Job's 'Description')", () => {
+    const { container } = render(<JobNoteEditor value="" onChange={vi.fn()} placeholder="Description" />);
+    expect(container.querySelector("[data-placeholder]")?.getAttribute("data-placeholder")).toBe("Description");
+  });
+
   it("is read-only when the viewer may not edit", () => {
     const { container } = render(<JobNoteEditor value={note} onChange={vi.fn()} editable={false} />);
 

@@ -59,6 +59,8 @@ export function parsePlace(place: PlaceDetails): {
   city: string;
   state: string;
   zip: string;
+  /** ISO 3166-1 alpha-2, as Google gives it ("US", "CA"); absent when it gives none. */
+  country?: string;
   lat?: number;
   lng?: number;
 } {
@@ -69,11 +71,13 @@ export function parsePlace(place: PlaceDetails): {
   const streetNumber = get("street_number");
   const route = get("route");
   const city = get("locality") || get("postal_town") || get("sublocality") || get("administrative_area_level_2");
+  const country = get("country", true).toUpperCase();
   return {
     street: [streetNumber, route].filter(Boolean).join(" "),
     city,
     state: get("administrative_area_level_1", true),
     zip: get("postal_code"),
+    ...(country ? { country } : {}),
     lat: place.geometry?.location?.lat(),
     lng: place.geometry?.location?.lng(),
   };
