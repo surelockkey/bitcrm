@@ -214,23 +214,31 @@ describe("DealsPage — what it asks the server for", () => {
     expect(screen.queryByText("status: Canceled")).toBeNull();
   });
 
-  it("the Scheduled header flips the server direction; Sort → hour reorders the loaded rows", () => {
-    mocks.pages = [
-      {
-        data: [
-          { ...deal, id: "d1", dealNumber: "A11111", scheduledDate: "2026-08-18", scheduledTimeSlot: "08:00-09:00" },
-          { ...deal, id: "d2", dealNumber: "B22222", scheduledDate: "2026-08-18", scheduledTimeSlot: "15:00-16:00" },
-        ],
-        pagination: { count: 2 },
-      },
-    ];
+  it("the Scheduled header flips the server direction, and back", () => {
     render(<DealsPage />);
     fireEvent.click(screen.getByRole("button", { name: /Sort by Scheduled/ }));
     expect(lastPageParams()).toMatchObject({ dir: "desc" });
-    openFilter();
-    fireEvent.click(screen.getByRole("option", { name: "Latest hour first" }));
+    fireEvent.click(screen.getByRole("button", { name: /Sort by Scheduled/ }));
     expect(lastPageParams()).toMatchObject({ dir: "asc" });
-    expect(screen.getAllByRole("row")[1].textContent).toContain("B22222");
+  });
+
+  /** Workiz closes its menu on a pick (react-select closeMenuOnSelect) — audit L12. */
+  it("picking an option closes the menu", () => {
+    render(<DealsPage />);
+    openFilter();
+    expect(screen.getByRole("listbox", { name: "Techs" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("option", { name: "t1" }));
+    expect(screen.queryByRole("listbox", { name: "Techs" })).toBeNull();
+    expect(screen.getByText("user: t1")).toBeInTheDocument();
+  });
+
+  /** Audit L8/L15: "Showing 1 to 29 of 29 · Page 1 of 1" must not offer a page 2. */
+  it("Next rests on the counted last page, even with a cursor in hand", () => {
+    mocks.hasNextPage = true;
+    mocks.counts = { ...mocks.counts, submitted: 2 };
+    render(<DealsPage />);
+    expect(screen.getByText("Page 1 of 1")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Next page" })).toBeDisabled();
   });
 
   it("the hour window travels as parameters; so does what is typed in Search, as q", async () => {

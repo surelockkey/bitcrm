@@ -43,6 +43,29 @@ export function showingText({
   return `Showing ${(to === 0 ? 1 : from).toLocaleString()} to ${to.toLocaleString()}${of} results`;
 }
 
+/**
+ * Whether "›" goes anywhere. The count knows the last page: on it, Next
+ * rests even when the list still hands back a cursor (audit L8 — "Page 2 of
+ * 1"). Without a count, or with only a floor, the cursor decides.
+ */
+export function canGoNext({
+  page,
+  canNext,
+  isFetching,
+  totalPages,
+  totalPagesIsFloor,
+}: {
+  page: number;
+  canNext: boolean;
+  isFetching: boolean;
+  totalPages?: number;
+  totalPagesIsFloor?: boolean;
+}): boolean {
+  if (!canNext || isFetching) return false;
+  if (typeof totalPages === "number" && !totalPagesIsFloor) return page < totalPages;
+  return true;
+}
+
 /** "Page 1 of 5" — or just "Page 3" when there is no total to divide. */
 export function pageText({
   page,

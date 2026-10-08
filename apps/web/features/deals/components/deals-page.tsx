@@ -29,7 +29,7 @@ import {
   toSearchCountsParams,
   type JobsListState,
 } from "../query-params";
-import { jobTabLabel, sortJobs, tabCount, type JobTab } from "../lib";
+import { jobTabLabel, tabCount, type JobTab } from "../lib";
 import { JobSuperStatus } from "@bitcrm/types";
 import { useBusinessProfiles } from "@/features/business-profiles/hooks";
 import { useJobTypes } from "@/features/job-types/hooks";
@@ -37,8 +37,8 @@ import { activeJobTypes } from "@/features/job-types/lib";
 import { useJobTags } from "@/features/job-tags/hooks";
 import { activeJobTags } from "@/features/job-tags/lib";
 import { useJobFieldsStore } from "../fields-store";
-import type { FilterCatalogs } from "../job-filters";
-import { pageText, showingText, withSearchedTab } from "../list-numbers";
+import { filterAreas, orderTechs, type FilterCatalogs } from "../job-filters";
+import { canGoNext, pageText, showingText, withSearchedTab } from "../list-numbers";
 import { DealsTable, DealsTableSkeleton } from "./deals-table";
 import { DealQuickView } from "./deal-quick-view";
 import { FieldsMenu } from "./fields-menu";
@@ -152,18 +152,18 @@ export function DealsPage() {
     return m;
   }, [directory, names]);
 
-  // Filter results' columns, from the catalogs.
+  // Filter results' columns, from the catalogs — each in its own order, as
+  // Workiz keeps them: the team in the order it joined, the tags in catalog
+  // order, the areas A→Z without Workiz's default "All areas".
   const catalogs: FilterCatalogs = useMemo(
     () => ({
-      techs: technicians
-        .map(({ userId }) => {
-          const u = directory.get(userId);
-          return { id: userId, name: u ? `${u.firstName} ${u.lastName}`.trim() : userId };
-        })
-        .sort((a, b) => a.name.localeCompare(b.name)),
+      techs: orderTechs(technicians, (id) => {
+        const u = directory.get(id);
+        return u ? `${u.firstName} ${u.lastName}`.trim() : id;
+      }),
       tags: activeJobTags(jobTagsQuery.data).map((t) => ({ id: t.id, name: t.name, color: t.color })),
       jobTypes: activeJobTypes(jobTypesQuery.data).map((t) => ({ id: t.id, name: t.name })),
-      areas: (serviceAreas ?? []).filter((a) => a.active).map((a) => ({ name: a.name })),
+      areas: filterAreas(serviceAreas).map((a) => ({ name: a.name })),
       companies: (companies ?? []).map((c) => ({ id: c.id, name: c.active ? c.name : `${c.name} (archived)` })),
     }),
     [technicians, directory, jobTagsQuery.data, jobTypesQuery.data, serviceAreas, companies],
@@ -176,13 +176,8 @@ export function DealsPage() {
     [areaZone],
   );
 
-  // The server orders by day; the hour sorts are settled here, within the page.
-  const visible = useMemo(() => {
-    if (state.sort === "hour_asc" || state.sort === "hour_desc") {
-      return sortJobs(pager.items, { key: "hour", dir: state.sort === "hour_asc" ? "asc" : "desc" });
-    }
-    return pager.items;
-  }, [state.sort, pager.items]);
+  // The server orders the rows (by visit, either way — the Scheduled header).
+  const visible = pager.items;
 
   // Hold the first paint for everything the frame prints, and nothing else:
   // the rows, the tab numbers (the searched one too), the job types, the
@@ -392,8 +387,11 @@ function PageSizeSelect({ value, onChange }: { value: number; onChange: (n: numb
  * says only what is on screen ("Showing 1 to 37 results", "Page 2").
  */
 function JobsPagination({ pager }: { pager: Pager<Deal> }) {
+  // list_07: the round buttons look the same on the first and last page —
+  // #404040 on #fafafa, no fading — they simply do nothing there. The
+  // glyphs are Workiz's thin 18px chevrons.
   const round =
-    "grid size-[30px] place-items-center rounded-full bg-[#fafafa] text-[#404040] hover:bg-[#ededed] disabled:pointer-events-none disabled:opacity-40";
+    "grid size-[30px] place-items-center rounded-full bg-[#fafafa] text-[#404040] enabled:hover:bg-[#ededed] disabled:cursor-default";
   return (
     <div
       data-testid="list-pagination"
@@ -402,17 +400,18 @@ function JobsPagination({ pager }: { pager: Pager<Deal> }) {
       <span className="tabular-nums">{showingText(pager)}</span>
       <div className="absolute left-1/2 flex -translate-x-1/2 items-center gap-[50px]">
         <button type="button" aria-label="Previous page" disabled={!pager.canPrev} onClick={() => pager.prev()} className={round}>
-          <ChevronLeft className="size-4" />
+          <ChevronLeft className="size-[18px]" strokeWidth={1.5} />
         </button>
         <span className="tabular-nums whitespace-nowrap">{pageText(pager)}</span>
         <button
           type="button"
           aria-label="Next page"
-          disabled={!pager.canNext || pager.isFetching}
+          // The count knows the last page: no "Page 2 of 1" (audit L8).
+          disabled={!canGoNext(pager)}
           onClick={() => void pager.next()}
           className={round}
         >
-          <ChevronRight className="size-4" />
+          <ChevronRight className="size-[18px]" strokeWidth={1.5} />
         </button>
       </div>
     </div>

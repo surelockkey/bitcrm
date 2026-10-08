@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { JobSuperStatus } from "@bitcrm/types";
 import type { DealCounts } from "./api";
-import { pageText, showingText, withSearchedTab } from "./list-numbers";
+import { canGoNext, pageText, showingText, withSearchedTab } from "./list-numbers";
 
 const counts = (over: Partial<DealCounts> = {}): DealCounts => ({
   submitted: 210,
@@ -78,6 +78,30 @@ describe("showingText", () => {
   it("an uncounted list says what is on screen and nothing it does not know", () => {
     expect(showingText({ from: 1, to: 37, total: null })).toBe("Showing 1 to 37 results");
     expect(showingText({ from: 1, to: 37, total: undefined })).toBe("Showing 1 to 37 results");
+  });
+});
+
+/**
+ * Audit L8/L15: with a filter chip the pager said "Page 1 of 1" and still
+ * offered Next, which then read "Page 2 of 1". The count knows the last page.
+ */
+describe("canGoNext", () => {
+  const p = { page: 1, canNext: true, isFetching: false, totalPages: 1 as number | undefined, totalPagesIsFloor: false };
+
+  it("stops on the counted last page, even with a cursor in hand", () => {
+    expect(canGoNext(p)).toBe(false);
+    expect(canGoNext({ ...p, page: 1, totalPages: 2 })).toBe(true);
+    expect(canGoNext({ ...p, page: 2, totalPages: 2 })).toBe(false);
+  });
+
+  it("follows the cursor when nothing was counted, or the count is a floor", () => {
+    expect(canGoNext({ ...p, totalPages: undefined })).toBe(true);
+    expect(canGoNext({ ...p, totalPages: 1, totalPagesIsFloor: true })).toBe(true);
+    expect(canGoNext({ ...p, totalPages: undefined, canNext: false })).toBe(false);
+  });
+
+  it("waits while the next page is on its way", () => {
+    expect(canGoNext({ ...p, totalPages: 5, isFetching: true })).toBe(false);
   });
 });
 
