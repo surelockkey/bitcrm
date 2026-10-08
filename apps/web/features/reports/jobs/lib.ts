@@ -1,6 +1,7 @@
 import {
   DASHBOARD_TIMEZONE,
   dashboardDay,
+  JobSuperStatus,
   JOBS_REPORT_COLUMNS,
   type JobsReportBy,
   type JobsReportColumnId,
@@ -37,7 +38,7 @@ export const JOBS_REPORT_PRESETS = [
 export type JobsReportPreset = (typeof JOBS_REPORT_PRESETS)[number]["id"];
 
 /** Workiz opens its report on this week, Monday to today. */
-export const DEFAULT_PRESET: JobsReportPreset = "this_week_mon";
+export const DEFAULT_PRESET: Exclude<JobsReportPreset, "custom"> = "this_week_mon";
 
 /** Today on the account's calendar (America/New_York). */
 export function accountToday(now: Date = new Date()): string {
@@ -189,6 +190,61 @@ export function addFilter(filters: JobsReportFilters, key: keyof JobsReportFilte
 
 export const filterCount = (filters: JobsReportFilters): number =>
   FILTER_KEYS.reduce((n, k) => n + (filters[k]?.length ?? 0), 0);
+
+/* --------------------------------------------------------------- statuses */
+
+/** Workiz's words for the super-statuses (rep_jobs_wz_05_filter_open, the Status cells). */
+const WORKIZ_STATUS: Record<JobSuperStatus, string> = {
+  [JobSuperStatus.SUBMITTED]: "Submitted",
+  [JobSuperStatus.IN_PROGRESS]: "In progress",
+  [JobSuperStatus.CANCELED]: "Canceled",
+  [JobSuperStatus.DONE]: "Done",
+  [JobSuperStatus.PENDING]: "Pending",
+  [JobSuperStatus.DONE_PENDING_APPROVAL]: "done pending approval",
+};
+
+export const workizStatusLabel = (s: JobSuperStatus): string => WORKIZ_STATUS[s] ?? s;
+
+/** The Status group's order in Workiz's filter. */
+const WORKIZ_STATUS_ORDER: JobSuperStatus[] = [
+  JobSuperStatus.SUBMITTED,
+  JobSuperStatus.IN_PROGRESS,
+  JobSuperStatus.CANCELED,
+  JobSuperStatus.DONE,
+  JobSuperStatus.PENDING,
+  JobSuperStatus.DONE_PENDING_APPROVAL,
+];
+
+/**
+ * The filter's Status group: each status, then its sub-statuses as
+ * "Status - Sub-status" (`done:<id>`), as Workiz lists them.
+ */
+export function statusFilterOptions(
+  subs: readonly { id: string; name: string; group: JobSuperStatus }[],
+): { value: string; label: string }[] {
+  return WORKIZ_STATUS_ORDER.flatMap((s) => [
+    { value: s, label: workizStatusLabel(s) },
+    ...subs
+      .filter((sub) => sub.group === s)
+      .map((sub) => ({ value: `${s}:${sub.id}`, label: `${workizStatusLabel(s)} - ${sub.name}` })),
+  ]);
+}
+
+/**
+ * The order the filter box lists its chips in: Workiz's filters object
+ * (user, tag, metro, type, status, created_by, source, company, job_origin).
+ */
+export const FILTER_CHIP_ORDER = [
+  "techId",
+  "tagId",
+  "serviceAreaId",
+  "jobTypeId",
+  "status",
+  "createdBy",
+  "sourceId",
+  "externalCompanyId",
+  "origin",
+] as const satisfies readonly (keyof JobsReportFilters)[];
 
 /* ---------------------------------------------------------------- columns */
 

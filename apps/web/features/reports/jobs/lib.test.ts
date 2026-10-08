@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { JobSuperStatus } from "@bitcrm/types";
 import {
   JOBS_REPORT_PRESETS,
   accountToday,
@@ -10,8 +11,10 @@ import {
   inReportOrder,
   presetRange,
   reportParams,
+  statusFilterOptions,
   toggleFilter,
   workizDate,
+  workizStatusLabel,
   type JobsReportState,
 } from "./lib";
 
@@ -157,5 +160,33 @@ describe("jobs report — cells", () => {
     expect(workizDate(undefined)).toBe("");
     expect(accountWall("2026-09-29T18:35:00.000Z")).toBe("2026-09-29T14:35");
     expect(accountWall("2026-01-15T04:10:00.000Z")).toBe("2026-01-14T23:10");
+  });
+});
+
+describe("jobs report — Workiz's words for the statuses", () => {
+  // rep_jobs_wz_05_filter_open: the Status group, and the table's Status cell.
+  it("names the super-statuses as Workiz prints them", () => {
+    expect(workizStatusLabel(JobSuperStatus.IN_PROGRESS)).toBe("In progress");
+    expect(workizStatusLabel(JobSuperStatus.DONE_PENDING_APPROVAL)).toBe("done pending approval");
+    expect(workizStatusLabel(JobSuperStatus.CANCELED)).toBe("Canceled");
+  });
+
+  it("lists each status with its sub-statuses after it, in Workiz's order", () => {
+    const subs = [
+      { id: "s1", name: "Will Call Back", group: JobSuperStatus.CANCELED },
+      { id: "s2", name: "Job Done", group: JobSuperStatus.IN_PROGRESS },
+      { id: "s3", name: "BILLING", group: JobSuperStatus.DONE_PENDING_APPROVAL },
+    ];
+    expect(statusFilterOptions(subs).map((o) => [o.value, o.label])).toEqual([
+      ["submitted", "Submitted"],
+      ["in_progress", "In progress"],
+      ["in_progress:s2", "In progress - Job Done"],
+      ["canceled", "Canceled"],
+      ["canceled:s1", "Canceled - Will Call Back"],
+      ["done", "Done"],
+      ["pending", "Pending"],
+      ["done_pending_approval", "done pending approval"],
+      ["done_pending_approval:s3", "done pending approval - BILLING"],
+    ]);
   });
 });
