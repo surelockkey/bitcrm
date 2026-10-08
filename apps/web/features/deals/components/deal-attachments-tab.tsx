@@ -27,7 +27,7 @@ import {
 import { cn } from "@/lib/utils";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { useFilePreviewStore } from "@/features/files/preview-store";
-import { workizDateTime } from "../job-shell";
+import { fileTitle, workizDateTime } from "../job-shell";
 import { UploadArt } from "./job-empty-art";
 import { PILL_YELLOW_SM } from "./job-pills";
 import { ATTACHMENT_ACCEPT, getAttachmentDownloadUrl } from "../attachments-api";
@@ -79,7 +79,7 @@ export function DealAttachmentsTab({ dealId, canEdit }: { dealId: string; canEdi
   return (
     <section aria-labelledby="job-attachments-heading" className="text-[#404040]">
       {/* Workiz: "Attachments" 18px/600 and a yellow "Upload" (job_b_tab_attachments). */}
-      <div className="flex min-h-[53px] items-center justify-between gap-3 py-2.5">
+      <div className="flex min-h-[53px] items-center justify-between gap-3 pt-2 pb-3">
         <h2 id="job-attachments-heading" className="text-[18px] leading-[22px] font-semibold">
           Attachments
         </h2>
@@ -89,8 +89,8 @@ export function DealAttachmentsTab({ dealId, canEdit }: { dealId: string; canEdi
       {items && items.length > 0 ? (
         <div className="mt-5">
           {items.map((att) => (
-            // 97px rows: 20/10 padding, a #ddd rule under, #f8f8f8 on hover.
-            <div key={att.id} className="flex items-center gap-[18px] border-b border-[#dddddd] px-2.5 py-5 hover:bg-[#f8f8f8]">
+            // 99px rows (audit_pixels T8): 21/10 padding, a #ddd rule under, #f8f8f8 on hover.
+            <div key={att.id} className="flex items-center gap-[18px] border-b border-[#dddddd] px-2.5 py-[21px] hover:bg-[#f8f8f8]">
               {/* The thumbnail opens the file itself… */}
               <button
                 type="button"
@@ -113,7 +113,9 @@ export function DealAttachmentsTab({ dealId, canEdit }: { dealId: string; canEdi
                 onClick={() => canEdit && setEditing(att)}
                 className={cn("min-w-0 flex-1 text-left", !canEdit && "cursor-default")}
               >
-                <span className="block truncate text-[16.8px] leading-5 font-medium">{att.fileName}</span>
+                <span title={att.fileName} className="block truncate text-[16.8px] leading-5 font-medium">
+                  {fileTitle(att.fileName)}
+                </span>
                 {att.description ? (
                   <span className="mt-1 block truncate text-[14px] leading-5 text-[#666666]">{att.description}</span>
                 ) : null}
@@ -324,7 +326,7 @@ function UploadButton({ dealId, variant = "pill" }: { dealId: string; variant?: 
         </button>
       ) : (
         <button type="button" className={PILL_YELLOW_SM} disabled={upload.isPending} onClick={() => inputRef.current?.click()}>
-          {upload.isPending ? <Loader2 className="animate-spin" /> : <Camera />}
+          {upload.isPending ? <Loader2 className="animate-spin" /> : <Camera className="size-3.5!" strokeWidth={2.25} />}
           Upload
         </button>
       )}

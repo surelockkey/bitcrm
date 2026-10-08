@@ -4,10 +4,11 @@ import userEvent from "@testing-library/user-event";
 import { TimelineEventType, JobSuperStatus } from "@bitcrm/types";
 import type { TimelineEntry, User } from "@bitcrm/types";
 
-const { updateNoteMutate, deleteNoteMutate, timeline } = vi.hoisted(() => ({
+const { updateNoteMutate, deleteNoteMutate, timeline, inbox } = vi.hoisted(() => ({
   updateNoteMutate: vi.fn(),
   deleteNoteMutate: vi.fn(),
   timeline: { entries: [] as unknown[] },
+  inbox: { messages: [] as unknown[], enabled: [] as boolean[] },
 }));
 
 const entry = (over: Partial<TimelineEntry>): TimelineEntry => ({
@@ -117,11 +118,38 @@ vi.mock("@/components/ui/alert-dialog", () => ({
 }));
 
 // The client's SMS thread is its own sheet with its own tests; here it only
-// has to open.
+// has to open, on the number it was handed.
 vi.mock("@/features/clients/components/client-chat-sheet", () => ({
-  ClientChatSheet: ({ open, name }: { open: boolean; name: string }) =>
-    open ? <div role="dialog" aria-label={`Chat with ${name}`} /> : null,
+  ClientChatSheet: ({ open, name, phone }: { open: boolean; name: string; phone?: string }) =>
+    open ? <div role="dialog" aria-label={`Chat with ${name}`} data-phone={phone} /> : null,
 }));
+
+// The job's messages (messaging's per-job feed).
+vi.mock("@/features/messaging/hooks", () => ({
+  useMessagesByJob: (_dealId: string, enabled = true) => {
+    inbox.enabled.push(enabled);
+    return {
+      data: enabled ? { pages: [{ data: inbox.messages, pagination: { nextCursor: undefined } }] } : undefined,
+      isLoading: false,
+      hasNextPage: false,
+      isFetchingNextPage: false,
+      fetchNextPage: vi.fn(),
+    };
+  },
+}));
+
+const message = (over: Record<string, unknown>) => ({
+  id: "m1",
+  conversationId: "c1",
+  channel: "sms",
+  direction: "outbound",
+  origin: "user",
+  status: "delivered",
+  dealId: "d1",
+  createdAt: "2026-07-31T10:00:00.000Z",
+  updatedAt: "2026-07-31T10:00:00.000Z",
+  ...over,
+});
 
 import { DealTimelinePanel } from "./deal-timeline-panel";
 
@@ -140,6 +168,8 @@ beforeEach(() => {
   updateNoteMutate.mockReset();
   deleteNoteMutate.mockReset();
   timeline.entries = historyEntries;
+  inbox.messages = [];
+  inbox.enabled = [];
 });
 
 describe("DealTimelinePanel — Workiz's right rail", () => {
@@ -188,34 +218,92 @@ describe("DealTimelinePanel — Workiz's right rail", () => {
     expect(screen.getByRole("combobox", { name: /timeline filter/i })).toHaveTextContent("Activities (2)");
   });
 
-  it("opens the client's SMS thread from the chat icon and from 'Message Client'", () => {
-    render(<DealTimelinePanel dealId="d1" canEdit client={{ id: "c1", name: "Jane Smith", phone: "+14045551234" }} />);
+  // The owner: "the timeline beside it must be a timeline of the messages, not a chat".
+  it("the chat icon opens the same Timeline on Messages — no chat window", () => {
+    inbox.messages = [
+      message({ id: "m1", sentByName: "(1) (Mia) 7 Dispatcher", body: "New job #5TU7ZA\nDustin Roselle" }),
+      message({ id: "m2", direction: "inbound", origin: "contact", from: "+14045551234", body: "Thanks!" }),
+    ];
+    render(<DealTimelinePanel dealId="d1" canEdit canViewMessages chat={{ contactId: "c1", name: "Jane Smith" }} />);
 
-    fireEvent.click(screen.getByRole("button", { name: /message client/i }));
-    expect(screen.getByRole("dialog", { name: "Chat with Jane Smith" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /^messages$/i }));
+
+    expect(screen.getByRole("complementary", { name: /job timeline/i })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: /timeline filter/i })).toHaveTextContent("Messages (2)");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByText("(1) (Mia) 7 Dispatcher")).toBeInTheDocument();
+    expect(screen.getByText(/New job #5TU7ZA/)).toBeInTheDocument();
+    expect(screen.getByText("Thanks!")).toBeInTheDocument();
+    // Only messages under Messages.
+    expect(screen.queryByText(/Called the client/)).not.toBeInTheDocument();
   });
 
-  it("offers no chat without a client to text", () => {
-    render(<DealTimelinePanel dealId="d1" canEdit />);
+  it("'Message Client' opens the client's conversation, on the number it was given", () => {
+    render(
+      <DealTimelinePanel dealId="d1" canEdit canViewMessages chat={{ contactId: "c1", name: "Jane Smith", phone: "+15715310137", phoneOnContact: false }} />,
+    );
+    openPanel();
+
+    fireEvent.click(screen.getByRole("button", { name: /message client/i }));
+    expect(screen.getByRole("dialog", { name: "Chat with Jane Smith" })).toHaveAttribute("data-phone", "+15715310137");
+  });
+
+  it("offers no 'Message Client' without a client to text", () => {
+    render(<DealTimelinePanel dealId="d1" canEdit canViewMessages />);
+    openPanel();
 
     expect(screen.queryByRole("button", { name: /message client/i })).not.toBeInTheDocument();
-    openPanel();
-    expect(screen.queryByRole("button", { name: /message client/i })).not.toBeInTheDocument();
+  });
+
+  it("a viewer who may not read messages gets no Messages icon and asks for none", () => {
+    render(<DealTimelinePanel dealId="d1" canEdit />);
+
+    expect(screen.queryByRole("button", { name: /^messages$/i })).not.toBeInTheDocument();
+    expect(inbox.enabled.every((e) => e === false)).toBe(true);
+  });
+
+  it("names each icon in Workiz's dark tooltip — 'Actions' on the history icon", async () => {
+    render(<DealTimelinePanel dealId="d1" canEdit canViewMessages />);
+
+    await userEvent.hover(screen.getByRole("button", { name: /^timeline$/i }));
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Actions");
   });
 });
 
 describe("DealTimelinePanel — history, filters, search", () => {
-  it("shows who changed what, from what to what", async () => {
+  it("says what happened in Workiz's words, and what changed on the next line", async () => {
     render(<DealTimelinePanel dealId="d1" canEdit />);
     openPanel();
 
-    // field change: old → new, with the actor's resolved name
-    expect(screen.getByText(/normal → urgent/i)).toBeInTheDocument();
+    // field change: Workiz's "Update job details", then old → new; the actor's resolved name
+    expect(screen.getByText(/Update job details\s+Priority: Normal → Urgent/)).toBeInTheDocument();
     expect(screen.getAllByText(/Olha Datsiuk/).length).toBeGreaterThan(0);
+    expect(screen.queryByText("Field updated")).not.toBeInTheDocument();
 
-    // status change: from → to, actor unknown to the map → stored label
-    expect(screen.getByText(/Submitted → In Progress/i)).toBeInTheDocument();
+    // status change, actor unknown to the map → stored label
+    expect(screen.getByText(/Status Updated - In Progress -/)).toBeInTheDocument();
     expect(screen.getByText(/Max K\./)).toBeInTheDocument();
+  });
+
+  it("draws job changes with Workiz's laptop-and-phone icon", () => {
+    render(<DealTimelinePanel dealId="d1" canEdit />);
+    openPanel();
+
+    expect(screen.getAllByTitle("Web App").length).toBe(2);
+  });
+
+  it("words a reschedule as one sentence, read back from the visit the job has now", () => {
+    timeline.entries = [
+      entry({ id: "r1", eventType: TimelineEventType.FIELD_UPDATED, timestamp: "2026-10-08T15:00:01.000Z", details: { field: "scheduledTimeSlot", oldValue: "08:30-09:00", newValue: "18:00-19:00" } }),
+      entry({ id: "r2", eventType: TimelineEventType.FIELD_UPDATED, timestamp: "2026-10-08T15:00:00.000Z", details: { field: "scheduledDate", oldValue: "2026-10-07", newValue: "2026-10-08" } }),
+    ];
+    render(<DealTimelinePanel dealId="d1" canEdit schedule={{ date: "2026-10-08", slot: "18:00-19:00" }} />);
+    openPanel();
+
+    expect(screen.getByRole("combobox", { name: /timeline filter/i })).toHaveTextContent("Activities (1)");
+    expect(
+      screen.getByText("Rescheduled job from Wed Oct 07 2026 8:30 am - 9:00 am to Thu Oct 08 2026 6:00 pm - 7:00 pm"),
+    ).toBeInTheDocument();
   });
 
   it("says when, the way Workiz does — 'a day ago', the exact time on hover", () => {
@@ -266,12 +354,48 @@ describe("DealTimelinePanel — history, filters, search", () => {
 
     await chooseFilter(/^calls/i);
 
-    expect(screen.getByText(/Incoming · \(404\) 555-1234 · 4:32 · recorded/)).toBeInTheDocument();
+    expect(screen.getByText(/Call from \(404\) 555-1234\s+4:32 · recorded/)).toBeInTheDocument();
     expect(screen.queryByText(/normal → urgent/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Called the client/)).not.toBeInTheDocument();
   });
 
-  it("has no Messages filter until an SMS feed actually exists", async () => {
+  it("names the job's client on a call ('Called Dustin Roselle')", async () => {
+    timeline.entries = [
+      entry({ id: "call-2", eventType: TimelineEventType.CALL_LINKED, details: { direction: "outbound", to: "+14045551234" } }),
+    ];
+    render(<DealTimelinePanel dealId="d1" canEdit client={{ name: "Dustin Roselle", phones: [] }} />);
+    fireEvent.click(screen.getByRole("button", { name: /^calls$/i }));
+
+    expect(screen.getByText("Called Dustin Roselle")).toBeInTheDocument();
+  });
+
+  it("lists Workiz's five filters, Messages counted in All (rail_chat_dropdown)", async () => {
+    inbox.messages = [message({ id: "m1", body: "On my way" }), message({ id: "m2", body: "Done" })];
+    render(<DealTimelinePanel dealId="d1" canEdit canViewMessages />);
+    openPanel();
+
+    await u().click(screen.getByRole("combobox", { name: /timeline filter/i }));
+    expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual([
+      "All (5)",
+      "Activities (2)",
+      "Notes (1)",
+      "Calls (0)",
+      "Messages (2)",
+    ]);
+  });
+
+  it("All shows the messages among the rest, newest first", async () => {
+    inbox.messages = [message({ id: "m1", body: "On my way", createdAt: "2026-07-28T12:00:00.000Z" })];
+    render(<DealTimelinePanel dealId="d1" canEdit canViewMessages />);
+    openPanel();
+    await chooseFilter(/^all/i);
+
+    const texts = screen.getAllByRole("listitem").map((li) => li.textContent ?? "");
+    // Jul 29 change, then this Jul 28 noon text, then the Jul 28 morning status change.
+    expect(texts.findIndex((t) => t.includes("On my way"))).toBe(1);
+  });
+
+  it("offers no Messages filter to a viewer who may not read messages", async () => {
     render(<DealTimelinePanel dealId="d1" canEdit />);
     openPanel();
 
@@ -299,7 +423,7 @@ describe("DealTimelinePanel — history, filters, search", () => {
 
     expect(screen.getByRole("combobox", { name: /timeline filter/i })).toHaveTextContent("Activities (2)");
     expect(screen.getByText(/normal → urgent/i)).toBeInTheDocument();
-    expect(screen.getByText(/Submitted → In Progress/i)).toBeInTheDocument();
+    expect(screen.getByText(/Status Updated - In Progress -/)).toBeInTheDocument();
     expect(screen.queryByText(/Called the client/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Incoming/)).not.toBeInTheDocument();
   });
@@ -312,7 +436,7 @@ describe("DealTimelinePanel — history, filters, search", () => {
     await userEvent.type(screen.getByPlaceholderText("Search activities"), "priority");
 
     expect(screen.getByText(/normal → urgent/i)).toBeInTheDocument();
-    expect(screen.queryByText(/Submitted → In Progress/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Status Updated - In Progress -/)).not.toBeInTheDocument();
   });
 
   it("lets an editor add a note: 'Add note' opens the box, Save posts it", async () => {
@@ -324,6 +448,19 @@ describe("DealTimelinePanel — history, filters, search", () => {
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
     await userEvent.type(box, "Gate code 1234");
     expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+  });
+
+  // J6: Workiz's box is empty (no placeholder), capped at 1000 with its counter.
+  it("caps a note at 1000 characters and counts them, Workiz's '14 / 1000'", async () => {
+    render(<DealTimelinePanel dealId="d1" canEdit />);
+    openPanel();
+
+    await userEvent.click(screen.getByRole("button", { name: "Add note" }));
+    const box = screen.getByRole("textbox", { name: /new note/i });
+    expect(box).toHaveAttribute("maxLength", "1000");
+    expect(box).not.toHaveAttribute("placeholder");
+    await userEvent.type(box, "Gate code 1234");
+    expect(screen.getByText("14 / 1000")).toBeInTheDocument();
   });
 
   it("offers no 'Add note' to a read-only viewer", () => {
@@ -455,8 +592,7 @@ describe("DealTimelinePanel — every event reads human", () => {
         details: { techId: "u-olha" },
       }),
     );
-    expect(screen.getByText(/Technician assigned/)).toBeInTheDocument();
-    expect(screen.getByText(/Olha Datsiuk/)).toBeInTheDocument();
+    expect(screen.getByText("Tech Assigned - Olha Datsiuk")).toBeInTheDocument();
   });
 
   it("names the technician on unassign via previousTechId", () => {
@@ -481,7 +617,7 @@ describe("DealTimelinePanel — every event reads human", () => {
         },
       }),
     );
-    expect(screen.getByText(/Submitted → In Progress · Waiting for parts/)).toBeInTheDocument();
+    expect(screen.getByText("Status Updated - In Progress - Waiting for parts")).toBeInTheDocument();
   });
 
   it("resolves catalog ids in field changes to their names", () => {
@@ -535,7 +671,7 @@ describe("DealTimelinePanel — every event reads human", () => {
         details: { field: "tagIds", oldValue: [], newValue: ["tag-vip"] },
       }),
     );
-    expect(screen.getByText(/Tags: — → VIP/)).toBeInTheDocument();
+    expect(screen.getByText("Added tag - VIP")).toBeInTheDocument();
   });
 
   it("shows an added file by name", () => {
@@ -545,8 +681,7 @@ describe("DealTimelinePanel — every event reads human", () => {
         details: { attachmentId: "att-1", fileName: "before.jpg", category: "before" },
       }),
     );
-    expect(screen.getByText(/File added/)).toBeInTheDocument();
-    expect(screen.getByText(/before\.jpg · before/)).toBeInTheDocument();
+    expect(screen.getByText("Saved Attachment - before.jpg")).toBeInTheDocument();
   });
 
   it("shows a rename as old name → new name", () => {
@@ -570,7 +705,7 @@ describe("DealTimelinePanel — every event reads human", () => {
         details: { attachmentId: "att-1", fileName: "before.jpg" },
       }),
     );
-    expect(screen.getByText(/File removed/)).toBeInTheDocument();
+    expect(screen.getByText("Deleted Attachment - before.jpg")).toBeInTheDocument();
   });
 
   // Workiz's own wording for the two dispatch events.
@@ -585,19 +720,20 @@ describe("DealTimelinePanel — every event reads human", () => {
         },
       }),
     );
-    expect(screen.getByText(/Sent to tech/)).toBeInTheDocument();
-    expect(screen.getByText(/by SMS & Email · Olha Datsiuk/)).toBeInTheDocument();
+    expect(screen.getByText("Sent to tech by SMS & Email - Olha Datsiuk")).toBeInTheDocument();
   });
 
-  it("names the technician who opened the job in their app", () => {
+  it("the technician who opened the job in their app is the row's actor, under the phone icon", () => {
     show(
       entry({
         eventType: TimelineEventType.SEEN_BY_TECH,
+        actorId: "u-olha",
         details: { techId: "u-olha", seenAt: "2026-08-01T10:04:00.000Z" },
       }),
     );
-    expect(screen.getByText(/Viewed job in app/)).toBeInTheDocument();
-    expect(screen.getByText(/Olha Datsiuk/)).toBeInTheDocument();
+    expect(screen.getByText("Viewed job in app")).toBeInTheDocument();
+    expect(screen.getByText("Olha Datsiuk")).toBeInTheDocument();
+    expect(screen.getByTitle("Mobile App")).toBeInTheDocument();
   });
 });
 
@@ -608,21 +744,32 @@ describe("DealTimelinePanel — imported Workiz rows read human", () => {
     openPanel();
   };
 
-  it("labels a Workiz activity line, not its raw event type", () => {
-    show(entry({ eventType: "workiz_activity" as TimelineEventType, note: "Remove tag from job" }));
-    expect(screen.getByText("Activity")).toBeInTheDocument();
+  // J5: "Activity / “Added tag”" read nothing like Workiz's one plain line.
+  it("reads a Workiz activity line as Workiz wrote it — no 'Activity' label, no quotes", () => {
+    show(entry({ eventType: "workiz_activity" as TimelineEventType, note: "Remove tag from job", details: { source: "workiz" } }));
+    expect(screen.getByText("Remove tag from job")).toBeInTheDocument();
+    expect(screen.queryByText("Activity")).not.toBeInTheDocument();
+    expect(screen.queryByText(/“/)).not.toBeInTheDocument();
     expect(screen.queryByText(/workiz_activity/)).not.toBeInTheDocument();
   });
 
-  it("shows a schedule change as dates, not ISO strings", () => {
+  it("an imported change shows the sentence Workiz logged, not our field and ISO dates", () => {
     show(
       entry({
         eventType: TimelineEventType.FIELD_UPDATED,
-        details: { field: "scheduledDate", oldValue: "2026-09-30T10:00:00-04:00", newValue: "2026-10-07T10:00:00-04:00" },
+        details: {
+          field: "scheduledDate",
+          oldValue: "2026-09-30T10:30:00-04:00",
+          newValue: "2026-09-30T12:00:00-04:00",
+          source: "workiz",
+          workiz: { text: "Rescheduled job from Wed Sep 30 2026 10:30 am - 10:30 am to Wed Sep 30 2026 12:00 pm - 1:00 pm", native: false },
+        },
       }),
     );
-    expect(screen.getByText(/Scheduled date: Sep 30, 2026, 10:00 AM → Oct 7, 2026, 10:00 AM/)).toBeInTheDocument();
-    expect(screen.queryByText(/T10:00:00/)).not.toBeInTheDocument();
+    expect(
+      screen.getByText("Rescheduled job from Wed Sep 30 2026 10:30 am - 10:30 am to Wed Sep 30 2026 12:00 pm - 1:00 pm"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Scheduled date/)).not.toBeInTheDocument();
   });
 });
 
@@ -635,34 +782,34 @@ describe("DealTimelinePanel — what the client did on the portal reads like Wor
 
   it("a portal view: Client viewed invoice / estimate, with the number", () => {
     show(entry({ eventType: TimelineEventType.INVOICE_VIEWED, actorId: "client", actorName: "Client", details: { invoiceId: "d1", number: "O8E9NQ" } }));
-    expect(screen.getByText("Client viewed invoice")).toBeInTheDocument();
+    expect(screen.getByText("Client viewed invoice #O8E9NQ")).toBeInTheDocument();
     expect(screen.getByText(/#O8E9NQ/)).toBeInTheDocument();
   });
 
   it("an estimate view", () => {
     show(entry({ eventType: TimelineEventType.ESTIMATE_VIEWED, actorId: "client", actorName: "Client", details: { estimateId: "e1", number: "K4T9ZW-1" } }));
-    expect(screen.getByText("Client viewed estimate")).toBeInTheDocument();
+    expect(screen.getByText("Client viewed estimate #K4T9ZW-1")).toBeInTheDocument();
     expect(screen.getByText(/#K4T9ZW-1/)).toBeInTheDocument();
   });
 
   it("approving is signing: Client signed estimate; declining: Client declined estimate", () => {
     show(entry({ eventType: TimelineEventType.ESTIMATE_APPROVED, actorId: "client", actorName: "Jane Client", details: { estimateId: "e1", number: "K4T9ZW-1" } }));
-    expect(screen.getByText("Client signed estimate")).toBeInTheDocument();
+    expect(screen.getByText("Client signed estimate #K4T9ZW-1")).toBeInTheDocument();
     expect(screen.getByText(/#K4T9ZW-1/)).toBeInTheDocument();
   });
 
   it("a decline", () => {
     show(entry({ eventType: TimelineEventType.ESTIMATE_DECLINED, actorId: "client", details: { estimateId: "e1", number: "K4T9ZW-2" } }));
-    expect(screen.getByText("Client declined estimate")).toBeInTheDocument();
+    expect(screen.getByText("Client declined estimate #K4T9ZW-2")).toBeInTheDocument();
   });
 
   it("an invoice the client signed on the portal says Client; one signed on a tech's phone does not", () => {
     show(entry({ eventType: TimelineEventType.INVOICE_SIGNED, actorId: "client", actorName: "Josh W", details: { invoiceId: "d1", number: "O8E9NQ", signedBy: "Josh W" } }));
-    expect(screen.getByText("Client signed invoice")).toBeInTheDocument();
+    expect(screen.getByText("Client signed invoice #O8E9NQ")).toBeInTheDocument();
   });
 
   it("a staff-collected signature", () => {
     show(entry({ eventType: TimelineEventType.INVOICE_SIGNED, actorId: "u-olha", details: { invoiceId: "d1", number: "O8E9NQ", signedBy: "Josh W" } }));
-    expect(screen.getByText("Invoice signed")).toBeInTheDocument();
+    expect(screen.getByText("Invoice signed #O8E9NQ")).toBeInTheDocument();
   });
 });

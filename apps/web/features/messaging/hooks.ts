@@ -191,14 +191,15 @@ export function useSendOptions(conversationId: string | undefined, enabled = tru
   });
 }
 
-export function useMessagesByJob(dealId: string | undefined) {
+/** The job's messages, newest first. `enabled: false` for a viewer without `messages.view`. */
+export function useMessagesByJob(dealId: string | undefined, enabled = true) {
   const connected = useMessagingStreamStore((s) => s.connected);
   return useInfiniteQuery({
     queryKey: queryKeys.messaging.messagesByJob(dealId ?? ""),
     queryFn: ({ pageParam }) => api.listMessagesByJob(dealId as string, pageParam),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.pagination.nextCursor,
-    enabled: !!dealId,
+    enabled: enabled && !!dealId,
     refetchInterval: connected ? false : FEED_FALLBACK_POLL_MS,
   });
 }

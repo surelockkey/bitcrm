@@ -55,13 +55,22 @@ describe("status menu — our statuses in Workiz's menu", () => {
     expect(willCall).toMatchObject({ value: "s2", superStatus: JobSuperStatus.CANCELED, color: "red" });
   });
 
-  it("keeps a bare super-status selectable, as BitCRM always has", () => {
-    const rows = statusMenuRows([sub("s1", "Job Accepted", JobSuperStatus.IN_PROGRESS)]);
-    expect(rows.find((r) => r.label === "In Progress")).toMatchObject({
-      kind: "super",
+  // J11 — Workiz (job_b_02_status_open): "In progress" with sub-statuses is a
+  // grey heading over its own "In progress" sub-status; "Submitted" and
+  // "Done", which have none, are picked as they are.
+  it("greys out a super-status that has sub-statuses, as Workiz does; one without stays selectable", () => {
+    const rows = statusMenuRows([
+      sub("s1", "In progress", JobSuperStatus.IN_PROGRESS),
+      sub("s2", "Old", JobSuperStatus.PENDING, { active: false }),
+    ]);
+    expect(rows.find((r) => r.kind === "super" && r.superStatus === JobSuperStatus.IN_PROGRESS)).toMatchObject({
       value: `${SUPER_PREFIX}${JobSuperStatus.IN_PROGRESS}`,
-      superStatus: JobSuperStatus.IN_PROGRESS,
+      disabled: true,
     });
+    expect(rows.find((r) => r.kind === "super" && r.superStatus === JobSuperStatus.SUBMITTED)).toMatchObject({ disabled: false });
+    // Only active sub-statuses count.
+    expect(rows.find((r) => r.kind === "super" && r.superStatus === JobSuperStatus.PENDING)).toMatchObject({ disabled: false });
+    expect(rows.find((r) => r.kind === "sub")).toMatchObject({ label: "In progress", disabled: false });
   });
 
   it("names the selected row by sub-status when there is one, else by super-status", () => {

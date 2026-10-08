@@ -64,7 +64,7 @@ export function JobStatusMenu({
         <span className="min-w-0 flex-1 truncate">{current?.name ?? superStatusLabel(value.superStatus)}</span>
         {disabled ? null : (
           <SelectPrimitive.Icon asChild>
-            <ChevronDown className="size-4 shrink-0 text-[#333333]" strokeWidth={2.5} />
+            <ChevronDown className="size-5 shrink-0 text-foreground" strokeWidth={1.75} />
           </SelectPrimitive.Icon>
         )}
       </SelectPrimitive.Trigger>
@@ -81,11 +81,14 @@ export function JobStatusMenu({
               <SelectPrimitive.Item
                 key={row.value}
                 value={row.value}
+                disabled={row.disabled}
                 className={cn(
                   // Option: 14px, padding 8 12 8 10; a sub-status sits 10px further in.
                   "flex cursor-default items-center gap-1.5 py-2 pr-3 text-[14px] leading-4 text-[#404040] outline-none select-none",
                   row.kind === "sub" ? "pl-5" : "pl-2.5",
                   "data-highlighted:bg-[#deebff] data-[state=checked]:bg-[#2684ff] data-[state=checked]:text-white",
+                  // A super-status with sub-statuses: Workiz's grey (#ccc), not a choice.
+                  "data-disabled:text-[#cccccc] data-disabled:[&>span:first-child]:opacity-50",
                 )}
               >
                 <Dot superStatus={row.superStatus} color={row.kind === "sub" ? row.color : undefined} />

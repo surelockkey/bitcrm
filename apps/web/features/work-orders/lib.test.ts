@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { WorkOrderStatus, type WorkOrder } from "@bitcrm/types";
-import { workOrderStatusLabel, filterWorkOrders } from "./lib";
+import { workOrderHref, workOrderStatusLabel, filterWorkOrders } from "./lib";
 
 function wo(over: Partial<WorkOrder>): WorkOrder {
   return {
@@ -38,7 +38,17 @@ describe("filterWorkOrders", () => {
   it("matches a WO-number query (case-insensitive)", () => {
     expect(filterWorkOrders(list, { query: "wo-100" }).map((w) => w.id)).toEqual(["a"]);
   });
+  // The job page's "View Work Order" opens the registry on that one.
+  it("narrows to one work order by id", () => {
+    expect(filterWorkOrders(list, { id: "b" }).map((w) => w.id)).toEqual(["b"]);
+  });
   it("combines filters", () => {
     expect(filterWorkOrders(list, { companyId: "c1", status: WorkOrderStatus.CLOSED }).map((w) => w.id)).toEqual(["c"]);
+  });
+});
+
+describe("workOrderHref", () => {
+  it("links the registry narrowed to one work order", () => {
+    expect(workOrderHref("w 1")).toBe("/work-orders?id=w%201");
   });
 });

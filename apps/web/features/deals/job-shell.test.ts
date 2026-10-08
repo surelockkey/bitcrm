@@ -5,10 +5,14 @@ import {
   dealBalance,
   dealJobName,
   dealTabSublabel,
+  fileTitle,
   formatBoxAmount,
   jobActions,
+  jobChatPhone,
   jobClientName,
+  jobDueDate,
   jobNamePatch,
+  storedTagOrder,
   workizDate,
   workizDateTime,
 } from "./job-shell";
@@ -65,6 +69,64 @@ describe("Actions menu — Workiz's Job Done / View Work Order / Duplicate Job /
       "done",
     ]);
     expect(jobActions({ superStatus: JobSuperStatus.IN_PROGRESS, canEdit: false, canDelete: false })).toEqual([]);
+  });
+
+  it("lists View Work Order, in Workiz's place, for a job a work order authorized — to someone who may see work orders", () => {
+    const base = { superStatus: JobSuperStatus.SUBMITTED, canEdit: true, canDelete: true };
+    expect(jobActions({ ...base, workOrderId: "wo-1", canViewWorkOrders: true })).toEqual(["done", "work_order", "delete"]);
+    expect(jobActions({ ...base, workOrderId: "wo-1", canViewWorkOrders: false })).toEqual(["done", "delete"]);
+    expect(jobActions({ ...base, canViewWorkOrders: true })).toEqual(["done", "delete"]);
+  });
+});
+
+describe("the header's Tags row: newest first, stored in the order added", () => {
+  it("keeps the stored order of what stays and adds a new tag at the end (it shows first)", () => {
+    // Shown newest first: [c, b, a]; the picker hands back [c, b, a, d] after adding d.
+    expect(storedTagOrder(["a", "b", "c"], ["c", "b", "a", "d"])).toEqual(["a", "b", "c", "d"]);
+  });
+
+  it("drops a removed tag without reordering the rest", () => {
+    expect(storedTagOrder(["a", "b", "c"], ["c", "a"])).toEqual(["a", "c"]);
+  });
+});
+
+describe("attachment names as Workiz lists them (audit_pixels T8)", () => {
+  it("drops the extension: 'file - 2026-10-07t153737.209'", () => {
+    expect(fileTitle("file - 2026-10-07t153737.209.jpg")).toBe("file - 2026-10-07t153737.209");
+    expect(fileTitle("before.jpg")).toBe("before");
+    expect(fileTitle("archive.tar.gz")).toBe("archive.tar");
+  });
+
+  it("leaves a name without an extension, or a dotfile, as it is", () => {
+    expect(fileTitle("README")).toBe("README");
+    expect(fileTitle(".env")).toBe(".env");
+  });
+});
+
+describe("the number 'Message Client' texts (J1)", () => {
+  it("is the job's own primary number first, as Workiz texts the job's phone", () => {
+    expect(jobChatPhone(["+15715310137"], ["+14045551234"])).toEqual({ phone: "+15715310137", onContact: false });
+  });
+
+  it("knows when the job's number is also on the client record, whatever its format", () => {
+    expect(jobChatPhone(["(571) 531-0137"], ["+15715310137"])).toEqual({ phone: "(571) 531-0137", onContact: true });
+  });
+
+  it("falls back to the client's number when the job has none", () => {
+    expect(jobChatPhone(undefined, ["+15715310137"])).toEqual({ phone: "+15715310137", onContact: true });
+    expect(jobChatPhone([], [])).toEqual({ phone: undefined, onContact: true });
+  });
+});
+
+describe("the Items tab's Due (job_amount_due_date)", () => {
+  it("is the invoice's due date when the job has an invoice", () => {
+    expect(jobDueDate({ scheduledDate: "2026-10-09", createdAt: "2026-10-05T10:00:00.000Z" }, "2026-10-20")).toBe("10/20/2026");
+  });
+
+  it("is the job's day otherwise, as Workiz fills it, else the day it was created", () => {
+    expect(jobDueDate({ scheduledDate: "2026-10-08", createdAt: "2026-10-05T10:00:00.000Z" })).toBe("10/8/2026");
+    expect(jobDueDate({ createdAt: "2026-10-05T16:00:00.000Z" })).toBe("10/5/2026");
+    expect(jobDueDate({})).toBe("");
   });
 });
 

@@ -5,6 +5,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import type { SendMessageBody, TextLookupPartyKind } from "../api";
+import { firstTextBody } from "../first-text";
 import { useMessagingAccess, useSendToParty, useTextLookup } from "../hooks";
 import { Composer } from "./composer";
 import { ConversationThread } from "./conversation-thread";
@@ -20,6 +21,8 @@ export function PartyChat({
   partyKind,
   partyId,
   dealId,
+  address: givenAddress,
+  addressOnParty,
   autoFocus,
   className,
 }: {
@@ -27,11 +30,21 @@ export function PartyChat({
   partyId: string;
   /** The job the conversation is about (job page); recorded on sends. */
   dealId?: string;
+  /**
+   * The number to text — the job page's own (Workiz texts the job's phone).
+   * Without it a party with no thread yet has no number the lookup knows of.
+   */
+  address?: string;
+  /** `address` is one of the party's own numbers. */
+  addressOnParty?: boolean;
   autoFocus?: boolean;
   className?: string;
 }) {
   const { canView, canSend } = useMessagingAccess();
-  const lookup = useTextLookup({ partyKind, partyId }, canView);
+  const lookup = useTextLookup(
+    givenAddress ? { partyKind, partyId, address: givenAddress } : { partyKind, partyId },
+    canView,
+  );
   const send = useSendToParty();
 
   if (!canView) {
@@ -71,8 +84,8 @@ export function PartyChat({
   const sendFirst = (body: SendMessageBody) =>
     send.mutateAsync(
       partyKind === "contact"
-        ? { ...body, dealId, contactId: partyId }
-        : { ...body, dealId, phone: address as string },
+        ? firstTextBody(body, { partyKind, partyId, dealId, address: givenAddress, addressOnParty })
+        : firstTextBody(body, { partyKind, partyId, dealId, address: address as string }),
     );
 
   return (

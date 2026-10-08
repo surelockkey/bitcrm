@@ -15,19 +15,20 @@ describe("deal tabs", () => {
     expect(visibleDealTabs({ estimates: true, invoices: true, payments: true })).not.toContain("messages");
   });
 
-  it("orders tabs and gates billing ones by permission", () => {
+  // Workiz: Attachments is always the 5th tab; our extra Invoice tab sits after it (J2).
+  it("orders tabs as Workiz does — Attachments 5th, Invoice after it — and gates billing ones by permission", () => {
     expect(visibleDealTabs({ estimates: false, invoices: false })).toEqual([
       "details", "items", "attachments",
     ]);
     expect(visibleDealTabs({ estimates: true, invoices: true })).toEqual([
-      "details", "items", "estimates", "invoice", "attachments",
+      "details", "items", "estimates", "attachments", "invoice",
     ]);
   });
 
   it("shows the Payments tab (Workiz) next to Items only with payments.view", () => {
     expect(parseDealTab("payments")).toBe("payments");
     expect(visibleDealTabs({ estimates: true, invoices: true, payments: true })).toEqual([
-      "details", "items", "payments", "estimates", "invoice", "attachments",
+      "details", "items", "payments", "estimates", "attachments", "invoice",
     ]);
     expect(visibleDealTabs({ estimates: false, invoices: false, payments: false })).not.toContain(
       "payments",

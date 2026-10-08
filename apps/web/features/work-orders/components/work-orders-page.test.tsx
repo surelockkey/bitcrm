@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
@@ -59,6 +59,18 @@ describe("WorkOrdersPage", () => {
     expect(await screen.findByText("WO-100")).toBeInTheDocument();
     await waitFor(() => expect(screen.getByText("ABC Supply")).toBeInTheDocument());
     expect(screen.getByText("WO-200")).toBeInTheDocument();
+  });
+
+  // The job page's Actions → View Work Order lands here on that one.
+  it("opened on one work order, shows it alone with its number in the search; clearing lets the rest back", async () => {
+    render(<WorkOrdersPage initialId="w2" />, { wrapper });
+    expect(await screen.findByText("WO-200")).toBeInTheDocument();
+    expect(screen.queryByText("WO-100")).not.toBeInTheDocument();
+    const search = screen.getByPlaceholderText("Search WO number…");
+    expect(search).toHaveValue("WO-200");
+
+    fireEvent.change(search, { target: { value: "" } });
+    expect(await screen.findByText("WO-100")).toBeInTheDocument();
   });
 
   it("shows the New work order action for creators", async () => {

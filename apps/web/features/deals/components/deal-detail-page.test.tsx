@@ -28,6 +28,8 @@ const mocks = vi.hoisted(() => ({
   // Per-action, for the Actions menu and the invoice pill.
   denied: new Set<string>(),
   moveStatus: vi.fn(),
+  setTags: vi.fn(),
+  tagPicker: null as null | { value: string[]; onChange: (ids: string[]) => void },
 }));
 
 vi.mock("next/navigation", () => ({
@@ -82,7 +84,12 @@ vi.mock("@/features/estimates/hooks", () => ({
 vi.mock("@/features/clients/components/client-chat-sheet", () => ({
   ClientChatSheet: ({ open }: { open: boolean }) => (open ? <div role="dialog" aria-label="Client chat" /> : null),
 }));
-vi.mock("@/features/job-tags/components/job-tag-combobox", () => ({ JobTagCombobox: () => null }));
+vi.mock("@/features/job-tags/components/job-tag-combobox", () => ({
+  JobTagCombobox: (p: { value: string[]; onChange: (ids: string[]) => void }) => {
+    mocks.tagPicker = p;
+    return <div data-testid="job-tags">{p.value.join(",")}</div>;
+  },
+}));
 // Interactive stubs: a click drives the field's onChange so a test can prove the
 // value lands in the draft (not auto-committed) and rides out on the single Save.
 vi.mock("@/features/job-types/components/job-type-select", () => ({
@@ -209,7 +216,7 @@ vi.mock("../hooks", () => ({
   useDeal: () => ({ data: dealState, isLoading: false }),
   useDeleteDeal: () => ({ mutate: vi.fn() }),
   useUpdateDeal: () => ({ mutate: mocks.updateDeal, isPending: false }),
-  useSetDealTags: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetDealTags: () => ({ mutate: mocks.setTags, isPending: false }),
   useAssignTechs: () => ({ mutate: vi.fn(), isPending: false }),
   useMoveStatus: () => ({ mutate: mocks.moveStatus }),
   useChangeDealClient: () => ({ mutate: mocks.changeClient, isPending: false }),
@@ -232,6 +239,8 @@ vi.mock("../hooks", () => ({
 // QueryClient to answer it.
 vi.mock("@/features/messaging/hooks", () => ({
   useMessagingSettings: () => ({ data: undefined }),
+  // The rail's Messages filter: the job's texts.
+  useMessagesByJob: () => ({ data: { pages: [{ data: [], pagination: {} }] }, isLoading: false, hasNextPage: false }),
 }));
 
 vi.mock("@/features/clients/hooks", () => ({
@@ -459,6 +468,29 @@ describe("DealDetailPage — the header, as Workiz lays it out", () => {
 
     await user().click(screen.getByRole("menuitem", { name: "Job Done" }));
     expect(mocks.moveStatus).toHaveBeenCalledWith({ superStatus: JobSuperStatus.DONE }, expect.anything());
+  });
+
+  // Pixel audit L9: Workiz lists a job's tags newest first, as the list now does.
+  it("shows the job's tags newest first, and a tag added goes on the end of what the job keeps", () => {
+    mocks.perms.deals = true;
+    dealState = { ...deal, tagIds: ["t-old", "t-mid", "t-new"] };
+    render(<DealDetailPage dealId="d1" />);
+
+    expect(screen.getByTestId("job-tags")).toHaveTextContent("t-new,t-mid,t-old");
+    mocks.tagPicker!.onChange(["t-new", "t-mid", "t-old", "t-added"]);
+    expect(mocks.setTags).toHaveBeenCalledWith(["t-old", "t-mid", "t-new", "t-added"], expect.anything());
+  });
+
+  // J9: Workiz's View Work Order, for a job a work order authorized.
+  it("Actions offers View Work Order for a job a work order authorized, opening that work order", async () => {
+    mocks.perms.deals = true;
+    dealState = { ...deal, workOrderId: "wo-7" };
+    render(<DealDetailPage dealId="d1" />);
+
+    await user().click(screen.getByRole("button", { name: "Actions" }));
+    expect(screen.getAllByRole("menuitem").map((i) => i.textContent)).toEqual(["Job Done", "View Work Order", "Delete Job"]);
+    await user().click(screen.getByRole("menuitem", { name: "View Work Order" }));
+    expect(mocks.push).toHaveBeenCalledWith("/work-orders?id=wo-7");
   });
 
   it("Delete Job asks first", async () => {

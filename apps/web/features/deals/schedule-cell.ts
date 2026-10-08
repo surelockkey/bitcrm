@@ -54,7 +54,7 @@ function workizDay(date: string): string {
 }
 
 /** "Thu Oct 08, 2026 09:00 am" — an instant on `zone`'s clock. */
-function workizStamp(instant: Date, zone: string): string {
+export function workizStamp(instant: Date, zone: string): string {
   const off = offsetAt(instant.getTime(), zone);
   const wall = new Date(instant.getTime() + off);
   const date = `${wall.getUTCFullYear()}-${pad(wall.getUTCMonth() + 1)}-${pad(wall.getUTCDate())}`;

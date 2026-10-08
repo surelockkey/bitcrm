@@ -3,7 +3,7 @@
 import { useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Building, Check, ChevronDown, Pencil, ThumbsUp, Trash2, X } from "lucide-react";
+import { Building, Check, ChevronDown, ListOrdered, Pencil, ThumbsUp, Trash2, X } from "lucide-react";
 import { JobSuperStatus, type Deal } from "@bitcrm/types";
 import { toast } from "sonner";
 import {
@@ -26,8 +26,9 @@ import { cn } from "@/lib/utils";
 import { JobStatusMenu } from "@/features/job-statuses/components/job-status-menu";
 import { JobTagCombobox } from "@/features/job-tags/components/job-tag-combobox";
 import { useDeleteDeal, useMoveStatus, useSetDealTags, useUpdateDeal } from "../hooks";
-import { isUrgent } from "../lib";
-import { dealJobName, jobActions, jobNamePatch, type JobAction } from "../job-shell";
+import { isUrgent, tagsNewestFirst } from "../lib";
+import { dealJobName, jobActions, jobNamePatch, storedTagOrder, type JobAction } from "../job-shell";
+import { workOrderHref } from "@/features/work-orders/lib";
 import { PriorityFlag } from "./deal-badges";
 import { PILL_OUTLINE, PILL_YELLOW } from "./job-pills";
 
@@ -45,6 +46,7 @@ export function JobHeader({
   clientHref,
   canEdit,
   canDelete,
+  canViewWorkOrders = false,
   invoice,
   onOpenInvoice,
 }: {
@@ -54,6 +56,8 @@ export function JobHeader({
   clientHref?: string;
   canEdit: boolean;
   canDelete: boolean;
+  /** `work_orders.view` — "View Work Order" for a job a work order authorized. */
+  canViewWorkOrders?: boolean;
   /**
    * The yellow pill: "Create Invoice" while the job has none (and the viewer
    * may make one), "View Invoice" once it exists; absent hides it.
@@ -63,7 +67,13 @@ export function JobHeader({
 }) {
   const moveStatus = useMoveStatus(deal.id);
   const setTags = useSetDealTags(deal.id);
-  const actions = jobActions({ superStatus: deal.superStatus, canEdit, canDelete });
+  const actions = jobActions({
+    superStatus: deal.superStatus,
+    canEdit,
+    canDelete,
+    workOrderId: deal.workOrderId,
+    canViewWorkOrders,
+  });
 
   return (
     <div className="px-4 pt-5 md:px-10">
@@ -127,10 +137,13 @@ export function JobHeader({
       <HeaderRow label="Tags:" className="mt-[17px] min-h-6">
         <JobTagCombobox
           variant="workiz"
-          value={deal.tagIds ?? []}
+          // Newest first, as Workiz (and the jobs list) shows them.
+          value={tagsNewestFirst(deal.tagIds)}
           onChange={(ids) => {
             const added = ids.length > (deal.tagIds?.length ?? 0);
-            setTags.mutate(ids, { onSuccess: () => toast.success(added ? "Tag added" : "Tag removed") });
+            setTags.mutate(storedTagOrder(deal.tagIds ?? [], ids), {
+              onSuccess: () => toast.success(added ? "Tag added" : "Tag removed"),
+            });
           }}
           disabled={!canEdit}
         />
@@ -215,25 +228,34 @@ function JobNameField({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
 
 const ACTION_META: Record<JobAction, { label: string; icon: typeof ThumbsUp }> = {
   done: { label: "Job Done", icon: ThumbsUp },
+  // Workiz's `lnr-numbers`.
+  work_order: { label: "View Work Order", icon: ListOrdered },
   delete: { label: "Delete Job", icon: Trash2 },
 };
 
 /**
- * "Actions ▾" (job_b_02_actions_open): a white 216px card under the pill,
- * one 50px row per action with its icon, ruled apart. Workiz's View Work
- * Order and Duplicate Job are not in BitCRM, so they are not listed.
+ * "Actions ▾" (job_b_02_actions_open): a white 216px card under the pill
+ * with a small caret pointing up at it, one 50px row per action with its
+ * icon, ruled apart. View Work Order opens the work order that authorized
+ * the job; Workiz's Duplicate Job is not in BitCRM, so it is not listed.
  */
 function ActionsMenu({ deal, actions, onDone }: { deal: Deal; actions: JobAction[]; onDone: () => void }) {
   const router = useRouter();
   const del = useDeleteDeal();
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const select = (a: JobAction) => {
+    if (a === "done") onDone();
+    else if (a === "work_order") router.push(workOrderHref(deal.workOrderId as string));
+    else setConfirmDelete(true);
+  };
 
   return (
     <>
       <DropdownMenu modal={false}>
         <DropdownMenuTrigger asChild>
           <button type="button" className={PILL_OUTLINE}>
-            <ChevronDown strokeWidth={1.5} />
+            {/* Workiz wfi-down: an 18px thin chevron. */}
+            <ChevronDown className="size-[18px]!" strokeWidth={1.25} />
             Actions
           </button>
         </DropdownMenuTrigger>
@@ -241,14 +263,19 @@ function ActionsMenu({ deal, actions, onDone }: { deal: Deal; actions: JobAction
           align="end"
           alignOffset={-12}
           sideOffset={10}
-          className="w-[216px] rounded-[2px] bg-white px-2 py-1.5 shadow-[0_3px_6px_2px_rgba(0,0,0,0.18),0_4px_15px_2px_rgba(0,0,0,0.15)] ring-0"
+          className="w-[216px] overflow-visible rounded-[2px] bg-white px-2 py-1.5 shadow-[0_3px_6px_2px_rgba(0,0,0,0.18),0_4px_15px_2px_rgba(0,0,0,0.15)] ring-0"
         >
+          {/* Workiz's caret: a white notch over the pill's right end (abs x≈1360). */}
+          <span
+            aria-hidden
+            className="absolute -top-1.5 right-[9px] size-0 border-x-[6px] border-b-[6px] border-x-transparent border-b-white [filter:drop-shadow(0_-1px_1px_rgba(0,0,0,0.08))]"
+          />
           {actions.map((a, i) => {
             const { label, icon: Icon } = ACTION_META[a];
             return (
               <DropdownMenuItem
                 key={a}
-                onSelect={() => (a === "done" ? onDone() : setConfirmDelete(true))}
+                onSelect={() => select(a)}
                 className={cn(
                   "h-[50px] gap-3 rounded-none px-[15px] text-[14px] text-[#566d76] focus:bg-[#f3f6f7] focus:text-[#566d76]",
                   i > 0 && "border-t border-[#cad3d6]",

@@ -50,25 +50,86 @@ export function jobNamePatch(current: string, draft: string): { jobName: string 
 
 /**
  * Workiz's menu holds Job Done, View Work Order, Duplicate Job and Delete
- * Job. BitCRM has no work-order sheet and no duplicate, so those two are not
- * offered at all rather than shown dead.
+ * Job. "View Work Order" opens the work order that authorized the job, when
+ * one did; BitCRM has no duplicate, so that one is not offered at all rather
+ * than shown dead.
  */
-export type JobAction = "done" | "delete";
+export type JobAction = "done" | "work_order" | "delete";
 
 export function jobActions({
   superStatus,
   canEdit,
   canDelete,
+  workOrderId,
+  canViewWorkOrders = false,
 }: {
   superStatus: JobSuperStatus;
   /** The same right the status picker needs. */
   canEdit: boolean;
   canDelete: boolean;
+  /** The work order the job was authorized by (Platinum clients). */
+  workOrderId?: string;
+  /** `work_orders.view`. */
+  canViewWorkOrders?: boolean;
 }): JobAction[] {
   const actions: JobAction[] = [];
   if (canEdit && superStatus !== JobSuperStatus.DONE) actions.push("done");
+  if (workOrderId && canViewWorkOrders) actions.push("work_order");
   if (canDelete) actions.push("delete");
   return actions;
+}
+
+/* ------------------------------------------------------------------- tags */
+
+/**
+ * The header shows the tags newest first (`tagsNewestFirst`, as the list
+ * and Workiz do); what the picker hands back is in that shown order. The job
+ * keeps them in the order they were added, so: what stays keeps its place,
+ * and a new tag goes on the end — which is where "newest" reads from.
+ */
+export function storedTagOrder(stored: string[], picked: string[]): string[] {
+  const keep = new Set(picked);
+  const had = new Set(stored);
+  return [...stored.filter((id) => keep.has(id)), ...picked.filter((id) => !had.has(id))];
+}
+
+/* ------------------------------------------------------- Message Client */
+
+/** The last ten digits — "(571) 531-0137" and "+15715310137" are one number. */
+const lastTen = (p: string) => p.replace(/\D/g, "").slice(-10);
+
+/**
+ * The number "Message Client" texts: the job's own primary phone first (the
+ * one Workiz texts), else the client's — and whether the client record
+ * carries it, which decides how the first text is addressed.
+ */
+export function jobChatPhone(
+  dealPhones: string[] | undefined,
+  contactPhones: string[] | undefined,
+): { phone: string | undefined; onContact: boolean } {
+  const own = (contactPhones ?? []).filter(Boolean);
+  const phone = (dealPhones ?? []).find(Boolean) ?? own[0];
+  return { phone, onContact: !phone || own.some((p) => lastTen(p) === lastTen(phone)) };
+}
+
+/* -------------------------------------------------------------------- due */
+
+/**
+ * The Items tab's "Due" (Workiz `job_amount_due_date`): the invoice's due
+ * date once the job has one; before that Workiz fills the job's own day
+ * (5TU7ZA, N9YA2L), and a job with no day its creation day.
+ */
+export function jobDueDate(
+  deal: { scheduledDate?: string | null; createdAt?: string | null },
+  invoiceDueDate?: string | null,
+): string {
+  if (invoiceDueDate) return workizDate(invoiceDueDate);
+  if (deal.scheduledDate) return workizDate(deal.scheduledDate);
+  if (!deal.createdAt) return "";
+  const d = new Date(deal.createdAt);
+  return Number.isNaN(d.getTime())
+    ? ""
+    : d.toLocaleDateString("en-US", { timeZone: DEFAULT_TZ, month: "numeric", day: "numeric", year: "numeric" });
 }
 
 /* ---------------------------------------------------------------- balance */
@@ -91,6 +152,14 @@ export function dealBalance(deal: Pick<Deal, "totals" | "amountPaid">): number {
 /** "150.00" — the Items tab's grey boxes carry no currency sign. */
 export function formatBoxAmount(n: number): string {
   return n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+/* ------------------------------------------------------------ attachments */
+
+/** A file's name as Workiz lists it, without its extension ("before.jpg" → "before"). */
+export function fileTitle(fileName: string): string {
+  const dot = fileName.lastIndexOf(".");
+  return dot > 0 ? fileName.slice(0, dot) : fileName;
 }
 
 /* ------------------------------------------------------------------ dates */

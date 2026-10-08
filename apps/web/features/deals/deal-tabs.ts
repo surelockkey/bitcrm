@@ -1,5 +1,9 @@
-/** Tabs of the job page, in display order; `?tab=` deep-links to one. */
-export const DEAL_TABS = ["details", "items", "payments", "estimates", "invoice", "attachments"] as const;
+/**
+ * Tabs of the job page, in display order; `?tab=` deep-links to one.
+ * Workiz's order, Attachments always 5th; our Invoice tab (Workiz has none)
+ * comes after it, where Workiz's own extra tabs sit.
+ */
+export const DEAL_TABS = ["details", "items", "payments", "estimates", "attachments", "invoice"] as const;
 export type DealTab = (typeof DEAL_TABS)[number];
 
 export function parseDealTab(raw: string | string[] | undefined | null): DealTab | null {

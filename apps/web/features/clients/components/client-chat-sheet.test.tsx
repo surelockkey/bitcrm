@@ -27,6 +27,17 @@ describe("ClientChatSheet", () => {
     expect(mocks.startCall).toHaveBeenCalledWith("+18557836342");
   });
 
+  // The job page texts the job's number (Workiz's Message Client) — and says
+  // whether the client record carries it.
+  it("hands the number and the job to the thread", () => {
+    render(
+      <ClientChatSheet contactId="c1" name="CDB" phone="+15715310137" phoneOnContact={false} dealId="d1" open onOpenChange={() => {}} />,
+    );
+    expect(mocks.chat).toHaveBeenLastCalledWith(
+      expect.objectContaining({ partyId: "c1", address: "+15715310137", addressOnParty: false, dealId: "d1" }),
+    );
+  });
+
   it("mounts the thread only while open", () => {
     render(<ClientChatSheet contactId="c1" name="CBRE" open={false} onOpenChange={() => {}} />);
     expect(screen.queryByTestId("party-chat")).toBeNull();

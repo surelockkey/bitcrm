@@ -20,7 +20,7 @@ import { useDeal, useMarkSeenOnOpen } from "../hooks";
 import { useJobPageData } from "../job-page-data";
 import { useAttachments } from "../attachments-hooks";
 import { dealTabHref, visibleDealTabs, type DealTab } from "../deal-tabs";
-import { dealBalance, dealTabSublabel, jobClientName, workizDate } from "../job-shell";
+import { dealBalance, dealTabSublabel, jobChatPhone, jobClientName, jobDueDate } from "../job-shell";
 import { DealProductsTab } from "./deal-products-tab";
 import { DealTimelinePanel } from "./deal-timeline-panel";
 import { DealAttachmentsTab } from "./deal-attachments-tab";
@@ -124,9 +124,14 @@ export function DealDetailPage({
   // shown once it exists.
   const invoicePill =
     canInvoices && (invoice || can("invoices", "create")) ? { exists: Boolean(invoice) } : undefined;
+  // "Message Client" texts the job's own number first (J1: MS9277's is on the
+  // job, not on the client record).
+  const chatPhone = jobChatPhone(deal.phones, contact?.phones);
 
   return (
-    <div className="flex min-h-0 flex-1 overflow-hidden">
+    // Clipped, but 36px of grace: Workiz's rail runs from the top bar down,
+    // over the breadcrumb strip, and ours rises into it (audit_pixels J1).
+    <div className="flex min-h-0 flex-1 overflow-clip [overflow-clip-margin:36px]">
       {/* The page scrolls as one, as Workiz's does: the header, the status
           rows and the tabs ride up with the fields rather than standing over
           a window that scrolls on its own. Only the Save bar stays pinned.
@@ -151,13 +156,14 @@ export function DealDetailPage({
               clientHref={contact ? `/contacts/${contact.id}` : undefined}
               canEdit={canEdit}
               canDelete={canDelete}
+              canViewWorkOrders={can("work_orders", "view")}
               invoice={invoicePill}
               onOpenInvoice={() => setTab("invoice")}
             />
             <JobTabBar tabs={tabs} active={tab} onSelect={setTab} sublabels={sublabels} />
           </div>
 
-          <div className="flex flex-1 flex-col border-t border-[#cad3d6]">
+          <div className="flex flex-1 flex-col">
             {/* Details stays mounted (just hidden) so its unsaved draft survives a
                 hop to the other tabs. It spans the whole height of its content, so
                 the sticky Save bar at its foot stays on screen all the way down. */}
@@ -172,7 +178,7 @@ export function DealDetailPage({
                   variant="job"
                   showCost={can("financials", "view")}
                   balance={balance}
-                  due={invoice ? workizDate(invoice.dueDate) || undefined : undefined}
+                  due={jobDueDate(deal, invoice?.dueDate) || undefined}
                 />
               </TabPanel>
             ) : null}
@@ -200,15 +206,18 @@ export function DealDetailPage({
         </div>
       </div>
 
-      {/* Workiz's right rail: Timeline, notes, calls, the client's texts. */}
+      {/* Workiz's right rail: Timeline, notes, calls, the job's messages. */}
       <DealTimelinePanel
         dealId={dealId}
         canEdit={canEdit}
-        client={
+        canViewMessages={can("messages", "view")}
+        client={{ name: jobClientName(deal, contact), phones: [...(deal.phones ?? []), ...(contact?.phones ?? [])] }}
+        chat={
           contact && can("messages", "send")
-            ? { id: contact.id, name: contactName(contact), phone: contact.phones[0] }
+            ? { contactId: contact.id, name: contactName(contact), phone: chatPhone.phone, phoneOnContact: chatPhone.onContact }
             : undefined
         }
+        schedule={{ date: deal.scheduledDate, slot: deal.scheduledTimeSlot, allDay: deal.allDay }}
       />
     </div>
   );

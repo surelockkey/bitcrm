@@ -8,7 +8,7 @@ import { ApiError } from "@/lib/api/errors";
 import * as api from "./api";
 import type { FeedMessage } from "./api";
 import { applyMessage } from "./cache";
-import { useResendMessage, useResendingMessageIds } from "./hooks";
+import { useMessagesByJob, useResendMessage, useResendingMessageIds } from "./hooks";
 
 // What the user is shown, and the one route the hook talks to — both faked.
 const toast = vi.hoisted(() => ({ error: vi.fn(), success: vi.fn() }));
@@ -20,8 +20,10 @@ vi.mock("@/features/auth/use-permissions", () => ({
 vi.mock("./api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./api")>()),
   resendMessage: vi.fn(),
+  listMessagesByJob: vi.fn(),
 }));
 const resendMessage = vi.mocked(api.resendMessage);
+const listMessagesByJob = vi.mocked(api.listMessagesByJob);
 
 type FeedData = InfiniteData<PaginatedResponse<FeedMessage>, string | undefined>;
 
@@ -278,5 +280,28 @@ describe("useResendingMessageIds", () => {
     await waitFor(() => expect(result.current.inFlight.size).toBe(0));
     expect(ids(client)).toEqual(["m9", "m1", "m2"]);
     expect(line(client, "m2")?.resentAsMessageId).toBeUndefined();
+  });
+});
+
+describe("useMessagesByJob", () => {
+  beforeEach(() => listMessagesByJob.mockReset());
+
+  it("reads the job's messages, newest first, a page at a time", async () => {
+    listMessagesByJob.mockResolvedValue({ success: true, data: [failed], pagination: {} } as PaginatedResponse<FeedMessage>);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { result } = renderHook(() => useMessagesByJob("d1"), { wrapper: wrapper(client) });
+
+    await waitFor(() => expect(result.current.data?.pages[0].data).toEqual([failed]));
+    expect(listMessagesByJob).toHaveBeenCalledWith("d1", undefined);
+  });
+
+  // The job page's rail asks only for a viewer who may read messages.
+  it("asks for nothing when switched off", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { result } = renderHook(() => useMessagesByJob("d1", false), { wrapper: wrapper(client) });
+
+    await new Promise((r) => setTimeout(r, 20));
+    expect(listMessagesByJob).not.toHaveBeenCalled();
+    expect(result.current.fetchStatus).toBe("idle");
   });
 });

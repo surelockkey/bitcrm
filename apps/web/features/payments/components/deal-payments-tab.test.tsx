@@ -70,10 +70,14 @@ beforeEach(() => {
 });
 
 describe("DealPaymentsTab — a job's payments, with or without an invoice", () => {
-  it("lists type and who collected, amount and tip, the date Workiz's way, and the reference", async () => {
+  // audit_pixels T4: Workiz's row is one 65px line ("Cash By referral"); the
+  // reference waits in the Type cell's tooltip.
+  it("lists type and who collected, amount and tip, the date Workiz's way, and the reference on hover", async () => {
     serve(jobLedger());
     renderWithClient(<DealPaymentsTab deal={{ id: "d1" }} />);
-    const row = (await screen.findByText("env #12")).closest("tr")!;
+    const type = await screen.findByTitle("env #12");
+    const row = type.closest("tr")!;
+    expect(screen.queryByText("env #12")).not.toBeInTheDocument();
     // 19:00 UTC is 3:00 PM on business (New York) time.
     expect(row).toHaveTextContent("5/4/2026 at 3:00 PM");
     expect(row).toHaveTextContent("Cash");
@@ -136,7 +140,7 @@ describe("DealPaymentsTab — a job's payments, with or without an invoice", () 
     unmount();
 
     renderWithClient(<DealPaymentsTab deal={{ id: "d1" }} />);
-    await screen.findByText("env #12");
+    await screen.findByTitle("env #12");
     expect(screen.queryByRole("button", { name: /create invoice/i })).toBeNull();
   });
 
@@ -144,7 +148,7 @@ describe("DealPaymentsTab — a job's payments, with or without an invoice", () 
     mocks.perms = new Set(["payments.view"]);
     serve(jobLedger());
     renderWithClient(<DealPaymentsTab deal={{ id: "d1" }} />);
-    await screen.findByText("env #12");
+    await screen.findByTitle("env #12");
     expect(screen.queryByRole("button", { name: /add payment/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /refund/i })).toBeNull();
   });

@@ -79,6 +79,9 @@ export function JobTagCombobox({
   const del = useDeleteJobTag();
   const map = jobTagMap(data);
   const [open, setOpen] = useState(false);
+  // Workiz ends its window at the "+"; with too little room to the left of
+  // the "+" (a job with no tags yet) it opens rightwards instead.
+  const [endAligned, setEndAligned] = useState(false);
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortKey>("newest");
   const [sortOpen, setSortOpen] = useState(false);
@@ -121,10 +124,10 @@ export function JobTagCombobox({
                 <button
                   type="button"
                   onClick={() => toggle(id)}
-                  className="absolute top-1/2 right-1.5 grid size-3.5 -translate-y-1/2 place-items-center opacity-90 hover:opacity-100"
+                  className="absolute top-1/2 right-1 grid size-4 -translate-y-1/2 place-items-center opacity-90 hover:opacity-100"
                   aria-label={`Remove ${tag?.name ?? "tag"}`}
                 >
-                  <X className="size-3.5" strokeWidth={1.75} />
+                  <X className="size-4" strokeWidth={1.5} />
                 </button>
               ) : null}
             </span>
@@ -155,12 +158,17 @@ export function JobTagCombobox({
           {wz ? (
             <button
               type="button"
-              onClick={() => setOpen((o) => !o)}
+              onClick={(e) => {
+                const r = e.currentTarget.getBoundingClientRect();
+                const left = e.currentTarget.closest("[data-testid=job-page-scroll]")?.getBoundingClientRect().left ?? 0;
+                setEndAligned(r.right - 338 >= left);
+                setOpen((o) => !o);
+              }}
               aria-expanded={open}
               aria-label="Add tag"
               title="Add tag"
-              // Workiz: a bare 24px "+" in #3da6e1; hover/open tints it #e5f1ff.
-              className="grid size-6 place-items-center rounded-[4px] text-[#3da6e1] hover:bg-accent aria-expanded:bg-accent"
+              // Workiz: a bare 24px "+", its glyph #6aa8ee; hover/open tints it #e5f1ff.
+              className="grid size-6 place-items-center rounded-[4px] text-[#6aa8ee] hover:bg-accent aria-expanded:bg-accent"
             >
               <Plus className="size-4" strokeWidth={1.5} />
             </button>
@@ -180,10 +188,11 @@ export function JobTagCombobox({
               <button type="button" aria-label="Close" className="fixed inset-0 z-10 cursor-default" onClick={() => setOpen(false)} />
               <div
                 className={cn(
-                  "absolute left-0 top-full z-20 overflow-hidden bg-popover",
+                  "absolute top-full z-20 overflow-hidden bg-popover",
                   wz
-                    ? "w-[338px] rounded-[8px] p-4 shadow-[0_8px_16px_rgba(59,75,82,0.15),0_0_4px_rgba(59,75,82,0.05)]"
-                    : "mt-1 w-80 rounded-lg border shadow-md",
+                    ? // Workiz hangs the window from the "+" leftwards (it ends at the +).
+                      cn(endAligned ? "right-0" : "left-0", "w-[338px] rounded-[8px] p-4 shadow-[0_8px_16px_rgba(59,75,82,0.15),0_0_4px_rgba(59,75,82,0.05)]")
+                    : "left-0 mt-1 w-80 rounded-lg border shadow-md",
                 )}
               >
                 <div className={cn("flex items-center justify-between", wz ? "pt-1 pb-4" : "px-3 pb-1 pt-2.5")}>
@@ -204,7 +213,7 @@ export function JobTagCombobox({
                   ) : null}
                 </div>
 
-                <Command loop>
+                <Command loop className={wz ? "rounded-none! p-0" : undefined}>
                   <div className={cn("flex items-center", wz ? "gap-2.5" : "gap-1 pr-1")}>
                     <div className="flex-1">
                       {wz ? (
@@ -263,7 +272,7 @@ export function JobTagCombobox({
                       ) : null}
                     </div>
                   </div>
-                  <CommandList className={wz ? "mt-4 max-h-[188px]" : "max-h-64"}>
+                  <CommandList className={wz ? "mt-3 max-h-[188px]" : "max-h-64"}>
                     <CommandEmpty>No tags found.</CommandEmpty>
                     <CommandGroup className={wz ? "p-0" : undefined}>
                       {listed.map((tag) => {
