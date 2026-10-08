@@ -1,10 +1,11 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { FileText, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { WzPager } from "@/components/workiz/pager";
-import { WzListToolbar, WzPageSizeSelect, WzSearchBox } from "@/components/workiz/toolbar";
+import { WzListToolbar, WzPageSizeSelect, WzSearchBox, WzToolbarButton } from "@/components/workiz/toolbar";
 import { WzStatCard } from "@/components/workiz/page-parts";
 import type { WzDateRange } from "@/components/workiz/date-range-picker";
 import { pagedSource } from "@/lib/paging/paged-source";
@@ -18,6 +19,7 @@ import { activeCallTags } from "@/features/call-tags/lib";
 import { accountToday } from "@/features/reports/report-dates";
 import { useCallLogData } from "../calls-page-data";
 import { useCallsCount, useCallsList, useCallsSummary } from "../hooks";
+import { downloadCallsCsv } from "../api";
 import { useCallStream } from "../use-call-stream";
 import { toCallsFilter, type CallFilterChip, type CallFilterKind } from "../call-filters";
 import { DEFAULT_CALLS_PRESET, callsPresetRange, dayRangeToInstants } from "../date-presets";
@@ -43,8 +45,8 @@ function todayRange(): WzDateRange {
  * The call log as Workiz draws "Workiz Phone" (`/root/callsReport/`,
  * callspage_wz_01): the heading with the workspace's number, the section's
  * tabs, "+ Add filter" and the date box (Today), the stat cards, the grey
- * strip — Search, the headset with the live count, page size, Fields — then
- * the grid and the pager.
+ * strip — Search, the headset with the live count, page size, Export,
+ * Fields — then the grid and the pager.
  *
  * Everything the filters, the search and the date box say is a parameter of
  * `GET /telephony/calls` (and of its count and summary), so the cards, the
@@ -60,11 +62,31 @@ export function CallsPage() {
   const [openKind, setOpenKind] = useState<CallFilterKind | null>(null);
   const [range, setRange] = useState<WzDateRange>(todayRange);
 
-  // The server matches numbers: what is typed is searched by its digits.
+  // Workiz's Search finds names as well as numbers: the server matches what
+  // is typed against both sides' names, and its digits against the numbers.
   const filter = useMemo(
-    () => toCallsFilter(chips, { number: search.replace(/[^\d+]/g, "") || undefined, ...dayRangeToInstants(range) }),
+    () => toCallsFilter(chips, { q: search.trim() || undefined, ...dayRangeToInstants(range) }),
     [chips, search, range],
   );
+  const [exporting, setExporting] = useState(false);
+  // Workiz's "Export": the same calls the rows show, as the server's CSV.
+  const exportCsv = async () => {
+    setExporting(true);
+    try {
+      const { blob, filename } = await downloadCallsCsv(filter);
+      if (typeof URL.createObjectURL !== "function") return;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Export failed");
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const [pageSize, setPageSize] = usePageSize("calls", { sizes: CALLS_PAGE_SIZES, fallback: 10 });
   const canView = can("calls");
@@ -157,6 +179,11 @@ export function CallsPage() {
           <CallMonitoring />
           <div className="ml-auto flex items-center gap-4">
             <WzPageSizeSelect value={pageSize} onChange={setPageSize} sizes={CALLS_PAGE_SIZES} />
+            {/* callspage_wz_01: 85×34, the file glyph, between page size and Fields. */}
+            <WzToolbarButton onClick={() => void exportCsv()} disabled={exporting}>
+              <FileText strokeWidth={1.75} />
+              Export
+            </WzToolbarButton>
             <CallsFieldsMenu />
           </div>
         </WzListToolbar>

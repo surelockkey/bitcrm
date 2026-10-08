@@ -39,6 +39,25 @@ export function getCallsSummary(filter: CallsFilter): Promise<CallsSummary> {
 }
 
 /**
+ * Workiz's "Export": the log's filters, every row, built and streamed by the
+ * server as CSV with Workiz's columns. It needs the Bearer header, which a
+ * plain link cannot send — so it is fetched and handed back as a Blob for the
+ * page to save, under the name the server gave it.
+ */
+export async function downloadCallsCsv(filter: CallsFilter): Promise<{ blob: Blob; filename: string }> {
+  const qs = filterToParams(filter);
+  const res = await fetch(`${env.apiBaseUrl}${BASE}/export.csv?${qs.toString()}`, {
+    headers: { Authorization: `Bearer ${getIdToken() ?? ""}` },
+  });
+  if (!res.ok) {
+    const body: { error?: { message?: string } } | null = await res.json().catch(() => null);
+    throw new Error(body?.error?.message ?? `Export failed (${res.status})`);
+  }
+  const named = /filename="([^"]+)"/.exec(res.headers.get("Content-Disposition") ?? "");
+  return { blob: await res.blob(), filename: named?.[1] ?? "calls.csv" };
+}
+
+/**
  * Calls with one client, company or teammate — an indexed lookup rather than
  * a filtered scan of the whole log.
  */

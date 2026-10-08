@@ -71,6 +71,11 @@ export function callsKpis({
     cards.push({ id: "calls", label: "CALLS", value: floor(count.total, count.atLeast), alert: false });
   }
   if (summary) {
+    // Workiz's own Phone card is an AI upsell — "how often real, qualified
+    // opportunities turn into booked jobs and leads" (calls_backend_wz_conversion_popup),
+    // greyed at 0.0% for this account. The definition Workiz computes from
+    // plain call data is Call Tracking's Jobs Conversion: jobs ÷ callers. That
+    // is drawn, one decimal like the Phone card.
     const rate = summary.callers > 0 ? (summary.jobs / summary.callers) * 100 : 0;
     cards.push({ id: "conversion", label: "CONVERSION RATE", value: `${rate.toFixed(1)}%`, alert: false });
   }

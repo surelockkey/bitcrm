@@ -92,11 +92,32 @@ export const PARTICIPANT_ROLE_LABEL: Record<ParticipantRole, string> = {
   joined: "Joined the call",
 };
 
+/**
+ * `GET /telephony/calls` (and its count, cards and export) parameters. Every
+ * list filter takes one value or a comma list; all values are strings, the
+ * way they travel.
+ */
 export interface CallsFilter {
+  /** `inbound` | `outbound`. */
   direction?: string;
+  /** Our statuses and/or Workiz's `answered`, `missed`, `active`, `voicemail`. */
   status?: string;
   agentId?: string;
+  /** Substring of either number (the client page's own search). */
   number?: string;
+  /** The Search box: a party's name, or digits of either number. */
+  q?: string;
+  /** Call-flow ids (Workiz's Call Flow filter). */
+  flowId?: string;
+  /** Job-source ids (Workiz's Ad Group filter). */
+  sourceId?: string;
+  /** Whole seconds of talk time, inclusive. */
+  minDuration?: string;
+  maxDuration?: string;
+  /** "true" | "false" — Workiz's Masking calls. */
+  masked?: string;
+  /** "true" | "false" — Workiz's Job Status "All with job" / "No job linked". */
+  hasJob?: string;
   /** Any of these numbers, either side — one client's whole phone list. */
   numbers?: string[];
   dateFrom?: string;
