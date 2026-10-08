@@ -26,29 +26,24 @@ import {
 import { cn } from "@/lib/utils";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { useDeleteJobTag, useJobTags } from "../hooks";
-import { activeJobTags, jobTagMap, tagColorClasses, tagSolidClasses } from "../lib";
+import {
+  activeJobTags,
+  jobTagMap,
+  jobTagsInCatalogOrder,
+  sortJobTags,
+  tagColorClasses,
+  tagSolidClasses,
+  type JobTagSort,
+} from "../lib";
 import { JobTagFormDialog } from "./job-tag-form-dialog";
 
 /** Sort orders offered by the picker's "Sort by" menu, as in Workiz. */
-const SORT_OPTIONS = [
+const SORT_OPTIONS: { key: JobTagSort; label: string }[] = [
   { key: "az", label: "A-Z" },
   { key: "za", label: "Z-A" },
   { key: "newest", label: "Newest first" },
   { key: "oldest", label: "Oldest first" },
-] as const;
-type SortKey = (typeof SORT_OPTIONS)[number]["key"];
-
-function sortTags(tags: JobTag[], sort: SortKey): JobTag[] {
-  const byName = (a: JobTag, b: JobTag) => a.name.localeCompare(b.name);
-  const byCreated = (a: JobTag, b: JobTag) => a.createdAt.localeCompare(b.createdAt);
-  const sorted = [...tags];
-  switch (sort) {
-    case "az": return sorted.sort(byName);
-    case "za": return sorted.sort((a, b) => byName(b, a));
-    case "newest": return sorted.sort((a, b) => byCreated(b, a));
-    case "oldest": return sorted.sort(byCreated);
-  }
-}
+];
 
 /**
  * Job-tag picker, mirroring the Workiz tag window so migrating users feel at
@@ -83,7 +78,7 @@ export function JobTagCombobox({
   // the "+" (a job with no tags yet) it opens rightwards instead.
   const [endAligned, setEndAligned] = useState(false);
   const [query, setQuery] = useState("");
-  const [sort, setSort] = useState<SortKey>("newest");
+  const [sort, setSort] = useState<JobTagSort>("newest");
   const [sortOpen, setSortOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<JobTag | undefined>();
@@ -94,14 +89,18 @@ export function JobTagCombobox({
   const canDelete = can("job_tags", "delete");
 
   const active = activeJobTags(data);
-  const listed = sortTags(active, sort);
+  const listed = sortJobTags(active, sort);
+  // The job page header prints a job's tags in catalog order, as Workiz
+  // does (MS9277: "waiting for approval · PLATINUM · BID/Solicitation");
+  // what goes back out is still the job's own list, less or plus one.
+  const shown = wz ? jobTagsInCatalogOrder(value, data) : value;
 
   const toggle = (id: string) =>
     onChange(value.includes(id) ? value.filter((v) => v !== id) : [...value, id]);
 
   return (
     <div className={cn("flex flex-wrap items-center", wz ? "gap-1" : "gap-1.5")}>
-      {value.map((id) => {
+      {shown.map((id) => {
         const tag = map.get(id);
         // Until the catalog loads, a skeleton beats flashing the raw id.
         if (!tag && isLoading) {

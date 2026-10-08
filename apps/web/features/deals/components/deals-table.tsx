@@ -45,8 +45,8 @@ import {
   formatStamp,
   isTerminalStatus,
   isUrgent,
-  tagsNewestFirst,
 } from "../lib";
+import { personName } from "../person-name";
 import { workizFromNow, workizScheduleCell } from "../schedule-cell";
 import type { JobsSort } from "../query-params";
 import { TechCell } from "./tech-cell";
@@ -253,17 +253,15 @@ export function DealsTable({
   // becomes, so the swap happens in place.
   const pendingLine = <Skeleton className="h-4 w-24" />;
 
+  // A teammate as Workiz prints them: the Workiz name when the import kept it.
   const personCell = (id?: string): ReactNode => {
     if (!id) return "—";
     const u = userMap.get(id);
-    if (u) return `${u.firstName} ${u.lastName}`.trim() || "—";
+    if (u) return personName(u) ?? "—";
     return namesLoading ? pendingLine : "—";
   };
 
-  const personName = (id?: string) => {
-    const u = id ? userMap.get(id) : undefined;
-    return u ? `${u.firstName} ${u.lastName}`.trim() || "—" : "—";
-  };
+  const userName = (id?: string) => personName(id ? userMap.get(id) : undefined) ?? "—";
 
   const cell = (d: Deal, columnId: string): ReactNode => {
     const contact = contactMap.get(d.contactId);
@@ -317,8 +315,8 @@ export function DealsTable({
       case "dispatcher":
         return <span>{personCell(d.assignedDispatcherId)}</span>;
       case "tags":
-        // Newest first, as Workiz lists them (audit L17).
-        return d.tagIds?.length ? <JobTagChips ids={tagsNewestFirst(d.tagIds)} solid /> : null;
+        // In Workiz's catalog order, whatever order the job keeps them in (LSBE12).
+        return d.tagIds?.length ? <JobTagChips ids={d.tagIds} solid catalogOrder /> : null;
       case "status":
         return (
           <>
@@ -404,7 +402,7 @@ export function DealsTable({
       case "notes":
         return <span className="block truncate text-muted-foreground">{noteToText(d.notes) || "—"}</span>;
       case "createdBy":
-        return <span>{personName(d.createdBy)}</span>;
+        return <span>{userName(d.createdBy)}</span>;
       case "createdAt":
         return <span>{formatDate(d.createdAt)}</span>;
       default: {

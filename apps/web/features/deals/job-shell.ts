@@ -82,10 +82,10 @@ export function jobActions({
 /* ------------------------------------------------------------------- tags */
 
 /**
- * The header shows the tags newest first (`tagsNewestFirst`, as the list
- * and Workiz do); what the picker hands back is in that shown order. The job
- * keeps them in the order they were added, so: what stays keeps its place,
- * and a new tag goes on the end — which is where "newest" reads from.
+ * The header prints the tags in catalog order, as Workiz does (the picker's
+ * workiz dress, `jobTagsInCatalogOrder`), so the order the job keeps them in
+ * is never on screen. Still, a save should not reshuffle it: what stays keeps
+ * its place, and a new tag goes on the end.
  */
 export function storedTagOrder(stored: string[], picked: string[]): string[] {
   const keep = new Set(picked);

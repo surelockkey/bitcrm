@@ -120,6 +120,21 @@ describe("TechSuggestions — select", () => {
     expect(screen.getByLabelText("Assign team members")).not.toHaveTextContent("t-away");
   });
 
+  it("names technicians the way Workiz does — the Workiz name, in the list and on the chips", () => {
+    directory = new Map([
+      ["t-away", { id: "t-away", firstName: "Reonquez", lastName: "Thompson", workizName: "(2) TX - Reonquez Thompson" }],
+    ]);
+    suggested.data = [tech({ id: "t1", firstName: "Daniel", lastName: "Munoz", workizName: "(2) TX - Daniel Munoz" })];
+
+    render(<TechSuggestions jobTypeId="jt1" address={{ lat: 41.7, lng: -72.6 }} selected={["t1", "t-away"]} onChange={() => {}} />);
+
+    const trigger = screen.getByLabelText("Assign team members");
+    expect(trigger).toHaveTextContent("(2) TX - Daniel Munoz");
+    expect(trigger).toHaveTextContent("(2) TX - Reonquez Thompson");
+    open();
+    expect(screen.getAllByText("(2) TX - Daniel Munoz").length).toBeGreaterThan(1);
+  });
+
   it("waits rather than showing a uuid while the directory is still on its way", () => {
     directory = new Map();
     suggested.data = [];

@@ -266,6 +266,22 @@ describe("DealsTable", () => {
     expect(row.querySelectorAll("td")).toHaveLength(10);
   });
 
+  it("names the dispatcher and the creator as Workiz does — the Workiz name when the import kept it", () => {
+    const people = new Map([
+      ["u1", { id: "u1", firstName: "Ava", lastName: "Dispatcher", workizName: "(1)(Ava)  11 Dispatcher" } as User],
+    ]);
+    render(
+      <DealsTable
+        deals={[deal()]}
+        contactMap={contactMap}
+        userMap={people}
+        onOpen={vi.fn()}
+        visibleFields={{ ...DEFAULT_VISIBLE, dispatcher: true, createdBy: true }}
+      />,
+    );
+    expect(screen.getAllByText("(1)(Ava) 11 Dispatcher")).toHaveLength(2);
+  });
+
   it("renders Workiz's default columns when no visibility is passed", () => {
     render(
       <DealsTable deals={[deal()]} contactMap={contactMap} userMap={userMap} onOpen={vi.fn()} />,

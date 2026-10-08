@@ -7,7 +7,7 @@ const { createMutate, updateMutate, deleteMutate, canMock, catalog } = vi.hoiste
   updateMutate: vi.fn(),
   deleteMutate: vi.fn(),
   canMock: vi.fn(),
-  catalog: { loading: false },
+  catalog: { loading: false, tags: undefined as JobTag[] | undefined },
 }));
 
 const makeTag = (over: Partial<JobTag>): JobTag => ({
@@ -28,7 +28,7 @@ vi.mock("../hooks", () => ({
     catalog.loading
       ? { data: undefined, isLoading: true }
       : {
-          data: [
+          data: catalog.tags ?? [
             makeTag({ id: "t-zebra", name: "Zebra", color: "green", createdAt: "2026-06-01T00:00:00Z" }),
             makeTag({ id: "t-alpha", name: "Alpha", color: "blue", createdAt: "2026-01-01T00:00:00Z" }),
           ],
@@ -82,6 +82,7 @@ describe("JobTagCombobox — Workiz-style tag window", () => {
     canMock.mockReset();
     canMock.mockReturnValue(true);
     catalog.loading = false;
+    catalog.tags = undefined;
   });
 
   it("shows a skeleton pill instead of the raw id while the catalog loads", () => {
@@ -185,5 +186,48 @@ describe("JobTagCombobox — Workiz-style tag window", () => {
     expect(screen.queryByRole("button", { name: /create new/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^edit /i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^delete /i })).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * Workiz's catalog as the import leaves it: every tag created the day of the
+ * import, its place in Workiz's catalog kept as `priority` (first of N → N).
+ * The job page header prints a job's tags in that order (MS9277: "waiting
+ * for approval · PLATINUM · BID/Solicitation"), and the "+" window opens on
+ * the newest — "waiting for docs" first (job_b_02_tags_add).
+ */
+describe("JobTagCombobox — Workiz's order on the job page", () => {
+  const imported = "2026-09-30T00:00:00.000Z";
+  const workizCatalog = [
+    makeTag({ id: "bid", name: "BID/Solicitation", color: "blue", priority: 29, createdAt: imported }),
+    makeTag({ id: "plat", name: "PLATINUM", color: "blue", priority: 97, createdAt: imported }),
+    makeTag({ id: "wait", name: "waiting for approval", color: "pink", priority: 126, createdAt: imported }),
+    makeTag({ id: "docs", name: "waiting for docs", color: "amber", priority: 1, createdAt: imported }),
+  ];
+
+  beforeEach(() => {
+    canMock.mockReturnValue(true);
+    catalog.loading = false;
+    catalog.tags = workizCatalog;
+  });
+
+  it("prints the job's tags in catalog order in the header, whatever order the job keeps them in", () => {
+    const { container } = render(<JobTagCombobox variant="workiz" value={["bid", "plat", "wait"]} onChange={vi.fn()} />);
+    const chips = [...container.querySelectorAll("span.relative")].map((c) => c.textContent);
+    expect(chips).toEqual(["waiting for approval", "PLATINUM", "BID/Solicitation"]);
+  });
+
+  it("takes off exactly the tag whose × was pressed, the rest in the job's own order", () => {
+    const onChange = vi.fn();
+    render(<JobTagCombobox variant="workiz" value={["bid", "plat", "wait"]} onChange={onChange} />);
+    fireEvent.click(screen.getByRole("button", { name: "Remove PLATINUM" }));
+    expect(onChange).toHaveBeenCalledWith(["bid", "wait"]);
+  });
+
+  it("opens the + window on the newest tag, the catalog backwards", () => {
+    render(<JobTagCombobox variant="workiz" value={[]} onChange={vi.fn()} />);
+    openPicker();
+    const names = screen.getAllByRole("option").map((o) => o.textContent?.replace(/Edit|Delete/g, "").trim());
+    expect(names).toEqual(["waiting for docs", "BID/Solicitation", "PLATINUM", "waiting for approval"]);
   });
 });

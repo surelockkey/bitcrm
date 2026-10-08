@@ -2,7 +2,7 @@
 
 import { cn } from "@/lib/utils";
 import { useJobTags } from "../hooks";
-import { jobTagMap, tagColorClasses, tagSolidClasses } from "../lib";
+import { jobTagMap, jobTagsInCatalogOrder, tagColorClasses, tagSolidClasses } from "../lib";
 
 /**
  * Renders a deal's job tags as colored chips, resolving ids through the catalog.
@@ -14,6 +14,7 @@ export function JobTagChips({
   max,
   className,
   solid = false,
+  catalogOrder = false,
 }: {
   ids: string[] | undefined;
   /** Cap the number shown; the rest collapse into a "+N" chip. */
@@ -27,13 +28,20 @@ export function JobTagChips({
    * still what belongs.
    */
   solid?: boolean;
+  /**
+   * Lay the tags out in catalog order — Workiz's, the order Filter results
+   * lists them — rather than in the order given: Workiz prints a job's tags
+   * that way whatever order they were put on the job (the jobs list).
+   */
+  catalogOrder?: boolean;
 }) {
   const { data, isLoading } = useJobTags();
   const map = jobTagMap(data);
 
   if (!ids?.length) return null;
-  const shown = typeof max === "number" ? ids.slice(0, max) : ids;
-  const extra = ids.length - shown.length;
+  const ordered = catalogOrder ? jobTagsInCatalogOrder(ids, data) : ids;
+  const shown = typeof max === "number" ? ordered.slice(0, max) : ordered;
+  const extra = ordered.length - shown.length;
 
   return (
     <div

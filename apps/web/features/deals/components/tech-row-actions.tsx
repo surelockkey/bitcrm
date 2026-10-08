@@ -30,7 +30,7 @@ export function TechRowActions({
 }: {
   techId: string;
   user:
-    | { firstName?: string; lastName?: string; email?: string; phone?: string }
+    | { firstName?: string; lastName?: string; workizName?: string; email?: string; phone?: string }
     | undefined;
   homeAddress?: { line1?: string; city?: string; state?: string; zip?: string };
   /** The job being worked on: it travels with anything sent from here. */

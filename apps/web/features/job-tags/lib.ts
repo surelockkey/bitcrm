@@ -21,11 +21,59 @@ export function useJobTagName(): (id: string | undefined) => string {
   return (id) => jobTagName(id, data);
 }
 
+/**
+ * The catalog order: priority desc, then name. The Workiz import gives each
+ * tag its place in Workiz's catalog as `priority` (first of N → N), so this
+ * is Workiz's order — oldest tag first — with tags made here (0) after.
+ */
+const byCatalogOrder = (a: JobTag, b: JobTag) => b.priority - a.priority || a.name.localeCompare(b.name);
+
 /** Active tags only, sorted for pickers (priority desc, then name). */
 export function activeJobTags(jobTags: JobTag[] | undefined): JobTag[] {
-  return (jobTags ?? [])
-    .filter((t) => t.active)
-    .sort((a, b) => b.priority - a.priority || a.name.localeCompare(b.name));
+  return (jobTags ?? []).filter((t) => t.active).sort(byCatalogOrder);
+}
+
+/**
+ * A job's tags the way Workiz prints them, in the list and in the job's
+ * header alike: in catalog order, whatever order the job keeps them in.
+ * An archived tag keeps its place; one the catalog does not know goes last;
+ * until the catalog is in, the job's own order stands. A copy — the stored
+ * list is left alone.
+ */
+export function jobTagsInCatalogOrder(tagIds: string[] | undefined, jobTags: JobTag[] | undefined): string[] {
+  const ids = [...(tagIds ?? [])];
+  if (!jobTags) return ids;
+  const map = jobTagMap(jobTags);
+  const known = ids.filter((id) => map.has(id));
+  const unknown = ids.filter((id) => !map.has(id));
+  return [...known.sort((a, b) => byCatalogOrder(map.get(a)!, map.get(b)!)), ...unknown];
+}
+
+/** The "+" window's "Sort by" orders, as in Workiz. */
+export type JobTagSort = "az" | "za" | "newest" | "oldest";
+
+/**
+ * The "+" window's list. "Newest first" (Workiz's default, job_b_02_tags_add:
+ * "waiting for docs", "Kobi - Austin Sub" …) is the catalog backwards: imported
+ * tags share the import's `createdAt`, so among them the lowest `priority` is
+ * the newest; a tag made here since is newer than all of them. "Oldest first"
+ * is the catalog order.
+ */
+export function sortJobTags(tags: JobTag[], sort: JobTagSort): JobTag[] {
+  const byName = (a: JobTag, b: JobTag) => a.name.localeCompare(b.name);
+  const oldestFirst = (a: JobTag, b: JobTag) =>
+    a.createdAt.localeCompare(b.createdAt) || b.priority - a.priority || byName(a, b);
+  const sorted = [...tags];
+  switch (sort) {
+    case "az":
+      return sorted.sort(byName);
+    case "za":
+      return sorted.sort((a, b) => byName(b, a));
+    case "newest":
+      return sorted.sort((a, b) => b.createdAt.localeCompare(a.createdAt) || a.priority - b.priority || byName(a, b));
+    case "oldest":
+      return sorted.sort(oldestFirst);
+  }
 }
 
 /**

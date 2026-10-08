@@ -142,3 +142,44 @@ describe("AssignTechDialog — carried items", () => {
     expect(screen.getByText("Carries no stock right now.")).toBeInTheDocument();
   });
 });
+
+/**
+ * Workiz names a technician by the whole name it keeps for them —
+ * "(2) TX - Daniel Munoz" — and a dispatcher searches by what they read:
+ * "TX" finds every Texas tech, as it does in Workiz's own pickers.
+ */
+describe("AssignTechDialog — Workiz names", () => {
+  const daniel = tech({ id: "d", firstName: "Daniel", lastName: "Munoz", workizName: "(2) TX - Daniel  Munoz" });
+  const eli = tech({ id: "e", firstName: "Eli", lastName: "Szender", workizName: "(3) CT - Eli Szender" });
+  const plain = tech({ id: "p", firstName: "Pat", lastName: "Local" });
+
+  beforeEach(() => {
+    qualified.data = [daniel, eli, plain];
+  });
+
+  it("prints the Workiz name, else first + last", () => {
+    show();
+    expect(screen.getByText("(2) TX - Daniel Munoz")).toBeInTheDocument();
+    expect(screen.getByLabelText("Assign (3) CT - Eli Szender")).toBeInTheDocument();
+    expect(screen.getByText("Pat Local")).toBeInTheDocument();
+  });
+
+  it("keeps the initials to the person's own name, not the prefix", () => {
+    show();
+    expect(screen.getByText("DM")).toBeInTheDocument();
+  });
+
+  it("finds a technician by the Workiz name as well as by first and last", async () => {
+    show();
+    const box = screen.getByPlaceholderText("Search technicians");
+    await userEvent.type(box, "tx -");
+    expect(screen.getByText("(2) TX - Daniel Munoz")).toBeInTheDocument();
+    expect(screen.queryByText("(3) CT - Eli Szender")).toBeNull();
+    expect(screen.queryByText("Pat Local")).toBeNull();
+
+    await userEvent.clear(box);
+    await userEvent.type(box, "szender");
+    expect(screen.getByText("(3) CT - Eli Szender")).toBeInTheDocument();
+    expect(screen.queryByText("(2) TX - Daniel Munoz")).toBeNull();
+  });
+});
