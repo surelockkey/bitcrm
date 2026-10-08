@@ -435,7 +435,7 @@ function ReportRow({ row: r }: { row: PaymentReportRow }) {
   return (
     <TableRow className="align-top">
       <TableCell className="whitespace-nowrap font-mono text-xs">
-        <Link href={`/deals/${r.dealId}`} className="text-primary hover:underline">
+        <Link href={`/deals/${r.dealId}`} className="text-wz-link hover:underline">
           {r.dealNumber ?? "Job"}
         </Link>{" "}
         <span className="text-muted-foreground">(Job)</span>

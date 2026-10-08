@@ -99,7 +99,7 @@ function Cell({ row, column, addFilter }: { row: JobsReportRow; column: JobsRepo
       return <>{workizDate(row.end)}</>;
     case "phone":
       return row.phone ? (
-        <a href={`tel:${row.phone}`} className="text-primary hover:underline">
+        <a href={`tel:${row.phone}`} className="text-wz-link hover:underline">
           {formatPhone(row.phone)}
         </a>
       ) : row.phoneMasked ? (

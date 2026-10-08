@@ -228,7 +228,7 @@ function ItemJobs({ item, state, money: showMoney }: { item: ItemsReportRow; sta
             {data.rows.map((r) => (
               <TableRow key={r.dealId} className="align-top">
                 <TableCell className="text-sm">
-                  <Link href={`/deals/${r.dealId}`} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+                  <Link href={`/deals/${r.dealId}`} target="_blank" rel="noopener noreferrer" className="text-wz-link hover:underline">
                     Job #{r.jobNumber}
                   </Link>
                 </TableCell>

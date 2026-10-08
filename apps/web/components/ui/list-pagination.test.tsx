@@ -7,7 +7,8 @@ import { ListPagination } from "./list-pagination";
 /**
  * Панель під списком: скільки рядків видно з усіх, куди перейти і по скільки
  * вантажити. Стоїть під кожною таблицею, де рядків може бути багато, тож
- * поводиться скрізь однаково.
+ * поводиться скрізь однаково — і виглядає як підвал списку Workiz
+ * (list_07_bottom): «Showing 1 to 50 of 208 results», ‹ «Page 1 of 5» ›.
  */
 function pager(over: Partial<Pager<number>> = {}): Pager<number> {
   return {
@@ -35,13 +36,13 @@ describe("ListPagination", () => {
   it("says which rows are on screen and how many there are in total", () => {
     render(<ListPagination pager={pager()} size={50} onSizeChange={noop} />);
 
-    expect(screen.getByText("Showing 1–50 of 1,234")).toBeInTheDocument();
+    expect(screen.getByText("Showing 1 to 50 of 1,234 results")).toBeInTheDocument();
   });
 
   it("says only what it knows when the total is not counted", () => {
     render(<ListPagination pager={pager({ total: undefined })} size={50} onSizeChange={noop} />);
 
-    expect(screen.getByText("Showing 1–50")).toBeInTheDocument();
+    expect(screen.getByText("Showing 1 to 50 results")).toBeInTheDocument();
   });
 
   // Сервер відповів, що числа для цього викликача немає, — це не те саме, що
@@ -49,7 +50,7 @@ describe("ListPagination", () => {
   it("says only what it knows when the server could not count", () => {
     render(<ListPagination pager={pager({ total: null })} size={50} onSizeChange={noop} />);
 
-    expect(screen.getByText("Showing 1–50")).toBeInTheDocument();
+    expect(screen.getByText("Showing 1 to 50 results")).toBeInTheDocument();
   });
 
   it("marks a total that is only a floor", () => {
@@ -62,7 +63,7 @@ describe("ListPagination", () => {
     );
 
     // Сервер спинив лічильник на стелі: «з 10 000» було б неправдою.
-    expect(screen.getByText("Showing 1–50 of 10,000+")).toBeInTheDocument();
+    expect(screen.getByText("Showing 1 to 50 of 10,000+ results")).toBeInTheDocument();
   });
 
   it("cannot go back from the first page", () => {
@@ -71,19 +72,21 @@ describe("ListPagination", () => {
     expect(screen.getByRole("button", { name: "Previous page" })).toBeDisabled();
   });
 
-  it("walks to a page by its number", async () => {
+  // Workiz's footer has no page numbers — only ‹ "Page 2 of 7" › — and a
+  // cursor-paged list cannot jump anyway.
+  it("has no page-number buttons, as Workiz's footer has none", () => {
+    render(<ListPagination pager={pager({ page: 2, canPrev: true })} size={50} onSizeChange={noop} />);
+
+    expect(screen.queryByRole("button", { name: /^Page \d/ })).not.toBeInTheDocument();
+  });
+
+  it("goes back a page", async () => {
     const p = pager({ page: 2, canPrev: true });
     render(<ListPagination pager={p} size={50} onSizeChange={noop} />);
 
-    await userEvent.click(screen.getByRole("button", { name: "Page 3" }));
+    await userEvent.click(screen.getByRole("button", { name: "Previous page" }));
 
-    expect(p.goto).toHaveBeenCalledWith(3);
-  });
-
-  it("marks the page being looked at", () => {
-    render(<ListPagination pager={pager({ page: 2, canPrev: true })} size={50} onSizeChange={noop} />);
-
-    expect(screen.getByRole("button", { name: "Page 2" })).toHaveAttribute("aria-current", "page");
+    expect(p.prev).toHaveBeenCalled();
   });
 
   it("asks for the next page", async () => {
@@ -105,32 +108,20 @@ describe("ListPagination", () => {
     expect(onSizeChange).toHaveBeenCalledWith(100);
   });
 
-  it("holds the numbers back while a single page is all there is", () => {
+  it("keeps the words and the size picker while a single page is all there is", () => {
     render(
       <ListPagination
-        pager={pager({ canNext: false, window: [1], total: 2 })}
+        pager={pager({ canNext: false, window: [1], total: 2, to: 2 })}
         size={50}
         onSizeChange={noop}
       />,
     );
 
-    expect(screen.queryByRole("button", { name: "Page 1" })).not.toBeInTheDocument();
     // Рядки й вибір розміру лишаються: сторінка одна, але «по скільки» — питання.
-    expect(screen.getByText("Showing 1–50 of 2")).toBeInTheDocument();
+    expect(screen.getByText("Showing 1 to 2 of 2 results")).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: /rows per page/i })).toBeInTheDocument();
-  });
-
-  it("shows the gap in a long walk as an unclickable ellipsis", () => {
-    render(
-      <ListPagination
-        pager={pager({ page: 7, canPrev: true, window: [1, "…", 6, 7, 8, "…", 12] })}
-        size={50}
-        onSizeChange={noop}
-      />,
-    );
-
-    expect(screen.getAllByText("…")).toHaveLength(2);
-    expect(screen.queryByRole("button", { name: "…" })).not.toBeInTheDocument();
+    // Nothing to page through: no ‹ › (a read-only view stays button-free).
+    expect(screen.queryByRole("button", { name: "Next page" })).not.toBeInTheDocument();
   });
 
   /**
@@ -165,8 +156,8 @@ describe("ListPagination", () => {
     expect(screen.getByTestId("list-pagination").className).toBe(loading);
   });
 
-  // "Showing 1–50" gains " of 312" and "Page 1" gains " of 7" once the count
-  // lands; unreserved, the page buttons between them slid sideways.
+  // "Showing 1 to 50" gains " of 312" and "Page 1" gains " of 7" once the
+  // count lands; unreserved, the buttons beside them slid sideways.
   it("reserves the width of the numbers that arrive with the count", () => {
     render(
       <ListPagination pager={pager({ page: 1, totalPages: undefined })} size={50} onSizeChange={noop} />,
@@ -247,7 +238,8 @@ describe("ListPagination", () => {
       expect(screen.getByText("Page 3")).toBeInTheDocument();
     });
 
-    it("says nothing about pages when there is only one", () => {
+    // Workiz says "Page 1 of 1" for a one-page list (uikit_wz_client_page).
+    it("says Page 1 of 1 when there is only one, as Workiz does", () => {
       render(
         <ListPagination
           pager={pager({ page: 1, totalPages: 1, window: [1], canNext: false })}
@@ -256,7 +248,7 @@ describe("ListPagination", () => {
         />,
       );
 
-      expect(screen.queryByText(/^Page 1/)).not.toBeInTheDocument();
+      expect(screen.getByText("Page 1 of 1")).toBeInTheDocument();
     });
   });
 });

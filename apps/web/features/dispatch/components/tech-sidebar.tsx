@@ -204,7 +204,7 @@ export function TechSidebar({
           href={mapsUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="mt-2 inline-flex items-center gap-1 text-xs text-primary hover:underline"
+          className="mt-2 inline-flex items-center gap-1 text-xs text-wz-link hover:underline"
         >
           <MapPin className="size-3.5" /> Open in Google Maps
         </a>

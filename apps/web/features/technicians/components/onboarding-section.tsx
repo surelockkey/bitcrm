@@ -39,7 +39,7 @@ export function OnboardingSection({ technicianId }: { technicianId: string }) {
       <CheckRow done={!!onboarding?.checklist.commissionSet} label="Commission set" last />
       <Link
         href="/inventory/containers"
-        className="mt-3 inline-flex items-center gap-1 text-sm text-primary hover:underline"
+        className="mt-3 inline-flex items-center gap-1 text-sm text-wz-link hover:underline"
       >
         Van inventory <ArrowUpRight className="size-3.5" />
       </Link>

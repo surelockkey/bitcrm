@@ -131,4 +131,13 @@ describe("ResizableHead", () => {
     const { handle } = head();
     expect(handle).toHaveAttribute("tabIndex", "0");
   });
+
+  // The jobs grid's sortable Scheduled column wants Workiz's 3px bar from the
+  // primitive rather than a shadow class of its own.
+  it("passes a sort on to its header: the bar and aria-sort", () => {
+    head({ sort: "desc" });
+    const th = screen.getByRole("columnheader", { name: "Client" });
+    expect(th).toHaveAttribute("aria-sort", "descending");
+    expect(th.className).toContain("shadow-[inset_0_-3px_0_0_rgba(0,0,0,0.6)]");
+  });
 });

@@ -59,7 +59,7 @@ export function StandaloneInvoicePage({ invoiceId }: { invoiceId: string }) {
         <FileText className="size-4" />
         <span>
           Invoice for{" "}
-          <Link href={`/contacts/${invoice.contactId}`} className="font-medium text-primary hover:underline">
+          <Link href={`/contacts/${invoice.contactId}`} className="font-medium text-wz-link hover:underline">
             {contact ? contactName(contact) : "the client"}
           </Link>
         </span>

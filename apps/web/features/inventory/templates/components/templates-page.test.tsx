@@ -222,6 +222,6 @@ describe("TemplatesPage — nothing jumps, and it pages", () => {
     mocks.templates = Array.from({ length: 60 }, (_, i) => tpl(`t${i}`, `Template ${i}`));
     renderWithClient(<TemplatesPage />);
     expect(document.querySelectorAll("tbody tr")).toHaveLength(50);
-    expect(screen.getByText("Showing 1–50 of 60")).toBeInTheDocument();
+    expect(screen.getByText("Showing 1 to 50 of 60 results")).toBeInTheDocument();
   });
 });

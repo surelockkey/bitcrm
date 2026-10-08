@@ -121,7 +121,7 @@ describe("ContainerStockTab — a long shelf, and its first frame", () => {
     })) as EnrichedStockRow[];
     render(<ContainerStockTab containerId="c1" />);
     expect(document.querySelectorAll("tbody tr")).toHaveLength(50);
-    expect(screen.getByText("Showing 1–50 of 60")).toBeInTheDocument();
+    expect(screen.getByText("Showing 1 to 50 of 60 results")).toBeInTheDocument();
   });
 
   // The endpoint sends no minimums, so the loaded view has three cards: a
