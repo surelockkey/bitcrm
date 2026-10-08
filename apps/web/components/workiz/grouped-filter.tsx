@@ -8,22 +8,30 @@ import { useCombobox, type ComboRow, type Combobox, type WzOption } from "./comb
 import { RsChevronIcon, RsCrossIcon } from "./icons";
 import { mergeRefs } from "./refs";
 
-/** One value a group offers. `className` paints it as a chip in the list (a tag's colour). */
+/**
+ * One value a group offers. `className` paints it as a chip in the list (a
+ * tag's colour); `color` does the same with a `#rrggbb` of its own (a service
+ * area's Workiz colour).
+ */
 export interface WzFilterGroupOption {
   value: string;
   label: string;
   className?: string;
+  color?: string;
 }
 
 /**
  * A group of the filter: its column heading (`label`, "Status"), the word its
- * chips start with (`chip`, Workiz's filter key: "status", "user", "tag"…)
- * and its values, in the order they are listed.
+ * chips start with (`chip`, Workiz's filter key: "status", "user", "tag"…;
+ * empty for a chip that is the bare name, as the Payments report's types)
+ * and its values, in the order they are listed. `chipColored`: the chip a
+ * pick leaves keeps the option's colour (the Payments report's "metro: …").
  */
 export interface WzFilterGroup<K extends string = string> {
   key: K;
   label: string;
   chip: string;
+  chipColored?: boolean;
   options: WzFilterGroupOption[];
 }
 
@@ -34,12 +42,16 @@ export interface WzFilterChip {
   group: string;
   value: string;
   label: string;
+  /** The option's own paint, when its group keeps it on the chip (`chipColored`). */
+  className?: string;
+  color?: string;
 }
 
 /**
- * The chips the box shows: "status: Done", "user: Sam Tech". Groups in
- * `order` (Workiz lists them in its filters object's order, not the menu's),
- * then any group `order` leaves out; inside a group, in the order picked.
+ * The chips the box shows: "status: Done", "user: Sam Tech" (or just "Cash"
+ * for a group whose `chip` is empty). Groups in `order` (Workiz lists them in
+ * its filters object's order, not the menu's), then any group `order` leaves
+ * out; inside a group, in the order picked.
  */
 export function wzFilterChips(groups: readonly WzFilterGroup[], value: WzFilterValue, order?: readonly string[]): WzFilterChip[] {
   const byKey = new Map(groups.map((g) => [g.key, g]));
@@ -47,11 +59,18 @@ export function wzFilterChips(groups: readonly WzFilterGroup[], value: WzFilterV
   return keys.flatMap((key) => {
     const group = byKey.get(key);
     if (!group) return [];
-    return (value[key] ?? []).map((v) => ({
-      group: key,
-      value: v,
-      label: `${group.chip}: ${group.options.find((o) => o.value === v)?.label ?? v}`,
-    }));
+    return (value[key] ?? []).map((v) => {
+      const option = group.options.find((o) => o.value === v);
+      const name = option?.label ?? v;
+      const paint = group.chipColored && option && (option.className || option.color);
+      return {
+        group: key,
+        value: v,
+        label: group.chip ? `${group.chip}: ${name}` : name,
+        ...(paint && option.className && { className: option.className }),
+        ...(paint && option.color && { color: option.color }),
+      };
+    });
   });
 }
 
@@ -209,15 +228,8 @@ export function WzGroupedFilter<K extends string = string>({
                   {placeholder}
                 </span>
               ) : null}
-              {chips.map((c) => (
-                <div
-                  key={`${c.group}|${c.value}`}
-                  data-slot="wz-filter-chip"
-                  className="m-0.5 flex h-6 min-w-0 rounded-chip border border-input bg-white"
-                >
-                  <span className="truncate rounded-chip py-[3px] pr-[3px] pl-1.5 text-[11.9px] leading-4 text-wz-value">
-                    {c.label}
-                  </span>
+              {chips.map((c) => {
+                const remove = (
                   <button
                     type="button"
                     tabIndex={-1}
@@ -227,12 +239,47 @@ export function WzGroupedFilter<K extends string = string>({
                       e.stopPropagation();
                     }}
                     onClick={() => set(without(current, c.group, c.value))}
-                    className="flex w-[23px] shrink-0 items-center justify-center rounded-chip border-l border-input bg-white px-1 text-wz-value hover:bg-wz-secondary-hover"
+                    className={cn(
+                      "flex w-[23px] shrink-0 items-center justify-center rounded-chip border-l border-input px-1",
+                      c.className || c.color ? "bg-transparent text-white hover:bg-black/10" : "bg-white text-wz-value hover:bg-wz-secondary-hover",
+                    )}
                   >
                     <RsCrossIcon size={14} />
                   </button>
-                </div>
-              ))}
+                );
+                return c.className || c.color ? (
+                  // A coloured chip (rep_payments_wz_17c_chip_tech): the white
+                  // 1px #ccc box holds the option's own chip — 3px corners,
+                  // 1px 4px, white 500 — words and × both on the colour.
+                  <div
+                    key={`${c.group}|${c.value}`}
+                    data-slot="wz-filter-chip"
+                    className="m-0.5 flex min-w-0 rounded-chip border border-input bg-white"
+                  >
+                    <span
+                      data-chip-color=""
+                      className={cn("flex min-w-0 rounded-[3px] px-1 py-px", c.className)}
+                      style={c.color ? { backgroundColor: c.color } : undefined}
+                    >
+                      <span className="truncate rounded-chip py-[3px] pr-[3px] pl-1.5 text-[11.9px] leading-4 font-medium text-white">
+                        {c.label}
+                      </span>
+                      {remove}
+                    </span>
+                  </div>
+                ) : (
+                  <div
+                    key={`${c.group}|${c.value}`}
+                    data-slot="wz-filter-chip"
+                    className="m-0.5 flex h-6 min-w-0 rounded-chip border border-input bg-white"
+                  >
+                    <span className="truncate rounded-chip py-[3px] pr-[3px] pl-1.5 text-[11.9px] leading-4 text-wz-value">
+                      {c.label}
+                    </span>
+                    {remove}
+                  </div>
+                );
+              })}
               <input
                 {...combo.inputProps}
                 ref={mergeRefs(combo.inputRef)}
@@ -352,6 +399,7 @@ function GroupedMenu({
                         onPick={() => pick(row)}
                         label={row.label}
                         chipClassName={optionOf.get(row.key.replace(/^v:/, ""))?.className}
+                        chipColor={optionOf.get(row.key.replace(/^v:/, ""))?.color}
                       />
                     ))}
                   </div>
@@ -372,6 +420,7 @@ function Option({
   onPick,
   label,
   chipClassName,
+  chipColor,
 }: {
   id: string;
   focused: boolean;
@@ -379,6 +428,7 @@ function Option({
   onPick: () => void;
   label: string;
   chipClassName?: string;
+  chipColor?: string;
 }): ReactNode {
   return (
     <div
@@ -393,8 +443,11 @@ function Option({
         focused && "bg-wz-option-focus active:bg-[#b2d4ff]",
       )}
     >
-      {chipClassName ? (
-        <span className={cn("rounded-[3px] px-1 py-px text-[14px] leading-4 font-medium text-white", chipClassName)}>
+      {chipClassName || chipColor ? (
+        <span
+          className={cn("rounded-[3px] px-1 py-px text-[14px] leading-4 font-medium text-white", chipClassName)}
+          style={chipColor ? { backgroundColor: chipColor } : undefined}
+        >
           {label}
         </span>
       ) : (

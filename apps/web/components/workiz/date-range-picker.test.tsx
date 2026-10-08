@@ -33,6 +33,21 @@ describe("WzDateRangePicker", () => {
     expect(box).toHaveAttribute("aria-expanded", "false");
   });
 
+  it("prints a period without days the caller's way (`rangeText`: Workiz's All time box, rep_payments_wz_16b_all_time)", () => {
+    render(
+      <WzDateRangePicker
+        presets={[...presets, { id: "all_time", label: "All time" }]}
+        rangeOf={() => ({ from: "", to: "" })}
+        value={{ preset: "all_time", from: "", to: "" }}
+        onChange={() => {}}
+        rangeText={(v) => (v.preset === "all_time" ? "All time" : undefined)}
+      />,
+    );
+    const box = screen.getByRole("button", { name: /date range/i });
+    expect(box.textContent).toBe("All timeAll time");
+    expect(box).toHaveAccessibleName("Date range: All time, All time");
+  });
+
   it("lists the presets on a click and takes the one picked", async () => {
     const onChange = setup();
     await userEvent.click(screen.getByRole("button", { name: /date range/i }));

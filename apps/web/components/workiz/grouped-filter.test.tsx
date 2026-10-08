@@ -151,3 +151,46 @@ describe("WzGroupedFilter", () => {
     expect(within(vip).getByText("VIP")).toHaveClass("bg-red-tag");
   });
 });
+
+/*
+ * The Payments report's "Filter results" (rep_payments_wz_17c_chip_tech):
+ * a payment type's chip is the bare name ("Cash"); a service area is listed
+ * as a chip in its own colour, and the chip a pick leaves keeps that colour
+ * ("metro: SURE LOCK CT", white on #7fffd4, the × on the colour too).
+ */
+describe("WzGroupedFilter — key-less and coloured chips (Payments report)", () => {
+  const PAY: WzFilterGroup[] = [
+    { key: "types", label: "Payment type", chip: "", options: [{ value: "cash", label: "Cash" }] },
+    {
+      key: "areas",
+      label: "Service Areas",
+      chip: "metro",
+      chipColored: true,
+      options: [
+        { value: "a1", label: "SURE LOCK CT", color: "#7fffd4" },
+        { value: "a2", label: "North Carolina" },
+      ],
+    },
+  ];
+
+  it("prints a chip without a key as the bare name", () => {
+    expect(wzFilterChips(PAY, { types: ["cash"], areas: ["a1"] }).map((c) => c.label)).toEqual(["Cash", "metro: SURE LOCK CT"]);
+  });
+
+  it("lists an option with a colour as a chip of that colour", async () => {
+    render(<WzGroupedFilter groups={PAY} value={{}} onChange={() => {}} />);
+    await userEvent.click(input());
+    expect(within(screen.getByRole("option", { name: "SURE LOCK CT" })).getByText("SURE LOCK CT")).toHaveStyle({
+      backgroundColor: "#7fffd4",
+    });
+    // No colour: plain words.
+    expect(within(screen.getByRole("option", { name: "North Carolina" })).queryByText("North Carolina", { selector: "span" })).toBeNull();
+  });
+
+  it("keeps the colour on the chip a pick leaves, only where the group asks for it", () => {
+    render(<WzGroupedFilter groups={PAY} value={{ types: ["cash"], areas: ["a1", "a2"] }} onChange={() => {}} />);
+    expect(screen.getByText("metro: SURE LOCK CT").closest("[data-chip-color]")).toHaveStyle({ backgroundColor: "#7fffd4" });
+    expect(screen.getByText("metro: North Carolina").closest("[data-chip-color]")).toBeNull();
+    expect(screen.getByText("Cash").closest("[data-chip-color]")).toBeNull();
+  });
+});
