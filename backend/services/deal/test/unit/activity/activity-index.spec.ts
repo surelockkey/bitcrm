@@ -130,28 +130,74 @@ describe('Activity — what a row prints', () => {
       },
       'AB12CD',
     );
-    expect(row).toMatchObject({ imported: false, text: 'Status Updated - Done', source: 'web', dealId: 'd1', jobRef: 'AB12CD' });
+    expect(row).toMatchObject({ imported: false, text: 'Status Updated - Done - ', source: 'web', dealId: 'd1', jobRef: 'AB12CD' });
   });
 
+  // Workiz's own words, read off its live log (data/raw/activity.jsonl, Jul–Sep 2026, and
+  // rep_activity_wz_06_yesterday): "Status Updated - In progress - Job Accepted",
+  // "Status Updated - Done - ", "Added item Parts (35.00)", "Item price updated: Service Call — 45.00 → 35.00",
+  // "Added payment 349.89 in Cash", "Deleted payment 433 cash", "Refunded payment 109.54 charge",
+  // "Created invoice #SGHDLK", "Updated estimate 8HNU0Y-6 status to Declined", "Added tag",
+  // "Added tag(s)", "Remove tag from job", "Updated tags".
   it.each([
     [TimelineEventType.CREATED, {}, 'Created Job'],
     [TimelineEventType.FIELD_UPDATED, { field: 'scheduledDate' }, 'Rescheduled job'],
     [TimelineEventType.FIELD_UPDATED, { field: 'notes' }, 'Update job details'],
+    [TimelineEventType.STATUS_CHANGED, { toStatus: 'submitted' }, 'Status Updated - Submitted - '],
+    [TimelineEventType.STATUS_CHANGED, { toStatus: 'in_progress', subStatusName: 'Job Accepted' }, 'Status Updated - In progress - Job Accepted'],
+    [TimelineEventType.STATUS_CHANGED, { toStatus: 'done_pending_approval', subStatusName: 'CHEQUE' }, 'Status Updated - done pending approval - CHEQUE'],
+    [
+      TimelineEventType.STATUS_CHANGED,
+      { toStatus: 'canceled', subStatusName: 'Cant Do', cancellationReason: 'tech said cant do' },
+      'Status Updated - Canceled - Cant Do - tech said cant do',
+    ],
+    // The sub-status IS the reason when none was typed: said once.
+    [TimelineEventType.STATUS_CHANGED, { toStatus: 'canceled', subStatusName: 'Out of area', cancellationReason: 'Out of area' }, 'Status Updated - Canceled - Out of area'],
+    [TimelineEventType.FIELD_UPDATED, { field: 'tagIds', oldValue: ['a'], newValue: ['a', 'b'] }, 'Added tag'],
+    [TimelineEventType.FIELD_UPDATED, { field: 'tagIds', oldValue: [], newValue: ['a', 'b'] }, 'Added tag(s)'],
+    [TimelineEventType.FIELD_UPDATED, { field: 'tagIds', oldValue: ['a', 'b'], newValue: ['a'] }, 'Remove tag from job'],
+    [TimelineEventType.FIELD_UPDATED, { field: 'tagIds', oldValue: ['a'], newValue: ['b'] }, 'Updated tags'],
+    [TimelineEventType.PRODUCT_ADDED, { productName: 'Service Call', priceClient: 150 }, 'Added item Service Call (150.00)'],
     [TimelineEventType.PRODUCT_ADDED, { productName: 'Service call' }, 'Added item Service call'],
+    [TimelineEventType.PRODUCT_REMOVED, { productName: 'Parts', priceClient: 35 }, 'Removed item Parts (35.00)'],
+    [
+      TimelineEventType.PRODUCT_UPDATED,
+      { productName: 'Service Call', changes: { priceClient: { from: 45, to: 35 } } },
+      'Item price updated: Service Call — 45.00 → 35.00',
+    ],
+    [TimelineEventType.PRODUCT_UPDATED, { productName: 'Parts', changes: { quantity: { from: 1, to: 2 } } }, 'Update job details'],
     [TimelineEventType.SENT_TO_TECH, { channels: ['sms', 'in_app'] }, 'Sent to tech by SMS, In App'],
     [TimelineEventType.SEEN_BY_TECH, {}, 'Viewed job in app'],
     [TimelineEventType.ATTACHMENT_ADDED, {}, 'Saved Attachment'],
-    [TimelineEventType.PAYMENT_RECEIVED, { amount: 70, method: 'cash' }, 'Added payment $70 in cash'],
-    [TimelineEventType.PAYMENT_RECEIVED, { amount: 70.5, method: 'credit_card' }, 'Added payment $70.50 in credit card'],
+    [TimelineEventType.PAYMENT_RECEIVED, { amount: 349.89, method: 'cash' }, 'Added payment 349.89 in Cash'],
+    [TimelineEventType.PAYMENT_RECEIVED, { amount: 303.1, method: 'check' }, 'Added payment 303.10 in Check'],
+    [TimelineEventType.PAYMENT_RECEIVED, { amount: 295.48, method: 'card' }, 'Added payment 295.48 in Credit charge'],
+    [TimelineEventType.PAYMENT_RECEIVED, { amount: 70.5, method: 'credit_card' }, 'Added payment 70.50 in Credit card'],
+    [TimelineEventType.PAYMENT_REFUNDED, { amount: 109.54, method: 'card', refundId: 'r1' }, 'Refunded payment 109.54 charge'],
+    [TimelineEventType.PAYMENT_REFUNDED, { amount: 433, method: 'cash', deleted: true }, 'Deleted payment 433 cash'],
+    [TimelineEventType.PAYMENT_REFUNDED, { amount: 1600, method: 'card', deleted: true }, 'Deleted payment 1600 credit'],
+    [TimelineEventType.INVOICE_CREATED, { number: 'SGHDLK' }, 'Created invoice #SGHDLK'],
+    [TimelineEventType.INVOICE_CREATED, {}, 'Created invoice'],
+    [TimelineEventType.INVOICE_DELETED, { number: 'HMZX4X' }, 'Deleted invoice #HMZX4X'],
+    [TimelineEventType.ESTIMATE_STATUS_CHANGED, { number: '8HNU0Y-6', to: 'declined' }, 'Updated estimate 8HNU0Y-6 status to Declined'],
+    [TimelineEventType.ESTIMATE_STATUS_CHANGED, { number: '8HNU0Y-6', signed: true }, 'Client signed estimate'],
     [TimelineEventType.TECH_ARRIVED, {}, 'Arrived at location'],
   ])('%s %j reads "%s"', (type, details, text) => {
     expect(nativeActivityText(type, details)).toBe(text);
   });
 
-  it('searches a note by its text', () => {
+  // Workiz keeps job comments out of its Activity log (the import leaves out its
+  // 397,017 `workiz:note` rows for that reason); our own notes stay out too.
+  it('leaves our own job notes out of the report', () => {
+    const note = { PK: 'DEAL#d1', SK: 'TIMELINE#2026-09-30T10:00:00.000Z#n2', id: 'n2', timestamp: '2026-09-30T10:00:00.000Z', eventType: TimelineEventType.NOTE_ADDED, note: 'Client asked for Friday', details: {} };
+    expect(isActivityItem(note)).toBe(false);
+    expect(activityIndexFields(note, clock, 'web')).toBeNull();
+  });
+
+  it('searches an action by its words', () => {
     expect(
-      activitySearchOf({ SK: 'TIMELINE#t#n', eventType: TimelineEventType.NOTE_ADDED, note: 'Client asked for Friday', details: {} }),
-    ).toBe('added note: client asked for friday');
+      activitySearchOf({ SK: 'TIMELINE#t#n', eventType: TimelineEventType.INVOICE_CREATED, details: { number: 'SGHDLK' } }),
+    ).toBe('created invoice #sghdlk');
   });
 });
 

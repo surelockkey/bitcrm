@@ -16,7 +16,8 @@ function event(n: number, timestamp: string, actorId = 'u1', text = 'Created Job
     SK: `TIMELINE#${timestamp}#e${n}`,
     id: `e${n}`,
     dealId,
-    eventType: text === 'Created Job' ? 'created' : 'note_added',
+    // Any other line: an event that brings its own words (job notes are not Activity events).
+    eventType: text === 'Created Job' ? 'created' : 'custom_action',
     ...(text !== 'Created Job' && { note: text }),
     actorId,
     actorName: `${actorId}@x.com`,
