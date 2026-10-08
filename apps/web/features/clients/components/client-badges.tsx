@@ -12,7 +12,7 @@ export function ClientTypeBadge({ type }: { type: ClientType }) {
       className={cn(
         "font-normal",
         type === ClientType.GOVERNMENT && "border-amber-500/40 text-amber-700 dark:text-amber-500",
-        type === ClientType.COMMERCIAL && "border-primary/30 text-primary",
+        type === ClientType.COMMERCIAL && "border-wz-link/40 text-wz-link",
       )}
     >
       {clientTypeLabel(type)}

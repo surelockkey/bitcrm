@@ -366,7 +366,7 @@ function EstimatesTable({ list, status }: { list: ReturnType<typeof useEstimateR
                       <Link
                         href={`/deals/${e.dealId}`}
                         onClick={(ev) => ev.stopPropagation()}
-                        className="inline-flex items-center gap-1 text-primary hover:underline"
+                        className="inline-flex items-center gap-1 text-wz-link hover:underline"
                       >
                         Job - {e.dealNumber} <ExternalLink className="size-3" />
                       </Link>

@@ -31,8 +31,11 @@ function Tabs({
  *   `_schViews`): one 1px #ddd box with a 4px corner, 12px/500 words, a #ddd
  *   rule between them, the chosen one on #f8f8f8.
  * - `line` — the small tabs of the client page and Custom fields
- *   (Tabs-module): a 1px #c4c4c4 rule under the row, 13px/19px words, slate
- *   (#566d76, 500) at rest, ink 600 when open with a 2px ink bar on the rule.
+ *   (Tabs-module): 13px/19px words 20px apart, slate (#566d76, 500) at rest,
+ *   ink 600 when open over a 2px ink bar that sits on the rule below. The
+ *   rule itself (Workiz: 1px #c4c4c4, full width) is the page's: most of
+ *   ours already draw one on the row's container, and a second would double
+ *   it — add `border-b border-wz-tab-rule` where there is none.
  * - `page` — the big Price book tabs (`_tabs`): a 1px #ccc rule, 16px/500
  *   words 25px apart, 600 when open over a 3px #3e4b51 bar.
  */
@@ -42,7 +45,7 @@ const tabsListVariants = cva(
     variants: {
       variant: {
         default: "overflow-hidden rounded-[4px] border border-wz-frame bg-white p-0",
-        line: "gap-0 rounded-none border-b border-wz-tab-rule bg-transparent p-0 group-data-vertical/tabs:border-b-0",
+        line: "gap-0 rounded-none bg-transparent p-0",
         page: "gap-0 rounded-none border-b border-input bg-transparent p-0 group-data-horizontal/tabs:h-[47px] group-data-vertical/tabs:border-b-0",
       },
     },

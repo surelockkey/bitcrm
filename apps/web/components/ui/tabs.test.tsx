@@ -23,10 +23,11 @@ function tabs(variant?: "default" | "line" | "page") {
 const cls = (el: HTMLElement) => el.className.split(/\s+/);
 
 describe("tabs", () => {
-  it("draws `line` as Workiz's small tabs: a #c4c4c4 rule, 13px words, a 2px ink bar under the open one", () => {
-    // uikit_wz_client_page / set_customfields (Tabs-module).
+  it("draws `line` as Workiz's small tabs: 13px words, a 2px ink bar under the open one", () => {
+    // uikit_wz_client_page / set_customfields (Tabs-module). The #c4c4c4
+    // rule is the page's (pages already draw one on the row's container).
     const { list, on } = tabs("line");
-    expect(cls(list)).toContain("border-wz-tab-rule");
+    expect(cls(list)).not.toContain("border-b");
     expect(cls(on)).toEqual(
       expect.arrayContaining([
         "group-data-[variant=line]/tabs-list:text-[13px]",

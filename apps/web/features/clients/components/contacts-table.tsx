@@ -107,7 +107,7 @@ export function ContactsTable({
                 </TableCell>
                 <TableCell className="truncate text-sm">
                   {company ? (
-                    <span className="text-primary">{company.title}</span>
+                    <span className="text-wz-link">{company.title}</span>
                   ) : (
                     <span className="text-muted-foreground">—</span>
                   )}

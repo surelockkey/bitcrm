@@ -53,7 +53,7 @@ export function CompanyPickerDialog({
                 onSelect={() => onSelect(c.id)}
                 className="gap-2"
               >
-                <span className="flex size-6 flex-none items-center justify-center rounded-md bg-primary/10 text-primary">
+                <span className="flex size-6 flex-none items-center justify-center rounded-md bg-accent text-wz-link">
                   <Building2 className="size-3.5" />
                 </span>
                 <span className="flex-1 truncate">{c.title}</span>

@@ -192,7 +192,7 @@ export function WorkOrdersPage() {
                     <TableCell className="overflow-hidden"><StatusBadge status={w.status} /></TableCell>
                     <TableCell className="truncate">
                       {w.dealId ? (
-                        <Link href={`/deals/${w.dealId}`} className="text-primary hover:underline">Open</Link>
+                        <Link href={`/deals/${w.dealId}`} className="text-wz-link hover:underline">Open</Link>
                       ) : (
                         <span className="text-muted-foreground">—</span>
                       )}

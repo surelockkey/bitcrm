@@ -12,18 +12,28 @@ import { cn } from "@/lib/utils"
  * - header on #f7f7f7: 41px cells, 14px/500 #404040, 10px in, a solid #ccc
  *   rule right and below; a sorted column carries a 3px dark bar on top
  *   (ascending) or at the foot (descending);
- * - cells 20px all round, top-aligned, 14px/16px #404040, a dotted #cfcfcf
- *   rule between columns;
+ * - cells 20px all round, 14px/16px #404040, a dotted #cfcfcf rule between
+ *   columns. Workiz tops its cells; ours centre them by default, because our
+ *   rows mix avatars, chips and buttons with one line of text, and a top
+ *   edge then reads as crooked (a page wanting Workiz's top edge passes
+ *   `align-top`, as the jobs grid does);
  * - rows zebra (#f7f7f7 on the odd ones), rgba(0,0,0,.05) under the cursor
  *   and between rows.
  *
- * `density="compact"` packs the cells (12px / 8px, centred) for tables that
+ * A `table-fixed` table keeps the 8px sides it was measured for: its
+ * columns carry declared widths sized for them, and Workiz's 20px would clip
+ * a price or an ID; it still gets Workiz's 20px top and bottom.
+ *
+ * `density="compact"` packs the cells (12px / 8px) for tables that
  * live inside a dialog or a side panel — Workiz's stock modal is that dense —
  * and is what a table inside DialogContent / SheetContent gets by default.
  */
 type TableDensity = "workiz" | "compact"
 
 const TableDensityContext = React.createContext<TableDensity>("workiz")
+
+/** The table lays out by declared widths (`table-fixed`): cells keep narrow sides. */
+const TableFixedContext = React.createContext(false)
 
 /** Which part of the table a row sits in: header rows never hover. */
 const TableSectionContext = React.createContext<"head" | "body" | "foot">("body")
@@ -49,14 +59,17 @@ function Table({
 }) {
   const inherited = React.useContext(TableDensityContext)
   const d = density ?? inherited
+  const fixed = /(^|\s)table-fixed(\s|$)/.test(className ?? "")
   const table = (
     <TableDensityContext.Provider value={d}>
-      <table
-        data-slot="table"
-        data-density={d}
-        className={cn("w-full caption-bottom text-sm text-wz-strong", className)}
-        {...props}
-      />
+      <TableFixedContext.Provider value={fixed}>
+        <table
+          data-slot="table"
+          data-density={d}
+          className={cn("w-full caption-bottom text-sm text-wz-strong", className)}
+          {...props}
+        />
+      </TableFixedContext.Provider>
     </TableDensityContext.Provider>
   )
   if (!contained) return table
@@ -100,14 +113,14 @@ function TableBody({ className, ...props }: React.ComponentProps<"tbody">) {
 function TableFooter({ className, ...props }: React.ComponentProps<"tfoot">) {
   return (
     <TableSectionContext.Provider value="foot">
-    <tfoot
-      data-slot="table-footer"
-      className={cn(
-        "border-t border-input bg-muted font-medium [&>tr]:last:border-b-0",
-        className
-      )}
-      {...props}
-    />
+      <tfoot
+        data-slot="table-footer"
+        className={cn(
+          "border-t border-input bg-muted font-medium [&>tr]:last:border-b-0",
+          className
+        )}
+        {...props}
+      />
     </TableSectionContext.Provider>
   )
 }
@@ -163,12 +176,13 @@ function TableHead({
 
 function TableCell({ className, ...props }: React.ComponentProps<"td">) {
   const density = React.useContext(TableDensityContext)
+  const fixed = React.useContext(TableFixedContext)
   return (
     <td
       data-slot="table-cell"
       className={cn(
-        "border-r border-dotted border-table-border text-sm leading-4 whitespace-nowrap text-wz-strong last:border-r-0 [&:has([role=checkbox])]:pr-0",
-        density === "compact" ? "px-3 py-2 align-middle" : "p-5 align-top",
+        "border-r border-dotted border-table-border align-middle text-sm leading-4 whitespace-nowrap text-wz-strong last:border-r-0 [&:has([role=checkbox])]:pr-0",
+        density === "compact" ? "px-3 py-2" : fixed ? "px-2 py-5" : "p-5",
         className
       )}
       {...props}

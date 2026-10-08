@@ -66,12 +66,12 @@ describe("the table grid", () => {
 
   it("sizes the header and the cells the Workiz way", () => {
     // uikit_wz_estimates: th 41px, 14px/500 #404040, 10px in; td 20px all
-    // round, 14px/16px #404040, top-aligned.
+    // round, 14px/16px #404040 (centred: our rows mix avatars and chips).
     const container = grid();
     const head = container.querySelector("thead th")!.className.split(/\s+/);
     expect(head).toEqual(expect.arrayContaining(["h-[41px]", "px-2.5", "font-medium", "text-wz-strong"]));
     const cell = container.querySelector("tbody td")!.className.split(/\s+/);
-    expect(cell).toEqual(expect.arrayContaining(["p-5", "leading-4", "align-top", "text-wz-strong"]));
+    expect(cell).toEqual(expect.arrayContaining(["p-5", "leading-4", "align-middle", "text-wz-strong"]));
   });
 
   it("darkens a row under the cursor, over the zebra too (but not a filler row)", () => {
@@ -125,6 +125,23 @@ describe("a sorted column", () => {
     expect(sorted.className).toContain(bar);
     expect(plain.hasAttribute("aria-sort")).toBe(false);
     expect(plain.className).not.toContain("inset_0");
+  });
+});
+
+describe("a fixed-layout table", () => {
+  it("keeps the 8px sides its declared column widths were sized for, with Workiz's 20px rhythm", () => {
+    const { container } = render(
+      <Table className="table-fixed">
+        <TableBody>
+          <TableRow>
+            <TableCell>$748.00</TableCell>
+          </TableRow>
+        </TableBody>
+      </Table>,
+    );
+    const cell = container.querySelector("td")!.className.split(/\s+/);
+    expect(cell).toEqual(expect.arrayContaining(["px-2", "py-5"]));
+    expect(cell).not.toContain("p-5");
   });
 });
 

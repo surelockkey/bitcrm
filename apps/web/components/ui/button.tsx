@@ -44,9 +44,9 @@ const buttonVariants = cva(
         link: "h-auto rounded-none bg-transparent px-0 text-wz-link underline-offset-4 hover:underline disabled:text-wz-outline",
       },
       size: {
-        default: "h-8 gap-1 px-4 has-[>svg:first-child]:pl-3 has-[>svg:last-child]:pr-3",
+        default: "h-8 gap-1 px-4 has-data-[icon=inline-start]:pl-3 has-data-[icon=inline-end]:pr-3",
         xs: "h-6 gap-1 px-2.5 text-xs [&_svg:not([class*='size-'])]:size-3",
-        sm: "h-[26px] gap-1 px-4 has-[>svg:first-child]:pl-3 has-[>svg:last-child]:pr-3 [&_svg:not([class*='size-'])]:size-3.5",
+        sm: "h-[26px] gap-1 px-4 has-data-[icon=inline-start]:pl-3 has-data-[icon=inline-end]:pr-3 [&_svg:not([class*='size-'])]:size-3.5",
         lg: "h-10 gap-1 px-6",
         icon: "size-8 rounded-[8px]",
         "icon-xs": "size-6 rounded-[4px] [&_svg:not([class*='size-'])]:size-3.5",
