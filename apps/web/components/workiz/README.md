@@ -299,6 +299,38 @@ Spec with every measurement and capture name:
 - **`WzRail`** / **`WzRailButton`** / **`WzRailPanel`** — the right rail strip,
   its icons (red count, optional caption) and the 350px panel chrome.
 
+### List-page pieces (2026-10-08, agent `pg_contacts`, Clients list)
+
+Lifted from Workiz's Clients page (`pg_contacts_wz_*` captures); any list
+page can use them.
+
+- **`WzStatCard`** `value` `caption` `tone="ink"|"orange"|"red"` `label` — the
+  KPI card over a list (`._fCard`): 81px, 15px in, a 3px left rule (ink /
+  `#ffae00` / `#dd380d`), MUI elevation-2 shadow, the number 19.6px/25px 500
+  `#3e4b51` over a 14px `#999` caption, right-aligned. A figure, not a button
+  (Workiz's clickable cards open reports we may not have). Lay four out with
+  `grid grid-cols-4 gap-[31px] px-5`. **`WzStatCardSkeleton`** `tone` — the
+  same box with grey bars.
+- **`WzFilterSelect`** `groups={{id,title,chipPrefix,options:{value,label,colorClassName}[]}[]}`
+  `value={{group,value}[]}` `onChange` — "Filter results" for a list
+  (pg_contacts_wz_03/12): 38px react-select box, yellow ring when open, picks
+  as `WzFilterChip`s ("tag: PLATINUM ×"), clear-all ×, chevron; the menu lays
+  the groups side by side 8px under it (10.5px `#999` capitals, 32px rows,
+  coloured values as chips). Type to narrow, ↑/↓/Enter, Backspace drops the
+  last chip. The jobs list keeps its own richer control
+  (`features/deals/components/jobs-filter-control.tsx`). Helper:
+  `filterSelectGroups(groups, picked, query)`.
+- **`WzFieldsPanel`** `options={{id,label,icon}[]}` `used={ids}` `onSave(ids)`
+  `trigger?` — the "Visible fields" drawer for any list (pg_contacts_wz_08,
+  list_02): the strip's "Fields" button opens it; "Search fields", USED FIELDS
+  (drag handles, ticks, glyphs), UNSELECTED FIELDS, Cancel / yellow "Save
+  fields" (disabled with nothing ticked). Helpers: `fieldsPanelLists`,
+  `toggleField`, `moveField`. (The jobs list's `FieldsMenu` predates it.)
+- **`WzTableNoData`** `children="No Records Found"` — react-table's empty note
+  over a report grid's blank rows (pg_contacts_wz_05_search_empty): 15px/500
+  `#404040` on a white-70% band, 203px under the grid's top. Put it in the
+  grid's `relative` frame. (Jobs has the bigger `WzTableEmpty`.)
+
 ## Known differences from Workiz (deliberate or unmeasurable)
 - Sub-pixel: Workiz's own fractional layout makes some glyphs land ±1px
   differently from ours in screenshots (e.g. two Workiz selects with identical
