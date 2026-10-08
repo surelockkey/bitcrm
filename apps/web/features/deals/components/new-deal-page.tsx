@@ -1,73 +1,99 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
-import Link from "next/link";
+/**
+ * New Job (`/deals/new`), drawn as Workiz's `/root/newJob/` (new_01_empty,
+ * new_07_client_search, new_12_client_picked): "New Job", then Client
+ * Details | Service Location, Job Details | Scheduled and the custom-field
+ * cards in a two-column grid of 8px-cornered white cards on #fafcfc, "Need to
+ * track more fields?", and the yellow Create in the bar pinned underneath.
+ * Every box is the Workiz kit (`@/components/workiz`) wired to our data
+ * through `./workiz`; what Workiz lacks (our Company, the calls to link) is
+ * drawn the same way, where Workiz would put it.
+ */
+
+import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Building2, Loader2, X } from "lucide-react";
-import { ClientType, ContactSource, ContactType, DealPriority } from "@bitcrm/types";
-import type { Contact, CustomFieldValue } from "@bitcrm/types";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { ClientType, ContactSource, DealPriority } from "@bitcrm/types";
+import type { Address, Contact, CustomFieldValue } from "@bitcrm/types";
+import {
+  WzActionBar,
+  WzButton,
+  WzCard,
+  WzFieldError,
+  WzFieldGroup,
+  WzLink,
+  WzMultiSelect,
+  WzSuggestion,
+  WzSuggestionList,
+  WzTextField,
+} from "@/components/workiz";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  useContact,
-  useCreateContact,
-  useCreateCompany,
-  useUpdateContact,
-  useCompanyMap,
-} from "@/features/clients/hooks";
-import { addressInList, clientTypeLabel, contactName } from "@/features/clients/lib";
-import { CompanyPickerDialog } from "@/features/clients/components/company-picker-dialog";
-import { PhoneInput } from "@/components/ui/phone-input";
-import {
-  ClientSaveDialog,
-  type ClientEdits,
-  type ClientSaveDecision,
-} from "@/features/clients/components/client-change-dialog";
 import { toast } from "sonner";
 import { getApiErrorMessage } from "@/lib/api/errors";
+import { isValidPhone, normalizeExtension, MAX_EXTENSION_LENGTH } from "@/lib/phone";
+import { DEFAULT_TZ, nowScheduleDefault } from "@/lib/timezone";
+import { usePermissions } from "@/features/auth/use-permissions";
+import {
+  useCompanyMap,
+  useContact,
+  useContactByPhone,
+  useCreateCompany,
+  useCreateContact,
+  useUpdateContact,
+} from "@/features/clients/hooks";
+import { addressInList, contactName } from "@/features/clients/lib";
+import { ClientSaveDialog, type ClientSaveDecision } from "@/features/clients/components/client-change-dialog";
+import { useLinkCallToDeal } from "@/features/calls/hooks";
+import { CallsToLink } from "@/features/calls/components/calls-to-link";
+import { copyEstimateToJob } from "@/features/estimates/api";
+import { useBusinessProfiles } from "@/features/business-profiles/hooks";
+import { pickPrefillCompanyId } from "@/features/business-profiles/lib";
+import { useEffectiveServiceArea } from "@/features/service-areas/hooks";
+import { WzCustomFields } from "@/features/custom-fields/components/wz-custom-fields";
+import { useCustomFields } from "@/features/custom-fields/hooks";
+import { applicableFields, missingRequiredCustomFields } from "@/features/custom-fields/lib";
+import { useJobFieldSettings } from "@/features/job-field-settings/hooks";
+import { missingRequiredJobFields } from "@/features/job-field-settings/lib";
+import { useJobTags } from "@/features/job-tags/hooks";
 import { useCreateDeal } from "../hooks";
 import { useNewJobPageData } from "../new-job-page-data";
 import { updateDeal as updateDealApi, assignTechs as assignTechsApi } from "../api";
 import { requestAttachmentUpload, uploadAttachmentBytes } from "../attachments-api";
-import { useLinkCallToDeal } from "@/features/calls/hooks";
-import { copyEstimateToJob } from "@/features/estimates/api";
-import { CallsToLink } from "@/features/calls/components/calls-to-link";
 import { dealJobSchema, type DealJobValues } from "../schemas";
-import { JobTypeSelect } from "@/features/job-types/components/job-type-select";
-import { JobSourceSelect } from "@/features/job-sources/components/job-source-select";
-import { BusinessProfileSelect } from "@/features/business-profiles/components/business-profile-select";
-import { useBusinessProfiles } from "@/features/business-profiles/hooks";
-import { pickPrefillCompanyId } from "@/features/business-profiles/lib";
-import { ExternalCompanySelect } from "@/features/external-companies/components/external-company-select";
-import { JobTagCombobox } from "@/features/job-tags/components/job-tag-combobox";
-import { ServiceAreaField } from "@/features/service-areas/components/service-area-field";
-import { useEffectiveServiceArea } from "@/features/service-areas/hooks";
-import { ClientPicker, type ClientDraft } from "./client-picker";
-import { DealAddressFields } from "./deal-address-fields";
-import { ScheduledBlock } from "./scheduled-block";
-import { TechSuggestions } from "./tech-suggestions";
-import { DEFAULT_TZ, nowScheduleDefault } from "@/lib/timezone";
-import { CustomFieldsSection } from "@/features/custom-fields/components/custom-fields-section";
-import { useCustomFields } from "@/features/custom-fields/hooks";
-import { useJobFieldSettings } from "@/features/job-field-settings/hooks";
-import { missingRequiredJobFields } from "@/features/job-field-settings/lib";
+import { noteToText } from "../note-html";
 import {
-  applicableFields,
-  missingRequiredCustomFields,
-  workizOrderedGroups,
-} from "@/features/custom-fields/lib";
+  MAX_CLIENT_PHONES,
+  clientFormFromContact,
+  emptyClientForm,
+  jobClientType,
+  matchCompany,
+  newContactBody,
+  pickedClientChanges,
+  type ClientForm,
+  type ClientPhoneRow,
+} from "../new-job-client";
+import { JobNoteEditor } from "./job-note-editor";
+import { useUnsavedChanges } from "./use-unsaved-changes";
+import {
+  WzBusinessProfileSelect,
+  WzCountrySelect,
+  WzExternalCompanySelect,
+  WzJobSourceSelect,
+  WzJobTypeSelect,
+  WzScheduleBlock,
+  WzServiceAreaSelect,
+  WzStateSelect,
+  WzTeamSelect,
+  WzViewSchedule,
+  countryOf,
+} from "./workiz";
+import { WzAddressField } from "./workiz/address-field";
+import { WzClientNameField } from "./workiz/client-name-field";
+import { WzPhoneField } from "./workiz/phone-field";
+
+const REQUIRED = "Required field";
 
 export function NewDealPage() {
   const params = useSearchParams();
@@ -88,28 +114,7 @@ export function NewDealPage() {
   // …and a company (business profile) from the number / call flow.
   const prefillCompanyId = params.get("companyId") ?? undefined;
 
-  const [callsToLink, setCallsToLink] = useState<string[]>(
-    callSid ? [callSid] : [],
-  );
-  // Tags live at the page top (in the header), above the form.
-  const [tagIds, setTagIds] = useState<string[]>([]);
-
-  // The client is derived, not assigned during render: a call arrives with one
-  // already resolved, and writing that into state while rendering is what React
-  // warns about. `cleared` lets the user drop it and pick somebody else.
-  const [chosen, setChosen] = useState<Contact | null>(null);
-  const [cleared, setCleared] = useState(false);
-  // A client created on this page needs no questions asked about them on save.
-  // Kept here rather than in the form, which remounts whenever the client changes.
-  const [createdId, setCreatedId] = useState<string | null>(null);
-  const prefilled = useContact(!cleared && prefillContactId ? prefillContactId : "");
-  const contact = chosen ?? (cleared ? null : (prefilled.data ?? null));
-
-  const setContact = (c: Contact | null, created = false) => {
-    setChosen(c);
-    setCleared(!c);
-    setCreatedId(created && c ? c.id : null);
-  };
+  const prefilled = useContact(prefillContactId ?? "");
 
   // Everything the form shows when it opens — its catalogs, and what the link
   // brought (the client, their area and team, the call) — asked for at once;
@@ -122,42 +127,31 @@ export function NewDealPage() {
   });
 
   return (
-    <div className="flex flex-1 flex-col overflow-hidden">
-      <div className="flex flex-wrap items-center gap-3 border-b px-6 py-4">
-        <h1 className="text-base font-semibold">New deal</h1>
-        <span className="text-sm text-muted-foreground">· everything on one page</span>
-        <span className="flex-1" />
-        {/* Tags live up here so they can be set before diving into the form. */}
-        <JobTagCombobox value={tagIds} onChange={setTagIds} />
-      </div>
-
-      <div className="flex flex-1 flex-col overflow-hidden">
-        {/* Keyed on the client so the form takes fresh defaults — chiefly their
-            address — when one resolves or is swapped, instead of writing to the
-            form from render. Nothing typed is lost: picking a client is the
-            first step, before any of the job fields exist. */}
-        {page.ready ? (
-          <DealForm
-            key={contact?.id ?? "no-client"}
-            contact={contact}
-            onContact={setContact}
-            createdHere={!!contact && contact.id === createdId}
-            prefillPhone={prefillPhone}
-            prefillSourceId={prefillSourceId}
-            prefillCompanyId={prefillCompanyId}
-            prefillAddress={prefillAddress}
-            then={then}
-            callSid={callSid}
-            callsToLink={callsToLink}
-            onCallsToLink={setCallsToLink}
-            tagIds={tagIds}
-          />
-        ) : (
-          <div className="mx-auto w-full max-w-5xl px-6 py-6">
-            <Skeleton className="h-64 w-full" />
+    // Workiz's page under the cards is #fafcfc (new_01_empty), a one-off.
+    <div className="flex flex-1 flex-col overflow-hidden bg-[#fafcfc]">
+      {page.ready ? (
+        <DealForm
+          initialContact={prefilled.data ?? null}
+          prefillPhone={prefillPhone}
+          prefillSourceId={prefillSourceId}
+          prefillCompanyId={prefillCompanyId}
+          prefillAddress={prefillAddress}
+          then={then}
+          callSid={callSid}
+        />
+      ) : (
+        <div className="mx-auto w-full max-w-[1400px] px-9">
+          <div className="mt-[14px] flex h-[88px] items-center">
+            <Skeleton className="h-6 w-40" />
           </div>
-        )}
-      </div>
+          <div className="grid grid-cols-2 gap-[30px]">
+            <Skeleton className="h-[331px] rounded-[8px]" />
+            <Skeleton className="h-[331px] rounded-[8px]" />
+            <Skeleton className="h-[524px] rounded-[8px]" />
+            <Skeleton className="h-[524px] rounded-[8px]" />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -166,41 +160,46 @@ export function NewDealPage() {
  * Where a new job starts out: the client's address the link points at
  * (`address=1`), their first one by default, or none for `address=new`.
  */
-function prefilledAddress(contact: Contact | null, which?: string | null) {
+function prefilledAddress(contact: Contact | null, which?: string | null): Address | undefined {
   if (which === "new") return undefined;
   return contact?.addresses?.[Number(which ?? 0) || 0];
 }
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    // h-full: cards in a grid row stretch to the tallest neighbour.
-    <div className="h-full rounded-xl border bg-card p-4">
-      <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-        {title}<span className="h-px flex-1 bg-border" />
-      </div>
-      <div className="space-y-3">{children}</div>
-    </div>
-  );
+/** A client's address as the job's service location. */
+function jobAddress(a: Address | undefined): DealJobValues["address"] {
+  return a
+    ? {
+        street: a.street,
+        unit: a.unit ?? "",
+        city: a.city,
+        state: a.state,
+        zip: a.zip,
+        ...(a.country ? { country: a.country } : {}),
+        lat: a.lat,
+        lng: a.lng,
+      }
+    : { street: "", unit: "", city: "", state: "", zip: "" };
 }
 
+/** An empty rich-text note ("<p></p>") is no note. */
+function cleanNote(html: string): string {
+  return noteToText(html).trim() ? html : "";
+}
+
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+type Missing = { labels: string[]; ids: string[]; customIds: string[] };
+
 function DealForm({
-  contact,
-  onContact,
-  createdHere,
+  initialContact,
   prefillPhone,
   prefillSourceId,
   prefillCompanyId,
   prefillAddress,
   then,
   callSid,
-  callsToLink,
-  onCallsToLink,
-  tagIds,
 }: {
-  contact: Contact | null;
-  onContact: (c: Contact | null, created?: boolean) => void;
-  /** The client was added on this page, so their details are already right. */
-  createdHere: boolean;
+  initialContact: Contact | null;
   prefillPhone?: string;
   /** Job source the referring call was attributed to. */
   prefillSourceId?: string;
@@ -208,100 +207,66 @@ function DealForm({
   prefillCompanyId?: string;
   /** Which of the client's addresses the job is at (`"1"`), or `"new"` for none. */
   prefillAddress?: string | null;
-  /** Where to go once the job exists: `estimate` or `invoice` (the client card's Create new). */
+  /** Where to go once the job exists: `estimate`, `invoice` or `copy-estimate:<id>`. */
   then?: string | null;
   callSid?: string;
-  callsToLink: string[];
-  onCallsToLink: (sids: string[]) => void;
-  /** Tags picked in the page header, sent with the job on create. */
-  tagIds: string[];
 }) {
   const router = useRouter();
+  const { can } = usePermissions();
   const createDeal = useCreateDeal();
   const linkCall = useLinkCallToDeal();
-  // A client the call already resolved to: adopt it so the client step is
-  // answered before the page even renders.
+  const createContact = useCreateContact();
   const updateContact = useUpdateContact();
-  const { map: companyMap } = useCompanyMap();
+  const createCompany = useCreateCompany();
+  const { map: companyMap, companies } = useCompanyMap();
   const { data: customFieldDefs } = useCustomFields();
   const { data: fieldSettings } = useJobFieldSettings();
+  const required = (id: string) => Boolean(fieldSettings?.requiredFields[id]);
 
-  /** Red asterisk for a field the admin marked required (Settings → Job Fields). */
-  const req = (id: string) =>
-    fieldSettings?.requiredFields[id] ? <span className="text-destructive">*</span> : null;
+  /* ------------------------------------------------------------ the client */
 
-  // Custom-field answers live outside the zod form: their applicability and
-  // required-ness are data-driven from the catalog, so they're validated inline.
-  const [customFields, setCustomFields] = useState<Record<string, CustomFieldValue>>({});
-  /**
-   * Everything a blocked Create left empty, gathered in ONE pass — the person
-   * fixes the whole list at once instead of discovering it a field at a time.
-   * `builtinIds`/`customIds` mark the fields themselves; `labels` feed the
-   * always-visible summary in the footer.
-   */
-  const [missing, setMissing] = useState<{
-    labels: string[];
-    builtinIds: string[];
-    customIds: string[];
-  } | null>(null);
-  // Files picked for file-type custom fields before the job exists (up to 5
-  // per field). Held in memory and uploaded to S3 right after create.
-  // Technicians chosen on the form, assigned to the job right after it's made.
-  const [assignTechIds, setAssignTechIds] = useState<string[]>([]);
-  const [pendingFiles, setPendingFiles] = useState<Record<string, File[]>>({});
-  const setPendingFilesFor = (fieldId: string, files: File[]) =>
-    setPendingFiles((prev) => {
-      const next = { ...prev };
-      if (files.length) next[fieldId] = files;
-      else delete next[fieldId];
-      return next;
-    });
-  const createContact = useCreateContact();
+  const titleOf = (c: Contact | null) => (c?.companyId ? companyMap.get(c.companyId)?.title : undefined);
+  const [contact, setContact] = useState<Contact | null>(initialContact);
+  // A client created on this page needs no questions asked about them on save.
+  const [createdId, setCreatedId] = useState<string | null>(null);
+  const [clientForm, setClientForm] = useState<ClientForm>(() =>
+    initialContact ? clientFormFromContact(initialContact, titleOf(initialContact)) : emptyClientForm(prefillPhone),
+  );
+  const [initialClient] = useState(() => JSON.stringify(clientForm));
+  const setClient = (patch: Partial<ClientForm>) => setClientForm((f) => ({ ...f, ...patch }));
+  const setPhone = (i: number, patch: Partial<ClientPhoneRow>) =>
+    setClientForm((f) => ({ ...f, phones: f.phones.map((r, j) => (j === i ? { ...r, ...patch } : r)) }));
 
-  // New-client details typed into the picker, created together with the job.
-  const [clientDraft, setClientDraft] = useState<ClientDraft | null>(null);
+  // An unknown number that already belongs to a client: offer them, and adopt
+  // them on Create rather than making a twin.
+  const typedPhone = clientForm.phones[0]?.phone ?? "";
+  const owner = useContactByPhone(typedPhone, !contact && isValidPhone(typedPhone));
+  const phoneOwner = !contact ? (owner.data ?? null) : null;
 
-  // Client edits, keyed by who they're for — swapping client drops them
-  // without an effect to reset anything.
-  const [draft, setDraft] = useState<{ id: string; edits: ClientEdits } | null>(null);
-  const clientEdits: ClientEdits =
-    draft && draft.id === contact?.id
-      ? draft.edits
-      : {
-          firstName: contact?.firstName ?? "",
-          lastName: contact?.lastName ?? "",
-          phone: contact?.phones[0] ?? "",
-        };
-  const onClientEdits = (edits: ClientEdits) => {
-    if (contact) setDraft({ id: contact.id, edits });
-  };
+  // The company a typed "Company name" means, and what kind of client that makes.
+  const companyTitle = clientForm.company.trim();
+  const matchedCompany = matchCompany(companies, companyTitle);
+  const contactCompanyTitle = titleOf(contact) ?? "";
+  const clientType = jobClientType(
+    matchedCompany ?? (contact?.companyId ? companyMap.get(contact.companyId) : undefined),
+    companyTitle,
+  );
 
   /** Job values held back until the save-time questions are answered. */
-  const [pendingSave, setPendingSave] = useState<DealJobValues | null>(null);
+  const [pendingSave, setPendingSave] = useState<{ values: DealJobValues; companyId?: string } | null>(null);
+
+  /* --------------------------------------------------------------- the job */
 
   // Prefill the schedule with "now" in the business timezone (Connecticut).
   const scheduleNow = useMemo(() => nowScheduleDefault(), []);
-
   const form = useForm<DealJobValues>({
     resolver: zodResolver(dealJobSchema),
     defaultValues: {
       clientType: ClientType.RESIDENTIAL,
       jobTypeId: "",
+      jobName: "",
       serviceArea: "",
-      address: (() => {
-        const picked = prefilledAddress(contact, prefillAddress);
-        return picked
-          ? {
-              street: picked.street,
-              unit: picked.unit ?? "",
-              city: picked.city,
-              state: picked.state,
-              zip: picked.zip,
-              lat: picked.lat,
-              lng: picked.lng,
-            }
-          : { street: "", unit: "", city: "", state: "", zip: "" };
-      })(),
+      address: jobAddress(prefilledAddress(initialContact, prefillAddress)),
       scheduledDate: scheduleNow.date,
       scheduledEndDate: scheduleNow.date,
       scheduledTimeSlot: `${scheduleNow.start}-${scheduleNow.end}`,
@@ -314,235 +279,276 @@ function DealForm({
       tagIds: [],
     },
   });
-  const err = form.formState.errors;
   const v = useWatch({ control: form.control }) as DealJobValues;
+  const address = v.address ?? jobAddress(undefined);
+  const country = countryOf(address);
+  const setAddress = (patch: Partial<DealJobValues["address"]>) =>
+    form.setValue("address", { ...form.getValues("address"), ...patch }, { shouldDirty: true });
+
   // Manual pick > containing area > nearest fallback — one answer for the
   // field, the create payload, and the schedule's timezone alike.
-  const effectiveArea = useEffectiveServiceArea(
-    v.address?.lat,
-    v.address?.lng,
-    v.serviceAreaId || undefined,
-  );
+  const effectiveArea = useEffectiveServiceArea(address.lat, address.lng, v.serviceAreaId || undefined);
   const jobTz = effectiveArea.area?.timezone ?? DEFAULT_TZ;
+
+  // Workiz starts the schedule at the next quarter hour where the job is
+  // ("It's 7:53 AM in Princeton" → 08:00–09:00): until somebody touches it,
+  // the default follows the job's timezone as the address settles it.
+  const [scheduleTouched, setScheduleTouched] = useState(false);
+  const [defaultTz, setDefaultTz] = useState(DEFAULT_TZ);
+  useEffect(() => {
+    if (scheduleTouched || jobTz === defaultTz) return;
+    const d = nowScheduleDefault(jobTz);
+    form.setValue("scheduledDate", d.date);
+    form.setValue("scheduledEndDate", d.date);
+    form.setValue("scheduledTimeSlot", `${d.start}-${d.end}`);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- remembers which zone the default was made in
+    setDefaultTz(jobTz);
+  }, [jobTz, scheduleTouched, defaultTz, form]);
+  const verified = address.lat !== undefined && address.lng !== undefined;
 
   // Company: a hand pick sticks; until then it follows ?companyId= → the
   // effective area's default company → the account default.
-  const { data: companies } = useBusinessProfiles();
+  const { data: businessProfiles } = useBusinessProfiles();
   const [companyTouched, setCompanyTouched] = useState(false);
-  const companyId = companyTouched
+  const businessProfileId = companyTouched
     ? v.businessProfileId || undefined
     : pickPrefillCompanyId({
         queryId: prefillCompanyId,
         areaDefaultId: effectiveArea.area?.defaultBusinessProfileId,
-        companies,
+        companies: businessProfiles,
       });
 
-  /** Details differ from what's on file. */
-  const clientChanged =
-    !!contact &&
-    (clientEdits.firstName.trim() !== contact.firstName ||
-      clientEdits.lastName.trim() !== contact.lastName ||
-      (!!clientEdits.phone && clientEdits.phone !== contact.phones[0]));
+  // Answers live outside the zod form: applicability and required-ness are
+  // data-driven from the catalog. Files picked before the job exists are held
+  // here and uploaded right after create; techs are assigned then too.
+  const [customFields, setCustomFields] = useState<Record<string, CustomFieldValue>>({});
+  const [pendingFiles, setPendingFiles] = useState<Record<string, File[]>>({});
+  const setPendingFilesFor = (fieldId: string, files: File[]) =>
+    setPendingFiles((prev) => {
+      const next = { ...prev };
+      if (files.length) next[fieldId] = files;
+      else delete next[fieldId];
+      return next;
+    });
+  const [assignTechIds, setAssignTechIds] = useState<string[]>([]);
+  const [tagIds, setTagIds] = useState<string[]>([]);
+  const { data: jobTags } = useJobTags();
+  const [callsToLink, setCallsToLink] = useState<string[]>(callSid ? [callSid] : []);
+
+  /* ------------------------------------------------------- what is missing */
 
   /**
-   * Every reason a Create can't go through, in display order: the client,
-   * zod-required form fields, admin-required built-ins, required custom
-   * fields. Null when nothing blocks. The backend double-checks the
-   * admin-required set with a 422 naming the fields.
+   * Everything a blocked Create left empty, gathered in ONE pass: the
+   * client, the address, the job type, the admin-required built-ins and the
+   * required custom fields. Each field says "Required field" under itself
+   * (Workiz's words) and the first one is brought into view.
    */
-  const collectMissing = (values: DealJobValues) => {
+  const [missing, setMissing] = useState<Missing | null>(null);
+  const collectMissing = (values: DealJobValues): Missing | null => {
     const labels: string[] = [];
-    if (!contact && !clientDraft) labels.push("Client");
-    if (!values.jobTypeId) labels.push("Job type");
-    if (!values.address?.street?.trim()) labels.push("Service address");
+    const ids: string[] = [];
+    const mark = (id: string, label?: string) => {
+      ids.push(id);
+      if (label && !labels.includes(label)) labels.push(label);
+    };
+    if (!contact && !clientForm.name.trim() && !phoneOwner) mark("client", "Client");
+    const phoneErr = clientForm.phones.some((r) => r.phone && !isValidPhone(r.phone));
+    if (phoneErr) mark("phoneInvalid", "Client phone");
+    if (clientForm.email.trim() && !EMAIL.test(clientForm.email.trim())) mark("emailInvalid", "Client email");
+    if (!values.jobTypeId) mark("jobType", "Job type");
+    const a = values.address;
+    if (!a?.street?.trim()) mark("address", "Service address");
+    if (!a?.city?.trim()) mark("city", "Service address");
+    if (!a?.state?.trim()) mark("state", "Service address");
+    if (!a?.zip?.trim()) mark("zip", "Service address");
 
     // A file held for post-create upload counts as answered.
-    const effectiveCustomFields: Record<string, CustomFieldValue> = {
+    const answered: Record<string, CustomFieldValue> = {
       ...customFields,
       ...Object.fromEntries(Object.keys(pendingFiles).map((id) => [id, "pending"])),
     };
     const builtin = missingRequiredJobFields(fieldSettings, {
-      values,
-      clientPhone: contact?.phones[0] ?? clientDraft?.phone,
-      clientEmail: contact?.emails[0] ?? clientDraft?.email,
-    }).filter((f) => !labels.includes(f.label));
-    const custom = missingRequiredCustomFields(
-      customFieldDefs,
-      values.jobTypeId,
-      effectiveCustomFields,
-    );
+      values: { ...values, tagIds, serviceArea: effectiveArea.area?.name ?? "" },
+      clientPhone: clientForm.phones[0]?.phone || contact?.phones[0],
+      clientEmail: clientForm.email.trim() || contact?.emails[0],
+    });
+    for (const f of builtin) mark(f.id, f.label);
+    const custom = missingRequiredCustomFields(customFieldDefs, values.jobTypeId, answered);
+    for (const f of custom) labels.push(f.name);
 
-    labels.push(...builtin.map((f) => f.label), ...custom.map((f) => f.name));
-    if (!labels.length) return null;
-    return {
-      labels,
-      builtinIds: builtin.map((f) => f.id),
-      customIds: custom.map((f) => f.id),
-    };
+    if (!ids.length && !custom.length) return null;
+    return { labels, ids, customIds: custom.map((f) => f.id) };
   };
+  // Re-judged every render once a Create has been blocked, so each mark
+  // clears the moment its field is actually filled.
+  const missingNow = missing ? collectMissing(v) : null;
+  const errorFor = (id: string) => (missingNow?.ids.includes(id) ? REQUIRED : undefined);
 
-  /** Show what's missing and bring the first marked field into view. */
-  const blockOn = (report: NonNullable<ReturnType<typeof collectMissing>>) => {
+  const blockOn = (report: Missing) => {
     setMissing(report);
     requestAnimationFrame(() => {
-      document
-        .querySelector('[data-missing="true"], [data-missing]')
-        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+      document.querySelector('[aria-invalid="true"], [data-missing]')?.scrollIntoView({ behavior: "smooth", block: "center" });
     });
   };
 
-  // Re-judged every render once a Create has been blocked, so each mark
-  // (and the footer list) clears the moment its field is actually filled.
-  const missingNow = missing ? collectMissing(v) : null;
+  /* ---------------------------------------------------------------- saving */
+
+  const [created, setCreated] = useState(false);
+  const busy = createDeal.isPending || createContact.isPending || createCompany.isPending || updateContact.isPending;
+
+  const dirty =
+    !created &&
+    (form.formState.isDirty ||
+      JSON.stringify(clientForm) !== initialClient ||
+      contact?.id !== initialContact?.id ||
+      Object.keys(customFields).length > 0 ||
+      Object.keys(pendingFiles).length > 0 ||
+      assignTechIds.length > 0);
+  const { confirm } = useUnsavedChanges(dirty);
+
+  const applicable = (values: DealJobValues) => {
+    // Only answers for fields that apply to the chosen job type — switching
+    // type mid-form can leave answers the backend would (rightly) refuse.
+    const ids = new Set(applicableFields(customFieldDefs, values.jobTypeId).map((f) => f.id));
+    return Object.fromEntries(Object.entries(customFields).filter(([id]) => ids.has(id)));
+  };
+
+  /**
+   * The CRM company for the typed "Company name": the client's own when it
+   * is unchanged, a matching one, or a new one created now (Workiz's company
+   * name is free text; ours is a record).
+   */
+  const resolveCompany = (done: (companyId: string | undefined) => void) => {
+    if (!companyTitle) return done(undefined);
+    if (contact?.companyId && companyTitle.toLowerCase() === contactCompanyTitle.trim().toLowerCase()) {
+      return done(contact.companyId);
+    }
+    if (matchedCompany) return done(matchedCompany.id);
+    createCompany.mutate(
+      { title: companyTitle, clientType: ClientType.COMMERCIAL, phones: [], emails: [] },
+      { onSuccess: (co) => done(co.id) },
+    );
+  };
 
   const submit = form.handleSubmit(
     (values) => {
-    const report = collectMissing(values);
-    if (report) {
-      blockOn(report);
-      return;
-    }
-    setMissing(null);
-    // Only send answers for fields that apply to the chosen job type — switching
-    // job type mid-form can leave answers for now-inapplicable fields, which the
-    // backend would (correctly) reject.
-    const applicableIds = new Set(applicableFields(customFieldDefs, values.jobTypeId).map((f) => f.id));
-    const cleanCustomFields = Object.fromEntries(
-      Object.entries(customFields).filter(([id]) => applicableIds.has(id)),
-    );
+      const report = collectMissing(values);
+      if (report) return blockOn(report);
+      setMissing(null);
+      const cf = applicable(values);
 
-    // Fresh details typed straight into the picker: adopt an exact-phone match
-    // instead of duplicating them, otherwise create the client (with the job's
-    // address as their first one) and then the job under them — one click.
-    if (!contact && clientDraft) {
-      if (clientDraft.existing) {
-        onContact(clientDraft.existing, false);
-        createJob(values, cleanCustomFields, clientDraft.existing);
-      } else {
-        createContact.mutate(
-          {
-            firstName: clientDraft.firstName,
-            lastName: clientDraft.lastName,
-            phones: clientDraft.phone ? [clientDraft.phone] : [],
-            phoneExtensions:
-              clientDraft.phone && clientDraft.phoneExt
-                ? { [clientDraft.phone]: clientDraft.phoneExt }
-                : undefined,
-            emails: clientDraft.email ? [clientDraft.email] : [],
-            addresses: values.address?.street ? [values.address] : [],
-            companyId: clientDraft.companyId,
-            type: ContactType.RESIDENTIAL,
-            source: ContactSource.PHONE_CALL,
-          },
-          {
+      resolveCompany((companyId) => {
+        if (!contact) {
+          // A number that already belongs to a client adopts them instead of
+          // duplicating them; anybody else is created with the job's address
+          // as their first, and the job under them — one click.
+          if (phoneOwner) {
+            setContact(phoneOwner);
+            createJob(values, cf, phoneOwner);
+            return;
+          }
+          createContact.mutate(newContactBody(clientForm, { companyId, address: values.address }), {
             onSuccess: (c) => {
-              onContact(c, true);
-              createJob(values, cleanCustomFields, c);
+              setContact(c);
+              setCreatedId(c.id);
+              createJob(values, cf, c);
             },
-          },
-        );
-      }
-      return;
-    }
-    if (!contact) return;
+          });
+          return;
+        }
 
-    // A client picked up mid-call is often "whoever answered this number", so
-    // an edit is as likely to mean a new person as a typo. Same for an address
-    // the client doesn't have: it might be a second property or a one-off site.
-    // Ask once, here, rather than guessing — except for a client created on
-    // this page, whose details are by definition already correct and whose
-    // first address is simply theirs.
-    const asksAboutClient = clientChanged && !createdHere;
-    const asksAboutAddress =
-      !createdHere && !addressInList(values.address, contact.addresses);
-    if (asksAboutClient || asksAboutAddress) {
-      setPendingSave(values);
-      return;
-    }
-    finish(values, cleanCustomFields, { client: "update", address: "save" });
+        // A client picked up mid-call is often "whoever answered this
+        // number", so a new name or number is as likely a new person as a
+        // typo; an address they don't have may be a second property or a
+        // one-off. Ask once — except for a client created on this page.
+        const createdHere = contact.id === createdId;
+        const changes = pickedClientChanges(contact, clientForm, companyId);
+        const asksAboutClient = changes.asks && !createdHere;
+        const asksAboutAddress = !createdHere && !addressInList(values.address, contact.addresses);
+        if (asksAboutClient || asksAboutAddress) {
+          setPendingSave({ values, companyId });
+          return;
+        }
+        finish(values, cf, { client: "update", address: "save" }, companyId);
+      });
     },
-    // Zod said no (job type / address) — still show the one combined list,
-    // built from the current form values, instead of scattered field errors
-    // being the only clue.
+    // Zod said no (job type / address) — still show every missing field.
     () => {
       const report = collectMissing(form.getValues() as DealJobValues);
       if (report) blockOn(report);
     },
   );
 
-  /**
-   * Everything the save does once the questions (if any) are answered:
-   * settle the client, then create the job.
-   */
+  /** Settle the picked client (as answered), then create the job. */
   const finish = (
     values: DealJobValues,
-    cleanCustomFields: Record<string, CustomFieldValue>,
+    cf: Record<string, CustomFieldValue>,
     decision: ClientSaveDecision,
+    companyId: string | undefined,
   ) => {
     if (!contact) return;
-    const saveAddress =
-      decision.address === "save" &&
-      !addressInList(values.address, contact.addresses);
+    const changes = pickedClientChanges(contact, clientForm, companyId);
+    const clientChanged = changes.asks && contact.id !== createdId;
+    const saveAddress = decision.address === "save" && !addressInList(values.address, contact.addresses);
 
-    // "A different client" makes a new record and takes the number with it, so
-    // future calls from it resolve to whoever the job is actually for. The old
-    // client keeps their history untouched.
+    // "A different client" makes a new record and takes the number with it,
+    // so future calls from it resolve to whoever the job is actually for. The
+    // old client keeps their history untouched.
     if (clientChanged && decision.client === "create") {
       createContact.mutate(
         {
-          firstName: clientEdits.firstName.trim(),
-          lastName: clientEdits.lastName.trim(),
-          phones: [clientEdits.phone || contact.phones[0]].filter(Boolean),
-          emails: [],
+          firstName: changes.edits.firstName.trim(),
+          lastName: changes.edits.lastName.trim(),
+          phones: [changes.edits.phone || contact.phones[0]].filter(Boolean),
+          emails: clientForm.email.trim() ? [clientForm.email.trim()] : [],
           addresses: saveAddress ? [values.address] : [],
           type: contact.type,
-          companyId: contact.companyId,
+          companyId: companyId ?? contact.companyId,
           source: ContactSource.PHONE_CALL,
           reassignPhones: true,
         },
-        { onSuccess: (c) => createJob(values, cleanCustomFields, c) },
+        { onSuccess: (c) => createJob(values, cf, c) },
       );
       return;
     }
 
-    if (clientChanged || saveAddress) {
+    if (clientChanged || saveAddress || changes.extras) {
+      const extras = changes.extras;
       updateContact.mutate({
         id: contact.id,
         body: {
-          firstName: clientChanged ? clientEdits.firstName.trim() : contact.firstName,
-          lastName: clientChanged ? clientEdits.lastName.trim() : contact.lastName,
-          phones: nextPhones(contact, clientChanged ? clientEdits.phone : ""),
-          emails: contact.emails,
-          addresses: saveAddress
-            ? [...contact.addresses, values.address]
-            : contact.addresses,
-          companyId: contact.companyId,
-          type: contact.type,
+          firstName: clientChanged ? changes.edits.firstName : contact.firstName,
+          lastName: clientChanged ? changes.edits.lastName : contact.lastName,
+          phones: extras?.phones ?? contact.phones,
+          phoneExtensions: extras ? extras.phoneExtensions : contact.phoneExtensions,
+          emails: extras?.emails ?? contact.emails,
+          addresses: saveAddress ? [...contact.addresses, values.address] : contact.addresses,
+          companyId: extras ? extras.companyId : contact.companyId,
+          type: extras?.type ?? contact.type,
           title: contact.title,
           notes: contact.notes,
         },
       });
     }
-    createJob(values, cleanCustomFields, contact);
+    createJob(values, cf, contact);
   };
 
-  const createJob = (
-    values: DealJobValues,
-    cleanCustomFields: Record<string, CustomFieldValue>,
-    contact: Contact,
-  ) => {
+  const createJob = (values: DealJobValues, cf: Record<string, CustomFieldValue>, client: Contact) => {
     createDeal.mutate(
       {
-        contactId: contact.id,
-        companyId: contact.companyId,
+        contactId: client.id,
+        companyId: client.companyId,
         ...values,
+        clientType,
+        jobName: values.jobName?.trim() || undefined,
+        address: { ...values.address, country: countryOf(values.address) },
         tagIds,
         scheduledDate: values.scheduledDate || undefined,
-        scheduledEndDate: values.scheduledEndDate || undefined,
+        scheduledEndDate: values.scheduledDate ? values.scheduledEndDate || undefined : undefined,
         scheduledTimeSlot: values.allDay ? undefined : values.scheduledTimeSlot || undefined,
         allDay: values.allDay || undefined,
         sourceId: values.sourceId || undefined,
-        businessProfileId: companyId,
+        businessProfileId,
         // Manual pick or the nearest-area fallback; absent, the backend
         // resolves from the address — its answer is the authoritative one.
         serviceAreaId: effectiveArea.submitId,
@@ -550,19 +556,14 @@ function DealForm({
         notes: values.notes || undefined,
         poNumber: values.poNumber || undefined,
         workOrderId: values.workOrderId || undefined,
-        customFields: Object.keys(cleanCustomFields).length ? cleanCustomFields : undefined,
+        customFields: Object.keys(cf).length ? cf : undefined,
       },
       {
         onSuccess: (deal) => {
-          // Attach whichever calls are still switched on. Fire-and-forget:
-          // the job exists either way, and the link can be added from the
-          // call afterwards.
-          for (const sid of callsToLink) {
-            linkCall.mutate({ sid, dealId: deal.id });
-          }
-          // Assign the technicians chosen on the form to the fresh job.
-          // Fire-and-forget: the job exists regardless, and the roster can be
-          // fixed on the job page if this ever fails.
+          setCreated(true);
+          // Fire-and-forget: the job exists either way, and a call or a tech
+          // can be added on the job page if one of these ever fails.
+          for (const sid of callsToLink) linkCall.mutate({ sid, dealId: deal.id });
           if (assignTechIds.length) {
             void assignTechsApi(deal.id, assignTechIds).catch((e) =>
               toast.error(`Job created, but assigning technicians failed (${getApiErrorMessage(e)}).`),
@@ -570,14 +571,13 @@ function DealForm({
           }
           void (async () => {
             // Files picked on the form upload now, under the fresh job, and
-            // land in their custom fields. A failure doesn't lose the job —
-            // the file can be re-attached on the job page.
+            // land in their custom fields.
             const entries = Object.entries(pendingFiles);
             if (entries.length) {
               try {
                 const fileValues: Record<string, CustomFieldValue> = {};
                 for (const [fieldId, files] of entries) {
-                  const fieldIds: string[] = [];
+                  const ids: string[] = [];
                   for (const file of files) {
                     const ticket = await requestAttachmentUpload(deal.id, {
                       fileName: file.name,
@@ -585,17 +585,13 @@ function DealForm({
                       size: file.size,
                     });
                     await uploadAttachmentBytes(ticket.uploadUrl, file, ticket.headers);
-                    fieldIds.push(ticket.id);
+                    ids.push(ticket.id);
                   }
-                  fileValues[fieldId] = fieldIds;
+                  fileValues[fieldId] = ids;
                 }
-                await updateDealApi(deal.id, {
-                  customFields: { ...cleanCustomFields, ...fileValues },
-                });
+                await updateDealApi(deal.id, { customFields: { ...cf, ...fileValues } });
               } catch (e) {
-                toast.error(
-                  `Job created, but a file failed to upload (${getApiErrorMessage(e)}). Attach it on the job page.`,
-                );
+                toast.error(`Job created, but a file failed to upload (${getApiErrorMessage(e)}). Attach it on the job page.`);
               }
             }
             // Workiz "Copy to job" from a client estimate: the new job gets
@@ -609,7 +605,6 @@ function DealForm({
               } catch (e) {
                 toast.error(`Job created, but the estimate could not be copied onto it (${getApiErrorMessage(e)}).`);
               }
-              // The estimate's own page, with "← Job ID" back to the new job (Workiz).
               router.push(`/estimates/${encodeURIComponent(openId)}`);
               return;
             }
@@ -626,236 +621,296 @@ function DealForm({
     );
   };
 
-  // One card per custom-field group, in the Workiz form order; groups the
-  // catalog grew beyond that list follow alphabetically (groupFields' order).
-  const orderedCfGroups = workizOrderedGroups(applicableFields(customFieldDefs, v.jobTypeId));
+  /* --------------------------------------------------------- client events */
+
+  const pick = (c: Contact) => {
+    setContact(c);
+    setCreatedId(null);
+    setClientForm(clientFormFromContact(c, titleOf(c)));
+    // Workiz fills the service location from the client they picked.
+    if (c.addresses?.[0]) {
+      form.setValue("address", jobAddress(c.addresses[0]), { shouldDirty: true });
+    }
+  };
+  const unassign = () => {
+    setContact(null);
+    setCreatedId(null);
+    setClientForm(emptyClientForm());
+  };
+
+  /* ------------------------------------------------------------------ view */
+
+  const schedule = {
+    date: v.scheduledDate || "",
+    endDate: v.scheduledEndDate || "",
+    slot: v.scheduledTimeSlot || "",
+    allDay: Boolean(v.allDay),
+  };
+  const canAddCustomField = can("custom_fields", "create");
 
   return (
     <form onSubmit={submit} className="flex flex-1 flex-col overflow-hidden" noValidate>
-      {/* `relative` makes this scroll region the containing block for the
-          hidden native <select>s Radix renders for form submission — they're
-          absolutely positioned, and without a positioned ancestor inside the
-          clip chain they escape every overflow-hidden above, stretch the
-          document, and a wheel over the footer scrolls the whole page away. */}
       <div className="relative flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-5xl space-y-4 px-6 py-6">
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        {/* Row 1 — Client Details | Service Location, as on the Workiz form. */}
-        <Section title="Client Details">
-          {contact ? (
-            <ResolvedClient
-              contact={contact}
-              edits={clientEdits}
-              onEdits={onClientEdits}
-              onClear={() => onContact(null)}
-              onContact={(c) => onContact(c)}
-            />
-          ) : null}
-          <ClientPicker
-            hidden={!!contact}
-            contact={contact}
-            initialPhone={prefillPhone}
-            onDraft={setClientDraft}
-            onResolved={(c, created) => {
-              onContact(c, created);
-              const ct = c.companyId ? companyMap.get(c.companyId)?.clientType : undefined;
-              if (ct) form.setValue("clientType", ct);
-            }}
-          />
-        </Section>
+        {/* newJob-module__form: 1400px max, 50px under, sides 40px — 36px
+            here: our sidebar is 8px wider than Workiz's, and 36px keeps the
+            cards Workiz's 645px (2×645 + 30 = 1320) so every box inside
+            measures the same. */}
+        <div className="mx-auto w-full max-w-[1400px] px-9 pb-[50px]">
+          {/* newJob-module__header: 88px, the h3 centred (28px/600 #3b4c53). */}
+          <header className="mt-[14px] flex h-[88px] flex-col justify-center">
+            <h1 className="text-[28px] leading-[25px] font-semibold text-[#3b4c53]">New Job</h1>
+          </header>
 
-        <Section title="Service Location">
-          <DealAddressFields
-            value={v.address}
-            onChange={(a) => form.setValue("address", a, { shouldValidate: true })}
-            clientAddresses={contact?.addresses}
-            error={err.address?.street?.message}
-          />
-          <ServiceAreaField
-            lat={v.address?.lat}
-            lng={v.address?.lng}
-            value={v.serviceAreaId || undefined}
-            onChange={(id) => form.setValue("serviceAreaId", id ?? "")}
-          />
-        </Section>
+          <div className="grid grid-cols-2 gap-[30px]">
+            <WzCard title="Client Details">
+              {contact ? (
+                // assignedClient-module__row: "Client: <name> … Unassign", 10px over the fields.
+                <div className="-mt-2.5 mb-2.5 flex items-start text-[14px] leading-4 font-normal text-wz-strong">
+                  <span className="mr-[5px]">Client:</span>
+                  <a
+                    href={`/contacts/${contact.id}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="min-w-0 flex-1 truncate text-wz-link underline hover:text-[#3589e9]"
+                  >
+                    {contactName(contact) || "Client"}
+                  </a>
+                  <button type="button" onClick={unassign} className="cursor-pointer text-wz-link underline hover:text-[#3589e9]">
+                    Unassign
+                  </button>
+                </div>
+              ) : null}
+              <WzClientNameField
+                value={clientForm.name}
+                onChange={(name) => setClient({ name })}
+                onPick={pick}
+                error={errorFor("client")}
+                autoFocus={!contact}
+              />
+              <WzTextField
+                label="Company name"
+                autoComplete="off"
+                value={clientForm.company}
+                onChange={(e) => setClient({ company: e.target.value })}
+              />
+              <ClientPhones
+                rows={clientForm.phones}
+                email={clientForm.email}
+                onPhone={setPhone}
+                onEmail={(email) => setClient({ email })}
+                onAddPhone={() => setClient({ phones: [...clientForm.phones, { phone: "", ext: "" }] })}
+                phoneError={
+                  errorFor("phone") ?? (missingNow?.ids.includes("phoneInvalid") ? "Invalid phone number" : undefined)
+                }
+                emailError={errorFor("email") ?? (missingNow?.ids.includes("emailInvalid") ? "Invalid email" : undefined)}
+                owner={phoneOwner}
+                onUseOwner={pick}
+              />
+            </WzCard>
 
-        {/* Row 2 — Job Details | Scheduled. */}
-        <Section title="Job Details">
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-2.5">
-              <Label>Job type</Label>
-              <JobTypeSelect value={v.jobTypeId} onChange={(val) => form.setValue("jobTypeId", val, { shouldValidate: true })} />
-              {err.jobTypeId?.message ? <p className="text-xs text-destructive">{err.jobTypeId.message}</p> : null}
-            </div>
-            <div className="space-y-2.5" data-missing={missingNow?.builtinIds.includes("source") || undefined}>
-              <Label>Job source{req("source")}</Label>
-              <JobSourceSelect value={v.sourceId} onChange={(val) => form.setValue("sourceId", val ?? "")} />
-              {missingNow?.builtinIds.includes("source") ? <p className="text-xs text-destructive">Required</p> : null}
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-2.5">
-              <Label htmlFor="new-job-company">Company</Label>
-              <BusinessProfileSelect
-                id="new-job-company"
-                value={companyId}
+            <WzCard title="Service Location" className="relative">
+              {verified ? <Verified /> : null}
+              <WzFieldGroup join="seamless">
+                <WzAddressField
+                  value={address.street}
+                  onChange={(street) => setAddress({ street })}
+                  onSelect={(a) =>
+                    setAddress({
+                      street: a.street,
+                      ...(a.unit !== undefined ? { unit: a.unit ?? "" } : {}),
+                      city: a.city,
+                      state: a.state,
+                      zip: a.zip,
+                      ...(a.country ? { country: a.country } : {}),
+                      lat: a.lat,
+                      lng: a.lng,
+                    })
+                  }
+                  saved={contact?.addresses}
+                  country={country}
+                  error={errorFor("address")}
+                />
+                <WzTextField
+                  label="Unit"
+                  className="w-[151px] flex-none"
+                  value={address.unit ?? ""}
+                  onChange={(e) => setAddress({ unit: e.target.value })}
+                />
+              </WzFieldGroup>
+              <div className="grid grid-cols-2 gap-x-5 gap-y-2.5">
+                <WzTextField
+                  label="City"
+                  value={address.city}
+                  error={errorFor("city")}
+                  onChange={(e) => setAddress({ city: e.target.value })}
+                />
+                <WzStateSelect
+                  country={country}
+                  value={address.state}
+                  error={errorFor("state")}
+                  onChange={(state) => setAddress({ state })}
+                />
+                <WzTextField
+                  label="Zip"
+                  value={address.zip}
+                  error={errorFor("zip")}
+                  onChange={(e) => setAddress({ zip: e.target.value })}
+                />
+                <WzCountrySelect value={address.country} onChange={(code) => setAddress({ country: code })} />
+              </div>
+              <WzServiceAreaSelect
+                lat={address.lat}
+                lng={address.lng}
+                value={v.serviceAreaId || undefined}
+                error={errorFor("serviceArea")}
+                onChange={(id) => form.setValue("serviceAreaId", id, { shouldDirty: true })}
+              />
+            </WzCard>
+
+            <WzCard title="Job Details">
+              <WzTextField label="Job name" maxLength={200} autoComplete="off" {...form.register("jobName")} />
+              <WzJobTypeSelect
+                value={v.jobTypeId}
+                canCreate={can("job_types", "create")}
+                error={errorFor("jobType")}
+                onChange={(id) => form.setValue("jobTypeId", id, { shouldValidate: true, shouldDirty: true })}
+              />
+              <WzJobSourceSelect
+                value={v.sourceId}
+                canCreate={can("job_sources", "create")}
+                error={errorFor("source")}
+                onChange={(id) => form.setValue("sourceId", id, { shouldDirty: true })}
+              />
+              <div data-missing={missingNow?.ids.includes("description") || undefined}>
+                <JobNoteEditor
+                  value={v.notes ?? ""}
+                  ariaLabel="Description"
+                  placeholder="Description"
+                  onChange={(html) => form.setValue("notes", cleanNote(html), { shouldDirty: true })}
+                />
+                {errorFor("description") ? <WzFieldError>{REQUIRED}</WzFieldError> : null}
+              </div>
+              <WzExternalCompanySelect
+                value={v.externalCompanyId}
+                error={errorFor("externalCompany")}
+                onChange={(id) => form.setValue("externalCompanyId", id, { shouldDirty: true })}
+              />
+              {/* Ours: the company the job is issued under. Workiz picks it at
+                  the top of the app; it comes prefilled from the area. */}
+              <WzBusinessProfileSelect
+                value={businessProfileId}
                 showDefaultHint
-                onChange={(val) => {
+                onChange={(id) => {
                   setCompanyTouched(true);
-                  form.setValue("businessProfileId", val ?? "");
+                  form.setValue("businessProfileId", id, { shouldDirty: true });
                 }}
               />
-            </div>
-            <div className="space-y-2.5">
-              <Label>External company{req("externalCompany")}</Label>
-              <ExternalCompanySelect
-                value={v.externalCompanyId}
-                onChange={(val) => form.setValue("externalCompanyId", val ?? "")}
+              {/* Built-ins Workiz keeps as custom fields; shown only when an
+                  admin made them required, so a Create is never blocked on a
+                  field the form does not have. */}
+              {required("poNumber") ? (
+                <WzTextField label="PO number" error={errorFor("poNumber")} {...form.register("poNumber")} />
+              ) : null}
+              {required("tags") ? (
+                <div data-missing={missingNow?.ids.includes("tags") || undefined}>
+                  <WzMultiSelect
+                    label="Tags"
+                    options={(jobTags ?? []).map((t) => ({ value: t.id, label: t.name }))}
+                    value={tagIds}
+                    onChange={setTagIds}
+                    error={errorFor("tags")}
+                  />
+                </div>
+              ) : null}
+            </WzCard>
+
+            <WzScheduleBlock
+              layout="card"
+              value={schedule}
+              tz={jobTz}
+              place={verified && address.city ? address.city : undefined}
+              onChange={(s) => {
+                setScheduleTouched(true);
+                form.setValue("scheduledDate", s.date, { shouldDirty: true });
+                form.setValue("scheduledEndDate", s.endDate);
+                form.setValue("scheduledTimeSlot", s.slot, { shouldValidate: true });
+                form.setValue("allDay", s.allDay);
+              }}
+            >
+              {errorFor("scheduled") ? <WzFieldError className="mb-2.5 ml-0">{REQUIRED}</WzFieldError> : null}
+              <WzTeamSelect
+                jobTypeId={v.jobTypeId}
+                address={{ lat: address.lat, lng: address.lng }}
+                serviceAreaId={v.serviceAreaId || undefined}
+                value={assignTechIds}
+                onChange={setAssignTechIds}
+                aside={<WzViewSchedule href="/schedule" className="mt-[15px]" />}
               />
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <Sel label="Client type" value={v.clientType} onChange={(val) => form.setValue("clientType", val as ClientType)} options={Object.values(ClientType).map((t) => ({ value: t, label: clientTypeLabel(t) }))} />
-          </div>
-          <div className="space-y-2.5" data-missing={missingNow?.builtinIds.includes("description") || undefined}>
-            <Label>Job note{req("description")}</Label>
-            <Textarea rows={4} placeholder="What needs doing…" {...form.register("notes")} />
-            {missingNow?.builtinIds.includes("description") ? <p className="text-xs text-destructive">Required</p> : null}
-          </div>
-        </Section>
+            </WzScheduleBlock>
 
-        <Section title="Scheduled">
-          <ScheduledBlock
-            date={v.scheduledDate || ""}
-            endDate={v.scheduledEndDate || ""}
-            slot={v.scheduledTimeSlot || ""}
-            allDay={Boolean(v.allDay)}
-            tz={jobTz}
-            areaName={effectiveArea.area?.name}
-            onChange={(s) => {
-              form.setValue("scheduledDate", s.date);
-              form.setValue("scheduledEndDate", s.endDate);
-              form.setValue("scheduledTimeSlot", s.slot, { shouldValidate: true });
-              form.setValue("allDay", s.allDay);
-            }}
-          />
-          {typeof err.scheduledTimeSlot?.message === "string" ? <p className="text-xs text-destructive">{err.scheduledTimeSlot.message}</p> : null}
-
-          <div className="space-y-2.5">
-            <Label>Assign team members</Label>
-            <TechSuggestions
-              jobTypeId={v.jobTypeId}
-              address={{ lat: v.address?.lat, lng: v.address?.lng }}
-              selected={assignTechIds}
-              onChange={setAssignTechIds}
-            />
-          </div>
-        </Section>
-
-        {/* Custom-field groups, one Workiz-style card each. File fields prompt
-            to save first (no dealId yet); required ones block submit inline. */}
-        {orderedCfGroups.map(({ group }) => (
-          <Section key={group} title={group}>
-            <CustomFieldsSection
+            <WzCustomFields
+              layout="card"
               jobTypeId={v.jobTypeId}
               value={customFields}
               onChange={setCustomFields}
-              onlyGroup={group}
               pendingFiles={pendingFiles}
               onPendingFiles={setPendingFilesFor}
               missingIds={missingNow?.customIds}
             />
-          </Section>
-        ))}
 
-        {/* Calls this job will carry. Present whenever the page was opened
-            from a call, or once a client is known and has call history. */}
-        {callSid || contact ? (
-          <Section title="Calls">
-            <CallsToLink
-              callSid={callSid}
-              contactId={contact?.id}
-              selected={callsToLink}
-              onChange={onCallsToLink}
-            />
-          </Section>
-        ) : null}
-
-        {/* Work order / Platinum */}
-        <Section title="Work order / Platinum">
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-2.5" data-missing={missingNow?.builtinIds.includes("poNumber") || undefined}>
-              <Label>PO number{req("poNumber")}</Label>
-              <Input className="h-9" placeholder="C-PO / VPO" {...form.register("poNumber")} />
-              {missingNow?.builtinIds.includes("poNumber") ? <p className="text-xs text-destructive">Required</p> : null}
-            </div>
-            <div className="space-y-2.5"><Label>Work order link</Label><Input className="h-9" placeholder="https://…" {...form.register("workOrderId")} /></div>
+            {/* Ours: the calls this job will carry — opened from a call, or a
+                client with call history. */}
+            {callSid || contact ? (
+              <WzCard title="Calls">
+                <CallsToLink
+                  callSid={callSid}
+                  contactId={contact?.id}
+                  selected={callsToLink}
+                  onChange={setCallsToLink}
+                />
+              </WzCard>
+            ) : null}
           </div>
-          <p className="text-xs text-muted-foreground">Optional — for platinum-contract jobs.</p>
-        </Section>
-      </div>
 
+          {canAddCustomField ? (
+            // newJob-module__addCustom: the link sits 10px down (newJob-module__link).
+            <div className="mt-[30px] mb-20 text-[14px] leading-4 text-wz-strong">
+              Need to track more fields?{" "}
+              <a href="/settings/custom-fields" className="mt-2.5 inline-block text-wz-link underline hover:text-[#3589e9]">
+                Add a custom field
+              </a>
+            </div>
+          ) : null}
         </div>
       </div>
 
-      {/* Footer — a real footer outside the scroll region, always pinned to the
-          bottom; primary action bottom-center, client hint floated left. */}
-      <div className="border-t bg-background px-6 py-4 shadow-[0_-6px_16px_-8px_rgba(0,0,0,0.15)]">
-        <div className="relative flex items-center justify-center gap-2">
-          {/* A blocked Create replaces the hint with the full list of what's
-              missing — the person should never have to guess which fields
-              the admin made required. */}
-          {missingNow ? (
-            <span className="absolute left-0 max-w-[45%] truncate text-xs font-medium text-destructive" title={`Missing required: ${missingNow.labels.join(", ")}`}>
-              Missing required: {missingNow.labels.join(", ")}
-            </span>
-          ) : (
-            <span className="absolute left-0 max-w-[45%] truncate text-xs text-muted-foreground">
-              {contact
-                ? `Client: ${contactName(contact)}`
-                : clientDraft
-                  ? `New client: ${clientDraft.firstName} ${clientDraft.lastName} will be created with the job.`
-                  : "Pick a client or type new details to continue."}
-            </span>
-          )}
-          <Button type="button" variant="ghost" asChild><Link href="/deals">Cancel</Link></Button>
-          <Button
-            type="submit"
-            variant="brand"
-            className="gap-1.5"
-            // Clickable even with no client: the click explains what's
-            // missing instead of a dead button leaving the person guessing.
-            disabled={createDeal.isPending || createContact.isPending}
-          >
-            {createDeal.isPending || createContact.isPending ? <Loader2 className="size-4 animate-spin" /> : null} Create job
-          </Button>
-        </div>
-      </div>
+      <WzActionBar>
+        {/* Read out, not drawn: Workiz marks the fields themselves. */}
+        <p role="status" className="sr-only">
+          {missingNow ? `Missing required: ${missingNow.labels.join(", ")}` : ""}
+        </p>
+        <WzButton type="submit" size="big" className="min-w-[150px]" loading={busy}>
+          Create
+        </WzButton>
+      </WzActionBar>
+
+      {confirm}
 
       {contact && pendingSave ? (
         <ClientSaveDialog
           open
           original={contact}
-          edits={clientEdits}
-          clientChanged={clientChanged}
+          edits={pickedClientChanges(contact, clientForm, pendingSave.companyId).edits}
+          clientChanged={pickedClientChanges(contact, clientForm, pendingSave.companyId).asks && contact.id !== createdId}
           newAddress={
-            addressInList(pendingSave.address, contact.addresses)
-              ? undefined
-              : pendingSave.address
+            addressInList(pendingSave.values.address, contact.addresses) ? undefined : pendingSave.values.address
           }
-          pending={createDeal.isPending || createContact.isPending}
+          pending={busy}
           onCancel={() => setPendingSave(null)}
           onConfirm={(decision) => {
-            const applicableIds = new Set(
-              applicableFields(customFieldDefs, pendingSave.jobTypeId).map((f) => f.id),
-            );
-            finish(
-              pendingSave,
-              Object.fromEntries(
-                Object.entries(customFields).filter(([id]) => applicableIds.has(id)),
-              ),
-              decision,
-            );
+            const { values, companyId } = pendingSave;
+            setPendingSave(null);
+            finish(values, applicable(values), decision, companyId);
           }}
         />
       ) : null}
@@ -863,164 +918,107 @@ function DealForm({
   );
 }
 
-/**
- * The edited number first, keeping the rest — a client can hold several, and
- * correcting the one they called from shouldn't drop the others.
- */
-function nextPhones(contact: Contact, phone: string): string[] {
-  if (!phone) return contact.phones;
-  return [phone, ...contact.phones.filter((p) => p !== phone && p !== contact.phones[0])];
-}
-
-/* ------------------------------------------------------------- client picker */
-
-
-/**
- * The client this job is for — their details editable in place, not behind an
- * Edit button. Nothing is written to the CRM here: edits are reported upward
- * and settled when the job is saved, because until then it isn't clear whether
- * this is a correction to them or a different person on their number.
- */
-function ResolvedClient({
-  contact,
-  edits,
-  onEdits,
-  onClear,
-  onContact,
-}: {
-  contact: Contact;
-  edits: ClientEdits;
-  onEdits: (e: ClientEdits) => void;
-  onClear: () => void;
-  /** Bubble the updated contact up after a company is (re)assigned. */
-  onContact: (c: Contact) => void;
-}) {
-  const { map: companyMap, companies } = useCompanyMap();
-  const update = useUpdateContact();
-  const createCompany = useCreateCompany();
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const companyName = contact.companyId
-    ? (companyMap.get(contact.companyId)?.title ?? contact.companyId)
-    : "";
-
-  // Assigning a company is a direct write to the client's record (unlike the
-  // name/phone edits, which are deferred to the save-time question).
-  const assign = (companyId: string) => {
-    setPickerOpen(false);
-    update.mutate(
-      {
-        id: contact.id,
-        body: {
-          firstName: contact.firstName,
-          lastName: contact.lastName,
-          phones: contact.phones,
-          emails: contact.emails,
-          addresses: contact.addresses,
-          companyId,
-          type: contact.type,
-          title: contact.title,
-          notes: contact.notes,
-        },
-      },
-      { onSuccess: (c) => onContact(c) },
-    );
-  };
-
-  const createAndAssign = (name: string) => {
-    createCompany.mutate(
-      { title: name, clientType: ClientType.COMMERCIAL, phones: [], emails: [] },
-      { onSuccess: (co) => assign(co.id) },
-    );
-  };
-
+/** "✓ Verified" at the card's top right once the address is geocoded (address-module__verified). */
+function Verified() {
   return (
-    <div className="space-y-3 rounded-lg border p-3">
-      <div className="flex items-start justify-between gap-3">
-        <div className="text-xs text-muted-foreground">
-          {contact.companyId ? companyName : "Residential"}
-        </div>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="-mt-1 gap-1 text-muted-foreground"
-          onClick={onClear}
-        >
-          <X className="size-3.5" /> Change client
-        </Button>
-      </div>
-      <div className="grid grid-cols-2 gap-2">
-        <Input
-          className="h-9"
-          value={edits.firstName}
-          onChange={(e) => onEdits({ ...edits, firstName: e.target.value })}
-          placeholder="First name"
-        />
-        <Input
-          className="h-9"
-          value={edits.lastName}
-          onChange={(e) => onEdits({ ...edits, lastName: e.target.value })}
-          placeholder="Last name"
-        />
-      </div>
-      <div className="space-y-2.5">
-        <Label>Company name</Label>
-        <Button
-          type="button"
-          variant="outline"
-          aria-label="Company name"
-          className="h-9 w-full justify-start gap-2 font-normal"
-          onClick={() => setPickerOpen(true)}
-        >
-          <Building2 className="size-4 flex-none text-muted-foreground" />
-          <span className={companyName ? "flex-1 truncate text-left" : "flex-1 truncate text-left text-muted-foreground"}>
-            {companyName || "Select or create a company…"}
-          </span>
-        </Button>
-      </div>
-      <CompanyPickerDialog
-        open={pickerOpen}
-        onOpenChange={setPickerOpen}
-        companies={companies}
-        onSelect={assign}
-        onCreate={createAndAssign}
-      />
-      <PhoneInput
-        value={edits.phone}
-        onChange={(v) => onEdits({ ...edits, phone: v })}
-        placeholder="Phone"
-        usOnly
-      />
-      <p className="text-xs text-muted-foreground">
-        Edits here are saved with the job — you&apos;ll be asked whether they
-        correct this client or belong to a new one.
-      </p>
+    <div className="absolute top-[38px] right-10 flex items-center text-[14px] leading-4 font-normal text-wz-link">
+      <svg width="16" height="12" viewBox="0 0 16 12" fill="none" aria-hidden className="relative top-px mr-3">
+        <path d="M1.5 6.5 5.5 10.5 14.5 1.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+      Verified
     </div>
   );
 }
 
-function Sel({
-  label,
-  value,
-  onChange,
-  options,
+/**
+ * Phone | Ext (one seamless box) beside Email, "Add phone" under the phone
+ * (new_01_empty); with a second number the two phones share the row and
+ * Email takes its own (new_08_add_phone), and the link goes.
+ */
+function ClientPhones({
+  rows,
+  email,
+  onPhone,
+  onEmail,
+  onAddPhone,
+  phoneError,
+  emailError,
+  owner,
+  onUseOwner,
 }: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  options: { value: string; label: string }[];
+  rows: ClientPhoneRow[];
+  email: string;
+  onPhone: (i: number, patch: Partial<ClientPhoneRow>) => void;
+  onEmail: (email: string) => void;
+  onAddPhone: () => void;
+  phoneError?: string;
+  emailError?: string;
+  /** A client the typed number already belongs to. */
+  owner: Contact | null;
+  onUseOwner: (c: Contact) => void;
 }) {
+  const phone = (i: number) => (
+    <div className="relative min-w-0">
+      <WzFieldGroup join="seamless">
+        <WzPhoneField
+          aria-label={i === 0 ? "Phone" : `Phone ${i + 1}`}
+          value={rows[i].phone}
+          onChange={(p) => onPhone(i, { phone: p })}
+          error={i === 0 ? phoneError : undefined}
+        />
+        <WzTextField
+          label="Ext"
+          aria-label={i === 0 ? "Ext" : `Ext ${i + 1}`}
+          inputMode="tel"
+          maxLength={MAX_EXTENSION_LENGTH}
+          className="w-[100px] flex-none"
+          value={rows[i].ext}
+          onChange={(e) => onPhone(i, { ext: normalizeExtension(e.target.value) })}
+        />
+      </WzFieldGroup>
+      {i === 0 && owner ? (
+        <WzSuggestionList aria-label="Existing client" className="top-12">
+          <WzSuggestion
+            title={contactName(owner)}
+            subtitle="A client already has this phone — use them"
+            query=""
+            onSelect={() => onUseOwner(owner)}
+          />
+        </WzSuggestionList>
+      ) : null}
+    </div>
+  );
+  const emailBox = (
+    <WzTextField
+      label="Email"
+      type="email"
+      autoComplete="off"
+      value={email}
+      error={emailError}
+      onChange={(e) => onEmail(e.target.value)}
+    />
+  );
+
+  if (rows.length >= MAX_CLIENT_PHONES) {
+    return (
+      <>
+        <div className="grid grid-cols-2 gap-x-5">
+          {phone(0)}
+          {phone(1)}
+        </div>
+        {emailBox}
+      </>
+    );
+  }
   return (
-    <div className="space-y-2.5">
-      <Label>{label}</Label>
-      <Select value={value} onValueChange={onChange}>
-        <SelectTrigger className="h-9 w-full"><SelectValue /></SelectTrigger>
-        <SelectContent>
-          {options.map((o) => (
-            <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+    <div className="grid grid-cols-2 gap-x-5">
+      <div className="min-w-0">
+        {phone(0)}
+        <WzLink tone="bold" className="mt-[5px]" onClick={onAddPhone}>
+          Add phone
+        </WzLink>
+      </div>
+      {emailBox}
     </div>
   );
 }

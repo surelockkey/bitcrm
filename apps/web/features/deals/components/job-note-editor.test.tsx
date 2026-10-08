@@ -39,6 +39,12 @@ describe("JobNoteEditor", () => {
     expect(container.querySelector("[data-placeholder]")).not.toBeNull();
   });
 
+  it("opens with nothing to undo, as Workiz's does", async () => {
+    const { rerender } = render(<JobNoteEditor value="" onChange={vi.fn()} />);
+    rerender(<JobNoteEditor value="" onChange={vi.fn()} placeholder="Description" />);
+    expect(await screen.findByRole("button", { name: "Undo" })).toBeDisabled();
+  });
+
   it("takes the placeholder it is given (New Job's 'Description')", () => {
     const { container } = render(<JobNoteEditor value="" onChange={vi.fn()} placeholder="Description" />);
     expect(container.querySelector("[data-placeholder]")?.getAttribute("data-placeholder")).toBe("Description");

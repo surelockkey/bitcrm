@@ -200,7 +200,9 @@ export function WzViewSchedule({ href, className }: { href: string; className?: 
       data-slot="wz-button"
       data-variant="secondary"
       className={cn(
-        "relative inline-flex max-h-10 shrink-0 cursor-pointer flex-row items-center justify-center gap-1 rounded-pill px-3 py-[6.5px] outline-none transition-colors",
+        // Not shrink-0: beside a long team notice Workiz's pill gives way and
+        // its words wrap ("View / schedule", new_12_client_picked_scroll0).
+        "relative inline-flex max-h-10 min-w-0 cursor-pointer flex-row items-center justify-center gap-1 rounded-pill px-3 py-[6.5px] outline-none transition-colors",
         "border border-foreground bg-transparent hover:bg-wz-secondary-hover active:bg-wz-secondary-active focus-visible:ring-2 focus-visible:ring-wz-focus",
         className,
       )}
@@ -211,7 +213,7 @@ export function WzViewSchedule({ href, className }: { href: string; className?: 
       >
         <WzCalendarOutlineIcon />
       </span>
-      <span className="flex items-center px-1 text-[13px] leading-[19px] font-semibold tracking-[0.2px] text-foreground">
+      <span className="flex items-center px-1 text-center text-[13px] leading-[19px] font-semibold tracking-[0.2px] text-foreground">
         View schedule
       </span>
     </a>

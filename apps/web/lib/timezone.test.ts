@@ -37,14 +37,24 @@ describe("timezone lib", () => {
     expect(clockInTz("2026-08-19T16:00:00.000Z")).toBe("12:00 PM");
   });
 
-  it("nowScheduleDefault gives today + now (floored to 15) + an hour later, in tz", () => {
-    // 16:37Z is 12:37 PM in New York → floored 12:30, end 13:30, date the 19th.
+  it("nowScheduleDefault gives today + the next quarter hour + an hour later, in tz (Workiz)", () => {
+    // 16:37Z is 12:37 PM in New York → up to 12:45, end 13:45, date the 19th.
     const at = new Date("2026-08-19T16:37:00.000Z");
     expect(nowScheduleDefault("America/New_York", at)).toEqual({
       date: "2026-08-19",
-      start: "12:30",
-      end: "13:30",
+      start: "12:45",
+      end: "13:45",
     });
+    // new_12_client_picked_scroll0: "It's 7:53 AM in Princeton" → 08:00 AM to 09:00 AM.
+    expect(nowScheduleDefault("America/Chicago", new Date("2026-10-08T12:53:00.000Z"))).toMatchObject({
+      start: "08:00",
+      end: "09:00",
+    });
+  });
+
+  it("nowScheduleDefault keeps a time already on the quarter", () => {
+    const at = new Date("2026-08-19T16:30:00.000Z");
+    expect(nowScheduleDefault("America/New_York", at)).toMatchObject({ start: "12:30", end: "13:30" });
   });
 
   it("nowScheduleDefault clamps a late end to 23:45", () => {

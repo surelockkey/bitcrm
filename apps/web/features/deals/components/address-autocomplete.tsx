@@ -134,7 +134,9 @@ export function usePlacesAutocomplete(country = "us") {
   const sessionRef = useRef<unknown>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const [ready, setReady] = useState(false);
+  // Ready once Maps has loaded the library; the services are made from it
+  // right after, and a query before then simply finds none and waits.
+  const ready = Boolean(placesLib);
   const [loading, setLoading] = useState(false);
   const [predictions, setPredictions] = useState<PlacePrediction[]>([]);
 
@@ -144,7 +146,6 @@ export function usePlacesAutocomplete(country = "us") {
     serviceRef.current = new lib.AutocompleteService();
     placesRef.current = new lib.PlacesService(document.createElement("div"));
     sessionRef.current = new lib.AutocompleteSessionToken();
-    setReady(true);
     return () => {
       if (timer.current) clearTimeout(timer.current);
     };

@@ -66,6 +66,9 @@ export function JobNoteEditor({
     editorProps: {
       attributes: {
         "aria-label": ariaLabel,
+        // A contenteditable has no role of its own; this one is a text box.
+        role: "textbox",
+        "aria-multiline": "true",
         class:
           "min-h-[140px] max-h-[400px] resize-y overflow-y-auto px-2.5 py-2 text-[14px] leading-[1.5] text-[#1a2b30] focus:outline-none",
       },
@@ -78,7 +81,11 @@ export function JobNoteEditor({
   useEffect(() => {
     if (!editor) return;
     const next = noteToHtml(value);
-    if (next !== editor.getHTML()) editor.commands.setContent(next, { emitUpdate: false });
+    const current = editor.getHTML();
+    // An empty note is "" outside and "<p></p>" inside: the same thing, and
+    // re-setting it would leave an Undo step on a box nobody typed in.
+    const same = next === current || (!next && editor.isEmpty);
+    if (!same) editor.commands.setContent(next, { emitUpdate: false });
   }, [editor, value]);
 
   useEffect(() => {
