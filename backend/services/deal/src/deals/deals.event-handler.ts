@@ -17,6 +17,27 @@ export class DealsEventHandler {
     @Optional() private readonly businessMetrics?: BusinessMetricsService,
   ) {}
 
+  /**
+   * crm's `contact.updated` (`{contactId}` only): the client's name, numbers,
+   * emails or company may have changed, and the jobs list's Search box finds
+   * a job by them — so their half of the search is restamped on every job of
+   * the client. A failure rethrows: SQS delivers the event again.
+   */
+  async handleContactUpdated(payload: any): Promise<void> {
+    const contactId = typeof payload?.contactId === 'string' ? payload.contactId : undefined;
+    if (!contactId) return;
+    const timer = this.businessMetrics?.sqsProcessingDuration.startTimer({ event_type: 'contact.updated' });
+    try {
+      await this.dealsService.refreshClientSearch(contactId);
+      timer?.();
+      this.businessMetrics?.sqsMessagesProcessed.inc({ event_type: 'contact.updated', status: 'success' });
+    } catch (error) {
+      timer?.();
+      this.businessMetrics?.sqsMessagesProcessed.inc({ event_type: 'contact.updated', status: 'error' });
+      throw error;
+    }
+  }
+
   async handleContactMerged(payload: any): Promise<void> {
     const timer = this.businessMetrics?.sqsProcessingDuration.startTimer({ event_type: 'contact.merged' });
     try {

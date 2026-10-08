@@ -73,7 +73,8 @@ describe('DealsController', () => {
       expect(result.success).toBe(true);
       expect(result.data).toEqual(deals);
       expect(result.pagination).toEqual({ nextCursor: 'next', count: 1 });
-      expect(service.list).toHaveBeenCalledWith({}, caller, 'all');
+      // A role without contacts.view_numbers may not search by a number either.
+      expect(service.list).toHaveBeenCalledWith({}, caller, 'all', { numbers: false });
     });
 
     it('should handle undefined perms', async () => {
@@ -83,7 +84,29 @@ describe('DealsController', () => {
       const result = await controller.list({} as any, caller, undefined as any);
 
       expect(result.success).toBe(true);
-      expect(service.list).toHaveBeenCalledWith({}, caller, undefined);
+      expect(service.list).toHaveBeenCalledWith({}, caller, undefined, { numbers: false });
+    });
+
+    it('lets the Search box match phone digits only for a caller who may see numbers', async () => {
+      service.list.mockResolvedValue({ items: [], nextCursor: undefined });
+      const caller = createMockJwtUser();
+      const perms = { dataScope: { deals: 'all' }, permissions: { contacts: { view_numbers: true } } };
+
+      await controller.list({ q: '8179' } as any, caller, perms as any);
+
+      expect(service.list).toHaveBeenCalledWith({ q: '8179' }, caller, 'all', { numbers: true });
+    });
+  });
+
+  describe('counts', () => {
+    it('passes the same numbers rule to the tab counts', async () => {
+      service.counts = jest.fn().mockResolvedValue({});
+      const caller = createMockJwtUser();
+      const perms = { dataScope: { deals: 'all' }, permissions: { contacts: { view_numbers: true } } };
+
+      await controller.counts({ q: '8179' } as any, caller, perms as any);
+
+      expect(service.counts).toHaveBeenCalledWith({ q: '8179' }, caller, 'all', { numbers: true });
     });
   });
 

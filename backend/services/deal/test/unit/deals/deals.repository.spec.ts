@@ -205,7 +205,10 @@ describe('DealsRepository', () => {
         LastEvaluatedKey: { PK: 'x', SK: 'y' },
       });
 
-      const result = await repository.findBySuperStatus(JobSuperStatus.SUBMITTED, 20);
+      // A page of one: the read fills it, so the cursor is DynamoDB's own. (A
+      // page of 20 would read on past the one row — a filtered page is filled,
+      // see deals.repository.search.spec.)
+      const result = await repository.findBySuperStatus(JobSuperStatus.SUBMITTED, 1);
 
       expect(result.items.length).toBe(1);
       expect(result.items[0].id).toBe('deal-1');

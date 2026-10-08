@@ -205,7 +205,9 @@ data "aws_iam_policy_document" "task_deal" {
     resources = [module.sns_sqs.topic_arns["deal-events"]]
   }
 
-  # Consume user-events (tech.approved / tech.updated) for the eligibility projection.
+  # Consume user-events (tech.approved / tech.updated) for the eligibility
+  # projection and contact-events (contact.merged / contact.updated) for the
+  # jobs — both arrive on this one queue (data_plane.tf).
   statement {
     sid       = "ConsumeUserEvents"
     effect    = "Allow"

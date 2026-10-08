@@ -8,6 +8,7 @@ describe('DealsEventHandler', () => {
     service = {
       updatePaymentStatus: jest.fn().mockResolvedValue(undefined),
       reassignContact: jest.fn().mockResolvedValue(0),
+      refreshClientSearch: jest.fn().mockResolvedValue(0),
     };
     handler = new DealsEventHandler(service as any);
   });
@@ -17,6 +18,28 @@ describe('DealsEventHandler', () => {
     // payment ledger lives in billing-service and pushes the job's flag over
     // `PUT /api/deals/internal/:id/payment-status`.
     expect((handler as unknown as Record<string, unknown>).handlePaymentReceived).toBeUndefined();
+  });
+
+  describe('handleContactUpdated', () => {
+    // crm says only `{contactId}`; the jobs list's Search box matches the
+    // client's name, numbers and emails, kept on each of their jobs.
+    it('restamps the client’s half of the search on every job of the client', async () => {
+      service.refreshClientSearch.mockResolvedValue(3);
+
+      await handler.handleContactUpdated({ contactId: 'c-1' });
+
+      expect(service.refreshClientSearch).toHaveBeenCalledWith('c-1');
+    });
+
+    it('rethrows so SQS delivers it again when crm or DynamoDB fails', async () => {
+      service.refreshClientSearch.mockRejectedValue(new Error('crm down'));
+      await expect(handler.handleContactUpdated({ contactId: 'c-1' })).rejects.toThrow('crm down');
+    });
+
+    it('ignores a payload without a contact', async () => {
+      await handler.handleContactUpdated({});
+      expect(service.refreshClientSearch).not.toHaveBeenCalled();
+    });
   });
 
   describe('handleContactMerged', () => {

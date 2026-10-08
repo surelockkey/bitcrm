@@ -13,7 +13,7 @@ import {
   HttpCode,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
-import { RequirePermission, CurrentUser } from '@bitcrm/shared';
+import { RequirePermission, CurrentUser, hasPermission } from '@bitcrm/shared';
 import { type JwtUser, type ResolvedPermissions } from '@bitcrm/types';
 import { DealsService } from './deals.service';
 import { CreateDealDto } from './dto/create-deal.dto';
@@ -66,7 +66,13 @@ export class DealsController {
     description:
       '**Guard:** `deals.view` permission required. DataScope enforced. The page carries an `included` block — ' +
       'the names of the technicians and clients its jobs refer to — so the browser does not fetch them in two ' +
-      'further round trips. Names only: numbers and emails stay in crm, which masks them per caller.',
+      'further round trips. Names only: numbers and emails stay in crm, which masks them per caller. ' +
+      '`q` is the Workiz Search box (client name, Job ID, phone digits, address, job type, job name, email, ' +
+      'company) inside the tab and filters; it matches phone digits only for a caller with ' +
+      '`contacts.view_numbers`. `techIds` / `jobTypeIds` / `serviceAreas` / `businessProfileIds` (comma lists) ' +
+      'and `tagMatch=any` are Workiz "Filter results": any-of inside a group, AND across groups. Pages are FULL ' +
+      'under any filter (the read goes on past the rows the filter drops); a page may still come back short WITH ' +
+      'a `nextCursor` when a search in a huge closed status (Done, Canceled) spent its read budget — keep paging.',
   })
   async list(
     @Query() query: ListDealsQueryDto,
@@ -74,7 +80,9 @@ export class DealsController {
     @ResolvedPerms() perms: ResolvedPermissions,
   ) {
     const dataScope = perms?.dataScope?.deals;
-    const result = await this.dealsService.list(query, user, dataScope);
+    const result = await this.dealsService.list(query, user, dataScope, {
+      numbers: hasPermission(perms, 'contacts', 'view_numbers'),
+    });
     // The ids are on the page, so this can only start once the page is here —
     // but both of its sources go out together, and neither can fail the list.
     const included = await this.dealsService.includedFor(result.items);
@@ -92,17 +100,20 @@ export class DealsController {
     summary: 'How many deals fall under each jobs-list tab',
     description:
       '**Guard:** `deals.view` permission required. DataScope enforced. Takes the same filters as the list ' +
-      '(`scheduledFrom/To`, `hourFrom/To`, `techId`, `jobTypeId`, `serviceArea`, `tagIds`, `subStatusId`, …; ' +
-      '`superStatus`, `cursor` and `limit` are ignored) and answers one number per super-status plus `unscheduled` ' +
-      '(the undated open jobs). Without a visit-date window the closed statuses (`done`, `canceled`) are `null` — ' +
-      'counting them would read their whole partitions. Cached for thirty seconds.',
+      '(`scheduledFrom/To`, `hourFrom/To`, `techId(s)`, `jobTypeId(s)`, `serviceArea(s)`, `tagIds` + `tagMatch`, ' +
+      '`businessProfileId(s)`, `subStatusId`, `q`, …; `superStatus`, `cursor` and `limit` are ignored) and answers ' +
+      'one number per super-status plus `unscheduled` (the undated open jobs). Without a visit-date window a closed ' +
+      'status (`done`, `canceled`) is counted up to 10 000 (`atLeast`) — and under `q` not at all (`null`): a search ' +
+      'would read its whole partition. Cached for thirty seconds.',
   })
   async counts(
     @Query() query: ListDealsQueryDto,
     @CurrentUser() user: JwtUser,
     @ResolvedPerms() perms: ResolvedPermissions,
   ) {
-    const data = await this.dealsService.counts(query, user, perms?.dataScope?.deals);
+    const data = await this.dealsService.counts(query, user, perms?.dataScope?.deals, {
+      numbers: hasPermission(perms, 'contacts', 'view_numbers'),
+    });
     return { success: true, data };
   }
 

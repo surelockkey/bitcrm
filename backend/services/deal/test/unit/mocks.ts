@@ -233,6 +233,9 @@ export function createMockDealsRepository() {
     findAll: jest.fn(),
     update: jest.fn(),
     reassignContact: jest.fn(),
+    // The client's half of the jobs-list search (deal-search.ts).
+    setClientSearch: jest.fn().mockResolvedValue(undefined),
+    restampClientSearch: jest.fn().mockResolvedValue(0),
     softDelete: jest.fn(),
     reserveDealNumber: jest.fn(),
     addAssignment: jest.fn(),
