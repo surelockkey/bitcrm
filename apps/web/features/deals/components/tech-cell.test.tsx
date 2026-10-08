@@ -83,6 +83,23 @@ describe("TechCell", () => {
     expect(screen.getByLabelText("Has a call")).toHaveAccessibleDescription(/call/i);
   });
 
+  /**
+   * Workiz's tooltip over the tick reads "Tech confirmed" — no sentence, no
+   * browser-locale stamp with seconds (audit L6). The when, if known, follows
+   * in the app's own format.
+   */
+  it("says it Workiz-short: the label first, then the when the Workiz way", () => {
+    render(
+      <TechCell
+        deal={deal({ sentToTechAt: "2026-09-29T15:57:00.000Z", techConfirmedAt: "2026-09-29T13:36:18.000Z", hasCalls: true })}
+        userMap={map}
+      />,
+    );
+    expect(screen.getByLabelText("Tech confirmed")).toHaveAccessibleDescription("Tech confirmed · Tue Sep 29, 2026 09:36 am");
+    expect(screen.getByLabelText("Sent to tech")).toHaveAccessibleDescription("Sent to tech · Tue Sep 29, 2026 11:57 am");
+    expect(screen.getByLabelText("Has a call")).toHaveAccessibleDescription("Has a call");
+  });
+
   it("shows the call mark on a job nobody is assigned to", () => {
     // Workiz does: the marks are about the job, not about the chip above them.
     render(<TechCell deal={deal({ assignedTechIds: [], hasCalls: true })} userMap={map} />);

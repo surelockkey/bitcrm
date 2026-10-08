@@ -3,8 +3,10 @@ import { JobSuperStatus } from "@bitcrm/types";
 import {
   chooseFilter,
   clearFilters,
+  filterAreas,
   filterChips,
   filterGroups,
+  orderTechs,
   removeFilterChip,
   type FilterCatalogs,
 } from "./job-filters";
@@ -28,7 +30,7 @@ const catalogs: FilterCatalogs = {
     { id: "jt1", name: "Car lockout" },
     { id: "jt2", name: "Service" },
   ],
-  areas: [{ name: "Platinum_AL" }, { name: "North Carolina" }],
+  areas: [{ name: "North Carolina" }, { name: "Platinum_AL" }],
   companies: [
     { id: "bp1", name: "SureLock" },
     { id: "bp2", name: "KeyPro" },
@@ -40,11 +42,21 @@ const labels = (groups: ReturnType<typeof filterGroups>, title: string) =>
   groups.find((g) => g.title === title)?.options.map((o) => o.label);
 
 describe("filterGroups — the columns of the Filter results menu", () => {
-  it("lists Workiz's groups first, then ours, each with its catalog", () => {
+  /**
+   * Workiz: TECHS, TAGS, JOB TYPE, RECURRING JOBS, SERVICE AREAS. We have no
+   * recurring jobs, so its column holds ours — STATUS (the closed statuses,
+   * which are not tabs) and COMPANY — and SERVICE AREAS stays fifth.
+   */
+  it("reads in Workiz's column order, ours in the RECURRING JOBS slot", () => {
     const groups = filterGroups(catalogs, base, "");
-    expect(titles(groups)).toEqual(["Techs", "Tags", "Job type", "Service Areas", "Status", "Company", "Sort"]);
+    expect(titles(groups)).toEqual(["Techs", "Tags", "Job type", "Status", "Company", "Service Areas"]);
     expect(labels(groups, "Techs")).toEqual(["(2) TX - David Szender", "(2) TX - Matthew Salinas"]);
     expect(labels(groups, "Status")).toEqual(["Done", "Canceled"]);
+  });
+
+  /** Workiz sorts by a column header; "sort" is not a filter (audit L14). */
+  it("has no Sort group", () => {
+    expect(titles(filterGroups(catalogs, base, ""))).not.toContain("Sort");
   });
 
   it("offers Company only when there is more than one", () => {
@@ -67,15 +79,64 @@ describe("filterGroups — the columns of the Filter results menu", () => {
     expect(labels(groups, "Status")).toEqual(["Canceled"]);
   });
 
-  it("the sort group offers the orders other than the one in force", () => {
-    expect(labels(filterGroups(catalogs, base, ""), "Sort")).toEqual([
-      "Latest day first",
-      "Earliest hour first",
-      "Latest hour first",
+  it("keeps each catalog's own order — no re-sorting by name", () => {
+    const groups = filterGroups(
+      { ...catalogs, tags: [{ id: "z", name: "TOP PRIORITY", color: "red" }, { id: "a", name: "Needs a call", color: "blue" }] },
+      base,
+      "",
+    );
+    expect(labels(groups, "Tags")).toEqual(["TOP PRIORITY", "Needs a call"]);
+  });
+});
+
+describe("filterAreas — the SERVICE AREAS column", () => {
+  const area = (name: string, active = true) => ({ id: name, name, active });
+
+  /**
+   * Workiz's default metro "All areas" (is_default) is no filter at all — no
+   * chip already means every area — and its menu does not offer it. Areas
+   * switched off are still offered: jobs carry them (Workiz lists them too).
+   */
+  it("leaves out Workiz's default 'All areas', keeps inactive ones, A→Z regardless of case", () => {
+    expect(
+      filterAreas([area("Platinum_AL"), area("All areas"), area("North Carolina", false), area("PLATINUM ALL STATES", false)]).map(
+        (a) => a.name,
+      ),
+    ).toEqual(["North Carolina", "PLATINUM ALL STATES", "Platinum_AL"]);
+  });
+
+  it("copes with no catalog", () => {
+    expect(filterAreas(undefined)).toEqual([]);
+  });
+});
+
+describe("orderTechs — the TECHS column, in Workiz's order", () => {
+  /**
+   * Workiz lists its team in the order people joined ("(1) YAKOV SZENDER",
+   * "(2) IL - DANIEL SZENDER", …); the import keeps when each joined.
+   */
+  it("orders by when each technician joined, then by name", () => {
+    const names = new Map([
+      ["a", "Yakov Szender"],
+      ["b", "Daniel Szender"],
+      ["c", "Bill Ryan"],
+      ["d", "Ann Lee"],
     ]);
-    expect(labels(filterGroups(catalogs, { ...base, sort: "hour_asc" }, ""), "Sort")).toEqual([
-      "Latest day first",
-      "Latest hour first",
+    expect(
+      orderTechs(
+        [
+          { userId: "c", createdAt: "2023-01-01T00:00:00.000Z" },
+          { userId: "a", createdAt: "2019-11-04T03:33:00.000Z" },
+          { userId: "d", createdAt: "2023-01-01T00:00:00.000Z" },
+          { userId: "b", createdAt: "2019-11-04T04:00:00.000Z" },
+        ],
+        (id) => names.get(id) ?? id,
+      ),
+    ).toEqual([
+      { id: "a", name: "Yakov Szender" },
+      { id: "b", name: "Daniel Szender" },
+      { id: "d", name: "Ann Lee" },
+      { id: "c", name: "Bill Ryan" },
     ]);
   });
 });
@@ -97,13 +158,13 @@ describe("chooseFilter — picking an option", () => {
     });
   });
 
-  it("while the server takes one value per group, a second pick replaces the first", () => {
+  it("on a backend taking one value per group, a second pick replaces the first", () => {
     let s = chooseFilter(base, { group: "tech", value: "t1", label: "x" }, single);
     s = chooseFilter(s, { group: "tech", value: "t2", label: "x" }, single);
     expect(s.techIds).toEqual(["t2"]);
   });
 
-  it("once it takes several, picks add up (OR inside the group, like Workiz)", () => {
+  it("picks add up (OR inside the group, like Workiz)", () => {
     let s = chooseFilter(base, { group: "tech", value: "t1", label: "x" }, multi);
     s = chooseFilter(s, { group: "tech", value: "t2", label: "x" }, multi);
     s = chooseFilter(s, { group: "tech", value: "t2", label: "x" }, multi);
@@ -112,10 +173,6 @@ describe("chooseFilter — picking an option", () => {
 
   it("a status opens that status in place of the tab", () => {
     expect(chooseFilter(base, { group: "status", value: "done", label: "Done" }, single).tab).toBe(JobSuperStatus.DONE);
-  });
-
-  it("a sort sets the order", () => {
-    expect(chooseFilter(base, { group: "sort", value: "hour_desc", label: "x" }, single).sort).toBe("hour_desc");
   });
 
   it("leaves the search text alone", () => {
@@ -135,17 +192,20 @@ describe("filterChips — what the control shows once something is chosen", () =
       serviceAreas: ["Platinum_AL"],
       businessProfileIds: ["bp2"],
       tab: JobSuperStatus.CANCELED,
-      sort: "day_desc",
     };
     expect(filterChips(state, catalogs).map((c) => c.label)).toEqual([
       "user: (2) TX - David Szender",
       "tag: Needs a call",
       "type: Car lockout",
-      "metro: Platinum_AL",
       "status: Canceled",
       "company: KeyPro",
-      "sort: Latest day first",
+      "metro: Platinum_AL",
     ]);
+  });
+
+  /** The order is shown by the bar on the Scheduled header, never as a chip (audit L14). */
+  it("a sort is never a chip", () => {
+    expect(filterChips({ ...base, sort: "day_desc" }, catalogs)).toEqual([]);
   });
 
   it("an open tab is a tab, not a chip", () => {
@@ -180,7 +240,7 @@ describe("removing chips", () => {
     dateFrom: "2026-10-08",
     dateTo: "2026-10-09",
     hourFrom: "08:00",
-    sort: "hour_asc",
+    sort: "day_desc",
     unpaid: true,
   };
 
@@ -194,11 +254,9 @@ describe("removing chips", () => {
     expect(removeFilterChip(full, scheduled)).toMatchObject({ dateFrom: undefined, dateTo: undefined });
     const hours = chips.find((c) => c.kind === "hours")!;
     expect(removeFilterChip(full, hours)).toMatchObject({ hourFrom: undefined, hourTo: undefined });
-    const sort = chips.find((c) => c.kind === "sort")!;
-    expect(removeFilterChip(full, sort).sort).toBe("none");
   });
 
-  it("clear-all empties the control but keeps the search text and Show unpaid jobs", () => {
+  it("clear-all empties the control but keeps the search text, Show unpaid jobs and the header's sort", () => {
     const cleared = clearFilters(full);
     expect(filterChips(cleared, catalogs)).toEqual([]);
     expect(cleared).toMatchObject({
@@ -207,7 +265,7 @@ describe("removing chips", () => {
       unpaid: true,
       techIds: [],
       tagIds: [],
-      sort: "none",
+      sort: "day_desc",
     });
   });
 

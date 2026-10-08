@@ -53,7 +53,7 @@ export const JOB_FIELDS = [
   { id: "jobType", label: "Job Type", width: 200, icon: "job" },
   { id: "zip", label: "Zip code", width: 100, icon: "location" },
   { id: "total", label: "Total Price", width: 120, icon: "money" },
-  { id: "company", label: "Company", width: 170, icon: "custom" },
+  { id: "company", label: "Choose Company", width: 170, icon: "custom" },
   { id: "source", label: "Source", width: 150, icon: "source" },
   { id: "address", label: "Address", width: 260, icon: "location" },
   { id: "createdBy", label: "Created by", width: 150, icon: "users" },
@@ -89,8 +89,23 @@ export interface JobFieldOption {
 /** Column ids a user can toggle: a static field id or `cf:<customFieldId>`. */
 export type VisibleFields = Record<string, boolean>;
 
-/** The classic columns stay on out of the box; everything else is opt-in. */
-const DEFAULT_ON: readonly string[] = ["client", "tech", "tags", "city", "state", "scheduled", "jobType"];
+/**
+ * On out of the box: Workiz's USED FIELDS on this account (list_02) —
+ * Client, Tech, Tags, City, State, Scheduled, Job Type, Zip code, Total
+ * Price, Choose Company. Everything else is opt-in. A saved choice is kept.
+ */
+const DEFAULT_ON: readonly string[] = [
+  "client",
+  "tech",
+  "tags",
+  "city",
+  "state",
+  "scheduled",
+  "jobType",
+  "zip",
+  "total",
+  "company",
+];
 
 export const DEFAULT_VISIBLE: VisibleFields = Object.fromEntries(
   JOB_FIELDS.map((f) => [f.id, DEFAULT_ON.includes(f.id)]),

@@ -46,7 +46,8 @@ vi.mock("@/features/job-tags/components/job-tag-combobox", () => ({ JobTagCombob
 vi.mock("@/features/job-statuses/components/job-status-select", () => ({ JobStatusSelect: () => null }));
 // Custom-fields catalog fetches via react-query; stub it (empty catalog → the
 // read-only custom-fields row stays hidden) so the drawer renders sans QueryClient.
-vi.mock("@/features/custom-fields/hooks", () => ({ useCustomFields: () => ({ data: [] }) }));
+const qv = vi.hoisted(() => ({ fields: [] as unknown[], deal: null as unknown }));
+vi.mock("@/features/custom-fields/hooks", () => ({ useCustomFields: () => ({ data: qv.fields }) }));
 // Calling the client goes through the masked bridge, which queries telephony
 // for the workspace's numbers. This test is about the client LINK; the button
 // has its own tests.
@@ -96,7 +97,7 @@ vi.mock("@/features/clients/hooks", () => ({
   useContact: (id: string) => ({ data: id === contact.id ? contact : undefined, isLoading: false }),
 }));
 vi.mock("../hooks", () => ({
-  useDeal: () => ({ data: deal, isLoading: false }),
+  useDeal: () => ({ data: qv.deal ?? deal, isLoading: false }),
   useDealProducts: () => ({ data: [] }),
   useUserMap: () => ({ map: new Map(), isLoading: false }),
   useUpdateDeal: () => ({ mutate: vi.fn() }),
@@ -132,5 +133,51 @@ describe("DealQuickView", () => {
     render(<DealQuickView dealId="d1" open onOpenChange={() => {}} />);
     expect(screen.getByText("Company")).toBeInTheDocument();
     expect(screen.getByText("KeyPro")).toBeInTheDocument();
+  });
+
+  /**
+   * Audit L18: the drawer said "Nov 16 · 15:30-15:30" — 24-hour, start equal
+   * to end — where the list says "Mon Nov 16, 2026 04:30 pm". It now reads
+   * like the list: the account's clock, then the place and its own.
+   */
+  it("reads the visit the way the list does", () => {
+    qv.deal = { ...deal, scheduledDate: "2026-11-16", scheduledTimeSlot: "15:30-15:30", jobTimezone: "America/Chicago" };
+    try {
+      render(<DealQuickView dealId="d1" open onOpenChange={() => {}} />);
+      expect(screen.getByText("Mon Nov 16, 2026 04:30 pm")).toBeInTheDocument();
+      expect(screen.getByText("Phoenix: Mon Nov 16, 2026 03:30 pm")).toBeInTheDocument();
+      expect(screen.queryByText(/15:30-15:30/)).toBeNull();
+    } finally {
+      qv.deal = null;
+    }
+  });
+
+  /** Audit L18: a saved job's file fields said "Save the job first to attach a file." */
+  it("treats a file field on a saved job as the saved job's", () => {
+    qv.fields = [
+      {
+        id: "cf-photo",
+        name: "Photo of the door",
+        type: "file",
+        group: "Access",
+        options: [],
+        jobTypeIds: [],
+        required: false,
+        requiredToClose: false,
+        searchable: false,
+        priority: 0,
+        active: true,
+        createdBy: "u1",
+        createdAt: "",
+        updatedAt: "",
+      },
+    ];
+    try {
+      render(<DealQuickView dealId="d1" open onOpenChange={() => {}} />);
+      expect(screen.getByText("Photo of the door")).toBeInTheDocument();
+      expect(screen.queryByText("Save the job first to attach a file.")).toBeNull();
+    } finally {
+      qv.fields = [];
+    }
   });
 });

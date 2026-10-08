@@ -50,7 +50,6 @@ vi.mock("../hooks", () => ({
   }),
   useDealCounts: () => ({ data: mocks.counts, isLoading: false }),
   useUserMap: () => ({ map: new Map(), isLoading: false }),
-  useJobsSearch: () => ({ data: undefined, isError: false, isFetching: false, refetch: vi.fn() }),
 }));
 vi.mock("@/features/clients/hooks", () => ({
   useContactsByIds: () => ({ map: mocks.contactMap, isLoading: false }),
@@ -159,24 +158,20 @@ beforeEach(() => {
   useJobFieldsStore.setState({ visible: { ...DEFAULT_VISIBLE }, order: [] });
 });
 
-// Ordering and the day / hour windows are the server's now (see
-// deals-page-paging.test.tsx for what the page asks for); the hour sorts
-// are the one thing still settled on the page.
-describe("DealsPage hour sort — settled within the loaded rows", () => {
-  afterEach(() => {
-    mocks.deals = [deal];
-  });
-
-  it("Filter results → Sort → Latest hour first puts the later slot first", () => {
-    mocks.deals = [
-      { ...deal, id: "d1", dealNumber: "A11111", scheduledDate: "2026-08-18", scheduledTimeSlot: "07:00-08:00" },
-      { ...deal, id: "d2", dealNumber: "B22222", scheduledDate: "2026-08-18", scheduledTimeSlot: "15:00-16:00" },
-    ];
+/**
+ * Workiz sorts by a column header, never from Filter results (audit L14):
+ * the order is the Scheduled header's, shown by its bar, not as a chip.
+ */
+describe("DealsPage sorting — the Scheduled header only", () => {
+  it("offers no sort in Filter results, and the header's order leaves no chip", () => {
     render(<DealsPage />);
     openFilter();
-    fireEvent.click(screen.getByRole("option", { name: "Latest hour first" }));
-    expect(screen.getAllByRole("row")[1].textContent).toContain("B22222");
-    expect(screen.getByText("sort: Latest hour first")).toBeInTheDocument();
+    expect(screen.queryByRole("listbox", { name: "Sort" })).toBeNull();
+    expect(screen.queryByRole("option", { name: "Latest hour first" })).toBeNull();
+    fireEvent.keyDown(screen.getByRole("combobox", { name: "Filter results" }), { key: "Escape" });
+    fireEvent.click(screen.getByRole("button", { name: /Sort by Scheduled/ }));
+    expect(lastPageParams()).toMatchObject({ dir: "desc" });
+    expect(screen.queryByText(/^sort:/)).toBeNull();
   });
 });
 
@@ -332,10 +327,11 @@ describe("DealsPage company filter", () => {
 
   it("narrows the list to one company — as a server parameter, from Filter results", () => {
     render(<DealsPage />);
-    expect(lastPageParams()).not.toHaveProperty("businessProfileId");
+    expect(lastPageParams()).not.toHaveProperty("businessProfileIds");
     openFilter();
     fireEvent.click(screen.getByRole("option", { name: "KeyPro" }));
-    expect(lastPageParams()).toMatchObject({ businessProfileId: "bp-2" });
+    // An any-of list, like every Filter results group.
+    expect(lastPageParams()).toMatchObject({ businessProfileIds: "bp-2" });
     expect(screen.getByText("company: KeyPro")).toBeInTheDocument();
   });
 });

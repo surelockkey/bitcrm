@@ -1077,3 +1077,19 @@ describe("send-to-tech stamps", () => {
     expect(deliveryReasonLabel(undefined)).toBe("no reason given");
   });
 });
+
+/**
+ * Workiz lists a job's tags newest first: LSBE12 reads "waiting for an
+ * estimate · PLATINUM · BID/Solicitation" while the job stores them in the
+ * order they were added (BID/Solicitation first). Checked over the captured
+ * Workiz rows: 7 of the 8 jobs with the same tags read exactly reversed.
+ */
+describe("tagsNewestFirst", () => {
+  it("reads a job's tags newest first, without touching the stored list", async () => {
+    const { tagsNewestFirst } = await import("./lib");
+    const stored = ["bid", "platinum", "waiting"];
+    expect(tagsNewestFirst(stored)).toEqual(["waiting", "platinum", "bid"]);
+    expect(stored).toEqual(["bid", "platinum", "waiting"]);
+    expect(tagsNewestFirst(undefined)).toEqual([]);
+  });
+});

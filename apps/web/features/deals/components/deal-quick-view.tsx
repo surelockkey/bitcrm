@@ -36,7 +36,10 @@ import { useCustomFields } from "@/features/custom-fields/hooks";
 import { applicableFields } from "@/features/custom-fields/lib";
 import { useDeal, useDealProducts, useMoveStatus, useSetDealTags, useUserMap } from "../hooks";
 import { useContact } from "@/features/clients/hooks";
-import { dealClientName, dealTotal, formatMoney, formatSchedule, isUrgent } from "../lib";
+import { dealClientName, dealTotal, formatMoney, isUrgent } from "../lib";
+import { workizScheduleCell } from "../schedule-cell";
+import type { Deal } from "@bitcrm/types";
+import { DEFAULT_TZ } from "@/lib/timezone";
 import { PriorityFlag } from "./deal-badges";
 import { TechChips } from "./assigned-techs";
 import { noteToText } from "../note-html";
@@ -56,6 +59,29 @@ export function DealQuickView({
         {open && dealId ? <QuickViewBody dealId={dealId} /> : <SheetTitle className="sr-only">Job</SheetTitle>}
       </SheetContent>
     </Sheet>
+  );
+}
+
+/**
+ * The visit as the jobs list prints it (audit L18): "Mon Nov 16, 2026 04:30 pm"
+ * on the account's clock, then — when the job keeps its own zone — the place
+ * and its own clock. Never the stored "15:30-15:30".
+ */
+function QuickViewSchedule({ deal }: { deal: Deal }) {
+  const c = workizScheduleCell(
+    {
+      scheduledDate: deal.scheduledDate,
+      scheduledTimeSlot: deal.allDay ? undefined : deal.scheduledTimeSlot,
+      city: deal.address?.city,
+      zone: deal.jobTimezone,
+    },
+    DEFAULT_TZ,
+  );
+  return (
+    <div className="text-sm">
+      <div>{c.when}</div>
+      {c.area ? <div className="text-xs text-muted-foreground">{`${c.area.place}: ${c.area.when}`}</div> : null}
+    </div>
   );
 }
 
@@ -198,7 +224,7 @@ function QuickViewBody({ dealId }: { dealId: string }) {
         </Row>
 
         <Row label="Schedule">
-          <div className="text-sm">{formatSchedule(deal.scheduledDate, deal.scheduledTimeSlot)}</div>
+          <QuickViewSchedule deal={deal} />
         </Row>
 
         <Row label="Team">
@@ -212,6 +238,8 @@ function QuickViewBody({ dealId }: { dealId: string }) {
               value={deal.customFields ?? {}}
               onChange={() => {}}
               disabled
+              // A saved job: its file fields show their files, not "Save the job first".
+              dealId={deal.id}
             />
           </Row>
         ) : null}

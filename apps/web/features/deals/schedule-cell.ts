@@ -62,6 +62,13 @@ function workizStamp(instant: Date, zone: string): string {
   return `${workizDay(date)} ${pad(h % 12 === 0 ? 12 : h % 12)}:${pad(wall.getUTCMinutes())} ${h < 12 ? "am" : "pm"}`;
 }
 
+/** "Tue Sep 29, 2026 09:36 am" — a stored instant (ISO) on `zone`'s clock; "" when unreadable. */
+export function workizDateTime(iso: string | undefined, zone: string): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? "" : workizStamp(d, zone);
+}
+
 /** moment.js `fromNow()` with its default thresholds — the words Workiz prints. */
 export function workizFromNow(at: Date, now: Date = new Date()): string {
   const ms = at.getTime() - now.getTime();

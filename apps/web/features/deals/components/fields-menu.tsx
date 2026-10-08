@@ -30,7 +30,7 @@ import {
   MapPin,
   Phone,
   Search,
-  Table2,
+  Grid3x3,
   Tag,
   Users,
   Wrench,
@@ -109,18 +109,20 @@ export function FieldsMenu() {
   return (
     <Dialog.Root open={open} onOpenChange={openPanel}>
       <Dialog.Trigger asChild>
-        {/* list_01: 82×34, 1px #ccc, radius 2, 14px, a table glyph before the word. */}
+        {/* list_01: 82×34, 1px #ccc, radius 2, 14px, no fill of its own (the
+            strip's #f7f7f7 shows through), Workiz's 3×3 grid glyph. */}
         <button
           type="button"
-          className="inline-flex h-[34px] items-center gap-1 rounded-chip border border-input bg-background px-2.5 text-sm text-[#404040] hover:bg-muted"
+          className="inline-flex h-[34px] items-center gap-1 rounded-chip border border-input bg-transparent px-2.5 text-sm text-[#404040] hover:bg-black/5"
         >
-          <Table2 className="size-3.5" />
+          <Grid3x3 className="size-3.5" strokeWidth={1.75} />
           Fields
         </button>
       </Dialog.Trigger>
       <Dialog.Portal>
-        {/* The page dims to 36% black under the panel (#ffffff → #a3a3a3). */}
-        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/[0.36] data-open:animate-in data-open:fade-in-0" />
+        {/* The page dims under #666 at 60% — #ffffff → #a3a3a3 and #f7f7f7 →
+            #a0a0a0, sampled off list_02 and audit_pixels_list_fields alike. */}
+        <Dialog.Overlay className="fixed inset-0 z-50 bg-[#666666]/60 data-open:animate-in data-open:fade-in-0" />
         <Dialog.Content
           aria-describedby={undefined}
           className="fixed inset-y-0 right-0 z-50 flex w-[422px] max-w-full flex-col bg-background text-[#3b4b52] shadow-lg data-open:animate-in data-open:slide-in-from-right-10"
@@ -146,7 +148,7 @@ export function FieldsMenu() {
             </div>
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto px-6 pt-4 pb-20">
+          <div className="min-h-0 flex-1 overflow-y-auto px-6 pt-4 pb-2">
             <p className="mb-4 text-xs leading-[21px] font-medium tracking-[0.4px] text-[#9ea6aa] uppercase">Used fields</p>
             {jobIdShown ? <FieldRow option={JOB_ID} checked locked /> : null}
             <DndContext
@@ -175,12 +177,13 @@ export function FieldsMenu() {
             ) : null}
           </div>
 
-          {/* list_02: Cancel (text) and Save fields (yellow pill), 32px, bottom right. */}
-          <div className="pointer-events-none absolute right-6 bottom-3 flex items-center gap-[9px]">
+          {/* list_02: a white footer under the list (rows end at y≈935), Cancel
+              (text) and Save fields (yellow pill), 32px, at y=956 on the right. */}
+          <div className="flex h-[65px] shrink-0 items-start justify-end gap-[9px] bg-background px-6 pt-[21px]">
             <Dialog.Close asChild>
               <button
                 type="button"
-                className="pointer-events-auto h-8 rounded-pill px-4 text-[13px] font-semibold tracking-[0.2px] text-[#3b4b52] hover:bg-muted"
+                className="h-8 rounded-pill px-4 text-[13px] font-semibold tracking-[0.2px] text-[#3b4b52] hover:bg-muted"
               >
                 Cancel
               </button>
@@ -191,7 +194,7 @@ export function FieldsMenu() {
                 save(savedFromDraft(options, used));
                 setOpen(false);
               }}
-              className="pointer-events-auto h-8 rounded-pill bg-primary px-4 text-[13px] font-semibold tracking-[0.2px] text-primary-foreground hover:bg-primary/85"
+              className="h-8 rounded-pill bg-primary px-4 text-[13px] font-semibold tracking-[0.2px] text-primary-foreground hover:bg-primary/85"
             >
               Save fields
             </button>
@@ -249,7 +252,8 @@ function FieldRow({
   handle?: ReactNode;
 }) {
   return (
-    <div className="mb-2 flex h-[42px] w-full max-w-[354px] items-center gap-2.5 rounded-[8px] border border-border bg-background px-2">
+    // list_02: handle at +11, tick at +35 (+11 without a handle), name 13px after the tick.
+    <div className="mb-2 flex h-[42px] w-full max-w-[354px] items-center gap-2 rounded-[8px] border border-border bg-background pr-2 pl-[10px]">
       {handle ?? (locked ? <span className="w-4" aria-hidden /> : null)}
       <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-[13px]">
         <Checkbox
