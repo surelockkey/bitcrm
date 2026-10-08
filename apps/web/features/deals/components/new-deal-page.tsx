@@ -710,7 +710,8 @@ function DealForm({
 
             <WzCard title="Service Location" className="relative">
               {verified ? <Verified /> : null}
-              <WzFieldGroup join="seamless">
+              {/* Workiz's Address | Unit runs 1px past the column (449 + 151 − 2). */}
+              <WzFieldGroup join="seamless" className="w-[calc(100%+1px)]">
                 <WzAddressField
                   value={address.street}
                   onChange={(street) => setAddress({ street })}
@@ -921,9 +922,10 @@ function DealForm({
 /** "✓ Verified" at the card's top right once the address is geocoded (address-module__verified). */
 function Verified() {
   return (
-    <div className="absolute top-[38px] right-10 flex items-center text-[14px] leading-4 font-normal text-wz-link">
-      <svg width="16" height="12" viewBox="0 0 16 12" fill="none" aria-hidden className="relative top-px mr-3">
-        <path d="M1.5 6.5 5.5 10.5 14.5 1.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    // The 20px icon font makes Workiz's line 30px tall; the words sit in its middle.
+    <div className="absolute top-[38px] right-10 flex h-[30px] items-center text-[14px] leading-4 font-normal text-wz-link">
+      <svg width="16" height="12" viewBox="0 0 16 12" fill="none" aria-hidden className="relative -top-0.5 mr-3">
+        <path d="M1.5 6.5 5.5 10.5 14.5 1.5" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
       Verified
     </div>

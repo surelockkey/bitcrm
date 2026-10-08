@@ -98,7 +98,7 @@ export function WzClientNameField({
         }}
       />
       {open ? (
-        <WzSuggestionList id={listId} aria-label="Clients" className="top-12">
+        <WzSuggestionList id={listId} aria-label="Clients" className="top-12 max-h-[276px]">
           {searching ? (
             <SearchingRow />
           ) : (

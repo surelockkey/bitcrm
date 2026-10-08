@@ -8,11 +8,11 @@ import Placeholder from "@tiptap/extension-placeholder";
 import {
   Bold as BoldIcon,
   Italic as ItalicIcon,
-  Link as LinkIcon,
+  Link2 as LinkIcon,
   List,
   ListOrdered,
-  Redo2,
-  Undo2,
+  Redo,
+  Undo,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { noteToHtml } from "../note-html";
@@ -123,10 +123,10 @@ export function JobNoteEditor({
 
           <Divider />
           <Btn label="Undo" onClick={() => editor.chain().focus().undo().run()} disabled={!editor.can().undo()}>
-            <Undo2 />
+            <Undo />
           </Btn>
           <Btn label="Redo" onClick={() => editor.chain().focus().redo().run()} disabled={!editor.can().redo()}>
-            <Redo2 />
+            <Redo />
           </Btn>
 
           <Divider />
@@ -217,7 +217,7 @@ function Btn({
       onClick={onClick}
       className={cn(
         // ToolbarPlugin-module__btn: 5px round an 18px glyph -> 28x32.
-        "flex h-8 w-7 items-center justify-center rounded-[4px] p-[5px] transition-colors [&_svg]:size-[18px]",
+        "flex h-8 w-7 items-center justify-center rounded-[4px] p-[5px] transition-colors [&_svg]:size-[15px]",
         "focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-wz-link disabled:cursor-not-allowed disabled:opacity-30",
         active ? "bg-wz-link text-white hover:bg-[#5596df]" : "text-[#566d76] hover:bg-[#e4ebed] hover:text-[#1a2b30]",
       )}
