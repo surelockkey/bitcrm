@@ -147,7 +147,8 @@ export function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) 
   const groups = workizOrderedGroups(applicableFields(customFieldDefs, dealDraft.jobTypeId)).map((g) => g.group);
   const columns = [groups.filter((_, i) => i % 2 === 0), groups.filter((_, i) => i % 2 === 1)];
 
-  const pending = update.isPending || updateContact.isPending;
+  const [savingCompany, setSavingCompany] = useState(false);
+  const pending = update.isPending || updateContact.isPending || savingCompany;
   const { confirm } = useUnsavedChanges(plan.dirty);
   const [asking, setAsking] = useState(false);
 
@@ -169,13 +170,13 @@ export function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) 
    * with everything else edited alongside it.
    */
   const saveWithCompany = async (c: Contact, body: UpdateContactValues | null) => {
+    setSavingCompany(true);
     try {
-      const r = resolveCompanyName({
-        typed: company.typed,
-        currentId: c.companyId,
-        currentTitle: clientCompany?.title ?? "",
-        companies: company.typed.trim() ? await fetchAllCompanies() : [],
-      });
+      const read = (companies: Awaited<ReturnType<typeof fetchAllCompanies>>) =>
+        resolveCompanyName({ typed: company.typed, currentId: c.companyId, currentTitle: clientCompany?.title ?? "", companies });
+      // The whole company list is only worth reading for a name that is new to this client.
+      let r = read([]);
+      if (r.kind === "create") r = read(await fetchAllCompanies());
       const companyId =
         r.kind === "clear"
           ? undefined
@@ -189,6 +190,8 @@ export function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) 
       updateContact.mutate({ id: c.id, body: contactBodyWithCompany(c, body, companyId) });
     } catch (e) {
       toast.error(getApiErrorMessage(e));
+    } finally {
+      setSavingCompany(false);
     }
   };
 

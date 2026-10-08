@@ -601,6 +601,21 @@ describe("DetailsTab — Company name", () => {
     expect(mocks.updateContact.mock.calls[0][0].body.companyId).toBeUndefined();
   });
 
+  it("keeps the client's company on a change of case, without reading every company", async () => {
+    const u = user();
+    mocks.company = { id: "co-1", title: "Acme Locks" };
+    mocks.contact = { ...baseContact, companyId: "co-1" };
+    renderTab();
+
+    await u.clear(screen.getByLabelText("Company name"));
+    await u.type(screen.getByLabelText("Company name"), "acme locks");
+    await u.click(saveButton());
+
+    await waitFor(() => expect(saveButton()).toBeDisabled());
+    expect(mocks.fetchAllCompanies).not.toHaveBeenCalled();
+    expect(mocks.updateContact).not.toHaveBeenCalled();
+  });
+
   it("is read only without contacts.edit", () => {
     mocks.perms.contacts = false;
     renderTab();
