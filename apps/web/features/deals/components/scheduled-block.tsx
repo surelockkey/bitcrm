@@ -3,6 +3,7 @@
 import { CalendarDays } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
+import { nowScheduleDefault } from "@/lib/timezone";
 import { AreaClock } from "./area-clock";
 
 /** 15-min time options across the day, e.g. "08:00" → "8:00 AM". */
@@ -51,6 +52,51 @@ export interface ScheduledValue {
   allDay: boolean;
 }
 
+/*
+ * The rules of a schedule, shared by this block and the Workiz one
+ * (workiz/schedule-block.tsx) so both forms schedule a job the same way.
+ */
+
+/** "08:00-09:30" → ["08:00", "09:30"]; no slot → ["", ""]. */
+export function slotTimes(slot: string): [string, string] {
+  if (!slot || !slot.includes("-")) return ["", ""];
+  const [start, end] = slot.split("-");
+  return [start, end];
+}
+
+/** A new start keeps the end; with no end yet the job ends when it starts. */
+export function withStartTime(v: ScheduledValue, t: string): ScheduledValue {
+  const [, end] = slotTimes(v.slot);
+  return { ...v, slot: t && (end || t) ? `${t}-${end || t}` : "" };
+}
+
+/** A new end needs a start; without one the slot is left as it was. */
+export function withEndTime(v: ScheduledValue, t: string): ScheduledValue {
+  const [start] = slotTimes(v.slot);
+  return { ...v, slot: start && t ? `${start}-${t}` : v.slot };
+}
+
+/** All-day drops the times. */
+export function withAllDay(v: ScheduledValue, allDay: boolean): ScheduledValue {
+  return { ...v, allDay, slot: allDay ? "" : v.slot };
+}
+
+/**
+ * Workiz's Scheduled switch: off leaves the job unscheduled (no date, no
+ * times); on again starts from now in the job's timezone, as a new job does.
+ */
+export function withScheduled(
+  v: ScheduledValue,
+  on: boolean,
+  tz?: string,
+  now: Date = new Date(),
+): ScheduledValue {
+  if (!on) return { date: "", endDate: "", slot: "", allDay: false };
+  if (v.date) return v;
+  const d = nowScheduleDefault(tz, now);
+  return { date: d.date, endDate: d.date, slot: `${d.start}-${d.end}`, allDay: false };
+}
+
 /**
  * Workiz-style Scheduled block: Starts (date + time) and Ends (date + time),
  * an all-day toggle that drops the times, a live area clock in the job's
@@ -70,13 +116,13 @@ export function ScheduledBlock({
   areaName?: string;
   onChange: (next: ScheduledValue) => void;
 }) {
-  const [start, end] = slot && slot.includes("-") ? slot.split("-") : ["", ""];
+  const value: ScheduledValue = { date, endDate, slot, allDay };
+  const [start, end] = slotTimes(slot);
   const effEndDate = endDate || date;
-  const emit = (patch: Partial<ScheduledValue>) =>
-    onChange({ date, endDate, slot, allDay, ...patch });
+  const emit = (patch: Partial<ScheduledValue>) => onChange({ ...value, ...patch });
 
-  const setStartTime = (t: string) => emit({ slot: t && (end || t) ? `${t}-${end || t}` : "" });
-  const setEndTime = (t: string) => emit({ slot: start && t ? `${start}-${t}` : slot });
+  const setStartTime = (t: string) => onChange(withStartTime(value, t));
+  const setEndTime = (t: string) => onChange(withEndTime(value, t));
 
   return (
     <div className="space-y-3">
@@ -135,7 +181,7 @@ export function ScheduledBlock({
         <Checkbox
           aria-label="All-day event"
           checked={allDay}
-          onCheckedChange={(c) => emit({ allDay: c === true, slot: c === true ? "" : slot })}
+          onCheckedChange={(c) => onChange(withAllDay(value, c === true))}
         />
         All-day event
       </label>

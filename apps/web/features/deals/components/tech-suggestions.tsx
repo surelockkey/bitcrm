@@ -8,7 +8,7 @@ import { useSuggestedTechs, useUserMap } from "../hooks";
 import { personName } from "../person-name";
 import type { IneligibilityReason, QualifiedTech } from "../api";
 
-const REASON: Record<IneligibilityReason, string> = {
+export const REASON: Record<IneligibilityReason, string> = {
   // Dispatch holds a row for them but user-service says they are off the
   // field team — say that, rather than implying they are mid-onboarding.
   not_assignable: "not on the field team",
@@ -16,7 +16,7 @@ const REASON: Record<IneligibilityReason, string> = {
   outside_area: "outside this service area",
 };
 
-const techName = (t: QualifiedTech) =>
+export const techName = (t: QualifiedTech) =>
   `${t.firstName ?? ""} ${t.lastName ?? ""}`.trim() || "Technician";
 
 /**

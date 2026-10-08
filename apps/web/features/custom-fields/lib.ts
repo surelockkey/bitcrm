@@ -1,4 +1,4 @@
-import type { CustomFieldDefinition, CustomFieldValue } from "@bitcrm/types";
+import type { CustomFieldDefinition, CustomFieldType, CustomFieldValue } from "@bitcrm/types";
 
 /** Group heading used for fields left without one. Sorts last. */
 export const UNGROUPED = "Other";
@@ -39,15 +39,19 @@ export function groupFields(
     }));
 }
 
-/** Card order of the custom-field groups on the Workiz job forms. */
+/**
+ * Card order of the custom-field groups on the Workiz job forms: Extra Info |
+ * Other Contact, Dispatchers | Tech, Platinum on both New Job
+ * (new_01_empty_scroll1) and the job page (job_b_01_details_scroll1).
+ */
 export const WORKIZ_GROUP_ORDER = [
+  "Extra Info",
   "Other Contact",
   "Dispatchers",
   "Tech",
   "Platinum",
   "Company",
   "Need To Order",
-  "Extra Info",
 ];
 
 /**
@@ -89,4 +93,37 @@ export function missingRequiredCustomFields(
   return applicableFields(defs, jobTypeId).filter(
     (f) => f.required && isCustomFieldAnswerEmpty(value[f.id]),
   );
+}
+
+/** The Workiz kit control a custom field is drawn with. */
+export type CustomFieldControl =
+  | "text"
+  | "number"
+  | "textarea"
+  | "select"
+  | "multiselect"
+  | "checkbox"
+  | "date"
+  | "upload";
+
+const CONTROL_BY_TYPE: Record<CustomFieldType, CustomFieldControl> = {
+  text: "text",
+  number: "number",
+  large_text: "textarea",
+  dropdown: "select",
+  multi_select: "multiselect",
+  checkbox: "checkbox",
+  date: "date",
+  file: "upload",
+};
+
+/**
+ * Which control draws a field of this type on the Workiz forms: text and
+ * number are the floating-label box, long text the textarea with its name as
+ * placeholder ("Manager Note"), dropdowns the select, files the "+" tile with
+ * "You can choose up to 5 files". A type this build does not know yet is a
+ * text box, so the answer can still be read and typed.
+ */
+export function customFieldControl(type: CustomFieldType): CustomFieldControl {
+  return CONTROL_BY_TYPE[type] ?? "text";
 }

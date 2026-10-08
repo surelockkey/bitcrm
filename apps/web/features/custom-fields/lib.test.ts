@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import type { CustomFieldDefinition } from "@bitcrm/types";
 import {
   applicableFields,
+  customFieldControl,
   groupFields,
   isCustomFieldAnswerEmpty,
   missingRequiredCustomFields,
@@ -75,7 +76,26 @@ describe("workizOrderedGroups", () => {
       field({ id: "t", name: "Parts Image", group: "Tech" }),
       field({ id: "e", name: "Jobs Dispatch", group: "Extra Info" }),
     ]);
-    expect(groups.map((g) => g.group)).toEqual(["Tech", "Need To Order", "Extra Info", "Zeta"]);
+    // new_01_empty_scroll1 / job_b_01_details_scroll1: Extra Info | Other
+    // Contact, Dispatchers | Tech, Platinum — Extra Info leads on both pages.
+    expect(groups.map((g) => g.group)).toEqual(["Extra Info", "Tech", "Need To Order", "Zeta"]);
+  });
+});
+
+describe("customFieldControl — which Workiz control draws each type", () => {
+  it("maps every custom-field type to a kit control", () => {
+    expect(customFieldControl("text")).toBe("text");
+    expect(customFieldControl("number")).toBe("number");
+    expect(customFieldControl("large_text")).toBe("textarea");
+    expect(customFieldControl("dropdown")).toBe("select");
+    expect(customFieldControl("multi_select")).toBe("multiselect");
+    expect(customFieldControl("checkbox")).toBe("checkbox");
+    expect(customFieldControl("date")).toBe("date");
+    expect(customFieldControl("file")).toBe("upload");
+  });
+
+  it("draws an unknown (newer) type as a text box rather than nothing", () => {
+    expect(customFieldControl("signature" as never)).toBe("text");
   });
 });
 
