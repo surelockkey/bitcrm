@@ -26,7 +26,8 @@ export function TechCell({
   const techIds = deal.assignedTechIds ?? [];
 
   return (
-    <div className="flex flex-col items-start gap-1">
+    // list_01: each chip, and the row of marks, on its own 24px line.
+    <div className="flex flex-col items-start *:mb-2.5">
       {techIds.map((id) => {
         const u = userMap.get(id);
         const name = `${u?.firstName ?? ""} ${u?.lastName ?? ""}`.trim();
@@ -38,8 +39,9 @@ export function TechCell({
             key={id}
             aria-label="Technician"
             className={cn(
-              "inline-flex max-w-[190px] items-center truncate rounded px-1.5 py-0.5",
-              "text-[11px] font-semibold uppercase tracking-wide text-white",
+              // Workiz's tech chip: 10px/500 capitals, 14px tall, 4px sides, radius 2.
+              "inline-flex max-w-full items-center rounded-chip px-1 whitespace-nowrap",
+              "text-[10px] leading-[14px] font-medium tracking-[0.4px] uppercase text-white",
               techColor(id),
               name ? "" : "min-w-16 animate-pulse opacity-60",
             )}
@@ -51,7 +53,7 @@ export function TechCell({
       })}
 
       {deal.sentToTechAt || confirmedAt(deal) || deal.hasCalls ? (
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-2">
           {confirmedAt(deal) ? (
             <Mark
               label="Tech confirmed"
@@ -60,7 +62,7 @@ export function TechCell({
                   ? `The technician confirmed this job${when(deal.techConfirmedAt)}`
                   : `The technician opened this job${when(deal.seenByTechAt)}`
               }
-              tone="bg-green-600"
+              tone="bg-[#99c624]"
             >
               <Check className="size-2.5" strokeWidth={3} />
             </Mark>
@@ -69,13 +71,13 @@ export function TechCell({
             <Mark
               label="Sent to tech"
               says={`The job was sent to the technician${when(deal.sentToTechAt)}`}
-              tone="bg-blue-600"
+              tone="bg-[#0059a0]"
             >
               <Share2 className="size-2.5" />
             </Mark>
           ) : null}
           {deal.hasCalls ? (
-            <Mark label="Has a call" says="This job has a call on it" tone="bg-green-600">
+            <Mark label="Has a call" says="This job has a call on it" tone="bg-[#99c624]">
               <Phone className="size-2.5" />
             </Mark>
           ) : null}
@@ -127,7 +129,9 @@ function Mark({
           <span
             aria-label={label}
             aria-description={says}
-            className={cn("grid size-4 place-items-center rounded-[3px] text-white", tone)}
+            // Workiz's marks: 15px squares, radius 2, its green #99c624 and
+            // blue #0059a0 (sampled off list_01_submitted).
+            className={cn("grid size-[15px] place-items-center rounded-chip text-white", tone)}
           >
             {children}
           </span>

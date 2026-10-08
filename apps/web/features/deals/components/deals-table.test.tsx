@@ -115,14 +115,41 @@ describe("DealsTable", () => {
     openSpy.mockRestore();
   });
 
-  it("left-clicking a row opens the preview drawer, not a new tab", async () => {
+  /** Workiz: a row click opens the job itself (jobslist_wz_row_click → /root/job/JJENBF/details). */
+  it("left-clicking a row opens the job, in this tab", async () => {
     const onOpen = vi.fn();
+    const onRowClick = vi.fn();
     render(
-      <DealsTable deals={[deal()]} contactMap={contactMap} userMap={userMap} onOpen={onOpen} />,
+      <DealsTable deals={[deal()]} contactMap={contactMap} userMap={userMap} onOpen={onOpen} onRowClick={onRowClick} />,
     );
     await userEvent.click(screen.getByText("Jane Smith"));
-    expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ id: "d1" }));
+    expect(onRowClick).toHaveBeenCalledWith(expect.objectContaining({ id: "d1" }));
+    expect(onOpen).not.toHaveBeenCalled();
     expect(openSpy).not.toHaveBeenCalled();
+  });
+
+  it("⌘/Ctrl-click opens the job in a new tab instead", () => {
+    const onRowClick = vi.fn();
+    render(
+      <DealsTable deals={[deal()]} contactMap={contactMap} userMap={userMap} onOpen={vi.fn()} onRowClick={onRowClick} />,
+    );
+    fireEvent.click(screen.getByText("Jane Smith"), { metaKey: true });
+    expect(openSpy).toHaveBeenCalledWith("/deals/d1", "_blank", "noopener,noreferrer");
+    expect(onRowClick).not.toHaveBeenCalled();
+  });
+
+  /** Workiz shows a "Quick view" chip under the Job ID; it opens the preview drawer. */
+  it("the Quick view chip under the Job ID opens the preview, not the job", async () => {
+    const onOpen = vi.fn();
+    const onRowClick = vi.fn();
+    render(
+      <DealsTable deals={[deal()]} contactMap={contactMap} userMap={userMap} onOpen={onOpen} onRowClick={onRowClick} />,
+    );
+    const chip = screen.getByRole("button", { name: "Quick view 1042" });
+    expect(chip).toHaveTextContent("Quick view");
+    await userEvent.click(chip);
+    expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ id: "d1" }));
+    expect(onRowClick).not.toHaveBeenCalled();
   });
 
   it("right-clicking a row opens the full job in a new tab and suppresses the browser menu", () => {
@@ -138,28 +165,77 @@ describe("DealsTable", () => {
     expect(onOpen).not.toHaveBeenCalled();
   });
 
-  it("keeps the browser's own context menu on the job-number link", () => {
+  it("prints the Job ID plain in the first column — no #, no link icon (list_01)", () => {
     render(
       <DealsTable deals={[deal()]} contactMap={contactMap} userMap={userMap} onOpen={vi.fn()} />,
     );
-    // A real link's right-click menu (copy address, etc.) stays native.
-    const menuShown = fireEvent.contextMenu(screen.getByRole("link", { name: /new tab/i }));
-    expect(menuShown).toBe(true);
+    expect(screen.getAllByRole("columnheader")[0]).toHaveTextContent("Job ID");
+    const id = screen.getByText("1042");
+    expect(id.closest("td")!.cellIndex).toBe(0);
+    expect(screen.queryByText("#1042")).toBeNull();
+    expect(screen.queryByRole("link", { name: /new tab/i })).toBeNull();
   });
 
-  it("the job number itself is the new-tab link, sitting in the first column", () => {
+  it("the client's number is a tel: link that does not open the job", async () => {
+    const onRowClick = vi.fn();
     render(
-      <DealsTable deals={[deal()]} contactMap={contactMap} userMap={userMap} onOpen={vi.fn()} />,
+      <DealsTable deals={[deal()]} contactMap={contactMap} userMap={userMap} onOpen={vi.fn()} onRowClick={onRowClick} />,
     );
-    const link = screen.getByRole("link", { name: /new tab/i });
-    expect(link).toHaveAttribute("href", "/deals/d1");
-    expect(link).toHaveAttribute("target", "_blank");
-    expect(link).toHaveAttribute("rel", expect.stringContaining("noopener"));
-    // The number is the click target — no reaching for the far edge of the row.
-    expect(link).toHaveTextContent("#1042");
-    const cell = link.closest("td");
-    expect(cell).not.toBeNull();
-    expect(cell!.cellIndex).toBe(0);
+    const tel = screen.getByRole("link", { name: "(404) 555-1234" });
+    expect(tel).toHaveAttribute("href", "tel:+14045551234");
+    tel.addEventListener("click", (e) => e.preventDefault());
+    await userEvent.click(tel);
+    expect(onRowClick).not.toHaveBeenCalled();
+  });
+
+  /** One line under the client's name, never two: company, else the number, else the email. */
+  it("puts the company under the name before the number, and the email only when there is neither", () => {
+    const { rerender } = render(
+      <DealsTable deals={[deal({ clientCompanyName: "The City of Aurora" })]} contactMap={contactMap} userMap={userMap} onOpen={vi.fn()} />,
+    );
+    expect(screen.getByText("The City of Aurora")).toBeInTheDocument();
+    expect(screen.queryByText("(404) 555-1234")).toBeNull();
+
+    const noPhone = new Map([[contact.id, { ...contact, phones: [], emails: ["jane@example.com"] }]]);
+    rerender(<DealsTable deals={[deal()]} contactMap={noPhone} userMap={userMap} onOpen={vi.fn()} />);
+    expect(screen.getByText("jane@example.com")).toBeInTheDocument();
+  });
+
+  it("clicking the Scheduled header flips the day order, and its bar says which way", async () => {
+    const onSortScheduled = vi.fn();
+    const { rerender } = render(
+      <DealsTable deals={[deal()]} contactMap={contactMap} userMap={userMap} onOpen={vi.fn()} sort="none" onSortScheduled={onSortScheduled} />,
+    );
+    const head = () => screen.getByRole("columnheader", { name: "Scheduled" });
+    expect(head().className).toContain("shadow-[inset_0_3px_0_0_rgba(0,0,0,0.6)]");
+    await userEvent.click(screen.getByRole("button", { name: /Sort by Scheduled/ }));
+    expect(onSortScheduled).toHaveBeenCalled();
+    rerender(
+      <DealsTable deals={[deal()]} contactMap={contactMap} userMap={userMap} onOpen={vi.fn()} sort="day_desc" onSortScheduled={onSortScheduled} />,
+    );
+    expect(head().className).toContain("shadow-[inset_0_-3px_0_0_rgba(0,0,0,0.6)]");
+  });
+
+  it("lays the columns out in the order saved in the Visible fields panel", () => {
+    render(
+      <DealsTable deals={[deal()]} contactMap={contactMap} userMap={userMap} onOpen={vi.fn()} order={["scheduled", "client"]} />,
+    );
+    expect(screen.getAllByRole("columnheader").map((h) => h.getAttribute("aria-label"))).toEqual([
+      "Job ID",
+      "Scheduled",
+      "Client",
+      "Tech",
+      "Tags",
+      "City",
+      "State",
+      "Job Type",
+    ]);
+  });
+
+  it("an empty list says No Jobs Found across the grid, under its header", () => {
+    render(<DealsTable deals={[]} contactMap={contactMap} userMap={userMap} onOpen={vi.fn()} />);
+    expect(screen.getByText("No Jobs Found")).toBeInTheDocument();
+    expect(screen.getAllByRole("columnheader")).toHaveLength(8);
   });
 
   it("has no separate far-right new-tab column anymore", () => {
@@ -218,7 +294,7 @@ describe("DealsTable", () => {
         visibleFields={{ ...DEFAULT_VISIBLE, externalCompany: true }}
       />,
     );
-    expect(screen.getByRole("columnheader", { name: "External company" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "External Company" })).toBeInTheDocument();
     expect(screen.getByText("Allied Dispatch Solutions")).toBeInTheDocument();
   });
 
@@ -264,19 +340,7 @@ describe("DealsTable", () => {
       />,
     );
     expect(screen.getAllByRole("columnheader")).toHaveLength(1);
-    expect(screen.getByRole("link", { name: /new tab/i })).toHaveTextContent("#1042");
-  });
-
-  it("does not open the preview when the new-tab link is clicked", async () => {
-    const onOpen = vi.fn();
-    render(
-      <DealsTable deals={[deal()]} contactMap={contactMap} userMap={userMap} onOpen={onOpen} />,
-    );
-    // jsdom would navigate on a real anchor click; prevent that noise.
-    const link = screen.getByRole("link", { name: /new tab/i });
-    link.addEventListener("click", (e) => e.preventDefault());
-    await userEvent.click(link);
-    expect(onOpen).not.toHaveBeenCalled();
+    expect(screen.getByText("1042")).toBeInTheDocument();
   });
 
   /**
@@ -442,17 +506,23 @@ describe("the Workiz grid", () => {
   }
 
   it("rules every column, the way their grid does", () => {
-    // Sampled off their jobs screenshot: a #cfcfcf vertical rule between every
-    // column, in the body and in the header alike.
+    // list_01_submitted: a solid #cccccc rule between header cells, a dotted
+    // #cfcfcf one between body cells.
     const container = grid();
     const heads = Array.from(container.querySelectorAll("thead th"));
     const cells = Array.from(container.querySelectorAll("tbody tr:first-child td"));
     expect(heads.length).toBeGreaterThan(1);
     expect(cells.length).toBeGreaterThan(1);
-    for (const el of [...heads, ...cells]) {
+    for (const el of heads) {
       expect(el.className).toContain("border-r");
-      expect(el.className).toContain("border-table-border");
+      expect(el.className).toContain("border-input");
       // …except the outer edge, which the wrapper already draws.
+      expect(el.className).toContain("last:border-r-0");
+    }
+    for (const el of cells) {
+      expect(el.className).toContain("border-r");
+      expect(el.className).toContain("border-dotted");
+      expect(el.className).toContain("border-table-border");
       expect(el.className).toContain("last:border-r-0");
     }
   });

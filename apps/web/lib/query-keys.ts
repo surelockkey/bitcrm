@@ -75,6 +75,8 @@ export const queryKeys = {
     /** A period at a glance (dashboard); under `deals` so the live stream refreshes it. */
     stats: (params?: unknown) => ["deals", "stats", params] as const,
     byIds: (ids: string[]) => ["deals", "by-ids", ids] as const,
+    /** The jobs page's free-text search, hydrated (`useJobsSearch`). */
+    search: (q: string) => ["deals", "search", q] as const,
     detail: (id: string) => ["deals", "detail", id] as const,
     timeline: (id: string) => ["deals", id, "timeline"] as const,
     /** The client card's History rail: one feed across every job of the client. */

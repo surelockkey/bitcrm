@@ -101,7 +101,15 @@ const routes: FakeRoute[] = [
   { match: /\/billing\/business-profiles$/, reply: () => [] },
   { match: /\/users\/technicians$/, raw: true, reply: () => ({ success: true, data: [], pagination: {} }) },
   { match: /\/users$/, raw: true, reply: () => ({ success: true, data: [], pagination: {} }) },
-  { match: /\/crm\/contacts\/by-ids$/, reply: () => [] },
+  // The client's number, printed under the name the Workiz way — it can only
+  // be asked for once the rows are in, and it comes last.
+  {
+    match: /\/crm\/contacts\/by-ids$/,
+    reply: () => [
+      { id: "c1", firstName: "Client", lastName: "1", phones: ["+14045551234"], emails: [], addresses: [] },
+    ],
+    delayMs: 80,
+  },
 ];
 
 let server: FakeServer;
@@ -111,7 +119,7 @@ const { DealsPage } = await import("./deals-page");
 const tabStrip = () => document.querySelector('[role="tablist"][aria-label="Job status"]') as HTMLElement | null;
 const stripShown = () => !!tabStrip() && !tabStrip()!.className.split(/\s+/).includes("invisible");
 const chips = () => [...tabStrip()!.querySelectorAll('[role="tab"] span')].map((s) => s.textContent?.trim() ?? "");
-const rowsUp = () => !!screen.queryByText("#101");
+const rowsUp = () => !!screen.queryByText("101");
 
 beforeEach(() => {
   countsNow = counts(198);
@@ -124,18 +132,19 @@ afterEach(() => {
 });
 
 describe("DealsPage — no jumping", () => {
-  it("draws the rows, the tabs and their numbers in one frame", async () => {
+  it("draws the rows, the tabs and their numbers, and the client's number, in one frame", async () => {
     const watch = watchFirstFrame(rowsUp, () => ({
       stripShown: stripShown(),
       submitted: chips()[0],
       jobType: !!screen.queryAllByText("Lockout").length,
+      phone: !!screen.queryByText("(404) 555-1234"),
       skeletons: skeletonCount(),
     }));
     renderWithClient(<DealsPage />);
-    await screen.findByText("#101", {}, { timeout: 3000 });
+    await screen.findByText("101", {}, { timeout: 3000 });
     watch.stop();
 
-    expect(watch.frame()).toEqual({ stripShown: true, submitted: "198", jobType: true, skeletons: 0 });
+    expect(watch.frame()).toEqual({ stripShown: true, submitted: "198", jobType: true, phone: true, skeletons: 0 });
   });
 
   it("never shows the tabs without their numbers", async () => {
@@ -145,10 +154,11 @@ describe("DealsPage — no jumping", () => {
     });
     observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true });
     renderWithClient(<DealsPage />);
-    await screen.findByText("#101", {}, { timeout: 3000 });
+    await screen.findByText("101", {}, { timeout: 3000 });
 
     // A filter the numbers depend on: they are asked for again.
     countsNow = counts(42);
+    fireEvent.mouseDown(screen.getByRole("combobox", { name: "Filter results" }));
     fireEvent.change(screen.getByLabelText("From hour"), { target: { value: "09:00" } });
     await screen.findByText("42", {}, { timeout: 3000 });
     observer.disconnect();
@@ -158,7 +168,7 @@ describe("DealsPage — no jumping", () => {
 
   it("asks for each thing once", async () => {
     renderWithClient(<DealsPage />);
-    await screen.findByText("#101", {}, { timeout: 3000 });
+    await screen.findByText("101", {}, { timeout: 3000 });
     await settle();
 
     expect(duplicates(server.requests)).toEqual([]);

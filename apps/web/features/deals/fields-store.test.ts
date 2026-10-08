@@ -79,3 +79,43 @@ describe("useJobFieldsStore", () => {
     }
   });
 });
+
+/**
+ * "Save fields" in the Workiz panel stores two things at once: which fields
+ * are on and the order USED FIELDS was dragged into. Both survive a reload.
+ */
+describe("useJobFieldsStore — save", () => {
+  beforeEach(() => {
+    useJobFieldsStore.setState({ visible: { ...DEFAULT_VISIBLE }, order: [] });
+  });
+
+  it("starts with no saved order", () => {
+    expect(useJobFieldsStore.getState().order).toEqual([]);
+  });
+
+  it("saves the visibility and the order together, and persists both", () => {
+    useJobFieldsStore.getState().save({ visible: { ...DEFAULT_VISIBLE, tags: false, zip: true }, order: ["zip", "client"] });
+    const s = useJobFieldsStore.getState();
+    expect(s.visible.tags).toBe(false);
+    expect(s.visible.zip).toBe(true);
+    expect(s.order).toEqual(["zip", "client"]);
+    const stored = JSON.parse(localStorage.getItem(KEY)!).state;
+    expect(stored.order).toEqual(["zip", "client"]);
+    expect(stored.visible.zip).toBe(true);
+  });
+
+  it("rehydrates the order, sanitized", async () => {
+    localStorage.setItem(
+      KEY,
+      JSON.stringify({ state: { visible: { ...DEFAULT_VISIBLE }, order: ["city", 4, "city", "client"] }, version: 0 }),
+    );
+    await useJobFieldsStore.persist.rehydrate();
+    expect(useJobFieldsStore.getState().order).toEqual(["city", "client"]);
+  });
+
+  it("an older stored state without an order reads as none", async () => {
+    localStorage.setItem(KEY, JSON.stringify({ state: { visible: { ...DEFAULT_VISIBLE } }, version: 0 }));
+    await useJobFieldsStore.persist.rehydrate();
+    expect(useJobFieldsStore.getState().order).toEqual([]);
+  });
+});

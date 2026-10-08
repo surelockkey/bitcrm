@@ -1,8 +1,7 @@
 "use client";
 
-import Link from "next/link";
-import type { ReactNode } from "react";
-import { ExternalLink, Eye } from "lucide-react";
+import type { MouseEvent, ReactNode } from "react";
+import { Eye } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -14,7 +13,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { ResizableHead } from "@/components/ui/resizable-head";
 import { useColumnWidths } from "@/lib/table/use-column-widths";
-import type { Contact, Deal, PersonName, User } from "@bitcrm/types";
+import { JobSuperStatus, type Contact, type Deal, type PersonName } from "@bitcrm/types";
 import {
   extensionOf,
   formatAddress,
@@ -29,37 +28,45 @@ import { useExternalCompanyName } from "@/features/external-companies/lib";
 import { useJobStatusName } from "@/features/job-statuses/lib";
 import { useCustomFields } from "@/features/custom-fields/hooks";
 import { JobTagChips } from "@/features/job-tags/components/job-tag-chips";
+import { DEFAULT_TZ } from "@/lib/timezone";
+import { cn } from "@/lib/utils";
 import {
   DEFAULT_VISIBLE,
   customFieldIdFromColumn,
   formatCustomFieldValue,
   jobFieldOptions,
+  orderedColumns,
   JOB_NUMBER_WIDTH,
   type VisibleFields,
 } from "../fields";
 import {
   SEND_TO_TECH_CHANNEL_LABEL,
   dealClientName,
-  formatSchedule,
   formatStamp,
+  isTerminalStatus,
   isUrgent,
-  scheduleMarker,
 } from "../lib";
-import { TechChips } from "./assigned-techs";
+import { workizFromNow, workizScheduleCell } from "../schedule-cell";
+import type { JobsSort } from "../query-params";
 import { TechCell } from "./tech-cell";
 import { noteToText } from "../note-html";
 import { PriorityFlag, StageBadge } from "./deal-badges";
 import type { DirectoryUser } from "@/features/deals/hooks";
 
 /**
- * The table's shell while the jobs are still in flight.
+ * Workiz's jobs grid, measured off list_01_submitted:
  *
- * Not a grey rectangle: the same header, the same column widths and rows of
- * the same height, so the first painted frame already has the geometry the
- * real rows land into. A `h-64` placeholder followed by a full table is a
- * jump the reader watches happen.
+ * - header 41px on #f7f7f7, 14px/500 #404040, 10px padding, a solid #ccc
+ *   rule right and below; the sorted column carries a 3px dark bar on top
+ *   (`inset 0 3px rgba(0,0,0,.6)`; at the bottom when descending);
+ * - cells 20px padding all round, top-aligned, 14px/16px #404040, a dotted
+ *   #cfcfcf rule between columns, clipped rather than wrapped;
+ * - rows zebra (#f7f7f7 on the odd ones), rgba(0,0,0,.05) under the cursor.
  */
-/** The job number: always first, never hideable, and resizable like the rest. */
+const HEAD = "h-[41px] border-b border-r border-input bg-muted px-2.5 text-sm leading-[21px] font-medium text-[#404040]";
+const CELL = "overflow-hidden border-r border-dotted border-table-border p-5 align-top text-sm leading-4 text-[#404040]";
+
+/** The job number: Workiz's Job ID column, always first and never hideable. */
 const NUMBER_COLUMN = "jobNumber";
 
 /** Starting widths: the registry's own, plus the job number's. */
@@ -70,22 +77,32 @@ function columnDefaults(columns: { id: string; width: number }[]): Record<string
   ]);
 }
 
+/**
+ * The table's shell while the jobs are still in flight.
+ *
+ * Not a grey rectangle: the same header, the same column widths and rows of
+ * the same height, so the first painted frame already has the geometry the
+ * real rows land into. A `h-64` placeholder followed by a full table is a
+ * jump the reader watches happen.
+ */
 export function DealsTableSkeleton({
   visibleFields = DEFAULT_VISIBLE,
+  order = [],
   rows = 12,
 }: {
   visibleFields?: VisibleFields;
+  order?: readonly string[];
   rows?: number;
 }) {
   const { data: customFieldDefs } = useCustomFields();
-  const columns = jobFieldOptions(customFieldDefs).filter((c) => visibleFields[c.id]);
+  const columns = orderedColumns(jobFieldOptions(customFieldDefs), visibleFields, order);
   // The reader's saved widths, so the shell is the geometry the rows land in.
   // No handles here: there is nothing to resize until there is a table.
   const { widthOf } = useColumnWidths("jobs", columnDefaults(columns));
 
   return (
-    <div className="overflow-x-auto border" aria-busy role="status" aria-label="Loading jobs">
-      <Table className="table-fixed">
+    <div className="overflow-x-auto border-y border-[#dddddd]" aria-busy role="status" aria-label="Loading jobs">
+      <Table className="table-fixed" contained={false} style={{ width: tableWidth(columns, widthOf) }}>
         <colgroup>
           <col style={{ width: widthOf(NUMBER_COLUMN) }} />
           {columns.map((c) => (
@@ -93,10 +110,10 @@ export function DealsTableSkeleton({
           ))}
         </colgroup>
         <TableHeader>
-          <TableRow className="hover:bg-transparent">
-            <TableHead className="truncate">Job&nbsp;#</TableHead>
+          <TableRow className="border-0 hover:bg-transparent">
+            <TableHead className={cn(HEAD, "truncate")}>Job ID</TableHead>
             {columns.map((c) => (
-              <TableHead key={c.id} className="truncate">
+              <TableHead key={c.id} className={cn(HEAD, "truncate")}>
                 {c.label}
               </TableHead>
             ))}
@@ -104,12 +121,12 @@ export function DealsTableSkeleton({
         </TableHeader>
         <TableBody>
           {Array.from({ length: rows }, (_, i) => (
-            <TableRow key={i} className="hover:bg-transparent">
-              <TableCell>
-                <Skeleton className="h-4 w-12" />
+            <TableRow key={i} className="h-[88px] border-0 hover:bg-transparent">
+              <TableCell className={CELL}>
+                <Skeleton className="h-4 w-14" />
               </TableCell>
               {columns.map((c) => (
-                <TableCell key={c.id}>
+                <TableCell key={c.id} className={CELL}>
                   <Skeleton className="h-4 w-full" />
                 </TableCell>
               ))}
@@ -121,6 +138,16 @@ export function DealsTableSkeleton({
   );
 }
 
+/**
+ * The grid's own width: every column at its declared width. Wider than the
+ * page, it scrolls sideways the way Workiz's does (its Zip code and Total
+ * Price columns sit past the right edge); narrower, it stretches to fill.
+ */
+function tableWidth(columns: { id: string }[], widthOf: (id: string) => number): string {
+  const px = widthOf(NUMBER_COLUMN) + columns.reduce((sum, c) => sum + widthOf(c.id), 0);
+  return `max(100%, ${px}px)`;
+}
+
 /** "RESIDENTIAL" → "Residential", "IN_PROGRESS" → "In progress". */
 const pretty = (v?: string) =>
   v ? v.charAt(0) + v.slice(1).toLowerCase().replace(/_/g, " ") : "—";
@@ -130,6 +157,9 @@ const money = (n?: number) => (typeof n === "number" ? `$${n.toFixed(2)}` : "—
 /** No side-loaded names — a stable identity, so it never re-renders the grid. */
 const NO_NAMES: Map<string, PersonName> = new Map();
 
+/** A click that should open a new tab rather than move this one. */
+const wantsNewTab = (e: MouseEvent) => e.metaKey || e.ctrlKey || e.shiftKey || e.button === 1;
+
 export function DealsTable({
   deals,
   contactMap,
@@ -137,13 +167,20 @@ export function DealsTable({
   userMap,
   namesLoading = false,
   onOpen,
+  onRowClick,
   visibleFields = DEFAULT_VISIBLE,
+  order = [],
+  sort = "none",
+  onSortScheduled,
+  zoneOf,
+  accountZone = DEFAULT_TZ,
+  emptyText = "No Jobs Found",
 }: {
   deals: Deal[];
   /**
    * The contacts behind the rows — the only source of a client's number or
-   * email. Empty when no column shows either: the list then names its clients
-   * from `clientNames` and asks crm for nothing.
+   * email. Empty until crm answers: the list then names its clients from
+   * `clientNames`.
    */
   contactMap: Map<string, Contact>;
   /**
@@ -165,8 +202,22 @@ export function DealsTable({
    * complains about.
    */
   namesLoading?: boolean;
+  /** Workiz's "Quick view" chip under the Job ID: the preview drawer. */
   onOpen: (deal: Deal) => void;
+  /** A row click: Workiz opens the job itself. */
+  onRowClick?: (deal: Deal) => void;
   visibleFields?: VisibleFields;
+  /** The column order saved in the Visible fields panel. */
+  order?: readonly string[];
+  /** Which way the Scheduled column is sorted — the bar on its header. */
+  sort?: JobsSort;
+  /** Clicking the Scheduled header: Workiz's sortable column. */
+  onSortScheduled?: () => void;
+  /** The zone a job's visit was booked in, when it is not the account's. */
+  zoneOf?: (deal: Deal) => string | undefined;
+  /** The account's clock — the first line of every Scheduled cell. */
+  accountZone?: string;
+  emptyText?: string;
 }) {
   const jobTypeName = useJobTypeName();
   const sourceName = useJobSourceName();
@@ -178,10 +229,11 @@ export function DealsTable({
   const subStatusName = useJobStatusName();
   const { data: customFieldDefs } = useCustomFields();
 
-  // Every offerable field (static + active custom), narrowed to what's toggled on.
-  const columns = jobFieldOptions(customFieldDefs).filter((c) => visibleFields[c.id]);
+  // Every offerable field (static + active custom), visible ones in saved order.
+  const columns = orderedColumns(jobFieldOptions(customFieldDefs), visibleFields, order);
   // The reader's own widths for this table; the registry only sets the start.
   const { widthOf, setWidth, reset } = useColumnWidths("jobs", columnDefaults(columns));
+  const now = new Date();
 
   // A value whose own query has not answered yet. Same height as the text it
   // becomes, so the swap happens in place.
@@ -215,36 +267,43 @@ export function DealsTable({
         return (
           <>
             <div className="flex items-center gap-2">
-              <span className="font-medium">
+              {/* list_01: h5 16px/24px #3b4b52, tracking 0.2px. */}
+              <span className="text-base leading-6 tracking-[0.2px] whitespace-nowrap text-[#3b4b52]">
                 {dealClientName(d, contact, clientNames.get(d.contactId))}
               </span>
               {isUrgent(d) ? <PriorityFlag /> : null}
             </div>
-            {phone ? (
-              <div className="text-xs text-muted-foreground">
-                {formatPhoneWithExtension(phone, phoneExt)}
+            {/* One line under the name, never two (635 Workiz cells): the
+                company, else the number as a blue tel: link, else the email. */}
+            {d.clientCompanyName ? (
+              <div className="text-xs leading-[18px] tracking-[0.4px] whitespace-nowrap text-[#3b4b52]">
+                {d.clientCompanyName}
               </div>
+            ) : phone ? (
+              <a
+                href={`tel:${phone}`}
+                onClick={(e) => e.stopPropagation()}
+                className="table text-sm leading-4 whitespace-nowrap text-[#6aa8ee] no-underline hover:underline"
+              >
+                {formatPhoneWithExtension(phone, phoneExt)}
+              </a>
             ) : email ? (
-              <div className="text-xs text-muted-foreground">{email}</div>
+              <div className="text-xs leading-[18px] tracking-[0.4px] whitespace-nowrap text-[#3b4b52]">{email}</div>
             ) : null}
           </>
         );
       case "phone":
-        return (
-          <span className="text-sm">
-            {phone ? formatPhoneWithExtension(phone, phoneExt) : "—"}
-          </span>
-        );
+        return <span>{phone ? formatPhoneWithExtension(phone, phoneExt) : "—"}</span>;
       case "email":
-        return <span className="text-sm">{email ?? "—"}</span>;
+        return <span>{email ?? "—"}</span>;
       case "clientType":
-        return <span className="text-sm">{pretty(d.clientType)}</span>;
+        return <span>{pretty(d.clientType)}</span>;
       case "tech":
         return <TechCell deal={d} userMap={userMap} />;
       case "dispatcher":
-        return <span className="text-sm">{personCell(d.assignedDispatcherId)}</span>;
+        return <span>{personCell(d.assignedDispatcherId)}</span>;
       case "tags":
-        return d.tagIds?.length ? <JobTagChips ids={d.tagIds} max={3} solid /> : <span className="text-muted-foreground">—</span>;
+        return d.tagIds?.length ? <JobTagChips ids={d.tagIds} solid /> : null;
       case "status":
         return (
           <>
@@ -255,107 +314,116 @@ export function DealsTable({
           </>
         );
       case "priority":
-        return <span className="text-sm">{pretty(d.priority)}</span>;
+        return <span>{pretty(d.priority)}</span>;
+      // Workiz leaves an unknown place blank, not dashed.
       case "city":
-        return <span className="text-sm text-muted-foreground">{d.address?.city || "—"}</span>;
+        return <span>{d.address?.city || ""}</span>;
       case "state":
-        return <span className="text-sm text-muted-foreground">{d.address?.state || "—"}</span>;
+        return <span>{d.address?.state || ""}</span>;
       case "zip":
-        return <span className="text-sm text-muted-foreground">{d.address?.zip || "—"}</span>;
+        return <span>{d.address?.zip || ""}</span>;
       case "address":
-        return <span className="text-sm text-muted-foreground">{d.address ? formatAddress(d.address) : "—"}</span>;
+        return <span>{d.address ? formatAddress(d.address) : ""}</span>;
       case "serviceArea":
-        return <span className="text-sm text-muted-foreground">{d.serviceArea || "—"}</span>;
-      case "scheduled": {
-        const rel = scheduleMarker(d);
-        return (
-          <>
-            <div className="text-sm">{formatSchedule(d.scheduledDate, d.scheduledTimeSlot)}</div>
-            {rel ? (
-              <div
-                className={
-                  rel.tone === "overdue"
-                    ? "text-xs text-red-600 dark:text-red-400"
-                    : rel.tone === "soon"
-                      ? "text-xs text-amber-600 dark:text-amber-400"
-                      : "text-xs text-muted-foreground"
-                }
-              >
-                {rel.label}
-              </div>
-            ) : null}
-          </>
+        return <span>{d.serviceArea || ""}</span>;
+      case "scheduled":
+        return <ScheduledCell deal={d} zone={zoneOf?.(d)} accountZone={accountZone} now={now} />;
+      case "end": {
+        // Workiz's End: the visit's last day and its closing time, on the account's clock.
+        const slotEnd = d.scheduledTimeSlot?.split("-")[1]?.trim();
+        const end = workizScheduleCell(
+          {
+            scheduledDate: d.scheduledEndDate || d.scheduledDate,
+            scheduledTimeSlot: slotEnd ? `${slotEnd}-${slotEnd}` : undefined,
+            city: d.address?.city,
+            zone: zoneOf?.(d),
+          },
+          accountZone,
+          now,
         );
+        return <span>{d.scheduledDate ? end.when : ""}</span>;
       }
+      case "timeInStatus":
+        // Workiz's Time in Status: how long since the job entered its status.
+        return <span>{d.statusChangedAt ? workizFromNow(new Date(d.statusChangedAt), now).replace(/ ago$/, "") : ""}</span>;
+      case "jobName":
+        return <span>{d.jobName ?? ""}</span>;
       case "sent": {
         // Workiz `last_sent`: the click, with the channels it went out on.
-        if (!d.sentToTechAt) return <span className="text-sm text-muted-foreground">—</span>;
+        if (!d.sentToTechAt) return <span className="text-muted-foreground">—</span>;
         const via = (d.sentToTechVia ?? [])
           .map((c) => SEND_TO_TECH_CHANNEL_LABEL[c])
           .filter(Boolean)
           .join(" & ");
         return (
           <>
-            <div className="text-sm">{formatStamp(d.sentToTechAt)}</div>
-            {via ? <div className="text-xs text-muted-foreground">{via}</div> : null}
+            <div>{formatStamp(d.sentToTechAt)}</div>
+            {via ? <div className="mt-1 text-xs text-muted-foreground">{via}</div> : null}
           </>
         );
       }
       case "seen":
         // Workiz `seen`: the first technician to open the job in their app.
         return d.seenByTechAt ? (
-          <span className="inline-flex items-center gap-1 text-sm text-emerald-700 dark:text-emerald-400">
+          <span className="inline-flex items-center gap-1 text-success-text">
             <Eye className="size-3.5" /> {formatStamp(d.seenByTechAt)}
           </span>
         ) : (
-          <span className="text-sm text-muted-foreground">—</span>
+          <span className="text-muted-foreground">—</span>
         );
       case "jobType":
-        return (
-          <span className="text-sm">
-            {d.jobTypeId && jobTypesLoading ? pendingLine : jobTypeName(d.jobTypeId)}
-          </span>
-        );
+        return <span>{d.jobTypeId && jobTypesLoading ? pendingLine : jobTypeName(d.jobTypeId)}</span>;
       case "source":
-        return <span className="text-sm">{sourceName(d.sourceId)}</span>;
+        return <span>{sourceName(d.sourceId)}</span>;
       case "externalCompany":
-        return <span className="text-sm">{externalCompanyName(d.externalCompanyId)}</span>;
+        return <span>{externalCompanyName(d.externalCompanyId)}</span>;
       case "company":
         // The name is snapshotted on the job, so no catalog lookup is needed.
-        return <span className="text-sm">{d.businessProfileName ?? "—"}</span>;
+        return <span>{d.businessProfileName ?? "—"}</span>;
       case "poNumber":
-        return <span className="text-sm">{d.poNumber || "—"}</span>;
+        return <span>{d.poNumber || "—"}</span>;
       case "total":
-        return <span className="text-sm tabular-nums">{money(d.actualTotal ?? d.estimatedTotal)}</span>;
+        return <span className="tabular-nums">{money(d.totals?.total ?? d.actualTotal ?? d.estimatedTotal)}</span>;
       case "paymentStatus":
-        return <span className="text-sm">{d.paymentStatus ? pretty(d.paymentStatus) : "—"}</span>;
+        return <span>{d.paymentStatus ? pretty(d.paymentStatus) : "—"}</span>;
       case "notes":
-        return <span className="block max-w-56 truncate text-sm text-muted-foreground">{noteToText(d.notes) || "—"}</span>;
+        return <span className="block truncate text-muted-foreground">{noteToText(d.notes) || "—"}</span>;
       case "createdBy":
-        return <span className="text-sm">{personName(d.createdBy)}</span>;
+        return <span>{personName(d.createdBy)}</span>;
       case "createdAt":
-        return <span className="text-sm text-muted-foreground">{formatDate(d.createdAt)}</span>;
+        return <span>{formatDate(d.createdAt)}</span>;
       default: {
         const cfId = customFieldIdFromColumn(columnId);
-        return (
-          <span className="text-sm">
-            {formatCustomFieldValue(cfId ? d.customFields?.[cfId] : undefined)}
-          </span>
-        );
+        return <span>{formatCustomFieldValue(cfId ? d.customFields?.[cfId] : undefined)}</span>;
       }
     }
   };
 
+  const open = (e: MouseEvent, d: Deal) => {
+    if (wantsNewTab(e)) {
+      window.open(`/deals/${d.id}`, "_blank", "noopener,noreferrer");
+      return;
+    }
+    onRowClick?.(d);
+  };
+
+  const sortedBar =
+    sort === "day_desc"
+      ? "shadow-[inset_0_-3px_0_0_rgba(0,0,0,0.6)]"
+      : sort === "none" || sort === "day_asc"
+        ? "shadow-[inset_0_3px_0_0_rgba(0,0,0,0.6)]"
+        : "";
+
   return (
-    <div className="overflow-x-auto border">
+    <div className="overflow-x-auto border-y border-[#dddddd]">
       {/*
-        `table-fixed` with a declared width per column. Names now arrive with
-        the rows, but a contact (a number, an email) still lands a frame or
-        two later, and with auto layout every column re-measures when it does
-        — the whole grid jumps under the reader's cursor. Fixed widths make
-        the first painted frame the final one, whatever fills in afterwards.
+        `table-fixed` with a declared width per column. A contact (a number,
+        an email) lands a frame after the rows, and with auto layout every
+        column re-measures when it does — the whole grid jumps under the
+        reader's cursor. Fixed widths make the first painted frame the final
+        one, whatever fills in afterwards.
       */}
-      <Table className="table-fixed">
+      <Table className="table-fixed" contained={false} style={{ width: tableWidth(columns, widthOf) }}>
         <colgroup>
           <col style={{ width: widthOf(NUMBER_COLUMN) }} />
           {columns.map((c) => (
@@ -363,15 +431,16 @@ export function DealsTable({
           ))}
         </colgroup>
         <TableHeader>
-          <TableRow className="hover:bg-transparent">
+          <TableRow className={cn("border-0 hover:bg-transparent", deals.length === 0 && "opacity-50")}>
             <ResizableHead
               columnId={NUMBER_COLUMN}
-              label="Job #"
+              label="Job ID"
               width={widthOf(NUMBER_COLUMN)}
               onResize={(px) => setWidth(NUMBER_COLUMN, px)}
               onReset={reset}
+              className={HEAD}
             >
-              Job&nbsp;#
+              Job ID
             </ResizableHead>
             {columns.map((c) => (
               <ResizableHead
@@ -381,7 +450,21 @@ export function DealsTable({
                 width={widthOf(c.id)}
                 onResize={(px) => setWidth(c.id, px)}
                 onReset={reset}
-              />
+                className={cn(HEAD, c.id === "scheduled" && [sortedBar, onSortScheduled && "cursor-pointer"])}
+              >
+                {c.id === "scheduled" && onSortScheduled ? (
+                  <button
+                    type="button"
+                    aria-label={`Sort by Scheduled, ${sort === "day_desc" ? "latest first" : "soonest first"}`}
+                    onClick={onSortScheduled}
+                    className="w-full truncate text-left font-medium"
+                  >
+                    {c.label}
+                  </button>
+                ) : (
+                  c.label
+                )}
+              </ResizableHead>
             ))}
           </TableRow>
         </TableHeader>
@@ -389,41 +472,40 @@ export function DealsTable({
           {deals.map((d) => (
             <TableRow
               key={d.id}
-              className="cursor-pointer align-top"
-              // Left click anywhere on the row opens the quick-view drawer;
-              // right click jumps straight into the job in a new tab in
-              // place of the browser menu.
-              onClick={() => onOpen(d)}
+              // Workiz: rgba(0,0,0,.05) under the cursor, over the zebra too.
+              className="group/row cursor-pointer border-0 hover:bg-black/5!"
+              // A row click opens the job, as Workiz does; with ⌘/Ctrl, or
+              // the middle button, it opens in a new tab instead. Right click
+              // goes straight to a new tab in place of the browser menu.
+              onClick={(e) => open(e, d)}
+              onAuxClick={(e) => {
+                if (e.button === 1) open(e, d);
+              }}
               onContextMenu={(e) => {
                 e.preventDefault();
                 window.open(`/deals/${d.id}`, "_blank", "noopener,noreferrer");
               }}
             >
-              <TableCell className="font-mono text-xs">
-                {/* The number doubles as the open-in-new-tab link so it's
-                    reachable right next to the nav, not across the row;
-                    stopPropagation keeps the row click (preview drawer)
-                    from also firing. */}
-                <Link
-                  href={`/deals/${d.id}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  aria-label={`Open job #${d.dealNumber} in new tab`}
-                  title="Open in new tab"
-                  onClick={(e) => e.stopPropagation()}
-                  // A real link keeps its native right-click menu (copy
-                  // address, etc.) — don't swallow it with the row preview.
+              <TableCell className={cn(CELL, "group/id")}>
+                <div className="whitespace-nowrap">{d.dealNumber}</div>
+                {/* Workiz shows "Quick view" under the ID while the cursor is on it. */}
+                <button
+                  type="button"
+                  aria-label={`Quick view ${d.dealNumber}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onOpen(d);
+                  }}
                   onContextMenu={(e) => e.stopPropagation()}
-                  className="-mx-1.5 inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-muted-foreground underline-offset-2 hover:bg-accent hover:text-foreground hover:underline"
+                  className="mt-[5px] rounded-[3px] bg-[#61747d] px-1 py-px text-xs leading-4 font-medium tracking-[0.4px] text-white opacity-0 group-hover/id:opacity-100 focus-visible:opacity-100"
                 >
-                  #{d.dealNumber}
-                  <ExternalLink className="size-3" />
-                </Link>
+                  Quick view
+                </button>
               </TableCell>
               {columns.map((c) => (
                 // A long address or note is clipped, not allowed to widen its
                 // column and shove the rest of the row sideways.
-                <TableCell key={c.id} className="overflow-hidden">
+                <TableCell key={c.id} className={CELL}>
                   {cell(d, c.id)}
                 </TableCell>
               ))}
@@ -431,6 +513,55 @@ export function DealsTable({
           ))}
         </TableBody>
       </Table>
+      {deals.length === 0 ? <EmptyRows text={emptyText} /> : null}
+    </div>
+  );
+}
+
+/**
+ * The Scheduled cell, Workiz's four lines: the visit on the account's clock;
+ * when the job sits in another zone, its place and its own clock (11px); and
+ * how far off it is (12px/500, grey ahead, red once passed). A closed job's
+ * passed visit is history, not late — it keeps quiet.
+ */
+function ScheduledCell({ deal, zone, accountZone, now }: { deal: Deal; zone?: string; accountZone: string; now: Date }) {
+  const c = workizScheduleCell(
+    { scheduledDate: deal.scheduledDate, scheduledTimeSlot: deal.allDay ? undefined : deal.scheduledTimeSlot, city: deal.address?.city, zone },
+    accountZone,
+    now,
+  );
+  const quiet = isTerminalStatus(deal.superStatus) || deal.superStatus === JobSuperStatus.DONE_PENDING_APPROVAL;
+  return (
+    <>
+      <div className="leading-4 whitespace-nowrap">{c.when}</div>
+      {c.area ? (
+        <div className="mt-[3px] text-[11px] leading-[13px] whitespace-nowrap text-[#3b4b52]">
+          <div>{c.area.place}:</div>
+          <div>{c.area.when}</div>
+        </div>
+      ) : null}
+      {c.relative && !quiet ? (
+        <div
+          className={cn(
+            "mt-[5px] text-xs leading-[13px] font-medium whitespace-nowrap",
+            c.past ? "text-[#f45e44]" : "text-[#61747d]",
+          )}
+        >
+          {c.relative}
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+/** Workiz's empty grid: the striped rows stay, "No Jobs Found" sits across them. */
+function EmptyRows({ text }: { text: string }) {
+  return (
+    <div className="relative">
+      {Array.from({ length: 10 }, (_, i) => (
+        <div key={i} className={cn("h-14", i % 2 === 0 ? "bg-black/[0.03]" : "bg-background")} />
+      ))}
+      <h3 className="absolute inset-x-0 top-[140px] text-center text-xl leading-[25px] font-normal text-[#3e4b51]">{text}</h3>
     </div>
   );
 }
