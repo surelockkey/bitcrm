@@ -430,6 +430,53 @@ page can use them.
   `#404040` on a white-70% band, 203px under the grid's top. Put it in the
   grid's `relative` frame. (Jobs has the bigger `WzTableEmpty`.)
 
+## Workiz Home: widgets and charts (2026-10-08, agent `pg_dashboard`)
+
+Measured on `/root/home/` — captures `pg_dashboard_wz_*` (+ `.deep.json`, every
+element of every widget) under `jobs_parity_2026-10-08`, notes in
+`docs/import/app-parity-2026-10-08/pg_dashboard.md`. Colours are the
+`wzChart*`, `wzStat*`, `wzDash*`, `wzPieYellow`, `wzSeries1..8` tokens.
+
+- **`WzWidget`** `title` `updatedAt?` `help?` `onRefresh?` `refreshing?`
+  `menu?={key,label,onSelect}[]` `viewAll?={href,label?,underline?}` — the
+  350px card: 51px header (16px/600 title, "updated 3:06 PM" only when given,
+  18px #404040 glyphs: `?` with Workiz's blue MUI tooltip only when `help`,
+  mirrored refresh, kebab menu 196px), body 17px 20px, "View All" pinned 25px
+  in from the bottom-left. A `<section>` named by its `<h2>`.
+- **`WzRangeSelect`** `label` `value` `options` `onChange` — "Last 14 Days ⌄"
+  (14px #a0a0a0, capitalised, CSS chevron); the 195px list hangs right-aligned
+  under it (`menuitemradio`s). Workiz's ranges are `DASHBOARD_PRESETS` /
+  `dashboardPresetWindow` in `@bitcrm/types`.
+- **`WzWidgetStat`** `label` `value` `sub?` `rule?` `layout="row"|"stacked"` —
+  Jobs / Today / Estimates rows (39px, 28px #6d6d6d figure, optional 2px
+  coloured left rule) and the Invoices block (capitals + 28px/42px amount).
+- **`WzChartLegend`** `items={label,color,value?}[]` — 6px dots, 14px #666.
+- **`WzWidgetBarChart`** (`widget-charts.tsx`) `title` `days` `series={label,color,values}[]` `format?` —
+  chart.js 2's look: Helvetica 12px #666 ticks (no tracking), #e5e5e5 axis
+  with 10px tick marks, no grid, nice steps (`wzChartTicks`), every day
+  "Sep 24th" tilted as chart.js would (`wzAxisLabels`), groups 80% of a slot,
+  round-topped, black tooltip; a day is a tab stop; numbers also as a table.
+- **`WzWidgetLineChart`** — the same axes, chart.js's tension-.4 curve
+  (`wzSpline`) with 3px rings, "09/24/26" labels.
+- **`WzWidgetPie`** `title` `slices={key,name,count,percent}[]` — the 71px pie with
+  white seams and the 2×2 legend (left column ruled left, right column ruled
+  right and flush right). Workiz picks slice colours at random on each load;
+  `WZ_PIE_COLORS` fixes an order from the same palette.
+
+Colours on these take CSS values (`var(--wz-chart-done)`), not classes, so a
+series can carry any token. Tooltips open the way chart.js 2 opens them
+(`wzTipSide`: level with the point towards the chart's middle, under a point
+near the top) with its 5px caret.
+
+Letter-spacing inside a widget is Workiz's, not the app's 0.4px: body text
+0.075px, stat labels 0.167857px, 28px figures 0.223809px, pie names
+-0.072px, pie percents 0.45px (the `.deep.json` captures). The body box is
+97.76% of the card (`pr-[calc(20px+2.24%)]`), as Workiz's grid column is.
+
+`WzDrawer` has a `head="band"` option (default `plain`, unchanged): Workiz's
+older right pane — a 49px #f7f7f7 band with the title centred and a #eeeeee
+rule — used by the dashboard's "Dashboard widgets" panel.
+
 ## Known differences from Workiz (deliberate or unmeasurable)
 - Sub-pixel: Workiz's own fractional layout makes some glyphs land ±1px
   differently from ours in screenshots (e.g. two Workiz selects with identical

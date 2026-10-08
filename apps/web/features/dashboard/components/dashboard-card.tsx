@@ -1,21 +1,12 @@
 "use client";
 
-import Link from "next/link";
 import { useState, type ReactNode } from "react";
-import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { WzWidget, type WzWidgetMenuItem } from "@/components/workiz/widget";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { cn } from "@/lib/utils";
-import { RANGE_PRESETS, updatedAtLabel, type DashboardRange } from "../jobs-by-status";
+import { updatedAtLabel } from "../jobs-by-status";
 import { ManageWidgetPermissionsDialog } from "./manage-widget-permissions-dialog";
-import { WidgetCard } from "./widget-card";
 
 /** The slice of a react-query result a widget frame reads. */
 export interface WidgetQuery<T> {
@@ -28,38 +19,40 @@ export interface WidgetQuery<T> {
 }
 
 /**
- * Everything a dashboard widget has in common, as Workiz draws it: the
- * `WidgetCard` frame with "updated 3:08 AM" and refresh, the kebab with "who
- * can see this widget", the widget's own "Last N Days" picker, the first-load
- * skeleton and the failure line, and "View All" underneath.
- *
- * The body is a function of the data, so it only ever renders with an answer
- * in hand.
+ * A dashboard widget in Workiz's frame (`WzWidget`), wired to its query: the
+ * refresh arrows refetch, the kebab offers "Manage Permissions" (only to
+ * somebody who edits roles — the dialog writes the permission matrix) and
+ * "Remove" (off this person's dashboard), "updated …" is stamped only where
+ * Workiz stamps it, and the body is a function of the data, so it only ever
+ * renders with an answer in hand.
  */
 export function DashboardCard<T>({
   title,
   help,
   action,
   query,
-  range,
-  onRangeChange,
+  stamped = false,
   viewAll,
+  onRemove,
   skeletonClassName = "h-40",
   className,
+  bodyClassName,
   children,
 }: {
   title: string;
-  help: string;
+  /** Workiz's `?` text; only the widgets Workiz explains have one. */
+  help?: string;
   /** The widget's grant under `dashboard`, e.g. `view_top_sources`. */
   action: string;
   query: WidgetQuery<T>;
-  /** Present only on a widget that reads a window. */
-  range?: DashboardRange;
-  onRangeChange?: (range: DashboardRange) => void;
-  /** Where "View All" goes, when the widget has a fuller screen behind it. */
-  viewAll?: string;
+  /** "updated 3:06 PM" — on the widgets Workiz stamps (the snapshots). */
+  stamped?: boolean;
+  viewAll?: { href: string; underline?: boolean };
+  /** Take the widget off this person's dashboard. */
+  onRemove?: () => void;
   skeletonClassName?: string;
   className?: string;
+  bodyClassName?: string;
   children: (data: T) => ReactNode;
 }) {
   const { can } = usePermissions();
@@ -69,54 +62,31 @@ export function DashboardCard<T>({
   const computedAt = (query.data as { computedAt?: string } | undefined)?.computedAt;
   const updatedAt = computedAt ? Date.parse(computedAt) : query.dataUpdatedAt;
 
+  const menu: WzWidgetMenuItem[] = [
+    ...(can("roles", "edit") ? [{ key: "manage", label: "Manage Permissions", onSelect: () => setManaging(true) }] : []),
+    ...(onRemove ? [{ key: "remove", label: "Remove", onSelect: onRemove }] : []),
+  ];
+
   return (
-    <WidgetCard
+    <WzWidget
       className={className}
+      bodyClassName={bodyClassName}
       title={title}
       help={help}
-      updatedAt={updatedAt ? updatedAtLabel(new Date(updatedAt)) : undefined}
-      isRefreshing={query.isFetching && !query.isLoading}
+      updatedAt={stamped && updatedAt ? updatedAtLabel(new Date(updatedAt)) : undefined}
+      refreshing={query.isFetching && !query.isLoading}
       onRefresh={() => void query.refetch()}
-      menu={
-        // Only somebody who can edit roles is offered the audience — the
-        // dialog writes the permission matrix, and the server would refuse
-        // anyone else halfway through.
-        can("roles", "edit") ? (
-          <DropdownMenuItem onSelect={() => setManaging(true)}>Manage permissions</DropdownMenuItem>
-        ) : undefined
-      }
-      toolbar={
-        range !== undefined && onRangeChange ? (
-          <div className="ml-auto">
-            <Select value={String(range)} onValueChange={(v) => onRangeChange(Number(v) as DashboardRange)}>
-              <SelectTrigger size="sm" className="w-38" aria-label="Range">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {RANGE_PRESETS.map((p) => (
-                  <SelectItem key={p.days} value={String(p.days)}>
-                    {p.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        ) : undefined
-      }
+      menu={menu}
+      viewAll={viewAll}
     >
       {query.isLoading ? (
         <Skeleton data-testid="widget-skeleton" className={cn("w-full", skeletonClassName)} />
-      ) : query.isError || query.data === undefined ? (
-        <p className="py-10 text-center text-sm text-muted-foreground">Couldn&apos;t load this widget.</p>
+      ) : query.isError || query.data == null ? (
+        <p className="pt-10 text-center text-sm text-wz-dash-label">Couldn&apos;t load this widget.</p>
       ) : (
         children(query.data)
       )}
-      {viewAll ? (
-        <Link href={viewAll} className="mt-3 inline-block text-sm text-brand underline-offset-2 hover:underline">
-          View All
-        </Link>
-      ) : null}
       <ManageWidgetPermissionsDialog open={managing} onOpenChange={setManaging} action={action} label={title} />
-    </WidgetCard>
+    </WzWidget>
   );
 }

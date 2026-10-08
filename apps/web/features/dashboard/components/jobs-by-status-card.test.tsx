@@ -18,7 +18,7 @@ const state = {
   dataUpdatedAt: Date.parse("2026-09-28T07:08:00.000Z"),
   refetch: vi.fn(),
 };
-const seenRanges: number[] = [];
+const seenWindows: { from: string; to: string }[] = [];
 
 const grants: Record<string, boolean> = { "roles.edit": true };
 vi.mock("@/features/auth/use-permissions", () => ({
@@ -29,55 +29,58 @@ vi.mock("@/features/auth/use-permissions", () => ({
 }));
 
 vi.mock("../hooks", () => ({
-  useJobsByStatus: (range: number) => {
-    seenRanges.push(range);
+  useJobsByStatus: (window: { from: string; to: string }) => {
+    seenWindows.push(window);
     return state;
   },
 }));
 
 beforeEach(() => {
-  seenRanges.length = 0;
+  seenWindows.length = 0;
   state.refetch.mockClear();
+  vi.useFakeTimers({ shouldAdvanceTime: true, now: new Date("2026-10-08T15:00:00Z") });
+  return () => vi.useRealTimers();
 });
 
 /**
- * Картка «Jobs By Status»: рамка віджета, легенда трьох станів і власний
- * селектор періоду — те, що видно на скриншоті Workiz.
+ * Картка «Jobs By Status» як у Workiz Home: «updated …», «?», легенда трьох
+ * станів, «Last 14 Days ⌄» і стовпчики chart.js.
  */
 describe("JobsByStatusCard", () => {
-  it("names itself and says when the numbers came in", () => {
+  it("names itself, says when the numbers were computed, and explains itself", () => {
     renderWithClient(<JobsByStatusCard />);
     expect(screen.getByRole("heading", { name: "Jobs By Status" })).toBeInTheDocument();
     expect(screen.getByText(/^updated /)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "About Jobs By Status" })).toBeInTheDocument();
   });
 
   it("names all three states in the legend", () => {
     renderWithClient(<JobsByStatusCard />);
     const legend = screen.getByRole("list", { name: "Legend" });
-    for (const label of ["Canceled", "Open", "Done"]) {
-      expect(within(legend).getByText(label)).toBeInTheDocument();
-    }
+    expect(within(legend).getAllByRole("listitem").map((i) => i.textContent)).toEqual(["Canceled", "Open", "Done"]);
   });
 
   it("draws a column per state per day", () => {
     renderWithClient(<JobsByStatusCard />);
-    expect(screen.getAllByTestId("daily-bar")).toHaveLength(6);
+    expect(document.querySelectorAll("[data-slot=wz-chart-bar]")).toHaveLength(6);
   });
 
-  // За замовчуванням — останні тридцять днів, як і в решти віджетів.
-  it("opens on the last thirty days", () => {
+  // Workiz opens every ranged widget on «Last 14 days» — fifteen days, both ends.
+  it("opens on Workiz's last 14 days", () => {
     renderWithClient(<JobsByStatusCard />);
-    expect(seenRanges[0]).toBe(30);
+    expect(seenWindows[0]).toEqual({ from: "2026-09-24", to: "2026-10-08" });
+    expect(screen.getByRole("button", { name: "Range: Last 14 days" })).toBeInTheDocument();
   });
 
-  it("asks for another window when the reader picks one", () => {
+  it("asks for another window when the reader picks one", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     renderWithClient(<JobsByStatusCard />);
-    fireEvent.click(screen.getByRole("combobox", { name: "Range" }));
-    fireEvent.click(screen.getByRole("option", { name: "Last 7 Days" }));
-    expect(seenRanges.at(-1)).toBe(7);
+    await user.click(screen.getByRole("button", { name: "Range: Last 14 days" }));
+    await user.click(screen.getByRole("menuitemradio", { name: "This month" }));
+    expect(seenWindows.at(-1)).toEqual({ from: "2026-10-01", to: "2026-10-08" });
   });
 
-  it("refetches on the refresh button", () => {
+  it("refetches on the refresh arrows", () => {
     renderWithClient(<JobsByStatusCard />);
     fireEvent.click(screen.getByRole("button", { name: "Refresh Jobs By Status" }));
     expect(state.refetch).toHaveBeenCalled();
@@ -94,27 +97,5 @@ describe("JobsByStatusCard", () => {
     renderWithClient(<JobsByStatusCard />);
     expect(screen.getByText("Couldn't load this widget.")).toBeInTheDocument();
     state.isError = false;
-  });
-});
-
-/**
- * Три крапки: «хто бачить цей віджет». Пропонувати це тому, хто не редагує
- * ролі, — значить вести його в діалог, який сервер відхилить на збереженні.
- */
-describe("JobsByStatusCard — the kebab", () => {
-  it("offers managing permissions to somebody who edits roles", async () => {
-    const user = userEvent.setup();
-    renderWithClient(<JobsByStatusCard />);
-    await user.click(screen.getByRole("button", { name: "Jobs By Status options" }));
-    expect(
-      await screen.findByRole("menuitem", { name: "Manage permissions" }),
-    ).toBeInTheDocument();
-  });
-
-  it("does not offer it to anyone else", () => {
-    grants["roles.edit"] = false;
-    renderWithClient(<JobsByStatusCard />);
-    expect(screen.getByRole("button", { name: "Jobs By Status options" })).toBeDisabled();
-    grants["roles.edit"] = true;
   });
 });

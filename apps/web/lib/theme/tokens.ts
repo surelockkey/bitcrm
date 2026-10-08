@@ -197,6 +197,35 @@ export const LIGHT = {
   wzToastSuccess: "#83c795",
   wzToastWarning: "#f7a336",
   wzToastInfo: "#58abc3",
+
+  // The Home dashboard (pg_dashboard_wz_home + its .deep.json): chart.js
+  // fills and its axis rule, the stat cards' left rules, the grey label and
+  // value text of every widget, the header rule, the range picker's chevron.
+  // Workiz's own colours, not stepped — the dashboard is a parity page.
+  wzChartCanceled: "#ef8f7f",
+  wzChartOpen: "#fdf098",
+  wzChartDone: "#a3ddb2",
+  wzChartTrack: "#eaeaea",
+  wzChartAxis: "#e5e5e5",
+  wzStatGreen: "#99d3a9",
+  wzStatSlate: "#7a8b98",
+  wzStatYellow: "#ffd503",
+  wzDashLabel: "#a0a0a0",
+  wzDashValue: "#6d6d6d",
+  wzDashRule: "#ececec",
+  wzChevron: "#687886",
+  // Pie slices and Top Call Flows lines. Workiz draws these from one palette
+  // in a random order on every load; we fix the order (pie: yellow first,
+  // then series 1-3).
+  wzPieYellow: "#ffe145",
+  wzSeries1: "#2f4b7c",
+  wzSeries2: "#ff7c43",
+  wzSeries3: "#665191",
+  wzSeries4: "#d45087",
+  wzSeries5: "#003f5c",
+  wzSeries6: "#f95d6a",
+  wzSeries7: "#a05195",
+  wzSeries8: "#ffa600",
 } as const satisfies Record<string, string>;
 
 /** Pairs that carry running text: WCAG AA, 4.5:1. */

@@ -1,9 +1,13 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { screen, within } from "@testing-library/react";
 import { renderWithClient } from "@/test/render-with-client";
 import {
+  ComingUpCard,
   DispatchScoreboardCard,
+  EstimatesCard,
+  InvoicesCard,
   JobsNowCard,
+  RecentActivityCard,
   RecentCallsCard,
   SalesCard,
   ServiceAreasCard,
@@ -24,32 +28,45 @@ vi.mock("@/features/auth/use-permissions", () => ({
 
 const answers: Record<string, unknown> = {};
 const seen: string[] = [];
-const seenRanges: number[] = [];
+const seenWindows: unknown[] = [];
 const q = (data: unknown) => ({
   data,
   isLoading: false,
   isError: false,
   isFetching: false,
-  dataUpdatedAt: Date.parse("2026-09-28T07:08:00.000Z"),
+  dataUpdatedAt: Date.parse("2026-10-08T07:08:00.000Z"),
   refetch: vi.fn(),
 });
 
 vi.mock("../hooks", () => ({
-  useRangeWidget: (name: string, _fetch: unknown, range: number) => {
+  useRangeWidget: (name: string, _fetch: unknown, window: unknown) => {
     seen.push(name);
-    seenRanges.push(range);
+    seenWindows.push(window);
     return q(answers[name]);
   },
   useToday: () => q(answers.today),
   useJobsNow: () => q(answers["jobs-now"]),
   useRecentCalls: () => q(answers["recent-calls"]),
+  useInvoicesWidget: (window: unknown) => {
+    seenWindows.push(window);
+    return q(answers.invoices);
+  },
+  useEstimatesWidget: () => q(answers.estimates),
+  useComingUp: () => q(answers["coming-up"]),
+  useRecentActivity: () => q(answers["recent-activity"]),
+  useCollectedToday: (_day: string, enabled: boolean) => q(enabled ? answers.collected : undefined),
 }));
 
+const NOW = new Date("2026-10-08T21:00:00Z"); // 5 PM in New York, a Thursday
+
 beforeEach(() => {
+  vi.useFakeTimers({ shouldAdvanceTime: true, now: NOW });
   seen.length = 0;
-  seenRanges.length = 0;
+  seenWindows.length = 0;
   for (const k of Object.keys(answers)) delete answers[k];
+  for (const k of Object.keys(grants)) delete grants[k];
 });
+afterEach(() => vi.useRealTimers());
 
 const shares = {
   slices: [
@@ -60,46 +77,39 @@ const shares = {
   ],
 };
 
-/**
- * Пироги: чотири частки, легенда з назвою й відсотком під кожною — як у
- * Workiz. Колір тут не єдиний носій ідентичності: назва стоїть поруч.
- */
+/** Workiz's pies: four slices, the 2×2 legend of names over percents. */
 describe("the pies — Top Sources, Top Job Types, Service Areas", () => {
   it.each([
     [TopSourcesCard, "Top Sources", "top-sources"],
     [TopJobTypesCard, "Top Job Types", "top-job-types"],
     [ServiceAreasCard, "Service Areas", "service-areas"],
-  ])("%o reads its own widget and titles itself", (Card, title, name) => {
+  ])("%o reads its own widget, titles and stamps itself, and has no ?", (Card, title, name) => {
     answers[name] = shares;
     renderWithClient(<Card />);
     expect(screen.getByRole("heading", { name: title })).toBeInTheDocument();
+    expect(screen.getByText(/^updated /)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: `About ${title}` })).toBeNull();
     expect(seen).toContain(name);
   });
 
-  it("names every slice with its percent", () => {
+  it("names every slice with its percent, a wedge each", () => {
     answers["top-sources"] = shares;
     renderWithClient(<TopSourcesCard />);
     const legend = screen.getByRole("list", { name: "Legend" });
     expect(within(legend).getByText("SURE TX PLATINUM")).toBeInTheDocument();
     expect(within(legend).getByText("30.46%")).toBeInTheDocument();
     expect(within(legend).getAllByText("19.87%")).toHaveLength(2);
-  });
-
-  it("draws a wedge per slice", () => {
-    answers["top-sources"] = shares;
-    renderWithClient(<TopSourcesCard />);
-    expect(screen.getAllByTestId("pie-slice")).toHaveLength(4);
+    expect(document.querySelectorAll("[data-slot=wz-pie-slice]")).toHaveLength(4);
   });
 
   it("an empty window says so rather than drawing an empty circle", () => {
     answers["top-sources"] = { slices: [] };
     renderWithClient(<TopSourcesCard />);
-    expect(screen.getByText("No data to display.")).toBeInTheDocument();
-    expect(screen.queryAllByTestId("pie-slice")).toHaveLength(0);
+    expect(screen.getByText("No data to display")).toBeInTheDocument();
   });
 });
 
-describe("every windowed widget opens on the last thirty days", () => {
+describe("every ranged widget opens on Workiz's Last 14 days", () => {
   it.each([
     [TopSourcesCard, "top-sources"],
     [TopJobTypesCard, "top-job-types"],
@@ -116,59 +126,178 @@ describe("every windowed widget opens on the last thirty days", () => {
       "top-call-flows": { days: [], flows: [], atLeast: false },
     }[name] ?? { slices: [] };
     renderWithClient(<Card />);
-    expect(seenRanges[0]).toBe(30);
-    expect(screen.getByRole("combobox", { name: "Range" })).toHaveTextContent("Last 30 Days");
+    expect(seenWindows[0]).toEqual({ from: "2026-09-24", to: "2026-10-08" });
+    expect(screen.getByRole("button", { name: "Range: Last 14 days" })).toBeInTheDocument();
   });
 });
 
 describe("SalesCard", () => {
   const sales = {
     days: [
-      { date: "2026-09-27", total: 5_000, net: 2_500 },
-      { date: "2026-09-28", total: 385_536.03, net: 269_640.41 },
+      { date: "2026-10-07", total: 5_000, net: 2_500 },
+      { date: "2026-10-08", total: 385_536.03, net: 269_640.41 },
     ],
     total: 390_536.03,
     net: 272_140.41,
   };
 
-  it("heads the chart with Net and Total to the cent", () => {
+  it("heads the chart with Net and Total to the cent, and explains itself", () => {
     answers.sales = sales;
     renderWithClient(<SalesCard />);
-    expect(screen.getByText("$272,140.41")).toBeInTheDocument();
-    expect(screen.getByText("$390,536.03")).toBeInTheDocument();
+    const legend = screen.getByRole("list", { name: "Legend" });
+    expect(within(legend).getAllByRole("listitem").map((i) => i.textContent)).toEqual([
+      "Net $272,140.41",
+      "Total $390,536.03",
+    ]);
+    expect(screen.getByRole("button", { name: "About Sales" })).toBeInTheDocument();
   });
 
   it("two columns a day, Net beside Total", () => {
     answers.sales = sales;
     renderWithClient(<SalesCard />);
-    const bars = screen.getAllByTestId("daily-bar");
+    const bars = [...document.querySelectorAll<HTMLElement>("[data-slot=wz-chart-bar]")];
     expect(bars).toHaveLength(4);
     expect(bars.map((b) => b.dataset.series).slice(0, 2)).toEqual(["Net", "Total"]);
   });
 
-  it("View All goes to Job Statistics", () => {
+  it("View All goes to Job Statistics, without Workiz's underline", () => {
     answers.sales = sales;
     renderWithClient(<SalesCard />);
-    expect(screen.getByRole("link", { name: "View All" })).toHaveAttribute("href", "/reports/job-statistics");
+    const link = screen.getByRole("link", { name: "View All" });
+    expect(link).toHaveAttribute("href", "/reports/job-statistics");
+    expect(link.className).not.toMatch(/(^|\s)underline(\s|$)/);
+  });
+});
+
+describe("InvoicesCard", () => {
+  const summary = { due: { count: 565, amount: 491_172.9 }, overdue: { count: 306, amount: 114_352.97 } };
+
+  it("opens on All time with Due and Past Due — invoices and the money", () => {
+    grants["financials.view"] = true;
+    answers.invoices = summary;
+    renderWithClient(<InvoicesCard />);
+    expect(seenWindows[0]).toBeUndefined();
+    expect(screen.getByRole("button", { name: "Range: All time" })).toBeInTheDocument();
+    const stats = [...document.querySelectorAll("[data-slot=wz-widget-stat]")].map((s) => s.textContent);
+    expect(stats).toEqual(["Due565 Invoices$491,172.90", "Past Due306 Invoices$114,352.97"]);
+    expect(screen.getByRole("link", { name: "View All" })).toHaveAttribute("href", "/invoices");
+    expect(screen.getByRole("button", { name: "About Invoices" })).toBeInTheDocument();
+  });
+
+  it("counts alone for somebody who may not see money", () => {
+    answers.invoices = summary;
+    renderWithClient(<InvoicesCard />);
+    expect(screen.queryByText(/\$/)).toBeNull();
+    expect(screen.getByText("565")).toBeInTheDocument();
+  });
+});
+
+describe("EstimatesCard", () => {
+  const summary = {
+    unsent: { count: 51, amount: 8_081_390.29 },
+    pending: { count: 299, amount: 9_275_319.37 },
+    approved: { count: 51, amount: 446_078.89 },
+    declined: { count: 161, amount: 685_766.95 },
+    won: { count: 9, amount: 1 },
+    archived: { count: 2, amount: 1 },
+  };
+
+  it("Workiz's four statuses, each worth its sum", () => {
+    grants["financials.view"] = true;
+    answers.estimates = summary;
+    renderWithClient(<EstimatesCard />);
+    const stats = [...document.querySelectorAll("[data-slot=wz-widget-stat]")].map((s) => s.textContent);
+    expect(stats).toEqual([
+      "UnsentWorth $8,081,390.2951",
+      "PendingWorth $9,275,319.37299",
+      "ApprovedWorth $446,078.8951",
+      "DeclinedWorth $685,766.95161",
+    ]);
+    expect(screen.getByRole("link", { name: "View All" })).toHaveAttribute("href", "/estimates");
+  });
+
+  it("no Worth for somebody who may not see money", () => {
+    answers.estimates = summary;
+    renderWithClient(<EstimatesCard />);
+    expect(screen.queryByText(/Worth/)).toBeNull();
+  });
+});
+
+describe("ComingUpCard", () => {
+  it("the next visits: when, who, where — each opening its job", () => {
+    answers["coming-up"] = {
+      deals: [
+        {
+          id: "d1",
+          contactId: "c1",
+          scheduledDate: "2026-10-08",
+          scheduledTimeSlot: "10:00-11:00",
+          address: { street: "271 Dunham St", city: "Southington", state: "Connecticut", zip: "" },
+        },
+      ],
+      clients: { c1: "Kathy Miandino" },
+    };
+    renderWithClient(<ComingUpCard />);
+    const link = screen.getByRole("link", { name: /Kathy Miandino/ });
+    expect(link).toHaveAttribute("href", "/deals/d1");
+    expect(link).toHaveTextContent("7 hours ago");
+    expect(link).toHaveTextContent("271 Dunham St Southington Connecticut");
+    expect(screen.getByRole("link", { name: "View All" })).toHaveAttribute("href", "/schedule");
+  });
+
+  it("nothing scheduled says so", () => {
+    answers["coming-up"] = { deals: [], clients: {} };
+    renderWithClient(<ComingUpCard />);
+    expect(screen.getByText("Nothing on your schedule")).toBeInTheDocument();
+  });
+});
+
+describe("RecentActivityCard", () => {
+  it("who, what, which job and when", () => {
+    answers["recent-activity"] = [
+      {
+        id: "a1",
+        timestamp: new Date(NOW.getTime() - 7 * 3_600_000).toISOString(),
+        actorId: "w1",
+        actorName: "(1) (Evelyn) 2 Dispatcher",
+        who: "(1) (Evelyn) 2 Dispatcher",
+        imported: true,
+        text: "Update job details",
+        source: "web",
+        dealId: "d9",
+        jobRef: "C2ZNRU",
+      },
+    ];
+    renderWithClient(<RecentActivityCard />);
+    const row = screen.getAllByRole("listitem")[0];
+    expect(within(row).getByText("(1) (Evelyn) 2 Dispatcher")).toBeInTheDocument();
+    expect(within(row).getByText("Update job details")).toBeInTheDocument();
+    expect(within(row).getByRole("link", { name: "#C2ZNRU" })).toHaveAttribute("href", "/deals/d9");
+    expect(within(row).getByText("7 hours ago")).toBeInTheDocument();
+    expect(within(row).getByLabelText("Web app")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "View All" })).toHaveAttribute("href", "/reports/activity");
   });
 });
 
 describe("the scoreboards", () => {
   const board = {
     rows: [
-      { id: "u1", name: "(1) (Betty) Platinum Manager", jobs: 4, sales: 114_383.07 },
-      { id: "u2", name: "(1) (Tess) 1 Dispatcher", jobs: 40, sales: 27_240.25 },
+      { id: "u1", name: "(1) (Riley) Platinum Manager", jobs: 8, sales: 22_570.64 },
+      { id: "u2", name: "(1G) (Jessica) Platinum CSR", jobs: 20, sales: 21_198.32 },
+      { id: "u3", name: "C", jobs: 1, sales: 3 },
+      { id: "u4", name: "D", jobs: 1, sales: 2 },
+      { id: "u5", name: "E", jobs: 1, sales: 1 },
     ],
   };
 
-  it("a row per person: who, what they sold, how many jobs", () => {
+  it("four people, as Workiz shows: who, what they sold on the bar, how many jobs", () => {
     answers["dispatch-scoreboard"] = board;
     renderWithClient(<DispatchScoreboardCard />);
     const rows = screen.getAllByRole("listitem");
-    expect(within(rows[0]).getByText("(1) (Betty) Platinum Manager")).toBeInTheDocument();
-    expect(within(rows[0]).getByText("$114,383.07")).toBeInTheDocument();
-    expect(within(rows[0]).getByText("4 Jobs")).toBeInTheDocument();
-    expect(within(rows[1]).getByText("40 Jobs")).toBeInTheDocument();
+    expect(rows).toHaveLength(4);
+    expect(within(rows[0]).getByText("(1) (Riley) Platinum Manager")).toBeInTheDocument();
+    expect(within(rows[0]).getByText("$22,570.64")).toBeInTheDocument();
+    expect(within(rows[0]).getByText("8 Jobs")).toBeInTheDocument();
   });
 
   it("one job is a Job", () => {
@@ -181,10 +310,7 @@ describe("the scoreboards", () => {
     answers["tech-scoreboard"] = { rows: [{ id: "u1", name: "Daniel", jobs: 5 }, { id: "u2", name: "David", jobs: 44 }] };
     renderWithClient(<TechScoreboardCard />);
     expect(screen.queryByText(/\$/)).toBeNull();
-    expect(screen.getAllByTestId("score-bar").map((b) => b.style.width)).toEqual([
-      expect.stringMatching(/^11\.3/),
-      "100%",
-    ]);
+    expect(screen.getAllByTestId("score-bar").map((b) => b.style.width)).toEqual([expect.stringMatching(/^11\.3/), "100%"]);
   });
 
   it("a person without a name still has a row", () => {
@@ -193,52 +319,59 @@ describe("the scoreboards", () => {
     expect(screen.getByText("Unknown user")).toBeInTheDocument();
   });
 
-  it("nobody sold anything: No data to display.", () => {
+  it("nobody sold anything: No data to display", () => {
     answers["tech-scoreboard"] = { rows: [] };
     renderWithClient(<TechScoreboardCard />);
-    expect(screen.getByText("No data to display.")).toBeInTheDocument();
+    expect(screen.getByText("No data to display")).toBeInTheDocument();
   });
 });
 
 describe("JobsNowCard", () => {
-  it("the four open states in Workiz's order", () => {
-    answers["jobs-now"] = { byStatus: { submitted: 237, pending: 306, in_progress: 3, done_pending_approval: 186 } };
+  it("the four open states in Workiz's order, each with its coloured rule", () => {
+    answers["jobs-now"] = { byStatus: { submitted: 198, pending: 330, in_progress: 15, done_pending_approval: 186 } };
     renderWithClient(<JobsNowCard />);
-    const rows = screen.getAllByRole("listitem");
-    expect(rows.map((r) => r.textContent)).toEqual([
-      "Submitted237",
-      "Pending306",
-      "In progress3",
+    const stats = [...document.querySelectorAll("[data-slot=wz-widget-stat]")];
+    expect(stats.map((r) => r.textContent)).toEqual([
+      "Submitted198",
+      "Pending330",
+      "In progress15",
       "done pending approval186",
     ]);
+    expect(stats[0].className).toContain("border-wz-stat-green");
+    expect(stats[3].className).toContain("border-wz-chart-canceled");
     expect(screen.getByRole("link", { name: "View All" })).toHaveAttribute("href", "/deals");
   });
 });
 
 describe("TodayCard", () => {
-  it("sales, then done, canceled and created", () => {
-    answers.today = { sales: 51_041.62, jobsDone: 0, jobsCanceled: 0, jobsCreated: 4 };
+  const stats = () => [...document.querySelectorAll("[data-slot=wz-widget-stat]")].map((r) => r.textContent);
+
+  it("sales and collected, then done, canceled and created", () => {
+    grants["financials.view"] = true;
+    grants["payments.view"] = true;
+    answers.today = { sales: 41_420.22, jobsDone: 28, jobsCanceled: 31, jobsCreated: 101 };
+    answers.collected = 13_256.6;
     renderWithClient(<TodayCard />);
-    const rows = screen.getAllByRole("listitem");
-    expect(rows.map((r) => r.textContent)).toEqual([
-      "Sales$51,041.62",
-      "Jobs Done0",
-      "Jobs Canceled0",
-      "Jobs Created4",
+    expect(stats()).toEqual([
+      "Sales$41,420.22",
+      "Collected$13,256.60",
+      "Jobs Done28",
+      "Jobs Canceled31",
+      "Jobs Created101",
     ]);
   });
 
-  it("no Sales row for somebody who may not see money", () => {
+  it("no money rows for somebody who may not see money", () => {
     answers.today = { jobsDone: 1, jobsCanceled: 0, jobsCreated: 4 };
+    answers.collected = 99;
     renderWithClient(<TodayCard />);
-    expect(screen.queryByText("Sales")).toBeNull();
-    expect(screen.getAllByRole("listitem")).toHaveLength(3);
+    expect(stats()).toEqual(["Jobs Done1", "Jobs Canceled0", "Jobs Created4"]);
   });
 });
 
 describe("TopCallFlowsCard", () => {
   const series = {
-    days: ["2026-09-14", "2026-09-15"],
+    days: ["2026-10-07", "2026-10-08"],
     flows: [
       { name: "(GMB) SURE CT", counts: [64, 48] },
       { name: "MOBILE CT", counts: [30, 0] },
@@ -246,12 +379,14 @@ describe("TopCallFlowsCard", () => {
     atLeast: false,
   };
 
-  it("a line per flow, named in the legend", () => {
+  it("a line per flow, named in the legend, with no stamp — Workiz shows none", () => {
     answers["top-call-flows"] = series;
     renderWithClient(<TopCallFlowsCard />);
-    expect(screen.getAllByTestId("flow-line")).toHaveLength(2);
+    expect(document.querySelectorAll("[data-slot=wz-chart-line]")).toHaveLength(2);
     const legend = screen.getByRole("list", { name: "Legend" });
     expect(within(legend).getByText("(GMB) SURE CT")).toBeInTheDocument();
+    expect(screen.queryByText(/^updated /)).toBeNull();
+    expect(screen.getByRole("link", { name: "View All" })).toHaveAttribute("href", "/reports/call-tracking");
   });
 
   it("the same numbers as a table for screen readers", () => {
@@ -261,23 +396,24 @@ describe("TopCallFlowsCard", () => {
     expect(within(table).getByText("64")).toBeInTheDocument();
   });
 
-  it("no calls went through a flow: No data to display.", () => {
+  it("no calls went through a flow: No data to display", () => {
     answers["top-call-flows"] = { days: series.days, flows: [], atLeast: false };
     renderWithClient(<TopCallFlowsCard />);
-    expect(screen.getByText("No data to display.")).toBeInTheDocument();
+    expect(screen.getByText("No data to display")).toBeInTheDocument();
   });
 });
 
 describe("RecentCallsCard", () => {
-  it("From, To, Call Flow and when — a row per call, linked to the call", () => {
+  it("From, To, Call Flow and Time — a row per call, linked to the call", () => {
     answers["recent-calls"] = [
       {
         callSid: "CA1",
         direction: "outbound",
-        startedAt: new Date(Date.now() - 7 * 3_600_000).toISOString(),
+        status: "completed",
+        startedAt: new Date(NOW.getTime() - 7 * 3_600_000).toISOString(),
         updatedAt: "",
-        fromParty: { kind: "user", id: "u1", name: "(1) (Tom) 4 Dispatcher" },
-        toParty: { kind: "contact", id: "c1", name: "Priyank Mwani" },
+        fromParty: { kind: "user", id: "u1", name: "(Tracy) 28 Dispatcher" },
+        toParty: { kind: "contact", id: "c1", name: "Client 2427" },
         flowName: "SURE TX",
       },
     ];
@@ -287,17 +423,25 @@ describe("RecentCallsCard", () => {
       expect(within(table).getByRole("columnheader", { name: h })).toBeInTheDocument();
     }
     const row = within(table).getAllByRole("row")[1];
-    expect(within(row).getByText("(1) (Tom) 4 Dispatcher")).toBeInTheDocument();
-    expect(within(row).getByText("Priyank Mwani")).toBeInTheDocument();
+    expect(within(row).getByText("(Tracy) 28 Dispatcher")).toBeInTheDocument();
+    expect(within(row).getByText("Client 2427")).toBeInTheDocument();
     expect(within(row).getByText("SURE TX")).toBeInTheDocument();
-    expect(within(row).getByText("7h ago")).toBeInTheDocument();
+    expect(within(row).getByText("7 hours ago")).toBeInTheDocument();
     expect(within(row).getByLabelText("Outbound")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "View All" })).toHaveAttribute("href", "/calls");
   });
 
-  it("no calls: the empty line the spec names", () => {
+  it("a missed call says so", () => {
+    answers["recent-calls"] = [
+      { callSid: "CA2", direction: "inbound", status: "no-answer", startedAt: NOW.toISOString(), updatedAt: "", flowName: "X" },
+    ];
+    renderWithClient(<RecentCallsCard />);
+    expect(screen.getByLabelText("Inbound, missed")).toBeInTheDocument();
+  });
+
+  it("no calls: the empty line", () => {
     answers["recent-calls"] = [];
     renderWithClient(<RecentCallsCard />);
-    expect(screen.getByText("No recent calls to display.")).toBeInTheDocument();
+    expect(screen.getByText("No recent calls to display")).toBeInTheDocument();
   });
 });

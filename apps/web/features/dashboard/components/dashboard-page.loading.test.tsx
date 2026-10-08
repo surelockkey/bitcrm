@@ -51,7 +51,7 @@ vi.mock("@/features/auth/use-permissions", async () => {
   };
 });
 
-const window30 = { from: "2026-09-06", to: "2026-10-06" };
+const window30 = { from: "2026-09-22", to: "2026-10-06" }; // Workiz's Last 14 days
 const shares = (name: string) => ({
   slices: [
     { key: "a", name: `${name} A`, count: 3, percent: 60 },
@@ -86,20 +86,92 @@ const routes: FakeRoute[] = [
     }),
     delayMs: 90,
   },
+  // Workiz Home's widgets beyond the two stats services — in the same gate.
+  {
+    match: /\/billing\/invoices\/report\/summary$/,
+    reply: () => ({ due: { count: 3, amount: 900 }, overdue: { count: 1, amount: 100 }, unsent: { count: 0 }, needInvoices: { count: 0 }, indexReady: true }),
+    delayMs: 40,
+  },
+  {
+    match: /\/billing\/estimates\/report\/summary$/,
+    reply: () => ({
+      unsent: { count: 1, amount: 10 },
+      pending: { count: 2, amount: 20 },
+      approved: { count: 0, amount: 0 },
+      declined: { count: 0, amount: 0 },
+      won: { count: 0, amount: 0 },
+      archived: { count: 0, amount: 0 },
+      total: { count: 3, amount: 30 },
+    }),
+    delayMs: 50,
+  },
+  {
+    match: /\/deals$/,
+    raw: true,
+    reply: (url) =>
+      url.searchParams.get("superStatus") === "pending"
+        ? {
+            success: true,
+            data: [
+              {
+                id: "d1",
+                contactId: "c1",
+                scheduledDate: "2026-10-06",
+                scheduledTimeSlot: "14:00-15:00",
+                address: { street: "40 Mansfield St", city: "Bethel", state: "Connecticut", zip: "" },
+              },
+            ],
+            pagination: {},
+            included: { technicians: [], clients: [{ id: "c1", firstName: "Wati", lastName: "Bukhari" }] },
+          }
+        : { success: true, data: [], pagination: {} },
+    delayMs: 30,
+  },
+  {
+    match: /\/deals\/activity$/,
+    raw: true,
+    reply: () => ({
+      success: true,
+      data: [
+        {
+          id: "a1",
+          timestamp: "2026-10-06T09:00:00.000Z",
+          actorId: "w1",
+          actorName: "(1) (Evelyn) 2 Dispatcher",
+          imported: true,
+          text: "Update job details",
+          dealId: "d1",
+          jobRef: "C2ZNRU",
+        },
+      ],
+      pagination: {},
+    }),
+    delayMs: 45,
+  },
+  { match: /\/users\/by-ids$/, reply: () => [], delayMs: 15 },
+  {
+    match: /\/billing\/payments\/report\/totals$/,
+    reply: () => ({ count: 1, amount: 250, tips: 0, serviceFees: 0, byType: {} }),
+    delayMs: 35,
+  },
 ];
 
 const TITLES = [
   "Top Sources",
+  "Jobs By Status",
+  "Invoices",
   "Sales",
   "Top Job Types",
+  "Estimates",
+  "Coming up",
   "Service Areas",
   "Top Call Flows",
+  "Recent Activity",
   "Dispatch Scoreboard",
   "Recent Calls",
   "Tech Scoreboard",
   "Jobs",
   "Today",
-  "Jobs By Status",
 ];
 
 let server: FakeServer;
@@ -135,13 +207,27 @@ describe("the dashboard — no jumping", () => {
       pie: screen.queryAllByText("Source A").length > 0,
       board: screen.queryAllByText("Ann Lee").length,
       flows: screen.queryAllByText("Main line").length > 0,
+      invoices: screen.queryAllByText("$900.00").length > 0,
+      coming: screen.queryAllByText("Wati Bukhari").length > 0,
+      activity: screen.queryAllByText("Update job details").length > 0,
+      collected: screen.queryAllByText("$250.00").length > 0,
     }));
     render();
     await screen.findAllByText("Source A", {}, { timeout: 3000 });
     await settle();
     watch.stop();
 
-    expect(watch.frame()).toEqual({ cards: TITLES.length, skeletons: 0, pie: true, board: 2, flows: true });
+    expect(watch.frame()).toEqual({
+      cards: TITLES.length,
+      skeletons: 0,
+      pie: true,
+      board: 2,
+      flows: true,
+      invoices: true,
+      coming: true,
+      activity: true,
+      collected: true,
+    });
   });
 
   it("holds one skeleton from the first frame — no spinner before it", async () => {
@@ -159,13 +245,29 @@ describe("the dashboard — no jumping", () => {
     expect(first.spinner || spinner).toBe(false);
   });
 
-  it("asks the two services once each, and nothing card by card", async () => {
+  it("asks each source once, and nothing card by card", async () => {
     render();
     await screen.findAllByText("Source A", {}, { timeout: 3000 });
     await settle();
 
     const asked = server.requests.map((r) => r.split("?")[0]);
-    expect(asked.sort()).toEqual(["/api/deals/stats/dashboard", "/api/telephony/calls/stats/dashboard", "/api/users/me"]);
+    expect(asked.sort()).toEqual(
+      [
+        "/api/billing/estimates/report/summary",
+        "/api/billing/invoices/report/summary",
+        "/api/billing/payments/report/totals",
+        // Coming up: one page per open status, in visit order.
+        "/api/deals",
+        "/api/deals",
+        "/api/deals",
+        "/api/deals/activity",
+        "/api/deals/stats/dashboard",
+        "/api/telephony/calls/stats/dashboard",
+        // The scoreboards' people, named once for both.
+        "/api/users/by-ids",
+        "/api/users/me",
+      ].sort(),
+    );
     expect(duplicates(server.requests)).toEqual([]);
   });
 });
