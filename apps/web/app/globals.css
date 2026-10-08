@@ -146,6 +146,8 @@
   }
   html {
     @apply font-sans;
+    /* Workiz tracks every line by 0.4px; Poppins reads cramped without it. */
+    letter-spacing: 0.4px;
     /* Reserve the scrollbar gutter so the page width never changes when Radix
        menus/selects lock body scroll. Pairs with the neutralizer below. */
     scrollbar-gutter: stable;
