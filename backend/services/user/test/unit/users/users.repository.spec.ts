@@ -91,6 +91,24 @@ describe('UsersRepository', () => {
       expect((await repository.findById('user-1'))?.fieldTeamMember).toBeUndefined();
     });
 
+    /**
+     * The Workiz import keeps the person's whole Workiz name ("(2) TX - Daniel
+     * Munoz") beside the split first/last name. Workiz prints that name on every
+     * tech chip, so it has to leave the service; a user made here has none.
+     */
+    it('reads the Workiz name back, and leaves it absent on a user made here', async () => {
+      const user = createMockUser();
+      dbClient.send.mockResolvedValue({
+        Item: { PK: 'USER#user-1', SK: 'METADATA', ...user, workizName: '(2) TX - Daniel Munoz' },
+      });
+      expect((await repository.findById('user-1'))?.workizName).toBe('(2) TX - Daniel Munoz');
+
+      dbClient.send.mockResolvedValue({
+        Item: { PK: 'USER#user-1', SK: 'METADATA', ...user },
+      });
+      expect((await repository.findById('user-1'))?.workizName).toBeUndefined();
+    });
+
     it('reads the two-step sign-in flag back', async () => {
       const user = createMockUser();
       dbClient.send.mockResolvedValue({

@@ -239,7 +239,10 @@ export class UsersController {
   @RequirePermission("users", "edit")
   @ApiOperation({
     summary: "Update user profile fields",
-    description: "**Guard:** `users.edit` permission required. Caller must have higher role priority than the target user.",
+    description:
+      "**Guard:** `users.edit` permission required. Caller must have higher role priority than the target user. " +
+      "Changing `firstName` or `lastName` drops the imported `workizName` (it no longer names the person) and " +
+      "publishes `tech.updated` with `name`, so dispatch's projection prints the new name.",
   })
   async update(
     @Param("id") id: string,

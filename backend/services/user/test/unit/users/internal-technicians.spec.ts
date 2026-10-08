@@ -110,6 +110,27 @@ describe('UsersService — assignable technicians (dispatch)', () => {
     });
   });
 
+  /**
+   * deal-service prints the projection's name on the jobs list and in Assign
+   * A Tech; Workiz prints its whole name there ("(2) TX - Daniel Munoz"), so
+   * both paths that fill the projection carry it when the import left one.
+   */
+  it('carries the Workiz name on both paths, and leaves it off a user made here', async () => {
+    const daniel = createMockUser({
+      id: 'tech-1', firstName: 'Daniel', lastName: 'Munoz', workizName: '(2) TX - Daniel Munoz',
+      department: 'Field', roleId: 'role-technician',
+    });
+    usersRepo.findAll.mockResolvedValue({ items: [daniel, grace], nextCursor: undefined });
+    usersRepo.findById.mockResolvedValue(daniel);
+    assignmentsRepo.listByUser.mockResolvedValue([]);
+
+    const roster = await service.listAssignableTechnicians();
+    expect(roster.find((t) => t.technicianId === 'tech-1')?.workizName).toBe('(2) TX - Daniel Munoz');
+    expect(roster.find((t) => t.technicianId === 'tech-2')).not.toHaveProperty('workizName');
+
+    expect((await service.getTechnicianEligibility('tech-1')).workizName).toBe('(2) TX - Daniel Munoz');
+  });
+
   it('omits homeAddress for a technician whose home has no coordinates', async () => {
     const result = await service.listAssignableTechnicians();
     const second = result.find((t) => t.technicianId === 'tech-2')!;

@@ -49,6 +49,8 @@ export interface TechnicianEligibilityInfo {
   serviceAreaIds: string[];
   firstName?: string;
   lastName?: string;
+  /** Workiz's whole name for the person, when the import left one (`User.workizName`). */
+  workizName?: string;
   department?: string;
   homeAddress?: { lat: number; lng: number };
 }

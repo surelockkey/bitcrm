@@ -1036,6 +1036,20 @@ describe('DealsService', () => {
       const result = await service.getQualifiedTechs('deal-1');
       expect(result[0].distanceMiles).toBeNull();
     });
+
+    /** Workiz's "Assign A Tech" lists people by their whole Workiz name. */
+    it('carries the Workiz name of a tech who has one, and none otherwise', async () => {
+      mockFindById(dealForMatch());
+      eligibility.listAll.mockResolvedValue([
+        projected({ technicianId: 't-1', firstName: 'Daniel', lastName: 'Munoz', workizName: '(2) TX - Daniel Munoz' }),
+        projected({ technicianId: 't-2', firstName: 'Ana', lastName: 'Tech' }),
+      ]);
+
+      const result = await service.getQualifiedTechs('deal-1');
+
+      expect(result.find((t) => t.id === 't-1')).toMatchObject({ workizName: '(2) TX - Daniel Munoz' });
+      expect(result.find((t) => t.id === 't-2')).not.toHaveProperty('workizName');
+    });
   });
 
   describe('rankQualifiedTechsFor — before a deal exists (New Job)', () => {

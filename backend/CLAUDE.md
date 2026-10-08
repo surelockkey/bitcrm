@@ -599,6 +599,13 @@ tests, and — if it emits events — the types in `@bitcrm/types` plus a row in
   to `contact-events`, Terraform). List pages are FILLED under any filter (`fillPartition`: reads on
   past the rows the filter drops, ≤ 20 reads a partition per request); a search in a huge closed
   status (Done, Canceled) may still answer a short page WITH a cursor, and its count is `null`.
+- **Workiz display data: tech names, area colours, tag order.** `User.workizName` ("(2) TX - Daniel
+  Munoz", written by the users import) leaves user-service on `GET /users`, `POST /users/by-ids` and the
+  internal eligibility routes; deal-service copies it into TECH_ELIGIBILITY on boot and on `tech.updated`
+  (now also `name`), which is where `included.technicians` and the qualified-techs lists read it — so deploy
+  user-service BEFORE deal-service. A rename here drops `workizName`. `ServiceArea.color` (`#rrggbb`) and the
+  tags' Workiz `priority` come from the importer; rows already loaded get them from the parser's
+  `bitcrm-patch-display` (workiz-data-parser, `docs/import/jobs-parity-2026-10-08/displaydata.md`).
 - **Redis DB 0 is dev, DB 15 is tests.** Don't flush the wrong one.
 - **Taxes live on service areas.** There is no tax-rate catalog: `ServiceArea.tax`
   (`{name, ratePercent}`) is the rate, exposed read-only as a `TaxRate` whose id is

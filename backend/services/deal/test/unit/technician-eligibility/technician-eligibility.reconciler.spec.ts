@@ -41,6 +41,17 @@ describe('TechnicianEligibilityReconciler (unit)', () => {
     expect(repo.upsert).toHaveBeenCalledWith(expect.objectContaining({ technicianId: 't1', assignable: true }));
   });
 
+  it('carries the Workiz name into the projection, and none for someone without one', async () => {
+    http.listAssignableTechnicians.mockResolvedValue([
+      { technicianId: 't1', jobTypeIds: [], serviceAreaIds: [], firstName: 'Daniel', lastName: 'Munoz', workizName: '(2) TX - Daniel Munoz' },
+      { technicianId: 't2', jobTypeIds: [], serviceAreaIds: [], firstName: 'Ada', lastName: 'Lovelace' },
+    ]);
+    await reconciler.onModuleInit();
+    const rows = repo.upsert.mock.calls.map((c) => c[0]);
+    expect(rows.find((r) => r.technicianId === 't1')).toMatchObject({ workizName: '(2) TX - Daniel Munoz' });
+    expect(rows.find((r) => r.technicianId === 't2')).not.toHaveProperty('workizName');
+  });
+
   it('never throws (best-effort) if user-service is unreachable', async () => {
     http.listAssignableTechnicians.mockRejectedValue(new Error('ECONNREFUSED'));
     await expect(reconciler.onModuleInit()).resolves.toBeUndefined();

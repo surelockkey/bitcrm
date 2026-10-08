@@ -1,5 +1,6 @@
 import {
   affectsEligibility,
+  affectsProjection,
   TechChangedField,
   UserEventType,
   USER_EVENT_TOPIC,
@@ -42,7 +43,25 @@ describe('user-events contract', () => {
       ROLE: 'role',
       STATUS: 'status',
       FIELD_TEAM: 'fieldTeamMember',
+      NAME: 'name',
     });
+  });
+
+  /**
+   * deal-service's technician projection prints a name (the jobs list's
+   * `included`, Assign A Tech), so a rename is worth a re-read even though it
+   * moves nobody in or out of dispatch.
+   */
+  it('re-reads the projection on a rename, and on every eligibility marker', () => {
+    expect(affectsProjection(['name'])).toBe(true);
+    expect(affectsProjection(['assignments'])).toBe(true);
+    expect(affectsProjection(['role'])).toBe(true);
+    expect(affectsProjection(['status'])).toBe(true);
+    expect(affectsProjection(['fieldTeamMember'])).toBe(true);
+    expect(affectsProjection(['commission'])).toBe(false);
+    expect(affectsProjection(undefined)).toBe(false);
+    // A rename is not an eligibility change.
+    expect(affectsEligibility(['name'])).toBe(false);
   });
 
   it('treats every eligibility marker as worth a re-read, and nothing else', () => {

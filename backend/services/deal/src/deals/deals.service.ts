@@ -42,6 +42,7 @@ import {
   type JobsByStatusDay,
   type JobsListIncluded,
   type PersonName,
+  type TechnicianName,
 } from '@bitcrm/types';
 import { randomUUID } from 'crypto';
 import {
@@ -750,16 +751,18 @@ export class DealsService {
     return [...new Set(ids.filter((id): id is string => Boolean(id)))].slice(0, INCLUDED_ID_CAP);
   }
 
-  private async includedTechnicians(ids: string[]): Promise<PersonName[]> {
+  private async includedTechnicians(ids: string[]): Promise<TechnicianName[]> {
     if (!ids.length) return [];
     try {
       const rows = await this.eligibility.getMany(ids);
       // Rebuilt field by field: the projection also holds a department and a
-      // home address, and `included` carries names and nothing else.
+      // home address, and `included` carries names and nothing else — Workiz's
+      // whole name ("(2) TX - Daniel Munoz") is a name, and rides along.
       return rows.map((row) => ({
         id: row.technicianId,
         firstName: row.firstName ?? '',
         lastName: row.lastName ?? '',
+        ...(row.workizName && { workizName: row.workizName }),
       }));
     } catch (error) {
       this.logger.warn(`Jobs-list side-load: technician names unavailable: ${(error as Error).message}`);
@@ -1675,6 +1678,7 @@ export class DealsService {
           id: tech.technicianId,
           firstName: tech.firstName,
           lastName: tech.lastName,
+          ...(tech.workizName && { workizName: tech.workizName }),
           department: tech.department,
           jobTypeIds: tech.jobTypeIds,
           serviceAreaIds: tech.serviceAreaIds,

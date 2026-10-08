@@ -51,6 +51,7 @@ export type {
   JobsByStatusDay,
   JobsByStatusSeries,
   PersonName,
+  TechnicianName,
   JobsListIncluded,
 } from './entities/deal.entity';
 export { DealAttachment, DealAttachmentMeta, ContactAttachment, ContactFileListItem } from './entities/deal-attachment.entity';
@@ -227,6 +228,7 @@ export {
   UserEventType,
   TechChangedField,
   affectsEligibility,
+  affectsProjection,
 } from './events/user-events';
 export type {
   UserActivatedEvent,

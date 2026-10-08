@@ -85,6 +85,7 @@ export class ServiceAreasService {
     const active = dto.active ?? true;
     if (active) await this.assertNoOverlap(coverage);
     const tax = this.normalizeTax(dto.tax);
+    const color = this.normalizeColor(dto.color);
     const defaultBusinessProfileId = await this.validateCompany(dto.defaultBusinessProfileId);
 
     const now = new Date().toISOString();
@@ -100,6 +101,7 @@ export class ServiceAreasService {
       ...(this.normalizeCallerId(dto.callerId) ?? {}),
       ...(tax && { tax }),
       ...(defaultBusinessProfileId && { defaultBusinessProfileId }),
+      ...(color && { color }),
       createdBy: caller.id,
       createdAt: now,
       updatedAt: now,
@@ -177,6 +179,13 @@ export class ServiceAreasService {
       else delete updated.defaultBusinessProfileId;
     }
 
+    // undefined keeps the stored colour; null / '' clears it.
+    if (dto.color !== undefined) {
+      const color = this.normalizeColor(dto.color);
+      if (color) updated.color = color;
+      else delete updated.color;
+    }
+
     await this.repository.put(updated);
     this.publishEvent('service-area.updated', { serviceAreaId: id, name: updated.name });
     return updated;
@@ -223,6 +232,22 @@ export class ServiceAreasService {
       throw new BadRequestException('tax.ratePercent may have at most 3 decimal places');
     }
     return { name, ratePercent: rate };
+  }
+
+  /**
+   * The area's chip colour as stored: `#rrggbb` lower-cased, or undefined for
+   * "none" (null / blank). Checked here as well as in the DTO, because the
+   * service is also called directly.
+   */
+  private normalizeColor(raw: string | null | undefined): string | undefined {
+    if (raw === undefined || raw === null) return undefined;
+    if (typeof raw !== 'string') throw new BadRequestException('color must be a #rrggbb hex colour');
+    const color = raw.trim();
+    if (color === '') return undefined;
+    if (!/^#[0-9a-fA-F]{6}$/.test(color)) {
+      throw new BadRequestException('color must be a #rrggbb hex colour');
+    }
+    return color.toLowerCase();
   }
 
   /**

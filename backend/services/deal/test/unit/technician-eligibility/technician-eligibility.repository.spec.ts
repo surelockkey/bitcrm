@@ -31,6 +31,16 @@ describe('TechnicianEligibilityRepository (unit)', () => {
     expect(item.assignable).toBe(true);
   });
 
+  it('reads the Workiz name back, and leaves it absent on a row without one', async () => {
+    dynamoDb.client.send.mockResolvedValue({
+      Item: { technicianId: 'tech-1', assignable: true, firstName: 'Daniel', workizName: '(2) TX - Daniel Munoz' },
+    });
+    expect((await repo.get('tech-1'))?.workizName).toBe('(2) TX - Daniel Munoz');
+
+    dynamoDb.client.send.mockResolvedValue({ Item: { technicianId: 'tech-1', assignable: true } });
+    expect(await repo.get('tech-1')).not.toHaveProperty('workizName');
+  });
+
   it('get returns null when absent', async () => {
     dynamoDb.client.send.mockResolvedValue({});
     expect(await repo.get('tech-1')).toBeNull();
