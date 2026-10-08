@@ -20,9 +20,10 @@ import { cn } from "@/lib/utils"
  * - rows zebra (#f7f7f7 on the odd ones), rgba(0,0,0,.05) under the cursor
  *   and between rows.
  *
- * A `table-fixed` table keeps the 8px sides it was measured for: its
- * columns carry declared widths sized for them, and Workiz's 20px would clip
- * a price or an ID; it still gets Workiz's 20px top and bottom.
+ * A `table-fixed` table keeps narrow 10px sides (the header's, so the words
+ * line up): its columns carry declared widths sized for the old 8px, and
+ * Workiz's 20px would clip a price or an ID. It still gets Workiz's 20px top
+ * and bottom.
  *
  * `density="compact"` packs the cells (12px / 8px) for tables that
  * live inside a dialog or a side panel — Workiz's stock modal is that dense —
@@ -182,7 +183,7 @@ function TableCell({ className, ...props }: React.ComponentProps<"td">) {
       data-slot="table-cell"
       className={cn(
         "border-r border-dotted border-table-border align-middle text-sm leading-4 whitespace-nowrap text-wz-strong last:border-r-0 [&:has([role=checkbox])]:pr-0",
-        density === "compact" ? "px-3 py-2" : fixed ? "px-2 py-5" : "p-5",
+        density === "compact" ? "px-3 py-2" : fixed ? "px-2.5 py-5" : "p-5",
         className
       )}
       {...props}

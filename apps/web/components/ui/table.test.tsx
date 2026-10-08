@@ -129,7 +129,7 @@ describe("a sorted column", () => {
 });
 
 describe("a fixed-layout table", () => {
-  it("keeps the 8px sides its declared column widths were sized for, with Workiz's 20px rhythm", () => {
+  it("keeps narrow sides (the header's 10px) for its declared column widths, with Workiz's 20px rhythm", () => {
     const { container } = render(
       <Table className="table-fixed">
         <TableBody>
@@ -140,7 +140,7 @@ describe("a fixed-layout table", () => {
       </Table>,
     );
     const cell = container.querySelector("td")!.className.split(/\s+/);
-    expect(cell).toEqual(expect.arrayContaining(["px-2", "py-5"]));
+    expect(cell).toEqual(expect.arrayContaining(["px-2.5", "py-5"]));
     expect(cell).not.toContain("p-5");
   });
 });
