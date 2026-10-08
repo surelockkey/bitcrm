@@ -74,6 +74,9 @@ export function WzAddFilter({
           align="start"
           side="bottom"
           sideOffset={8}
+          // A pick opens the new chip's own panel (Workiz does): focus going
+          // back to "+ Add filter" would count as outside it and shut it.
+          onCloseAutoFocus={(e) => e.preventDefault()}
           className={cn(PANEL, "w-[274px] px-3 pt-3 pb-3")}
         >
           <PanelSearch label="Search filters" value={query} onChange={setQuery} />
