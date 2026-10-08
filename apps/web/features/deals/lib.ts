@@ -1,4 +1,5 @@
 import {
+  DEFAULT_ADDRESS_COUNTRY,
   DealPriority,
   DealStage,
   JobSuperStatus,
@@ -465,6 +466,8 @@ export function dealDraftFromDeal(d: Deal): DealDraft {
       city: d.address?.city ?? "",
       state: d.address?.state ?? "",
       zip: d.address?.zip ?? "",
+      // Workiz's Country (the Address pane); absent = United States.
+      ...(d.address?.country ? { country: d.address.country } : {}),
       lat: d.address?.lat,
       lng: d.address?.lng,
     },
@@ -523,12 +526,16 @@ export function dealClientName(
   return personName(sideloaded) ?? "—";
 }
 
+/** An address's country code; no country is the United States. */
+const countryCode = (a: Address): string => a.country?.trim().toUpperCase() || DEFAULT_ADDRESS_COUNTRY;
+
 const sameAddress = (a: Address, b: Address): boolean =>
   a.street === b.street &&
   (a.unit ?? "") === (b.unit ?? "") &&
   a.city === b.city &&
   a.state === b.state &&
   a.zip === b.zip &&
+  countryCode(a) === countryCode(b) &&
   a.lat === b.lat &&
   a.lng === b.lng;
 
@@ -628,6 +635,17 @@ export function buildDealPatch(deal: Deal, draft: DealDraft): UpdateDealValues |
   if (!sameCustomFields(draft.customFields, base.customFields)) {
     patch.customFields = draft.customFields;
     dirty = true;
+  }
+
+  // Workiz's Schedule switch turned off: the job goes back to Unscheduled.
+  // An explicit null is what the API reads as "unschedule" (it clears the
+  // end, the times and all-day itself), so nothing else about the schedule
+  // rides along.
+  if (base.scheduledDate && !draft.scheduledDate) {
+    patch.scheduledDate = null;
+    delete patch.scheduledEndDate;
+    delete patch.scheduledTimeSlot;
+    delete patch.allDay;
   }
 
   return dirty ? patch : null;

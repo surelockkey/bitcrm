@@ -29,7 +29,18 @@ function groupCode(code: string): string {
  * all where the dial-in should have been — which reads as "this feature does
  * not exist" rather than "somebody has to turn it on".
  */
-export function JobDialCard({ dealId }: { dealId: string }) {
+export function JobDialCard({
+  dealId,
+  variant = "card",
+}: {
+  dealId: string;
+  /**
+   * `card`: the boxed "Call from any phone" card. `workiz`: the job page's
+   * Details tab, drawn as Workiz draws its masked number
+   * (job_b_01_details: "Masked number" over "(203) 769-9944 #6872").
+   */
+  variant?: "card" | "workiz";
+}) {
   // Read straight from workspace settings rather than taking a prop: "nobody
   // designated a line" and "we could not ask" look identical once flattened
   // into one optional string, and they call for opposite actions.
@@ -48,6 +59,41 @@ export function JobDialCard({ dealId }: { dealId: string }) {
   // Nothing to say yet — and a card that flashes "not set up" on every job
   // page load before the answer arrives is worse than a beat of silence.
   if (configLoading) return null;
+
+  if (variant === "workiz") {
+    const note = configFailed
+      ? "Could not load the dial-in settings — reload the job to try again."
+      : !technicianLine
+        ? canConfigure
+          ? "Dial-in is not set up yet. Designate one of the workspace numbers as the technician line under Settings → Phone numbers."
+          : "Dial-in is not set up yet — ask the office to designate a technician line."
+        : undefined;
+    return (
+      // details-module__masking: a padded column, the caption 10px/1em 5px
+      // over the line; the line bold, the code after a "#".
+      <div className="mb-2.5 flex flex-col p-2.5 text-wz-strong">
+        <span className="mb-[5px] text-[10px] leading-[1em] font-normal">Masked number</span>
+        {note ? (
+          <p className="text-[12px] leading-4 text-wz-caption">{note}</p>
+        ) : (
+          <div
+            data-testid="job-dial-in"
+            className="text-[14px] leading-4 font-normal"
+            title="Dial the number, then key the job code. You will be asked to confirm the client's name."
+          >
+            <b className="font-bold">{formatPhone(technicianLine!)}</b>{" "}
+            {ext ? (
+              `#${ext.code}`
+            ) : isError ? (
+              <span className="text-[12px] text-wz-error">Code could not be issued — reload the job</span>
+            ) : (
+              "#…"
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   if (configFailed) {
     return (

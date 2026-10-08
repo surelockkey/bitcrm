@@ -77,8 +77,11 @@ export function CallClientButton({
    * usually standing outside somebody's house, and often the number itself is
    * masked so this button is the only route. A 28px ghost glyph reads as
    * decoration in that context; this one says what it does.
+   *
+   * `workiz` is the job page's Details tab, drawn as Workiz draws it: the
+   * handset as a 40px icon button inside the Phone box (job_b_01_details).
    */
-  variant?: "icon" | "prominent";
+  variant?: "icon" | "prominent" | "workiz";
 }) {
   const [open, setOpen] = useState(false);
   const [placing, setPlacing] = useState(false);
@@ -188,6 +191,26 @@ export function CallClientButton({
           )}
           {placing ? "Calling…" : masked ? "Call client" : "Call"}
         </Button>
+      ) : variant === "workiz" ? (
+        // Workiz's IconButton large/white: 40px, 8px corners, #f3f6f7 under
+        // the pointer, the glyph 24px in ink.
+        <button
+          type="button"
+          data-variant="workiz"
+          onClick={() => setOpen((o) => !o)}
+          disabled={placing}
+          aria-expanded={open}
+          aria-busy={placing || undefined}
+          aria-label={label}
+          title={title}
+          className="flex size-10 items-center justify-center rounded-[8px] text-foreground transition-colors hover:bg-wz-secondary-hover disabled:cursor-not-allowed"
+        >
+          {placing ? (
+            <Loader2 className="size-5 animate-spin" />
+          ) : (
+            <Phone className="size-6" strokeWidth={1.25} />
+          )}
+        </button>
       ) : (
         <button
           type="button"

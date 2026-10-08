@@ -75,7 +75,9 @@ export type CreateDealValues = DealJobValues & {
 /** API update body (subset of deal fields the PUT accepts). */
 export type UpdateDealValues = Partial<
   // externalCompanyId is re-declared below because the PUT also accepts null.
-  Omit<DealJobValues, "clientType" | "externalCompanyId" | "businessProfileId" | "jobName"> & {
+  Omit<DealJobValues, "clientType" | "externalCompanyId" | "businessProfileId" | "jobName" | "scheduledDate"> & {
+    /** The visit's day; null unschedules the job (the API clears its end, times and all-day). */
+    scheduledDate: string | null;
     internalNotes: string;
     /** Per-job client display name ("Just here" rename); null clears it. */
     clientName: { firstName: string; lastName: string } | null;
