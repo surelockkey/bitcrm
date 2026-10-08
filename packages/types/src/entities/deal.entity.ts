@@ -35,6 +35,12 @@ export interface DealTotalsSnapshot {
    * Absent on snapshots written before it was kept.
    */
   taxableBase?: number;
+  /**
+   * Workiz's own `job_amount_due`, on an imported job's snapshot only (the
+   * importer writes it; the first repricing here replaces the snapshot and
+   * drops it). Read by `unpaid=true` until billing has asserted `amountPaid`.
+   */
+  amountDue?: number;
 }
 
 export interface Deal {
@@ -63,6 +69,14 @@ export interface Deal {
   address: Address;
   /** Catalog job-type id. Drives technician eligibility matching. */
   jobTypeId: string;
+  /**
+   * Workiz "Job name": optional free text naming the job ("Mailbox lock",
+   * "Zelli: Junk Removal") — the first field of Job Details on the New Job
+   * page and "Job name:" in the job page header. Stored trimmed; absent when
+   * the job has none (`null` on update clears it). Imported jobs carry
+   * Workiz's `job_name` here.
+   */
+  jobName?: string;
   /**
    * Fixed pipeline super-status (replaces the legacy 13-stage `stage`). Source of
    * truth for the board/list/reporting. Paired with an optional `subStatusId`.
@@ -124,7 +138,19 @@ export interface Deal {
   invoiceId?: string;
   estimatedTotal?: number;
   actualTotal?: number;
+  /**
+   * Billing's flag for the job board: `unpaid` | `partial` | `paid`, asserted
+   * from the ledger on every payment change. An imported job carries Workiz's
+   * own; a job no payment ever touched has none.
+   */
   paymentStatus?: string;
+  /**
+   * Dollars collected on the job — settled payments less refunds — asserted by
+   * billing with `paymentStatus`, never added to. Absent until the first
+   * payment event (on an imported job: until a payment is taken here).
+   * `totals.total` above it is what is still owed (Workiz "Show unpaid jobs").
+   */
+  amountPaid?: number;
   /** Platinum client Work Order this deal was authorized by (EPIC-9). */
   workOrderId?: string;
   /** Client PO number (required when the company has poRequired). */

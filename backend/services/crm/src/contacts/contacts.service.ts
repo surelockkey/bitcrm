@@ -14,6 +14,7 @@ import {
   countCacheKey,
 } from '@bitcrm/shared';
 import {
+  ADDRESS_COUNTRY_PATTERN,
   ContactSource,
   ContactType,
   CrmStatus,
@@ -53,6 +54,23 @@ export interface ContactPhoneMatch {
 
 /** How long a list count stays good enough. Matches the deals tab counts. */
 const COUNT_TTL_SECONDS = 30;
+
+/**
+ * An address with its `country` as stored: ISO 3166-1 alpha-2, upper case,
+ * or no key at all (= US) for a blank one. CRM runs no ValidationPipe, so
+ * this is the check — anything else is a 400, never a stored "Canada".
+ */
+function withCountryCode<T extends Address | undefined | null>(address: T): T {
+  if (!address || typeof address !== 'object' || !('country' in address)) return address;
+  const { country, ...rest } = address as Address;
+  if (country === undefined || country === null) return rest as T;
+  const code = typeof country === 'string' ? country.trim().toUpperCase() : '';
+  if (typeof country === 'string' && !code) return rest as T;
+  if (!ADDRESS_COUNTRY_PATTERN.test(code)) {
+    throw new BadRequestException('country must be an ISO 3166-1 alpha-2 code, e.g. US or CA');
+  }
+  return { ...rest, country: code } as T;
+}
 
 @Injectable()
 export class ContactsService {
@@ -106,6 +124,8 @@ export class ContactsService {
 
   async create(dto: CreateContactDto, caller: JwtUser): Promise<Contact> {
     const taxExemption = this.normalizeTaxExemption(dto);
+    const addresses = (dto.addresses || []).map((a) => withCountryCode(a));
+    const billingAddress = withCountryCode(dto.billingAddress);
 
     // De-duplicate: a repeated phone would write the same PHONE# index item
     // twice in one transaction, which DynamoDB rejects.
@@ -136,8 +156,8 @@ export class ContactsService {
       phones,
       phoneExtensions: normalizePhoneExtensions(dto.phoneExtensions, phones),
       emails: dto.emails || [],
-      addresses: dto.addresses || [],
-      ...(dto.billingAddress && { billingAddress: dto.billingAddress }),
+      addresses,
+      ...(billingAddress && { billingAddress }),
       ...(dto.tagIds && { tagIds: dto.tagIds }),
       ...(dto.sourceId && { sourceId: dto.sourceId }),
       ...(dto.paymentTerms && { paymentTerms: dto.paymentTerms }),
@@ -233,6 +253,9 @@ export class ContactsService {
   async update(id: string, dto: UpdateContactDto): Promise<Contact> {
     const existing = await this.findById(id);
     const taxExemption = this.normalizeTaxExemption(dto);
+    // Checked before anything is written (the phone index below writes).
+    const addresses = dto.addresses?.map((a) => withCountryCode(a));
+    const billingAddress = withCountryCode(dto.billingAddress);
 
     let normalizedPhones: string[] | undefined;
     if (dto.phones) {
@@ -256,6 +279,8 @@ export class ContactsService {
     }
 
     const updateData: Partial<Contact> & UpdateContactDto = { ...dto, ...taxExemption };
+    if (addresses) updateData.addresses = addresses;
+    if (billingAddress) updateData.billingAddress = billingAddress;
     if (normalizedPhones) {
       updateData.phones = normalizedPhones;
     }

@@ -43,7 +43,7 @@ export { ContactNote, CONTACT_NOTE_MAX_LENGTH } from './entities/contact-note.en
 export { Company } from './entities/company.entity';
 export { WorkOrder } from './entities/work-order.entity';
 export { CompanyDocument } from './entities/company-document.entity';
-export { Address } from './entities/address.entity';
+export { Address, DEFAULT_ADDRESS_COUNTRY, ADDRESS_COUNTRY_PATTERN } from './entities/address.entity';
 export { Deal, SEND_TO_TECH_CHANNELS } from './entities/deal.entity';
 export type {
   SendToTechChannel,

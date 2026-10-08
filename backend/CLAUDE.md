@@ -641,8 +641,11 @@ tests, and — if it emits events — the types in `@bitcrm/types` plus a row in
   `COUNTED_PAYMENT_STATUSES` (`settled` + `refunded`) minus `refundedAmount`;
   `pending` (ACH in transit) never counts. Invoice status stays derived, so a
   partial payment leaves it `due`/`overdue` and a reversal pushes a `paid`
-  invoice back on its own. Deal keeps only a denormalised `paymentStatus` for
-  the job board, pushed over `PUT /deals/internal/:id/payment-status`.
+  invoice back on its own. Deal keeps only a denormalised `paymentStatus` +
+  `amountPaid` for the job board, pushed over `PUT /deals/internal/:id/payment-status`.
+  The jobs list's `unpaid=true` (Workiz "Show unpaid jobs") is a FilterExpression
+  over those, `totals.total` and an imported snapshot's `totals.amountDue`
+  (`deals/deal-balance.ts`, with its in-memory twin) — never a call into billing.
 - **A payment belongs to the JOB, not to the invoice (Workiz).** A job can have
   payments and no invoice at all (most imported Workiz jobs do): the ledger rows
   still sit under `INVOICE#<dealId>` with `invoiceId === dealId`, just without

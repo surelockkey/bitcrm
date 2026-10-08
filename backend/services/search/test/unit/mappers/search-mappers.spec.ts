@@ -128,6 +128,11 @@ describe('search-mappers', () => {
       expect(doc.keywords).toContain('PO-77812');
     });
 
+    it('indexes the Workiz job name so a job is findable by it', () => {
+      const doc = mapDeal({ ...deal, jobName: 'Zelli: Junk Removal' } as Deal);
+      expect(doc.keywords).toContain('Zelli: Junk Removal');
+    });
+
     it('folds the client (contact + company) into keywords so a phone or name finds the job', () => {
       const doc = mapDeal(deal, 'Install', [], [], {
         name: 'John Smith',

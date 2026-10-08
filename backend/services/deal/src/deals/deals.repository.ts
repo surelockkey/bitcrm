@@ -29,6 +29,7 @@ import {
   DEALS_GSI7_NAME,
 } from '../common/constants/dynamo.constants';
 import { generateDealNumberCode } from './deal-number.util';
+import { BALANCE_DUE_FILTER, hasBalanceDue } from './deal-balance';
 import { dayStartUtc, jobEndAt, shiftDay, type ReportDateSource } from './report/report-dates';
 
 export interface PaginatedResult {
@@ -187,6 +188,8 @@ export interface DealFilters {
   dealNumber?: string | number;
   /** Billing: jobs with at least one line item and no invoice yet. */
   needsInvoice?: boolean;
+  /** Workiz "Show unpaid jobs": money still owed on the job (`hasBalanceDue`). */
+  unpaid?: boolean;
   /**
    * Only deals this technician is assigned to. On the status / contact /
    * dispatcher indexes it is a `contains(assignedTechIds)` filter; on the
@@ -291,6 +294,11 @@ export class DealsRepository {
       names['#invoiceId'] = 'invoiceId';
       values[':zeroItems'] = 0;
     }
+    if (filters?.unpaid) {
+      parts.push(`(${BALANCE_DUE_FILTER.expression})`);
+      Object.assign(names, BALANCE_DUE_FILTER.names);
+      Object.assign(values, BALANCE_DUE_FILTER.values);
+    }
     if (filters?.tagIds?.length) {
       names['#tagIds'] = 'tagIds';
       filters.tagIds.forEach((t, i) => {
@@ -335,6 +343,7 @@ export class DealsRepository {
     if (filters?.dealNumber !== undefined && String(deal.dealNumber) !== String(filters.dealNumber)) return false;
     if (filters?.tagIds?.length && !filters.tagIds.every((t) => deal.tagIds.includes(t))) return false;
     if (filters?.needsInvoice && (!(deal.itemCount && deal.itemCount > 0) || deal.invoiceId)) return false;
+    if (filters?.unpaid && !hasBalanceDue(deal)) return false;
     if (filters?.techId && !deal.assignedTechIds.includes(filters.techId)) return false;
     if (filters?.subStatusId && deal.subStatusId !== filters.subStatusId) return false;
     if (filters?.superStatus && deal.superStatus !== filters.superStatus) return false;
@@ -1480,6 +1489,7 @@ export class DealsRepository {
       serviceAreaId: item.serviceAreaId as string | undefined,
       address: item.address as Deal['address'],
       jobTypeId: item.jobTypeId as string,
+      jobName: (item.jobName as string | undefined) || undefined,
       // Prefer the stored super-status; derive it from the legacy stage for rows
       // not yet backfilled, so reads are correct before/after migration.
       superStatus:
@@ -1515,6 +1525,7 @@ export class DealsRepository {
       estimatedTotal: item.estimatedTotal as number | undefined,
       actualTotal: item.actualTotal as number | undefined,
       paymentStatus: item.paymentStatus as string | undefined,
+      amountPaid: item.amountPaid as number | undefined,
       status: item.status as Deal['status'],
       createdBy: item.createdBy as string,
       statusChangedAt: item.statusChangedAt as string | undefined,

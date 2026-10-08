@@ -4,7 +4,7 @@ export { Contact } from './contact.entity';
 export { Company } from './company.entity';
 export { WorkOrder } from './work-order.entity';
 export { CompanyDocument } from './company-document.entity';
-export { Address } from './address.entity';
+export { Address, DEFAULT_ADDRESS_COUNTRY, ADDRESS_COUNTRY_PATTERN } from './address.entity';
 export { Deal } from './deal.entity';
 export { DealAttachment, DealAttachmentMeta, ContactAttachment, ContactFileListItem } from './deal-attachment.entity';
 export {

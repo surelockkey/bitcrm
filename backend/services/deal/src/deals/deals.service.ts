@@ -114,6 +114,7 @@ const STATS_MAX_PAGES = 200;
 import { type SendToTechDto } from './dto/send-to-tech.dto';
 import { type RecordSentToTechDto } from './dto/record-sent-to-tech.dto';
 import { isDealNumberCode } from './deal-number.util';
+import { hasBalanceDue } from './deal-balance';
 import { DealsCacheService } from './deals-cache.service';
 import { dealTotalsSnapshot } from './billing/deal-totals';
 import { aggregateDealStats, type DealStatsWindow } from './stats/deal-stats';
@@ -193,13 +194,17 @@ export class DealsService {
    * is destroyed. That is how coordinates used to vanish: the edit form re-sends
    * the address without lat/lng and the stored ones were overwritten. Hence the
    * carry-over below — an unchanged address keeps the coordinates it already had
-   * rather than paying to geocode the same string again.
+   * rather than paying to geocode the same string again. The country is
+   * carried the same way: a form that does not send one (absent = US) must not
+   * turn an imported Canadian address into a US one; naming one sets it.
    */
   private async resolveAddress(
     incoming: Address,
     previous?: Address,
   ): Promise<Address> {
     const address = { ...incoming };
+    if (address.country === undefined) delete address.country;
+    if (!address.country && previous?.country) address.country = previous.country;
 
     if (address.lat !== undefined && address.lng !== undefined) {
       return address;
@@ -506,6 +511,9 @@ export class DealsService {
         )
       : {};
 
+    // Workiz "Job name": optional, trimmed; a blank one is no name at all.
+    const jobName = dto.jobName?.trim() || undefined;
+
     const deal: Deal = {
       id,
       dealNumber,
@@ -520,6 +528,7 @@ export class DealsService {
       serviceAreaId,
       address,
       jobTypeId: dto.jobTypeId,
+      ...(jobName && { jobName }),
       superStatus: JobSuperStatus.SUBMITTED,
       assignedTechIds: [],
       assignedDispatcherId: caller.id,
@@ -810,6 +819,7 @@ export class DealsService {
     if (filters.companyId && deal.companyId !== filters.companyId) return false;
     if (filters.createdBy && deal.createdBy !== filters.createdBy) return false;
     if (filters.tagIds?.length && !filters.tagIds.every((t) => deal.tagIds.includes(t))) return false;
+    if (filters.unpaid && !hasBalanceDue(deal)) return false;
     return true;
   }
 
@@ -839,6 +849,7 @@ export class DealsService {
       dealNumber: this.parseDealNumberSearch(search),
       needsInvoice:
         query.needsInvoice === true || query.needsInvoice === 'true' ? true : undefined,
+      unpaid: query.unpaid === true || query.unpaid === 'true' ? true : undefined,
       // Carried on every index, not only the tech one: with `superStatus` the
       // status index answers, and an `assigned_only` caller must still see
       // just their own jobs in it.
@@ -1093,6 +1104,27 @@ export class DealsService {
       }
     }
 
+    // Unscheduling (Workiz's "Scheduled" off) is `scheduledDate: null`: the
+    // rest of the visit goes with it, and so do the Workiz visit instants an
+    // imported job carries — the Jobs report prefers those while they exist,
+    // and would keep filing the job on its old Workiz time.
+    if (dto.scheduledDate === null) {
+      updates.scheduledEndDate = null;
+      updates.scheduledTimeSlot = null;
+      if (existing.allDay) updates.allDay = null;
+      updates.jobDateUtc = null;
+      updates.jobEndDateUtc = null;
+    }
+
+    // Job name: trimmed; a blank string is what a cleared input sends, so it
+    // clears like null. Nothing to clear on a job without one — no write, and
+    // no phantom "changed from nothing to nothing" timeline entry.
+    if (dto.jobName !== undefined) {
+      const jobName = dto.jobName?.trim() || null;
+      if (jobName === null && !existing.jobName) delete updates.jobName;
+      else updates.jobName = jobName;
+    }
+
     // Archived types are allowed on update so an old deal stays editable; only
     // the id's existence is enforced.
     if (updates.jobTypeId) await this.jobTypes.findById(updates.jobTypeId);
@@ -1191,6 +1223,8 @@ export class DealsService {
       // The company gets one labeled entry below.
       if (COMPANY_KEYS.has(key)) continue;
       const previous = (existing as unknown as Record<string, unknown>)[key];
+      // Clearing what was already empty is no change (the REMOVE is harmless).
+      if (value === null && (previous === undefined || previous === null)) continue;
       if (this.valuesEqual(previous, value)) continue;
       await this.addTimelineEntry(id, TimelineEventType.FIELD_UPDATED, caller, {
         field: key,
