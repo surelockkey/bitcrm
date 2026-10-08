@@ -1,0 +1,258 @@
+# Workiz form kit (`@/components/workiz`)
+
+Pixel-matched controls for rebuilding the New Job page (`/deals/new`) and the
+job page's Details tab (`/deals/[id]`) 1:1 with Workiz. Every number comes from
+the captures in
+`workiz-data-parser/data/ui_reference/jobs_parity_2026-10-08/*.styles.json` and
+from Workiz's own stylesheets (public CDN: `build.css`, `reactCss.css`,
+`main.css`), not from eyeballing. Colours are the `wz*` tokens in
+`lib/theme/tokens.ts` (Tailwind: `text-wz-label`, `border-wz-focus`, …).
+
+```tsx
+import {
+  WzTextField, WzFieldGroup, WzTextarea, WzSelect, WzMultiSelect,
+  WzDateField, WzTimeSelect, WzCalendar, WzSwitch, WzCheckbox,
+  WzButton, WzLink, WzCard, WzSectionHeader, WzActionBar,
+  WzUploadField, WzFieldError, WzNotice, WzSuggestionList, WzSuggestion,
+  WzCalendarOutlineIcon,
+} from "@/components/workiz";
+```
+
+## react-hook-form
+
+| Control | How to wire it |
+| --- | --- |
+| `WzTextField`, `WzTextarea`, `WzSwitch`, `WzCheckbox` | `{...form.register("name")}` (native inputs; ref, name, onChange, onBlur all pass through) or plain `value`/`onChange` |
+| `WzSelect`, `WzMultiSelect`, `WzTimeSelect`, `WzDateField` | `<Controller name="x" control={form.control} render={({ field }) => <WzSelect label="Job type" options={opts} {...field} />} />` — `onChange` gets the **value** (`""` when cleared; a `string[]` for multi), `onBlur` marks touched, `ref` focuses the input (`setFocus` works). The page's current pattern also works: `value={v.jobTypeId} onChange={(id) => form.setValue("jobTypeId", id)}` |
+
+All controls also work uncontrolled (`defaultValue` / `defaultChecked`). A
+`name` on the custom controls renders a hidden input, so native form posts
+carry the value too.
+
+## Components
+
+### `WzTextField` — the floating-label text box
+Reproduces `.sajInput` + `._fLabel` (new_01_empty, new_07_client_search,
+formkit_focus_empty / formkit_hover_empty, job_b_01_details).
+
+- Box 48px, 1px `#ccc`, 2px corners, padding 12px 10px 0, 16px/16px `#666`;
+  focused edge `#ffd400` (0.3s). The wrapper is 3.04rem (48.64px) tall like a
+  select, so rows of fields step 58.64px apart (10px gap) as in Workiz.
+- Label: a real `<label for>`; at rest 16px/20px `#8c8c8c` at .95rem/.65rem;
+  floats to 12px at top 2px on **focus, hover, or any value** (CSS on the
+  input's own state, so `setValue`/`reset`/autofill move it without a render).
+- Props: `label` (required), `error` ("Required field": 12px/10px `#e35a36`,
+  4px below, 12px in; sets `aria-invalid` + `aria-describedby`),
+  `endAdornment` (icons inside on the right; text stops 92px short),
+  `inputClassName`, `className` (wrapper: width / `flex-1`), `overhang`
+  (default `true`), `disabled`, and every `<input>` prop.
+- `overhang`: Workiz's input is content-box sized, so a standalone box is
+  **2px wider than its column** (599 in a 597 card; on the job page its
+  columns are 1px narrower, so 454 in 453). Pass `overhang={false}` to keep it
+  inside. Never applied inside a `WzFieldGroup`.
+- Disabled (our locked primary phone): react-select's disabled greys
+  (`#f2f2f2` fill, `#e6e6e6` edge), not-allowed cursor; adornment buttons
+  stay clickable.
+
+```tsx
+<WzTextField label="Client name" {...register("name")} error={errors.name?.message} />
+<WzTextField
+  label="Phone" value={phone} disabled
+  endAdornment={<><CallButton /><SmsButton className="-ml-[5px]" /></>}
+/>
+```
+Job-page phone icons: 40×40 buttons, 7px down, 12px from the right, the second
+overlapping the first by 5px (job_b_01_details).
+
+### `WzFieldGroup` — fields drawn as one control
+`join="seamless"`: New Job "Phone | Ext", "Address | Unit" — one box, no line
+(the second laps 2px over the first with no left edge, as Workiz does, focus
+included). `join="line"`: job page "First Name | Last Name" — one shared 1px
+`#ccc` edge. `join="soft"`: job page "Phone | Ext" — a 1px `#cad3d6` divider
+that stays put through focus. Members grow (`flex-1`); give the fixed one its
+width: New Job Ext `className="w-[100px] flex-none"`, Unit `w-[151px]`, job page
+Ext `w-[132px]` (131 + the divider).
+
+```tsx
+<WzFieldGroup join="seamless">
+  <WzTextField label="Phone" {...register("phone")} />
+  <WzTextField label="Ext" className="w-[100px] flex-none" {...register("ext")} />
+</WzFieldGroup>
+```
+
+### `WzTextarea`
+Custom-field notes ("Manager Note", new_01_empty_scroll1, formkit_textarea_focus):
+1px `#ccc`, 4px corners, padding 7px 10px, 14px/18px `#666`, placeholder
+inside in `#808080`, 100px tall, no resize grip, `#ffd400` edge focused. Named
+by its placeholder unless given `aria-label`. Props: textarea props + `error`,
+`wrapperClassName`. `{...register("note")}` works.
+
+### `WzSelect` — react-select as Workiz styles it
+new_01_empty, new_02..05_*_open, formkit_country_open / _filter /
+formkit_select_hover / formkit_state_hover, job_b_01_details_scroll1.
+
+- Control 48.64px, 1px `#ccc` (hover `#b3b3b3`), 4px corners or
+  `shape="square"` (job page). Focused: the border goes and a 1px `#ffd400`
+  ring is drawn outside — contents slide 1px left, exactly like Workiz.
+- Empty: the label is the placeholder (16px `#808080`). With a value: the
+  label floats (12px `#8c8c8c` at 10px/4px) over the value (16px `#333`).
+  Typing hides both. Real `<label for>`; the input is `role="combobox"` with
+  `aria-expanded`, `aria-controls`, `aria-activedescendant`.
+- Indicators: optional clear × (`clearable`, job page Job source), 1px
+  separator, chevron — react-select's own glyphs, `#ccc` → `#666` focused.
+- Menu: 8px below, 4px corners, react-select's two-part shadow, max 300px,
+  rows 32px (8px 12px, 14px `#404040`), focused `#deebff`, chosen
+  `#2684ff`/white. Opens **below, always**, and scrolls the nearest scroller
+  to make room (react-select scrolls the page rather than flipping).
+- Keyboard (react-select's): type to filter (contains, case/accent-
+  insensitive, catalog order), ↑/↓ (wrap; open on a closed menu), Home/End,
+  PageUp/PageDown (±5), Enter or Tab picks, Escape closes, Space opens/picks
+  on an empty input, Backspace clears when `clearable`. Mouse follows hover.
+- Props: `label`, `options: {value,label,disabled?}[]`, `value` / `defaultValue`,
+  `onChange(value)`, `onBlur`, `name`, `id`, `disabled`, `clearable`,
+  `searchable` (default true), `filterOption` (`null` = filter on the server,
+  pair with `onInputChange(text)` and `loading`), `noOptionsMessage`,
+  `valueLabel` (shown for a value missing from `options`, e.g. an archived
+  job type), `createOption={{ label?, onCreate(text) }}` (the "+ Add new" first
+  row), `renderOption(option, {focused, selected})`, `shape`,
+  `geometry` (`"labelled"` default — every Workiz select with a label is
+  `.fLabel`, a 30px value box: placeholder 15.32px, value 24.32px down;
+  `"plain"` for the bare job-page "Assign A Tech", 1px lower), `error`,
+  `className`.
+
+```tsx
+<Controller name="jobTypeId" control={form.control} render={({ field }) => (
+  <WzSelect label="Job type" options={types.map((t) => ({ value: t.id, label: t.name }))}
+    createOption={{ onCreate: openNewTypeDialog }} {...field} />
+)} />
+<WzSelect label="Job source" shape="square" clearable value={sourceId} onChange={setSourceId} options={sources} />
+```
+
+### `WzMultiSelect` — "Assign team members" (new_06_team_open)
+Same control and menu; picks become chips inside the box (white, 1px `#ccc`,
+2px corners, 85% text, a × behind a `#ccc` rule — Workiz's
+`.react-select__multi-value` overrides) and leave the list; Backspace drops the
+last; a clear-all × when `clearable` (default, as react-select). Listbox is
+`aria-multiselectable`. `value: string[]`, `onChange(string[])`; other props as
+`WzSelect`.
+
+### `WzTimeSelect` — the "At" time
+formkit_time_open / _hover2 / _keyfocus2 / formkit_time2_open. 42px box, 1px
+`#9ea6aa`, ink on hover, `#6aa8ee` while focused/open; notched label "At"
+(11px ink on white, 8px in, 8px up); value 13px ink 12px in; thin chevron that
+flips when open. List: 96 slots of 15 min ("03:30 PM"), **the chosen time is
+left out and the list opens scrolled to the next slot** (Workiz does both);
+rows 32px 13px ink, focused `#c2deff`; inner panel 8px corners with Workiz's
+soft shadow. Typing "4:45" narrows to 04:45 AM / PM. Props: `label`, `value`
+("HH:MM" 24h), `onChange("HH:MM")`, `step`, `options` (override slots),
+`disabled`, `error`, `name`, `id`, `className`. Helpers: `wzTimeSlots(step)`,
+`formatWzTime("15:30") === "03:30 PM"`.
+
+### `WzDateField` + `WzCalendar` — Starts / Ends
+formkit_date_open. 40px notched box (13px/23px ink, 0.15px tracking), MUI's
+calendar button (40×32, `rgba(0,0,0,.54)`) at the right, labelled "Choose
+date, selected date is Oct 8, 2026". The popup is MUI's DateCalendar look:
+320×334 paper, "October 2026 ▾" + ‹ ›, S M T W T F S, 36px round days 2px
+apart, chosen `#1565c0`, today ringed; ▾ opens a year list. Arrow keys move
+by day/week. Typed text ("Nov 3, 2026", "11/03/2026", ISO) is read on blur or
+Enter, nonsense is put back. Props: `label`, `value` ("YYYY-MM-DD"),
+`onChange(iso)`, `min`, `max`, `disabled`, `error`, `name`, `id`, `className`.
+Helpers: `formatWzDate`, `parseWzDate`. `WzCalendar` alone: `value`,
+`onSelect`, `min`, `max`, `autoFocus`.
+
+```tsx
+<div className="grid grid-cols-[287px_287px] justify-between gap-y-6">
+  <WzDateField label="Starts" value={v.scheduledDate} onChange={(d) => setValue("scheduledDate", d)} />
+  <WzTimeSelect label="At" value={start} onChange={setStart} />
+  <WzDateField label="Ends" min={v.scheduledDate} value={v.scheduledEndDate} onChange={…} />
+  <WzTimeSelect label="At" value={end} onChange={setEnd} />
+</div>
+```
+(New Job columns are 287px, job page 217px; rows 24px apart.)
+
+### `WzSwitch` — the green Scheduled toggle
+40×20, `#50d58c` on / `#bbbbbb` off, 16px white knob 2px in, 50ms; disabled
+`#dddddd` / `#b2e5c0`; keyboard focus glows yellow round the knob. A native
+`role="switch"` checkbox: `{...register("scheduled")}`, `checked` +
+`onCheckedChange(bool)`, or `defaultChecked`. Name it with `aria-label`.
+
+### `WzCheckbox` — "All-day event"
+Workiz's box is the **browser's own** 13×13 checkbox (their SVG skin is a
+`::before` Chrome never paints), 2px in / 3.2px down a 15px column; words
+28.2px in, 14px/21px ink. Props: `label`, `onCheckedChange`, input props.
+
+### `WzButton`, `WzLink`
+`WzButton` (Button-module): `variant="primary"` (`#fad400`, hover `#eac300`,
+pressed `#dcb802`), `"secondary"` (1px ink edge, hover `#f3f6f7`, pressed
+`#c8ced0`), `"tertiary"`; `size="big"` (10.5px 20px → 40px; Create
+`min-w-[150px]`, Save `min-w-[200px]`) or `"regular"` (6.5px 12px → 32px/34px:
+Send, View schedule); text 13px/19px semibold ink, 0.2px tracking; `icon`
+before the words (19px box; `WzCalendarOutlineIcon` is Workiz's View schedule
+glyph); `loading` keeps the width under a spinner. Always `rounded-pill`.
+Defaults to `type="button"`.
+`WzLink tone="blue"` (Set recurring schedule: 14px `#6aa8ee` underlined),
+`"bold"` (New Job Add phone: 12px semibold `#404040`, put `mt-[5px]`),
+`"underlined"` (job page Add Phone: 12px medium `#404040` underlined, right
+aligned, net 5px under the box). A `<button>`, or an `<a>` with `href`.
+
+### `WzCard` — New Job card
+White, 8px corners, `0 2px 8px rgba(0,0,0,.067)`, title 18px/23.4px medium ink
+at 24px / 34px, content padded `0 24px 24px` with rows 10px apart (`pt-2.5`,
+`gap-2.5`; override with `contentClassName`). `action` sits right of the title,
+top-aligned (the Scheduled switch). A `<section>` named by its `<h5>`.
+Page grid in Workiz: two 645px columns 30px apart at x=240, rows 30px apart.
+
+### `WzSectionHeader` — job page section title
+`<h4>` 18px/22px semibold `#404040`, 10px above/below, 1px `#cad3d6` rule, 20px
+to the first field. `action`: a `WzSwitch` keeps Workiz's 16px line (41px
+header, "Schedule"); a button centres (53px, "Team" + Send). Workiz sections
+are 453px wide, columns at x=245 and x=898.
+
+### `WzActionBar` — bottom bar
+White, 15px above/below a 40px button, centred, `5px 1px 7px
+rgba(50,50,50,.55)` shadow, z 100, `role="toolbar"`. Render it after the page's
+scroll region (as the New Job page's footer is today) so it stays at the
+bottom of the content column.
+
+### `WzUploadField` — file custom fields
+Title 14px medium `#404040`; thumbnails 58px (a `#ddd` 10px-cornered frame
+under a 57px picture with a `#9ea6aa` 4px edge), 16px apart, a red ×
+(`#ff6f64`) on hover to remove; the "+" tile 58×58 `#f7f8f8`, 1px `#9ea6aa`,
+4px corners; caption "You can choose up to 5 files" 11px `#999`. Props:
+`label`, `files: {id,name,url}[]`, `onAdd(File[])` (already trimmed to what
+`max` leaves), `onRemove(id)`, `onOpen(id)`, `max` (5), `accept`, `disabled`.
+
+### `WzFieldError`, `WzNotice`
+`WzFieldError`: "Required field" (12px/10px regular `#e35a36`, 4px down, 12px
+in) — the fields render it for you via `error`. `WzNotice`: "Please select a
+service area to display available techs" (12px/14px semibold `#e35a36`; Workiz
+puts it 15px under the team select).
+
+### `WzSuggestionList` + `WzSuggestion` — client-name search dropdown
+new_07_client_search: hung straight under the text field (put both in a
+`relative` box and give the list `className="top-12"`), column-wide, max 400px,
+`#ccc` bottom rule. Each row is its own 1px `#ccc` box (neighbours show a 2px
+line, as in Workiz), padding 15px 10px, title 16px `#404040` with the typed
+part bold, grey 14px subtitle 10px under; hover / `active` `#deebff`.
+`<WzSuggestion addNew title="+ Add new" query={text} />` renders
+`+ Add new "Dustin"`. Rows keep focus in the input on press. Keyboard
+navigation is the caller's (it owns the input); `splitMatch(text, query)` is
+exported.
+
+## Known differences from Workiz (deliberate or unmeasurable)
+- Sub-pixel: Workiz's own fractional layout makes some glyphs land ±1px
+  differently from ours in screenshots (e.g. two Workiz selects with identical
+  CSS place their placeholder 15 vs 16px down). Boxes, colours and type match.
+- Filtering matches the label only; react-select also matches the value,
+  which here is an id nobody should be able to type into.
+- `WzTimeSelect` opens showing the slot after the chosen time while its
+  keyboard focus sits on the list's first slot (12:00 AM), so ↓ jumps to
+  12:15 AM — that is what Workiz does (formkit_time_open's live region says
+  "12:00 AM, 1 of 95"); kept for parity. Hovering a row moves the focus there.
+- Disabled text fields/selects: Workiz shows none on these pages; we use
+  react-select's disabled greys so a locked field reads as locked.
+- Built on Radix Popover with our own combobox logic, not cmdk: cmdk's
+  `Command.Input` forces `aria-expanded="true"`, overwrites the input id and
+  labels it with its own hidden label (so a real visible `<label for>` is
+  impossible), swallows Enter on a closed menu and reorders DOM while
+  filtering.
