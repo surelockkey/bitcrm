@@ -239,6 +239,8 @@ vi.mock("../hooks", () => ({
 // QueryClient to answer it.
 vi.mock("@/features/messaging/hooks", () => ({
   useMessagingSettings: () => ({ data: undefined }),
+  // The rail's Messages filter: the job's texts.
+  useMessagesByJob: () => ({ data: { pages: [{ data: [], pagination: {} }] }, isLoading: false, hasNextPage: false }),
 }));
 
 vi.mock("@/features/clients/hooks", () => ({
@@ -504,6 +506,18 @@ describe("DealDetailPage — the header, as Workiz lays it out", () => {
 
     await user().click(screen.getByRole("menuitem", { name: "Job Done" }));
     expect(mocks.moveStatus).toHaveBeenCalledWith({ superStatus: JobSuperStatus.DONE }, expect.anything());
+  });
+
+  // J9: Workiz's View Work Order, for a job a work order authorized.
+  it("Actions offers View Work Order for a job a work order authorized, opening that work order", async () => {
+    mocks.perms.deals = true;
+    dealState = { ...deal, workOrderId: "wo-7" };
+    render(<DealDetailPage dealId="d1" />);
+
+    await user().click(screen.getByRole("button", { name: "Actions" }));
+    expect(screen.getAllByRole("menuitem").map((i) => i.textContent)).toEqual(["Job Done", "View Work Order", "Delete Job"]);
+    await user().click(screen.getByRole("menuitem", { name: "View Work Order" }));
+    expect(mocks.push).toHaveBeenCalledWith("/work-orders?id=wo-7");
   });
 
   it("Delete Job asks first", async () => {

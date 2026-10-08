@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { screen, cleanup } from "@testing-library/react";
 import type { QueryClient } from "@tanstack/react-query";
+import { queryKeys } from "@/lib/query-keys";
 import {
   duplicates,
   installFakeServer,
@@ -132,6 +133,18 @@ const routes: FakeRoute[] = [
     }),
   },
   { match: /\/billing\/estimates\/by-deal\/d1$/, reply: () => [] },
+  // The rail's Messages: the job's texts, counted in the Timeline's filter.
+  {
+    match: /\/messaging\/messages\/by-job\/d1$/,
+    raw: true,
+    reply: () => ({
+      success: true,
+      data: [
+        { id: "m1", conversationId: "c9", channel: "sms", direction: "outbound", origin: "user", status: "sent", body: "New job #1042", sentByName: "Dee", dealId: "d1", createdAt: "2026-10-01T09:00:00.000Z", updatedAt: "2026-10-01T09:00:00.000Z" },
+      ],
+      pagination: { count: 1 },
+    }),
+  },
   {
     match: /\/users$/,
     raw: true,
@@ -160,6 +173,9 @@ function watchJobFirstFrame() {
     notesBadge: !!screen.queryByRole("button", { name: "Notes (1)" }),
     jobTypeLine: !!screen.queryByText("Lockout", { selector: "#job-tab-details-sub" }),
     estimatesLine: !!screen.queryByText("0 estimates"),
+    // The Timeline's "Messages (1)" and "All" count the job's messages: they
+    // are in hand with the page, not asked for once the rail has mounted.
+    messagesIn: !!client?.getQueryData(queryKeys.messaging.messagesByJob("d1")),
     skeletons: skeletonCount(),
   }));
 }
@@ -199,6 +215,7 @@ describe("DealDetailPage — one load, not waves", () => {
       notesBadge: true,
       jobTypeLine: true,
       estimatesLine: true,
+      messagesIn: true,
       skeletons: 0,
     });
   });

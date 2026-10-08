@@ -15,6 +15,8 @@ export function ClientChatSheet({
   contactId,
   name,
   phone,
+  phoneOnContact,
+  dealId,
   open,
   onOpenChange,
 }: {
@@ -22,6 +24,13 @@ export function ClientChatSheet({
   name: string;
   /** The client's primary number: the header calls it without leaving the chat. */
   phone?: string;
+  /**
+   * Set (true or false) when `phone` is also the number to text — the job
+   * page's, which may be the job's own and not on the client record.
+   */
+  phoneOnContact?: boolean;
+  /** The job the texts are about (job page). */
+  dealId?: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
@@ -48,7 +57,16 @@ export function ClientChatSheet({
           ) : null}
         </SheetHeader>
         {/* Mounted only while open: the card must not fetch a thread nobody asked for. */}
-        {open ? <PartyChat partyKind="contact" partyId={contactId} autoFocus className="m-3 flex-1" /> : null}
+        {open ? (
+          <PartyChat
+            partyKind="contact"
+            partyId={contactId}
+            dealId={dealId}
+            {...(phone && phoneOnContact !== undefined ? { address: phone, addressOnParty: phoneOnContact } : {})}
+            autoFocus
+            className="m-3 flex-1"
+          />
+        ) : null}
       </SheetContent>
     </Sheet>
   );

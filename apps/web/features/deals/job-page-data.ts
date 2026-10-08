@@ -7,7 +7,7 @@ import { useContact } from "@/features/clients/hooks";
 import { useCustomFields } from "@/features/custom-fields/hooks";
 import { applicableFields } from "@/features/custom-fields/lib";
 import { useInvoiceByDeal } from "@/features/invoices/hooks";
-import { useMessagingSettings } from "@/features/messaging/hooks";
+import { useMessagesByJob, useMessagingSettings } from "@/features/messaging/hooks";
 import { useDealPayments } from "@/features/payments/hooks";
 import { useEffectiveServiceArea, useServiceAreas } from "@/features/service-areas/hooks";
 import { useJobCode, useTelephonyConfig } from "@/features/telephony/config-hooks";
@@ -70,6 +70,8 @@ export function useJobPageData(dealId: string): { ready: boolean } {
   // The frame around the form: the right rail's notes badge reads the
   // timeline's first page, the tab bar's "N estimates" the estimates list.
   const timeline = useDealTimeline(dealId);
+  // The Timeline's "Messages (n)" (and its "All"): the job's texts.
+  const messages = useMessagesByJob(dealId, can("messages", "view"));
   const estimates = useDealEstimates(dealId, can("estimates"));
   const activeTypes = useActiveJobTypes();
 
@@ -110,6 +112,7 @@ export function useJobPageData(dealId: string): { ready: boolean } {
       assignments,
       suggestions,
       timeline,
+      messages,
       estimates,
       archivedType,
       ...files,

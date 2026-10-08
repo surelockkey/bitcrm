@@ -65,12 +65,15 @@ const COLUMN_WIDTHS: Record<string, number> = Object.fromEntries(
   COLUMNS.map((c) => [c.id, c.width]),
 );
 
-export function WorkOrdersPage() {
+export function WorkOrdersPage({ initialId }: { initialId?: string } = {}) {
   const { can, isLoading: permsLoading } = usePermissions();
   const denied = useDenied();
   const [companyId, setCompanyId] = useState("all");
   const [status, setStatus] = useState("all");
   const [query, setQuery] = useState("");
+  // `?id=` (a job's Actions → View Work Order): that one alone, its number
+  // standing in the search box until the reader types over it.
+  const [pinnedId, setPinnedId] = useState<string | null>(initialId ?? null);
   const [creating, setCreating] = useState(false);
 
   const canCreate = can("work_orders", "create");
@@ -98,12 +101,14 @@ export function WorkOrdersPage() {
   const rows = useMemo(
     () =>
       filterWorkOrders(workOrders ?? [], {
+        id: pinnedId ?? undefined,
         companyId: companyId === "all" ? undefined : companyId,
         status: status === "all" ? undefined : (status as WorkOrderStatus),
-        query,
+        query: pinnedId ? undefined : query,
       }),
-    [workOrders, companyId, status, query],
+    [workOrders, pinnedId, companyId, status, query],
   );
+  const searchText = pinnedId ? (workOrders?.find((w) => w.id === pinnedId)?.woNumber ?? "") : query;
 
   // A refusal only once the answer is in — before it, `can` says no to all.
   if (denied("work_orders", "view")) {
@@ -119,7 +124,15 @@ export function WorkOrdersPage() {
     <div className="flex flex-1 flex-col">
       <div className="flex flex-wrap items-center gap-3 border-b px-6 py-3">
         <h1 className="text-lg font-semibold tracking-tight">Work Orders</h1>
-        <Input className="h-9 w-48" placeholder="Search WO number…" value={query} onChange={(e) => setQuery(e.target.value)} />
+        <Input
+          className="h-9 w-48"
+          placeholder="Search WO number…"
+          value={searchText}
+          onChange={(e) => {
+            setPinnedId(null);
+            setQuery(e.target.value);
+          }}
+        />
         <Select value={companyId} onValueChange={setCompanyId}>
           <SelectTrigger className="h-9 w-52"><SelectValue placeholder="Company" /></SelectTrigger>
           <SelectContent>

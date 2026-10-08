@@ -115,6 +115,30 @@ describe("PartyChat", () => {
     expect(await screen.findByText("hello")).toBeInTheDocument();
   });
 
+  // MS9277: no thread yet, and the number to text is the job's own — the
+  // lookup used to answer "No phone number on file" without it.
+  it("asks about the number it was given and texts that number first", async () => {
+    const lookups: string[] = [];
+    server.use(
+      http.get("*/messaging/conversations/text-lookup", ({ request }) => {
+        lookups.push(new URL(request.url).search);
+        return HttpResponse.json({
+          success: true,
+          data: { conversation: hasThread ? conversation : null, address: "+15715310137", optOut: null, canText: true },
+        });
+      }),
+    );
+    wrap(<PartyChat partyKind="contact" partyId="ct1" dealId="d1" address="+15715310137" />);
+
+    expect(await screen.findByText("No messages yet")).toBeInTheDocument();
+    expect(lookups[0]).toContain("address=%2B15715310137");
+    await userEvent.type(screen.getByLabelText("Message"), "hello{Enter}");
+
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0]).toMatchObject({ phone: "+15715310137", dealId: "d1", body: "hello" });
+    expect(sent[0]).not.toHaveProperty("contactId");
+  });
+
   it("will not start a teammate's chat from here", async () => {
     wrap(<PartyChat partyKind="user" partyId="u1" />);
     expect(await screen.findByText(/team-chat milestone/)).toBeInTheDocument();

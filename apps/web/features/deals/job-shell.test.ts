@@ -7,7 +7,9 @@ import {
   dealTabSublabel,
   formatBoxAmount,
   jobActions,
+  jobChatPhone,
   jobClientName,
+  jobDueDate,
   jobNamePatch,
   workizDate,
   workizDateTime,
@@ -65,6 +67,40 @@ describe("Actions menu — Workiz's Job Done / View Work Order / Duplicate Job /
       "done",
     ]);
     expect(jobActions({ superStatus: JobSuperStatus.IN_PROGRESS, canEdit: false, canDelete: false })).toEqual([]);
+  });
+
+  it("lists View Work Order, in Workiz's place, for a job a work order authorized — to someone who may see work orders", () => {
+    const base = { superStatus: JobSuperStatus.SUBMITTED, canEdit: true, canDelete: true };
+    expect(jobActions({ ...base, workOrderId: "wo-1", canViewWorkOrders: true })).toEqual(["done", "work_order", "delete"]);
+    expect(jobActions({ ...base, workOrderId: "wo-1", canViewWorkOrders: false })).toEqual(["done", "delete"]);
+    expect(jobActions({ ...base, canViewWorkOrders: true })).toEqual(["done", "delete"]);
+  });
+});
+
+describe("the number 'Message Client' texts (J1)", () => {
+  it("is the job's own primary number first, as Workiz texts the job's phone", () => {
+    expect(jobChatPhone(["+15715310137"], ["+14045551234"])).toEqual({ phone: "+15715310137", onContact: false });
+  });
+
+  it("knows when the job's number is also on the client record, whatever its format", () => {
+    expect(jobChatPhone(["(571) 531-0137"], ["+15715310137"])).toEqual({ phone: "(571) 531-0137", onContact: true });
+  });
+
+  it("falls back to the client's number when the job has none", () => {
+    expect(jobChatPhone(undefined, ["+15715310137"])).toEqual({ phone: "+15715310137", onContact: true });
+    expect(jobChatPhone([], [])).toEqual({ phone: undefined, onContact: true });
+  });
+});
+
+describe("the Items tab's Due (job_amount_due_date)", () => {
+  it("is the invoice's due date when the job has an invoice", () => {
+    expect(jobDueDate({ scheduledDate: "2026-10-09", createdAt: "2026-10-05T10:00:00.000Z" }, "2026-10-20")).toBe("10/20/2026");
+  });
+
+  it("is the job's day otherwise, as Workiz fills it, else the day it was created", () => {
+    expect(jobDueDate({ scheduledDate: "2026-10-08", createdAt: "2026-10-05T10:00:00.000Z" })).toBe("10/8/2026");
+    expect(jobDueDate({ createdAt: "2026-10-05T16:00:00.000Z" })).toBe("10/5/2026");
+    expect(jobDueDate({})).toBe("");
   });
 });
 
