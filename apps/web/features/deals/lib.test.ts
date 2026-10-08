@@ -599,6 +599,85 @@ describe("buildDealPatch", () => {
   });
 });
 
+/**
+ * The job page's Details form (Workiz layout): the switch on Schedule
+ * unschedules, the Address pane carries a Country, and the job's name is
+ * edited in the header — never by the form's Save.
+ */
+describe("buildDealPatch — the Workiz Details form", () => {
+  it("unschedules with an explicit null — the server clears the end, the times and all-day", () => {
+    const d = deal({
+      scheduledDate: "2026-10-08",
+      scheduledEndDate: "2026-10-08",
+      scheduledTimeSlot: "08:00-09:00",
+      allDay: false,
+    });
+    const draft = { ...dealDraftFromDeal(d), scheduledDate: "", scheduledEndDate: "", scheduledTimeSlot: "", allDay: false };
+
+    const patch = buildDealPatch(d, draft);
+
+    expect(patch).toEqual({ scheduledDate: null });
+    // `undefined` would vanish from the PUT body and the job would stay put.
+    expect(JSON.parse(JSON.stringify(patch))).toEqual({ scheduledDate: null });
+  });
+
+  it("unschedules an all-day job the same way, with nothing else in the body", () => {
+    const d = deal({ scheduledDate: "2026-10-08", scheduledEndDate: "2026-10-09", allDay: true });
+    const draft = { ...dealDraftFromDeal(d), scheduledDate: "", scheduledEndDate: "", scheduledTimeSlot: "", allDay: false };
+
+    expect(buildDealPatch(d, draft)).toEqual({ scheduledDate: null });
+  });
+
+  it("schedules an unscheduled job with its dates and times", () => {
+    const d = deal();
+    const draft = {
+      ...dealDraftFromDeal(d),
+      scheduledDate: "2026-10-08",
+      scheduledEndDate: "2026-10-08",
+      scheduledTimeSlot: "08:00-09:00",
+    };
+
+    expect(buildDealPatch(d, draft)).toEqual({
+      scheduledDate: "2026-10-08",
+      scheduledEndDate: "2026-10-08",
+      scheduledTimeSlot: "08:00-09:00",
+    });
+  });
+
+  it("keeps the address's country in the draft", () => {
+    const d = deal({ address: { street: "1 King St", city: "Toronto", state: "ON", zip: "M5H", country: "CA" } });
+
+    expect(dealDraftFromDeal(d).address.country).toBe("CA");
+    expect(buildDealPatch(d, dealDraftFromDeal(d))).toBeNull();
+  });
+
+  it("sends a changed country with the address", () => {
+    const d = deal({ address: { street: "1 King St", city: "Toronto", state: "ON", zip: "M5H", country: "CA" } });
+    const draft = dealDraftFromDeal(d);
+
+    const patch = buildDealPatch(d, { ...draft, address: { ...draft.address, country: "US" } });
+
+    expect(patch).toEqual({ address: expect.objectContaining({ street: "1 King St", country: "US" }) });
+  });
+
+  it("reads no country and United States as the same address", () => {
+    const d = deal(); // no country = US
+    const draft = dealDraftFromDeal(d);
+
+    expect(buildDealPatch(d, { ...draft, address: { ...draft.address, country: "US" } })).toBeNull();
+  });
+
+  it("never sends the job's name — the header edits it on its own", () => {
+    const d = deal({ jobName: "Front gate" } as Partial<Deal>);
+    const draft = { ...dealDraftFromDeal(d), notes: "x" };
+
+    const patch = buildDealPatch(d, draft);
+
+    expect(patch).toEqual({ notes: "x" });
+    expect(patch).not.toHaveProperty("jobName");
+  });
+});
+
 describe("custom fields (single-save draft)", () => {
   it("dealDraftFromDeal copies the deal's customFields into a fresh map", () => {
     const d = deal({ customFields: { "cf-a": "x", "cf-n": 2, "cf-m": ["A", "B"] } });

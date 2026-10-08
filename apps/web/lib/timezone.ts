@@ -34,9 +34,10 @@ export function clockInTz(iso: string, tz: string = DEFAULT_TZ): string {
 }
 
 /**
- * A sensible default schedule for "now" in a zone: today's date, the current
- * time floored to a quarter hour as the start, and an hour later as the end
- * (clamped to 23:45). Used to prefill the New Job schedule.
+ * A sensible default schedule for "now" in a zone, as Workiz's New Job sets
+ * it: today's date, the current time rounded up to the next quarter hour as
+ * the start ("It's 7:53 AM" → 08:00 AM), and an hour later as the end — both
+ * clamped to 23:45, so a late job stays on today.
  */
 export function nowScheduleDefault(
   tz: string = DEFAULT_TZ,
@@ -50,8 +51,17 @@ export function nowScheduleDefault(
     minute: "2-digit",
     hour12: false,
   });
-  const [h, m] = hm.split(":").map(Number);
-  const rm = Math.floor(m / 15) * 15;
+  const [hh, mm] = hm.split(":").map(Number);
+  let h = hh;
+  let rm = Math.ceil(mm / 15) * 15;
+  if (rm === 60) {
+    h += 1;
+    rm = 0;
+  }
+  if (h > 23) {
+    h = 23;
+    rm = 45;
+  }
   const pad = (n: number) => String(n).padStart(2, "0");
   const start = `${pad(h)}:${pad(rm)}`;
   let eh = h + 1;

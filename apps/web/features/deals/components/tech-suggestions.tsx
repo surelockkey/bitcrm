@@ -36,7 +36,7 @@ export function TechSuggestions({
   jobTypeId: string;
   address: { lat?: number; lng?: number };
   selected: string[];
-  /** The team is listed above by TeamSection, so the trigger only invites. */
+  /** The team is listed above the picker, so the trigger only invites. */
   hideSelected?: boolean;
   onChange: (ids: string[]) => void;
 }) {

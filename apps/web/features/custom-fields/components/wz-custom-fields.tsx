@@ -109,7 +109,10 @@ export function WzCustomFields({
             pendingFiles={pendingFiles?.[field.id]}
             onPendingFiles={onPendingFiles ? (files) => onPendingFiles(field.id, files) : undefined}
             missing={missingIds?.includes(field.id) ?? false}
-            shape={layout === "card" ? "rounded" : "square"}
+            // Rounded on both pages: the job page's custom-field selects keep
+            // react-select's 4px corners (job_b_01_details_scroll1), unlike its
+            // square Job selects.
+            shape="rounded"
           />
         ));
         return layout === "card" ? (

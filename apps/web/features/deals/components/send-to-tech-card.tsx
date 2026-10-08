@@ -1,11 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { Eye, Loader2, Send } from "lucide-react";
+import { Eye, Send } from "lucide-react";
 import { SEND_TO_TECH_CHANNELS, type Deal, type SendToTechChannel } from "@bitcrm/types";
-import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import { cn } from "@/lib/utils";
+import { WzButton, WzCheckbox } from "@/components/workiz";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { useMessagingSettings } from "@/features/messaging/hooks";
 import type { DealAssignment } from "../api";
@@ -58,48 +56,37 @@ export function SendToTechCard({ deal, canEdit }: { deal: Deal; canEdit: boolean
   const seen = seenByTechLabel(deal);
 
   return (
-    <div className="space-y-2.5" data-testid="send-to-tech">
+    <div className="space-y-2.5 text-[14px] leading-4 text-wz-strong" data-testid="send-to-tech">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         {SEND_TO_TECH_CHANNELS.map((channel) => (
-          <label
+          <WzCheckbox
             key={channel}
-            className={cn(
-              "flex items-center gap-1.5 text-xs font-medium",
-              canEdit && hasRoster ? "cursor-pointer" : "cursor-not-allowed opacity-60",
-            )}
-          >
-            <Checkbox
-              checked={channels.includes(channel)}
-              onCheckedChange={(v) => toggle(channel, v === true)}
-              disabled={!canEdit || !hasRoster}
-              aria-label={SEND_TO_TECH_CHANNEL_LABEL[channel]}
-            />
-            {SEND_TO_TECH_CHANNEL_LABEL[channel]}
-          </label>
+            label={SEND_TO_TECH_CHANNEL_LABEL[channel]}
+            checked={channels.includes(channel)}
+            onCheckedChange={(v) => toggle(channel, v)}
+            disabled={!canEdit || !hasRoster}
+          />
         ))}
-        <Button
-          variant={sent ? "outline" : "brand"}
-          size="sm"
-          className="ml-auto gap-1.5"
-          disabled={!canEdit || !hasRoster || channels.length === 0 || send.isPending}
-          onClick={() => send.mutate({ channels })}
-        >
-          {send.isPending ? (
-            <Loader2 className="size-3.5 animate-spin" />
-          ) : (
-            <Send className="size-3.5" />
-          )}
-          {sent ? "Resend" : "Send to tech"}
-        </Button>
       </div>
+      <WzButton
+        size="regular"
+        variant={sent ? "secondary" : "primary"}
+        className="w-full"
+        icon={<Send />}
+        loading={send.isPending}
+        disabled={!canEdit || !hasRoster || channels.length === 0}
+        onClick={() => send.mutate({ channels })}
+      >
+        {sent ? "Resend" : "Send to tech"}
+      </WzButton>
 
       {!hasRoster ? (
-        <p className="text-xs text-muted-foreground">
+        <p className="text-[12px] leading-4 text-wz-caption">
           Assign a technician before sending the job.
         </p>
       ) : null}
 
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px]">
         {sent ? (
           <span className="font-medium text-foreground">{sent}</span>
         ) : hasRoster ? (

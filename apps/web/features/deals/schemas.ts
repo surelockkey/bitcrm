@@ -17,6 +17,8 @@ export const addressSchema = z.object({
   city: z.string().trim().min(1, "City is required"),
   state: z.string().trim().min(1, "State is required"),
   zip: z.string().trim().min(1, "ZIP is required"),
+  /** Workiz's Country: ISO 3166-1 alpha-2; absent = United States. */
+  country: z.string().trim().optional(),
   lat: z.number().optional(),
   lng: z.number().optional(),
 });
@@ -32,6 +34,8 @@ const timeSlot = z
 export const dealJobSchema = z.object({
   clientType: z.nativeEnum(ClientType),
   jobTypeId: z.string().trim().min(1, "Pick a job type"),
+  /** Workiz "Job name" (≤ 200, stored trimmed). */
+  jobName: z.string().trim().max(200).optional(),
   // Auto-resolved from the address by the backend; kept optional as a label override.
   serviceArea: z.string().trim().optional(),
   // A hand-picked area (or the nearest-area fallback); empty = auto-resolve.
@@ -71,7 +75,9 @@ export type CreateDealValues = DealJobValues & {
 /** API update body (subset of deal fields the PUT accepts). */
 export type UpdateDealValues = Partial<
   // externalCompanyId is re-declared below because the PUT also accepts null.
-  Omit<DealJobValues, "clientType" | "externalCompanyId" | "businessProfileId"> & {
+  Omit<DealJobValues, "clientType" | "externalCompanyId" | "businessProfileId" | "jobName" | "scheduledDate"> & {
+    /** The visit's day; null unschedules the job (the API clears its end, times and all-day). */
+    scheduledDate: string | null;
     internalNotes: string;
     /** Per-job client display name ("Just here" rename); null clears it. */
     clientName: { firstName: string; lastName: string } | null;

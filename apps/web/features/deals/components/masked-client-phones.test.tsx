@@ -52,18 +52,18 @@ describe("MaskedClientPhones", () => {
 
   /**
    * This row is a technician's only route to the client — the digits are gone
-   * — so the call is the row's whole purpose, not an afterthought hanging off
-   * the end of a label.
+   * — so it is drawn exactly where a visible number would be: the job page's
+   * Phone box, with the same handset inside it (job_b_01_details).
    */
-  it("gives the call the weight of the row, not a bare glyph", () => {
-    render(
+  it("draws each hidden number as the Phone box, the call inside it", () => {
+    const { container } = render(
       <MaskedClientPhones phoneCount={1} dealId="deal-1" contactId="contact-1" />,
     );
 
-    expect(screen.getByRole("button", { name: /call number 0/i })).toHaveAttribute(
-      "data-variant",
-      "prominent",
-    );
+    const row = container.querySelector("[data-slot='masked-phone']");
+    expect(row).toHaveTextContent(/^Phone/);
+    expect(row).toContainElement(screen.getByRole("button", { name: /call number 0/i }));
+    expect(screen.getByRole("button", { name: /call number 0/i })).toHaveAttribute("data-variant", "workiz");
   });
 
   it("renders nothing when the client genuinely has no number", () => {
