@@ -75,7 +75,7 @@ const COMPANIES = [company("co1", "Acme Storage"), company("co2", "Beta Holdings
 const routes: FakeRoute[] = [
   // The KPI cards' numbers: they come up with the rows, not after them.
   {
-    match: /\/billing\/invoices\/summary$/,
+    match: /\/billing\/invoices\/balances$/,
     reply: () => ({ dueAmount: 100, dueCount: 2, overdueAmount: 50, overdueCount: 1, dueClientCount: 2, overdueClientCount: 1 }),
     delayMs: 90,
   },

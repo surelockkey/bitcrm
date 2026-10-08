@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
 import { ContactSource, ContactType, CrmStatus } from "@bitcrm/types";
 import { server } from "@/test/msw/server";
-import { useContactSearchPage, useContactsCount, useContactsPage } from "./hooks";
+import { useClientBalances, useContactSearchPage, useContactsCount, useContactsPage } from "./hooks";
 
 function wrapper() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -129,5 +129,39 @@ describe("useContactSearchPage", () => {
     const { result } = renderHook(() => useContactSearchPage("  ", 1, 10), { wrapper: wrapper() });
     expect(result.current.rows).toEqual([]);
     expect(result.current.answered).toBe(true);
+  });
+});
+
+/** The Due / Past due cards: billing's balances, or its older summary where the balances route is not deployed yet. */
+describe("useClientBalances", () => {
+  it("asks billing for the open balances", async () => {
+    server.use(
+      http.get("*/billing/invoices/balances", () =>
+        HttpResponse.json({
+          success: true,
+          data: { dueAmount: 5, dueCount: 1, overdueAmount: 2, overdueCount: 1, dueClientCount: 2, overdueClientCount: 1 },
+        }),
+      ),
+    );
+    const { result } = renderHook(() => useClientBalances(true), { wrapper: wrapper() });
+    await waitFor(() => expect(result.current.data?.dueClientCount).toBe(2));
+  });
+
+  it("falls back to the invoice summary on a server without the balances route", async () => {
+    server.use(
+      http.get("*/billing/invoices/balances", () =>
+        HttpResponse.json({ success: false, error: { code: "NOT_FOUND", message: "nope" } }, { status: 404 }),
+      ),
+      http.get("*/billing/invoices/summary", () =>
+        HttpResponse.json({ success: true, data: { dueAmount: 9, overdueAmount: 1, dueCount: 1, overdueCount: 1 } }),
+      ),
+    );
+    const { result } = renderHook(() => useClientBalances(true), { wrapper: wrapper() });
+    await waitFor(() => expect(result.current.data?.dueAmount).toBe(9));
+  });
+
+  it("asks nothing for a viewer without invoices", () => {
+    const { result } = renderHook(() => useClientBalances(false), { wrapper: wrapper() });
+    expect(result.current.fetchStatus).toBe("idle");
   });
 });

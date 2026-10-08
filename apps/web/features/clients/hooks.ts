@@ -130,6 +130,19 @@ export function useContactSearchPage(query: string, page: number, size: number) 
 const NO_CONTACTS: Contact[] = [];
 
 /**
+ * The Due / Past due cards over the Clients list. Under the invoices' key, so
+ * a payment or a new invoice (which invalidate `invoices`) refreshes them.
+ */
+export function useClientBalances(enabled: boolean) {
+  return useQuery({
+    queryKey: [...queryKeys.invoices.all(), "client-balances"],
+    queryFn: api.getClientBalances,
+    enabled,
+    staleTime: 30_000,
+  });
+}
+
+/**
  * The contacts behind the rows on screen — a jobs page, a calls page — as a
  * map by id. Sorted and de-duplicated so the key is stable; nothing is asked
  * for an empty list.

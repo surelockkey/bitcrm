@@ -58,7 +58,7 @@ beforeEach(() => {
     { match: /\/crm\/contacts\/count$/, reply: () => ({ total: 2, atLeast: false }) },
     { match: /\/deals\/client-tags$/, reply: () => [{ id: "t-plat", name: "PLATINUM", color: "blue", priority: 1, active: true }] },
     { match: /\/deals\/job-sources$/, reply: () => [] },
-    { match: /\/billing\/invoices\/summary$/, reply: () => ({ dueAmount: 10, overdueAmount: 5 }) },
+    { match: /\/billing\/invoices\/balances$/, reply: () => ({ dueAmount: 10, overdueAmount: 5 }) },
     { match: /\/billing\/estimates\/summary$/, reply: () => ({ pending: { count: 1, amount: 9 } }) },
   ]);
 });

@@ -21,9 +21,8 @@ import { usePermissions, useDenied } from "@/features/auth/use-permissions";
 import { useJobSources } from "@/features/job-sources/hooks";
 import { useClientTags } from "@/features/client-tags/hooks";
 import { activeClientTags, tagSolidClasses } from "@/features/client-tags/lib";
-import { useInvoiceSummary } from "@/features/invoices/hooks";
 import { useEstimateSummary } from "@/features/estimates/hooks";
-import { useCompaniesByIds, useContactSearchPage, useContactsCount, useContactsPage } from "../hooks";
+import { useClientBalances, useCompaniesByIds, useContactSearchPage, useContactsCount, useContactsPage } from "../hooks";
 import { useLastWhole } from "../use-last-whole";
 import { useClientFieldsStore } from "../clients-fields-store";
 import {
@@ -121,7 +120,7 @@ export function ContactsPage() {
   const allCount = useContactsCount(undefined, true);
   const seesInvoices = !permsLoading && can("invoices", "view");
   const seesEstimates = !permsLoading && can("estimates", "view");
-  const invoiceSummary = useInvoiceSummary(seesInvoices);
+  const balances = useClientBalances(seesInvoices);
   const estimateSummary = useEstimateSummary(seesEstimates);
 
   const clientTags = useClientTags();
@@ -166,7 +165,7 @@ export function ContactsPage() {
   // Whole: the rows with everything printed beside them, the cards' numbers,
   // the tag catalog the chips are named from — up together, in one frame.
   const listIn = settled(pageQuery) && !pageQuery.isPlaceholderData && settled(count);
-  const cardsIn = settled(allCount) && settled(invoiceSummary) && settled(estimateSummary);
+  const cardsIn = settled(allCount) && settled(balances) && settled(estimateSummary);
   const whole =
     !permsLoading &&
     cardsIn &&
@@ -190,7 +189,7 @@ export function ContactsPage() {
 
   const kpis = clientKpis({
     clients: typeof allCount.data?.total === "number" ? { total: allCount.data.total, atLeast: allCount.data.atLeast } : undefined,
-    invoices: seesInvoices && invoiceSummary.data ? invoiceSummary.data : undefined,
+    invoices: seesInvoices && balances.data ? balances.data : undefined,
     estimates: seesEstimates && estimateSummary.data ? estimateSummary.data.pending : undefined,
   });
 
