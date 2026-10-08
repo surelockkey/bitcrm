@@ -300,7 +300,8 @@ export function Row({
   );
 }
 
-function DiscountEditor({
+/** The $ / % discount form; exported for the job Items tab's Workiz totals. */
+export function DiscountEditor({
   initial,
   pending,
   onApply,

@@ -79,6 +79,8 @@ export type UpdateDealValues = Partial<
     externalCompanyId: string | null;
     /** The job's company; null falls back to the default company. */
     businessProfileId: string | null;
+    /** Workiz "Job name" (≤ 200 chars, stored trimmed); null clears it. */
+    jobName: string | null;
   }
 >;
 

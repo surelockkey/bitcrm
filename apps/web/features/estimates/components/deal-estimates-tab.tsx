@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Copy, FileSpreadsheet, Loader2, Plus, Send, XCircle } from "lucide-react";
+import { Copy, Loader2, Plus, Send, XCircle } from "lucide-react";
 import type { Deal, EstimateWithItems } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
 import {
@@ -23,8 +23,10 @@ import { usePermissions } from "@/features/auth/use-permissions";
 import { useDealProducts } from "@/features/deals/hooks";
 import { formatMoney } from "@/features/billing/lib";
 import { useDealEstimates, useDeleteEstimate, useDuplicateEstimate } from "../hooks";
-import { formatEstimateCreated, proposalSend } from "../lib";
-import { EstimateStatusBadge } from "./estimate-status-badge";
+import { ESTIMATE_STATUS_COLORS } from "@/features/reports/billing/lib";
+import { EstimatesArt } from "@/features/deals/components/job-empty-art";
+import { PILL_OUTLINE_TALL, PILL_YELLOW } from "@/features/deals/components/job-pills";
+import { estimateStatusLabel, formatEstimateCreated, proposalSend } from "../lib";
 import { byCreated, optionLabel } from "./estimate-tabs";
 import { NewEstimateDialog } from "./new-estimate-dialog";
 import { SendProposalDialog } from "./send-proposal-dialog";
@@ -32,10 +34,10 @@ import { SendProposalDialog } from "./send-proposal-dialog";
 
 /** Each option keeps its colour down the left edge of its row (Workiz: green, blue, …). */
 const ACCENTS = ["bg-chart3", "bg-brand", "bg-chart5", "bg-chart4", "bg-chart7", "bg-chart2"];
-const th = "border-b border-foreground/70 px-4 pb-3 text-left text-[15px] font-medium";
-const cell = "border-b border-l border-dashed px-4 py-5 align-middle";
-/** Workiz's outline pill ("+ Add Estimate"). */
-const pill = "h-10 rounded-pill border-foreground/70 px-5 font-semibold";
+/** Workiz (jobshell_wz_MS9277_estimates): 14px/500 ink heads over a 1px ink rule, pad 0 0 15 21. */
+const th = "border-b border-foreground pb-[15px] pl-[21px] text-left text-[14px] leading-4 font-medium text-foreground";
+/** 13px cells, padding 20 10 20 20, a dotted rule on the left, #e6e6e6 under. */
+const cell = "border-b border-l border-b-[#e6e6e6] border-l-[#cfcfcf] [border-left-style:dotted] py-5 pr-2.5 pl-5 align-middle text-[13px] leading-4 text-foreground";
 
 /**
  * The job's Estimates tab as Workiz lays it out: a list of the job's
@@ -97,56 +99,60 @@ export function DealEstimatesTab({
   }
 
   return (
-    <section aria-label="Job estimates" className="space-y-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h3 className="text-lg">Estimates</h3>
-        {canSendAll && sendAll.mode ? (
-          <Button variant="default" size="lg" className="h-9 rounded-pill px-5 font-semibold" onClick={() => setSendingAll(true)}>
-            <Send /> Send all (Proposal)
-          </Button>
-        ) : null}
-      </div>
-
+    <section aria-label="Job estimates">
       {list.length === 0 ? (
-        <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed px-6 py-12 text-center">
-          <span className="flex size-10 items-center justify-center rounded-xl bg-muted text-muted-foreground">
-            <FileSpreadsheet className="size-5" />
-          </span>
-          <h4 className="font-medium">No estimates yet</h4>
-          <p className="max-w-sm text-sm text-muted-foreground">
-            Build one or more options for the client. Send them together as a proposal, and when they pick one, sync it to the job.
-          </p>
+        // Workiz's empty tab: the picture, the sentence, and the pill under it.
+        <div className="flex flex-col items-center pt-[50px] pb-[55px]">
+          <EstimatesArt />
+          <h3 className="mt-[25px] text-[16px] leading-[25px] font-bold text-[#3e4b51]">You don&apos;t have any estimates yet</h3>
+          {canCreate ? (
+            <button type="button" className={cn(PILL_OUTLINE_TALL, "mt-5 w-[340px]")} onClick={() => setCreating(true)}>
+              <Plus strokeWidth={1.5} /> Add Estimate
+            </button>
+          ) : null}
         </div>
       ) : (
-        <div className="overflow-x-auto">
-          <table aria-label="Estimates" className="w-full min-w-[46rem] border-separate border-spacing-0 text-sm">
+        <>
+          <div className="flex min-h-[61px] flex-wrap items-start justify-between gap-3 pt-3">
+            <h3 className="text-[16px] leading-[19px] font-normal text-[#404040]">Estimates</h3>
+            {canSendAll && sendAll.mode ? (
+              <button type="button" className={PILL_YELLOW} onClick={() => setSendingAll(true)}>
+                <Send /> Send all (Proposal)
+              </button>
+            ) : null}
+          </div>
+          <div className="mt-5 overflow-x-auto">
+          <table aria-label="Estimates" className="w-full min-w-[46rem] border-separate border-spacing-0">
             <thead>
               <tr>
-                <th className={cn(th, "pl-6")}>Estimate</th>
+                <th className={cn(th, "pl-[25px]")}>Estimate</th>
                 <th className={th}>Created</th>
-                <th className={cn(th, "w-40")}>Status</th>
-                <th className={cn(th, "w-40")}>Total</th>
-                <th className={cn(th, "w-36")}>Actions</th>
+                <th className={cn(th, "w-[166px]")}>Status</th>
+                <th className={cn(th, "w-[166px]")}>Total</th>
+                <th className={cn(th, "w-[166px]")}>Actions</th>
               </tr>
             </thead>
             <tbody>
               {list.map((e, i) => (
-                <tr key={e.id} className="hover:bg-muted/40">
-                  <td className="relative border-b border-dashed py-5 pr-4 pl-6 align-middle">
+                <tr key={e.id} className="hover:bg-[#f8f8f8]">
+                  <td className="relative border-b border-[#e6e6e6] py-5 pr-2.5 pl-6 align-middle text-[13px] leading-4">
                     <span aria-hidden className={cn("absolute inset-y-0 left-0 w-1.5", ACCENTS[i % ACCENTS.length])} />
-                    <Link href={`/estimates/${e.id}`} className="font-medium text-brand hover:underline">
+                    <Link href={`/estimates/${e.id}`} className="font-semibold text-[#6aa8ee] hover:underline">
                       {optionLabel(e, i)}
                     </Link>
-                    <span className="text-muted-foreground"> / Estimate No. </span>
-                    <span className="text-muted-foreground">{e.number}</span>
+                    <span className="font-medium text-foreground"> / Estimate No. </span>
+                    <span className="text-foreground">{e.number}</span>
                   </td>
                   <td className={cell}>{formatEstimateCreated(e.createdAt)}</td>
                   <td className={cell}>
-                    <EstimateStatusBadge status={e.status} />
+                    <span className="inline-flex items-center gap-2">
+                      <span aria-hidden className="size-2 rounded-full" style={{ backgroundColor: ESTIMATE_STATUS_COLORS[e.status] }} />
+                      <span>{estimateStatusLabel(e.status)}</span>
+                    </span>
                   </td>
-                  <td className={cn(cell, "font-mono tabular-nums")}>{formatMoney(e.totals?.total ?? 0)}</td>
+                  <td className={cn(cell, "tabular-nums")}>{formatMoney(e.totals?.total ?? 0)}</td>
                   <td className={cell}>
-                    <div className="flex items-center gap-4 text-muted-foreground">
+                    <div className="flex items-center gap-4 text-[#9ea6aa]">
                       {canCreate ? (
                         <button
                           type="button"
@@ -176,16 +182,16 @@ export function DealEstimatesTab({
               ))}
             </tbody>
           </table>
-        </div>
+          </div>
+          {canCreate ? (
+            <div className="mt-[25px] flex flex-wrap gap-[15px] pl-[15px]">
+              <button type="button" className={PILL_OUTLINE_TALL} onClick={() => setCreating(true)}>
+                <Plus strokeWidth={1.5} /> Add Estimate
+              </button>
+            </div>
+          ) : null}
+        </>
       )}
-
-      {canCreate ? (
-        <div className="flex flex-wrap gap-3">
-          <Button variant="outline" size="lg" className={pill} onClick={() => setCreating(true)}>
-            <Plus /> Add Estimate
-          </Button>
-        </div>
-      ) : null}
 
       {/* Mounted per opening so "copy job items" defaults from the current count. */}
       {creating ? (

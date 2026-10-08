@@ -12,7 +12,10 @@ import { useDealPayments } from "@/features/payments/hooks";
 import { useEffectiveServiceArea, useServiceAreas } from "@/features/service-areas/hooks";
 import { useJobCode, useTelephonyConfig } from "@/features/telephony/config-hooks";
 import { useAttachments, useAttachmentUrls } from "./attachments-hooks";
-import { useDeal, useDealAssignments, useSuggestedTechs, useUserMap } from "./hooks";
+import { useDealEstimates } from "@/features/estimates/hooks";
+import { useActiveJobTypes } from "@/features/job-types/active-hooks";
+import { useJobType } from "@/features/job-types/hooks";
+import { useDeal, useDealAssignments, useDealTimeline, useSuggestedTechs, useUserMap } from "./hooks";
 import { useJobPageCatalogs } from "./job-page-catalogs";
 
 const NO_IDS: string[] = [];
@@ -64,6 +67,11 @@ export function useJobPageData(dealId: string): { ready: boolean } {
   const telephony = useTelephonyConfig();
   const messaging = useMessagingSettings(can("settings"));
   const areas = useServiceAreas();
+  // The frame around the form: the right rail's notes badge reads the
+  // timeline's first page, the tab bar's "N estimates" the estimates list.
+  const timeline = useDealTimeline(dealId);
+  const estimates = useDealEstimates(dealId, can("estimates"));
+  const activeTypes = useActiveJobTypes();
 
   // Needs the job's own fields — out the moment the job lands.
   const lat = deal?.address?.lat;
@@ -79,14 +87,33 @@ export function useJobPageData(dealId: string): { ready: boolean } {
     !!deal && can("deals", "edit") && lat !== undefined && lng !== undefined,
   );
   const files = useAttachmentUrls(dealId, customFieldFileIds(deal, customFieldDefs));
+  // "Service" under the Details tab names the job type; an archived one is
+  // not in the active list and is asked for by itself (as the picker does).
+  const archivedType = useJobType(
+    deal?.jobTypeId ?? "",
+    !!deal?.jobTypeId && !!activeTypes.data && !activeTypes.data.some((t) => t.id === deal.jobTypeId),
+  );
 
   const allIn =
     !!deal &&
     !permsLoading &&
     catalogs.ready &&
-    [attachments, invoice, ledger, jobCode, telephony, messaging, areas, contact, assignments, suggestions, ...files].every(
-      settled,
-    ) &&
+    [
+      attachments,
+      invoice,
+      ledger,
+      jobCode,
+      telephony,
+      messaging,
+      areas,
+      contact,
+      assignments,
+      suggestions,
+      timeline,
+      estimates,
+      archivedType,
+      ...files,
+    ].every(settled) &&
     !area.isFetching &&
     !users.isLoading;
 

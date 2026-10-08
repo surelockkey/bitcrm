@@ -119,6 +119,19 @@ const routes: FakeRoute[] = [
   { match: /\/telephony\/exts\/by-deal\/d1$/, reply: () => ({ code: "8707" }) },
   { match: /\/billing\/invoices\/by-deal\/d1$/, reply: () => null },
   { match: /\/billing\/deals\/d1\/payments$/, reply: () => ({ balanceDue: 0, payments: [] }) },
+  // The right rail's notes badge and the Estimates tab's "0 estimates".
+  {
+    match: /\/deals\/d1\/timeline$/,
+    raw: true,
+    reply: () => ({
+      success: true,
+      data: [
+        { id: "n1", dealId: "d1", eventType: "note_added", actorId: "u-disp", actorName: "Dee", timestamp: "2026-10-01T10:00:00.000Z", note: "Gate code 1234" },
+      ],
+      pagination: { count: 1 },
+    }),
+  },
+  { match: /\/billing\/estimates\/by-deal\/d1$/, reply: () => [] },
   {
     match: /\/users$/,
     raw: true,
@@ -142,6 +155,11 @@ function watchJobFirstFrame() {
     techSummary: !!screen.queryByText(/can do this job/i),
     dialIn: !!screen.queryByText(/call from any phone/i),
     areaName: !!screen.queryAllByText(/north metro/i).length,
+    // The frame Workiz draws around the form: the rail's notes count and the
+    // tab bar's grey lines are part of the page, not a later wave.
+    notesBadge: !!screen.queryByRole("button", { name: "Notes (1)" }),
+    jobTypeLine: !!screen.queryByText("Lockout", { selector: "#job-tab-details-sub" }),
+    estimatesLine: !!screen.queryByText("0 estimates"),
     skeletons: skeletonCount(),
   }));
 }
@@ -178,6 +196,9 @@ describe("DealDetailPage — one load, not waves", () => {
       techSummary: true,
       dialIn: true,
       areaName: true,
+      notesBadge: true,
+      jobTypeLine: true,
+      estimatesLine: true,
       skeletons: 0,
     });
   });

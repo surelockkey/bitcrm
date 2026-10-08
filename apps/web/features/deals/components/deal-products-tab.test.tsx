@@ -41,6 +41,12 @@ vi.mock("@/features/billing/components/document-summary-panel", () => ({
     mocks.summaryProps.push(props);
     return <div data-testid="summary" />;
   },
+  DiscountEditor: () => <div data-testid="discount-editor" />,
+}));
+
+// The tax picker reads the catalog through react-query; a plain stand-in here.
+vi.mock("@/features/billing/components/tax-rate-select", () => ({
+  TaxRateSelect: ({ "aria-label": label }: { "aria-label"?: string }) => <select aria-label={label ?? "Tax rate"} />,
 }));
 
 // The dialog's own behavior is covered in add-product-dialog.test.tsx; here
@@ -226,5 +232,81 @@ describe("DealProductsTab (imported lines)", () => {
     render(<DealProductsTab deal={deal} canEdit />);
 
     expect(mocks.summaryProps[mocks.summaryProps.length - 1].totals).toMatchObject({ subtotal: 100, total: 100 });
+  });
+});
+
+/**
+ * The job page's own Items tab, dressed as Workiz's (job_b_tab_items): a
+ * "Job Items" heading, a ruled grid Item / Quantity / Price / Cost / Amount /
+ * Taxable, "Add items" when empty, and the totals as two columns of small
+ * grey boxes. The invoice keeps the shared layout.
+ */
+describe("DealProductsTab (job variant — Workiz's Items tab)", () => {
+  it("heads the grid like Workiz, Cost only for those who see money", () => {
+    const { unmount } = render(<DealProductsTab deal={deal} canEdit variant="job" showCost balance={0} />);
+
+    expect(screen.getByRole("heading", { name: "Job Items" })).toBeInTheDocument();
+    expect(screen.getAllByRole("columnheader").map((h) => h.textContent)).toEqual([
+      "Item",
+      "Quantity",
+      "Price",
+      "Cost",
+      "Amount",
+      "Taxable",
+      "Actions",
+    ]);
+    unmount();
+
+    render(<DealProductsTab deal={deal} canEdit={false} variant="job" showCost={false} balance={0} />);
+    expect(screen.getAllByRole("columnheader").map((h) => h.textContent)).toEqual([
+      "Item",
+      "Quantity",
+      "Price",
+      "Amount",
+      "Taxable",
+    ]);
+  });
+
+  it("fills a row as Workiz does: 2.00, $45.00, $10.00, $90.00", () => {
+    render(<DealProductsTab deal={deal} canEdit variant="job" showCost balance={0} />);
+
+    const row = screen.getByRole("button", { name: /edit kwikset deadbolt/i }).closest("tr")!;
+    expect(row).toHaveTextContent("2.00");
+    expect(row).toHaveTextContent("$45.00");
+    expect(row).toHaveTextContent("$10.00");
+    expect(row).toHaveTextContent("$90.00");
+  });
+
+  it("invites 'Add items' on an empty job, which opens the add dialog", async () => {
+    const u = userEvent.setup();
+    mocks.products = [];
+    render(<DealProductsTab deal={deal} canEdit variant="job" showCost balance={0} />);
+
+    await u.click(screen.getByRole("button", { name: "Add items" }));
+    expect(lastDialog().open).toBe(true);
+    expect(lastDialog().editing).toBeUndefined();
+  });
+
+  it("totals in boxes: Total and Balance on the left, Subtotal → Tax on the right", () => {
+    mocks.products = [line({ quantity: 2, priceClient: 50 })];
+    render(
+      <DealProductsTab
+        deal={{ ...deal, taxRateId: "t1", taxRatePercent: 10, discount: { type: "amount", value: 20 } }}
+        canEdit
+        variant="job"
+        showCost
+        balance={38}
+      />,
+    );
+
+    const box = (label: string) => screen.getByRole("group", { name: label });
+    expect(box("Total")).toHaveTextContent("88.00");
+    expect(box("Balance")).toHaveTextContent("38.00");
+    expect(box("Subtotal")).toHaveTextContent("100.00");
+    expect(box("Discount")).toHaveTextContent("20.00");
+    expect(box("Taxable")).toHaveTextContent("80.00");
+    expect(box("Tax")).toHaveTextContent("8.00");
+    // No shared summary card on the job page.
+    expect(screen.queryByTestId("summary")).toBeNull();
   });
 });

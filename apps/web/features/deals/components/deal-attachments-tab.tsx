@@ -3,14 +3,13 @@
 import { useRef, useState } from "react";
 import { toast } from "sonner";
 import {
+  Camera,
   Download,
   FileText,
   ImageIcon,
   Loader2,
   MoreVertical,
-  Paperclip,
   Trash2,
-  Upload,
 } from "lucide-react";
 import type { DealAttachmentMeta } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
@@ -27,8 +26,10 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { getApiErrorMessage } from "@/lib/api/errors";
-import { formatDate } from "@/features/users/lib";
 import { useFilePreviewStore } from "@/features/files/preview-store";
+import { workizDateTime } from "../job-shell";
+import { UploadArt } from "./job-empty-art";
+import { PILL_YELLOW_SM } from "./job-pills";
 import { ATTACHMENT_ACCEPT, getAttachmentDownloadUrl } from "../attachments-api";
 import {
   useAttachments,
@@ -76,31 +77,31 @@ export function DealAttachmentsTab({ dealId, canEdit }: { dealId: string; canEdi
   if (isLoading) return <Skeleton className="h-48 w-full" />;
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">
-          {items?.length
-            ? `${items.length} file${items.length === 1 ? "" : "s"}`
-            : "No attachments yet"}
-        </p>
+    <section aria-labelledby="job-attachments-heading" className="text-[#404040]">
+      {/* Workiz: "Attachments" 18px/600 and a yellow "Upload" (job_b_tab_attachments). */}
+      <div className="flex min-h-[53px] items-center justify-between gap-3 py-2.5">
+        <h2 id="job-attachments-heading" className="text-[18px] leading-[22px] font-semibold">
+          Attachments
+        </h2>
         {canEdit ? <UploadButton dealId={dealId} /> : null}
       </div>
 
       {items && items.length > 0 ? (
-        <div className="divide-y rounded-lg border">
+        <div className="mt-5">
           {items.map((att) => (
-            <div key={att.id} className="flex items-center gap-4 px-4 py-3.5 hover:bg-muted/30">
+            // 97px rows: 20/10 padding, a #ddd rule under, #f8f8f8 on hover.
+            <div key={att.id} className="flex items-center gap-[18px] border-b border-[#dddddd] px-2.5 py-5 hover:bg-[#f8f8f8]">
               {/* The thumbnail opens the file itself… */}
               <button
                 type="button"
                 onClick={() => view(att)}
                 aria-label={`Open ${att.fileName}`}
-                className="relative flex-none rounded-md transition-opacity hover:opacity-80"
+                className="relative flex-none rounded-[8px] transition-opacity hover:opacity-80"
               >
                 {att.contentType.startsWith("image/") ? (
                   <AttachmentThumb dealId={dealId} attachment={att} />
                 ) : (
-                  <span className="grid size-14 flex-none place-items-center rounded-md bg-muted text-muted-foreground">
+                  <span className="grid size-[58px] flex-none place-items-center rounded-[8px] border border-[#cad3d6] bg-[#f3f6f7] text-[#9ea6aa]">
                     <FileText className="size-6" />
                   </span>
                 )}
@@ -112,17 +113,17 @@ export function DealAttachmentsTab({ dealId, canEdit }: { dealId: string; canEdi
                 onClick={() => canEdit && setEditing(att)}
                 className={cn("min-w-0 flex-1 text-left", !canEdit && "cursor-default")}
               >
-                <span className="block truncate text-[15px] font-semibold">{att.fileName}</span>
+                <span className="block truncate text-[16.8px] leading-5 font-medium">{att.fileName}</span>
                 {att.description ? (
-                  <span className="block truncate text-sm text-muted-foreground">{att.description}</span>
+                  <span className="mt-1 block truncate text-[14px] leading-5 text-[#666666]">{att.description}</span>
                 ) : null}
-                <span className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+                <span className="mt-[15px] flex items-center gap-2 text-[14px] leading-5">
                   {att.category ? (
-                    <span className="rounded bg-muted px-1.5 py-0.5 uppercase tracking-wide">
+                    <span className="rounded-chip bg-[#f3f6f7] px-1.5 text-[11px] leading-[18px] uppercase tracking-wide text-[#566d76]">
                       {att.category}
                     </span>
                   ) : null}
-                  {formatDate(att.uploadedAt)}
+                  {workizDateTime(att.uploadedAt)}
                 </span>
               </button>
 
@@ -132,22 +133,25 @@ export function DealAttachmentsTab({ dealId, canEdit }: { dealId: string; canEdi
                   aria-label={`More actions for ${att.fileName}`}
                   aria-expanded={menuFor === att.id}
                   onClick={() => setMenuFor((m) => (m === att.id ? null : att.id))}
-                  className="grid size-8 place-items-center rounded-md text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                  className="grid size-8 place-items-center rounded-[8px] text-foreground hover:bg-[#f3f6f7]"
                 >
-                  <MoreVertical className="size-4" />
+                  <MoreVertical className="size-5" />
                 </button>
 
                 {menuFor === att.id ? (
                   <>
                     <button type="button" aria-label="Close" className="fixed inset-0 z-10 cursor-default" onClick={() => setMenuFor(null)} />
-                    <div role="menu" className="absolute right-0 top-full z-20 mt-1 w-40 overflow-hidden rounded-lg border bg-popover py-1 shadow-md">
+                    <div
+                      role="menu"
+                      className="absolute top-full right-0 z-20 mt-1 w-44 overflow-hidden rounded-[2px] bg-white py-1 shadow-[0_3px_6px_2px_rgba(0,0,0,0.18),0_4px_15px_2px_rgba(0,0,0,0.15)]"
+                    >
                       <button
                         type="button"
                         role="menuitem"
                         onClick={() => { setMenuFor(null); download(att); }}
-                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-muted/60"
+                        className="flex w-full items-center gap-2.5 px-[15px] py-3 text-left text-[14px] text-[#566d76] hover:bg-[#f3f6f7]"
                       >
-                        <Download className="size-4 text-muted-foreground" /> Download
+                        <Download className="size-4" strokeWidth={1.25} /> Download
                       </button>
                       {canEdit ? (
                         <button
@@ -155,9 +159,9 @@ export function DealAttachmentsTab({ dealId, canEdit }: { dealId: string; canEdi
                           role="menuitem"
                           disabled={del.isPending}
                           onClick={() => { setMenuFor(null); del.mutate(att.id); }}
-                          className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-destructive hover:bg-muted/60"
+                          className="flex w-full items-center gap-2.5 border-t border-[#cad3d6] px-[15px] py-3 text-left text-[14px] text-[#566d76] hover:bg-[#f3f6f7]"
                         >
-                          <Trash2 className="size-4" /> Delete
+                          <Trash2 className="size-4" strokeWidth={1.25} /> Delete
                         </button>
                       ) : null}
                     </div>
@@ -168,12 +172,14 @@ export function DealAttachmentsTab({ dealId, canEdit }: { dealId: string; canEdi
           ))}
         </div>
       ) : (
-        <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed py-14 text-center">
-          <Paperclip className="size-6 text-muted-foreground" />
-          <p className="text-sm text-muted-foreground">
-            Attach photos (before/after, parts, check) and documents.
-          </p>
-          {canEdit ? <UploadButton dealId={dealId} /> : null}
+        // Workiz's empty state: the upload picture and "+ Upload files".
+        <div className="flex flex-col items-center gap-4 border-b border-[#e6e6e6] pt-[70px] pb-[110px]">
+          <UploadArt />
+          {canEdit ? (
+            <UploadButton dealId={dealId} variant="link" />
+          ) : (
+            <p className="text-[14px]">No attachments yet</p>
+          )}
         </div>
       )}
 
@@ -185,7 +191,7 @@ export function DealAttachmentsTab({ dealId, canEdit }: { dealId: string; canEdi
           onOpenChange={(v) => !v && setEditing(null)}
         />
       ) : null}
-    </div>
+    </section>
   );
 }
 
@@ -269,24 +275,29 @@ function AttachmentThumb({ dealId, attachment }: { dealId: string; attachment: D
 
   if (!data?.downloadUrl || broken) {
     return (
-      <span className="grid size-14 flex-none place-items-center rounded-md bg-muted text-muted-foreground">
+      <span className="grid size-[58px] flex-none place-items-center rounded-[8px] border border-[#cad3d6] bg-[#f3f6f7] text-[#9ea6aa]">
         <ImageIcon className="size-6" />
       </span>
     );
   }
 
   return (
+    // 58px, r8, a 1px #cad3d6 frame (Workiz's thumbnail).
     // eslint-disable-next-line @next/next/no-img-element -- presigned S3 URL; next/image can't optimize it
     <img
       src={data.downloadUrl}
       alt={attachment.fileName}
       onError={() => setBroken(true)}
-      className="size-14 flex-none rounded-md object-cover"
+      className="size-[58px] flex-none rounded-[8px] border border-[#cad3d6] object-cover"
     />
   );
 }
 
-function UploadButton({ dealId }: { dealId: string }) {
+/**
+ * Workiz's yellow "Upload" pill with its camera — or, on the empty tab, the
+ * blue "+ Upload files" link under the picture.
+ */
+function UploadButton({ dealId, variant = "pill" }: { dealId: string; variant?: "pill" | "link" }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const upload = useUploadAttachment(dealId);
   return (
@@ -302,16 +313,21 @@ function UploadButton({ dealId }: { dealId: string }) {
           e.target.value = "";
         }}
       />
-      <Button
-        variant="outline"
-        size="sm"
-        className="gap-1.5"
-        disabled={upload.isPending}
-        onClick={() => inputRef.current?.click()}
-      >
-        {upload.isPending ? <Loader2 className="size-3.5 animate-spin" /> : <Upload className="size-3.5" />}
-        Upload
-      </Button>
+      {variant === "link" ? (
+        <button
+          type="button"
+          disabled={upload.isPending}
+          onClick={() => inputRef.current?.click()}
+          className="inline-flex items-center gap-1.5 text-[14px] leading-4 font-semibold text-[#6aa8ee] hover:underline disabled:opacity-50"
+        >
+          {upload.isPending ? <Loader2 className="size-3.5 animate-spin" /> : null}+ Upload files
+        </button>
+      ) : (
+        <button type="button" className={PILL_YELLOW_SM} disabled={upload.isPending} onClick={() => inputRef.current?.click()}>
+          {upload.isPending ? <Loader2 className="animate-spin" /> : <Camera />}
+          Upload
+        </button>
+      )}
     </>
   );
 }

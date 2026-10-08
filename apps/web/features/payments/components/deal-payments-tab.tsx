@@ -1,22 +1,18 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { FileText, Loader2, Plus, Receipt, Undo2 } from "lucide-react";
+import { useMemo, useState, type ReactNode } from "react";
+import { FileText, Loader2, MoreVertical, Plus, Receipt, Undo2 } from "lucide-react";
 import type { Deal, Payment } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { cn } from "@/lib/utils";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { toneClasses } from "@/lib/theme/tone";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { useUserMap } from "@/features/deals/hooks";
+import { workizDateTime } from "@/features/deals/job-shell";
+import { PaymentsArt } from "@/features/deals/components/job-empty-art";
+import { PILL_OUTLINE, PILL_YELLOW_SM } from "@/features/deals/components/job-pills";
 import { formatMoney } from "@/features/billing/lib";
 import { formatYmd } from "@/features/billing/dates";
 import { useDealPayments, useResendReceipt } from "../hooks";
@@ -24,6 +20,54 @@ import { CLEARING_NOTE, PAYMENT_METHOD_META, canRefund, isPartiallyPaid, payment
 import { PartiallyPaidBadge, PaymentStatusBadge } from "./payment-status-badge";
 import { RecordPaymentDialog } from "./record-payment-dialog";
 import { RefundPaymentDialog } from "./refund-payment-dialog";
+
+/** Workiz's payments table (jobshell_wz_N9YA2L_payments): 47px bold heads between 1px #ccc rules. */
+const TH = "h-[47px] border-y border-[#cccccc] px-[18px] py-[15px] text-left text-[14px] leading-4 font-bold capitalize";
+const TD = "border-t border-b border-t-[#e6e6e6] border-b-[#dddddd] py-5 pr-2.5 pl-5 align-top";
+
+/** The row's ⋮ (Workiz) with what may be done to that payment. */
+function RowMenu({ label, children }: { label: string; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <span className="relative inline-block">
+      <button
+        type="button"
+        aria-label={label}
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+        className="grid size-8 place-items-center rounded-[8px] text-foreground hover:bg-[#f3f6f7]"
+      >
+        <MoreVertical className="size-5" />
+      </button>
+      {open ? (
+        <>
+          <button type="button" aria-label="Close" className="fixed inset-0 z-10 cursor-default" onClick={() => setOpen(false)} />
+          <span
+            role="menu"
+            onClick={() => setOpen(false)}
+            className="absolute top-full right-0 z-20 mt-1 flex w-44 flex-col rounded-[2px] bg-white py-1 text-left shadow-[0_3px_6px_2px_rgba(0,0,0,0.18),0_4px_15px_2px_rgba(0,0,0,0.15)] [&>*+*]:border-t [&>*+*]:border-[#cad3d6]"
+          >
+            {children}
+          </span>
+        </>
+      ) : null}
+    </span>
+  );
+}
+
+function MenuButton({ children, onClick, disabled }: { children: ReactNode; onClick: () => void; disabled?: boolean }) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      disabled={disabled}
+      onClick={onClick}
+      className="flex items-center gap-2.5 px-[15px] py-3 text-[14px] text-[#566d76] hover:bg-[#f3f6f7] disabled:opacity-50"
+    >
+      {children}
+    </button>
+  );
+}
 
 /** The Payments tab's label under the name, as Workiz shows it: "$0.00 balance". */
 export function paymentsTabCaption(balanceDue: number | undefined): string | null {
@@ -83,140 +127,136 @@ export function DealPaymentsTab({
   };
 
   return (
-    <section aria-labelledby="deal-payments-heading" className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <h2 id="deal-payments-heading" className="text-base font-semibold">
-          Payments
+    <section aria-labelledby="deal-payments-heading" className="text-[#404040]">
+      {/* Workiz: "Balance" 20px/500, then "$0.00" 25.2px over "/$150.00" 16.8px grey. */}
+      <div className="pl-5">
+        <div className="flex items-center gap-2">
+          <h3 className="text-[20px] leading-[25px] font-medium text-[#3e4b51]">Balance</h3>
+          {isPartiallyPaid(amountPaid, balanceDue) ? <PartiallyPaidBadge /> : null}
+        </div>
+        <p className="mt-2.5 flex items-baseline">
+          <span data-testid="deal-payments-balance" className="text-[25.2px] leading-[35px] font-medium tabular-nums">
+            {formatMoney(balanceDue)}
+          </span>
+          <span className="text-[16.8px] leading-6 text-[#666666] tabular-nums">
+            /<span>{formatMoney(total)}</span>
+          </span>
+        </p>
+      </div>
+
+      <div className="mt-3.5 flex min-h-[53px] flex-wrap items-center gap-2.5 py-2.5">
+        <h2 id="deal-payments-heading" className="text-[18px] leading-[22px] font-semibold">
+          Job payments
         </h2>
-        {isPartiallyPaid(amountPaid, balanceDue) ? <PartiallyPaidBadge /> : null}
         <span className="flex-1" />
         {onCreateInvoice ? (
-          <Button variant="outline" size="sm" onClick={onCreateInvoice}>
+          <button type="button" className={PILL_OUTLINE} onClick={onCreateInvoice}>
             <FileText /> Create invoice
-          </Button>
+          </button>
         ) : null}
         {canCollect ? (
-          <Button variant="brand" size="sm" onClick={() => setRecording(true)}>
-            <Plus /> Add payment
-          </Button>
+          <button type="button" className={PILL_YELLOW_SM} onClick={() => setRecording(true)}>
+            Add payment
+          </button>
         ) : null}
       </div>
 
-      <dl className="grid grid-cols-3 divide-x rounded-lg border text-sm">
-        <div className="px-3 py-2">
-          <dt className="text-xs text-muted-foreground">Job total</dt>
-          <dd className="font-mono tabular-nums">{formatMoney(total)}</dd>
-        </div>
-        <div className="px-3 py-2">
-          <dt className="text-xs text-muted-foreground">Paid</dt>
-          <dd className="font-mono tabular-nums">{formatMoney(amountPaid)}</dd>
-        </div>
-        <div className="px-3 py-2">
-          <dt className="text-xs text-muted-foreground">Balance</dt>
-          <dd className="font-mono font-semibold tabular-nums" data-testid="deal-payments-balance">
-            {formatMoney(balanceDue)}
-          </dd>
-        </div>
-      </dl>
-
       {summary.hasPending ? (
-        <p className={`rounded-md border px-3 py-2 text-sm ${toneClasses("warning")}`}>
+        <p className={`mt-2 rounded-md border px-3 py-2 text-sm ${toneClasses("warning")}`}>
           <span className="font-medium tabular-nums">{formatMoney(summary.pending)} clearing</span> —{" "}
           {CLEARING_NOTE} It comes off the balance once it lands.
         </p>
       ) : null}
 
       {rows.length === 0 ? (
-        <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-          No payments on this job yet.
-        </p>
+        // Workiz's empty state: the picture, "+ Add payments", a rule under.
+        <div className="flex flex-col items-center gap-3 border-b border-[#e6e6e6] pt-[52px] pb-6">
+          <PaymentsArt />
+          {canCollect ? (
+            <button
+              type="button"
+              onClick={() => setRecording(true)}
+              className="inline-flex h-8 items-center gap-2 rounded-pill px-3 text-[13px] leading-[19px] font-semibold tracking-[0.2px] text-foreground hover:bg-[#f3f6f7]"
+            >
+              <Plus className="size-4" strokeWidth={1.5} /> Add payments
+            </button>
+          ) : (
+            <p className="text-[13px]">No payments on this job yet.</p>
+          )}
+        </div>
       ) : (
-        <div className="overflow-x-auto border">
-          <Table>
-            <TableHeader>
-              <TableRow className="hover:bg-transparent">
-                <TableHead>Date</TableHead>
-                <TableHead>Method</TableHead>
-                <TableHead className="text-right">Amount</TableHead>
-                <TableHead className="text-right">Tip</TableHead>
-                <TableHead>Reference</TableHead>
-                <TableHead>Collected by</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="w-20" />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
+        <div className="mt-5 overflow-x-auto">
+          <table className="w-full min-w-[46rem] border-separate border-spacing-0 border-b border-[#cccccc] text-[13px] leading-4">
+            <thead>
+              <tr>
+                <th className={TH}>Type</th>
+                <th className={TH}>Amount</th>
+                <th className={TH}>Date</th>
+                <th className={TH}>Status</th>
+                <th className={cn(TH, "w-[183px]")} aria-label="Actions" />
+              </tr>
+            </thead>
+            <tbody>
               {rows.map((p) => {
                 const Icon = PAYMENT_METHOD_META[p.method]?.icon ?? Receipt;
                 const what = `the ${formatMoney(p.amount)} ${paymentMethodLabel(p.method).toLowerCase()} payment`;
                 const receiptable = p.status === "settled" || p.status === "refunded";
                 const resending = resend.isPending && resend.variables === p.id;
+                const canResend = canCollect && receiptable;
+                const canGiveBackThis = canGiveBack && canRefund(p);
                 return (
-                  <TableRow key={p.id}>
-                    <TableCell className="whitespace-nowrap text-muted-foreground tabular-nums">
-                      {formatYmd(p.takenAt)}
-                    </TableCell>
-                    <TableCell>
+                  <tr key={p.id}>
+                    <td className={TD}>
                       <span className="flex items-center gap-1.5 whitespace-nowrap">
-                        <Icon className="size-3.5 text-muted-foreground" aria-hidden />
-                        {paymentMethodLabel(p.method)}
+                        <Icon className="size-3.5 text-[#9ea6aa]" aria-hidden />
+                        <span>{paymentMethodLabel(p.method)}</span>
                         {p.last4 ? (
-                          <span className="text-muted-foreground">
+                          <span className="text-[#666666]">
                             ·{p.cardBrand ? ` ${p.cardBrand}` : ""} ••••{p.last4}
                           </span>
                         ) : null}
+                        <span className="ml-1">By {collectedBy(p.takenBy)}</span>
                       </span>
-                    </TableCell>
-                    <TableCell className="text-right font-mono tabular-nums">
+                      {p.reference || p.note ? (
+                        <span className="mt-1 block max-w-64 truncate text-[12px] text-[#666666]">{p.reference || p.note}</span>
+                      ) : null}
+                    </td>
+                    <td className={cn(TD, "tabular-nums")}>
                       {formatMoney(p.amount)}
+                      {p.tipAmount ? (
+                        <span className="block text-[12px] text-[#666666]">+ {formatMoney(p.tipAmount)} tip</span>
+                      ) : null}
                       {(p.refundedAmount ?? 0) > 0 ? (
-                        <span className="block text-[11px] font-normal text-muted-foreground">
-                          −{formatMoney(p.refundedAmount)} refunded
-                        </span>
+                        <span className="block text-[12px] text-[#666666]">−{formatMoney(p.refundedAmount)} refunded</span>
                       ) : null}
-                    </TableCell>
-                    <TableCell className="text-right font-mono tabular-nums text-muted-foreground">
-                      {p.tipAmount ? formatMoney(p.tipAmount) : "—"}
-                    </TableCell>
-                    <TableCell className="max-w-40 truncate text-muted-foreground">
-                      {p.reference || p.note || "—"}
-                    </TableCell>
-                    <TableCell className="whitespace-nowrap">{collectedBy(p.takenBy)}</TableCell>
-                    <TableCell>
+                    </td>
+                    <td className={cn(TD, "whitespace-nowrap")}>{workizDateTime(p.takenAt) || formatYmd(p.takenAt)}</td>
+                    <td className={cn(TD, "pl-2.5")}>
                       <PaymentStatusBadge status={p.status} />
-                    </TableCell>
-                    <TableCell className="text-right whitespace-nowrap">
-                      {canCollect && receiptable ? (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="size-8"
-                          title="Resend receipt"
-                          aria-label={`Resend receipt for ${what}`}
-                          disabled={resending}
-                          onClick={() => resend.mutate(p.id)}
-                        >
-                          {resending ? <Loader2 className="animate-spin" /> : <Receipt />}
-                        </Button>
+                    </td>
+                    <td className={cn(TD, "text-right")}>
+                      {canResend || canGiveBackThis ? (
+                        <RowMenu label={`Actions for ${what}`}>
+                          {canResend ? (
+                            <MenuButton disabled={resending} onClick={() => resend.mutate(p.id)}>
+                              {resending ? <Loader2 className="size-4 animate-spin" /> : <Receipt className="size-4" strokeWidth={1.25} />}
+                              Resend receipt
+                            </MenuButton>
+                          ) : null}
+                          {canGiveBackThis ? (
+                            <MenuButton onClick={() => setRefunding(p)}>
+                              <Undo2 className="size-4" strokeWidth={1.25} />
+                              Refund
+                            </MenuButton>
+                          ) : null}
+                        </RowMenu>
                       ) : null}
-                      {canGiveBack && canRefund(p) ? (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="size-8"
-                          title="Refund"
-                          aria-label={`Refund ${what}`}
-                          onClick={() => setRefunding(p)}
-                        >
-                          <Undo2 />
-                        </Button>
-                      ) : null}
-                    </TableCell>
-                  </TableRow>
+                    </td>
+                  </tr>
                 );
               })}
-            </TableBody>
-          </Table>
+            </tbody>
+          </table>
         </div>
       )}
 

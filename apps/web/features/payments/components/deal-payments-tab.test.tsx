@@ -70,28 +70,48 @@ beforeEach(() => {
 });
 
 describe("DealPaymentsTab — a job's payments, with or without an invoice", () => {
-  it("lists date, method, amount, tip, reference and who collected", async () => {
+  it("lists type and who collected, amount and tip, the date Workiz's way, and the reference", async () => {
     serve(jobLedger());
     renderWithClient(<DealPaymentsTab deal={{ id: "d1" }} />);
     const row = (await screen.findByText("env #12")).closest("tr")!;
-    expect(row).toHaveTextContent("May 4, 2026");
+    // 19:00 UTC is 3:00 PM on business (New York) time.
+    expect(row).toHaveTextContent("5/4/2026 at 3:00 PM");
     expect(row).toHaveTextContent("Cash");
+    expect(row).toHaveTextContent("By Mike Tech");
     expect(row).toHaveTextContent("$100.00");
-    expect(row).toHaveTextContent("$15.00");
-    expect(row).toHaveTextContent("Mike Tech");
+    expect(row).toHaveTextContent("$15.00 tip");
   });
 
-  it("shows job total, paid and balance for a job with no invoice", async () => {
+  it("heads the tab with the balance over the job's total — 'Balance $50.00/$150.00'", async () => {
     serve(jobLedger());
     renderWithClient(<DealPaymentsTab deal={{ id: "d1" }} />);
     expect(await screen.findByTestId("deal-payments-balance")).toHaveTextContent("$50.00");
     expect(screen.getByText("$150.00")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Balance" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Job payments" })).toBeInTheDocument();
+    expect(screen.getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Type", "Amount", "Date", "Status", ""]);
   });
 
-  it("says so when the job has no payments", async () => {
+  it("invites '+ Add payments' on a job with none", async () => {
+    serve(jobLedger({ payments: [], amountPaid: 0, balanceDue: 150, summary: { settled: 0, pending: 0, refunded: 0, paymentCount: 0, hasPending: false } }));
+    renderWithClient(<DealPaymentsTab deal={{ id: "d1" }} />);
+    await user().click(await screen.findByRole("button", { name: "Add payments" }));
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("says there are none to someone who may not take one", async () => {
+    mocks.perms = new Set(["payments.view"]);
     serve(jobLedger({ payments: [], amountPaid: 0, balanceDue: 150, summary: { settled: 0, pending: 0, refunded: 0, paymentCount: 0, hasPending: false } }));
     renderWithClient(<DealPaymentsTab deal={{ id: "d1" }} />);
     expect(await screen.findByText(/no payments on this job yet/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add payments" })).toBeNull();
+  });
+
+  it("keeps Resend receipt and Refund behind the row's ⋮", async () => {
+    serve(jobLedger());
+    renderWithClient(<DealPaymentsTab deal={{ id: "d1" }} />);
+    await user().click(await screen.findByRole("button", { name: /actions for the \$100\.00 cash payment/i }));
+    expect(screen.getAllByRole("menuitem").map((m) => m.textContent)).toEqual(["Resend receipt", "Refund"]);
   });
 
   it("adds an offline payment on the JOB, not on an invoice", async () => {
