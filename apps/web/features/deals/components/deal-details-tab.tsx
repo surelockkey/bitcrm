@@ -309,6 +309,7 @@ export function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) 
                   onChange={(notes) => setDeal({ notes })}
                   editable={notesEditable}
                   ariaLabel="Notes"
+                  placeholder="Description"
                 />
               </DetailsRow>
             </section>

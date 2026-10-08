@@ -8,8 +8,8 @@ import { WzButton, WzFieldGroup, WzSelect, WzTextField } from "@/components/work
 import { AddressMap } from "@/features/clients/components/address-map";
 import { addressKey } from "@/features/clients/lib";
 import { addressSummary } from "../job-details-form";
-import { AddressAutocomplete } from "./address-autocomplete";
 import { WzCountrySelect, WzStateSelect } from "./workiz";
+import { WzAddressField } from "./workiz/address-field";
 
 /** "Client properties" value for a job address the client does not have on file. */
 const JOB_ADDRESS = "__job_address__";
@@ -27,9 +27,7 @@ export function directionsHref(a: Address): string {
  * foot. Save hands the address back to the form — the page's own Save writes
  * it, as with every other field.
  *
- * The street box is our Places autocomplete (`AddressAutocomplete`) for now;
- * once the New Job branch lands it can take `usePlacesAutocomplete()` and the
- * kit's floating-label box.
+ * The street box is New Job's Workiz address field (Google Places).
  */
 export function JobAddressPane({
   open,
@@ -138,23 +136,23 @@ function PaneBody({
         </div>
 
         <WzFieldGroup join="seamless" className="mb-2.5">
-          {/* Drawn as the kit's floating-label box: the words float once
-              there is a street (our Places input has no label of its own). */}
-          <div className="relative min-w-0 flex-1 [&_svg]:hidden" data-slot="wz-address-street">
-            <AddressAutocomplete
-              value={draft.street}
-              ariaLabel="Address"
-              placeholder="Address"
-              onChange={(street) => set({ street })}
-              onSelect={(a) => set({ street: a.street, city: a.city, state: a.state, zip: a.zip, lat: a.lat, lng: a.lng })}
-              className="h-12 rounded-[2px] border-input bg-white pt-3 pr-2.5 pl-2.5 text-[16px] leading-4 text-wz-text shadow-none placeholder:text-wz-label focus-visible:border-wz-focus focus-visible:ring-0 md:text-[16px]"
-            />
-            {draft.street ? (
-              <span className="pointer-events-none absolute top-[2px] left-[0.65rem] text-[12px] leading-5 text-wz-label">
-                Address
-              </span>
-            ) : null}
-          </div>
+          <WzAddressField
+            value={draft.street}
+            country={draft.country}
+            onChange={(street) => set({ street })}
+            onSelect={(a) =>
+              set({
+                street: a.street,
+                ...(a.unit !== undefined ? { unit: a.unit } : {}),
+                city: a.city,
+                state: a.state,
+                zip: a.zip,
+                ...(a.country ? { country: a.country } : {}),
+                lat: a.lat,
+                lng: a.lng,
+              })
+            }
+          />
           <WzTextField label="Unit" className="w-[151px] flex-none" value={draft.unit ?? ""} onChange={(e) => set({ unit: e.target.value })} />
         </WzFieldGroup>
 

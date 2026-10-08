@@ -5,17 +5,7 @@ import { MapPin, MessageSquareText, Signpost, Trash2 } from "lucide-react";
 import type { Address, Contact, Deal } from "@bitcrm/types";
 import { WzFieldGroup, WzLink, WzSectionHeader, WzSelect, WzTextField } from "@/components/workiz";
 import { cn } from "@/lib/utils";
-import {
-  capNationalDigits,
-  formatAsYouType,
-  formatPhone,
-  isValidPhone,
-  MAX_EXTENSION_LENGTH,
-  nationalDigits,
-  nationalInput,
-  normalizeExtension,
-  toE164,
-} from "@/lib/phone";
+import { MAX_EXTENSION_LENGTH, normalizeExtension } from "@/lib/phone";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { ClientChatSheet } from "@/features/clients/components/client-chat-sheet";
 import { contactName } from "@/features/clients/lib";
@@ -27,6 +17,7 @@ import { directionsHref, JobAddressPane } from "./job-address-pane";
 import { MaskedClientPhones } from "./masked-client-phones";
 import { useEffectiveServiceArea, useServiceAreas } from "@/features/service-areas/hooks";
 import { serviceAreaOptions } from "./workiz/options";
+import { WzPhoneField } from "./workiz/phone-field";
 
 /**
  * A row of the Details form (`details-module__row`): 10px under the one
@@ -272,10 +263,12 @@ function PhoneLine({
   return (
     <DetailsRow>
       <WzFieldGroup join="soft">
-        <PhoneBox
+        <WzPhoneField
           value={row.value}
           // The number the job was created with is bound to it for good.
           disabled={!canEdit || row.locked}
+          // A locked number is what is on file; it is not the one to judge.
+          error={!canEdit || row.locked ? "" : undefined}
           onChange={onPhone}
           // Workiz lets the number run up to its icons (no padding kept for
           // them), so "(469) 396-8179" fits the 350px column too.
@@ -324,58 +317,6 @@ function PhoneLine({
         />
       </WzFieldGroup>
     </DetailsRow>
-  );
-}
-
-/**
- * The Phone box: US national format as it is typed ("(469) 396-8179"),
- * capped at a whole number, E.164 out ("+14693968179") so it is stored and
- * matched like every other number. An unfinished number says so once left.
- */
-function PhoneBox({
-  value,
-  onChange,
-  disabled,
-  endAdornment,
-  inputClassName,
-}: {
-  value: string;
-  onChange: (e164: string) => void;
-  disabled?: boolean;
-  endAdornment?: ReactNode;
-  inputClassName?: string;
-}) {
-  const shown = (v: string) => (v ? (disabled ? formatPhone(v) : formatAsYouType(nationalDigits(v))) : "");
-  const [text, setText] = useState(() => shown(value));
-  // What this box last said, so a value from outside (a reset, a refetch)
-  // is taken in and the echo of our own typing is not.
-  const [synced, setSynced] = useState(value);
-  if (value !== synced) {
-    setSynced(value);
-    setText(shown(value));
-  }
-  const [left, setLeft] = useState(true);
-
-  return (
-    <WzTextField
-      label="Phone"
-      inputMode="tel"
-      autoComplete="off"
-      value={text}
-      disabled={disabled}
-      onChange={(e) => {
-        const digits = capNationalDigits(nationalInput(e.target.value));
-        setText(digits ? formatAsYouType(digits) : "");
-        const next = digits ? toE164("US", digits) : "";
-        setSynced(next);
-        onChange(next);
-      }}
-      onFocus={() => setLeft(false)}
-      onBlur={() => setLeft(true)}
-      error={left && !disabled && value && !isValidPhone(value) ? "Invalid phone number" : undefined}
-      endAdornment={endAdornment}
-      inputClassName={inputClassName}
-    />
   );
 }
 

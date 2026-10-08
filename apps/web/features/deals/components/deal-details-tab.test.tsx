@@ -140,16 +140,21 @@ vi.mock("@/features/telephony/softphone-manager", () => ({ startCall: vi.fn() })
 vi.mock("./tech-chat-sheet", () => ({ TechChatSheet: () => null }));
 // The note is a rich-text editor with its own tests; here it is a plain box.
 vi.mock("./job-note-editor", () => ({
-  JobNoteEditor: ({ value, onChange, editable }: { value: string; onChange: (v: string) => void; editable?: boolean }) => (
-    <textarea aria-label="Notes" placeholder="What needs doing…" value={value} readOnly={!editable} onChange={(e) => onChange(e.target.value)} />
+  JobNoteEditor: ({
+    value,
+    onChange,
+    editable,
+    placeholder,
+  }: {
+    value: string;
+    onChange: (v: string) => void;
+    editable?: boolean;
+    placeholder?: string;
+  }) => (
+    <textarea aria-label="Notes" placeholder={placeholder} value={value} readOnly={!editable} onChange={(e) => onChange(e.target.value)} />
   ),
 }));
-// Google Places and the map need a key and a network; their own tests cover them.
-vi.mock("./address-autocomplete", () => ({
-  AddressAutocomplete: ({ value, onChange, ariaLabel }: { value: string; onChange: (v: string) => void; ariaLabel?: string }) => (
-    <input aria-label={ariaLabel} value={value} onChange={(e) => onChange(e.target.value)} />
-  ),
-}));
+// The map needs a Maps key and a network; its own tests cover it.
 vi.mock("@/features/clients/components/address-map", () => ({ AddressMap: () => <div data-testid="map" /> }));
 
 import Link from "next/link";
@@ -234,7 +239,7 @@ function renderTab(d: Deal = deal, canEdit = mocks.perms.deals) {
 }
 
 const saveButton = () => screen.getByRole("button", { name: "Save" });
-const notes = () => screen.getByPlaceholderText(/what needs doing/i);
+const notes = () => screen.getByRole("textbox", { name: "Notes" });
 const section = (name: string) => screen.getByRole("region", { name });
 const pick = async (u: ReturnType<typeof user>, combobox: RegExp | string, option: string) => {
   await u.click(screen.getByRole("combobox", { name: combobox }));
@@ -314,7 +319,8 @@ describe("DetailsTab — Workiz's layout", () => {
       .map((c) => document.querySelector(`label[for="${c.id}"]`)?.textContent);
 
     expect(names).toEqual(["Job type", "Job source", "External company", "Company", "Priority"]);
-    expect(within(section("Job")).getByPlaceholderText(/what needs doing/i)).toBeInTheDocument();
+    // The description, under Workiz's word for it.
+    expect(within(section("Job")).getByPlaceholderText("Description")).toBeInTheDocument();
   });
 
   it("keeps the yellow Send at the right of Team, opening our send-to-tech card", async () => {
