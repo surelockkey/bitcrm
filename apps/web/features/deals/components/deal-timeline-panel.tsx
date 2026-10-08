@@ -1160,7 +1160,7 @@ function TimelineRow({
               {text}
             </div>
             {long ? (
-              <button type="button" onClick={() => setExpanded((v) => !v)} className="mt-2 text-[14px] leading-4 text-[#6aa8ee] underline">
+              <button type="button" onClick={() => setExpanded((v) => !v)} className="mt-2 block text-[14px] leading-4 text-[#6aa8ee] underline">
                 {expanded ? "Less" : "More"}
               </button>
             ) : null}
