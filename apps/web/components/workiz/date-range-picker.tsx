@@ -3,6 +3,7 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { cn } from "@/lib/utils";
 import { formatUsDay, formatWzDayRange, parseUsDay } from "./dates";
+import { WzDayPicker } from "./day-picker";
 
 /** A preset and the account days it stands for (YYYY-MM-DD, both included). */
 export interface WzDateRange {
@@ -18,6 +19,12 @@ export interface WzDateRangePickerProps {
   onChange: (next: WzDateRange) => void;
   /** The days a preset covers on the account's calendar; null for Custom. */
   rangeOf: (preset: string) => { from: string; to: string } | null;
+  /**
+   * Hang react-datepicker's month under a focused From: / To: — the Jobs
+   * report's box does (rep_jobs_wz_16c_custom_from_click). `today` is drawn
+   * bold. Off by default: typed days only.
+   */
+  calendar?: { today: string };
   className?: string;
 }
 
@@ -30,7 +37,7 @@ export interface WzDateRangePickerProps {
  * inputs (158×32, #f7f7f7, 1px #ccc, radius 2, 14px #666, MM/DD/YYYY) inside
  * it, read on blur or Enter.
  */
-export function WzDateRangePicker({ presets, value, onChange, rangeOf, className }: WzDateRangePickerProps) {
+export function WzDateRangePicker({ presets, value, onChange, rangeOf, calendar, className }: WzDateRangePickerProps) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const listId = useId();
@@ -81,8 +88,8 @@ export function WzDateRangePicker({ presets, value, onChange, rangeOf, className
 
       {custom ? (
         <div className="flex gap-4 border-t border-wz-frame px-2.5 pt-2.5 pb-[11px]">
-          <DayInput label="From" day={value.from} onDay={setFrom} />
-          <DayInput label="To" day={value.to} onDay={setTo} />
+          <DayInput label="From" day={value.from} onDay={setFrom} calendar={calendar} />
+          <DayInput label="To" day={value.to} onDay={setTo} calendar={calendar} />
         </div>
       ) : null}
 
@@ -120,9 +127,24 @@ export function WzDateRangePicker({ presets, value, onChange, rangeOf, className
 }
 
 /** One Custom end: "From:" over a MM/DD/YYYY box; nonsense is put back. */
-function DayInput({ label, day, onDay }: { label: string; day: string; onDay: (day: string) => void }) {
+function DayInput({
+  label,
+  day,
+  onDay,
+  calendar,
+}: {
+  label: string;
+  day: string;
+  onDay: (day: string) => void;
+  calendar?: { today: string };
+}) {
   const [text, setText] = useState(formatUsDay(day));
   const [shown, setShown] = useState(day);
+  const [monthOpen, setMonthOpen] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  // A day picked in the month is the answer; the blur that follows must not
+  // read the half-typed text over it.
+  const picked = useRef(false);
   // A new day from outside (the other end pulled this one along) replaces
   // whatever was typed.
   if (shown !== day) {
@@ -135,18 +157,44 @@ function DayInput({ label, day, onDay }: { label: string; day: string; onDay: (d
     else setText(formatUsDay(day));
   };
   return (
-    <label className="flex w-[158px] flex-col gap-0">
+    <label className="relative flex w-[158px] flex-col gap-0">
       <span>{label}:</span>
       <input
+        ref={inputRef}
         aria-label={label}
         value={text}
         onChange={(e) => setText(e.target.value)}
-        onBlur={commit}
+        onFocus={() => setMonthOpen(!!calendar)}
+        onBlur={() => {
+          setMonthOpen(false);
+          if (picked.current) picked.current = false;
+          else commit();
+        }}
         onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => {
           if (e.key === "Enter") commit();
+          if (e.key === "Escape" && monthOpen) {
+            e.stopPropagation();
+            setMonthOpen(false);
+          }
         }}
         className="h-8 w-full rounded-chip border border-input bg-muted px-2.5 text-sm leading-[30px] text-wz-text outline-none focus:border-wz-link"
       />
+      {calendar && monthOpen ? (
+        // 10px under the input, 1px left of it, as react-datepicker hangs it.
+        <WzDayPicker
+          className="absolute top-full left-[-1px] z-40 mt-2.5"
+          value={day}
+          today={calendar.today}
+          onSelect={(chosen) => {
+            setMonthOpen(false);
+            setText(formatUsDay(chosen));
+            if (chosen !== day) onDay(chosen);
+            picked.current = true;
+            inputRef.current?.blur();
+            picked.current = false;
+          }}
+        />
+      ) : null}
     </label>
   );
 }

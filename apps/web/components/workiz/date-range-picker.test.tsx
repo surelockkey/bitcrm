@@ -82,4 +82,32 @@ describe("WzDateRangePicker", () => {
     expect(onChange).not.toHaveBeenCalled();
     expect(from).toHaveValue("10/01/2026");
   });
+
+  it("has no calendar unless asked for one", async () => {
+    setup({ preset: "custom", from: "2026-10-01", to: "2026-10-05" });
+    await userEvent.click(screen.getByRole("textbox", { name: "From" }));
+    expect(screen.queryByRole("grid")).not.toBeInTheDocument();
+  });
+
+  // The Jobs report's box (rep_jobs_wz_16c_custom_from_click): a click in
+  // From: or To: hangs react-datepicker's month under it; a day picked there
+  // is taken at once and the month folds away.
+  it("with `calendar`, hangs a month under the focused end and takes the day picked", async () => {
+    const onChange = vi.fn();
+    render(
+      <WzDateRangePicker
+        presets={presets}
+        rangeOf={rangeOf}
+        value={{ preset: "custom", from: "2026-10-01", to: "2026-10-05" }}
+        onChange={onChange}
+        calendar={{ today: "2026-10-08" }}
+      />,
+    );
+    await userEvent.click(screen.getByRole("textbox", { name: "To" }));
+    const month = screen.getByRole("grid", { name: "October 2026" });
+    expect(within(month).getByRole("button", { name: "Choose Monday, October 5th, 2026" })).toHaveAttribute("aria-pressed", "true");
+    await userEvent.click(within(month).getByRole("button", { name: "Choose Wednesday, October 7th, 2026" }));
+    expect(onChange).toHaveBeenLastCalledWith({ preset: "custom", from: "2026-10-01", to: "2026-10-07" });
+    expect(screen.queryByRole("grid")).not.toBeInTheDocument();
+  });
 });

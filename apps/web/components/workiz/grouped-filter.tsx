@@ -4,8 +4,9 @@ import { useCallback, useId, useMemo, useRef, useState, type ReactNode } from "r
 import { Popover } from "radix-ui";
 
 import { cn } from "@/lib/utils";
-import { useCombobox, type ComboRow, type WzOption } from "./combobox";
+import { useCombobox, type ComboRow, type Combobox, type WzOption } from "./combobox";
 import { RsChevronIcon, RsCrossIcon } from "./icons";
+import { mergeRefs } from "./refs";
 
 /** One value a group offers. `className` paints it as a chip in the list (a tag's colour). */
 export interface WzFilterGroupOption {
@@ -134,7 +135,13 @@ export function WzGroupedFilter<K extends string = string>({
   const chips = wzFilterChips(groups, current, chipOrder);
 
   const flat = useMemo<WzOption[]>(
-    () => groups.flatMap((g) => g.options.map((o) => ({ value: rowKey(g.key, o.value), label: o.label }))),
+    () =>
+      groups.flatMap((g) =>
+        g.options.map((o) => ({
+          value: rowKey(g.key, o.value),
+          label: o.label,
+        })),
+      ),
     [groups],
   );
   const optionOf = useMemo(() => {
@@ -171,19 +178,6 @@ export function WzGroupedFilter<K extends string = string>({
       : undefined,
   });
 
-  // The rows the list shows, still in their flat order (their ids and the
-  // keyboard use it), gathered under their groups.
-  const columns = useMemo(() => {
-    const byGroup = new Map<string, { row: ComboRow; index: number }[]>();
-    combo.rows.forEach((row, index) => {
-      const [g] = splitKey(row.key.replace(/^v:/, ""));
-      const list = byGroup.get(g) ?? [];
-      list.push({ row, index });
-      byGroup.set(g, list);
-    });
-    return groups.filter((g) => byGroup.has(g.key)).map((g) => ({ group: g, rows: byGroup.get(g.key)! }));
-  }, [combo.rows, groups]);
-
   const showPlaceholder = chips.length === 0 && !combo.input;
 
   return (
@@ -198,19 +192,32 @@ export function WzGroupedFilter<K extends string = string>({
       <span id={labelId} className="sr-only">
         {ariaLabel}
       </span>
-      <Popover.Root open={combo.open} onOpenChange={(next) => (!next ? combo.close() : undefined)}>
-        <Popover.Anchor asChild>
+      <GroupedMenu
+        combo={combo}
+        groups={groups}
+        optionOf={optionOf}
+        labelId={labelId}
+        anchor={
           <div data-slot="wz-grouped-filter-control" className={CONTROL}>
             {/* react-select's value box: 2px 8px, wrapping. */}
             <div className="relative flex min-h-7 min-w-0 flex-1 flex-wrap items-center px-2 py-0.5">
               {showPlaceholder ? (
-                <span aria-hidden className="pointer-events-none absolute top-1/2 left-[11px] -translate-y-1/2 truncate text-[16px] leading-4 text-wz-placeholder group-data-[focused=true]/wzgf:left-[10px]">
+                <span
+                  aria-hidden
+                  className="pointer-events-none absolute top-[5px] left-[10px] max-w-[calc(100%-20px)] truncate text-[16px] leading-4 text-wz-placeholder"
+                >
                   {placeholder}
                 </span>
               ) : null}
               {chips.map((c) => (
-                <div key={`${c.group}|${c.value}`} data-slot="wz-filter-chip" className="m-0.5 flex h-6 min-w-0 rounded-chip border border-input bg-white">
-                  <span className="truncate rounded-chip py-[3px] pr-[3px] pl-1.5 text-[11.9px] leading-4 text-wz-value">{c.label}</span>
+                <div
+                  key={`${c.group}|${c.value}`}
+                  data-slot="wz-filter-chip"
+                  className="m-0.5 flex h-6 min-w-0 rounded-chip border border-input bg-white"
+                >
+                  <span className="truncate rounded-chip py-[3px] pr-[3px] pl-1.5 text-[11.9px] leading-4 text-wz-value">
+                    {c.label}
+                  </span>
                   <button
                     type="button"
                     tabIndex={-1}
@@ -228,7 +235,7 @@ export function WzGroupedFilter<K extends string = string>({
               ))}
               <input
                 {...combo.inputProps}
-                ref={combo.inputRef}
+                ref={mergeRefs(combo.inputRef)}
                 aria-label={ariaLabel}
                 onFocus={() => setFocused(true)}
                 className="m-0.5 h-5 w-[2px] min-w-[2px] flex-1 bg-transparent py-0.5 text-[14px] leading-4 text-wz-value outline-none"
@@ -259,60 +266,102 @@ export function WzGroupedFilter<K extends string = string>({
               </span>
             </div>
           </div>
-        </Popover.Anchor>
-        <Popover.Portal container={typeof document === "undefined" ? undefined : document.body}>
-          <Popover.Content
-            side="bottom"
-            align="start"
-            sideOffset={8}
-            avoidCollisions={false}
-            onOpenAutoFocus={(e) => e.preventDefault()}
-            onCloseAutoFocus={(e) => e.preventDefault()}
-            onInteractOutside={(e) => {
-              if (rootRef.current?.contains(e.target as Node)) e.preventDefault();
-            }}
-            className="z-[101] w-[var(--radix-popover-trigger-width)] rounded-[4px] bg-white shadow-[0_0_0_1px_rgba(0,0,0,0.1),0_4px_11px_rgba(0,0,0,0.1)] outline-none"
-          >
-            <div
-              ref={combo.setListEl}
-              id={combo.listboxId}
-              role="listbox"
-              aria-labelledby={labelId}
-              aria-multiselectable
-              onMouseDown={(e) => e.preventDefault()}
-              className="relative max-h-[300px] overflow-auto py-1"
-            >
-              {columns.length === 0 ? (
-                <div role="presentation" className="px-3 py-2 text-center text-[14px] leading-4 text-wz-caption">
-                  No options
-                </div>
-              ) : (
-                <div className="flex">
-                  {columns.map(({ group, rows }) => (
-                    <div key={group.key} role="group" aria-label={group.label} className="min-w-[150px] flex-1 basis-0 py-2">
-                      <div aria-hidden className="mb-1 truncate px-3 text-[10.5px] leading-4 font-medium text-wz-caption uppercase">
-                        {group.label}
-                      </div>
-                      {rows.map(({ row, index }) => (
-                        <Option
-                          key={row.key}
-                          id={combo.rowId(index)}
-                          focused={index === combo.focusedIndex}
-                          onHover={() => (index !== combo.focusedIndex ? combo.setFocusKey(row.key) : undefined)}
-                          onPick={() => combo.pick(row)}
-                          label={row.label}
-                          chipClassName={optionOf.get(row.key.replace(/^v:/, ""))?.className}
-                        />
-                      ))}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </Popover.Content>
-        </Popover.Portal>
-      </Popover.Root>
+        }
+      />
     </div>
+  );
+}
+
+/**
+ * The open list: a Radix Popover under the control, as wide as it, holding
+ * one column per group that still has options.
+ */
+function GroupedMenu({
+  combo,
+  groups,
+  optionOf,
+  labelId,
+
+  anchor,
+}: {
+  combo: Combobox;
+  groups: readonly WzFilterGroup<string>[];
+  optionOf: Map<string, WzFilterGroupOption>;
+  labelId: string;
+
+  anchor: ReactNode;
+}) {
+  const { open, close, rows, rowId, focusedIndex, setFocusKey, pick, setListEl, listboxId } = combo;
+  // The rows the list shows, still in their flat order (their ids and the
+  // keyboard use it), gathered under their groups.
+  const columns = useMemo(() => {
+    const byGroup = new Map<string, { row: ComboRow; index: number }[]>();
+    rows.forEach((row, index) => {
+      const [g] = splitKey(row.key.replace(/^v:/, ""));
+      const list = byGroup.get(g) ?? [];
+      list.push({ row, index });
+      byGroup.set(g, list);
+    });
+    return groups.filter((g) => byGroup.has(g.key)).map((g) => ({ group: g, rows: byGroup.get(g.key)! }));
+  }, [rows, groups]);
+
+  return (
+    <Popover.Root open={open} onOpenChange={(next) => (!next ? close() : undefined)}>
+      <Popover.Anchor asChild>{anchor}</Popover.Anchor>
+      <Popover.Portal container={typeof document === "undefined" ? undefined : document.body}>
+        <Popover.Content
+          side="bottom"
+          align="start"
+          sideOffset={8}
+          avoidCollisions={false}
+          onOpenAutoFocus={(e) => e.preventDefault()}
+          onCloseAutoFocus={(e) => e.preventDefault()}
+          onInteractOutside={(e) => {
+            // A press on the box itself is the box's to handle (it toggles the list).
+            const root = combo.inputRef.current?.closest("[data-wz-combobox-root]");
+            if (root?.contains(e.target as Node)) e.preventDefault();
+          }}
+          className="z-[101] w-[var(--radix-popover-trigger-width)] rounded-[4px] bg-white shadow-[0_0_0_1px_rgba(0,0,0,0.1),0_4px_11px_rgba(0,0,0,0.1)] outline-none"
+        >
+          <div
+            ref={setListEl}
+            id={listboxId}
+            role="listbox"
+            aria-labelledby={labelId}
+            aria-multiselectable
+            onMouseDown={(e) => e.preventDefault()}
+            className="relative max-h-[300px] overflow-auto py-1"
+          >
+            {columns.length === 0 ? (
+              <div role="presentation" className="px-3 py-2 text-center text-[14px] leading-4 text-wz-caption">
+                No options
+              </div>
+            ) : (
+              <div className="flex">
+                {columns.map(({ group, rows }) => (
+                  <div key={group.key} role="group" aria-label={group.label} className="min-w-[150px] flex-1 basis-0 py-2">
+                    <div aria-hidden className="mb-1 truncate px-3 text-[10.5px] leading-4 font-medium text-wz-caption uppercase">
+                      {group.label}
+                    </div>
+                    {rows.map(({ row, index }) => (
+                      <Option
+                        key={row.key}
+                        id={rowId(index)}
+                        focused={index === focusedIndex}
+                        onHover={() => (index !== focusedIndex ? setFocusKey(row.key) : undefined)}
+                        onPick={() => pick(row)}
+                        label={row.label}
+                        chipClassName={optionOf.get(row.key.replace(/^v:/, ""))?.className}
+                      />
+                    ))}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
   );
 }
 
@@ -345,7 +394,9 @@ function Option({
       )}
     >
       {chipClassName ? (
-        <span className={cn("rounded-[3px] px-1 py-px text-[14px] leading-4 font-medium text-white", chipClassName)}>{label}</span>
+        <span className={cn("rounded-[3px] px-1 py-px text-[14px] leading-4 font-medium text-white", chipClassName)}>
+          {label}
+        </span>
       ) : (
         label
       )}
