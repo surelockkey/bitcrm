@@ -78,6 +78,14 @@ export interface ServiceArea {
   tax?: ServiceAreaTax;
   /** Company (business profile) new jobs in this area default to. */
   defaultBusinessProfileId?: string;
+  /**
+   * The area's chip colour, `#rrggbb` (lower case). Workiz paints a service
+   * area as a chip — white 14px/500 text on this colour, radius 3, height 22 —
+   * wherever it lists areas (Filter results). Imported areas carry Workiz's
+   * own colour; absent means "no colour" (Workiz `bgc40`, or an area made
+   * here without one) and the screen falls back to its plain style.
+   */
+  color?: string;
   createdBy: string;
   createdAt: string;
   updatedAt: string;

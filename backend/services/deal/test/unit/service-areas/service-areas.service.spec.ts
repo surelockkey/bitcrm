@@ -327,6 +327,73 @@ describe('ServiceAreasService — market caller id', () => {
   });
 });
 
+/**
+ * Workiz paints a service area as a chip — white text on the area's colour —
+ * wherever it lists areas. The colour is the catalog's: set on create, kept
+ * through any edit that does not mention it, cleared by null or ''.
+ */
+describe('ServiceAreasService — chip colour', () => {
+  let repo: ReturnType<typeof createMockServiceAreasRepository>;
+  let service: ServiceAreasService;
+  const caller = createMockJwtUser();
+  const zips = { type: ServiceAreaType.ZIPS, zips: [{ zip: '27601' }] };
+
+  beforeEach(() => {
+    repo = createMockServiceAreasRepository();
+    const geocoding = createMockGeocodingService();
+    geocoding.geocode.mockResolvedValue({ lat: 35.78, lng: -78.64 });
+    service = new ServiceAreasService(repo as any, geocoding as any, createMockSnsPublisherService() as any);
+  });
+
+  it('stores the colour lower-cased on create', async () => {
+    const area = await service.create({ name: 'North Carolina', ...zips, color: '#DC143C' } as any, caller);
+
+    expect(area.color).toBe('#dc143c');
+    expect(repo.create).toHaveBeenCalledWith(expect.objectContaining({ color: '#dc143c' }));
+  });
+
+  it('leaves it unset when none is supplied, or a blank one', async () => {
+    expect(await service.create({ name: 'A', ...zips } as any, caller)).not.toHaveProperty('color');
+    expect(await service.create({ name: 'B', ...zips, color: '' } as any, caller)).not.toHaveProperty('color');
+  });
+
+  it('rejects a colour that is not #rrggbb (the service is called directly too)', async () => {
+    await expect(
+      service.create({ name: 'A', ...zips, color: 'crimson' } as any, caller),
+    ).rejects.toThrow(BadRequestException);
+    repo.get.mockResolvedValue(createMockServiceArea({ id: 'a1' }));
+    await expect(service.update('a1', { color: 'bgc23' } as any, caller)).rejects.toThrow(BadRequestException);
+  });
+
+  it('sets it on update', async () => {
+    repo.get.mockResolvedValue(createMockServiceArea({ id: 'a1' }));
+
+    const out = await service.update('a1', { color: '#B8860B' } as any, caller);
+
+    expect(out.color).toBe('#b8860b');
+    expect(repo.put).toHaveBeenCalledWith(expect.objectContaining({ color: '#b8860b' }));
+  });
+
+  it('clears it when sent null or an empty string', async () => {
+    for (const color of [null, '']) {
+      repo.get.mockResolvedValue(createMockServiceArea({ id: 'a1', color: '#dc143c' } as any));
+
+      const out = await service.update('a1', { color } as any, caller);
+
+      expect(out).not.toHaveProperty('color');
+    }
+  });
+
+  it('survives an unrelated edit (update is a full Put)', async () => {
+    repo.get.mockResolvedValue(createMockServiceArea({ id: 'a1', color: '#dc143c' } as any));
+
+    const out = await service.update('a1', { name: 'NC' } as any, caller);
+
+    expect(out.color).toBe('#dc143c');
+    expect(repo.put).toHaveBeenCalledWith(expect.objectContaining({ color: '#dc143c' }));
+  });
+});
+
 describe('ServiceAreasService — sales tax and default company', () => {
   let repo: ReturnType<typeof createMockServiceAreasRepository>;
   let companies: { resolve: jest.Mock };
