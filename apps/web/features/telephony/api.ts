@@ -134,7 +134,12 @@ export const fetchJobCode = (dealId: string): Promise<{ code: string }> =>
 export const rotateJobCode = (dealId: string): Promise<{ code: string }> =>
   http.post(`/telephony/exts/by-deal/${dealId}/rotate`);
 
-/** Workspace telephony settings the browser needs — currently the shared line. */
+/**
+ * Workspace telephony settings the browser needs: the shared technician line,
+ * and the workspace's main number (the call log's pill). `mainNumber` is
+ * absent on a server from before it existed — "not said", not "none".
+ */
 export const fetchTelephonyConfig = (): Promise<{
   technicianLine: string | null;
+  mainNumber?: string | null;
 }> => http.get("/telephony/config");

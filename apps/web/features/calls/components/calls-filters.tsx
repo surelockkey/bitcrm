@@ -5,22 +5,22 @@ import type { CallTag } from "@bitcrm/types";
 import { WzAddFilter, WzFilterField, WzFilterOptions } from "@/components/workiz/filter-bar";
 import { WzDateRangePicker, type WzDateRange } from "@/components/workiz/date-range-picker";
 import { queryKeys } from "@/lib/query-keys";
+import { usePermissions } from "@/features/auth/use-permissions";
 import { listTransferTargets } from "@/features/telephony/api";
+import { useCallFlows } from "@/features/telephony/call-flows-hooks";
+import { useJobSources } from "@/features/job-sources/hooks";
 import { REPORT_PRESET_LABEL, accountToday } from "@/features/reports/report-dates";
-import { addableFilters, chipSummary, DIRECTION_OPTIONS, FILTER_KINDS, type CallFilterChip, type CallFilterKind } from "../call-filters";
+import {
+  addableFilters,
+  chipSummary,
+  FILTER_KINDS,
+  FIXED_OPTIONS,
+  type CallFilterChip,
+  type CallFilterKind,
+} from "../call-filters";
 import { CALLS_PRESETS, callsPresetRange } from "../date-presets";
-import { STATUS_LABEL, type CallStatus } from "../lib";
 
 const PRESETS = CALLS_PRESETS.map((id) => ({ id, label: REPORT_PRESET_LABEL[id] }));
-const STATUS_OPTIONS = (Object.keys(STATUS_LABEL) as CallStatus[]).map((s) => ({ value: s, label: STATUS_LABEL[s] }));
-
-/** The Workiz search box over each panel ("Search direction", "Search tags"). */
-const SEARCH_LABEL: Record<CallFilterKind, string> = {
-  direction: "Search direction",
-  status: "Search status",
-  user: "Search user",
-  tag: "Search tags",
-};
 
 /**
  * The row over the stat cards (callspage_wz_01, _05_*, _06_*): the filter
@@ -46,30 +46,50 @@ export function CallsFilterRow({
   range: WzDateRange;
   onRangeChange: (range: WzDateRange) => void;
 }) {
-  // The teammates are a list to pick from, asked for once somebody reaches
-  // for the User filter — not part of the page's first paint.
-  const wantsUsers = chips.some((c) => c.kind === "user");
+  const { can } = usePermissions();
+  // The teammates and the call flows are lists to pick from, asked for once
+  // somebody reaches for that filter — not part of the page's first paint.
+  // The job sources are already in: the rows print them.
+  const wants = (kind: CallFilterKind) => chips.some((c) => c.kind === kind);
   const teammates = useQuery({
     queryKey: queryKeys.telephony.teammates(),
     queryFn: () => listTransferTargets(true),
-    enabled: wantsUsers,
+    enabled: wants("user"),
     staleTime: 60_000,
   });
+  // The flow catalog sits behind `settings.view`, like the call-tag one.
+  const mayFlows = can("settings");
+  const flows = useCallFlows(mayFlows && wants("flow"));
+  const sources = useJobSources();
 
   const options = (kind: CallFilterKind): { value: string; label: string }[] => {
+    const fixed = FIXED_OPTIONS[kind];
+    if (fixed) return fixed.map((o) => ({ value: o.value, label: o.label }));
     switch (kind) {
-      case "direction":
-        return DIRECTION_OPTIONS.map((o) => ({ value: o.value, label: o.label }));
-      case "status":
-        return STATUS_OPTIONS;
+      case "flow":
+        return (flows.data ?? []).map((f) => ({ value: f.id, label: f.name }));
+      case "source":
+        return (sources.data ?? []).map((s) => ({ value: s.id, label: s.name }));
       case "user":
         return (teammates.data ?? []).map((t) => ({ value: t.id, label: t.name }));
       case "tag":
         return callTags.map((t) => ({ value: t.id, label: t.name }));
+      default:
+        return [];
     }
   };
   const labelOf = (kind: CallFilterKind, value: string) => options(kind).find((o) => o.value === value)?.label ?? value;
-  const addable = addableFilters(chips, "", { direction: true, status: true, user: true, tag: callTags.length > 0 });
+  const addable = addableFilters(chips, "", {
+    direction: true,
+    status: true,
+    duration: true,
+    job: true,
+    flow: mayFlows,
+    source: (sources.data?.length ?? 0) > 0,
+    user: true,
+    tag: callTags.length > 0,
+    masking: true,
+  });
 
   const setValues = (kind: CallFilterKind, values: string[]) =>
     onChipsChange(chips.map((c) => (c.kind === kind ? { ...c, values } : c)));
@@ -95,7 +115,7 @@ export function CallsFilterRow({
               }}
             >
               <WzFilterOptions
-                searchLabel={SEARCH_LABEL[chip.kind]}
+                searchLabel={def.searchLabel}
                 options={options(chip.kind)}
                 selected={chip.values}
                 multi={def.multi}

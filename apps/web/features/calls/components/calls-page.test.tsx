@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { screen, fireEvent, within } from "@testing-library/react";
+import { screen, fireEvent, within, waitFor } from "@testing-library/react";
 import { renderWithClient } from "@/test/render-with-client";
 import type { CallsFilter } from "../lib";
 
@@ -11,6 +11,7 @@ import type { CallsFilter } from "../lib";
  * to read on rather than claim the search is over.
  */
 const mocks = vi.hoisted(() => ({
+  download: vi.fn(),
   fetchNextPage: vi.fn(),
   /** Розмір сторінки, з яким сторінка покликала хук. */
   listArgs: [] as number[],
@@ -37,6 +38,10 @@ vi.mock("../hooks", () => ({
   useCallsSummary: () => ({ data: undefined, isError: true }),
 }));
 vi.mock("../use-call-stream", () => ({ useCallStream: () => undefined }));
+vi.mock("../api", async (original) => ({
+  ...(await original<typeof import("../api")>()),
+  downloadCallsCsv: mocks.download,
+}));
 vi.mock("next/navigation", () => ({ usePathname: () => "/calls", useRouter: () => ({ push: vi.fn() }) }));
 vi.mock("@/features/auth/use-permissions", () => ({
   useDenied: () => () => false,
@@ -154,6 +159,32 @@ describe("CallsPage — Workiz Phone's frame", () => {
     expect(screen.getByRole("button", { name: "Monitor calls" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /fields/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "+ Add filter" })).toBeInTheDocument();
+  });
+
+  it("searches names and numbers alike: what is typed goes to the server as q", async () => {
+    renderWithClient(<CallsPage />);
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Search" }), { target: { value: "  Jane Roe " } });
+
+    await waitFor(() => expect(mocks.filters[mocks.filters.length - 1].q).toBe("Jane Roe"));
+    expect(mocks.filters[mocks.filters.length - 1].number).toBeUndefined();
+  });
+
+  it("draws Workiz's Export in the strip and saves the server's file for the same calls", async () => {
+    mocks.download.mockResolvedValue({ blob: new Blob(["Status\n"]), filename: "calls-2026-10-08_2026-10-09.csv" });
+    const createObjectURL = vi.fn(() => "blob:x");
+    const revokeObjectURL = vi.fn();
+    Object.assign(URL, { createObjectURL, revokeObjectURL });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+    renderWithClient(<CallsPage />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Export" }));
+
+    await waitFor(() => expect(click).toHaveBeenCalled());
+    const rowsFilter = mocks.filters[mocks.filters.length - 1];
+    expect(mocks.download).toHaveBeenCalledWith(rowsFilter);
+    expect(createObjectURL).toHaveBeenCalled();
+    click.mockRestore();
   });
 
   it("draws the CALLS card from the log's count when the summary is not served", () => {

@@ -103,7 +103,8 @@ const routes: FakeRoute[] = [
     reply: () => ({ calls: 3, callers: 2, missed: 1, active: 1, jobs: 1, revenue: 120, atLeast: false }),
     delayMs: 110,
   },
-  { match: /\/messaging\/settings$/, reply: () => ({ defaultSenderNumber: "+12034036303" }), delayMs: 100 },
+  // The pill's number comes with the telephony config, for every calls viewer.
+  { match: /\/telephony\/config$/, reply: () => ({ technicianLine: null, mainNumber: "+12034036303" }), delayMs: 100 },
   {
     match: /\/telephony\/calls\/live$/,
     reply: () => [call(9, { status: "in-progress", fromParty: { kind: "contact", id: "c9", name: "Live Caller" } })],
