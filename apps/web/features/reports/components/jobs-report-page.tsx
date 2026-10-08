@@ -15,8 +15,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { DateTimeRangePicker } from "@/components/ui/date-time-range-picker";
-import { DAY_END, DAY_START, toIsoInstant, toLocalParts } from "@/lib/date-range";
+import { PeriodControl, nextCustomDays, type PeriodDays } from "./period-control";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { settled, usePageReady } from "@/lib/use-page-ready";
 import { useDenied, usePermissions } from "@/features/auth/use-permissions";
@@ -136,6 +135,15 @@ export function JobsReportPage({ today: todayProp }: { today?: string } = {}) {
     set(v);
     setPage(1);
   };
+  // Custom opens on the days on show, so the report does not jump to today.
+  const pickPreset = (p: JobsReportPreset) => {
+    if (p === "custom") setCustom(range);
+    resetPage(setPreset)(p);
+  };
+  const pickDays = (days: PeriodDays) => {
+    setCustom((cur) => nextCustomDays(cur, days));
+    setPage(1);
+  };
   const changeFilters = resetPage(setFilters);
 
   const onSort = (column: JobsReportColumnId) => {
@@ -183,29 +191,15 @@ export function JobsReportPage({ today: todayProp }: { today?: string } = {}) {
           <JobsReportFilter groups={groups} filters={filters} onChange={changeFilters} />
         </div>
         <div className="flex w-full flex-col gap-2 rounded-md border p-2 lg:w-[22rem]">
-          <select
-            aria-label="Date preset"
-            className="h-9 rounded-md border bg-transparent px-2 text-sm"
-            value={preset}
-            onChange={(e) => resetPage(setPreset)(e.target.value as JobsReportPreset)}
-          >
-            {JOBS_REPORT_PRESETS.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.label}
-              </option>
-            ))}
-          </select>
-          <DateTimeRangePicker
-            dateOnly
-            label="Days"
-            value={{ from: toIsoInstant(range.from, DAY_START), to: toIsoInstant(range.to, DAY_END) }}
-            onChange={(r) => {
-              const from = toLocalParts(r.from)?.date ?? range.from;
-              const to = toLocalParts(r.to)?.date ?? from;
-              setCustom({ from, to });
-              setPreset("custom");
-              setPage(1);
-            }}
+          <PeriodControl
+            presets={JOBS_REPORT_PRESETS.map((p) => ({ value: p.id, label: p.label }))}
+            preset={preset}
+            onPresetChange={pickPreset}
+            range={range}
+            custom={custom}
+            onCustomChange={pickDays}
+            today={today}
+            className="w-full"
           />
           <select
             aria-label="By"

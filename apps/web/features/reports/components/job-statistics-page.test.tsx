@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { JobStatistics, JobStatisticsRow, JobStatisticsTab, JobStatisticsTable } from "@bitcrm/types";
 import { JobStatisticsPage } from "./job-statistics-page";
@@ -101,10 +101,47 @@ describe("JobStatisticsPage", () => {
   it("recounts on another date, period, area and tags", async () => {
     render(<JobStatisticsPage today="2026-09-25" />);
     await userEvent.click(screen.getByRole("radio", { name: "Created" }));
-    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Date preset" }), "last_month");
+    await userEvent.click(screen.getByRole("button", { name: /^Date range/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Last month" }));
     await userEvent.selectOptions(screen.getByRole("combobox", { name: "Service area" }), "sa1");
-    await userEvent.click(screen.getByRole("button", { name: "VIP" }));
+    await userEvent.click(screen.getByRole("button", { name: "Tags" }));
+    await userEvent.click(await screen.findByText("VIP", { selector: "[cmdk-item], [cmdk-item] *" }));
     expect(Object.fromEntries(params())).toEqual({ by: "created", from: "2026-08-01", to: "2026-08-31", serviceAreaId: "sa1", tagId: "tag1" });
+  });
+
+  // The owner, 2026-10-08: "why two windows to pick the time?" — a Date preset
+  // select beside a Days calendar. Now one control, as on Estimates and Tax:
+  // the period and its days on one button, Custom's two days in its panel.
+  it("picks the period from one control, not a list beside a calendar", async () => {
+    render(<JobStatisticsPage today="2026-09-25" />);
+    expect(screen.queryByRole("combobox", { name: "Date preset" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Days/ })).toBeNull();
+    const period = screen.getByRole("button", { name: /^Date range/ });
+    expect(period).toHaveTextContent("This month");
+    expect(period).toHaveTextContent("Sep 1 – Sep 25");
+
+    await userEvent.click(period);
+    await userEvent.click(screen.getByRole("button", { name: "Custom" }));
+    // Custom starts from the days on show, so the report does not jump.
+    expect(screen.getByLabelText("From")).toHaveValue("2026-09-01");
+    expect(screen.getByLabelText("To")).toHaveValue("2026-09-25");
+    expect(Object.fromEntries(params())).toMatchObject({ from: "2026-09-01", to: "2026-09-25" });
+
+    fireEvent.change(screen.getByLabelText("From"), { target: { value: "2026-09-10" } });
+    expect(Object.fromEntries(params())).toMatchObject({ from: "2026-09-10", to: "2026-09-25" });
+    // A From past To moves To with it, so the window is never upside down.
+    fireEvent.change(screen.getByLabelText("From"), { target: { value: "2026-09-28" } });
+    expect(Object.fromEntries(params())).toMatchObject({ from: "2026-09-28", to: "2026-09-28" });
+  });
+
+  // A wall of every tag (~200 on the account) pushed the report half a screen down.
+  it("keeps the tags in one Tags filter instead of a wall of chips", async () => {
+    render(<JobStatisticsPage today="2026-09-25" />);
+    expect(screen.queryByRole("button", { name: "VIP" })).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Tags" }));
+    await userEvent.click(await screen.findByText("VIP", { selector: "[cmdk-item], [cmdk-item] *" }));
+    expect(params().get("tagId")).toBe("tag1");
+    expect(screen.getByRole("button", { name: "Tags" })).toHaveTextContent("(1)");
   });
 
   it("shows Workiz's six KPIs — sales and profit only when the server sends them", () => {

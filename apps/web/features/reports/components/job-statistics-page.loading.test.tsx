@@ -81,7 +81,7 @@ describe("JobStatisticsPage — no jumping", () => {
       () => ({
         kpis: kpisUp(),
         areas: [...(areaSelect()?.options ?? [])].some((o) => o.textContent === "North"),
-        tags: !!screen.queryByRole("button", { name: "VIP" }),
+        tags: !!screen.queryByRole("button", { name: "Tags" }),
         skeletons: skeletonCount(),
       }),
     );
@@ -120,7 +120,7 @@ describe("JobStatisticsPage — no jumping", () => {
 
     let blanked = false;
     const observer = new MutationObserver(() => {
-      if (skeletonCount() > 0 || !kpisUp() || !screen.queryByRole("button", { name: "VIP" })) blanked = true;
+      if (skeletonCount() > 0 || !kpisUp() || !screen.queryByRole("button", { name: "Tags" })) blanked = true;
     });
     observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true });
     fireEvent.click(screen.getByRole("radio", { name: "Created" }));

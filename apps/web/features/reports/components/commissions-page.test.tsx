@@ -113,9 +113,19 @@ describe("CommissionsPage", () => {
     expect(within(screen.getByRole("table", { name: "Total by type" })).getByText("credit").parentElement).toHaveTextContent("197.17");
   });
 
+
+  // The owner, 2026-10-08: "why two windows to pick the time?" — one period control.
+  it("picks the period from one control, not a list beside a calendar", () => {
+    render(<CommissionsPage today="2026-09-29" />);
+    expect(screen.queryByRole("combobox", { name: "Date preset" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Days/ })).toBeNull();
+    expect(screen.getAllByRole("button", { name: /^Date range/ })).toHaveLength(1);
+  });
+
   it("the weekly settlement: Last week (Mon – Sun), Tech Report, pick the technician", async () => {
     render(<CommissionsPage today="2026-09-29" />);
-    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Date preset" }), "last_week_mon");
+    await userEvent.click(screen.getByRole("button", { name: /^Date range/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Last week (Mon - Sun)" }));
     await userEvent.selectOptions(screen.getByRole("combobox", { name: "Report mode" }), "tech");
     // No technician yet: the period's technicians to pick from (the Standard slice).
     expect(lastFilters()).toMatchObject({ from: "2026-09-21", to: "2026-09-27", mode: "standard" });

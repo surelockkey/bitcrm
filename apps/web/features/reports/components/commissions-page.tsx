@@ -14,7 +14,6 @@ import type {
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { DateTimeRangePicker } from "@/components/ui/date-time-range-picker";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -26,7 +25,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { DAY_END, DAY_START, toIsoInstant, toLocalParts } from "@/lib/date-range";
+import { PeriodControl, nextCustomDays } from "./period-control";
 import { settled, usePageReady } from "@/lib/use-page-ready";
 import { useDenied } from "@/features/auth/use-permissions";
 import { NoAccess } from "@/features/clients/components/contacts-page";
@@ -220,27 +219,21 @@ export function CommissionsPage({ today }: { today: string }) {
               </button>
             ))}
           </div>
-          <select
-            aria-label="Date preset"
-            className={selectClass}
-            value={preset}
-            onChange={(e) => reset(setPreset)(e.target.value as CommissionDatePreset)}
-          >
-            {COMMISSION_DATE_PRESETS.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.label}
-              </option>
-            ))}
-          </select>
-          <DateTimeRangePicker
-            dateOnly
-            label="Days"
-            value={{ from: toIsoInstant(from, DAY_START), to: toIsoInstant(to, DAY_END) }}
-            onChange={(r) => {
-              setPreset("custom");
-              setPage(1);
-              setCustom({ from: toLocalParts(r.from)?.date, to: toLocalParts(r.to)?.date });
+          <PeriodControl
+            presets={COMMISSION_DATE_PRESETS.map((p) => ({ value: p.id, label: p.label }))}
+            preset={preset}
+            onPresetChange={(p) => {
+              // Custom opens on the days on show, so the report does not jump.
+              if (p === "custom") setCustom({ from, to });
+              reset(setPreset)(p);
             }}
+            range={{ from, to }}
+            custom={custom}
+            onCustomChange={(days) => {
+              setCustom((cur) => nextCustomDays({ from: cur.from ?? from, to: cur.to ?? to }, days));
+              setPage(1);
+            }}
+            today={today}
           />
         </div>
       </div>
