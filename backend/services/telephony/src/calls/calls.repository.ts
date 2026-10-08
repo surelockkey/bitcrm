@@ -17,6 +17,7 @@ import {
   allCallsSk,
 } from '../common/constants/dynamo.constants';
 import { callFilterClauses } from './call-filter-expression';
+import { callSearchClause, type CallTextSearch } from './call-search';
 
 export type CallStatus =
   | 'queued'
@@ -161,6 +162,12 @@ export interface CallRecord {
    * number?" is answerable from the log rather than by re-deriving the chain.
    */
   callerIdSource?: 'agent' | 'history' | 'area' | 'default' | 'owned';
+  /**
+   * Both sides' names, folded and newline apart — what the log's Search box
+   * matches (call-search.ts). Written by `setPartyNames` only (never by
+   * `upsert`), and stripped from every response.
+   */
+  partyNames?: string;
 }
 
 export interface ListCallsFilter {
@@ -206,6 +213,8 @@ export interface ListCallsFilter {
   masked?: boolean;
   /** Workiz's Job Status "All with job": true = linked to a job, false = not. */
   hasJob?: boolean;
+  /** The Search box: a party's name, or digits of either number (`parseCallSearch`). */
+  search?: CallTextSearch;
 }
 
 /**
@@ -482,6 +491,29 @@ export class CallsRepository {
             }),
       }),
     );
+  }
+
+  /**
+   * Stamp the folded names of both sides — what the Search box matches.
+   * `attribute_exists(PK)` keeps a stray sid from minting a phantom record;
+   * an empty text removes the attribute rather than storing "".
+   */
+  async setPartyNames(callSid: string, partyNames: string): Promise<void> {
+    try {
+      await this.dynamoDb.client.send(
+        new UpdateCommand({
+          TableName: this.tableName,
+          Key: { PK: callPk(callSid), SK: 'METADATA' },
+          UpdateExpression: partyNames ? 'SET #partyNames = :names' : 'REMOVE #partyNames',
+          ConditionExpression: 'attribute_exists(PK)',
+          ExpressionAttributeNames: { '#partyNames': 'partyNames' },
+          ...(partyNames && { ExpressionAttributeValues: { ':names': partyNames } }),
+        }),
+      );
+    } catch (error: unknown) {
+      if (error instanceof Error && error.name === 'ConditionalCheckFailedException') return;
+      throw error;
+    }
   }
 
   /**
@@ -1008,6 +1040,7 @@ export class CallsRepository {
       names['#to'] = 'to';
       values[':number'] = filter.number;
     }
+    if (filter.search) clauses.push(callSearchClause(filter.search, names, values));
     if (filter.numbers?.length) {
       // A contact owns several numbers and may appear on either side of a
       // call — OR every combination rather than issuing one query per number.

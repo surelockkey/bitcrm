@@ -32,6 +32,7 @@ import {
   type ListCallsFilter,
 } from './calls.repository';
 import { callsFilterFromQuery, type CallsQueryParams } from './call-query';
+import { partyNamesText } from './call-search';
 import { ConferenceService, type MonitorMode } from '../voice/conference.service';
 import { UserNamesService, type UserSummary } from '../common/user-names.service';
 import {
@@ -129,6 +130,13 @@ class UpdateCallTagsDto {
   remove?: string[];
 }
 
+/** A record without its search attribute — `partyNames` never leaves the service. */
+function withoutSearchText(call: CallRecord): CallRecord {
+  if (call.partyNames === undefined) return call;
+  const { partyNames: _drop, ...rest } = call;
+  return rest;
+}
+
 /** Rows on the dashboard's "Recent Calls" — Workiz shows four. */
 const DASHBOARD_RECENT_CALLS = 4;
 
@@ -193,7 +201,7 @@ export class CallsController {
       ...(r.from ? [r.from] : []),
       ...(r.to ? [r.to] : []),
     ]);
-    if (ids.length === 0 && phones.length === 0) return records;
+    if (ids.length === 0 && phones.length === 0) return records.map(withoutSearchText);
 
     const [users, contacts, personals] = await Promise.all([
       ids.length
@@ -225,10 +233,12 @@ export class CallsController {
         ? { ...party, name: refNames[`${party.kind}:${party.id}`] }
         : party;
 
-    return records.map((r, i) => {
+    return records.map((rec, i) => {
+      const r = withoutSearchText(rec);
       const agent = r.agentId ? users[r.agentId] : undefined;
       const from = withName(parties[i].from);
       const to = withName(parties[i].to);
+      this.keepSearchNames(rec, from, to, users);
 
       return {
         ...r,
@@ -245,6 +255,32 @@ export class CallsController {
           : {}),
       };
     });
+  }
+
+  /**
+   * Keep the row's `partyNames` — what the Search box matches — in step with
+   * the names just resolved for it: a finished call nobody has stamped yet,
+   * or a client renamed since. Fire-and-forget like `freezeParties`, and only
+   * from a whole answer: a side whose name did not resolve (user-service or
+   * the CRM blinking) means nothing is written, or a blip would erase names.
+   */
+  private keepSearchNames(
+    call: CallRecord,
+    from: CallPartyRef | undefined,
+    to: CallPartyRef | undefined,
+    users: Record<string, UserSummary>,
+  ): void {
+    if (call.status && LIVE_STATUSES.includes(call.status)) return;
+    const named = (party?: CallPartyRef) =>
+      !party ||
+      (party.kind === 'user'
+        ? !!users[party.id]?.name || (!!party.personal && !!party.name)
+        : !!party.name);
+    if (!named(from) || !named(to)) return;
+
+    const text = partyNamesText([from?.name, to?.name]);
+    if (text === (call.partyNames ?? '')) return;
+    void this.callsService.stampPartyNames(call.callSid, text).catch(() => undefined);
   }
 
   /**

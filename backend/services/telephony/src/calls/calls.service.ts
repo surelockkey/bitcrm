@@ -383,6 +383,15 @@ export class CallsService {
       .catch(() => undefined);
   }
 
+  /**
+   * Put both sides' folded names on the row, for the Search box. Called
+   * fire-and-forget from the read path once a finished call has been named;
+   * a failure only means the next read tries again.
+   */
+  stampPartyNames(callSid: string, partyNames: string): Promise<void> {
+    return this.repo.setPartyNames(callSid, partyNames);
+  }
+
   /** Attach a call to a job, or detach it, and tell the job about it. */
   async linkDeal(
     callSid: string,

@@ -16,7 +16,8 @@
     "ensure:gsi2": "ts-node src/scripts/ensure-gsi2.ts",
     "ring-me": "node scripts/ring-me.js",
     "sweep:exts": "ts-node src/scripts/sweep-call-exts.ts",
-    "verify:call-tracking": "ts-node src/scripts/verify-call-tracking.ts"
+    "verify:call-tracking": "ts-node src/scripts/verify-call-tracking.ts",
+    "backfill:call-party-names": "ts-node src/scripts/backfill-call-party-names.ts"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.700.0",

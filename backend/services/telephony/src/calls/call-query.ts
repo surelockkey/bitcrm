@@ -1,5 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { type ListCallsFilter } from './calls.repository';
+import { parseCallSearch } from './call-search';
 
 /**
  * The query string of `GET /calls`, `/calls/count`, `/calls/stats/summary`
@@ -35,6 +36,8 @@ export interface CallsQueryParams {
   /** `true` | `false` (also 1/0, yes/no). */
   masked?: string;
   hasJob?: string;
+  /** The Search box: a party's name, or digits of either number. */
+  q?: string;
 }
 
 /** Each number adds two contains() to the filter — a phone list is capped. */
@@ -66,13 +69,11 @@ function yesNo(name: string, v: string | undefined): boolean | undefined {
  * value keeps its old expression); a phone list is split here because the
  * repository has always taken it as an array.
  *
- * `opts.numbers` is the viewer's `contacts.view_numbers` — reserved for the
- * text search, which must not match by digits for a viewer whose numbers are
- * masked.
+ * `opts.numbers` is the viewer's `contacts.view_numbers`: the Search box
+ * (`q`) matches by digits only for a viewer who may see numbers.
  */
 export function callsFilterFromQuery(
   query: CallsQueryParams,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   opts: { numbers: boolean },
 ): ListCallsFilter {
   const numbers = text(query.numbers)
@@ -97,6 +98,7 @@ export function callsFilterFromQuery(
     maxDuration: seconds('maxDuration', query.maxDuration),
     masked: yesNo('masked', query.masked),
     hasJob: yesNo('hasJob', query.hasJob),
+    search: parseCallSearch(query.q, opts),
   };
   // Undefined keys out: the count cache keys on the filter, and the tests
   // compare it whole.

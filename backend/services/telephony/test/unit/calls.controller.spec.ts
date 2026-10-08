@@ -35,6 +35,8 @@ function makeController(
     getBySid: jest.fn().mockResolvedValue(record()),
     // Freezing the association is fire-and-forget from the read path.
     freezeParties: jest.fn().mockResolvedValue(undefined),
+    // So is keeping the row's searchable names in step.
+    stampPartyNames: jest.fn().mockResolvedValue(undefined),
     setPartiesManually: jest.fn().mockResolvedValue(undefined),
     activeCallFor: jest.fn().mockResolvedValue(null),
     listByParty: jest.fn().mockResolvedValue({ items: [] }),
