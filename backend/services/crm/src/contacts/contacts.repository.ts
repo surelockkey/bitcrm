@@ -132,18 +132,21 @@ export class ContactsRepository {
     companyId: string,
     limit: number,
     cursor?: string,
+    filters?: { tagIds?: string[] },
   ): Promise<PaginatedResult> {
+    const tags = tagFilter(filters?.tagIds);
     const result = await this.dynamoDb.client.send(
       new QueryCommand({
         TableName: this.tableName,
         IndexName: CONTACTS_GSI1_NAME,
         KeyConditionExpression: 'GSI1PK = :pk',
-        FilterExpression: '#status = :active',
+        FilterExpression: `#status = :active${tags.expression}`,
         ExpressionAttributeValues: {
           ':pk': `COMPANY#${companyId}`,
           ':active': CrmStatus.ACTIVE,
+          ...tags.values,
         },
-        ExpressionAttributeNames: { '#status': 'status' },
+        ExpressionAttributeNames: { '#status': 'status', ...tags.names },
         Limit: limit,
         ExclusiveStartKey: this.decodeCursor(cursor),
       }),
@@ -158,22 +161,24 @@ export class ContactsRepository {
   async findAll(
     limit: number,
     cursor?: string,
-    filters?: { status?: string },
+    filters?: { status?: string; tagIds?: string[] },
   ): Promise<PaginatedResult> {
     const statusFilter = filters?.status || CrmStatus.ACTIVE;
+    const tags = tagFilter(filters?.tagIds);
 
     const page = await scanPage<Record<string, unknown>>(
       (input) =>
         this.dynamoDb.client.send(
           new ScanCommand({
             TableName: this.tableName,
-            FilterExpression: 'begins_with(PK, :pk) AND SK = :sk AND #status = :status',
+            FilterExpression: `begins_with(PK, :pk) AND SK = :sk AND #status = :status${tags.expression}`,
             ExpressionAttributeValues: {
               ':pk': 'CONTACT#',
               ':sk': 'METADATA',
               ':status': statusFilter,
+              ...tags.values,
             },
-            ExpressionAttributeNames: { '#status': 'status' },
+            ExpressionAttributeNames: { '#status': 'status', ...tags.names },
             ...input,
           }),
         ),
@@ -194,20 +199,22 @@ export class ContactsRepository {
    * Bounded, because the contacts table is shared with the PHONE# index items
    * and a count must not walk all of it on every page load.
    */
-  async countAll(filters?: { status?: string }): Promise<CountRowsResult> {
+  async countAll(filters?: { status?: string; tagIds?: string[] }): Promise<CountRowsResult> {
     const statusFilter = filters?.status || CrmStatus.ACTIVE;
+    const tags = tagFilter(filters?.tagIds);
 
     return countRows((input) =>
       this.dynamoDb.client.send(
         new ScanCommand({
           TableName: this.tableName,
-          FilterExpression: 'begins_with(PK, :pk) AND SK = :sk AND #status = :status',
+          FilterExpression: `begins_with(PK, :pk) AND SK = :sk AND #status = :status${tags.expression}`,
           ExpressionAttributeValues: {
             ':pk': 'CONTACT#',
             ':sk': 'METADATA',
             ':status': statusFilter,
+            ...tags.values,
           },
-          ExpressionAttributeNames: { '#status': 'status' },
+          ExpressionAttributeNames: { '#status': 'status', ...tags.names },
           Select: 'COUNT',
           ...input,
         }),
@@ -216,19 +223,21 @@ export class ContactsRepository {
   }
 
   /** The same count for one company's contacts — a Query, so the cheap end. */
-  async countByCompany(companyId: string): Promise<CountRowsResult> {
+  async countByCompany(companyId: string, filters?: { tagIds?: string[] }): Promise<CountRowsResult> {
+    const tags = tagFilter(filters?.tagIds);
     return countRows((input) =>
       this.dynamoDb.client.send(
         new QueryCommand({
           TableName: this.tableName,
           IndexName: CONTACTS_GSI1_NAME,
           KeyConditionExpression: 'GSI1PK = :pk',
-          FilterExpression: '#status = :active',
+          FilterExpression: `#status = :active${tags.expression}`,
           ExpressionAttributeValues: {
             ':pk': `COMPANY#${companyId}`,
             ':active': CrmStatus.ACTIVE,
+            ...tags.values,
           },
-          ExpressionAttributeNames: { '#status': 'status' },
+          ExpressionAttributeNames: { '#status': 'status', ...tags.names },
           Select: 'COUNT',
           ...input,
         }),
@@ -366,4 +375,23 @@ export class ContactsRepository {
     if (!cursor) return undefined;
     return JSON.parse(Buffer.from(cursor, 'base64url').toString('utf-8'));
   }
+}
+
+/**
+ * Workiz's "Filter results" → TAGS: a client carrying ANY of the picked tags
+ * (picking a second tag widens the list, as Workiz's does). `tagIds` is a
+ * list on the row; DynamoDB's `contains` on a list matches an element. No
+ * tags → nothing added, so the untagged list asks exactly what it always did.
+ */
+function tagFilter(tagIds: string[] | undefined): {
+  expression: string;
+  names: Record<string, string>;
+  values: Record<string, string>;
+} {
+  if (!tagIds?.length) return { expression: '', names: {}, values: {} };
+  const values = Object.fromEntries(tagIds.map((id, i) => [`:tag${i}`, id]));
+  const any = Object.keys(values)
+    .map((v) => `contains(#tagIds, ${v})`)
+    .join(' OR ');
+  return { expression: ` AND (${any})`, names: { '#tagIds': 'tagIds' }, values };
 }

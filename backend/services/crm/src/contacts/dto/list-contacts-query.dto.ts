@@ -20,4 +20,12 @@ export class ListContactsQueryDto {
   @IsOptional()
   @IsString()
   cursor?: string;
+
+  @ApiPropertyOptional({
+    example: 'tag-uuid-1,tag-uuid-2',
+    description: 'Client tag ids, comma-separated: contacts carrying ANY of them (Workiz Filter results → TAGS).',
+  })
+  @IsOptional()
+  @IsString()
+  tagIds?: string;
 }

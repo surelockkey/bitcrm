@@ -96,7 +96,7 @@ export class ContactsController {
     summary: 'How many contacts the list holds',
     description:
       '**Guard:** `contacts.view` permission required. Takes the same filters as the list ' +
-      '(`companyId`; `cursor` and `limit` are ignored) and answers `{ total, atLeast }` — the ' +
+      '(`companyId`, `tagIds`; `cursor` and `limit` are ignored) and answers `{ total, atLeast }` — the ' +
       'row count behind "Page 2 of 7". `atLeast` means the walk stopped on a ceiling, which ' +
       'the panel renders as `7+`. Cached for thirty seconds.',
   })
