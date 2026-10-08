@@ -188,10 +188,10 @@ describe("TransfersPage — type chips, filtered on the server", () => {
       transfer({ id: "t9", items: [{ productId: "p9", productName: "Smart lock", quantity: 1 }] }),
     ];
     render(<TransfersPage />);
-    await userEvent.click(screen.getByRole("button", { name: "Page 2" }));
+    await userEvent.click(screen.getByRole("button", { name: "Next page" }));
     expect(screen.getByText(/Smart lock/)).toBeInTheDocument();
     await userEvent.click(chip("Deduct"));
-    expect(screen.getByRole("button", { name: "Page 1" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByText(/^Page 1\b/)).toBeInTheDocument();
     expect(screen.getByText(/Deadbolt/)).toBeInTheDocument();
   });
 });
