@@ -15,6 +15,9 @@ import { useAttachments, useAttachmentUrls } from "./attachments-hooks";
 import { useDealEstimates } from "@/features/estimates/hooks";
 import { useActiveJobTypes } from "@/features/job-types/active-hooks";
 import { useJobType } from "@/features/job-types/hooks";
+import { useActiveJobSources } from "@/features/job-sources/active-hooks";
+import { useJobSource } from "@/features/job-sources/hooks";
+import { activeJobSources } from "@/features/job-sources/lib";
 import { useDeal, useDealAssignments, useDealTimeline, useSuggestedTechs, useUserMap } from "./hooks";
 import { useJobPageCatalogs } from "./job-page-catalogs";
 
@@ -94,6 +97,14 @@ export function useJobPageData(dealId: string): { ready: boolean } {
     !!deal?.jobTypeId && !!activeTypes.data && !activeTypes.data.some((t) => t.id === deal.jobTypeId),
   );
 
+  // Likewise Job source: a source the catalog archived (imported jobs name
+  // some) is asked for by itself, as the Details form's select does.
+  const activeSources = useActiveJobSources();
+  const archivedSource = useJobSource(
+    deal?.sourceId ?? "",
+    !!deal?.sourceId && !!activeSources.data && !activeJobSources(activeSources.data).some((s) => s.id === deal.sourceId),
+  );
+
   const allIn =
     !!deal &&
     !permsLoading &&
@@ -112,6 +123,7 @@ export function useJobPageData(dealId: string): { ready: boolean } {
       timeline,
       estimates,
       archivedType,
+      archivedSource,
       ...files,
     ].every(settled) &&
     !area.isFetching &&

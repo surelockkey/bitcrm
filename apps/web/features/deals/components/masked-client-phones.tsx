@@ -1,6 +1,5 @@
 "use client";
 
-import { EyeOff } from "lucide-react";
 import { CallClientButton } from "@/features/telephony/components/call-client-button";
 
 /**
@@ -15,6 +14,9 @@ import { CallClientButton } from "@/features/telephony/components/call-client-bu
  * its own call button carrying the `phoneIndex` the server will resolve. The
  * technician can still choose the mobile over the landline; they just never
  * learn which digits either one is.
+ *
+ * Drawn as the job page's Phone box (job_b_01_details): a locked 48px box
+ * labelled "Phone" saying the number is hidden, the handset inside it.
  */
 export function MaskedClientPhones({
   phoneCount,
@@ -32,31 +34,23 @@ export function MaskedClientPhones({
   return (
     <div className={className}>
       {Array.from({ length: phoneCount }, (_, i) => (
-        // Given as a card rather than a line of grey text: with the digits
-        // withheld there is nothing else on this row to act on, so the call is
-        // the row's whole purpose and gets the room to say so.
         <div
           key={i}
-          className="flex items-center justify-between gap-3 rounded-lg border bg-muted/30 px-3 py-2"
+          data-slot="masked-phone"
+          className="relative mr-px mb-2.5 h-12 rounded-[2px] border border-wz-disabled-border bg-wz-disabled"
         >
-          <span className="flex min-w-0 items-center gap-2 text-muted-foreground">
-            <EyeOff className="size-3.5 shrink-0" />
-            <span className="truncate text-sm">
-              {phoneCount === 1
-                ? "Number hidden"
-                : `Number ${i + 1} of ${phoneCount}, hidden`}
-              {i === 0 && phoneCount > 1 ? " · primary" : ""}
-            </span>
+          <span className="pointer-events-none absolute top-[2px] left-[0.65rem] text-[12px] leading-5 text-wz-label">
+            Phone
+          </span>
+          <span className="absolute top-[22px] right-[92px] left-2.5 truncate text-[16px] leading-4 text-wz-text">
+            {phoneCount === 1 ? "Number hidden" : `Number ${i + 1} of ${phoneCount}, hidden`}
+            {i === 0 && phoneCount > 1 ? " · primary" : ""}
           </span>
           {/* `to` is empty on purpose — the button sends a handle, and the
               server resolves the digits. */}
-          <CallClientButton
-            to=""
-            dealId={dealId}
-            contactId={contactId}
-            phoneIndex={i}
-            variant="prominent"
-          />
+          <div className="absolute top-[3px] right-3 flex items-center">
+            <CallClientButton to="" dealId={dealId} contactId={contactId} phoneIndex={i} variant="workiz" />
+          </div>
         </div>
       ))}
     </div>

@@ -101,6 +101,8 @@ const routes: FakeRoute[] = [
   { match: /\/deals\/d1\/assignments$/, reply: () => [] },
   { match: /\/deals\/job-types$/, reply: () => [{ id: "jt-lockout", name: "Lockout", active: true }] },
   { match: /\/deals\/job-sources$/, reply: () => [] },
+  // An archived source a job still names is asked for by itself (Job source shows its name).
+  { match: /\/deals\/job-sources\/src-old$/, reply: () => ({ id: "src-old", name: "Yellow Pages", active: false, priority: 0 }) },
   { match: /\/deals\/external-companies$/, reply: () => [] },
   { match: /\/billing\/business-profiles$/, reply: () => [] },
   { match: /\/deals\/custom-fields$/, reply: () => [] },
@@ -152,8 +154,10 @@ function watchJobFirstFrame() {
     clientName: !!screen.queryByDisplayValue("Jane"),
     techName: !!screen.queryByText("Bo Diaz"),
     findingTechs: !!screen.queryByText(/finding technicians/i),
-    techSummary: !!screen.queryByText(/can do this job/i),
-    dialIn: !!screen.queryByText(/call from any phone/i),
+    // Workiz's line under Assign A Tech: "1 tech works in North Metro and can perform Lockout".
+    techSummary: !!screen.queryByText(/and can perform/i),
+    // Our dial-in, drawn as Workiz's "Masked number (404) 555-0140 #8707".
+    dialIn: !!screen.queryByText(/#8707/),
     areaName: !!screen.queryAllByText(/north metro/i).length,
     // The frame Workiz draws around the form: the rail's notes count and the
     // tab bar's grey lines are part of the page, not a later wave.
@@ -257,6 +261,20 @@ describe("DealDetailPage — one load, not waves", () => {
     observer.disconnect();
 
     expect(lost).toBe(false);
+  });
+
+  /**
+   * Job source names a source the catalog has archived (imported Workiz jobs
+   * do): its name is asked for by itself — with the page, not after it.
+   */
+  it("asks for an archived job source before showing the job", async () => {
+    currentDeal = { ...deal, sourceId: "src-old" };
+    const watch = watchFirstFrame(jobIsUp, () => ({ sourceName: !!screen.queryByText(/yellow pages/i) }));
+    renderPage();
+    await screen.findByText("#1042", {}, { timeout: 3000 });
+    watch.stop();
+
+    expect(watch.frame()).toEqual({ sourceName: true });
   });
 
   it("a request that fails does not hold the job off the screen", async () => {

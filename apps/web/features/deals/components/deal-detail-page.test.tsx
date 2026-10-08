@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {
   ClientType,
@@ -62,13 +62,6 @@ vi.mock("@/features/auth/use-permissions", () => ({
 // Everything the page asks for up front has its own test
 // (deal-detail-page.loading.test.tsx); here it is simply in, so the page renders.
 vi.mock("../job-page-data", () => ({ useJobPageData: () => ({ ready: true }) }));
-// The note is a rich-text editor with its own tests; here it stands in as a
-// plain box, because what these tests are about is the single Save.
-vi.mock("./deal-notes-card", () => ({
-  DealNotesCard: ({ notes, onNotesChange }: { notes: string; onNotesChange: (v: string) => void }) => (
-    <textarea placeholder="What needs doing…" value={notes} onChange={(e) => onNotesChange(e.target.value)} />
-  ),
-}));
 vi.mock("@/features/job-statuses/components/job-status-select", () => ({ JobStatusSelect: () => null }));
 // The header's status picker reads the status catalog; its menu logic has its
 // own tests (status-menu.test.ts).
@@ -299,19 +292,8 @@ beforeEach(() => {
 // Radix dialogs set pointer-events on <body> while open; skip the check in jsdom.
 const user = () => userEvent.setup({ pointerEventsCheck: 0 });
 
-const poInput = () => screen.getByPlaceholderText(/what needs doing/i);
-const firstNameInput = () => screen.getByDisplayValue("Jane");
-const saveButton = () => screen.getByRole("button", { name: "Save" });
-/** Any same-origin link does for the leave guard; the client link is always on the page. */
-const clientLink = () => screen.getByRole("link", { name: /view client/i });
-
-const DIALOG_TITLE = "Leave without saving?";
-
-function fireBeforeUnload(): Event {
-  const e = new Event("beforeunload", { cancelable: true });
-  window.dispatchEvent(e);
-  return e;
-}
+/** The Details tab's form has its own tests (deal-details-tab.test.tsx); here it is a stand-in. */
+const detailsTab = () => screen.getByTestId("details-tab");
 
 // The job page scrolls as one page, the way Workiz's does: the header, the
 // status/tags bar and the tabs ride up with the content instead of standing
@@ -324,46 +306,29 @@ describe("DealDetailPage — scrolling", () => {
     expect(page.className).toMatch(/overflow-y-auto/);
     expect(page).toContainElement(screen.getByText("#1042"));
     expect(page).toContainElement(screen.getByRole("tab", { name: /^details$/i }));
-    expect(page).toContainElement(screen.getByRole("link", { name: /view client/i }));
+    expect(page).toContainElement(detailsTab());
   });
 
   it("gives the details no scroll region of their own", () => {
     render(<DealDetailPage dealId="d1" />);
 
-    const inner = screen.getByRole("link", { name: /view client/i }).closest(".overflow-y-auto");
-    expect(inner).toBe(screen.getByTestId("job-page-scroll"));
-  });
-
-  it("keeps the Save bar pinned to the bottom while the page scrolls", () => {
-    mocks.perms.deals = true;
-    render(<DealDetailPage dealId="d1" />);
-
-    const bar = saveButton().parentElement as HTMLElement;
-    expect(bar.className).toMatch(/sticky/);
-    expect(bar.className).toMatch(/bottom-0/);
+    expect(detailsTab().closest(".overflow-y-auto")).toBe(screen.getByTestId("job-page-scroll"));
   });
 });
 
 describe("DealDetailPage (read only)", () => {
+  /** Workiz links the client from the title only; the Client section has no "View client". */
   it("links from the job to the client page", () => {
     render(<DealDetailPage dealId="d1" />);
 
-    const link = screen.getByRole("link", { name: /view client/i });
-    expect(link).toHaveAttribute("href", "/contacts/c1");
+    expect(screen.getByRole("link", { name: "Jane Smith" })).toHaveAttribute("href", "/contacts/c1");
   });
 
-  /**
-   * What a technician opens this page for. On a job page the call is the
-   * action, not an icon tucked against the end of a phone number — and half
-   * the time the number beside it is masked anyway.
-   */
-  it("gives the client's call the weight of a job-page action", () => {
+  it("hands the Details tab the job, read only for a viewer", () => {
     render(<DealDetailPage dealId="d1" />);
 
-    expect(screen.getByRole("button", { name: /call \+14045551234/i })).toHaveAttribute(
-      "data-variant",
-      "prominent",
-    );
+    expect(detailsTab()).toHaveAttribute("data-deal", "d1");
+    expect(detailsTab()).toHaveAttribute("data-can-edit", "false");
   });
 
   it("shows the job's company in the header", () => {
@@ -392,16 +357,6 @@ describe("DealDetailPage (read only)", () => {
     expect(handle).toHaveAttribute("aria-expanded", "false");
   });
 
-  /**
-   * Workiz puts "Send to tech" with the roster, not in a menu — handing the
-   * job over is the step right after picking who does it.
-   */
-  it("puts 'Send to tech' in the Team section, read-only for a viewer", () => {
-    render(<DealDetailPage dealId="d1" />);
-
-    expect(screen.getByRole("button", { name: /send to tech/i })).toBeDisabled();
-    expect(screen.getByTestId("send-to-tech")).toBeInTheDocument();
-  });
 });
 
 describe("DealDetailPage — Workiz's two-line tabs", () => {
@@ -552,356 +507,35 @@ describe("DealDetailPage — the header, as Workiz lays it out", () => {
   });
 });
 
-describe("DealDetailPage (editable, single save)", () => {
+// The form body — Client, Schedule, Job, Team, the custom fields and the one
+// Save — is DetailsTab, tested on its own in deal-details-tab.test.tsx. Here
+// it stands in, so these tests are about the page around it.
+vi.mock("./deal-details-tab", () => ({
+  DetailsTab: ({ deal: d, canEdit }: { deal: Deal; canEdit: boolean }) => (
+    <div data-testid="details-tab" data-deal={d.id} data-can-edit={String(canEdit)} />
+  ),
+}));
+
+describe("DealDetailPage (editable)", () => {
   beforeEach(() => {
     mocks.perms.deals = true;
     mocks.perms.contacts = true;
   });
 
-  it("renders exactly one Save button on the page, disabled while clean", () => {
+  it("hands the Details tab the right to edit", () => {
     render(<DealDetailPage dealId="d1" />);
 
-    const saves = screen.queryAllByRole("button", { name: /save/i });
-    expect(saves).toHaveLength(1);
-    expect(saves[0]).toBeDisabled();
+    expect(detailsTab()).toHaveAttribute("data-can-edit", "true");
   });
 
-  it("keeps a single Save with no per-block save buttons after address and client edits", async () => {
-    const u = user();
+  /** Unsaved edits live in the Details tab's draft; a hop to Items must not drop them. */
+  it("keeps the Details tab mounted, just hidden, while another tab is open", async () => {
     render(<DealDetailPage dealId="d1" />);
 
-    // Dirty the service address and the client so any per-block dirty bars
-    // would surface if they still existed.
-    await u.type(screen.getByPlaceholderText("City"), "x");
-    await u.type(firstNameInput(), "t");
+    await user().click(screen.getByRole("tab", { name: "Items" }));
 
-    expect(screen.queryByRole("button", { name: /save address/i })).toBeNull();
-    expect(screen.queryByRole("button", { name: /save client/i })).toBeNull();
-    expect(screen.queryAllByRole("button", { name: /save/i })).toHaveLength(1);
-  });
-
-  it("the note is directly editable — one textarea immediately, no Edit button", () => {
-    render(<DealDetailPage dealId="d1" />);
-
-    // One note, as Workiz has it: the second, dispatcher-only box was ours
-    // alone and empty on every imported job.
-    expect(screen.getByPlaceholderText(/what needs doing/i)).toBeInTheDocument();
-    expect(screen.queryByPlaceholderText(/internal dispatcher notes/i)).toBeNull();
-    // (The header's "Edit job name" pencil is the job's name, not its note.)
-    expect(screen.queryByRole("button", { name: /^edit( note)?$/i })).toBeNull();
-  });
-
-  it("saves only the changed deal keys, once, on Save", async () => {
-    const u = user();
-    render(<DealDetailPage dealId="d1" />);
-
-    await u.type(poInput(), "PO-777");
-    // Editing alone must not auto-commit anymore.
-    expect(mocks.updateDeal).not.toHaveBeenCalled();
-
-    await u.click(saveButton());
-
-    expect(mocks.updateDeal).toHaveBeenCalledTimes(1);
-    expect(mocks.updateDeal.mock.calls[0][0]).toEqual({ notes: "PO-777" });
-    expect(mocks.updateContact).not.toHaveBeenCalled();
-  });
-
-  it("persists deal and client changes together with one Save click", async () => {
-    const u = user();
-    render(<DealDetailPage dealId="d1" />);
-
-    await u.type(firstNameInput(), "t"); // Jane → Janet
-    await u.type(poInput(), "PO-9");
-
-    await u.click(saveButton());
-    // Renaming the client asks whether the change is for the client too.
-    await u.click(screen.getByRole("button", { name: /yes, make change/i }));
-
-    expect(mocks.updateDeal).toHaveBeenCalledTimes(1);
-    expect(mocks.updateDeal.mock.calls[0][0]).toEqual({ notes: "PO-9" });
-    expect(mocks.updateContact).toHaveBeenCalledTimes(1);
-    expect(mocks.updateContact.mock.calls[0][0]).toMatchObject({
-      id: "c1",
-      body: { firstName: "Janet" },
-    });
-    expect(mocks.createContact).not.toHaveBeenCalled();
-  });
-
-  it("saves the external company picked on the job", async () => {
-    const u = user();
-    render(<DealDetailPage dealId="d1" />);
-
-    await u.click(screen.getByRole("button", { name: /pick external company/i }));
-    await u.click(saveButton());
-
-    expect(mocks.updateDeal).toHaveBeenCalledTimes(1);
-    expect(mocks.updateDeal.mock.calls[0][0]).toEqual({ externalCompanyId: "ec-1" });
-  });
-
-  it("saves the company picked on the job", async () => {
-    const u = user();
-    render(<DealDetailPage dealId="d1" />);
-
-    await u.click(screen.getByRole("button", { name: /pick company/i }));
-    await u.click(saveButton());
-
-    expect(mocks.updateDeal).toHaveBeenCalledTimes(1);
-    expect(mocks.updateDeal.mock.calls[0][0]).toEqual({ businessProfileId: "bp-2" });
-  });
-
-  it("locks the number the job was created with — no editing, no removing it", () => {
-    render(<DealDetailPage dealId="d1" />);
-
-    // The first (primary) number is permanently bound to the job.
-    expect(screen.getByDisplayValue("(404) 555-1234")).toBeDisabled();
-    expect(
-      screen.queryByRole("button", { name: /remove phone/i }),
-    ).not.toBeInTheDocument();
-    // Extra numbers can still be added.
-    expect(screen.getByRole("button", { name: /add phone/i })).toBeInTheDocument();
-  });
-
-  it("adds a second number straight to the client — phones never prompt", async () => {
-    const u = user();
-    render(<DealDetailPage dealId="d1" />);
-
-    await u.click(screen.getByRole("button", { name: /add phone/i }));
-    const inputs = screen.getAllByPlaceholderText("Phone number");
-    await u.type(inputs[1], "2028398283");
-    await u.click(saveButton());
-
-    expect(screen.queryByText("Change client")).not.toBeInTheDocument();
-    expect(mocks.updateContact).toHaveBeenCalledTimes(1);
-    expect(mocks.updateContact.mock.calls[0][0]).toMatchObject({
-      id: "c1",
-      body: { phones: ["+14045551234", "+12028398283"] },
-    });
-    expect(mocks.createContact).not.toHaveBeenCalled();
-  });
-
-  it("renaming asks 'Change client'; 'Just here' keeps the name on the job only", async () => {
-    const u = user();
-    render(<DealDetailPage dealId="d1" />);
-
-    await u.type(firstNameInput(), "t"); // Jane → Janet
-    await u.click(saveButton());
-
-    expect(screen.getByText("Change client")).toBeInTheDocument();
-    expect(
-      screen.getByText(/also be applied to the client/i),
-    ).toBeInTheDocument();
-    await u.click(screen.getByRole("button", { name: /just here/i }));
-
-    expect(mocks.updateDeal).toHaveBeenCalledTimes(1);
-    expect(mocks.updateDeal.mock.calls[0][0]).toMatchObject({
-      clientName: { firstName: "Janet", lastName: "Smith" },
-    });
-    expect(mocks.updateContact).not.toHaveBeenCalled();
-    expect(mocks.createContact).not.toHaveBeenCalled();
-  });
-
-  it("'Yes, make change' applies the rename to the client record", async () => {
-    const u = user();
-    render(<DealDetailPage dealId="d1" />);
-
-    await u.type(firstNameInput(), "t"); // Jane → Janet
-    await u.click(saveButton());
-    await u.click(screen.getByRole("button", { name: /yes, make change/i }));
-
-    expect(mocks.updateContact).toHaveBeenCalledTimes(1);
-    expect(mocks.updateContact.mock.calls[0][0]).toMatchObject({
-      id: "c1",
-      body: { firstName: "Janet" },
-    });
-    // No per-job override to write or clear on this deal.
-    expect(mocks.updateDeal).not.toHaveBeenCalled();
-    expect(mocks.createContact).not.toHaveBeenCalled();
-  });
-
-  /**
-   * A job imported from Workiz carries its own name for the client (the
-   * "Just here" pin), and the client box shows it. That is the job's name,
-   * not an edit of the client record: the page opens clean, saving anything
-   * else never writes the job's name into the contact, and Reset puts the
-   * job's name back rather than the contact's.
-   */
-  describe("a job with its own name for the client", () => {
-    const pinned: Deal = { ...deal, clientName: { firstName: "Clinic", lastName: "Of Weatherford" } };
-
-    it("opens clean — Save stays off", () => {
-      dealState = pinned;
-      render(<DealDetailPage dealId="d1" />);
-
-      expect(screen.getByDisplayValue("Clinic")).toBeInTheDocument();
-      expect(saveButton()).toBeDisabled();
-    });
-
-    it("saving a new phone keeps the contact's own name", async () => {
-      dealState = pinned;
-      const u = user();
-      render(<DealDetailPage dealId="d1" />);
-
-      await u.click(screen.getByRole("button", { name: /add phone/i }));
-      await u.type(screen.getAllByPlaceholderText("Phone number")[1], "2028398283");
-      await u.click(saveButton());
-
-      expect(screen.queryByText("Change client")).not.toBeInTheDocument();
-      expect(mocks.updateContact).toHaveBeenCalledTimes(1);
-      expect(mocks.updateContact.mock.calls[0][0].body).toMatchObject({ firstName: "Jane", lastName: "Smith" });
-      expect(mocks.updateDeal).not.toHaveBeenCalled();
-    });
-
-    it("Reset puts the job's name back and leaves the page clean", async () => {
-      dealState = pinned;
-      const u = user();
-      render(<DealDetailPage dealId="d1" />);
-
-      await u.type(poInput(), "X-1");
-      await u.click(screen.getByRole("button", { name: "Reset" }));
-
-      expect(screen.getByDisplayValue("Clinic")).toBeInTheDocument();
-      expect(saveButton()).toBeDisabled();
-    });
-  });
-
-  it("only asks about the client when the client itself changed", async () => {
-    const u = user();
-    render(<DealDetailPage dealId="d1" />);
-
-    await u.type(poInput(), "PO-9");
-    await u.click(saveButton());
-
-    expect(screen.queryByText(/before saving the job/i)).not.toBeInTheDocument();
-    expect(mocks.updateDeal).toHaveBeenCalledTimes(1);
-  });
-
-  it("holds service-area, schedule and select edits in the draft until Save (no auto-commit)", async () => {
-    const u = user();
-    render(<DealDetailPage dealId="d1" />);
-
-    // Площа — вибір зі списку, той самий, що й на створенні роботи.
-    await u.click(screen.getByRole("combobox", { name: /service area/i }));
-    await u.click(screen.getByRole("option", { name: "North GA" }));
-    await u.click(screen.getByRole("button", { name: /set date/i }));
-    await u.click(screen.getByRole("button", { name: /pick job type/i }));
-    await u.click(screen.getByRole("button", { name: /pick source/i }));
-
-    // None of these fields may commit on their own — that's the whole point.
-    expect(mocks.updateDeal).not.toHaveBeenCalled();
-
-    await u.click(saveButton());
-    expect(mocks.updateDeal).toHaveBeenCalledTimes(1);
-    expect(mocks.updateDeal.mock.calls[0][0]).toEqual({
-      // Ідентифікатор, а не назва: назву сервер бере з довідника.
-      serviceAreaId: "sa-north",
-      scheduledDate: "2026-09-01",
-      scheduledEndDate: "2026-09-01",
-      jobTypeId: "jt-rekey",
-      sourceId: "src-web",
-    });
-  });
-
-  it("doesn't write the contact when a deals-only user (no contacts.edit) edits the service address", async () => {
-    const u = user();
-    mocks.perms.contacts = false; // has deals.edit, lacks contacts.edit
-    render(<DealDetailPage dealId="d1" />);
-
-    // A new service address would otherwise be appended to the client's saved
-    // list — a contact write this user isn't allowed to make.
-    await u.type(screen.getByPlaceholderText("City"), "burg");
-    await u.click(saveButton());
-
-    expect(mocks.updateDeal).toHaveBeenCalledTimes(1);
-    expect(mocks.updateDeal.mock.calls[0][0]).toHaveProperty("address");
-    expect(mocks.updateContact).not.toHaveBeenCalled();
-  });
-
-  it("splits custom fields into per-group cards instead of one Custom fields block", () => {
-    render(<DealDetailPage dealId="d1" />);
-
-    // The field's group is the card title; the monolithic block is gone.
-    expect(screen.getByText("Access")).toBeInTheDocument();
-    expect(screen.queryByText(/^Custom fields$/)).toBeNull();
-  });
-
-  it("marks the page dirty when an applicable custom field is edited and sends it on Save", async () => {
-    const u = user();
-    render(<DealDetailPage dealId="d1" />);
-
-    const gate = screen.getByLabelText("Gate Code");
-    expect(saveButton()).toBeDisabled();
-
-    await u.type(gate, "4417");
-    // Editing a custom field must not auto-commit — it rides the single Save.
-    expect(mocks.updateDeal).not.toHaveBeenCalled();
-    expect(saveButton()).toBeEnabled();
-
-    await u.click(saveButton());
-
-    expect(mocks.updateDeal).toHaveBeenCalledTimes(1);
-    expect(mocks.updateDeal.mock.calls[0][0]).toEqual({ customFields: { "cf-gate": "4417" } });
-  });
-
-  it("keeps unsaved draft edits when an instant action refetches the deal (updatedAt bump)", async () => {
-    const u = user();
-    const { rerender } = render(<DealDetailPage dealId="d1" />);
-
-    await u.type(poInput(), "PO-KEEP");
-    expect(saveButton()).toBeEnabled();
-
-    // A status / tag / assign change invalidates useDeal; the refetch returns the
-    // same deal with a bumped updatedAt. That must not wipe the unsaved edit.
-    dealState = { ...deal, updatedAt: "2026-07-31T12:00:00Z" };
-    rerender(<DealDetailPage dealId="d1" />);
-
-    expect(poInput()).toHaveValue("PO-KEEP");
-    expect(saveButton()).toBeEnabled();
-  });
-
-  it("warns before leaving via a link while dirty — Stay keeps, Leave navigates", async () => {
-    const u = user();
-    render(<DealDetailPage dealId="d1" />);
-
-    await u.type(poInput(), "PO-1");
-
-    await u.click(clientLink());
-    expect(await screen.findByText(DIALOG_TITLE)).toBeInTheDocument();
-
-    await u.click(screen.getByRole("button", { name: "Stay" }));
-    await waitFor(() => expect(screen.queryByText(DIALOG_TITLE)).toBeNull());
-    expect(mocks.push).not.toHaveBeenCalled();
-
-    await u.click(clientLink());
-    expect(await screen.findByText(DIALOG_TITLE)).toBeInTheDocument();
-
-    await u.click(screen.getByRole("button", { name: "Leave" }));
-    expect(mocks.push).toHaveBeenCalledWith("/contacts/c1");
-  });
-
-  it("does not warn on a link once edits are reset", async () => {
-    const u = user();
-    render(<DealDetailPage dealId="d1" />);
-
-    await u.type(poInput(), "X-1");
-    expect(saveButton()).toBeEnabled();
-
-    await u.click(screen.getByRole("button", { name: "Reset" }));
-    expect(poInput()).toHaveValue("");
-    expect(saveButton()).toBeDisabled();
-
-    await u.click(clientLink());
-    expect(screen.queryByText(DIALOG_TITLE)).toBeNull();
-    expect(mocks.push).not.toHaveBeenCalled();
-  });
-
-  it("blocks beforeunload only while dirty", async () => {
-    const u = user();
-    render(<DealDetailPage dealId="d1" />);
-
-    expect(fireBeforeUnload().defaultPrevented).toBe(false);
-
-    await u.type(poInput(), "PO-2");
-    expect(fireBeforeUnload().defaultPrevented).toBe(true);
+    expect(detailsTab()).toBeInTheDocument();
+    expect(detailsTab().closest("[role=tabpanel]")).toHaveClass("hidden");
   });
 });
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { X } from "lucide-react";
+import { Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { personName } from "../person-name";
 import { techColor } from "../tech-color";
@@ -35,12 +35,14 @@ export function AssignedTechRow({
   const initial = (user?.firstName ?? user?.lastName ?? "").trim().charAt(0).toUpperCase();
 
   return (
-    // `group` so the row's buttons can appear only when it is reached for.
-    <div className={cn("group flex items-center gap-2.5 py-1.5", className)}>
+    // Workiz's `details-module__techRow`: a 35px round avatar, the name
+    // centred beside it, then the 40px actions, which show once the row is
+    // reached for. `group` is that hover.
+    <div className={cn("group mb-2.5 flex", className)}>
       <span
         data-slot="tech-avatar"
         className={cn(
-          "grid size-8 shrink-0 place-items-center rounded-full text-sm font-semibold text-white",
+          "mr-2.5 grid size-[35px] shrink-0 place-items-center rounded-full text-[14px] leading-[35px] text-white",
           techColor(techId),
           name ? "" : "opacity-50",
         )}
@@ -48,29 +50,36 @@ export function AssignedTechRow({
         {initial}
       </span>
 
-      <span
-        className={cn(
-          "min-w-0 flex-1 truncate text-sm",
-          name ? "" : "h-4 max-w-40 animate-pulse rounded bg-muted text-transparent",
-        )}
-        title={name}
-      >
-        {name ?? " "}
-      </span>
+      <div className="flex min-h-10 min-w-0 flex-1 flex-col justify-center text-[14px] leading-4 font-normal text-wz-strong">
+        <span
+          className={cn("truncate", name ? "" : "h-4 max-w-40 animate-pulse rounded bg-muted text-transparent")}
+          title={name}
+        >
+          {name ?? " "}
+        </span>
+      </div>
 
-      <div className="flex shrink-0 items-center gap-0.5">
+      <div className="flex shrink-0 items-start">
         {children}
         {onRemove ? (
           <button
             type="button"
             aria-label={`Remove ${name ?? "technician"}`}
+            title="Remove tech"
             onClick={() => onRemove(techId)}
-            className="grid size-8 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            className={cn(TECH_ACTION, "opacity-0 group-hover:opacity-100 focus-visible:opacity-100")}
           >
-            <X className="size-4" />
+            <Trash2 className="size-[18px]" strokeWidth={1.5} />
           </button>
         ) : null}
       </div>
     </div>
   );
 }
+
+/**
+ * One of a tech row's actions (`details-module__action`): 40px round, ink
+ * glyph, a #ddd disc under the pointer (job_b_04 / jobdetails_wz_techrow_*).
+ */
+export const TECH_ACTION =
+  "grid size-10 shrink-0 cursor-pointer place-items-center rounded-full text-foreground transition-all duration-300 hover:bg-[#dddddd] disabled:cursor-not-allowed";

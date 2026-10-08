@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { IdCard, MessageSquare, Phone } from "lucide-react";
+import { IdCard, MessageSquareText, Phone } from "lucide-react";
 import {
   Tooltip,
   TooltipContent,
@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 import { startCall } from "@/features/telephony/softphone-manager";
 import { personName } from "../person-name";
 import { TechChatSheet } from "./tech-chat-sheet";
+import { TECH_ACTION } from "./assigned-tech-row";
 
 /**
  * What a dispatcher does with the technician on a job, from the job: look them
@@ -45,16 +46,21 @@ export function TechRowActions({
     .join(", ");
 
   return (
-    <div className="flex items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+    <div className="flex items-start opacity-0 transition-opacity duration-300 focus-within:opacity-100 group-hover:opacity-100">
       {/* Hover, as Workiz does: a dispatcher glances at it, they do not open it. */}
       <TooltipProvider delayDuration={150}>
         <Tooltip>
           <TooltipTrigger asChild>
-            <button type="button" aria-label="Technician details" className={btn}>
-              <IdCard className="size-4" />
+            <button type="button" aria-label="Technician details" className={TECH_ACTION}>
+              <IdCard className="size-[18px]" strokeWidth={1.5} />
             </button>
           </TooltipTrigger>
-          <TooltipContent align="end" className="max-w-72 p-3 text-left text-sm">
+          {/* Workiz's card (jobdetails_wz_techrow_action0_hover): white, 4px
+              corners, 12px padding, 12px/18px medium ink, a soft ink shadow. */}
+          <TooltipContent
+            side="top"
+            className="block w-[264px] max-w-none rounded-[4px] bg-white p-3 text-left text-[12px] leading-[18px] font-medium tracking-[0.4px] text-foreground shadow-[0_0_4px_rgba(59,75,82,0.05),0_4px_12px_rgba(59,75,82,0.1)] [&>span:last-child]:hidden"
+          >
             <TechDetailsCard name={name} phone={phone} email={user?.email} address={address} />
           </TooltipContent>
         </Tooltip>
@@ -65,15 +71,15 @@ export function TechRowActions({
         aria-label="Call technician"
         disabled={!phone}
         onClick={() => phone && startCall(phone)}
-        className={cn(btn, !phone && "opacity-40")}
+        className={cn(TECH_ACTION, !phone && "opacity-40")}
       >
-        <Phone className="size-4" />
+        <Phone className="size-[18px]" strokeWidth={1.5} />
       </button>
 
       {/* Beside the job, not instead of it: a dispatcher messaging a technician
           is in the middle of that job. */}
-      <button type="button" aria-label="Message technician" onClick={() => setChatOpen(true)} className={btn}>
-        <MessageSquare className="size-4" />
+      <button type="button" aria-label="Message technician" onClick={() => setChatOpen(true)} className={TECH_ACTION}>
+        <MessageSquareText className="size-5" strokeWidth={1.5} />
       </button>
       <TechChatSheet
         techId={techId}
@@ -86,9 +92,6 @@ export function TechRowActions({
     </div>
   );
 }
-
-const btn =
-  "grid size-8 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed";
 
 /**
  * What the hover card says about a technician — and only what is known.
@@ -107,8 +110,8 @@ export function TechDetailsCard({
   address?: string;
 }) {
   return (
-    <div className="space-y-1">
-      {name ? <p className="font-medium">{name}</p> : null}
+    <div>
+      {name ? <strong className="block font-medium">{name}</strong> : null}
       <Detail label="Phone" value={phone ? formatPhone(phone) : undefined} />
       <Detail label="Email" value={email} />
       <Detail label="Address" value={address || undefined} />
@@ -119,8 +122,8 @@ export function TechDetailsCard({
 function Detail({ label, value }: { label: string; value?: string }) {
   if (!value) return null;
   return (
-    <p className="text-muted-foreground">
-      <span className="text-foreground/70">{label}: </span>
+    <p>
+      <span>{label}: </span>
       <span>{value}</span>
     </p>
   );
