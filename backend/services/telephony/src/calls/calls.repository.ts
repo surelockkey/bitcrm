@@ -16,6 +16,7 @@ import {
   partyGsiPk,
   allCallsSk,
 } from '../common/constants/dynamo.constants';
+import { callFilterClauses } from './call-filter-expression';
 
 export type CallStatus =
   | 'queued'
@@ -163,8 +164,15 @@ export interface CallRecord {
 }
 
 export interface ListCallsFilter {
+  /**
+   * One status or a comma list; besides our raw statuses it takes Workiz's
+   * categories `answered`, `missed`, `active`, `voicemail`
+   * (call-filter-expression.ts). Several values = any of them.
+   */
   status?: string;
+  /** `inbound` / `outbound`, or both as a comma list. */
   direction?: string;
+  /** One user id or a comma list — Workiz's User filter. */
   agentId?: string;
   /** Substring match against either party's number. */
   number?: string;
@@ -181,10 +189,23 @@ export interface ListCallsFilter {
    */
   origin?: string;
   /**
-   * Only calls carrying this call tag. A FilterExpression inside the
-   * date-ordered partition walk — see `buildListQuery` for what that costs.
+   * Only calls carrying this call tag (a comma list: any of them). A
+   * FilterExpression inside the date-ordered partition walk — see
+   * `callFilterClauses` for what that costs.
    */
   tagId?: string;
+  /** Workiz's Call Flow filter: one flow id or a comma list. */
+  flowId?: string;
+  /** Workiz's Ad Group filter: one job-source id or a comma list. */
+  sourceId?: string;
+  /** Talk time at least this many seconds (Workiz "Over 1 min" = 61). */
+  minDuration?: number;
+  /** Talk time at most this many seconds; a call with none counts as 0. */
+  maxDuration?: number;
+  /** Workiz's "Masking calls": true = masked only, false = never masked. */
+  masked?: boolean;
+  /** Workiz's Job Status "All with job": true = linked to a job, false = not. */
+  hasJob?: boolean;
 }
 
 /**
@@ -754,6 +775,59 @@ export class CallsRepository {
   }
 
   /**
+   * Every row the filter selects, projected to `attributes` — what the stat
+   * cards over the log are tallied from (`CallsSummaryTally`).
+   *
+   * The count's walk exactly: the same months, the same key condition and
+   * filter, the same page size (none — DynamoDB's own megabyte) and the same
+   * budget, so the rows read here are the rows the count counted and CALLS
+   * matches "of N". Only a projection instead of `Select: 'COUNT'`. Out of
+   * budget it stops and says so.
+   */
+  async walkSelection(
+    filter: ListCallsFilter,
+    attributes: readonly string[],
+    onRow: (row: Record<string, unknown>) => void,
+  ): Promise<{ atLeast: boolean }> {
+    const { keyCondition, filterExpression, names, values } =
+      this.buildListQuery(filter);
+    const projectionNames: Record<string, string> = {};
+    const projection = attributes.map((attr, i) => {
+      projectionNames[`#p${i}`] = attr;
+      return `#p${i}`;
+    });
+    let queries = 0;
+
+    for (const month of monthsDescending(filter.dateFrom, filter.dateTo)) {
+      let exclusiveStartKey: Record<string, unknown> | undefined;
+
+      for (;;) {
+        if (queries >= MAX_COUNT_QUERIES) return { atLeast: true };
+        queries += 1;
+
+        const res = await this.dynamoDb.client.send(
+          new QueryCommand({
+            TableName: this.tableName,
+            IndexName: CALLS_GSI2_NAME,
+            KeyConditionExpression: keyCondition,
+            ...(filterExpression && { FilterExpression: filterExpression }),
+            ProjectionExpression: projection.join(', '),
+            ExpressionAttributeNames: { ...names, ...projectionNames },
+            ExpressionAttributeValues: { ...values, ':allPk': `CALL#${month}` },
+            ...(exclusiveStartKey && { ExclusiveStartKey: exclusiveStartKey }),
+          }),
+        );
+
+        for (const item of res.Items ?? []) onRow(item);
+        if (!res.LastEvaluatedKey) break;
+        exclusiveStartKey = res.LastEvaluatedKey;
+      }
+    }
+
+    return { atLeast: false };
+  }
+
+  /**
    * How many calls went through each call flow on each day of a window — the
    * tally behind the dashboard's "Top Call Flows".
    *
@@ -915,40 +989,18 @@ export class CallsRepository {
     // The receiving side of an internal (our-number-to-our-number) call is
     // bookkeeping, not a call of its own — never listed.
     const clauses: string[] = ['attribute_not_exists(internalLegOf)'];
-    if (filter.status) {
-      clauses.push('#status = :status');
-      names['#status'] = 'status';
-      values[':status'] = filter.status;
-    }
-    if (filter.direction) {
-      clauses.push('#direction = :direction');
-      names['#direction'] = 'direction';
-      values[':direction'] = filter.direction;
-    }
-    if (filter.agentId) {
-      clauses.push('agentId = :agentId');
-      values[':agentId'] = filter.agentId;
-    }
+    // Status, direction, user, tags, flow, ad group, duration, masking, job —
+    // Workiz's "+ Add filter", each taking several values. A rare tag (or any
+    // selective value) with no date range can walk months of log for 25
+    // rows: the walk is capped at MAX_QUERY_PAGES per request and returns a
+    // cursor when it runs out of budget. If tag lookups become routine, the
+    // upgrade is a sparse GSI keyed CALLTAG#<id> maintained by setTags, not a
+    // cheaper filter.
+    clauses.push(...callFilterClauses(filter, names, values));
     if (filter.origin) {
       clauses.push('#origin = :origin');
       names['#origin'] = 'origin';
       values[':origin'] = filter.origin;
-    }
-    if (filter.tagId) {
-      // Tags are a list attribute, so membership is `contains`, and this is a
-      // FilterExpression inside the CALL#ALL partition walk: DynamoDB reads
-      // every row in date order and drops the untagged ones AFTER charging
-      // for them (QUERY_PAGE_SIZE rows per internal page). The cost of one
-      // API page is therefore how far back `limit` matches reach, not the
-      // page size — a rare tag with no date range can walk months of log
-      // for 25 rows, so the walk is capped at MAX_QUERY_PAGES per request and
-      // returns a cursor when it runs out of budget. The UI pairs this with
-      // dateFrom/dateTo; if tag lookups become routine, the upgrade is a
-      // sparse GSI keyed CALLTAG#<id> maintained by setTags, not a cheaper
-      // filter.
-      clauses.push('contains(#tagIds, :tagId)');
-      names['#tagIds'] = 'tagIds';
-      values[':tagId'] = filter.tagId;
     }
     if (filter.number) {
       clauses.push('(contains(#from, :number) OR contains(#to, :number))');

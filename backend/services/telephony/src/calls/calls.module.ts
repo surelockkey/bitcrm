@@ -10,6 +10,7 @@ import { UserDirectoryService } from '../common/user-directory.service';
 import { DealLinkService } from '../common/deal-link.service';
 import { PermissionLookupService } from '../common/permission-lookup.service';
 import { BridgeService } from '../common/bridge.service';
+import { DealTotalsClient } from '../common/deal-totals.client';
 import { PresenceModule } from '../presence/presence.module';
 import { TelephonyModule } from '../telephony/telephony.module';
 import { NumbersModule } from '../numbers/numbers.module';
@@ -45,6 +46,8 @@ import { FlowSnapshotScheduler } from './flow-snapshot.scheduler';
     DealLinkService,
     PermissionLookupService,
     BridgeService,
+    // The cards' revenue (GET /calls/stats/summary), as Call Tracking reads it.
+    DealTotalsClient,
   ],
   exports: [CallsService, CallEventsBus, BridgeService],
 })

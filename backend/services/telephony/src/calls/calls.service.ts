@@ -32,6 +32,8 @@ import { NumberSettingsRepository } from '../numbers/number-settings.repository'
 import { CallFlowsService } from '../call-flows/call-flows.service';
 import { CallTagsService } from '../call-tags/call-tags.service';
 import { callFlowSeries } from './call-flow-series';
+import { CallsSummaryTally, SUMMARY_ATTRIBUTES, type CallsSummary, type SummaryCall } from './call-summary';
+import { DealTotalsClient } from '../common/deal-totals.client';
 
 /** What `PATCH /calls/:sid/tags` carries: ids to put on, ids to take off. */
 export interface CallTagsChange {
@@ -149,6 +151,7 @@ export class CallsService {
     private readonly callTags?: CallTagsService,
     @Optional() private readonly callFlows?: CallFlowsService,
     @Optional() private readonly redis?: RedisService,
+    @Optional() private readonly dealTotals?: DealTotalsClient,
   ) {}
 
   /**
@@ -560,6 +563,63 @@ export class CallsService {
       COUNT_TTL_SECONDS,
       take,
     );
+  }
+
+  /**
+   * The stat cards over the log for the calls a filter selects — Workiz's
+   * `aggs` (see `call-summary.ts` for each number's rule).
+   *
+   * The count's walk with a projection, so CALLS is the table's "of N"; the
+   * revenue is asked of deal-service only for a viewer who may see money.
+   * Kept thirty seconds like the count — per filter and per money/no-money,
+   * so one viewer's answer never hands another the revenue. When deal-service
+   * cannot say, the cards come back without revenue and are not kept: a
+   * report must not print $0 because a neighbour blinked.
+   */
+  async summary(
+    filter: Parameters<CallsRepository['walkSelection']>[0],
+    opts: { withRevenue: boolean },
+  ): Promise<CallsSummary> {
+    const key = countCacheKey(opts.withRevenue ? 'calls-summary-money' : 'calls-summary', { ...filter });
+    try {
+      const hit = await this.redis?.client.get(key);
+      if (hit) return JSON.parse(hit) as CallsSummary;
+    } catch {
+      // A cache that is down is a miss.
+    }
+
+    const tally = new CallsSummaryTally();
+    const { atLeast } = await this.repo.walkSelection(filter, SUMMARY_ATTRIBUTES, (row) =>
+      tally.add(row as unknown as SummaryCall),
+    );
+
+    let totals: ReadonlyMap<string, number> | undefined;
+    let keep = true;
+    if (opts.withRevenue) {
+      const ids = tally.dealIds();
+      if (!ids.length) {
+        totals = new Map();
+      } else if (this.dealTotals) {
+        try {
+          totals = await this.dealTotals.totals(ids);
+        } catch (err) {
+          keep = false;
+          this.logger.warn(`Calls summary: job totals unavailable — ${(err as Error).message}`);
+        }
+      } else {
+        keep = false;
+      }
+    }
+
+    const out = tally.result({ atLeast, totals });
+    if (keep) {
+      try {
+        await this.redis?.client.set(key, JSON.stringify(out), 'EX', COUNT_TTL_SECONDS);
+      } catch {
+        // The answer stands even when it cannot be kept.
+      }
+    }
+    return out;
   }
 
   /**
