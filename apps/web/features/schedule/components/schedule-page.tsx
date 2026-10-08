@@ -1,117 +1,187 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { DndContext, PointerSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { toast } from "sonner";
-import { ChevronLeft, ChevronRight, CalendarPlus, Search } from "lucide-react";
-import type { Deal, TechnicianProfile } from "@bitcrm/types";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import type { Deal } from "@bitcrm/types";
+import { Skeleton } from "@/components/ui/skeleton";
 import { queryKeys } from "@/lib/query-keys";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { useDenied, usePermissions } from "@/features/auth/use-permissions";
 import * as dealApi from "@/features/deals/api";
-import { todayISO } from "@/features/dispatch/lib";
+import { personName } from "@/features/deals/person-name";
+import {
+  localMinutes,
+  localTodayISO,
+  scheduleColor,
+  stepDate,
+  viewRange,
+  weekOf,
+  type ScheduleView,
+} from "../calendar";
+import { buildEntries } from "../entries";
+import { applyScheduleFilter, pickedTechIds, type SchedulePick } from "../filters";
 import { dealConflicts, eventOnDate, filterTechnicians, type ConflictReason } from "../lib";
-import { useScheduleBoard, type ScheduleBoard, type ScheduleView } from "../use-schedule-board";
-import { DayGrid, type RescheduleTarget } from "./day-grid";
-import { WeekGrid } from "./week-grid";
+import { moveBody, nextTechIds, resolveDrop, scheduleBody, type DragSource, type DropZone } from "../reschedule";
+import { useScheduleBoard, type ScheduleBoard } from "../use-schedule-board";
+import { MonthGrid } from "./month-grid";
+import { RescheduleConfirmDialog, type RescheduleTarget } from "./reschedule-confirm-dialog";
+import { ScheduleFilter } from "./schedule-filter";
+import { ScheduleToolbar } from "./schedule-toolbar";
+import { TimeGrid } from "./time-grid";
+import { TimelineGrid, type TimelineRow } from "./timeline-grid";
 import { TimeOffDialog } from "./time-off-dialog";
-import { RescheduleConfirmDialog } from "./reschedule-confirm-dialog";
+import { UnscheduledPane } from "./unscheduled-pane";
 
-const MS_PER_DAY = 24 * 60 * 60 * 1000;
-const shift = (iso: string, days: number) =>
-  new Date(Date.parse(`${iso}T00:00:00Z`) + days * MS_PER_DAY).toISOString().slice(0, 10);
-
-/** Before the first grid is in: nothing to draw yet. */
+/** Before the first calendar is in: nothing to draw yet. */
 const NO_BOARD: ScheduleBoard = {
   view: "day",
   date: "",
   deals: [],
+  unscheduled: [],
   events: [],
   contacts: new Map(),
   profiles: [],
   users: new Map(),
+  jobTypes: new Map(),
+  roles: new Map(),
 };
 
+/** The browser's clock, in minutes since midnight, ticking each minute (the Timeline's red line). */
+function useNowMinutes(): number {
+  const [now, setNow] = useState(() => localMinutes());
+  useEffect(() => {
+    const id = setInterval(() => setNow(localMinutes()), 60_000);
+    return () => clearInterval(id);
+  }, []);
+  return now;
+}
+
+/**
+ * The Schedule — Workiz's `/root/schedule/` (pg_schedule_wz_*): Day, Week,
+ * Month, Timeline and Timeline Week over the jobs of the days on screen, the
+ * "Unscheduled jobs" pane, "Filter results", and Add time off. Ours on top:
+ * a drop asks before it saves and warns of clashes; the calendar keeps itself
+ * current (live stream, else polling) and appears whole, once.
+ */
 export function SchedulePage() {
+  const router = useRouter();
   const { can } = usePermissions();
   const denied = useDenied();
   const qc = useQueryClient();
   const [view, setView] = useState<ScheduleView>("day");
-  const [date, setDate] = useState(todayISO());
+  const [date, setDate] = useState(() => localTodayISO());
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [picks, setPicks] = useState<SchedulePick[]>([]);
+  const [paneOpen, setPaneOpen] = useState(false);
   const [timeOffOpen, setTimeOffOpen] = useState(false);
   const [pending, setPending] = useState<RescheduleTarget | null>(null);
-  const [activeOnly, setActiveOnly] = useState(true);
-  const [query, setQuery] = useState("");
+  const [scrollHour] = useState(() => new Date().getHours());
+  const nowMin = useNowMinutes();
+  const today = localTodayISO();
 
   const canView = can("deals", "view");
   const canManage = can("technicians", "edit");
+  const readOnly = !canManage;
 
-  // The grid as it was last complete: the day or week picked in the toolbar
-  // replaces it once all of that one is in, not piece by piece.
   const { board } = useScheduleBoard({ view, date }, canView);
-  const { deals, events, contacts, profiles, users } = board ?? NO_BOARD;
+  const b = board ?? NO_BOARD;
 
-  const visibleProfiles = useMemo(
-    () => filterTechnicians(profiles, users, { activeOnly, query }),
-    [profiles, users, activeOnly, query],
-  );
-  const techIds = useMemo(() => visibleProfiles.map((p) => p.userId), [visibleProfiles]);
+  const techName = useCallback((id: string) => personName(b.users.get(id)) ?? "", [b.users]);
+  const jobTypeName = useCallback((id: string) => b.jobTypes.get(id) ?? "", [b.jobTypes]);
 
-  const profileMap = useMemo(() => {
-    const m = new Map<string, TechnicianProfile>();
-    for (const p of profiles) m.set(p.userId, p);
-    return m;
-  }, [profiles]);
+  // The field team, active, as the Timeline's rows and the TEAM filter.
+  const roster = useMemo(() => filterTechnicians(b.profiles, b.users, { activeOnly: true }), [b.profiles, b.users]);
+  const team = useMemo(() => roster.map((p) => ({ id: p.userId, name: techName(p.userId) })).filter((t) => t.name), [roster, techName]);
+  const picked = useMemo(() => pickedTechIds(picks), [picks]);
+  const profileMap = useMemo(() => new Map(b.profiles.map((p) => [p.userId, p])), [b.profiles]);
+
+  const entries = useMemo(() => {
+    const deals = applyScheduleFilter(b.deals, picks);
+    const events = b.events.filter((e) => !picked || picked.includes(e.technicianId));
+    return buildEntries(deals, events, { jobTypeName, techName, profiles: profileMap });
+  }, [b.deals, b.events, picks, picked, jobTypeName, techName, profileMap]);
+
+  const rows = useMemo<TimelineRow[]>(() => {
+    const techRows = roster
+      .filter((p) => !picked || picked.includes(p.userId))
+      .map((p) => {
+        const user = b.users.get(p.userId) as ({ roleId?: string } & object) | undefined;
+        return {
+          id: p.userId,
+          name: techName(p.userId) || "—",
+          role: user?.roleId ? b.roles.get(user.roleId) : undefined,
+          color: scheduleColor(p.userId),
+          photoUrl: p.profilePhotoUrl,
+          hours: p,
+        };
+      });
+    return picked ? techRows : [{ id: null, name: "Unassigned", color: "" }, ...techRows];
+  }, [roster, picked, b.users, b.roles, techName]);
+
+  const openJob = useCallback((deal: Deal) => router.push(`/deals/${deal.id}`), [router]);
+  const pickDay = useCallback((d: string) => {
+    setDate(d);
+    setView("day");
+  }, []);
+
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+  const onDragEnd = (e: DragEndEvent) => {
+    const source = e.active.data.current as DragSource | undefined;
+    if (!source || readOnly) return;
+    const zone = (e.over?.data.current ?? null) as DropZone | null;
+    const start = e.activatorEvent as MouseEvent | null;
+    const pointer = start && "clientX" in start ? { x: start.clientX + e.delta.x, y: start.clientY + e.delta.y } : null;
+    const rect = e.over ? { top: e.over.rect.top, left: e.over.rect.left } : null;
+    const drop = resolveDrop(source, zone, e.delta, pointer, rect);
+    if (!drop) return;
+    const scheduling = source.kind === "card";
+    setPending({
+      deal: source.deal,
+      body: scheduling ? scheduleBody(drop.date, drop.startMin) : moveBody(source.deal, drop),
+      fromTechId: "fromTechId" in source ? source.fromTechId : scheduling && drop.techId !== undefined ? null : undefined,
+      toTechId: drop.techId,
+      scheduling,
+    });
+  };
 
   const reschedule = useMutation({
     mutationFn: async (t: RescheduleTarget) => {
-      await dealApi.updateDeal(t.deal.id, { scheduledTimeSlot: t.newSlot } as never);
-      if (t.newTechId !== t.fromTechId) {
-        // Swap just the dragged technician; the rest of the crew stays on the deal.
-        await dealApi.assignTechs(
-          t.deal.id,
-          t.deal.assignedTechIds.map((id) => (id === t.fromTechId ? t.newTechId : id)),
-        );
+      await dealApi.updateDeal(t.deal.id, t.body as never);
+      if (t.toTechId !== undefined && t.toTechId !== t.fromTechId) {
+        // Swap just the technician of the row it left; the rest of the crew stays on the job.
+        await dealApi.assignTechs(t.deal.id, nextTechIds(t.deal.assignedTechIds, t.fromTechId ?? null, t.toTechId));
       }
     },
-    onSuccess: () => {
+    onSuccess: (_r, t) => {
       qc.invalidateQueries({ queryKey: queryKeys.deals.all() });
-      toast.success("Job rescheduled");
+      toast.success(t.scheduling ? "Job scheduled" : "Job rescheduled");
     },
     onError: (e) => toast.error(getApiErrorMessage(e)),
   });
 
-  // Conflicts for the pending drag, computed client-side against loaded data.
+  // Clashes of the waiting drop, worked out against what is on screen.
   const pendingConflicts: ConflictReason[] = useMemo(() => {
     if (!pending) return [];
-    const preview: Deal = {
-      ...pending.deal,
-      assignedTechIds: pending.deal.assignedTechIds.map((id) =>
-        id === pending.fromTechId ? pending.newTechId : id,
-      ),
-      scheduledTimeSlot: pending.newSlot,
-    };
-    const sameDay = deals.filter(
-      (d) =>
-        d.id !== preview.id &&
-        d.scheduledDate === preview.scheduledDate &&
-        d.assignedTechIds.includes(pending.newTechId),
-    );
-    const techEvents = events.filter(
-      (e) => e.technicianId === pending.newTechId && preview.scheduledDate && eventOnDate(e, preview.scheduledDate),
-    );
-    return dealConflicts(preview, sameDay, techEvents, profileMap.get(pending.newTechId) ?? {});
-  }, [pending, deals, events, profileMap]);
+    const techs =
+      pending.toTechId !== undefined && pending.toTechId !== pending.fromTechId
+        ? nextTechIds(pending.deal.assignedTechIds, pending.fromTechId ?? null, pending.toTechId)
+        : pending.deal.assignedTechIds;
+    const preview: Deal = { ...pending.deal, ...pending.body, assignedTechIds: techs };
+    const reasons = new Set<ConflictReason>();
+    for (const tech of techs) {
+      const sameDay = b.deals.filter(
+        (d) => d.id !== preview.id && d.scheduledDate === preview.scheduledDate && d.assignedTechIds.includes(tech),
+      );
+      const techEvents = b.events.filter(
+        (e) => e.technicianId === tech && preview.scheduledDate && eventOnDate(e, preview.scheduledDate),
+      );
+      for (const r of dealConflicts(preview, sameDay, techEvents, profileMap.get(tech) ?? {})) reasons.add(r);
+    }
+    return [...reasons];
+  }, [pending, b.deals, b.events, profileMap]);
 
   // Refused only once the permissions say so — not on every refresh while
   // they are still on their way.
@@ -124,107 +194,86 @@ export function SchedulePage() {
     );
   }
 
+  const scrollKey = board?.view ?? "";
+  const shownView = board?.view ?? view;
+  const shownDate = board?.date ?? date;
+
   return (
-    <div className="flex flex-1 flex-col">
-      <div className="flex flex-wrap items-center gap-3 border-b px-6 py-3">
-        <h1 className="text-lg font-semibold tracking-tight">Schedule</h1>
-        <Tabs value={view} onValueChange={(v) => setView(v as ScheduleView)}>
-          <TabsList>
-            <TabsTrigger value="day">Day</TabsTrigger>
-            <TabsTrigger value="week">Week</TabsTrigger>
-          </TabsList>
-        </Tabs>
-
-        <div className="flex items-center gap-1">
-          <Button variant="ghost" size="icon" aria-label="Previous" onClick={() => setDate(shift(date, view === "day" ? -1 : -7))}>
-            <ChevronLeft className="size-4" />
-          </Button>
-          <Input type="date" className="h-9 w-40" value={date} onChange={(e) => e.target.value && setDate(e.target.value)} />
-          <Button variant="ghost" size="icon" aria-label="Next" onClick={() => setDate(shift(date, view === "day" ? 1 : 7))}>
-            <ChevronRight className="size-4" />
-          </Button>
-          <Button variant="ghost" size="sm" onClick={() => setDate(todayISO())}>Today</Button>
+    <div className="flex min-h-0 flex-1 flex-col bg-white pt-[14px]">
+      {filterOpen ? <ScheduleFilter techs={team} jobTypes={b.jobTypes} value={picks} onChange={setPicks} /> : null}
+      <ScheduleToolbar
+        view={view}
+        date={date}
+        onView={setView}
+        onToday={() => setDate(localTodayISO())}
+        onStep={(dir) => setDate((d) => stepDate(view, d, dir))}
+        unscheduledCount={board ? board.unscheduled.length : undefined}
+        unscheduledOpen={paneOpen}
+        onToggleUnscheduled={() => setPaneOpen((o) => !o)}
+        onAddTimeOff={canManage ? () => setTimeOffOpen(true) : undefined}
+        filterOpen={filterOpen}
+        onToggleFilter={() => setFilterOpen((o) => !o)}
+      />
+      <DndContext sensors={sensors} onDragEnd={onDragEnd}>
+        <div className="flex min-h-0 flex-1 pt-[3px]">
+          <div className="relative flex min-w-0 flex-1 flex-col">
+            {!board ? (
+              <Skeleton className="m-4 flex-1 rounded-[4px]" />
+            ) : shownView === "day" || shownView === "week" ? (
+              <TimeGrid
+                days={shownView === "day" ? [shownDate] : weekOf(shownDate)}
+                today={today}
+                entries={entries}
+                readOnly={readOnly}
+                scrollKey={scrollKey}
+                scrollHour={scrollHour}
+                onOpen={openJob}
+                onPickDay={shownView === "week" ? pickDay : undefined}
+              />
+            ) : shownView === "month" ? (
+              <MonthGrid date={shownDate} entries={entries} readOnly={readOnly} onOpen={openJob} onPickDay={pickDay} />
+            ) : (
+              <TimelineGrid
+                mode={shownView === "timeline" ? "day" : "week"}
+                date={shownDate}
+                days={weekOf(shownDate)}
+                today={today}
+                nowMin={nowMin}
+                rows={rows}
+                entries={entries}
+                readOnly={readOnly}
+                scrollKey={scrollKey}
+                scrollHour={scrollHour}
+                onOpen={openJob}
+              />
+            )}
+          </div>
+          {paneOpen && board ? (
+            <UnscheduledPane
+              deals={board.unscheduled}
+              contacts={board.contacts}
+              jobTypeName={jobTypeName}
+              techColor={scheduleColor}
+              readOnly={readOnly}
+              onOpen={openJob}
+              onClose={() => setPaneOpen(false)}
+            />
+          ) : null}
         </div>
-
-        {canManage ? (
-          <Button variant="outline" size="sm" className="ml-auto gap-1.5" onClick={() => setTimeOffOpen(true)}>
-            <CalendarPlus className="size-4" />
-            Add time off
-          </Button>
-        ) : null}
-      </div>
-
-      {/* Technician filters */}
-      <div className="flex flex-wrap items-center gap-2 border-b bg-muted/30 px-6 py-2">
-        <div className="relative">
-          <Search className="absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            className="h-8 w-48 pl-7"
-            placeholder="Search technicians…"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
-        </div>
-
-        <Select value={activeOnly ? "active" : "all"} onValueChange={(v) => setActiveOnly(v === "active")}>
-          <SelectTrigger className="h-8 w-36"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="active">Active only</SelectItem>
-            <SelectItem value="all">All statuses</SelectItem>
-          </SelectContent>
-        </Select>
-
-        {/* Counted once the roster and its names are in — a "0" that becomes
-            "69" a moment later is a number the reader never needed. */}
-        {board ? (
-          <span className="ml-auto text-xs text-muted-foreground">
-            {techIds.length} {techIds.length === 1 ? "technician" : "technicians"}
-          </span>
-        ) : null}
-      </div>
-
-      <div className="flex-1 overflow-auto p-4">
-        {!board ? (
-          <p className="p-8 text-center text-sm text-muted-foreground">Loading technicians…</p>
-        ) : techIds.length === 0 ? (
-          <p className="p-8 text-center text-sm text-muted-foreground">No technicians to schedule.</p>
-        ) : board.view === "day" ? (
-          <DayGrid
-            dateISO={board.date}
-            techIds={techIds}
-            deals={deals}
-            events={events}
-            profiles={profileMap}
-            users={users}
-            contacts={contacts}
-            readOnly={!canManage}
-            onReschedule={setPending}
-          />
-        ) : (
-          <WeekGrid
-            anchorISO={board.date}
-            techIds={techIds}
-            deals={deals}
-            events={events}
-            users={users}
-            onPickDay={(d) => {
-              setDate(d);
-              setView("day");
-            }}
-          />
-        )}
-      </div>
+      </DndContext>
 
       <TimeOffDialog
+        // A fresh form, with the next half hour, every time it opens.
+        key={timeOffOpen ? "time-off-open" : "time-off-closed"}
         open={timeOffOpen}
         onOpenChange={setTimeOffOpen}
-        techIds={techIds}
-        users={users}
-        defaultDate={date}
+        techIds={roster.map((p) => p.userId)}
+        users={b.users}
+        defaultDate={viewRange(view, date).from <= today && today <= viewRange(view, date).to ? today : date}
       />
       <RescheduleConfirmDialog
         target={pending}
-        users={users}
+        users={b.users}
         conflicts={pendingConflicts}
         onConfirm={() => {
           if (pending) reschedule.mutate(pending);

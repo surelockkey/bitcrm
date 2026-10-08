@@ -17,11 +17,10 @@ import {
  * The schedule appears once, whole — and a new day turns it over once.
  *
  * It used to come in waves: "No access" while the permissions were on their
- * way, "0 technicians", the columns headed "Technician" until the directory
- * came (and dropping the ones off the field team when it did), job blocks
- * reading "Client" until the names came, the time off last of all — and the
- * calendar asked for again for every page of the roster. A new day emptied the
- * grid and filled it the same way.
+ * way, jobs reading "N/A" until the job types came and "Unassigned" until the
+ * directory named their technicians, the unscheduled count late, the time off
+ * last of all — and the calendar asked for again for every page of the
+ * roster. A new day emptied the grid and filled it the same way.
  *
  * This renders the real page against a fake server and looks at the very
  * first frame the grid shows: everything on it must already be in, and
@@ -46,7 +45,9 @@ vi.mock("@/features/auth/use-permissions", () => ({
 }));
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
-const today = new Date().toISOString().slice(0, 10);
+// The calendar opens on the browser's today, as Workiz's does.
+const now = new Date();
+const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 const tomorrow = new Date(Date.parse(`${today}T00:00:00Z`) + MS_PER_DAY).toISOString().slice(0, 10);
 
 const deal = (n: number, day: string): Deal => ({
@@ -71,9 +72,10 @@ const deal = (n: number, day: string): Deal => ({
 });
 
 const byDay: Record<string, Deal[]> = { [today]: [deal(1, today)], [tomorrow]: [deal(2, tomorrow)] };
+// One job with no visit date: the toolbar counts it, the pane names its client.
+const undated: Deal = { ...deal(3, today), scheduledDate: undefined, scheduledTimeSlot: undefined, assignedTechIds: [] };
 const contacts: Record<string, { id: string; firstName: string; lastName: string }> = {
-  c1: { id: "c1", firstName: "Ivy", lastName: "Quill" },
-  c2: { id: "c2", firstName: "Bea", lastName: "Cole" },
+  c3: { id: "c3", firstName: "Ivy", lastName: "Quill" },
 };
 
 const profile = (userId: string) => ({
@@ -84,9 +86,9 @@ const profile = (userId: string) => ({
   workEnd: "17:00",
 });
 const users = [
-  { id: "t1", firstName: "Sam", lastName: "Reyes", email: "sam@example.test" },
-  { id: "t2", firstName: "Nia", lastName: "Holt", email: "nia@example.test" },
-  // On the roster, but off the field team: no column for them.
+  { id: "t1", firstName: "Sam", lastName: "Reyes", email: "sam@example.test", roleId: "role-tech" },
+  { id: "t2", firstName: "Nia", lastName: "Holt", email: "nia@example.test", roleId: "role-tech" },
+  // On the roster, but off the field team: no Timeline row for them.
   { id: "t3", firstName: "Gus", lastName: "Desk", email: "gus@example.test", fieldTeamMember: false },
 ];
 
@@ -100,9 +102,16 @@ const routes: FakeRoute[] = [
   {
     match: /\/deals$/,
     raw: true,
-    reply: (url) => ({ success: true, data: byDay[url.searchParams.get("scheduledFrom") ?? ""] ?? [], pagination: {} }),
+    reply: (url) => ({
+      success: true,
+      data:
+        url.searchParams.get("unscheduled") === "true" ? [undated] : (byDay[url.searchParams.get("scheduledFrom") ?? ""] ?? []),
+      pagination: {},
+    }),
     delayMs: 30,
   },
+  { match: /\/deals\/job-types$/, reply: () => [{ id: "jt-lockout", name: "Car lockout", active: true }], delayMs: 50 },
+  { match: /\/users\/roles$/, reply: () => [{ id: "role-tech", name: "tech" }], delayMs: 45 },
   {
     match: /\/crm\/contacts\/by-ids$/,
     method: "POST",
@@ -124,18 +133,17 @@ const routes: FakeRoute[] = [
 
 let server: FakeServer;
 
-/** The grid is up: its hour gutter is drawn. */
-const gridIsUp = () => screen.queryAllByText(/^\d\d:00$/).length > 0;
+/** The grid is up: its scroller is drawn. */
+const gridIsUp = () => !!document.querySelector("[data-schedule-scroll]");
+const jobText = (n: string) => screen.queryByRole("button", { name: `Job ID: ${n}` })?.textContent ?? "";
 
 function watchGridFirstFrame() {
   return watchFirstFrame(gridIsUp, () => ({
     requestsSoFar: server.requests.length,
-    techNames: !!screen.queryByText("Sam Reyes") && !!screen.queryByText("Nia Holt"),
-    placeholderName: screen.queryAllByText("Technician").length,
-    offTeamColumn: !!screen.queryByText("Gus Desk"),
-    jobBlock: !!screen.queryByText(/#801 · Ivy Quill/),
-    timeOff: !!screen.queryByText(/Dentist/),
-    count: !!screen.queryByText("2 technicians"),
+    // The template's job type and technician, already named.
+    jobBlock: /801\s+Car lockout,[\s\S]*Sam Reyes/.test(jobText("801")),
+    timeOff: !!screen.queryByText(/Dentist - Nia Holt/),
+    unscheduledCount: screen.queryByRole("button", { name: "Unscheduled jobs" })?.textContent === "1",
     skeletons: skeletonCount(),
   }));
 }
@@ -160,14 +168,18 @@ describe("SchedulePage — one load, not waves", () => {
     watch.stop();
 
     expect(watch.frame()).toMatchObject({
-      techNames: true,
-      placeholderName: 0,
-      offTeamColumn: false,
       jobBlock: true,
       timeOff: true,
-      count: true,
+      unscheduledCount: true,
       skeletons: 0,
     });
+  });
+
+  it("shows one skeleton until then", async () => {
+    renderWithClient(<SchedulePage />);
+    expect(skeletonCount()).toBe(1);
+    await vi.waitFor(() => expect(gridIsUp()).toBe(true), { timeout: 3000 });
+    expect(skeletonCount()).toBe(0);
   });
 
   it("asks for nothing more once the grid is on screen", async () => {
@@ -201,25 +213,26 @@ describe("SchedulePage — one load, not waves", () => {
 
   it("keeps the day on screen until the next one is in, then turns it over once", async () => {
     renderWithClient(<SchedulePage />);
-    await screen.findByText(/#801 · Ivy Quill/, {}, { timeout: 3000 });
+    await screen.findByRole("button", { name: "Job ID: 801" }, { timeout: 3000 });
     await settle();
 
     let emptied = false;
     let unnamed = false;
     const observer = new MutationObserver(() => {
       if (!gridIsUp()) emptied = true;
-      if (screen.queryByText(/#802 · Client/)) unnamed = true;
+      const next = jobText("802");
+      if (next && !/Sam Reyes/.test(next)) unnamed = true;
     });
     observer.observe(document.body, { childList: true, subtree: true, characterData: true });
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
     // The old day stays until the new one is complete.
-    expect(screen.getByText(/#801 · Ivy Quill/)).toBeInTheDocument();
-    await screen.findByText(/#802 · Bea Cole/, {}, { timeout: 2000 });
+    expect(screen.getByRole("button", { name: "Job ID: 801" })).toBeInTheDocument();
+    await screen.findByRole("button", { name: "Job ID: 802" }, { timeout: 2000 });
     observer.disconnect();
 
     expect(emptied).toBe(false);
     expect(unnamed).toBe(false);
-    expect(screen.queryByText(/#801/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Job ID: 801" })).not.toBeInTheDocument();
   });
 
   it("a request that fails does not hold the grid off the screen", async () => {

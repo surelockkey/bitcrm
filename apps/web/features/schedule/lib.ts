@@ -7,18 +7,6 @@ import {
 } from "@bitcrm/types";
 import type { DirectoryUser } from "@/features/deals/hooks";
 
-/** Vertical grid geometry for the day view. */
-export interface Grid {
-  /** First hour shown (24h). */
-  startHour: number;
-  /** Last hour shown (exclusive upper edge, 24h). */
-  endHour: number;
-  /** Pixels per hour row. */
-  hourPx: number;
-  /** Shortest a block may render, so 10-minute jobs stay legible. */
-  minBlockPx: number;
-}
-
 /** The manager-controlled working-hours subset of a technician profile. */
 export interface WorkingHours {
   workingDays?: number[];
@@ -26,27 +14,13 @@ export interface WorkingHours {
   workEnd?: string;
 }
 
-const MS_PER_DAY = 24 * 60 * 60 * 1000;
-
 function parseISO(dateISO: string): number {
   return Date.parse(`${dateISO}T00:00:00Z`);
-}
-
-function toISO(ms: number): string {
-  return new Date(ms).toISOString().slice(0, 10);
 }
 
 /** Day of week for an ISO date in UTC terms: 0=Sun … 6=Sat. */
 export function dayOfWeek(dateISO: string): number {
   return new Date(parseISO(dateISO)).getUTCDay();
-}
-
-/** The Mon..Sun week (7 ISO dates) containing `anchorISO`. */
-export function weekDays(anchorISO: string): string[] {
-  const dow = dayOfWeek(anchorISO); // 0=Sun..6=Sat
-  const mondayOffset = dow === 0 ? -6 : 1 - dow; // Sunday belongs to the week that just ended
-  const monday = parseISO(anchorISO) + mondayOffset * MS_PER_DAY;
-  return Array.from({ length: 7 }, (_, i) => toISO(monday + i * MS_PER_DAY));
 }
 
 /** "HH:MM-HH:MM" → minutes since midnight, or null when malformed. */
@@ -72,102 +46,20 @@ export function slotsOverlap(a?: string, b?: string): boolean {
   return pa.start < pb.end && pb.start < pa.end;
 }
 
-/** Top offset + height (px) for a slot within the grid, clamped to a minimum. */
-export function blockGeometry(slot: string, grid: Grid): { topPx: number; heightPx: number } {
-  const p = parseSlot(slot) ?? { start: grid.startHour * 60, end: grid.startHour * 60 };
-  const gridStart = grid.startHour * 60;
-  const pxPerMin = grid.hourPx / 60;
-  const topPx = (p.start - gridStart) * pxPerMin;
-  const heightPx = Math.max(grid.minBlockPx, (p.end - p.start) * pxPerMin);
-  return { topPx, heightPx };
-}
-
-export interface DayBlock {
-  deal: Deal;
-  topPx: number;
-  heightPx: number;
-  /** How many later, time-overlapping jobs are folded behind this one (the +N pill). */
-  overflowCount: number;
-}
-
-export interface DayColumnLayout {
-  /** Rendered blocks (one per overlap cluster; earliest wins). */
-  blocks: DayBlock[];
-  /** Jobs folded into a `+N` pill on their cluster's block. */
-  hidden: Deal[];
-  /** Scheduled-date jobs with no time slot — shown in a tray, not the grid. */
-  unscheduled: Deal[];
-}
-
 /**
- * Lay out a technician's day. Overlapping jobs collapse to a single block with a
- * `+N` pill rather than shrinking side-by-side — the readability rule that keeps
- * this from looking like the old Workiz calendar.
+ * A technician's hours off on a day, in minutes since midnight: the whole day
+ * on a day they do not work, else before their start and after their end.
+ * Nothing when their working hours are unset (opt-in).
  */
-export function layoutDayColumn(deals: Deal[], grid: Grid): DayColumnLayout {
-  const unscheduled = deals.filter((d) => !parseSlot(d.scheduledTimeSlot));
-  const timed = deals
-    .filter((d) => parseSlot(d.scheduledTimeSlot))
-    .sort((a, b) => (a.scheduledTimeSlot! < b.scheduledTimeSlot! ? -1 : 1));
-
-  const blocks: DayBlock[] = [];
-  const hidden: Deal[] = [];
-  let cluster: Deal[] = [];
-  let clusterEnd = -1;
-
-  const flush = () => {
-    if (!cluster.length) return;
-    const [lead, ...rest] = cluster;
-    const geo = blockGeometry(lead.scheduledTimeSlot!, grid);
-    blocks.push({ deal: lead, ...geo, overflowCount: rest.length });
-    hidden.push(...rest);
-    cluster = [];
-    clusterEnd = -1;
-  };
-
-  for (const d of timed) {
-    const p = parseSlot(d.scheduledTimeSlot)!;
-    if (cluster.length && p.start < clusterEnd) {
-      cluster.push(d);
-      clusterEnd = Math.max(clusterEnd, p.end);
-    } else {
-      flush();
-      cluster = [d];
-      clusterEnd = p.end;
-    }
-  }
-  flush();
-
-  return { blocks, hidden, unscheduled };
-}
-
-/** Dimmed rectangles for out-of-hours / non-working portions of a day column. */
-export function outOfHoursBands(
-  wh: WorkingHours,
-  dateISO: string,
-  grid: Grid,
-): { topPx: number; heightPx: number }[] {
+export function outOfHoursRanges(wh: WorkingHours, dateISO: string): [number, number][] {
   if (!wh.workingDays || !wh.workStart || !wh.workEnd) return [];
-
-  const fullHeight = (grid.endHour - grid.startHour) * grid.hourPx;
-  if (!wh.workingDays.includes(dayOfWeek(dateISO))) {
-    return [{ topPx: 0, heightPx: fullHeight }];
-  }
-
-  const pxPerMin = grid.hourPx / 60;
-  const gridStart = grid.startHour * 60;
-  const gridEnd = grid.endHour * 60;
-  const start = parseSlot(`${wh.workStart}-${wh.workStart}`)?.start ?? gridStart;
-  const end = parseSlot(`${wh.workEnd}-${wh.workEnd}`)?.start ?? gridEnd;
-
-  const bands: { topPx: number; heightPx: number }[] = [];
-  if (start > gridStart) {
-    bands.push({ topPx: 0, heightPx: (start - gridStart) * pxPerMin });
-  }
-  if (end < gridEnd) {
-    bands.push({ topPx: (end - gridStart) * pxPerMin, heightPx: (gridEnd - end) * pxPerMin });
-  }
-  return bands;
+  if (!wh.workingDays.includes(dayOfWeek(dateISO))) return [[0, 1440]];
+  const start = parseSlot(`${wh.workStart}-${wh.workStart}`)?.start ?? 0;
+  const end = parseSlot(`${wh.workEnd}-${wh.workEnd}`)?.start ?? 1440;
+  const out: [number, number][] = [];
+  if (start > 0) out.push([0, start]);
+  if (end < 1440) out.push([end, 1440]);
+  return out;
 }
 
 /** Whether an event's inclusive [startDate,endDate] span covers a date. */
@@ -208,43 +100,6 @@ export function dealConflicts(
       reasons.push("out_of_hours");
   }
   return reasons;
-}
-
-/** Default day window, always shown; the grid only ever grows past it. */
-const DEFAULT_START_HOUR = 7;
-const DEFAULT_END_HOUR = 19;
-
-/**
- * The hour window a day column should span: the [7,19] baseline, widened to fit
- * any job or working-hours boundary that falls outside it that day. This is why
- * the grid is no longer stuck at 7–18 — an early or late job pulls it open.
- */
-export function computeDayWindow(
-  deals: Deal[],
-  profiles: Map<string, TechnicianProfile>,
-  dateISO: string,
-): { startHour: number; endHour: number } {
-  let minStart = DEFAULT_START_HOUR * 60;
-  let maxEnd = DEFAULT_END_HOUR * 60;
-
-  for (const d of deals) {
-    if (d.scheduledDate !== dateISO) continue;
-    const p = parseSlot(d.scheduledTimeSlot);
-    if (!p) continue;
-    minStart = Math.min(minStart, p.start);
-    maxEnd = Math.max(maxEnd, p.end);
-  }
-  for (const prof of profiles.values()) {
-    const start = parseSlot(`${prof.workStart}-${prof.workStart}`);
-    const end = parseSlot(`${prof.workEnd}-${prof.workEnd}`);
-    if (start) minStart = Math.min(minStart, start.start);
-    if (end) maxEnd = Math.max(maxEnd, end.start);
-  }
-
-  return {
-    startHour: Math.max(0, Math.floor(minStart / 60)),
-    endHour: Math.min(24, Math.ceil(maxEnd / 60)),
-  };
 }
 
 export interface TechFilter {
