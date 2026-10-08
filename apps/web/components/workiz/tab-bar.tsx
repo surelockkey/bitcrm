@@ -27,6 +27,11 @@ export interface WzTab {
  * - `job` — the job page's tab bar (job_b_01_details, now
  *   features/deals/components/job-tab-bar.tsx): equal widths, a 16px/500
  *   name over a 12px line, a 4px #3e4b51 bar along the open tab's foot.
+ * - `legacy` — the legacy reports' `standard-tabs` (Job Statistics,
+ *   rep_jobstats_wz_02_overview_day): no rule of its own (the content box
+ *   under it has one), 16px/500 ink words open or not, 15px 45px, the open
+ *   one a 4px #3e4b51 bar — pull the row 1px over the box (`-mb-px`) so the
+ *   bar covers its top edge, as Workiz draws it.
  *
  * Tabs, not buttons: one Tab stop, the arrow keys / Home / End move between
  * them and open the one they land on (audit_dispatcher: the job tabs did not
@@ -43,7 +48,7 @@ export function WzTabBar({
   tabs: readonly WzTab[];
   value: string;
   onValueChange: (value: string) => void;
-  variant?: "small" | "page" | "job";
+  variant?: "small" | "page" | "job" | "legacy";
   className?: string;
   "aria-label": string;
 }) {
@@ -109,6 +114,8 @@ export function WzTabBar({
                 open ? "font-semibold" : "font-medium",
               ],
               variant === "job" && "flex min-w-[112px] flex-1 flex-col items-center px-3 pt-4 text-center",
+              variant === "legacy" &&
+                "flex shrink-0 items-center px-[45px] py-[15px] text-base leading-4 font-medium tracking-[0.5px] whitespace-nowrap text-foreground",
             )}
           >
             {variant === "job" ? (
@@ -140,6 +147,7 @@ export function WzTabBar({
                   variant === "small" && "-bottom-px h-0.5 bg-foreground",
                   variant === "page" && "bottom-0 h-[3px] bg-wz-tab-bar",
                   variant === "job" && "bottom-0 h-1 bg-wz-tab-bar",
+                  variant === "legacy" && "bottom-0 h-1 bg-wz-tab-bar",
                 )}
               />
             ) : null}
