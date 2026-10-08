@@ -4,6 +4,31 @@ import { describe, expect, it, vi } from "vitest";
 
 import { WzDrawer, WzDrawerSection } from "./drawer";
 
+describe("WzDrawer — the older band head", () => {
+  it("is white with the title 24px in by default, and a grey band with the title centred on `band`", () => {
+    const { unmount } = render(
+      <WzDrawer open onOpenChange={() => {}} title="Visible fields">
+        x
+      </WzDrawer>,
+    );
+    const plain = document.querySelector("[data-head]")!;
+    expect(plain.getAttribute("data-head")).toBe("plain");
+    expect(plain.className).toContain("justify-between");
+    unmount();
+
+    render(
+      <WzDrawer open onOpenChange={() => {}} title="Dashboard widgets" head="band" width={320}>
+        x
+      </WzDrawer>,
+    );
+    const band = document.querySelector("[data-head]")!;
+    expect(band.className).toContain("bg-muted");
+    expect(band.className).toContain("justify-center");
+    expect(screen.getByRole("dialog", { name: "Dashboard widgets" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Close" })).toBeInTheDocument();
+  });
+});
+
 const cls = (el: Element | null) => (el?.className ?? "").toString().split(/\s+/);
 
 describe("WzDrawer", () => {

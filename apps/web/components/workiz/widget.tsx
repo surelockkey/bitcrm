@@ -96,12 +96,16 @@ export function WzWidget({
           </div>
         </div>
       </header>
-      <div className={cn("relative min-h-0 flex-1 px-5 py-[17px]", bodyClassName)}>{children}</div>
+      {/* Workiz's body box is 97.76% of the card, padded 20px: 27px short of the
+          right edge on a one-column card, 35px on a two-column one. */}
+      <div className={cn("relative min-h-0 flex-1 py-[17px] pr-[calc(20px+2.24%)] pl-5 tracking-[0.075px]", bodyClassName)}>
+        {children}
+      </div>
       {viewAll ? (
         <Link
           href={viewAll.href}
           className={cn(
-            "absolute bottom-[25px] left-[25px] text-[13px] leading-[18px] text-wz-link hover:text-brand",
+            "absolute bottom-[25px] left-[25px] text-[13px] leading-[18px] tracking-[0.075px] text-wz-link hover:text-brand",
             viewAll.underline !== false && "underline",
           )}
         >
@@ -190,8 +194,8 @@ export interface WzRangeOption<V extends string = string> {
 
 /**
  * Workiz's widget range picker (`simpleSelect`, pg_dashboard_wz_range_open):
- * "Last 14 Days" 14px/22px #a0a0a0, capitalised, then a CSS chevron (an 8.5px
- * corner of 2px #687886) 15px on. The list hangs right-aligned straight under
+ * "Last 14 Days" 14px/22px #a0a0a0, capitalised, then a CSS chevron (a 6px
+ * corner of 2px #687886 turned 45°, 8.5px across) 7px on. The list hangs right-aligned straight under
  * it: 195px white, 2px corners, `0 5px 6px rgba(0,0,0,.133)`, 42px rows
  * (10px in, the same grey, #fafafa under the pointer).
  */
@@ -224,7 +228,7 @@ export function WzRangeSelect<V extends string>({
           {current}
           <i
             aria-hidden
-            className="mb-[3px] ml-[15px] inline-block size-[8.5px] rotate-45 border-r-2 border-b-2 border-wz-chevron"
+            className="mr-[6px] mb-[3px] ml-2 inline-block size-[6px] rotate-45 border-r-2 border-b-2 border-wz-chevron"
           />
         </button>
       </Menu.Trigger>
@@ -286,11 +290,11 @@ export function WzWidgetStat({
         data-slot="wz-widget-stat"
         className={cn("flex h-[85px] flex-col p-[11px]", rule && cn("border-l-2", rule), className)}
       >
-        <h3 className="text-sm leading-[21px] font-semibold text-wz-text uppercase">
+        <h3 className="text-sm leading-[21px] font-semibold tracking-[0.167857px] text-wz-text uppercase">
           {label}
           {sub ? <span className="ml-2 text-wz-dash-label">{sub}</span> : null}
         </h3>
-        <span className="text-[28px] leading-[42px] text-wz-dash-value tabular-nums">{value}</span>
+        <span className="text-[28px] leading-[42px] tracking-[0.223809px] text-wz-dash-value tabular-nums">{value}</span>
       </div>
     );
   }
@@ -304,10 +308,10 @@ export function WzWidgetStat({
       )}
     >
       <div className="min-w-0">
-        <h3 className="truncate text-sm leading-[21px] font-normal text-wz-text">{label}</h3>
-        {sub ? <div className="truncate text-xs leading-[11px] text-wz-dash-label">{sub}</div> : null}
+        <h3 className="truncate text-sm leading-[21px] font-normal tracking-[0.167857px] text-wz-text">{label}</h3>
+        {sub ? <div className="truncate text-xs leading-[17px] tracking-[0.167857px] text-wz-dash-label">{sub}</div> : null}
       </div>
-      <span className="shrink-0 text-[28px] leading-8 text-wz-dash-value tabular-nums">{value}</span>
+      <span className="shrink-0 text-[28px] leading-8 tracking-[0.223809px] text-wz-dash-value tabular-nums">{value}</span>
     </div>
   );
 }

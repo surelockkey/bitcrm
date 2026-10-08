@@ -1,63 +1,57 @@
 "use client";
 
 import { useState } from "react";
+import type { DashboardPreset } from "@bitcrm/types";
+import { WzBarChart } from "@/components/workiz/charts";
+import { WzChartLegend, WzRangeSelect } from "@/components/workiz/widget";
 import { useJobsByStatus } from "../hooks";
-import { axisDayLabel, DEFAULT_RANGE, type DashboardRange } from "../jobs-by-status";
-import { DailyChart } from "./daily-chart";
+import { DEFAULT_PRESET, WIDGET_RANGES, rangeWindowOf } from "../ranges";
 import { DashboardCard } from "./dashboard-card";
 
-/**
- * The three states, in the order they stand in each day's group.
- *
- * Colour is the status palette rather than the categorical slots: these are
- * states, not series 1-2-3, and a state keeps its colour wherever it appears.
- * The fills are Workiz's own, stepped until adjacent bars separate — see the
- * note in `lib/theme/tokens.ts`.
- */
+/** The three states in the order they stand in each day's group, in Workiz's fills. */
 const SERIES = [
-  { label: "Canceled", className: "bg-chart-critical", key: "canceled" },
-  { label: "Open", className: "bg-chart-warning", key: "open" },
-  { label: "Done", className: "bg-chart-good", key: "done" },
+  { label: "Canceled", color: "var(--wz-chart-canceled)", key: "canceled" },
+  { label: "Open", color: "var(--wz-chart-open)", key: "open" },
+  { label: "Done", color: "var(--wz-chart-done)", key: "done" },
 ] as const;
 
-const HELP =
-  "Jobs counted by the day they were created and the state they are in now. " +
-  "Open covers everything not yet closed, including jobs done but awaiting approval.";
-
 /**
- * "Jobs By Status" — how the fortnight's work is landing.
+ * "Jobs By Status" — how the period's work is landing: jobs counted by the
+ * day they were created and the state they are in now.
  *
  * `now` is frozen for the life of the card rather than read on each render:
  * it decides the window, the window is the query key, and a clock ticking
  * inside the render would refetch the chart forever.
  */
-export function JobsByStatusCard({ className }: { className?: string }) {
+export function JobsByStatusCard({ className, onRemove }: { className?: string; onRemove?: () => void }) {
   const [now] = useState(() => new Date());
-  const [range, setRange] = useState<DashboardRange>(DEFAULT_RANGE);
-  const query = useJobsByStatus(range, now);
+  const [range, setRange] = useState<DashboardPreset>(DEFAULT_PRESET);
+  const query = useJobsByStatus(rangeWindowOf(range, now)!);
 
   return (
     <DashboardCard
       className={className}
+      onRemove={onRemove}
       title="Jobs By Status"
-      help={HELP}
+      help="Jobs by status according to the day the job was created."
       action="view_jobs_by_status"
       query={query}
-      range={range}
-      onRangeChange={setRange}
-      skeletonClassName="h-52"
+      stamped
     >
       {(data) => (
-        <DailyChart
-          title="Jobs by status"
-          days={data.days.map((d) => ({
-            date: d.day,
-            values: SERIES.map((s) => d[s.key]),
-          }))}
-          series={SERIES.map((s) => ({ label: s.label, className: s.className }))}
-          format={(v) => v.toLocaleString("en-US")}
-          labelOf={axisDayLabel}
-        />
+        <>
+          <div className="flex items-start justify-between gap-3">
+            <WzChartLegend items={SERIES.map((s) => ({ label: s.label, color: s.color }))} />
+            <WzRangeSelect label="Range" value={range} options={WIDGET_RANGES} onChange={setRange} />
+          </div>
+          <WzBarChart
+            className="mt-[33px]"
+            title="Jobs by status"
+            days={data.days.map((d) => d.day)}
+            series={SERIES.map((s) => ({ label: s.label, color: s.color, values: data.days.map((d) => d[s.key]) }))}
+            format={(v) => v.toLocaleString("en-US")}
+          />
+        </>
       )}
     </DashboardCard>
   );

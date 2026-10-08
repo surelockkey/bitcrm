@@ -2,194 +2,387 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { ArrowDownLeft, ArrowUpRight } from "lucide-react";
-import type { DashboardScoreRow, DashboardShares } from "@bitcrm/types";
+import { ArrowDownLeft, ArrowUpRight, Laptop, Smartphone } from "lucide-react";
+import {
+  ESTIMATE_STATUS_LABELS,
+  type DashboardPreset,
+  type DashboardScoreRow,
+  type DashboardShares,
+  type EstimateStatus,
+} from "@bitcrm/types";
+import { WzBarChart, WzLineChart, WzPie } from "@/components/workiz/charts";
+import { WzChartLegend, WzRangeSelect, WzWidgetStat } from "@/components/workiz/widget";
+import { usePermissions } from "@/features/auth/use-permissions";
 import { formatMoney } from "@/features/deals/lib";
-import { callParty, formatCallAgo, formatEndpoint, type CallRecord } from "@/features/calls/lib";
+import { callParty, formatEndpoint, type CallRecord } from "@/features/calls/lib";
 import { cn } from "@/lib/utils";
 import * as api from "../api";
 import { barPercent, scoreInitial } from "../charts";
-import { useJobsNow, useRangeWidget, useRecentCalls, useToday } from "../hooks";
-import { axisDayLabel, DEFAULT_RANGE, type DashboardRange } from "../jobs-by-status";
-import { compactMoney } from "../lib";
-import { DailyChart } from "./daily-chart";
+import { fromNow, visitStart, visitStreet } from "../coming-up";
+import {
+  useCollectedToday,
+  useComingUp,
+  useEstimatesWidget,
+  useInvoicesWidget,
+  useJobsNow,
+  useRangeWidget,
+  useRecentActivity,
+  useRecentCalls,
+  useToday,
+} from "../hooks";
+import { localDay } from "../jobs-by-status";
+import { DEFAULT_PRESET, INVOICE_RANGES, WIDGET_RANGES, rangeWindowOf, type InvoiceRange } from "../ranges";
 import { DashboardCard } from "./dashboard-card";
-import { LineChart } from "./line-chart";
-import { SharePie } from "./share-pie";
 
-type CardProps = { className?: string };
+export type CardProps = { className?: string; onRemove?: () => void };
 
 /**
- * A widget's own "Last N Days" window. `now` is frozen for the life of the
- * card: it decides the window, the window is the query key, and a clock read
- * on every render would refetch forever.
+ * A widget's own range. `now` is frozen for the life of the card: it decides
+ * the window, the window is the query key, and a clock read on every render
+ * would refetch forever.
  */
-function useRange(initial: DashboardRange = DEFAULT_RANGE) {
+function useRange() {
   const [now] = useState(() => new Date());
-  const [range, setRange] = useState<DashboardRange>(initial);
-  return { now, range, setRange };
+  const [range, setRange] = useState<DashboardPreset>(DEFAULT_PRESET);
+  return { now, range, setRange, window: rangeWindowOf(range, now)! };
 }
+
+/** The account's day, frozen for the card's life (see `useRange`). */
+function useDay(): [string, Date] {
+  const [now] = useState(() => new Date());
+  return [localDay(now), now];
+}
+
+/** Workiz's "No data to display" in a widget. */
+function Empty({ children = "No data to display" }: { children?: string }) {
+  return <p className="pt-[60px] text-center text-sm leading-[18px] text-wz-dash-label">{children}</p>;
+}
+
+const count = (n: number) => n.toLocaleString("en-US");
 
 /* ------------------------------------------------------------------ the pies */
 
 function SharesCard({
   className,
+  onRemove,
   title,
   name,
   action,
-  help,
   fetch,
 }: CardProps & {
   title: string;
   name: string;
   action: string;
-  help: string;
-  fetch: (window: api.DayWindow) => Promise<DashboardShares>;
+  fetch: (window: api.DayWindow, opts?: api.SnapshotRequest) => Promise<DashboardShares>;
 }) {
-  const { now, range, setRange } = useRange();
-  const query = useRangeWidget(name, fetch, range, now);
+  const { range, setRange, window } = useRange();
+  const query = useRangeWidget(name, fetch, window);
   return (
-    <DashboardCard
-      className={className}
-      title={title}
-      help={help}
-      action={action}
-      query={query}
-      range={range}
-      onRangeChange={setRange}
-      skeletonClassName="h-56"
-    >
-      {(data) => <SharePie title={title} slices={data.slices} />}
+    <DashboardCard className={className} onRemove={onRemove} title={title} action={action} query={query} stamped>
+      {(data) => (
+        <>
+          <div className="flex justify-end">
+            <WzRangeSelect label="Range" value={range} options={WIDGET_RANGES} onChange={setRange} />
+          </div>
+          <WzPie title={title} slices={data.slices} />
+        </>
+      )}
     </DashboardCard>
   );
 }
 
-export function TopSourcesCard({ className }: CardProps) {
+export function TopSourcesCard(props: CardProps) {
+  return <SharesCard {...props} title="Top Sources" name="top-sources" action="view_top_sources" fetch={api.getTopSources} />;
+}
+
+export function TopJobTypesCard(props: CardProps) {
   return (
-    <SharesCard
-      className={className}
-      title="Top Sources"
-      name="top-sources"
-      action="view_top_sources"
-      help="The four sources the most jobs came from, by the day the job was created. Percent is the share of the four."
-      fetch={api.getTopSources}
-    />
+    <SharesCard {...props} title="Top Job Types" name="top-job-types" action="view_top_job_types" fetch={api.getTopJobTypes} />
   );
 }
 
-export function TopJobTypesCard({ className }: CardProps) {
+export function ServiceAreasCard(props: CardProps) {
   return (
-    <SharesCard
-      className={className}
-      title="Top Job Types"
-      name="top-job-types"
-      action="view_top_job_types"
-      help="The four job types with the most jobs, by the day the job was created. Percent is the share of the four."
-      fetch={api.getTopJobTypes}
-    />
-  );
-}
-
-export function ServiceAreasCard({ className }: CardProps) {
-  return (
-    <SharesCard
-      className={className}
-      title="Service Areas"
-      name="service-areas"
-      action="view_service_areas"
-      help="The four service areas with the most jobs, by the day the job was created. Percent is the share of the four."
-      fetch={api.getServiceAreas}
-    />
+    <SharesCard {...props} title="Service Areas" name="service-areas" action="view_service_areas" fetch={api.getServiceAreas} />
   );
 }
 
 /* --------------------------------------------------------------------- sales */
 
-/**
- * Net beside Total. Total is the context bar — a light neutral, as Workiz
- * draws it — and Net the series the eye should follow.
- */
-const SALES_SERIES = [
-  { label: "Net", className: "bg-chart3", key: "net" },
-  { label: "Total", className: "bg-input", key: "total" },
-] as const;
+const NET = "var(--wz-chart-done)";
+const TOTAL = "var(--wz-chart-track)";
 
-export function SalesCard({ className }: CardProps) {
-  const { now, range, setRange } = useRange();
-  const query = useRangeWidget("sales", api.getSales, range, now);
+export function SalesCard({ className, onRemove }: CardProps) {
+  const { range, setRange, window } = useRange();
+  const query = useRangeWidget("sales", api.getSales, window);
   return (
     <DashboardCard
       className={className}
+      onRemove={onRemove}
       title="Sales"
-      help="Done jobs by the day they closed. Total is what was billed, tax included; Net is what is left after tax and the cost of parts."
+      help={
+        "Shows total and net after tax and the cost of parts for a selected time range.\n" +
+        "Sales are only jobs that are Done and have any sale amount"
+      }
       action="view_sales"
       query={query}
-      range={range}
-      onRangeChange={setRange}
-      viewAll="/reports/job-statistics"
-      skeletonClassName="h-52"
+      stamped
+      viewAll={{ href: "/reports/job-statistics", underline: false }}
     >
       {(data) => (
-        <div className="flex flex-col gap-3">
-          <ul aria-label="Legend" className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
-            {SALES_SERIES.map((s) => (
-              <li key={s.key} className="flex items-center gap-1.5">
-                <span className={cn("size-2.5 rounded-full", s.className)} aria-hidden />
-                <span className="text-muted-foreground">{s.label}</span>
-                <span className="tabular-nums text-foreground">{formatMoney(data[s.key])}</span>
-              </li>
-            ))}
-          </ul>
-          <DailyChart
+        <>
+          <div className="flex items-start justify-between gap-3">
+            <WzChartLegend
+              items={[
+                { label: "Net", color: NET, value: formatMoney(data.net) },
+                { label: "Total", color: TOTAL, value: formatMoney(data.total) },
+              ]}
+            />
+            <WzRangeSelect label="Range" value={range} options={WIDGET_RANGES} onChange={setRange} />
+          </div>
+          <WzBarChart
+            className="mt-[11px]"
             title="Sales per day"
-            legend={false}
-            days={data.days.map((d) => ({ date: d.date, values: SALES_SERIES.map((s) => d[s.key]) }))}
-            series={SALES_SERIES.map((s) => ({ label: s.label, className: s.className }))}
-            format={compactMoney}
-            labelOf={axisDayLabel}
+            days={data.days.map((d) => d.date)}
+            series={[
+              { label: "Net", color: NET, values: data.days.map((d) => d.net) },
+              { label: "Total", color: TOTAL, values: data.days.map((d) => d.total) },
+            ]}
+            format={formatMoney}
           />
+        </>
+      )}
+    </DashboardCard>
+  );
+}
+
+/* ------------------------------------------------------------------ invoices */
+
+export function InvoicesCard({ className, onRemove }: CardProps) {
+  const { can } = usePermissions();
+  const money = can("financials", "view");
+  const [now] = useState(() => new Date());
+  const [range, setRange] = useState<InvoiceRange>("all_time");
+  const query = useInvoicesWidget(rangeWindowOf(range, now));
+  const card = (label: string, c: { count: number; amount: number }, rule: string) => (
+    <WzWidgetStat
+      layout="stacked"
+      rule={rule}
+      label={label}
+      sub={money ? `${count(c.count)} Invoices` : undefined}
+      value={money ? formatMoney(c.amount) : count(c.count)}
+    />
+  );
+  return (
+    <DashboardCard
+      className={className}
+      onRemove={onRemove}
+      title="Invoices"
+      help={"Due balances for generated invoices.\nPast due means the invoice's balance has not been paid on time."}
+      action="view_invoices"
+      query={query}
+      viewAll={{ href: "/invoices" }}
+    >
+      {(data) => (
+        <>
+          <div className="flex justify-end">
+            <WzRangeSelect label="Range" value={range} options={INVOICE_RANGES} onChange={setRange} />
+          </div>
+          <div className="ml-px flex flex-col gap-[27px]">
+            {card("Due", data.due, "border-wz-stat-yellow")}
+            {card("Past Due", data.overdue, "border-wz-chart-canceled")}
+          </div>
+        </>
+      )}
+    </DashboardCard>
+  );
+}
+
+/* ----------------------------------------------------------------- estimates */
+
+/** Workiz's four, in its order; Won and Archived have no row on the widget. */
+const ESTIMATE_ROWS: EstimateStatus[] = ["unsent", "pending", "approved", "declined"];
+
+export function EstimatesCard({ className, onRemove }: CardProps) {
+  const { can } = usePermissions();
+  const money = can("financials", "view");
+  const query = useEstimatesWidget();
+  return (
+    <DashboardCard
+      className={className}
+      onRemove={onRemove}
+      title="Estimates"
+      help="Current status of estimates"
+      action="view_estimates"
+      query={query}
+      viewAll={{ href: "/estimates" }}
+    >
+      {(data) => (
+        <div className="flex flex-col gap-4">
+          {ESTIMATE_ROWS.map((status) => {
+            const c = data[status] ?? { count: 0, amount: 0 };
+            return (
+              <WzWidgetStat
+                key={status}
+                label={ESTIMATE_STATUS_LABELS[status]}
+                sub={money ? `Worth ${formatMoney(c.amount)}` : undefined}
+                value={count(c.count)}
+              />
+            );
+          })}
         </div>
       )}
     </DashboardCard>
   );
 }
 
+/* ----------------------------------------------------------------- coming up */
+
+export function ComingUpCard({ className, onRemove }: CardProps) {
+  const [day, now] = useDay();
+  const query = useComingUp(day);
+  return (
+    <DashboardCard
+      className={className}
+      onRemove={onRemove}
+      title="Coming up"
+      action="view_coming_up"
+      query={query}
+      viewAll={{ href: "/schedule" }}
+    >
+      {({ deals, clients }) =>
+        !deals.length ? (
+          <Empty>Nothing on your schedule</Empty>
+        ) : (
+          // Workiz's name block is 90px narrower than the row's *content*, so it overhangs the padding by 13px.
+          <ul className="-mr-[13px] flex flex-col gap-4">
+            {deals.map((d) => {
+              const at = visitStart(d);
+              const client = d.clientName
+                ? `${d.clientName.firstName} ${d.clientName.lastName}`.trim()
+                : clients[d.contactId] ?? "";
+              return (
+                <li key={d.id}>
+                  <Link
+                    href={`/deals/${d.id}`}
+                    className="flex h-[39px] items-stretch text-wz-text outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    <span className="w-[90px] shrink-0 text-xs leading-[21px] tracking-[0.167857px]">
+                      {at === undefined ? "" : fromNow(at - now.getTime())}
+                    </span>
+                    <span className="flex min-w-0 flex-1 flex-col border-l-2 border-wz-frame pl-[11px]">
+                      <span className="truncate text-sm leading-[21px]">{client || `#${d.dealNumber ?? ""}`}</span>
+                      <span className="truncate text-xs leading-[18px]">{visitStreet(d)}</span>
+                    </span>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        )
+      }
+    </DashboardCard>
+  );
+}
+
+/* ----------------------------------------------------------- recent activity */
+
+export function RecentActivityCard({ className, onRemove }: CardProps) {
+  const [day, now] = useDay();
+  const query = useRecentActivity(day);
+  return (
+    <DashboardCard
+      className={className}
+      onRemove={onRemove}
+      title="Recent Activity"
+      action="view_recent_activity"
+      query={query}
+      viewAll={{ href: "/reports/activity" }}
+    >
+      {(rows) =>
+        !rows.length ? (
+          <Empty />
+        ) : (
+          // The right column runs 17px past the body's edge, as Workiz's grid columns do.
+          <ol className="relative -mr-[17px] flex flex-col gap-2">
+            {/* Workiz's timeline: a dotted rule 3px left of the entries, a yellow dot at each. */}
+            <span aria-hidden className="absolute top-1.5 bottom-0 -left-[3px] border-l border-dotted border-wz-dash-label" />
+            {rows.map((r) => {
+              const Device = r.source === "mobile" ? Smartphone : r.source === "web" ? Laptop : null;
+              return (
+                <li key={r.id} className="relative flex h-14 gap-1.5 pl-2.5">
+                  <span aria-hidden className="absolute top-[5px] -left-[5px] size-[5px] rounded-full bg-wz-stat-yellow" />
+                  <div className="min-w-0 flex-1">
+                    <h3 className="mb-2 flex items-center text-xs leading-[14px] font-normal text-wz-text">
+                      <span className="truncate">{r.who}</span>
+                      {Device ? <Device aria-label={r.source === "mobile" ? "Mobile app" : "Web app"} className="ml-2.5 size-3.5 shrink-0" strokeWidth={1.5} /> : null}
+                    </h3>
+                    <div className="truncate text-sm leading-[18px] text-wz-text" title={r.text}>
+                      {r.text}
+                    </div>
+                  </div>
+                  <div className="flex w-[88px] shrink-0 flex-col items-end">
+                    {r.jobRef && r.dealId ? (
+                      <Link href={`/deals/${r.dealId}`} className="mb-2.5 text-xs leading-[18px] text-wz-link underline hover:text-brand">
+                        #{r.jobRef}
+                      </Link>
+                    ) : (
+                      <span className="mb-2.5 h-[18px]" />
+                    )}
+                    <span className="text-xs leading-[11px] tracking-[0.167857px] whitespace-nowrap text-wz-dash-label">
+                      {fromNow(Date.parse(r.timestamp) - now.getTime())}
+                    </span>
+                  </div>
+                </li>
+              );
+            })}
+          </ol>
+        )
+      }
+    </DashboardCard>
+  );
+}
+
 /* ---------------------------------------------------------------- scoreboards */
 
+/** Workiz shows four people. */
+const BOARD_ROWS = 4;
+
 function Scoreboard({ rows }: { rows: DashboardScoreRow[] }) {
-  if (!rows.length) {
-    return <p className="py-10 text-center text-sm text-muted-foreground">No data to display.</p>;
-  }
+  if (!rows.length) return <Empty />;
+  const shown = rows.slice(0, BOARD_ROWS);
   // The bar is sales when the reader may see money, jobs when not — the same
   // measure the server ranked by.
   const measure = (r: DashboardScoreRow) => r.sales ?? r.jobs;
-  const leader = Math.max(...rows.map(measure));
+  const leader = Math.max(...shown.map(measure));
   return (
-    <ol className="flex flex-col divide-y divide-border">
-      {rows.map((r) => {
+    <ol className="flex flex-col">
+      {shown.map((r, i) => {
         const name = r.name || "Unknown user";
         return (
-          <li key={r.id} className="flex items-center gap-3 py-2.5">
+          <li key={r.id} className={cn("flex items-center py-4", i > 0 && "border-t border-muted")}>
             <span
-              className="flex size-8 shrink-0 items-center justify-center rounded-full bg-foreground text-sm font-medium text-background"
               aria-hidden
+              className="ml-[3px] flex size-[30px] shrink-0 items-center justify-center rounded-full bg-foreground text-sm leading-[31px] text-white"
             >
               {scoreInitial(r.name)}
             </span>
-            <span className="w-44 min-w-0 truncate text-sm" title={name}>
+            <span className="ml-[31px] w-[182px] min-w-0 truncate px-[3px] text-sm leading-[18px] text-wz-text" title={name}>
               {name}
             </span>
-            <span className="h-2.5 min-w-12 flex-1 rounded-full bg-muted" aria-hidden>
+            <span className="relative ml-[3px] h-5 w-[176px] shrink-0 overflow-hidden rounded-[11px] bg-wz-chart-track">
               <span
                 data-testid="score-bar"
-                className="block h-full rounded-full bg-neutral"
+                className="absolute inset-y-0 left-0 rounded-[11px] bg-wz-stat-slate"
                 style={{ width: `${barPercent(measure(r), leader)}%` }}
               />
+              {r.sales !== undefined ? (
+                <span className="absolute top-0 left-[17px] text-xs leading-5 tracking-[-0.072px] whitespace-nowrap text-white">
+                  {formatMoney(r.sales)}
+                </span>
+              ) : null}
             </span>
-            {r.sales !== undefined ? (
-              <span className="w-28 shrink-0 text-right text-sm tabular-nums">{formatMoney(r.sales)}</span>
-            ) : null}
-            <span className="w-16 shrink-0 text-right text-sm tabular-nums text-muted-foreground">
+            <span className="ml-auto text-sm leading-[18px] whitespace-nowrap text-wz-text">
               {r.jobs} {r.jobs === 1 ? "Job" : "Jobs"}
             </span>
           </li>
@@ -199,115 +392,110 @@ function Scoreboard({ rows }: { rows: DashboardScoreRow[] }) {
   );
 }
 
-export function TechScoreboardCard({ className }: CardProps) {
-  const { now, range, setRange } = useRange();
-  const query = useRangeWidget("tech-scoreboard", api.getTechScoreboard, range, now);
+function ScoreboardCard({
+  className,
+  onRemove,
+  title,
+  name,
+  action,
+  fetch,
+}: CardProps & {
+  title: string;
+  name: string;
+  action: string;
+  fetch: (window: api.DayWindow, opts?: api.SnapshotRequest) => Promise<{ rows: DashboardScoreRow[] }>;
+}) {
+  const { range, setRange, window } = useRange();
+  const query = useRangeWidget(name, async (w, opts) => api.nameScoreboard(await fetch(w, opts)), window);
   return (
-    <DashboardCard
-      className={className}
-      title="Tech Scoreboard"
-      help="The technicians whose Done jobs sold the most, by the day the job closed. A job shared by techs counts for each and splits its money."
-      action="view_tech_scoreboard"
-      query={query}
-      range={range}
-      onRangeChange={setRange}
-      skeletonClassName="h-52"
-    >
-      {(data) => <Scoreboard rows={data.rows} />}
-    </DashboardCard>
-  );
-}
-
-export function DispatchScoreboardCard({ className }: CardProps) {
-  const { now, range, setRange } = useRange();
-  const query = useRangeWidget("dispatch-scoreboard", api.getDispatchScoreboard, range, now);
-  return (
-    <DashboardCard
-      className={className}
-      title="Dispatch Scoreboard"
-      help="The people whose jobs sold the most — the job's creator — counting Done jobs by the day they closed."
-      action="view_dispatch_scoreboard"
-      query={query}
-      range={range}
-      onRangeChange={setRange}
-      skeletonClassName="h-52"
-    >
-      {(data) => <Scoreboard rows={data.rows} />}
-    </DashboardCard>
-  );
-}
-
-/* ----------------------------------------------------------- stat lists */
-
-/** A figure with a coloured rule on its left, as Workiz's "Jobs" and "Today" draw them. */
-function StatList({ rows }: { rows: { label: string; value: string; rule: string }[] }) {
-  return (
-    <ul className="flex flex-col gap-4">
-      {rows.map((r) => (
-        <li key={r.label} className={cn("flex items-center justify-between gap-3 border-l-2 py-1 pl-3", r.rule)}>
-          <span className="text-sm">{r.label}</span>
-          <span className="text-3xl font-light tabular-nums">{r.value}</span>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-const count = (n: number) => n.toLocaleString("en-US");
-
-export function JobsNowCard({ className }: CardProps) {
-  const query = useJobsNow();
-  return (
-    <DashboardCard
-      className={className}
-      title="Jobs"
-      help="How many jobs stand in each open state right now, across the account."
-      action="view_jobs"
-      query={query}
-      viewAll="/deals"
-    >
-      {({ byStatus }) => (
-        <StatList
-          rows={[
-            { label: "Submitted", value: count(byStatus.submitted), rule: "border-chart-good" },
-            { label: "Pending", value: count(byStatus.pending), rule: "border-foreground" },
-            { label: "In progress", value: count(byStatus.in_progress), rule: "border-chart-warning" },
-            {
-              label: "done pending approval",
-              value: count(byStatus.done_pending_approval),
-              rule: "border-chart-critical",
-            },
-          ]}
-        />
+    <DashboardCard className={className} onRemove={onRemove} title={title} action={action} query={query} stamped>
+      {(data) => (
+        <>
+          <div className="flex justify-end">
+            <WzRangeSelect label="Range" value={range} options={WIDGET_RANGES} onChange={setRange} />
+          </div>
+          <Scoreboard rows={data.rows} />
+        </>
       )}
     </DashboardCard>
   );
 }
 
-export function TodayCard({ className }: CardProps) {
-  const [now] = useState(() => new Date());
-  const query = useToday(now);
+export function TechScoreboardCard(props: CardProps) {
+  return (
+    <ScoreboardCard
+      {...props}
+      title="Tech Scoreboard"
+      name="tech-scoreboard"
+      action="view_tech_scoreboard"
+      fetch={api.getTechScoreboard}
+    />
+  );
+}
+
+export function DispatchScoreboardCard(props: CardProps) {
+  return (
+    <ScoreboardCard
+      {...props}
+      title="Dispatch Scoreboard"
+      name="dispatch-scoreboard"
+      action="view_dispatch_scoreboard"
+      fetch={api.getDispatchScoreboard}
+    />
+  );
+}
+
+/* ----------------------------------------------------------- jobs and today */
+
+export function JobsNowCard({ className, onRemove }: CardProps) {
+  const query = useJobsNow();
   return (
     <DashboardCard
       className={className}
-      title="Today"
-      help="Today so far, on Eastern time: what the jobs finished today sold, how many were done or canceled, and how many were created."
-      action="view_today"
+      onRemove={onRemove}
+      title="Jobs"
+      action="view_jobs"
       query={query}
+      viewAll={{ href: "/deals" }}
     >
+      {({ byStatus }) => (
+        <div className="flex flex-col gap-4">
+          <WzWidgetStat label="Submitted" value={count(byStatus.submitted)} rule="border-wz-stat-green" />
+          <WzWidgetStat label="Pending" value={count(byStatus.pending)} rule="border-wz-stat-slate" />
+          <WzWidgetStat label="In progress" value={count(byStatus.in_progress)} rule="border-wz-stat-yellow" />
+          <WzWidgetStat
+            label="done pending approval"
+            value={count(byStatus.done_pending_approval)}
+            rule="border-wz-chart-canceled"
+          />
+        </div>
+      )}
+    </DashboardCard>
+  );
+}
+
+export function TodayCard({ className, onRemove }: CardProps) {
+  const { can } = usePermissions();
+  const [day] = useDay();
+  const query = useToday(day);
+  const mayCollected = can("financials", "view") && can("payments", "view");
+  const collected = useCollectedToday(day, mayCollected);
+  return (
+    <DashboardCard className={className} onRemove={onRemove} title="Today" action="view_today" query={query}>
       {(data) => (
-        <StatList
-          rows={[
-            // The server leaves the amount out for a reader without
-            // financials.view; the row goes with it rather than reading $0.
-            ...(data.sales !== undefined
-              ? [{ label: "Sales", value: formatMoney(data.sales), rule: "border-chart-good" }]
-              : []),
-            { label: "Jobs Done", value: count(data.jobsDone), rule: "border-chart-warning" },
-            { label: "Jobs Canceled", value: count(data.jobsCanceled), rule: "border-chart-critical" },
-            { label: "Jobs Created", value: count(data.jobsCreated), rule: "border-foreground" },
-          ]}
-        />
+        <div className="flex flex-col gap-4">
+          {/* The server leaves the amount out for a reader without
+              financials.view; the row goes with it rather than reading $0. */}
+          {data.sales !== undefined ? (
+            <WzWidgetStat label="Sales" value={formatMoney(data.sales)} rule="border-wz-stat-green" />
+          ) : null}
+          {mayCollected && collected.data !== undefined ? (
+            <WzWidgetStat label="Collected" value={formatMoney(collected.data)} rule="border-wz-stat-green" />
+          ) : null}
+          <WzWidgetStat label="Jobs Done" value={count(data.jobsDone)} rule="border-wz-stat-yellow" />
+          <WzWidgetStat label="Jobs Canceled" value={count(data.jobsCanceled)} rule="border-wz-chart-canceled" />
+          <WzWidgetStat label="Jobs Created" value={count(data.jobsCreated)} rule="border-wz-stat-slate" />
+        </div>
       )}
     </DashboardCard>
   );
@@ -315,29 +503,40 @@ export function TodayCard({ className }: CardProps) {
 
 /* ------------------------------------------------------------------- calls */
 
-export function TopCallFlowsCard({ className }: CardProps) {
-  const { now, range, setRange } = useRange();
-  const query = useRangeWidget("top-call-flows", api.getTopCallFlows, range, now);
+/** Top Call Flows' line colours, in order. */
+const FLOW_COLORS = [1, 2, 3, 4, 5, 6, 7, 8].map((n) => `var(--wz-series${n})`);
+
+export function TopCallFlowsCard({ className, onRemove }: CardProps) {
+  const { range, setRange, window } = useRange();
+  const query = useRangeWidget("top-call-flows", api.getTopCallFlows, window);
   return (
     <DashboardCard
       className={className}
+      onRemove={onRemove}
       title="Top Call Flows"
-      help="Calls a day through each of the eight busiest call flows. Outbound calls never enter a flow and are not counted."
       action="view_top_call_flows"
       query={query}
-      range={range}
-      onRangeChange={setRange}
-      viewAll="/calls"
-      skeletonClassName="h-52"
+      viewAll={{ href: "/reports/call-tracking" }}
     >
-      {(data) => (
-        <LineChart
-          title="Calls per call flow"
-          days={data.days}
-          series={data.flows.map((f) => ({ name: f.name, values: f.counts }))}
-          labelOf={axisDayLabel}
-        />
-      )}
+      {(data) => {
+        const series = data.flows.map((f, i) => ({ label: f.name, color: FLOW_COLORS[i % FLOW_COLORS.length], values: f.counts }));
+        return (
+          <>
+            <div className="flex items-start justify-between gap-3">
+              <WzChartLegend
+                className="h-[23px] flex-nowrap overflow-hidden [&_li]:max-w-[110px]"
+                items={series.map((s) => ({ label: s.label, color: s.color }))}
+              />
+              <WzRangeSelect label="Range" value={range} options={WIDGET_RANGES} onChange={setRange} />
+            </div>
+            {series.length ? (
+              <WzLineChart className="mt-[33px]" title="Calls per call flow" days={data.days} series={series} />
+            ) : (
+              <Empty />
+            )}
+          </>
+        );
+      }}
     </DashboardCard>
   );
 }
@@ -347,62 +546,64 @@ const partyName = (call: CallRecord, side: "from" | "to"): string => {
   return party.name ?? formatEndpoint(party.number);
 };
 
-export function RecentCallsCard({ className }: CardProps) {
+/** A call that got through reads green, one that did not red (recent_calls icons). */
+const MISSED = new Set(["busy", "no-answer", "failed", "canceled"]);
+
+export function RecentCallsCard({ className, onRemove }: CardProps) {
   const query = useRecentCalls();
+  const [now] = useState(() => Date.now());
   return (
     <DashboardCard
       className={className}
+      onRemove={onRemove}
       title="Recent Calls"
-      help="The four newest calls in the call log."
       action="view_recent_calls"
       query={query}
-      viewAll="/calls"
+      viewAll={{ href: "/calls" }}
     >
       {(calls) =>
         !calls.length ? (
-          <p className="py-10 text-center text-sm text-muted-foreground">No recent calls to display.</p>
+          <Empty>No recent calls to display</Empty>
         ) : (
-          <table className="w-full table-fixed text-sm">
+          <table className="w-full table-fixed text-sm leading-[18px] text-wz-text">
             <thead>
-              <tr className="border-b border-border text-left text-muted-foreground">
-                <th scope="col" className="w-10 pb-2">
+              <tr className="text-left">
+                <th scope="col" className="w-[10%] pb-2.5 font-normal">
                   <span className="sr-only">Direction</span>
                 </th>
-                <th scope="col" className="pb-2 font-normal">
-                  From
-                </th>
-                <th scope="col" className="pb-2 font-normal">
-                  To
-                </th>
-                <th scope="col" className="pb-2 font-normal">
-                  Call Flow
-                </th>
-                <th scope="col" className="w-28 pb-2 font-normal">
-                  Time
-                </th>
+                {["From", "To", "Call Flow", "Time"].map((h) => (
+                  <th key={h} scope="col" className="w-[22.5%] px-[3px] pb-2.5 font-normal">
+                    {h}
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>
               {calls.map((c) => {
                 const outbound = c.direction === "outbound";
                 const Arrow = outbound ? ArrowUpRight : ArrowDownLeft;
+                const missed = c.status ? MISSED.has(c.status) : false;
                 return (
-                  <tr key={c.callSid} className="border-b border-border last:border-0">
-                    <td className="py-3">
+                  <tr key={c.callSid} className="border-t border-muted">
+                    <td className="py-4 pl-[3px]">
                       <Arrow
-                        className="size-5 text-success"
-                        aria-label={outbound ? "Outbound" : "Inbound"}
+                        // recent_calls: answered #87dcbf, missed #dd380d (sampled; no token, one-off).
+                        className={cn("size-5", missed ? "text-[#dd380d]" : "text-[#87dcbf]")}
+                        strokeWidth={2.25}
+                        aria-label={`${outbound ? "Outbound" : "Inbound"}${missed ? ", missed" : ""}`}
                         role="img"
                       />
                     </td>
-                    <td className="truncate py-3 pr-2">
+                    <td className="truncate px-[3px] py-4">
                       <Link href={`/calls/${c.callSid}`} className="hover:underline">
                         {partyName(c, "from")}
                       </Link>
                     </td>
-                    <td className="truncate py-3 pr-2">{partyName(c, "to")}</td>
-                    <td className="truncate py-3 pr-2 text-muted-foreground">{c.flowName ?? ""}</td>
-                    <td className="py-3 text-muted-foreground">{formatCallAgo(c.startedAt)}</td>
+                    <td className="truncate px-[3px] py-4">{partyName(c, "to")}</td>
+                    <td className="truncate px-[3px] py-4">{c.flowName ?? ""}</td>
+                    <td className="truncate px-[3px] py-4">
+                      {c.startedAt ? fromNow(Date.parse(c.startedAt) - now) : ""}
+                    </td>
                   </tr>
                 );
               })}

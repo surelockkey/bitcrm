@@ -3,7 +3,7 @@
 import { useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 
 import { cn } from "@/lib/utils";
-import { wzAxisLabels, wzChartTicks, wzDayLabel, wzPieSlices, wzSlashDay, wzSpline } from "./chart-scale";
+import { wzAxisLabels, wzChartTicks, wzDayLabel, wzPieSlices, wzSlashDay, wzSpline, wzTipSide } from "./chart-scale";
 
 /**
  * Workiz Home's charts, drawn the way its chart.js 2 canvases look
@@ -26,6 +26,8 @@ export interface WzSeries {
 const CHART_FONT = "font-[Helvetica_Neue,Helvetica,Arial,sans-serif] text-xs leading-[14.4px] tracking-normal";
 const TOP = 7;
 const TICK = 10;
+/** Where a tilted label hangs from, under the axis: past the tick marks, as chart.js lays it (sampled: pg_dashboard_wz_home). */
+const LABEL_GAP = TICK + 2;
 
 /** Helvetica 12px advance widths, near enough to lay labels out without a canvas. */
 function textWidth(text: string): number {
@@ -135,23 +137,51 @@ function XLabel({ x, y, rotation, children }: { x: number; y: number; rotation: 
 }
 
 /** chart.js 2's default tooltip: black at 80%, 6px corners and padding, bold title, a colour box a line. */
+/** chart.js 2's caret (5px) and the gap it keeps from the point (2px). */
+const CARET = 5;
+const CARET_GAP = 2;
+
+/**
+ * chart.js 2's default tooltip: black at 80%, 6px corners and padding, a
+ * bold title, a colour box a line, and a 5px caret — opened level with the
+ * point on the side towards the middle, or under a point near the top
+ * (`wzTipSide`; pg_dashboard_wz_bar_hover).
+ */
 function ChartTip({
   x,
   y,
+  chartWidth,
   title,
   rows,
 }: {
   x: number;
   y: number;
+  chartWidth: number;
   title: string;
   rows: { label: string; color: string; value: string }[];
 }) {
+  const side = wzTipSide(x, y, chartWidth, (rows.length + 1) * 14.4 + 14);
+  const off = CARET + CARET_GAP;
+  const place =
+    side === "right"
+      ? { left: x + off, top: y, transform: "translateY(-50%)" }
+      : side === "left"
+        ? { left: x - off, top: y, transform: "translate(-100%, -50%)" }
+        : { left: x, top: y + off, transform: "translateX(-50%)" };
+  const caret =
+    side === "right"
+      ? "top-1/2 -left-[5px] -translate-y-1/2 border-y-[5px] border-r-[5px] border-y-transparent border-r-black/80"
+      : side === "left"
+        ? "top-1/2 -right-[5px] -translate-y-1/2 border-y-[5px] border-l-[5px] border-y-transparent border-l-black/80"
+        : "-top-[5px] left-1/2 -translate-x-1/2 border-x-[5px] border-b-[5px] border-x-transparent border-b-black/80";
   return (
     <div
       role="tooltip"
-      className="pointer-events-none absolute z-10 -translate-x-1/2 -translate-y-full rounded-[6px] bg-black/80 p-1.5 whitespace-nowrap text-white"
-      style={{ left: x, top: y - 6 }}
+      data-side={side}
+      className="pointer-events-none absolute z-10 rounded-[6px] bg-black/80 p-1.5 whitespace-nowrap text-white"
+      style={place}
     >
+      <span aria-hidden className={cn("absolute size-0", caret)} />
       <div className="mb-0.5 font-bold">{title}</div>
       {rows.map((r) => (
         <div key={r.label} className="flex items-center gap-1">
@@ -252,6 +282,7 @@ export function WzBarChart({
       (active.series === null ? slot * 0.4 : bar * (active.series + 0.5));
     return (
       <ChartTip
+        chartWidth={width}
         x={x}
         y={TOP + plotH - tallest}
         title={labels[active.day]}
@@ -299,7 +330,7 @@ export function WzBarChart({
         ))}
         {labels.map((label, i) =>
           i % every === 0 ? (
-            <XLabel key={days[i]} x={axisX + (i + 0.5) * slot} y={TOP + plotH + TICK + 7} rotation={rotation}>
+            <XLabel key={days[i]} x={axisX + (i + 0.5) * slot} y={TOP + plotH + LABEL_GAP} rotation={rotation}>
               {label}
             </XLabel>
           ) : null,
@@ -392,13 +423,14 @@ export function WzLineChart({
         ))}
         {labels.map((label, i) =>
           i % every === 0 ? (
-            <XLabel key={days[i]} x={axisX + xOf(i)} y={TOP + plotH + TICK + 7} rotation={rotation}>
+            <XLabel key={days[i]} x={axisX + xOf(i)} y={TOP + plotH + LABEL_GAP} rotation={rotation}>
               {label}
             </XLabel>
           ) : null,
         )}
         {active !== null ? (
           <ChartTip
+            chartWidth={width}
             x={axisX + xOf(active)}
             y={TOP + Math.min(...series.map((s) => yOf(s.values[active] ?? 0)))}
             title={labels[active]}
@@ -453,7 +485,7 @@ export function WzPie({
   return (
     <figure className={cn("flex flex-col", className)}>
       <div className="relative flex h-[115px] items-center justify-center py-5">
-        <svg viewBox="-1 -1 102 102" className="size-[71px]" aria-hidden>
+        <svg viewBox="0 0 100 100" className="size-[73px] overflow-visible" aria-hidden>
           {wedges.map((w, i) => (
             <path
               key={slices[i].key}
@@ -491,10 +523,10 @@ export function WzPie({
               className={cn("flex min-w-0 flex-col px-2.5", right ? "items-end border-r-2 text-right" : "border-l-2")}
               style={{ borderColor: colorOf(i) }}
             >
-              <span className="w-full truncate text-xs leading-[18px] text-wz-dash-label" title={s.name}>
+              <span className="w-full truncate text-xs leading-[18px] tracking-[-0.072px] text-wz-dash-label" title={s.name}>
                 {s.name}
               </span>
-              <span className="text-xl leading-[33px] text-wz-dash-value tabular-nums">{s.percent.toFixed(2)}%</span>
+              <span className="text-xl leading-[33px] tracking-[0.45px] text-wz-dash-value tabular-nums">{s.percent.toFixed(2)}%</span>
             </li>
           );
         })}

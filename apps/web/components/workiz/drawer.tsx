@@ -26,6 +26,7 @@ export function WzDrawer({
   trigger,
   footer,
   width = 422,
+  head = "plain",
   className,
   bodyClassName,
   children,
@@ -37,6 +38,13 @@ export function WzDrawer({
   footer?: ReactNode;
   /** Panel width in px (Workiz's is 422). */
   width?: number;
+  /**
+   * `plain` (default): the white head, title 24px in. `band`: Workiz's older
+   * right pane (`right-pane-content`, the dashboard's "Dashboard widgets",
+   * pg_dashboard_wz_settings_open) — a 49px #f7f7f7 band, the title centred,
+   * a 1px #eeeeee rule under it.
+   */
+  head?: "plain" | "band";
   className?: string;
   bodyClassName?: string;
   children: ReactNode;
@@ -58,11 +66,22 @@ export function WzDrawer({
             className,
           )}
         >
-          <div className="flex h-[47px] shrink-0 items-center justify-between pr-[15px] pl-6">
+          <div
+            data-head={head}
+            className={cn(
+              "flex shrink-0 items-center",
+              head === "band"
+                ? "relative h-[49px] justify-center border-b border-[#eeeeee] bg-muted px-10"
+                : "h-[47px] justify-between pr-[15px] pl-6",
+            )}
+          >
             <Dialog.Title className="text-lg leading-[19px] font-semibold text-foreground">{title}</Dialog.Title>
             <Dialog.Close
               aria-label="Close"
-              className="grid size-6 place-items-center rounded-[4px] text-wz-close-icon outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+              className={cn(
+                "grid size-6 place-items-center rounded-[4px] text-wz-close-icon outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50",
+                head === "band" && "absolute top-1/2 right-[13px] -translate-y-1/2",
+              )}
             >
               <X className="size-[18px]" />
             </Dialog.Close>

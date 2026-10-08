@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { wzAxisLabels, wzChartTicks, wzDayLabel, wzPieSlices, wzSlashDay, wzSpline } from "./chart-scale";
+import { wzAxisLabels, wzChartTicks, wzDayLabel, wzPieSlices, wzSlashDay, wzSpline, wzTipSide } from "./chart-scale";
 
 /**
  * Workiz's dashboard charts are chart.js 2 with its default linear scale, so
@@ -95,6 +95,25 @@ describe("wzPieSlices", () => {
 
   it("draws nothing for nothing", () => {
     expect(wzPieSlices([0, 0])).toEqual([]);
+  });
+});
+
+/**
+ * Where chart.js 2 puts its tooltip: level with the point, on the side with
+ * room (the left half of the chart opens to the right — pg_dashboard_wz_bar_hover),
+ * or under the point when it is too near the top for that.
+ */
+describe("wzTipSide", () => {
+  it("opens to the right of a point in the left half", () => {
+    expect(wzTipSide(50, 120, 600, 40)).toBe("right");
+  });
+
+  it("opens to the left of a point in the right half", () => {
+    expect(wzTipSide(450, 120, 600, 40)).toBe("left");
+  });
+
+  it("hangs under a point too near the top", () => {
+    expect(wzTipSide(300, 10, 600, 40)).toBe("below");
   });
 });
 

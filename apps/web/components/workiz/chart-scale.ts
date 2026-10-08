@@ -83,6 +83,16 @@ export function wzAxisLabels(
   return { rotation, every: count > limit ? Math.ceil(count / limit) : 1 };
 }
 
+/**
+ * Which side of its point chart.js 2 opens a tooltip on: level with the
+ * point, towards the middle of the chart (its `yAlign: center` rule), unless
+ * the point is too near the top for the tooltip's height — then underneath.
+ */
+export function wzTipSide(x: number, y: number, chartWidth: number, tipHeight: number): "right" | "left" | "below" {
+  if (y < tipHeight / 2) return "below";
+  return x <= chartWidth / 2 ? "right" : "left";
+}
+
 export interface WzPieSlice {
   /** Where the slice starts and ends, as a fraction of the turn from twelve o'clock. */
   start: number;
