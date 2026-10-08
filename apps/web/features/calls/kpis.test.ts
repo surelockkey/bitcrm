@@ -42,7 +42,7 @@ describe("callsKpis", () => {
 
   it("leaves Revenue out for a viewer who may not see money, or when the server sent none", () => {
     expect(callsKpis({ count: { total: 1 }, summary, showMoney: false }).map((c) => c.id)).not.toContain("revenue");
-    const { revenue: _drop, ...noMoney } = summary;
+    const noMoney: CallsSummary = { ...summary, revenue: undefined };
     expect(callsKpis({ count: { total: 1 }, summary: noMoney, showMoney: true }).map((c) => c.id)).not.toContain("revenue");
   });
 

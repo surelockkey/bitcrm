@@ -19,6 +19,22 @@ export function formatWzDay(day: string): string {
   return `${MONTHS[Number(m[2]) - 1]} ${ordinal(Number(m[3]))}, ${m[1]}`;
 }
 
+/** "2026-10-08" → "10/08/2026", the Custom inputs' form; "" for a non-day. */
+export function formatUsDay(day: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day);
+  return m ? `${m[2]}/${m[3]}/${m[1]}` : "";
+}
+
+/** "10/08/2026" (or "1/5/2026") → "2026-10-08"; null unless it is a real day. */
+export function parseUsDay(text: string): string | null {
+  const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(text.trim());
+  if (!m) return null;
+  const [month, day, year] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const d = new Date(Date.UTC(year, month - 1, day));
+  if (d.getUTCFullYear() !== year || d.getUTCMonth() !== month - 1 || d.getUTCDate() !== day) return null;
+  return d.toISOString().slice(0, 10);
+}
+
 /** "Oct 8th, 2026 - Oct 8th, 2026" — both ends, even when they are one day. */
 export function formatWzDayRange(from: string, to: string): string {
   return `${formatWzDay(from)} - ${formatWzDay(to)}`;

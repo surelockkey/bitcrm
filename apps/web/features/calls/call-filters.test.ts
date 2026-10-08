@@ -65,10 +65,12 @@ describe("toCallsFilter", () => {
 });
 
 describe("chipSummary", () => {
-  const labels = (kind: string, value: string) =>
-    ({ "direction:inbound": "Incoming calls", "direction:outbound": "Outgoing calls", "tag:ct-9": "SPAM CALLER" })[
-      `${kind}:${value}`
-    ] ?? value;
+  const names: Record<string, string> = {
+    "direction:inbound": "Incoming calls",
+    "direction:outbound": "Outgoing calls",
+    "tag:ct-9": "SPAM CALLER",
+  };
+  const labels = (kind: string, value: string) => names[`${kind}:${value}`] ?? value;
 
   it("says (any) until something is ticked, as Workiz's chip does", () => {
     expect(chipSummary({ kind: "direction", values: [] }, labels)).toEqual({ name: "Direction", value: "(any)" });
