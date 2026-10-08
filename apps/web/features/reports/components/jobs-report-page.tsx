@@ -1,52 +1,54 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight, Columns3, Download, Search } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { FileText, Grid3x3 } from "lucide-react";
 import { toast } from "sonner";
 import {
   JOBS_REPORT_BY,
   JOBS_REPORT_BY_LABEL,
   JOBS_REPORT_DEFAULT_SETTINGS,
-  SUPER_STATUS_ORDER,
   type JobsReportBy,
   type JobsReportColumnId,
   type JobsReportFilters,
 } from "@bitcrm/types";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Skeleton } from "@/components/ui/skeleton";
-import { PeriodControl, nextCustomDays, type PeriodDays } from "./period-control";
+import { WzDateRangePicker, type WzDateRange } from "@/components/workiz/date-range-picker";
+import { WzGroupedFilter, type WzFilterGroup } from "@/components/workiz/grouped-filter";
+import { WzPickerSelect } from "@/components/workiz/picker-select";
+import { WzPager, type WzPagerState } from "@/components/workiz/pager";
+import { WzListToolbar, WzPageSizeSelect, WzSearchBox, WzToolbarButton } from "@/components/workiz/toolbar";
+import { usePageHistoryLabel } from "@/components/shell/page-history";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { settled, usePageReady } from "@/lib/use-page-ready";
 import { useDenied, usePermissions } from "@/features/auth/use-permissions";
 import { NoAccess } from "@/features/clients/components/contacts-page";
 import { useUserMap } from "@/features/deals/hooks";
-import { superStatusLabel } from "@/features/deals/lib";
 import { useAllTechnicians } from "@/features/technicians/hooks";
 import { useJobTypes } from "@/features/job-types/hooks";
 import { useJobSources } from "@/features/job-sources/hooks";
 import { useJobStatuses } from "@/features/job-statuses/hooks";
 import { useJobTags } from "@/features/job-tags/hooks";
+import { tagSolidClasses } from "@/features/job-tags/lib";
 import { useServiceAreas } from "@/features/service-areas/hooks";
 import { useExternalCompanies } from "@/features/external-companies/hooks";
 import { downloadJobsReportCsv } from "../jobs/api";
 import { useJobsReport, useJobsReportSettings, useSaveJobsReportSettings } from "../jobs/hooks";
 import {
   DEFAULT_PRESET,
+  FILTER_CHIP_ORDER,
   JOBS_REPORT_PAGE_SIZES,
   JOBS_REPORT_PRESETS,
-  accountToday,
   addFilter,
   exportParams,
   inReportOrder,
   presetRange,
   reportParams,
+  statusFilterOptions,
+  viewerToday,
   type JobsReportPreset,
   type JobsReportState,
 } from "../jobs/lib";
-import { JobsReportFilter, type FilterGroup } from "../jobs/components/jobs-report-filter";
 import { JobsReportFields } from "../jobs/components/jobs-report-fields";
-import { JobsReportTable } from "../jobs/components/jobs-report-table";
+import { JobsReportTable, JobsReportTableShell } from "../jobs/components/jobs-report-table";
 
 const BY_STORAGE_KEY = "bitcrm.jobs-report.by";
 
@@ -71,19 +73,38 @@ function rememberBy(by: JobsReportBy): void {
 const personName = (u: { firstName?: string; lastName?: string; email?: string; id: string }) =>
   `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() || u.email || u.id;
 
+const BY_OPTIONS = JOBS_REPORT_BY.map((b) => ({ value: b, label: JOBS_REPORT_BY_LABEL[b] }));
+const PRESETS = JOBS_REPORT_PRESETS.map((p) => ({ id: p.id, label: p.label }));
+
+/** An element's inner width, kept current; 0 where nothing is laid out (jsdom). */
+function useClientWidth<T extends HTMLElement>() {
+  const [el, ref] = useState<T | null>(null);
+  const [width, setWidth] = useState(0);
+  useEffect(() => {
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => setWidth(el.clientWidth));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [el]);
+  return { ref, width };
+}
+
 /**
- * The Workiz Jobs report (`/root/jobreport`): every job of a period, any
- * status, on the date chosen under "By:" — Job created, Job date or Job end
- * date. Workiz's multi-filter, its fifteen date presets, a column chooser
- * saved for the account, a sort on every column and a CSV of the visible
- * columns. The server does the work (`GET /deals/report`): it pages, sorts
- * and names; this page only holds the toolbar.
+ * The Workiz Jobs report (`/root/jobreport`), drawn as Workiz draws it
+ * (rep_jobs_wz_*): no title — the "Filter results" box across the top, the
+ * date box with its "By:" row at the right; the list strip (Search, page
+ * size, Export, Fields); the grid; the pager. Every job of the period, any
+ * status, on the date "By:" names — Job created, Job date or Job end date.
+ * The server does the work (`GET /deals/report`): it pages, sorts and names;
+ * this page holds the toolbar. The page scrolls both ways, so the grid's
+ * header sticks to its top and the controls hold still over a wide grid.
  */
 export function JobsReportPage({ today: todayProp }: { today?: string } = {}) {
   const denied = useDenied();
   const { can } = usePermissions();
-  // The presets count from today on the account's calendar (Eastern), not the viewer's.
-  const [today] = useState(() => todayProp ?? accountToday());
+  usePageHistoryLabel("Jobs Report");
+  // Workiz counts its presets from the viewer's own clock (moment()).
+  const [today] = useState(() => todayProp ?? viewerToday());
 
   const settingsQuery = useJobsReportSettings();
   const saveSettings = useSaveJobsReportSettings();
@@ -91,9 +112,7 @@ export function JobsReportPage({ today: todayProp }: { today?: string } = {}) {
 
   const [byChoice, setByChoice] = useState<JobsReportBy | null>(storedBy);
   const by = byChoice ?? settings.by;
-  const [preset, setPreset] = useState<JobsReportPreset>(DEFAULT_PRESET);
-  const [custom, setCustom] = useState<{ from: string; to: string }>({ from: today, to: today });
-  const range = preset === "custom" ? custom : presetRange(preset, today);
+  const [range, setRange] = useState<WzDateRange>(() => ({ preset: DEFAULT_PRESET, ...presetRange(DEFAULT_PRESET, today) }));
   const [filters, setFilters] = useState<JobsReportFilters>({});
   const [search, setSearch] = useState("");
   const q = useDebouncedValue(search, 400);
@@ -103,6 +122,7 @@ export function JobsReportPage({ today: todayProp }: { today?: string } = {}) {
   const [localColumns, setLocalColumns] = useState<JobsReportColumnId[] | null>(null);
   const [fieldsOpen, setFieldsOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const { ref: scrollerRef, width: viewWidth } = useClientWidth<HTMLDivElement>();
 
   const state: JobsReportState = {
     by,
@@ -135,15 +155,6 @@ export function JobsReportPage({ today: todayProp }: { today?: string } = {}) {
     set(v);
     setPage(1);
   };
-  // Custom opens on the days on show, so the report does not jump to today.
-  const pickPreset = (p: JobsReportPreset) => {
-    if (p === "custom") setCustom(range);
-    resetPage(setPreset)(p);
-  };
-  const pickDays = (days: PeriodDays) => {
-    setCustom((cur) => nextCustomDays(cur, days));
-    setPage(1);
-  };
   const changeFilters = resetPage(setFilters);
 
   const onSort = (column: JobsReportColumnId) => {
@@ -169,123 +180,102 @@ export function JobsReportPage({ today: todayProp }: { today?: string } = {}) {
     }
   };
 
-  const pagination = data?.pagination;
-  const pager = pagination ? <Pager page={pagination.page} pages={pagination.pages} onPage={setPage} /> : null;
-  const showing = pagination ? (
-    <span className="text-xs tabular-nums text-muted-foreground">
-      {pagination.total === 0
-        ? "No results"
-        : `Showing ${pagination.from.toLocaleString()} to ${pagination.to.toLocaleString()} of ${pagination.total.toLocaleString()} results`}
-    </span>
-  ) : null;
+  const p = data?.pagination;
+  const pager: WzPagerState = {
+    page: p?.page ?? 1,
+    from: p?.from ?? 0,
+    to: p?.to ?? 0,
+    total: p?.total ?? 0,
+    totalPages: p?.pages ?? 1,
+    canPrev: (p?.page ?? 1) > 1,
+    canNext: (p?.page ?? 1) < (p?.pages ?? 1),
+    isFetching: report.isFetching,
+    prev: () => setPage((n) => Math.max(1, n - 1)),
+    next: () => setPage((n) => Math.min(p?.pages ?? n, n + 1)),
+  };
 
   return (
-    <div className="flex min-w-0 flex-1 flex-col">
-      <div className="flex flex-wrap items-center gap-2 border-b px-4 py-3 sm:px-6">
-        <h1 className="text-lg font-semibold tracking-tight">Jobs report</h1>
-      </div>
-
-      {/* Workiz's top band: the multi-filter, and the period box with its "By:". */}
-      <div className="flex flex-col gap-3 border-b px-4 py-4 sm:px-6 lg:flex-row lg:items-start">
-        <div className="min-w-0 flex-1">
-          <JobsReportFilter groups={groups} filters={filters} onChange={changeFilters} />
-        </div>
-        <div className="flex w-full flex-col gap-2 rounded-md border p-2 lg:w-[22rem]">
-          <PeriodControl
-            presets={JOBS_REPORT_PRESETS.map((p) => ({ value: p.id, label: p.label }))}
-            preset={preset}
-            onPresetChange={pickPreset}
-            range={range}
-            custom={custom}
-            onCustomChange={pickDays}
-            today={today}
-            className="w-full"
+    <div ref={scrollerRef} className="flex min-h-0 flex-1 flex-col overflow-auto text-wz-strong" data-slot="jobs-report-scroller">
+      {/* The top band (rep_jobs_wz_01_default): the filter 34px under the
+          breadcrumbs, 21px in, running to 20px short of the date box; the
+          box 20px off the right edge; 30px under it to the strip. Sticky
+          makes it a layer of its own: z-20 lets the date lists hang over the
+          strip and the grid's sticky header below it. */}
+      <div className="sticky left-0 z-20 flex shrink-0 items-start gap-5 pt-[34px] pr-5 pb-[30px] pl-[21px]" style={viewWidth ? { width: viewWidth } : undefined}>
+        <WzGroupedFilter<keyof JobsReportFilters>
+          className="min-w-0 flex-1"
+          groups={groups}
+          value={filters}
+          onChange={(next) => changeFilters(next as JobsReportFilters)}
+          chipOrder={FILTER_CHIP_ORDER}
+        />
+        <div className={range.preset === "custom" ? "w-[362px] shrink-0" : "w-[250px] shrink-0"}>
+          <WzDateRangePicker
+            presets={PRESETS}
+            value={range}
+            onChange={(next) => {
+              setRange(next);
+              setPage(1);
+            }}
+            rangeOf={(id) => (id === "custom" ? null : presetRange(id as Exclude<JobsReportPreset, "custom">, today))}
+            calendar={{ today }}
           />
-          <select
-            aria-label="By"
-            className="h-9 rounded-md border bg-transparent px-2 text-sm"
+          <WzPickerSelect
+            prefix="By"
+            options={BY_OPTIONS}
             value={by}
-            onChange={(e) => {
-              const next = e.target.value as JobsReportBy;
+            onChange={(next) => {
               setByChoice(next);
               rememberBy(next);
               setPage(1);
             }}
-          >
-            {JOBS_REPORT_BY.map((b) => (
-              <option key={b} value={b}>
-                By: {JOBS_REPORT_BY_LABEL[b]}
-              </option>
-            ))}
-          </select>
+          />
         </div>
       </div>
 
-      <div className="flex min-w-0 flex-1 flex-col gap-3 bg-muted/30 px-4 py-4 sm:px-6">
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative w-full sm:max-w-sm">
-            <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              aria-label="Search"
-              className="h-9 bg-background pl-8"
-              placeholder="Search"
-              value={search}
-              onChange={(e) => {
-                setSearch(e.target.value);
-                setPage(1);
-              }}
-            />
-          </div>
-          <span className="flex-1" />
-          <select
-            aria-label="Rows per page"
-            className="h-9 rounded-md border bg-background px-2 text-sm"
-            value={pageSize}
-            onChange={(e) => resetPage(setPageSize)(Number(e.target.value))}
-          >
-            {JOBS_REPORT_PAGE_SIZES.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
-          <Button variant="outline" size="sm" className="h-9 gap-1.5 bg-background" onClick={() => void exportCsv()} disabled={exporting || !data}>
-            <Download className="size-3.5" /> {exporting ? "Exporting…" : "Export"}
-          </Button>
-          <Button variant="outline" size="sm" className="h-9 gap-1.5 bg-background" onClick={() => setFieldsOpen(true)}>
-            <Columns3 className="size-3.5" /> Fields
-          </Button>
+      <WzListToolbar className="sticky left-0 gap-x-4" style={viewWidth ? { width: viewWidth } : undefined}>
+        <WzSearchBox
+          value={search}
+          onChange={(v) => {
+            setSearch(v);
+            setPage(1);
+          }}
+        />
+        <div className="ml-auto flex items-center gap-4">
+          <WzPageSizeSelect value={pageSize} sizes={JOBS_REPORT_PAGE_SIZES} onChange={resetPage(setPageSize)} />
+          <WzToolbarButton onClick={() => void exportCsv()} disabled={exporting || !data}>
+            <FileText strokeWidth={1.5} /> {exporting ? "Exporting…" : "Export"}
+          </WzToolbarButton>
+          {/* list strip: Export → Fields is 17px, page size → Export 16px. */}
+          <WzToolbarButton className="ml-px" onClick={() => setFieldsOpen(true)}>
+            <Grid3x3 strokeWidth={1.75} /> Fields
+          </WzToolbarButton>
         </div>
+      </WzListToolbar>
 
+      <div className="flex-1">
         {report.error ? (
-          <p role="alert" className="text-sm text-destructive">
+          <p role="alert" className="sticky left-0 px-5 py-4 text-sm text-destructive">
             {report.error instanceof Error ? report.error.message : "Could not load the report."}
           </p>
         ) : !shown || !data ? (
-          <div role="status" aria-label="Loading jobs" className="space-y-2">
-            <Skeleton className="h-10 w-full" />
-            {Array.from({ length: 8 }, (_, i) => (
-              <Skeleton key={i} className="h-12 w-full" />
-            ))}
-          </div>
+          <JobsReportTableShell columns={columns} viewWidth={viewWidth} />
         ) : (
-          <>
-            <JobsReportTable
-              rows={data.rows}
-              columns={columns}
-              sort={data.sort.column}
-              dir={data.sort.dir}
-              onSort={onSort}
-              addFilter={(key, value) => changeFilters(addFilter(filters, key, value))}
-              busy={report.isFetching}
-            />
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              {showing}
-              {pager}
-            </div>
-          </>
+          <JobsReportTable
+            rows={data.rows}
+            columns={columns}
+            sort={data.sort.column}
+            dir={data.sort.dir}
+            onSort={onSort}
+            addFilter={(key, value) => changeFilters(addFilter(filters, key, value))}
+            busy={report.isFetching}
+            viewWidth={viewWidth}
+          />
         )}
       </div>
+      {shown && data ? (
+        <WzPager pager={pager} className="sticky left-0" />
+      ) : null}
 
       <JobsReportFields
         open={fieldsOpen}
@@ -316,42 +306,15 @@ export function JobsReportPage({ today: todayProp }: { today?: string } = {}) {
   );
 }
 
-/** Previous / a window of page numbers / Next — the server knows the total, so every page is reachable. Also the Sales report's. */
-export function Pager({ page, pages, onPage }: { page: number; pages: number; onPage: (p: number) => void }) {
-  if (pages <= 1) return null;
-  const first = Math.max(1, Math.min(page - 2, pages - 4));
-  const numbers = Array.from({ length: Math.min(5, pages) }, (_, i) => first + i);
-  return (
-    <nav aria-label="Pages" className="flex items-center gap-1">
-      <Button variant="outline" size="icon" className="size-8" aria-label="Previous page" disabled={page <= 1} onClick={() => onPage(page - 1)}>
-        <ChevronLeft className="size-4" />
-      </Button>
-      {numbers.map((n) => (
-        <Button
-          key={n}
-          variant={n === page ? "default" : "ghost"}
-          size="sm"
-          className="h-8 min-w-8 px-2 tabular-nums"
-          aria-current={n === page ? "page" : undefined}
-          onClick={() => onPage(n)}
-        >
-          {n}
-        </Button>
-      ))}
-      <Button variant="outline" size="icon" className="size-8" aria-label="Next page" disabled={page >= pages} onClick={() => onPage(page + 1)}>
-        <ChevronRight className="size-4" />
-      </Button>
-    </nav>
-  );
-}
-
 /**
- * The filter's groups, in Workiz's order, from the catalogs the app already
- * holds: statuses with their sub-statuses, the field team, everyone who can
- * create a job, tags, job types, origin, sources, service areas, external
- * companies. Archived entries stay: last year's jobs still carry them.
+ * The filter's groups, in Workiz's order (rep_jobs_wz_05_filter_open), from
+ * the catalogs the app already holds: STATUS (each with its sub-statuses),
+ * TEAM (the field team), CREATED BY, TAGS, JOB TYPE, JOB ORIGIN, SOURCE,
+ * SERVICE AREAS and COMPANIES — the last two only when the account has any,
+ * as Workiz. Each chip starts with Workiz's filter key ("user: …").
+ * Archived entries stay: last year's jobs still carry them.
  */
-function useFilterGroups(): FilterGroup[] {
+function useFilterGroups(): WzFilterGroup<keyof JobsReportFilters>[] {
   const { can } = usePermissions();
   const { users } = useUserMap();
   // Who is on the field team; without the grant to list them, Team offers everyone.
@@ -368,29 +331,30 @@ function useFilterGroups(): FilterGroup[] {
     const people = users.map((u) => ({ value: u.id, label: personName(u) })).sort(byName);
     const field = new Set(profiles.map((p) => p.userId));
     const team = field.size ? people.filter((p) => field.has(p.value)) : people;
-    const status = SUPER_STATUS_ORDER.flatMap((s) => [
-      { value: s, label: superStatusLabel(s) },
-      ...(statuses ?? [])
-        .filter((sub) => sub.group === s)
-        .map((sub) => ({ value: `${s}:${sub.id}`, label: `${superStatusLabel(s)} - ${sub.name}` })),
-    ]);
-    return [
-      { key: "status", label: "Status", options: status },
-      { key: "techId", label: "Team", options: team },
-      { key: "createdBy", label: "Created by", options: people },
-      { key: "tagId", label: "Tags", options: (tags ?? []).map((t) => ({ value: t.id, label: t.name, color: t.color })) },
-      { key: "jobTypeId", label: "Job type", options: (types ?? []).map((t) => ({ value: t.id, label: t.name })) },
+    const groups: WzFilterGroup<keyof JobsReportFilters>[] = [
+      { key: "status", label: "Status", chip: "status", options: statusFilterOptions(statuses ?? []) },
+      { key: "techId", label: "Team", chip: "user", options: team },
+      { key: "createdBy", label: "Created By", chip: "created_by", options: people },
+      {
+        key: "tagId",
+        label: "Tags",
+        chip: "tag",
+        options: (tags ?? []).map((t) => ({ value: t.id, label: t.name, className: tagSolidClasses(t.color) })),
+      },
+      { key: "jobTypeId", label: "Job type", chip: "type", options: (types ?? []).map((t) => ({ value: t.id, label: t.name })) },
       {
         key: "origin",
         label: "Job origin",
+        chip: "job_origin",
         options: [
           { value: "lead", label: "Lead" },
           { value: "new", label: "New" },
         ],
       },
-      { key: "sourceId", label: "Source", options: (sources ?? []).map((s) => ({ value: s.id, label: s.name })).sort(byName) },
-      { key: "serviceAreaId", label: "Service areas", options: (areas ?? []).map((a) => ({ value: a.id, label: a.name })).sort(byName) },
-      { key: "externalCompanyId", label: "Companies", options: (companies ?? []).map((c) => ({ value: c.id, label: c.name })).sort(byName) },
-    ] satisfies FilterGroup[];
+      { key: "sourceId", label: "Source", chip: "source", options: (sources ?? []).map((s) => ({ value: s.id, label: s.name })) },
+      { key: "serviceAreaId", label: "Service Areas", chip: "metro", options: (areas ?? []).map((a) => ({ value: a.id, label: a.name })) },
+      { key: "externalCompanyId", label: "Companies", chip: "company", options: (companies ?? []).map((c) => ({ value: c.id, label: c.name })) },
+    ];
+    return groups.filter((g) => !(g.key === "serviceAreaId" || g.key === "externalCompanyId") || g.options.length > 0);
   }, [users, profiles, statuses, tags, types, sources, areas, companies]);
 }

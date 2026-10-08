@@ -1,6 +1,7 @@
 import {
   DASHBOARD_TIMEZONE,
   dashboardDay,
+  JobSuperStatus,
   JOBS_REPORT_COLUMNS,
   type JobsReportBy,
   type JobsReportColumnId,
@@ -37,11 +38,21 @@ export const JOBS_REPORT_PRESETS = [
 export type JobsReportPreset = (typeof JOBS_REPORT_PRESETS)[number]["id"];
 
 /** Workiz opens its report on this week, Monday to today. */
-export const DEFAULT_PRESET: JobsReportPreset = "this_week_mon";
+export const DEFAULT_PRESET: Exclude<JobsReportPreset, "custom"> = "this_week_mon";
 
-/** Today on the account's calendar (America/New_York) — the day the presets count from. */
+/** Today on the account's calendar (America/New_York). */
 export function accountToday(now: Date = new Date()): string {
   return dashboardDay(now, DASHBOARD_TIMEZONE);
+}
+
+/**
+ * Today on the viewer's own clock — the day Workiz's presets count from
+ * (`moment()` in its datepicker; read live 2026-10-09: at 00:01 in Kyiv,
+ * 17:01 the day before in New York, its "Today" was already the 9th).
+ */
+export function viewerToday(now: Date = new Date()): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 }
 
 const shift = (day: string, days: number): string => {
@@ -52,25 +63,31 @@ const shift = (day: string, days: number): string => {
 const weekday = (day: string): number => new Date(`${day}T00:00:00.000Z`).getUTCDay(); // 0 = Sunday
 
 /**
- * Inclusive days of a preset. "Last N days" ends yesterday — Workiz's
- * "Last 7 days" on 2026-09-29 is 22–28.09 (checked live).
+ * Inclusive days of a preset, as Workiz's datepicker counts them
+ * (`report_table_and_datepicker.js` getOptions, checked live 2026-10-09):
+ * "Last N days" are the N days up to and including today; weeks follow
+ * moment's `isoWeekday` — `isoWeekday(0)` is the Sunday before this ISO
+ * week's Monday, so on a Sunday "This week (Sun-Today)" reaches back to the
+ * Sunday before, and "Last week (Sun-Sat)" is the week before that.
  */
 export function presetRange(preset: Exclude<JobsReportPreset, "custom">, today: string): { from: string; to: string } {
   const year = today.slice(0, 4);
   const firstOfMonth = `${today.slice(0, 7)}-01`;
-  const sunday = shift(today, -weekday(today));
-  const monday = shift(today, weekday(today) === 0 ? -6 : 1 - weekday(today));
+  // moment's ISO week: Monday 1 … Sunday 7.
+  const iso = weekday(today) === 0 ? 7 : weekday(today);
+  const monday = shift(today, 1 - iso); // isoWeekday(1)
+  const sunday = shift(monday, -1); // isoWeekday(0)
   switch (preset) {
     case "today":
       return { from: today, to: today };
     case "yesterday":
       return { from: shift(today, -1), to: shift(today, -1) };
     case "last_7":
-      return { from: shift(today, -7), to: shift(today, -1) };
+      return { from: shift(today, -6), to: today };
     case "last_14":
-      return { from: shift(today, -14), to: shift(today, -1) };
+      return { from: shift(today, -13), to: today };
     case "last_30":
-      return { from: shift(today, -30), to: shift(today, -1) };
+      return { from: shift(today, -29), to: today };
     case "last_month": {
       const end = shift(firstOfMonth, -1);
       return { from: `${end.slice(0, 7)}-01`, to: end };
@@ -86,9 +103,10 @@ export function presetRange(preset: Exclude<JobsReportPreset, "custom">, today: 
     case "this_week_mon":
       return { from: monday, to: today };
     case "last_week_sun":
-      return { from: shift(sunday, -7), to: shift(sunday, -1) };
+      // isoWeekday(0) − 7 … isoWeekday(6) − 7
+      return { from: shift(sunday, -7), to: shift(monday, -2) };
     case "last_week_mon":
-      return { from: shift(monday, -7), to: shift(monday, -1) };
+      return { from: shift(monday, -7), to: sunday };
     case "last_business_week":
       return { from: shift(monday, -7), to: shift(monday, -3) };
   }
@@ -172,6 +190,61 @@ export function addFilter(filters: JobsReportFilters, key: keyof JobsReportFilte
 
 export const filterCount = (filters: JobsReportFilters): number =>
   FILTER_KEYS.reduce((n, k) => n + (filters[k]?.length ?? 0), 0);
+
+/* --------------------------------------------------------------- statuses */
+
+/** Workiz's words for the super-statuses (rep_jobs_wz_05_filter_open, the Status cells). */
+const WORKIZ_STATUS: Record<JobSuperStatus, string> = {
+  [JobSuperStatus.SUBMITTED]: "Submitted",
+  [JobSuperStatus.IN_PROGRESS]: "In progress",
+  [JobSuperStatus.CANCELED]: "Canceled",
+  [JobSuperStatus.DONE]: "Done",
+  [JobSuperStatus.PENDING]: "Pending",
+  [JobSuperStatus.DONE_PENDING_APPROVAL]: "done pending approval",
+};
+
+export const workizStatusLabel = (s: JobSuperStatus): string => WORKIZ_STATUS[s] ?? s;
+
+/** The Status group's order in Workiz's filter. */
+const WORKIZ_STATUS_ORDER: JobSuperStatus[] = [
+  JobSuperStatus.SUBMITTED,
+  JobSuperStatus.IN_PROGRESS,
+  JobSuperStatus.CANCELED,
+  JobSuperStatus.DONE,
+  JobSuperStatus.PENDING,
+  JobSuperStatus.DONE_PENDING_APPROVAL,
+];
+
+/**
+ * The filter's Status group: each status, then its sub-statuses as
+ * "Status - Sub-status" (`done:<id>`), as Workiz lists them.
+ */
+export function statusFilterOptions(
+  subs: readonly { id: string; name: string; group: JobSuperStatus }[],
+): { value: string; label: string }[] {
+  return WORKIZ_STATUS_ORDER.flatMap((s) => [
+    { value: s, label: workizStatusLabel(s) },
+    ...subs
+      .filter((sub) => sub.group === s)
+      .map((sub) => ({ value: `${s}:${sub.id}`, label: `${workizStatusLabel(s)} - ${sub.name}` })),
+  ]);
+}
+
+/**
+ * The order the filter box lists its chips in: Workiz's filters object
+ * (user, tag, metro, type, status, created_by, source, company, job_origin).
+ */
+export const FILTER_CHIP_ORDER = [
+  "techId",
+  "tagId",
+  "serviceAreaId",
+  "jobTypeId",
+  "status",
+  "createdBy",
+  "sourceId",
+  "externalCompanyId",
+  "origin",
+] as const satisfies readonly (keyof JobsReportFilters)[];
 
 /* ---------------------------------------------------------------- columns */
 

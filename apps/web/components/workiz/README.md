@@ -328,6 +328,33 @@ Measured off `callspage_wz_*` (notes: `jobs-parity-2026-10-08/callspage.md`).
   value), "Apply" (14px/600 `#3589e9`). (Not the same as `WzFilterChip`, the
   react-select multi-value chip of "Filter results".)
 
+### Report pieces (agent `rep_jobs`, Jobs report)
+
+Measured off `rep_jobs_wz_*` (notes:
+`workiz-data-parser/docs/import/app-parity-2026-10-08/rep_jobs.md`). Import
+them from their files (`@/components/workiz/grouped-filter`, …).
+
+- **`WzGroupedFilter`** `groups={{key,label,chip,options:{value,label,className?}[]}[]}`
+  `value={[key]: string[]}` `onChange` `chipOrder` — the reports' "Filter
+  results" react-select (Jobs report MultiFilter): 38px box, "Select..." 16px
+  `#808080`; open, one 150px column per group side by side (headings 10.5px/500
+  `#999` capitals, 32px options, `#deebff` focused), 300px tall, scrolling both
+  ways; typing in the box narrows every group and drops the empty ones; a pick
+  closes the list and becomes a chip "`chip`: label" (24px white, 1px `#ccc`,
+  11.9px `#333`, a × segment); Backspace drops the last chip, the clear × all.
+  `className` on an option draws it as a coloured chip (tags). `wzFilterChips()`
+  gives the chip words and order.
+- **`WzPickerSelect`** `prefix` `options` `value` `onChange` `attached` — the
+  `_picker` select row "By: Job end date ⌄" (36px, thin chevron 29px from the
+  right) with its 37px-row list; `attached` (default) sits flush under a
+  `WzDateRangePicker`. Give both the same width (250px, 362px with Custom).
+- **`WzDateRangePicker` `calendar={{today}}`** (new, optional) — hangs
+  **`WzDayPicker`** under a focused From: / To:: react-datepicker's stock month
+  (242×235, `#f0f0f0` header, 27px days, chosen `#216ba5`, today bold, only the
+  weeks the month touches); a picked day is taken at once. Off by default.
+  The list under the box: no shadow, `#e1e1e1` under the cursor (measured,
+  rep_jobs_wz_06b_date_hover).
+
 ## Known differences from Workiz (deliberate or unmeasurable)
 - Sub-pixel: Workiz's own fractional layout makes some glyphs land ±1px
   differently from ours in screenshots (e.g. two Workiz selects with identical

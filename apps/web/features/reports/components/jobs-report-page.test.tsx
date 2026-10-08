@@ -116,7 +116,9 @@ describe("JobsReportPage", () => {
       page: "1",
       pageSize: "50",
     });
-    expect(screen.getByRole("combobox", { name: "By" })).toHaveValue("end");
+    expect(screen.getByRole("button", { name: "By: Job end date" })).toBeInTheDocument();
+    // Workiz's date box: the preset over its days (rep_jobs_wz_01_default).
+    expect(screen.getByRole("button", { name: /^Date range/ })).toHaveTextContent("This week (Mon-Today)Sep 28th, 2026 - Sep 29th, 2026");
   });
 
   it("shows the account's columns in Workiz's order, and the Workiz result line", () => {
@@ -146,9 +148,10 @@ describe("JobsReportPage", () => {
 
   it("asks again on another By, preset, page size and sort", async () => {
     render(<Page today="2026-09-29" />);
-    await userEvent.selectOptions(screen.getByRole("combobox", { name: "By" }), "created");
+    await userEvent.click(screen.getByRole("button", { name: /^By:/ }));
+    await userEvent.click(screen.getByRole("option", { name: "Job created" }));
     await userEvent.click(screen.getByRole("button", { name: /^Date range/ }));
-    await userEvent.click(screen.getByRole("button", { name: "This year" }));
+    await userEvent.click(screen.getByRole("option", { name: "This year" }));
     await userEvent.selectOptions(screen.getByRole("combobox", { name: "Rows per page" }), "1000");
     await userEvent.click(screen.getByRole("button", { name: "Sort by Total" }));
     expect(lastParams()).toMatchObject({ by: "created", from: "2026-01-01", to: "2026-09-29", pageSize: "1000", sort: "total", dir: "asc" });
@@ -162,22 +165,27 @@ describe("JobsReportPage", () => {
     await userEvent.click(within(first).getByRole("button", { name: "Paid" }));
     expect(lastParams()).toMatchObject({ jobTypeId: "jt1", status: "done:ss1" });
     // The picked values show in the filter box and can be removed there.
-    await userEvent.click(screen.getByRole("button", { name: "Remove Job type: Car key" }));
+    // Workiz words the chips with its filter keys: "type: …", "status: …".
+    expect(screen.getByText("type: Car key")).toBeInTheDocument();
+    expect(screen.getByText("status: Done - Paid")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Remove type: Car key" }));
     expect(lastParams().jobTypeId).toBeUndefined();
   });
 
   it("offers Workiz's filter groups, OR inside a group", async () => {
     render(<Page today="2026-09-29" />);
-    await userEvent.click(screen.getByRole("button", { name: "Filter results" }));
-    const groups = screen.getByRole("group", { name: "Filter groups" });
-    expect(within(groups).getAllByRole("region").map((g) => g.getAttribute("aria-label"))).toEqual([
-      "Status", "Team", "Created by", "Tags", "Job type", "Job origin", "Source", "Service areas", "Companies",
+    const box = screen.getByRole("combobox", { name: "Filter results" });
+    await userEvent.click(box);
+    const groups = () => within(screen.getByRole("listbox")).getAllByRole("group");
+    // No external companies on this account, so no Companies group — as Workiz.
+    expect(groups().map((g) => g.getAttribute("aria-label"))).toEqual([
+      "Status", "Team", "Created By", "Tags", "Job type", "Job origin", "Source", "Service Areas",
     ]);
-    const status = within(groups).getByRole("region", { name: "Status" });
-    await userEvent.click(within(status).getByRole("checkbox", { name: "Done - Paid" }));
-    await userEvent.click(within(status).getByRole("checkbox", { name: "Canceled" }));
     // Team lists the field team only.
-    expect(within(within(groups).getByRole("region", { name: "Team" })).getAllByRole("checkbox").map((c) => c.textContent)).toEqual(["Sam Tech"]);
+    expect(within(groups()[1]).getAllByRole("option").map((o) => o.textContent)).toEqual(["Sam Tech"]);
+    await userEvent.click(screen.getByRole("option", { name: "Done - Paid" }));
+    await userEvent.click(box);
+    await userEvent.click(screen.getByRole("option", { name: "Canceled" }));
     expect(lastParams().status).toBe("done:ss1,canceled");
   });
 
