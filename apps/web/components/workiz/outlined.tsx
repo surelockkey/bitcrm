@@ -75,8 +75,8 @@ export function parseWzDate(text: string): string | null {
   return splitIso(iso) ? iso : null;
 }
 
-/** The label in the notch (or resting inside while empty and idle). */
-function NotchedLabel({
+/** The label in the notch (or resting inside while empty and idle). Shared with `WzOutlinedSelect`. */
+export function NotchedLabel({
   id,
   htmlFor,
   floated,
@@ -105,7 +105,8 @@ function NotchedLabel({
   );
 }
 
-const OUTLINE = cn(
+/** The outlined box (shared with `WzOutlinedSelect`). */
+export const OUTLINE = cn(
   "border border-wz-outline bg-white rounded-[4px] transition-colors",
   "hover:border-foreground",
   "group-data-[focused=true]/wzo:border-wz-link group-data-[open=true]/wzo:border-wz-link",
