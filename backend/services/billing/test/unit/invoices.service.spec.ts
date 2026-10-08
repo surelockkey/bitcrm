@@ -517,6 +517,66 @@ describe('InvoicesService', () => {
     });
   });
 
+  /**
+   * The Clients page's Due / Past due cards: the open balances only, read off
+   * UnpaidIndex (~600 rows) — never the whole ledger, never the deal service
+   * (the summary's jobs-needing-an-invoice walk made it two seconds).
+   */
+  describe('balances — the Clients page cards', () => {
+    const inv = (id: string, contactId: string, status: Invoice['status'], balanceDue: number, dealId = id) =>
+      ({ id, dealId, contactId, status, totals: { balanceDue } }) as unknown as Invoice;
+    const unpaidOf = (items: Invoice[]) => ({ listUnpaid: jest.fn(async () => ({ items, indexReady: true })) });
+
+    it('sums the open balances off UnpaidIndex and counts the clients who owe', async () => {
+      const unpaid = unpaidOf([inv('i1', 'c1', 'due', 100), inv('i2', 'c1', 'overdue', 50), inv('i3', 'c2', 'overdue', 5.5)]);
+      service = new InvoicesService(repo as never, deal as never, crm as never, profiles as never, undefined, undefined, undefined, undefined, unpaid as never);
+
+      const b = await service.balances(caller());
+
+      expect(b).toEqual({
+        dueAmount: 100,
+        dueCount: 1,
+        overdueAmount: 55.5,
+        overdueCount: 2,
+        dueClientCount: 2,
+        overdueClientCount: 2,
+      });
+      expect(repo.listAll).not.toHaveBeenCalled();
+      expect(deal.listNeedsInvoice).not.toHaveBeenCalled();
+    });
+
+    it('keeps a technician to the jobs they are on', async () => {
+      const unpaid = unpaidOf([inv('i1', 'c1', 'due', 100, 'deal-1'), inv('i2', 'c2', 'due', 7, 'deal-2')]);
+      service = new InvoicesService(repo as never, deal as never, crm as never, profiles as never, undefined, undefined, undefined, undefined, unpaid as never);
+      deal.listDealIdsByTech.mockResolvedValueOnce(new Set(['deal-2']));
+
+      const b = await service.balances(caller(DataScope.ASSIGNED_ONLY, { id: 'tech-1' }));
+
+      expect(b).toMatchObject({ dueAmount: 7, dueClientCount: 1 });
+    });
+
+    it('answers from the open invoices of the full list where there is no UnpaidIndex reader', async () => {
+      repo.store.set('i1', inv('i1', 'c1', 'overdue', 9));
+      repo.store.set('i2', inv('i2', 'c2', 'paid', 0));
+
+      const b = await service.balances(caller());
+
+      expect(b).toMatchObject({ overdueAmount: 9, overdueClientCount: 1, dueClientCount: 1, dueCount: 0 });
+    });
+  });
+
+  describe('summary — untouched by the cards', () => {
+    const inv = (id: string, contactId: string, status: Invoice['status'], balanceDue: number) =>
+      ({ id, dealId: id, contactId, status, totals: { balanceDue } }) as unknown as Invoice;
+
+    it('still counts the jobs needing an invoice', async () => {
+      repo.store.set('i1', inv('i1', 'c1', 'due', 1));
+      await service.summary(caller(), 'Bearer t');
+
+      expect(deal.listNeedsInvoice).toHaveBeenCalled();
+    });
+  });
+
   describe('list', () => {
     it('filters to the technician’s own jobs under assigned_only', async () => {
       repo.store.set('deal-1', { id: 'deal-1', dealId: 'deal-1' } as Invoice);

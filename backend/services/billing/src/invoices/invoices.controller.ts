@@ -85,6 +85,21 @@ export class InvoicesController {
     return { success: true, data: await this.invoices.summary(caller, authorization) };
   }
 
+  // Before `:id`, or the parameter route swallows it.
+  @Get('balances')
+  @RequirePermission('invoices', 'view')
+  @ApiOperation({
+    summary: 'Open balances and how many clients owe them',
+    description:
+      '**Guard:** `invoices.view` (`assigned_only` → the caller’s jobs). Workiz’s Clients page cards: ' +
+      '`dueAmount`/`dueCount` and `overdueAmount`/`overdueCount` over the open invoices, `dueClientCount` ' +
+      '(clients with any open balance) and `overdueClientCount`. Reads UnpaidIndex — no ledger walk, no ' +
+      'deal-service call.',
+  })
+  async balances(@CallerCtx() caller: Caller) {
+    return { success: true, data: await this.invoices.balances(caller) };
+  }
+
   @Get('needing-invoice')
   @RequirePermission('invoices', 'view')
   @ApiOperation({

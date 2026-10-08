@@ -113,6 +113,12 @@ export interface InvoiceSummary {
   overdueClientCount: number;
 }
 
+/** `GET /invoices/balances` — the open balances and how many clients owe them. */
+export type InvoiceBalances = Pick<
+  InvoiceSummary,
+  'dueAmount' | 'dueCount' | 'overdueAmount' | 'overdueCount' | 'dueClientCount' | 'overdueClientCount'
+>;
+
 export interface NeedingInvoiceRow {
   id: string;
   dealNumber: string;
@@ -576,6 +582,48 @@ export class InvoicesService {
     s.paidAmount = round2(s.paidAmount);
     s.needsInvoiceCount = (await this.needingInvoice(authorization)).length;
     return s;
+  }
+
+  /**
+   * The open balances only — Workiz's Clients page cards ("Due from 335
+   * clients", "Past due from 260 clients"): what is owed on `due` and
+   * `overdue` invoices and how many clients owe it. Read off UnpaidIndex
+   * (~600 rows; the full list's open invoices until it is backfilled), never
+   * the whole ledger and never the deal service — the summary's
+   * jobs-needing-an-invoice walk is what made it two seconds.
+   */
+  async balances(caller: Caller): Promise<InvoiceBalances> {
+    const open = this.unpaid
+      ? (await this.unpaid.listUnpaid()).items
+      : (await this.repo.listAll()).filter((i) => i.status === 'due' || i.status === 'overdue');
+    const b: InvoiceBalances = {
+      dueAmount: 0,
+      dueCount: 0,
+      overdueAmount: 0,
+      overdueCount: 0,
+      dueClientCount: 0,
+      overdueClientCount: 0,
+    };
+    const owing = new Set<string>();
+    const pastDue = new Set<string>();
+    for (const inv of await this.visible(open, caller)) {
+      const balance = inv.totals?.balanceDue ?? 0;
+      if (inv.status === 'due') {
+        b.dueCount++;
+        b.dueAmount += balance;
+        owing.add(inv.contactId);
+      } else if (inv.status === 'overdue') {
+        b.overdueCount++;
+        b.overdueAmount += balance;
+        owing.add(inv.contactId);
+        pastDue.add(inv.contactId);
+      }
+    }
+    b.dueAmount = round2(b.dueAmount);
+    b.overdueAmount = round2(b.overdueAmount);
+    b.dueClientCount = owing.size;
+    b.overdueClientCount = pastDue.size;
+    return b;
   }
 
   /** Jobs with items and no invoice (the caller's `deals` scope applies). */
