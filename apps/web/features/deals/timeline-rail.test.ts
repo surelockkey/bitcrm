@@ -108,6 +108,11 @@ describe("a message as a Timeline row (rail_chat)", () => {
       "Your estimate\nHi John",
     );
   });
+
+  // Some imported Workiz bodies carry the escapes as text (IQ3HPE: "\nHere\'s your estimate.").
+  it("reads escaped line breaks and quotes in an imported body as what they stand for", () => {
+    expect(messageRowText(msg({ body: "Hi!\\nHere\\'s your estimate." }), ctx).text).toBe("Hi!\nHere's your estimate.");
+  });
 });
 
 describe("the notes badge on the rail", () => {

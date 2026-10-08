@@ -16,7 +16,7 @@ import { PILL_OUTLINE, PILL_YELLOW_SM } from "@/features/deals/components/job-pi
 import { formatMoney } from "@/features/billing/lib";
 import { formatYmd } from "@/features/billing/dates";
 import { useDealPayments, useResendReceipt } from "../hooks";
-import { CLEARING_NOTE, PAYMENT_METHOD_META, canRefund, isPartiallyPaid, paymentMethodLabel } from "../lib";
+import { CLEARING_NOTE, canRefund, isPartiallyPaid, paymentMethodLabel } from "../lib";
 import { PartiallyPaidBadge, PaymentStatusBadge } from "./payment-status-badge";
 import { RecordPaymentDialog } from "./record-payment-dialog";
 import { RefundPaymentDialog } from "./refund-payment-dialog";
@@ -37,7 +37,7 @@ function RowMenu({ label, children }: { label: string; children: ReactNode }) {
         onClick={() => setOpen((o) => !o)}
         className="grid size-8 place-items-center rounded-[8px] text-foreground hover:bg-[#f3f6f7]"
       >
-        <MoreVertical className="size-5" />
+        <MoreVertical className="size-6" strokeWidth={1.5} />
       </button>
       {open ? (
         <>
@@ -170,7 +170,7 @@ export function DealPaymentsTab({
 
       {rows.length === 0 ? (
         // Workiz's empty state: the picture, "+ Add payments", a rule under.
-        <div className="flex flex-col items-center gap-3 border-b border-[#e6e6e6] pt-[52px] pb-6">
+        <div className="flex flex-col items-center gap-2.5 border-b border-[#e6e6e6] pt-[69px] pb-6">
           <PaymentsArt />
           {canCollect ? (
             <button
@@ -178,7 +178,7 @@ export function DealPaymentsTab({
               onClick={() => setRecording(true)}
               className="inline-flex h-8 items-center gap-2 rounded-pill px-3 text-[13px] leading-[19px] font-semibold tracking-[0.2px] text-foreground hover:bg-[#f3f6f7]"
             >
-              <Plus className="size-4" strokeWidth={1.5} /> Add payments
+              <Plus className="size-4" strokeWidth={1.5} /> <span className="px-1">Add payments</span>
             </button>
           ) : (
             <p className="text-[13px]">No payments on this job yet.</p>
@@ -186,19 +186,19 @@ export function DealPaymentsTab({
         </div>
       ) : (
         <div className="mt-5 overflow-x-auto">
-          <table className="w-full min-w-[46rem] border-separate border-spacing-0 border-b border-[#cccccc] text-[13px] leading-4">
+          {/* Workiz's columns, 313 / 224 / 387 / 197 / 183 of 1305px (N9YA2L). */}
+          <table className="w-full min-w-[46rem] table-fixed border-separate border-spacing-0 border-b border-[#cccccc] text-[13px] leading-4">
             <thead>
               <tr>
-                <th className={TH}>Type</th>
-                <th className={TH}>Amount</th>
-                <th className={TH}>Date</th>
-                <th className={TH}>Status</th>
-                <th className={cn(TH, "w-[183px]")} aria-label="Actions" />
+                <th className={cn(TH, "w-[24%]")}>Type</th>
+                <th className={cn(TH, "w-[17.2%]")}>Amount</th>
+                <th className={cn(TH, "w-[29.7%]")}>Date</th>
+                <th className={cn(TH, "w-[15.1%]")}>Status</th>
+                <th className={cn(TH, "w-[14%]")} aria-label="Actions" />
               </tr>
             </thead>
             <tbody>
               {rows.map((p) => {
-                const Icon = PAYMENT_METHOD_META[p.method]?.icon ?? Receipt;
                 const what = `the ${formatMoney(p.amount)} ${paymentMethodLabel(p.method).toLowerCase()} payment`;
                 const receiptable = p.status === "settled" || p.status === "refunded";
                 const resending = resend.isPending && resend.variables === p.id;
@@ -206,9 +206,9 @@ export function DealPaymentsTab({
                 const canGiveBackThis = canGiveBack && canRefund(p);
                 return (
                   <tr key={p.id}>
-                    <td className={TD}>
-                      <span className="flex items-center gap-1.5 whitespace-nowrap">
-                        <Icon className="size-3.5 text-[#9ea6aa]" aria-hidden />
+                    {/* Workiz's one line, "Cash By referral"; the reference or note on hover. */}
+                    <td className={TD} title={p.reference || p.note || undefined}>
+                      <span className="flex items-center gap-1.5 truncate whitespace-nowrap">
                         <span>{paymentMethodLabel(p.method)}</span>
                         {p.last4 ? (
                           <span className="text-[#666666]">
@@ -217,9 +217,6 @@ export function DealPaymentsTab({
                         ) : null}
                         <span className="ml-1">By {collectedBy(p.takenBy)}</span>
                       </span>
-                      {p.reference || p.note ? (
-                        <span className="mt-1 block max-w-64 truncate text-[12px] text-[#666666]">{p.reference || p.note}</span>
-                      ) : null}
                     </td>
                     <td className={cn(TD, "tabular-nums")}>
                       {formatMoney(p.amount)}
@@ -234,7 +231,7 @@ export function DealPaymentsTab({
                     <td className={cn(TD, "pl-2.5")}>
                       <PaymentStatusBadge status={p.status} />
                     </td>
-                    <td className={cn(TD, "text-right")}>
+                    <td className={cn(TD, "pr-[33px] text-right")}>
                       {canResend || canGiveBackThis ? (
                         <RowMenu label={`Actions for ${what}`}>
                           {canResend ? (

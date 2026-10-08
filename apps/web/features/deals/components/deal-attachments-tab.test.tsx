@@ -75,7 +75,7 @@ describe("DealAttachmentsTab — Workiz-style rows", () => {
     render(<DealAttachmentsTab dealId="d1" canEdit={false} />);
 
     expect(screen.getAllByRole("img")).toHaveLength(1);
-    expect(screen.getByText("invoice.pdf")).toBeInTheDocument();
+    expect(screen.getByText("invoice")).toBeInTheDocument();
   });
 
   it("falls back to the stub icon when the image bytes fail to load", () => {
@@ -120,10 +120,18 @@ describe("DealAttachmentsTab — Workiz-style rows", () => {
     expect(within(menu).queryByText("Delete")).not.toBeInTheDocument();
   });
 
+  // audit_pixels T8: Workiz lists "file - 2026-10-07t153737.209", no extension.
+  it("lists a file by its name without the extension; the editor keeps the full name", () => {
+    render(<DealAttachmentsTab dealId="d1" canEdit />);
+
+    expect(screen.getByText("before")).toBeInTheDocument();
+    expect(screen.queryByText("before.jpg")).not.toBeInTheDocument();
+  });
+
   it("opens an edit dialog on row click and saves the new name and description", () => {
     render(<DealAttachmentsTab dealId="d1" canEdit />);
 
-    fireEvent.click(screen.getByText("before.jpg"));
+    fireEvent.click(screen.getByText("before"));
 
     const dialog = screen.getByRole("dialog");
     const name = within(dialog).getByDisplayValue("before.jpg");
@@ -141,7 +149,7 @@ describe("DealAttachmentsTab — Workiz-style rows", () => {
   it("does not open the edit dialog for read-only users", () => {
     render(<DealAttachmentsTab dealId="d1" canEdit={false} />);
 
-    fireEvent.click(screen.getByText("before.jpg"));
+    fireEvent.click(screen.getByText("before"));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 });

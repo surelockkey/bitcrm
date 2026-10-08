@@ -994,7 +994,7 @@ function PanelBody({
                 Add note
               </button>
             ) : null}
-            {canEdit && onMessageClient ? <span className="px-2.5">/</span> : null}
+            {canEdit && onMessageClient ? <span className="px-[9px]">/</span> : null}
             {onMessageClient ? (
               <button type="button" onClick={onMessageClient} className="underline underline-offset-2 hover:text-foreground">
                 Message Client
@@ -1014,7 +1014,7 @@ function PanelBody({
             {search.trim() ? "Nothing matches your search." : filter === "messages" ? "No messages yet." : "No activity yet."}
           </p>
         ) : (
-          <ol className="pt-2.5 pr-5 pl-[23px]">
+          <ol className="pt-2 pr-5 pl-[23px]">
             {rows.map((row, i) =>
               row.kind === "message" ? (
                 <TimelineRow
@@ -1127,7 +1127,7 @@ function TimelineRow({
 }) {
   const { icon: Icon, title } = ROW_ICON[icon];
   const [expanded, setExpanded] = useState(false);
-  const long = !!text && (text.split("\n").length > 3 || text.length > 120);
+  const long = !!text && (text.split("\n").length > 3 || text.length > 80);
 
   return (
     <li className="relative flex min-h-[100px] gap-[3px] pb-5">
@@ -1137,7 +1137,7 @@ function TimelineRow({
         <Icon className="size-[21px]" strokeWidth={1.25} />
       </span>
       <div className="min-w-0 flex-1 pt-2.5">
-        <div className="flex items-center gap-2 text-[#404040]">
+        <div className="flex items-center gap-2.5 text-[#404040]">
           <span className="max-w-[120px] truncate text-[14px] leading-4 font-medium" title={actor}>
             {actor}
           </span>

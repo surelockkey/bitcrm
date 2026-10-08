@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Copy, Loader2, Plus, Send, XCircle } from "lucide-react";
+import { Copy, Loader2, Plus, Send, X } from "lucide-react";
 import type { Deal, EstimateWithItems } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
 import {
@@ -25,7 +25,7 @@ import { formatMoney } from "@/features/billing/lib";
 import { useDealEstimates, useDeleteEstimate, useDuplicateEstimate } from "../hooks";
 import { ESTIMATE_STATUS_COLORS } from "@/features/reports/billing/lib";
 import { EstimatesArt } from "@/features/deals/components/job-empty-art";
-import { PILL_OUTLINE_TALL, PILL_YELLOW } from "@/features/deals/components/job-pills";
+import { PILL_OUTLINE_TALL } from "@/features/deals/components/job-pills";
 import { estimateStatusLabel, formatEstimateCreated, proposalSend } from "../lib";
 import { byCreated, optionLabel } from "./estimate-tabs";
 import { NewEstimateDialog } from "./new-estimate-dialog";
@@ -42,8 +42,8 @@ const cell = "border-b border-l border-b-[#e6e6e6] border-l-[#cfcfcf] [border-le
 /**
  * The job's Estimates tab as Workiz lays it out: a list of the job's
  * estimates — Estimate (its name / number), Created, Status, Total, and a copy
- * and a delete per row — with "Send all (Proposal)" over it and "+ Add
- * Estimate" under it. An estimate opens on its own page (`/estimates/[id]`),
+ * and a delete per row — with "+ Add Estimate" and our "Send all (Proposal)"
+ * as outline pills under it. An estimate opens on its own page (`/estimates/[id]`),
  * where the job's estimates are tabs and "← Job ID" leads back here.
  */
 export function DealEstimatesTab({
@@ -101,8 +101,9 @@ export function DealEstimatesTab({
   return (
     <section aria-label="Job estimates">
       {list.length === 0 ? (
-        // Workiz's empty tab: the picture, the sentence, and the pill under it.
-        <div className="flex flex-col items-center pt-[50px] pb-[55px]">
+        // Workiz's empty tab: the picture, the sentence, the pill under it,
+        // and a rule closing the block (audit_pixels T7).
+        <div className="flex flex-col items-center border-b border-[#e6e6e6] pt-[43px] pb-[54px]">
           <EstimatesArt />
           <h3 className="mt-[25px] text-[16px] leading-[25px] font-bold text-[#3e4b51]">You don&apos;t have any estimates yet</h3>
           {canCreate ? (
@@ -113,16 +114,13 @@ export function DealEstimatesTab({
         </div>
       ) : (
         <>
-          <div className="flex min-h-[61px] flex-wrap items-start justify-between gap-3 pt-3">
+          <div className="min-h-[61px] pt-3">
             <h3 className="text-[16px] leading-[19px] font-normal text-[#404040]">Estimates</h3>
-            {canSendAll && sendAll.mode ? (
-              <button type="button" className={PILL_YELLOW} onClick={() => setSendingAll(true)}>
-                <Send /> Send all (Proposal)
-              </button>
-            ) : null}
           </div>
           <div className="mt-5 overflow-x-auto">
-          <table aria-label="Estimates" className="w-full min-w-[46rem] border-separate border-spacing-0">
+          {/* Fixed layout: Estimate and Created share what Status / Total /
+              Actions (166px each) leave, as Workiz's 381 / 381 do. */}
+          <table aria-label="Estimates" className="w-full min-w-[46rem] table-fixed border-separate border-spacing-0">
             <thead>
               <tr>
                 <th className={cn(th, "pl-[25px]")}>Estimate</th>
@@ -134,14 +132,15 @@ export function DealEstimatesTab({
             </thead>
             <tbody>
               {list.map((e, i) => (
-                <tr key={e.id} className="hover:bg-[#f8f8f8]">
-                  <td className="relative border-b border-[#e6e6e6] py-5 pr-2.5 pl-6 align-middle text-[13px] leading-4">
+                // Workiz rows are 80px (jobshell_wz_MS9277_estimates).
+                <tr key={e.id} className="h-20 hover:bg-[#f8f8f8]">
+                  <td className="relative truncate border-b border-[#e6e6e6] py-5 pr-2.5 pl-6 align-middle text-[13px] leading-[19px]">
                     <span aria-hidden className={cn("absolute inset-y-0 left-0 w-1.5", ACCENTS[i % ACCENTS.length])} />
                     <Link href={`/estimates/${e.id}`} className="font-semibold text-[#6aa8ee] hover:underline">
                       {optionLabel(e, i)}
                     </Link>
                     <span className="font-medium text-foreground"> / Estimate No. </span>
-                    <span className="text-foreground">{e.number}</span>
+                    <span className="text-foreground opacity-60">{e.number}</span>
                   </td>
                   <td className={cell}>{formatEstimateCreated(e.createdAt)}</td>
                   <td className={cell}>
@@ -152,7 +151,8 @@ export function DealEstimatesTab({
                   </td>
                   <td className={cn(cell, "tabular-nums")}>{formatMoney(e.totals?.total ?? 0)}</td>
                   <td className={cell}>
-                    <div className="flex items-center gap-4 text-[#9ea6aa]">
+                    {/* Workiz: a filled copy (14×17) at +54px and a filled grey ⊗ (16px) 46px on. */}
+                    <div className="flex items-center gap-8 pl-[34px] text-[#9ea6aa]">
                       {canCreate ? (
                         <button
                           type="button"
@@ -162,7 +162,11 @@ export function DealEstimatesTab({
                           onClick={() => duplicate.mutate(e.id)}
                           className="hover:text-foreground disabled:opacity-50"
                         >
-                          {duplicate.isPending && duplicate.variables === e.id ? <Loader2 className="size-4 animate-spin" /> : <Copy className="size-4" />}
+                          {duplicate.isPending && duplicate.variables === e.id ? (
+                            <Loader2 className="size-4 animate-spin" />
+                          ) : (
+                            <Copy className="h-[17px] w-[14px]" strokeWidth={2.25} />
+                          )}
                         </button>
                       ) : null}
                       {canDelete ? (
@@ -171,9 +175,9 @@ export function DealEstimatesTab({
                           aria-label={`Delete estimate ${e.number}`}
                           title="Delete"
                           onClick={() => setDeleting(e)}
-                          className="hover:text-destructive"
+                          className="grid size-4 place-items-center rounded-full bg-[#9ea6aa] text-white hover:bg-destructive"
                         >
-                          <XCircle className="size-4" />
+                          <X className="size-2.5" strokeWidth={3} />
                         </button>
                       ) : null}
                     </div>
@@ -183,11 +187,21 @@ export function DealEstimatesTab({
             </tbody>
           </table>
           </div>
-          {canCreate ? (
-            <div className="mt-[25px] flex flex-wrap gap-[15px] pl-[15px]">
-              <button type="button" className={PILL_OUTLINE_TALL} onClick={() => setCreating(true)}>
-                <Plus strokeWidth={1.5} /> Add Estimate
-              </button>
+          {canCreate || (canSendAll && sendAll.mode) ? (
+            // Workiz's outline pills under the table (+ Add Estimate, Load
+            // proposal template); ours sends the job's estimates as one
+            // proposal from the same row — Workiz has no such button.
+            <div className="mt-[25px] flex flex-wrap gap-[15px] pl-[11px]">
+              {canCreate ? (
+                <button type="button" className={PILL_OUTLINE_TALL} onClick={() => setCreating(true)}>
+                  <Plus strokeWidth={1.5} /> <span className="px-1">Add Estimate</span>
+                </button>
+              ) : null}
+              {canSendAll && sendAll.mode ? (
+                <button type="button" className={PILL_OUTLINE_TALL} onClick={() => setSendingAll(true)}>
+                  <Send strokeWidth={1.5} /> <span className="px-1">Send all (Proposal)</span>
+                </button>
+              ) : null}
             </div>
           ) : null}
         </>

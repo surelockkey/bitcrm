@@ -154,6 +154,14 @@ export function formatBoxAmount(n: number): string {
   return n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+/* ------------------------------------------------------------ attachments */
+
+/** A file's name as Workiz lists it, without its extension ("before.jpg" → "before"). */
+export function fileTitle(fileName: string): string {
+  const dot = fileName.lastIndexOf(".");
+  return dot > 0 ? fileName.slice(0, dot) : fileName;
+}
+
 /* ------------------------------------------------------------------ dates */
 
 /** "10/8/2026" — a calendar day as written, never shifted by a time zone. */

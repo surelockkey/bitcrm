@@ -5,6 +5,7 @@ import {
   dealBalance,
   dealJobName,
   dealTabSublabel,
+  fileTitle,
   formatBoxAmount,
   jobActions,
   jobChatPhone,
@@ -86,6 +87,19 @@ describe("the header's Tags row: newest first, stored in the order added", () =>
 
   it("drops a removed tag without reordering the rest", () => {
     expect(storedTagOrder(["a", "b", "c"], ["c", "a"])).toEqual(["a", "c"]);
+  });
+});
+
+describe("attachment names as Workiz lists them (audit_pixels T8)", () => {
+  it("drops the extension: 'file - 2026-10-07t153737.209'", () => {
+    expect(fileTitle("file - 2026-10-07t153737.209.jpg")).toBe("file - 2026-10-07t153737.209");
+    expect(fileTitle("before.jpg")).toBe("before");
+    expect(fileTitle("archive.tar.gz")).toBe("archive.tar");
+  });
+
+  it("leaves a name without an extension, or a dotfile, as it is", () => {
+    expect(fileTitle("README")).toBe("README");
+    expect(fileTitle(".env")).toBe(".env");
   });
 });
 

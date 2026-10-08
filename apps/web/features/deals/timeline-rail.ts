@@ -95,9 +95,12 @@ export function messageRowText(m: FeedMessage, ctx: MessageRowContext): { actor:
 
   const files = m.attachments?.length ?? 0;
   const body = m.channel === "email" && m.subject && m.body ? `${m.subject}\n${m.body}` : m.body ?? m.subject;
-  const text = body || (files ? `${files} attachment${files === 1 ? "" : "s"}` : "");
+  const text = unescapeImported(body ?? "") || (files ? `${files} attachment${files === 1 ? "" : "s"}` : "");
   return { actor, text };
 }
+
+/** Some Workiz bodies arrived with their escapes as text: "\n" and "\'" written out. */
+const unescapeImported = (s: string) => s.replace(/\\n/g, "\n").replace(/\\'/g, "'");
 
 /** "Activities (58)"; "Notes (6+)" while older pages could still add to it. */
 export function filterOptionLabel(filter: TimelineFilter, count: number, hasMore: boolean): string {

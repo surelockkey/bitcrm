@@ -95,6 +95,11 @@ const cell = cn(td, "border-b border-l border-dashed");
 const wzTh = "h-[47px] border-r border-b border-dotted border-[#cfcfcf] py-[15px] pr-2.5 pl-[15px] text-left text-[14px] leading-4 font-bold";
 const wzTd = "border-r border-b border-r-[#cfcfcf] border-b-[#e6e6e6] border-dotted [border-bottom-style:solid] py-[15px] pr-2.5 pl-[15px] align-top text-[14px] leading-4";
 
+/** What the job grid keeps off its 85px row: the description, then "SKU · tech $x". */
+function itemTooltip(p: DealProduct): string {
+  return [p.description, `${p.sku} · tech ${formatMoney(p.costForTech)}`].filter(Boolean).join("\n");
+}
+
 export function DealProductsTab({
   deal,
   canEdit,
@@ -211,24 +216,30 @@ export function DealProductsTab({
 
   if (variant === "job") {
     const withActions = canEdit && items.length > 0;
+    // Workiz's column widths: 56 + 579 + 5 × 126 on an empty grid; with
+    // rows 71 + 287 + 160 × 5 + 106 (audit_pixels T1/T2). The first column
+    // is Workiz's drag-handle column — job items do not reorder here, so it
+    // holds no handle, only its width.
+    const num = items.length > 0 ? "w-[160px]" : "w-[126px]";
     return (
       <section aria-labelledby="job-items-heading" className="text-[#404040]">
-        <div className="flex items-end justify-between border-b border-[#cad3d6] pb-2.5">
+        <div className="flex items-end justify-between border-b border-[#cad3d6] pt-1 pb-[14px]">
           <h2 id="job-items-heading" className="text-[18px] leading-[22px] font-semibold">
             Job Items
           </h2>
         </div>
 
         <div className="mt-[15px] overflow-x-auto">
-          <table className="w-full min-w-[52rem] border-separate border-spacing-0">
+          <table className="w-full min-w-[52rem] table-fixed border-separate border-spacing-0">
             <thead>
               <tr>
+                <th aria-hidden className={cn(wzTh, items.length > 0 ? "w-[71px]" : "w-[56px]")} />
                 <th className={wzTh}>Item</th>
-                <th className={cn(wzTh, "w-[160px]")}>Quantity</th>
-                <th className={cn(wzTh, "w-[160px]")}>Price</th>
-                {showCost ? <th className={cn(wzTh, "w-[160px]")}>Cost</th> : null}
-                <th className={cn(wzTh, "w-[160px]")}>Amount</th>
-                <th className={cn(wzTh, "w-[160px]", !withActions && "border-r-0")}>Taxable</th>
+                <th className={cn(wzTh, num)}>Quantity</th>
+                <th className={cn(wzTh, num)}>Price</th>
+                {showCost ? <th className={cn(wzTh, num)}>Cost</th> : null}
+                <th className={cn(wzTh, num)}>Amount</th>
+                <th className={cn(wzTh, num)}>Taxable</th>
                 {withActions ? <th className={cn(wzTh, "w-[106px] border-r-0")}>Actions</th> : null}
               </tr>
             </thead>
@@ -240,7 +251,8 @@ export function DealProductsTab({
                     className={cn(canEdit && "cursor-pointer hover:bg-[#f8f8f8]")}
                     onClick={canEdit ? () => setEditing(p) : undefined}
                   >
-                    <td className={wzTd}>
+                    <td aria-hidden className={wzTd} />
+                    <td className={cn(wzTd, "h-[85px]")}>
                       {canEdit ? (
                         <button
                           type="button"
@@ -249,21 +261,20 @@ export function DealProductsTab({
                             setEditing(p);
                           }}
                           aria-label={`Edit ${p.name}`}
-                          className="text-left hover:underline"
+                          title={itemTooltip(p)}
+                          className="max-w-full truncate text-left hover:underline"
                         >
                           {p.name}
                         </button>
                       ) : (
-                        <span>{p.name}</span>
-                      )}
-                      {p.description ? (
-                        <p className="mt-1 line-clamp-2 text-[12px] whitespace-pre-line text-[#666666]">{p.description}</p>
-                      ) : null}
-                      <div className="mt-2.5 flex flex-wrap items-center gap-2">
-                        <WorkizItemTag product={p} />
-                        <span className="font-mono text-[11px] text-[#9ea6aa]">
-                          {p.sku} · tech {formatMoney(p.costForTech)}
+                        <span title={itemTooltip(p)} className="block truncate">
+                          {p.name}
                         </span>
+                      )}
+                      {/* Workiz's row: the name and the type chip, nothing more —
+                          the description and SKU wait in the name's tooltip. */}
+                      <div className="mt-[15px] flex flex-wrap items-center gap-2">
+                        <WorkizItemTag product={p} />
                       </div>
                       {markOrderedButton(p)}
                     </td>
@@ -271,9 +282,8 @@ export function DealProductsTab({
                     <td className={cn(wzTd, "tabular-nums")}>{formatMoney(p.priceClient)}</td>
                     {showCost ? <td className={cn(wzTd, "tabular-nums")}>{formatMoney(p.costCompany)}</td> : null}
                     <td className={cn(wzTd, "tabular-nums")}>{formatMoney(p.priceClient * p.quantity)}</td>
-                    <td className={cn(wzTd, !withActions && "border-r-0")} onClick={(e) => e.stopPropagation()}>
-                      {taxableCheckbox(p)}
-                    </td>
+                    {/* A word, as Workiz writes it; it is changed in the item's window. */}
+                    <td className={wzTd}>{p.taxable !== false ? "Yes" : "No"}</td>
                     {withActions ? (
                       <td className={cn(wzTd, "border-r-0")}>
                         <button
@@ -299,7 +309,7 @@ export function DealProductsTab({
 
         {items.length === 0 ? (
           // Workiz's empty grid: art and "Add items" in a 232px band.
-          <div className="flex h-[232px] flex-col items-center justify-center gap-1 border-b border-[#e6e6e6]">
+          <div className="flex h-[232px] flex-col items-center justify-end gap-1 border-b border-[#e6e6e6] pb-[13px]">
             <ItemsArt />
             {canEdit ? (
               <button type="button" onClick={() => setAdding(true)} className="text-[16px] leading-[19px] text-[#404040] hover:underline">

@@ -173,6 +173,20 @@ describe("DealEstimatesTab — the job's estimates as a list (Workiz)", () => {
     expect(screen.getByRole("button", { name: /send all \(proposal\)/i })).toBeInTheDocument();
   });
 
+  // J13: Workiz has no yellow pill over the list — its outline pills sit under
+  // the table (+ Add Estimate, Load proposal template); ours goes beside them.
+  it("puts Send all (Proposal) under the table beside + Add Estimate, an outline pill", async () => {
+    mocks.perms.add("messages.send");
+    renderWithClient(<Harness />);
+    const table = await screen.findByRole("table", { name: /estimates/i });
+    const send = screen.getByRole("button", { name: /send all \(proposal\)/i });
+    const add = screen.getByRole("button", { name: /add estimate/i });
+
+    expect(send.parentElement).toBe(add.parentElement);
+    expect(table.compareDocumentPosition(send) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(send.className).not.toMatch(/bg-primary/);
+  });
+
   it("keeps Send all (Proposal) once the proposal went out, and a retry resends it without making another", async () => {
     mocks.perms.add("messages.send");
     let created = 0;

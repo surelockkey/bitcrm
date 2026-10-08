@@ -277,6 +277,25 @@ describe("DealProductsTab (job variant — Workiz's Items tab)", () => {
     expect(row).toHaveTextContent("$90.00");
   });
 
+  // audit_pixels T2: Workiz's 85px row holds the name and the type chip only,
+  // and Taxable is a word ("No"), edited in the item's own window.
+  it("reads Taxable as Workiz's Yes / No, and keeps the description and SKU in the name's tooltip", () => {
+    mocks.products = [
+      line({ description: "Front door, brushed nickel", sku: "KW-1", costForTech: 12 }),
+      line({ productId: "p2", lineId: "line-2", name: "Rekey", taxable: false }),
+    ];
+    render(<DealProductsTab deal={deal} canEdit variant="job" showCost balance={0} />);
+
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    const first = screen.getByRole("button", { name: /edit kwikset deadbolt/i });
+    const rekey = screen.getByRole("button", { name: /edit rekey/i }).closest("tr")!;
+    expect(first.closest("tr")!.lastElementChild?.previousElementSibling).toHaveTextContent(/^Yes$/);
+    expect(rekey.lastElementChild?.previousElementSibling).toHaveTextContent(/^No$/);
+    expect(screen.queryByText("Front door, brushed nickel")).not.toBeInTheDocument();
+    expect(screen.queryByText(/KW-1 · tech/)).not.toBeInTheDocument();
+    expect(first).toHaveAttribute("title", "Front door, brushed nickel\nKW-1 · tech $12.00");
+  });
+
   it("invites 'Add items' on an empty job, which opens the add dialog", async () => {
     const u = userEvent.setup();
     mocks.products = [];
