@@ -35,6 +35,8 @@ function makeController(
     getBySid: jest.fn().mockResolvedValue(record()),
     // Freezing the association is fire-and-forget from the read path.
     freezeParties: jest.fn().mockResolvedValue(undefined),
+    // So is keeping the row's searchable names in step.
+    stampPartyNames: jest.fn().mockResolvedValue(undefined),
     setPartiesManually: jest.fn().mockResolvedValue(undefined),
     activeCallFor: jest.fn().mockResolvedValue(null),
     listByParty: jest.fn().mockResolvedValue({ items: [] }),
@@ -140,9 +142,16 @@ function makeRes() {
 describe('CallsController.list', () => {
   it('maps query params into the repository filter and clamps the limit', async () => {
     const { controller, calls } = makeController();
-    const out = await controller.list(
-      'cur1', '500', 'inbound', 'completed', 'agent-1', '404', '2026-08-01', '2026-08-05',
-    );
+    const out = await controller.list({
+      cursor: 'cur1',
+      limit: '500',
+      direction: 'inbound',
+      status: 'completed',
+      agentId: 'agent-1',
+      number: '404',
+      dateFrom: '2026-08-01',
+      dateTo: '2026-08-05',
+    });
 
     expect((calls.list as jest.Mock).mock.calls[0]).toEqual([
       {
@@ -171,22 +180,14 @@ describe('CallsController.list', () => {
   it('passes a call-tag filter through, and drops a blank one', async () => {
     const { controller, calls } = makeController();
 
-    await controller.list(
-      undefined, undefined, undefined, undefined, undefined, undefined,
-      undefined, undefined, undefined, undefined,
-      't-spam',
-    );
+    await controller.list({ tagId: 't-spam' });
     expect(calls.list).toHaveBeenLastCalledWith(
       expect.objectContaining({ tagId: 't-spam' }),
       undefined,
       25,
     );
 
-    await controller.list(
-      undefined, undefined, undefined, undefined, undefined, undefined,
-      undefined, undefined, undefined, undefined,
-      '',
-    );
+    await controller.list({ tagId: '' });
     expect((calls.list as jest.Mock).mock.calls[1][0].tagId).toBeUndefined();
   });
 });
@@ -440,11 +441,7 @@ describe('CallsController — naming the parties', () => {
   it('passes a comma-separated number list through as a filter', async () => {
     const { controller, calls } = makeController();
 
-    await controller.list(
-      undefined, undefined, undefined, undefined, undefined, undefined,
-      undefined, undefined,
-      '+14045551234, +15412830739',
-    );
+    await controller.list({ numbers: '+14045551234, +15412830739' });
 
     expect(calls.list).toHaveBeenCalledWith(
       expect.objectContaining({ numbers: ['+14045551234', '+15412830739'] }),

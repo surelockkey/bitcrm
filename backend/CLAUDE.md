@@ -228,7 +228,11 @@ CONTACT#<id>       / ATTACH#<id>     the client's own file (client card "Upload 
                                      a row with `dealId` downloads through its job, one without through `/deals/contacts/…`
 JOB_TAG#<id>       / METADATA        GSI1 CATALOG#JOB_TAG, GSI1SK <priority>#<name>
 TECH_ELIGIBILITY#<id> / …            read model rebuilt from user-events
-CALL#<sid>         / METADATA        GSI2 CALL#ALL for the global time-ordered log; optional `tagIds` (call tags)
+CALL#<sid>         / METADATA        GSI2 CALL#ALL for the global time-ordered log; optional `tagIds` (call tags);
+                                     `partyNames` — both sides' names folded, what the log's Search box (`GET
+                                     /calls?q=`) matches (`calls/call-search.ts`, never returned); stamped by the read
+                                     path when it differs, older rows by `npm run backfill:call-party-names -w
+                                     backend/services/telephony` (dry run without `--apply`)
 CALLTAG#ALL        / CALLTAG#<id>    call-tag catalog — one partition, no GSI keys (never in the log); archive, don't delete
 EXT#<code> / EXTOF#<dealId>          job dial-in codes (both directions, for idempotent minting)
 DEAL#<id> / TIMELINE#<ts>#<id>, <owner> / ACT#<ts>#<id>   job events / job-less imported Workiz events; sparse GSI8

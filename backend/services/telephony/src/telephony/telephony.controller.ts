@@ -4,6 +4,7 @@ import { CurrentUser } from '@bitcrm/shared';
 import { type JwtUser } from '@bitcrm/types';
 import { TelephonyService } from './telephony.service';
 import { TelephonySettingsService } from './telephony-settings.service';
+import { MainNumberService } from './main-number.service';
 
 @ApiTags('Telephony')
 @ApiBearerAuth()
@@ -12,22 +13,25 @@ export class TelephonyController {
   constructor(
     private readonly telephonyService: TelephonyService,
     private readonly settings: TelephonySettingsService,
+    private readonly main: MainNumberService,
   ) {}
 
   @Get('config')
   @ApiOperation({
     summary: 'Workspace telephony settings the browser needs',
     description:
-      'Any authenticated user. Currently just the shared technician line, so ' +
-      'the job screen can tell somebody what to dial from a handset with no ' +
-      'app session. Not a secret — it is a number technicians are meant to ' +
-      'call, and it is printed on the job card.',
+      'Any authenticated user. `technicianLine` — the shared line, so the job ' +
+      'screen can tell somebody what to dial from a handset with no app session; ' +
+      '`mainNumber` — the workspace\'s main number (the messaging default sender, ' +
+      'else the workspace caller id, else null), the pill beside the call log\'s ' +
+      'heading. Neither is a secret: both are numbers people are meant to call.',
   })
   async telephonyConfig() {
-    return {
-      success: true,
-      data: { technicianLine: await this.settings.technicianLine() },
-    };
+    const [technicianLine, mainNumber] = await Promise.all([
+      this.settings.technicianLine(),
+      this.main.mainNumber(),
+    ]);
+    return { success: true, data: { technicianLine, mainNumber } };
   }
 
   @Post('token')

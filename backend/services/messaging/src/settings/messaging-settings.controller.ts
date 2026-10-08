@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, RequirePermission } from '@bitcrm/shared';
 import { type JwtUser } from '@bitcrm/types';
 import { MessagingSettingsService } from './messaging-settings.service';
+import { Internal } from '../common/decorators/internal.decorator';
 import { UpdateMessagingSettingsDto } from './dto/update-messaging-settings.dto';
 
 /** `/api/messaging/settings` — `settings.view` / `settings.edit`, like telephony's numbers (design §7.1, §7.5). */
@@ -24,6 +25,25 @@ export class MessagingSettingsController {
   async get() {
     const data = await this.service.get();
     return { success: true, data };
+  }
+
+  /**
+   * The ONE number telephony needs from here — the workspace's main number,
+   * the pill beside the call log's heading — without the rest of the
+   * settings (`settings.view` guards those). Declared after `GET /` and with
+   * no `:param` sibling, so nothing shadows it.
+   */
+  @Get('internal/main-number')
+  @Internal()
+  @ApiOperation({
+    summary: 'Internal: the workspace main number (the default sender)',
+    description:
+      '**Guard:** internal secret (`x-internal-secret`). `{ mainNumber }` — `defaultSenderNumber` (E.164) ' +
+      'or null. Telephony serves it in `GET /telephony/config` to every user.',
+  })
+  async mainNumberInternal(): Promise<{ success: true; data: { mainNumber: string | null } }> {
+    const settings = await this.service.get();
+    return { success: true, data: { mainNumber: settings.defaultSenderNumber || null } };
   }
 
   @Put()

@@ -16,6 +16,7 @@ import {
   Query,
   Res, Optional,
   Req,
+  Headers,
 } from '@nestjs/common';
 import { type Response } from 'express';
 import { Readable } from 'stream';
@@ -29,7 +30,11 @@ import {
   LIVE_STATUSES,
   type CallRecord,
   type CallStatus,
+  type ListCallsFilter,
 } from './calls.repository';
+import { callsFilterFromQuery, type CallsQueryParams } from './call-query';
+import { partyNamesText } from './call-search';
+import { CallsExportService } from './calls-export.service';
 import { ConferenceService, type MonitorMode } from '../voice/conference.service';
 import { UserNamesService, type UserSummary } from '../common/user-names.service';
 import {
@@ -127,8 +132,24 @@ class UpdateCallTagsDto {
   remove?: string[];
 }
 
+/** A record without its search attribute — `partyNames` never leaves the service. */
+function withoutSearchText(call: CallRecord): CallRecord {
+  if (call.partyNames === undefined) return call;
+  const { partyNames: _drop, ...rest } = call;
+  return rest;
+}
+
 /** Rows on the dashboard's "Recent Calls" — Workiz shows four. */
 const DASHBOARD_RECENT_CALLS = 4;
+
+/** The filters the list, its count, the cards and the export share (docs). */
+const CALL_FILTERS_HELP =
+  'every list param takes one value or a comma list (any of them): `direction`; `status` (our statuses ' +
+  'and/or Workiz’s `answered`, `missed`, `active`, `voicemail`); `agentId`; `tagId` (call tags — a filter ' +
+  'inside the date-ordered walk, so pair it with dateFrom/dateTo); `flowId`; `sourceId` (Workiz ad group). ' +
+  'Also `number` (substring), `numbers` (a client’s phone list, matches any), `dateFrom`/`dateTo` (ISO ' +
+  'instants or prefixes), `origin`, `minDuration`/`maxDuration` (whole seconds, inclusive; a call with no ' +
+  'talk time counts as 0), `masked` and `hasJob` (true/false).';
 
 @ApiTags('Telephony')
 @ApiBearerAuth()
@@ -151,6 +172,7 @@ export class CallsController {
     // Optional: only imported calls keep their audio here, and a service
     // without storage configured must still boot.
     @Optional() private readonly s3?: S3Service,
+    @Optional() private readonly exporter?: CallsExportService,
   ) {}
 
   /**
@@ -182,7 +204,7 @@ export class CallsController {
       ...(r.from ? [r.from] : []),
       ...(r.to ? [r.to] : []),
     ]);
-    if (ids.length === 0 && phones.length === 0) return records;
+    if (ids.length === 0 && phones.length === 0) return records.map(withoutSearchText);
 
     const [users, contacts, personals] = await Promise.all([
       ids.length
@@ -214,10 +236,12 @@ export class CallsController {
         ? { ...party, name: refNames[`${party.kind}:${party.id}`] }
         : party;
 
-    return records.map((r, i) => {
+    return records.map((rec, i) => {
+      const r = withoutSearchText(rec);
       const agent = r.agentId ? users[r.agentId] : undefined;
       const from = withName(parties[i].from);
       const to = withName(parties[i].to);
+      this.keepSearchNames(rec, from, to, users);
 
       return {
         ...r,
@@ -234,6 +258,32 @@ export class CallsController {
           : {}),
       };
     });
+  }
+
+  /**
+   * Keep the row's `partyNames` — what the Search box matches — in step with
+   * the names just resolved for it: a finished call nobody has stamped yet,
+   * or a client renamed since. Fire-and-forget like `freezeParties`, and only
+   * from a whole answer: a side whose name did not resolve (user-service or
+   * the CRM blinking) means nothing is written, or a blip would erase names.
+   */
+  private keepSearchNames(
+    call: CallRecord,
+    from: CallPartyRef | undefined,
+    to: CallPartyRef | undefined,
+    users: Record<string, UserSummary>,
+  ): void {
+    if (call.status && LIVE_STATUSES.includes(call.status)) return;
+    const named = (party?: CallPartyRef) =>
+      !party ||
+      (party.kind === 'user'
+        ? !!users[party.id]?.name || (!!party.personal && !!party.name)
+        : !!party.name);
+    if (!named(from) || !named(to)) return;
+
+    const text = partyNamesText([from?.name, to?.name]);
+    if (text === (call.partyNames ?? '')) return;
+    void this.callsService.stampPartyNames(call.callSid, text).catch(() => undefined);
   }
 
   /**
@@ -275,17 +325,21 @@ export class CallsController {
 
   /* NOTE: static routes are declared before ':sid' so they aren't swallowed. */
 
+  /**
+   * The log's filters off the query string — one parse for the list, its
+   * count, the cards and the export, so all four describe the same calls.
+   */
+  private async filterFor(query: CallsQueryParams | undefined, user: JwtUser | undefined): Promise<ListCallsFilter> {
+    return callsFilterFromQuery(query ?? {}, { numbers: await this.maySeeNumbers(user) });
+  }
+
   @Get()
   @RequirePermission('calls', 'view')
   @ApiOperation({
     summary: 'List all calls (global log)',
     description:
       '**Guard:** `calls.view` permission required. Newest first; cursor ' +
-      'pagination; filters: direction, status, agentId, number (substring), ' +
-      'numbers (comma-separated, matches any — a client\'s phone list), ' +
-      'dateFrom/dateTo (ISO instants or prefixes), origin, tagId (one ' +
-      'call-tag id; a filter inside the date-ordered walk, so pair it with ' +
-      'dateFrom/dateTo — a rare tag over the whole log is expensive). ' +
+      `pagination; filters: ${CALL_FILTERS_HELP} ` +
       'The walk is bounded per request, so a filtered page can come back ' +
       'short — even empty — while still carrying `nextCursor`: that means ' +
       '"nothing more in the stretch read so far", not "no more calls". A ' +
@@ -293,41 +347,12 @@ export class CallsController {
       'Parties are named on the way out: system users from user-service, ' +
       'outside callers from CRM contacts. Each row carries its `tagIds`.',
   })
-  async list(
-    @Query('cursor') cursor?: string,
-    @Query('limit') limit?: string,
-    @Query('direction') direction?: string,
-    @Query('status') status?: string,
-    @Query('agentId') agentId?: string,
-    @Query('number') number?: string,
-    @Query('dateFrom') dateFrom?: string,
-    @Query('dateTo') dateTo?: string,
-    // Appended, not slotted in next to `number`: Nest injects by decorator,
-    // but direct callers (tests) pass positionally.
-    @Query('numbers') numbers?: string,
-    @Query('origin') origin?: string,
-    @Query('tagId') tagId?: string,
-    @CurrentUser() user?: JwtUser,
-  ) {
+  async list(@Query() query: CallsQueryParams = {}, @CurrentUser() user?: JwtUser) {
     // Query DTOs aren't transformed in this codebase — coerce in-service.
-    const parsedLimit = Math.min(Math.max(Number(limit) || 25, 1), 100);
-    // Comma-separated, capped: each number adds two contains() to the filter.
-    const parsedNumbers = numbers
-      ? numbers.split(',').map((n) => n.trim()).filter(Boolean).slice(0, 20)
-      : undefined;
+    const parsedLimit = Math.min(Math.max(Number(query.limit) || 25, 1), 100);
     const result = await this.callsService.list(
-      {
-        direction,
-        status,
-        agentId,
-        number,
-        numbers: parsedNumbers,
-        dateFrom,
-        dateTo,
-        origin,
-        tagId: tagId || undefined,
-      },
-      cursor,
+      await this.filterFor(query, user),
+      query.cursor,
       parsedLimit,
     );
     return {
@@ -346,39 +371,104 @@ export class CallsController {
     summary: 'How many calls the filter selects',
     description:
       '**Guard:** `calls.view` permission required. Takes the same filters as the list ' +
-      '(`direction`, `status`, `agentId`, `number`, `numbers`, `dateFrom`/`dateTo`, `origin`, ' +
-      '`tagId`; `cursor` and `limit` are ignored) and answers `{ total, atLeast }` — the row ' +
+      '(`cursor` and `limit` are ignored) and answers `{ total, atLeast }` — the row ' +
       'count behind "Page 2 of 7". The log reaches back years, so the walk is bounded: ' +
       '`atLeast` means it stopped on that budget and the real number is higher, which the ' +
       'panel renders as `7+`. Narrow with `dateFrom`/`dateTo` for an exact one. ' +
       'Cached for thirty seconds.',
   })
-  async count(
-    @Query('direction') direction?: string,
-    @Query('status') status?: string,
-    @Query('agentId') agentId?: string,
-    @Query('number') number?: string,
-    @Query('dateFrom') dateFrom?: string,
-    @Query('dateTo') dateTo?: string,
-    @Query('numbers') numbers?: string,
-    @Query('origin') origin?: string,
-    @Query('tagId') tagId?: string,
-  ) {
-    const parsedNumbers = numbers
-      ? numbers.split(',').map((n) => n.trim()).filter(Boolean).slice(0, 20)
-      : undefined;
-    const data = await this.callsService.count({
-      direction,
-      status,
-      agentId,
-      number,
-      numbers: parsedNumbers,
-      dateFrom,
-      dateTo,
-      origin,
-      tagId,
-    });
+  async count(@Query() query: CallsQueryParams = {}, @CurrentUser() user?: JwtUser) {
+    const data = await this.callsService.count(await this.filterFor(query, user));
     return { success: true, data };
+  }
+
+  @Get('stats/summary')
+  @RequirePermission('calls', 'view')
+  @ApiOperation({
+    summary: 'The stat cards over the call log — Workiz’s MISSED CALLS, CALLS (N callers), REVENUE',
+    description:
+      '**Guard:** `calls.view`; `revenue` only with `financials.view`. Takes the list’s filters ' +
+      '(`cursor` and `limit` are ignored) and answers `{ calls, callers, missed, active, jobs, revenue?, atLeast }`: ' +
+      '`calls` = the rows the filter selects (the count’s walk, so it equals `/calls/count`); `callers` = distinct ' +
+      'outside numbers (inbound `from`, outbound `to`); `missed` = inbound calls missed by the Call Tracking rule; ' +
+      '`active` = calls still live; `jobs` = distinct linked jobs (Workiz job ids included); `revenue` = Σ the ' +
+      'linked deals’ totals — absent without `financials.view`, or when deal-service cannot say. `atLeast`: the ' +
+      'walk stopped on its read budget and every number is a floor. Cached for thirty seconds.',
+  })
+  async summary(
+    @Query() query: CallsQueryParams = {},
+    @CurrentUser() user: JwtUser | undefined,
+    // PermissionGuard has already resolved the caller's grants for this route.
+    @Req() req: { resolvedPermissions?: ResolvedPermissions },
+  ) {
+    const withRevenue = hasPermission(req?.resolvedPermissions, 'financials', 'view');
+    const data = await this.callsService.summary(await this.filterFor(query, user), { withRevenue });
+    if (!withRevenue) delete data.revenue;
+    return { success: true, data };
+  }
+
+  // Declared before ':sid' — one segment, so the param route would take it.
+  @Get('export.csv')
+  @RequirePermission('calls', 'view')
+  @ApiOperation({
+    summary: 'The call log as CSV — Workiz’s "Export"',
+    description:
+      '**Guard:** `calls.view` (the permission matrix has no separate export action — the other CSV exports ' +
+      'are guarded by their view grant too). Takes the list’s filters (`cursor` and `limit` are ignored) and ' +
+      'streams `text/csv` with Workiz’s columns: Status, From, To, Time, Call Flow, Ad Source, Tags, ' +
+      'Answered By, Jobs & Leads, Revenue — newest first, every row of the selection up to 100 000. Revenue is ' +
+      'dropped without `financials.view`, the numbers without `contacts.view_numbers`; job numbers are read ' +
+      'as the viewer (`deals.view`). Time is Workiz’s "Thu Oct 8th, 3:15PM" on the account clock.',
+  })
+  async exportCsv(
+    @Query() query: CallsQueryParams = {},
+    @CurrentUser() user: JwtUser | undefined,
+    @Req() req: { resolvedPermissions?: ResolvedPermissions },
+    @Res() res: Response,
+    @Headers('authorization') authorization?: string,
+  ): Promise<void> {
+    if (!this.exporter) throw new HttpException('Export unavailable', 503);
+    const filter = await this.filterFor(query, user);
+    const maySeeNumbers = await this.maySeeNumbers(user);
+    const day = (v?: string) => (v ?? '').slice(0, 10);
+    const name = `calls-${day(filter.dateFrom)}_${day(filter.dateTo)}.csv`.replace(/[^\w.-]/g, '');
+
+    let started = false;
+    const sink = {
+      write: (chunk: string): Promise<void> => {
+        if (!started) {
+          started = true;
+          res.status(200);
+          res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+          res.setHeader('Content-Disposition', `attachment; filename="${name}"`);
+          res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition');
+          res.setHeader('Cache-Control', 'no-store');
+          res.setHeader('X-Content-Type-Options', 'nosniff');
+        }
+        return new Promise((resolve) => {
+          if (res.write(chunk)) resolve();
+          else res.once('drain', () => resolve());
+        });
+      },
+    };
+    try {
+      await this.exporter.stream(
+        filter,
+        {
+          money: hasPermission(req?.resolvedPermissions, 'financials', 'view'),
+          maySeeNumbers,
+          authorization,
+          name: (records) => this.withNames(records),
+        },
+        sink,
+      );
+      res.end();
+    } catch (err) {
+      // Before the first byte this is an ordinary error response.
+      if (!started) throw err;
+      this.logger.error(`Calls export failed mid-stream: ${(err as Error).message}`);
+      res.destroy(err as Error);
+    }
   }
 
 
