@@ -77,6 +77,16 @@ export class ListDealsQueryDto {
   @IsIn(['true', 'false', true, false])
   needsInvoice?: string | boolean;
 
+  @ApiPropertyOptional({
+    enum: ['true', 'false'],
+    description:
+      'Workiz "Show unpaid jobs": only jobs with money still owed — a total above $0 and either above ' +
+      "billing's `amountPaid` or, before any payment event, not marked paid. Narrows `/deals/counts` the same way.",
+  })
+  @IsOptional()
+  @IsIn(['true', 'false', true, false])
+  unpaid?: string | boolean;
+
   // ---- the schedule window (StatusScheduleIndex) --------------------------
 
   @ApiPropertyOptional({

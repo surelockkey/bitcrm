@@ -1,11 +1,14 @@
 import {
   IsString, IsOptional, IsEnum, IsArray, IsBoolean,
-  IsUUID, ValidateNested, Matches, IsDateString, IsObject,
+  IsUUID, ValidateNested, Matches, IsDateString, IsObject, MaxLength,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { ClientType, DealPriority } from '@bitcrm/types';
 import { AddressDto } from './address.dto';
+
+/** A guard, not Workiz's own limit (its imported names run to 20 characters). */
+export const JOB_NAME_MAX_LENGTH = 200;
 
 export class CreateDealDto {
   @ApiProperty({ example: 'contact-uuid' })
@@ -72,6 +75,16 @@ export class CreateDealDto {
   })
   @IsString()
   jobTypeId!: string;
+
+  @ApiPropertyOptional({
+    example: 'Mailbox lock',
+    maxLength: JOB_NAME_MAX_LENGTH,
+    description: 'Workiz "Job name": optional free text naming the job. Stored trimmed; a blank one is left off.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(JOB_NAME_MAX_LENGTH)
+  jobName?: string;
 
   @ApiPropertyOptional({ enum: DealPriority, example: DealPriority.NORMAL })
   @IsOptional()

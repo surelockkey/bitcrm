@@ -116,6 +116,7 @@ export function mapDeal(
       compactUnique([jobTypeName, deal.superStatus, displayName]).join(' · ') || undefined,
     keywords: compactUnique([
       deal.dealNumber,
+      deal.jobName,
       deal.poNumber,
       deal.serviceArea,
       jobTypeName,

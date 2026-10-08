@@ -1,11 +1,12 @@
 import {
   IsString, IsOptional, IsEnum, IsArray, IsBoolean,
-  ValidateNested, Matches, IsDateString, IsObject,
+  ValidateNested, Matches, IsDateString, IsObject, MaxLength,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { DealPriority } from '@bitcrm/types';
 import { AddressDto } from './address.dto';
+import { JOB_NAME_MAX_LENGTH } from './create-deal.dto';
 
 /** Per-job client display name ("Just here" edits that don't touch the contact). */
 export class ClientNameDto {
@@ -17,22 +18,28 @@ export class ClientNameDto {
 }
 
 export class UpdateDealDto {
-  @ApiPropertyOptional({ example: '2026-04-22' })
+  @ApiPropertyOptional({
+    example: '2026-04-22',
+    nullable: true,
+    description:
+      'Visit start day. null unschedules the job (Workiz "Scheduled" off): the end date, time slot and ' +
+      'all-day flag are cleared with it and the job moves to the Unscheduled tab.',
+  })
   @IsOptional()
   @IsDateString()
-  scheduledDate?: string;
+  scheduledDate?: string | null;
 
-  @ApiPropertyOptional({ example: '14:00-17:00' })
+  @ApiPropertyOptional({ example: '14:00-17:00', nullable: true, description: 'null clears the times.' })
   @IsOptional()
   @Matches(/^\d{2}:\d{2}-\d{2}:\d{2}$/, {
     message: 'scheduledTimeSlot must match format HH:MM-HH:MM',
   })
-  scheduledTimeSlot?: string;
+  scheduledTimeSlot?: string | null;
 
-  @ApiPropertyOptional({ example: '2026-04-20' })
+  @ApiPropertyOptional({ example: '2026-04-20', nullable: true })
   @IsOptional()
   @IsDateString()
-  scheduledEndDate?: string;
+  scheduledEndDate?: string | null;
 
   @ApiPropertyOptional({ example: false })
   @IsOptional()
@@ -67,6 +74,17 @@ export class UpdateDealDto {
   @IsOptional()
   @IsString()
   jobTypeId?: string;
+
+  @ApiPropertyOptional({
+    example: 'Mailbox lock',
+    nullable: true,
+    maxLength: JOB_NAME_MAX_LENGTH,
+    description: 'Workiz "Job name". Stored trimmed; null — or a blank string — clears it.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(JOB_NAME_MAX_LENGTH)
+  jobName?: string | null;
 
   @ApiPropertyOptional({ enum: DealPriority })
   @IsOptional()
