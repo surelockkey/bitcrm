@@ -84,7 +84,8 @@ describe("ItemsReportPage — no jumping", () => {
       if (skeletonCount() > 0 || !tableUp()) blanked = true;
     });
     observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true });
-    fireEvent.change(screen.getByRole("combobox", { name: "Date preset" }), { target: { value: "last_month" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Date range/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Last month" }));
     await screen.findByText("Key blank", {}, { timeout: 3000 });
     observer.disconnect();
 

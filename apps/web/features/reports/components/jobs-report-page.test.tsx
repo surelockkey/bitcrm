@@ -135,10 +135,20 @@ describe("JobsReportPage", () => {
     expect(screen.getByText("Showing 1 to 2 of 2 results")).toBeInTheDocument();
   });
 
+
+  // The owner, 2026-10-08: "why two windows to pick the time?" — one period control.
+  it("picks the period from one control, not a list beside a calendar", () => {
+    render(<Page today="2026-09-29" />);
+    expect(screen.queryByRole("combobox", { name: "Date preset" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Days/ })).toBeNull();
+    expect(screen.getAllByRole("button", { name: /^Date range/ })).toHaveLength(1);
+  });
+
   it("asks again on another By, preset, page size and sort", async () => {
     render(<Page today="2026-09-29" />);
     await userEvent.selectOptions(screen.getByRole("combobox", { name: "By" }), "created");
-    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Date preset" }), "this_year");
+    await userEvent.click(screen.getByRole("button", { name: /^Date range/ }));
+    await userEvent.click(screen.getByRole("button", { name: "This year" }));
     await userEvent.selectOptions(screen.getByRole("combobox", { name: "Rows per page" }), "1000");
     await userEvent.click(screen.getByRole("button", { name: "Sort by Total" }));
     expect(lastParams()).toMatchObject({ by: "created", from: "2026-01-01", to: "2026-09-29", pageSize: "1000", sort: "total", dir: "asc" });

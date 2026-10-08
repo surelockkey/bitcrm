@@ -12,11 +12,9 @@ import {
 } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { DateTimeRangePicker } from "@/components/ui/date-time-range-picker";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { DAY_END, DAY_START, toIsoInstant, toLocalParts } from "@/lib/date-range";
 import { settled, usePageReady } from "@/lib/use-page-ready";
 import { useDenied } from "@/features/auth/use-permissions";
 import { NoAccess } from "@/features/clients/components/contacts-page";
@@ -26,6 +24,8 @@ import { useServiceAreas } from "@/features/service-areas/hooks";
 import { DailyChart } from "@/features/dashboard/components/daily-chart";
 import { SharePie } from "@/features/dashboard/components/share-pie";
 import { compactMoney } from "@/features/dashboard/lib";
+import { FilterResults } from "../billing/components/filter-results";
+import { PeriodControl, nextCustomDays } from "./period-control";
 import { accountToday, presetRange, type JobsReportPreset } from "../jobs/lib";
 import { useJobStatistics } from "../job-statistics/hooks";
 import {
@@ -103,14 +103,19 @@ export function JobStatisticsPage({ today: todayProp }: { today?: string } = {})
   const tagsQuery = useJobTags();
   const areas = (areasQuery.data ?? []).filter((a) => a.active).sort((a, b) => a.name.localeCompare(b.name));
   const tags = activeJobTags(tagsQuery.data);
-  // The tags row came a beat after the filter bar, between it and the
-  // figures, and pushed everything under it down; the area select widened
-  // when its areas came. The filters, the tags and the figures come together.
+  // The tags came a beat after the filter bar and pushed the figures down;
+  // the area select widened when its areas came. The filters, the tags and
+  // the figures come together.
   const ready = usePageReady([stats, areasQuery, tagsQuery].every(settled));
 
   if (denied("reports", "view")) return <NoAccess entity="reports" />;
 
   const toggleTag = (id: string) => setTagIds((cur) => (cur.includes(id) ? cur.filter((t) => t !== id) : [...cur, id]));
+  // Custom opens on the days on show, so the report does not jump to today.
+  const pickPreset = (p: JobsReportPreset) => {
+    if (p === "custom") setCustom(range);
+    setPreset(p);
+  };
 
   return (
     <div className="flex min-w-0 flex-1 flex-col overflow-y-auto">
@@ -131,7 +136,7 @@ export function JobStatisticsPage({ today: todayProp }: { today?: string } = {})
         </div>
       ) : (
         <>
-          {/* Workiz's filter bar: area, By Time, the period. */}
+          {/* Workiz's filter bar: area, tags, By Time, the period. */}
           <div className="flex flex-wrap items-center gap-3 border-b px-4 py-3 sm:px-6">
             <select
               aria-label="Service area"
@@ -146,6 +151,15 @@ export function JobStatisticsPage({ today: todayProp }: { today?: string } = {})
                 </option>
               ))}
             </select>
+            {tags.length > 0 && (
+              <FilterResults
+                label="Tags"
+                placeholder="Search tags…"
+                groups={[{ heading: "Tags", options: tags.map((t) => ({ key: t.id, label: t.name })) }]}
+                selected={tagIds}
+                onToggle={toggleTag}
+              />
+            )}
             <div role="radiogroup" aria-label="By Time" className="flex items-center gap-3 text-sm">
               <span className="text-muted-foreground">By Time:</span>
               {BY_TIME.map((b) => (
@@ -156,39 +170,16 @@ export function JobStatisticsPage({ today: todayProp }: { today?: string } = {})
               ))}
             </div>
             <span className="flex-1" />
-            <select
-              aria-label="Date preset"
-              className="h-9 rounded-md border bg-transparent px-2 text-sm"
-              value={preset}
-              onChange={(e) => setPreset(e.target.value as JobsReportPreset)}
-            >
-              {STATISTICS_PRESETS.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.label}
-                </option>
-              ))}
-            </select>
-            <DateTimeRangePicker
-              dateOnly
-              label="Days"
-              value={{ from: toIsoInstant(range.from, DAY_START), to: toIsoInstant(range.to, DAY_END) }}
-              onChange={(r) => {
-                const from = toLocalParts(r.from)?.date ?? range.from;
-                setCustom({ from, to: toLocalParts(r.to)?.date ?? from });
-                setPreset("custom");
-              }}
+            <PeriodControl
+              presets={STATISTICS_PRESETS.map((p) => ({ value: p.id, label: p.label }))}
+              preset={preset}
+              onPresetChange={pickPreset}
+              range={range}
+              custom={custom}
+              onCustomChange={(days) => setCustom((cur) => nextCustomDays(cur, days))}
+              today={today}
             />
           </div>
-
-          {tags.length > 0 && (
-            <div className="flex flex-wrap items-center gap-1.5 border-b px-4 py-2 sm:px-6" aria-label="Tags">
-              <span className="mr-1 text-xs text-muted-foreground">Tags:</span>
-              <TagChip label="All" pressed={tagIds.length === 0} onClick={() => setTagIds([])} />
-              {tags.map((t) => (
-                <TagChip key={t.id} label={t.name} pressed={tagIds.includes(t.id)} onClick={() => toggleTag(t.id)} />
-              ))}
-            </div>
-          )}
 
           {stats.error ? (
             <p role="alert" className="p-6 text-sm text-destructive">
@@ -205,19 +196,6 @@ export function JobStatisticsPage({ today: todayProp }: { today?: string } = {})
         </>
       )}
     </div>
-  );
-}
-
-function TagChip({ label, pressed, onClick }: { label: string; pressed: boolean; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      aria-pressed={pressed}
-      onClick={onClick}
-      className={`rounded-chip border px-2.5 py-0.5 text-xs ${pressed ? "border-brand bg-accent" : "border-border"}`}
-    >
-      {label}
-    </button>
   );
 }
 

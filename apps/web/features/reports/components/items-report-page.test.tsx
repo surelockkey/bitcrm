@@ -95,7 +95,7 @@ describe("ItemsReportPage", () => {
       page: "1",
       pageSize: "50",
     });
-    expect(screen.getByRole("combobox", { name: "Date preset" })).toHaveValue("this_month");
+    expect(screen.getByRole("button", { name: /^Date range/ })).toHaveTextContent("This month");
     expect(screen.getByRole("combobox", { name: "Rows per page" })).toHaveValue("50");
   });
 
@@ -147,13 +147,23 @@ describe("ItemsReportPage", () => {
     expect(lastParams().get("soldBy")).toBe("u1");
   });
 
+
+  // The owner, 2026-10-08: "why two windows to pick the time?" — one period control.
+  it("picks the period from one control, not a list beside a calendar", () => {
+    render(<Page today="2026-09-29" />);
+    expect(screen.queryByRole("combobox", { name: "Date preset" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Days/ })).toBeNull();
+    expect(screen.getAllByRole("button", { name: /^Date range/ })).toHaveLength(1);
+  });
+
   it("sorts on the server; Last 3 months is there", async () => {
     const user = userEvent.setup();
     render(<Page today="2026-09-29" />);
     await user.click(screen.getByRole("button", { name: "Sort by Units" }));
     expect(lastParams().get("sort")).toBe("units");
     expect(lastParams().get("dir")).toBe("desc");
-    await user.selectOptions(screen.getByRole("combobox", { name: "Date preset" }), "last_3_months");
+    await user.click(screen.getByRole("button", { name: /^Date range/ }));
+    await user.click(screen.getByRole("button", { name: "Last 3 months" }));
     expect(lastParams().get("from")).toBe("2026-06-01");
     expect(lastParams().get("to")).toBe("2026-08-31");
   });
