@@ -39,6 +39,48 @@ export function dashboardWindow(
   return { from: shiftDay(to, -days), to };
 }
 
+/**
+ * Workiz Home's range picker, in its order: "This week (Mon-Today)", "Last 14
+ * days", "This month", "Last 3 months" (Workiz's main.js, the dashboard's
+ * `timeRangeOptions`). Every widget with a picker offers these and opens on
+ * the 14 days; the nightly job builds a snapshot of each.
+ */
+export const DASHBOARD_PRESETS = ['this_week', 'last_14_days', 'this_month', 'last_three'] as const;
+
+export type DashboardPreset = (typeof DASHBOARD_PRESETS)[number];
+
+/**
+ * The days behind a preset, on the account's calendar, both ends included:
+ * this week is Monday..today; the 14 days are the chart Workiz draws (fifteen
+ * days, as `dashboardWindow(14)`); this month is the 1st..today; the last 3
+ * months are the three whole months before this one, as Workiz's own picker
+ * defines them — at most 92 days, the server's ceiling.
+ */
+export function dashboardPresetWindow(
+  preset: DashboardPreset,
+  now: Date,
+  timeZone: string = DASHBOARD_TIMEZONE,
+): { from: string; to: string } {
+  const today = dashboardDay(now, timeZone);
+  switch (preset) {
+    case 'this_week': {
+      // getUTCDay of the calendar day: 0 is Sunday, which closes the Monday week.
+      const weekday = new Date(`${today}T00:00:00.000Z`).getUTCDay();
+      return { from: shiftDay(today, -((weekday + 6) % 7)), to: today };
+    }
+    case 'this_month':
+      return { from: `${today.slice(0, 7)}-01`, to: today };
+    case 'last_three': {
+      const firstOfThis = `${today.slice(0, 7)}-01`;
+      const d = new Date(`${firstOfThis}T00:00:00.000Z`);
+      d.setUTCMonth(d.getUTCMonth() - 3);
+      return { from: d.toISOString().slice(0, 10), to: shiftDay(firstOfThis, -1) };
+    }
+    default:
+      return dashboardWindow(14, now, timeZone);
+  }
+}
+
 /** How far `timeZone` is ahead of UTC at `instant`, in ms (negative west of Greenwich). */
 function offsetAt(instant: number, timeZone: string): number {
   const parts = Object.fromEntries(

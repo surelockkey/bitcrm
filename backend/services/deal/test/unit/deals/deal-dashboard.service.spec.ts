@@ -242,7 +242,7 @@ describe('DealDashboardService', () => {
     // 08:00 in New York on Sep 28.
     const now = new Date('2026-09-28T12:00:00Z');
 
-    it('builds every range the widgets offer, for both windows and both audiences', async () => {
+    it('builds every range the widgets offer — Workiz\'s four — for both windows and both audiences', async () => {
       const { service, deals } = make();
 
       await service.warm(now);
@@ -253,16 +253,21 @@ describe('DealDashboardService', () => {
         return `${by}:${q[`${by}From`]}:${q[`${by}To`]}:${opts.money}:${scope}`;
       });
       expect(asked.sort()).toEqual(
+        // Workiz's four ranges on Monday Sep 28: this week (the Monday alone),
+        // the last 14 days, this month, and June..August.
         [
-          'closed:2026-08-29:2026-09-28:false:all',
-          'closed:2026-08-29:2026-09-28:true:all',
+          'closed:2026-09-28:2026-09-28:false:all',
+          'closed:2026-09-28:2026-09-28:true:all',
           'closed:2026-09-14:2026-09-28:false:all',
           'closed:2026-09-14:2026-09-28:true:all',
-          'closed:2026-09-21:2026-09-28:false:all',
-          'closed:2026-09-21:2026-09-28:true:all',
-          'created:2026-08-29:2026-09-28:false:all',
+          'closed:2026-09-01:2026-09-28:false:all',
+          'closed:2026-09-01:2026-09-28:true:all',
+          'closed:2026-06-01:2026-08-31:false:all',
+          'closed:2026-06-01:2026-08-31:true:all',
+          'created:2026-09-28:2026-09-28:false:all',
           'created:2026-09-14:2026-09-28:false:all',
-          'created:2026-09-21:2026-09-28:false:all',
+          'created:2026-09-01:2026-09-28:false:all',
+          'created:2026-06-01:2026-08-31:false:all',
         ].sort(),
       );
     });
@@ -273,8 +278,8 @@ describe('DealDashboardService', () => {
       await service.shares('source', { from: '2026-09-14', to: '2026-09-28' }, caller);
       await service.warm(now);
 
-      // The one already cached is built again: 9 by the warm, 1 before it.
-      expect(deals.stats).toHaveBeenCalledTimes(10);
+      // The one already cached is built again: 12 by the warm, 1 before it.
+      expect(deals.stats).toHaveBeenCalledTimes(13);
     });
 
     it('builds the Jobs By Status series too', async () => {
@@ -283,9 +288,10 @@ describe('DealDashboardService', () => {
       await service.warm(now);
 
       expect(deals.jobsByStatus.mock.calls.map((c) => c as unknown[])).toEqual([
-        [{ from: '2026-09-21', to: '2026-09-28' }, { fresh: true }],
+        [{ from: '2026-09-28', to: '2026-09-28' }, { fresh: true }],
         [{ from: '2026-09-14', to: '2026-09-28' }, { fresh: true }],
-        [{ from: '2026-08-29', to: '2026-09-28' }, { fresh: true }],
+        [{ from: '2026-09-01', to: '2026-09-28' }, { fresh: true }],
+        [{ from: '2026-06-01', to: '2026-08-31' }, { fresh: true }],
       ]);
     });
   });

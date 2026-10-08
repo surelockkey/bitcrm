@@ -669,11 +669,14 @@ export type {
   DashboardToday,
 } from './responses/dashboard';
 export {
+  DASHBOARD_PRESETS,
   DASHBOARD_RANGES,
   DASHBOARD_TIMEZONE,
   dashboardDay,
+  dashboardPresetWindow,
   dashboardWindow,
   msUntilDailyAt,
+  type DashboardPreset,
 } from './dashboard/time';
 
 // Reports — the Workiz Jobs report (`GET /deals/report`)
