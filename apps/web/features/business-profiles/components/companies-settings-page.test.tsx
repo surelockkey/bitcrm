@@ -98,25 +98,45 @@ beforeEach(() => {
 
 const png = () => new File(["png"], "logo.png", { type: "image/png" });
 
-describe("CompaniesSettingsPage", () => {
-  it("shows a card per company with logo, contact, Default and Archived badges", async () => {
+/** The form's footer pill — the corner × is named "Close" too. */
+const footerButton = (dialog: HTMLElement, name: string) =>
+  within(dialog)
+    .getAllByRole("button", { name })
+    .find((b) => b.dataset.slot === "wz-button")!;
+
+describe("CompaniesSettingsPage — a Workiz settings catalog", () => {
+  it("lists the active companies under Workiz's columns: logo, phone, email, Default, Status", async () => {
     renderWithClient(<CompaniesSettingsPage />);
-    const card = await screen.findByRole("article", { name: "SureLock" });
-    expect(within(card).getByText("Default")).toBeInTheDocument();
-    expect(within(card).getByRole("img", { name: "SureLock logo" })).toHaveAttribute("src", "https://s3/logo-1.png");
-    expect(within(card).getByText(/office@surelock\.com/)).toBeInTheDocument();
-    expect(within(screen.getByRole("article", { name: "Old Brand" })).getByText("Archived")).toBeInTheDocument();
-    expect(within(screen.getByRole("article", { name: "KeyPro" })).queryByText("Default")).not.toBeInTheDocument();
+    const table = await screen.findByRole("table", { name: "Companies" });
+    expect(within(table).getAllByRole("columnheader").map((h) => h.textContent)).toEqual([
+      "Company Name",
+      "Logo",
+      "Phone",
+      "Email",
+      "Default",
+      "Status",
+      "Actions",
+    ]);
+    const row = within(table).getByText("SureLock").closest("tr")!;
+    expect(within(row).getByText("Default")).toBeInTheDocument();
+    expect(within(row).getByRole("img", { name: "SureLock logo" })).toHaveAttribute("src", "https://s3/logo-1.png");
+    expect(within(row).getByText("office@surelock.com")).toBeInTheDocument();
+    expect(within(row).getByRole("switch", { name: "SureLock status" })).toBeChecked();
+    // Archived companies wait behind "Show: Disabled / All", as Workiz's do.
+    expect(within(table).queryByText("Old Brand")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("combobox", { name: "Show" }));
+    await userEvent.click(await screen.findByRole("option", { name: "All" }));
+    expect(within(table).getByRole("switch", { name: "Old Brand status" })).not.toBeChecked();
   });
 
   it("adds a company", async () => {
     const user = userEvent.setup();
     renderWithClient(<CompaniesSettingsPage />);
-    await user.click(await screen.findByRole("button", { name: /Add company/ }));
-    const dialog = await screen.findByRole("dialog");
-    await user.type(within(dialog).getByLabelText("Company name"), "Lock Masters");
-    await user.type(within(dialog).getByLabelText("Phone"), "2035550100");
-    await user.click(within(dialog).getByRole("button", { name: "Add company" }));
+    await user.click(await screen.findByRole("button", { name: "Add New Company" }));
+    const dialog = await screen.findByRole("dialog", { name: "Add New Company" });
+    await user.type(within(dialog).getByLabelText("Company Name"), "Lock Masters");
+    await user.type(within(dialog).getByLabelText("Company Phone"), "2035550100");
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
     await waitFor(() =>
       expect(calls).toContainEqual({
         method: "POST",
@@ -137,11 +157,11 @@ describe("CompaniesSettingsPage", () => {
     const user = userEvent.setup();
     renderWithClient(<CompaniesSettingsPage />);
     await user.click(await screen.findByRole("button", { name: "Edit SureLock" }));
-    const dialog = await screen.findByRole("dialog");
+    const dialog = await screen.findByRole("dialog", { name: "SureLock" });
     expect(within(dialog).getByRole("img", { name: "Company logo" })).toHaveAttribute("src", "https://s3/logo-1.png");
     await user.click(within(dialog).getByRole("button", { name: "Remove logo" }));
     expect(within(dialog).queryByRole("img", { name: "Company logo" })).not.toBeInTheDocument();
-    await user.click(within(dialog).getByRole("button", { name: "Save company" }));
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
     await waitFor(() => expect(calls.find((c) => c.method === "PUT")?.body).toMatchObject({ logoAssetId: null }));
   });
 
@@ -158,7 +178,7 @@ describe("CompaniesSettingsPage", () => {
     await client.invalidateQueries({ queryKey: queryKeys.businessProfiles.all() });
     await waitFor(() => expect(listVersion).toBeGreaterThan(before));
     expect(within(dialog).getByRole("img", { name: "Company logo" })).toHaveAttribute("src", "blob:local-logo");
-    await user.click(within(dialog).getByRole("button", { name: "Save company" }));
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
     await waitFor(() =>
       expect(calls.find((c) => c.method === "PUT" && c.path === "bp-2")?.body).toMatchObject({ logoAssetId: "logo-new" }),
     );
@@ -173,39 +193,38 @@ describe("CompaniesSettingsPage", () => {
     await user.upload(within(dialog).getByLabelText("Upload logo"), png());
     expect(await within(dialog).findByText(/Upload blocked — storage CORS\/network/)).toBeInTheDocument();
     expect(within(dialog).getByRole("img", { name: "Company logo" })).toHaveAttribute("src", "https://s3/logo-1.png");
-    await user.click(within(dialog).getByRole("button", { name: "Save company" }));
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
     await waitFor(() => expect(calls.find((c) => c.method === "PUT")?.body).toMatchObject({ logoAssetId: "logo-1" }));
   });
 
-  it("sets a default and archives from the card menu", async () => {
+  it("makes a company the default and switches one off and on from its row", async () => {
     const user = userEvent.setup();
     renderWithClient(<CompaniesSettingsPage />);
-    await user.click(await screen.findByRole("button", { name: "Actions for KeyPro" }));
-    await user.click(await screen.findByRole("menuitem", { name: /Set as default/ }));
+    await user.click(await screen.findByRole("button", { name: "Make KeyPro the default" }));
     await waitFor(() => expect(calls).toContainEqual({ method: "POST", path: "default/bp-2" }));
 
-    await user.click(screen.getByRole("button", { name: "Actions for KeyPro" }));
-    await user.click(await screen.findByRole("menuitem", { name: /Archive/ }));
+    await user.click(screen.getByRole("switch", { name: "KeyPro status" }));
     await waitFor(() => expect(calls).toContainEqual({ method: "PUT", path: "bp-2", body: { active: false } }));
+    // The switch is the switch's alone: the row did not open.
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Actions for Old Brand" }));
-    await user.click(await screen.findByRole("menuitem", { name: /Restore/ }));
+    await user.click(screen.getByRole("combobox", { name: "Show" }));
+    await user.click(await screen.findByRole("option", { name: "All" }));
+    await user.click(screen.getByRole("switch", { name: "Old Brand status" }));
     await waitFor(() => expect(calls).toContainEqual({ method: "PUT", path: "bp-3", body: { active: true } }));
   });
 
-  it("the default company can't be archived or deleted", async () => {
-    const user = userEvent.setup();
+  it("the default company can't be switched off or deleted", async () => {
     renderWithClient(<CompaniesSettingsPage />);
-    await user.click(await screen.findByRole("button", { name: "Actions for SureLock" }));
-    expect(await screen.findByRole("menuitem", { name: /Delete/ })).toHaveAttribute("aria-disabled", "true");
-    expect(screen.getByRole("menuitem", { name: /Archive/ })).toHaveAttribute("aria-disabled", "true");
+    expect(await screen.findByRole("button", { name: "Delete SureLock" })).toBeDisabled();
+    expect(screen.getByRole("switch", { name: "SureLock status" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Make SureLock the default" })).not.toBeInTheDocument();
   });
 
   it("shows the server's reason when delete is refused", async () => {
     const user = userEvent.setup();
     renderWithClient(<CompaniesSettingsPage />);
-    await user.click(await screen.findByRole("button", { name: "Actions for KeyPro" }));
-    await user.click(await screen.findByRole("menuitem", { name: /Delete/ }));
+    await user.click(await screen.findByRole("button", { name: "Delete KeyPro" }));
     const confirm = await screen.findByRole("alertdialog");
     await user.click(within(confirm).getByRole("button", { name: "Delete company" }));
     expect(await within(confirm).findByText(/auto-applies to this company/)).toBeInTheDocument();
@@ -214,10 +233,19 @@ describe("CompaniesSettingsPage", () => {
 
   it("is read-only without settings edit", async () => {
     canEdit = false;
+    const user = userEvent.setup();
     renderWithClient(<CompaniesSettingsPage />);
-    await screen.findByRole("article", { name: "SureLock" });
-    expect(screen.queryByRole("button", { name: /Add company/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Actions for KeyPro" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "View SureLock" })).toBeInTheDocument();
+    await screen.findByRole("table", { name: "Companies" });
+    expect(screen.queryByRole("button", { name: "Add New Company" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete KeyPro" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Make KeyPro the default" })).not.toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: "KeyPro status" })).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: "View SureLock" }));
+    const dialog = await screen.findByRole("dialog", { name: "SureLock" });
+    expect(within(dialog).queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
+    expect(within(dialog).getByLabelText("Company Name")).toBeDisabled();
+    await user.click(footerButton(dialog, "Close"));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 });

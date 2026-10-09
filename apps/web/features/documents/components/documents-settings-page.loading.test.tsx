@@ -8,13 +8,13 @@ import { DocumentsSettingsPage } from "./documents-settings-page";
  * Settings → Documents shows its templates once, whole.
  *
  * It filled in over a second: "No access" while the user was on the way,
- * four grey cards, then the real cards with grey pages in them — each card
- * asked for its own template only once it was on screen — and the
- * "Auto-applies to …" lines rewrote themselves when the job types, areas and
- * companies they name came in ("1 more job type" → "Rekey Visit").
+ * grey placeholders, then the rows — and the "Auto-applies to" cells
+ * rewrote themselves when the job types, areas and companies they name came
+ * in ("1 more job type" → "Rekey Visit").
  *
- * Now the templates, the pages drawn in them and the names they print are
- * asked for at once, and the cards come in one frame.
+ * Now the templates and the names they print are asked for at once, and the
+ * rows come in one frame. (The grid is Workiz's: no page pictures, so no
+ * template is asked for in full.)
  */
 
 /** The page's `?tab=`. */
@@ -86,12 +86,12 @@ function recordFrames(probe: () => Frame) {
 }
 
 describe("DocumentsSettingsPage — loading", () => {
-  it("goes from one skeleton to the cards, their pages and their auto-apply lines in one frame", async () => {
+  it("goes from one skeleton to the rows and their auto-apply cells in one frame", async () => {
     server = installFakeServer([
       { match: /\/users\/me$/, reply: () => me, delayMs: 30 },
       { match: /\/billing\/templates$/, reply: () => list, delayMs: 20 },
       { match: /\/billing\/templates\/tpl-(inv|est)$/, reply: (url) => detail(url.pathname.split("/").pop()!), delayMs: 20 },
-      // The names come last, the order that rewrote the cards.
+      // The names come last, the order that rewrote the rows.
       { match: /\/deals\/job-types$/, reply: () => [{ id: "jt-rekey", name: "Rekey Visit", priority: 1, active: true }], delayMs: 90 },
       { match: /\/deals\/service-areas$/, reply: () => [], delayMs: 90 },
       { match: /\/billing\/business-profiles$/, reply: () => [{ id: "bp-1", name: "Northside Locks", isDefault: true, active: true }], delayMs: 90 },
@@ -99,15 +99,15 @@ describe("DocumentsSettingsPage — loading", () => {
     const rec = recordFrames(() => ({
       noAccess: !!screen.queryByText("No access"),
       placeholders: document.querySelectorAll('[data-slot="skeleton"], .animate-pulse').length,
-      cards: document.querySelectorAll("article").length,
-      pages: document.querySelectorAll('iframe[title$="preview"]').length,
-      summary: screen.queryByText(/^Auto-applies to/)?.textContent ?? null,
-      newButton: !!screen.queryByRole("button", { name: /new template/i }),
+      cards: document.querySelectorAll('tbody tr a[href^="/settings/documents/"]').length,
+      pages: 0,
+      summary: screen.queryByText(/Rekey/)?.textContent ?? null,
+      newButton: !!screen.queryByRole("button", { name: /add new template/i }),
     }));
 
     renderWithClient(<DocumentsSettingsPage />);
     await screen.findByText("House invoice");
-    await screen.findByText("Auto-applies to Rekey Visit");
+    await screen.findByText("Rekey Visit");
     await settle();
     rec.stop();
     const frames = rec.frames();
@@ -119,12 +119,14 @@ describe("DocumentsSettingsPage — loading", () => {
       noAccess: false,
       placeholders: 0,
       cards: 2,
-      pages: 2,
-      summary: "Auto-applies to Rekey Visit",
+      pages: 0,
+      summary: "Rekey Visit",
       newButton: true,
     });
     expect(duplicates(server.requests)).toEqual([]);
     expect(server.unanswered).toEqual([]);
+    // The grid draws no page pictures: no template is fetched in full.
+    expect(server.requests.filter((r) => /\/billing\/templates\/tpl-/.test(r))).toEqual([]);
   });
 
   it.each([

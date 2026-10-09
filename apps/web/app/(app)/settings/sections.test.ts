@@ -24,15 +24,22 @@ describe("settingsFrame", () => {
       "/settings/service-areas",
       "/settings/external-companies",
       "/settings/call-tags",
+      "/settings/companies",
+      "/settings/documents",
+      "/settings/payments",
     ]) {
       expect(settingsFrame(href), href).toBe("workiz");
     }
   });
 
+  it("gives the template editor the whole content area, bounded, as Workiz's sits in its shell", () => {
+    expect(settingsFrame("/settings/documents/tpl-default-invoice")).toBe("editor");
+    expect(settingsFrame("/settings/documents/abc/")).toBe("editor");
+  });
+
   it("keeps the old frame round a page not rebuilt yet", () => {
-    expect(settingsFrame("/settings/companies")).toBe("rail");
-    expect(settingsFrame("/settings/documents/abc")).toBe("rail");
-    expect(settingsFrame("/settings/phone-numbers")).toBe("rail");
+    expect(settingsFrame("/settings/messaging")).toBe("rail");
+    expect(settingsFrame("/settings/documents/abc/more")).toBe("rail");
   });
 
   it("ignores a trailing slash", () => {

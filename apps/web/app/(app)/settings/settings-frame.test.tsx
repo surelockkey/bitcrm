@@ -46,14 +46,29 @@ describe("SettingsFrame", () => {
   });
 
   it("keeps the heading and the rail round a page not rebuilt yet", () => {
-    nav.pathname = "/settings/companies";
+    nav.pathname = "/settings/messaging";
     render(
       <SettingsFrame>
-        <p>companies</p>
+        <p>messaging</p>
       </SettingsFrame>,
     );
     expect(screen.getByRole("heading", { name: "Settings" })).toBeInTheDocument();
     expect(screen.getByRole("navigation")).toBeInTheDocument();
-    expect(screen.getByText("companies")).toBeInTheDocument();
+    expect(screen.getByText("messaging")).toBeInTheDocument();
+  });
+
+  it("bounds the template editor to the content area, with no heading or rail", () => {
+    nav.pathname = "/settings/documents/tpl-1";
+    render(
+      <SettingsFrame>
+        <p>editor</p>
+      </SettingsFrame>,
+    );
+    expect(screen.queryByRole("navigation")).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Settings" })).toBeNull();
+    const frame = screen.getByText("editor").parentElement!;
+    expect(frame).toHaveAttribute("data-frame", "editor");
+    expect(frame.className).toContain("min-h-0");
+    expect(frame.className).toContain("overflow-hidden");
   });
 });

@@ -259,12 +259,27 @@ export const WORKIZ_FRAMED_SETTINGS: ReadonlySet<string> = new Set([
   "/settings/service-areas",
   "/settings/external-companies",
   "/settings/call-tags",
+  "/settings/companies",
+  "/settings/documents",
+  "/settings/payments",
 ]);
 
-/** Which frame the settings layout draws round `pathname`. */
-export function settingsFrame(pathname: string): "workiz" | "rail" {
+/**
+ * The template editor (`/settings/documents/<id>`): Workiz's sits in its app
+ * shell (pg_settings_general_wz_doc_invoice), the paper and the side panel
+ * filling what is left of the window and scrolling on their own.
+ */
+const TEMPLATE_EDITOR = /^\/settings\/documents\/[^/]+$/;
+
+/**
+ * Which frame the settings layout draws round `pathname`: none (`workiz`),
+ * none but bounded to the content area (`editor`), or the old heading and
+ * rail (`rail`).
+ */
+export function settingsFrame(pathname: string): "workiz" | "editor" | "rail" {
   const path = pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname;
-  return WORKIZ_FRAMED_SETTINGS.has(path) ? "workiz" : "rail";
+  if (WORKIZ_FRAMED_SETTINGS.has(path)) return "workiz";
+  return TEMPLATE_EDITOR.test(path) ? "editor" : "rail";
 }
 
 /** A DOM id for a block's heading, unique per `scope` on the page. */
