@@ -57,4 +57,15 @@ describe("profileSchema", () => {
     expect(profileSchema.safeParse({ ...base, additionalPhones: ["1", "2", "3", "4", "5"] }).success).toBe(true);
     expect(profileSchema.safeParse({ ...base, additionalPhones: ["1", "2", "3", "4", "5", "6"] }).success).toBe(false);
   });
+
+  // The Availability tab's hours now save with the card, as on Workiz's page
+  // (one Save at the foot of every tab).
+  it("carries the work hours, and refuses an end before the start", () => {
+    const hours = { workingDays: [1, 2, 3, 4, 5], workStart: "08:00", workEnd: "17:00" };
+    expect(profileSchema.safeParse({ ...base, ...hours }).success).toBe(true);
+    const bad = profileSchema.safeParse({ ...base, ...hours, workStart: "18:00" });
+    expect(bad.success).toBe(false);
+    if (!bad.success) expect(bad.error.issues[0].path).toEqual(["workEnd"]);
+    expect(profileSchema.safeParse({ ...base, ...hours, workingDays: [7] }).success).toBe(false);
+  });
 });

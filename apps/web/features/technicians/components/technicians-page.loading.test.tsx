@@ -111,8 +111,9 @@ describe("TechniciansPage — loading", () => {
     }));
 
     renderWithClient(<TechniciansPage />);
-    await screen.findByText("Theo Tech");
-    await screen.findByRole("button", { name: /awaiting review/i });
+    // A whole page in one frame takes a moment under a loaded machine; the frames are what is asserted.
+    await screen.findByText("Theo Tech", undefined, { timeout: 5000 });
+    await screen.findByRole("button", { name: /awaiting review/i }, { timeout: 5000 });
     await settle();
     rec.stop();
     const frames = rec.frames();

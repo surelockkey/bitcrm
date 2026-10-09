@@ -14,7 +14,6 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { User } from "@bitcrm/types";
 import { formatDate } from "@/features/users/lib";
 import { usePendingAssignments, useApproveAssignment, useRejectAssignment } from "../hooks";
 import type { AssignmentKind } from "../api";

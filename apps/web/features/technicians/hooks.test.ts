@@ -22,8 +22,9 @@ function mockUsers() {
 
 /** Both hooks share one cache key, so they must agree on the cached shape. */
 function wrapper(client: QueryClient) {
-  return ({ children }: { children: ReactNode }) =>
-    createElement(QueryClientProvider, { client }, children);
+  return function Wrapper({ children }: { children: ReactNode }) {
+    return createElement(QueryClientProvider, { client }, children);
+  };
 }
 
 describe("useUserMap cache-key sharing", () => {

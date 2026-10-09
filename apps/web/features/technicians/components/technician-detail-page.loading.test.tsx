@@ -21,7 +21,8 @@ import { TechnicianDetailPage } from "./technician-detail-page";
  * arrived as ids and were renamed when the catalogs did — and every block
  * below them (Schedule color, Hide client numbers, …) slid each time.
  *
- * Now the card waits for all of it behind one skeleton and comes in one frame.
+ * Now the card waits for all of it behind one skeleton and comes in one frame —
+ * the onboarding checklist too, since it moved onto the Profile tab.
  */
 
 vi.mock("next/navigation", () => ({
@@ -47,6 +48,13 @@ const profile = {
   updatedAt: "2026-01-01T00:00:00.000Z",
 };
 
+const onboarding = {
+  status: "active",
+  checklist: { profileComplete: true, assignmentsApproved: true, commissionSet: false },
+  completedSteps: 2,
+  totalSteps: 3,
+};
+
 const assignments = {
   jobTypes: [{ technicianId: "u-tech", jobTypeId: "jt-rekey", status: "approved" }],
   serviceAreas: [{ technicianId: "u-tech", serviceAreaId: "sa-lake", status: "approved" }],
@@ -65,6 +73,7 @@ describe("TechnicianDetailPage — loading", () => {
       { match: /\/users\/me$/, reply: () => me, delayMs: 10 },
       { match: /\/users\/technicians\/u-tech\/profile$/, reply: () => profile, delayMs: 20 },
       { match: /\/users\/technicians\/u-tech\/assignments$/, reply: () => assignments, delayMs: 40 },
+      { match: /\/users\/technicians\/u-tech\/onboarding-status$/, reply: () => onboarding, delayMs: 60 },
       // The catalogs and the directory last — the order that moved the card.
       { match: /\/deals\/job-types$/, reply: () => [{ id: "jt-rekey", name: "Rekey Visit", priority: 1, active: true }], delayMs: 80 },
       {
@@ -79,8 +88,9 @@ describe("TechnicianDetailPage — loading", () => {
       () => ({
         noAccess: !!screen.queryByText("No access"),
         skeletons: skeletonCount(),
-        name: !!screen.queryByRole("heading", { name: "Theo Tech" }),
-        email: !!screen.queryByText("theo@example.com"),
+        name: !!screen.queryByDisplayValue("Theo") && !!screen.queryByDisplayValue("Tech"),
+        email: !!screen.queryByDisplayValue("theo@example.com"),
+        onboarding: !!screen.queryByText(/2 of 3 steps done/),
         jobType: !!screen.queryByText("Rekey Visit"),
         area: !!screen.queryByText("Lakeside"),
       }),
@@ -91,14 +101,22 @@ describe("TechnicianDetailPage — loading", () => {
     );
 
     renderWithClient(<TechnicianDetailPage technicianId="u-tech" />);
-    await screen.findByText("Lakeside");
-    await screen.findByText("theo@example.com");
+    await screen.findByText("Lakeside", undefined, { timeout: 5000 });
+    await screen.findByDisplayValue("theo@example.com");
     await settle();
     first.stop();
     refused.stop();
 
     expect(refused.frame()).toBeNull();
-    expect(first.frame()).toEqual({ noAccess: false, skeletons: 0, name: true, email: true, jobType: true, area: true });
+    expect(first.frame()).toEqual({
+      noAccess: false,
+      skeletons: 0,
+      name: true,
+      email: true,
+      onboarding: true,
+      jobType: true,
+      area: true,
+    });
     expect(duplicates(server.requests)).toEqual([]);
   });
 });

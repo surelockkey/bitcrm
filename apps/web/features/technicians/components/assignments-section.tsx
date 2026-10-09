@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Check, Loader2, Plus, X } from "lucide-react";
+import { Check, ChevronDown, Loader2, X } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -12,8 +12,8 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import { WzFormSectionTitle } from "@/components/workiz/form-section-title";
 import { cn } from "@/lib/utils";
 import type { TechnicianJobType, TechnicianServiceArea, AssignmentStatus } from "@bitcrm/types";
 import { usePermissions } from "@/features/auth/use-permissions";
@@ -43,43 +43,46 @@ interface Row {
   comments?: string;
 }
 
-/** Label, empty state and action wording for one catalog. */
-const COPY: Record<AssignmentKind, { label: string; empty: string; assign: string }> = {
+/**
+ * Workiz's words for each catalog (pg_technicians_wz_10_user_profile): the
+ * block's title, the label in the box's notch — job types are Workiz's
+ * "User skills" — and what the chevron does here.
+ */
+const COPY: Record<AssignmentKind, { title: string; box: string; empty: string; assign: string; propose: string }> = {
   job_type: {
-    label: "Job types — what they can do",
+    title: "Job types",
+    box: "User skills",
     empty: "No job types yet.",
     assign: "Assign job types",
+    propose: "Propose job types",
   },
   service_area: {
-    label: "Service areas — where they work",
+    title: "Service areas",
+    box: "Service areas",
     empty: "No service areas yet.",
-    assign: "Assign areas",
+    assign: "Assign service areas",
+    propose: "Propose service areas",
   },
 };
 
+export const ASSIGNMENT_TITLES: Record<AssignmentKind, string> = {
+  job_type: COPY.job_type.title,
+  service_area: COPY.service_area.title,
+};
+
 /**
- * One catalog's assignments — the chips and the review actions on them.
+ * One catalog's assignments as Workiz draws "User skills" / "Service areas" on
+ * the user page: a 480px box with its label in the notch (11px ink), the
+ * entries as chips inside — #f3f6f7, 2px corners, 12px/500 #566d76 words
+ * 3px 3px 3px 6px, a 26px × — and a chevron at the right that adds more.
  *
- * One kind per instance because the card puts the two in different places in
- * the work column (Workiz sets User skills between them) and because each kind
- * carries its own approve/revoke/propose rights. Each instance owns its
- * dialogs, so the two can never share a half-open state.
+ * Ours on top of Workiz's: an entry has a review state. A proposed one (amber)
+ * carries ✓ / × for whoever may approve; a rejected one is red with the reason
+ * on hover; an approved one is the plain Workiz chip, its × a revoke for
+ * whoever may revoke. The chevron opens the manager's direct grant, or for a
+ * technician on their own card, the proposal. Each instance owns its dialogs.
  */
-export function AssignmentsSection({
-  technicianId,
-  kind,
-  plain = false,
-}: {
-  technicianId: string;
-  kind: AssignmentKind;
-  /**
-   * Draw an approved entry without its green. On the technician card the
-   * owner wants the list to read as a list, not as a row of lit-up badges;
-   * pending and rejected keep their colour there too, since those are the
-   * ones that still need something done.
-   */
-  plain?: boolean;
-}) {
+export function AssignmentsSection({ technicianId, kind }: { technicianId: string; kind: AssignmentKind }) {
   const { me, can } = usePermissions();
   const { data, isLoading } = useAssignments(technicianId);
   const jobTypeName = useJobTypeName();
@@ -119,86 +122,92 @@ export function AssignmentsSection({
           comments: a.comments,
         }));
 
-  return (
-    <section>
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <Label className="block text-[11px] tracking-wide uppercase">{copy.label}</Label>
-        {canApprove ? (
-          <button
-            type="button"
-            onClick={() => setAssignOpen(true)}
-            className="inline-flex items-center gap-1 text-xs font-medium text-wz-link hover:underline"
-          >
-            <Plus className="size-3" /> {copy.assign}
-          </button>
-        ) : null}
-      </div>
+  const add = canApprove ? { label: copy.assign, open: () => setAssignOpen(true) } : canPropose ? { label: copy.propose, open: () => setProposeOpen(true) } : null;
 
-      <div className="flex flex-wrap gap-2">
-        {rows.length === 0 ? (
-          <span className="text-sm text-muted-foreground">{copy.empty}</span>
+  return (
+    <section data-testid={`assignments-${kind}`} className="relative">
+      <div
+        role="group"
+        aria-label={copy.box}
+        className="relative flex min-h-[42px] w-full items-center rounded-[4px] border border-wz-outline bg-white py-[3px] pr-10 pl-[10px]"
+      >
+        {/* The label in the notch while the box holds something, inside it while empty (FloatingLabel-module). */}
+        <span
+          aria-hidden
+          className={cn(
+            "pointer-events-none absolute tracking-[0.4px]",
+            rows.length
+              ? "-top-2 left-2 bg-white px-1 text-[11px] leading-[normal] text-foreground"
+              : "top-1/2 left-3 -translate-y-1/2 text-[13px] text-wz-outline-label",
+          )}
+        >
+          {copy.box}
+        </span>
+        {rows.length ? (
+          <div className="flex flex-wrap gap-x-1 gap-y-1">
+            {rows.map((row) => (
+              <AssignmentChip
+                key={`${row.kind}:${row.catalogId}`}
+                row={row}
+                canApprove={canApprove}
+                canRevoke={canRevoke}
+                approving={approve.isPending}
+                revoking={revoke.isPending}
+                onApprove={() => approve.mutate({ id: technicianId, kind: row.kind, catalogId: row.catalogId })}
+                onReject={() => setRejectTarget(row)}
+                onRevoke={() => revoke.mutate({ id: technicianId, kind: row.kind, catalogId: row.catalogId })}
+              />
+            ))}
+          </div>
         ) : (
-          rows.map((row) => (
-            <AssignmentChip
-              key={`${row.kind}:${row.catalogId}`}
-              row={row}
-              plain={plain}
-              canApprove={canApprove}
-              canRevoke={canRevoke}
-              approving={approve.isPending}
-              revoking={revoke.isPending}
-              onApprove={() =>
-                approve.mutate({ id: technicianId, kind: row.kind, catalogId: row.catalogId })
-              }
-              onReject={() => setRejectTarget(row)}
-              onRevoke={() =>
-                revoke.mutate({ id: technicianId, kind: row.kind, catalogId: row.catalogId })
-              }
-            />
-          ))
+          <span className="sr-only">{copy.empty}</span>
         )}
-        {canPropose ? (
+        {add ? (
           <button
             type="button"
-            onClick={() => setProposeOpen(true)}
-            className="inline-flex items-center gap-1 rounded-chip border border-dashed px-2.5 py-0.5 text-xs text-muted-foreground hover:text-foreground"
+            onClick={add.open}
+            aria-label={add.label}
+            className="absolute top-1/2 right-[9px] grid size-6 -translate-y-1/2 place-items-center rounded-[4px] text-foreground outline-none hover:bg-wz-secondary-hover focus-visible:ring-2 focus-visible:ring-wz-focus"
           >
-            <Plus className="size-3" /> propose
+            <ChevronDown className="size-[18px]" strokeWidth={1.5} />
           </button>
         ) : null}
       </div>
 
       <RejectDialog row={rejectTarget} onClose={() => setRejectTarget(null)} technicianId={technicianId} />
-      <ProposeDialog
-        technicianId={technicianId}
-        kind={proposeOpen ? kind : null}
-        onClose={() => setProposeOpen(false)}
-      />
-      <AssignDirectDialog
-        technicianId={technicianId}
-        kind={assignOpen ? kind : null}
-        onClose={() => setAssignOpen(false)}
-      />
+      <ProposeDialog technicianId={technicianId} kind={proposeOpen ? kind : null} onClose={() => setProposeOpen(false)} />
+      <AssignDirectDialog technicianId={technicianId} kind={assignOpen ? kind : null} onClose={() => setAssignOpen(false)} />
     </section>
   );
 }
 
 /**
- * Both catalogs, one under the other — the technician's own page, where they
- * sit together rather than in the columns of the manager's card.
+ * Both catalogs, one under the other, each under its Workiz title — the
+ * technician's own page, where they sit together rather than in the columns
+ * of the manager's card.
  */
 export function TechnicianAssignments({ technicianId }: { technicianId: string }) {
   return (
-    <div className="max-w-2xl space-y-6">
-      <AssignmentsSection technicianId={technicianId} kind="job_type" />
-      <AssignmentsSection technicianId={technicianId} kind="service_area" />
+    <div className="max-w-[480px] space-y-6">
+      {(["job_type", "service_area"] as const).map((kind) => (
+        <div key={kind} className="space-y-[37px]">
+          <WzFormSectionTitle>{COPY[kind].title}</WzFormSectionTitle>
+          <AssignmentsSection technicianId={technicianId} kind={kind} />
+        </div>
+      ))}
     </div>
   );
 }
 
+/** The chip's look by review state: Workiz's plain chip for an approved entry, ours for the two still in review. */
+const CHIP_TONE: Record<AssignmentStatus, string> = {
+  approved: "bg-wz-secondary-hover text-wz-slate",
+  pending: "bg-warning/15 text-wz-slate ring-1 ring-warning/60 ring-inset",
+  rejected: "bg-wz-danger/10 text-wz-danger ring-1 ring-wz-danger/40 ring-inset",
+};
+
 function AssignmentChip({
   row,
-  plain,
   canApprove,
   canRevoke,
   approving,
@@ -208,7 +217,6 @@ function AssignmentChip({
   onRevoke,
 }: {
   row: Row;
-  plain: boolean;
   canApprove: boolean;
   canRevoke: boolean;
   approving: boolean;
@@ -217,35 +225,29 @@ function AssignmentChip({
   onReject: () => void;
   onRevoke: () => void;
 }) {
-  const tone =
-    row.status === "approved"
-      ? plain
-        ? "bg-muted/40"
-        : "border-green-500/30 bg-green-500/10 text-green-700 dark:text-green-500"
-      : row.status === "rejected"
-        ? "border-destructive/30 bg-destructive/10 text-destructive"
-        : "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-500";
+  const action = "grid w-[26px] shrink-0 place-items-center self-stretch rounded-r-chip hover:bg-black/5 disabled:opacity-50";
   return (
     <span
-      className={cn("inline-flex items-center gap-1.5 rounded-chip border px-2.5 py-1 text-xs", tone)}
+      data-status={row.status}
+      className={cn("inline-flex h-[22px] items-stretch rounded-chip text-xs leading-4 font-medium tracking-[0.4px]", CHIP_TONE[row.status])}
       title={row.comments || undefined}
     >
-      <span className="font-medium">{row.name}</span>
+      <span className="flex items-center py-[3px] pr-[3px] pl-1.5">{row.name}</span>
       {row.status === "pending" && canApprove ? (
         <>
-          <button type="button" onClick={onApprove} disabled={approving} className="hover:opacity-70" aria-label="Approve">
-            <Check className="size-3.5" strokeWidth={3} />
+          <button type="button" onClick={onApprove} disabled={approving} className={cn(action, "rounded-none")} aria-label={`Approve ${row.name}`}>
+            <Check className="size-3.5" strokeWidth={2.5} />
           </button>
-          <button type="button" onClick={onReject} className="hover:opacity-70" aria-label="Reject">
-            <X className="size-3.5" strokeWidth={3} />
+          <button type="button" onClick={onReject} className={action} aria-label={`Reject ${row.name}`}>
+            <X className="size-[15px]" strokeWidth={1.75} />
           </button>
         </>
       ) : row.status === "approved" && canRevoke ? (
-        <button type="button" onClick={onRevoke} disabled={revoking} className="opacity-60 hover:opacity-100" aria-label="Revoke">
-          <X className="size-3.5" />
+        <button type="button" onClick={onRevoke} disabled={revoking} className={action} aria-label={`Remove ${row.name}`}>
+          <X className="size-[15px]" strokeWidth={1.75} />
         </button>
       ) : row.status === "pending" ? (
-        <span className="opacity-70">pending</span>
+        <span className="flex items-center pr-1.5 text-[11px] opacity-70">pending</span>
       ) : null}
     </span>
   );

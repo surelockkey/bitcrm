@@ -1,75 +1,59 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowUpRight, Check } from "lucide-react";
+import { Check } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { useOnboarding } from "../hooks";
-import { onboardingPct } from "../lib";
 
 /**
- * Whether this person can be sent on a job yet, and what is missing.
- *
- * It was half of an Overview tab, beside an "At a glance" card repeating
- * status, phone, home base and labor cost. Those four now sit in the form on
- * this same page, a screen above; a second copy of a field is a field that can
- * disagree with itself, so only the checklist — which nothing else says — is
- * kept, along with the van link that was the card's one other reason to exist.
+ * Whether this person can be sent on a job yet, and what is missing — ours,
+ * not Workiz's, drawn in the user page's idiom: 14px ink rows, a green tick
+ * (Workiz's #3acf7d) for a step done, a #9ea6aa ring for one to do, and the
+ * van's stock as a 13px blue link, as Workiz's "here" link reads.
  */
 export function OnboardingSection({ technicianId }: { technicianId: string }) {
   const { data: onboarding, isLoading } = useOnboarding(technicianId);
 
-  if (isLoading) return <Skeleton className="h-44 w-full" />;
-
-  const pct = onboarding ? onboardingPct(onboarding) : 0;
+  if (isLoading) return <Skeleton className="h-28 w-full" />;
 
   return (
-    <section className="rounded-xl border bg-card p-4">
-      <div className="mb-3 flex items-center justify-between">
-        <h3 className="text-sm font-semibold">Onboarding</h3>
-        <span className="text-sm text-muted-foreground">
-          {onboarding?.completedSteps ?? 0} of {onboarding?.totalSteps ?? 3}
-        </span>
-      </div>
-      <div className="mb-3 h-1.5 overflow-hidden rounded-full bg-muted">
-        <div className="h-full rounded-full bg-green-500" style={{ width: `${pct}%` }} />
-      </div>
-      <CheckRow done={!!onboarding?.checklist.profileComplete} label="Profile complete" hint="phone · address · photo" />
-      <CheckRow done={!!onboarding?.checklist.assignmentsApproved} label="Assignments approved" hint="≥1 job type + area" />
-      <CheckRow done={!!onboarding?.checklist.commissionSet} label="Commission set" last />
-      <Link
-        href="/inventory/containers"
-        className="mt-3 inline-flex items-center gap-1 text-sm text-wz-link hover:underline"
-      >
-        Van inventory <ArrowUpRight className="size-3.5" />
-      </Link>
-    </section>
+    <div data-testid="onboarding" className="space-y-2.5">
+      <p className="text-[13px] leading-[19px] tracking-[0.4px] text-wz-outline-label">
+        Onboarding: {onboarding?.completedSteps ?? 0} of {onboarding?.totalSteps ?? 3} steps done
+      </p>
+      <ul className="space-y-2">
+        <CheckRow done={!!onboarding?.checklist.profileComplete} label="Profile complete" hint="phone · address · photo" />
+        <CheckRow done={!!onboarding?.checklist.assignmentsApproved} label="Assignments approved" hint="a job type and a service area" />
+        <CheckRow done={!!onboarding?.checklist.commissionSet} label="Commission set" />
+      </ul>
+      <p className="text-[13px] leading-[19px] tracking-[0.4px] text-foreground">
+        Their van&apos;s stock is under{" "}
+        <Link href="/inventory/containers" className="font-semibold text-brand hover:underline">
+          Inventory
+        </Link>
+      </p>
+    </div>
   );
 }
 
-function CheckRow({
-  done,
-  label,
-  hint,
-  last,
-}: {
-  done: boolean;
-  label: string;
-  hint?: string;
-  last?: boolean;
-}) {
+function CheckRow({ done, label, hint }: { done: boolean; label: string; hint?: string }) {
   return (
-    <div className={cn("flex items-center gap-3 py-2.5", !last && "border-b")}>
+    <li className="flex items-center gap-2.5 text-sm leading-[21px] tracking-[0.4px] text-foreground">
       <span
+        aria-hidden
         className={cn(
-          "flex size-5 flex-none items-center justify-center rounded-full",
-          done ? "bg-green-500/15 text-green-600 dark:text-green-500" : "bg-muted text-muted-foreground",
+          "grid size-[18px] shrink-0 place-items-center rounded-full",
+          done ? "bg-wz-tag-success text-white" : "border border-wz-outline",
         )}
       >
-        {done ? <Check className="size-3" strokeWidth={3} /> : <span className="size-1.5 rounded-full bg-current" />}
+        {done ? <Check className="size-3" strokeWidth={3} /> : null}
       </span>
-      <span className="flex-1 text-sm">{label}</span>
-      {hint ? <span className="text-xs text-muted-foreground">{hint}</span> : null}
-    </div>
+      <span>
+        {label}
+        <span className="sr-only">{done ? " — done" : " — to do"}</span>
+      </span>
+      {hint ? <span className="text-xs text-wz-outline-label">{hint}</span> : null}
+    </li>
   );
 }

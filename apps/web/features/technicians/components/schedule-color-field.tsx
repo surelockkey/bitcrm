@@ -19,23 +19,23 @@ export const SCHEDULE_COLORS = [
 ] as const;
 
 /**
- * Pick a colour for this technician, exactly the choice Workiz gives.
+ * Pick a colour for this technician, exactly the choice Workiz gives, drawn as
+ * Workiz draws it (ColorInput-module, pg_technicians_wz_10_user_profile): 32px
+ * discs 8px apart, twelve to a 480px row; the picked one a white disc in a
+ * 1px ring of its colour round a 26px disc of it, ticked.
  *
  * Deliberately wired to nothing: the owner asked for the control now and the
  * meaning later ("поки ні до чого не прив'язуй"). So the choice lives in this
  * component and the line under it says plainly that it is not saved — a
  * swatch that looked stored and was not would be worse than no swatch.
  */
-export function ScheduleColorField({ disabled = false }: { disabled?: boolean }) {
-  const groupId = useId();
+export function ScheduleColorField({ disabled = false, labelledBy }: { disabled?: boolean; labelledBy?: string }) {
+  const noteId = useId();
   const [picked, setPicked] = useState<string | null>(null);
 
   return (
-    <div className="space-y-2">
-      <span id={groupId} className="text-sm font-medium">
-        Schedule color
-      </span>
-      <div role="radiogroup" aria-labelledby={groupId} className="flex flex-wrap gap-1.5">
+    <div>
+      <div role="radiogroup" aria-labelledby={labelledBy} aria-describedby={noteId} className="flex w-[480px] max-w-full flex-wrap gap-2">
         {SCHEDULE_COLORS.map((color) => {
           const isPicked = picked === color;
           return (
@@ -48,21 +48,24 @@ export function ScheduleColorField({ disabled = false }: { disabled?: boolean })
               disabled={disabled}
               onClick={() => setPicked(isPicked ? null : color)}
               className={cn(
-                "grid size-6 place-items-center rounded-full ring-offset-2 ring-offset-background transition-shadow",
-                "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
-                isPicked && "ring-2 ring-foreground",
+                "grid size-8 place-items-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-wz-focus",
+                isPicked && "border bg-white",
                 disabled && "cursor-not-allowed opacity-50",
               )}
-              style={{ backgroundColor: color }}
+              style={isPicked ? { borderColor: color } : { backgroundColor: color }}
             >
-              {isPicked ? <Check className="size-3.5 text-white drop-shadow" /> : null}
+              {isPicked ? (
+                <span className="grid size-[26px] place-items-center rounded-full" style={{ backgroundColor: color }}>
+                  <Check className="size-4 text-white drop-shadow" strokeWidth={3} />
+                </span>
+              ) : null}
             </button>
           );
         })}
       </div>
-      <p className="text-xs text-muted-foreground">
-        Not saved yet — the schedule colours a job by its status, so this needs a decision about
-        which wins before it means anything.
+      <p id={noteId} className="mt-2 text-xs leading-[18px] tracking-[0.4px] text-wz-outline-label">
+        Not saved yet — the schedule colours a job by its status, so this needs a decision about which wins before it
+        means anything.
       </p>
     </div>
   );
