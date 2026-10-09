@@ -392,6 +392,32 @@ describe("ContactDetailPage — the client card, laid out as Workiz's", () => {
   });
 
 
+  // The 2026-10-06 audit's B1: the item asked for `payments.create`, which the
+  // registry has never had, so nobody — Super Admin included — saw it. Taking
+  // money is `payments.collect`, the grant `POST /invoices/:id/payments` checks.
+  it("offers Pay Invoices to whoever may take payments (payments.collect), and to no one else", async () => {
+    mocks.perms.allowed = new Set(["contacts", "deals", "estimates", "invoices", "messages", "payments.view", "payments.collect"]);
+    try {
+      await renderPage();
+      await userEvent.click(screen.getByRole("button", { name: "Create new" }));
+      expect(await screen.findByRole("menuitem", { name: "Pay Invoices" })).toBeInTheDocument();
+    } finally {
+      mocks.perms.allowed = new Set(["*"]);
+    }
+  });
+
+  it("no Pay Invoices for whoever only sees payments", async () => {
+    mocks.perms.allowed = new Set(["contacts", "deals", "estimates", "invoices", "messages", "payments.view"]);
+    try {
+      await renderPage();
+      await userEvent.click(screen.getByRole("button", { name: "Create new" }));
+      await screen.findAllByRole("menuitem");
+      expect(screen.queryByRole("menuitem", { name: "Pay Invoices" })).not.toBeInTheDocument();
+    } finally {
+      mocks.perms.allowed = new Set(["*"]);
+    }
+  });
+
   it("Create new has Workiz's items that BitCRM can honour, in Workiz's order: Estimate, Job, Invoice, Message, Address, Pay Invoices", async () => {
     await renderPage();
     await userEvent.click(screen.getByRole("button", { name: "Create new" }));

@@ -8,7 +8,7 @@ import { WzTextField } from "@/components/workiz/text-field";
 import { WzWindowFrame } from "@/components/workiz/window-frame";
 import { cn } from "@/lib/utils";
 import type { Schema } from "../lib";
-import { PermissionMatrixEditor, type PermissionSection } from "./permission-matrix";
+import { PermissionMatrixEditor, SwitchAllMenu, type PermissionSection } from "./permission-matrix";
 
 /**
  * The Actions / Reports tab of a permission editor, as Workiz's
@@ -60,7 +60,14 @@ export function PermissionTab({
           className="-ml-0.5 w-[483px] max-w-full"
           inputClassName="[&::-webkit-search-cancel-button]:hidden"
         />
-        {tools ? <div className="ml-auto flex flex-wrap items-center gap-4">{tools}</div> : null}
+        {tools || (!readOnly && section === "actions") ? (
+          <div className="ml-auto flex flex-wrap items-center gap-4">
+            {tools}
+            {!readOnly && section === "actions" ? (
+              <SwitchAllMenu schema={schema} permissions={permissions} onChange={onChange} />
+            ) : null}
+          </div>
+        ) : null}
       </div>
       <PermissionMatrixEditor
         schema={schema}
