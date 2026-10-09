@@ -4,14 +4,19 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { tryNormalizePhone } from '@bitcrm/shared';
 import {
   CALL_FLOW_LIMITS,
+  ringTargetOf,
   type CallFlow,
   type CallFlowNode,
+  type RingNode,
 } from '@bitcrm/types';
+import { UserDirectoryService } from '../common/user-directory.service';
+import { CallDevicesService } from '../call-devices/call-devices.service';
 
 /**
  * Telephony runs without a global ValidationPipe, so the body is raw JSON:
@@ -45,6 +50,11 @@ export class CallFlowsService {
   constructor(
     private readonly repository: CallFlowsRepository,
     private readonly groups: CallGroupsService,
+    // Optional so the older specs construct the service with the repository
+    // and the groups alone; without them a user or device target is taken on
+    // trust (it is still checked at ring time, where a gone one falls back).
+    @Optional() private readonly directory?: UserDirectoryService,
+    @Optional() private readonly devices?: CallDevicesService,
   ) {}
 
   /* ------------------------------------------------------------ reading */
@@ -84,7 +94,7 @@ export class CallFlowsService {
     await this.assertNameAvailable(name);
     const numbers = await this.normalizeNumbers(dto.numbers ?? []);
 
-    const nodes = dto.nodes ?? {};
+    const nodes = this.normalizeNodes(dto.nodes ?? {});
     const entryNodeId = dto.entryNodeId ?? Object.keys(nodes)[0] ?? '';
     const active = dto.active ?? true;
     await this.validateGraph(nodes, entryNodeId, active, numbers);
@@ -100,6 +110,9 @@ export class CallFlowsService {
       nodes,
       active,
       ...(businessProfileId && { businessProfileId }),
+      // Only an explicit switch is stored: absent means recorded, which is
+      // what every flow did before the switch — old and new alike.
+      ...(typeof dto.record === 'boolean' && { record: dto.record }),
       version: 1,
       createdBy: caller.id,
       createdAt: now,
@@ -172,7 +185,12 @@ export class CallFlowsService {
       };
     }
 
-    nodes.ring = { id: 'ring', type: 'ring', groupId: dto.groupId, next: 'end' };
+    nodes.ring = {
+      id: 'ring',
+      type: 'ring',
+      target: { kind: 'group', id: dto.groupId },
+      next: 'end',
+    };
     if (greeting) {
       nodes.greeting = { id: 'greeting', type: 'say', text: greeting, next: 'ring' };
     }
@@ -192,7 +210,9 @@ export class CallFlowsService {
       dto.numbers === undefined
         ? existing.numbers
         : await this.normalizeNumbers(dto.numbers, id);
-    const nodes = dto.nodes ?? existing.nodes;
+    // Stored nodes are kept exactly as they are — a flow saved before targets
+    // existed keeps its `groupId` ring through every unrelated edit.
+    const nodes = dto.nodes ? this.normalizeNodes(dto.nodes) : existing.nodes;
     const entryNodeId = dto.entryNodeId ?? existing.entryNodeId;
     const active = dto.active ?? existing.active;
     // `numbers` and `id` matter here as much as on create: validateGraph runs
@@ -211,6 +231,7 @@ export class CallFlowsService {
       entryNodeId,
       nodes,
       active,
+      ...(typeof dto.record === 'boolean' && { record: dto.record }),
       // A call already running holds the version it started on, so this bump
       // never moves a live caller onto a node that has just changed.
       version: existing.version + 1,
@@ -289,6 +310,80 @@ export class CallFlowsService {
     }
   }
 
+  /**
+   * The one thing a node carries that has a canonical form: an external
+   * number, stored as E.164 so the runner dials exactly what was validated.
+   * Returns a fresh map — the caller's nodes are never written through.
+   */
+  private normalizeNodes(nodes: Record<string, CallFlowNode>): Record<string, CallFlowNode> {
+    const out: Record<string, CallFlowNode> = {};
+    for (const [id, node] of Object.entries(nodes)) {
+      if (node.type === 'ring' && node.target?.kind === 'external') {
+        const raw = node.target.number;
+        const number = typeof raw === 'string' ? tryNormalizePhone(raw) : null;
+        if (!number) {
+          throw new BadRequestException(`${raw} is not a valid phone number to forward to`);
+        }
+        out[id] = { ...node, target: { kind: 'external', number } };
+      } else {
+        out[id] = node;
+      }
+    }
+    return out;
+  }
+
+  /**
+   * A Forward step (Workiz's Group | User | External Number, plus our devices)
+   * has to name something that can ring, and whatever it names has to exist
+   * now — a gone group, user or device is far better refused here than met
+   * mid-call. "Move to next step after N sec" stays inside what Twilio will
+   * ring a leg for.
+   */
+  private async validateRingNode(node: RingNode): Promise<void> {
+    const target = ringTargetOf(node);
+    const named =
+      target &&
+      (target.kind === 'external' ? !!target.number : !!target.id);
+    if (!target || !named) {
+      throw new BadRequestException(
+        'A Forward step needs somewhere to ring — a group, a user, a device or a number',
+      );
+    }
+    switch (target.kind) {
+      case 'group':
+        // Throws NotFound if the group is gone — better here than mid-call.
+        await this.groups.findById(target.id);
+        break;
+      case 'user':
+        if (this.directory && !(await this.directory.find(target.id))) {
+          throw new BadRequestException(
+            `${target.id} is not an active user and cannot be forwarded to`,
+          );
+        }
+        break;
+      case 'device':
+        if (this.devices && !(await this.devices.findRaw(target.id))) {
+          throw new BadRequestException(
+            `${target.id} is not a device in the catalog and cannot be forwarded to`,
+          );
+        }
+        break;
+      case 'external':
+        if (!tryNormalizePhone(target.number)) {
+          throw new BadRequestException(`${target.number} is not a valid phone number`);
+        }
+        break;
+    }
+    if (node.timeoutSec !== undefined) {
+      const { minRingTimeoutSec: min, maxRingTimeoutSec: max } = CALL_FLOW_LIMITS;
+      if (!Number.isInteger(node.timeoutSec) || node.timeoutSec < min || node.timeoutSec > max) {
+        throw new BadRequestException(
+          `"Move to next step after" must be between ${min} and ${max} seconds`,
+        );
+      }
+    }
+  }
+
   private async normalizeNumbers(raw: string[], excludeId?: string): Promise<string[]> {
     const numbers: string[] = [];
     for (const value of raw) {
@@ -357,8 +452,7 @@ export class CallFlowsService {
         }
       }
       if (node.type === 'ring') {
-        // Throws NotFound if the group is gone — better here than mid-call.
-        await this.groups.findById(node.groupId);
+        await this.validateRingNode(node);
       }
       if (node.type === 'ext') {
         await this.validateExtNode(node, active, numbers, selfId);

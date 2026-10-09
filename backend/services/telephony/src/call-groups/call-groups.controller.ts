@@ -96,7 +96,7 @@ export class CallGroupsController {
     @Body() dto: SetCallGroupMembersDto,
     @CurrentUser() user: JwtUser,
   ) {
-    const data = await this.service.setMembers(id, dto.members, user);
+    const data = await this.service.setMembers(id, dto.members, user, dto.deviceMembers);
     return { success: true, data };
   }
 

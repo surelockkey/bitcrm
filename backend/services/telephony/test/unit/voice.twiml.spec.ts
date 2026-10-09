@@ -56,6 +56,8 @@ function makeService(opts: {
   };
   const settings = {
     technicianLine: jest.fn(async () => opts.technicianLine ?? null),
+    // No fallback number here: these cases are about the ring-everyone path.
+    fallbackNumber: jest.fn(async () => null),
   };
   return {
     // A number with no flow: the runner declines and the legacy path answers,

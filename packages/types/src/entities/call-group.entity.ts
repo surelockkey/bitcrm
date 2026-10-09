@@ -41,6 +41,29 @@ export interface ResolvedCallGroupMember extends CallGroupMember {
   missing: boolean;
 }
 
+/**
+ * A device in a group (Workiz's "Users and devices"): a desk phone or shop
+ * line from the Devices catalog. Its own list beside `members`, so every
+ * reader of `members[].userId` is untouched — the number is read from the
+ * catalog at ring time, never copied here.
+ */
+export interface CallGroupDeviceMember {
+  deviceId: string;
+  /** Ring position; keeps the list stable. */
+  order: number;
+  /** Pause one device without losing its place. */
+  enabled: boolean;
+}
+
+/** A device member with the bits the UI needs, resolved at read time (never stored). */
+export interface ResolvedCallGroupDeviceMember extends CallGroupDeviceMember {
+  name?: string;
+  /** The device's number (E.164) or SIP address, as it rings. */
+  number?: string;
+  /** The device is gone from the catalog. */
+  missing: boolean;
+}
+
 /** A named list of the people an inbound call should reach. */
 export interface CallGroup {
   id: string;
@@ -48,6 +71,8 @@ export interface CallGroup {
   description?: string;
   type: CallGroupType;
   members: CallGroupMember[];
+  /** Devices rung beside the members (absent on groups saved before devices). */
+  deviceMembers?: CallGroupDeviceMember[];
   /** A paused group keeps its membership but is skipped by routing. */
   active: boolean;
   /** How long each member's phone rings before giving up. */
@@ -59,8 +84,9 @@ export interface CallGroup {
 }
 
 /** What the API returns: the stored group plus the live view of its members. */
-export interface CallGroupWithMembers extends Omit<CallGroup, 'members'> {
+export interface CallGroupWithMembers extends Omit<CallGroup, 'members' | 'deviceMembers'> {
   members: ResolvedCallGroupMember[];
+  deviceMembers?: ResolvedCallGroupDeviceMember[];
 }
 
 /** Bounds shared by the API's validation and the UI's affordances. */

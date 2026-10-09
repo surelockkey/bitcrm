@@ -66,6 +66,14 @@ export class CreateCallFlowDto {
   @ValidateIf((_, v) => v !== null)
   @IsString()
   businessProfileId?: string | null;
+
+  @ApiPropertyOptional({
+    description:
+      'Workiz\'s "Record Call Flow" switch. Omitted = recorded; false leaves the conversation unrecorded.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  record?: boolean;
 }
 
 /** Everything optional — an omitted field keeps its stored value. */
@@ -115,6 +123,11 @@ export class UpdateCallFlowDto {
   @ValidateIf((_, v) => v !== null)
   @IsString()
   businessProfileId?: string | null;
+
+  @ApiPropertyOptional({ description: 'Workiz\'s "Record Call Flow" switch; omitted keeps the stored value.' })
+  @IsOptional()
+  @IsBoolean()
+  record?: boolean;
 }
 
 /**

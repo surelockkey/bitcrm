@@ -84,13 +84,43 @@ export interface MenuNode extends BaseNode {
 }
 
 /**
- * Ring a call group. The terminal node of most flows: whoever answers is put
- * into the conference with the caller, and `next` is where the call goes when
+ * Who a Forward step rings (Workiz's "Forward Calls" pane: Group | User |
+ * External Number, plus our Devices catalog).
+ *
+ * A group is resolved member by member at ring time, as before. A user is
+ * their softphone when it is registered plus their own number when they have
+ * one. An external number and a device are plain legs to a number (or a
+ * device's SIP address) — nothing in the CRM answers them, so who picked up
+ * is never known and a carrier voicemail can take the call; the pane says so.
+ */
+export type RingTarget =
+  | { kind: 'group'; id: string }
+  | { kind: 'user'; id: string }
+  | { kind: 'device'; id: string }
+  | { kind: 'external'; number: string };
+
+export type RingTargetKind = RingTarget['kind'];
+
+/**
+ * Ring somebody. The terminal node of most flows: whoever answers is put into
+ * the conference with the caller, and `next` is where the call goes when
  * nobody does.
  */
 export interface RingNode extends BaseNode {
   type: 'ring';
-  groupId: string;
+  /**
+   * The step's target. Flows stored before targets existed carry `groupId`
+   * alone; `ringTargetOf` reads either, so nothing is migrated.
+   */
+  target?: RingTarget;
+  /** @deprecated The pre-target shape: the group to ring. `target` wins when set. */
+  groupId?: string;
+  /**
+   * Workiz's "Move to next step after N sec": how long the phones ring before
+   * the call takes the no-answer exit. Absent: the group's `ringSeconds`, or
+   * `CALL_FLOW_LIMITS.defaultRingTimeoutSec` for the other kinds.
+   */
+  timeoutSec?: number;
   /**
    * Where the call goes once the conversation is over — a closing message, a
    * survey, anything. `next` is the other outcome: nobody picked up.
@@ -171,6 +201,19 @@ export type CallFlowNode =
   | HangupNode
   | ExtNode;
 
+/**
+ * What a ring step rings, whichever shape it was stored in: `target` when
+ * set, else the legacy `groupId` as a group target, else nothing (a step
+ * that was never finished in the editor).
+ */
+export function ringTargetOf(
+  node: Pick<RingNode, 'target' | 'groupId'>,
+): RingTarget | undefined {
+  if (node.target) return node.target;
+  if (node.groupId) return { kind: 'group', id: node.groupId };
+  return undefined;
+}
+
 /** An uploaded greeting, stored once and reusable across flows. */
 export interface CallFlowAudio {
   id: string;
@@ -200,6 +243,13 @@ export interface CallFlow {
    * numbers is pre-filled with. A per-number setting overrides it.
    */
   businessProfileId?: string;
+  /**
+   * Workiz's "Record Call Flow" switch. Absent means recorded — what every
+   * flow did before the switch existed. `false` leaves the conversation
+   * unrecorded; a voicemail left on the flow is the caller's own message and
+   * is kept either way.
+   */
+  record?: boolean;
   /**
    * Bumped on every save. A call already in flight keeps the version it
    * started on, so editing a flow can't teleport a live caller.
@@ -238,4 +288,21 @@ export const CALL_FLOW_LIMITS = {
   minVoicemailSeconds: 10,
   maxVoicemailSeconds: 300,
   defaultVoicemailSeconds: 120,
+  /**
+   * "Move to next step after N sec" on a Forward step. Twilio caps a dial's
+   * ring at 600; Workiz's own default is 60 and the account's forwards use
+   * up to 300.
+   */
+  minRingTimeoutSec: 5,
+  maxRingTimeoutSec: 600,
+  defaultRingTimeoutSec: 60,
+  /** How long the account's fallback number rings before the call ends. */
+  fallbackRingSec: 60,
 } as const;
+
+/**
+ * The virtual step a ring with no next step continues to when the account's
+ * fallback number is set: the number rings, then the call ends. Never a key
+ * in `nodes` — the `$` keeps it clear of every editor- or import-made id.
+ */
+export const FALLBACK_NODE_ID = '$fallback';

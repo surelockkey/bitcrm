@@ -40,6 +40,25 @@ export class CallGroupMemberDto {
   enabled?: boolean;
 }
 
+/** A device in the group (Workiz's "Users and devices"): a Devices-catalog id and its place. */
+export class CallGroupDeviceMemberDto {
+  @ApiProperty({ example: '23b117ba-e169-54c8-a2ac-9ffd34837728' })
+  @IsString()
+  @IsNotEmpty()
+  deviceId!: string;
+
+  @ApiPropertyOptional({ description: 'Ring position; defaults to list order.' })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  order?: number;
+
+  @ApiPropertyOptional({ default: true })
+  @IsOptional()
+  @IsBoolean()
+  enabled?: boolean;
+}
+
 export class CreateCallGroupDto {
   @ApiProperty({ example: 'Dispatch' })
   @IsString()
@@ -64,6 +83,13 @@ export class CreateCallGroupDto {
   @ValidateNested({ each: true })
   @Type(() => CallGroupMemberDto)
   members?: CallGroupMemberDto[];
+
+  @ApiPropertyOptional({ type: [CallGroupDeviceMemberDto], description: 'Devices rung beside the members.' })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CallGroupDeviceMemberDto)
+  deviceMembers?: CallGroupDeviceMemberDto[];
 
   @ApiPropertyOptional({ default: true })
   @IsOptional()
@@ -122,4 +148,14 @@ export class SetCallGroupMembersDto {
   @ValidateNested({ each: true })
   @Type(() => CallGroupMemberDto)
   members!: CallGroupMemberDto[];
+
+  @ApiPropertyOptional({
+    type: [CallGroupDeviceMemberDto],
+    description: 'The devices, replaced whole when sent; left as they are when omitted.',
+  })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CallGroupDeviceMemberDto)
+  deviceMembers?: CallGroupDeviceMemberDto[];
 }
