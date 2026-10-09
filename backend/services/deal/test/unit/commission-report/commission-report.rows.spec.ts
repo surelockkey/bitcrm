@@ -125,7 +125,8 @@ describe('buildRow — an imported job keeps Workiz’s frozen numbers', () => {
       techId: 'moshe',
       techName: 'Moshe Szender',
       jobTypeName: '(A-1) Door Service',
-      address: '215 Main St, Norwalk, Connecticut, 06851',
+      // Workiz prints the street and the zip: "215 Main St , 06851".
+      address: '215 Main St , 06851',
       closedDate: '2026-09-02',
       closedTime: '19:00',
       total: 197.17,

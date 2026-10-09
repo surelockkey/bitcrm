@@ -77,11 +77,10 @@ export function needsCompute(item: CommissionDealItem): boolean {
   return !item.commissionSnapshot;
 }
 
+/** Workiz's Address cell: the street and the zip, " , " between ("215 Main St , 06851"). */
 function addressLine(a: CommissionDealItem['address']): string {
   if (!a) return '';
-  const street = a.street?.trim() ?? '';
-  const tail = [a.city, a.state, a.zip].filter(Boolean).join(', ');
-  return [street, tail].filter(Boolean).join(', ');
+  return [a.street?.trim(), a.zip?.trim()].filter(Boolean).join(' , ');
 }
 
 export interface RowContext {

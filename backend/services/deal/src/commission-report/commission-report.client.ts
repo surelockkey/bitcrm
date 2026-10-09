@@ -57,7 +57,11 @@ export class CommissionReportClient {
     });
   }
 
-  /** "First Last" per user id; best effort — a failure leaves the names out. */
+  /**
+   * The technician's name per user id as Workiz prints it — the imported
+   * Workiz name ("(2) TX - Ricky Sledge") when the user has one, else "First
+   * Last"; best effort — a failure leaves the names out.
+   */
   async userNames(userIds: string[]): Promise<Map<string, string>> {
     const found = await this.chunked('user', 'userNames', userIds, USERS_PER_CALL, async (ids) => {
       const res = await this.user.post('/api/users/internal/names-by-ids', { userIds: ids });
@@ -80,7 +84,8 @@ export class CommissionReportClient {
     const out: Array<[string, string]> = [];
     for (const row of rows as Array<Record<string, unknown>>) {
       if (!row || typeof row.id !== 'string') continue;
-      const name = [row.firstName, row.lastName].filter((v) => typeof v === 'string' && v.trim()).join(' ').trim();
+      const workiz = typeof row.workizName === 'string' ? row.workizName.trim() : '';
+      const name = workiz || [row.firstName, row.lastName].filter((v) => typeof v === 'string' && v.trim()).join(' ').trim();
       if (name) out.push([row.id, name]);
     }
     return out;
