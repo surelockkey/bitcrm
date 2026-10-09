@@ -63,6 +63,8 @@ interface Catalog {
   row: string;
   /** The page's add button ("Add New") — drawn only for a user who may create. */
   button: RegExp;
+  /** Other lists the page reads before it is whole (and so waits for). */
+  also?: { match: RegExp; rows: unknown[] }[];
 }
 
 const CATALOGS: Catalog[] = [
@@ -120,7 +122,9 @@ const CATALOGS: Catalog[] = [
       },
     ],
     row: "Door Color",
-    button: /new custom field/i,
+    button: /^add new$/i,
+    // The Job Type column names the types the fields are scoped to.
+    also: [{ match: /\/deals\/job-types$/, rows: [] }],
   },
   {
     name: "Service areas",
@@ -197,6 +201,7 @@ async function load(c: Catalog, order: "user-last" | "list-last") {
   server = installFakeServer([
     { match: /\/users\/me$/, reply: () => me, delayMs: order === "user-last" ? 90 : 20 },
     { match: c.list, reply: () => c.rows, delayMs: order === "list-last" ? 90 : 20 },
+    ...(c.also ?? []).map((a) => ({ match: a.match, reply: () => a.rows, delayMs: order === "list-last" ? 90 : 20 })),
   ]);
   const rec = recordFrames(() => ({
     noAccess: !!screen.queryByText("No access"),

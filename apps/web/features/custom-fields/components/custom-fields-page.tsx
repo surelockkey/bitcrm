@@ -1,19 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Loader2, ListPlus, Pencil, Plus, Trash2 } from "lucide-react";
+import { ChevronDown, ClipboardList, Loader2, Plus, Trash2 } from "lucide-react";
 import type { CustomFieldDefinition, CustomFieldType } from "@bitcrm/types";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -24,43 +14,74 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { WzButton } from "@/components/workiz/button";
+import { WzOnOffSwitch } from "@/components/workiz/on-off-switch";
+import { WzSettingsBar, WzSettingsHeader } from "@/components/workiz/settings-page";
 import { usePermissions } from "@/features/auth/use-permissions";
+import { useJobTypes } from "@/features/job-types/hooks";
+import { cn } from "@/lib/utils";
 import { settled, usePageReady } from "@/lib/use-page-ready";
-import { useCustomFields, useDeleteCustomField } from "../hooks";
+import { useCustomFields, useDeleteCustomField, useUpdateCustomField } from "../hooks";
 import { groupFields } from "../lib";
 import { CustomFieldFormDialog } from "./custom-field-form-dialog";
 
-/** Friendly labels for the fixed set of input kinds. */
+/** The Type column's words, Workiz's (capitalised by the cell): "Drop Down", "Files". */
 const TYPE_LABELS: Record<CustomFieldType, string> = {
-  text: "Text",
-  large_text: "Large text",
-  number: "Number",
-  checkbox: "Checkbox",
-  dropdown: "Dropdown",
-  date: "Date",
-  file: "File",
-  multi_select: "Multi-select",
+  text: "text",
+  large_text: "large text",
+  number: "number",
+  checkbox: "checkbox",
+  dropdown: "drop down",
+  date: "date",
+  file: "files",
+  multi_select: "multi select",
 };
 
+/*
+ * Workiz's custom-fields table (`table.simple-table`, uikit_wz_set_customfields,
+ * pg_settings_catalogs_wz_customfields): white; a 57px head of 15px/16px 500
+ * black capitalised names (20px 12px); a #f7f7f7 55px row per group — a
+ * chevron that folds it, "Group: Company" in 14px bold 98px in; a 56px white
+ * row per field, its name 105px in, the rows ruled #e6e6e6 (the first group
+ * under #ccc). A field row opens its edit.
+ */
+const TH = "h-[57px] px-3 text-left align-middle text-[15px] leading-4 font-medium text-black capitalize";
+const TD = "border-t border-[#e6e6e6] px-3 py-[15px] align-middle text-sm leading-4 text-wz-strong";
+
+/**
+ * Settings → Custom Fields, as Workiz's: the band, "Add New" at the right,
+ * and the grouped table — Name, Job Type ("All Types" when it applies to
+ * every one), Type, Required. Workiz's "Job/Lead | Client" tabs are left
+ * out (our custom fields are on jobs only), and so is its drag-to-order and
+ * its delete-a-whole-group (ours: Priority in the drawer, and a field's own
+ * delete). The ON/OFF Status is ours, as on Job Types. The drawer is
+ * Workiz's "Add New Field".
+ */
 export function CustomFieldsPage() {
   const { can, isLoading: permsLoading } = usePermissions();
   const fieldsQuery = useCustomFields();
   const fields = fieldsQuery.data;
-  // One skeleton until both the user and the list are in: the "New" button
+  // The Job Type column names the types: they join the gate, so the column
+  // never shows ids that turn into names a beat later.
+  const jobTypesQuery = useJobTypes();
+  const jobTypes = jobTypesQuery.data;
+  // One skeleton until the user, the fields and the types are in: "Add New"
   // and the rows come in the same frame, and nobody is refused for the beat
   // their permissions are still on the way.
-  const ready = usePageReady(!permsLoading && settled(fieldsQuery));
+  const ready = usePageReady(!permsLoading && settled(fieldsQuery) && settled(jobTypesQuery));
   const del = useDeleteCustomField();
 
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<CustomFieldDefinition | undefined>();
   const [deleting, setDeleting] = useState<CustomFieldDefinition | undefined>();
+  const [folded, setFolded] = useState<ReadonlySet<string>>(new Set());
 
   const canCreate = can("custom_fields", "create");
   const canEdit = can("custom_fields", "edit");
   const canDelete = can("custom_fields", "delete");
 
   const groups = useMemo(() => groupFields(fields ?? []), [fields]);
+  const typeName = useMemo(() => new Map((jobTypes ?? []).map((t) => [t.id, t.name])), [jobTypes]);
 
   if (!permsLoading && !can("custom_fields", "view")) {
     return (
@@ -78,112 +99,161 @@ export function CustomFieldsPage() {
     setFormOpen(true);
   };
   const openEdit = (field: CustomFieldDefinition) => {
+    if (!canEdit) return;
     setEditing(field);
     setFormOpen(true);
   };
+  const toggleGroup = (group: string) =>
+    setFolded((prev) => {
+      const next = new Set(prev);
+      if (next.has(group)) next.delete(group);
+      else next.add(group);
+      return next;
+    });
+  const jobTypesOf = (field: CustomFieldDefinition) =>
+    field.jobTypeIds.length === 0 ? "All Types" : field.jobTypeIds.map((id) => typeName.get(id) ?? id).join(", ");
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h2 className="text-base font-semibold tracking-tight">Custom fields</h2>
-          <p className="text-sm text-muted-foreground">
-            User-defined fields on deals, filed under group headings and scoped to job types.
-          </p>
-        </div>
-        {ready && canCreate ? (
-          <Button variant="brand" className="h-9 gap-1.5" onClick={openNew}>
-            <Plus className="size-4" /> New custom field
-          </Button>
-        ) : null}
-      </div>
-
+    <div className="flex min-w-0 flex-1 flex-col">
+      <WzSettingsHeader
+        icon={<ClipboardList />}
+        title="Custom Fields"
+        description="Need more information on your jobs? Add your own custom fields."
+      />
       {!ready ? (
-        <div className="space-y-2">
-          <Skeleton className="h-12 w-full" />
-          <Skeleton className="h-12 w-full" />
-        </div>
-      ) : groups.length === 0 ? (
-        <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed py-14 text-center">
-          <ListPlus className="size-6 text-muted-foreground" />
-          <p className="text-sm font-medium">No custom fields yet</p>
-          <p className="text-sm text-muted-foreground">
-            Create one to capture extra details on deals.
-          </p>
+        <div className="px-5 pt-5">
+          <Skeleton className="h-[480px] w-full rounded-none" />
         </div>
       ) : (
-        <div className="space-y-6">
-          {groups.map(({ group, fields: groupFieldsList }) => (
-            <div key={group} className="space-y-2">
-              <h3 className="text-sm font-semibold tracking-tight text-muted-foreground">
-                {group}
-              </h3>
-              <div className="rounded-lg border">
-                {/* Fixed layout so the columns land at the same x in every
-                    group's table — auto-sizing let them drift per group. */}
-                <Table className="table-fixed">
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead className="w-40">Type</TableHead>
-                      <TableHead className="w-44">Flags</TableHead>
-                      <TableHead className="w-28">Status</TableHead>
-                      <TableHead className="w-24 text-right">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {groupFieldsList.map((field) => (
-                      <TableRow key={field.id}>
-                        <TableCell className="font-medium">{field.name}</TableCell>
-                        <TableCell>{TYPE_LABELS[field.type]}</TableCell>
-                        <TableCell>
-                          <div className="flex flex-wrap gap-1">
-                            {field.required ? <Badge variant="secondary">Required</Badge> : null}
-                            {field.requiredToClose ? (
-                              <Badge variant="secondary">Required to close</Badge>
-                            ) : null}
-                            {field.searchable ? <Badge variant="secondary">Searchable</Badge> : null}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant={field.active ? "default" : "secondary"}>
-                            {field.active ? "Active" : "Archived"}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex justify-end gap-1">
-                            {canEdit ? (
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="size-8"
-                                onClick={() => openEdit(field)}
-                                aria-label="Edit"
-                              >
-                                <Pencil className="size-4" />
-                              </Button>
-                            ) : null}
+        <>
+          <WzSettingsBar
+            className="justify-end"
+            action={
+              canCreate ? (
+                <WzButton size="regular" icon={<Plus strokeWidth={1.75} />} onClick={openNew}>
+                  Add New
+                </WzButton>
+              ) : null
+            }
+          />
+          <table aria-label="Custom fields" className="w-full table-fixed border-collapse bg-white">
+            <colgroup>
+              <col className="w-[50px]" />
+              <col />
+              <col className="w-[45%]" />
+              <col className="w-[151px]" />
+              <col className="w-[137px]" />
+              <col className="w-[120px]" />
+              {canDelete ? <col className="w-[60px]" /> : null}
+            </colgroup>
+            <thead>
+              <tr>
+                <th className={TH}>
+                  <span className="sr-only">Group</span>
+                </th>
+                <th className={TH}>name</th>
+                <th className={TH}>Job Type</th>
+                <th className={TH}>type</th>
+                <th className={TH}>required</th>
+                <th className={TH}>status</th>
+                {canDelete ? (
+                  <th className={TH}>
+                    <span className="sr-only">Actions</span>
+                  </th>
+                ) : null}
+              </tr>
+            </thead>
+            {groups.length === 0 ? (
+              <tbody>
+                <tr>
+                  <td colSpan={canDelete ? 7 : 6} className={cn(TD, "border-input py-10 text-center text-[15px] font-medium")}>
+                    No Records Found
+                  </td>
+                </tr>
+              </tbody>
+            ) : (
+              groups.map(({ group, fields: list }, gi) => {
+                const open = !folded.has(group);
+                return (
+                  <tbody key={group}>
+                    <tr className="bg-muted">
+                      <td
+                        colSpan={canDelete ? 7 : 6}
+                        className={cn(
+                          "h-[55px] border-t px-2.5 py-[15px] align-middle text-sm leading-4 text-wz-strong",
+                          gi === 0 ? "border-input" : "border-[#e6e6e6]",
+                        )}
+                      >
+                        <button
+                          type="button"
+                          aria-expanded={open}
+                          onClick={() => toggleGroup(group)}
+                          className="ml-[43px] flex items-center gap-[27px] outline-none focus-visible:underline"
+                        >
+                          <ChevronDown
+                            aria-hidden
+                            className={cn("size-[18px] text-wz-strong transition-transform", !open && "-rotate-90")}
+                            strokeWidth={1.5}
+                          />
+                          <b className="font-bold capitalize">Group: {group}</b>
+                        </button>
+                      </td>
+                    </tr>
+                    {open
+                      ? list.map((field) => (
+                          <tr
+                            key={field.id}
+                            onClick={() => openEdit(field)}
+                            className={cn("h-14 bg-white", canEdit && "cursor-pointer hover:bg-black/[0.03]")}
+                          >
+                            <td className={TD} />
+                            <td className={cn(TD, "truncate")}>
+                              {canEdit ? (
+                                <button
+                                  type="button"
+                                  aria-label={`Edit ${field.name}`}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    openEdit(field);
+                                  }}
+                                  className="ml-[43px] max-w-full truncate text-left outline-none focus-visible:underline"
+                                >
+                                  {field.name}
+                                </button>
+                              ) : (
+                                <span className="ml-[43px]">{field.name}</span>
+                              )}
+                            </td>
+                            <td className={cn(TD, "truncate")}>{jobTypesOf(field)}</td>
+                            <td className={cn(TD, "capitalize")}>{TYPE_LABELS[field.type]}</td>
+                            <td className={TD}>{field.required ? "Yes" : "No"}</td>
+                            <td className={TD}>
+                              <CustomFieldStatusSwitch field={field} disabled={!canEdit} />
+                            </td>
                             {canDelete ? (
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="size-8"
-                                onClick={() => setDeleting(field)}
-                                aria-label="Delete"
-                              >
-                                <Trash2 className="size-4" />
-                              </Button>
+                              <td className={cn(TD, "text-right")}>
+                                <button
+                                  type="button"
+                                  aria-label={`Delete ${field.name}`}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setDeleting(field);
+                                  }}
+                                  className="inline-grid size-6 place-items-center rounded-[4px] text-wz-text outline-none hover:text-wz-strong focus-visible:ring-2 focus-visible:ring-wz-focus"
+                                >
+                                  <Trash2 className="size-[17px]" strokeWidth={1.5} />
+                                </button>
+                              </td>
                             ) : null}
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            </div>
-          ))}
-        </div>
+                          </tr>
+                        ))
+                      : null}
+                  </tbody>
+                );
+              })
+            )}
+          </table>
+        </>
       )}
 
       {formOpen ? (
@@ -208,8 +278,7 @@ export function CustomFieldsPage() {
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => {
-                if (deleting)
-                  del.mutate(deleting.id, { onSuccess: () => setDeleting(undefined) });
+                if (deleting) del.mutate(deleting.id, { onSuccess: () => setDeleting(undefined) });
               }}
             >
               {del.isPending ? <Loader2 className="size-4 animate-spin" /> : "Delete"}
@@ -218,5 +287,19 @@ export function CustomFieldsPage() {
         </AlertDialogContent>
       </AlertDialog>
     </div>
+  );
+}
+
+/** A field's Status switch: off archives it (it leaves the job forms; old jobs keep their answers). */
+function CustomFieldStatusSwitch({ field, disabled }: { field: CustomFieldDefinition; disabled: boolean }) {
+  const update = useUpdateCustomField(field.id);
+  const pending = update.isPending ? (update.variables as { active?: boolean } | undefined)?.active : undefined;
+  return (
+    <WzOnOffSwitch
+      aria-label={`${field.name} status`}
+      checked={pending ?? field.active}
+      disabled={disabled || update.isPending}
+      onCheckedChange={(active) => update.mutate({ active })}
+    />
   );
 }
