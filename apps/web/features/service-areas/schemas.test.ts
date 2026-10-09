@@ -229,3 +229,24 @@ describe("default company", () => {
     expect(body).not.toHaveProperty("defaultTaxRateId");
   });
 });
+
+/**
+ * Workiz's "Choose Color": the area's chip colour, `#rrggbb`. The API keeps
+ * the stored colour when the field is missing and clears it on "" — so the
+ * form always sends what it shows: the colour, or "" for none.
+ */
+describe("colour", () => {
+  it("carries the chosen colour, lower case", () => {
+    const body = toServiceAreaBody(serviceAreaFormSchema.parse({ ...baseZip, color: "#1E90FF" }));
+    expect(body).toMatchObject({ color: "#1e90ff" });
+  });
+
+  it("sends an empty string for no colour (clears it)", () => {
+    expect(toServiceAreaBody(serviceAreaFormSchema.parse(baseZip))).toHaveProperty("color", "");
+  });
+
+  it("refuses anything that is not #rrggbb", () => {
+    expect(serviceAreaFormSchema.safeParse({ ...baseZip, color: "blue" }).success).toBe(false);
+    expect(serviceAreaFormSchema.safeParse({ ...baseZip, color: "#12345" }).success).toBe(false);
+  });
+});

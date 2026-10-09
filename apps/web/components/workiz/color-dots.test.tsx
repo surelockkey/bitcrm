@@ -48,6 +48,14 @@ describe("WzColorDots — Workiz's Choose color", () => {
     expect(green.querySelector("[data-slot=wz-color-dot-ring]")).toBeNull();
   });
 
+  it("draws Workiz's older square swatches with a ✓ on the chosen one (Add New Service area)", () => {
+    render(<WzColorDots label="Choose Color" shape="square" options={OPTIONS} value="red" onChange={() => {}} />);
+    const red = screen.getByRole("radio", { name: "Red" });
+    expect(red.className).toMatch(/rounded-\[2px\]/);
+    expect(red.querySelector("[data-slot=wz-color-square-check]")).not.toBeNull();
+    expect(screen.getByRole("radio", { name: "Green" }).querySelector("[data-slot=wz-color-square-check]")).toBeNull();
+  });
+
   it("only the chosen dot is a tab stop", () => {
     render(<WzColorDots label="c" options={OPTIONS} value="green" onChange={() => {}} />);
     expect(screen.getByRole("radio", { name: "Green" })).toHaveAttribute("tabindex", "0");

@@ -138,7 +138,7 @@ const CATALOGS: Catalog[] = [
       },
     ],
     row: "Lakeside",
-    button: /new service area/i,
+    button: /^add service area$/i,
   },
   {
     name: "External companies",

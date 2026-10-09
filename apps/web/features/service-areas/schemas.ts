@@ -43,6 +43,11 @@ export const serviceAreaFormSchema = z
     taxRatePercent: z.union([z.string(), z.number()]).default(""),
     /** Company new jobs in this area default to; null clears it. */
     defaultBusinessProfileId: z.string().min(1).nullable().default(null),
+    /** The area's chip colour (Workiz's "Choose Color"), `#rrggbb`; "" = none. */
+    color: z
+      .union([z.literal(""), z.string().regex(/^#[0-9a-fA-F]{6}$/, "Colour must be #rrggbb")])
+      .default("")
+      .transform((c) => c.toLowerCase()),
   })
   .superRefine((val, ctx) => {
     if (val.taxEnabled) {
@@ -105,6 +110,8 @@ export function toServiceAreaBody(v: ServiceAreaFormOutput) {
         ? { name: v.taxName.trim(), ratePercent: parseTaxPercent(v.taxRatePercent) as number }
         : null,
     defaultBusinessProfileId: v.defaultBusinessProfileId,
+    // "" clears the colour; the API keeps it only when the field is missing.
+    color: v.color,
   };
   return v.type === ServiceAreaType.ZIPS
     ? { ...base, zips: v.zips }

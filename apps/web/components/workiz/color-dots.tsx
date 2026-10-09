@@ -1,6 +1,7 @@
 "use client";
 
 import { useId, useRef, type KeyboardEvent } from "react";
+import { Check } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -26,6 +27,7 @@ export function WzColorDots({
   options,
   value,
   onChange,
+  shape = "dot",
   className,
 }: {
   /** The heading over the dots, and the group's name ("Choose color"). */
@@ -33,6 +35,13 @@ export function WzColorDots({
   options: readonly WzColorDotOption[];
   value: string;
   onChange: (value: string) => void;
+  /**
+   * `square`: the older `color_picker` of "Add New Service area"
+   * (pg_settings_catalogs_wz_metroareas_add_open) — 20px squares with 2px
+   * corners 5px apart; the chosen one 22px under a 1px #666 edge with a
+   * white ✓. Its heading is the form's bold 14px/700 #404040 label.
+   */
+  shape?: "dot" | "square";
   className?: string;
 }) {
   const headingId = useId();
@@ -51,12 +60,18 @@ export function WzColorDots({
     refs.current[next]?.focus();
   };
 
+  const square = shape === "square";
   return (
-    <div className={cn("flex flex-col gap-[15px]", className)}>
-      <p id={headingId} className="text-[13px] leading-[19px] font-semibold text-foreground">
+    <div className={cn("flex flex-col", square ? "gap-2" : "gap-[15px]", className)}>
+      <p
+        id={headingId}
+        className={cn(
+          square ? "text-sm leading-4 font-bold text-wz-strong" : "text-[13px] leading-[19px] font-semibold text-foreground",
+        )}
+      >
         {label}
       </p>
-      <div role="radiogroup" aria-labelledby={headingId} className="flex flex-wrap gap-2">
+      <div role="radiogroup" aria-labelledby={headingId} className={cn("flex flex-wrap", square ? "items-center gap-[5px]" : "gap-2")}>
         {options.map((o, i) => {
           const chosen = o.value === value;
           const paint = { style: o.color ? { backgroundColor: o.color } : undefined, className: o.className };
@@ -76,11 +91,21 @@ export function WzColorDots({
               onKeyDown={(e) => move(e, i)}
               style={paint.style}
               className={cn(
-                "relative size-6 shrink-0 cursor-pointer rounded-full outline-none focus-visible:ring-2 focus-visible:ring-wz-focus focus-visible:ring-offset-1",
+                "relative shrink-0 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-wz-focus focus-visible:ring-offset-1",
+                square ? cn("rounded-[2px]", chosen ? "size-[22px] border border-wz-text" : "size-5") : "size-6 rounded-full",
                 paint.className,
               )}
             >
-              {chosen ? (
+              {square ? (
+                chosen ? (
+                  <Check
+                    data-slot="wz-color-square-check"
+                    aria-hidden
+                    className="absolute inset-0 m-auto size-3.5 text-white"
+                    strokeWidth={2.5}
+                  />
+                ) : null
+              ) : chosen ? (
                 <>
                   <span data-slot="wz-color-dot-ring" aria-hidden className="absolute inset-px rounded-full bg-white" />
                   <span
