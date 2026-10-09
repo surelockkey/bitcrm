@@ -13,6 +13,8 @@ import { PasswordResetRequestDto } from './dto/password-reset-request.dto';
 import { PasswordResetConfirmDto } from './dto/password-reset-confirm.dto';
 import { MfaVerifyDto } from './dto/mfa-verify.dto';
 import { MfaResendDto } from './dto/mfa-resend.dto';
+import { MfaSetupDto } from './dto/mfa-setup.dto';
+import { MfaEmailDto } from './dto/mfa-email.dto';
 import { MfaService } from '../mfa/mfa.service';
 
 @Injectable()
@@ -40,6 +42,16 @@ export class AuthService {
 
   async resendMfa(dto: MfaResendDto): Promise<{ destination: string }> {
     return this.mfa.resend(dto.session);
+  }
+
+  /** The account requires 2FA and this person had no phone: the one they give on the way in. */
+  async setupMfa(dto: MfaSetupDto): Promise<{ destination: string }> {
+    return this.mfa.setupPhone(dto.session, dto.phone);
+  }
+
+  /** The sign-in code to the account's email instead (Security Center "Login sending options"). */
+  async emailMfaCode(dto: MfaEmailDto): Promise<{ destination: string }> {
+    return this.mfa.sendEmailCode(dto.session);
   }
 
   async refreshToken(dto: RefreshTokenDto): Promise<RefreshTokenResponse> {

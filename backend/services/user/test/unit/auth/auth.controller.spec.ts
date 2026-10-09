@@ -13,6 +13,8 @@ describe('AuthController', () => {
       changePassword: jest.fn(),
       verifyMfa: jest.fn(),
       resendMfa: jest.fn(),
+      setupMfa: jest.fn(),
+      emailMfaCode: jest.fn(),
     };
 
     const module = await Test.createTestingModule({
@@ -42,6 +44,26 @@ describe('AuthController', () => {
         success: true,
         data: { destination: '•••• 1234' },
       });
+    });
+
+    it('POST /auth/mfa/setup texts the phone given for an MFA_SETUP challenge', async () => {
+      service.setupMfa.mockResolvedValue({ destination: '•••• 0739' });
+
+      await expect(controller.setupMfa({ session: 's1', phone: '541-283-0739' } as never)).resolves.toEqual({
+        success: true,
+        data: { destination: '•••• 0739' },
+      });
+      expect(service.setupMfa).toHaveBeenCalledWith({ session: 's1', phone: '541-283-0739' });
+    });
+
+    it('POST /auth/mfa/email sends the code to the account\'s email', async () => {
+      service.emailMfaCode.mockResolvedValue({ destination: 'b•••@x.com' });
+
+      await expect(controller.emailMfaCode({ session: 's1' } as never)).resolves.toEqual({
+        success: true,
+        data: { destination: 'b•••@x.com' },
+      });
+      expect(service.emailMfaCode).toHaveBeenCalledWith({ session: 's1' });
     });
   });
 

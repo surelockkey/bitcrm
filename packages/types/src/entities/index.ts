@@ -40,3 +40,9 @@ export { CalendarEvent } from './calendar-event.entity';
 export { LocationSummary, LocationSummaryType, LocationStockTotals } from './location-summary.entity';
 export { ProductStock, ProductLocationStock } from './product-stock.entity';
 export { InventoryLogEntry } from './inventory-log-entry.entity';
+export {
+  SecuritySettings,
+  SecuritySettingsAuditEntry,
+  UpdateSecuritySettingsRequest,
+  DEFAULT_SECURITY_SETTINGS,
+} from './security-settings.entity';

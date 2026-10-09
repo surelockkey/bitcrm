@@ -9,6 +9,8 @@ import { PasswordResetRequestDto } from './dto/password-reset-request.dto';
 import { PasswordResetConfirmDto } from './dto/password-reset-confirm.dto';
 import { MfaVerifyDto } from './dto/mfa-verify.dto';
 import { MfaResendDto } from './dto/mfa-resend.dto';
+import { MfaSetupDto } from './dto/mfa-setup.dto';
+import { MfaEmailDto } from './dto/mfa-email.dto';
 
 @ApiTags('Auth')
 @Controller('auth')
@@ -49,6 +51,37 @@ export class AuthController {
   })
   async resendMfa(@Body() dto: MfaResendDto) {
     return { success: true, data: await this.authService.resendMfa(dto) };
+  }
+
+  @Post('mfa/setup')
+  @Public()
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Set up the phone for a sign-in the account requires two-factor authentication for',
+    description:
+      '**Guard:** Public (no auth required). Answers an `MFA_SETUP` login challenge (Security Center ' +
+      '"Require Two-factor authentication" is on and the person had no phone): texts a code to the given ' +
+      'number and names it masked. 409 when a teammate already holds the number, 400 for a challenge that ' +
+      'already has a phone. `POST /auth/mfa` with the code then saves the phone, switches the second step ' +
+      'on and signs the person in. Another number may be given before that.',
+  })
+  async setupMfa(@Body() dto: MfaSetupDto) {
+    return { success: true, data: await this.authService.setupMfa(dto) };
+  }
+
+  @Post('mfa/email')
+  @Public()
+  @HttpCode(200)
+  @ApiOperation({
+    summary: "Send the two-step sign-in code to the account's email instead",
+    description:
+      '**Guard:** Public (no auth required). Security Center "Login sending options": a six-digit code to ' +
+      'the email on the profile, good for five minutes beside the texted one; `POST /auth/mfa` takes ' +
+      'either. 400 when the account does not allow it, 503 when the server cannot send email, 401 once the ' +
+      'challenge has expired.',
+  })
+  async emailMfaCode(@Body() dto: MfaEmailDto) {
+    return { success: true, data: await this.authService.emailMfaCode(dto) };
   }
 
   @Post('refresh')

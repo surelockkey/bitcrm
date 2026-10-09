@@ -23,6 +23,8 @@ describe('AuthService', () => {
       gate: jest.fn(async (tokens: unknown) => tokens),
       verify: jest.fn(),
       resend: jest.fn(),
+      setupPhone: jest.fn(),
+      sendEmailCode: jest.fn(),
     };
 
     const module = await Test.createTestingModule({
@@ -123,6 +125,18 @@ describe('AuthService', () => {
       expect(mfa.verify).toHaveBeenCalledWith('s1', '123456');
       await expect(service.resendMfa({ session: 's1' })).resolves.toEqual({ destination: '•••• 1234' });
       expect(mfa.resend).toHaveBeenCalledWith('s1');
+    });
+
+    // The account requires it and the person has no phone: the phone given
+    // on the way in, and the code to the account's email, both go to the gate.
+    it('hands a phone being set up, and a request for the code by email, to the second step', async () => {
+      mfa.setupPhone.mockResolvedValue({ destination: '•••• 0739' });
+      mfa.sendEmailCode.mockResolvedValue({ destination: 'b•••@x.com' });
+
+      await expect(service.setupMfa({ session: 's1', phone: '541-283-0739' })).resolves.toEqual({ destination: '•••• 0739' });
+      expect(mfa.setupPhone).toHaveBeenCalledWith('s1', '541-283-0739');
+      await expect(service.emailMfaCode({ session: 's1' })).resolves.toEqual({ destination: 'b•••@x.com' });
+      expect(mfa.sendEmailCode).toHaveBeenCalledWith('s1');
     });
   });
 

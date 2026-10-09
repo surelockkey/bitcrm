@@ -37,6 +37,12 @@ export {
 
 // Entities
 export { User, UserType, USER_TYPES, isSubcontractor } from './entities/user.entity';
+export {
+  SecuritySettings,
+  SecuritySettingsAuditEntry,
+  UpdateSecuritySettingsRequest,
+  DEFAULT_SECURITY_SETTINGS,
+} from './entities/security-settings.entity';
 export { Role } from './entities/role.entity';
 export { Contact } from './entities/contact.entity';
 export { ContactNote, CONTACT_NOTE_MAX_LENGTH } from './entities/contact-note.entity';
@@ -602,6 +608,7 @@ export { CreateUserRequest } from './dto/create-user.dto';
 export { UpdateUserRequest } from './dto/update-user.dto';
 export { ListUsersQuery } from './dto/list-users-query.dto';
 export { LoginRequest, LoginResponse, LoginChallengeResponse, MfaVerifyRequest } from './dto/login.dto';
+export { MfaSetupRequest, MfaEmailCodeRequest, MfaSetupChallenge, SmsMfaChallenge } from './dto/login.dto';
 export { RefreshTokenRequest, RefreshTokenResponse } from './dto/refresh-token.dto';
 export { ChangePasswordRequest, ChangePasswordResponse } from './dto/change-password.dto';
 export { CreateRoleRequest } from './dto/create-role.dto';

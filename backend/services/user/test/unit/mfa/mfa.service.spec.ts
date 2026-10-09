@@ -1,68 +1,12 @@
 import { BadRequestException, UnauthorizedException } from '@nestjs/common';
-import type { LoginResponse, User } from '@bitcrm/types';
-import { MfaService } from '../../../src/mfa/mfa.service';
+import { make, tokens, user } from './mfa.harness';
 
 /**
  * Two-step sign-in by SMS. Cognito checks the password; when the account has
  * the second step on, the tokens it issued wait server-side — never reaching
  * the browser — until the code texted to the account's phone comes back.
+ * (The account-wide requirement and the code by email: mfa-required.spec.)
  */
-
-/** Enough of ioredis for the store: string values with a TTL. */
-function fakeRedis() {
-  const data = new Map<string, { value: string; ttl?: number }>();
-  return {
-    data,
-    set: jest.fn(async (key: string, value: string, ...args: (string | number)[]) => {
-      const keep = args.includes('KEEPTTL');
-      const ex = args.indexOf('EX');
-      data.set(key, { value, ttl: keep ? data.get(key)?.ttl : ex >= 0 ? Number(args[ex + 1]) : undefined });
-      return 'OK';
-    }),
-    get: jest.fn(async (key: string) => data.get(key)?.value ?? null),
-    del: jest.fn(async (key: string) => (data.delete(key) ? 1 : 0)),
-  };
-}
-
-function idToken(userId: string): string {
-  const b64 = (o: unknown) => Buffer.from(JSON.stringify(o)).toString('base64url');
-  return `${b64({ alg: 'RS256' })}.${b64({ 'custom:user_id': userId, email: 'x@y.z' })}.sig`;
-}
-
-const tokens = (userId = 'u-1'): LoginResponse => ({
-  accessToken: 'access',
-  refreshToken: 'refresh',
-  idToken: idToken(userId),
-  expiresIn: 3600,
-});
-
-const user = (extra: Partial<User> = {}): User => ({
-  id: 'u-1',
-  cognitoSub: 'sub-1',
-  email: 'bob@x.com',
-  firstName: 'Bob',
-  lastName: 'Ray',
-  roleId: 'r',
-  department: 'ops',
-  phone: '+14045551234',
-  status: 'active' as User['status'],
-  createdAt: '',
-  updatedAt: '',
-  ...extra,
-});
-
-function make(stored: User = user()) {
-  const redis = fakeRedis();
-  let current = stored;
-  const repository = {
-    findById: jest.fn(async () => current),
-    update: jest.fn(async (_id: string, attrs: Partial<User>) => (current = { ...current, ...attrs })),
-  };
-  const cache = { invalidateUser: jest.fn(async () => undefined) };
-  const verify = { send: jest.fn(async () => undefined), check: jest.fn(async () => true) };
-  const svc = new MfaService({ client: redis } as never, repository as never, cache as never, verify as never);
-  return { svc, redis, repository, cache, verify };
-}
 
 describe('MfaService.gate — after the password', () => {
   it('hands the tokens straight back when the account has no second step', async () => {

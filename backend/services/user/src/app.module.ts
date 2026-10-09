@@ -18,6 +18,7 @@ import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
 import { RolesModule } from './roles/roles.module';
 import { TechniciansModule } from './technicians/technicians.module';
+import { SecurityModule } from './security/security.module';
 
 @Module({
   imports: [
@@ -50,6 +51,10 @@ import { TechniciansModule } from './technicians/technicians.module';
           : {},
       },
     }),
+    // SecurityModule first: its `GET /api/users/security-settings` must be
+    // registered ahead of the users module's `GET /api/users/:id`, which the
+    // modules below pull in through their forwardRef imports of UsersModule.
+    SecurityModule,
     // TechniciansModule must be scanned before RolesModule: RolesModule
     // forwardRef-imports UsersModule, which would otherwise register the
     // `/api/users/:id` route ahead of the bare `/api/users/technicians` list
