@@ -1,11 +1,15 @@
 "use client";
 
 import { X } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { WzButton } from "@/components/workiz/button";
+import { cn } from "@/lib/utils";
 
 /**
- * The builder's one editing surface: a sheet on the right, over a dimmed
- * canvas.
+ * The builder's one editing surface: Workiz's right pane over a dimmed
+ * canvas (pg_settings_phone_wz_builder_basic / _hours / _forward /
+ * _add_open) — 400px of white from the right edge, a 48px head with the
+ * title 18px 600 centred and a thin × at the right, the body 15px in, and
+ * Cancel / Save pills sharing a 65px foot.
  *
  * Everything configurable lives here — the flow's name and numbers, a step's
  * settings, the list of steps you can add — because the canvas is a picture of
@@ -17,11 +21,13 @@ export function FlowPanel({
   title,
   onClose,
   footer,
+  bodyClassName,
   children,
 }: {
   title: string;
   onClose: () => void;
   footer?: React.ReactNode;
+  bodyClassName?: string;
   children: React.ReactNode;
 }) {
   return (
@@ -32,39 +38,35 @@ export function FlowPanel({
       <button
         type="button"
         aria-label="Close panel"
-        className="absolute inset-0 z-40 cursor-default bg-foreground/20"
+        className="absolute inset-0 z-40 cursor-default bg-wz-scrim/60"
         onClick={onClose}
       />
       <aside
         role="dialog"
         aria-label={title}
-        className="absolute inset-y-0 right-0 z-50 flex w-full max-w-md flex-col border-l bg-background shadow-2xl"
+        className="absolute inset-y-0 right-0 z-50 flex w-[400px] max-w-full flex-col bg-white shadow-[-4px_0_8px_rgba(0,0,0,0.12)]"
       >
-        <header className="relative flex-none border-b bg-muted/40 px-5 py-4">
-          <h2 className="text-center text-base font-semibold">{title}</h2>
-          <Button
+        <header className="relative flex h-12 flex-none items-center justify-center border-b border-[#eeeeee] px-10">
+          <h2 className="truncate text-lg leading-[27px] font-semibold tracking-[0.4px] text-foreground">{title}</h2>
+          <button
             type="button"
-            variant="ghost"
-            size="icon-sm"
-            className="absolute top-1/2 right-3 -translate-y-1/2 text-muted-foreground"
             aria-label="Close"
             onClick={onClose}
+            className="absolute top-1/2 right-[13px] grid size-6 -translate-y-1/2 cursor-pointer place-items-center rounded-[4px] text-foreground outline-none hover:bg-wz-secondary-hover focus-visible:ring-2 focus-visible:ring-wz-focus"
           >
-            <X className="size-4" />
-          </Button>
+            <X className="size-[18px]" strokeWidth={1.25} />
+          </button>
         </header>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">{children}</div>
+        <div className={cn("min-h-0 flex-1 overflow-y-auto px-[15px] py-7", bodyClassName)}>{children}</div>
 
-        {footer ? (
-          <footer className="flex-none border-t px-5 py-4">{footer}</footer>
-        ) : null}
+        {footer ? <footer className="flex-none bg-white px-5 py-[15px]">{footer}</footer> : null}
       </aside>
     </>
   );
 }
 
-/** Cancel / confirm, side by side and equal — the panel's standard footing. */
+/** Cancel / confirm, side by side and equal — Workiz's pane foot (173×35 pills, 16px apart). */
 export function PanelActions({
   cancelLabel = "Cancel",
   confirmLabel,
@@ -79,34 +81,21 @@ export function PanelActions({
   confirmDisabled?: boolean;
 }) {
   return (
-    <div className="grid grid-cols-2 gap-3">
-      <Button
-        type="button"
-        variant="outline"
-        size="lg"
-        className="rounded-full"
-        onClick={onCancel}
-      >
+    <div className="grid grid-cols-2 gap-4">
+      <WzButton variant="secondary" size="regular" className="h-[35px]" onClick={onCancel}>
         {cancelLabel}
-      </Button>
-      <Button
-        type="button"
-        variant="brand"
-        size="lg"
-        className="rounded-full"
-        disabled={confirmDisabled}
-        onClick={onConfirm}
-      >
+      </WzButton>
+      <WzButton size="regular" className="h-[35px]" disabled={confirmDisabled} onClick={onConfirm}>
         {confirmLabel}
-      </Button>
+      </WzButton>
     </div>
   );
 }
 
 /**
- * A label that sits inside the top of its field's border, the way the Workiz
- * panel does it — the value stays readable at a glance without a separate
- * line of label above every input.
+ * Workiz's boxed field in the pane ("Flow Name", `sajInput`): 48px, 1px #ccc,
+ * 2px corners, the label 12px/20px #8c8c8c at the top 10px in, the value
+ * 16px #666 under it — readable at a glance without a line of label above.
  */
 export function FloatingField({
   label,
@@ -118,11 +107,8 @@ export function FloatingField({
   children: React.ReactNode;
 }) {
   return (
-    <div className="rounded-lg border px-3 pt-2 pb-1 focus-within:border-ring">
-      <label
-        htmlFor={htmlFor}
-        className="block text-[11px] font-medium text-muted-foreground"
-      >
+    <div className="min-h-12 rounded-[2px] border border-input bg-white px-2.5 pt-0.5 pb-1 focus-within:border-wz-focus">
+      <label htmlFor={htmlFor} className="block text-xs leading-5 tracking-[0.4px] text-wz-label">
         {label}
       </label>
       {children}

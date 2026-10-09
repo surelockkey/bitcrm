@@ -7,6 +7,7 @@ import { CallFlowsPage } from "./call-flows-page";
 const mocks = vi.hoisted(() => ({
   flows: [] as CallFlow[],
   remove: vi.fn(),
+  duplicate: vi.fn(),
   can: vi.fn((_resource: string, _action?: string) => true),
 }));
 
@@ -17,13 +18,16 @@ vi.mock("@/features/auth/use-permissions", () => ({
 vi.mock("../call-flows-hooks", () => ({
   useCallFlows: () => ({ data: mocks.flows, isLoading: false }),
   useDeleteCallFlow: () => ({ mutate: mocks.remove, isPending: false }),
+  useDuplicateCallFlow: () => ({ mutate: mocks.duplicate, isPending: false }),
 }));
 vi.mock("../call-groups-hooks", () => ({
   useCallGroups: () => ({ data: [{ id: "g1", name: "Dispatch", members: [] }] }),
 }));
-vi.mock("./call-flow-editor", () => ({
-  CallFlowEditor: ({ flow }: { flow?: CallFlow }) => (
-    <div data-testid="editor">{flow ? `editing ${flow.name}` : "creating"}</div>
+vi.mock("next/link", () => ({
+  default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => (
+    <a href={href} {...rest}>
+      {children}
+    </a>
   ),
 }));
 
@@ -45,29 +49,35 @@ const flow = (over: Partial<CallFlow> = {}): CallFlow => ({
   ...over,
 });
 
+/**
+ * Workiz Phone → Call flows (pg_settings_phone_wz_flows): its words and
+ * "+ Create Call Flow", the strip, the grid Name | Numbers | Actions (edit
+ * opens the builder, bin, copy). Ours: the Steps column (what the flow does,
+ * in order) and a Paused tag.
+ */
 describe("CallFlowsPage", () => {
   beforeEach(() => {
     mocks.flows = [];
     mocks.remove.mockClear();
+    mocks.duplicate.mockClear();
     mocks.can.mockReturnValue(true);
   });
 
-  it("explains what a flow is for when there are none", () => {
+  it("draws Workiz's words, Create Call Flow and the columns", () => {
+    mocks.flows = [flow()];
     render(<CallFlowsPage />);
-    expect(screen.getByText(/no call flows yet/i)).toBeInTheDocument();
-    expect(
-      screen.getByText(/rings whoever has the phone switched on/i),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/Call flows route your calls to where they need to go/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Create Call Flow" })).toHaveAttribute("href", "/calls/flows/new");
+    expect(screen.getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Name", "Numbers", "Steps", "Actions"]);
   });
 
-  it("summarises what a flow actually does, in order", () => {
+  it("summarises what a flow actually does, in order, beside its numbers", () => {
     mocks.flows = [flow()];
     render(<CallFlowsPage />);
 
     expect(screen.getByText("Main line")).toBeInTheDocument();
     expect(screen.getByText("greeting → ring Dispatch → voicemail")).toBeInTheDocument();
-    expect(screen.getByText(/541.*283.*0739/)).toBeInTheDocument();
-    expect(screen.getByText("live")).toBeInTheDocument();
+    expect(screen.getByText("(541) 283-0739")).toBeInTheDocument();
   });
 
   it("says a flow answers nothing when it has no numbers", () => {
@@ -92,19 +102,24 @@ describe("CallFlowsPage", () => {
     expect(screen.queryByText(/g-gone/)).not.toBeInTheDocument();
   });
 
-  it("shows a paused flow as paused", () => {
+  it("tags a paused flow", () => {
     mocks.flows = [flow({ active: false })];
     render(<CallFlowsPage />);
-    expect(screen.getByText("paused")).toBeInTheDocument();
+    expect(screen.getByText("Paused")).toBeInTheDocument();
   });
 
-  it("opens the editor for a flow", async () => {
+  it("opens a flow in the builder from its edit icon", () => {
+    mocks.flows = [flow()];
+    render(<CallFlowsPage />);
+    expect(screen.getByRole("link", { name: "Edit Main line" })).toHaveAttribute("href", "/calls/flows/f1");
+  });
+
+  it("duplicates a flow from its copy icon", async () => {
     const u = userEvent.setup();
     mocks.flows = [flow()];
     render(<CallFlowsPage />);
-
-    await u.click(screen.getByRole("button", { name: "Edit" }));
-    expect(screen.getByTestId("editor")).toHaveTextContent("editing Main line");
+    await u.click(screen.getByRole("button", { name: "Duplicate Main line" }));
+    expect(mocks.duplicate).toHaveBeenCalledWith(expect.objectContaining({ id: "f1" }));
   });
 
   it("says what deleting does and does not touch", async () => {
@@ -126,7 +141,9 @@ describe("CallFlowsPage", () => {
     render(<CallFlowsPage />);
 
     expect(screen.getByText("Main line")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /new flow/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Create Call Flow" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Edit Main line" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Duplicate Main line" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /delete main line/i })).not.toBeInTheDocument();
   });
 });

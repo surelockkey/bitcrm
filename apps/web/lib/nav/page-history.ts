@@ -88,6 +88,8 @@ const STATIC_LABELS: Record<string, string> = {
   "/calls/flows": "Call Flows",
   "/calls/groups": "Call groups",
   "/calls/texting": "Text Messages",
+  // Workiz's builder breadcrumb: "CALL FLOW BUILDER (128781)".
+  "/calls/flows/new": "Call Flow Builder",
   "/profile": "My Profile",
   ...Object.fromEntries(TECHNICIAN_NAV.map((i) => [i.href, i.label])),
 };
@@ -101,6 +103,7 @@ const DETAIL_LABELS: Record<string, string> = {
   "/companies": "Company",
   "/technicians": "Technician",
   "/calls": "Call",
+  "/calls/flows": "Call Flow Builder",
   "/admin/roles": "Role",
   "/admin/users": "User",
   "/inventory/containers": "Container",

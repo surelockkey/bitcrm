@@ -129,6 +129,11 @@ describe("labelForPath", () => {
     expect(labelForPath("/calls/texting")).toBe("Text Messages");
   });
 
+  it("titles the call flow builder as Workiz does (\"CALL FLOW BUILDER\"), new or saved", () => {
+    expect(labelForPath("/calls/flows/new")).toBe("Call Flow Builder");
+    expect(labelForPath("/calls/flows/3f1c9a2e-5b7d-4c1e-9f0a-2b3c4d5e6f70")).toBe("Call Flow Builder");
+  });
+
   it("ignores query strings and trailing slashes", () => {
     expect(labelForPath("/deals/")).toBe("Jobs");
   });

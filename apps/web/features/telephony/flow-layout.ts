@@ -12,9 +12,9 @@ import { branchKeysOf, isBranching, type FlowStep } from "./flow-tree";
  * by transforming the whole plane, so nothing here knows about the viewport.
  */
 
-/** Card geometry. `x` is a card's CENTRE, `y` is its TOP. */
-export const CARD_W = 232;
-export const CARD_H = 76;
+/** Card geometry — Workiz's 210×77 blocks. `x` is a card's CENTRE, `y` is its TOP. */
+export const CARD_W = 210;
+export const CARD_H = 77;
 /** One column per leaf of the tree, wide enough for a card plus a gutter. */
 export const COL_W = 288;
 /** One row per step: the card, then the connector under it. */
