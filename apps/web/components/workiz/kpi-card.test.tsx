@@ -1,5 +1,6 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import userEvent from "@testing-library/user-event";
+import { describe, expect, it, vi } from "vitest";
 
 import { WzKpiCard, WzKpiCardSkeleton } from "./kpi-card";
 
@@ -32,5 +33,48 @@ describe("WzKpiCard — the KPI card over Workiz's lists", () => {
   it("has a skeleton of the same box", () => {
     render(<WzKpiCardSkeleton />);
     expect(cls(screen.getByTestId("wz-kpi-card-skeleton"))).toEqual(expect.arrayContaining(["h-[81px]", "border-l-[3px]"]));
+  });
+
+  it("takes Aging's two light rules too (lightYellowCard, lightRedCard)", () => {
+    const { rerender } = render(<WzKpiCard value="1" caption="a" tone="lightYellow" />);
+    expect(cls(screen.getByRole("group"))).toContain("border-l-[#ffd57b]");
+    rerender(<WzKpiCard value="1" caption="a" tone="lightRed" />);
+    expect(cls(screen.getByRole("group"))).toContain("border-l-[#ff7753]");
+    render(<WzKpiCardSkeleton tone="lightRed" />);
+    expect(cls(screen.getByTestId("wz-kpi-card-skeleton"))).toContain("border-l-[#ff7753]");
+  });
+});
+
+describe("WzKpiCard with onSelect — a card that picks the rows (Aging invoices)", () => {
+  it("is a toggle button named by its label, pressed when chosen", async () => {
+    const onSelect = vi.fn();
+    const { rerender } = render(
+      <WzKpiCard value="$24,508.45" caption="under 30 days (34)" tone="lightYellow" label="$24,508.45 under 30 days (34)" onSelect={onSelect} />,
+    );
+    const card = screen.getByRole("button", { name: "$24,508.45 under 30 days (34)" });
+    expect(card).toHaveAttribute("type", "button");
+    expect(card).toHaveAttribute("aria-pressed", "false");
+    await userEvent.click(card);
+    expect(onSelect).toHaveBeenCalledTimes(1);
+    rerender(
+      <WzKpiCard value="$24,508.45" caption="under 30 days (34)" tone="lightYellow" label="$24,508.45 under 30 days (34)" onSelect={onSelect} selected />,
+    );
+    expect(screen.getByRole("button")).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("draws Workiz's chosen grey and the hover drop (rep_aging_wz_01_default, _02_card_hover)", () => {
+    const { rerender } = render(<WzKpiCard value="1" caption="a" onSelect={() => {}} />);
+    const idle = cls(screen.getByRole("button"));
+    expect(idle).toContain("hover:shadow-[0_12px_12px_-8px_rgba(0,0,0,0.4)]");
+    expect(idle).toContain("bg-background");
+    expect(idle).not.toContain("bg-[#f0f0f0]");
+    rerender(<WzKpiCard value="1" caption="a" onSelect={() => {}} selected />);
+    expect(cls(screen.getByRole("button"))).toContain("bg-[#f0f0f0]");
+  });
+
+  it("stays a plain figure without onSelect", () => {
+    render(<WzKpiCard value="1" caption="a" />);
+    expect(screen.queryByRole("button")).toBeNull();
+    expect(cls(screen.getByRole("group"))).not.toContain("hover:shadow-[0_12px_12px_-8px_rgba(0,0,0,0.4)]");
   });
 });

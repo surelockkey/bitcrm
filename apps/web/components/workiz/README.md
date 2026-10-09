@@ -574,6 +574,24 @@ record page with tabs of grids can use them.
   panel's All | Media | Documents switch (#f3f6f7 box, the chosen part white,
   14px 600 #6aa8ee, soft shadow); a tab list.
 
+## Cards that are the filter (2026-10-09, agent `rep_aging`, Aging invoices)
+
+Measured off `rep_aging_wz_*` (notes:
+`workiz-data-parser/docs/import/app-parity-2026-10-08/rep_aging.md`).
+
+- **`WzKpiCard` `onSelect` `selected`** (new, optional) — the same `._fCard`
+  as a toggle button (`aria-pressed`, named by `label`): under the cursor the
+  shadow drops to `0 12px 12px -8px rgba(0,0,0,.4)` (`.c_hover`), the chosen
+  card sits on `#f0f0f0` (`.selectedCard`). Laid out from the top with the
+  caption 10px under the figure (glyph rows 144–162 / 176–192, as Workiz).
+  Without `onSelect` the card is the plain figure it was.
+- **`WzKpiTone` `"lightYellow"`** (`#ffd57b`, under 30 days) and
+  **`"lightRed"`** (`#ff7753`, 60-90 days) — Aging's `lightYellowCard` /
+  `lightRedCard` rules, beside ink / `#ffae00` / `#dd380d`.
+- Five across: `grid grid-cols-5 gap-[18px] pt-[34px] pr-[19px] pb-[75px] pl-[30px]`
+  (256px cards at 1400). A strip without Search is `WzListToolbar
+  className="min-h-[65px]"` (Workiz's is 65px there).
+
 ## Known differences from Workiz (deliberate or unmeasurable)
 - Sub-pixel: Workiz's own fractional layout makes some glyphs land ±1px
   differently from ours in screenshots (e.g. two Workiz selects with identical
