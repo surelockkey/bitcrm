@@ -100,3 +100,8 @@ export {
   type WzGridView,
 } from "./local-grid";
 export { WzTotalsBar, WzLeftBorderBox, WzFold, WzSegmented } from "./record-parts";
+
+// Price book pieces (pg_pricebook_wz_*).
+export { WzExplainHeader } from "./explain-header";
+export { WzItemImage, WzItemImagePlaceholder } from "./item-image";
+export { WzEditIcon, WzTrashIcon } from "./icons";

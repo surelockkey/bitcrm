@@ -29,6 +29,12 @@ export interface WzOutlinedSelectProps {
   error?: string;
   className?: string;
   ref?: Ref<HTMLInputElement>;
+  /**
+   * The label names the box for a screen reader but is not drawn — Workiz's
+   * catalog status box (Active / All / Disabled, pg_pricebook_wz_30) shows
+   * only its value. Off by default.
+   */
+  labelHidden?: boolean;
 }
 
 /**
@@ -51,6 +57,7 @@ export function WzOutlinedSelect({
   error,
   className,
   ref,
+  labelHidden = false,
 }: WzOutlinedSelectProps) {
   const autoId = useId();
   const inputId = id ?? `wz-${autoId}`;
@@ -102,9 +109,15 @@ export function WzOutlinedSelect({
           </div>
         }
       />
-      <NotchedLabel id={labelId} htmlFor={inputId} floated={!!chosen || !!placeholder || focused || combo.open}>
-        {label}
-      </NotchedLabel>
+      {labelHidden ? (
+        <label id={labelId} htmlFor={inputId} className="sr-only">
+          {label}
+        </label>
+      ) : (
+        <NotchedLabel id={labelId} htmlFor={inputId} floated={!!chosen || !!placeholder || focused || combo.open}>
+          {label}
+        </NotchedLabel>
+      )}
       {!typing ? (
         chosen ? (
           <div className="pointer-events-none absolute top-[13px] right-10 left-3 truncate text-[13px] leading-4 text-foreground">

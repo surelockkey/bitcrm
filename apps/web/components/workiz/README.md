@@ -705,6 +705,39 @@ additive; callers without the new props are untouched.
 - The Invoices cards are the Estimates ones: `WzKpiCard selectedTone="orange"`
   (Workiz's `left-orange` on the last card clicked, pg_invoices_wz_10_card_overdue).
 
+## Price book pieces (2026-10-09, agent `pg_pricebook`)
+
+Measured off `pg_pricebook_wz_*` and Workiz's `main.css` (notes:
+`workiz-data-parser/docs/import/app-parity-2026-10-08/pg_pricebook.md`). New
+files plus optional props; every existing caller is untouched.
+
+- **`WzExplainHeader`** (`explain-header.tsx`) `title` `children` — Workiz's
+  `Explain-module` band over a section: 120px `#fafcfc` (`bg-wz-band`), the
+  h1 31px/40px 500 ink 22px in, a `#bfc4c7` rule 75% tall 54px after it, then
+  30px on the sentence (16px/24px, 0.2px, 597px wide). Workiz's help links and
+  video card at the right are its own — no slot. The settings pages' "Job
+  Types — Add your job types…" band is the same module.
+- **`WzItemImage`** `src` (`item-image.tsx`) — a picture in a grid row: 40×40,
+  8px corners, a `#cad3d6` hairline, cut to fill, lazy; Workiz's placeholder
+  without one or when it fails. **`WzItemImagePlaceholder`** — Workiz's
+  `emptyPlaceholder.svg` (#ecedee square, sun and mountain in #9ea6aa/.7),
+  filling its box.
+- **`WzEditIcon`**, **`WzTrashIcon`** `size` (`icons.tsx`) — Workiz's
+  `edit.svg` / `delete-red.svg` in `currentColor` (ink / `#f45e44`; the
+  categories' grey `#bfc4c7` when it cannot delete).
+- **`WzTabLinks` `variant="page"`** (new, optional) — Workiz's big `_tabs` as
+  links: 16px/16px `#404040`, 15px 25px, 500 idle, the open one 600 on white
+  over a 4px `#3e4b51` bar (4px corners) laid over the 1px `#ccc` rule; no
+  margin of its own (`className`, new, gives it — the Price book's `mt-6`).
+  **`pending`** (new) draws each tab as a same-size placeholder while the
+  permissions load. Without them the Phone strip is unchanged.
+- **`WzReportGrid` `cellAlign="middle"`** (new, optional) — the Price book's
+  rt-td is a centred flex box: every word on the middle of its 80px row
+  beside the 40px picture. Default `"top"` (the reports).
+- **`WzOutlinedSelect` `labelHidden`** (new, optional) — the label names the
+  box for a screen reader but is not drawn: Workiz's catalog status box
+  (Active / All / Disabled, 350×42) shows only its value.
+
 ## Known differences from Workiz (deliberate or unmeasurable)
 - Sub-pixel: Workiz's own fractional layout makes some glyphs land ±1px
   differently from ours in screenshots (e.g. two Workiz selects with identical

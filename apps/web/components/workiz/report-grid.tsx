@@ -136,6 +136,7 @@ export function WzReportGrid<R>({
   plainFiller = false,
   onRowClick,
   resize,
+  cellAlign = "top",
   "aria-label": ariaLabel,
   className,
 }: {
@@ -181,6 +182,13 @@ export function WzReportGrid<R>({
   onRowClick?: (row: R, event: WzRowOpenEvent) => void;
   /** The header edges can be dragged; the widths are the caller's. */
   resize?: WzReportGridResize;
+  /**
+   * Where a record's words sit in its cell: `"top"` (default, the reports'
+   * rt-td) or `"middle"` — the Price book's grids, whose rt-td is
+   * `display:flex; align-items:center` beside a 40px picture
+   * (pg_pricebook_wz_01_default: 80px rows, every word on the middle).
+   */
+  cellAlign?: "top" | "middle";
   "aria-label"?: string;
   className?: string;
 }) {
@@ -252,7 +260,7 @@ export function WzReportGrid<R>({
                   })}
                 >
                   {columns.map((c) => (
-                    <TableCell key={c.id} className={CELL}>
+                    <TableCell key={c.id} className={cn(CELL, cellAlign === "middle" && "align-middle")}>
                       {c.cell(row)}
                     </TableCell>
                   ))}

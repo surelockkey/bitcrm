@@ -38,3 +38,13 @@ describe("WzOutlinedSelect — the notched select of Workiz's newer forms (Add t
     expect(screen.getByRole("combobox", { name: "Select user" })).toHaveAttribute("aria-invalid", "true");
   });
 });
+
+describe("WzOutlinedSelect labelHidden (pg_pricebook)", () => {
+  it("names the box without drawing the label — Workiz's catalog status box shows only its value", () => {
+    render(<WzOutlinedSelect label="Status" labelHidden options={OPTIONS} value="t1" onChange={() => {}} />);
+    expect(screen.getByRole("combobox", { name: "Status" })).toBeInTheDocument();
+    expect(screen.getByText("Status").className).toContain("sr-only");
+    expect(screen.getByText("Status").closest("label")).not.toHaveAttribute("data-floated");
+    expect(screen.getByText("Sam Reyes")).toBeInTheDocument();
+  });
+});
