@@ -4,8 +4,6 @@ import { useMemo } from "react";
 import { WzFilterSelect, type WzFilterGroup } from "@/components/workiz";
 import { useJobTags } from "@/features/job-tags/hooks";
 import { tagSolidClasses } from "@/features/job-tags/lib";
-import { useServiceAreas } from "@/features/service-areas/hooks";
-import { scheduleColor } from "../calendar";
 import { FILTER_GROUP, SCHEDULE_STATUS_OPTIONS, type SchedulePick } from "../filters";
 
 /**
@@ -13,21 +11,24 @@ import { FILTER_GROUP, SCHEDULE_STATUS_OPTIONS, type SchedulePick } from "../fil
  * bar the toolbar's filter button opens above it, with Workiz's groups side
  * by side — TEAM, TAGS, STATUS, JOB TYPE, SERVICE AREAS (each in its
  * colour). Workiz's TYPE (Jobs / Leads / Tasks / Events / Visit) is left out:
- * the calendar holds jobs only. Tags and areas are read when the bar opens.
+ * the calendar holds jobs only. Tags are read when the bar opens; the areas
+ * come with the calendar (their colours paint the jobs).
  */
 export function ScheduleFilter({
   techs,
   jobTypes,
+  areas,
   value,
   onChange,
 }: {
   techs: { id: string; name: string }[];
   jobTypes: { id: string; name: string }[];
+  /** `filterAreas` order, each with its stored colour (none = plain words, as Workiz prints it). */
+  areas: { name: string; color?: string }[];
   value: SchedulePick[];
   onChange: (next: SchedulePick[]) => void;
 }) {
   const tags = useJobTags();
-  const areas = useServiceAreas();
 
   const groups = useMemo<WzFilterGroup[]>(
     () => [
@@ -61,14 +62,15 @@ export function ScheduleFilter({
         id: FILTER_GROUP.areas,
         title: "Service areas",
         chipPrefix: "service area",
-        options: (areas.data ?? []).filter((a) => a.active !== false).map((a) => ({
+        // As the jobs list does: an area in its own Workiz colour, else words.
+        options: areas.map((a) => ({
           value: a.name,
           label: a.name,
-          style: { backgroundColor: scheduleColor(a.name), color: "#fff" },
+          ...(a.color ? { style: { backgroundColor: a.color, color: "#fff" } } : {}),
         })),
       },
     ],
-    [techs, tags.data, jobTypes, areas.data],
+    [techs, tags.data, jobTypes, areas],
   );
 
   return (

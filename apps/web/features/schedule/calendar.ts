@@ -279,10 +279,12 @@ function hash(input: string): number {
 
 /**
  * A job's colour. The account colours jobs by service area ("Color Job By:
- * Service Area"), each area keeping one of Workiz's colours; we have no
- * colour on an area, so the area's name picks one, the same every time.
+ * Service Area"), each area keeping one of Workiz's colours — `stored`, the
+ * area's own `#rrggbb` (imported from Workiz's `color_class`). An area
+ * without one gets a colour its name picks, the same every time.
  */
-export function scheduleColor(key: string | undefined): string {
+export function scheduleColor(key: string | undefined, stored?: string): string {
+  if (stored && /^#[0-9a-f]{6}$/i.test(stored)) return stored.toLowerCase();
   if (!key) return WZ_EVENT_COLORS[0];
   return WZ_EVENT_COLORS[hash(key) % WZ_EVENT_COLORS.length];
 }

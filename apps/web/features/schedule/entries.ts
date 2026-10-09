@@ -30,11 +30,14 @@ export interface EntryContext {
   jobTypeName: (id: string) => string;
   techName: (id: string) => string;
   profiles: Map<string, WorkingHours>;
+  /** A service area's stored `#rrggbb` by its name (the name is what a job carries). */
+  areaColor?: (name: string) => string | undefined;
 }
 
 /**
  * The calendar's entries: each dated job worded by this account's Workiz
- * template and coloured by its service area, Done ones striped; each time off
+ * template and coloured by its service area (its stored colour, else one its
+ * name picks), Done ones striped; each time off
  * in Workiz's default event colour on its technician's row.
  */
 export function buildEntries(deals: Deal[], events: CalendarEvent[], ctx: EntryContext): CalendarEntry[] {
@@ -63,7 +66,7 @@ export function buildEntries(deals: Deal[], events: CalendarEvent[], ctx: EntryC
         jobType: ctx.jobTypeName(deal.jobTypeId),
         techs: deal.assignedTechIds.map(ctx.techName).filter(Boolean),
       }),
-      color: scheduleColor(deal.serviceArea),
+      color: scheduleColor(deal.serviceArea, ctx.areaColor?.(deal.serviceArea)),
       done: deal.superStatus === JobSuperStatus.DONE,
       techIds: deal.assignedTechIds,
       conflict,

@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import type { CalendarEvent, Contact, Deal, JobType, Role, TechnicianProfile } from "@bitcrm/types";
+import type { CalendarEvent, Contact, Deal, JobType, Role, ServiceArea, TechnicianProfile } from "@bitcrm/types";
 import { settled } from "@/lib/use-page-ready";
 import { queryKeys } from "@/lib/query-keys";
 import { usePermissions } from "@/features/auth/use-permissions";
@@ -13,6 +13,8 @@ import { useDealsStreamStore } from "@/features/deals/stream-store";
 import { useLastWhole } from "@/features/dispatch/use-last-whole";
 import { useJobTypes } from "@/features/job-types/hooks";
 import { useRoles } from "@/features/roles/hooks";
+import { useServiceAreas } from "@/features/service-areas/hooks";
+import { filterAreas } from "@/features/deals/job-filters";
 import { useAllTechnicians } from "@/features/technicians/hooks";
 import { useCalendarEvents } from "./hooks";
 import { viewRange, type ScheduleView } from "./calendar";
@@ -35,6 +37,13 @@ export interface ScheduleBoard {
   jobTypes: Map<string, string>;
   /** The live job types, A to Z — Filter results' JOB TYPE. */
   activeJobTypes: { id: string; name: string }[];
+  /**
+   * The service areas as Filter results lists them (`filterAreas`: A→Z, no
+   * "All areas"), each with its stored Workiz colour when it has one.
+   */
+  areas: { name: string; color?: string }[];
+  /** area name → its stored `#rrggbb` — what the jobs are painted in. */
+  areaColors: Map<string, string>;
   /** role id → name, when the viewer may read roles (the Timeline's second line). */
   roles: Map<string, string>;
 }
@@ -43,6 +52,7 @@ const NO_DEALS: Deal[] = [];
 const NO_EVENTS: CalendarEvent[] = [];
 const NO_TYPES: JobType[] = [];
 const NO_ROLES: Role[] = [];
+const NO_AREAS: ServiceArea[] = [];
 
 /** The undated open jobs, read whole — a few dozen at most. */
 function useUnscheduledDeals() {
@@ -62,7 +72,7 @@ function useUnscheduledDeals() {
  * their job types and technicians, the technicians' rows (Timeline) with their
  * time off, and the count of unscheduled jobs on the toolbar. Everything goes
  * out as soon as it can: the jobs, the unscheduled ones, the roster, the
- * directory, the job types and roles together; the unscheduled jobs' clients
+ * directory, the job types, service areas and roles together; the unscheduled jobs' clients
  * once those are in; the calendar events once the roster is complete — once,
  * for all of it. `board` is undefined until all of it has answered (a failure
  * counts), and afterwards it is the last complete one: another day or another
@@ -79,6 +89,8 @@ export function useScheduleBoard({ view, date }: { view: ScheduleView; date: str
   const users = useUserMap();
   const jobTypesQuery = useJobTypes();
   const rolesQuery = useRoles(!permsLoading && can("roles", "view"));
+  // The areas' colours paint the jobs, so they are part of the first frame.
+  const areasQuery = useServiceAreas();
   const deals = dealsQuery.data ?? NO_DEALS;
   const unscheduled = unscheduledQuery.data ?? NO_DEALS;
   const contactIds = useMemo(() => unscheduled.map((d) => d.contactId), [unscheduled]);
@@ -97,6 +109,7 @@ export function useScheduleBoard({ view, date }: { view: ScheduleView; date: str
     !users.isLoading &&
     settled(jobTypesQuery) &&
     settled(rolesQuery) &&
+    settled(areasQuery) &&
     !contacts.isLoading &&
     settled(events);
 
@@ -109,6 +122,12 @@ export function useScheduleBoard({ view, date }: { view: ScheduleView; date: str
         .map((t) => ({ id: t.id, name: t.name }))
         .sort((a, b) => a.name.localeCompare(b.name)),
     [jobTypeList],
+  );
+  const areaList = areasQuery.data ?? NO_AREAS;
+  const areas = useMemo(() => filterAreas(areaList).map((a) => ({ name: a.name, color: a.color })), [areaList]);
+  const areaColors = useMemo(
+    () => new Map(areaList.filter((a) => a.color).map((a) => [a.name, a.color as string])),
+    [areaList],
   );
   const roleList = rolesQuery.data ?? NO_ROLES;
   const roles = useMemo(() => new Map(roleList.map((r) => [r.id, r.name])), [roleList]);
@@ -125,9 +144,11 @@ export function useScheduleBoard({ view, date }: { view: ScheduleView; date: str
       users: users.map,
       jobTypes,
       activeJobTypes,
+      areas,
+      areaColors,
       roles,
     }),
-    [view, date, deals, unscheduled, events.data, contacts.map, roster.profiles, users.map, jobTypes, activeJobTypes, roles],
+    [view, date, deals, unscheduled, events.data, contacts.map, roster.profiles, users.map, jobTypes, activeJobTypes, areas, areaColors, roles],
   );
 
   return { board: useLastWhole(current, whole) };
