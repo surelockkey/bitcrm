@@ -35,7 +35,7 @@ import { workizFont } from "./workiz-font";
 
 /** Classes every Workiz popup shares: font, text colour, letter spacing, shadow. */
 const MODAL_BASE =
-  "fixed top-1/2 left-1/2 z-50 -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-white text-[14px] leading-4 tracking-[0.4px] text-[#404040] shadow-[0_3px_9px_rgba(0,0,0,0.5)] outline-none [color-scheme:light] data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0";
+  "fixed top-1/2 left-1/2 z-50 -translate-x-1/2 -translate-y-1/2 rounded-[16px] bg-white text-[14px] leading-4 tracking-[0.4px] text-[#404040] shadow-[0_3px_9px_rgba(0,0,0,0.5)] outline-none [color-scheme:light] data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0";
 
 export function WzOverlay() {
   return (

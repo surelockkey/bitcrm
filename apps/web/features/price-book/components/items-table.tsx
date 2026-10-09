@@ -1,209 +1,135 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
-import { Pencil } from "lucide-react";
-import { TableCell, TableRow } from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
-import { InventoryStatus } from "@bitcrm/types";
+import { useMemo, useState, type ReactNode } from "react";
 import type { Product } from "@bitcrm/types";
-import { cn } from "@/lib/utils";
-import { formatMoney, typeLabel, type ProductWithMedia } from "@/features/inventory/products/lib";
+import { WzItemImagePlaceholder } from "@/components/workiz/item-image";
+import { WzReportGrid, type WzReportColumn, type WzRowOpenEvent } from "@/components/workiz/report-grid";
+import { useColumnWidths } from "@/lib/table/use-column-widths";
+import { formatMoney, type ProductWithMedia } from "@/features/inventory/products/lib";
 import { ProductThumb } from "@/features/inventory/products/components/product-thumb";
 import { ProductPhotoDialog } from "@/features/inventory/products/components/product-photo-dialog";
-import { RowIconAction } from "@/features/inventory/components/row-icon-action";
-import { ProductRowActions } from "@/features/inventory/products/components/product-row-actions";
-import { manageStockLabel, taxableLabel } from "../lib";
-import { PriceBookTable, ROW_HEIGHT, type PriceBookColumn } from "./price-book-table";
+import { displaySku } from "@/features/inventory/item-edit/item-form";
+import { bookingLabel, categoryLeaf, inventoryLabel, itemTypeLabel, taxableLabel } from "../lib";
 
 type ColumnId =
-  | "productId"
+  | "id"
   | "name"
-  | "type"
-  | "category"
-  | "brand"
+  | "description"
   | "price"
   | "cost"
-  | "sku"
-  | "taxable"
-  | "manageStock"
-  | "status"
-  | "actions";
+  | "type"
+  | "category"
+  | "model"
+  | "brand"
+  | "booking"
+  | "inventory"
+  | "taxable";
 
 /**
- * The Price Book grid, in its order, with the width each column starts at.
- * Together they fit the ~1250px a 1600px screen leaves beside the sidebar;
- * wider than that (a dragged edge, a narrow window) the frame scrolls sideways.
- * Product ID holds the item's picture beside its number, as Workiz's does;
- * Name and SKU gave it the room.
+ * Workiz's Price book grid (pg_pricebook_wz_01_default_scroll1), its columns
+ * in its order and words. Its row checkbox is left out — BitCRM has no bulk
+ * price-book actions. Id is 195px (the picture, 20px, the number); the rest
+ * share the row as react-table's `flex: 100` columns do (≈109px at 1400).
+ * Model # is the SKU, as Workiz calls it in its price book.
  */
-const COLUMNS: PriceBookColumn<ColumnId>[] = [
-  // The 40px picture, its gap and a five-digit number.
-  { id: "productId", label: "Product ID", width: 106 },
-  { id: "name", label: "Name", width: 182 },
-  { id: "type", label: "Type", width: 90 },
-  { id: "category", label: "Category", width: 120 },
-  { id: "brand", label: "Brand", width: 110 },
-  { id: "price", label: "Price", width: 90 },
-  { id: "cost", label: "Cost", width: 90 },
-  { id: "sku", label: "SKU", width: 102 },
-  { id: "taxable", label: "Taxable", width: 75 },
-  { id: "manageStock", label: "Manage stock", width: 110 },
-  { id: "status", label: "Status", width: 90 },
-  // Two 32px buttons, their gap and the cell's padding.
-  { id: "actions", label: "Actions", width: 85 },
+const COLUMNS: { id: ColumnId; label: string; width: number }[] = [
+  { id: "id", label: "Id", width: 195 },
+  { id: "name", label: "Name", width: 109 },
+  { id: "description", label: "Description", width: 109 },
+  { id: "price", label: "Price", width: 109 },
+  { id: "cost", label: "Cost", width: 109 },
+  { id: "type", label: "Type", width: 109 },
+  { id: "category", label: "Category", width: 109 },
+  { id: "model", label: "Model #", width: 109 },
+  { id: "brand", label: "Brand", width: 109 },
+  { id: "booking", label: "Booking", width: 109 },
+  { id: "inventory", label: "Inventory", width: 109 },
+  { id: "taxable", label: "Taxable", width: 109 },
 ];
-const COLUMNS_NO_COST = COLUMNS.filter((c) => c.id !== "cost");
 
-/** The list's own key: the same name its page-size preference is saved under. */
+const WIDTHS = Object.fromEntries(COLUMNS.map((c) => [c.id, c.width])) as Record<ColumnId, number>;
+
+/** The list's own key: the name its page size and column widths are saved under. */
 export const ITEMS_TABLE_KEY = "price-book-items";
 
+/** Rows have no identity of their own while there are none. */
+const NO_ROWS: Product[] = [];
+
+/**
+ * The Items & products grid: Workiz's react-table, 80px rows with every word
+ * on the middle (its rt-td is a centred flex box), cut at the cell's edge
+ * without "…"; the whole row opens Workiz's "Edit Item"; the picture opens
+ * the photo. `footer` is the pager, inside the frame as `.pagination-bottom`.
+ */
 export function ItemsTable({
   items,
   showCost,
   brandNames,
-  onEdit,
+  onOpen,
   loading = false,
-  skeletonRows = 0,
   stale = false,
-  empty,
+  footer,
 }: {
   items: Product[];
   /** Company cost is money: only for `financials.view`. */
   showCost: boolean;
   /** Brand id → name, from the brands catalog. */
   brandNames: Map<string, string>;
-  onEdit: (item: Product) => void;
+  onOpen: (item: Product, event: WzRowOpenEvent) => void;
   loading?: boolean;
-  skeletonRows?: number;
+  /** The previous filter's rows, dimmed, while the new ones load. */
   stale?: boolean;
-  empty?: ReactNode;
+  footer?: ReactNode;
 }) {
-  const columns = showCost ? COLUMNS : COLUMNS_NO_COST;
-  // The photo opened from a thumbnail — over the list, not the item's popup.
+  // The photo opened from a picture — over the list, not the item's popup.
   const [photo, setPhoto] = useState<ProductWithMedia | null>(null);
+  const { widthOf, setWidth, reset } = useColumnWidths(`${ITEMS_TABLE_KEY}-wz`, WIDTHS);
+
+  const columns = useMemo<WzReportColumn<Product>[]>(() => {
+    const cell: Record<ColumnId, (p: Product) => ReactNode> = {
+      // Workiz's `imageAndIdWrapper`: the 40px picture, 20px, then the number
+      // at the top of a 40px box beside it.
+      id: (p) => (
+        <div className="flex items-center gap-5">
+          <ProductThumb product={p} onOpen={setPhoto} placeholder={<WzItemImagePlaceholder />} />
+          <span className="block h-10 leading-4">{p.number ?? ""}</span>
+        </div>
+      ),
+      name: (p) => <span title={p.name}>{p.name}</span>,
+      description: (p) => p.description?.split("\n")[0] ?? "",
+      price: (p) => formatMoney(p.priceClient),
+      cost: (p) => formatMoney(p.costCompany ?? 0),
+      type: (p) => itemTypeLabel(p),
+      category: (p) => categoryLeaf(p.category),
+      model: (p) => displaySku(p),
+      brand: (p) => (p.brandId && brandNames.get(p.brandId)) || "",
+      booking: (p) => bookingLabel(p),
+      inventory: (p) => inventoryLabel(p),
+      taxable: (p) => taxableLabel(p),
+    };
+    return COLUMNS.filter((c) => showCost || c.id !== "cost").map((c) => ({ id: c.id, label: c.label, cell: cell[c.id] }));
+  }, [brandNames, showCost]);
 
   return (
     <>
-      <PriceBookTable
-        tableKey={ITEMS_TABLE_KEY}
+      <WzReportGrid
+        aria-label="Items & products"
+        className="shrink-0"
         columns={columns}
+        rows={loading ? NO_ROWS : items}
+        rowKey={(p) => p.id}
+        // Workiz's grid opens in its own order with no sort bar; BitCRM's
+        // server pages one order only, so the headers do not re-sort.
+        sort={null}
+        resize={{ widthOf, setWidth, reset }}
+        cellAlign="middle"
+        onRowClick={onOpen}
         loading={loading}
-        skeletonRows={skeletonRows}
-        stale={stale}
-        empty={items.length === 0 ? empty : undefined}
-      >
-        {items.map((p) => (
-          <TableRow
-            key={p.id}
-            className={cn(ROW_HEIGHT, "cursor-pointer", p.status === InventoryStatus.ARCHIVED && "opacity-55")}
-            onClick={() => onEdit(p)}
-          >
-            {columns.map((c) => (
-              <Cell
-                key={c.id}
-                column={c.id}
-                item={p}
-                brandNames={brandNames}
-                onEdit={onEdit}
-                onPhoto={setPhoto}
-              />
-            ))}
-          </TableRow>
-        ))}
-      </PriceBookTable>
+        busy={stale}
+        plainFiller
+        footer={footer}
+      />
       <ProductPhotoDialog product={photo} onOpenChange={(open) => (open ? undefined : setPhoto(null))} />
     </>
-  );
-}
-
-/* Under fixed layout a cell that doesn't clip spills over the next column,
-   so every cell truncates or hides its overflow. */
-function Cell({
-  column,
-  item: p,
-  brandNames,
-  onEdit,
-  onPhoto,
-}: {
-  column: ColumnId;
-  item: Product;
-  brandNames: Map<string, string>;
-  onEdit: (item: Product) => void;
-  onPhoto: (item: ProductWithMedia) => void;
-}) {
-  switch (column) {
-    case "productId":
-      // Workiz's id cell: the picture, then the number. py-1: a 40px picture
-      // in the 48px row, without growing it.
-      return (
-        <TableCell className="overflow-hidden py-1">
-          <div className="flex items-center gap-2">
-            <ProductThumb product={p} onOpen={onPhoto} />
-            <span className="truncate tabular-nums text-muted-foreground">{p.number ?? "—"}</span>
-          </div>
-        </TableCell>
-      );
-    case "name":
-      return (
-        <TableCell className="truncate font-medium" title={p.name}>
-          {p.name}
-        </TableCell>
-      );
-    case "type":
-      return (
-        <TableCell className="truncate">
-          {typeLabel(p.type)}
-          {/* Imported `other` / `hours` items are services here; keep the word Workiz had. */}
-          {p.workizType ? <span className="ml-1 text-xs text-muted-foreground">({p.workizType})</span> : null}
-        </TableCell>
-      );
-    case "category":
-      return <TableCell className="truncate text-muted-foreground">{p.category || "—"}</TableCell>;
-    case "brand":
-      return (
-        <TableCell className="truncate text-muted-foreground">
-          {(p.brandId && brandNames.get(p.brandId)) || "—"}
-        </TableCell>
-      );
-    case "price":
-      return <TableCell className="truncate tabular-nums">{formatMoney(p.priceClient)}</TableCell>;
-    case "cost":
-      return <TableCell className="truncate tabular-nums">{formatMoney(p.costCompany ?? 0)}</TableCell>;
-    case "sku":
-      return <TableCell className="truncate font-mono text-xs">{p.sku}</TableCell>;
-    case "taxable":
-      return <TableCell className="truncate">{taxableLabel(p)}</TableCell>;
-    case "manageStock":
-      return <TableCell className="truncate">{manageStockLabel(p)}</TableCell>;
-    case "status":
-      return (
-        <TableCell className="overflow-hidden">
-          <StatusBadge archived={p.status === InventoryStatus.ARCHIVED} />
-        </TableCell>
-      );
-    case "actions":
-      return (
-        <TableCell className="overflow-hidden" onClick={(e) => e.stopPropagation()}>
-          <div className="flex items-center gap-0.5">
-            <RowIconAction label={`Edit ${p.name}`} tip="Edit" onClick={() => onEdit(p)}>
-              <Pencil />
-            </RowIconAction>
-            <ProductRowActions product={p} />
-          </div>
-        </TableCell>
-      );
-  }
-}
-
-/** Active / Archived with a dot — the item popup's own status pill. */
-export function StatusBadge({ archived }: { archived: boolean }) {
-  return (
-    <Badge
-      variant="outline"
-      className={cn("gap-1.5 font-normal", archived ? "text-muted-foreground" : "text-foreground")}
-    >
-      <span className={cn("size-1.5 rounded-full", archived ? "bg-muted-foreground/50" : "bg-green-500")} />
-      {archived ? "Archived" : "Active"}
-    </Badge>
   );
 }

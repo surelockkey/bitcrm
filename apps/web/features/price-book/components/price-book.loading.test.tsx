@@ -19,7 +19,6 @@ import {
   pagerText,
   renderPage,
   screen,
-  watchPagerUnderSkeleton,
 } from "@/features/inventory/loading-harness";
 
 /**
@@ -38,8 +37,25 @@ import {
  *
  * Now the frame is in place from the first paint (or, for a role it guessed
  * wrong, drawn anew rather than reshuffled) and the rows come with everything
- * they print.
+ * they print. Since the Workiz rebuild (pg_pricebook) the first load is
+ * Workiz's own: the grid's header over blank rows under its veil and dots,
+ * then the page whole.
  */
+
+/** Whether the pager was ever on screen under the grid's loader, where the rows would move it. */
+function watchPagerUnderLoader(): { seen: () => boolean; stop: () => void } {
+  let seen = false;
+  const check = () => {
+    if (seen) return;
+    seen =
+      !!document.querySelector('[data-testid="list-pagination"]') &&
+      !!document.querySelector('[role="status"][aria-label="Loading"]');
+  };
+  const observer = new MutationObserver(check);
+  observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true });
+  check();
+  return { seen: () => seen, stop: () => observer.disconnect() };
+}
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
@@ -146,8 +162,8 @@ describe("Price Book — Items", () => {
     expect(watch.frame()).toEqual({ brand: 2, pager: expect.stringContaining("Showing 1 to 3 of 3 results"), skeletons: 0 });
   });
 
-  it("puts no pager under the skeleton, where the rows would move it", async () => {
-    const watch = watchPagerUnderSkeleton();
+  it("puts no pager under the loader, where the rows would move it", async () => {
+    const watch = watchPagerUnderLoader();
     renderItems();
     await screen.findByText("Test item 1", {}, { timeout: 3000 });
     await waitFor(() => expect(pagerText()).toContain("of 3"));
@@ -210,12 +226,13 @@ describe("Price Book — Categories", () => {
       </PriceBookTabsLayout>,
     );
 
-  it("draws the rows with the tabs and New category, in one frame", async () => {
+  it("draws the rows with the tabs, Add new and every row's item count, in one frame", async () => {
     const watch = watchFirstFrame(
       () => !!screen.queryByText("Keys"),
       () => ({
         tabs: tabRow()!.querySelectorAll("a").length,
-        create: !!screen.queryByRole("button", { name: /New category/ }),
+        create: !!screen.queryByRole("button", { name: "Add new" }),
+        counts: [...document.querySelectorAll("tbody tr:not([aria-hidden])")].map((tr) => tr.querySelectorAll("td")[3]?.textContent),
         skeletons: skeletonCount(),
       }),
     );
@@ -223,10 +240,10 @@ describe("Price Book — Categories", () => {
     await screen.findByText("Keys", {}, { timeout: 3000 });
     watch.stop();
 
-    expect(watch.frame()).toEqual({ tabs: 3, create: true, skeletons: 0 });
+    expect(watch.frame()).toEqual({ tabs: 3, create: true, counts: ["3", "3"], skeletons: 0 });
   });
 
-  it("asks for the catalog beside the permissions, once", async () => {
+  it("asks for the catalog beside the permissions, and each count once", async () => {
     renderCategories();
     expect(server.requests.map((r) => r.split("?")[0])).toContain("/api/inventory/categories");
 

@@ -362,7 +362,9 @@ function ItemEditor({
       className="mb-4"
       name="name"
       label={inventory ? "Product name" : "Title"}
-      alwaysFloat
+      // Inventory keeps its label up; the Price Book's empty "Title" rests in
+      // the box, as Workiz's Add New Item draws it (uikit_wz_pb_addnew).
+      alwaysFloat={inventory}
       value={values.name}
       onChange={set("name")}
       error={errors.name}

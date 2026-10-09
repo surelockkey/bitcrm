@@ -1,19 +1,13 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Download, PackagePlus, Search, TriangleAlert, Upload } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { ListPagination } from "@/components/ui/list-pagination";
-import { InventoryStatus, ProductType } from "@bitcrm/types";
+import { FileText, Plus, Upload } from "lucide-react";
 import type { Product } from "@bitcrm/types";
+import { Button } from "@/components/ui/button";
+import { WzGroupedFilter } from "@/components/workiz/grouped-filter";
+import { WZ_GRID_PAGE_SIZES } from "@/components/workiz/local-grid";
+import { WzPager } from "@/components/workiz/pager";
+import { WzListToolbar, WzPageSizeSelect, WzSearchBox, WzToolbarButton } from "@/components/workiz/toolbar";
 import { useDenied, usePermissions } from "@/features/auth/use-permissions";
 import { usePopup } from "@/features/inventory/use-popup";
 import { useBrands, useItemCategories } from "@/features/inventory/products/hooks";
@@ -22,20 +16,11 @@ import { ProductDialog } from "@/features/inventory/products/components/product-
 import { ImportProductsDialog } from "@/features/inventory/products/components/import-products-dialog";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { settled, usePageReady } from "@/lib/use-page-ready";
-import { cn } from "@/lib/utils";
 import { pagedSource } from "@/lib/paging/paged-source";
 import { usePageSize } from "@/lib/paging/use-page-size";
 import { usePager } from "@/lib/paging/use-pager";
 import { usePriceBookCount, usePriceBookItems } from "../hooks";
-import {
-  DEFAULT_FILTERS,
-  brandNameMap,
-  isFiltered,
-  toProductFilter,
-  type PriceBookFilters,
-  type StockChoice,
-} from "../lib";
-import { useSkeletonRows } from "../use-skeleton-rows";
+import { SHOW_DEFAULT, brandNameMap, normalizeShow, showGroups, toProductFilter, type ShowValue } from "../lib";
 import { ITEMS_TABLE_KEY, ItemsTable } from "./items-table";
 
 /** The popup over the list — one at a time: an item's Edit, or a new item. */
@@ -44,37 +29,41 @@ type ItemPopup = { kind: "edit"; id: string } | { kind: "new" };
 /** Old links carried the popup in the query; they land on the plain list, the params dropped. */
 const STALE_PARAMS = ["edit", "new"] as const;
 
-const byName = (a: string, b: string) => a.localeCompare(b);
+/** Workiz's page size before the reader picks one. */
+const DEFAULT_PAGE_SIZE = 10;
 
 /**
- * The Price Book's Items tab — every item, product or service, stock-managed
- * or not. Every filter goes to the server; a page is never filtered here.
- * Items open in the same Edit / Create popup Inventory uses.
+ * Workiz's "Items & products" tab (`/root/service_and_products/1`,
+ * pg_pricebook_wz_*): "Show:" over its grouped box (one chip, status: Active
+ * items) with the yellow Add New at the right; the grey strip (Search, the
+ * page size, Export — and BitCRM's Import beside it); the react-table grid
+ * with the pager inside it. Every filter goes to the server; a page is never
+ * filtered here. A row opens Workiz's "Edit Item", Add New its "Add New
+ * Item" — the popups Inventory shares.
  *
- * It loads without moving: the toolbar and the columns are in place from the
- * first frame, and the rows come in one frame with everything they print —
- * their brands, and the pager's "of N".
+ * It loads once: the rows wait for the permissions (they decide the Cost
+ * column and the buttons), the count (the pager's "of N") and the brands
+ * (the Brand column) and come in one frame; a new filter keeps the rows on
+ * screen, dimmed, not a loader.
  */
 export function ItemsPage() {
   const { can, isLoading: permsLoading } = usePermissions();
   const denied = useDenied();
   const money = can("financials", "view");
-  // Until the permissions answer, every control is drawn (and off): a toolbar
-  // that gained Category, Brand, Import and New item a moment in wrapped onto
-  // a second line and threw Export CSV across the screen.
+  // Until the permissions answer, every control is drawn (and off): a strip
+  // that gained Import a moment in threw Export sideways.
   const canCreate = permsLoading || can("products", "create");
   const canCategories = permsLoading || can("product_categories", "view");
   const canBrands = permsLoading || can("brands", "view");
 
-  const [filters, setFilters] = useState<PriceBookFilters>(DEFAULT_FILTERS);
+  const [show, setShow] = useState<ShowValue>(SHOW_DEFAULT);
+  const [searchInput, setSearchInput] = useState("");
   const [importOpen, setImportOpen] = useState(false);
-  const set = <K extends keyof PriceBookFilters>(key: K) => (value: PriceBookFilters[K]) =>
-    setFilters((f) => ({ ...f, [key]: value }));
 
-  const term = useDebouncedValue(filters.search.trim(), 300);
-  const filter = useMemo(() => toProductFilter({ ...filters, search: term }), [filters, term]);
+  const term = useDebouncedValue(searchInput.trim(), 300);
+  const filter = useMemo(() => toProductFilter(show, term), [show, term]);
 
-  const [pageSize, setPageSize] = usePageSize(ITEMS_TABLE_KEY);
+  const [pageSize, setPageSize] = usePageSize(ITEMS_TABLE_KEY, { sizes: WZ_GRID_PAGE_SIZES, fallback: DEFAULT_PAGE_SIZE });
   const query = usePriceBookItems(filter, pageSize);
   const count = usePriceBookCount(filter);
   // While the previous filter's rows stand in for the new ones their cursor
@@ -89,31 +78,23 @@ export function ItemsPage() {
   const items = pager.items;
 
   // Every category and brand the catalogs know (archived too — items still
-  // carry them), not the handful on the page being shown. Asked for beside
-  // the permissions, not after them — the server guards the catalogs.
+  // carry them). Asked for beside the permissions, not after them — the
+  // server guards the catalogs.
   const categoryCatalog = useItemCategories(canCategories);
   const brandCatalog = useBrands(canBrands);
 
-  // One skeleton, then the page whole: the rows wait for the permissions
-  // (they decide the columns), the count (the pager's "of N") and the brands
-  // (the Brand column) — drawn before them, they filled in a beat later.
-  // Latched: a new filter keeps the rows on screen, dimmed, not a skeleton.
   const ready = usePageReady(
     !permsLoading && settled(query) && settled(count) && (!canBrands || settled(brandCatalog)),
   );
-  const skeletonRows = useSkeletonRows(
-    ITEMS_TABLE_KEY,
-    pageSize,
-    count.data?.total,
-    !ready || query.isPlaceholderData ? undefined : items.length,
-  );
-  const categories = useMemo(
-    () => [...new Set((categoryCatalog.data ?? []).map((c) => c.name))].sort(byName),
-    [categoryCatalog.data],
-  );
-  const brands = useMemo(
-    () => [...(brandCatalog.data ?? [])].sort((a, b) => byName(a.name, b.name)),
-    [brandCatalog.data],
+  const groups = useMemo(
+    () =>
+      showGroups({
+        categories: categoryCatalog.data,
+        brands: brandCatalog.data,
+        canCategories: !permsLoading && can("product_categories", "view"),
+        canBrands: !permsLoading && can("brands", "view"),
+      }),
+    [categoryCatalog.data, brandCatalog.data, permsLoading, can],
   );
   const brandNames = useMemo(() => brandNameMap(brandCatalog.data), [brandCatalog.data]);
 
@@ -131,136 +112,72 @@ export function ItemsPage() {
     );
   }
 
-  const filtered = isFiltered(filters);
-
   return (
     // The frame drawn while the permissions load is a guess at what they
-    // allow; once they answer it is drawn anew, not reshuffled — a role the
-    // guess was wrong for (no New item, no Cost) sees no control slide across.
-    <div key={permsLoading ? "guess" : "known"} className="flex flex-1 flex-col">
-      <div data-testid="price-book-toolbar" className="flex flex-wrap items-center gap-2 px-6 py-3">
-        <div className="relative w-full max-w-xs">
-          <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={filters.search}
-            onChange={(e) => set("search")(e.target.value)}
-            placeholder="Search name or SKU"
-            aria-label="Search items"
-            className="h-9 pl-8"
+    // allow; once they answer it is drawn anew, not reshuffled.
+    <div key={permsLoading ? "guess" : "known"} className="flex flex-col">
+      {/* "Show:" 19px under the tab rule, the box 8px under it (780×48.64 at
+          1400), Add New level with the box 20px from the edge; the strip
+          193px under the rule — the room Workiz keeps for its bulk row. */}
+      <div className="min-h-[193px] shrink-0 px-5 pt-[19px]">
+        <div className="mb-2 text-[12.6px] leading-4 font-bold text-[#4d4d4d]">Show:</div>
+        <div className="flex items-start justify-between gap-5">
+          <WzGroupedFilter
+            aria-label="Show"
+            size="tall"
+            className="w-[57.4%] min-w-0"
+            groups={groups}
+            value={show}
+            onChange={(next) => setShow((prev) => normalizeShow(prev, next))}
           />
+          {canCreate ? (
+            <Button disabled={permsLoading} onClick={() => open({ kind: "new" })}>
+              <Plus />
+              Add New
+            </Button>
+          ) : null}
         </div>
-
-        <FilterSelect label="Type" value={filters.type} onChange={set("type")} width="w-32">
-          <SelectItem value="all">All types</SelectItem>
-          <SelectItem value={ProductType.PRODUCT}>Product</SelectItem>
-          <SelectItem value={ProductType.SERVICE}>Service</SelectItem>
-        </FilterSelect>
-
-        {canCategories ? (
-          <FilterSelect
-            label="Category"
-            value={filters.category}
-            onChange={set("category")}
-            width="w-44"
-            disabled={permsLoading}
-          >
-            <SelectItem value="all">All categories</SelectItem>
-            {categories.map((c) => (
-              <SelectItem key={c} value={c}>
-                {c}
-              </SelectItem>
-            ))}
-          </FilterSelect>
-        ) : null}
-
-        {canBrands ? (
-          <FilterSelect
-            label="Brand"
-            value={filters.brandId}
-            onChange={set("brandId")}
-            width="w-40"
-            disabled={permsLoading}
-          >
-            <SelectItem value="all">All brands</SelectItem>
-            {brands.map((b) => (
-              <SelectItem key={b.id} value={b.id}>
-                {b.name}
-              </SelectItem>
-            ))}
-          </FilterSelect>
-        ) : null}
-
-        <FilterSelect label="Status" value={filters.status} onChange={set("status")} width="w-32">
-          <SelectItem value={InventoryStatus.ACTIVE}>Active</SelectItem>
-          <SelectItem value={InventoryStatus.ARCHIVED}>Archived</SelectItem>
-          <SelectItem value="all">All statuses</SelectItem>
-        </FilterSelect>
-
-        <FilterSelect<StockChoice>
-          label="Manage stock"
-          value={filters.manageStock}
-          onChange={set("manageStock")}
-          width="w-36"
-        >
-          <SelectItem value="all">All items</SelectItem>
-          <SelectItem value="tracked">Tracked</SelectItem>
-          <SelectItem value="untracked">Not tracked</SelectItem>
-        </FilterSelect>
-
-        <span className="ml-auto" />
-
-        <Button
-          variant="outline"
-          className="h-9 gap-1.5"
-          disabled={!ready || items.length === 0}
-          title="Export the items on this page"
-          onClick={() => downloadCsv(productsToCsv(items, { withCost: money }), "price-book.csv")}
-        >
-          <Download className="size-4" />
-          Export CSV
-        </Button>
-        {canCreate ? (
-          <Button
-            variant="outline"
-            className="h-9 gap-1.5"
-            disabled={permsLoading}
-            onClick={() => setImportOpen(true)}
-          >
-            <Upload className="size-4" />
-            Import CSV
-          </Button>
-        ) : null}
-        {canCreate ? (
-          <Button className="h-9 gap-1.5 px-3.5" disabled={permsLoading} onClick={() => open({ kind: "new" })}>
-            <PackagePlus className="size-4" />
-            New item
-          </Button>
-        ) : null}
       </div>
 
-      <div className="flex-1 px-6 pb-6">
-        {query.isError && !query.data ? (
-          <ErrorState onRetry={() => query.refetch()} />
-        ) : (
-          <>
-            <ItemsTable
-              items={items}
-              showCost={permsLoading || money}
-              brandNames={brandNames}
-              onEdit={(p: Product) => open({ kind: "edit", id: p.id })}
-              loading={!ready}
-              skeletonRows={skeletonRows}
-              stale={query.isPlaceholderData}
-              empty={<EmptyState filtered={filtered} />}
-            />
-            {/* Drawn with the rows, its total and all — never under the
-                skeleton, where the rows would move it when they land. */}
-            <div data-testid="pager-slot" className="min-h-14">
-              {ready ? <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} /> : null}
-            </div>
-          </>
-        )}
-      </div>
+      {/* The grey strip: Search; the page size, Export and ours, Import, at the right. */}
+      <WzListToolbar data-testid="price-book-toolbar" className="shrink-0">
+        <WzSearchBox value={searchInput} onChange={setSearchInput} maxLength={100} />
+        <div className="ml-auto flex items-center gap-4">
+          <WzPageSizeSelect value={pageSize} sizes={WZ_GRID_PAGE_SIZES} onChange={setPageSize} />
+          <WzToolbarButton
+            title="Export CSV"
+            disabled={!ready || items.length === 0}
+            onClick={() => downloadCsv(productsToCsv(items, { withCost: money }), "price-book.csv")}
+          >
+            <FileText strokeWidth={1.5} /> Export
+          </WzToolbarButton>
+          {canCreate ? (
+            <WzToolbarButton title="Import CSV" disabled={permsLoading} onClick={() => setImportOpen(true)}>
+              <Upload strokeWidth={1.5} /> Import
+            </WzToolbarButton>
+          ) : null}
+        </div>
+      </WzListToolbar>
+
+      {query.isError && !query.data ? (
+        <div className="border border-wz-frame px-5 py-10 text-center text-sm">
+          <p role="alert">Couldn&apos;t load items</p>
+          <Button variant="outline" size="sm" className="mt-3" onClick={() => query.refetch()}>
+            Try again
+          </Button>
+        </div>
+      ) : (
+        <ItemsTable
+          items={items}
+          showCost={permsLoading || money}
+          brandNames={brandNames}
+          onOpen={(p: Product) => open({ kind: "edit", id: p.id })}
+          loading={!ready}
+          stale={query.isPlaceholderData}
+          // Drawn with the rows, its total and all — never under the loader.
+          footer={ready ? <WzPager pager={pager} plainNumbers /> : null}
+        />
+      )}
 
       <ImportProductsDialog open={importOpen} onOpenChange={setImportOpen} />
       {/* Mounted only while open: closing must not flash the popup into
@@ -277,31 +194,6 @@ export function ItemsPage() {
   );
 }
 
-function FilterSelect<V extends string>({
-  label,
-  value,
-  onChange,
-  width,
-  disabled,
-  children,
-}: {
-  label: string;
-  value: V;
-  onChange: (value: V) => void;
-  width: string;
-  disabled?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <Select value={value} onValueChange={(v) => onChange(v as V)} disabled={disabled}>
-      <SelectTrigger className={cn("h-9", width)} aria-label={label}>
-        <SelectValue placeholder={label} />
-      </SelectTrigger>
-      <SelectContent>{children}</SelectContent>
-    </Select>
-  );
-}
-
 function downloadCsv(csv: string, filename: string) {
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
   const url = URL.createObjectURL(blob);
@@ -310,31 +202,4 @@ function downloadCsv(csv: string, filename: string) {
   a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
-}
-
-function EmptyState({ filtered }: { filtered: boolean }) {
-  return (
-    <div>
-      <div className="font-medium">{filtered ? "No items match" : "No items yet"}</div>
-      <p className="mt-1 text-sm text-muted-foreground">
-        {filtered
-          ? "Try clearing your search or filters."
-          : "Add your first item with New item, or import a CSV."}
-      </p>
-    </div>
-  );
-}
-
-function ErrorState({ onRetry }: { onRetry: () => void }) {
-  return (
-    <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed py-16 text-center">
-      <div className="flex size-12 items-center justify-center rounded-xl bg-destructive/10 text-destructive">
-        <TriangleAlert className="size-6" />
-      </div>
-      <div className="font-medium">Couldn&apos;t load items</div>
-      <Button variant="outline" onClick={onRetry}>
-        Retry
-      </Button>
-    </div>
-  );
 }

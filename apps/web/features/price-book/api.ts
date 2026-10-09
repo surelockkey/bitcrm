@@ -12,10 +12,15 @@ import { http } from "@/lib/api/http";
  * is filed under it, and on a brand always — neither can be undone.
  */
 
-/** What a catalog row carries: a name, unique per catalog (409 on a clash), and whether it's offered. */
+/**
+ * What a catalog row carries: a name, unique per catalog (409 on a clash),
+ * whether it's offered, and Workiz's description ('' clears it; an API
+ * older than the description drops it unread).
+ */
 export interface CatalogCreateBody {
   name: string;
   active?: boolean;
+  description?: string;
 }
 
 export type CatalogUpdateBody = Partial<CatalogCreateBody>;
