@@ -7,6 +7,8 @@ export interface OwnedNumber {
   phoneNumber: string;
   friendlyName: string;
   voiceUrl?: string | null;
+  /** When it was bought (ISO); absent from an API that predates it. */
+  dateCreated?: string | null;
 }
 
 export interface AvailableNumber {

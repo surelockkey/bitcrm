@@ -48,9 +48,10 @@ export const updateSimpleFlow = (
 export const createCallFlow = (body: CallFlowValues): Promise<CallFlow> =>
   http.post<CallFlow>(BASE, body);
 
+/** Any subset: the server keeps every field left out (the numbers list sends `numbers` alone). */
 export const updateCallFlow = (
   id: string,
-  body: CallFlowValues,
+  body: Partial<CallFlowValues>,
 ): Promise<CallFlow> => http.put<CallFlow>(`${BASE}/${id}`, body);
 
 /**

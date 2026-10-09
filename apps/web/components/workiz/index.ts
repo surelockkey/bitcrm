@@ -155,3 +155,6 @@ export { WzLegacyActionsMenu } from "./legacy-actions-menu";
 
 // A job document's "← Job ID" line (agent job_invoice_route: the estimate's, reused on the invoice page).
 export { WzJobBackLink } from "./job-back-link";
+
+// Workiz Phone settings tabs (agent pg_settings_phone: Phone numbers, Call flows, Call groups, Texting).
+export { WzTabIntro, WzRowIconButton, WzTag, WzShortCodeChips, WzSectionRule, shortCodeLabel } from "./phone-tab-parts";

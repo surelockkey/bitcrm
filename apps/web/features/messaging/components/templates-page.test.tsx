@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
 import { server } from "@/test/msw/server";
-import { TemplatesPage } from "./templates-page";
+import { MessageTemplatesSection } from "./templates-page";
 
 vi.mock("@/features/auth/use-permissions", () => ({
   useDenied: () => () => false,
@@ -14,7 +14,7 @@ vi.mock("@/features/auth/use-permissions", () => ({
 const template = (id: string, extra: Record<string, unknown> = {}) => ({
   id,
   messageTemplateTitle: `Template ${id}`,
-  messageTemplate: `<p>Hi {{first_name}} (${id})</p>`,
+  messageTemplate: `<p>Hi {{first_name}} (${id}) &amp; co</p>`,
   channel: "sms",
   isDefault: false,
   active: true,
@@ -50,25 +50,39 @@ beforeEach(() => {
       const body = (await request.json()) as { body: string };
       return HttpResponse.json({ success: true, data: { body: body.body.replace("{{first_name}}", "Jane"), missing: [] } });
     }),
+    http.get("*/messaging/templates/short-codes", () =>
+      HttpResponse.json({
+        success: true,
+        data: [{ code: "first_name", group: "client", description: "First name", example: "Jane" }],
+      }),
+    ),
   );
 });
 
-function renderPage() {
+function renderSection() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <TemplatesPage />
+      <MessageTemplatesSection />
     </QueryClientProvider>,
   );
 }
 
-describe("TemplatesPage", () => {
-  it("lists active and archived templates with their marks", async () => {
-    renderPage();
-    expect(await screen.findByText("Template a")).toBeInTheDocument();
-    expect(screen.getByText("Default")).toBeInTheDocument();
-    expect(screen.getByText("Dispatch")).toBeInTheDocument();
-    expect(screen.getByText("Archived")).toBeInTheDocument();
+/**
+ * Our message templates are Workiz's quick replies (the inbox's "Quick reply"
+ * list with "+ New template"); they are kept on the Texting tab under "Text
+ * templates", drawn as Workiz's quick-reply rows.
+ */
+describe("MessageTemplatesSection", () => {
+  it("lists active and archived templates as Workiz's quick-reply rows, with our marks", async () => {
+    renderSection();
+    const list = await screen.findByRole("list", { name: "Quick replies" });
+    expect(within(list).getByText("Template a")).toBeInTheDocument();
+    // The text without Workiz's HTML: no tags, no "&amp;".
+    expect(within(list).getByText("Hi {{first_name}} (a) & co")).toBeInTheDocument();
+    expect(within(list).getByText("Default")).toBeInTheDocument();
+    expect(within(list).getByText(/Dispatch/)).toBeInTheDocument();
+    expect(within(list).getByText("Archived")).toBeInTheDocument();
     // Archived rows offer restore / delete, active rows offer archive.
     expect(screen.getByRole("button", { name: "Archive Template a" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Restore Template b" })).toBeInTheDocument();
@@ -76,13 +90,13 @@ describe("TemplatesPage", () => {
   });
 
   it("archives a template", async () => {
-    renderPage();
+    renderSection();
     await userEvent.click(await screen.findByRole("button", { name: "Archive Template a" }));
     await waitFor(() => expect(archived).toEqual(["a"]));
   });
 
-  it("creates a template from the dialog, with a preview on the way", async () => {
-    renderPage();
+  it("creates a template from Workiz's + New template, with a preview on the way", async () => {
+    renderSection();
     await userEvent.click(await screen.findByRole("button", { name: "New template" }));
     const dialog = await screen.findByRole("dialog");
     expect(dialog).toHaveTextContent("New template");

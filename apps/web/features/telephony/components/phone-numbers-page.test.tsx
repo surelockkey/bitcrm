@@ -10,12 +10,20 @@ const mocks = vi.hoisted(() => ({
   setTechLine: vi.fn(),
   release: vi.fn(),
   updateSettings: vi.fn(),
+  assignFlow: vi.fn(),
+  flows: [] as unknown[],
 }));
 
 /** The roster both suites start from; each restores it after mutating. */
 const DEFAULT_NUMBERS = [
-  { sid: "PN1", phoneNumber: "+15412830739", friendlyName: "Main line" },
+  { sid: "PN1", phoneNumber: "+15412830739", friendlyName: "Main line", dateCreated: "2020-09-28T03:11:00.000Z" },
   { sid: "PN2", phoneNumber: "+14045551234", friendlyName: "Ads line" },
+];
+
+/** Flow "f1" answers the ads line; "f2" answers nothing yet. */
+const DEFAULT_FLOWS = [
+  { id: "f1", name: "Ads flow", numbers: ["+14045551234"], nodes: {}, entryNodeId: "a", active: true },
+  { id: "f2", name: "Main flow", numbers: [], nodes: {}, entryNodeId: "a", active: true },
 ];
 
 vi.mock("@/features/auth/use-permissions", () => ({
@@ -33,6 +41,19 @@ vi.mock("../numbers-hooks", () => ({
   }),
 }));
 vi.mock("./buy-number-dialog", () => ({ BuyNumberDialog: () => null }));
+vi.mock("../call-flows-hooks", () => ({
+  useCallFlows: () => ({ data: mocks.flows, isLoading: false }),
+  useAssignNumberFlow: () => ({ mutate: mocks.assignFlow, isPending: false }),
+}));
+// A plain button standing in for the flow picker: shows the current flow,
+// clicking it "picks" flow f2.
+vi.mock("./number-flow-select", () => ({
+  NumberFlowSelect: ({ value, onChange }: { value?: string; onChange: (v: string) => void }) => (
+    <button type="button" onClick={() => onChange("f2")}>
+      flow:{value ?? "none"}
+    </button>
+  ),
+}));
 
 // A plain button standing in for the source picker: shows the current value,
 // clicking it "picks" a fixed source.
@@ -82,7 +103,68 @@ vi.mock("@/features/business-profiles/hooks", () => ({
 beforeEach(() => {
   mocks.can.mockReturnValue(true);
   mocks.updateSettings.mockReset();
+  mocks.assignFlow.mockReset();
   mocks.numbers = DEFAULT_NUMBERS;
+  mocks.flows = DEFAULT_FLOWS;
+});
+
+/**
+ * Workiz Phone → Phone numbers (pg_settings_phone_wz_numbers): its words and
+ * "Add number" over a react-table — Number | Ad group | Flow | Created |
+ * Action — with ours (Company, the technician line) kept in Workiz's style.
+ */
+describe("PhoneNumbersPage — Workiz's numbers list", () => {
+  it("draws Workiz's words, Add number and the columns in Workiz's order", () => {
+    render(<PhoneNumbersPage />);
+    expect(screen.getByText(/Manage your phone numbers and assign them to call flows/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add number" })).toBeInTheDocument();
+    const headers = screen.getAllByRole("columnheader").map((h) => h.textContent);
+    expect(headers).toEqual(["Number", "Ad group", "Flow", "Company", "Created", "Action"]);
+  });
+
+  it("writes when each number was bought as Workiz does", () => {
+    render(<PhoneNumbersPage />);
+    expect(screen.getByText("Sun Sep 27, 2020 11:11 pm")).toBeInTheDocument();
+  });
+
+  it("finds a number by what is typed in the Search box", async () => {
+    const u = userEvent.setup();
+    render(<PhoneNumbersPage />);
+    await u.type(screen.getByRole("searchbox", { name: "Search" }), "404555");
+    expect(screen.getByText("(404) 555-1234")).toBeInTheDocument();
+    expect(screen.queryByText("(541) 283-0739")).not.toBeInTheDocument();
+  });
+
+  it("hides Add number and the Remove links from a reader who may not change settings", () => {
+    mocks.can.mockImplementation(((_r: string, action?: string) => action !== "edit") as never);
+    render(<PhoneNumbersPage />);
+    expect(screen.queryByRole("button", { name: "Add number" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Remove/ })).not.toBeInTheDocument();
+  });
+});
+
+describe("PhoneNumbersPage — the flow per number", () => {
+  it("shows the flow that answers each number", () => {
+    render(<PhoneNumbersPage />);
+    expect(screen.getByText("flow:f1")).toBeInTheDocument();
+    expect(screen.getByText("flow:none")).toBeInTheDocument();
+  });
+
+  it("moves a number onto the flow picked for it", async () => {
+    const u = userEvent.setup();
+    render(<PhoneNumbersPage />);
+    await u.click(screen.getByText("flow:none"));
+    expect(mocks.assignFlow).toHaveBeenCalledWith({ number: "+15412830739", toFlowId: "f2" });
+  });
+
+  it("takes a number off its flow with Remove flow, offered only where there is one", async () => {
+    const u = userEvent.setup();
+    render(<PhoneNumbersPage />);
+    const removes = screen.getAllByRole("button", { name: "Remove flow" });
+    expect(removes).toHaveLength(1);
+    await u.click(removes[0]);
+    expect(mocks.assignFlow).toHaveBeenCalledWith({ number: "+14045551234", toFlowId: null });
+  });
 });
 
 /**
@@ -150,11 +232,11 @@ describe("PhoneNumbersPage — technician line", () => {
   });
 });
 
-describe("PhoneNumbersPage — job source per number", () => {
-  it("shows each number's assigned source", () => {
+describe("PhoneNumbersPage — ad group (job source) per number", () => {
+  it("shows each number's assigned source under Workiz's Ad group", () => {
     render(<PhoneNumbersPage />);
 
-    expect(screen.getByText("Job source")).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Ad group" })).toBeInTheDocument();
     expect(screen.getByText("source:src-google-ads")).toBeInTheDocument();
     expect(screen.getByText("source:none")).toBeInTheDocument();
   });
@@ -170,16 +252,26 @@ describe("PhoneNumbersPage — job source per number", () => {
       sourceId: "src-picked",
     });
   });
+
+  it("clears it with Remove ad group, offered only where one is set", async () => {
+    const u = userEvent.setup();
+    render(<PhoneNumbersPage />);
+    const removes = screen.getAllByRole("button", { name: "Remove ad group" });
+    expect(removes).toHaveLength(1);
+    await u.click(removes[0]);
+    expect(mocks.updateSettings).toHaveBeenCalledWith({ phoneNumber: "+14045551234", sourceId: null });
+  });
 });
 
 describe("PhoneNumbersPage — company per number", () => {
-  it("shows a Company column next to Job source with each number's override", () => {
+  it("shows a Company column after Flow with each number's override", () => {
     render(<PhoneNumbersPage />);
     const headers = screen.getAllByRole("columnheader").map((h) => h.textContent);
-    expect(headers.indexOf("Company")).toBe(headers.indexOf("Job source") + 1);
+    expect(headers.indexOf("Company")).toBe(headers.indexOf("Flow") + 1);
     expect(screen.getByText("company:bp-2")).toBeInTheDocument();
     expect(screen.getByText("company:none")).toBeInTheDocument();
-    expect(screen.getByTitle("Overrides the call flow's company")).toBeInTheDocument();
+    // The hint rides on each row's picker (Workiz's headers carry no ⓘ).
+    expect(screen.getAllByTitle("Overrides the call flow's company")).toHaveLength(2);
   });
 
   it("saves only the company, leaving the source alone", async () => {

@@ -51,7 +51,9 @@ export function WzSearchBox({
         placeholder={placeholder}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="h-10 w-full rounded-[4px] border border-wz-outline bg-background px-11 text-[13px] leading-4 text-foreground outline-none placeholder:text-wz-outline hover:border-foreground focus:border-wz-link"
+        // A `type="search"` box (WzLocalGrid's) would add the browser's own ×
+        // beside Workiz's round one; only Workiz's is drawn.
+        className="h-10 w-full rounded-[4px] border border-wz-outline bg-background px-11 text-[13px] leading-4 text-foreground outline-none placeholder:text-wz-outline hover:border-foreground focus:border-wz-link [&::-webkit-search-cancel-button]:hidden"
       />
       {value ? (
         <button

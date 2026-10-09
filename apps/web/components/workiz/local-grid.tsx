@@ -120,6 +120,7 @@ export function WzLocalGrid<T>({
   footer,
   defaultPageSize = 10,
   pagerInside = false,
+  emptyText = "No Records Found",
   className,
 }: {
   /** The table's accessible name ("Jobs"). */
@@ -145,6 +146,14 @@ export function WzLocalGrid<T>({
    * client page.
    */
   pagerInside?: boolean;
+  /**
+   * What an empty grid says over its blank rows: words in react-table's
+   * "No Records Found" band (the default), the caller's own block — Workiz
+   * Phone's "No call groups created" (pg_settings_phone_wz_groups_search_empty)
+   * — centred over the rows, or `null` for the blank rows alone (its numbers
+   * and flows grids).
+   */
+  emptyText?: ReactNode;
   className?: string;
 }) {
   const [query, setQuery] = useState("");
@@ -253,7 +262,19 @@ export function WzLocalGrid<T>({
             ))}
           </TableBody>
         </Table>
-        {view.total === 0 ? <WzTableNoData /> : null}
+        {view.total === 0 && emptyText !== null && emptyText !== undefined ? (
+          typeof emptyText === "string" ? (
+            <WzTableNoData>{emptyText}</WzTableNoData>
+          ) : (
+            <div
+              data-slot="wz-local-grid-empty"
+              role="status"
+              className="pointer-events-none absolute top-[135px] left-1/2 z-10 w-[390px] max-w-full -translate-x-1/2 text-center"
+            >
+              {emptyText}
+            </div>
+          )
+        ) : null}
         {pagerInside ? pager : null}
       </div>
       {pagerInside ? null : pager}

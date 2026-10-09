@@ -110,6 +110,19 @@ describe("CallFlowEditor", () => {
     mocks.flows = [];
   });
 
+  it("is a page in the app, as Workiz's builder is, not a window over it", async () => {
+    const u = userEvent.setup();
+    const onClose = vi.fn();
+    render(<CallFlowEditor flow={flow} open onClose={onClose} />);
+
+    // Nothing modal until a step is opened (Workiz's flowBuilder sits in its shell).
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save Call Flow" })).toBeInTheDocument();
+    // The builder keeps its in-page way back to the list (Workiz's ← in the head).
+    await u.click(screen.getByRole("button", { name: "Back to call flows" }));
+    expect(onClose).toHaveBeenCalled();
+  });
+
   it("draws the call as a map, starting from the number that was dialled", () => {
     render(<CallFlowEditor flow={flow} open onClose={vi.fn()} />);
 
@@ -234,7 +247,7 @@ describe("CallFlowEditor", () => {
 
       await u.click(plusButtons()[0]);
 
-      expect(screen.getByRole("dialog", { name: "Add a step" })).toBeInTheDocument();
+      expect(screen.getByRole("dialog", { name: "Choose the next step" })).toBeInTheDocument();
       expect(screen.getByText(/one path per key/i)).toBeInTheDocument();
     });
   });
@@ -421,7 +434,7 @@ describe("CallFlowEditor", () => {
 
       expect(screen.getByRole("link", { name: /buy one/i })).toHaveAttribute(
         "href",
-        "/settings/phone-numbers",
+        "/calls/numbers",
       );
       mocks.numbers = [
         { sid: "PN1", phoneNumber: "+15412830739", friendlyName: "Main" },

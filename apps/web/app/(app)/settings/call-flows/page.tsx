@@ -1,5 +1,6 @@
-import { CallFlowsPage } from "@/features/telephony/components/call-flows-page";
+import { redirect } from "next/navigation";
 
+/** Workiz keeps Call flows in its Phone section (/root/flows → /root/callsReport/flows); so do we. */
 export default function Page() {
-  return <CallFlowsPage />;
+  redirect("/calls/flows");
 }

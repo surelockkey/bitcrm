@@ -8,22 +8,19 @@ import {
   Clock,
   KeyRound,
   ListOrdered,
-  Loader2,
   MessageSquare,
   Mic,
   MoveDown,
   MoveUp,
-  Pencil,
   PhoneCall,
   PhoneOff,
-  Trash2,
   Workflow,
   X,
 } from "lucide-react";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import { WzButton } from "@/components/workiz/button";
+import { WzEditIcon, WzTrashIcon } from "@/components/workiz/icons";
 import { cn } from "@/lib/utils";
 import { formatPhone } from "@/lib/phone";
 import type { CallFlow, CallFlowNode, CallFlowNodeType } from "@bitcrm/types";
@@ -132,58 +129,50 @@ export function CallFlowEditor({
     onClose();
   };
 
-  return (
-    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent
-        showCloseButton={false}
-        className="fixed inset-0 top-0 left-0 flex h-full w-full max-w-none translate-x-0 translate-y-0 flex-col gap-0 rounded-none bg-background p-0 ring-0 sm:max-w-none"
-      >
-        <DialogTitle className="sr-only">
-          {editing ? `Edit ${flow.name}` : "New call flow"}
-        </DialogTitle>
+  if (!open) return null;
 
-        <header className="flex flex-none items-center gap-3 border-b px-4 py-3">
-          <Button
+  return (
+    <div data-slot="call-flow-builder" className="flex min-h-0 min-w-0 flex-1 flex-col bg-white">
+        {/* Workiz's FlowHeader (pg_settings_phone_wz_builder_canvas): ← in a
+            22px ink ring (the builder's own way back — an in-page state, so it
+            keeps it), the logo slot, a 2×30 rule, the name 16px/19px, the
+            numbers 11px, ✎, then the yellow "Save Call Flow" right after. */}
+        <header className="flex h-[92px] flex-none items-center gap-0 pr-6 pl-[45px]">
+          <button
             type="button"
-            variant="ghost"
-            size="icon"
-            className="rounded-full"
             aria-label="Back to call flows"
             onClick={onClose}
+            className="grid size-[22px] shrink-0 cursor-pointer place-items-center rounded-full border border-foreground text-foreground outline-none hover:bg-wz-secondary-hover focus-visible:ring-2 focus-visible:ring-wz-focus"
           >
-            <ArrowLeft className="size-4" />
-          </Button>
-          <Workflow className="size-5 text-brand" aria-hidden />
-          <span className="h-6 w-px bg-border" aria-hidden />
+            <ArrowLeft className="size-3" strokeWidth={2} />
+          </button>
+          <Workflow className="ml-[25px] size-[26px] shrink-0 text-foreground" strokeWidth={2.25} aria-hidden />
+          <span className="mx-5 h-[30px] w-0.5 shrink-0 bg-[rgba(59,76,83,0.3)]" aria-hidden />
 
-          <h1 className="truncate text-sm font-semibold tracking-wide uppercase">
+          <h1 className="min-w-0 truncate text-base leading-[19px] font-normal tracking-[0.4px] text-[#3b4c53]">
             {name.trim() || "New call flow"}
           </h1>
-          <span className="hidden truncate text-xs text-muted-foreground sm:inline">
+          <span className="ml-3 hidden min-w-0 truncate text-[11px] leading-4 tracking-[0.4px] text-[rgba(59,76,83,0.7)] sm:inline">
             {numbers.length ? numbers.map(formatPhone).join(", ") : "No numbers yet"}
           </span>
-          <Button
+          <button
             type="button"
-            variant="ghost"
-            size="icon-sm"
-            className="text-muted-foreground"
             aria-label="Edit the flow's name and numbers"
             onClick={() => setPanel({ kind: "basic" })}
+            className="ml-3 grid size-6 shrink-0 cursor-pointer place-items-center rounded-[4px] text-foreground outline-none hover:bg-wz-secondary-hover focus-visible:ring-2 focus-visible:ring-wz-focus"
           >
-            <Pencil className="size-3.5" />
-          </Button>
+            <WzEditIcon size={18} />
+          </button>
 
-          <Button
-            type="button"
-            variant="brand"
-            size="lg"
-            className="ml-auto gap-1.5 rounded-chip px-5"
-            disabled={save.isPending || !name.trim()}
+          <WzButton
+            size="regular"
+            className="ml-[35px] min-w-[150px]"
+            loading={save.isPending}
+            disabled={!name.trim()}
             onClick={submit}
           >
-            {save.isPending ? <Loader2 className="size-4 animate-spin" /> : null}
-            {editing ? "Save call flow" : "Create call flow"}
-          </Button>
+            {editing ? "Save Call Flow" : "Create Call Flow"}
+          </WzButton>
         </header>
 
         <div className="relative flex min-h-0 flex-1">
@@ -247,8 +236,7 @@ export function CallFlowEditor({
             />
           ) : null}
         </div>
-      </DialogContent>
-    </Dialog>
+    </div>
   );
 }
 
@@ -313,7 +301,7 @@ function BasicInfoPanel({
           <Input
             id="cf-name"
             aria-label="Flow name"
-            className="h-7 border-0 px-0 shadow-none focus-visible:ring-0"
+            className="h-6 rounded-none border-0 bg-transparent px-0 text-base leading-4 text-wz-text shadow-none hover:border-0 focus-visible:border-0 focus-visible:shadow-none focus-visible:ring-0"
             value={draftName}
             placeholder="Main line"
             onChange={(e) => setDraftName(e.target.value)}
@@ -327,8 +315,8 @@ function BasicInfoPanel({
           onChange={setDraftNumbers}
         />
 
-        <div className="space-y-1.5">
-          <label htmlFor="cf-company" className="block text-sm font-medium">
+        <div className="space-y-2">
+          <label htmlFor="cf-company" className="block text-[13px] leading-4 font-semibold tracking-[0.4px] text-[#3b4c53]">
             Company
           </label>
           <BusinessProfileSelect
@@ -339,7 +327,7 @@ function BasicInfoPanel({
             noneLabel="Default company"
             placeholder="Default company"
           />
-          <p className="text-xs text-muted-foreground">
+          <p className="text-[11px] leading-4 tracking-[0.4px] text-[rgba(59,76,83,0.8)]">
             Jobs created from calls on this flow&apos;s numbers are pre-filled with this company
           </p>
         </div>
@@ -351,8 +339,8 @@ function BasicInfoPanel({
             aria-label="Live"
           />
           <span>
-            <span className="block text-sm font-medium">Live</span>
-            <span className="block text-xs text-muted-foreground">
+            <span className="block text-[13px] leading-4 font-semibold tracking-[0.4px] text-[#3b4c53]">Live</span>
+            <span className="mt-3 block text-[13px] leading-4 tracking-[0.4px] text-[rgba(59,76,83,0.8)]">
               A paused flow answers nothing — its numbers ring everyone online
               instead.
             </span>
@@ -398,12 +386,12 @@ function NumberField({
 
   return (
     <div className="space-y-1.5">
-      <div className="flex min-h-11 flex-wrap items-center gap-1.5 rounded-lg border px-2 py-1.5">
+      <div className="flex min-h-[49px] flex-wrap items-center gap-1.5 rounded-[4px] border border-input bg-white px-2.5 py-1.5">
         {selected.length ? (
           selected.map((number) => (
             <span
               key={number}
-              className="inline-flex items-center gap-1 rounded border bg-muted px-2 py-0.5 text-xs"
+              className="inline-flex items-center gap-1 rounded-[2px] border border-input bg-white py-[3px] pr-1 pl-1.5 text-[11.9px] leading-4 text-wz-value"
             >
               {formatPhone(number)}
               <button
@@ -417,7 +405,7 @@ function NumberField({
             </span>
           ))
         ) : (
-          <span className="px-1 text-sm text-muted-foreground">
+          <span className="px-1 text-sm text-wz-placeholder">
             No numbers assigned
           </span>
         )}
@@ -431,7 +419,7 @@ function NumberField({
           <ChevronDown className={cn("size-4 transition-transform", open && "rotate-180")} />
         </button>
       </div>
-      <p className="text-xs text-muted-foreground">
+      <p className="text-[11px] leading-4 tracking-[0.4px] text-[rgba(59,76,83,0.8)]">
         Select the numbers you want this flow to answer. A number can only be
         answered by one flow.
       </p>
@@ -442,7 +430,7 @@ function NumberField({
         ) : !owned || owned.length === 0 ? (
           <p className="rounded-lg border border-dashed p-3 text-center text-xs text-muted-foreground">
             You don&apos;t own any numbers yet.{" "}
-            <Link href="/settings/phone-numbers" className="text-brand underline">
+            <Link href="/calls/numbers" className="text-brand underline">
               Buy one
             </Link>{" "}
             and it will appear here.
@@ -522,24 +510,27 @@ function AddStepPanel({
   onPick: (type: CallFlowNodeType) => void;
   onClose: () => void;
 }) {
+  // Workiz's "Choose the next step" (pg_settings_phone_wz_builder_add_open):
+  // full-width rows under 1px rules — a 24px glyph 20px in, the 13px/600
+  // title 48px past it, 13px words under it.
   return (
-    <FlowPanel title="Add a step" onClose={onClose}>
-      <ul className="space-y-2">
+    <FlowPanel title="Choose the next step" onClose={onClose} bodyClassName="p-0">
+      <ul>
         {PALETTE.map(({ type, detail }) => {
           const Icon = ICONS[type];
           return (
-            <li key={type}>
+            <li key={type} className="border-b border-[#e8e8e8]">
               <button
                 type="button"
-                className="flex w-full items-start gap-3 rounded-lg border p-3 text-left hover:border-brand hover:bg-accent"
+                className="flex w-full cursor-pointer items-center gap-6 py-5 pr-5 pl-5 text-left outline-none hover:bg-wz-secondary-hover focus-visible:bg-wz-secondary-hover"
                 onClick={() => onPick(type)}
               >
-                <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg bg-brand/10 text-brand">
-                  <Icon className="size-4" />
-                </span>
+                <Icon className="size-6 shrink-0 text-foreground" strokeWidth={1.25} aria-hidden />
                 <span className="min-w-0">
-                  <span className="block text-sm font-medium">{STEP_LABEL[type]}</span>
-                  <span className="block text-xs text-muted-foreground">{detail}</span>
+                  <span className="block text-[13px] leading-[19px] font-semibold tracking-[0.4px] text-foreground">
+                    {STEP_LABEL[type]}
+                  </span>
+                  <span className="mt-1.5 block text-[13px] leading-4 tracking-[0.4px] text-wz-slate">{detail}</span>
                 </span>
               </button>
             </li>
@@ -581,54 +572,46 @@ function StepPanel({
       title={label}
       onClose={onClose}
       footer={
-        <div className="flex items-center justify-between gap-3">
-          <Button
-            type="button"
-            variant="ghost"
-            size="lg"
-            className="gap-1.5 text-destructive hover:text-destructive"
+        <div className="flex items-center gap-4">
+          <WzButton
+            variant="secondary"
+            size="regular"
+            className="h-[35px] flex-1"
+            icon={<WzTrashIcon />}
             aria-label={`Remove ${label}`}
             onClick={onRemove}
           >
-            <Trash2 className="size-4" /> Remove
-          </Button>
-          <Button
-            type="button"
-            variant="brand"
-            size="lg"
-            className="rounded-chip px-6"
-            onClick={onClose}
-          >
+            Remove
+          </WzButton>
+          <WzButton size="regular" className="h-[35px] flex-1" onClick={onClose}>
             Done
-          </Button>
+          </WzButton>
         </div>
       }
     >
       <div className="space-y-4">
         {node.canMoveEarlier || node.canMoveLater ? (
           <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="gap-1.5"
+            <WzButton
+              variant="secondary"
+              size="regular"
+              icon={<MoveUp />}
               aria-label={`Move ${label} earlier`}
               disabled={!node.canMoveEarlier}
               onClick={() => onMove(node.index - 1)}
             >
-              <MoveUp className="size-3.5" /> Earlier
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="gap-1.5"
+              Earlier
+            </WzButton>
+            <WzButton
+              variant="secondary"
+              size="regular"
+              icon={<MoveDown />}
               aria-label={`Move ${label} later`}
               disabled={!node.canMoveLater}
               onClick={() => onMove(node.index + 1)}
             >
-              <MoveDown className="size-3.5" /> Later
-            </Button>
+              Later
+            </WzButton>
           </div>
         ) : null}
 

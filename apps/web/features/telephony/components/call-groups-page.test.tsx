@@ -48,6 +48,12 @@ const group = (over: Partial<CallGroupWithMembers> = {}): CallGroupWithMembers =
   ...over,
 });
 
+/**
+ * Workiz Phone → Call groups (pg_settings_phone_wz_groups): its words and
+ * "Create a group", the strip, and the grid Name | Users and devices |
+ * Actions (pencil, bin); ours keep the ring type and the paused state as
+ * tags beside the name.
+ */
 describe("CallGroupsPage", () => {
   beforeEach(() => {
     mocks.groups = [];
@@ -55,10 +61,18 @@ describe("CallGroupsPage", () => {
     mocks.can.mockReturnValue(true);
   });
 
-  it("explains what a group is for when there are none", () => {
+  it("draws Workiz's words, Create a group and its columns", () => {
+    mocks.groups = [group()];
     render(<CallGroupsPage />);
-    expect(screen.getByText(/no call groups yet/i)).toBeInTheDocument();
-    expect(screen.getByText(/rings everyone with the phone switched on/i)).toBeInTheDocument();
+    expect(screen.getByText(/Call groups are a great way to forward calls/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create a group" })).toBeInTheDocument();
+    expect(screen.getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Name", "Users and devices", "Actions"]);
+  });
+
+  it("says Workiz's words over an empty grid", () => {
+    render(<CallGroupsPage />);
+    expect(screen.getByText("No call groups created")).toBeInTheDocument();
+    expect(screen.getByText(/Forward calls to multiple users or devices by creating your first group/)).toBeInTheDocument();
   });
 
   it("lists a group with its type, state and members", () => {
@@ -86,11 +100,11 @@ describe("CallGroupsPage", () => {
     render(<CallGroupsPage />);
 
     expect(screen.getByText("Dispatch")).toBeInTheDocument();
-    expect(screen.getByText("ring all")).toBeInTheDocument();
-    expect(screen.getByText("active")).toBeInTheDocument();
-    expect(screen.getByText(/1 member · Dana Petrenko/)).toBeInTheDocument();
-    expect(screen.getByText("in order")).toBeInTheDocument();
-    expect(screen.getByText("paused")).toBeInTheDocument();
+    expect(screen.getByText("Dana Petrenko (Softphone)")).toBeInTheDocument();
+    expect(screen.getByText("Marco Ruiz (Softphone, (404) 555-0134)")).toBeInTheDocument();
+    // Ring all is Workiz's only kind, so only ours are tagged.
+    expect(screen.getAllByText("In order")).toHaveLength(1);
+    expect(screen.getAllByText("Paused")).toHaveLength(1);
   });
 
   it("names a member who has left rather than showing a bare id", () => {
@@ -119,8 +133,15 @@ describe("CallGroupsPage", () => {
     mocks.groups = [group()];
     render(<CallGroupsPage />);
 
-    await u.click(screen.getByRole("button", { name: "Edit" }));
+    await u.click(screen.getByRole("button", { name: "Edit Dispatch" }));
     expect(screen.getByTestId("editor")).toHaveTextContent("editing Dispatch");
+  });
+
+  it("opens the editor for a new group from Create a group", async () => {
+    const u = userEvent.setup();
+    render(<CallGroupsPage />);
+    await u.click(screen.getByRole("button", { name: "Create a group" }));
+    expect(screen.getByTestId("editor")).toHaveTextContent("creating");
   });
 
   it("confirms before deleting, and says what is not touched", async () => {
@@ -141,8 +162,9 @@ describe("CallGroupsPage", () => {
     render(<CallGroupsPage />);
 
     expect(screen.getByText("Dispatch")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /new group/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Create a group" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Edit Dispatch" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /delete dispatch/i })).not.toBeInTheDocument();
   });
 
   it("says so plainly when settings are off-limits entirely", () => {

@@ -163,8 +163,9 @@ export function FlowCanvas({
       ref={viewportRef}
       data-testid="flow-canvas"
       onPointerDown={onPointerDown}
+      // Workiz's react-flow pane (pg_settings_phone_wz_builder_canvas): #f3f4f5, a one-off.
       className={cn(
-        "relative flex-1 overflow-hidden bg-muted",
+        "relative flex-1 overflow-hidden bg-[#f3f4f5]",
         panning ? "cursor-grabbing" : "cursor-grab",
       )}
     >
@@ -176,8 +177,8 @@ export function FlowCanvas({
           transform: `translate(${offset.x}px, ${offset.y}px) scale(${zoom})`,
           // The dot grid travels with the flow, so panning reads as moving the
           // paper rather than the camera.
-          backgroundImage:
-            "radial-gradient(circle, color-mix(in oklch, currentColor 18%, transparent) 1px, transparent 1px)",
+          // react-flow's dots: 1px #c4c4c4 every 16px.
+          backgroundImage: "radial-gradient(circle, #c4c4c4 1px, transparent 1px)",
           backgroundSize: "16px 16px",
         }}
       >
@@ -187,7 +188,7 @@ export function FlowCanvas({
           link.label ? (
             <span
               key={`${link.id}-label`}
-              className="absolute -translate-x-1/2 -translate-y-1/2 rounded bg-muted px-1.5 text-[11px] whitespace-nowrap text-muted-foreground"
+              className="absolute -translate-x-1/2 -translate-y-1/2 bg-[#f3f4f5] px-1.5 text-xs leading-4 tracking-[0.4px] whitespace-nowrap text-wz-strong"
               style={labelPosition(link)}
             >
               {link.label}
@@ -203,7 +204,8 @@ export function FlowCanvas({
               aria-label="Add a step"
               onPointerDown={(e) => e.stopPropagation()}
               onClick={() => onAdd(link.plus!.path, link.plus!.index)}
-              className="absolute grid size-6 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border border-dashed bg-background text-muted-foreground transition-colors hover:border-solid hover:border-brand hover:bg-brand hover:text-brand-foreground"
+              // Workiz's DefaultEdge "+": a 28px white circle, 1px dashed ink.
+              className="absolute grid size-7 -translate-x-1/2 -translate-y-1/2 cursor-pointer place-items-center rounded-full border border-dashed border-[#3b4c53] bg-white text-[#3b4c53] transition-colors hover:border-solid hover:bg-wz-secondary-hover"
               style={{ left: link.plus.x, top: link.plus.y }}
             >
               <Plus className="size-3.5" />
@@ -244,7 +246,8 @@ export function FlowCanvas({
         )}
       </div>
 
-      <div className="absolute bottom-4 left-4 flex flex-col overflow-hidden rounded-lg border bg-background shadow-sm">
+      {/* react-flow's controls: 26×27 buttons, #fefefe, 1px #eee rules, 0 0 2px 1px rgba(0,0,0,.08). */}
+      <div className="absolute bottom-1 left-2.5 flex flex-col shadow-[0_0_2px_1px_rgba(0,0,0,0.08)]">
         <ZoomButton label="Zoom in" onClick={() => nudgeZoom(ZOOM_STEP)}>
           <Plus className="size-4" />
         </ZoomButton>
@@ -274,7 +277,7 @@ function ZoomButton({
       aria-label={label}
       onPointerDown={(e) => e.stopPropagation()}
       onClick={onClick}
-      className="grid size-8 place-items-center text-muted-foreground not-last:border-b hover:bg-muted hover:text-foreground"
+      className="grid h-[27px] w-[26px] cursor-pointer place-items-center rounded-[2px] border-b border-[#eeeeee] bg-[#fefefe] text-foreground hover:bg-[#f4f4f4] [&_svg]:size-3"
     >
       {children}
     </button>
@@ -288,7 +291,8 @@ function ZoomButton({
 function Links({ links }: { links: LayoutLink[] }) {
   return (
     <svg
-      className="pointer-events-none absolute inset-0 size-full text-border"
+      // react-flow's edges: 1px #b1b1b7; its handles: 8px #555 dots ringed in white.
+      className="pointer-events-none absolute inset-0 size-full text-[#b1b1b7]"
       aria-hidden
     >
       {links.map((link) => {
@@ -300,10 +304,10 @@ function Links({ links }: { links: LayoutLink[] }) {
               points={link.points.map((p) => `${p.x},${p.y}`).join(" ")}
               fill="none"
               stroke="currentColor"
-              strokeWidth={1.5}
+              strokeWidth={1}
             />
-            <circle cx={first.x} cy={first.y} r={3} fill="currentColor" />
-            <circle cx={last.x} cy={last.y} r={3} fill="currentColor" />
+            <circle cx={first.x} cy={first.y} r={4} fill="#555555" stroke="#ffffff" strokeWidth={1} />
+            <circle cx={last.x} cy={last.y} r={4} fill="#555555" stroke="#ffffff" strokeWidth={1} />
           </g>
         );
       })}
@@ -347,17 +351,19 @@ function Card({
       onPointerDown={(e) => e.stopPropagation()}
       onClick={onSelect}
       style={{ left: node.x - CARD_W / 2, top: node.y, width: CARD_W, height: CARD_H }}
+      // Workiz's DefaultBlock (pg_settings_phone_wz_builder_canvas): 210×77
+      // white, 8px corners, 0 0 20px rgba(0,0,0,.15); the glyph and 13px 600
+      // title, the 11px/16px rgba(59,76,83,.7) detail 10px under it.
       className={cn(
-        "absolute flex flex-col items-center justify-center rounded-xl border bg-card px-4 text-center shadow-sm transition-shadow hover:shadow-md",
-        selected && "border-brand ring-2 ring-brand/30",
-        node.kind === "entry" && "border-dashed",
+        "absolute flex cursor-pointer flex-col items-center justify-center rounded-[8px] bg-white px-4 text-center shadow-[0_0_20px_rgba(0,0,0,0.15)] transition-shadow outline-none hover:shadow-[0_0_20px_rgba(0,0,0,0.25)] focus-visible:ring-2 focus-visible:ring-wz-focus",
+        selected && "ring-2 ring-wz-focus",
       )}
     >
       <span className="flex items-center gap-2">
-        <Icon className="size-4 shrink-0 text-muted-foreground" />
-        <span className="text-sm font-semibold">{title}</span>
+        <Icon className="size-4 shrink-0 text-[#3a4b52]" strokeWidth={1.5} />
+        <span className="text-[13px] leading-5 font-semibold tracking-[0.4px] text-[#3a4b52]">{title}</span>
       </span>
-      <span className="mt-1 line-clamp-1 w-full text-xs text-muted-foreground">
+      <span className="mt-2.5 line-clamp-1 w-full px-[5px] text-[11px] leading-4 tracking-[0.4px] text-[rgba(59,76,83,0.7)]">
         {detail}
       </span>
     </button>

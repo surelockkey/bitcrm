@@ -125,4 +125,24 @@ describe("WzLocalGrid — Workiz's grid under a client-page tab", () => {
     rerender(<WzLocalGrid label="Jobs" columns={COLUMNS} rows={ROWS} rowKey={(r) => r.id} pagerInside />);
     expect(frame().contains(screen.getByTestId("list-pagination"))).toBe(true);
   });
+
+  it("says the caller's words over an empty grid, or nothing at all (emptyText)", () => {
+    const { rerender } = render(
+      <WzLocalGrid
+        label="Call groups"
+        columns={COLUMNS}
+        rows={[]}
+        rowKey={(r) => r.id}
+        emptyText={
+          <>
+            <b>No call groups created</b> Forward calls to multiple users
+          </>
+        }
+      />,
+    );
+    expect(screen.getByRole("status")).toHaveTextContent("No call groups created Forward calls to multiple users");
+    expect(screen.queryByText("No Records Found")).not.toBeInTheDocument();
+    rerender(<WzLocalGrid label="Numbers" columns={COLUMNS} rows={[]} rowKey={(r) => r.id} emptyText={null} />);
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
 });
