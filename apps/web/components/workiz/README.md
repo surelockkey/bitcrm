@@ -397,10 +397,11 @@ Measured off `rep_activity_wz_*` (notes:
 - **`WzDateRangePicker` `rangeText={(value) => string | undefined}`** (new,
   optional) — words in place of the days: Activity's "All time" box reads
   "All time" twice (Workiz sends no dates for it).
-- **`WzPager` `plainNumbers`** (new, optional) — "Showing 1 to 10 of 4392
-  results", "Page 1 of 440": react-table prints its counts without thousands
-  separators, in every Workiz capture (370338, 8806…). Off by default so
-  existing lists keep theirs; the coordinator may flip it kit-wide.
+- **`WzPager` `plainNumbers`** — "Showing 1 to 10 of 4392 results", "Page 1
+  of 440": react-table prints its counts without thousands separators, in
+  every Workiz capture (370338, 8806…). **On by default since 2026-10-09**
+  (app_audit #9: Contacts printed "4,641" beside reports printing "3103");
+  `plainNumbers={false}` groups them for a list that wants that.
 
 ## The legacy report kit (2026-10-08, agent `rep_jobstats`)
 

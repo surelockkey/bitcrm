@@ -18,7 +18,7 @@ import {
  *
  * It came in five waves: the header buttons, then the rows with "Showing 0"
  * turning into "Showing 50", then the Company column going from "—" to
- * names, then "of 4,641" under the table, then the Source column going from
+ * names, then "of 4641" under the table, then the Source column going from
  * raw ids to names. And a search emptied the list ("No matching contacts")
  * before the skeleton and then the matches came.
  *
@@ -129,7 +129,7 @@ describe("ContactsPage — no jumping", () => {
     const watch = watchFirstFrame(rowsUp, () => ({
       company: screen.queryAllByText("Acme Storage").length > 0,
       source: screen.queryAllByText("Google Ads").length > 0,
-      showing: text().includes("Showing 1 to 3 of 4,641 results"),
+      showing: text().includes("Showing 1 to 3 of 4641 results"),
       cards: !!screen.queryByRole("group", { name: "Clients" }) && text().includes("Due from 2 clients") && text().includes("Estimates Pending $1,200"),
       addClient: !!screen.queryByRole("button", { name: /add client/i }),
       skeletons: skeletonCount(),

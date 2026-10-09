@@ -36,7 +36,8 @@ describe("ListPagination", () => {
   it("says which rows are on screen and how many there are in total", () => {
     render(<ListPagination pager={pager()} size={50} onSizeChange={noop} />);
 
-    expect(screen.getByText("Showing 1 to 50 of 1,234 results")).toBeInTheDocument();
+    // Workiz's react-table prints the count raw ("1234"), so the kit does.
+    expect(screen.getByText("Showing 1 to 50 of 1234 results")).toBeInTheDocument();
   });
 
   it("says only what it knows when the total is not counted", () => {
@@ -63,7 +64,7 @@ describe("ListPagination", () => {
     );
 
     // Сервер спинив лічильник на стелі: «з 10 000» було б неправдою.
-    expect(screen.getByText("Showing 1 to 50 of 10,000+ results")).toBeInTheDocument();
+    expect(screen.getByText("Showing 1 to 50 of 10000+ results")).toBeInTheDocument();
   });
 
   it("cannot go back from the first page", () => {
@@ -215,7 +216,7 @@ describe("ListPagination", () => {
       expect(screen.getByText("Page 1 of 200+")).toBeInTheDocument();
     });
 
-    it("thousands are grouped, as the row count is", () => {
+    it("thousands print raw, as the row count does", () => {
       render(
         <ListPagination
           pager={pager({ page: 1, totalPages: 1234 })}
@@ -224,7 +225,7 @@ describe("ListPagination", () => {
         />,
       );
 
-      expect(screen.getByText("Page 1 of 1,234")).toBeInTheDocument();
+      expect(screen.getByText("Page 1 of 1234")).toBeInTheDocument();
     });
 
     // Технік на інвойсах: сервер сказав, що числа для нього немає.
