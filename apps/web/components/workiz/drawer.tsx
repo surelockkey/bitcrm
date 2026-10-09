@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import type { ComponentProps, ReactNode } from "react";
 import { Dialog } from "radix-ui";
 import { X } from "lucide-react";
 
@@ -30,6 +30,8 @@ export function WzDrawer({
   head = "plain",
   className,
   bodyClassName,
+  footerClassName,
+  onInteractOutside,
   children,
 }: {
   open: boolean;
@@ -39,6 +41,18 @@ export function WzDrawer({
   footer?: ReactNode;
   /** Panel width in px (Workiz's is 422). */
   width?: number;
+  /**
+   * Classes merged into the footer bar — Workiz's older pane buttons
+   * (`_paneButtons`, "Add team member"): 15px down, 20px from the right,
+   * 16px apart, a `0 0 5px rgba(50,50,50,.2)` glow. Default: the fields
+   * panel's 21px / 24px / 9px.
+   */
+  footerClassName?: string;
+  /**
+   * A pointer or focus landing outside the panel; `preventDefault()` keeps
+   * it open (a pick in a portalled list is not a click outside).
+   */
+  onInteractOutside?: ComponentProps<typeof Dialog.Content>["onInteractOutside"];
   /**
    * `plain` (default): the white head, title 24px in. `band`: Workiz's older
    * right pane (`right-pane-content`, the dashboard's "Dashboard widgets",
@@ -61,6 +75,7 @@ export function WzDrawer({
         <Dialog.Content
           aria-describedby={undefined}
           data-slot="wz-drawer"
+          onInteractOutside={onInteractOutside}
           style={width === 422 ? undefined : { width }}
           className={cn(
             "fixed inset-y-0 right-0 z-50 flex w-[422px] max-w-full flex-col bg-popover text-foreground shadow-[-4px_0_8px_rgba(0,0,0,0.12)] outline-none data-open:animate-in data-open:slide-in-from-right-10 data-closed:animate-out data-closed:slide-out-to-right-10",
@@ -89,7 +104,9 @@ export function WzDrawer({
           </div>
           <div className={cn("min-h-0 flex-1 overflow-y-auto px-6 pt-6 pb-4", bodyClassName)}>{children}</div>
           {footer ? (
-            <div className="flex h-[65px] shrink-0 items-start justify-end gap-[9px] bg-popover px-6 pt-[21px]">{footer}</div>
+            <div className={cn("flex h-[65px] shrink-0 items-start justify-end gap-[9px] bg-popover px-6 pt-[21px]", footerClassName)}>
+              {footer}
+            </div>
           ) : null}
         </Dialog.Content>
       </Dialog.Portal>

@@ -35,6 +35,12 @@ export interface WzOutlinedSelectProps {
    * only its value. Off by default.
    */
   labelHidden?: boolean;
+  /**
+   * Classes merged into the box itself — its height above all: Workiz draws
+   * the same shell 49px tall beside a 48px floating-label text box ("+1"
+   * on Add team member, subcontractor_wz_04_add_new_user). Default 42px.
+   */
+  controlClassName?: string;
 
   /** Words that explain the box (a reason it is locked); joined with the error's. */
   "aria-describedby"?: string;
@@ -61,6 +67,7 @@ export function WzOutlinedSelect({
   className,
   ref,
   labelHidden = false,
+  controlClassName,
 
   "aria-describedby": describedBy,
 }: WzOutlinedSelectProps) {
@@ -104,7 +111,7 @@ export function WzOutlinedSelect({
         isSelected={isSelected}
         look="time"
         anchor={
-          <div className={cn(OUTLINE, "relative h-[42px] w-full text-[13px] leading-4 text-wz-strong")}>
+          <div className={cn(OUTLINE, "relative h-[42px] w-full text-[13px] leading-4 text-wz-strong", controlClassName)}>
             <span
               aria-hidden
               className="absolute top-1/2 right-[9px] flex -translate-y-1/2 text-foreground group-data-[disabled=true]/wzo:text-wz-outline-disabled"
@@ -123,15 +130,17 @@ export function WzOutlinedSelect({
           {label}
         </NotchedLabel>
       )}
+      {/* The value and the placeholder sit on the box's middle (13px down in
+          the 42px box), whatever height `controlClassName` gives it. */}
       {!typing ? (
         chosen ? (
-          <div className="pointer-events-none absolute top-[13px] right-10 left-3 truncate text-[13px] leading-4 text-foreground">
+          <div className="pointer-events-none absolute top-1/2 right-10 left-3 -translate-y-1/2 truncate text-[13px] leading-4 text-foreground">
             {chosen.label}
           </div>
         ) : placeholder ? (
           <div
             data-slot="wz-outlined-placeholder"
-            className="pointer-events-none absolute top-[13px] right-10 left-3 truncate text-[13px] leading-4 text-wz-outline-label"
+            className="pointer-events-none absolute top-1/2 right-10 left-3 -translate-y-1/2 truncate text-[13px] leading-4 text-wz-outline-label"
           >
             {placeholder}
           </div>
@@ -143,7 +152,7 @@ export function WzOutlinedSelect({
         onFocus={() => setFocused(true)}
         aria-invalid={error ? true : undefined}
         aria-describedby={cn(error && errorId, describedBy) || undefined}
-        className="absolute top-0 right-10 left-3 h-[42px] min-w-0 bg-transparent p-0 text-[13px] leading-4 text-wz-value outline-none"
+        className="absolute inset-y-0 right-10 left-3 min-w-0 bg-transparent p-0 text-[13px] leading-4 text-wz-value outline-none"
       />
       {name ? <input type="hidden" name={name} value={value} /> : null}
       {error ? <WzFieldError id={errorId}>{error}</WzFieldError> : null}

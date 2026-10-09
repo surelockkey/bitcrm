@@ -73,6 +73,20 @@ describe("WzDrawer", () => {
     expect(cls(footer)).toEqual(expect.arrayContaining(["h-[65px]", "items-start", "pt-[21px]"]));
   });
 
+  // Workiz's older pane buttons (`_paneButtons`, subcontractor_wz_04_add_new_user):
+  // 15px down, 20px from the right, 16px apart, under a 0 0 5px glow.
+  it("takes footer classes for Workiz's older pane buttons, keeping the bar's own", () => {
+    render(
+      <WzDrawer open onOpenChange={() => {}} title="Add team member" footerClassName="gap-4 px-5 pt-[15px]" footer={<button type="button">Invite user</button>}>
+        body
+      </WzDrawer>,
+    );
+    const footer = screen.getByRole("button", { name: "Invite user" }).parentElement!;
+    expect(cls(footer)).toEqual(expect.arrayContaining(["h-[65px]", "gap-4", "px-5", "pt-[15px]", "bg-popover"]));
+    expect(cls(footer)).not.toContain("gap-[9px]");
+    expect(cls(footer)).not.toContain("pt-[21px]");
+  });
+
   it("closes from its ×", async () => {
     const onOpenChange = drawer();
     await userEvent.click(screen.getByRole("button", { name: "Close" }));

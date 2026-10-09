@@ -168,3 +168,6 @@ export { WzSwitchRow } from "./switch-row";
 
 // Team member type: Workiz's "_btnRadio" User | Subcontractor (agent subcontractor).
 export { WzRadioButtons, type WzRadioButtonsOption } from "./radio-buttons";
+
+// Add team member (agent audit_fix): Workiz's "+1 | Phone" pair.
+export { WzCountryPhoneField } from "./country-phone-field";
