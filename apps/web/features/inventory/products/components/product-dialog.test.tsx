@@ -386,6 +386,13 @@ describe("Edit Item (Price Book layout)", () => {
     ).toBeInTheDocument();
   });
 
+  // uikit_wz_pb_addnew: Workiz's empty "Title" rests inside its box like Model # (pg_pricebook).
+  it("rests an empty Title inside its box on Add New Item, as Workiz does", async () => {
+    open(null, { variant: "price-book" });
+    await screen.findByRole("heading", { name: "Add New Item" });
+    expect(screen.getByText("Title", { selector: "label" })).not.toHaveAttribute("data-floated");
+  });
+
   it("shows Model # and category the way Workiz does: the importer's WZ- SKU and Uncategorized are empty", async () => {
     const user = userEvent.setup();
     open("p2", { variant: "price-book" });

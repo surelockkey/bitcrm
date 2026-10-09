@@ -214,6 +214,19 @@ describe("WzReportGrid", () => {
   });
 });
 
+describe("WzReportGrid cellAlign (pg_pricebook)", () => {
+  it("centres every record cell vertically when asked — Workiz's price book rows (align-items: center)", () => {
+    render(<WzReportGrid aria-label="Activity" columns={columns} rows={rows} rowKey={(r) => r.id} cellAlign="middle" />);
+    const cells = bodyRows()[0].querySelectorAll("td");
+    expect([...cells].every((td) => td.className.includes("align-middle") && !td.className.includes("align-top"))).toBe(true);
+  });
+
+  it("keeps the report's top-aligned cells by default", () => {
+    render(<WzReportGrid aria-label="Activity" columns={columns} rows={rows} rowKey={(r) => r.id} />);
+    expect(bodyRows()[0].querySelector("td")!.className).toContain("align-top");
+  });
+});
+
 describe("wzNextSort", () => {
   // react-table: the first click on an unsorted column sorts it ascending,
   // then each click turns it round (rep_activity_wz_08_sort_asc / _08b).

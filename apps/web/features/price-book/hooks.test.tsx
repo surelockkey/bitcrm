@@ -8,6 +8,7 @@ import { server } from "@/test/msw/server";
 import { queryKeys } from "@/lib/query-keys";
 import type { ProductFilter } from "@/features/inventory/products/lib";
 import {
+  useCategoryItemCounts,
   useCreateCatalogEntry,
   usePriceBookCount,
   usePriceBookItems,
@@ -125,6 +126,69 @@ describe("usePriceBookCount", () => {
   });
 });
 
+/** Workiz's "No. of active items" beside each category: one count per category, under the same key the list's count uses. */
+describe("useCategoryItemCounts", () => {
+  it("counts the active items filed under each category, and answers with them all at once", async () => {
+    const seen: string[] = [];
+    server.use(
+      http.get("*/inventory/products/count", ({ request }) => {
+        const q = new URL(request.url).searchParams;
+        seen.push(`${q.get("category")}|${q.get("status")}`);
+        return HttpResponse.json({ success: true, data: { total: q.get("category") === "Locks" ? 349 : 1, atLeast: false } });
+      }),
+    );
+    const client = newClient();
+    const { result } = renderHook(() => useCategoryItemCounts(["Locks", "A > B"], true), { wrapper: wrapper(client) });
+    expect(result.current.isLoading).toBe(true);
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect([...result.current.counts]).toEqual([
+      ["Locks", 349],
+      ["A > B", 1],
+    ]);
+    expect(seen.sort()).toEqual(["A > B|active", "Locks|active"]);
+    expect(client.getQueryData(queryKeys.inventory.products.count({ category: "Locks", status: "active" }))).toEqual({
+      total: 349,
+      atLeast: false,
+    });
+  });
+
+  it("asks nothing when not allowed, and is not loading then", () => {
+    const { result } = renderHook(() => useCategoryItemCounts(["Locks"], false), { wrapper: wrapper(newClient()) });
+    expect(result.current.isLoading).toBe(false);
+    expect(result.current.counts.size).toBe(0);
+  });
+});
+
+describe("renaming a category", () => {
+  it("refreshes the items too — the server moves the items filed under the old name", async () => {
+    server.use(
+      http.put("*/inventory/categories/:id", () =>
+        HttpResponse.json({ success: true, data: { id: "c1", name: "Door Locks", active: true, movedItems: 3 } }),
+      ),
+    );
+    const client = newClient();
+    const items = queryKeys.inventory.products.list({ status: "active", limit: 10 });
+    client.setQueryData(items, { pages: [], pageParams: [] });
+    const { result } = renderHook(() => useUpdateCatalogEntry("categories"), { wrapper: wrapper(client) });
+    await act(() => result.current.mutateAsync({ id: "c1", body: { name: "Door Locks" } }));
+    expect(client.getQueryState(items)?.isInvalidated).toBe(true);
+  });
+
+  it("leaves the items alone when only the switch or the description changed", async () => {
+    server.use(
+      http.put("*/inventory/categories/:id", () =>
+        HttpResponse.json({ success: true, data: { id: "c1", name: "Locks", active: false } }),
+      ),
+    );
+    const client = newClient();
+    const items = queryKeys.inventory.products.list({ status: "active", limit: 10 });
+    client.setQueryData(items, { pages: [], pageParams: [] });
+    const { result } = renderHook(() => useUpdateCatalogEntry("categories"), { wrapper: wrapper(client) });
+    await act(() => result.current.mutateAsync({ id: "c1", body: { active: false, description: "x" } }));
+    expect(client.getQueryState(items)?.isInvalidated).toBe(false);
+  });
+});
+
 describe("catalog writes", () => {
   const row = { id: "c1", name: "Locks", active: true, createdBy: "", createdAt: "", updatedAt: "" };
 
@@ -142,8 +206,8 @@ describe("catalog writes", () => {
     const client = newClient();
     client.setQueryData(listKey, []);
     const { result } = renderHook(() => useCreateCatalogEntry(kind), { wrapper: wrapper(client) });
-    await act(() => result.current.mutateAsync({ name: "Locks", active: true }));
-    expect(bodies).toEqual([{ name: "Locks", active: true }]);
+    await act(() => result.current.mutateAsync({ name: "Locks", active: true, description: "Cylinders" }));
+    expect(bodies).toEqual([{ name: "Locks", active: true, description: "Cylinders" }]);
     expect(client.getQueryState(listKey)?.isInvalidated).toBe(true);
   });
 

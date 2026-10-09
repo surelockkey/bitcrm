@@ -50,26 +50,62 @@ export function WzTabLinks({
   tabs,
   active,
   label,
+  variant = "legacy",
+  pending = false,
+  className,
 }: {
   tabs: { id: string; label: string; href: string }[];
   active: string | null;
   /** The strip's accessible name. */
   label: string;
+  /**
+   * `"legacy"` (default): the Phone strip above. `"page"`: Workiz's big
+   * `_tabs` (the Price book, pg_pricebook_wz_01_default) — 16px/16px #404040
+   * words 15px 25px, 500 idle; the open one 600 on white over a 4px #3e4b51
+   * bar (4px corners) laid over the 1px #ccc rule.
+   */
+  variant?: "legacy" | "page";
+  /**
+   * The links are not known yet (the permissions are loading): each tab
+   * holds its place, the same size, as a placeholder instead of a link.
+   */
+  pending?: boolean;
+  /** Spacing from the caller (the page variant has none of its own). */
+  className?: string;
 }) {
+  const page = variant === "page";
+  const shape = page
+    ? "relative shrink-0 px-[25px] py-[15px] text-base leading-4 whitespace-nowrap text-wz-strong"
+    : "relative shrink-0 px-[25px] py-[15px] text-[13px] leading-4 whitespace-nowrap";
   return (
-    <nav aria-label={label} className="sticky left-0 mt-6 flex shrink-0 overflow-x-auto border-b border-input">
+    <nav
+      aria-label={label}
+      aria-busy={pending || undefined}
+      className={cn("sticky left-0 flex shrink-0 overflow-x-auto border-b border-input", !page && "mt-6", className)}
+    >
       {tabs.map((t) => {
         const on = t.id === active;
+        if (pending) {
+          return (
+            <span key={t.id} data-tab-placeholder aria-hidden className={cn(shape, "font-medium")}>
+              <span className="animate-pulse rounded bg-muted text-transparent">{t.label}</span>
+            </span>
+          );
+        }
         return (
           <Link
             key={t.id}
             href={t.href}
             aria-current={on ? "page" : undefined}
             className={cn(
-              "relative shrink-0 px-[25px] py-[15px] text-[13px] leading-4 whitespace-nowrap",
-              on
-                ? "font-semibold text-wz-strong after:absolute after:inset-x-0 after:-bottom-px after:h-1 after:bg-wz-tab-bar"
-                : "font-medium text-wz-outline-label hover:text-wz-strong",
+              shape,
+              page
+                ? on
+                  ? "bg-white font-semibold after:absolute after:inset-x-0 after:-bottom-px after:h-1 after:rounded-[4px] after:bg-wz-tab-bar"
+                  : "font-medium hover:text-foreground"
+                : on
+                  ? "font-semibold text-wz-strong after:absolute after:inset-x-0 after:-bottom-px after:h-1 after:bg-wz-tab-bar"
+                  : "font-medium text-wz-outline-label hover:text-wz-strong",
             )}
           >
             {t.label}

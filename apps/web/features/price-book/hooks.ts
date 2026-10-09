@@ -4,9 +4,11 @@ import {
   keepPreviousData,
   useInfiniteQuery,
   useMutation,
+  useQueries,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
+import { InventoryStatus } from "@bitcrm/types";
 import { toast } from "sonner";
 import { queryKeys } from "@/lib/query-keys";
 import { getApiErrorMessage } from "@/lib/api/errors";
@@ -43,6 +45,35 @@ export function usePriceBookCount(filter: ProductFilter) {
   });
 }
 
+/**
+ * Workiz's "No. of active items" beside each category: the active items filed
+ * under each name, one count per category (the server keeps each 30s), under
+ * the key the Items tab's own count uses. `isLoading` holds until every one
+ * has answered, so the column fills in with the rows, not after them.
+ */
+export function useCategoryItemCounts(names: readonly string[], enabled: boolean) {
+  return useQueries({
+    queries: names.map((category) => {
+      const filter = { category, status: InventoryStatus.ACTIVE };
+      return {
+        queryKey: queryKeys.inventory.products.count(filter),
+        queryFn: () => countProducts(filter),
+        staleTime: 30_000,
+        enabled,
+      };
+    }),
+    combine: (results) => ({
+      counts: new Map(
+        names.flatMap((name, i) => {
+          const total = results[i]?.data?.total;
+          return typeof total === "number" ? [[name, total] as const] : [];
+        }),
+      ),
+      isLoading: enabled && results.some((r) => r.isPending && r.fetchStatus !== "idle"),
+    }),
+  });
+}
+
 /* ------------------------------------------------------------------ *
  * The two small catalogs: item categories and brands
  * ------------------------------------------------------------------ */
@@ -69,15 +100,20 @@ export function useCreateCatalogEntry(kind: CatalogKind) {
   const c = CATALOG[kind];
   return useMutation({
     mutationFn: (body: CatalogCreateBody) => c.create(body),
-    onSuccess: (row) => {
+    onSuccess: () => {
       qc.invalidateQueries({ queryKey: c.all() });
-      toast.success(`${c.noun} “${row.name}” created`);
+      // Workiz's words ("Category successfully created").
+      toast.success(`${c.noun} successfully created`);
     },
     onError: (e) => toast.error(getApiErrorMessage(e)),
   });
 }
 
-/** Save, archive (`active: false`) and restore (`active: true`) are all this one PUT. */
+/**
+ * Save, disable (`active: false`) and enable (`active: true`) are all this
+ * one PUT. A category's new name moves its items on the server, so their
+ * lists and counts are asked for again too.
+ */
 export function useUpdateCatalogEntry(kind: CatalogKind) {
   const qc = useQueryClient();
   const c = CATALOG[kind];
@@ -85,9 +121,12 @@ export function useUpdateCatalogEntry(kind: CatalogKind) {
     mutationFn: ({ id, body }: { id: string; body: CatalogUpdateBody }) => c.update(id, body),
     onSuccess: (_row, { body }) => {
       qc.invalidateQueries({ queryKey: c.all() });
-      const onlyActive = body.name === undefined && body.active !== undefined;
+      if (kind === "categories" && body.name !== undefined) {
+        qc.invalidateQueries({ queryKey: queryKeys.inventory.products.all() });
+      }
+      const onlyActive = body.name === undefined && body.description === undefined && body.active !== undefined;
       toast.success(
-        onlyActive ? `${c.noun} ${body.active ? "restored" : "archived"}` : `${c.noun} saved`,
+        onlyActive ? `${c.noun} ${body.active ? "enabled" : "disabled"}` : `${c.noun} successfully updated`,
       );
     },
     onError: (e) => toast.error(getApiErrorMessage(e)),

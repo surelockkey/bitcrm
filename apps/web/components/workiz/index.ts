@@ -118,3 +118,8 @@ export {
 export { WzButtonLink } from "./button";
 export { WZ_MENU_POPUP, WZ_MENU_POPUP_ITEM } from "./menu-popup";
 export { WzDocSectionHead, WzTotalsBoxRow, WZ_TOTALS_BOX } from "./document-parts";
+
+// Price book pieces (pg_pricebook_wz_*).
+export { WzExplainHeader } from "./explain-header";
+export { WzItemImage, WzItemImagePlaceholder } from "./item-image";
+export { WzEditIcon, WzTrashIcon } from "./icons";

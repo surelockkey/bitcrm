@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { ImageIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ProductWithMedia } from "../lib";
@@ -27,9 +27,15 @@ const BOX =
 export function ProductThumb({
   product,
   onOpen,
+  placeholder,
 }: {
   product: ProductWithMedia;
   onOpen: (product: ProductWithMedia) => void;
+  /**
+   * What fills the frame without a picture — the Price Book passes Workiz's
+   * own (`WzItemImagePlaceholder`). Left out: the grey picture icon.
+   */
+  placeholder?: ReactNode;
 }) {
   // The URL that failed, not a flag: the next hour's URL gets its own chance.
   const [failed, setFailed] = useState<string | null>(null);
@@ -49,7 +55,7 @@ export function ProductThumb({
       onError={() => setFailed(url)}
     />
   ) : (
-    <ImageIcon className="size-5" strokeWidth={1.5} />
+    (placeholder ?? <ImageIcon className="size-5" strokeWidth={1.5} />)
   );
 
   if (!hasPhoto) {

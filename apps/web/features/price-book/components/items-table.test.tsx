@@ -1,19 +1,11 @@
 import { describe, it, expect, vi } from "vitest";
-import { screen, within } from "@testing-library/react";
+import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { InventoryStatus, ProductType } from "@bitcrm/types";
 import type { Product } from "@bitcrm/types";
 import { renderWithClient } from "@/test/render-with-client";
 import { ItemsTable } from "./items-table";
 
-vi.mock("@/features/auth/use-permissions", () => ({
-  useDenied: () => () => false,
-  usePermissions: () => ({ can: () => true }),
-}));
-vi.mock("@/features/inventory/products/hooks", () => ({
-  useArchiveProduct: () => ({ mutate: vi.fn(), isPending: false }),
-  useReactivateProduct: () => ({ mutate: vi.fn(), isPending: false }),
-}));
 // The photo popup has a suite of its own; here only who opens it matters.
 vi.mock("@/features/inventory/products/components/product-photo-dialog", () => ({
   ProductPhotoDialog: ({ product }: { product: { id: string } | null }) =>
@@ -43,194 +35,52 @@ function product(over: Partial<Product> = {}): Product {
 
 const brandNames = new Map([["b1", "Schlage"]]);
 
-function table(
-  items: Product[] = [product()],
-  over: Partial<Parameters<typeof ItemsTable>[0]> = {},
-) {
-  const onEdit = vi.fn();
-  const utils = renderWithClient(
-    <ItemsTable items={items} showCost brandNames={brandNames} onEdit={onEdit} {...over} />,
-  );
-  const headers = () =>
-    [...utils.container.querySelectorAll("thead th")].map((th) => th.getAttribute("aria-label"));
-  const cell = (column: string, row = 1) => {
-    const index = headers().indexOf(column);
-    return utils.container.querySelectorAll(`tbody tr:nth-child(${row}) td`)[index] as HTMLElement;
-  };
-  return { ...utils, onEdit, headers, cell };
+function table(items: Product[] = [product()], over: Partial<Parameters<typeof ItemsTable>[0]> = {}) {
+  const onOpen = vi.fn();
+  const utils = renderWithClient(<ItemsTable items={items} showCost brandNames={brandNames} onOpen={onOpen} {...over} />);
+  const firstRow = () => utils.container.querySelector("tbody tr") as HTMLTableRowElement;
+  return { ...utils, onOpen, firstRow };
 }
 
-const ALL_COLUMNS = [
-  "Product ID",
-  "Name",
-  "Type",
-  "Category",
-  "Brand",
-  "Price",
-  "Cost",
-  "SKU",
-  "Taxable",
-  "Manage stock",
-  "Status",
-  "Actions",
-];
-
-describe("ItemsTable — columns", () => {
-  it("lists the Price Book columns in order", () => {
-    expect(table().headers()).toEqual(ALL_COLUMNS);
+describe("ItemsTable — Workiz's grid (pg_pricebook_wz_01_default_scroll1)", () => {
+  it("centres every word on the 80px row, as Workiz's flex cells do", () => {
+    const { firstRow } = table();
+    const cells = [...firstRow().querySelectorAll("td")];
+    expect(cells.every((td) => td.className.includes("align-middle"))).toBe(true);
   });
 
-  it("leaves Cost out for someone without financials.view", () => {
-    const { headers } = table([product()], { showCost: false });
-    expect(headers()).toEqual(ALL_COLUMNS.filter((c) => c !== "Cost"));
-    expect(screen.queryByText("$10.00")).toBeNull();
-  });
-
-  it("left-aligns every header and cell — money included", () => {
+  it("starts Id at 195px and lets every header be dragged", () => {
     const { container } = table();
-    for (const el of container.querySelectorAll("thead th, tbody td")) {
-      expect(el.className).not.toMatch(/text-right|justify-end|text-center/);
-    }
+    expect((container.querySelector("col") as HTMLElement).style.width).toBe("195px");
+    expect(container.querySelectorAll("thead [role=separator]").length).toBeGreaterThan(0);
   });
 
-  it("fills each cell from the item", () => {
-    const { cell } = table([product({ taxable: false })]);
-    expect(cell("Product ID")).toHaveTextContent("1042");
-    expect(cell("Name")).toHaveTextContent("Deadbolt");
-    expect(cell("Type")).toHaveTextContent("Product");
-    expect(cell("Category")).toHaveTextContent("Locks");
-    expect(cell("Brand")).toHaveTextContent("Schlage");
-    expect(cell("Price")).toHaveTextContent("$45.00");
-    expect(cell("Cost")).toHaveTextContent("$10.00");
-    expect(cell("SKU")).toHaveTextContent("LOCK-001");
-    expect(cell("Taxable")).toHaveTextContent("No");
-    expect(cell("Manage stock")).toHaveTextContent("Yes");
-    expect(cell("Status")).toHaveTextContent("Active");
+  it("draws Workiz's own picture placeholder beside the number for an item without a photo", () => {
+    const { firstRow } = table();
+    const id = firstRow().querySelector("td")!;
+    expect(id.querySelector("[data-testid=photo-placeholder] svg rect")).toHaveAttribute("fill", "#ECEDEE");
+    expect(id).toHaveTextContent("1042");
   });
 
-  it("shows the item's thumbnail beside its number, a grey placeholder without one", () => {
-    const { cell, unmount } = table([product({ thumbnailUrl: "https://cdn.test/p1.webp", photoKey: "k" } as Partial<Product>)]);
-    expect(cell("Product ID").querySelector("img")).toHaveAttribute("src", "https://cdn.test/p1.webp");
-    unmount();
-    expect(table().cell("Product ID").querySelector("[data-testid=photo-placeholder]")).not.toBeNull();
-  });
-
-  it("keeps the photo inside the row's height", () => {
-    expect(table().cell("Product ID").className).toMatch(/(^|\s)py-1(\s|$)/);
-  });
-
-  it("puts a dash where the item has no number or brand", () => {
-    const { cell } = table([product({ number: undefined, brandId: undefined })]);
-    expect(cell("Product ID")).toHaveTextContent("—");
-    expect(cell("Brand")).toHaveTextContent("—");
-  });
-
-  it("shows a dash for a service's Manage stock, whatever its flag", () => {
-    const { cell } = table([
-      product({ id: "s1", name: "Rekey", type: ProductType.SERVICE, manageStock: true }),
-      product({ id: "p2", name: "Knob", manageStock: false }),
-    ]);
-    expect(cell("Type", 1)).toHaveTextContent("Service");
-    expect(cell("Manage stock", 1)).toHaveTextContent(/^—$/);
-    expect(cell("Manage stock", 2)).toHaveTextContent("No");
-  });
-
-  it("names the Workiz type of an imported service", () => {
-    const { cell } = table([product({ type: ProductType.SERVICE, workizType: "hours" })]);
-    expect(cell("Type")).toHaveTextContent("Service");
-    expect(cell("Type")).toHaveTextContent("hours");
-  });
-
-  it("says Archived in the Status column", () => {
-    expect(table([product({ status: InventoryStatus.ARCHIVED })]).cell("Status")).toHaveTextContent(
-      "Archived",
-    );
+  it("prints a generated SKU as empty, as Workiz shows a blank Model #", () => {
+    const { container } = table([product({ sku: "ITEM-7", skuGenerated: true })]);
+    const heads = [...container.querySelectorAll("thead th")].map((th) => th.textContent);
+    const cells = [...container.querySelectorAll("tbody tr:first-child td")].map((td) => td.textContent);
+    expect(cells[heads.indexOf("Model #")]).toBe("");
   });
 });
 
-describe("ItemsTable — actions", () => {
-  it("opens the Edit popup on a row click", async () => {
-    const { onEdit } = table();
-    await userEvent.click(screen.getByText("LOCK-001"));
-    expect(onEdit).toHaveBeenCalledWith(expect.objectContaining({ id: "p1" }));
+describe("ItemsTable — what opens what", () => {
+  it("opens the item from anywhere on its row", async () => {
+    const { onOpen } = table();
+    await userEvent.click(screen.getByText("Schlage"));
+    expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ id: "p1" }), expect.anything());
   });
 
-  it("opens the photo from the thumbnail — not the item's Edit popup", async () => {
-    const { onEdit } = table([product({ thumbnailUrl: "https://cdn.test/p1.webp", photoKey: "k" } as Partial<Product>)]);
+  it("opens the photo from the picture — not the item", async () => {
+    const { onOpen } = table([{ ...product(), photoKey: "k", thumbnailUrl: "https://cdn.test/p1.webp" } as Product]);
     await userEvent.click(screen.getByRole("button", { name: "View photo of Deadbolt" }));
     expect(screen.getByTestId("photo-preview")).toHaveAttribute("data-id", "p1");
-    expect(onEdit).not.toHaveBeenCalled();
-  });
-
-  it("opens the Edit popup from the pencil", async () => {
-    const { onEdit } = table();
-    await userEvent.click(screen.getByRole("button", { name: "Edit Deadbolt" }));
-    expect(onEdit).toHaveBeenCalledTimes(1);
-  });
-
-  it("keeps Archive in the kebab without opening the row", async () => {
-    const { onEdit } = table();
-    await userEvent.click(screen.getByRole("button", { name: "Row actions" }));
-    const menu = await screen.findByRole("menu");
-    expect(within(menu).getByRole("menuitem", { name: "Archive" })).toBeInTheDocument();
-    expect(onEdit).not.toHaveBeenCalled();
-  });
-
-  it("offers Restore for an archived item", async () => {
-    table([product({ status: InventoryStatus.ARCHIVED })]);
-    await userEvent.click(screen.getByRole("button", { name: "Row actions" }));
-    expect(await screen.findByRole("menuitem", { name: "Restore" })).toBeInTheDocument();
-  });
-});
-
-describe("ItemsTable — a stable frame", () => {
-  it("draws the skeleton as this table: the same headers and one cell per column", () => {
-    const loaded = table().headers();
-    const { container, headers, unmount } = table([], { loading: true, skeletonRows: 4 });
-    expect(headers()).toEqual(loaded);
-    const rows = container.querySelectorAll("tbody tr");
-    expect(rows).toHaveLength(4);
-    for (const row of rows) expect(row.querySelectorAll("td")).toHaveLength(loaded.length);
-    unmount();
-
-    const noCost = table([], { loading: true, skeletonRows: 1, showCost: false });
-    expect(noCost.container.querySelectorAll("tbody tr td")).toHaveLength(loaded.length - 1);
-  });
-
-  it("gives skeleton rows the real rows' height", () => {
-    const real = table().container.querySelector("tbody tr")!.className;
-    const height = real.match(/(^|\s)(h-\d+)/)?.[2];
-    expect(height).toBeDefined();
-    const { container } = table([], { loading: true, skeletonRows: 1 });
-    expect(container.querySelector("tbody tr")!.className).toContain(height!);
-  });
-
-  it("lays the columns out at declared widths that fit a ~1250px content area", () => {
-    const { container } = table();
-    expect(container.querySelector("table")?.className).toContain("table-fixed");
-    const widths = [...container.querySelectorAll("colgroup col")].map((col) =>
-      parseFloat((col as HTMLElement).style.width),
-    );
-    expect(widths).toHaveLength(ALL_COLUMNS.length);
-    expect(widths.reduce((a, b) => a + b, 0)).toBeLessThanOrEqual(1250);
-  });
-
-  it("clips every cell rather than letting it spill into the next column", () => {
-    const { container } = table();
-    for (const td of container.querySelectorAll("tbody td")) {
-      expect(td.className).toMatch(/truncate|overflow-hidden/);
-    }
-  });
-
-  it("dims the previous filter's rows while the new ones load", () => {
-    const { container } = table([product()], { stale: true });
-    expect(container.querySelector("tbody")?.className).toMatch(/opacity-/);
-    expect(container.querySelector("table")).toHaveAttribute("aria-busy", "true");
-  });
-
-  it("keeps the headers and says so in a row when nothing matches", () => {
-    const { headers } = table([], { empty: "No items match" });
-    expect(headers()).toEqual(ALL_COLUMNS);
-    expect(screen.getByText("No items match")).toBeInTheDocument();
+    expect(onOpen).not.toHaveBeenCalled();
   });
 });

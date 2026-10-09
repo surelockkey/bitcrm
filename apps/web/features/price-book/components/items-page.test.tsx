@@ -43,6 +43,8 @@ vi.mock("../hooks", () => ({
       hasNextPage: mocks.placeholder,
       isFetchingNextPage: false,
       isLoading: mocks.loading,
+      isPending: mocks.loading,
+      fetchStatus: mocks.loading ? "fetching" : "idle",
       isError: false,
       isPlaceholderData: mocks.placeholder,
       fetchNextPage: vi.fn(),
@@ -51,17 +53,22 @@ vi.mock("../hooks", () => ({
   },
   usePriceBookCount: (filter: ProductFilter) => {
     mocks.countFilters.push(filter);
-    return { data: mocks.loading ? undefined : { total: mocks.items.length, atLeast: false } };
+    return {
+      data: mocks.loading ? undefined : { total: mocks.items.length, atLeast: false },
+      isPending: mocks.loading,
+      fetchStatus: mocks.loading ? "fetching" : "idle",
+      isError: false,
+    };
   },
 }));
 vi.mock("@/features/inventory/products/hooks", () => ({
   useItemCategories: (enabled: boolean) => {
     mocks.categoriesEnabled.push(enabled);
-    return { data: enabled ? mocks.categories : undefined };
+    return { data: enabled ? mocks.categories : undefined, isPending: !enabled, fetchStatus: "idle", isError: false };
   },
   useBrands: (enabled: boolean) => {
     mocks.brandsEnabled.push(enabled);
-    return { data: enabled ? mocks.brands : undefined };
+    return { data: enabled ? mocks.brands : undefined, isPending: !enabled, fetchStatus: "idle", isError: false };
   },
   useArchiveProduct: () => ({ mutate: vi.fn(), isPending: false }),
   useReactivateProduct: () => ({ mutate: vi.fn(), isPending: false }),
@@ -84,7 +91,7 @@ vi.mock("@/features/inventory/products/components/import-products-dialog", () =>
   ImportProductsDialog: (props: { open: boolean }) =>
     props.open ? <div data-testid="import-dialog" /> : null,
 }));
-// The popup has a suite of its own; here only which one the URL opens matters.
+// The popup has a suite of its own; here only which one the row opens matters.
 vi.mock("@/features/inventory/products/components/product-dialog", () => ({
   ProductDialog: (props: {
     productId: string | null;
@@ -108,6 +115,7 @@ function product(over: Partial<Product> = {}): Product {
     number: 7,
     sku: "LOCK-001",
     name: "Deadbolt",
+    description: "Single cylinder",
     category: "Locks",
     type: ProductType.PRODUCT,
     brandId: "b1",
@@ -132,8 +140,14 @@ const row = (id: string, name: string, active = true) => ({
   updatedAt: "",
 });
 
-async function pick(combobox: string, option: string) {
-  await userEvent.click(screen.getByRole("combobox", { name: combobox }));
+const show = () => screen.getByRole("combobox", { name: "Show" });
+const optionsOf = (group: string) =>
+  within(within(screen.getByRole("listbox")).getByRole("group", { name: group }))
+    .getAllByRole("option")
+    .map((o) => o.textContent);
+
+async function pick(option: string) {
+  await userEvent.click(show());
   await userEvent.click(await screen.findByRole("option", { name: option }));
 }
 
@@ -142,7 +156,21 @@ beforeEach(() => {
   mocks.limits = [];
   mocks.countFilters = [];
   mocks.resetKeys = [];
-  mocks.items = [product(), product({ id: "s1", name: "Rekey", sku: "SVC-1", type: ProductType.SERVICE, brandId: undefined })];
+  mocks.items = [
+    product(),
+    product({
+      id: "s1",
+      number: 8,
+      name: "Rekey",
+      sku: "SVC-1",
+      description: "",
+      category: "Platinum > Private",
+      type: ProductType.SERVICE,
+      brandId: undefined,
+      availableInBooking: true,
+      taxable: false,
+    }),
+  ];
   mocks.loading = false;
   mocks.placeholder = false;
   mocks.categories = [row("c1", "Locks"), row("c2", "Keys"), row("c3", "Retired", false)];
@@ -156,72 +184,87 @@ beforeEach(() => {
   mocks.csv.mockClear();
 });
 
-describe("ItemsPage — the whole catalog, filtered on the server", () => {
-  it("starts on active items of every type, stock-managed or not — list and count alike", () => {
+describe("ItemsPage — Workiz's Show box, filtered on the server", () => {
+  it("starts on Workiz's one chip, status: Active items — list and count alike", () => {
     renderWithClient(<ItemsPage />);
+    expect(screen.getByText("Show:")).toBeInTheDocument();
+    expect(screen.getByText("status: Active items")).toBeInTheDocument();
     expect(mocks.filters.at(-1)).toEqual({ status: InventoryStatus.ACTIVE });
     expect(mocks.countFilters.at(-1)).toEqual(mocks.filters.at(-1));
   });
 
-  it("filters by type", async () => {
+  it("lays out Workiz's groups side by side, ours (Inventory) last", async () => {
     renderWithClient(<ItemsPage />);
-    await pick("Type", "Service");
+    await userEvent.click(show());
+    const groups = within(screen.getByRole("listbox"))
+      .getAllByRole("group")
+      .map((g) => g.getAttribute("aria-label"));
+    expect(groups).toEqual(["Item type", "Status", "Category", "Brand", "Inventory"]);
+    // Active items is already a chip: only the other status is offered.
+    expect(optionsOf("Status")).toEqual(["Disabled items"]);
+  });
+
+  it("filters by item type, and both types are no narrowing", async () => {
+    renderWithClient(<ItemsPage />);
+    await pick("Service");
     expect(mocks.filters.at(-1)).toEqual({ type: ProductType.SERVICE, status: InventoryStatus.ACTIVE });
-    await pick("Type", "All types");
+    await pick("Product");
     expect(mocks.filters.at(-1)?.type).toBeUndefined();
   });
 
-  it("offers every catalog category by name, sorted, and sends the name", async () => {
+  it("offers every catalog category by name, sorted, one at a time, and sends the name", async () => {
     renderWithClient(<ItemsPage />);
-    await userEvent.click(screen.getByRole("combobox", { name: "Category" }));
-    const names = (await screen.findAllByRole("option")).map((o) => o.textContent);
-    expect(names).toEqual(["All categories", "Keys", "Locks", "Retired"]);
+    await userEvent.click(show());
+    expect(optionsOf("Category")).toEqual(["Keys", "Locks", "Retired"]);
     await userEvent.click(screen.getByRole("option", { name: "Keys" }));
     expect(mocks.filters.at(-1)).toMatchObject({ category: "Keys" });
+    await pick("Locks");
+    expect(mocks.filters.at(-1)).toMatchObject({ category: "Locks" });
+    expect(screen.queryByText("category: Keys")).toBeNull();
+    expect(screen.getByText("category: Locks")).toBeInTheDocument();
   });
 
   it("offers the brands by name, sorted, and sends the brand's id", async () => {
     renderWithClient(<ItemsPage />);
-    await userEvent.click(screen.getByRole("combobox", { name: "Brand" }));
-    const names = (await screen.findAllByRole("option")).map((o) => o.textContent);
-    expect(names).toEqual(["All brands", "Kwikset", "Schlage"]);
+    await userEvent.click(show());
+    expect(optionsOf("Brand")).toEqual(["Kwikset", "Schlage"]);
     await userEvent.click(screen.getByRole("option", { name: "Kwikset" }));
     expect(mocks.filters.at(-1)).toMatchObject({ brandId: "b2" });
   });
 
-  it("filters by status, Active by default, and drops it for All", async () => {
+  it("drops the status with its chip, and reads Disabled items as archived", async () => {
     renderWithClient(<ItemsPage />);
-    await pick("Status", "Archived");
-    expect(mocks.filters.at(-1)?.status).toBe(InventoryStatus.ARCHIVED);
-    await pick("Status", "All statuses");
+    await userEvent.click(screen.getByRole("button", { name: "Remove status: Active items" }));
     expect(mocks.filters.at(-1)?.status).toBeUndefined();
+    await pick("Disabled items");
+    expect(mocks.filters.at(-1)?.status).toBe(InventoryStatus.ARCHIVED);
   });
 
-  it("filters by Manage stock: Tracked is true, Not tracked is false", async () => {
+  it("filters by Inventory: Yes is stock-managed, No is not", async () => {
     renderWithClient(<ItemsPage />);
-    await pick("Manage stock", "Tracked");
+    await pick("Yes");
     expect(mocks.filters.at(-1)?.manageStock).toBe(true);
-    await pick("Manage stock", "Not tracked");
+    await userEvent.click(screen.getByRole("button", { name: "Remove inventory: Yes" }));
+    await pick("No");
     expect(mocks.filters.at(-1)?.manageStock).toBe(false);
-    await pick("Manage stock", "All items");
-    expect(mocks.filters.at(-1)?.manageStock).toBeUndefined();
   });
 
   it("sends the search after a pause, not on every keystroke", async () => {
     renderWithClient(<ItemsPage />);
-    await userEvent.type(screen.getByPlaceholderText("Search name or SKU"), "dead");
+    await userEvent.type(screen.getByPlaceholderText("Search"), "dead");
     await waitFor(() => expect(mocks.filters.at(-1)).toMatchObject({ search: "dead" }));
     expect(mocks.filters.some((f) => f.search === "de")).toBe(false);
   });
 
   it("combines every filter in one request, and counts under the same", async () => {
     renderWithClient(<ItemsPage />);
-    await pick("Type", "Product");
-    await pick("Category", "Locks");
-    await pick("Brand", "Schlage");
-    await pick("Status", "Archived");
-    await pick("Manage stock", "Not tracked");
-    await userEvent.type(screen.getByPlaceholderText("Search name or SKU"), "bolt");
+    await pick("Product");
+    await pick("Locks");
+    await pick("Schlage");
+    await pick("Disabled items");
+    await userEvent.click(screen.getByRole("button", { name: "Remove status: Active items" }));
+    await pick("No");
+    await userEvent.type(screen.getByPlaceholderText("Search"), "bolt");
     const all = {
       search: "bolt",
       type: ProductType.PRODUCT,
@@ -237,7 +280,7 @@ describe("ItemsPage — the whole catalog, filtered on the server", () => {
   it("puts the filters and the page size in the pager's reset key", async () => {
     renderWithClient(<ItemsPage />);
     const before = mocks.resetKeys.at(-1);
-    await pick("Type", "Service");
+    await pick("Service");
     const after = mocks.resetKeys.at(-1)!;
     expect(after).not.toBe(before);
     expect(JSON.parse(after)).toEqual({
@@ -246,20 +289,78 @@ describe("ItemsPage — the whole catalog, filtered on the server", () => {
     });
   });
 
-  it("reads each catalog only with its view permission, and then drops its filter", () => {
+  it("offers Workiz's page sizes, 5 to 100", () => {
+    renderWithClient(<ItemsPage />);
+    const size = screen.getByRole("combobox", { name: "Rows per page" });
+    expect([...size.querySelectorAll("option")].map((o) => o.textContent)).toEqual(["5", "10", "20", "25", "50", "100"]);
+  });
+
+  it("reads each catalog only with its view permission, and then leaves its group out", async () => {
     mocks.denied = new Set(["product_categories.view", "brands.view"]);
     renderWithClient(<ItemsPage />);
     expect(mocks.categoriesEnabled.at(-1)).toBe(false);
     expect(mocks.brandsEnabled.at(-1)).toBe(false);
-    expect(screen.queryByRole("combobox", { name: "Category" })).toBeNull();
-    expect(screen.queryByRole("combobox", { name: "Brand" })).toBeNull();
+    await userEvent.click(show());
+    const groups = within(screen.getByRole("listbox"))
+      .getAllByRole("group")
+      .map((g) => g.getAttribute("aria-label"));
+    expect(groups).toEqual(["Item type", "Status", "Inventory"]);
   });
 });
 
-describe("ItemsPage — the table", () => {
-  it("names each item's brand from the brands catalog", () => {
+describe("ItemsPage — Workiz's grid", () => {
+  const grid = () => screen.getByRole("table", { name: "Items & products" });
+  const heads = () => within(grid()).getAllByRole("columnheader").map((h) => h.textContent);
+
+  it("has Workiz's columns in its order", () => {
     renderWithClient(<ItemsPage />);
-    expect(within(screen.getByRole("table")).getByText("Schlage")).toBeInTheDocument();
+    expect(heads()).toEqual([
+      "Id",
+      "Name",
+      "Description",
+      "Price",
+      "Cost",
+      "Type",
+      "Category",
+      "Model #",
+      "Brand",
+      "Booking",
+      "Inventory",
+      "Taxable",
+    ]);
+  });
+
+  it("prints each item as Workiz does", () => {
+    renderWithClient(<ItemsPage />);
+    const [deadbolt, rekey] = within(grid()).getAllByRole("row").slice(1, 3);
+    expect([...deadbolt.querySelectorAll("td")].map((td) => td.textContent)).toEqual([
+      "7",
+      "Deadbolt",
+      "Single cylinder",
+      "$45.00",
+      "$10.00",
+      "Product",
+      "Locks",
+      "LOCK-001",
+      "Schlage",
+      "No",
+      "Yes",
+      "Yes",
+    ]);
+    expect([...rekey.querySelectorAll("td")].map((td) => td.textContent)).toEqual([
+      "8",
+      "Rekey",
+      "",
+      "$45.00",
+      "$10.00",
+      "Service",
+      "Private",
+      "SVC-1",
+      "",
+      "Yes",
+      "No",
+      "No",
+    ]);
   });
 
   it("shows Cost only with financials.view", () => {
@@ -272,32 +373,33 @@ describe("ItemsPage — the table", () => {
     expect(screen.queryByRole("columnheader", { name: "Cost" })).toBeNull();
   });
 
-  it("draws the first load as the table itself, with the pager's room kept", () => {
+  it("draws the first load as Workiz's grid under its loader, with no pager yet", () => {
     mocks.loading = true;
-    const { container } = renderWithClient(<ItemsPage />);
-    const heads = container.querySelectorAll("thead th").length;
-    const skeleton = screen.getAllByTestId("skeleton-row");
-    expect(skeleton.length).toBeGreaterThan(0);
-    expect(skeleton[0].querySelectorAll("td")).toHaveLength(heads);
-    expect(heads).toBe(12);
-    expect(screen.getByTestId("pager-slot").className).toMatch(/min-h-/);
+    renderWithClient(<ItemsPage />);
+    expect(heads()).toHaveLength(12);
+    expect(screen.getByRole("status", { name: "Loading" })).toBeInTheDocument();
+    expect(screen.queryByTestId("list-pagination")).toBeNull();
   });
 
   it("keeps the previous filter's rows, dimmed, and does not page through them", () => {
     mocks.placeholder = true;
-    const { container } = renderWithClient(<ItemsPage />);
-    expect(container.querySelector("table")).toHaveAttribute("aria-busy", "true");
-    expect(screen.queryByRole("button", { name: "Next page" })).toBeNull();
+    renderWithClient(<ItemsPage />);
+    expect(document.querySelector("[data-slot=wz-report-grid]")).toHaveAttribute("aria-busy", "true");
+    // Workiz always draws ‹ ›; on the old set they go nowhere.
+    expect(screen.getByRole("button", { name: "Next page" })).toBeDisabled();
   });
 
-  it("says no item matches under a filter, and offers New item on an empty catalog", async () => {
-    mocks.items = [];
-    const { unmount } = renderWithClient(<ItemsPage />);
-    expect(screen.getByText("No items yet")).toBeInTheDocument();
-    unmount();
+  it("puts Workiz's pager inside the grid: Showing 1 to 2 of 2 results", () => {
     renderWithClient(<ItemsPage />);
-    await pick("Type", "Service");
-    expect(screen.getByText("No items match")).toBeInTheDocument();
+    expect(within(document.querySelector("[data-slot=wz-report-grid]") as HTMLElement).getByTestId("list-pagination")).toHaveTextContent(
+      "Showing 1 to 2 of 2 results",
+    );
+  });
+
+  it("says No Records Found when nothing matches", () => {
+    mocks.items = [];
+    renderWithClient(<ItemsPage />);
+    expect(screen.getByText("No Records Found")).toBeInTheDocument();
   });
 
   it("refuses without products.view", () => {
@@ -313,7 +415,7 @@ describe("ItemsPage — popups are state, not the URL", () => {
   const address = () => `${window.location.pathname}${window.location.search}`;
   beforeEach(() => window.history.replaceState(null, "", "/price-book/items"));
 
-  it("opens the Edit popup on a row click, the address untouched", async () => {
+  it("opens Workiz's Edit Item from anywhere on the row, the address untouched", async () => {
     renderWithClient(<ItemsPage />);
     await userEvent.click(screen.getByText("LOCK-001"));
     expect(screen.getByTestId("product-dialog")).toHaveAttribute("data-product-id", "p1");
@@ -322,22 +424,19 @@ describe("ItemsPage — popups are state, not the URL", () => {
     expect(mocks.replace).not.toHaveBeenCalled();
   });
 
-  it("opens the New item popup from the one yellow button", async () => {
+  it("opens the Add New Item popup from Workiz's one yellow Add New", async () => {
     renderWithClient(<ItemsPage />);
-    const newItem = screen.getByRole("button", { name: "New item" });
-    expect(newItem).toHaveAttribute("data-variant", "default");
-    await userEvent.click(newItem);
+    const add = screen.getByRole("button", { name: "Add New" });
+    expect(add).toHaveAttribute("data-variant", "default");
+    await userEvent.click(add);
     expect(screen.getByTestId("product-dialog")).toHaveAttribute("data-product-id", "new");
     expect(address()).toBe("/price-book/items");
   });
 
-  it("paints nothing else in the toolbar yellow", () => {
+  it("paints nothing else yellow", () => {
     renderWithClient(<ItemsPage />);
-    const toolbar = screen.getByTestId("price-book-toolbar");
-    const yellow = within(toolbar)
-      .getAllByRole("button")
-      .filter((b) => b.getAttribute("data-variant") === "default");
-    expect(yellow.map((b) => b.textContent)).toEqual(["New item"]);
+    const yellow = screen.getAllByRole("button").filter((b) => b.getAttribute("data-variant") === "default");
+    expect(yellow.map((b) => b.textContent)).toEqual(["Add New"]);
   });
 
   // No deep links: an old link with the popup in its query lands on the plain list.
@@ -355,7 +454,7 @@ describe("ItemsPage — popups are state, not the URL", () => {
 
   it("moves a just-created item into its Edit popup", async () => {
     renderWithClient(<ItemsPage />);
-    await userEvent.click(screen.getByRole("button", { name: "New item" }));
+    await userEvent.click(screen.getByRole("button", { name: "Add New" }));
     await userEvent.click(screen.getByRole("button", { name: "created" }));
     expect(screen.getByTestId("product-dialog")).toHaveAttribute("data-product-id", "new-1");
   });
@@ -368,11 +467,11 @@ describe("ItemsPage — popups are state, not the URL", () => {
     expect(address()).toBe("/price-book/items");
   });
 
-  it("hides New item and Import CSV without products.create", () => {
+  it("hides Add New and Import without products.create", () => {
     mocks.denied = new Set(["products.create"]);
     renderWithClient(<ItemsPage />);
-    expect(screen.queryByRole("button", { name: "New item" })).toBeNull();
-    expect(screen.queryByRole("button", { name: /Import CSV/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Add New" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Import/ })).toBeNull();
   });
 });
 
@@ -384,21 +483,21 @@ describe("ItemsPage — CSV", () => {
   });
   afterEach(() => vi.restoreAllMocks());
 
-  it("exports the loaded rows, with the company cost only for financials.view", async () => {
+  it("exports the loaded rows from Workiz's Export, the company cost only for financials.view", async () => {
     const { unmount } = renderWithClient(<ItemsPage />);
-    await userEvent.click(screen.getByRole("button", { name: /Export CSV/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Export" }));
     expect(mocks.csv).toHaveBeenCalledWith(mocks.items, { withCost: true });
     unmount();
 
     mocks.denied = new Set(["financials.view"]);
     renderWithClient(<ItemsPage />);
-    await userEvent.click(screen.getByRole("button", { name: /Export CSV/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Export" }));
     expect(mocks.csv).toHaveBeenLastCalledWith(mocks.items, { withCost: false });
   });
 
-  it("opens the Inventory import dialog", async () => {
+  it("keeps ours beside it — Import opens the Inventory import dialog", async () => {
     renderWithClient(<ItemsPage />);
-    await userEvent.click(screen.getByRole("button", { name: /Import CSV/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Import" }));
     expect(screen.getByTestId("import-dialog")).toBeInTheDocument();
   });
 });

@@ -42,6 +42,35 @@ describe("WzTabLinks", () => {
   });
 });
 
+describe("WzTabLinks variant page (pg_pricebook)", () => {
+  const tabs = [
+    { id: "items", label: "Items & products", href: "/price-book/items" },
+    { id: "brands", label: "Item brands", href: "/price-book/brands" },
+  ];
+
+  it("draws Workiz's big _tabs: 16px words, 15px 25px, 600 on white with the 4px bar when open", () => {
+    render(<WzTabLinks label="Price book" active="items" tabs={tabs} variant="page" />);
+    const open = screen.getByRole("link", { name: "Items & products" });
+    expect(open.className).toContain("text-base");
+    expect(open.className).toContain("px-[25px]");
+    expect(open.className).toContain("font-semibold");
+    expect(open.className).toContain("after:h-1");
+    expect(screen.getByRole("link", { name: "Item brands" }).className).toContain("font-medium");
+  });
+
+  it("holds each tab's place, not a link, while pending", () => {
+    render(<WzTabLinks label="Price book" active="items" tabs={tabs} variant="page" pending />);
+    expect(screen.queryAllByRole("link")).toHaveLength(0);
+    expect(screen.getByRole("navigation", { name: "Price book" })).toHaveAttribute("aria-busy", "true");
+    expect(document.querySelectorAll("[data-tab-placeholder]")).toHaveLength(2);
+  });
+
+  it("takes the caller's spacing", () => {
+    render(<WzTabLinks label="Price book" active="items" tabs={tabs} variant="page" className="mt-5" />);
+    expect(screen.getByRole("navigation", { name: "Price book" }).className).toContain("mt-5");
+  });
+});
+
 describe("WzStatCard", () => {
   it("shows the label, the number and the words beside it", () => {
     render(<WzStatCard label="CALLS" value="647" aside="226 callers" />);
