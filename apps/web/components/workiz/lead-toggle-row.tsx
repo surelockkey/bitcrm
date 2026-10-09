@@ -42,7 +42,6 @@ export function WzLeadToggleRow({
         onCheckedChange={onCheckedChange}
         disabled={disabled}
         aria-describedby={hint ? hintId : undefined}
-        className="mt-[2.5px]"
       />
       <div className="min-w-0">
         <p className="text-sm leading-[21px] font-medium tracking-[0.4px] text-foreground">{label}</p>
