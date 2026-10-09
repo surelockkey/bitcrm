@@ -1,18 +1,16 @@
 "use client";
 
 import { useState } from "react";
-import { Loader2 } from "lucide-react";
 import {
   DEFAULT_DOCUMENT_SETTINGS,
   DOCUMENT_MESSAGE_SHORT_CODES,
   PORTAL_LINK_SHORT_CODE,
   type DocumentSettings,
 } from "@bitcrm/types";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Textarea } from "@/components/ui/textarea";
+import { WzButton } from "@/components/workiz/button";
+import { WzActionBar } from "@/components/workiz/layout";
+import { WzAccountTitle, WzDocSettingsField } from "@/components/workiz/settings-form";
 import { useDocumentSettings, useUpdateDocumentSettings } from "../hooks";
 import type { DocumentSettingsBody } from "../api";
 
@@ -25,9 +23,11 @@ const KINDS = [
 type MessageKey = (typeof KINDS)[number]["subject"] | (typeof KINDS)[number]["message"];
 
 /**
- * Settings → Documents → Messages (Workiz "Email options" / the proposal's
- * "Edit template"): the subject and message the Send panel starts from, per
- * document, with short codes. Every message must keep the portal link.
+ * Settings → Documents → Messages: the subject and message the Send panel
+ * starts from, per document, with short codes — Workiz keeps them in each
+ * template's "Document settings" (Subject / Message over grey boxes,
+ * pg_settings_general_wz_doc_settings_open), drawn here the same way, one
+ * block per document. Every message must keep the portal link.
  */
 export function DocumentMessagesTab({ canEdit, permsLoading = false }: { canEdit: boolean; permsLoading?: boolean }) {
   const { data, isLoading } = useDocumentSettings();
@@ -37,7 +37,13 @@ export function DocumentMessagesTab({ canEdit, permsLoading = false }: { canEdit
 
   // Until the permissions are in too: the form came up read-only and grew
   // its Save button a beat later.
-  if (isLoading || permsLoading) return <Skeleton className="h-96 w-full max-w-2xl" />;
+  if (isLoading || permsLoading) {
+    return (
+      <div className="px-5 pt-10">
+        <Skeleton className="h-96 w-[652px] max-w-full" />
+      </div>
+    );
+  }
 
   const valueOf = (k: MessageKey) => draft[k] ?? settings[k];
   const missingLink = KINDS.filter((k) => !valueOf(k.message).includes(PORTAL_LINK_SHORT_CODE)).map((k) => k.label);
@@ -53,51 +59,65 @@ export function DocumentMessagesTab({ canEdit, permsLoading = false }: { canEdit
   };
 
   return (
-    <div className="max-w-2xl space-y-5">
-      <p className="text-sm text-muted-foreground">
-        What the Send panel starts from. Short codes:{" "}
-        {DOCUMENT_MESSAGE_SHORT_CODES.map((c) => (
-          <code key={c} className="mr-1 rounded bg-muted px-1 py-0.5 text-xs">{`{{${c}}}`}</code>
-        ))}
-      </p>
-      {KINDS.map((k) => (
-        <section key={k.key} className="space-y-3 rounded-lg border p-4">
-          <h3 className="text-sm font-semibold">{k.label}</h3>
-          <div className="space-y-1.5">
-            <Label htmlFor={`${k.key}-subject`}>{k.label} subject</Label>
-            <Input
-              id={`${k.key}-subject`}
+    <>
+      <div className="flex w-[652px] max-w-full flex-col gap-6 px-5 pt-10 pb-10">
+        <p className="text-xs leading-[18px] tracking-[0.4px] text-wz-outline-label">
+          What the Send panel starts from. Short codes:{" "}
+          {DOCUMENT_MESSAGE_SHORT_CODES.map((c) => (
+            <code key={c} className="mr-1 rounded-[2px] bg-muted px-1 py-0.5 text-[11px] text-wz-text">{`{{${c}}}`}</code>
+          ))}
+        </p>
+        {KINDS.map((k, i) => (
+          <section key={k.key} aria-label={k.label} className="flex flex-col gap-6">
+            <WzAccountTitle className={i > 0 ? "mt-4" : undefined}>{k.label}</WzAccountTitle>
+            <WzDocSettingsField
+              label={
+                <>
+                  <span className="sr-only">{k.label} </span>Subject
+                </>
+              }
+              multiline={false}
+              helper="When you send via Email this will be the subject"
               value={valueOf(k.subject)}
               maxLength={250}
               disabled={!canEdit}
               onChange={(e) => setDraft((d) => ({ ...d, [k.subject]: e.target.value }))}
             />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor={`${k.key}-message`}>{k.label} message</Label>
-            <Textarea
-              id={`${k.key}-message`}
-              rows={4}
+            <WzDocSettingsField
+              label={
+                <>
+                  <span className="sr-only">{k.label} </span>Message
+                </>
+              }
+              helper="When you send via Email or SMS this will be the Message"
+              error={
+                valueOf(k.message).includes(PORTAL_LINK_SHORT_CODE)
+                  ? undefined
+                  : `The message must keep ${PORTAL_LINK_SHORT_CODE} — the client has nothing to open without it.`
+              }
+              rows={5}
               maxLength={5000}
               value={valueOf(k.message)}
               disabled={!canEdit}
               onChange={(e) => setDraft((d) => ({ ...d, [k.message]: e.target.value }))}
             />
-            {!valueOf(k.message).includes(PORTAL_LINK_SHORT_CODE) ? (
-              <p className="text-xs text-destructive">
-                The message must keep {PORTAL_LINK_SHORT_CODE} — the client has nothing to open without it.
-              </p>
-            ) : null}
-          </div>
-        </section>
-      ))}
+          </section>
+        ))}
+      </div>
       {canEdit ? (
-        <div className="flex justify-end">
-          <Button variant="brand" onClick={submit} disabled={!dirty || missingLink.length > 0 || empty || save.isPending}>
-            {save.isPending ? <Loader2 className="animate-spin" /> : null} Save
-          </Button>
-        </div>
+        <WzActionBar className="sticky bottom-0 mt-auto">
+          <WzButton
+            size="big"
+            loading={save.isPending}
+            disabled={!dirty || missingLink.length > 0 || empty}
+            onClick={submit}
+            // Workiz's held Save: #eff1f1 with #9ea6aa words.
+            className="min-w-[81px] disabled:bg-wz-disabled-fill disabled:hover:bg-wz-disabled-fill [&:disabled>span]:text-wz-outline"
+          >
+            Save
+          </WzButton>
+        </WzActionBar>
       ) : null}
-    </div>
+    </>
   );
 }

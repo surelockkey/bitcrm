@@ -144,7 +144,8 @@ export function CompaniesSettingsPage() {
             aria-label={`Delete ${c.name}`}
             disabled={c.isDefault}
             title={c.isDefault ? DEFAULT_FIRST : undefined}
-            className="-my-2"
+            // Workiz's held button: #eff1f1 with #9ea6aa words.
+            className="-my-2 disabled:bg-wz-disabled-fill disabled:hover:bg-wz-disabled-fill [&:disabled>span]:text-wz-outline"
             onClick={(e) => {
               e.stopPropagation();
               setDeleting(c);

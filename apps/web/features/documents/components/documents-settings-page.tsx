@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Building, ChevronRight } from "lucide-react";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { FileText } from "lucide-react";
+import { WzSettingsHeader } from "@/components/workiz/settings-page";
+import { WzTabBar } from "@/components/workiz/tab-bar";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { DocumentDefaultsTab } from "./document-defaults-tab";
 import { DocumentMessagesTab } from "./document-messages-tab";
@@ -12,10 +13,15 @@ import { TemplatesTab } from "./templates-tab";
 const TABS = ["templates", "defaults", "messages"] as const;
 type Tab = (typeof TABS)[number];
 
+const TAB_LABELS: Record<Tab, string> = { templates: "Templates", defaults: "Defaults", messages: "Messages" };
+
 /**
- * Settings → Documents: PDF templates, the defaults every new document starts
- * with, and the messages the Send panel starts from (Workiz Documents +
- * Email options). Company details live in Settings → Companies.
+ * Settings → Documents, as Workiz's Document templates page
+ * (pg_settings_general_wz_documents): the settings band, then — ours, under
+ * Workiz's small tabs — the templates grid, the defaults every new document
+ * starts with, and the messages the Send panel starts from (Workiz keeps
+ * those in each template's "Document settings"). Company details live in
+ * Settings → Companies; the band says so where Workiz has its guide links.
  */
 export function DocumentsSettingsPage() {
   const { can, isLoading: permsLoading } = usePermissions();
@@ -47,43 +53,41 @@ export function DocumentsSettingsPage() {
   };
 
   return (
-    <div className="space-y-5">
-      <div>
-        <h2 className="text-base font-semibold tracking-tight">Documents</h2>
-        <p className="text-sm text-muted-foreground">
-          Design your invoice, estimate and custom PDFs, and set what every new document starts with.
-        </p>
-      </div>
-      <div className="flex items-center gap-3 rounded-lg border bg-muted/30 px-4 py-3">
-        <Building className="size-5 flex-none text-muted-foreground" />
-        <p className="min-w-0 flex-1 text-sm text-muted-foreground">
-          Names, logos, addresses and invoice defaults printed on documents come from the job&apos;s company.
-        </p>
-        <Link
-          href="/settings/companies"
-          className="inline-flex flex-none items-center gap-0.5 text-sm font-medium text-foreground hover:underline"
-        >
-          Settings → Companies <ChevronRight className="size-4" />
-        </Link>
-      </div>
-      <Tabs value={tab} onValueChange={setTab}>
-        <TabsList>
-          <TabsTrigger value="templates">Templates</TabsTrigger>
-          <TabsTrigger value="defaults">Defaults</TabsTrigger>
-          <TabsTrigger value="messages">Messages</TabsTrigger>
-        </TabsList>
-        {/* Each tab waits for the permissions too: what it may offer — "New
-            template", Save — comes with the rest, not a beat after it. */}
-        <TabsContent value="templates" className="pt-4">
+    <div className="flex min-w-0 flex-1 flex-col">
+      <WzSettingsHeader
+        icon={<FileText />}
+        title="Document templates"
+        description={
+          <>
+            <p>Customize the appearance of your invoices and estimates.</p>
+            {/* #3da6e1: the band's link blue (Workiz's "Read guide"). */}
+            <p className="mt-2 leading-4">
+              Names, logos and addresses come from the job&apos;s company:{" "}
+              <Link href="/settings/companies" className="text-[#3da6e1] hover:underline">
+                Settings → Companies
+              </Link>
+            </p>
+          </>
+        }
+      />
+      <WzTabBar
+        aria-label="Documents"
+        className="mx-5 mt-5"
+        tabs={TABS.map((t) => ({ value: t, label: TAB_LABELS[t] }))}
+        value={tab}
+        onValueChange={setTab}
+      />
+      {/* Each tab waits for the permissions too: what it may offer — "Add New
+          Template", Save — comes with the rest, not a beat after it. */}
+      <div role="tabpanel" aria-label={TAB_LABELS[tab]} className="flex min-w-0 flex-1 flex-col">
+        {tab === "templates" ? (
           <TemplatesTab canEdit={canEditTemplates} permsLoading={permsLoading} />
-        </TabsContent>
-        <TabsContent value="defaults" className="pt-4">
+        ) : tab === "defaults" ? (
           <DocumentDefaultsTab canEdit={canEditSettings} permsLoading={permsLoading} />
-        </TabsContent>
-        <TabsContent value="messages" className="pt-4">
+        ) : (
           <DocumentMessagesTab canEdit={canEditSettings} permsLoading={permsLoading} />
-        </TabsContent>
-      </Tabs>
+        )}
+      </div>
     </div>
   );
 }

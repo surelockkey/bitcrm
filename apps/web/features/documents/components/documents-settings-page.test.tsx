@@ -83,42 +83,59 @@ function renderPage() {
   );
 }
 
-describe("DocumentsSettingsPage — templates", () => {
-  it("groups templates by kind with default badges and auto-apply summaries", async () => {
+describe("DocumentsSettingsPage — templates, as Workiz's Document templates grid", () => {
+  it("lists every template in one grid: invoices, estimates, custom; the default of each first", async () => {
     renderPage();
-    const invoices = await screen.findByRole("region", { name: "Invoices" });
-    expect(within(invoices).getByText("Standard invoice")).toBeInTheDocument();
-    expect(within(invoices).getByText("Default")).toBeInTheDocument();
-    expect(await within(invoices).findByText("Auto-applies to Rekey")).toBeInTheDocument();
-    expect(within(screen.getByRole("region", { name: "Estimates" })).getByText("Standard estimate")).toBeInTheDocument();
-    expect(within(screen.getByRole("region", { name: "Custom documents" })).getByText("Service agreement")).toBeInTheDocument();
+    const table = await screen.findByRole("table", { name: "Document templates" });
+    expect(within(table).getAllByRole("columnheader").map((h) => h.textContent)).toEqual([
+      "Name",
+      "Type",
+      "Default",
+      "Auto-applies to",
+      "",
+    ]);
+    const names = within(table)
+      .getAllByRole("link")
+      .map((a) => a.textContent);
+    expect(names).toEqual(["Standard invoice", "Commercial invoice", "Standard estimate", "Service agreement"]);
+    expect(within(table).getByRole("link", { name: "Commercial invoice" })).toHaveAttribute("href", "/settings/documents/inv-2");
+    const commercial = within(table).getByRole("link", { name: "Commercial invoice" }).closest("tr")!;
+    expect(within(commercial).getByText("Rekey")).toBeInTheDocument();
+    const standard = within(table).getByRole("link", { name: "Standard invoice" }).closest("tr")!;
+    expect(within(standard).getByText("Default")).toBeInTheDocument();
+    expect(within(table).getByText("Custom document")).toBeInTheDocument();
   });
 
-  it("sets a default and disables delete for defaults", async () => {
+  it("opens the editor from a row", async () => {
     const user = userEvent.setup();
     renderPage();
-    await user.click(await screen.findByRole("button", { name: "Actions for Commercial invoice" }));
-    await user.click(await screen.findByRole("menuitem", { name: /Set as default/ }));
+    const table = await screen.findByRole("table", { name: "Document templates" });
+    await user.click(within(table).getByText("Custom document"));
+    expect(push).toHaveBeenCalledWith("/settings/documents/cus-1");
+  });
+
+  it("sets a default from the row; a default has no trash and no star", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "Set Commercial invoice as default" }));
     await waitFor(() => expect(calls).toContainEqual({ method: "POST", path: "default/inv-2" }));
-
-    await user.click(screen.getByRole("button", { name: "Actions for Standard invoice" }));
-    expect(await screen.findByRole("menuitem", { name: /Delete/ })).toHaveAttribute("aria-disabled", "true");
-    expect(screen.queryByRole("menuitem", { name: /Set as default/ })).not.toBeInTheDocument();
+    expect(push).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Delete Standard invoice" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Set Standard invoice as default" })).not.toBeInTheDocument();
   });
 
-  it("offers no default option for custom documents", async () => {
+  it("offers no default for custom documents, and duplicates any template", async () => {
     const user = userEvent.setup();
     renderPage();
-    await user.click(await screen.findByRole("button", { name: "Actions for Service agreement" }));
-    expect(await screen.findByRole("menuitem", { name: /Duplicate/ })).toBeInTheDocument();
-    expect(screen.queryByRole("menuitem", { name: /Set as default/ })).not.toBeInTheDocument();
+    await user.click(await screen.findByRole("button", { name: "Duplicate Service agreement" }));
+    await waitFor(() => expect(calls).toContainEqual({ method: "POST", path: "duplicate/cus-1" }));
+    expect(screen.queryByRole("button", { name: "Set Service agreement as default" })).not.toBeInTheDocument();
   });
 
   it("deletes after confirming", async () => {
     const user = userEvent.setup();
     renderPage();
-    await user.click(await screen.findByRole("button", { name: "Actions for Commercial invoice" }));
-    await user.click(await screen.findByRole("menuitem", { name: /Delete/ }));
+    await user.click(await screen.findByRole("button", { name: "Delete Commercial invoice" }));
     await user.click(await screen.findByRole("button", { name: "Delete template" }));
     await waitFor(() => expect(calls).toContainEqual({ method: "DELETE", path: "inv-2" }));
   });
@@ -126,26 +143,46 @@ describe("DocumentsSettingsPage — templates", () => {
   it("creates a template from a preset and opens the editor", async () => {
     const user = userEvent.setup();
     renderPage();
-    await user.click(await screen.findByRole("button", { name: /New template/ }));
-    const dialog = await screen.findByRole("dialog");
+    await user.click(await screen.findByRole("button", { name: "Add New Template" }));
+    const dialog = await screen.findByRole("dialog", { name: "Add New Template" });
     await user.type(within(dialog).getByLabelText("Name"), "Big jobs");
     await user.click(within(dialog).getByRole("radio", { name: /Modern/ }));
-    await user.click(within(dialog).getByRole("button", { name: "Create template" }));
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
     await waitFor(() =>
       expect(calls).toContainEqual({ method: "POST", path: "create", body: { name: "Big jobs", kind: "invoice", presetId: "modern" } }),
     );
     await waitFor(() => expect(push).toHaveBeenCalledWith("/settings/documents/new-1"));
   });
 
+  it("asks for a name before creating", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "Add New Template" }));
+    const dialog = await screen.findByRole("dialog", { name: "Add New Template" });
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+    expect(within(dialog).getByLabelText("Name")).toHaveAttribute("aria-invalid", "true");
+    expect(calls.find((c) => c.path === "create")).toBeUndefined();
+  });
+
   it("hides editing actions without the edit permission", async () => {
     canEdit = false;
     renderPage();
     await screen.findByText("Standard invoice");
-    expect(screen.queryByRole("button", { name: /New template/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add New Template" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Duplicate Service agreement" })).not.toBeInTheDocument();
   });
 });
 
-describe("DocumentsSettingsPage — companies", () => {
+describe("DocumentsSettingsPage — tabs and companies", () => {
+  it("switches tabs through ?tab=", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("Standard invoice");
+    expect(screen.getByRole("tab", { name: "Templates" })).toHaveAttribute("aria-selected", "true");
+    await user.click(screen.getByRole("tab", { name: "Messages" }));
+    expect(replace).toHaveBeenCalledWith("/settings/documents?tab=messages");
+  });
+
   it("points to Settings → Companies instead of editing a business profile", async () => {
     search = new URLSearchParams("tab=profile");
     renderPage();

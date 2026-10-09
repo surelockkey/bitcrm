@@ -164,7 +164,8 @@ export function WzDocSettingsField({
   id,
   ...rest
 }: {
-  label: string;
+  /** "Subject", "Message" — words, or words with an sr-only qualifier ("Invoice "). */
+  label: ReactNode;
   helper?: ReactNode;
   error?: string;
   /** A textarea (Message) or a one-line box (Subject). */
