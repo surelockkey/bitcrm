@@ -51,9 +51,10 @@ const HELP =
   'Accrual: every job whose tax is not zero, windowed on `by` (created | scheduled = Job date | end = Job end ' +
   'date, the default) in the account’s days; per rate Amount = Σ tax, Taxable = Σ taxable base, Non-taxable = ' +
   'Σ (subtotal − taxable base) — negative when a discount outweighs the untaxed lines. Paid: jobs that collected ' +
-  'money in the window (payment date, tips out, refunds netted); Tax = Σ tax × min(1, collected / job total), ' +
-  'Taxable = the jobs’ full taxable base. Rate rounded to two places. `taxes` lists every rate of the window ' +
-  '(the "Tax to show" options).';
+  'money in the window (payment date, tips out, refunds netted); Tax = Σ taxable base × rate × min(1, collected / ' +
+  'job total), summed unrounded and rounded once per rate (Workiz), Taxable = the jobs’ full taxable base. Rate ' +
+  'rounded to two places. `taxes` — the "Tax to show" options — lists every tax the account has (service areas, ' +
+  'archived ones too) and any other rate the window’s jobs carried, once per name and percent, A→Z.';
 
 /**
  * Workiz Reports → Tax. Declared ahead of `DealsController` in the module

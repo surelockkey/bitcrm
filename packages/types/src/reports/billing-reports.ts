@@ -342,7 +342,7 @@ export interface TaxReport {
   rows: TaxReportRow[];
   /** Workiz's KPI: Σ amount over the rows shown. */
   totalAmount: number;
-  /** Every rate the window's jobs carried — the "Tax to show" options. */
+  /** The "Tax to show" options: every tax the account has (archived too) and any other rate the window's jobs carried, A→Z. */
   taxes: Array<{ key: string; name: string; rate: number }>;
 }
 

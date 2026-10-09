@@ -11,8 +11,11 @@ import { taxRateKey, taxRateRounded, type TaxReportBasis, type TaxReportRow } fr
  * - Accrual: Amount = Σ tax, Taxable = Σ taxable base (after discount),
  *   Non-taxable = Σ (subtotal − taxable base) — NEGATIVE when a discount takes
  *   more off the taxable lines than the untaxed ones add (CT −$981.16);
- * - Paid: a job with money collected in the period counts its tax ×
- *   min(1, collected / job total), its FULL taxable base, and one job;
+ * - Paid: a job with money collected in the period counts taxable base ×
+ *   rate × min(1, collected / job total) — worked out from the base, not the
+ *   job's stored tax, summed unrounded and rounded once per rate (checked
+ *   2026-10-09 job by job: SURE NY 202.15, IL CHICAGO 906.69 as Workiz) —
+ *   its FULL taxable base, and one job;
  * - Rate prints with two places (8.875 → 8.88).
  */
 
@@ -101,7 +104,11 @@ interface Acc {
   taxableC: number;
   nonTaxableC: number;
   jobs: number;
+  /** Paid: the unrounded sum of the jobs' shares. */
+  paidRaw: number;
 }
+
+const newAcc = (j: DealTaxFigures): Acc => ({ name: j.name, percent: j.percent, amountC: 0, taxableC: 0, nonTaxableC: 0, jobs: 0, paidRaw: 0 });
 
 const toRow = (a: Acc, basis: TaxReportBasis): TaxReportRow => ({
   key: taxRateKey(a.name, a.percent),
@@ -119,7 +126,7 @@ const toRow = (a: Acc, basis: TaxReportBasis): TaxReportRow => ({
 export function accrualRows(jobs: DealTaxFigures[]): TaxReportRow[] {
   const by = new Map<string, Acc>();
   for (const j of jobs) {
-    const a = by.get(j.key) ?? { name: j.name, percent: j.percent, amountC: 0, taxableC: 0, nonTaxableC: 0, jobs: 0 };
+    const a = by.get(j.key) ?? newAcc(j);
     a.amountC += cents(j.tax);
     a.taxableC += cents(j.taxable);
     a.nonTaxableC += cents(j.subtotal) - cents(j.taxable);
@@ -130,13 +137,15 @@ export function accrualRows(jobs: DealTaxFigures[]): TaxReportRow[] {
 }
 
 /**
- * The collected share of a job's tax: tax × min(1, collected / total), to the
- * cent. Nothing collected (or a period that only refunded) → not counted.
+ * The collected share of a job's tax, as Workiz's Paid tab works it out:
+ * taxable base × rate × min(1, collected / total), NOT rounded (the row
+ * rounds its sum once). Nothing collected (or a period that only refunded)
+ * → not counted.
  */
-export function paidShare(j: Pick<DealTaxFigures, 'tax' | 'total'>, collected: number): number | null {
+export function paidShare(j: Pick<DealTaxFigures, 'taxable' | 'percent' | 'total'>, collected: number): number | null {
   if (!(collected > 0)) return null;
   const share = j.total > 0 ? Math.min(1, collected / j.total) : 1;
-  return cents(j.tax * share) / 100;
+  return ((j.taxable * j.percent) / 100) * share;
 }
 
 /** Paid: the jobs that collected money in the window, their tax share, their full taxable base. */
@@ -145,13 +154,13 @@ export function paidRows(jobs: Array<{ figures: DealTaxFigures; collected: numbe
   for (const { figures: j, collected } of jobs) {
     const share = paidShare(j, collected);
     if (share === null) continue;
-    const a = by.get(j.key) ?? { name: j.name, percent: j.percent, amountC: 0, taxableC: 0, nonTaxableC: 0, jobs: 0 };
-    a.amountC += cents(share);
+    const a = by.get(j.key) ?? newAcc(j);
+    a.paidRaw += share;
     a.taxableC += cents(j.taxable);
     a.jobs++;
     by.set(j.key, a);
   }
-  return [...by.values()].map((a) => toRow(a, 'paid'));
+  return [...by.values()].map((a) => toRow({ ...a, amountC: cents(a.paidRaw) }, 'paid'));
 }
 
 const collator = new Intl.Collator('en-US', { sensitivity: 'base', numeric: true });
@@ -160,6 +169,31 @@ const collator = new Intl.Collator('en-US', { sensitivity: 'base', numeric: true
 export function sortTaxRows(rows: TaxReportRow[], basis: TaxReportBasis): TaxReportRow[] {
   const sign = basis === 'paid' ? -1 : 1;
   return [...rows].sort((a, b) => sign * collator.compare(a.name, b.name) || a.ratePercent - b.ratePercent);
+}
+
+/** One "Tax to show" option: a rate by its name (Workiz labels them by name alone). */
+export interface TaxOption {
+  key: string;
+  name: string;
+  rate: number;
+}
+
+/**
+ * "Tax to show": every tax the account has — Workiz lists all of
+ * `crud.taxes`, archived ones too, whatever the period — plus any rate the
+ * window's jobs carried that the account no longer has; once per name and
+ * percent (several service areas share one tax), A→Z, then by rate.
+ */
+export function taxOptions(windowRows: TaxReportRow[], accountRates: Array<{ name: string; ratePercent: number }>): TaxOption[] {
+  const byKey = new Map<string, { name: string; ratePercent: number }>();
+  for (const r of accountRates) {
+    const name = (r.name ?? '').trim();
+    byKey.set(taxRateKey(name, r.ratePercent), { name, ratePercent: Number(r.ratePercent ?? 0) });
+  }
+  for (const r of windowRows) byKey.set(r.key, { name: r.name, ratePercent: r.ratePercent });
+  return [...byKey.entries()]
+    .sort(([, a], [, b]) => collator.compare(a.name, b.name) || a.ratePercent - b.ratePercent)
+    .map(([key, r]) => ({ key, name: r.name, rate: taxRateRounded(r.ratePercent) }));
 }
 
 /** "Tax to show" and the search box. */
