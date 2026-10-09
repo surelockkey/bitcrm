@@ -100,3 +100,16 @@ export {
   type WzGridView,
 } from "./local-grid";
 export { WzTotalsBar, WzLeftBorderBox, WzFold, WzSegmented } from "./record-parts";
+
+// Call Tracking report pieces (rep_calltracking_wz_*).
+export { WzFlowViews, type WzFlowViewsOption } from "./flow-views";
+export {
+  WzAreaChart,
+  areaLayout,
+  areaPoints,
+  chartLinearTicks,
+  nearestPoint,
+  type WzAreaSeries,
+  type WzAreaLayout,
+  type WzAreaPoint,
+} from "./area-chart";

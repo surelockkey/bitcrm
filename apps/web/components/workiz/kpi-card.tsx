@@ -52,6 +52,7 @@ export function WzKpiCard({
   label,
   onSelect,
   selected = false,
+  size = "list",
   className,
   ...props
 }: Omit<ComponentProps<"div">, "children" | "onSelect"> & {
@@ -64,6 +65,12 @@ export function WzKpiCard({
   onSelect?: () => void;
   /** The pick this card stands for is the current one. */
   selected?: boolean;
+  /**
+   * "list" (default): the lists' `._fCard`. "cardsBar": the Call Tracking
+   * report's `react_components_cardsBar` card (rep_calltracking_wz_01_default)
+   * — the figure 20px/25px, the caption 1.2em (16.8px/16px) 10px under it.
+   */
+  size?: "list" | "cardsBar";
 }) {
   const name = label ?? (typeof caption === "string" ? caption : undefined);
   // The pickable card is laid out from the top (a button would centre it a
@@ -71,10 +78,21 @@ export function WzKpiCard({
   // 144–162 and 176–192, as rep_aging_wz_01_default draws them.
   const body = (
     <>
-      <div className="w-full truncate text-[19.6px] leading-[25px] font-medium tracking-[0.4px] text-wz-tab-bar tabular-nums">
+      <div
+        // The size first: tailwind-merge lets a later font size drop the leading.
+        className={cn(
+          size === "cardsBar" ? "text-[20px]" : "text-[19.6px]",
+          "w-full truncate leading-[25px] font-medium tracking-[0.4px] text-wz-tab-bar tabular-nums",
+        )}
+      >
         {value}
       </div>
-      <div className={cn("w-full truncate text-sm leading-4 tracking-[0.4px] text-wz-caption", onSelect ? "mt-2.5" : "mt-2")}>
+      <div
+        className={cn(
+          size === "cardsBar" ? "mt-2.5 text-[16.8px]" : cn("text-sm", onSelect ? "mt-2.5" : "mt-2"),
+          "w-full truncate leading-4 tracking-[0.4px] text-wz-caption",
+        )}
+      >
         {caption}
       </div>
     </>

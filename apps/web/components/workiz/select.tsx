@@ -67,9 +67,11 @@ export interface WzSelectBaseProps {
   /**
    * "labelled" (default): Workiz's `.fLabel` selects — every one with a
    * floating label. "plain": the bare ones like the job page's
-   * "Assign A Tech", whose words sit 1px lower.
+   * "Assign A Tech", whose words sit 1px lower. "bare": no label on screen at
+   * all (it stays for screen readers) — the value centred, 16.32px down, as
+   * the Call Tracking report's "By Call Flow" (rep_calltracking_wz_01_default).
    */
-  geometry?: "labelled" | "plain";
+  geometry?: "labelled" | "plain" | "bare";
   error?: string;
   /** Wrapper classes (width, margins). */
   className?: string;
@@ -242,7 +244,9 @@ export function WzSelect({
         htmlFor={inputId}
         className={cn(
           "pointer-events-none absolute truncate font-normal",
-          hasValue
+          geometry === "bare" && hasValue
+            ? "sr-only"
+            : hasValue
             ? "top-1 left-[10px] z-[9] max-w-[calc(100%-50px)] text-[12px] leading-4 text-wz-label"
             : cn(
                 SHIFT_LEFT,
@@ -263,7 +267,7 @@ export function WzSelect({
             "group-data-[disabled=true]/wzsel:text-wz-placeholder",
             SHIFT_LEFT,
             rightInset,
-            geometry === "plain" ? "top-[25.32px]" : "top-[24.32px]",
+            geometry === "bare" ? "top-[16.32px]" : geometry === "plain" ? "top-[25.32px]" : "top-[24.32px]",
           )}
         >
           {display}
@@ -276,7 +280,8 @@ export function WzSelect({
         aria-invalid={error ? true : undefined}
         aria-describedby={error ? errorId : undefined}
         className={cn(
-          "absolute top-[23.32px] h-4 min-w-0 bg-transparent p-0 text-[14px] leading-4 font-normal text-wz-value outline-none",
+          "absolute h-4 min-w-0 bg-transparent p-0 text-[14px] leading-4 font-normal text-wz-value outline-none",
+          geometry === "bare" ? "top-[16.32px]" : "top-[23.32px]",
           SHIFT_LEFT,
           rightInset,
           !searchable && "caret-transparent",

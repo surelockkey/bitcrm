@@ -78,3 +78,18 @@ describe("WzKpiCard with onSelect — a card that picks the rows (Aging invoices
     expect(cls(screen.getByRole("group"))).not.toContain("hover:shadow-[0_12px_12px_-8px_rgba(0,0,0,0.4)]");
   });
 });
+
+describe('WzKpiCard size="cardsBar" — the Call Tracking report\'s cards (`cardsBar`)', () => {
+  it("prints a 20px figure over a 1.2em caption 10px under it", () => {
+    render(<WzKpiCard size="cardsBar" value="2652" caption="Incoming calls" />);
+    expect(cls(screen.getByText("2652"))).toEqual(expect.arrayContaining(["text-[20px]", "leading-[25px]", "font-medium"]));
+    expect(cls(screen.getByText("Incoming calls"))).toEqual(expect.arrayContaining(["text-[16.8px]", "leading-4", "mt-2.5"]));
+    expect(cls(screen.getByRole("group", { name: "Incoming calls" }))).toEqual(expect.arrayContaining(["h-[81px]", "border-l-[3px]"]));
+  });
+
+  it("leaves the list cards as they were", () => {
+    render(<WzKpiCard value="370,358" caption="Clients" />);
+    expect(cls(screen.getByText("370,358"))).toContain("text-[19.6px]");
+    expect(cls(screen.getByText("Clients"))).toContain("text-sm");
+  });
+});

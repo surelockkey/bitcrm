@@ -496,3 +496,25 @@ describe("WzMultiSelect", () => {
     expect(screen.queryByRole("button", { name: "Remove Daniel Munoz" })).not.toBeInTheDocument();
   });
 });
+
+describe('WzSelect geometry="bare" — a select with no floating label (Call Tracking\'s "By Call Flow")', () => {
+  it("shows only the value, where the placeholder would sit, and keeps its label for screen readers", () => {
+    render(
+      <WzSelect
+        label="Group by"
+        geometry="bare"
+        options={[
+          { value: "flows", label: "By Call Flow" },
+          { value: "numbers", label: "By Phone Number" },
+        ]}
+        value="flows"
+      />,
+    );
+    expect(combo("Group by")).toBeInTheDocument();
+    expect(screen.getByText("Group by").className).toContain("sr-only");
+    const value = screen.getByText("By Call Flow");
+    // rep_calltracking_wz_01_default: the value 16.3px down in a 48.6px box (react-select centres it), 11px in.
+    expect(value.className).toContain("top-[16.32px]");
+    expect(value.className).not.toContain("top-[24.32px]");
+  });
+});
