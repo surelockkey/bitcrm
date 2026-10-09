@@ -136,25 +136,35 @@ export function useDashboardBundle(now: Date, extras: BundleExtras = {}) {
       const optional = <T,>(on: boolean | undefined, load: () => Promise<T>) =>
         on ? load() : Promise.resolve(undefined);
       const [deal, calls, invoices, estimates, coming, activity, collected] = await Promise.allSettled([
-        api.getDealBundle(window, day).then(async (d) => {
-          const [techScoreboard, dispatchScoreboard] = await api.nameScoreboards([d.techScoreboard, d.dispatchScoreboard]);
-          return { ...d, techScoreboard, dispatchScoreboard };
-        }),
+        api.getDealBundle(window, day),
         api.getCallsBundle(window),
         optional(extras.invoices, () => api.getInvoicesWidget(undefined)),
         optional(extras.estimates, () => api.getEstimatesWidget()),
         optional(extras.comingUp, () => api.getComingUp(day)),
-        optional(extras.recentActivity, () => api.getRecentActivity(day)),
+        optional(extras.recentActivity, () => api.getRecentActivityRows(day)),
         optional(extras.collected, () => api.getCollectedToday(day)),
       ]);
+      // One directory lookup for every name the page needs — the two
+      // scoreboards' people and the journal's actors — instead of one per
+      // card. It lives under the users' names key, so anything asking for
+      // the same people meanwhile shares the answer instead of asking again.
+      const boards = deal.status === "fulfilled" ? [deal.value.techScoreboard, deal.value.dispatchScoreboard] : [];
+      const rows = activity.status === "fulfilled" ? (activity.value ?? []) : [];
+      const ids = [...new Set([...api.scoreboardIds(boards), ...api.activityActorIds(rows)])];
+      const byId = ids.length
+        ? await client
+            .fetchQuery({ queryKey: queryKeys.users.names(ids), queryFn: () => api.namesById(ids), staleTime: SNAPSHOT_STALE_MS })
+            .catch(() => ({}) as Record<string, string>)
+        : {};
       if (deal.status === "fulfilled") {
         const d = deal.value;
+        const [techScoreboard, dispatchScoreboard] = api.nameScoreboardsWith(boards, byId);
         seed(queryKeys.dashboard.widget("sales", window), d.sales);
         seed(queryKeys.dashboard.widget("top-sources", window), d.topSources);
         seed(queryKeys.dashboard.widget("top-job-types", window), d.topJobTypes);
         seed(queryKeys.dashboard.widget("service-areas", window), d.serviceAreas);
-        seed(queryKeys.dashboard.widget("tech-scoreboard", window), d.techScoreboard);
-        seed(queryKeys.dashboard.widget("dispatch-scoreboard", window), d.dispatchScoreboard);
+        seed(queryKeys.dashboard.widget("tech-scoreboard", window), techScoreboard);
+        seed(queryKeys.dashboard.widget("dispatch-scoreboard", window), dispatchScoreboard);
         seed(queryKeys.dashboard.widget("today", day), d.today);
         seed(queryKeys.dashboard.widget("jobs-now"), d.jobsNow);
         seed(queryKeys.dashboard.jobsByStatus(window), d.jobsByStatus);
@@ -166,7 +176,9 @@ export function useDashboardBundle(now: Date, extras: BundleExtras = {}) {
       if (invoices.status === "fulfilled") seed(queryKeys.dashboard.widget("invoices", "all_time"), invoices.value);
       if (estimates.status === "fulfilled") seed(queryKeys.dashboard.widget("estimates"), estimates.value);
       if (coming.status === "fulfilled") seed(queryKeys.dashboard.widget("coming-up", day), coming.value);
-      if (activity.status === "fulfilled") seed(queryKeys.dashboard.widget("recent-activity", day), activity.value);
+      if (activity.status === "fulfilled" && activity.value) {
+        seed(queryKeys.dashboard.widget("recent-activity", day), api.nameActivityRows(activity.value, byId));
+      }
       if (collected.status === "fulfilled") seed(queryKeys.dashboard.widget("collected", day), collected.value);
       return { at: Date.now() };
     },

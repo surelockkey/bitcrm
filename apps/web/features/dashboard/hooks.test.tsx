@@ -11,9 +11,9 @@ const api = vi.hoisted(() => ({
   getInvoicesWidget: vi.fn(),
   getEstimatesWidget: vi.fn(),
   getComingUp: vi.fn(),
-  getRecentActivity: vi.fn(),
+  getRecentActivityRows: vi.fn(),
   getCollectedToday: vi.fn(),
-  nameScoreboards: vi.fn(async (b: unknown[]) => b),
+  namesById: vi.fn(async () => ({}) as Record<string, string>),
 }));
 vi.mock("./api", async (importOriginal) => ({ ...(await importOriginal<object>()), ...api }));
 
@@ -163,11 +163,11 @@ describe("useDashboardBundle — the widgets beyond the two services", () => {
     const invoices = { due: { count: 2, amount: 50 }, overdue: { count: 1, amount: 20 } };
     const estimates = { unsent: { count: 1, amount: 9 } };
     const coming = { deals: [], clients: {} };
-    const activity = [{ id: "a1" }];
+    const activity = [{ id: "a1", actorId: "u7", actorName: "Workiz's name", imported: true }];
     api.getInvoicesWidget.mockResolvedValue(invoices);
     api.getEstimatesWidget.mockResolvedValue(estimates);
     api.getComingUp.mockResolvedValue(coming);
-    api.getRecentActivity.mockResolvedValue(activity);
+    api.getRecentActivityRows.mockResolvedValue(activity);
     api.getCollectedToday.mockResolvedValue(12.5);
     const { client, Wrapper } = wrapper();
 
@@ -180,14 +180,17 @@ describe("useDashboardBundle — the widgets beyond the two services", () => {
     expect(client.getQueryData(queryKeys.dashboard.widget("invoices", "all_time"))).toEqual(invoices);
     expect(client.getQueryData(queryKeys.dashboard.widget("estimates"))).toEqual(estimates);
     expect(client.getQueryData(queryKeys.dashboard.widget("coming-up", day))).toEqual(coming);
-    expect(client.getQueryData(queryKeys.dashboard.widget("recent-activity", day))).toEqual(activity);
+    // The journal rows land named: an imported event keeps Workiz's name.
+    expect(client.getQueryData(queryKeys.dashboard.widget("recent-activity", day))).toEqual(
+      activity.map((r) => ({ ...r, who: "Workiz's name" })),
+    );
     expect(client.getQueryData(queryKeys.dashboard.widget("collected", day))).toBe(12.5);
   });
 
   it("asks nothing of a widget the reader may not see", async () => {
     api.getDealBundle.mockResolvedValue({});
     api.getCallsBundle.mockResolvedValue({});
-    for (const fn of [api.getInvoicesWidget, api.getEstimatesWidget, api.getComingUp, api.getRecentActivity, api.getCollectedToday]) {
+    for (const fn of [api.getInvoicesWidget, api.getEstimatesWidget, api.getComingUp, api.getRecentActivityRows, api.getCollectedToday]) {
       fn.mockClear();
     }
     const { Wrapper } = wrapper();
@@ -198,7 +201,7 @@ describe("useDashboardBundle — the widgets beyond the two services", () => {
     expect(api.getInvoicesWidget).not.toHaveBeenCalled();
     expect(api.getEstimatesWidget).not.toHaveBeenCalled();
     expect(api.getComingUp).not.toHaveBeenCalled();
-    expect(api.getRecentActivity).not.toHaveBeenCalled();
+    expect(api.getRecentActivityRows).not.toHaveBeenCalled();
     expect(api.getCollectedToday).not.toHaveBeenCalled();
   });
 
@@ -207,12 +210,64 @@ describe("useDashboardBundle — the widgets beyond the two services", () => {
     const named = { rows: [{ id: "u1", name: "(2) TX - DAVID SZENDER", jobs: 1 }] };
     api.getDealBundle.mockResolvedValue({ techScoreboard: board });
     api.getCallsBundle.mockResolvedValue({});
-    api.nameScoreboards.mockResolvedValueOnce([named, undefined]);
+    api.namesById.mockResolvedValueOnce({ u1: "(2) TX - DAVID SZENDER" });
     const { client, Wrapper } = wrapper();
 
     const { result } = renderHook(() => useDashboardBundle(now), { wrapper: Wrapper });
     await waitFor(() => expect(result.current.isPending).toBe(false));
 
     expect(client.getQueryData(queryKeys.dashboard.widget("tech-scoreboard", window14))).toEqual(named);
+  });
+
+  /**
+   * The scoreboards and Recent Activity used to each ask `POST /users/by-ids`
+   * for their own people, so `/` asked the directory twice on every open.
+   * One lookup names them all, and it lives under the users' names key, so
+   * anything else asking for the same people meanwhile shares the answer.
+   */
+  it("looks every name up once — the scoreboards' people and the journal's actors together", async () => {
+    const tech = { rows: [{ id: "u1", name: "", jobs: 3 }] };
+    const dispatch = { rows: [{ id: "u2", name: "", jobs: 1 }] };
+    const rows = [
+      { id: "a1", actorId: "u3", actorName: "", imported: false },
+      { id: "a2", actorId: "u1", actorName: "", imported: false },
+      { id: "a3", actorId: "u4", actorName: "Imported Tech", imported: true },
+    ];
+    api.getDealBundle.mockResolvedValue({ techScoreboard: tech, dispatchScoreboard: dispatch });
+    api.getCallsBundle.mockResolvedValue({});
+    api.getRecentActivityRows.mockResolvedValue(rows);
+    api.namesById.mockClear();
+    api.namesById.mockResolvedValueOnce({ u1: "Ann", u2: "Ben", u3: "Cat" });
+    const { client, Wrapper } = wrapper();
+
+    const { result } = renderHook(() => useDashboardBundle(now, { recentActivity: true }), { wrapper: Wrapper });
+    await waitFor(() => expect(result.current.isPending).toBe(false));
+
+    expect(api.namesById).toHaveBeenCalledTimes(1);
+    // The imported event's actor is not asked for: Workiz's name stands.
+    expect(api.namesById).toHaveBeenCalledWith(["u1", "u2", "u3"]);
+    expect(client.getQueryData(queryKeys.dashboard.widget("tech-scoreboard", window14))).toEqual({
+      rows: [{ id: "u1", name: "Ann", jobs: 3 }],
+    });
+    expect(client.getQueryData(queryKeys.dashboard.widget("dispatch-scoreboard", window14))).toEqual({
+      rows: [{ id: "u2", name: "Ben", jobs: 1 }],
+    });
+    expect(
+      (client.getQueryData(queryKeys.dashboard.widget("recent-activity", "2026-09-28")) as { who: string }[]).map((r) => r.who),
+    ).toEqual(["Cat", "Ann", "Imported Tech"]);
+    // Cached by the set of ids, whichever order they were asked in.
+    expect(client.getQueryData(queryKeys.users.names(["u3", "u2", "u1"]))).toEqual({ u1: "Ann", u2: "Ben", u3: "Cat" });
+  });
+
+  it("asks the directory nothing when no row needs a name", async () => {
+    api.getDealBundle.mockResolvedValue({ techScoreboard: { rows: [] } });
+    api.getCallsBundle.mockResolvedValue({});
+    api.namesById.mockClear();
+    const { Wrapper } = wrapper();
+
+    const { result } = renderHook(() => useDashboardBundle(now), { wrapper: Wrapper });
+    await waitFor(() => expect(result.current.isPending).toBe(false));
+
+    expect(api.namesById).not.toHaveBeenCalled();
   });
 });

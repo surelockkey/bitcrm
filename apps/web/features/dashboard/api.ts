@@ -145,17 +145,39 @@ export interface RecentActivityRow extends ActivityRow {
 
 /**
  * "Recent Activity": the newest three entries of the Activity report's
- * journal over the last month (`reports.view`), each named as the report
- * names it — Workiz's name for an imported event, the directory's otherwise.
+ * journal over the last month (`reports.view`), not yet named — the opening
+ * bundle names them with the one directory lookup it makes for every card.
  */
-export async function getRecentActivity(day: string): Promise<RecentActivityRow[]> {
+export async function getRecentActivityRows(day: string): Promise<ActivityRow[]> {
   const q = new URLSearchParams({ from: shiftDay(day, -30), to: day, limit: "3" });
   const page = await apiFetchPaginated<ActivityRow>(`/deals/activity?${q}`);
-  const rows = page.data.slice(0, 3);
-  const ours = rows.filter((r) => !r.imported && r.actorId).map((r) => r.actorId);
-  const people = ours.length ? await getUserNames([...new Set(ours)]).catch(() => []) : [];
-  const byId = new Map(people.map((p) => [p.id, personName(p)]));
-  return rows.map((r) => ({ ...r, who: (!r.imported && byId.get(r.actorId)) || r.actorName }));
+  return page.data.slice(0, 3);
+}
+
+/** The people the journal needs named: our own events' actors (an imported event keeps Workiz's name). */
+export const activityActorIds = (rows: ActivityRow[]): string[] => [
+  ...new Set(rows.filter((r) => !r.imported && r.actorId).map((r) => r.actorId)),
+];
+
+/** Each row named as the report names it — the directory's name for our own events, Workiz's for imported ones. */
+export const nameActivityRows = (rows: ActivityRow[], byId: Record<string, string>): RecentActivityRow[] =>
+  rows.map((r) => ({ ...r, who: (!r.imported && byId[r.actorId]) || r.actorName }));
+
+/** "Recent Activity" on its own (the card's refetch): the rows, named. */
+export async function getRecentActivity(day: string): Promise<RecentActivityRow[]> {
+  const rows = await getRecentActivityRows(day);
+  return nameActivityRows(rows, await namesById(activityActorIds(rows)));
+}
+
+/**
+ * Names for ids, the way Workiz prints them ("(2) TX - DAVID SZENDER"), from
+ * the directory's by-ids lookup (`POST /users/by-ids`); a lookup that fails
+ * names nobody, and the rows keep what the server sent.
+ */
+export async function namesById(ids: string[]): Promise<Record<string, string>> {
+  if (!ids.length) return {};
+  const people = await getUserNames(ids).catch(() => []);
+  return Object.fromEntries(people.flatMap((p) => (personName(p) ? [[p.id, personName(p)!]] : [])));
 }
 
 /** "Today → Collected": the Payments report's total for one business day (`payments.view`). */
@@ -172,11 +194,20 @@ export async function nameScoreboard(board: DashboardScoreboard): Promise<Dashbo
   return named ?? board;
 }
 
-/** Several boards named with one lookup (the opening bundle has two). */
+/** Several boards named with one lookup. */
 export async function nameScoreboards(boards: (DashboardScoreboard | undefined)[]): Promise<(DashboardScoreboard | undefined)[]> {
-  const ids = [...new Set(boards.flatMap((b) => b?.rows.map((r) => r.id) ?? []).filter(Boolean))];
-  if (!ids.length) return boards;
-  const people = await getUserNames(ids).catch(() => []);
-  const byId = new Map(people.map((p) => [p.id, personName(p)]));
-  return boards.map((b) => b && { ...b, rows: b.rows.map((r) => ({ ...r, name: byId.get(r.id) || r.name })) });
+  const ids = scoreboardIds(boards);
+  return ids.length ? nameScoreboardsWith(boards, await namesById(ids)) : boards;
 }
+
+/** The people the boards need named. */
+export const scoreboardIds = (boards: (DashboardScoreboard | undefined)[]): string[] => [
+  ...new Set(boards.flatMap((b) => b?.rows.map((r) => r.id) ?? []).filter(Boolean)),
+];
+
+/** The boards with their rows named from a lookup already made; a row the lookup cannot name keeps what the server sent. */
+export const nameScoreboardsWith = (
+  boards: (DashboardScoreboard | undefined)[],
+  byId: Record<string, string>,
+): (DashboardScoreboard | undefined)[] =>
+  boards.map((b) => b && { ...b, rows: b.rows.map((r) => ({ ...r, name: byId[r.id] || r.name })) });
