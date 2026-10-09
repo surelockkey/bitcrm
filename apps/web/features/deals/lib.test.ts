@@ -513,6 +513,22 @@ describe("buildDealPatch", () => {
     expect(buildDealPatch(d, { ...dealDraftFromDeal(d), notes: "<p>Gate code 4521</p>" })).toBeNull();
   });
 
+  // The editor hands "<p></p>" back for a job that has no description at all
+  // (TipTap's empty document) before anyone types — same thing as no note.
+  // Left as a difference, every job without a description opened with Save
+  // lit, "Leave without saving?" on the way to its invoice and a beforeunload
+  // prompt (seen on the technician's job page, 2026-10-09).
+  it("reads the editor's empty document as no note", () => {
+    const d = deal({ notes: undefined });
+    expect(buildDealPatch(d, { ...dealDraftFromDeal(d), notes: "<p></p>" })).toBeNull();
+    expect(buildDealPatch(deal({ notes: "" }), { ...dealDraftFromDeal(deal({ notes: "" })), notes: "<p></p>" })).toBeNull();
+  });
+
+  it("still sees words typed into an empty note", () => {
+    const d = deal({ notes: undefined });
+    expect(buildDealPatch(d, { ...dealDraftFromDeal(d), notes: "<p>Gate code 4521</p>" })).toEqual({ notes: "<p>Gate code 4521</p>" });
+  });
+
   it("still sends a note whose words changed", () => {
     const d = deal({ notes: "Door arm leaks oil." });
     const draft = { ...dealDraftFromDeal(d), notes: "<p>Door arm replaced.</p>" };

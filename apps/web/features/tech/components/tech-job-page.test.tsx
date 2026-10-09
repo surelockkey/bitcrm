@@ -10,8 +10,9 @@ import { techJobRoutes } from "./tech-job-page.fixtures";
  * on top of it: the visit's steps as one more row of the band.
  */
 
+const nav = vi.hoisted(() => ({ push: vi.fn() }));
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
+  useRouter: () => ({ push: nav.push, replace: vi.fn(), prefetch: vi.fn() }),
   usePathname: () => "/my-jobs/d1",
 }));
 vi.mock("next/link", () => ({
@@ -49,6 +50,30 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  nav.push.mockReset();
+});
+
+/**
+ * Workiz's job page has no Invoice tab: the yellow pill opens the job's
+ * invoice on its own page (job_invoice_route_wz_XYB3JT_view_invoice_opened),
+ * and so does ours since the invoice moved to /invoices/[id]. The technician's
+ * copy of the page must follow, or it drifts from /deals/[id].
+ */
+describe("TechJobPage — the invoice lives on its own page, as on /deals/[id]", () => {
+  it("has no Invoice tab, and View Invoice opens the job's invoice page", async () => {
+    server = installFakeServer(
+      techJobRoutes().map((r) =>
+        String(r.match).includes("invoices\\/by-deal") ? { ...r, reply: () => ({ id: "inv1", dealId: "d1", status: "due" }) } : r,
+      ),
+      { delayMs: 5 },
+    );
+    renderWithClient(<TechJobPage dealId="d1" />);
+    const tabs = await screen.findByRole("tablist", { name: "Job sections" }, { timeout: 3000 });
+    expect(tabs).not.toHaveTextContent("Invoice");
+
+    fireEvent.click(await screen.findByRole("button", { name: "View Invoice" }));
+    expect(nav.push).toHaveBeenCalledWith("/invoices/inv1");
+  });
 });
 
 describe("TechJobPage — the job page, with the visit", () => {

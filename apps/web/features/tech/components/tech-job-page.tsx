@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { WzButtonLink } from "@/components/workiz/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -15,17 +16,18 @@ import { useActiveJobTypes } from "@/features/job-types/active-hooks";
 import { useJobType } from "@/features/job-types/hooks";
 import { useDealEstimates } from "@/features/estimates/hooks";
 import { DealEstimatesTab } from "@/features/estimates/components/deal-estimates-tab";
-import { DealInvoiceTab } from "@/features/invoices/components/deal-invoice-tab";
-import { useInvoiceByDeal } from "@/features/invoices/hooks";
+import { useCreateInvoice, useInvoiceByDeal } from "@/features/invoices/hooks";
+import { invoiceHref } from "@/features/invoices/lib";
 import { DealPaymentsTab } from "@/features/payments/components/deal-payments-tab";
 import { useDealPayments } from "@/features/payments/hooks";
 import { useAttachments } from "@/features/deals/attachments-hooks";
 import { dealTabHref, visibleDealTabs, type DealTab } from "@/features/deals/deal-tabs";
 import { useDeal, useMarkSeenOnOpen } from "@/features/deals/hooks";
 import { useJobPageData } from "@/features/deals/job-page-data";
-import { dealBalance, dealTabSublabel, jobChatPhone, jobClientName, jobDueDate } from "@/features/deals/job-shell";
+import { dealBalance, dealTabSublabel, jobChatPhone, jobClientName, jobDueDate, jobInvoicePill } from "@/features/deals/job-shell";
 import { DealAttachmentsTab } from "@/features/deals/components/deal-attachments-tab";
 import { DetailsTab } from "@/features/deals/components/deal-details-tab";
+import { LeaveWithoutSavingDialog } from "@/features/deals/components/use-unsaved-changes";
 import { DealProductsTab } from "@/features/deals/components/deal-products-tab";
 import { DealTimelinePanel } from "@/features/deals/components/deal-timeline-panel";
 import { JobHeader } from "@/features/deals/components/job-header";
@@ -64,6 +66,7 @@ export function TechJobPage({
   initialEstimateId?: string | null;
 }) {
   const denied = useDenied();
+  const router = useRouter();
   const { can, me } = usePermissions();
   const { data: deal, isLoading, isError } = useDeal(dealId);
   const [selectedTab, setSelectedTab] = useState<DealTab>(initialTab ?? "details");
@@ -73,6 +76,9 @@ export function TechJobPage({
   const canEstimates = can("estimates");
   const canPayments = can("payments");
   const { data: invoice } = useInvoiceByDeal(dealId, canInvoices);
+  const createInvoice = useCreateInvoice();
+  const [detailsDirty, setDetailsDirty] = useState(false);
+  const [leaving, setLeaving] = useState<(() => void) | null>(null);
   const { data: jobLedger } = useDealPayments(dealId, canPayments);
   const { data: estimates } = useDealEstimates(dealId, canEstimates);
   const { data: contact } = useContact(deal?.contactId ?? "");
@@ -80,7 +86,7 @@ export function TechJobPage({
   const activeType = activeTypes?.find((t) => t.id === deal?.jobTypeId);
   const { data: archivedType } = useJobType(deal?.jobTypeId ?? "", !!deal?.jobTypeId && !!activeTypes && !activeType);
   const { data: attachments } = useAttachments(dealId);
-  const tabs = visibleDealTabs({ estimates: canEstimates, invoices: canInvoices, payments: canPayments });
+  const tabs = visibleDealTabs({ estimates: canEstimates, payments: canPayments });
   const tab: DealTab = tabs.includes(selectedTab) ? selectedTab : "details";
 
   // The URL stays shareable without a round-trip (shallow, as the job page does).
@@ -128,11 +134,23 @@ export function TechJobPage({
     itemsTotal: deal.totals?.total,
     balanceDue: balance,
     estimateCount: estimates?.length ?? 0,
-    invoiceStatus: invoice?.status,
     attachmentCount: attachments?.length ?? 0,
   };
   const sublabels = Object.fromEntries(tabs.map((t) => [t, dealTabSublabel(t, sublabelContext)])) as Record<DealTab, string>;
-  const invoicePill = canInvoices && (invoice || can("invoices", "create")) ? { exists: Boolean(invoice) } : undefined;
+  // The yellow pill, as on /deals/[id] and in Workiz: the job's invoice opens
+  // on its own page; "Create Invoice" makes it and then opens it there, after
+  // asking about unsaved Details edits.
+  const invoicePill = jobInvoicePill({
+    invoice,
+    canView: canInvoices,
+    canCreate: can("invoices", "create"),
+    itemCount: deal.itemCount ?? 0,
+  });
+  const toInvoice = () => {
+    if (invoice) router.push(invoiceHref(invoice));
+    else createInvoice.mutate(deal.id, { onSuccess: (created) => router.push(invoiceHref(created)) });
+  };
+  const onInvoice = () => (detailsDirty ? setLeaving(() => toInvoice) : toInvoice());
   const chatPhone = jobChatPhone(deal.phones, contact?.phones);
 
   return (
@@ -153,7 +171,8 @@ export function TechJobPage({
               canDelete={can("deals", "delete")}
               canViewWorkOrders={can("work_orders", "view")}
               invoice={invoicePill}
-              onOpenInvoice={() => setTab("invoice")}
+              invoicePending={createInvoice.isPending}
+              onInvoice={onInvoice}
             />
             <div className="px-4 md:px-10">
               <TechActions deal={deal} />
@@ -163,7 +182,7 @@ export function TechJobPage({
 
           <div className="flex flex-1 flex-col">
             <div role="tabpanel" aria-labelledby="job-tab-details" className={cn("flex flex-1 flex-col", tab !== "details" && "hidden")}>
-              <DetailsTab deal={deal} canEdit={canEdit} />
+              <DetailsTab deal={deal} canEdit={canEdit} onDirtyChange={setDetailsDirty} />
             </div>
             {tab === "items" ? (
               <TabPanel tab="items" className="px-4 pt-10 pb-12 md:px-10">
@@ -187,11 +206,6 @@ export function TechJobPage({
                 <DealEstimatesTab deal={deal} estimateId={estimateId} onEstimateChange={openEstimate} startCreating={startCreatingEstimate} />
               </TabPanel>
             ) : null}
-            {tab === "invoice" ? (
-              <TabPanel tab="invoice" className="px-4 pt-10 pb-12 md:px-10">
-                <DealInvoiceTab deal={deal} canEditItems={canEdit} />
-              </TabPanel>
-            ) : null}
             {tab === "attachments" ? (
               <TabPanel tab="attachments" className="px-4 pt-5 pb-12 md:px-5">
                 <DealAttachmentsTab dealId={dealId} canEdit={canEdit} />
@@ -200,6 +214,16 @@ export function TechJobPage({
           </div>
         </div>
       </div>
+
+      <LeaveWithoutSavingDialog
+        open={leaving !== null}
+        onStay={() => setLeaving(null)}
+        onLeave={() => {
+          const go = leaving;
+          setLeaving(null);
+          go?.();
+        }}
+      />
 
       <DealTimelinePanel
         dealId={dealId}

@@ -26,7 +26,7 @@ import type { UpdateContactValues } from "@/features/clients/schemas";
 import type { DealCounts } from "./api";
 import { personName } from "./person-name";
 import type { UpdateDealValues } from "./schemas";
-import { noteToHtml } from "./note-html";
+import { noteToText } from "./note-html";
 
 /* ----------------------------------------------------------- super-statuses */
 
@@ -566,11 +566,14 @@ const sameCustomFields = (
 
 /**
  * One note, however it is written down: a plain-text note and the editor's
- * HTML of it are the same words. The editor also collapses runs of spaces,
- * so those do not count either.
+ * HTML of it are the same words, and the editor's empty document ("<p></p>",
+ * handed back before anyone types) is the same as no note at all. The editor
+ * also collapses runs of spaces, so those do not count either. Compared as
+ * words rather than markup, so neither case lights Save on a job nobody
+ * touched.
  */
 const sameNote = (a: string, b: string): boolean => {
-  const words = (note: string) => noteToHtml(note).replace(/\s+/g, " ").trim();
+  const words = (note: string) => noteToText(note).replace(/\s+/g, " ").trim();
   return words(a) === words(b);
 };
 
