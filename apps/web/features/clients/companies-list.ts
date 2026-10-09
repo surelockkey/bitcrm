@@ -27,7 +27,11 @@ export interface CompanyField {
   id: CompanyFieldId;
   label: string;
   icon: CompanyFieldIcon;
-  /** Starting width; the table spreads spare room over the columns in proportion. */
+  /**
+   * Starting width; the table spreads spare room over the columns in
+   * proportion. The five used ones start at 1,240px, inside the 1,392px a
+   * 1600px window leaves beside the menu.
+   */
   width: number;
   /** The header orders the rows. Workiz's Address header does not. */
   sortable: boolean;
@@ -39,12 +43,12 @@ export interface CompanyField {
  * under UNSELECTED FIELDS.
  */
 export const COMPANY_FIELDS: readonly CompanyField[] = [
-  { id: "name", label: "Name", icon: "company", width: 348, sortable: true },
-  { id: "type", label: "Type", icon: "type", width: 180, sortable: true },
-  { id: "address", label: "Address", icon: "location", width: 348, sortable: false },
-  { id: "phone", label: "Phone", icon: "phone", width: 260, sortable: true },
-  { id: "created", label: "Created", icon: "calendar", width: 300, sortable: true },
-  { id: "website", label: "Website", icon: "website", width: 240, sortable: true },
+  { id: "name", label: "Name", icon: "company", width: 300, sortable: true },
+  { id: "type", label: "Type", icon: "type", width: 160, sortable: true },
+  { id: "address", label: "Address", icon: "location", width: 300, sortable: false },
+  { id: "phone", label: "Phone", icon: "phone", width: 220, sortable: true },
+  { id: "created", label: "Created", icon: "calendar", width: 260, sortable: true },
+  { id: "website", label: "Website", icon: "website", width: 220, sortable: true },
   { id: "email", label: "Email", icon: "email", width: 240, sortable: true },
 ];
 
@@ -61,6 +65,9 @@ export function sanitizeCompanyFields(raw: unknown): CompanyFieldId[] {
   }
   return out.length ? out : [...DEFAULT_COMPANY_FIELDS];
 }
+
+/** A website as typed ("acme.com") made into a link that leaves the app. */
+export const websiteHref = (site: string) => (/^https?:\/\//i.test(site) ? site : `https://${site}`);
 
 /** Workiz opens its Clients list newest first. */
 export const COMPANY_DEFAULT_SORT: WzGridSort = { id: "created", dir: "desc" };

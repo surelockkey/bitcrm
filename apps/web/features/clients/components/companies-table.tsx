@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
 import { tagSolidClasses } from "@/features/client-tags/lib";
 import { clientTypeLabel, extensionOf, formatPhoneWithExtension, primaryEmail, primaryPhone } from "../lib";
 import { clientSubline, formatClientCreated } from "../clients-list";
-import { COMPANY_FIELDS, type CompanyFieldId } from "../companies-list";
+import { COMPANY_FIELDS, websiteHref, type CompanyFieldId } from "../companies-list";
 
 /** Workiz's blue tel link in a grid (pg_contacts_wz_01: 14px #6aa8ee). */
 const LINK = "text-sm leading-4 whitespace-nowrap text-wz-link no-underline hover:underline";
@@ -78,7 +78,7 @@ function cell(c: Company, id: CompanyFieldId, zone: string): ReactNode {
     case "website":
       return c.website ? (
         <a
-          href={/^https?:\/\//i.test(c.website) ? c.website : `https://${c.website}`}
+          href={websiteHref(c.website)}
           target="_blank"
           rel="noopener noreferrer"
           onClick={stop}

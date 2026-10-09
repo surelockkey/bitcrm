@@ -13,6 +13,7 @@ import {
   filterCompanies,
   sanitizeCompanyFields,
   selectedCompanyCard,
+  websiteHref,
 } from "./companies-list";
 
 const company = (over: Partial<Company> = {}): Company => ({
@@ -181,5 +182,13 @@ describe("companiesView — what the grid shows", () => {
 
   it("an empty result reads 0 to 0 of 0 on page 1", () => {
     expect(companiesView(all, { ...base, query: "zzz" })).toMatchObject({ total: 0, page: 1, pages: 1, from: 0, to: 0, rows: [] });
+  });
+});
+
+describe("websiteHref — a website as typed, as a link", () => {
+  it("adds https:// to a bare host and keeps a full address", () => {
+    expect(websiteHref("acme.example")).toBe("https://acme.example");
+    expect(websiteHref("http://acme.example/a")).toBe("http://acme.example/a");
+    expect(websiteHref("HTTPS://acme.example")).toBe("HTTPS://acme.example");
   });
 });
