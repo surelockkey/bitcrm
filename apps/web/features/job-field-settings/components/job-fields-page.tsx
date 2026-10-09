@@ -4,6 +4,7 @@ import { useId } from "react";
 import { ListChecks } from "lucide-react";
 import { JOB_REQUIRABLE_FIELDS, type CustomFieldDefinition } from "@bitcrm/types";
 import { Skeleton } from "@/components/ui/skeleton";
+import { WzButton } from "@/components/workiz/button";
 import { WzOnOffSwitch } from "@/components/workiz/on-off-switch";
 import { WzSettingsHeader } from "@/components/workiz/settings-page";
 import { usePermissions } from "@/features/auth/use-permissions";
@@ -11,16 +12,26 @@ import { settled, usePageReady } from "@/lib/use-page-ready";
 import { useCustomFields, useUpdateCustomField } from "@/features/custom-fields/hooks";
 import { groupFields } from "@/features/custom-fields/lib";
 import { useJobFieldSettings, useUpdateJobFieldSettings } from "../hooks";
+import { restoredJobFieldSettings } from "../lib";
 
 /**
- * Settings → Job Fields, as Workiz's Field Validation
+ * Workiz writes "Client Address Required" and "Job Address Required" without
+ * the question mark the other rows carry (pg_settings_catalogs_wz_managefields).
+ */
+const NO_QUESTION_MARK = new Set(["clientAddress", "address"]);
+
+/**
+ * Settings → Field Validation, as Workiz's
  * (pg_settings_catalogs_wz_managefields): the band set 20px into the page,
  * then a row per field — "First Name Required?" in 12px/16px bold #666,
  * right-aligned in a 150px column 20px in, the ON/OFF switch 60px after it,
- * rows 58px apart under a 1px #e0e0e0 rule. Workiz's "Restore Default
- * Settings" is not ours (no stored defaults to go back to). The custom
- * fields' own Required flags are ours, under their group in the same rows.
- * Read-only without `settings.edit`.
+ * rows 58px apart under a 1px #e0e0e0 rule — Workiz's rows first, in its
+ * order and words, then ours; under them Workiz's yellow "Restore Default
+ * Settings" pill (every row back to its default). Workiz's "Payment
+ * Approval #", "Parts" and "Total" rows are for fields its own New Job form
+ * no longer has, so they are not drawn. The custom fields' own Required
+ * flags are ours, under their group in the same rows. Read-only without
+ * `settings.edit`.
  */
 export function JobFieldsPage() {
   const { can, isLoading: permsLoading } = usePermissions();
@@ -59,13 +70,24 @@ export function JobFieldsPage() {
               {JOB_REQUIRABLE_FIELDS.map((f, i) => (
                 <FieldRow
                   key={f.id}
-                  label={`${f.label} Required?`}
+                  label={NO_QUESTION_MARK.has(f.id) ? `${f.label} Required` : `${f.label} Required?`}
                   checked={Boolean(settings.requiredFields[f.id])}
                   disabled={!canEdit || update.isPending}
                   onToggle={() => toggleBuiltin(f.id)}
                   first={i === 0}
                 />
               ))}
+              {canEdit ? (
+                // Workiz: the yellow regular pill 16px in, 9px under the last row.
+                <WzButton
+                  size="regular"
+                  className="mt-[9px] ml-4"
+                  disabled={update.isPending}
+                  onClick={() => update.mutate(restoredJobFieldSettings())}
+                >
+                  Restore Default Settings
+                </WzButton>
+              ) : null}
             </div>
           ) : null}
 
@@ -109,6 +131,7 @@ function FieldRow({
       </span>
       <WzOnOffSwitch
         aria-labelledby={labelId}
+        aria-label={label}
         checked={checked}
         disabled={disabled}
         onCheckedChange={onToggle}

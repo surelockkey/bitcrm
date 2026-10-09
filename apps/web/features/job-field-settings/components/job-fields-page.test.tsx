@@ -10,7 +10,7 @@ const { updateSettings, updateCustomField, perms } = vi.hoisted(() => ({
 
 vi.mock("../hooks", () => ({
   useJobFieldSettings: () => ({
-    data: { requiredFields: { address: true, jobType: true, source: false, poNumber: false } },
+    data: { requiredFields: { firstName: true, address: true, jobType: true, source: false, poNumber: false } },
     isLoading: false,
   }),
   useUpdateJobFieldSettings: () => ({ mutate: updateSettings, isPending: false }),
@@ -47,20 +47,41 @@ vi.mock("@/features/auth/use-permissions", () => ({
 
 import { JobFieldsPage } from "./job-fields-page";
 
-describe("JobFieldsPage — Settings → Job Fields", () => {
+/**
+ * Workiz's Field Validation (pg_settings_catalogs_wz_managefields): its rows
+ * first, in its words and order — "First Name Required?" … "Job Address
+ * Required" — then ours, then "Restore Default Settings".
+ */
+describe("JobFieldsPage — Settings → Field Validation", () => {
   beforeEach(() => {
     updateSettings.mockReset();
     updateCustomField.mockReset();
     perms.edit = true;
   });
 
-  it("lists every built-in job field with its required state", () => {
+  it("lists Workiz's rows first, in its words, with their required state", () => {
     render(<JobFieldsPage />);
 
-    expect(screen.getByRole("switch", { name: "Service address Required?" })).toBeChecked();
+    const names = screen.getAllByRole("switch").map((s) => s.getAttribute("aria-label") ?? "");
+    expect(names.slice(0, 9)).toEqual([
+      "First Name Required?",
+      "Last Name Required?",
+      "Client Company Name Required?",
+      "Primary Phone Required?",
+      "Secondary Phone Required?",
+      "Email Address Required?",
+      "External Company or Ad Group Required?",
+      "Client Address Required",
+      "Job Address Required",
+    ]);
+    expect(screen.getByRole("switch", { name: "First Name Required?" })).toBeChecked();
+    expect(screen.getByRole("switch", { name: "Job Address Required" })).toBeChecked();
     expect(screen.getByRole("switch", { name: "Job source Required?" })).not.toBeChecked();
     expect(screen.getByRole("switch", { name: "PO number Required?" })).toBeInTheDocument();
-    expect(screen.getByRole("switch", { name: "Client phone Required?" })).toBeInTheDocument();
+    // Workiz's rows for fields its own New Job no longer has are not drawn as dead switches.
+    expect(screen.queryByRole("switch", { name: /Payment Approval/ })).toBeNull();
+    expect(screen.queryByRole("switch", { name: /^Parts/ })).toBeNull();
+    expect(screen.queryByRole("switch", { name: /^Total/ })).toBeNull();
   });
 
   it("toggling a built-in field saves the new requirement map", () => {
@@ -70,6 +91,16 @@ describe("JobFieldsPage — Settings → Job Fields", () => {
 
     expect(updateSettings).toHaveBeenCalledWith({
       requiredFields: expect.objectContaining({ source: true, address: true }),
+    });
+  });
+
+  it("'Restore Default Settings' puts every row back to its default", () => {
+    render(<JobFieldsPage />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Restore Default Settings" }));
+
+    expect(updateSettings).toHaveBeenCalledWith({
+      requiredFields: expect.objectContaining({ firstName: false, address: true, jobType: true, source: false }),
     });
   });
 
@@ -83,11 +114,12 @@ describe("JobFieldsPage — Settings → Job Fields", () => {
     );
   });
 
-  it("read-only users see the switches disabled", () => {
+  it("read-only users see the switches disabled and no restore", () => {
     perms.edit = false;
     render(<JobFieldsPage />);
 
     expect(screen.getByRole("switch", { name: "Job source Required?" })).toBeDisabled();
     expect(screen.getByRole("switch", { name: "Gate Code Required?" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Restore Default Settings" })).toBeNull();
   });
 });
