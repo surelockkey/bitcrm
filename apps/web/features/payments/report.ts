@@ -220,6 +220,20 @@ export function paymentsRangeText(range: WzDateRange): string {
   return formatWzDayRange(range.from, range.to);
 }
 
+/**
+ * Whether the box's days can be asked for. Workiz's Custom: over twelve
+ * months it says "Date range exceeds 12 months" inside the box and asks for
+ * nothing (rep_payments_wz_16g_custom_over_year); with a day missing it just
+ * waits. Any preset is fine.
+ */
+export function paymentsCustomCheck(range: WzDateRange): { usable: boolean; error: string | null } {
+  if (range.preset !== "custom") return { usable: true, error: null };
+  if (!range.from || !range.to) return { usable: false, error: null };
+  const days = (Date.parse(`${range.to}T00:00:00Z`) - Date.parse(`${range.from}T00:00:00Z`)) / 86_400_000 + 1;
+  if (days > MAX_CUSTOM_DAYS) return { usable: false, error: "Date range exceeds 12 months" };
+  return { usable: true, error: null };
+}
+
 /** The three groups' picks, keyed by the query parameter each one fills. */
 export interface PaymentsReportFilters {
   types?: string[];

@@ -206,7 +206,9 @@ describe("PaymentsReportPage", () => {
     const from = screen.getByRole("textbox", { name: "From" });
     await user().clear(from);
     await user().type(from, "01/01/2024{Enter}");
-    expect(await screen.findByRole("alert")).toHaveTextContent(/12 months/);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Date range exceeds 12 months");
+    // The grid keeps what it showed, as Workiz does.
+    expect(screen.getByText("6563K8 (Job)")).toBeInTheDocument();
     expect(calls.length).toBe(before);
   });
 

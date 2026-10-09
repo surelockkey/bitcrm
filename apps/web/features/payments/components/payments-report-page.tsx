@@ -28,9 +28,9 @@ import {
   DEFAULT_REPORT_PAGE_SIZE,
   PAYMENTS_REPORT_PRESETS,
   REPORT_PAGE_SIZES,
-  customRangeError,
   paymentFilterGroups,
   paymentTotalMoney,
+  paymentsCustomCheck,
   paymentsRangeText,
   paymentsReportQuery,
   paymentsReportRange,
@@ -71,12 +71,12 @@ export function PaymentsReportPage() {
   const [page, setPage] = useState(1);
   const [exporting, setExporting] = useState(false);
 
-  const customError = range.preset === "custom" ? customRangeError(range.from, range.to) : null;
+  const custom = paymentsCustomCheck(range);
   const params = useMemo(
     () => paymentsReportQuery({ range, filters, search, dir, limit: size }),
     [range, filters, search, dir, size],
   );
-  const q = usePaymentReport(params, canView && !customError, can("contacts", "view"));
+  const q = usePaymentReport(params, canView && custom.usable, can("contacts", "view"));
 
   // A new question starts from its first page — reset while rendering, not
   // in an effect, so no frame shows page 3 of a set that has none.
@@ -211,28 +211,22 @@ export function PaymentsReportPage() {
           value={filters}
           onChange={(next) => setFilters(next as PaymentsReportFilters)}
         />
-        <div className="shrink-0">
-          <WzDateRangePicker
-            presets={PAYMENTS_REPORT_PRESETS}
-            value={range}
-            onChange={setRange}
-            rangeOf={(id) => (id === "custom" ? null : paymentsReportRange(id as Exclude<PaymentsReportPreset, "custom">, today))}
-            rangeText={(v) => (v.preset === "all_time" ? paymentsRangeText(v) : undefined)}
-            calendar={{ today }}
-          />
-          {customError ? (
-            <p role="alert" className="mt-1 max-w-[362px] text-xs leading-4 text-wz-error">
-              {customError}
-            </p>
-          ) : null}
-        </div>
+        <WzDateRangePicker
+          presets={PAYMENTS_REPORT_PRESETS}
+          value={range}
+          onChange={setRange}
+          rangeOf={(id) => (id === "custom" ? null : paymentsReportRange(id as Exclude<PaymentsReportPreset, "custom">, today))}
+          rangeText={(v) => (v.preset === "all_time" ? paymentsRangeText(v) : undefined)}
+          customError={custom.error}
+          calendar={{ today }}
+        />
       </div>
 
       <WzListToolbar className="shrink-0">
         <WzSearchBox value={searchInput} onChange={setSearchInput} />
         <div className="ml-auto flex items-center gap-4">
           <WzPageSizeSelect value={size} sizes={REPORT_PAGE_SIZES} onChange={setSize} />
-          <WzToolbarButton onClick={() => void runExport()} disabled={exporting || !!customError || !ready}>
+          <WzToolbarButton onClick={() => void runExport()} disabled={exporting || !custom.usable || !ready}>
             <FileText strokeWidth={1.5} /> {exporting ? "Exporting…" : "Export"}
           </WzToolbarButton>
         </div>
@@ -256,7 +250,9 @@ export function PaymentsReportPage() {
             onSortDate={() => setDir((d) => (d === "desc" ? "asc" : "desc"))}
             contactOf={contactOf}
             nameOf={nameOf}
-            busy={q.isPlaceholderData || q.isFetchingNextPage}
+            // Faded only while a new answer is on its way — a refused Custom
+            // range keeps the old lines as they were, as Workiz does.
+            busy={(q.isPlaceholderData && q.isFetching) || q.isFetchingNextPage}
           />
         )}
       </div>

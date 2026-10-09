@@ -12,6 +12,7 @@ import {
   paymentFilterGroups,
   paymentPresetRange,
   paymentTotalMoney,
+  paymentsCustomCheck,
   paymentsRangeText,
   paymentsReportQuery,
   paymentsReportRange,
@@ -136,6 +137,17 @@ describe("Payments report — the date box (Workiz's 20 presets, rep_payments_wz
       dir: "desc",
       limit: 10,
     });
+  });
+
+  it("refuses a Custom range over 12 months in Workiz's words, and waits quietly for missing days", () => {
+    // rep_payments_wz_16g_custom_over_year: Aug 1st, 2025 - Oct 9th, 2026.
+    expect(paymentsCustomCheck({ preset: "custom", from: "2025-08-01", to: "2026-10-09" })).toEqual({
+      usable: false,
+      error: "Date range exceeds 12 months",
+    });
+    expect(paymentsCustomCheck({ preset: "custom", from: "2025-10-10", to: "2026-10-09" })).toEqual({ usable: true, error: null });
+    expect(paymentsCustomCheck({ preset: "custom", from: "", to: "" })).toEqual({ usable: false, error: null });
+    expect(paymentsCustomCheck({ preset: "all_time", from: "", to: "" })).toEqual({ usable: true, error: null });
   });
 
   it("turns the box, the filter and the search into the report's query", () => {
