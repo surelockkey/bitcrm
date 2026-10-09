@@ -1,4 +1,4 @@
-import { type AutomationRule, type AutomationSpec } from '@bitcrm/types';
+import { type AutomationAction, type AutomationRule, type AutomationSpec } from '@bitcrm/types';
 import { AutomationRuleEngine } from '../../../../src/automations/engine/rule-engine.service';
 import { type ScheduledFiring } from '../../../../src/automations/engine/schedule.repository';
 import { type AutomationEvent } from '../../../../src/automations/engine/trigger-event';
@@ -142,7 +142,7 @@ describe('AutomationRuleEngine.handle', () => {
   });
 
   it('an e-mail-only rule is not held by the account quiet hours (Workiz mails any time); a rule with a text waits as a whole', async () => {
-    const mail = { type: 'send_email', to: 'users', userIds: ['u1'], subject: 'OOA job', body: 'Job {{job_id}}' } as const;
+    const mail: AutomationAction = { type: 'send_email', to: 'users', userIds: ['u1'], subject: 'OOA job', body: 'Job {{job_id}}' };
     const mailOnly = rule({ spec: spec({ actions: [mail] }) });
     const { engine, executor, schedule } = harness({ rules: { list: jest.fn(async () => [mailOnly]) } });
     const [run] = await engine.handle({ ...statusEvent, at: NIGHT.toISOString() }, undefined, NIGHT);

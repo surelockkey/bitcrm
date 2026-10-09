@@ -424,13 +424,13 @@ describe('translateWorkizRule', () => {
       expect(result.spec).toBeUndefined();
     });
 
-    it('a rule whose only actions are email or in-app', () => {
+    it('a rule whose only action is an in-app line (e-mail runs since translator 3)', () => {
       const result = notRunnable({
         conditions: conditions({ fact: 'status', operator: 'equal', value: 'Done' }),
-        events: [notification({ notify_medium: 'email' })],
+        events: [notification({ notify_medium: 'inapp', receiverType: 'tech' })],
       });
       expect(result.runnable).toBe(false);
-      expect(result.notRunnableReason).toMatch(/email/);
+      expect(result.notRunnableReason).toMatch(/in-app/);
       expect(result.spec?.actions).toHaveLength(1); // still editable
     });
 

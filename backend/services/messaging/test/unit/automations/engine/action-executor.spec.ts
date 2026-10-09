@@ -424,7 +424,9 @@ describe('AutomationActionExecutor — send_email', () => {
 
     expect(text.outcome).toBe('sent');
     expect(mail.outcome).toBe('sent');
-    const calls = send.sendSystem.mock.calls.map((c) => c[0] as { channel?: string; clientMessageId: string });
+    const calls: Array<{ channel?: string; clientMessageId: string }> = send.sendSystem.mock.calls.map(
+      (c: [{ channel?: string; clientMessageId: string }]) => c[0],
+    );
     expect(calls.map((c) => c.channel ?? 'sms')).toEqual(['sms', 'email']);
     expect(calls[0].clientMessageId).not.toBe(calls[1].clientMessageId);
   });
