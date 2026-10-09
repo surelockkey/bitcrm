@@ -116,6 +116,8 @@ export class JobTypesRepository {
       name: item.name as string,
       priority: (item.priority as number) ?? 0,
       active: Boolean(item.active),
+      // Workiz's Duration, in minutes; the importer writes it (`bitcrm-patch-job-type-duration` for rows loaded before it).
+      ...(typeof item.durationMinutes === 'number' && item.durationMinutes > 0 && { durationMinutes: item.durationMinutes }),
       createdBy: item.createdBy as string,
       createdAt: item.createdAt as string,
       updatedAt: item.updatedAt as string,
