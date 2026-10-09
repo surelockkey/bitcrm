@@ -90,8 +90,8 @@ describe("CallTrackingPage — no jumping", () => {
   it("draws the report with its ad groups and its revenue in one frame", async () => {
     const watch = watchFirstFrame(reportUp, () => ({
       adGroup: !!screen.queryByText("Google Ads"),
-      revenueCard: !!screen.queryByText("Revenue", { selector: "span" }),
-      revenueColumn: !!screen.queryByRole("button", { name: "Revenue" }),
+      revenueCard: !!document.querySelector('[aria-label="Report totals"] [aria-label="Revenue"]'),
+      revenueColumn: !!screen.queryByRole("button", { name: "Sort by Revenue" }),
       skeletons: skeletonCount(),
     }));
     renderWithClient(<CallTrackingPage today="2026-10-06" />);
