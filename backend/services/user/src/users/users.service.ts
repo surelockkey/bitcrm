@@ -392,7 +392,7 @@ export class UsersService implements OnModuleInit {
       }
       throw error;
     }
-    if (subcontractor) await this.switchOffSignIn(id, cognitoSub, { sessions: false });
+    if (subcontractor) await this.switchOffNewAccount(id, cognitoSub);
 
     const phone = dto.phone ? await this.claimPhone(dto.phone, id) : undefined;
 
@@ -773,10 +773,17 @@ export class UsersService implements OnModuleInit {
     if ((user.userType ?? 'regular') === type) return user;
     await this.assertCanChangeUserType(caller, user);
 
-    const updated = await this.repository.update(id, { userType: type });
     if (type === 'subcontractor') {
-      await this.switchOffSignIn(id, user.cognitoSub, { sessions: true });
-    } else if (user.status !== UserStatus.INACTIVE) {
+      // The sign-in goes FIRST, and a failure stops the change: a person
+      // marked a subcontractor who can still sign in is the one outcome this
+      // must never leave behind. (Locked out but still a User is recoverable.)
+      await this.cognitoAdmin.disableUser(user.cognitoSub);
+      await this.permissionCacheReader.setUserDisabled(id);
+    }
+    const updated = await this.repository.update(id, { userType: type });
+    if (type === 'regular' && user.status !== UserStatus.INACTIVE) {
+      // After the write, for the same reason the other way round: a failure
+      // here leaves a User who cannot sign in yet — Reactivate gives it back.
       await this.cognitoAdmin.enableUser(user.cognitoSub);
       await this.permissionCacheReader.removeUserDisabled(id);
       await this.cognitoAdmin.resendInvite(user.email).catch((err: Error) =>
@@ -1089,21 +1096,16 @@ export class UsersService implements OnModuleInit {
   }
 
   /**
-   * No sign-in for this person: the Cognito account off and — when they may
-   * hold sessions already — the flag the auth guard refuses them by. A failure
-   * is logged, not thrown: the person is a subcontractor either way, and an
-   * account made for one has no password anyone knows.
+   * A new subcontractor's account goes off at once. A failure is logged, not
+   * thrown: the account was made without an invitation, so it has no password
+   * anyone knows, and Cognito will not reset one in that state — nobody can
+   * sign in to it either way.
    */
-  private async switchOffSignIn(
-    id: string,
-    cognitoSub: string,
-    { sessions }: { sessions: boolean },
-  ): Promise<void> {
+  private async switchOffNewAccount(id: string, cognitoSub: string): Promise<void> {
     try {
       await this.cognitoAdmin.disableUser(cognitoSub);
-      if (sessions) await this.permissionCacheReader.setUserDisabled(id);
     } catch (err) {
-      this.logger.warn(`Could not switch off the sign-in of subcontractor ${id}: ${(err as Error).message}`);
+      this.logger.warn(`Could not switch off the new account of subcontractor ${id}: ${(err as Error).message}`);
     }
   }
 

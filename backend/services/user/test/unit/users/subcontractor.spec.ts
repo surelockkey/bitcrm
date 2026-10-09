@@ -180,6 +180,22 @@ describe('UsersService → subcontractors', () => {
       expect(updated.userType).toBe('subcontractor');
     });
 
+    it('if the sign-in cannot be switched off, the person stays a User — nothing is written', async () => {
+      repository.findById.mockResolvedValue(employee);
+      cognito.disableUser.mockRejectedValue(new Error('Cognito is down'));
+
+      await expect(service.changeUserType('u-1', 'subcontractor', admin)).rejects.toThrow('Cognito is down');
+      expect(repository.update).not.toHaveBeenCalled();
+      expect(techRepo.updateProfile).not.toHaveBeenCalled();
+    });
+
+    it('a new subcontractor is still made when Cognito will not switch the fresh account off', async () => {
+      cognito.disableUser.mockRejectedValue(new Error('throttled'));
+      const user = await service.create(createMockCreateUserDto({ userType: 'subcontractor' }), admin);
+      expect(user.userType).toBe('subcontractor');
+      expect(repository.create).toHaveBeenCalled();
+    });
+
     it('keeps the technician card in step and stops tracking their location', async () => {
       repository.findById.mockResolvedValue(employee);
       techRepo.getProfile.mockResolvedValue(
