@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { BadRequestException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { RedisService } from '@bitcrm/shared';
-import type { LoginChallengeResponse, LoginResponse, User } from '@bitcrm/types';
+import { isSubcontractor, type LoginChallengeResponse, type LoginResponse, type User } from '@bitcrm/types';
 import { UsersRepository } from '../users/users.repository';
 import { UsersCacheService } from '../users/users-cache.service';
 import { TwilioVerifyClient } from './twilio-verify.client';
@@ -136,6 +136,7 @@ export class MfaService {
   async setByAdmin(userId: string, enabled: boolean): Promise<User> {
     if (enabled) {
       const user = await this.find(userId);
+      if (isSubcontractor(user)) throw new BadRequestException('A subcontractor cannot sign in, so there is no sign-in to protect.');
       if (!user.phone) throw new BadRequestException('This person has no phone on their profile to text the code to.');
     }
     return this.write(userId, enabled);

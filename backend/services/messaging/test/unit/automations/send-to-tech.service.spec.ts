@@ -216,6 +216,17 @@ describe('SendToTechService — deal.sent_to_tech', () => {
     expect(optedOut.markers.put).not.toHaveBeenCalled();
   });
 
+  // Workiz: a subcontractor "can not login, can take jobs and get messages" —
+  // job details reach them by text or email; the app is one they cannot open.
+  it('posts nothing in-app to a subcontractor, and texts and mails them as anyone', async () => {
+    const { service, reports, send } = makeService({ users: { t1: user({ userType: 'subcontractor' }) } });
+    expect(await service.onSentToTech(event({ channels: ['sms', 'email', 'in_app'] }))).toEqual({
+      t1: { sms: 'sent', email: 'sent', in_app: 'no_app_login' },
+    });
+    expect(reports.find((r) => r.channel === 'in_app')).toMatchObject({ status: 'skipped', reason: 'no_app_login' });
+    expect(send.sendSystem).toHaveBeenCalledTimes(2);
+  });
+
   it('delivers the other channels when one is skipped', async () => {
     const { service } = makeService({ send: { error: new RecipientOptedOutException('+14045550001'), errorOn: 'sms' } });
     expect(await service.onSentToTech(event({ channels: ['sms', 'in_app'] }))).toEqual({ t1: { sms: 'opted_out', in_app: 'sent' } });

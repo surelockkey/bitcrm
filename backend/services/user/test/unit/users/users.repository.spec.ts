@@ -109,6 +109,19 @@ describe('UsersRepository', () => {
       expect((await repository.findById('user-1'))?.workizName).toBeUndefined();
     });
 
+    it("reads Workiz's user type back; a record without one is a User", async () => {
+      const user = createMockUser();
+      dbClient.send.mockResolvedValue({
+        Item: { PK: 'USER#user-1', SK: 'METADATA', ...user, userType: 'subcontractor' },
+      });
+      expect((await repository.findById('user-1'))?.userType).toBe('subcontractor');
+
+      dbClient.send.mockResolvedValue({
+        Item: { PK: 'USER#user-1', SK: 'METADATA', ...user },
+      });
+      expect((await repository.findById('user-1'))?.userType).toBeUndefined();
+    });
+
     it('reads the two-step sign-in flag back', async () => {
       const user = createMockUser();
       dbClient.send.mockResolvedValue({

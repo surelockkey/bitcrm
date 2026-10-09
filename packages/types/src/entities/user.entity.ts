@@ -1,6 +1,24 @@
 import { UserStatus } from '../enums/user-status.enum';
 import { UserPermissionOverrides } from '../permissions/permission-matrix';
 
+/**
+ * Workiz's "User type" (Team list → Type, Add team member → User |
+ * Subcontractor). A `regular` user signs in — Workiz's paid seat. A
+ * `subcontractor` is free and "can not login, can take jobs and get
+ * messages": no sign-in, no role to choose (always a technician), no location
+ * tracking, no two-factor sign-in, and job details reach them by text or email.
+ */
+export type UserType = 'regular' | 'subcontractor';
+
+export const USER_TYPES: readonly UserType[] = ['regular', 'subcontractor'];
+
+/** A record without a type is a User — everyone made before the type existed. */
+export function isSubcontractor(
+  user: Pick<User, 'userType'> | null | undefined,
+): boolean {
+  return user?.userType === 'subcontractor';
+}
+
 export interface User {
   id: string;
   cognitoSub: string;
@@ -33,6 +51,12 @@ export interface User {
    * `isFieldTeamMember`, which falls back to the role.
    */
   fieldTeamMember?: boolean;
+  /**
+   * Workiz's "User type" — see `UserType`. Absent = `regular`. Changed only
+   * through user-service's `changeUserType`, which also takes the sign-in away
+   * (or gives it back) and keeps `TechnicianProfile.technicianType` in step.
+   */
+  userType?: UserType;
   /**
    * Two-step sign-in: after the password, a code texted to `phone` (Twilio
    * Verify). Only ever switched on once that number has proved it receives
