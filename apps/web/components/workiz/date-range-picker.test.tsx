@@ -48,6 +48,24 @@ describe("WzDateRangePicker", () => {
     expect(box).toHaveAccessibleName("Date range: All time, All time");
   });
 
+  it("shows the caller's Custom error inside the box, under From / To (rep_payments_wz_16g_custom_over_year)", () => {
+    const { rerender } = render(
+      <WzDateRangePicker
+        presets={presets}
+        rangeOf={rangeOf}
+        value={{ preset: "custom", from: "2025-08-01", to: "2026-10-09" }}
+        onChange={() => {}}
+        customError="Date range exceeds 12 months"
+      />,
+    );
+    const alert = screen.getByRole("alert");
+    expect(alert).toHaveTextContent("Date range exceeds 12 months");
+    expect(alert.className.split(/\s+/)).toEqual(expect.arrayContaining(["text-sm", "text-[#ff0000]", "pl-[5px]", "pb-[5px]"]));
+    // Only while Custom is open.
+    rerender(<WzDateRangePicker presets={presets} rangeOf={rangeOf} value={today} onChange={() => {}} customError="Date range exceeds 12 months" />);
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
   it("lists the presets on a click and takes the one picked", async () => {
     const onChange = setup();
     await userEvent.click(screen.getByRole("button", { name: /date range/i }));

@@ -31,6 +31,12 @@ export interface WzDateRangePickerProps {
    * Return undefined to keep "Oct 1st, 2026 - Oct 9th, 2026".
    */
   rangeText?: (value: WzDateRange) => string | undefined;
+  /**
+   * Why the Custom days cannot be used — Workiz prints it inside the box
+   * under From / To: "Date range exceeds 12 months", 14px #ff0000, 5px in
+   * (rep_payments_wz_16g_custom_over_year). Shown only while Custom is open.
+   */
+  customError?: string | null;
   className?: string;
 }
 
@@ -43,7 +49,7 @@ export interface WzDateRangePickerProps {
  * inputs (158×32, #f7f7f7, 1px #ccc, radius 2, 14px #666, MM/DD/YYYY) inside
  * it, read on blur or Enter.
  */
-export function WzDateRangePicker({ presets, value, onChange, rangeOf, calendar, rangeText, className }: WzDateRangePickerProps) {
+export function WzDateRangePicker({ presets, value, onChange, rangeOf, calendar, rangeText, customError, className }: WzDateRangePickerProps) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const listId = useId();
@@ -94,9 +100,16 @@ export function WzDateRangePicker({ presets, value, onChange, rangeOf, calendar,
       </button>
 
       {custom ? (
-        <div className="flex gap-4 border-t border-wz-frame px-2.5 pt-2.5 pb-[11px]">
-          <DayInput label="From" day={value.from} onDay={setFrom} calendar={calendar} />
-          <DayInput label="To" day={value.to} onDay={setTo} calendar={calendar} />
+        <div className="border-t border-wz-frame">
+          <div className={cn("flex gap-4 px-2.5 pt-2.5", customError ? "pb-2.5" : "pb-[11px]")}>
+            <DayInput label="From" day={value.from} onDay={setFrom} calendar={calendar} />
+            <DayInput label="To" day={value.to} onDay={setTo} calendar={calendar} />
+          </div>
+          {customError ? (
+            <p role="alert" className="pb-[5px] pl-[5px] text-sm leading-4 text-[#ff0000]">
+              {customError}
+            </p>
+          ) : null}
         </div>
       ) : null}
 
