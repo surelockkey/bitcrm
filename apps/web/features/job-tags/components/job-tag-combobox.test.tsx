@@ -114,7 +114,7 @@ describe("JobTagCombobox — Workiz-style tag window", () => {
     const dialog = screen.getByRole("dialog");
     expect(within(dialog).getByDisplayValue("Emergency")).toBeInTheDocument();
 
-    fireEvent.click(within(dialog).getByRole("button", { name: "Create" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
     expect(createMutate).toHaveBeenCalledWith(
       expect.objectContaining({ name: "Emergency" }),
       expect.anything(),

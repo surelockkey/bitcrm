@@ -14,7 +14,7 @@ import {
  * Settings → Client tags appears once, whole.
  *
  * Until the permissions came it said "No access" — a refusal it had not yet
- * earned — and then the tags turned up, with the "New client tag" button
+ * earned — and then the tags turned up, with the "Add New" button
  * arriving on its own beat. Now it waits behind one skeleton for both.
  */
 
@@ -57,10 +57,10 @@ describe("ClientTagsPage — one load, not waves", () => {
     expect(refused).toBe(false);
   });
 
-  it("draws the tags and the New button in one frame", async () => {
+  it("draws the tags and the Add New button in one frame", async () => {
     const watch = watchFirstFrame(tagsUp, () => ({
-      newTag: !!screen.queryByRole("button", { name: /new client tag/i }),
-      editButtons: screen.queryAllByRole("button", { name: "Edit" }).length,
+      newTag: !!screen.queryByRole("button", { name: /^add new$/i }),
+      editButtons: screen.queryAllByRole("button", { name: /^Edit / }).length,
       skeletons: skeletonCount(),
     }));
     renderWithClient(<ClientTagsPage />);
@@ -76,7 +76,7 @@ describe("ClientTagsPage — one load, not waves", () => {
       { match: /\/users\/me$/, reply: () => ({ id: "u1", firstName: "Dee", lastName: "Spatch", email: "dee@example.com", roleId: "role-super-admin" }) },
     ]);
     const watch = watchFirstFrame(
-      () => !!screen.queryByRole("button", { name: /new client tag/i }),
+      () => !!screen.queryByRole("button", { name: /^add new$/i }),
       () => ({ tags: tagsUp(), skeletons: skeletonCount() }),
     );
     renderWithClient(<ClientTagsPage />);

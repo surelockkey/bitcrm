@@ -1,20 +1,8 @@
 "use client";
 
-import { useState } from "react";
-import { Loader2, Tags, Pencil, Plus, Trash2 } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Loader2, Tags, Trash2 } from "lucide-react";
 import type { JobTag } from "@bitcrm/types";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { cn } from "@/lib/utils";
-import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -25,19 +13,33 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { WzButton } from "@/components/workiz/button";
+import type { WzGridColumn } from "@/components/workiz/local-grid";
+import { WzOnOffSwitch } from "@/components/workiz/on-off-switch";
+import { WzSettingsCatalog } from "@/components/workiz/settings-catalog";
+import { WzColorBar } from "@/components/workiz/settings-page";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { settled, usePageReady } from "@/lib/use-page-ready";
-import { useJobTags, useDeleteJobTag } from "../hooks";
-import { tagColorClasses } from "../lib";
+import { useJobTags, useDeleteJobTag, useUpdateJobTag } from "../hooks";
+import { TAG_SWATCH_CLASSES } from "../lib";
 import { JobTagFormDialog } from "./job-tag-form-dialog";
 
+const byCatalogOrder = (a: JobTag, b: JobTag) => b.priority - a.priority || a.name.localeCompare(b.name);
+
+/**
+ * Settings → Job Tags. Workiz has no tags settings page (its tags are made
+ * from the job's "+ Create new"), so this follows its nearest pages: Sub
+ * Status's grid (Tag Name, the Color bar, Actions with the yellow Delete)
+ * and Job Types' "Show: Active" with the ON/OFF Status switch. A row opens
+ * the tag's edit.
+ */
 export function JobTagsPage() {
   const { can, isLoading: permsLoading } = usePermissions();
   const jobTagsQuery = useJobTags();
   const jobTags = jobTagsQuery.data;
-  // One skeleton until both the user and the list are in: the "New" button
-  // and the rows come in the same frame, and nobody is refused for the beat
-  // their permissions are still on the way.
+  // One skeleton until both the user and the list are in: "Add New" and the
+  // rows come in the same frame, and nobody is refused for the beat their
+  // permissions are still on the way.
   const ready = usePageReady(!permsLoading && settled(jobTagsQuery));
   const del = useDeleteJobTag();
 
@@ -48,6 +50,46 @@ export function JobTagsPage() {
   const canCreate = can("job_tags", "create");
   const canEdit = can("job_tags", "edit");
   const canDelete = can("job_tags", "delete");
+
+  const rows = useMemo(() => [...(jobTags ?? [])].sort(byCatalogOrder), [jobTags]);
+  const columns = useMemo<WzGridColumn<JobTag>[]>(() => {
+    const cols: WzGridColumn<JobTag>[] = [
+      { id: "name", label: "Tag Name", render: (t) => t.name, sortValue: (t) => t.name, searchText: (t) => t.name },
+      {
+        id: "color",
+        label: "Color",
+        width: 200,
+        render: (t) => <WzColorBar className={TAG_SWATCH_CLASSES[t.color]} label={t.color} />,
+      },
+      { id: "priority", label: "Priority", render: (t) => t.priority, sortValue: (t) => t.priority, searchText: (t) => String(t.priority) },
+      {
+        id: "status",
+        label: "Status",
+        render: (t) => <JobTagStatusSwitch tag={t} disabled={!canEdit} />,
+        sortValue: (t) => (t.active ? 1 : 0),
+      },
+    ];
+    if (canDelete) {
+      cols.push({
+        id: "actions",
+        label: "Actions",
+        render: (t) => (
+          <WzButton
+            size="regular"
+            icon={<Trash2 />}
+            aria-label={`Delete ${t.name}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              setDeleting(t);
+            }}
+          >
+            Delete
+          </WzButton>
+        ),
+      });
+    }
+    return cols;
+  }, [canEdit, canDelete]);
 
   if (!permsLoading && !can("job_tags", "view")) {
     return (
@@ -70,85 +112,21 @@ export function JobTagsPage() {
   };
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h2 className="text-base font-semibold tracking-tight">Job tags</h2>
-          <p className="text-sm text-muted-foreground">
-            Colored labels for deals. A deal can carry as many as you like.
-          </p>
-        </div>
-        {ready && canCreate ? (
-          <Button variant="brand" className="h-9 gap-1.5" onClick={openNew}>
-            <Plus className="size-4" /> New job tag
-          </Button>
-        ) : null}
-      </div>
-
-      {!ready ? (
-        <div className="space-y-2">
-          <Skeleton className="h-12 w-full" />
-          <Skeleton className="h-12 w-full" />
-        </div>
-      ) : !jobTags || jobTags.length === 0 ? (
-        <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed py-14 text-center">
-          <Tags className="size-6 text-muted-foreground" />
-          <p className="text-sm font-medium">No job tags yet</p>
-          <p className="text-sm text-muted-foreground">
-            Create colored tags so jobs can be labeled and filtered.
-          </p>
-        </div>
-      ) : (
-        <div className="rounded-lg border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Priority</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="w-24 text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {jobTags.map((jobTag) => (
-                <TableRow key={jobTag.id}>
-                  <TableCell>
-                    <span
-                      className={cn(
-                        "inline-flex items-center rounded-chip border px-2.5 py-0.5 text-xs font-medium",
-                        tagColorClasses(jobTag.color),
-                      )}
-                    >
-                      {jobTag.name}
-                    </span>
-                  </TableCell>
-                  <TableCell>{jobTag.priority}</TableCell>
-                  <TableCell>
-                    <Badge variant={jobTag.active ? "default" : "secondary"}>
-                      {jobTag.active ? "Active" : "Archived"}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex justify-end gap-1">
-                      {canEdit ? (
-                        <Button variant="ghost" size="icon" className="size-8" onClick={() => openEdit(jobTag)} aria-label="Edit">
-                          <Pencil className="size-4" />
-                        </Button>
-                      ) : null}
-                      {canDelete ? (
-                        <Button variant="ghost" size="icon" className="size-8" onClick={() => setDeleting(jobTag)} aria-label="Delete">
-                          <Trash2 className="size-4" />
-                        </Button>
-                      ) : null}
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      )}
-
+    <WzSettingsCatalog<JobTag>
+      icon={<Tags />}
+      title="Job Tags"
+      description="Colored labels for your jobs. A job can carry as many as you like."
+      label="Job tags"
+      ready={ready}
+      rows={rows}
+      rowKey={(t) => t.id}
+      columns={columns}
+      isActive={(t) => t.active}
+      defaultSort={{ id: "priority", dir: "desc" }}
+      onAdd={canCreate ? openNew : undefined}
+      onOpen={canEdit ? openEdit : undefined}
+      openLabel={(t) => `Edit ${t.name}`}
+    >
       {formOpen ? (
         <JobTagFormDialog
           key={editing?.id ?? "new"}
@@ -179,6 +157,20 @@ export function JobTagsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </WzSettingsCatalog>
+  );
+}
+
+/** The row's Status switch: off archives the tag, on brings it back. */
+function JobTagStatusSwitch({ tag, disabled }: { tag: JobTag; disabled: boolean }) {
+  const update = useUpdateJobTag(tag.id);
+  const pending = update.isPending ? (update.variables as { active?: boolean } | undefined)?.active : undefined;
+  return (
+    <WzOnOffSwitch
+      aria-label={`${tag.name} status`}
+      checked={pending ?? tag.active}
+      disabled={disabled || update.isPending}
+      onCheckedChange={(active) => update.mutate({ active })}
+    />
   );
 }
