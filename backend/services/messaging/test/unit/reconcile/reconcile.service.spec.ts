@@ -196,7 +196,7 @@ describe('ReconcileService.run — inbound', () => {
 
   it('counts a pipeline duplicate separately from an insert', async () => {
     const { service } = make({ records: [twilioMessage()], ingest: 'duplicate' });
-    expect((await service.run({}, NOW)).inbound).toEqual({ inserted: 0, duplicates: 1 });
+    expect((await service.run({}, NOW)).inbound).toEqual({ inserted: 0, duplicates: 1, blocked: 0 });
   });
 });
 
