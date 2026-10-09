@@ -21,6 +21,7 @@ import { loginSchema, type LoginValues } from "@/features/auth/schemas";
 import { useLogin } from "@/features/auth/hooks";
 import { useAuthStore } from "@/stores/auth-store";
 import { MfaCodeStep } from "./mfa-code-step";
+import { MfaSetupStep } from "./mfa-setup-step";
 
 export function LoginForm() {
   const form = useForm<LoginValues>({
@@ -30,10 +31,12 @@ export function LoginForm() {
   const mutation = useLogin();
   const mfa = useAuthStore((s) => s.mfaChallenge);
 
+  // The second step: a phone to set up first (the account requires
+  // two-factor authentication and there is none), or the code.
   if (mfa) {
     return (
       <AuthCard>
-        <MfaCodeStep destination={mfa.destination} />
+        {mfa.setup ? <MfaSetupStep /> : <MfaCodeStep destination={mfa.destination} emailDestination={mfa.emailDestination} />}
       </AuthCard>
     );
   }

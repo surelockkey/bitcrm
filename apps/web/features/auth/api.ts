@@ -6,6 +6,7 @@ import type {
   ChangePasswordResponse,
   RefreshTokenResponse,
   MfaVerifyRequest,
+  MfaSetupRequest,
 } from "@bitcrm/types";
 import { http } from "@/lib/api/http";
 
@@ -30,6 +31,19 @@ export function verifyMfa(body: MfaVerifyRequest): Promise<LoginResponse> {
 /** Text the two-step sign-in code again, to the same phone. */
 export function resendMfa(session: string): Promise<{ destination: string }> {
   return http.post("/users/auth/mfa/resend", { session });
+}
+
+/**
+ * The account requires two-factor authentication and this person had no
+ * phone (`MFA_SETUP`): the phone to text — its code then finishes the sign-in.
+ */
+export function setupMfa(body: MfaSetupRequest): Promise<{ destination: string }> {
+  return http.post("/users/auth/mfa/setup", body);
+}
+
+/** The sign-in code to the account's email instead (Security Center "Login sending options"). */
+export function emailMfaCode(session: string): Promise<{ destination: string }> {
+  return http.post("/users/auth/mfa/email", { session });
 }
 
 export function setNewPassword(
