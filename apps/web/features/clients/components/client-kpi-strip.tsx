@@ -12,7 +12,7 @@ import type { ClientKpis } from "../client-page";
  */
 export function ClientKpiStrip({ kpis, money }: { kpis: ClientKpis; money: boolean }) {
   return (
-    <WzTotalsBar aria-label="Client totals" className="pt-0.5">
+    <WzTotalsBar aria-label="Client totals" className="pt-0.5 max-md:gap-x-10 max-md:pl-5">
       {money ? (
         <>
           <WzLeftBorderBox label="Past due" value={formatMoney(kpis.pastDue)} tone="danger" />
