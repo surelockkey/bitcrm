@@ -116,7 +116,7 @@ export function CompanyDetailPage({ companyId }: { companyId: string }) {
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 {/* pg_contact_wz_269669_01: a 40px yellow pill, the chevron before the words. */}
-                <Button variant="brand" size="lg" className="min-w-[133px] gap-1.5 px-3">
+                <Button variant="brand" size="lg" className="min-w-[133px] gap-1.5 px-3 max-md:ml-5">
                   <ChevronDown className="size-[18px]" strokeWidth={1.75} /> Create new
                 </Button>
               </DropdownMenuTrigger>
