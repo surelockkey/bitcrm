@@ -93,6 +93,58 @@ describe('UsersService → technician profile auto-provisioning', () => {
     expect(techRepo.upsertProfile).not.toHaveBeenCalled();
   });
 
+  /**
+   * Workiz's "Add team member" asks "Field tech — Can this user be assigned
+   * to jobs" and "Track Location" up front (subcontractor_wz_04_add_new_user),
+   * so the create request carries both: the first is the user's field-team
+   * flag whatever the role, the second seeds the card that flag provisions.
+   */
+  describe('Field tech and Track Location on create', () => {
+    const caller = createMockJwtUser({ roleId: 'role-super-admin' });
+
+    it('puts a non-technician on the field team when Field tech is on, with the card tracking location when asked', async () => {
+      const user = await service.create(
+        createMockCreateUserDto({ roleId: 'role-admin', fieldTeamMember: true, gpsTrackingEnabled: true }),
+        caller,
+      );
+
+      expect(user.fieldTeamMember).toBe(true);
+      expect(usersRepo.create).toHaveBeenCalledWith(expect.objectContaining({ fieldTeamMember: true }));
+      expect(techRepo.upsertProfile).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 'pending', gpsTrackingEnabled: true }),
+      );
+    });
+
+    it('keeps a technician off the roster when Field tech is off: no card', async () => {
+      const user = await service.create(
+        createMockCreateUserDto({ roleId: 'role-technician', fieldTeamMember: false, gpsTrackingEnabled: true }),
+        caller,
+      );
+
+      expect(user.fieldTeamMember).toBe(false);
+      expect(techRepo.upsertProfile).not.toHaveBeenCalled();
+    });
+
+    it('leaves the flag unset and the card untracked when the request says nothing', async () => {
+      const user = await service.create(createMockCreateUserDto({ roleId: 'role-technician' }), caller);
+
+      expect('fieldTeamMember' in user).toBe(false);
+      expect(techRepo.upsertProfile).toHaveBeenCalledWith(expect.objectContaining({ gpsTrackingEnabled: false }));
+    });
+
+    it('a subcontractor is always on the field team and never tracked, whatever the request says', async () => {
+      const user = await service.create(
+        createMockCreateUserDto({ userType: 'subcontractor', fieldTeamMember: false, gpsTrackingEnabled: true }),
+        caller,
+      );
+
+      expect(user.fieldTeamMember).toBe(true);
+      expect(techRepo.upsertProfile).toHaveBeenCalledWith(
+        expect.objectContaining({ technicianType: 'subcontractor', gpsTrackingEnabled: false }),
+      );
+    });
+  });
+
   it('does not duplicate an existing profile', async () => {
     techRepo.getProfile.mockResolvedValue({ userId: 'x', status: 'active' });
     await service.create(

@@ -1,4 +1,4 @@
-import { IsEmail, IsIn, IsOptional, IsString, MinLength, ValidateIf } from 'class-validator';
+import { IsBoolean, IsEmail, IsIn, IsOptional, IsString, MinLength, ValidateIf } from 'class-validator';
 import { USER_TYPES, type UserType } from '@bitcrm/types';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
@@ -53,4 +53,24 @@ export class CreateUserDto {
   @IsOptional()
   @IsString()
   phone?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Workiz "Field tech — Can this user be assigned to jobs". Omitted = by ' +
+      'role (a technician is, nobody else). Ignored for a subcontractor, who is ' +
+      'always on the field team.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  fieldTeamMember?: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      'Workiz "Track Location": the technician card a field team member gets ' +
+      'starts with location tracking on. Nothing without a card; never for a ' +
+      'subcontractor.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  gpsTrackingEnabled?: boolean;
 }
