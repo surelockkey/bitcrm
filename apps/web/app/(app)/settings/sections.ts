@@ -19,6 +19,7 @@ import {
   Building,
   FileStack,
   CreditCard,
+  Bell,
 } from "lucide-react";
 import type { Resource } from "@bitcrm/types";
 
@@ -73,6 +74,15 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
         href: "/automations",
         description: "What the system texts on its own — job status, missed calls, reminders.",
         icon: Workflow,
+        resource: "settings",
+      },
+      {
+        // Workiz's Notification Center (`/root/notification_center`): the
+        // reminders and alerts, a flat list over the same automation rules.
+        label: "Notifications",
+        href: "/settings/notifications",
+        description: "Auto-notifications and reminders for you, your team and clients.",
+        icon: Bell,
         resource: "settings",
       },
       {
@@ -265,6 +275,7 @@ export const WORKIZ_FRAMED_SETTINGS: ReadonlySet<string> = new Set([
   "/settings/companies",
   "/settings/documents",
   "/settings/payments",
+  "/settings/notifications",
 ]);
 
 /**

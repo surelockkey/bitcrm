@@ -325,7 +325,7 @@ export const queryKeys = {
 
   automations: {
     all: () => ["automations"] as const,
-    list: () => ["automations", "list"] as const,
+    list: (params?: unknown) => (params ? (["automations", "list", params] as const) : (["automations", "list"] as const)),
     detail: (id: string) => ["automations", "detail", id] as const,
     runs: (id: string) => ["automations", "runs", id] as const,
     runsCount: (filters?: unknown) => ["automations", "runs", "count", filters] as const,

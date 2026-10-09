@@ -7,6 +7,7 @@ import {
   deleteAutomation,
   duplicateAutomation,
   listAutomationRunsFeed,
+  listAutomations,
 } from "./api";
 
 const spec: AutomationSpec = {
@@ -91,5 +92,21 @@ describe("listAutomationRunsFeed", () => {
   it("asks for the whole feed when nothing is filtered", async () => {
     await listAutomationRunsFeed();
     expect(seen?.url).toMatch(/\/messaging\/automations\/runs$/);
+  });
+});
+
+describe("listAutomations", () => {
+  it("asks for one category when told to, and for everything otherwise", async () => {
+    let url = "";
+    server.use(
+      http.get("*/messaging/automations", ({ request }) => {
+        url = request.url;
+        return HttpResponse.json({ success: true, data: [] });
+      }),
+    );
+    await listAutomations({ category: "notification" });
+    expect(new URL(url).searchParams.get("category")).toBe("notification");
+    await listAutomations();
+    expect(new URL(url).search).toBe("");
   });
 });
