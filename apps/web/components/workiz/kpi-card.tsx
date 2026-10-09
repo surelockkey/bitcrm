@@ -20,9 +20,17 @@ const RULE: Record<WzKpiTone, string> = {
   lightRed: "border-l-[#ff7753]",
 };
 
-/** The card's box: 81px, 15px in, the 3px rule, MUI's elevation-2 shadow, square corners. */
-const BOX =
-  "h-[81px] border-l-[3px] p-[15px] shadow-[0_3px_1px_-2px_rgba(0,0,0,0.14),0_2px_2px_0_rgba(0,0,0,0.098),0_1px_5px_0_rgba(0,0,0,0.082)]";
+/** The card's box: 15px in, the 3px rule, MUI's elevation-2 shadow, square corners. */
+const SHELL =
+  "border-l-[3px] p-[15px] shadow-[0_3px_1px_-2px_rgba(0,0,0,0.14),0_2px_2px_0_rgba(0,0,0,0.098),0_1px_5px_0_rgba(0,0,0,0.082)]";
+/** 81px: one line of caption. */
+const BOX = `h-[81px] ${SHELL}`;
+/**
+ * The Estimates page's status cards (uikit_wz_estimates): the same box, but
+ * "50 Worth $8,702,853.93" wraps under the status, so a card is 81px with one
+ * line and 97px with two.
+ */
+const GROWING_BOX = `min-h-[81px] ${SHELL}`;
 
 /**
  * `.c_hover` under the cursor (rep_aging_wz_02_card_hover): the shadow drops
@@ -52,6 +60,8 @@ export function WzKpiCard({
   label,
   onSelect,
   selected = false,
+  selectedTone,
+  wrapCaption = false,
   className,
   ...props
 }: Omit<ComponentProps<"div">, "children" | "onSelect"> & {
@@ -64,8 +74,17 @@ export function WzKpiCard({
   onSelect?: () => void;
   /** The pick this card stands for is the current one. */
   selected?: boolean;
+  /**
+   * The chosen card's rule instead of the chosen grey: the Estimates page's
+   * card turns `left-orange` (#ffae00) on a white box
+   * (pg_estimates_wz_06_card_won). Unset: Aging's `.selectedCard` grey.
+   */
+  selectedTone?: WzKpiTone;
+  /** The caption wraps and the card grows (81px → 97px) instead of cutting it (Estimates). */
+  wrapCaption?: boolean;
 }) {
   const name = label ?? (typeof caption === "string" ? caption : undefined);
+  const box = wrapCaption ? GROWING_BOX : BOX;
   // The pickable card is laid out from the top (a button would centre it a
   // pixel down) with the caption's line 10px under the figure: glyph rows
   // 144–162 and 176–192, as rep_aging_wz_01_default draws them.
@@ -74,7 +93,7 @@ export function WzKpiCard({
       <div className="w-full truncate text-[19.6px] leading-[25px] font-medium tracking-[0.4px] text-wz-tab-bar tabular-nums">
         {value}
       </div>
-      <div className={cn("w-full truncate text-sm leading-4 tracking-[0.4px] text-wz-caption", onSelect ? "mt-2.5" : "mt-2")}>
+      <div className={cn("w-full text-sm leading-4 tracking-[0.4px] text-wz-caption", !wrapCaption && "truncate", onSelect ? "mt-2.5" : "mt-2")}>
         {caption}
       </div>
     </>
@@ -87,7 +106,14 @@ export function WzKpiCard({
         aria-label={name}
         data-slot="wz-kpi-card"
         onClick={onSelect}
-        className={cn(BOX, RULE[tone], PICKABLE, "min-w-0 text-right", selected ? "bg-[#f0f0f0]" : "bg-background", className)}
+        className={cn(
+          box,
+          selected && selectedTone ? RULE[selectedTone] : RULE[tone],
+          PICKABLE,
+          "min-w-0 text-right",
+          selected && !selectedTone ? "bg-[#f0f0f0]" : "bg-background",
+          className,
+        )}
       >
         {body}
       </button>
@@ -98,7 +124,7 @@ export function WzKpiCard({
       role="group"
       aria-label={name}
       data-slot="wz-kpi-card"
-      className={cn(BOX, RULE[tone], "min-w-0 bg-background text-right", className)}
+      className={cn(box, RULE[tone], "min-w-0 bg-background text-right", className)}
       {...props}
     >
       {body}
