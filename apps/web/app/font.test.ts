@@ -27,4 +27,20 @@ describe("the app font is Workiz's", () => {
     expect(html, "html {} rule").not.toBeNull();
     expect(html![1]).toMatch(/letter-spacing:\s*0\.4px/);
   });
+
+  it("leaves what is typed untracked, as Workiz's inputs are (new_01_empty: `normal`)", () => {
+    // Tailwind's preflight makes form controls inherit the page's tracking;
+    // Workiz has no preflight, so its inputs keep the browser's `normal`.
+    const inputs = css.match(/\n\s*input,\s*\n\s*textarea\s*\{([\s\S]*?)\}/);
+    expect(inputs, "input, textarea {} rule").not.toBeNull();
+    expect(inputs![1]).toMatch(/letter-spacing:\s*normal/);
+  });
+
+  it("preloads Poppins (the whole app's face) but not the mono font, used on a line here and there", () => {
+    const mono = layout.match(/Geist_Mono\(\{([\s\S]*?)\}\)/);
+    expect(mono, "Geist_Mono({...}) call").not.toBeNull();
+    expect(mono![1]).toContain("preload: false");
+    const poppins = layout.match(/Poppins\(\{([\s\S]*?)\}\)/);
+    expect(poppins![1]).not.toContain("preload: false");
+  });
 });

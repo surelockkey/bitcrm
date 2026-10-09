@@ -288,6 +288,15 @@
        menus/selects lock body scroll. Pairs with the neutralizer below. */
     scrollbar-gutter: stable;
   }
+  /* What is typed is not tracked: Workiz's inputs and textareas keep the
+     browser's own `normal` (measured on New Job, new_01_empty: every input
+     `letter-spacing: normal` under a 0.4px page), and only Tailwind's
+     preflight (`letter-spacing: inherit` on form controls) handed ours the
+     page's 0.4px. Labels and placeholders' boxes are untouched by it. */
+  input,
+  textarea {
+    letter-spacing: normal;
+  }
   /* Interactive elements get a pointer cursor. */
   button:not(:disabled),
   [role="button"]:not([aria-disabled="true"]),
