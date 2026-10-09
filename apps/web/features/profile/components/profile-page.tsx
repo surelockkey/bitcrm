@@ -1,9 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { KeyRound, Loader2, LogOut, Pencil } from "lucide-react";
+import type { User } from "@bitcrm/types";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -14,344 +12,177 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { PhoneInput } from "@/components/ui/phone-input";
-import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { UserStatus } from "@bitcrm/types";
-import type { User } from "@bitcrm/types";
-import { cn } from "@/lib/utils";
+import { WzPageHeader } from "@/components/workiz/page-parts";
+import { WzPopMenu, type WzPopMenuItem } from "@/components/workiz/pop-menu";
+import { WzTabBar, type WzTab } from "@/components/workiz/tab-bar";
+import { settled, usePageReady } from "@/lib/use-page-ready";
 import { useMe } from "@/features/auth/use-me";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { useLogout, useRequestReset } from "@/features/auth/hooks";
-import { initials, formatDate } from "@/features/users/lib";
-import { formatPhone, isValidPhone } from "@/lib/phone";
-import { useUpdateUser, useUpdateMyPhone } from "@/features/users/hooks";
-import { updateUserSchema, type UpdateUserValues } from "@/features/users/schemas";
-import { useOnboarding, useProfile } from "@/features/technicians/hooks";
-import { settled, usePageReady } from "@/lib/use-page-ready";
-import { onboardingPct } from "@/features/technicians/lib";
-import { TechnicianAssignments } from "@/features/technicians/components/assignments-section";
-import { DocumentsTab } from "@/features/technicians/components/documents-tab";
+import { useJobTypesLoading } from "@/features/job-types/lib";
+import { useServiceAreas } from "@/features/service-areas/hooks";
+import { useAssignments, useOnboarding, useProfile } from "@/features/technicians/hooks";
+import { technicianEditRights } from "@/features/technicians/lib";
 import { CommissionTab } from "@/features/technicians/components/commission-tab";
-import { SelfProfileForm } from "./self-profile-form";
-import { TwoStepCard } from "./two-step-card";
+import { DocumentsTab } from "@/features/technicians/components/documents-tab";
+import { TechnicianForm } from "@/features/technicians/components/technician-form";
+import { AccountForm } from "./account-form";
+import { SelfTwoFactor } from "./self-two-factor";
+
+type ProfileTab = "profile" | "availability" | "commissions" | "documents";
 
 /**
- * The heading and the column are drawn from the first frame; the cards wait in
- * that column under one skeleton until everything they show is in.
+ * My Profile, as Workiz's user page (`/root/editUser/<id>`,
+ * pg_technicians_wz_10_user_profile) — which is also where a Workiz user
+ * finds their own settings (its avatar menu has no "My profile"):
+ * "User Settings" with "Actions ⌄" at the right, the small tab row, and the
+ * two-column form over the yellow Save bar.
  *
- * The loading state used to be a box of its own — narrow and centred — which
- * the page then took over, full width with a heading on top: everything on
- * screen jumped sideways and down at once. A technician's own section asks
- * for its onboarding and its profile up front too, so it comes with the rest
- * rather than after it.
+ * A technician gets the technician card's own form (`TechnicianForm`): their
+ * contact details theirs to change, the rest a manager's and greyed, their
+ * job types and service areas to propose, the onboarding checklist; and the
+ * card's tabs — Profile, Availability, Commissions, ours Documents. Anyone
+ * else gets their account on the same page (`AccountForm`). Two-factor
+ * authentication is the self-service row either way.
+ *
+ * Actions holds Workiz's "Reset password" (asked first: a code goes to the
+ * email) and "Log Out" (Workiz keeps it in the avatar menu; ours is here too,
+ * where the old page had Sign out).
+ *
+ * The heading stands from the first frame; one skeleton holds the tabs and
+ * the columns until everything they show is in.
  */
 export function ProfilePage() {
   const { data: me } = useMe();
-  const { can, isTechnician, roleName } = usePermissions();
-
-  const technicianId = me && isTechnician ? me.id : "";
-  const onboarding = useOnboarding(technicianId, !!technicianId);
-  const techProfile = useProfile(technicianId, !!technicianId);
-  const ready = usePageReady(!!me && settled(onboarding) && settled(techProfile));
-
-  return (
-    <div className="flex flex-1 flex-col">
-      <div className="border-b px-6 py-4">
-        <h1 className="text-lg font-semibold tracking-tight">My Profile</h1>
-        <p className="text-sm text-muted-foreground">Your account, security, and onboarding.</p>
-      </div>
-      <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-4xl space-y-6 px-6 py-6">
-          {!ready || !me ? (
-            <>
-              <Skeleton className="h-40 w-full" />
-              <Skeleton className="h-24 w-full" />
-            </>
-          ) : (
-            <>
-              <AccountCard me={me} roleName={roleName} canEdit={can("users", "edit")} />
-              <SecurityCard email={me.email} />
-              <TwoStepCard me={me} />
-              {isTechnician ? <TechnicianSelfService technicianId={me.id} /> : null}
-            </>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function AccountCard({
-  me,
-  roleName,
-  canEdit,
-}: {
-  me: User;
-  roleName: string;
-  canEdit: boolean;
-}) {
-  const [editing, setEditing] = useState(false);
-  const update = useUpdateUser();
-  const form = useForm<UpdateUserValues>({
-    resolver: zodResolver(updateUserSchema),
-    defaultValues: { firstName: me.firstName, lastName: me.lastName, department: me.department },
-  });
-
-  const save = (v: UpdateUserValues) =>
-    update.mutate({ id: me.id, body: v }, { onSuccess: () => setEditing(false) });
-
-  return (
-    <section className="rounded-xl border bg-card">
-      <div className="flex items-center gap-4 p-5">
-        <Avatar className="size-14">
-          <AvatarFallback className="text-lg">{initials(me.firstName, me.lastName)}</AvatarFallback>
-        </Avatar>
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-lg font-semibold">{me.firstName} {me.lastName}</div>
-          <div className="truncate text-sm text-muted-foreground">{me.email}</div>
-          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-            <Badge variant="secondary" className="font-normal">{roleName}</Badge>
-            {me.department ? <Badge variant="outline" className="font-normal">{me.department}</Badge> : null}
-            <Badge variant="outline" className="gap-1.5 font-normal">
-              <span className={cn("size-1.5 rounded-full", me.status === UserStatus.ACTIVE ? "bg-green-500" : "bg-muted-foreground/50")} />
-              {me.status === UserStatus.ACTIVE ? "Active" : "Inactive"}
-            </Badge>
-          </div>
-        </div>
-        {canEdit && !editing ? (
-          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setEditing(true)}>
-            <Pencil className="size-3.5" /> Edit
-          </Button>
-        ) : null}
-      </div>
-
-      <div className="border-t px-5 py-4">
-        {editing ? (
-          <form onSubmit={form.handleSubmit(save)} className="space-y-3" noValidate>
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="First name" error={form.formState.errors.firstName?.message}>
-                <Input className="h-10" {...form.register("firstName")} />
-              </Field>
-              <Field label="Last name" error={form.formState.errors.lastName?.message}>
-                <Input className="h-10" {...form.register("lastName")} />
-              </Field>
-            </div>
-            <Field label="Department" error={form.formState.errors.department?.message}>
-              <Input className="h-10" {...form.register("department")} />
-            </Field>
-            <div className="flex justify-end gap-2">
-              <Button type="button" variant="ghost" size="sm" onClick={() => setEditing(false)}>Cancel</Button>
-              <Button type="submit" variant="brand" size="sm" className="gap-1.5" disabled={update.isPending}>
-                {update.isPending ? <Loader2 className="size-4 animate-spin" /> : null} Save
-              </Button>
-            </div>
-          </form>
-        ) : (
-          <>
-            <dl className="text-sm">
-              <Row label="Email" value={<span>{me.email} <span className="ml-1 rounded-chip border px-1.5 text-[10px] text-muted-foreground">login</span></span>} />
-              <Row label="Department" value={me.department || "—"} />
-              <Row label="Role" value={roleName} />
-              <Row label="Member since" value={formatDate(me.createdAt)} />
-              <PhoneRow phone={me.phone} />
-            </dl>
-            {!canEdit ? (
-              <p className="mt-2 text-xs text-muted-foreground">
-                Your name and department are managed by an admin. Email can&apos;t be changed.
-              </p>
-            ) : null}
-          </>
-        )}
-      </div>
-    </section>
-  );
-}
-
-/**
- * Your own phone, always editable — this is your profile, so it needs no
- * `users.edit`; a technician has to be able to set it. Calls to or from it
- * are attributed to you in the call log.
- */
-function PhoneRow({ phone }: { phone?: string }) {
-  const [editing, setEditing] = useState(false);
-  const [value, setValue] = useState(phone ?? "");
-  const update = useUpdateMyPhone();
-
-  const save = () => {
-    if (value.trim() && !isValidPhone(value)) return;
-    update.mutate(value.trim(), { onSuccess: () => setEditing(false) });
-  };
-
-  if (!editing) {
-    return (
-      <div className="flex items-center justify-between gap-3 py-2">
-        <dt className="text-muted-foreground">Phone</dt>
-        <dd className="flex items-center gap-2 font-medium">
-          {phone ? formatPhone(phone) : <span className="text-muted-foreground">—</span>}
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
-            onClick={() => {
-              setValue(phone ?? "");
-              setEditing(true);
-            }}
-          >
-            {phone ? "Change" : "Add"}
-          </Button>
-        </dd>
-      </div>
-    );
-  }
-
-  const invalid = !!value.trim() && !isValidPhone(value);
-
-  return (
-    <div className="space-y-1.5 py-2">
-      <dt className="text-muted-foreground">Phone</dt>
-      <dd className="flex items-center gap-2">
-        <PhoneInput className="h-9" value={value} onChange={setValue} />
-        <Button
-          variant="brand"
-          size="sm"
-          disabled={update.isPending || invalid}
-          onClick={save}
-          className="gap-1.5"
-        >
-          {update.isPending ? <Loader2 className="size-3.5 animate-spin" /> : null}
-          Save
-        </Button>
-        <Button variant="ghost" size="sm" onClick={() => setEditing(false)}>
-          Cancel
-        </Button>
-      </dd>
-      <p className="text-xs text-muted-foreground">
-        {invalid
-          ? "Enter a valid phone number."
-          : "We ring this number when you take a call on your handset, and calls to or from it are shown as reaching you."}
-      </p>
-    </div>
-  );
-}
-
-function SecurityCard({ email }: { email: string }) {
+  const { isTechnician, isLoading: permsLoading } = usePermissions();
   const signOut = useLogout();
   const requestReset = useRequestReset();
   const [confirmReset, setConfirmReset] = useState(false);
 
+  const actions: WzPopMenuItem[] = [
+    { key: "reset", label: "Reset password", onSelect: () => setConfirmReset(true), disabled: !me },
+    { key: "logout", label: "Log Out", onSelect: signOut },
+  ];
+
   return (
-    <section className="rounded-xl border bg-card p-5">
-      <h3 className="text-sm font-semibold">Security</h3>
-      <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <div className="text-sm font-medium">Password</div>
-          <p className="text-xs text-muted-foreground">We&apos;ll email you a code to set a new one.</p>
-        </div>
-        <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setConfirmReset(true)}>
-          <KeyRound className="size-3.5" /> Reset password
-        </Button>
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="-mt-px">
+        <WzPageHeader title="User Settings" end={<WzPopMenu items={actions} className="mr-3" />} />
       </div>
-      <div className="mt-3 flex items-center justify-between border-t pt-3">
-        <div>
-          <div className="text-sm font-medium">Sign out</div>
-          <p className="text-xs text-muted-foreground">End your session on this device.</p>
-        </div>
-        <Button variant="outline" size="sm" className="gap-1.5 text-destructive" onClick={signOut}>
-          <LogOut className="size-3.5" /> Sign out
-        </Button>
-      </div>
+
+      {!me || permsLoading ? (
+        <ProfileSkeleton />
+      ) : isTechnician ? (
+        <TechnicianProfile me={me} />
+      ) : (
+        <AccountProfile me={me} />
+      )}
 
       <AlertDialog open={confirmReset} onOpenChange={setConfirmReset}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Reset your password?</AlertDialogTitle>
             <AlertDialogDescription>
-              We&apos;ll email a code to <b>{email}</b>. Enter it on the next screen to
-              set a new password. You stay signed in here.
+              We&apos;ll email a code to <b>{me?.email}</b>. Enter it on the next screen to set a new password. You stay
+              signed in here.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={() => requestReset.mutate(email)}>Email me a code</AlertDialogAction>
+            <AlertDialogAction onClick={() => me && requestReset.mutate(me.email)}>Email me a code</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </section>
-  );
-}
-
-function TechnicianSelfService({ technicianId }: { technicianId: string }) {
-  const { data: onboarding } = useOnboarding(technicianId);
-  const [tab, setTab] = useState("profile");
-
-  const pct = onboarding ? onboardingPct(onboarding) : 0;
-  const nextStep = onboarding
-    ? !onboarding.checklist.profileComplete
-      ? "complete your profile"
-      : !onboarding.checklist.assignmentsApproved
-        ? "get your job types & areas approved"
-        : !onboarding.checklist.commissionSet
-          ? "your commission needs setting"
-          : null
-    : null;
-
-  return (
-    <section className="rounded-xl border bg-card">
-      {onboarding && pct < 100 ? (
-        <div className="flex items-center gap-3 border-b border-amber-500/30 bg-amber-500/10 px-5 py-3 text-sm text-amber-700 dark:text-amber-500">
-          <span className="font-medium">
-            Onboarding · {onboarding.completedSteps} of {onboarding.totalSteps}
-          </span>
-          {nextStep ? <span>— next: {nextStep}</span> : null}
-          <span className="ml-auto h-1.5 w-24 overflow-hidden rounded-full bg-amber-500/20">
-            <span className="block h-full rounded-full bg-amber-500" style={{ width: `${pct}%` }} />
-          </span>
-        </div>
-      ) : (
-        <div className="border-b px-5 py-3 text-sm font-medium">Technician</div>
-      )}
-
-      <Tabs value={tab} onValueChange={setTab} className="flex flex-col">
-        <div className="border-b px-5">
-          <TabsList variant="line" className="h-11">
-            <TabsTrigger value="profile" className="px-2">Profile</TabsTrigger>
-            <TabsTrigger value="assignments" className="px-2">Assignments</TabsTrigger>
-            <TabsTrigger value="documents" className="px-2">Documents</TabsTrigger>
-            <TabsTrigger value="commission" className="px-2">Commission</TabsTrigger>
-          </TabsList>
-        </div>
-        <div className="p-5">
-          <TabsContent value="profile" className="mt-0"><SelfProfileForm technicianId={technicianId} /></TabsContent>
-          <TabsContent value="assignments" className="mt-0"><TechnicianAssignments technicianId={technicianId} /></TabsContent>
-          <TabsContent value="documents" className="mt-0"><DocumentsTab technicianId={technicianId} /></TabsContent>
-          <TabsContent value="commission" className="mt-0"><CommissionTab technicianId={technicianId} /></TabsContent>
-        </div>
-      </Tabs>
-    </section>
-  );
-}
-
-function Row({ label, value, last }: { label: string; value: React.ReactNode; last?: boolean }) {
-  return (
-    <div className={cn("flex items-center justify-between gap-3 py-2", !last && "border-b")}>
-      <dt className="text-muted-foreground">{label}</dt>
-      <dd className="font-medium">{value}</dd>
     </div>
   );
 }
 
-function Field({ label, error, children }: { label: string; error?: string; children: React.ReactNode }) {
+/** Workiz's small tab row under the heading (as the technician card's). */
+function ProfileTabs({ tabs, value, onChange }: { tabs: WzTab[]; value: string; onChange: (v: ProfileTab) => void }) {
   return (
-    <div className="space-y-1.5">
-      <Label>{label}</Label>
-      {children}
-      {error ? <p className="text-xs text-destructive">{error}</p> : null}
+    <WzTabBar aria-label="My profile" className="-ml-px shrink-0" tabs={tabs} value={value} onValueChange={(v) => onChange(v as ProfileTab)} />
+  );
+}
+
+/** Anyone who is not a technician: their account on the user page. */
+function AccountProfile({ me }: { me: User }) {
+  const { can, roleName } = usePermissions();
+  return (
+    <>
+      <ProfileTabs tabs={[{ value: "profile", label: "Profile" }]} value="profile" onChange={() => undefined} />
+      <AccountForm me={me} roleName={roleName} canEditUser={can("users", "edit")} />
+    </>
+  );
+}
+
+/**
+ * A technician: the technician card's form and tabs for themselves, behind
+ * the card's own gate — the profile, the assignments and the catalogs that
+ * name them, the onboarding checklist.
+ */
+function TechnicianProfile({ me }: { me: User }) {
+  const { can, isTechnician } = usePermissions();
+  const [tab, setTab] = useState<ProfileTab>("profile");
+  const profile = useProfile(me.id);
+  const assignments = useAssignments(me.id);
+  const onboarding = useOnboarding(me.id);
+  const areas = useServiceAreas();
+  const jobTypesLoading = useJobTypesLoading();
+  const ready = usePageReady([profile, assignments, onboarding, areas].every(settled) && !jobTypesLoading);
+
+  if (!ready) return <ProfileSkeleton />;
+
+  const rights = technicianEditRights({
+    canEdit: can("technicians", "edit"),
+    isTechnician,
+    canEditUser: can("users", "edit"),
+  });
+  const tabs: WzTab[] = [
+    { value: "profile", label: "Profile" },
+    { value: "availability", label: "Availability" },
+    ...(can("commission", "view") ? [{ value: "commissions", label: "Commissions" }] : []),
+    ...(can("documents", "view") ? [{ value: "documents", label: "Documents" }] : []),
+  ];
+
+  return (
+    <>
+      <ProfileTabs tabs={tabs} value={tab} onChange={setTab} />
+      <div hidden={tab !== "profile" && tab !== "availability"} className="flex min-h-0 flex-1 flex-col">
+        <TechnicianForm
+          technicianId={me.id}
+          user={me}
+          rights={rights}
+          tab={tab === "availability" ? "availability" : "profile"}
+          twoFactor={<SelfTwoFactor me={me} />}
+        />
+      </div>
+      {tab === "commissions" ? (
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 pt-9 pb-12 md:px-12">
+          <CommissionTab technicianId={me.id} />
+        </div>
+      ) : null}
+      {tab === "documents" ? (
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 pt-9 pb-12 md:px-12">
+          <DocumentsTab technicianId={me.id} />
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+/** The page's one skeleton under the heading: the tab row and the two columns. */
+function ProfileSkeleton() {
+  return (
+    <div className="flex flex-1 flex-col" aria-busy>
+      <div className="mt-4 flex gap-10 border-b border-wz-tab-rule px-5 pb-2.5">
+        <Skeleton className="h-5 w-14" />
+        <Skeleton className="h-5 w-20" />
+      </div>
+      <div className="grid grid-cols-1 gap-x-11 gap-y-6 px-4 pt-9 md:grid-cols-[minmax(0,480px)_minmax(0,480px)] md:px-12">
+        <Skeleton className="h-[28rem] w-full" />
+        <Skeleton className="h-[28rem] w-full" />
+      </div>
     </div>
   );
 }

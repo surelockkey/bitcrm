@@ -92,11 +92,18 @@ export function TechnicianForm({
   user,
   rights,
   tab = "profile",
+  twoFactor,
 }: {
   technicianId: string;
   user?: User;
   rights: TechnicianEditRights;
   tab?: TechnicianFormTab;
+  /**
+   * Drawn in place of the "Two-factor authentication" switch row — My
+   * Profile's own sign-in flow (a code texted and confirmed), where the
+   * switch a manager flips for someone else would be greyed out.
+   */
+  twoFactor?: ReactNode;
 }) {
   const { data: profile, isLoading } = useProfile(technicianId);
   if (isLoading || !profile) {
@@ -107,7 +114,9 @@ export function TechnicianForm({
       </div>
     );
   }
-  return <Form key={profile.updatedAt} technicianId={technicianId} profile={profile} user={user} rights={rights} tab={tab} />;
+  return (
+    <Form key={profile.updatedAt} technicianId={technicianId} profile={profile} user={user} rights={rights} tab={tab} twoFactor={twoFactor} />
+  );
 }
 
 function Form({
@@ -116,12 +125,14 @@ function Form({
   user,
   rights,
   tab,
+  twoFactor,
 }: {
   technicianId: string;
   profile: TechnicianProfile;
   user?: User;
   rights: TechnicianEditRights;
   tab: TechnicianFormTab;
+  twoFactor?: ReactNode;
 }) {
   const { can } = usePermissions();
   const update = useUpdateProfile();
@@ -421,16 +432,20 @@ function Form({
               />
               {/* Two-step sign-in: the user record's, switched at once as on
                   the Users page. On needs a phone on the card — their next
-                  sign-in texts it. */}
-              <SwitchRow
-                className="mt-6"
-                label="Two-factor authentication"
-                info={identityWhy ?? "After the password, a code is texted to their phone. Turning it on needs a phone on the card."}
-                tipId={id("mfa-why")}
-                checked={twoFactorOn}
-                disabled={!rights.identity || !user || setMfa.isPending}
-                onChange={(c) => setMfa.mutate({ id: technicianId, enabled: c })}
-              />
+                  sign-in texts it. My Profile brings its own row instead. */}
+              {twoFactor ? (
+                <div className="mt-6">{twoFactor}</div>
+              ) : (
+                <SwitchRow
+                  className="mt-6"
+                  label="Two-factor authentication"
+                  info={identityWhy ?? "After the password, a code is texted to their phone. Turning it on needs a phone on the card."}
+                  tipId={id("mfa-why")}
+                  checked={twoFactorOn}
+                  disabled={!rights.identity || !user || setMfa.isPending}
+                  onChange={(c) => setMfa.mutate({ id: technicianId, enabled: c })}
+                />
+              )}
             </div>
 
             {/* ---------------- The work ---------------- */}

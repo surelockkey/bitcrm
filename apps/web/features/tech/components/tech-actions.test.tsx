@@ -54,22 +54,26 @@ function deal(over: Partial<Deal> = {}): Deal {
   };
 }
 
-describe("TechActions", () => {
+/**
+ * The visit's steps as one more row of the job page's grey band, under
+ * "Job name:", "Status:" and "Tags:" — "Visit:" and Workiz's 32px outline
+ * pills, each step's stamp in the row's 13px ink once it has happened.
+ */
+describe("TechActions — the Visit row", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     can.mockReturnValue(true);
     position.mockResolvedValue({ lat: 41.76, lng: -72.67, accuracy: 12 });
   });
 
-  it("offers the whole flow on a fresh submitted job", () => {
+  it("is a header row: 'Visit:' and the whole flow as pills on a fresh submitted job", () => {
     render(<TechActions deal={deal()} />);
 
-    expect(screen.getByTestId("tech-confirm")).toBeInTheDocument();
-    expect(screen.getByTestId("tech-on-my-way")).toBeInTheDocument();
-    expect(screen.getByTestId("tech-late")).toBeInTheDocument();
-    expect(screen.getByTestId("tech-arrived")).toBeInTheDocument();
-    expect(screen.getByTestId("tech-start")).toBeInTheDocument();
-    expect(screen.queryByTestId("tech-done")).not.toBeInTheDocument();
+    expect(screen.getByText("Visit:")).toBeInTheDocument();
+    for (const name of ["Confirm receipt", "On my way", "Running late", "Arrived", "Start job"]) {
+      expect(screen.getByRole("button", { name: new RegExp(`^${name}`) })).toBeInTheDocument();
+    }
+    expect(screen.queryByRole("button", { name: /^Job Done/ })).not.toBeInTheDocument();
   });
 
   it("replaces a step with its stamp once it has happened", () => {
@@ -83,33 +87,45 @@ describe("TechActions", () => {
       />,
     );
 
-    expect(screen.queryByTestId("tech-confirm")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("tech-arrived")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Confirm receipt/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Arrived/ })).not.toBeInTheDocument();
     expect(screen.getByText(/^Confirmed at /)).toBeInTheDocument();
     expect(screen.getByText(/^Arrived at /)).toBeInTheDocument();
-    // In progress is where "Done" becomes the next thing to do.
-    expect(screen.getByTestId("tech-done")).toBeInTheDocument();
-    expect(screen.queryByTestId("tech-start")).not.toBeInTheDocument();
+    // In progress is where Workiz's "Job Done" becomes the next thing to do.
+    expect(screen.getByRole("button", { name: /^Job Done/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Start job/ })).not.toBeInTheDocument();
   });
 
-  it("offers nothing but the stamps on a closed job", () => {
+  it("draws no row at all on a closed job nobody confirmed or reached", () => {
     render(<TechActions deal={deal({ superStatus: JobSuperStatus.DONE })} />);
 
-    expect(screen.queryByTestId("tech-confirm")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("tech-on-my-way")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("tech-arrived")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("tech-done")).not.toBeInTheDocument();
+    expect(screen.queryByText("Visit:")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  });
+
+  it("keeps only the stamps on a closed job", () => {
+    render(<TechActions deal={deal({ superStatus: JobSuperStatus.DONE, arrivedAt: "2026-09-16T13:40:00.000Z" })} />);
+
+    expect(screen.getByText("Visit:")).toBeInTheDocument();
+    expect(screen.getByText(/^Arrived at /)).toBeInTheDocument();
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 
   it("confirms receipt on a tap", async () => {
     render(<TechActions deal={deal()} />);
-    await userEvent.click(screen.getByTestId("tech-confirm"));
+    await userEvent.click(screen.getByRole("button", { name: /^Confirm receipt/ }));
     expect(confirm.mutate).toHaveBeenCalled();
+  });
+
+  it("texts the client 'On my way' on a tap", async () => {
+    render(<TechActions deal={deal()} />);
+    await userEvent.click(screen.getByRole("button", { name: /^On my way/ }));
+    expect(onMyWay.mutate).toHaveBeenCalledWith(undefined);
   });
 
   it("asks the phone where it is before recording an arrival", async () => {
     render(<TechActions deal={deal()} />);
-    await userEvent.click(screen.getByTestId("tech-arrived"));
+    await userEvent.click(screen.getByRole("button", { name: /^Arrived/ }));
 
     await vi.waitFor(() =>
       expect(arrive.mutate).toHaveBeenCalledWith({ lat: 41.76, lng: -72.67, accuracy: 12 }),
@@ -119,35 +135,42 @@ describe("TechActions", () => {
   it("still records the arrival when the phone refuses its location", async () => {
     position.mockResolvedValue(undefined);
     render(<TechActions deal={deal()} />);
-    await userEvent.click(screen.getByTestId("tech-arrived"));
+    await userEvent.click(screen.getByRole("button", { name: /^Arrived/ }));
 
     await vi.waitFor(() => expect(arrive.mutate).toHaveBeenCalledWith({}));
   });
 
-  it("asks how late before texting the client", async () => {
+  it("asks how late, in Workiz's small menu, before texting the client", async () => {
     render(<TechActions deal={deal()} />);
 
-    expect(screen.queryByTestId("tech-late-choices")).not.toBeInTheDocument();
-    await userEvent.click(screen.getByTestId("tech-late"));
-    await userEvent.click(screen.getByRole("button", { name: "30 min" }));
+    expect(screen.queryByRole("menuitem", { name: "30 min" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /^Running late/ }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "30 min" }));
 
     expect(late.mutate).toHaveBeenCalledWith(30);
   });
 
   it("moves the status with the existing transition endpoint", async () => {
     render(<TechActions deal={deal()} />);
-    await userEvent.click(screen.getByTestId("tech-start"));
+    await userEvent.click(screen.getByRole("button", { name: /^Start job/ }));
 
     expect(move.mutate).toHaveBeenCalledWith({ superStatus: JobSuperStatus.IN_PROGRESS });
+  });
+
+  it("finishes the job with Job Done", async () => {
+    render(<TechActions deal={deal({ superStatus: JobSuperStatus.IN_PROGRESS })} />);
+    await userEvent.click(screen.getByRole("button", { name: /^Job Done/ }));
+
+    expect(move.mutate).toHaveBeenCalledWith({ superStatus: JobSuperStatus.DONE });
   });
 
   it("hides the texts from somebody who may not send messages, and the moves from somebody who may not", () => {
     can.mockImplementation((resource: string) => resource !== "messages" && resource !== "deals");
     render(<TechActions deal={deal()} />);
 
-    expect(screen.queryByTestId("tech-on-my-way")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("tech-start")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^On my way/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Start job/ })).not.toBeInTheDocument();
     // Confirming and arriving are not messages — they stay.
-    expect(screen.getByTestId("tech-confirm")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Confirm receipt/ })).toBeInTheDocument();
   });
 });
