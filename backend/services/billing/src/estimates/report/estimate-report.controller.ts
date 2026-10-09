@@ -59,8 +59,8 @@ export class EstimateReportController {
   @ApiOperation({
     summary: 'Estimates report — one page',
     description:
-      '**Guard:** `estimates.view` (`assigned_only` → the caller’s jobs). Newest first; created window, ' +
-      '`status`, `search` (number or name). → `{ items, nextCursor? }`.',
+      '**Guard:** `estimates.view` (`assigned_only` → the caller’s jobs). Newest first (`dir=asc`: oldest ' +
+      'first); created window, `status`, `search` (number or name). → `{ items, nextCursor? }`.',
   })
   async list(@Query() query: EstimateReportQueryDto, @CallerCtx() caller: Caller) {
     return { success: true, data: await this.report.list(query, caller) };

@@ -109,9 +109,13 @@ export class EstimateReportRepository {
     return out;
   }
 
-  /** Every matching estimate, newest first, up to `max` (the export). */
-  async walk(f: EstimateReportFilter, max: number): Promise<{ items: Estimate[]; truncated: boolean }> {
-    const input = this.buildQuery(f);
+  /** Every matching estimate, newest first (oldest with `asc`), up to `max` (the export). */
+  async walk(
+    f: EstimateReportFilter,
+    max: number,
+    dir: 'asc' | 'desc' = 'desc',
+  ): Promise<{ items: Estimate[]; truncated: boolean }> {
+    const input = this.buildQuery(f, dir);
     const items: Estimate[] = [];
     let startKey: Record<string, unknown> | undefined;
     do {

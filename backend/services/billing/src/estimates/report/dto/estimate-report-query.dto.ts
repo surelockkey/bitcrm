@@ -26,4 +26,12 @@ export class EstimateReportQueryDto extends PaginationQueryDto {
   @IsString()
   @MaxLength(100)
   search?: string;
+
+  @ApiPropertyOptional({
+    enum: ['asc', 'desc'],
+    description: 'Created order: newest first (`desc`, the default) or oldest first (Workiz’s Created header clicked).',
+  })
+  @IsOptional()
+  @IsIn(['asc', 'desc'])
+  dir?: 'asc' | 'desc';
 }
