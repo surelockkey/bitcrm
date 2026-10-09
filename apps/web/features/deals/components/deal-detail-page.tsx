@@ -28,6 +28,7 @@ import { DealAttachmentsTab } from "./deal-attachments-tab";
 import { DetailsTab } from "./deal-details-tab";
 import { JobHeader } from "./job-header";
 import { JobTabBar } from "./job-tab-bar";
+import { LeaveWithoutSavingDialog } from "./use-unsaved-changes";
 
 type Tab = DealTab;
 
@@ -57,6 +58,9 @@ export function DealDetailPage({
   // estimate: it opens the tab with the New estimate dialog already up.
   const [estimateId, setEstimateId] = useState<string | null>(initialEstimateId === "new" ? null : initialEstimateId);
   const startCreatingEstimate = initialEstimateId === "new";
+  // The Details draft's unsaved edits, and the way out waiting on "Leave without saving?".
+  const [detailsDirty, setDetailsDirty] = useState(false);
+  const [leaving, setLeaving] = useState<(() => void) | null>(null);
   const canInvoices = can("invoices");
   const canEstimates = can("estimates");
   const { data: invoice } = useInvoiceByDeal(dealId, canInvoices);
@@ -126,10 +130,13 @@ export function DealDetailPage({
     canCreate: can("invoices", "create"),
     itemCount: deal.itemCount ?? 0,
   });
-  const onInvoice = () => {
+  const toInvoice = () => {
     if (invoice) router.push(invoiceHref(invoice));
     else createInvoice.mutate(deal.id, { onSuccess: (created) => router.push(invoiceHref(created)) });
   };
+  // Both lead away from the Details draft: with unsaved edits, ask first
+  // (Workiz's createJobInvoice checks checkStopNavigation() before it makes one).
+  const onInvoice = () => (detailsDirty ? setLeaving(() => toInvoice) : toInvoice());
   // "Message Client" texts the job's own number first (J1: MS9277's is on the
   // job, not on the client record).
   const chatPhone = jobChatPhone(deal.phones, contact?.phones);
@@ -175,7 +182,7 @@ export function DealDetailPage({
                 hop to the other tabs. It spans the whole height of its content, so
                 the sticky Save bar at its foot stays on screen all the way down. */}
             <div role="tabpanel" aria-labelledby="job-tab-details" className={cn("flex flex-1 flex-col", tab !== "details" && "hidden")}>
-              <DetailsTab deal={deal} canEdit={canEdit} />
+              <DetailsTab deal={deal} canEdit={canEdit} onDirtyChange={setDetailsDirty} />
             </div>
             {tab === "items" ? (
               <TabPanel tab="items" className="px-4 pt-10 pb-12 md:px-10">
@@ -213,6 +220,16 @@ export function DealDetailPage({
           </div>
         </div>
       </div>
+
+      <LeaveWithoutSavingDialog
+        open={leaving !== null}
+        onStay={() => setLeaving(null)}
+        onLeave={() => {
+          const go = leaving;
+          setLeaving(null);
+          go?.();
+        }}
+      />
 
       {/* Workiz's right rail: Timeline, notes, calls, the job's messages. */}
       <DealTimelinePanel

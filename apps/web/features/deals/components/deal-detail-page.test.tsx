@@ -559,6 +559,41 @@ describe("DealDetailPage — the header, as Workiz lays it out", () => {
     expect(mocks.createInvoice).not.toHaveBeenCalled();
   });
 
+  // Workiz's createJobInvoice asks checkStopNavigation() first: unsaved edits
+  // are not dropped on the way to the invoice.
+  it("asks before leaving unsaved Details for the invoice — Stay keeps them, Leave goes", async () => {
+    mocks.perms.deals = true;
+    mocks.invoice = { id: "d1", status: "due" };
+    render(<DealDetailPage dealId="d1" />);
+    const u = user();
+
+    await u.click(screen.getByRole("button", { name: "edit a field" }));
+    await u.click(screen.getByRole("button", { name: "View Invoice" }));
+    expect(await screen.findByText("Leave without saving?")).toBeInTheDocument();
+    await u.click(screen.getByRole("button", { name: "Stay" }));
+    expect(mocks.push).not.toHaveBeenCalled();
+
+    await u.click(screen.getByRole("button", { name: "View Invoice" }));
+    await u.click(await screen.findByRole("button", { name: "Leave" }));
+    expect(mocks.push).toHaveBeenCalledWith("/invoices/d1");
+  });
+
+  it("does not make the invoice while Details has unsaved edits, unless told to leave them", async () => {
+    mocks.perms.deals = true;
+    dealState = { ...deal, itemCount: 1 };
+    render(<DealDetailPage dealId="d1" />);
+    const u = user();
+
+    await u.click(screen.getByRole("button", { name: "edit a field" }));
+    await u.click(screen.getByRole("button", { name: "Create Invoice" }));
+    await u.click(await screen.findByRole("button", { name: "Stay" }));
+    expect(mocks.createInvoice).not.toHaveBeenCalled();
+
+    await u.click(screen.getByRole("button", { name: "Create Invoice" }));
+    await u.click(await screen.findByRole("button", { name: "Leave" }));
+    expect(mocks.createInvoice).toHaveBeenCalledWith("d1", expect.anything());
+  });
+
   it("keeps Create Invoice from a job with no items, saying why", async () => {
     mocks.perms.deals = true;
     dealState = { ...deal, itemCount: 0 };
@@ -585,8 +620,13 @@ describe("DealDetailPage — the header, as Workiz lays it out", () => {
 // Save — is DetailsTab, tested on its own in deal-details-tab.test.tsx. Here
 // it stands in, so these tests are about the page around it.
 vi.mock("./deal-details-tab", () => ({
-  DetailsTab: ({ deal: d, canEdit }: { deal: Deal; canEdit: boolean }) => (
-    <div data-testid="details-tab" data-deal={d.id} data-can-edit={String(canEdit)} />
+  DetailsTab: ({ deal: d, canEdit, onDirtyChange }: { deal: Deal; canEdit: boolean; onDirtyChange?: (dirty: boolean) => void }) => (
+    <div data-testid="details-tab" data-deal={d.id} data-can-edit={String(canEdit)}>
+      {/* Stands in for typing into a field: the draft is now unsaved. */}
+      <button type="button" onClick={() => onDirtyChange?.(true)}>
+        edit a field
+      </button>
+    </div>
   ),
 }));
 

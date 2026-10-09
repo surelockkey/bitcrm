@@ -87,7 +87,16 @@ const PRIORITY_OPTIONS = [
   { value: DealPriority.URGENT, label: "Urgent" },
 ];
 
-export function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
+export function DetailsTab({
+  deal,
+  canEdit,
+  onDirtyChange,
+}: {
+  deal: Deal;
+  canEdit: boolean;
+  /** Whether the draft holds unsaved edits — the page asks before its own buttons lead away. */
+  onDirtyChange?: (dirty: boolean) => void;
+}) {
   const { can, isTechnician } = usePermissions();
   const { data: contact } = useContact(deal.contactId);
   const { data: customFieldDefs } = useCustomFields();
@@ -150,6 +159,9 @@ export function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) 
   const [savingCompany, setSavingCompany] = useState(false);
   const pending = update.isPending || updateContact.isPending || savingCompany;
   const { confirm } = useUnsavedChanges(plan.dirty);
+  useEffect(() => {
+    onDirtyChange?.(plan.dirty);
+  }, [plan.dirty, onDirtyChange]);
   const [asking, setAsking] = useState(false);
 
   // A rename (or an address the client could keep) is the only thing worth
