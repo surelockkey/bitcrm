@@ -12,6 +12,11 @@ import { JobTypesRepository } from './job-types.repository';
 import { type CreateJobTypeDto } from './dto/create-job-type.dto';
 import { type UpdateJobTypeDto } from './dto/update-job-type.dto';
 
+/** Workiz's Duration as the row carries it: a positive number of minutes, or nothing at all. */
+function durationOf(minutes: number | undefined): { durationMinutes?: number } {
+  return minutes && minutes > 0 ? { durationMinutes: minutes } : {};
+}
+
 @Injectable()
 export class JobTypesService {
   private readonly logger = new Logger(JobTypesService.name);
@@ -47,6 +52,7 @@ export class JobTypesService {
       name: dto.name,
       priority: dto.priority ?? 0,
       active: dto.active ?? true,
+      ...durationOf(dto.durationMinutes),
       createdBy: caller.id,
       createdAt: now,
       updatedAt: now,
@@ -77,11 +83,16 @@ export class JobTypesService {
 
     if (dto.name !== undefined) await this.assertNameAvailable(dto.name, id);
 
+    // Said nothing → kept; 0 → the type has no duration of its own (left off the row).
+    const { durationMinutes: _kept, ...rest } = existing;
+    const duration =
+      dto.durationMinutes === undefined ? durationOf(existing.durationMinutes) : durationOf(dto.durationMinutes);
     const updated: JobType = {
-      ...existing,
+      ...rest,
       name: dto.name ?? existing.name,
       priority: dto.priority ?? existing.priority,
       active: dto.active ?? existing.active,
+      ...duration,
       updatedAt: new Date().toISOString(),
     };
 

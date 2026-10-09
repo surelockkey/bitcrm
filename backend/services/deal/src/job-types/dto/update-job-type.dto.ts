@@ -1,6 +1,7 @@
-import { IsString, IsOptional, IsBoolean, IsInt, MinLength } from 'class-validator';
+import { IsString, IsOptional, IsBoolean, IsInt, Max, Min, MinLength } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
+import { JOB_TYPE_DURATION_MAX_MINUTES } from './create-job-type.dto';
 
 /**
  * Hand-written rather than PartialType(CreateJobTypeDto) to match the
@@ -26,4 +27,14 @@ export class UpdateJobTypeDto {
   @IsOptional()
   @IsBoolean()
   active?: boolean;
+
+  @ApiPropertyOptional({
+    example: 240,
+    description: 'The usual length in minutes (Workiz Duration). 0 clears it: the type has none of its own.',
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(JOB_TYPE_DURATION_MAX_MINUTES)
+  durationMinutes?: number;
 }

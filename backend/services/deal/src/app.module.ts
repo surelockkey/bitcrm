@@ -27,6 +27,7 @@ import { JobTagsModule } from './job-tags/job-tags.module';
 import { ClientTagsModule } from './client-tags/client-tags.module';
 import { JobStatusesModule } from './job-statuses/job-statuses.module';
 import { JobFieldSettingsModule } from './job-field-settings/job-field-settings.module';
+import { JobRulesModule } from './job-rules/job-rules.module';
 import { CustomFieldsModule } from './custom-fields/custom-fields.module';
 import { TechnicianEligibilityModule } from './technician-eligibility/technician-eligibility.module';
 import { CommissionReportModule } from './commission-report/commission-report.module';
@@ -98,6 +99,7 @@ const AWS_ENDPOINT = process.env.AWS_ENDPOINT;
     ClientTagsModule,
     JobStatusesModule,
     JobFieldSettingsModule,
+    JobRulesModule,
     CustomFieldsModule,
     // `reports/commissions` sits under the same prefix — ahead of DealsController too.
     CommissionReportModule,

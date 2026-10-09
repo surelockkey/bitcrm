@@ -6,6 +6,7 @@ import { ExternalCompaniesModule } from '../external-companies/external-companie
 import { JobTagsModule } from '../job-tags/job-tags.module';
 import { JobStatusesModule } from '../job-statuses/job-statuses.module';
 import { JobFieldSettingsModule } from '../job-field-settings/job-field-settings.module';
+import { JobRulesModule } from '../job-rules/job-rules.module';
 import { CustomFieldsModule } from '../custom-fields/custom-fields.module';
 import { TechnicianEligibilityModule } from '../technician-eligibility/technician-eligibility.module';
 import { DealsController } from './deals.controller';
@@ -49,7 +50,7 @@ import { ContactAttachmentsController } from '../contacts/contact-attachments.co
 import { ContactAttachmentsService } from '../contacts/contact-attachments.service';
 
 @Module({
-  imports: [ServiceAreasModule, JobTypesModule, JobSourcesModule, ExternalCompaniesModule, JobTagsModule, JobStatusesModule, JobFieldSettingsModule, CustomFieldsModule, TechnicianEligibilityModule, TaxRatesModule, BusinessProfilesClientModule, CommissionReportModule],
+  imports: [ServiceAreasModule, JobTypesModule, JobSourcesModule, ExternalCompaniesModule, JobTagsModule, JobStatusesModule, JobFieldSettingsModule, JobRulesModule, CustomFieldsModule, TechnicianEligibilityModule, TaxRatesModule, BusinessProfilesClientModule, CommissionReportModule],
   // Attachments and billing controllers before Deals so their `/:id/...` and
   // `internal/:id/...` routes are matched ahead of DealsController's; the
   // live stream too, or `GET /:id` would take `/stream`; the dashboard's
