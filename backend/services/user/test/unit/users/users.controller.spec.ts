@@ -47,11 +47,51 @@ describe('UsersController', () => {
     const user = createMockUser();
     const caller = createMockJwtUser();
     service.findCurrentUser.mockResolvedValue(user);
+    service.getResolvedPermissions.mockRejectedValue(new Error('no role'));
 
     const result = await controller.getMe(caller);
 
     expect(result).toEqual({ success: true, data: user });
     expect(service.findCurrentUser).toHaveBeenCalledWith(caller);
+  });
+
+  /**
+   * The web resolved the caller's permissions from a hard-coded copy of the
+   * seeded roles, so an edit in the role editor reached the server but never
+   * the screens, and a custom role was shown the Read Only UI. `/me` now
+   * carries the matrix the server itself enforces (role + overrides, the same
+   * resolver and cache the guards use), so the web can gate by it.
+   */
+  it('getMe carries the caller\'s resolved permissions — role + overrides, as the guards see them', async () => {
+    const user = createMockUser();
+    const caller = createMockJwtUser();
+    const resolved = {
+      roleId: user.roleId,
+      roleName: 'Night Desk',
+      isSystemRole: false,
+      permissions: { deals: { view: true, edit: false } },
+      dataScope: { deals: 'assigned_only' },
+      dealStageTransitions: [],
+      hasOverrides: false,
+    };
+    service.findCurrentUser.mockResolvedValue(user);
+    service.getResolvedPermissions.mockResolvedValue(resolved);
+
+    const result = await controller.getMe(caller);
+
+    expect(result).toEqual({ success: true, data: { ...user, resolvedPermissions: resolved } });
+    expect(service.getResolvedPermissions).toHaveBeenCalledWith(user.id);
+  });
+
+  it('getMe still answers when the permissions cannot be resolved (the web falls back to its seed copy)', async () => {
+    const user = createMockUser();
+    service.findCurrentUser.mockResolvedValue(user);
+    service.getResolvedPermissions.mockRejectedValue(new Error('role gone'));
+
+    const result = await controller.getMe(createMockJwtUser());
+
+    expect(result).toEqual({ success: true, data: user });
+    expect(result.data).not.toHaveProperty('resolvedPermissions');
   });
 
   it('create should pass dto and caller, return success wrapper', async () => {
