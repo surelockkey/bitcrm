@@ -244,7 +244,7 @@ describe("Inventory — what the rows print comes with them", () => {
     expect(watch.frame()).toEqual({ van: true, pending: 0 });
   });
 
-  it("Templates: Used by and the row's menu are there in the first frame", async () => {
+  it("Templates: Used by and the row's trash are there in the first frame", async () => {
     // The permissions answer last — a slow afternoon for /users/me.
     role = "role-super-admin";
     meDelay = 150;
@@ -253,7 +253,7 @@ describe("Inventory — what the rows print comes with them", () => {
       () => !!screen.queryByText("Standard van"),
       () => ({
         pending: screen.queryAllByTestId("used-by-pending").length,
-        menu: !!screen.queryByRole("button", { name: "Row actions" }),
+        menu: !!screen.queryByRole("button", { name: "Archive Standard van" }),
       }),
     );
     inTabs(<TemplatesPage />);

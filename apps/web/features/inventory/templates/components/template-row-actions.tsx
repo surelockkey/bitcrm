@@ -1,30 +1,19 @@
 "use client";
 
 import { useState } from "react";
-import { Archive, MoreHorizontal, RotateCcw } from "lucide-react";
 import { InventoryStatus } from "@bitcrm/types";
 import type { ContainerTemplate } from "@bitcrm/types";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { Button } from "@/components/ui/button";
+import { WzReturnIcon, WzTrashIcon } from "@/components/workiz/icons";
 import { usePermissions } from "@/features/auth/use-permissions";
+import { RowIconAction } from "@/features/inventory/components/row-icon-action";
+import { WzConfirm } from "@/features/inventory/item-edit/wz";
 import { useArchiveTemplate, useRestoreTemplate } from "../hooks";
 
-/** The kebab: Archive / Restore. Edit and Apply have their own buttons beside it. */
+/**
+ * The row's last glyph, as Workiz's Locations draw theirs: the red trash
+ * (Archive — BitCRM archives, Vans keep a template they use) or, on an
+ * archived one, Restore. Edit and Apply have their own glyphs beside it.
+ */
 export function TemplateRowActions({ template }: { template: ContainerTemplate }) {
   const { can } = usePermissions();
   const archive = useArchiveTemplate();
@@ -32,58 +21,31 @@ export function TemplateRowActions({ template }: { template: ContainerTemplate }
   const [confirm, setConfirm] = useState(false);
 
   const isActive = template.status !== InventoryStatus.ARCHIVED;
-  // A kebab that opens onto nothing is worse than no kebab.
+  // A glyph that does nothing is worse than none.
   if (isActive ? !can("containers", "delete") : !can("containers", "edit")) return null;
+
+  if (!isActive) {
+    return (
+      <RowIconAction label={`Restore ${template.name}`} tip="Restore" onClick={() => restore.mutate(template.id)}>
+        <WzReturnIcon />
+      </RowIconAction>
+    );
+  }
 
   return (
     <>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-8"
-            aria-label="Row actions"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <MoreHorizontal />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-40" onClick={(e) => e.stopPropagation()}>
-          {isActive ? (
-            <DropdownMenuItem variant="destructive" onClick={() => setConfirm(true)}>
-              <Archive />
-              Archive
-            </DropdownMenuItem>
-          ) : (
-            <DropdownMenuItem onClick={() => restore.mutate(template.id)}>
-              <RotateCcw />
-              Restore
-            </DropdownMenuItem>
-          )}
-        </DropdownMenuContent>
-      </DropdownMenu>
-
-      <AlertDialog open={confirm} onOpenChange={setConfirm}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Archive “{template.name}”?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Vans that use it keep it; it leaves the pickers. You can restore it
-              later from the Archived filter.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-white hover:bg-destructive/90"
-              onClick={() => archive.mutate(template.id)}
-            >
-              Archive
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <RowIconAction label={`Archive ${template.name}`} tip="Archive" tone="danger" onClick={() => setConfirm(true)}>
+        <WzTrashIcon />
+      </RowIconAction>
+      <WzConfirm
+        open={confirm}
+        onOpenChange={setConfirm}
+        title={`Archive “${template.name}”?`}
+        confirmText="Archive"
+        pending={archive.isPending}
+        onConfirm={() => archive.mutate(template.id, { onSuccess: () => setConfirm(false) })}
+        message="Vans that use it keep it; it leaves the pickers. You can restore it later from the Archived filter."
+      />
     </>
   );
 }

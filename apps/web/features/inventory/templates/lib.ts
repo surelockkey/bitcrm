@@ -16,6 +16,13 @@ export function templateUnits(t: Pick<ContainerTemplate, "items">): number {
 }
 
 /** The Used by column: how many vans name this template. */
+/** The strip's Search box over the templates in hand: the name or the description, any case. */
+export function searchTemplates<T extends Pick<ContainerTemplate, "name" | "description">>(list: T[], term: string): T[] {
+  const q = term.trim().toLowerCase();
+  if (!q) return list;
+  return list.filter((t) => t.name.toLowerCase().includes(q) || (t.description ?? "").toLowerCase().includes(q));
+}
+
 export function usedByCount(templateId: string, vans: { templateId?: string }[]): number {
   return vans.filter((v) => v.templateId === templateId).length;
 }

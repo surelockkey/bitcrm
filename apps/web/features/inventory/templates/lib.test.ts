@@ -7,6 +7,7 @@ import {
   diffSummary,
   fillMessages,
   templateUnits,
+  searchTemplates,
   usedByCount,
   copyLines,
   linesFromStock,
@@ -177,5 +178,17 @@ describe("copyLines", () => {
 
   it("Merge: the template's lines stay as they are; the products it lacks are added", () => {
     expect(copyLines(current, incoming, "merge")).toEqual([line("p1", "50"), line("p2", "1"), line("p3", "4")]);
+  });
+});
+
+// The Workiz strip's Search box, over the templates already in hand.
+describe("searchTemplates", () => {
+  const t = (name: string, description?: string) => ({ name, description }) as ContainerTemplate;
+  it("keeps the templates whose name or description holds the words, any case", () => {
+    const list = [t("STORE", "Copied from warehouse"), t("Lockout van"), t("Safe kit", "for safe jobs")];
+    expect(searchTemplates(list, "  lockout ").map((x) => x.name)).toEqual(["Lockout van"]);
+    expect(searchTemplates(list, "SAFE").map((x) => x.name)).toEqual(["Safe kit"]);
+    expect(searchTemplates(list, "warehouse").map((x) => x.name)).toEqual(["STORE"]);
+    expect(searchTemplates(list, "")).toBe(list);
   });
 });

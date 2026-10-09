@@ -1,45 +1,46 @@
 "use client";
 
-import { TableCell, TableRow } from "@/components/ui/table";
+import { useMemo, type ReactNode } from "react";
 import type { Transfer } from "@bitcrm/types";
+import { WzReportGrid, type WzReportColumn } from "@/components/workiz/report-grid";
+import { useColumnWidths } from "@/lib/table/use-column-widths";
 import { formatDate } from "@/features/users/lib";
-import {
-  INVENTORY_ROW,
-  InventoryTable,
-  type InventoryColumn,
-} from "@/features/inventory/components/inventory-table";
 import { TransferTypeBadge } from "./transfer-type-badge";
 import { TransferRoute } from "./transfer-route";
 
 /**
- * The columns, with the width each one starts at — read by both the
- * `<colgroup>` and the headers, so there is one number to change.
+ * The movement journal — BitCRM's own (Workiz shows no transfer list), drawn
+ * as Workiz's Locations grid: Type · Route · Items · By · When.
  */
-export const TRANSFER_COLUMNS: InventoryColumn[] = [
-  { id: "type", label: "Type", width: 120 },
-  { id: "route", label: "Route", width: 280 },
-  { id: "items", label: "Items", width: 240 },
-  { id: "by", label: "By", width: 160 },
+export const TRANSFER_COLUMNS: { id: string; label: string; width?: number }[] = [
+  { id: "type", label: "Type", width: 160 },
+  { id: "route", label: "Route" },
+  { id: "items", label: "Items" },
+  { id: "by", label: "By", width: 200 },
   { id: "when", label: "When", width: 150 },
 ];
 
 /** The list's own key: the same name its page-size preference is saved under. */
 export const TRANSFERS_TABLE_KEY = "inventory-transfers";
 
+const FLEX = 400;
+const WIDTHS = Object.fromEntries(TRANSFER_COLUMNS.map((c) => [c.id, c.width ?? FLEX]));
+const NO_ROWS: Transfer[] = [];
+
 function itemsSummary(t: Transfer): { text: string; more: number } {
   const shown = t.items.slice(0, 2).map((i) => `${i.productName} ×${i.quantity}`);
   return { text: shown.join(", "), more: Math.max(0, t.items.length - 2) };
 }
 
-/** The movement journal, a page at a time. */
+/** The movement journal, a page at a time; a row opens its record. */
 export function TransfersTable({
   transfers,
   locationMap,
   namesPending = false,
   onOpen,
   loading = false,
-  skeletonRows = 0,
   stale = false,
+  footer,
 }: {
   transfers: Transfer[];
   locationMap: Map<string, string>;
@@ -47,38 +48,43 @@ export function TransfersTable({
   namesPending?: boolean;
   onOpen: (transfer: Transfer) => void;
   loading?: boolean;
-  skeletonRows?: number;
   stale?: boolean;
+  footer?: ReactNode;
 }) {
-  return (
-    <InventoryTable
-      tableKey={TRANSFERS_TABLE_KEY}
-      columns={TRANSFER_COLUMNS}
-      loading={loading}
-      skeletonRows={skeletonRows}
-      stale={stale}
-    >
-      {transfers.map((t) => {
+  const { widthOf, setWidth, reset } = useColumnWidths(`${TRANSFERS_TABLE_KEY}-wz`, WIDTHS);
+  const columns = useMemo<WzReportColumn<Transfer>[]>(() => {
+    const cell: Record<string, (t: Transfer) => ReactNode> = {
+      type: (t) => <TransferTypeBadge type={t.type} />,
+      route: (t) => <TransferRoute transfer={t} locationMap={locationMap} pending={namesPending} />,
+      items: (t) => {
         const { text, more } = itemsSummary(t);
         return (
-          <TableRow key={t.id} className={`${INVENTORY_ROW} cursor-pointer`} onClick={() => onOpen(t)}>
-            {/* Every cell clips: under fixed layout one that doesn't spills
-                over the next column instead of widening its own. */}
-            <TableCell className="overflow-hidden">
-              <TransferTypeBadge type={t.type} />
-            </TableCell>
-            <TableCell className="overflow-hidden">
-              <TransferRoute transfer={t} locationMap={locationMap} pending={namesPending} />
-            </TableCell>
-            <TableCell className="truncate text-sm">
-              {text}
-              {more > 0 ? <span className="text-muted-foreground"> +{more}</span> : null}
-            </TableCell>
-            <TableCell className="truncate text-sm text-muted-foreground">{t.performedByName}</TableCell>
-            <TableCell className="truncate text-sm text-muted-foreground">{formatDate(t.createdAt)}</TableCell>
-          </TableRow>
+          <span className="block truncate">
+            {text}
+            {more > 0 ? <span className="text-wz-outline-label"> +{more}</span> : null}
+          </span>
         );
-      })}
-    </InventoryTable>
+      },
+      by: (t) => <span className="block truncate">{t.performedByName}</span>,
+      when: (t) => formatDate(t.createdAt),
+    };
+    return TRANSFER_COLUMNS.map((c) => ({ id: c.id, label: c.label, cell: cell[c.id] }));
+  }, [locationMap, namesPending]);
+
+  return (
+    <WzReportGrid
+      aria-label="Transfers"
+      className="shrink-0"
+      columns={columns}
+      rows={loading ? NO_ROWS : transfers}
+      rowKey={(t) => t.id}
+      sort={null}
+      resize={{ widthOf, setWidth, reset }}
+      onRowClick={(t) => onOpen(t)}
+      loading={loading}
+      busy={stale}
+      plainFiller
+      footer={footer}
+    />
   );
 }

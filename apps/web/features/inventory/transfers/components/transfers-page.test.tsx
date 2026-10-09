@@ -127,22 +127,26 @@ describe("TransfersPage", () => {
 });
 
 /**
- * Чипи типу — фільтр сервера: GET /transfers і /transfers/count беруть `type`,
- * тож сторінка й лічильник рахують те саме. Сторінку в браузері не фільтруємо.
+ * The type box is the server's filter: GET /transfers and /transfers/count
+ * both take `type`, so the page and its count agree. Nothing is filtered in
+ * the browser.
  */
-describe("TransfersPage — type chips, filtered on the server", () => {
-  const chip = (name: string) => screen.getByRole("button", { name });
+describe("TransfersPage — the type box, filtered on the server", () => {
+  const box = () => screen.getByRole("combobox", { name: "Transfer type" });
+  const pick = async (name: string) => {
+    await userEvent.click(box());
+    await userEvent.click(await screen.findByRole("option", { name }));
+  };
 
-  it("offers All, Receive, Transfer, Deduct, Restore and Return, All pressed", () => {
+  it("offers All types, Receive, Transfer, Deduct, Restore and Return, All types first", async () => {
     render(<TransfersPage />);
-    for (const name of ["All", "Receive", "Transfer", "Deduct", "Restore", "Return"]) {
-      expect(chip(name)).toBeInTheDocument();
-    }
-    expect(chip("All")).toHaveAttribute("aria-pressed", "true");
-    expect(chip("Receive")).toHaveAttribute("aria-pressed", "false");
+    expect(box()).toHaveTextContent("All types");
+    await userEvent.click(box());
+    const options = (await screen.findAllByRole("option")).map((o) => o.textContent);
+    expect(options).toEqual(expect.arrayContaining(["All types", "Receive", "Transfer", "Deduct", "Restore", "Return"]));
   });
 
-  it("asks the list and the count for no type under All", () => {
+  it("asks the list and the count for no type under All types", () => {
     render(<TransfersPage />);
     expect(mocks.listFilters.at(-1)).toEqual({});
     expect(mocks.countFilters.at(-1)).toEqual({});
@@ -150,13 +154,12 @@ describe("TransfersPage — type chips, filtered on the server", () => {
 
   it("hands the picked type to the list and the count", async () => {
     render(<TransfersPage />);
-    await userEvent.click(chip("Receive"));
-    expect(chip("Receive")).toHaveAttribute("aria-pressed", "true");
+    await pick("Receive");
     expect(mocks.listFilters.at(-1)).toEqual({ type: TransferType.RECEIVE });
     expect(mocks.countFilters.at(-1)).toEqual({ type: TransferType.RECEIVE });
-    await userEvent.click(chip("Return"));
+    await pick("Return");
     expect(mocks.listFilters.at(-1)).toEqual({ type: TransferType.RETURN });
-    await userEvent.click(chip("All"));
+    await pick("All types");
     expect(mocks.listFilters.at(-1)).toEqual({});
   });
 
@@ -164,51 +167,24 @@ describe("TransfersPage — type chips, filtered on the server", () => {
   // not dropped in the browser.
   it("shows the page the server sent without filtering it again", async () => {
     render(<TransfersPage />);
-    await userEvent.click(chip("Receive"));
+    await pick("Receive");
     expect(screen.getByText(/Deadbolt/)).toBeInTheDocument();
   });
 
-  // On a phone the six chips are 371px in a 340px row: clipped, "Return" read
-  // "Ret" and could not be reached. The row scrolls sideways, as the
-  // Inventory tab row does, and no chip is squeezed.
-  it("scrolls the chip row sideways on a narrow screen instead of clipping it", () => {
-    render(<TransfersPage />);
-    const group = screen.getByRole("group", { name: "Transfer type" });
-    expect(group.className).toMatch(/overflow-x-auto/);
-    expect(group.className).not.toMatch(/overflow-hidden/);
-    expect(group.className).toMatch(/max-w-full/);
-    for (const name of ["All", "Receive", "Transfer", "Deduct", "Restore", "Return"]) {
-      expect(chip(name).className).toMatch(/flex-none/);
-      expect(chip(name).className).toMatch(/whitespace-nowrap/);
-    }
-  });
-
   it("starts again from page 1 when the type changes", async () => {
-    mocks.more = [
-      transfer({ id: "t9", items: [{ productId: "p9", productName: "Smart lock", quantity: 1 }] }),
-    ];
+    mocks.more = [transfer({ id: "t9", items: [{ productId: "p9", productName: "Smart lock", quantity: 1 }] })];
     render(<TransfersPage />);
     await userEvent.click(screen.getByRole("button", { name: "Next page" }));
     expect(screen.getByText(/Smart lock/)).toBeInTheDocument();
-    await userEvent.click(chip("Deduct"));
+    await pick("Deduct");
     expect(screen.getByText(/^Page 1\b/)).toBeInTheDocument();
     expect(screen.getByText(/Deadbolt/)).toBeInTheDocument();
   });
 });
 
-/**
- * Ширину колонки задає колонка, а не вміст: `table-fixed` плюс `<colgroup>`,
- * межу можна перетягнути, і таблиця цю ширину пам'ятає між візитами.
- */
+/** Workiz's grid: the column decides its width, the reader can drag the edge. */
 describe("TransfersPage — a stable first frame", () => {
   const table = () => render(<TransfersPage />).container;
-
-  it("scrolls sideways instead of clipping when the columns outgrow the screen", () => {
-    const frame = table().querySelector("[data-slot=table-frame]") as HTMLElement;
-    expect(frame).not.toBeNull();
-    expect(frame.className).toMatch(/overflow-x-auto/);
-    expect(frame.className).not.toMatch(/overflow-hidden/);
-  });
 
   it("lays the columns out at declared widths, not by content", () => {
     expect(table().querySelector("table")?.className).toContain("table-fixed");
@@ -221,16 +197,9 @@ describe("TransfersPage — a stable first frame", () => {
     for (const col of cols) expect((col as HTMLElement).style.width).not.toBe("");
   });
 
-  // `min-w` на комірці б'є оголошену ширину й зсуває рядок убік.
-  it("leaves the width to the column — no cell sets one of its own", () => {
-    for (const el of table().querySelectorAll("thead th, tbody td")) {
-      expect(el.className).not.toMatch(/(^|\s)(min-)?w-/);
-    }
-  });
-
   it("clips every cell rather than letting it spill into the next column", () => {
     for (const td of table().querySelectorAll("tbody td")) {
-      expect(td.className).toMatch(/truncate|overflow-hidden/);
+      expect(td.className).toMatch(/overflow-hidden/);
     }
   });
 
@@ -243,16 +212,15 @@ describe("TransfersPage — a stable first frame", () => {
 });
 
 describe("TransfersPage — nothing jumps", () => {
-  // A new search holds the area the rows are drawn in, so the pager under it
-  // does not jump up into view (see ListBody).
-  it("draws its rows in the list's held area, with the pager under it", () => {
+  // Workiz's grid is never shorter than ten rows and holds its pager.
+  it("draws its rows in Workiz's grid, the pager inside it under them", () => {
     render(<TransfersPage />);
-    const area = document.querySelector("[data-slot=list-area]");
-    expect(area).toContainElement(screen.getByRole("table"));
-    expect(area).not.toContainElement(screen.getByTestId("list-pagination"));
+    const grid = document.querySelector("[data-slot=wz-report-grid]");
+    expect(grid).toContainElement(screen.getByRole("table"));
+    expect(grid).toContainElement(screen.getByTestId("list-pagination"));
   });
 
-  it("draws the real table while the first page loads, and no pager for the rows to move", () => {
+  it("draws the grid's header over Workiz's loader while the first page loads, no pager", () => {
     mocks.list = { isLoading: true, isPlaceholderData: false, noData: true };
     render(<TransfersPage />);
 
@@ -263,7 +231,7 @@ describe("TransfersPage — nothing jumps", () => {
       "By",
       "When",
     ]);
-    expect(screen.getAllByTestId("skeleton-row").length).toBeGreaterThan(0);
+    expect(screen.getByRole("status", { name: "Loading" })).toBeInTheDocument();
     expect(screen.queryByTestId("list-pagination")).toBeNull();
   });
 
@@ -271,14 +239,14 @@ describe("TransfersPage — nothing jumps", () => {
     mocks.list = { isLoading: false, isPlaceholderData: true, noData: false };
     render(<TransfersPage />);
     expect(screen.getByText(/Deadbolt/)).toBeInTheDocument();
-    expect(screen.getByRole("table")).toHaveAttribute("aria-busy", "true");
+    expect(document.querySelector("[data-slot=wz-report-grid]")).toHaveAttribute("aria-busy", "true");
   });
 
   it("never flashes No access while permissions are still loading", () => {
     mocks.permsLoading = true;
     render(<TransfersPage />);
     expect(screen.queryByText("No access")).toBeNull();
-    expect(screen.getByRole("button", { name: /New transfer/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Add New/ })).toBeDisabled();
   });
 
   it("says No access once it is known", () => {
@@ -287,8 +255,6 @@ describe("TransfersPage — nothing jumps", () => {
     expect(screen.getByText("No access")).toBeInTheDocument();
   });
 
-  // Every route used to read "Warehouse → Container" and then change its
-  // text once the fleet arrived.
   // Drawn before the names, every route showed grey bars (or the word
   // "Warehouse") and changed a beat later: the rows wait for the names.
   it("waits for the location names before it draws a route", () => {
@@ -296,6 +262,6 @@ describe("TransfersPage — nothing jumps", () => {
     render(<TransfersPage />);
     expect(screen.queryByTestId("route-name-pending")).toBeNull();
     expect(document.querySelector("tbody")).not.toHaveTextContent("Warehouse");
-    expect(screen.getAllByTestId("skeleton-row").length).toBeGreaterThan(0);
+    expect(screen.getByRole("status", { name: "Loading" })).toBeInTheDocument();
   });
 });
