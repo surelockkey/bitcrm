@@ -66,11 +66,10 @@ describe("formatCallTime", () => {
 });
 
 describe("formatEndpoint", () => {
-  it("formats US numbers nationally, foreign ones with their code, labels agent legs, dashes blanks", () => {
+  it("formats US numbers nationally, foreign ones as stored, labels agent legs, dashes blanks", () => {
     expect(formatEndpoint("+12624061115")).toBe("(262) 406-1115");
-    // Foreign numbers keep the +code, but NO national trunk prefix:
-    // "+380 095…" would read as an extra digit.
-    expect(formatEndpoint("+380958601427")).toBe("+380 95 860 1427");
+    // A foreign number prints as stored, as Workiz prints its (app_audit #27).
+    expect(formatEndpoint("+380958601427")).toBe("+380958601427");
     expect(formatEndpoint("client:d47814b8-e051-706e")).toBe("Agent");
     expect(formatEndpoint(undefined)).toBe("—");
     expect(formatEndpoint("")).toBe("—");

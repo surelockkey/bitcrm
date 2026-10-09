@@ -10,8 +10,8 @@ import {
 /**
  * The one place phone numbers are validated and formatted across the app. Every
  * input normalizes to E.164 for storage; display is national for the default
- * country (`(404) 555-1234` — no +1 anywhere on the site) and international
- * for everything else (`+380 95 860 1427`).
+ * country (`(404) 555-1234` — no +1 anywhere on the site), and anything else
+ * prints as stored (`+380958601427`), as Workiz prints its foreign numbers.
  *
  * Numbers typed without a country code are assumed to be from DEFAULT_COUNTRY;
  * a number typed with a leading `+` is parsed in its own country. This mirrors
@@ -34,18 +34,17 @@ export function isValidPhone(input: string): boolean {
 
 /**
  * Canonical display: numbers from the default country render nationally —
- * `(404) 555-1234`, never `+1` — since this is a US product; anything foreign
- * keeps its code in international grouping, `+380 95 860 1427` (which, unlike
- * the national format, carries no trunk prefix to read like an extra digit).
- * Unparseable input passes through.
+ * `(404) 555-1234`, never `+1` — since this is a US product. A foreign number
+ * prints exactly as stored (`+380958601427`): Workiz's Team list prints its
+ * "+380 984880850" and "+380 (066) 420-6950" as they were typed, never
+ * regrouped (app_audit 2026-10-09 #27), and `tel:` links keep the stored
+ * E.164 anyway. Unparseable input passes through.
  */
 export function formatPhone(input: string): string {
   if (!input) return input;
   const parsed = parsePhoneNumberFromString(input, DEFAULT_COUNTRY);
-  if (!parsed) return input;
-  return parsed.countryCallingCode === DEFAULT_CALLING_CODE
-    ? parsed.formatNational()
-    : parsed.formatInternational();
+  if (!parsed || parsed.countryCallingCode !== DEFAULT_CALLING_CODE) return input;
+  return parsed.formatNational();
 }
 
 /**

@@ -149,7 +149,7 @@ describe("Workiz's printing", () => {
   it('wzPhone: a US number as "(505) 228 - 5946", foreign ones as they are, an extension after', () => {
     expect(wzPhone("+15052285946")).toBe("(505) 228 - 5946");
     expect(wzPhone("+15052285946", "102")).toBe("(505) 228 - 5946 ext. 102");
-    expect(wzPhone("+380958601427")).toBe("+380 95 860 1427");
+    expect(wzPhone("+380958601427")).toBe("+380958601427");
   });
 });
 

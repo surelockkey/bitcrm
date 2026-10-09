@@ -95,9 +95,13 @@ describe("phone", () => {
     expect(formatPhone("(404) 555-1234")).toBe("(404) 555-1234");
   });
 
-  it("keeps the country code on non-US numbers, without the trunk prefix", () => {
-    expect(formatPhone("+442079460000")).toBe("+44 20 7946 0000");
-    expect(formatPhone("+380958601427")).toBe("+380 95 860 1427");
+  // Workiz prints a non-US number exactly as it was stored ("+380 984880850",
+  // "+380 (066) 420-6950" on its Team list — app_audit #27); ours are stored
+  // E.164, so that is what prints. Only US numbers are formatted.
+  it("prints a non-US number as stored, never regrouped", () => {
+    expect(formatPhone("+442079460000")).toBe("+442079460000");
+    expect(formatPhone("+380958601427")).toBe("+380958601427");
+    expect(formatPhone("+380 (066) 420-6950")).toBe("+380 (066) 420-6950");
   });
 
   it("passes unparseable input through formatPhone unchanged", () => {
