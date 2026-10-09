@@ -18,7 +18,9 @@ import {
  * It opened on "No access" — the permissions had not answered yet, and a
  * permission not yet known read as a refusal — then grey bars, then the
  * report; the tiles grew a "N payments" line when it came and pushed the
- * filters and the table down. Now the first frame is the report itself.
+ * filters and the table down. Now the first frame is the report itself:
+ * the cards, the rows, the technician's Workiz name and the client's phone
+ * under the name (fetched for the page's clients before it shows).
  */
 
 vi.mock("next/link", () => ({
@@ -58,6 +60,12 @@ const routes: FakeRoute[] = [
   // The filter's options: the technicians and the service areas.
   { match: /\/users$/, raw: true, reply: () => ({ success: true, data: [{ id: "t1", firstName: "Tom", lastName: "Tech" }], pagination: {} }) },
   { match: /\/deals\/service-areas$/, reply: () => [{ id: "a1", name: "North", active: true }] },
+  // The page's clients, for the phone under each name.
+  {
+    match: /\/crm\/contacts\/by-ids$/,
+    reply: () => [{ id: "c1", firstName: "Jane", lastName: "Doe", phones: ["4695000793"], emails: [] }],
+    delayMs: 40,
+  },
 ];
 
 let server: FakeServer;
@@ -65,7 +73,7 @@ let server: FakeServer;
 const { PaymentsReportPage } = await import("./payments-report-page");
 
 const pageUp = () =>
-  !!screen.queryByText("Total amount") || !!screen.queryByText("No access") || !!screen.queryByText("6563K8");
+  !!screen.queryByText("Total amount") || !!screen.queryByText("No access") || !!screen.queryByText("6563K8 (Job)");
 
 beforeEach(() => {
   server = installFakeServer(routes);
@@ -80,19 +88,20 @@ describe("PaymentsReportPage — no jumping", () => {
   it("opens on the report, its tiles and rows in one frame — never on No access", async () => {
     const watch = watchFirstFrame(pageUp, () => ({
       noAccess: !!screen.queryByText("No access"),
-      total: !!screen.queryByText("$1,064.44", { selector: "span" }),
-      count: !!screen.queryByText("1 payment"),
-      row: !!screen.queryByText("6563K8"),
+      total: !!screen.queryByRole("group", { name: "Total amount" })?.textContent?.includes("$1,064.44"),
+      row: !!screen.queryByText("6563K8 (Job)"),
+      tech: !!screen.queryByText("Tom Tech"),
+      phone: !!screen.queryByText("(469) 500-0793"),
       skeletons: skeletonCount(),
       asked: server.requests.length,
     }));
     renderWithClient(<PaymentsReportPage />);
-    await screen.findByText("6563K8", {}, { timeout: 3000 });
+    await screen.findByText("6563K8 (Job)", {}, { timeout: 5000 });
     await settle();
     watch.stop();
 
     const { asked, ...frame } = watch.frame()!;
-    expect(frame).toEqual({ noAccess: false, total: true, count: true, row: true, skeletons: 0 });
+    expect(frame).toEqual({ noAccess: false, total: true, row: true, tech: true, phone: true, skeletons: 0 });
     expect(server.requests.slice(asked)).toEqual([]);
     expect(duplicates(server.requests)).toEqual([]);
   });

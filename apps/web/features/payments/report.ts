@@ -2,12 +2,21 @@ import {
   PAYMENT_REPORT_TYPE_FILTERS,
   type PaymentReportQuery,
 } from "@bitcrm/types";
+import type { WzDateRange } from "@/components/workiz/date-range-picker";
+import { formatWzDayRange } from "@/components/workiz/dates";
+import type { WzFilterGroup } from "@/components/workiz/grouped-filter";
 import { DEFAULT_TZ } from "@/lib/timezone";
+import { JOBS_REPORT_PRESETS, presetRange, type JobsReportPreset } from "@/features/reports/jobs/lib";
 
-/**
- * The Payments report's toolbar logic (Workiz Reports → Payments): the date
- * presets, the "Filter results" groups and the query they turn into. Days
- * are the business's (Eastern) days, the same clock the server buckets by.
+/*
+ * The Payments report's toolbar logic (Workiz Reports → Payments,
+ * `/root/payments`): the date box, the "Filter results" groups, the query
+ * they turn into and the way its cells print.
+ *
+ * The first block below (PAYMENT_DATE_PRESETS … paymentPresetRange) is the
+ * older list the billing report pages (Invoices, Estimates, Tax, Aging) still
+ * share; the Payments report itself uses PAYMENTS_REPORT_PRESETS, checked
+ * live against Workiz's datepicker on 2026-10-09.
  */
 
 /** Workiz's presets, in Workiz's order. "Last N months" are FULL months; this one is not included. */
@@ -35,9 +44,6 @@ export const PAYMENT_DATE_PRESETS = [
 ] as const;
 
 export type PaymentDatePreset = (typeof PAYMENT_DATE_PRESETS)[number]["value"];
-
-/** Workiz opens the report on this. */
-export const DEFAULT_PAYMENT_PRESET: PaymentDatePreset = "this_month";
 
 /** Workiz refuses a Custom range longer than this. */
 export const MAX_CUSTOM_DAYS = 366;
@@ -127,74 +133,6 @@ export function customRangeError(from?: string, to?: string): string | null {
   return null;
 }
 
-/* ---------------------------------------------------------- filter groups */
-
-/** One option of "Filter results": `type:<value>`, `area:<id>` or `tech:<id>`. */
-export type ReportFilterKey = `type:${string}` | `area:${string}` | `tech:${string}`;
-
-export interface ReportFilterOption {
-  key: ReportFilterKey;
-  label: string;
-}
-
-export interface ReportFilterGroup {
-  heading: string;
-  options: ReportFilterOption[];
-}
-
-/** Workiz's three groups: Payment type, Service Areas, Technician. */
-export function reportFilterGroups(
-  areas: { id: string; name: string }[],
-  techs: { id: string; name: string }[],
-): ReportFilterGroup[] {
-  const groups: ReportFilterGroup[] = [
-    {
-      heading: "Payment type",
-      options: PAYMENT_REPORT_TYPE_FILTERS.map((f) => ({ key: `type:${f.value}` as const, label: f.label })),
-    },
-  ];
-  if (areas.length) {
-    groups.push({
-      heading: "Service Areas",
-      options: [...areas]
-        .sort((a, b) => a.name.localeCompare(b.name))
-        .map((a) => ({ key: `area:${a.id}` as const, label: a.name })),
-    });
-  }
-  if (techs.length) {
-    groups.push({
-      heading: "Technician",
-      options: [...techs]
-        .sort((a, b) => a.name.localeCompare(b.name))
-        .map((t) => ({ key: `tech:${t.id}` as const, label: t.name })),
-    });
-  }
-  return groups;
-}
-
-/** The chosen options → the three query lists (OR inside each, AND between them). */
-export function splitFilters(selected: Iterable<ReportFilterKey>): Pick<
-  PaymentReportQuery,
-  "types" | "technicianIds" | "serviceAreaIds"
-> {
-  const types: string[] = [];
-  const serviceAreaIds: string[] = [];
-  const technicianIds: string[] = [];
-  for (const key of selected) {
-    const i = key.indexOf(":");
-    const kind = key.slice(0, i);
-    const value = key.slice(i + 1);
-    if (kind === "type") types.push(value);
-    else if (kind === "area") serviceAreaIds.push(value);
-    else if (kind === "tech") technicianIds.push(value);
-  }
-  return {
-    ...(types.length && { types }),
-    ...(serviceAreaIds.length && { serviceAreaIds }),
-    ...(technicianIds.length && { technicianIds }),
-  };
-}
-
 /* ------------------------------------------------------------------ query */
 
 /** `?from=…&types=a,b…` — lists as comma lists, empty values left out. */
@@ -216,23 +154,176 @@ export function buildPaymentReportQuery(q: PaymentReportQuery): string {
   return s ? `?${s}` : "";
 }
 
-/* -------------------------------------------------------------- formatting */
-
-/** Workiz writes money going out in parentheses: `($85.74)`. */
-export function reportMoney(n: number): string {
-  const abs = Math.abs(n).toLocaleString("en-US", { style: "currency", currency: "USD" });
-  return n < 0 ? `(${abs})` : abs;
-}
-
-/** `09/27/2026 9:28 PM` on the business clock. */
-export function reportDateTime(iso: string, tz: string = DEFAULT_TZ): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  const date = d.toLocaleDateString("en-US", { timeZone: tz, month: "2-digit", day: "2-digit", year: "numeric" });
-  const time = d.toLocaleTimeString("en-US", { timeZone: tz, hour: "numeric", minute: "2-digit" });
-  return `${date} ${time}`;
-}
-
 /** Workiz's page sizes; it opens on 10. */
 export const REPORT_PAGE_SIZES = [5, 10, 20, 25, 50, 100] as const;
 export const DEFAULT_REPORT_PAGE_SIZE = 10;
+
+/* ===================================================== the Payments report */
+
+/** The presets Workiz adds on this report to the Jobs report's fifteen. */
+type ExtraPreset = "last_3_months" | "last_6_months" | "last_12_months" | "all_time" | "recent";
+export type PaymentsReportPreset = JobsReportPreset | ExtraPreset;
+
+/**
+ * Workiz's date box on the Payments report (rep_payments_wz_06_date_open):
+ * the Jobs report's fifteen in the same words, then Last 3 months, Last six
+ * months, Last twelve months, All time and "Recent (30 days, including
+ * today)" — that last row wraps in the 250px box, as in Workiz.
+ */
+export const PAYMENTS_REPORT_PRESETS: { id: PaymentsReportPreset; label: string }[] = [
+  ...JOBS_REPORT_PRESETS.map((p) => ({ id: p.id, label: p.label })),
+  { id: "last_3_months", label: "Last 3 months" },
+  { id: "last_6_months", label: "Last six months" },
+  { id: "last_12_months", label: "Last twelve months" },
+  { id: "all_time", label: "All time" },
+  { id: "recent", label: "Recent (30 days, including today)" },
+];
+
+/** Workiz opens the report on this. */
+export const DEFAULT_PAYMENTS_REPORT_PRESET: Exclude<PaymentsReportPreset, "custom"> = "this_month";
+
+/** The first day of the month `n` months before `day`'s month. */
+function monthStartBack(day: string, n: number): string {
+  const [y, m] = day.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1 - n, 1)).toISOString().slice(0, 10);
+}
+
+/**
+ * Inclusive days of a preset, counted from `today` on the viewer's clock as
+ * Workiz's datepicker does (`report_table_and_datepicker.js` getOptions):
+ * the Jobs report's presets as they are there; "Last N months" =
+ * startOf("month") − N months … the end of last month; "Recent" =
+ * subtract(30, "days") … today (31 days); "All time" = no days at all.
+ */
+export function paymentsReportRange(preset: Exclude<PaymentsReportPreset, "custom">, today: string): { from: string; to: string } {
+  const endOfLastMonth = addDays(`${today.slice(0, 7)}-01`, -1);
+  switch (preset) {
+    case "last_3_months":
+      return { from: monthStartBack(today, 3), to: endOfLastMonth };
+    case "last_6_months":
+      return { from: monthStartBack(today, 6), to: endOfLastMonth };
+    case "last_12_months":
+      return { from: monthStartBack(today, 12), to: endOfLastMonth };
+    case "recent":
+      return { from: addDays(today, -30), to: today };
+    case "all_time":
+      return { from: "", to: "" };
+    default:
+      return presetRange(preset, today);
+  }
+}
+
+/** The box's days line: "All time" for All time (rep_payments_wz_16b_all_time), else Workiz's days. */
+export function paymentsRangeText(range: WzDateRange): string {
+  if (range.preset === "all_time" || (!range.from && !range.to)) return "All time";
+  return formatWzDayRange(range.from, range.to);
+}
+
+/** The three groups' picks, keyed by the query parameter each one fills. */
+export interface PaymentsReportFilters {
+  types?: string[];
+  serviceAreaIds?: string[];
+  technicianIds?: string[];
+}
+
+/** The report's question: the box, the filter, the search, the order and the page size. */
+export function paymentsReportQuery({
+  range,
+  filters,
+  search,
+  dir,
+  limit,
+}: {
+  range: WzDateRange;
+  filters: PaymentsReportFilters;
+  search: string;
+  dir: "asc" | "desc";
+  limit?: number;
+}): Omit<PaymentReportQuery, "cursor"> {
+  const q = search.trim();
+  const list = (v?: string[]) => (v && v.length ? v : undefined);
+  const types = list(filters.types);
+  const serviceAreaIds = list(filters.serviceAreaIds);
+  const technicianIds = list(filters.technicianIds);
+  return {
+    ...(range.from && { from: range.from }),
+    ...(range.to && { to: range.to }),
+    ...(types && { types }),
+    ...(serviceAreaIds && { serviceAreaIds }),
+    ...(technicianIds && { technicianIds }),
+    ...(q && { search: q }),
+    dir,
+    ...(limit !== undefined && { limit }),
+  };
+}
+
+const byName = <T extends { name: string }>(a: T, b: T) => a.name.localeCompare(b.name);
+
+/**
+ * Workiz's "Filter results" (rep_payments_wz_05_filter_open): PAYMENT TYPE in
+ * Workiz's order (Refund also takes Refund offline — the server expands it),
+ * SERVICE AREAS as chips in their own colours, TECHNICIAN — a group with
+ * nothing to offer is left out. Chips (rep_payments_wz_17c_chip_tech): the
+ * type alone ("Cash"), "metro: SURE LOCK CT" in the area's colour,
+ * "technician: (2) CT - Tyler Boucher".
+ */
+export function paymentFilterGroups(
+  areas: { id: string; name: string; color?: string }[],
+  techs: { id: string; name: string }[],
+): WzFilterGroup<keyof PaymentsReportFilters>[] {
+  const groups: WzFilterGroup<keyof PaymentsReportFilters>[] = [
+    {
+      key: "types",
+      label: "Payment type",
+      chip: "",
+      options: PAYMENT_REPORT_TYPE_FILTERS.map((f) => ({ value: f.value, label: f.label })),
+    },
+    {
+      key: "serviceAreaIds",
+      label: "Service Areas",
+      chip: "metro",
+      chipColored: true,
+      options: [...areas].sort(byName).map((a) => ({ value: a.id, label: a.name, ...(a.color && { color: a.color }) })),
+    },
+    {
+      key: "technicianIds",
+      label: "Technician",
+      chip: "technician",
+      options: [...techs].sort(byName).map((t) => ({ value: t.id, label: t.name })),
+    },
+  ];
+  return groups.filter((g) => g.options.length > 0);
+}
+
+/* ---------------------------------------------------------------- cells */
+
+/** Refund types: Workiz's `cq.In` — their Amount and Tip print in parentheses. */
+const REFUND_TYPES = new Set(["refund", "refund_offline"]);
+
+const usd = (n: number) => n.toLocaleString("en-US", { style: "currency", currency: "USD" });
+
+/**
+ * An Amount / Tip cell, as Workiz's columns print it: a refund line in
+ * parentheses ("($85.74)", its tip "($0.00)"), any other value as it is —
+ * a negative Credit offline reads "-$207.00" (rep_payments_wz_15_sort_amount).
+ */
+export function paymentCellMoney(n: number, type: string): string {
+  const v = Math.round((n || 0) * 100) / 100;
+  return REFUND_TYPES.has(type) ? `(${usd(Math.abs(v))})` : usd(v);
+}
+
+/** A card's total: "$130,302.80"; below zero "-$1,149.40" (rep_payments_wz_20_refunds). */
+export function paymentTotalMoney(n: number): string {
+  return usd(Math.round((n || 0) * 100) / 100);
+}
+
+/**
+ * The Payment date cell — Workiz's `buildDate(timestamp)`, "Thu, Oct 8,
+ * 2026": the day only, on the account's clock (Workiz's timestamps are its
+ * New York wall time; checked on 968 lines, 2026-10-09).
+ */
+export function paymentDay(iso: string, tz: string = DEFAULT_TZ): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleDateString("en-US", { timeZone: tz, weekday: "short", month: "short", day: "numeric", year: "numeric" });
+}

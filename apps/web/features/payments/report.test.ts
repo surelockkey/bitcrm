@@ -1,14 +1,20 @@
 import { describe, expect, it } from "vitest";
+import { wzFilterChips } from "@/components/workiz/grouped-filter";
 import {
+  DEFAULT_PAYMENTS_REPORT_PRESET,
+  PAYMENTS_REPORT_PRESETS,
   PAYMENT_DATE_PRESETS,
   buildPaymentReportQuery,
   businessToday,
   customRangeError,
+  paymentCellMoney,
+  paymentDay,
+  paymentFilterGroups,
   paymentPresetRange,
-  reportDateTime,
-  reportFilterGroups,
-  reportMoney,
-  splitFilters,
+  paymentTotalMoney,
+  paymentsRangeText,
+  paymentsReportQuery,
+  paymentsReportRange,
 } from "./report";
 
 // Wednesday, 30 September 2026.
@@ -72,27 +78,125 @@ describe("Payments report — date presets (Workiz)", () => {
   });
 });
 
-describe("Payments report — Filter results", () => {
-  it("has Workiz's three groups, sorted inside", () => {
-    const groups = reportFilterGroups(
-      [
-        { id: "a2", name: "SURE LOCK TX" },
-        { id: "a1", name: "North Carolina" },
-      ],
-      [{ id: "t1", name: "Tom Tech" }],
-    );
-    expect(groups.map((g) => g.heading)).toEqual(["Payment type", "Service Areas", "Technician"]);
-    expect(groups[0].options.map((o) => o.label).slice(0, 3)).toEqual(["Credit charge", "Credit offline", "Check deposit"]);
-    expect(groups[1].options.map((o) => o.label)).toEqual(["North Carolina", "SURE LOCK TX"]);
+describe("Payments report — the date box (Workiz's 20 presets, rep_payments_wz_06_date_open)", () => {
+  // Friday, 9 October 2026.
+  const FRI = "2026-10-09";
+
+  it("lists Workiz's presets in its order and words, opening on This month", () => {
+    expect(PAYMENTS_REPORT_PRESETS.map((p) => p.label)).toEqual([
+      "Custom",
+      "Today",
+      "Yesterday",
+      "Last 7 days",
+      "Last 14 days",
+      "Last 30 days",
+      "Last month",
+      "This month",
+      "This year",
+      "Last year",
+      "This week (Sun-Today)",
+      "This week (Mon-Today)",
+      "Last week (Sun-Sat)",
+      "Last week (Mon-Sun)",
+      "Last business week (Mon-Fri)",
+      "Last 3 months",
+      "Last six months",
+      "Last twelve months",
+      "All time",
+      "Recent (30 days, including today)",
+    ]);
+    expect(DEFAULT_PAYMENTS_REPORT_PRESET).toBe("this_month");
   });
 
-  it("splits the chosen options into the three query lists", () => {
-    expect(splitFilters(["type:refund", "type:cash", "area:a1", "tech:t1"])).toEqual({
-      types: ["refund", "cash"],
-      serviceAreaIds: ["a1"],
-      technicianIds: ["t1"],
+  it.each([
+    // The Jobs report's presets, shared: "Last N days" include today.
+    ["today", "2026-10-09", "2026-10-09"],
+    ["last_7", "2026-10-03", "2026-10-09"],
+    ["this_month", "2026-10-01", "2026-10-09"],
+    ["last_month", "2026-09-01", "2026-09-30"],
+    ["last_week_mon", "2026-09-28", "2026-10-04"],
+    // Workiz's datepicker: N full months before this one.
+    ["last_3_months", "2026-07-01", "2026-09-30"],
+    ["last_6_months", "2026-04-01", "2026-09-30"],
+    ["last_12_months", "2025-10-01", "2026-09-30"],
+    // "Recent (30 days, including today)" is subtract(30, "days") … today: 31 days.
+    ["recent", "2026-09-09", "2026-10-09"],
+  ] as const)("%s → %s … %s", (preset, from, to) => {
+    expect(paymentsReportRange(preset, FRI)).toEqual({ from, to });
+  });
+
+  it("All time has no days: the box says so and the query carries none", () => {
+    const range = paymentsReportRange("all_time", FRI);
+    expect(range).toEqual({ from: "", to: "" });
+    expect(paymentsRangeText({ preset: "all_time", ...range })).toBe("All time");
+    expect(paymentsRangeText({ preset: "this_month", from: "2026-10-01", to: "2026-10-09" })).toBe(
+      "Oct 1st, 2026 - Oct 9th, 2026",
+    );
+    expect(paymentsReportQuery({ range: { preset: "all_time", ...range }, filters: {}, search: "", dir: "desc", limit: 10 })).toEqual({
+      dir: "desc",
+      limit: 10,
     });
-    expect(splitFilters([])).toEqual({});
+  });
+
+  it("turns the box, the filter and the search into the report's query", () => {
+    expect(
+      paymentsReportQuery({
+        range: { preset: "last_month", from: "2026-09-01", to: "2026-09-30" },
+        filters: { types: ["refund"], serviceAreaIds: [], technicianIds: ["t1"] },
+        search: "  6563K8 ",
+        dir: "asc",
+        limit: 25,
+      }),
+    ).toEqual({ from: "2026-09-01", to: "2026-09-30", types: ["refund"], technicianIds: ["t1"], search: "6563K8", dir: "asc", limit: 25 });
+  });
+});
+
+describe("Payments report — Filter results (rep_payments_wz_05_filter_open, _17c_chip_tech)", () => {
+  const groups = paymentFilterGroups(
+    [
+      { id: "a2", name: "SURE LOCK TX", color: "#7fffd4" },
+      { id: "a1", name: "North Carolina" },
+    ],
+    [
+      { id: "t2", name: "(2) CT - Tyler Boucher" },
+      { id: "t1", name: "(1) YAKOV SZENDER" },
+    ],
+  );
+
+  it("has Workiz's three groups: types in Workiz's order, areas and techs by name", () => {
+    expect(groups.map((g) => g.label)).toEqual(["Payment type", "Service Areas", "Technician"]);
+    expect(groups[0].options.map((o) => o.label)).toEqual([
+      "Credit charge",
+      "Credit offline",
+      "Check deposit",
+      "Check",
+      "Cash",
+      "Bank transfer (offline)",
+      "Cash app",
+      "Consumer financing",
+      "Venmo",
+      "Zelle",
+      "Debit offline",
+      "Bank transfer (ACH)",
+      "Installments",
+      "Refund",
+      "Other",
+    ]);
+    expect(groups[1].options).toEqual([
+      { value: "a1", label: "North Carolina" },
+      { value: "a2", label: "SURE LOCK TX", color: "#7fffd4" },
+    ]);
+    expect(groups[2].options.map((o) => o.label)).toEqual(["(1) YAKOV SZENDER", "(2) CT - Tyler Boucher"]);
+  });
+
+  it("names the chips as Workiz does: the type alone, metro: and technician: before the others", () => {
+    expect(
+      wzFilterChips(groups, { types: ["cash"], serviceAreaIds: ["a2"], technicianIds: ["t2"] }).map((c) => c.label),
+    ).toEqual(["Cash", "metro: SURE LOCK TX", "technician: (2) CT - Tyler Boucher"]);
+  });
+
+  it("leaves out a group with nothing to offer", () => {
+    expect(paymentFilterGroups([], []).map((g) => g.label)).toEqual(["Payment type"]);
   });
 
   it("builds the query string with comma lists and no empty values", () => {
@@ -103,13 +207,26 @@ describe("Payments report — Filter results", () => {
   });
 });
 
-describe("Payments report — formatting", () => {
-  it("writes money going out in parentheses, as Workiz does", () => {
-    expect(reportMoney(1064.44)).toBe("$1,064.44");
-    expect(reportMoney(-85.74)).toBe("($85.74)");
+describe("Payments report — the cells (bundle: columns Amount / Tip / Payment date)", () => {
+  it("puts only a refund in parentheses; any other negative keeps its minus", () => {
+    expect(paymentCellMoney(1064.44, "charge")).toBe("$1,064.44");
+    expect(paymentCellMoney(-85.74, "refund")).toBe("($85.74)");
+    expect(paymentCellMoney(-30, "refund_offline")).toBe("($30.00)");
+    expect(paymentCellMoney(0, "refund")).toBe("($0.00)");
+    // rep_payments_wz_15_sort_amount: a negative Credit offline reads "-$207.00".
+    expect(paymentCellMoney(-207, "credit")).toBe("-$207.00");
   });
 
-  it("shows the payment time on the business clock", () => {
-    expect(reportDateTime("2026-09-28T01:28:36.000Z")).toBe("09/27/2026 9:28 PM");
+  it("prints a card's total with a minus, never in parentheses", () => {
+    expect(paymentTotalMoney(130302.8)).toBe("$130,302.80");
+    expect(paymentTotalMoney(-1149.4)).toBe("-$1,149.40");
+    expect(paymentTotalMoney(0)).toBe("$0.00");
+  });
+
+  it("writes the payment's day as Workiz's buildDate does, on the account's clock", () => {
+    expect(paymentDay("2026-10-08T22:22:25.000Z")).toBe("Thu, Oct 8, 2026");
+    // 01:28 UTC on Sep 28 is still Sep 27 in New York.
+    expect(paymentDay("2026-09-28T01:28:36.000Z")).toBe("Sun, Sep 27, 2026");
+    expect(paymentDay("not a date")).toBe("");
   });
 });
