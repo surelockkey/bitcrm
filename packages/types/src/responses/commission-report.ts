@@ -188,4 +188,11 @@ export interface CommissionReport {
   truncated: boolean;
   /** What could not be looked up (payments, rates) — the affected rows say 0, so the page must say why. */
   warnings: string[];
+  /**
+   * Whether the amounts were sent. Without `financials.view` every amount
+   * (rows, Totals, technicians, companies) is 0 and no rate or fee is sent —
+   * the jobs, their people, dates and counts are. Absent from older servers:
+   * read it as `true`.
+   */
+  money?: boolean;
 }

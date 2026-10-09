@@ -1,7 +1,7 @@
 import { Controller, Get, Query, Res } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { type Response } from 'express';
-import { CurrentUser, RequirePermission, getDataScopeFilter } from '@bitcrm/shared';
+import { CurrentUser, RequirePermission, getDataScopeFilter, hasPermission } from '@bitcrm/shared';
 import { type JwtUser, type ResolvedPermissions } from '@bitcrm/types';
 import { ResolvedPerms } from '../common/decorators/resolved-permissions.decorator';
 import { CommissionReportService } from './commission-report.service';
@@ -9,9 +9,10 @@ import { CommissionReportQueryDto } from './dto/commission-report-query.dto';
 
 const QUERY_DOC =
   '`from`/`to` (YYYY-MM-DD, up to 186 days), `by` = closed (default; the END of the visit window, as Workiz) | ' +
-  'scheduled | created (the local day), `mode` = standard | tech (needs `techId`) | external, filters `techId` ' +
-  '(the primary technician), `jobTypeId`, `serviceAreaId`, `externalCompanyId` (or `only`), `sourceId` (Ad Group), ' +
-  'search `q`, `sort`/`dir`. Only Done jobs.';
+  'scheduled | created (the local day), `mode` = standard | tech | external, filters `techId` ' +
+  '(the primary technician; without one the Tech report is every job, as in Workiz), `jobTypeId`, `serviceAreaId`, ' +
+  '`externalCompanyId` (or `only`), `sourceId` (Ad Group), search `q`, `sort`/`dir`. Only Done jobs. Without ' +
+  '`financials.view` every amount is 0 and no rate is sent (`money: false`); the CSV then has no amount columns.';
 
 /**
  * Workiz's "Commissions (Legacy)" — Finance Reporting. Registered ahead of
@@ -40,7 +41,7 @@ export class CommissionReportController {
     @CurrentUser() user: JwtUser,
     @ResolvedPerms() perms: ResolvedPermissions,
   ) {
-    const data = await this.service.report(query, user, this.scope(user, perms));
+    const data = await this.service.report(query, user, this.scope(user, perms), hasPermission(perms, 'financials', 'view'));
     return { success: true, data };
   }
 
@@ -58,7 +59,12 @@ export class CommissionReportController {
     @ResolvedPerms() perms: ResolvedPermissions,
     @Res({ passthrough: true }) res: Response,
   ): Promise<string> {
-    const { filename, csv } = await this.service.exportCsv(query, user, this.scope(user, perms));
+    const { filename, csv } = await this.service.exportCsv(
+      query,
+      user,
+      this.scope(user, perms),
+      hasPermission(perms, 'financials', 'view'),
+    );
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     // A BOM so Excel reads the file as UTF-8.

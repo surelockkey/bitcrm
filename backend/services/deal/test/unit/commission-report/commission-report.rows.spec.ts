@@ -1,4 +1,4 @@
-import type { CommissionConfig, CommissionReportRow, WorkizCommissionSnapshot } from '@bitcrm/types';
+import { COMMISSION_REPORT_TOTAL_KEYS, type CommissionConfig, type CommissionReportRow, type WorkizCommissionSnapshot } from '@bitcrm/types';
 import {
   buildRow,
   commissionReportCsv,
@@ -13,6 +13,7 @@ import {
   sortRows,
   techSummaries,
   totalsOf,
+  withoutMoney,
   type RowContext,
 } from 'src/commission-report/commission-report.rows';
 import type { CommissionDealItem } from 'src/commission-report/commission-report.types';
@@ -329,5 +330,21 @@ describe('filters, totals and slices', () => {
     expect(header).toContain('Balance Tech');
     expect(header).not.toContain('Company Profit');
     expect(header).not.toContain('Scheduled');
+  });
+
+  it('without financials.view the export keeps the jobs and drops every amount and rate', () => {
+    const csv = commissionReportCsv([a, b], totalsOf([a, b]), 'standard', false).split('\r\n');
+    expect(csv[0]).toBe('Job Id,Tech,Created,Scheduled,Closed,Job Type,Address,Client,Ad Group,External Company');
+    expect(csv[1]).toBe('Totals:2,,,,,,,,,');
+    expect(csv.join('\n')).not.toMatch(/\d\.\d\d/);
+  });
+
+  it('withoutMoney zeroes every amount and drops the rate and the fees — the job, its people and its dates stay', () => {
+    const row = withoutMoney({ ...a, rate: 50, rateUnit: '%', fees: 3 });
+    for (const key of COMMISSION_REPORT_TOTAL_KEYS) expect(row[key]).toBe(0);
+    expect(row.rate).toBeUndefined();
+    expect(row.rateUnit).toBeUndefined();
+    expect(row.fees).toBeUndefined();
+    expect(row).toMatchObject({ dealNumber: a.dealNumber, techName: a.techName, address: a.address, closedDate: a.closedDate });
   });
 });

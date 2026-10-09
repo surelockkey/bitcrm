@@ -631,6 +631,9 @@ tests, and — if it emits events — the types in `@bitcrm/types` plus a row in
   force on the job's day (user's `POST /technicians/internal/commissions`) —
   versions are never rewritten, which is what freezes a job's rate. The old
   `calculateCommission` in user-service (EPIC-6) is a different formula; leave it.
+  Amounts need `financials.view` on top of `commission.view`: without it every
+  amount is 0, no rate is sent (`money: false`) and the CSV has no amount
+  columns. The Tech mode without `techId` is every job (Workiz).
 - **Job Statistics reads the Jobs report's windows; `/deals/stats` is the
   dashboard's.** `GET /api/deals/report/statistics` (Workiz Job Statistics) reads
   a period with `DealsRepository.readReportWindow` — "Closed" is the EndIndex

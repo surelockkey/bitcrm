@@ -130,8 +130,8 @@ describe('CommissionReportService.parse', () => {
     });
   });
 
-  it('the Tech report needs a technician', () => {
-    expect(() => service.parse({ ...sept, mode: 'tech' }, office, 'all')).toThrow(/technician/);
+  it('the Tech report without a technician is every job of the period, as in Workiz', () => {
+    expect(service.parse({ ...sept, mode: 'tech' }, office, 'all')).toMatchObject({ mode: 'tech', techId: undefined });
   });
 
   it('assigned_only is narrowed to the caller, whatever technician is asked for', () => {
@@ -242,6 +242,46 @@ describe('CommissionReportService.report', () => {
     expect(repository.findDoneByVisitStart).toHaveBeenCalledTimes(2);
   });
 
+  it('the Tech report without a technician lists every technician’s jobs', async () => {
+    const { service } = build();
+    const r = await service.report({ ...sept, mode: 'tech' }, office, 'all');
+    expect(r.mode).toBe('tech');
+    expect(r.rows.map((x) => x.dealNumber).sort()).toEqual(['A1', 'B1', 'M1', 'N1']);
+  });
+
+  it('says whether amounts were sent: with financials.view they are', async () => {
+    const { service } = build();
+    const r = await service.report(sept, office, 'all', true);
+    expect(r.money).toBe(true);
+    expect(r.totals.total.amount).toBe(710);
+  });
+
+  it('without financials.view no amount and no rate leaves the server — the jobs, people and counts do', async () => {
+    const { service } = build();
+    const r = await service.report(sept, office, 'all', false);
+    expect(r.money).toBe(false);
+    expect(r.count).toBe(4);
+    expect(r.rows.map((x) => x.dealNumber).sort()).toEqual(['A1', 'B1', 'M1', 'N1']);
+    for (const row of r.rows) {
+      expect([row.total, row.cash, row.credit, row.techProfit, row.companyProfit, row.balance, row.tax]).toEqual([0, 0, 0, 0, 0, 0, 0]);
+      expect(row.rate).toBeUndefined();
+      expect(row.fees).toBeUndefined();
+    }
+    for (const t of Object.values(r.totals)) expect(t).toEqual({ amount: 0, jobs: 0 });
+    expect(r.techs.map((t) => [t.techName, t.jobs, t.total, t.techProfit, t.balance])).toEqual([
+      ['Ann Lee', 2, 0, 0, 0],
+      ['Bob Ray', 1, 0, 0, 0],
+      ['Cat Moe', 1, 0, 0, 0],
+    ]);
+  });
+
+  it('without financials.view an order by an amount falls back to the default order', async () => {
+    const { service } = build();
+    const plain = await service.report(sept, office, 'all', false);
+    const byTotal = await service.report({ ...sept, sort: 'total', dir: 'desc' }, office, 'all', false);
+    expect(byTotal.rows.map((x) => x.dealNumber)).toEqual(plain.rows.map((x) => x.dealNumber));
+  });
+
   it('a truncated read is flagged', async () => {
     const { service, repository } = build();
     repository.findDoneByVisitStart.mockResolvedValue({ items: [IMPORTED_ANN], truncated: true });
@@ -260,5 +300,13 @@ describe('CommissionReportService.exportCsv', () => {
     expect(lines).toHaveLength(4);
     expect(lines[1].startsWith('Totals:2,')).toBe(true);
     expect(csv).toContain('Client contact-a1');
+  });
+
+  it('without financials.view the file has no amounts', async () => {
+    const { service } = build();
+    const { csv } = await service.exportCsv(sept, office, 'all', false);
+    const [header, totals] = csv.split('\r\n');
+    expect(header).not.toMatch(/Total|Cash|Profit|Share|Tax/);
+    expect(totals).toBe('Totals:4,,,,,,,,,');
   });
 });
