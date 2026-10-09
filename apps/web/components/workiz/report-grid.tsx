@@ -51,14 +51,21 @@ const TABLE = "table-fixed w-full border-separate border-spacing-0";
 const HEAD = "sticky top-0 z-10 h-[42px] border-b border-r border-input bg-muted px-2.5 text-sm leading-[21px] font-medium text-wz-strong last:border-r-0";
 const CELL = "overflow-hidden border-r border-dotted border-table-border p-5 align-top text-sm leading-4 whitespace-nowrap text-wz-strong last:border-r-0";
 
-/** react-table's `-padRow`s, keeping the zebra going. */
-function PadRows({ count, columns }: { count: number; columns: number }) {
+/**
+ * react-table's `-padRow`s, keeping the zebra going. `plain`: under records
+ * Workiz's blanks are 56px with no rule (rep_tax_wz_01_default); the 1px
+ * rule only shows on a grid with nothing in it (rep_tax_wz_11b_search_empty).
+ */
+function PadRows({ count, columns, plain = false }: { count: number; columns: number; plain?: boolean }) {
   return (
     <>
       {Array.from({ length: Math.max(0, count) }, (_, i) => (
         <TableRow key={`pad-${i}`} aria-hidden className="border-0 hover:bg-transparent">
           {Array.from({ length: columns }, (_, c) => (
-            <TableCell key={c} className={cn(CELL, "h-[57px] border-b border-b-black/5 py-0 [border-bottom-style:solid]")} />
+            <TableCell
+              key={c}
+              className={cn(CELL, plain ? "h-[56px] py-0" : "h-[57px] border-b border-b-black/5 py-0 [border-bottom-style:solid]")}
+            />
           ))}
         </TableRow>
       ))}
@@ -85,6 +92,7 @@ export function WzReportGrid<R>({
   busy = false,
   emptyText = "No Records Found",
   footer,
+  plainFiller = false,
   "aria-label": ariaLabel,
   className,
 }: {
@@ -100,6 +108,12 @@ export function WzReportGrid<R>({
   emptyText?: ReactNode;
   /** react-table's `.pagination-bottom`: the pager, inside the frame under the rows. */
   footer?: ReactNode;
+  /**
+   * The blank rows under records as Workiz draws them: 56px, no rule (the
+   * rule stays on an empty grid). Off by default — the grids before it keep
+   * their 57px ruled blanks.
+   */
+  plainFiller?: boolean;
   "aria-label"?: string;
   className?: string;
 }) {
@@ -145,7 +159,7 @@ export function WzReportGrid<R>({
               ))}
             </TableRow>
           ))}
-          <PadRows count={MIN_ROWS - shown.length} columns={columns.length} />
+          <PadRows count={MIN_ROWS - shown.length} columns={columns.length} plain={plainFiller && shown.length > 0} />
         </TableBody>
       </Table>
       {loading ? (
