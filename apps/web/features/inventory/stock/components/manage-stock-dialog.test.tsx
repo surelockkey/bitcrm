@@ -113,9 +113,10 @@ const headers = () =>
   [...document.querySelectorAll('[role="dialog"] thead th')].map((th) => th.textContent);
 
 describe("ManageStockDialog — the Workiz popup", () => {
-  it("is titled with the item's name and SKU", () => {
+  // Workiz's item names carry their SKU already: "Manage stock - Don-Jo - Chain Guard - Silver (1607-625) (SLK-3551)".
+  it("is titled \"Manage stock - <name>\", as Workiz titles it", () => {
     open();
-    expect(screen.getByRole("dialog", { name: "Manage stock - Deadbolt (LOCK-001)" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Manage stock - Deadbolt" })).toBeInTheDocument();
   });
 
   it("reads the item's stock while open", () => {
@@ -143,19 +144,19 @@ describe("ManageStockDialog — the Workiz popup", () => {
     open();
     expect(headers()).toEqual(["Location", "Description", "Quantity", "Actions"]);
     const rows = bodyRows();
-    expect(rows.map((r) => r[0])).toEqual(["Main", "Old yardArchived", "Taras's van"]);
+    expect(rows.map((r) => r[0])).toEqual(["Main", "Old yard (archived)", "Taras's van"]);
     expect(rows[0][1]).toBe("Dallas yard");
-    expect(rows[1][1]).toBe("—");
+    expect(rows[1][1]).toBe("");
     // Whole units, not the cards' two decimals.
     expect(rows.map((r) => r[2])).toEqual(["300", "0", "69"]);
   });
 
-  it("scrolls the table sideways instead of clipping it", () => {
+  // react-table's rt-table: 41% of the window at most, the rows scrolling under the header.
+  it("scrolls the table in its own box instead of clipping it", () => {
     open();
-    const frame = document.querySelector('[role="dialog"] [data-slot=table-frame]') as HTMLElement;
-    expect(frame).not.toBeNull();
-    expect(frame.className).toMatch(/overflow-x-auto/);
-    expect(frame.className).not.toMatch(/overflow-hidden/);
+    const box = document.querySelector('[role="dialog"] table')!.parentElement as HTMLElement;
+    expect(box.className).toMatch(/max-h-\[41vh\]/);
+    expect(box.className).toMatch(/overflow-auto/);
   });
 
   it("left-aligns the table — numbers included", () => {
@@ -167,7 +168,7 @@ describe("ManageStockDialog — the Workiz popup", () => {
   it("closes from the yellow Done", async () => {
     const { onOpenChange } = open();
     const done = screen.getByRole("button", { name: "Done" });
-    expect(done).toHaveAttribute("data-variant", "default");
+    expect(done).toHaveAttribute("data-variant", "primary");
     await userEvent.click(done);
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
@@ -184,8 +185,9 @@ describe("ManageStockDialog — search and paging, in the browser", () => {
   it("says so when nothing matches", async () => {
     open();
     await userEvent.type(screen.getByRole("searchbox", { name: "Search locations" }), "zzz");
-    expect(screen.getByText("No locations match “zzz”.")).toBeInTheDocument();
-    expect(screen.getByText("Showing 0 to 0 of 0 results")).toBeInTheDocument();
+    expect(screen.getByText("No rows found")).toBeInTheDocument();
+    // react-table's own words on nothing (pg_inventory_wz_15_locations_search_empty).
+    expect(screen.getByText("Showing 1 to 0 of 0 results")).toBeInTheDocument();
   });
 
   it("pages ten at a time with Workiz's footer", async () => {
@@ -218,9 +220,9 @@ describe("ManageStockDialog — search and paging, in the browser", () => {
     open();
     await userEvent.click(screen.getByRole("button", { name: "Next page" }));
 
-    await userEvent.click(screen.getByRole("combobox", { name: "Rows per page" }));
-    expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual(["10", "25", "50"]);
-    await userEvent.click(screen.getByRole("option", { name: "25" }));
+    const size = screen.getByRole("combobox", { name: "Rows per page" });
+    expect(within(size).getAllByRole("option").map((o) => o.textContent)).toEqual(["5", "10", "20", "25", "50", "100"]);
+    await userEvent.selectOptions(size, "25");
 
     expect(bodyRows()).toHaveLength(25);
     expect(screen.getByText("Showing 1 to 25 of 93 results")).toBeInTheDocument();
@@ -297,8 +299,8 @@ describe("ManageStockDialog — actions per location", () => {
     });
     open();
     const tr = screen.getByText("Van 9 (видалено у Workiz)").closest("tr") as HTMLElement;
-    expect(within(tr).getByText("Deleted in Workiz")).toBeInTheDocument();
-    expect(within(tr).queryByText("Archived")).toBeNull();
+    expect(tr).toHaveTextContent("(deleted in Workiz)");
+    expect(tr).not.toHaveTextContent("(archived)");
     expect(tr.className).toMatch(/opacity-/);
     expect(screen.getByRole("button", { name: "Add Deadbolt to Van 9 (видалено у Workiz)" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Move Deadbolt from Van 9 (видалено у Workiz)" })).toBeEnabled();
@@ -322,33 +324,32 @@ describe("ManageStockDialog — actions per location", () => {
     const { onOpenChange } = open();
     await userEvent.click(screen.getByRole("button", { name: "Add Deadbolt to Taras's van" }));
 
-    const add = screen.getByRole("dialog", { name: "Add Deadbolt to Taras's van" });
+    const add = screen.getByRole("dialog", { name: "Add items" });
     const qty = within(add).getByLabelText("Quantity");
     await userEvent.clear(qty);
     await userEvent.type(qty, "6");
-    await userEvent.click(within(add).getByRole("button", { name: "Add stock" }));
+    await userEvent.click(within(add).getByRole("button", { name: "Save" }));
 
     expect(mocks.receive).toHaveBeenCalledWith({
       toType: "container",
       toId: "c1",
       items: [{ productId: "p1", productName: "Deadbolt", quantity: 6 }],
     });
-    expect(screen.queryByRole("dialog", { name: /^Add Deadbolt/ })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Add items" })).toBeNull();
     expect(screen.getByRole("dialog", { name: /Manage stock/ })).toBeInTheDocument();
     expect(onOpenChange).not.toHaveBeenCalled();
   });
 });
 
 describe("ManageStockDialog — loading, errors, nothing yet", () => {
-  it("shows the popup's own frame while loading — toolbar, a table of placeholders, the pager", () => {
+  it("shows the popup's own frame while loading — the cards, the controls, the header over Workiz's loader", () => {
     mocks.stock = query<ProductStock>(undefined, { isLoading: true });
     open();
-    const panel = screen.getByTestId("manage-stock-loading");
-    expect(within(panel).getByRole("searchbox", { name: "Search locations" })).toBeDisabled();
-    expect(within(panel).getAllByTestId("skeleton-row").length).toBeGreaterThan(0);
-    expect(within(panel).getByTestId("panel-pager-placeholder")).toBeInTheDocument();
-    // No real rows yet.
-    expect(bodyRows().every((r) => r.every((c) => c === ""))).toBe(true);
+    expect(card("Total on hand")).toBeInTheDocument();
+    expect(screen.getByRole("searchbox", { name: "Search locations" })).toBeDisabled();
+    expect(headers()).toEqual(["Location", "Description", "Quantity", "Actions"]);
+    expect(screen.getByRole("status", { name: "Loading" })).toBeInTheDocument();
+    expect(bodyRows()).toEqual([]);
   });
 
   it("is the same height loading and loaded", () => {

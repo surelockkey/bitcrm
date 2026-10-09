@@ -73,16 +73,16 @@ describe("AddStockDialog", () => {
     return { onOpenChange };
   }
 
-  it("is titled with the item and the location it goes into", () => {
+  it("is Workiz's \"Add items\", the item and the location in its description", () => {
     open();
-    expect(screen.getByRole("dialog", { name: "Add Deadbolt to Taras's van" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Add items" })).toHaveAccessibleDescription("Deadbolt — Taras's van");
   });
 
   it("receives the quantity into this location, notes trimmed", async () => {
     const { onOpenChange } = open();
     await setQuantity("12");
     await userEvent.type(notes(), "  Supplier order 4411 ");
-    await userEvent.click(screen.getByRole("button", { name: "Add stock" }));
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
 
     expect(mocks.receive).toHaveBeenCalledTimes(1);
     expect(mocks.receive.mock.calls[0][0]).toStrictEqual({
@@ -98,7 +98,7 @@ describe("AddStockDialog", () => {
   it("has no ceiling — stock comes from the supplier — and sends no empty notes", async () => {
     open();
     await setQuantity("500");
-    await userEvent.click(screen.getByRole("button", { name: "Add stock" }));
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
     expect(mocks.receive.mock.calls[0][0]).toStrictEqual({
       toType: "container",
       toId: "c1",
@@ -108,7 +108,7 @@ describe("AddStockDialog", () => {
 
   it("refuses zero, fractions and an empty field", async () => {
     open();
-    const submit = screen.getByRole("button", { name: "Add stock" });
+    const submit = screen.getByRole("button", { name: "Save" });
 
     await setQuantity("0");
     expect(screen.getByText("Enter 1 or more")).toBeInTheDocument();
@@ -126,7 +126,8 @@ describe("AddStockDialog", () => {
   it("stays open when the server refuses", async () => {
     mocks.succeed = false;
     const { onOpenChange } = open();
-    await userEvent.click(screen.getByRole("button", { name: "Add stock" }));
+    await userEvent.type(quantity(), "1");
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
     expect(mocks.receive).toHaveBeenCalled();
     expect(onOpenChange).not.toHaveBeenCalled();
   });
@@ -134,7 +135,7 @@ describe("AddStockDialog", () => {
   it("can't be sent twice while the first is on its way", () => {
     mocks.pending = true;
     open();
-    expect(screen.getByRole("button", { name: /Add stock/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Save/ })).toBeDisabled();
   });
 });
 
@@ -151,9 +152,9 @@ describe("MoveStockDialog", () => {
     await userEvent.click(screen.getByRole("option", { name: new RegExp(name) }));
   }
 
-  it("is titled with the item and the location it leaves", () => {
+  it("is Workiz's \"Move items to container\", the item and the location in its description", () => {
     open();
-    expect(screen.getByRole("dialog", { name: "Move Deadbolt from Taras's van" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Move items to container" })).toHaveAccessibleDescription("Deadbolt — Taras's van");
   });
 
   // Every row of a stock popup mounts its Move dialog closed; each one paging
@@ -201,7 +202,7 @@ describe("MoveStockDialog", () => {
     expect(picker()).toHaveTextContent("Pavlo's van");
     await setQuantity("4");
     await userEvent.type(notes(), "Swap for the weekend");
-    await userEvent.click(screen.getByRole("button", { name: "Move" }));
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
 
     expect(mocks.move.mock.calls[0][0]).toStrictEqual({
       fromType: "container",
@@ -217,7 +218,8 @@ describe("MoveStockDialog", () => {
   it("moves into a warehouse as a warehouse", async () => {
     open();
     await pick("Main");
-    await userEvent.click(screen.getByRole("button", { name: "Move" }));
+    await userEvent.type(quantity(), "1");
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
     expect(mocks.move.mock.calls[0][0]).toMatchObject({ toType: "warehouse", toId: "w1", items: [{ quantity: 1 }] });
   });
 
@@ -232,7 +234,7 @@ describe("MoveStockDialog", () => {
 
   it("won't move more than is here, nor without a target", async () => {
     open();
-    const submit = screen.getByRole("button", { name: "Move" });
+    const submit = screen.getByRole("button", { name: "Save" });
     expect(submit).toBeDisabled(); // no target yet
 
     await pick("Main");
@@ -258,9 +260,9 @@ describe("ReturnStockDialog", () => {
     await userEvent.click(screen.getByRole("option", { name: label }));
   }
 
-  it("is titled with the item and the location it leaves", () => {
+  it("is Workiz's \"Item return\", the item and the location in its description", () => {
     open();
-    expect(screen.getByRole("dialog", { name: "Return Deadbolt from Taras's van" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Item return" })).toHaveAccessibleDescription("Deadbolt — Taras's van");
   });
 
   it("offers Recall, Damaged, Lost and Other", async () => {
@@ -279,7 +281,7 @@ describe("ReturnStockDialog", () => {
     await setQuantity("3");
     await reason("Damaged");
     await userEvent.type(notes(), "Cracked housing");
-    await userEvent.click(screen.getByRole("button", { name: "Return" }));
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
 
     expect(mocks.ret.mock.calls[0][0]).toStrictEqual({
       fromType: "container",
@@ -293,10 +295,12 @@ describe("ReturnStockDialog", () => {
 
   it("needs a reason and no more than is here", async () => {
     open();
-    const submit = screen.getByRole("button", { name: "Return" });
-    expect(submit).toBeDisabled(); // no reason yet
+    const submit = screen.getByRole("button", { name: "Save" });
+    expect(submit).toBeDisabled(); // no number, no reason yet
 
     await reason("Lost");
+    expect(submit).toBeDisabled(); // Workiz's empty Quantity box
+    await setQuantity("1");
     expect(submit).toBeEnabled();
 
     await setQuantity("9");

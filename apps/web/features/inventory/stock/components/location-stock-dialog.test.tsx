@@ -102,40 +102,43 @@ function open(type: "container" | "warehouse" = "container", id = type === "cont
   return { onOpenChange };
 }
 
-const card = (label: string) => screen.getByRole("group", { name: label });
+/** The records the grid prints — Workiz's blank filler rows left out. */
 const bodyRows = () =>
-  [...document.querySelectorAll('[role="dialog"] tbody tr')].map((tr) =>
+  [...document.querySelectorAll('[role="dialog"] tbody tr:not([aria-hidden])')].map((tr) =>
     [...tr.querySelectorAll("td")].map((td) => td.textContent),
   );
-const headers = () =>
-  [...document.querySelectorAll('[role="dialog"] thead th')].map((th) => th.textContent);
+const headers = () => [...document.querySelectorAll('[role="dialog"] thead th')].map((th) => th.textContent);
 
+/**
+ * Workiz's "Manage stock: <name>" (pg_inventory_wz_13_location_stock): the
+ * location and its three totals over the standard grid — Product Name,
+ * Quantity, Price, Cost, Actions.
+ */
 describe("LocationStockDialog — a van's stock", () => {
-  it("is titled with the van's name", async () => {
+  it("is titled \"Manage stock: <name>\", the name and its description at the left", async () => {
+    vanRows = vanRows.map((r) => r);
     open();
-    expect(await screen.findByRole("dialog", { name: "Taras's van — stock" })).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "Manage stock: Taras's van" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 3, name: "Taras's van" })).toBeInTheDocument();
   });
 
-  it("lists what the van holds — item, SKU, quantity — left-aligned", async () => {
+  it("lists what the van holds — name, quantity, price, cost — left-aligned", async () => {
+    vanRows = [row("p1", "Deadbolt", 6, { sku: "LOCK-001", priceClient: 45, costCompany: 20.16 })];
     open();
     await screen.findByText("Deadbolt");
-    expect(headers()).toEqual(["Item", "SKU", "Quantity", "Actions"]);
-    expect(bodyRows().map((r) => r.slice(0, 2))).toEqual([
-      ["Deadbolt", "LOCK-001"],
-      ["Key blank", "KEY-7"],
-    ]);
+    expect(headers()).toEqual(["Product Name", "Quantity", "Price", "Cost", "Actions"]);
+    expect(bodyRows().map((r) => r.slice(0, 4))).toEqual([["Deadbolt", "6", "45.00", "20.16"]]);
     for (const cell of document.querySelectorAll('[role="dialog"] th, [role="dialog"] td')) {
       expect(cell.className).not.toMatch(/text-right/);
     }
   });
 
-  it("scrolls the table sideways instead of clipping it", async () => {
+  it("keeps the cost from someone who may not see money", async () => {
+    mocks.denied.add("financials.view");
     open();
     await screen.findByText("Deadbolt");
-    const frame = document.querySelector('[role="dialog"] [data-slot=table-frame]') as HTMLElement;
-    expect(frame).not.toBeNull();
-    expect(frame.className).toMatch(/overflow-x-auto/);
-    expect(frame.className).not.toMatch(/overflow-hidden/);
+    expect(headers()).toEqual(["Product Name", "Quantity", "Price", "Actions"]);
+    expect(screen.queryByText(/Total Items cost/)).toBeNull();
   });
 
   // F2 answers in name order; sorting again would be work, and wrong if the
@@ -147,19 +150,18 @@ describe("LocationStockDialog — a van's stock", () => {
     expect(bodyRows().map((r) => r[0])).toEqual(["Key blank", "Deadbolt"]);
   });
 
-  it("marks an item that has run low", async () => {
+  it("tags an item that has run low with Workiz's Low stock", async () => {
     open();
     await screen.findByText("Deadbolt");
-    expect(bodyRows()[0][2]).toBe("6Low");
-    expect(bodyRows()[1][2]).toBe("120");
+    expect(bodyRows()[0][0]).toBe("DeadboltLow stock");
+    expect(bodyRows()[1][0]).toBe("Key blank");
   });
 
-  it("counts SKUs and units and prices them at the client price", async () => {
+  it("totals the units and prices them at the client price", async () => {
     open();
     await screen.findByText("Deadbolt");
-    expect(card("SKUs")).toHaveTextContent("2");
-    expect(card("Units")).toHaveTextContent("126");
-    expect(card("Value")).toHaveTextContent("$630.00");
+    expect(screen.getByText("Total Items On Hand: 126")).toBeInTheDocument();
+    expect(screen.getByText("Sale Items Value: 630.00")).toBeInTheDocument();
   });
 
   // The popup took over eight seconds on dev: it paged the whole
@@ -171,26 +173,18 @@ describe("LocationStockDialog — a van's stock", () => {
   });
 
   // The Containers tab puts the van's template strip here.
-  it("shows what the page puts above the stock", async () => {
+  it("shows what the page puts over the stock", async () => {
     renderWithClient(
-      <LocationStockDialog
-        type="container"
-        locationId="c1"
-        open
-        onOpenChange={vi.fn()}
-        aside={<div>Template strip</div>}
-      />,
+      <LocationStockDialog type="container" locationId="c1" open onOpenChange={vi.fn()} aside={<div>Template strip</div>} />,
     );
     await screen.findByText("Deadbolt");
     expect(screen.getByText("Template strip")).toBeInTheDocument();
   });
 
-  it("closes from the yellow Done", async () => {
+  it("closes from the footer's Cancel", async () => {
     const { onOpenChange } = open();
     await screen.findByText("Deadbolt");
-    const done = screen.getByRole("button", { name: "Done" });
-    expect(done).toHaveAttribute("data-variant", "default");
-    await userEvent.click(done);
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 });
@@ -207,13 +201,13 @@ describe("LocationStockDialog — move and return, never add", () => {
   it("moves from this van to another one", async () => {
     open();
     await userEvent.click(await screen.findByRole("button", { name: "Move Deadbolt from Taras's van" }));
-    const move = screen.getByRole("dialog", { name: "Move Deadbolt from Taras's van" });
+    const move = screen.getByRole("dialog", { name: "Move items to container" });
     await userEvent.click(within(move).getByRole("combobox", { name: "To location" }));
     await userEvent.click(screen.getByRole("option", { name: /Pavlo's van/ }));
     const qty = within(move).getByLabelText("Quantity");
     await userEvent.clear(qty);
     await userEvent.type(qty, "4");
-    await userEvent.click(within(move).getByRole("button", { name: "Move" }));
+    await userEvent.click(within(move).getByRole("button", { name: "Save" }));
 
     expect(mocks.move).toHaveBeenCalledWith({
       fromType: "container",
@@ -223,13 +217,13 @@ describe("LocationStockDialog — move and return, never add", () => {
       items: [{ productId: "p1", productName: "Deadbolt", quantity: 4 }],
     });
     // Only the small dialog closes; the van's popup stays.
-    expect(screen.getByRole("dialog", { name: "Taras's van — stock" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Manage stock: Taras's van" })).toBeInTheDocument();
   });
 
   it("returns out of this van with a reason, no more than it holds", async () => {
     open();
     await userEvent.click(await screen.findByRole("button", { name: "Return Deadbolt from Taras's van" }));
-    const ret = screen.getByRole("dialog", { name: "Return Deadbolt from Taras's van" });
+    const ret = screen.getByRole("dialog", { name: "Item return" });
     const qty = within(ret).getByLabelText("Quantity");
     await userEvent.clear(qty);
     await userEvent.type(qty, "7");
@@ -238,7 +232,7 @@ describe("LocationStockDialog — move and return, never add", () => {
     await userEvent.type(qty, "2");
     await userEvent.click(within(ret).getByRole("combobox", { name: "Reason" }));
     await userEvent.click(screen.getByRole("option", { name: "Damaged" }));
-    await userEvent.click(within(ret).getByRole("button", { name: "Return" }));
+    await userEvent.click(within(ret).getByRole("button", { name: "Save" }));
 
     expect(mocks.ret).toHaveBeenCalledWith({
       fromType: "container",
@@ -252,7 +246,7 @@ describe("LocationStockDialog — move and return, never add", () => {
     mocks.denied.add("transfers.create");
     open();
     await screen.findByText("Deadbolt");
-    expect(headers()).toEqual(["Item", "SKU", "Quantity"]);
+    expect(headers()).toEqual(["Product Name", "Quantity", "Price", "Cost"]);
     expect(screen.queryByRole("button", { name: /Deadbolt/ })).toBeNull();
   });
 });
@@ -280,40 +274,41 @@ describe("LocationStockDialog — search and paging, in the browser", () => {
     await screen.findByText("Deadbolt");
     await userEvent.click(screen.getByRole("button", { name: "Next page" }));
     await userEvent.type(screen.getByRole("searchbox", { name: "Search items" }), "lock-");
-    expect(bodyRows().map((r) => r[0])).toEqual(["Deadbolt"]);
+    expect(bodyRows().map((r) => r[0])).toEqual(["DeadboltLow stock"]);
     expect(screen.getByText("Page 1 of 1")).toBeInTheDocument();
   });
 
-  it("changes the page size", async () => {
+  it("changes the page size, and remembers it for next time", async () => {
     open();
     await screen.findByText("Deadbolt");
-    await userEvent.click(screen.getByRole("combobox", { name: "Rows per page" }));
-    await userEvent.click(screen.getByRole("option", { name: "25" }));
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Rows per page" }), "25");
     expect(bodyRows()).toHaveLength(25);
+    expect(localStorage.getItem("bitcrm.page-size.stock-popup")).toBe("25");
   });
 
   it("says so when nothing matches", async () => {
     open();
     await screen.findByText("Deadbolt");
     await userEvent.type(screen.getByRole("searchbox", { name: "Search items" }), "zzz");
-    expect(screen.getByText("No items match “zzz”.")).toBeInTheDocument();
+    expect(screen.getByText("No Records Found")).toBeInTheDocument();
   });
 });
 
 describe("LocationStockDialog — a warehouse, the same popup", () => {
   it("shows the warehouse's shelf, moves out of the warehouse", async () => {
     open("warehouse");
-    expect(await screen.findByRole("dialog", { name: "Main — stock" })).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "Manage stock: Main" })).toBeInTheDocument();
     await screen.findByText("Strike plate");
-    expect(card("Units")).toHaveTextContent("40");
-    expect(card("Value")).toHaveTextContent("$480.00");
+    expect(screen.getByText("Total Items On Hand: 40")).toBeInTheDocument();
+    expect(screen.getByText("Sale Items Value: 480.00")).toBeInTheDocument();
     expect(mocks.urls).toEqual(["/inventory/stock/locations/warehouse/w1"]);
 
     await userEvent.click(screen.getByRole("button", { name: "Return Strike plate from Main" }));
-    const ret = screen.getByRole("dialog", { name: "Return Strike plate from Main" });
+    const ret = screen.getByRole("dialog", { name: "Item return" });
     await userEvent.click(within(ret).getByRole("combobox", { name: "Reason" }));
     await userEvent.click(screen.getByRole("option", { name: "Recall" }));
-    await userEvent.click(within(ret).getByRole("button", { name: "Return" }));
+    await userEvent.type(within(ret).getByLabelText("Quantity"), "1");
+    await userEvent.click(within(ret).getByRole("button", { name: "Save" }));
     expect(mocks.ret).toHaveBeenCalledWith(
       expect.objectContaining({ fromType: "warehouse", fromId: "w1", reason: ReturnReason.RECALL }),
     );
@@ -324,8 +319,8 @@ describe("LocationStockDialog — nothing there, or nothing readable", () => {
   it("says so for an empty van", async () => {
     vanRows = [];
     open();
-    expect(await screen.findByText("Nothing in stock here.")).toBeInTheDocument();
-    expect(card("SKUs")).toHaveTextContent("0");
+    expect(await screen.findByText("Nothing in stock here")).toBeInTheDocument();
+    expect(screen.getByText("Total Items On Hand: 0")).toBeInTheDocument();
   });
 
   it("offers Retry when the stock can't be read", async () => {
@@ -361,57 +356,41 @@ describe("LocationStockDialog — nothing there, or nothing readable", () => {
     vanRows = [row("p1", "Deadbolt", 6)];
     open();
     await screen.findByText("Deadbolt");
-    expect(card("Value")).toHaveTextContent("—");
+    expect(screen.getByText("Sale Items Value: —")).toBeInTheDocument();
   });
 });
 
 /**
- * A centred popup that changes height moves both its edges: on load, on each
- * search keystroke, on a short last page. This one is its final height from
- * the first frame, and its loading state already has the toolbar and the pager.
+ * Workiz's sheet covers the window from the first frame, and its grid is
+ * never shorter than ten rows: loading, a short page and the last page all
+ * keep the pager where it is.
  */
 describe("LocationStockDialog — nothing jumps", () => {
-  it("is the same height loading and loaded", async () => {
+  it("covers the window the same loading and loaded", async () => {
     open();
     const loading = screen.getByRole("dialog").className;
     expect(screen.getByTestId("location-stock-loading")).toBeInTheDocument();
     await screen.findByText("Deadbolt");
-
     expect(screen.getByRole("dialog").className).toBe(loading);
-    expect(loading).toMatch(/(^|\s)h-\[/);
+    expect(loading).toMatch(/(^|\s)h-dvh(\s|$)/);
   });
 
-  it("loading, already has the search, the rows-per-page and the pager in place", () => {
+  it("loading, already has the search, the rows-per-page and the grid's header over Workiz's loader", () => {
     open();
     const panel = screen.getByTestId("location-stock-loading");
     expect(within(panel).getByRole("searchbox", { name: "Search items" })).toBeDisabled();
     expect(within(panel).getByRole("combobox", { name: "Rows per page" })).toBeInTheDocument();
-    expect(within(panel).getByTestId("panel-pager-placeholder")).toBeInTheDocument();
-    expect(within(panel).getAllByTestId("skeleton-row").length).toBeGreaterThan(0);
+    expect(within(panel).getByRole("status", { name: "Loading" })).toBeInTheDocument();
   });
 
-  it("keeps the table a page tall on a short last page, so the pager stays put", async () => {
-    vanRows = [
-      ...vanRows,
-      ...Array.from({ length: 10 }, (_, i) => row(`y${i}`, `Bolt ${i}`, 1)),
-    ];
+  it("keeps the grid ten rows tall on a short last page, so the pager stays put", async () => {
+    vanRows = [...vanRows, ...Array.from({ length: 10 }, (_, i) => row(`y${i}`, `Bolt ${i}`, 1))];
     open();
     await screen.findByText("Deadbolt");
-    const frame = () => document.querySelector('[role="dialog"] [data-slot=table-frame]') as HTMLElement;
-    const full = frame().style.minHeight;
-    expect(full).not.toBe("");
-
+    const all = () => document.querySelectorAll('[role="dialog"] tbody tr').length;
+    expect(all()).toBe(10);
     await userEvent.click(screen.getByRole("button", { name: "Next page" }));
     expect(bodyRows()).toHaveLength(2);
-    expect(frame().style.minHeight).toBe(full);
-  });
-
-  it("remembers the rows per page for next time", async () => {
-    vanRows = [...vanRows, ...Array.from({ length: 30 }, (_, i) => row(`z${i}`, `Nut ${i}`, 1))];
-    open();
-    await screen.findByText("Deadbolt");
-    await userEvent.click(screen.getByRole("combobox", { name: "Rows per page" }));
-    await userEvent.click(screen.getByRole("option", { name: "25" }));
-    expect(localStorage.getItem("bitcrm.page-size.stock-popup")).toBe("25");
+    expect(all()).toBe(10);
   });
 });

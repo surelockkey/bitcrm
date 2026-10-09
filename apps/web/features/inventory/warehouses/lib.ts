@@ -14,6 +14,8 @@ export interface EnrichedStockRow {
   category?: string;
   quantity: number;
   unitPrice?: number;
+  /** The company cost of one unit — money, for `financials.view`. */
+  unitCost?: number;
   value?: number;
   minLevel?: number;
   isLow: boolean;

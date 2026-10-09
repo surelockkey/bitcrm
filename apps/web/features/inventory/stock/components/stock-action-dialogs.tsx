@@ -1,36 +1,25 @@
 "use client";
 
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
-import { Loader2 } from "lucide-react";
 import { ReturnReason } from "@bitcrm/types";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { WzButton } from "@/components/workiz/button";
+import { cn } from "@/lib/utils";
 import { RETURN_REASON_LABELS } from "@/features/inventory/transfers/lib";
 import { useAllLocations, useMoveStock, useReceiveStock, useReturnStock } from "../hooks";
 import { checkQuantity, moveTargets, type StockLocation, type StockTarget } from "../lib";
 import { LocationPicker } from "./location-picker";
 
 /**
- * The three small dialogs over a stock list — Workiz's ＋ / Move / Return.
- * Each takes one item in one location, so the item's popup (rows are
- * locations) and a location's popup (rows are items) open the same ones.
+ * The three small dialogs over a stock list — Workiz's "Add items", "Move
+ * items to container" and "Item return" (stockOptionsModals-module,
+ * pg_inventory_wz_08/09/10): 440px, 16px corners, 24px in, the h4 title, the
+ * outlined 40px fields with their placeholders, Cancel and the yellow Save at
+ * the bottom right. Each takes one item in one location, so the item's popup
+ * (rows are locations) and a location's popup (rows are items) open the same
+ * ones. BitCRM keeps what Workiz lacks: the reason list of a return and a
+ * note on every movement.
  *
  * Mount them only while open: a fresh mount is a fresh form.
  */
@@ -39,6 +28,10 @@ interface ActionProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
+
+/** Workiz's Input-module box: 40px, 1px #9ea6aa, 4px corners, 13px ink 12px in. */
+const FIELD =
+  "h-10 w-full rounded-[4px] border border-wz-outline bg-background px-3 text-[13px] leading-4 text-foreground outline-none placeholder:text-wz-outline-label hover:border-foreground focus:border-wz-link aria-invalid:border-wz-error";
 
 /** Into this location, from the supplier. No ceiling: nothing here is taken. */
 export function AddStockDialog({ target, open, onOpenChange }: ActionProps) {
@@ -50,11 +43,7 @@ export function AddStockDialog({ target, open, onOpenChange }: ActionProps) {
     if (qty.quantity === null) return;
     receive.mutate(
       withNotes(
-        {
-          toType: target.location.type,
-          toId: target.location.id,
-          items: itemsOf(target, qty.quantity),
-        },
+        { toType: target.location.type, toId: target.location.id, items: itemsOf(target, qty.quantity) },
         notes,
       ),
       { onSuccess: () => onOpenChange(false) },
@@ -63,16 +52,15 @@ export function AddStockDialog({ target, open, onOpenChange }: ActionProps) {
 
   return (
     <ActionDialog
-      title={`Add ${target.product.name} to ${target.location.name}`}
-      description="New stock arriving from a supplier."
+      title="Add items"
+      target={target}
       open={open}
       onOpenChange={onOpenChange}
-      submitLabel="Add stock"
       canSubmit={qty.quantity !== null}
       pending={receive.isPending}
       onSubmit={submit}
     >
-      <QuantityField qty={qty} />
+      <QuantityField qty={qty} hint="How many items would you like to add?" />
       <NotesField value={notes} onChange={setNotes} />
     </ActionDialog>
   );
@@ -87,8 +75,7 @@ export function MoveStockDialog({ target, open, onOpenChange }: ActionProps) {
   const [picking, setPicking] = useState(false);
   const [notes, setNotes] = useState("");
   const labelId = useId();
-  // Radix may call an Escape handler from an earlier render; a ref is
-  // always current.
+  // Radix may call an Escape handler from an earlier render; a ref is always current.
   const pickingRef = useRef(picking);
   useEffect(() => {
     pickingRef.current = picking;
@@ -101,13 +88,7 @@ export function MoveStockDialog({ target, open, onOpenChange }: ActionProps) {
     if (qty.quantity === null || !to) return;
     move.mutate(
       withNotes(
-        {
-          fromType: type,
-          fromId: id,
-          toType: to.type,
-          toId: to.id,
-          items: itemsOf(target, qty.quantity),
-        },
+        { fromType: type, fromId: id, toType: to.type, toId: to.id, items: itemsOf(target, qty.quantity) },
         notes,
       ),
       { onSuccess: () => onOpenChange(false) },
@@ -116,8 +97,8 @@ export function MoveStockDialog({ target, open, onOpenChange }: ActionProps) {
 
   return (
     <ActionDialog
-      title={`Move ${target.product.name} from ${target.location.name}`}
-      description="To another warehouse or van."
+      title="Move items to container"
+      target={target}
       open={open}
       onOpenChange={onOpenChange}
       // Escape in the open list closes the list, not the dialog.
@@ -126,15 +107,23 @@ export function MoveStockDialog({ target, open, onOpenChange }: ActionProps) {
         e.preventDefault();
         setPicking(false);
       }}
-      submitLabel="Move"
       canSubmit={qty.quantity !== null && !!to}
       pending={move.isPending}
       onSubmit={submit}
     >
-      <div className="space-y-1.5">
-        <Label id={labelId}>To location</Label>
+      {/* Workiz's two labelled steps: "Move" (how many) and "To" (where). */}
+      <div className="flex flex-col gap-2">
+        <p className="text-sm leading-[21px] font-semibold text-foreground">Move</p>
+        <QuantityField qty={qty} hint={`${target.available} in ${target.location.name}`} />
+      </div>
+      <div className="flex flex-col gap-2">
+        <p id={labelId} aria-label="To location" className="text-sm leading-[21px] font-semibold text-foreground">
+          To
+        </p>
         <LocationPicker
           labelId={labelId}
+          look="workiz"
+          placeholder="Container"
           groups={groups}
           value={to}
           onChange={(l) => {
@@ -146,7 +135,6 @@ export function MoveStockDialog({ target, open, onOpenChange }: ActionProps) {
           loading={locations.isLoading}
         />
       </div>
-      <QuantityField qty={qty} hint={`${target.available} in ${target.location.name}`} />
       <NotesField value={notes} onChange={setNotes} />
     </ActionDialog>
   );
@@ -160,18 +148,12 @@ export function ReturnStockDialog({ target, open, onOpenChange }: ActionProps) {
   const qty = useQuantity(target.available);
   const [reason, setReason] = useState<ReturnReason | "">("");
   const [notes, setNotes] = useState("");
-  const labelId = useId();
 
   const submit = () => {
     if (qty.quantity === null || !reason) return;
     ret.mutate(
       withNotes(
-        {
-          fromType: target.location.type,
-          fromId: target.location.id,
-          items: itemsOf(target, qty.quantity),
-          reason,
-        },
+        { fromType: target.location.type, fromId: target.location.id, items: itemsOf(target, qty.quantity), reason },
         notes,
       ),
       { onSuccess: () => onOpenChange(false) },
@@ -180,32 +162,32 @@ export function ReturnStockDialog({ target, open, onOpenChange }: ActionProps) {
 
   return (
     <ActionDialog
-      title={`Return ${target.product.name} from ${target.location.name}`}
-      description="Takes the stock out — recalled, damaged or lost."
+      title="Item return"
+      target={target}
       open={open}
       onOpenChange={onOpenChange}
-      submitLabel="Return"
       canSubmit={qty.quantity !== null && !!reason}
       pending={ret.isPending}
       onSubmit={submit}
     >
-      <QuantityField qty={qty} hint={`${target.available} in ${target.location.name}`} />
-      <div className="space-y-1.5">
-        <Label id={labelId}>Reason</Label>
-        <Select value={reason} onValueChange={(v) => setReason(v as ReturnReason)}>
-          <SelectTrigger className="h-10 w-full" aria-labelledby={labelId}>
-            <SelectValue placeholder="Pick a reason" />
-          </SelectTrigger>
-          <SelectContent>
-            {REASONS.map((r) => (
-              <SelectItem key={r} value={r}>
-                {RETURN_REASON_LABELS[r]}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-      <NotesField value={notes} onChange={setNotes} />
+      <QuantityField qty={qty} hint="Enter the quantity you wish to return" hintTone="ink" />
+      {/* BitCRM's reasons (the owner's list) — Workiz only has the free text under it. */}
+      <Select value={reason} onValueChange={(v) => setReason(v as ReturnReason)}>
+        <SelectTrigger
+          aria-label="Reason"
+          className="h-10 w-full rounded-[4px] border-wz-outline text-[13px] data-placeholder:text-wz-outline-label"
+        >
+          <SelectValue placeholder="Reason" />
+        </SelectTrigger>
+        <SelectContent>
+          {REASONS.map((r) => (
+            <SelectItem key={r} value={r}>
+              {RETURN_REASON_LABELS[r]}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <NotesField value={notes} onChange={setNotes} placeholder="Return reason" />
     </ActionDialog>
   );
 }
@@ -225,20 +207,27 @@ function withNotes<B extends object>(body: B, notes: string): B & { notes?: stri
 type Quantity = ReturnType<typeof useQuantity>;
 
 function useQuantity(max?: number) {
-  const [raw, setRaw] = useState("1");
+  // Empty, its placeholder showing — Workiz's "Quantity" box; Save waits for a number.
+  const [raw, setRaw] = useState("");
   return { raw, setRaw, max, ...checkQuantity(raw, max) };
 }
 
-function QuantityField({ qty, hint }: { qty: Quantity; hint?: string }) {
+/**
+ * Workiz's Quantity box with the line under it: its helper ("How many items
+ * would you like to add?", 11px #768287; the return's 12px ink one) or, when
+ * the number won't do, why (Workiz's #e35a36).
+ */
+function QuantityField({ qty, hint, hintTone = "muted" }: { qty: Quantity; hint?: string; hintTone?: "muted" | "ink" }) {
   const id = useId();
   const hintId = `${id}-hint`;
   return (
-    <div className="space-y-1.5">
-      <Label htmlFor={id}>Quantity</Label>
-      <Input
+    <div className="flex flex-col">
+      <input
         id={id}
-        type="number"
+        type="text"
         inputMode="numeric"
+        aria-label="Quantity"
+        placeholder="Quantity"
         min={1}
         max={qty.max}
         step={1}
@@ -246,14 +235,20 @@ function QuantityField({ qty, hint }: { qty: Quantity; hint?: string }) {
         onChange={(e) => qty.setRaw(e.target.value)}
         aria-invalid={qty.error ? true : undefined}
         aria-describedby={qty.error || hint ? hintId : undefined}
-        className="h-10 w-32 tabular-nums"
+        className={cn(FIELD, "tabular-nums")}
       />
       {qty.error ? (
-        <p id={hintId} className="text-xs text-destructive">
+        <p id={hintId} className="mt-1 pl-px text-[11px] leading-4 text-wz-error">
           {qty.error}
         </p>
       ) : hint ? (
-        <p id={hintId} className="text-xs text-muted-foreground">
+        <p
+          id={hintId}
+          className={cn(
+            "pl-px",
+            hintTone === "ink" ? "text-xs leading-[18px] text-foreground" : "mt-1 text-[11px] leading-4 text-wz-outline-label",
+          )}
+        >
           {hint}
         </p>
       ) : null}
@@ -261,36 +256,44 @@ function QuantityField({ qty, hint }: { qty: Quantity; hint?: string }) {
   );
 }
 
-function NotesField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  const id = useId();
+/** A note on the movement — Workiz's "Return reason" box (96px, 13px, placeholder inside). */
+function NotesField({
+  value,
+  onChange,
+  placeholder = "Notes (optional)",
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+}) {
   return (
-    <div className="space-y-1.5">
-      <Label htmlFor={id}>
-        Notes <span className="font-normal text-muted-foreground">(optional)</span>
-      </Label>
-      <Textarea id={id} value={value} onChange={(e) => onChange(e.target.value)} rows={2} />
-    </div>
+    <textarea
+      aria-label="Notes (optional)"
+      placeholder={placeholder}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      rows={4}
+      className="h-24 w-full resize-y rounded-[4px] border border-wz-outline bg-background px-3 py-[10.5px] text-[13px] leading-4 text-foreground outline-none placeholder:text-wz-outline-label hover:border-foreground focus:border-wz-link"
+    />
   );
 }
 
 function ActionDialog({
   title,
-  description,
+  target,
   open,
   onOpenChange,
   onEscapeKeyDown,
-  submitLabel,
   canSubmit,
   pending,
   onSubmit,
   children,
 }: {
   title: string;
-  description: string;
+  target: StockTarget;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onEscapeKeyDown?: (e: KeyboardEvent) => void;
-  submitLabel: string;
   canSubmit: boolean;
   pending: boolean;
   onSubmit: () => void;
@@ -298,29 +301,29 @@ function ActionDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md" onEscapeKeyDown={onEscapeKeyDown}>
+      <DialogContent className="w-[440px] gap-0 sm:max-w-[440px]" onEscapeKeyDown={onEscapeKeyDown}>
         <form
-          className="grid gap-4"
+          className="flex flex-col"
           onSubmit={(e) => {
             e.preventDefault();
             if (canSubmit && !pending) onSubmit();
           }}
         >
-          {/* Right padding keeps a long title clear of the close button. */}
-          <DialogHeader className="pr-8">
-            <DialogTitle>{title}</DialogTitle>
-            <DialogDescription>{description}</DialogDescription>
-          </DialogHeader>
-          {children}
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+          {/* The h4, 25px over the first field; × at the right. */}
+          <DialogTitle className="pr-8">{title}</DialogTitle>
+          {/* Workiz's popup says nothing of which item and where — the row it was opened from does. */}
+          <DialogDescription className="sr-only">
+            {target.product.name} — {target.location.name}
+          </DialogDescription>
+          <div className="mt-[25px] flex flex-col gap-6">{children}</div>
+          <div className="mt-12 flex justify-end gap-4">
+            <WzButton variant="tertiary" size="big" onClick={() => onOpenChange(false)}>
               Cancel
-            </Button>
-            <Button type="submit" className="gap-1.5" disabled={!canSubmit || pending}>
-              {pending ? <Loader2 className="size-4 animate-spin" /> : null}
-              {submitLabel}
-            </Button>
-          </DialogFooter>
+            </WzButton>
+            <WzButton type="submit" variant="primary" size="big" disabled={!canSubmit} loading={pending}>
+              Save
+            </WzButton>
+          </div>
         </form>
       </DialogContent>
     </Dialog>
