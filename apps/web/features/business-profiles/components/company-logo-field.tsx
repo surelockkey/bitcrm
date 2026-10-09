@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { AlertCircle, ImagePlus, Loader2, Trash2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { AlertCircle, ImagePlus, Loader2 } from "lucide-react";
+import { WzButton } from "@/components/workiz/button";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { IMAGE_TYPES } from "@/features/documents/schemas";
 import { useLogoUpload } from "../hooks";
@@ -19,9 +19,12 @@ interface Props {
 }
 
 /**
- * Logo picker: uploads straight to storage with progress, and only puts the
- * new asset id into the form once the upload really finished. A failed upload
- * keeps the previous logo and says why.
+ * The logo beside the company's fields, as the Account page draws the
+ * account's (pg_settings_general_wz_account): the picture 150px wide under
+ * Workiz's menu shadow, a yellow "x" on its top-right corner to take it off,
+ * "Upload Logo" under it. Uploads straight to storage with progress, and only
+ * puts the new asset id into the form once the upload really finished. A
+ * failed upload keeps the previous logo and says why.
  */
 export function CompanyLogoField({ value, onChange, savedAssetId, savedUrl, disabled, onBusyChange }: Props) {
   const upload = useLogoUpload();
@@ -53,17 +56,38 @@ export function CompanyLogoField({ value, onChange, savedAssetId, savedUrl, disa
   };
 
   return (
-    <div className="flex flex-col items-center gap-2">
-      <div className="relative flex size-28 items-center justify-center overflow-hidden rounded-lg border bg-muted/40">
+    <div className="flex w-[300px] flex-col items-start gap-4 pt-2">
+      <div className="relative">
         {src ? (
           // eslint-disable-next-line @next/next/no-img-element -- presigned S3 / blob URL
-          <img src={src} alt="Company logo" className="max-h-full max-w-full object-contain" />
+          <img
+            src={src}
+            alt="Company logo"
+            className="block max-h-[120px] w-[150px] object-contain shadow-[0_3px_6px_rgba(0,0,0,0.18),0_4px_15px_rgba(0,0,0,0.15)]"
+          />
         ) : (
-          <span className="px-2 text-center text-xs text-muted-foreground">{value ? "Logo uploaded" : "No logo"}</span>
+          <div className="flex h-[47px] w-[150px] items-center justify-center bg-muted px-2 text-center text-xs text-wz-outline-label shadow-[0_3px_6px_rgba(0,0,0,0.18),0_4px_15px_rgba(0,0,0,0.15)]">
+            {value ? "Logo uploaded" : "No logo"}
+          </div>
         )}
+        {value && !disabled ? (
+          // Workiz's `imageClear`: a 21px "x" on #ffd400 over the corner.
+          <button
+            type="button"
+            aria-label="Remove logo"
+            disabled={upload.isPending}
+            onClick={() => {
+              setError(null);
+              onChange("");
+            }}
+            className="absolute top-0 right-0 cursor-pointer bg-wz-focus px-[7px] pt-0.5 pb-[5px] text-[21px] leading-[21px] text-wz-strong outline-none focus-visible:ring-2 focus-visible:ring-foreground disabled:cursor-not-allowed"
+          >
+            x
+          </button>
+        ) : null}
         {upload.isPending ? (
           <div
-            className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-background/80 text-xs text-muted-foreground"
+            className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-white/80 text-xs text-wz-outline-label"
             role="status"
             aria-label="Uploading logo"
           >
@@ -73,7 +97,7 @@ export function CompanyLogoField({ value, onChange, savedAssetId, savedUrl, disa
         ) : null}
       </div>
       {!disabled ? (
-        <div className="flex gap-1">
+        <>
           <input
             ref={fileRef}
             type="file"
@@ -85,40 +109,24 @@ export function CompanyLogoField({ value, onChange, savedAssetId, savedUrl, disa
               e.target.value = "";
             }}
           />
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="gap-1"
+          <WzButton
+            variant="secondary"
+            size="regular"
+            icon={<ImagePlus />}
             disabled={upload.isPending}
             onClick={() => fileRef.current?.click()}
           >
-            <ImagePlus /> {value ? "Replace" : "Upload logo"}
-          </Button>
-          {value ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              aria-label="Remove logo"
-              disabled={upload.isPending}
-              onClick={() => {
-                setError(null);
-                onChange("");
-              }}
-            >
-              <Trash2 />
-            </Button>
-          ) : null}
-        </div>
+            {value ? "Replace Logo" : "Upload Logo"}
+          </WzButton>
+        </>
       ) : null}
       {error ? (
-        <p className="flex max-w-44 items-start gap-1 text-center text-[11px] text-destructive" role="alert">
-          <AlertCircle className="mt-px size-3 flex-none" />
+        <p className="flex items-start gap-1 text-xs leading-[18px] text-wz-error" role="alert">
+          <AlertCircle className="mt-0.5 size-3 flex-none" />
           <span>{error}</span>
         </p>
       ) : (
-        <p className="text-[11px] text-muted-foreground">PNG, JPEG or WebP · 5 MB max</p>
+        <p className="text-xs leading-[18px] text-wz-outline-label">PNG, JPEG or WebP · 5 MB max</p>
       )}
     </div>
   );

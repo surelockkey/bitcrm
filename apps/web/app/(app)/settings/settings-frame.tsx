@@ -14,9 +14,19 @@ import { settingsFrame } from "./sections";
  */
 export function SettingsFrame({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const frame = settingsFrame(pathname);
 
-  if (settingsFrame(pathname) === "workiz") {
+  if (frame === "workiz") {
     return <div className="flex min-w-0 flex-1 flex-col">{children}</div>;
+  }
+  // The template editor: no heading, no rail, and held to the window's
+  // height so its paper and panel scroll inside it.
+  if (frame === "editor") {
+    return (
+      <div data-frame="editor" className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        {children}
+      </div>
+    );
   }
 
   return (
