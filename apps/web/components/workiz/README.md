@@ -448,7 +448,9 @@ Measured off `rep_payments_wz_*` (notes:
   11.9px/500 on the colour, the × too, inside the white #ccc box).
 - **`WzDateRangePicker` `rangeText`** (new, optional) — the days line for a
   period without days: Workiz's "All time" box reads "All time" over
-  "All time".
+  "All time". **`customError`** (new, optional) — Workiz's refusal inside the
+  box under From / To ("Date range exceeds 12 months", 14px `#ff0000`, 5px
+  in), only while Custom is open.
 
 ## Known differences from Workiz (deliberate or unmeasurable)
 - Sub-pixel: Workiz's own fractional layout makes some glyphs land ±1px
