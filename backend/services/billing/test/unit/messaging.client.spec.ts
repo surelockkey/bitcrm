@@ -68,6 +68,72 @@ describe('MessagingClient — billing asks messaging, on the caller’s bearer',
   });
 });
 
+describe('MessagingClient attachments — a document’s PDF uploaded the way the composer uploads a file', () => {
+  it('presigns on the caller’s bearer, PUTs the bytes with the signed headers, and hands back what attachments[] needs', async () => {
+    const calls: Array<{ url: string; init: any }> = [];
+    const fetchImpl = jest.fn(async (url: string, init?: any) => {
+      calls.push({ url, init });
+      if (url.endsWith('/attachments/presign')) {
+        return {
+          ok: true,
+          status: 201,
+          json: async () => ({
+            success: true,
+            data: {
+              id: '7b3e1c2a-1111-4222-8333-444455556666',
+              s3Key: 'messaging/uploads/u-1/7b3e1c2a-1111-4222-8333-444455556666',
+              uploadUrl: 'https://s3/upload?sig=1',
+              headers: { 'Content-Type': 'application/pdf', 'x-amz-server-side-encryption': 'aws:kms' },
+              expiresIn: 900,
+              fileName: 'Estimate-1142.pdf',
+              contentType: 'application/pdf',
+              size: 4,
+              maxBytes: 5242880,
+            },
+          }),
+        };
+      }
+      return { ok: true, status: 200, json: async () => ({}) };
+    });
+    const client = new MessagingClient(fetchImpl as any);
+    const bytes = Buffer.from('%PDF');
+    const attachment = await client.uploadAttachment({ fileName: 'Estimate-1142.pdf', contentType: 'application/pdf', bytes }, 'Bearer abc');
+    expect(calls[0].url).toMatch(/\/api\/messaging\/attachments\/presign$/);
+    expect(calls[0].init).toMatchObject({ method: 'POST', headers: expect.objectContaining({ authorization: 'Bearer abc' }) });
+    expect(JSON.parse(calls[0].init.body)).toEqual({ fileName: 'Estimate-1142.pdf', contentType: 'application/pdf', size: 4 });
+    expect(calls[1].url).toBe('https://s3/upload?sig=1');
+    expect(calls[1].init).toMatchObject({
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/pdf', 'x-amz-server-side-encryption': 'aws:kms' },
+    });
+    expect(Buffer.from(calls[1].init.body)).toEqual(bytes);
+    expect(attachment).toEqual({
+      id: '7b3e1c2a-1111-4222-8333-444455556666',
+      fileName: 'Estimate-1142.pdf',
+      contentType: 'application/pdf',
+      size: 4,
+    });
+  });
+
+  it('a refused PUT is an error — the attachment is never claimed', async () => {
+    const fetchImpl = jest.fn(async (url: string) =>
+      url.endsWith('/attachments/presign')
+        ? {
+            ok: true,
+            status: 201,
+            json: async () => ({ success: true, data: { id: '7b3e1c2a-1111-4222-8333-444455556666', uploadUrl: 'https://s3/u', headers: {} } }),
+          }
+        : { ok: false, status: 403, json: async () => ({}) },
+    );
+    await expect(
+      new MessagingClient(fetchImpl as any).uploadAttachment(
+        { fileName: 'a.pdf', contentType: 'application/pdf', bytes: Buffer.from('x') },
+        'Bearer abc',
+      ),
+    ).rejects.toThrow(/upload.*403/i);
+  });
+});
+
 describe('MessagingClient.recordPortalEvent — the portal line in the client’s thread', () => {
   it('posts to messaging’s internal route on the service secret, not a caller’s bearer', async () => {
     const { fetchImpl, calls } = fakeFetch();

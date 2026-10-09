@@ -16,6 +16,7 @@ import { AssetsModule } from './assets/assets.module';
 import { BusinessProfileModule } from './business-profile/business-profile.module';
 import { BILLING_TABLE } from './common/constants/dynamo.constants';
 import { DealEventsModule } from './deal-events/deal-events.module';
+import { DocumentSendModule } from './document-send/document-send.module';
 import { EstimatesModule } from './estimates/estimates.module';
 import { IntegrationsModule } from './integrations/integrations.module';
 import { InvoicesModule } from './invoices/invoices.module';
@@ -91,6 +92,8 @@ const DEAL_EVENTS_QUEUE_URL = process.env.BILLING_DEAL_EVENTS_QUEUE_URL;
     NumberingModule,
     InvoicesModule,
     EstimatesModule,
+    // `estimates/:id/email-attachments` + `invoices/:id/email-attachments` (the Send panel's PDF).
+    DocumentSendModule,
     ProposalsModule,
     PortalModule,
     // Last: its `invoices/:id/payments` and `public/portal/...` routes are

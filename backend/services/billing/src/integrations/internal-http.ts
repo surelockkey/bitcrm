@@ -7,10 +7,12 @@ export const INTERNAL_FETCH = 'BILLING_INTERNAL_FETCH';
 
 export type FetchLike = (
   url: string,
-  init?: { method?: string; headers?: Record<string, string>; body?: string; signal?: AbortSignal },
+  // `Uint8Array`: the bytes of a document's PDF PUT to messaging's presigned upload URL.
+  init?: { method?: string; headers?: Record<string, string>; body?: string | Uint8Array; signal?: AbortSignal },
 ) => Promise<{ ok: boolean; status: number; json(): Promise<unknown>; text?(): Promise<string> }>;
 
-export const defaultFetch: FetchLike = (url, init) => fetch(url, init);
+// The cast: TS 5.7's `Uint8Array<ArrayBufferLike>` is not its `BodyInit`, though the runtime takes it.
+export const defaultFetch: FetchLike = (url, init) => fetch(url, init as RequestInit);
 
 export interface InternalRequest {
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
