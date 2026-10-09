@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { calculateDocumentTotals } from "@bitcrm/types";
 import type { TaxRate } from "@bitcrm/types";
@@ -147,5 +147,62 @@ describe("DocumentSummaryPanel", () => {
   it("shows the exempt badge for an exempt client", () => {
     setup({ taxSource: "exempt", taxRateId: undefined });
     expect(screen.getByText("Exempt")).toBeInTheDocument();
+  });
+});
+
+/** Workiz's totals under a document's items (pg_estimate_wz_01_job): labels and grey boxes, Total on the left. */
+describe("DocumentSummaryPanel — variant workiz", () => {
+  const box = (label: string) => screen.getByRole("group", { name: label });
+
+  it("puts Total on the left and Subtotal → Discount → Taxable → Tax rate% → Tax on the right, amounts without $", () => {
+    setup({ variant: "workiz" });
+    const [left, right] = screen.getAllByTestId("wz-totals-column");
+    expect(within(left).getByRole("group", { name: "Total" })).toHaveTextContent("Total :95.72");
+    expect(within(right).getAllByRole("group").map((g) => g.getAttribute("aria-label"))).toEqual([
+      "Subtotal",
+      "Discount",
+      "Taxable",
+      "Tax rate",
+      "Tax",
+    ]);
+    expect(box("Subtotal")).toHaveTextContent("Subtotal :100.00");
+    expect(box("Discount")).toHaveTextContent("Discount:10.00");
+    expect(box("Taxable")).toHaveTextContent("Taxable :90.00");
+    expect(box("Tax")).toHaveTextContent("Tax :5.72");
+    expect(screen.queryByText("Balance due")).toBeNull();
+  });
+
+  it("opens the discount editor from the Discount box", async () => {
+    const u = userEvent.setup();
+    const props = setup({ variant: "workiz", discount: undefined });
+    await u.click(within(box("Discount")).getByRole("button"));
+    await u.type(screen.getByRole("spinbutton", { name: /discount amount/i }), "12.5");
+    await u.click(screen.getByRole("button", { name: /apply/i }));
+    expect(props.onDiscountChange).toHaveBeenCalledWith({ type: "amount", value: 12.5 });
+  });
+
+  it("picks the tax rate in the Tax rate% row; a reader sees the rate's words", () => {
+    setup({ variant: "workiz" });
+    expect(screen.getByRole("combobox", { name: /tax rate/i })).toBeInTheDocument();
+  });
+
+  it("read-only: words in the boxes, no editors", () => {
+    setup({ variant: "workiz", canEdit: false });
+    expect(screen.queryByRole("combobox", { name: /tax rate/i })).toBeNull();
+    expect(within(box("Discount")).queryByRole("button")).toBeNull();
+    expect(box("Tax rate")).toHaveTextContent("State (6.35%)");
+  });
+
+  it("adds the document's own rows (an estimate's Item cost / Deposit) at the foot of the right column", () => {
+    setup({ variant: "workiz", extraRows: <div role="group" aria-label="Deposit">Deposit :</div> });
+    const right = screen.getAllByTestId("wz-totals-column")[1];
+    expect(within(right).getAllByRole("group").at(-1)).toHaveAttribute("aria-label", "Deposit");
+  });
+
+  it("an invoice adds Paid and Balance due under Total", () => {
+    setup({ variant: "workiz", showPayments: true });
+    const left = screen.getAllByTestId("wz-totals-column")[0];
+    expect(within(left).getByRole("group", { name: "Paid" })).toHaveTextContent("50.00");
+    expect(within(left).getByRole("group", { name: "Balance due" })).toHaveTextContent("45.72");
   });
 });

@@ -39,6 +39,16 @@ export function addDaysYmd(ymd: string, days: number): string {
  * "Sep 1, 2026" for a `YYYY-MM-DD` day (read as local) or an ISO instant
  * (shown in the viewer's timezone); "—" for anything else.
  */
+/**
+ * A document's day as Workiz's estimate header prints it: "Thu Jun 18 2026"
+ * (the browser's own day string, which Workiz shows as is). "" for no day.
+ */
+export function formatWzDocDate(value: string | undefined | null): string {
+  if (!value) return "";
+  const d = parseYmd(value);
+  return d ? d.toDateString() : "";
+}
+
 export function formatYmd(value: string | undefined | null): string {
   if (!value) return "—";
   const d = parseYmd(value) ?? new Date(value);

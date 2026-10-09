@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { Loader2, Pencil, Plus, RotateCcw, ShieldCheck, X } from "lucide-react";
+import { Info, Loader2, Pencil, Plus, RotateCcw, ShieldCheck, X } from "lucide-react";
+import { WZ_TOTALS_BOX, WzTotalsBoxRow } from "@/components/workiz/document-parts";
 import type { DocumentDiscount, DocumentTaxSource, DocumentTotals, PaymentSummary } from "@bitcrm/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -10,6 +11,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { cn } from "@/lib/utils";
 import {
   discountLabel,
+  formatBoxAmount,
   formatMoney,
   formatPercent,
   isAutoTaxSource,
@@ -48,6 +50,15 @@ export interface DocumentSummaryPanelProps {
   /** Rows a document adds between Tax and Total (an estimate's Item cost and Deposit). */
   extraRows?: ReactNode;
   className?: string;
+  /**
+   * `card` (default): the quiet card as it was. `workiz`: Workiz's totals
+   * under a document's items (pg_estimate_wz_01_job) — "Total :" (with Paid /
+   * Balance due for `showPayments`) right-aligned in the left half, Subtotal →
+   * Discount: → Taxable → Tax rate% → Tax in the right, each a label and a
+   * 132×28 grey box (`WzTotalsBoxRow`); `extraRows` close the right column
+   * and should be `WzTotalsBoxRow`s too.
+   */
+  variant?: "card" | "workiz";
 }
 
 /**
@@ -57,7 +68,11 @@ export interface DocumentSummaryPanelProps {
  * and the Total set apart with a rule. Props-driven so the job Items tab,
  * estimates and invoices share it; the caller wires the callbacks.
  */
-export function DocumentSummaryPanel({
+export function DocumentSummaryPanel(props: DocumentSummaryPanelProps) {
+  return props.variant === "workiz" ? <WorkizTotals {...props} /> : <CardSummaryPanel {...props} />;
+}
+
+function CardSummaryPanel({
   totals,
   taxRateId,
   taxRateName,
@@ -266,6 +281,129 @@ export function DocumentSummaryPanel({
           </>
         ) : null}
       </dl>
+    </section>
+  );
+}
+
+/**
+ * Workiz's totals (pg_estimate_wz_01_job, `totals-module`): two halves of the
+ * page, each column right-aligned, rows 33px apart; the Discount box opens
+ * the $ / % editor under it, the Tax rate% row is the rate picker.
+ */
+function WorkizTotals({
+  totals,
+  taxRateId,
+  taxRateName,
+  taxSource,
+  discount,
+  canEdit,
+  onTaxChange,
+  onResetTaxAuto,
+  onDiscountChange,
+  exemptLabel,
+  pending = false,
+  showPayments = false,
+  paymentSummary,
+  extraRows,
+  className,
+}: DocumentSummaryPanelProps) {
+  const [editingDiscount, setEditingDiscount] = useState(false);
+  const exempt = taxSource === "exempt";
+  const taxText = exempt
+    ? "Exempt"
+    : taxRateId || totals.taxRatePercent > 0
+      ? `${taxRateName ?? "Tax"} (${formatPercent(totals.taxRatePercent)})`
+      : "No tax";
+  const column = "flex flex-col items-end gap-[5px]";
+
+  return (
+    <section
+      aria-label="Totals"
+      aria-busy={pending || undefined}
+      className={cn("grid grid-cols-1 gap-y-[5px] text-wz-strong md:grid-cols-2", className)}
+    >
+      <div data-testid="wz-totals-column" className={column}>
+        <WzTotalsBoxRow label="Total">{formatBoxAmount(totals.total)}</WzTotalsBoxRow>
+        {showPayments ? (
+          <>
+            <WzTotalsBoxRow label="Paid">{formatBoxAmount(totals.amountPaid)}</WzTotalsBoxRow>
+            {paymentSummary?.hasPending ? (
+              <WzTotalsBoxRow label="Clearing" title="A bank payment is on its way — not counted until it lands.">
+                {formatBoxAmount(paymentSummary.pending)}
+              </WzTotalsBoxRow>
+            ) : null}
+            <WzTotalsBoxRow label="Balance due" bold>
+              {formatBoxAmount(totals.balanceDue)}
+            </WzTotalsBoxRow>
+          </>
+        ) : null}
+      </div>
+
+      <div data-testid="wz-totals-column" className={column}>
+        <WzTotalsBoxRow label="Subtotal">{formatBoxAmount(totals.subtotal)}</WzTotalsBoxRow>
+        <WzTotalsBoxRow
+          label="Discount"
+          colon="tight"
+          hint={<Info aria-hidden className="-ml-1 size-[18px] text-foreground" strokeWidth={1.25} />}
+          onClick={canEdit && !pending ? () => setEditingDiscount((v) => !v) : undefined}
+          title={discount && discount.value > 0 ? `Discount ${discountLabel(discount)}` : canEdit ? "Add a discount" : undefined}
+        >
+          {formatBoxAmount(totals.discount)}
+        </WzTotalsBoxRow>
+        {editingDiscount ? (
+          <div className="w-[300px] rounded-[2px] border border-input bg-white p-2.5 text-[14px]">
+            <DiscountEditor
+              initial={discount}
+              pending={pending}
+              onCancel={() => setEditingDiscount(false)}
+              onApply={(d) => {
+                onDiscountChange(d);
+                setEditingDiscount(false);
+              }}
+            />
+          </div>
+        ) : null}
+        <WzTotalsBoxRow label="Taxable">{formatBoxAmount(totals.taxableBase)}</WzTotalsBoxRow>
+        <div role="group" aria-label="Tax rate" className="flex items-center gap-2.5">
+          {canEdit && onResetTaxAuto && taxSource === "manual" ? (
+            <button
+              type="button"
+              aria-label="Reset tax to automatic"
+              title="Reset to automatic (client exemption → the job's service area tax)"
+              disabled={pending}
+              onClick={onResetTaxAuto}
+              className="grid size-6 place-items-center rounded-[4px] text-foreground hover:bg-wz-secondary-hover"
+            >
+              <RotateCcw className="size-3.5" />
+            </button>
+          ) : null}
+          <span className="text-[14px] leading-4 text-wz-strong">Tax rate% :</span>
+          {canEdit ? (
+            <TaxRateSelect
+              size="sm"
+              value={taxRateId ?? null}
+              onChange={onTaxChange}
+              disabled={pending}
+              fallbackLabel={taxRateName}
+              fallbackPercent={totals.taxRatePercent}
+              aria-label="Tax rate"
+              className="h-[26px]! w-[130px] rounded-[2px]! border-input bg-[#f7f7f7] px-2.5 text-[14px] text-wz-text shadow-none data-[size=sm]:h-[26px]"
+            />
+          ) : (
+            <span className={WZ_TOTALS_BOX}>{taxText}</span>
+          )}
+        </div>
+        <WzTotalsBoxRow label="Tax">
+          {pending ? <Loader2 className="mr-1 inline size-3 animate-spin" aria-hidden /> : null}
+          {formatBoxAmount(totals.tax)}
+        </WzTotalsBoxRow>
+        {extraRows}
+        {exempt ? (
+          <p className="max-w-[300px] text-right text-[12px] text-wz-strong">
+            Tax exempt{exemptLabel ? ` — ${exemptLabel}` : ""}
+          </p>
+        ) : null}
+      </div>
     </section>
   );
 }

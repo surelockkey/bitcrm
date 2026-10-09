@@ -100,3 +100,7 @@ export {
   type WzGridView,
 } from "./local-grid";
 export { WzTotalsBar, WzLeftBorderBox, WzFold, WzSegmented } from "./record-parts";
+// Document-page pieces (Workiz's estimate page, pg_estimate_wz_*).
+export { WzButtonLink } from "./button";
+export { WZ_MENU_POPUP, WZ_MENU_POPUP_ITEM } from "./menu-popup";
+export { WzDocSectionHead, WzTotalsBoxRow, WZ_TOTALS_BOX } from "./document-parts";

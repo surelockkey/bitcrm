@@ -15,9 +15,19 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { formatMoney } from "@/features/billing/lib";
+import { formatBoxAmount, formatMoney } from "@/features/billing/lib";
 
 export type DepositPatch = { depositPercentage: number | null; depositAmount: number | null };
+
+/**
+ * Workiz's Deposit box under the totals (pg_estimate_wz_01_job): "501.70 (50.00%)"
+ * for a percent, "1,250.00" for a fixed amount, "0.00" when none is set.
+ */
+export function depositBoxText(e: Pick<Estimate, "depositAmount" | "depositPercentage" | "totals" | "workizTotal">): string {
+  const due = Math.max(0, estimateDepositDue(e));
+  const pct = e.depositPercentage;
+  return pct && !(e.depositAmount && e.depositAmount > 0) ? `${formatBoxAmount(due)} (${pct.toFixed(2)}%)` : formatBoxAmount(due);
+}
 
 /** Workiz's deposit title: "1755.61 (50.00%)" — the amount due, and the percent when it is one. */
 export function depositLabel(e: Pick<Estimate, "depositAmount" | "depositPercentage" | "totals" | "workizTotal">): string | null {

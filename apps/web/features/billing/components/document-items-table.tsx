@@ -28,6 +28,7 @@ import { CommitInput } from "@/features/billing/components/document-field";
 import { ProductPickerDialog } from "@/features/billing/components/product-picker-dialog";
 import { itemBodyFrom, reorderLineIds } from "@/features/estimates/lib";
 import { estimateItemSchema, type EstimateItemBody } from "@/features/estimates/schemas";
+import { WorkizDocumentItems } from "./document-items-workiz";
 
 /**
  * A line a document owns: an estimate's item, or a client invoice's (one with
@@ -65,6 +66,13 @@ export interface DocumentItemsTableProps {
   addClassName?: string;
   /** Show the Cost column with the margin (staff who may see money). */
   showCost?: boolean;
+  /**
+   * `card` (default): the table as it was. `workiz`: Workiz's Items grid of a
+   * document page (pg_estimate_wz_01_job) — words at rest, edited in place,
+   * pictures and tags, the Actions column, "Add items" when empty, Workiz's
+   * pill under it (`addClassName` is the card's only). Same callbacks.
+   */
+  variant?: "card" | "workiz";
 }
 
 const th = "px-3 py-2.5 text-left text-[13px] font-semibold";
@@ -76,7 +84,11 @@ const td = "px-3 py-3 align-top";
  * left, a bin on the right, the yellow "+ Add item" under it. Which document
  * — an estimate or a client invoice — is the wrapper's business.
  */
-export function DocumentItemsTable({
+export function DocumentItemsTable(props: DocumentItemsTableProps) {
+  return props.variant === "workiz" ? <WorkizDocumentItems {...props} /> : <CardDocumentItems {...props} />;
+}
+
+function CardDocumentItems({
   items,
   canEdit,
   emptyText,
