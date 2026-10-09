@@ -119,6 +119,8 @@ export {
   JobRequirableFieldId,
   JobFieldSettings,
 } from './entities/job-field-settings.entity';
+export { CLIENT_OWNED_JOB_FIELD_IDS, defaultJobFieldSettings } from './entities/job-field-settings.entity';
+export { JobRulesSettings, DEFAULT_JOB_RULES_SETTINGS } from './entities/job-rules.entity';
 export { DealSubStatus } from './entities/deal-sub-status.entity';
 export {
   CustomFieldDefinition,

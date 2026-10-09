@@ -13,6 +13,14 @@ export interface JobType {
   priority: number;
   /** Archived types stay resolvable on historical deals but leave the pickers. */
   active: boolean;
+  /**
+   * How long this kind of job usually takes, in minutes — Workiz's Duration
+   * (days / hours / minutes on the job type). Picking the type on New Job or
+   * the job page sets the visit's end to its start plus this; an unscheduled
+   * job dropped on the calendar gets a block this long. Absent or 0: no
+   * duration of its own, and the pickers fall back to an hour.
+   */
+  durationMinutes?: number;
   createdBy: string;
   createdAt: string;
   updatedAt: string;
