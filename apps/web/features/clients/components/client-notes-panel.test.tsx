@@ -73,7 +73,7 @@ describe("ClientNotesPanel — Workiz's Notes rail", () => {
     const r = renderWithClient(
       <ClientNotesPanel contactId="c1" description="Legacy description from the client form." canEdit open onOpenChange={vi.fn()} {...props} />,
     );
-    const dialog = await screen.findByRole("dialog", { name: "Notes" });
+    const dialog = await screen.findByRole("complementary", { name: "Notes" });
     await within(dialog).findByText("Net 45 client. Tax exempt.");
     return { ...r, dialog };
   };
@@ -121,7 +121,7 @@ describe("ClientNotesPanel — Workiz's Notes rail", () => {
     await userEvent.click(within(card).getByRole("button", { name: "Pin note" }));
     await waitFor(() => expect(calls.find((c) => c.method === "PATCH")).toEqual({ method: "PATCH", url: "/crm/contacts/c1/notes/n1", body: { pinned: true } }));
     // Re-sorted: the newly pinned note joins the Pinned group.
-    await waitFor(() => expect(within(screen.getByRole("dialog", { name: "Notes" })).getAllByTestId("note-card")[1]).toHaveTextContent("Net 45 client. Tax exempt."));
+    await waitFor(() => expect(within(screen.getByRole("complementary", { name: "Notes" })).getAllByTestId("note-card")[1]).toHaveTextContent("Net 45 client. Tax exempt."));
 
     const pinned = within(dialog).getAllByTestId("note-card")[1];
     await userEvent.click(within(pinned).getByRole("button", { name: "Edit note" }));
@@ -135,7 +135,7 @@ describe("ClientNotesPanel — Workiz's Notes rail", () => {
     await userEvent.click(within(within(dialog).getAllByTestId("note-card")[1]).getByRole("button", { name: "Delete note" }));
     await userEvent.click(await screen.findByRole("button", { name: "Delete" }));
     await waitFor(() => expect(calls.find((c) => c.method === "DELETE")?.url).toBe("/crm/contacts/c1/notes/n1"));
-    await waitFor(() => expect(within(screen.getByRole("dialog", { name: "Notes" })).queryByText("Net 60 now")).toBeNull());
+    await waitFor(() => expect(within(screen.getByRole("complementary", { name: "Notes" })).queryByText("Net 60 now")).toBeNull());
   });
 
   it("hides the composer, pin, edit and delete from a reader without contacts.edit", async () => {

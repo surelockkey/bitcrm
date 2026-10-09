@@ -75,25 +75,36 @@ describe("ClientFilesPanel — Workiz's Files rail", () => {
 
   const renderPanel = async (props: Partial<React.ComponentProps<typeof ClientFilesPanel>> = {}) => {
     const r = renderWithClient(<ClientFilesPanel contactId="c1" canEdit open onOpenChange={vi.fn()} {...props} />);
-    const dialog = await screen.findByRole("dialog", { name: "Files" });
-    await within(dialog).findByText("invoice.pdf");
+    const dialog = await screen.findByRole("complementary", { name: "Files" });
+    await within(dialog).findByRole("button", { name: "Open gate.png" });
     return { ...r, dialog };
   };
+  const showAll = async (dialog: HTMLElement) => {
+    await userEvent.click(within(dialog).getByRole("tab", { name: "All" }));
+    await within(dialog).findByText(/invoice\.pdf/);
+  };
 
-  it("shows every file by month: photos as a thumbnail grid with presigned sources, documents as rows with size, job files naming their job", async () => {
+  it("opens on Media, as Workiz: the photos by month as 95px tiles three a row, presigned, a job's file naming its job", async () => {
     const { dialog } = await renderPanel();
     expect(calls[0].url).toBe("/deals/attachments/by-contact/c1?limit=60");
-    expect(within(dialog).getAllByRole("heading", { level: 3 }).map((h) => h.textContent)).toEqual(["September 2026", "August 2026"]);
+    expect(within(dialog).getByRole("tab", { name: "Media" })).toHaveAttribute("aria-selected", "true");
+    expect(within(dialog).getAllByRole("heading", { level: 3 }).map((h) => h.textContent)).toEqual(["September 2026"]);
 
-    const grid = within(dialog).getByTestId("media-grid-September 2026");
-    expect(grid).toHaveClass("grid-cols-3");
+    const grid = within(dialog).getByTestId("files-grid-September 2026");
+    expect(grid).toHaveClass("grid-cols-[repeat(3,95px)]");
     const jobThumb = await within(grid).findByRole("img", { name: "front-door.jpg" });
     expect(jobThumb).toHaveAttribute("src", "https://s3.example/job/d1/f-job-photo");
     expect(await within(grid).findByRole("img", { name: "gate.png" })).toHaveAttribute("src", "https://s3.example/client/f-client-photo");
     expect(within(grid).getByRole("link", { name: "NU8GUR" })).toHaveAttribute("href", "/deals/d1");
+  });
 
+  it("All adds the documents as tiles of their own, each saying its name and size, a job's naming its job", async () => {
+    const { dialog } = await renderPanel();
+    await showAll(dialog);
+    expect(within(dialog).getAllByRole("heading", { level: 3 }).map((h) => h.textContent)).toEqual(["September 2026", "August 2026"]);
     const docs = within(dialog).getAllByTestId("file-row");
     expect(docs.map((d) => d.textContent)).toEqual([expect.stringContaining("invoice.pdf"), expect.stringContaining("contract.docx")]);
+    expect(docs[0]).toHaveTextContent("PDF");
     expect(docs[0]).toHaveTextContent("6 KB");
     expect(within(docs[0]).getByRole("link", { name: "SWD42X" })).toHaveAttribute("href", "/deals/d2");
     expect(docs[1]).toHaveTextContent("2.2 MB");
@@ -102,11 +113,9 @@ describe("ClientFilesPanel — Workiz's Files rail", () => {
   it("splits All / Media / Documents, Media being images and video", async () => {
     const { dialog } = await renderPanel();
     expect(within(dialog).getAllByRole("tab").map((t) => t.textContent)).toEqual(["All", "Media", "Documents"]);
-    await userEvent.click(within(dialog).getByRole("tab", { name: "Media" }));
-    expect(within(dialog).queryByText("invoice.pdf")).toBeNull();
-    expect(within(dialog).getAllByRole("heading", { level: 3 }).map((h) => h.textContent)).toEqual(["September 2026"]);
+    expect(within(dialog).queryByText(/invoice\.pdf/)).toBeNull();
     await userEvent.click(within(dialog).getByRole("tab", { name: "Documents" }));
-    expect(within(dialog).queryByTestId(/media-grid/)).toBeNull();
+    expect(within(dialog).queryAllByTestId("media-tile")).toHaveLength(0);
     expect(within(dialog).getAllByTestId("file-row")).toHaveLength(2);
   });
 
@@ -116,6 +125,7 @@ describe("ClientFilesPanel — Workiz's Files rail", () => {
     expect(useFilePreviewStore.getState().file?.name).toBe("gate.png");
     expect(await useFilePreviewStore.getState().file?.load()).toBe("https://s3.example/client/f-client-photo");
 
+    await showAll(dialog);
     expect(within(dialog).queryByRole("button", { name: "Delete front-door.jpg" })).toBeNull();
     expect(within(dialog).queryByRole("button", { name: "Delete invoice.pdf" })).toBeNull();
     expect(within(dialog).getByRole("button", { name: "Download invoice.pdf" })).toBeInTheDocument();
@@ -135,14 +145,16 @@ describe("ClientFilesPanel — Workiz's Files rail", () => {
 
   it("hides upload and delete from a reader without contacts.edit", async () => {
     const { dialog } = await renderPanel({ canEdit: false });
+    await showAll(dialog);
     expect(within(dialog).queryByRole("button", { name: "Upload file" })).toBeNull();
     expect(within(dialog).queryByRole("button", { name: /^Delete / })).toBeNull();
   });
 
   it("loads the next page by cursor", async () => {
     const { dialog } = await renderPanel();
+    await showAll(dialog);
     await userEvent.click(within(dialog).getByRole("button", { name: "Load more" }));
-    expect(await within(dialog).findByText("old-key.pdf")).toBeInTheDocument();
+    expect(await within(dialog).findByRole("button", { name: /Open old-key\.pdf/ })).toBeInTheDocument();
     expect(calls.filter((c) => c.method === "GET").map((c) => c.url)).toEqual(["/deals/attachments/by-contact/c1?limit=60", "/deals/attachments/by-contact/c1?limit=60&cursor=page-2"]);
   });
 });

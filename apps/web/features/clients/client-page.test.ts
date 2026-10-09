@@ -6,11 +6,11 @@ import {
   filterAddressRows,
   amountDueByDeal,
   pastDueByDeal,
-  jobDateLabel,
   clientJobDate,
   byJobDateDesc,
   wzMoney,
   wzPhone,
+  wzDayStart,
 } from "./client-page";
 
 const addr = (street: string, city = "Dallas", zip = "75201", unit?: string): Address => ({
@@ -130,12 +130,6 @@ describe("job row helpers", () => {
     expect(map.get("d2")).toBe(0);
     expect(map.get("d3")).toBeUndefined();
   });
-
-  it("jobDateLabel reads like Workiz's Job Date column", () => {
-    expect(jobDateLabel({ scheduledDate: "2026-10-09", scheduledTimeSlot: "11:00-12:00" } as Deal)).toBe("Fri Oct 09, 2026 11:00 am");
-    expect(jobDateLabel({ scheduledDate: "2026-10-07", allDay: true } as Deal)).toBe("Wed Oct 07, 2026");
-    expect(jobDateLabel({} as Deal)).toBe("Unscheduled");
-  });
 });
 
 describe("Workiz's printing", () => {
@@ -144,6 +138,12 @@ describe("Workiz's printing", () => {
     expect(wzMoney(202.654)).toBe("202.65");
     expect(wzMoney(0)).toBe("0.00");
     expect(wzMoney(-12.5)).toBe("-12.50");
+  });
+
+  it("wzDayStart: a due date as Workiz's Due By column prints it — the day at midnight", () => {
+    expect(wzDayStart("2026-11-05")).toBe("Thu Nov 05, 2026 12:00 am");
+    expect(wzDayStart(undefined)).toBe("");
+    expect(wzDayStart("soon")).toBe("");
   });
 
   it('wzPhone: a US number as "(505) 228 - 5946", foreign ones as they are, an extension after', () => {

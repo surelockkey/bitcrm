@@ -48,6 +48,12 @@ export function wzMoney(n: number): string {
   return GROUPED.format(Math.round((n + Number.EPSILON) * 100) / 100);
 }
 
+/** Workiz's Due By column: a calendar day as "Thu Nov 05, 2026 12:00 am"; "" for nothing or junk. */
+export function wzDayStart(ymd: string | undefined): string {
+  if (!ymd || !/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return "";
+  return `${workizScheduleCell({ scheduledDate: ymd }, "UTC").when} 12:00 am`;
+}
+
 /**
  * Workiz's phone on the client card: "(505) 228 - 5946", the dash spaced out;
  * a foreign number keeps its international grouping; an extension follows.
@@ -165,22 +171,6 @@ export function clientJobDate(deal: Pick<Deal, "scheduledDate" | "scheduledTimeS
     { scheduledDate: deal.scheduledDate, scheduledTimeSlot: deal.allDay ? undefined : deal.scheduledTimeSlot, zone },
     accountZone,
   ).when;
-}
-
-const DAY = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const MONTH = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-/** Workiz's Job Date column: "Fri Oct 09, 2026 11:00 am"; an all-day job keeps the date alone. */
-export function jobDateLabel(deal: Pick<Deal, "scheduledDate" | "scheduledTimeSlot" | "allDay">): string {
-  if (!deal.scheduledDate) return "Unscheduled";
-  const [y, m, d] = deal.scheduledDate.split("-").map(Number);
-  const date = new Date(Date.UTC(y, m - 1, d));
-  const day = `${DAY[date.getUTCDay()]} ${MONTH[m - 1]} ${String(d).padStart(2, "0")}, ${y}`;
-  const start = deal.allDay ? undefined : deal.scheduledTimeSlot?.split("-")[0];
-  if (!start) return day;
-  const [hh, mm] = start.split(":").map(Number);
-  const h12 = hh % 12 === 0 ? 12 : hh % 12;
-  return `${day} ${h12}:${String(mm).padStart(2, "0")} ${hh < 12 ? "am" : "pm"}`;
 }
 
 /**

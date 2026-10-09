@@ -82,7 +82,7 @@ describe("ClientHistoryPanel — Workiz's History rail", () => {
 
   const renderPanel = async () => {
     const r = renderWithClient(<ClientHistoryPanel contactId="c1" open onOpenChange={vi.fn()} />);
-    const dialog = await screen.findByRole("dialog", { name: "History" });
+    const dialog = await screen.findByRole("complementary", { name: "History" });
     await within(dialog).findByText(/scheduled 10-12pm/);
     return { ...r, dialog };
   };
