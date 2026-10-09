@@ -11,9 +11,12 @@ import { SectionZone } from "./canvas-rows";
 
 const SCOPE = ".doc-canvas";
 
-/** Editor-only styling layered over the renderer's (scoped) document CSS. */
+/**
+ * Editor-only styling layered over the renderer's (scoped) document CSS. The
+ * desk round the paper is white, as Workiz's designer draws its page.
+ */
 const CANVAS_CSS = `
-${SCOPE}{position:relative}
+${SCOPE}{position:relative;background:#fff}
 ${SCOPE} .paper{max-width:none;position:relative}
 ${SCOPE} .blk-wrap + .blk-wrap{margin-top:6px}
 ${SCOPE} .blk-wrap:focus-visible{outline:2px solid #0ea5e9;outline-offset:2px}

@@ -55,11 +55,22 @@ function useIsDesktop(): boolean {
 
 const EMPTY_ASSETS = "";
 
+/**
+ * Inside the app shell, as Workiz's designer is (pg_settings_general_wz_doc_invoice):
+ * the sidebar and the top bar stay, the editor fills the rest — the settings
+ * layout bounds it (`settingsFrame` "editor") so the page and the panels
+ * scroll on their own.
+ */
 function Shell({ children }: { children: React.ReactNode }) {
-  return <div className="fixed inset-0 z-40 flex flex-col bg-background text-foreground">{children}</div>;
+  return <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-white text-foreground">{children}</div>;
 }
 
-/** Full-screen, three-pane template builder (Settings → Documents → template). */
+/**
+ * The template builder (Settings → Documents → template), laid out as
+ * Workiz's: the head (name, the row of yellow pills), then under a 1px #ccc
+ * rule the page on white at the left and the panels at the right — ours, the
+ * selected block's properties, then Workiz's tabbed panel at the edge.
+ */
 export function TemplateEditorPage({ templateId }: { templateId: string }) {
   const router = useRouter();
   const qc = useQueryClient();
@@ -95,7 +106,7 @@ export function TemplateEditorPage({ templateId }: { templateId: string }) {
     [],
   );
 
-  // The builder covers the app; stop the page behind it from scrolling.
+  // The builder fills the window; the page behind it must not scroll too.
   useEffect(() => {
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -234,17 +245,20 @@ export function TemplateEditorPage({ templateId }: { templateId: string }) {
   if (!loaded || !ready) {
     return (
       <Shell>
-        <div className="flex h-14 items-center gap-3 border-b px-3">
-          <Skeleton className="size-8" />
-          <Skeleton className="h-5 w-48" />
-          <Loader2 className="ml-auto size-4 animate-spin text-muted-foreground" />
-        </div>
-        <div className="flex min-h-0 flex-1">
-          <Skeleton className="hidden h-full w-[300px] rounded-none lg:block" />
-          <div className="flex flex-1 justify-center bg-muted p-6">
-            <Skeleton className="aspect-[8.5/11] h-full max-w-full bg-background" />
+        <div className="flex flex-none flex-col gap-[15px] px-5 pt-[35px] pb-5">
+          <Skeleton className="h-[19px] w-48" />
+          <div className="flex items-center gap-4">
+            <Skeleton className="h-8 w-[100px] rounded-pill" />
+            <Skeleton className="h-8 w-[80px] rounded-pill" />
+            <Loader2 className="size-4 animate-spin text-muted-foreground" />
           </div>
-          <Skeleton className="hidden h-full w-[300px] rounded-none lg:block" />
+        </div>
+        <div className="flex min-h-0 flex-1 border-t border-input">
+          <div className="flex flex-1 justify-center p-6">
+            <Skeleton className="aspect-[8.5/11] h-full max-w-full" />
+          </div>
+          <Skeleton className="hidden h-full w-[280px] rounded-none border-l border-wz-frame lg:block" />
+          <Skeleton className="hidden h-full w-[400px] rounded-none border-l border-wz-frame lg:block" />
         </div>
       </Shell>
     );
@@ -311,15 +325,20 @@ export function TemplateEditorPage({ templateId }: { templateId: string }) {
     return (
       <Shell>
         {topBar}
-        <div className="flex items-start gap-2 border-b bg-amber-50 px-4 py-2 text-xs text-amber-900 dark:bg-amber-400/10 dark:text-amber-200">
-          {canEdit ? <MonitorSmartphone className="mt-0.5 size-4 flex-none" /> : <MousePointerClick className="mt-0.5 size-4 flex-none" />}
+        {/* Workiz's warning colours (#f7a336), as a 12px line over the page. */}
+        <div className="flex items-start gap-2 border-y border-wz-toast-warning bg-white px-5 py-2 text-xs leading-[18px] text-foreground">
+          {canEdit ? (
+            <MonitorSmartphone className="mt-0.5 size-4 flex-none text-wz-toast-warning" />
+          ) : (
+            <MousePointerClick className="mt-0.5 size-4 flex-none text-wz-toast-warning" />
+          )}
           <p>
             {canEdit
               ? "The template editor needs a larger screen (at least 1024px wide). You can rename the template and preview it here."
               : "You can view this template but not change it."}
           </p>
         </div>
-        <div className="min-h-0 flex-1 bg-muted">
+        <div className="min-h-0 flex-1 bg-white">
           <LivePreview ctx={ctx} interactive={false} />
         </div>
         {dialogs}
@@ -331,15 +350,14 @@ export function TemplateEditorPage({ templateId }: { templateId: string }) {
     <Shell>
       {topBar}
       <EditorDnd>
-        <div className="flex min-h-0 flex-1">
-          <aside className="w-[300px] flex-none border-r bg-background" aria-label="Design tools">
-            <LeftPanel />
-          </aside>
-          <main className="flex min-w-0 flex-1 flex-col bg-muted" aria-label="Template page">
+        {/* Workiz's designer: a 1px #ccc rule over it, the page on white, a
+            1px #ddd edge before the panels. */}
+        <div className="flex min-h-0 flex-1 border-t border-input">
+          <main className="flex min-w-0 flex-1 flex-col bg-white" aria-label="Template page">
             {mode === "edit" ? (
               <TextToolbar />
             ) : (
-              <div className="flex h-11 flex-none items-center gap-2 border-b bg-background px-3 text-xs text-muted-foreground">
+              <div className="flex h-[43px] flex-none items-center gap-2 border-b border-wz-tab-rule bg-white px-5 text-xs text-wz-outline-label">
                 <MousePointerClick className="size-4" /> Live preview — click a block to edit it.
               </div>
             )}
@@ -350,8 +368,11 @@ export function TemplateEditorPage({ templateId }: { templateId: string }) {
               {mode === "edit" ? <TemplateCanvas ctx={ctx} /> : <LivePreview ctx={ctx} />}
             </div>
           </main>
-          <aside className="w-[300px] flex-none border-l bg-background" aria-label="Properties">
+          <aside className="w-[280px] flex-none border-l border-wz-frame bg-white" aria-label="Properties">
             <PropertiesPanel />
+          </aside>
+          <aside className="w-[400px] flex-none border-l border-wz-frame bg-white" aria-label="Design tools">
+            <LeftPanel />
           </aside>
         </div>
       </EditorDnd>

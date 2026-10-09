@@ -542,8 +542,9 @@ export function PropertiesPanel() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex items-center justify-between gap-2 border-b px-3 py-2.5">
-        <h3 className="truncate text-sm font-semibold">{title}</h3>
+      {/* The panels' head: 43px over the #c4c4c4 rule, as the tab row beside it. */}
+      <div className="flex h-[43px] flex-none items-center justify-between gap-2 border-b border-wz-tab-rule px-3">
+        <h3 className="truncate text-[13px] leading-[19px] font-semibold tracking-[0.4px] text-foreground">{title}</h3>
         <div className="flex gap-0.5">
           <Button
             variant="ghost"

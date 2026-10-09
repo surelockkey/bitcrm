@@ -208,7 +208,8 @@ export function TextToolbar() {
     <div
       role="toolbar"
       aria-label="Text formatting"
-      className="flex h-11 flex-none items-center gap-0.5 overflow-x-auto border-b bg-background px-2 [&_svg]:size-4"
+      // As tall as the panels' tab rows beside it (Tabs-module, 43px), the same #c4c4c4 rule under it.
+      className="flex h-[43px] flex-none items-center gap-0.5 overflow-x-auto border-b border-wz-tab-rule bg-white px-2 [&_svg]:size-4"
     >
       <Select
         value={state.style}
