@@ -67,7 +67,8 @@ describe("ProfilePage — loading", () => {
     expect(loading.frame()?.skeletons).toBeGreaterThan(0);
     expect(loading.frame()?.heading).not.toBeNull();
     expect(loading.frame()?.heading).toBe(heading());
-    expect(loaded.frame()).toEqual(expect.objectContaining({ skeletons: 0, tabs: 1, twoStep: true }));
+    // An account has no tab strip: Profile alone would be its only tab (app_audit #25).
+    expect(loaded.frame()).toEqual(expect.objectContaining({ skeletons: 0, tabs: 0, twoStep: true }));
     expect(duplicates(server.requests)).toEqual([]);
   });
 

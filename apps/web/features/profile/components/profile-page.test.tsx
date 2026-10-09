@@ -79,12 +79,15 @@ describe("ProfilePage — a technician's own user page", () => {
 });
 
 describe("ProfilePage — anyone else's own user page", () => {
-  it("has the Profile tab alone", async () => {
+  // One tab is no choice: a strip with "Profile" alone read as a broken tab
+  // row (app_audit #25), so the account page draws none.
+  it("draws no tab strip — Profile would be the only tab", async () => {
     serve(profileRoutes(adminMe));
     renderWithClient(<ProfilePage />);
     await screen.findByDisplayValue("ada@example.com", {}, { timeout: 3000 });
 
-    expect(tabNames()).toEqual(["Profile"]);
+    expect(screen.queryByRole("tablist")).toBeNull();
+    expect(screen.queryByRole("tab")).toBeNull();
   });
 
   it("lays the account out as Workiz's columns: User Details, then Roles and permissions with the role", async () => {

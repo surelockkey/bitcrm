@@ -3,7 +3,7 @@ import { isFieldTeamMember } from "@bitcrm/types";
 import type { WzFilterGroup, WzFilterPick } from "@/components/workiz/filter-select";
 import { personName } from "@/features/deals/person-name";
 import { roleName } from "./lib";
-import { overrideSummary } from "./overrides";
+import { overridesDiffer } from "./overrides";
 
 /**
  * The Users list read the way Workiz's Team page reads its people
@@ -26,7 +26,7 @@ export interface UserRow {
   fieldTeam: boolean;
   department: string;
   status: UserStatus;
-  /** Ours: the account carries per-user permission overrides. */
+  /** Ours: the account's permission overrides differ from its role's matrix. */
   custom: boolean;
   createdAt?: string;
   user: User;
@@ -44,7 +44,10 @@ export function userRows(users: readonly User[], roles: readonly Role[] | undefi
     fieldTeam: isFieldTeamMember(u),
     department: u.department ?? "",
     status: u.status,
-    custom: overrideSummary(u.permissionOverrides).any,
+    custom: overridesDiffer(
+      u.permissionOverrides,
+      roles?.find((r) => r.id === u.roleId),
+    ),
     createdAt: u.createdAt,
     user: u,
   }));

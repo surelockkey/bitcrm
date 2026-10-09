@@ -65,10 +65,18 @@ describe("CallFlowsPage", () => {
 
   it("draws Workiz's words, Create Call Flow and the columns", () => {
     mocks.flows = [flow()];
-    render(<CallFlowsPage />);
+    const { container } = render(<CallFlowsPage />);
     expect(screen.getByText(/Call flows route your calls to where they need to go/)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Create Call Flow" })).toHaveAttribute("href", "/calls/flows/new");
     expect(screen.getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Name", "Numbers", "Steps", "Actions"]);
+    // Workiz's "Use smart callback" row stands between the words and the
+    // strip (pg_settings_phone_wz_flows: strip at y347, ours sat at y318 —
+    // app_audit #23). We have no such feature, so its 29px stay and the
+    // checkbox does not: no dead control.
+    const space = container.querySelector('[data-slot="smart-callback-space"]');
+    expect(space).not.toBeNull();
+    expect(space?.className).toContain("h-[29px]");
+    expect(screen.queryByRole("checkbox")).toBeNull();
   });
 
   it("summarises what a flow actually does, in order, beside its numbers", () => {

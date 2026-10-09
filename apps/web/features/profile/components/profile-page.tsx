@@ -105,15 +105,15 @@ function ProfileTabs({ tabs, value, onChange }: { tabs: WzTab[]; value: string; 
   );
 }
 
-/** Anyone who is not a technician: their account on the user page. */
+/**
+ * Anyone who is not a technician: their account on the user page. Workiz's
+ * tab row (Profile · Availability · Advanced · Commissions) is the
+ * technician card's; an account has nothing but Profile, and a strip with
+ * one tab read as a broken tab row (app_audit #25), so none is drawn.
+ */
 function AccountProfile({ me }: { me: User }) {
   const { can, roleName } = usePermissions();
-  return (
-    <>
-      <ProfileTabs tabs={[{ value: "profile", label: "Profile" }]} value="profile" onChange={() => undefined} />
-      <AccountForm me={me} roleName={roleName} canEditUser={can("users", "edit")} />
-    </>
-  );
+  return <AccountForm me={me} roleName={roleName} canEditUser={can("users", "edit")} />;
 }
 
 /**

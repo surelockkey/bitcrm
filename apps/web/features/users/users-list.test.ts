@@ -89,6 +89,26 @@ describe("userRows", () => {
   it("marks an account without overrides as not custom", () => {
     expect(userRows([user({ id: "u" })], roles)[0].custom).toBe(false);
   });
+
+  // The import gave every dev user a stored copy of its role's matrix, so the
+  // "Custom permissions" chip sat under every name (app_audit #26): it means
+  // overrides that differ from the role, not overrides in storage.
+  it("is custom only when the stored overrides differ from the role", () => {
+    const withMatrix = [
+      { id: "role-dispatcher", name: "Dispatcher", permissions: { deals: { view: true, delete: false } }, dataScope: {} },
+    ] as unknown as Role[];
+    const rows = userRows(
+      [
+        user({ id: "same", permissionOverrides: { permissions: { deals: { view: true, delete: false } } } }),
+        user({ id: "more", permissionOverrides: { permissions: { deals: { delete: true } } } }),
+      ],
+      withMatrix,
+    );
+    expect(rows.map((r) => [r.id, r.custom])).toEqual([
+      ["same", false],
+      ["more", true],
+    ]);
+  });
 });
 
 describe("Filter results", () => {

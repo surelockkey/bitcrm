@@ -9,6 +9,7 @@ import {
   diffScopesSparse,
   normalizeScopes,
   overrideSummary,
+  overridesDiffer,
   type OverridesDraft,
 } from "./overrides";
 
@@ -98,6 +99,41 @@ describe("round-trip", () => {
     const o = buildOverrides(draft, role, schema)!;
     const merged = normalizeMatrix(applyOverrides(role.permissions, o.permissions), schema);
     expect(merged).toEqual(draft.permissions);
+  });
+});
+
+/**
+ * Every dev user came out of the import with a stored override object that
+ * repeats its role, so "Custom permissions" sat under every name and said
+ * nothing (app_audit #26). The chip means "differs from the role".
+ */
+describe("overridesDiffer", () => {
+  it("is false without overrides, or with overrides that only repeat the role", () => {
+    expect(overridesDiffer(undefined, role)).toBe(false);
+    expect(overridesDiffer({}, role)).toBe(false);
+    expect(
+      overridesDiffer(
+        {
+          permissions: { deals: { view: true, edit: true }, settings: { view: true, edit: false } },
+          dataScope: { deals: DataScope.DEPARTMENT, settings: DataScope.ALL },
+          dealStageTransitions: ["new_lead->estimate_sent"],
+        },
+        role,
+      ),
+    ).toBe(false);
+  });
+
+  it("is true for a cell, a scope or a transitions list the role does not have", () => {
+    expect(overridesDiffer({ permissions: { deals: { delete: true } } }, role)).toBe(true);
+    expect(overridesDiffer({ permissions: { deals: { edit: false } } }, role)).toBe(true);
+    expect(overridesDiffer({ dataScope: { deals: DataScope.ALL } }, role)).toBe(true);
+    expect(overridesDiffer({ dealStageTransitions: [] }, role)).toBe(true);
+    expect(overridesDiffer({ dealStageTransitions: ["new_lead->estimate_sent", "*->canceled"] }, role)).toBe(true);
+  });
+
+  it("counts anything stored when the role is not in hand", () => {
+    expect(overridesDiffer({ permissions: { deals: { view: true } } }, undefined)).toBe(true);
+    expect(overridesDiffer({}, undefined)).toBe(false);
   });
 });
 

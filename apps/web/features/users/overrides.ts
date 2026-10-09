@@ -115,6 +115,33 @@ export function overrideSummary(overrides?: UserPermissionOverrides): OverrideSu
   };
 }
 
+/**
+ * Whether stored overrides change anything against the role. A cell that
+ * repeats the role's own answer, a scope equal to the role's, a transitions
+ * list equal to the role's are overrides in storage only — the import gave
+ * every dev user a copy of its role, and "Custom permissions" sat under
+ * every name saying nothing (app_audit #26). Without the role in hand,
+ * anything stored counts.
+ */
+export function overridesDiffer(overrides: UserPermissionOverrides | undefined, role: Role | undefined): boolean {
+  if (!overrides) return false;
+  if (!role) return overrideSummary(overrides).any;
+  for (const [resource, row] of Object.entries(overrides.permissions ?? {})) {
+    for (const [action, value] of Object.entries(row)) {
+      if (value !== isAllowed(role.permissions, resource, action)) return true;
+    }
+  }
+  for (const [resource, scope] of Object.entries(overrides.dataScope ?? {})) {
+    if (scope !== (role.dataScope?.[resource] ?? DataScope.ALL)) return true;
+  }
+  if (overrides.dealStageTransitions !== undefined) {
+    const theirs = [...overrides.dealStageTransitions].sort();
+    const roles = [...(role.dealStageTransitions ?? [])].sort();
+    if (theirs.length !== roles.length || theirs.some((t, i) => t !== roles[i])) return true;
+  }
+  return false;
+}
+
 /** Mirror of the backend's per-action merge (user wins) — round-trip checks. */
 export function applyOverrides(
   base: PermissionMatrix,
