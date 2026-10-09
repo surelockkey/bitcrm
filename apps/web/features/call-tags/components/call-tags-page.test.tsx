@@ -71,37 +71,37 @@ describe("CallTagsPage", () => {
     mocks.can.mockReturnValue(true);
   });
 
-  it("explains what call tags are for when there are none", () => {
+  it("says No Records Found over the empty grid when there are none", () => {
     render(<CallTagsPage />);
-    expect(screen.getByText(/no call tags yet/i)).toBeInTheDocument();
+    expect(screen.getByText("No Records Found")).toBeInTheDocument();
   });
 
-  it("lists a tag with its priority and state", () => {
+  it("lists every tag — archived ones too — with its priority and its ON/OFF state", () => {
     mocks.tags = [tag(), tag({ id: "ct-old", name: "Lines Testing", priority: 0, active: false })];
     render(<CallTagsPage />);
 
     expect(screen.getByText("SPAM CALLER")).toBeInTheDocument();
-    expect(screen.getByText("10")).toBeInTheDocument();
-    expect(screen.getByText("Active")).toBeInTheDocument();
-    expect(screen.getByText("Archived")).toBeInTheDocument();
+    expect(within(screen.getByRole("table", { name: "Call tags" })).getByText("10")).toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: "SPAM CALLER status" })).toBeChecked();
+    expect(screen.getByRole("switch", { name: "Lines Testing status" })).not.toBeChecked();
   });
 
   it("opens the form for a new tag and for an existing one", () => {
     mocks.tags = [tag()];
     render(<CallTagsPage />);
 
-    fireEvent.click(screen.getByRole("button", { name: /new call tag/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Add New" }));
     expect(screen.getByTestId("form")).toHaveTextContent("creating");
 
     fireEvent.click(screen.getByRole("button", { name: "Edit SPAM CALLER" }));
     expect(screen.getByTestId("form")).toHaveTextContent("editing SPAM CALLER");
   });
 
-  it("archives after confirming, and says the old calls keep their label", () => {
+  it("archives on the switch after confirming, and says the old calls keep their label", () => {
     mocks.tags = [tag()];
     render(<CallTagsPage />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Archive SPAM CALLER" }));
+    fireEvent.click(screen.getByRole("switch", { name: "SPAM CALLER status" }));
     expect(mocks.archive).not.toHaveBeenCalled();
 
     const confirm = screen.getByRole("alertdialog");
@@ -110,14 +110,12 @@ describe("CallTagsPage", () => {
     expect(mocks.archive).toHaveBeenCalledWith("ct-spam", expect.anything());
   });
 
-  it("offers restore — not archive — on an archived tag", () => {
+  it("restores — no confirm — when an archived tag is switched back on", () => {
     mocks.tags = [tag({ active: false })];
     render(<CallTagsPage />);
 
-    expect(
-      screen.queryByRole("button", { name: "Archive SPAM CALLER" }),
-    ).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Restore SPAM CALLER" }));
+    fireEvent.click(screen.getByRole("switch", { name: "SPAM CALLER status" }));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
     expect(mocks.restore).toHaveBeenCalledWith("ct-spam");
   });
 
@@ -127,9 +125,9 @@ describe("CallTagsPage", () => {
     render(<CallTagsPage />);
 
     expect(screen.getByText("SPAM CALLER")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /new call tag/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add New" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^edit /i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /^archive /i })).not.toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: "SPAM CALLER status" })).toBeDisabled();
   });
 
   it("says so plainly when telephony settings are off-limits entirely", () => {
