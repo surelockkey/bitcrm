@@ -23,13 +23,15 @@ const mocks = vi.hoisted(() => ({
   // Per-resource so a deals-editor without contacts.edit can be simulated.
   perms: { deals: false, contacts: false },
   attachments: [] as { id: string }[],
-  invoice: null as { status: string; dueDate?: string } | null,
+  invoice: null as { id: string; status: string; dueDate?: string } | null,
+  createInvoice: vi.fn(),
   estimates: [] as { id: string }[],
   // Per-action, for the Actions menu and the invoice pill.
   denied: new Set<string>(),
   moveStatus: vi.fn(),
   setTags: vi.fn(),
   tagPicker: null as null | { value: string[]; onChange: (ids: string[]) => void },
+  itemsTabProps: null as null | Record<string, unknown>,
 }));
 
 vi.mock("next/navigation", () => ({
@@ -250,9 +252,10 @@ vi.mock("@/features/clients/hooks", () => ({
 }));
 
 // Billing tabs fetch through react-query; their own tests cover them. The
-// header's invoice badge reads the by-deal invoice.
+// header's invoice pill reads the by-deal invoice, and makes it.
 vi.mock("@/features/invoices/hooks", () => ({
   useInvoiceByDeal: () => ({ data: mocks.invoice }),
+  useCreateInvoice: () => ({ mutate: mocks.createInvoice, isPending: false }),
 }));
 // The Payments tab's caption reads the job ledger; the tab has its own tests.
 vi.mock("@/features/payments/hooks", () => ({
@@ -263,10 +266,10 @@ vi.mock("@/features/payments/components/deal-payments-tab", () => ({
   paymentsTabCaption: () => null,
 }));
 vi.mock("./deal-products-tab", () => ({
-  DealProductsTab: () => <div data-testid="items-tab" />,
-}));
-vi.mock("@/features/invoices/components/deal-invoice-tab", () => ({
-  DealInvoiceTab: () => <div data-testid="invoice-tab" />,
+  DealProductsTab: (p: Record<string, unknown>) => {
+    mocks.itemsTabProps = p;
+    return <div data-testid="items-tab" />;
+  },
 }));
 vi.mock("@/features/estimates/components/deal-estimates-tab", () => ({
   DealEstimatesTab: ({ estimateId, startCreating }: { estimateId: string | null; startCreating?: boolean }) => (
@@ -290,6 +293,7 @@ beforeEach(() => {
   dealState = deal;
   mocks.attachments = [];
   mocks.invoice = null;
+  mocks.createInvoice.mockReset();
   mocks.estimates = [];
   mocks.denied = new Set();
   mocks.moveStatus.mockClear();
@@ -392,7 +396,18 @@ describe("DealDetailPage — Workiz's two-line tabs", () => {
     expect(screen.getByRole("tab", { name: "Items" })).toHaveAccessibleDescription("$150.00");
     expect(screen.getByRole("tab", { name: "Payments" })).toHaveAccessibleDescription("$150.00 balance");
     expect(screen.getByRole("tab", { name: "Estimates" })).toHaveAccessibleDescription("0 estimates");
-    expect(screen.getByRole("tab", { name: "Invoice" })).toHaveAccessibleDescription("No invoice");
+  });
+
+  // job_invoice_route_wz_XYB3JT_details: Details · Items · Payments · Estimates ·
+  // Attachments (· Workiz's Tasks, Genius, Equipment, Checklists) — no Invoice.
+  it("has no Invoice tab, as Workiz's job page has none", () => {
+    mocks.perms.deals = true;
+    mocks.invoice = { id: "d1", status: "overdue" };
+    render(<DealDetailPage dealId="d1" />);
+
+    expect(screen.getAllByRole("tab").map((t) => t.getAttribute("aria-label"))).toEqual([
+      "Details", "Items", "Payments", "Estimates", "Attachments",
+    ]);
   });
 
   it("marks the open tab", async () => {
@@ -519,17 +534,77 @@ describe("DealDetailPage — the header, as Workiz lays it out", () => {
     expect(screen.queryByRole("button", { name: "Actions" })).toBeNull();
   });
 
-  it("Create Invoice opens the Invoice tab; it reads View Invoice once there is one", async () => {
+  // Workiz's bundle: createJobInvoice, then history.push("invoice/<uuid>").
+  it("Create Invoice makes the job's invoice and then opens it on its own page", async () => {
     mocks.perms.deals = true;
-    const { unmount } = render(<DealDetailPage dealId="d1" />);
+    dealState = { ...deal, itemCount: 2 };
+    mocks.createInvoice.mockImplementation((_id: string, opts?: { onSuccess?: (inv: { id: string }) => void }) =>
+      opts?.onSuccess?.({ id: "d1" }),
+    );
+    render(<DealDetailPage dealId="d1" />);
 
     await user().click(screen.getByRole("button", { name: "Create Invoice" }));
-    expect(screen.getByTestId("invoice-tab")).toBeInTheDocument();
-    unmount();
+    expect(mocks.createInvoice).toHaveBeenCalledWith("d1", expect.anything());
+    expect(mocks.push).toHaveBeenCalledWith("/invoices/d1");
+  });
 
-    mocks.invoice = { status: "due" };
+  // job_invoice_route_wz_XYB3JT_view_invoice_opened: same tab, /root/invoice/XYB3JT.
+  it("View Invoice opens the job's invoice on its own page", async () => {
+    mocks.perms.deals = true;
+    mocks.invoice = { id: "d1", status: "due" };
     render(<DealDetailPage dealId="d1" />);
-    expect(screen.getByRole("button", { name: "View Invoice" })).toBeInTheDocument();
+
+    await user().click(screen.getByRole("button", { name: "View Invoice" }));
+    expect(mocks.push).toHaveBeenCalledWith("/invoices/d1");
+    expect(mocks.createInvoice).not.toHaveBeenCalled();
+  });
+
+  // Workiz's createJobInvoice asks checkStopNavigation() first: unsaved edits
+  // are not dropped on the way to the invoice.
+  it("asks before leaving unsaved Details for the invoice — Stay keeps them, Leave goes", async () => {
+    mocks.perms.deals = true;
+    mocks.invoice = { id: "d1", status: "due" };
+    render(<DealDetailPage dealId="d1" />);
+    const u = user();
+
+    await u.click(screen.getByRole("button", { name: "edit a field" }));
+    await u.click(screen.getByRole("button", { name: "View Invoice" }));
+    expect(await screen.findByText("Leave without saving?")).toBeInTheDocument();
+    await u.click(screen.getByRole("button", { name: "Stay" }));
+    expect(mocks.push).not.toHaveBeenCalled();
+
+    await u.click(screen.getByRole("button", { name: "View Invoice" }));
+    await u.click(await screen.findByRole("button", { name: "Leave" }));
+    expect(mocks.push).toHaveBeenCalledWith("/invoices/d1");
+  });
+
+  it("does not make the invoice while Details has unsaved edits, unless told to leave them", async () => {
+    mocks.perms.deals = true;
+    dealState = { ...deal, itemCount: 1 };
+    render(<DealDetailPage dealId="d1" />);
+    const u = user();
+
+    await u.click(screen.getByRole("button", { name: "edit a field" }));
+    await u.click(screen.getByRole("button", { name: "Create Invoice" }));
+    await u.click(await screen.findByRole("button", { name: "Stay" }));
+    expect(mocks.createInvoice).not.toHaveBeenCalled();
+
+    await u.click(screen.getByRole("button", { name: "Create Invoice" }));
+    await u.click(await screen.findByRole("button", { name: "Leave" }));
+    expect(mocks.createInvoice).toHaveBeenCalledWith("d1", expect.anything());
+  });
+
+  it("keeps Create Invoice from a job with no items, saying why", async () => {
+    mocks.perms.deals = true;
+    dealState = { ...deal, itemCount: 0 };
+    render(<DealDetailPage dealId="d1" />);
+
+    const pill = screen.getByRole("button", { name: "Create Invoice" });
+    expect(pill).toHaveAttribute("aria-disabled", "true");
+    expect(pill).toHaveAccessibleDescription("Add at least one item to the job first");
+    await user().click(pill);
+    expect(mocks.createInvoice).not.toHaveBeenCalled();
+    expect(mocks.push).not.toHaveBeenCalled();
   });
 
   it("hides Create Invoice from someone who may not make one", () => {
@@ -545,8 +620,13 @@ describe("DealDetailPage — the header, as Workiz lays it out", () => {
 // Save — is DetailsTab, tested on its own in deal-details-tab.test.tsx. Here
 // it stands in, so these tests are about the page around it.
 vi.mock("./deal-details-tab", () => ({
-  DetailsTab: ({ deal: d, canEdit }: { deal: Deal; canEdit: boolean }) => (
-    <div data-testid="details-tab" data-deal={d.id} data-can-edit={String(canEdit)} />
+  DetailsTab: ({ deal: d, canEdit, onDirtyChange }: { deal: Deal; canEdit: boolean; onDirtyChange?: (dirty: boolean) => void }) => (
+    <div data-testid="details-tab" data-deal={d.id} data-can-edit={String(canEdit)}>
+      {/* Stands in for typing into a field: the draft is now unsaved. */}
+      <button type="button" onClick={() => onDirtyChange?.(true)}>
+        edit a field
+      </button>
+    </div>
   ),
 }));
 
@@ -591,27 +671,43 @@ describe("DealDetailPage — billing tabs and deep links", () => {
 
     expect(screen.getByTestId("estimates-tab")).toHaveAttribute("data-estimate", "e1");
 
-    await user().click(screen.getByRole("tab", { name: /^invoice$/i }));
-    expect(screen.getByTestId("invoice-tab")).toBeInTheDocument();
-    expect(`${window.location.pathname}${window.location.search}`).toBe("/deals/d1?tab=invoice");
+    await user().click(screen.getByRole("tab", { name: /^attachments$/i }));
+    expect(`${window.location.pathname}${window.location.search}`).toBe("/deals/d1?tab=attachments");
 
     await user().click(screen.getByRole("tab", { name: /^details$/i }));
     expect(`${window.location.pathname}${window.location.search}`).toBe("/deals/d1");
   });
 
-  it("falls back to Details when the linked tab isn't permitted", () => {
-    mocks.perms.deals = false;
-    render(<DealDetailPage dealId="d1" initialTab="invoice" />);
-    expect(screen.queryByRole("tab", { name: /^invoice$/i })).toBeNull();
-    expect(screen.queryByTestId("invoice-tab")).toBeNull();
+  // job_invoice_route_wz_XYB3JT_items_scroll1: the Items totals carry the job's
+  // Balance and the invoice's Due, "Pay", and "+ Add payment schedule".
+  it("hands the Items tab the job's money: Pay and the schedule, against the invoice once there is one", async () => {
+    mocks.perms.deals = true;
+    mocks.invoice = { id: "d1", status: "due", dueDate: "2026-10-09" };
+    render(<DealDetailPage dealId="d1" initialTab="items" />);
+
+    expect(mocks.itemsTabProps).toMatchObject({
+      due: "10/9/2026",
+      payments: { canCollect: true, invoiceId: "d1", canViewPdf: true },
+    });
   });
 
-  // The header's "Invoice: Overdue" badge moved under the Invoice tab, in the
-  // grey line Workiz gives every tab.
-  it("shows the invoice status under the Invoice tab", () => {
+  it("gives the Items tab no payments to someone without payments.view, and no Pay without payments.collect", () => {
     mocks.perms.deals = true;
-    mocks.invoice = { status: "overdue" };
-    render(<DealDetailPage dealId="d1" />);
-    expect(screen.getByRole("tab", { name: "Invoice" })).toHaveAccessibleDescription("Overdue");
+    mocks.denied = new Set(["payments.collect"]);
+    const { unmount } = render(<DealDetailPage dealId="d1" initialTab="items" />);
+    expect(mocks.itemsTabProps).toMatchObject({ payments: { canCollect: false, canViewPdf: false } });
+    unmount();
+
+    mocks.denied = new Set(["payments.view"]);
+    render(<DealDetailPage dealId="d1" initialTab="items" />);
+    expect(mocks.itemsTabProps?.payments).toBeUndefined();
+  });
+
+  it("falls back to Details when the linked tab isn't permitted", () => {
+    mocks.perms.deals = false;
+    render(<DealDetailPage dealId="d1" initialTab="estimates" />);
+    expect(screen.queryByRole("tab", { name: /^estimates$/i })).toBeNull();
+    expect(screen.queryByTestId("estimates-tab")).toBeNull();
+    expect(screen.getByRole("tab", { name: /^details$/i })).toHaveAttribute("aria-selected", "true");
   });
 });

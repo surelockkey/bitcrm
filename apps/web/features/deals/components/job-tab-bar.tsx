@@ -8,7 +8,6 @@ const TAB_LABEL: Record<DealTab, string> = {
   items: "Items",
   payments: "Payments",
   estimates: "Estimates",
-  invoice: "Invoice",
   attachments: "Attachments",
 };
 

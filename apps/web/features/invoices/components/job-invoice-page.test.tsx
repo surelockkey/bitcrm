@@ -8,16 +8,31 @@ import { renderWithClient } from "@/test/render-with-client";
 
 const mocks = vi.hoisted(() => ({
   products: [] as Partial<import("@bitcrm/types").DealProduct>[],
-  perms: new Set(["invoices.view", "invoices.create", "invoices.edit", "invoices.send", "invoices.delete"]),
+  perms: new Set(["invoices.view", "invoices.create", "invoices.edit", "invoices.send", "invoices.delete", "deals.edit"]),
   setTaxable: vi.fn(),
+  push: vi.fn(),
+}));
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: mocks.push, replace: vi.fn(), prefetch: vi.fn() }),
+  usePathname: () => "/invoices/d1",
+}));
+vi.mock("next/link", () => ({
+  default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => (
+    <a href={href} {...rest}>
+      {children}
+    </a>
+  ),
 }));
 vi.mock("@/features/auth/use-permissions", () => ({
   useDenied: () => () => false,
-  usePermissions: () => ({ can: (r: string, a = "view") => mocks.perms.has(`${r}.${a}`) }),
+  usePermissions: () => ({ can: (r: string, a = "view") => mocks.perms.has(`${r}.${a}`), isLoading: false }),
 }));
 // The job's items: answered; the server totals never asked for (the shared formula stands in).
 const idle = { isLoading: false, isError: false, isPending: true, fetchStatus: "idle" as const };
 vi.mock("@/features/deals/hooks", () => ({
+  // The invoice's job, as the page asks for it once it knows the invoice is a job's.
+  useDeal: (id: string) =>
+    id ? { data: deal, isLoading: false, isError: false, isPending: false, fetchStatus: "idle" } : { data: undefined, ...idle },
   useDealProducts: () => ({ data: mocks.products, isLoading: false, isError: false, isPending: false, fetchStatus: "idle" }),
   useDealTotals: () => ({ data: undefined, ...idle }),
   useRemoveProduct: () => ({ mutate: vi.fn(), isPending: false }),
@@ -38,7 +53,7 @@ vi.mock("@/features/deals/attachments-api", () => ({ listAttachments: () => Prom
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), message: vi.fn() }));
 vi.mock("sonner", () => ({ toast }));
 
-import { DealInvoiceTab } from "./deal-invoice-tab";
+import { StandaloneInvoicePage } from "./invoice-page";
 
 const deal = {
   id: "d1",
@@ -67,7 +82,10 @@ const user = () => userEvent.setup({ pointerEventsCheck: 0 });
 beforeEach(() => {
   mocks.products = [];
   mocks.setTaxable.mockClear();
+  mocks.push.mockClear();
   server.use(
+    // The page learns from the invoice itself that it is a job's.
+    http.get("*/billing/invoices/d1", () => HttpResponse.json({ success: true, data: invoice })),
     http.get("*/billing/templates", () => HttpResponse.json({ success: true, data: [] })),
     http.get("*/billing/document-settings", () => HttpResponse.json({ success: true, data: {} })),
     http.get("*/deals/tax-rates", () => HttpResponse.json({ success: true, data: [] })),
@@ -83,50 +101,24 @@ beforeEach(() => {
   );
 });
 
-describe("DealInvoiceTab — no invoice", () => {
-  beforeEach(() => {
-    server.use(http.get("*/billing/invoices/by-deal/d1", () => HttpResponse.json({ success: true, data: null })));
-  });
-
-  it("disables Create invoice while the job has no items", async () => {
-    renderWithClient(<DealInvoiceTab deal={deal} canEditItems />);
-    const btn = await screen.findByRole("button", { name: /create invoice/i });
-    expect(btn).toHaveAttribute("aria-disabled", "true");
-    expect(screen.getByText("Add at least one item to the job first")).toBeInTheDocument();
-  });
-
-  it("creates the invoice for a job with items", async () => {
-    mocks.products = [product()];
-    let body: unknown;
-    server.use(
-      http.post("*/billing/invoices", async ({ request }) => {
-        body = await request.json();
-        return HttpResponse.json({ success: true, data: invoice });
-      }),
-    );
-    renderWithClient(<DealInvoiceTab deal={deal} canEditItems />);
-    await user().click(await screen.findByRole("button", { name: /create invoice/i }));
-    await waitFor(() => expect(body).toEqual({ dealId: "d1" }));
-  });
-
-  it("hides creation without the permission", async () => {
-    mocks.perms.delete("invoices.create");
-    renderWithClient(<DealInvoiceTab deal={deal} canEditItems />);
-    expect(await screen.findByText(/no invoice yet/i)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /create invoice/i })).not.toBeInTheDocument();
-    mocks.perms.add("invoices.create");
-  });
-});
-
-/** Workiz's invoice page (pg_invoice_wz_01_partial), in the job's Invoice tab. */
-describe("DealInvoiceTab — existing invoice", () => {
+/**
+ * Workiz's invoice page for a job's invoice (pg_invoice_wz_01_partial,
+ * /root/invoice/XYB3JT): its own page, "← Job ID" back to the job. Creating
+ * one is the job page's "Create Invoice" (deal-detail-page.test.tsx).
+ */
+describe("a job's invoice on its own page", () => {
   beforeEach(() => {
     server.use(http.get("*/billing/invoices/by-deal/d1", () => HttpResponse.json({ success: true, data: invoice })));
   });
 
-  it("heads it as Workiz does: Client, Bill to, Service address, Invoice ID / date / Sent, and ours Status", async () => {
-    renderWithClient(<DealInvoiceTab deal={deal} canEditItems />);
+  it("heads it as Workiz does: ← Job ID, Client, Bill to, Service address, Invoice ID / date / Sent, and ours Status", async () => {
+    renderWithClient(<StandaloneInvoicePage invoiceId="d1" />);
     const header = await screen.findByRole("region", { name: "Invoice details" });
+    // header-module__jobLink: first in the grey header, back to the job (its Details).
+    const back = within(header).getByRole("link", { name: "Job ID: 1042" });
+    expect(back).toHaveAttribute("href", "/deals/d1");
+    expect(header.firstElementChild).toContainElement(back);
+    expect(header).toHaveClass("pt-[22px]");
     expect(within(header).getByText("Client:")).toBeInTheDocument();
     expect(within(header).getByRole("link", { name: "Jane Client" })).toHaveAttribute("href", "/contacts/c1");
     expect(within(header).getByText("Bill to:").parentElement).toHaveTextContent("Jane Client100 Park BlvdAustin, TX 78701(512) 555-0100jane@client.test");
@@ -147,7 +139,7 @@ describe("DealInvoiceTab — existing invoice", () => {
         return HttpResponse.json({ success: true, data: invoice });
       }),
     );
-    renderWithClient(<DealInvoiceTab deal={deal} canEditItems />);
+    renderWithClient(<StandaloneInvoicePage invoiceId="d1" />);
     const u = user();
     await u.click(await screen.findByLabelText("Invoice date"));
     await u.click(await screen.findByRole("button", { name: "Choose Sunday, September 20th, 2026" }));
@@ -156,7 +148,7 @@ describe("DealInvoiceTab — existing invoice", () => {
 
   it("shows the job's items in Workiz's grid, opening the job's own item window", async () => {
     mocks.products = [product()];
-    renderWithClient(<DealInvoiceTab deal={deal} canEditItems />);
+    renderWithClient(<StandaloneInvoicePage invoiceId="d1" />);
     expect(await screen.findByRole("heading", { name: "Items" })).toBeInTheDocument();
     const row = screen.getByRole("row", { name: /deadbolt/i });
     expect(row).toHaveTextContent("$100.00");
@@ -171,7 +163,7 @@ describe("DealInvoiceTab — existing invoice", () => {
 
   it("totals as Workiz: Total, Balance, Due (set by the terms) and the terms beside it", async () => {
     mocks.products = [product()];
-    renderWithClient(<DealInvoiceTab deal={deal} canEditItems />);
+    renderWithClient(<StandaloneInvoicePage invoiceId="d1" />);
     const balance = await screen.findByRole("group", { name: "Balance" });
     expect(balance).toHaveTextContent("Balance :100.00");
     expect(screen.getByRole("group", { name: "Due" })).toHaveTextContent("Due :10/1/2026");
@@ -188,21 +180,31 @@ describe("DealInvoiceTab — existing invoice", () => {
         return HttpResponse.json({ success: true, data: { ...invoice, sentAt: "2026-09-16T11:00:00.000Z" } });
       }),
     );
-    renderWithClient(<DealInvoiceTab deal={deal} canEditItems />);
+    renderWithClient(<StandaloneInvoicePage invoiceId="d1" />);
     await user().click(await screen.findByRole("button", { name: /^actions$/i }));
     await user().click(await screen.findByRole("menuitem", { name: "Mark sent" }));
     await waitFor(() => expect(body).toEqual({ sent: true }));
   });
 
+  // pg_invoice_wz_05_actions_open: "View job" heads Workiz's Actions on a job's invoice.
+  it("heads Actions with Workiz's 'View job', which opens the job", async () => {
+    renderWithClient(<StandaloneInvoicePage invoiceId="d1" />);
+    await user().click(await screen.findByRole("button", { name: /^actions$/i }));
+    const rows = await screen.findAllByRole("menuitem");
+    expect(rows[0]).toHaveTextContent("View job");
+    await user().click(rows[0]);
+    expect(mocks.push).toHaveBeenCalledWith("/deals/d1");
+  });
+
   it("offers Send only to someone who may both send invoices and send messages", async () => {
-    const { unmount } = renderWithClient(<DealInvoiceTab deal={deal} canEditItems />);
+    const { unmount } = renderWithClient(<StandaloneInvoicePage invoiceId="d1" />);
     await screen.findByRole("region", { name: "Invoice details" });
     expect(screen.queryByRole("button", { name: /^send$/i })).not.toBeInTheDocument();
     unmount();
 
     mocks.perms.add("messages.send");
     try {
-      renderWithClient(<DealInvoiceTab deal={deal} canEditItems />);
+      renderWithClient(<StandaloneInvoicePage invoiceId="d1" />);
       expect(await screen.findByRole("button", { name: /^send$/i })).toBeInTheDocument();
     } finally {
       mocks.perms.delete("messages.send");
@@ -218,7 +220,7 @@ describe("DealInvoiceTab — existing invoice", () => {
       ),
     );
     try {
-      renderWithClient(<DealInvoiceTab deal={deal} canEditItems />);
+      renderWithClient(<StandaloneInvoicePage invoiceId="d1" />);
       await user().click(await screen.findByRole("button", { name: /^send$/i }));
       expect(await screen.findByRole("heading", { name: /send invoice #1042/i })).toBeInTheDocument();
       expect(await screen.findByRole("button", { name: /^send email$/i })).toBeInTheDocument();
@@ -236,7 +238,7 @@ describe("DealInvoiceTab — existing invoice", () => {
         return HttpResponse.json({ success: true, data: { ...invoice, notes: "Thanks!" } });
       }),
     );
-    renderWithClient(<DealInvoiceTab deal={deal} canEditItems />);
+    renderWithClient(<StandaloneInvoicePage invoiceId="d1" />);
     expect(await screen.findByRole("heading", { name: "Signatures" })).toBeInTheDocument();
     expect(screen.getByText("No signatures found")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^sign$/i })).toBeInTheDocument();
@@ -249,15 +251,18 @@ describe("DealInvoiceTab — existing invoice", () => {
     await waitFor(() => expect(body).toEqual({ notes: "Thanks!" }));
   });
 
-  it("explains that deleting keeps the job's items", async () => {
-    renderWithClient(<DealInvoiceTab deal={deal} canEditItems />);
+  it("explains that deleting keeps the job's items, and goes back to the job once it is gone", async () => {
+    server.use(http.delete("*/billing/invoices/d1", () => HttpResponse.json({ success: true, data: { deleted: true } })));
+    renderWithClient(<StandaloneInvoicePage invoiceId="d1" />);
     await user().click(await screen.findByRole("button", { name: /^actions$/i }));
     await user().click(await screen.findByRole("menuitem", { name: "Delete" }));
     expect(await screen.findByText(/items stay on the job/i)).toBeInTheDocument();
+    await user().click(screen.getByRole("button", { name: "Delete" }));
+    await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/deals/d1"));
   });
 });
 
-describe("DealInvoiceTab — the payment ledger", () => {
+describe("a job's invoice — the payment ledger", () => {
   beforeEach(() => {
     mocks.products = [product()];
     server.use(
@@ -290,13 +295,13 @@ describe("DealInvoiceTab — the payment ledger", () => {
   });
 
   it("renders Payments beside Notes and takes the ledger off the Balance", async () => {
-    renderWithClient(<DealInvoiceTab deal={deal} canEditItems />);
+    renderWithClient(<StandaloneInvoicePage invoiceId="d1" />);
     expect(await screen.findByRole("heading", { name: "Payments" })).toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole("group", { name: "Balance" })).toHaveTextContent("Balance :60.00"));
   });
 
   it("'Pay' beside the balance opens Record a payment for what is owed", async () => {
-    renderWithClient(<DealInvoiceTab deal={deal} canEditItems />);
+    renderWithClient(<StandaloneInvoicePage invoiceId="d1" />);
     const balance = await screen.findByRole("group", { name: "Balance" });
     await waitFor(() => expect(balance).toHaveTextContent("60.00"));
     await user().click(within(balance).getByRole("button", { name: "Pay" }));
@@ -304,13 +309,13 @@ describe("DealInvoiceTab — the payment ledger", () => {
   });
 
   it("marks a part-paid invoice beside its status, which stays Due", async () => {
-    renderWithClient(<DealInvoiceTab deal={deal} canEditItems />);
+    renderWithClient(<StandaloneInvoicePage invoiceId="d1" />);
     const header = await screen.findByRole("region", { name: "Invoice details" });
     await waitFor(() => expect(within(header).getByText("Status:").nextSibling).toHaveTextContent("Due · Partially paid"));
   });
 
   it("offers Workiz's 'Add payment schedule' and opens its window", async () => {
-    renderWithClient(<DealInvoiceTab deal={deal} canEditItems />);
+    renderWithClient(<StandaloneInvoicePage invoiceId="d1" />);
     await user().click(await screen.findByRole("button", { name: "Add payment schedule" }));
     expect(await screen.findByRole("dialog", { name: "Add payment schedule" })).toBeInTheDocument();
   });
@@ -330,7 +335,7 @@ describe("DealInvoiceTab — the payment ledger", () => {
         }),
       ),
     );
-    renderWithClient(<DealInvoiceTab deal={deal} canEditItems />);
+    renderWithClient(<StandaloneInvoicePage invoiceId="d1" />);
     expect(await screen.findByRole("heading", { name: "Payment schedule" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Add payment schedule" })).toBeNull();
   });
@@ -338,7 +343,7 @@ describe("DealInvoiceTab — the payment ledger", () => {
   it("shows nothing about payments to someone without payments.view", async () => {
     mocks.perms.delete("payments.view");
     mocks.perms.delete("payments.collect");
-    renderWithClient(<DealInvoiceTab deal={deal} canEditItems />);
+    renderWithClient(<StandaloneInvoicePage invoiceId="d1" />);
     await screen.findByRole("region", { name: "Invoice details" });
     expect(screen.queryByRole("heading", { name: "Payments" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Add payment schedule" })).toBeNull();

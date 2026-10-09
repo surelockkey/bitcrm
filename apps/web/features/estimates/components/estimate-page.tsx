@@ -1,11 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
 import type { Deal, EstimateWithItems } from "@bitcrm/types";
 import { Skeleton } from "@/components/ui/skeleton";
+import { WzJobBackLink } from "@/components/workiz/job-back-link";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { useDuplicateEstimate } from "../hooks";
@@ -104,9 +103,9 @@ function JobEstimatePage({
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
       <div className="pt-[26px]">
-        <Link href={back} className="ml-5 flex w-fit items-center gap-2.5 text-[14px] leading-4 text-foreground hover:underline">
-          <ArrowLeft className="size-4" strokeWidth={1.5} aria-hidden /> Job ID:{estimate.dealNumber ?? deal?.dealNumber ?? ""}
-        </Link>
+        <WzJobBackLink href={back} className="ml-5">
+          Job ID:{estimate.dealNumber ?? deal?.dealNumber ?? ""}
+        </WzJobBackLink>
       </div>
       <div className="mt-[19px]">
         {deal ? (

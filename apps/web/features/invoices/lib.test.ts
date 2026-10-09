@@ -12,6 +12,7 @@ import {
   termDays,
   canCreateInvoice,
   filterByInvoiceChip,
+  invoiceHref,
 } from "./lib";
 
 describe("invoice status", () => {
@@ -84,6 +85,16 @@ describe("canCreateInvoice", () => {
   it("needs at least one job item", () => {
     expect(canCreateInvoice(0)).toEqual({ allowed: false, reason: "Add at least one item to the job first" });
     expect(canCreateInvoice(2)).toEqual({ allowed: true });
+  });
+});
+
+// Workiz opens every invoice on its own page (/root/invoice/<serial>/) — a
+// job's too, with "← Job ID" back to the job (job_invoice_route_wz_*).
+describe("invoiceHref", () => {
+  it("is the invoice's own page, a job's invoice included", () => {
+    expect(invoiceHref({ id: "inv-9" })).toBe("/invoices/inv-9");
+    expect(invoiceHref({ id: "d1", dealId: "d1" })).toBe("/invoices/d1");
+    expect(invoiceHref({ id: "a/b" })).toBe("/invoices/a%2Fb");
   });
 });
 

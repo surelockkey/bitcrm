@@ -64,8 +64,19 @@ export function useUnsavedChanges(dirty: boolean): { confirm: ReactNode } {
     if (href) router.push(href);
   };
 
-  const confirm = (
-    <AlertDialog open={pendingHref !== null} onOpenChange={(open) => { if (!open) setPendingHref(null); }}>
+  const confirm = <LeaveWithoutSavingDialog open={pendingHref !== null} onStay={() => setPendingHref(null)} onLeave={leave} />;
+
+  return { confirm };
+}
+
+/**
+ * "Leave without saving?" — Stay / Leave. The link guard above draws it, and
+ * so does a page whose own buttons lead away (the job's Create / View
+ * Invoice), asking before it goes.
+ */
+export function LeaveWithoutSavingDialog({ open, onStay, onLeave }: { open: boolean; onStay: () => void; onLeave: () => void }) {
+  return (
+    <AlertDialog open={open} onOpenChange={(o) => { if (!o) onStay(); }}>
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>Leave without saving?</AlertDialogTitle>
@@ -75,11 +86,9 @@ export function useUnsavedChanges(dirty: boolean): { confirm: ReactNode } {
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>Stay</AlertDialogCancel>
-          <AlertDialogAction onClick={leave}>Leave</AlertDialogAction>
+          <AlertDialogAction onClick={onLeave}>Leave</AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
   );
-
-  return { confirm };
 }

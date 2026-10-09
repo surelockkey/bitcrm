@@ -1,7 +1,7 @@
 import { JobSuperStatus } from "@bitcrm/types";
-import type { Contact, Deal, InvoiceStatus } from "@bitcrm/types";
+import type { Contact, Deal } from "@bitcrm/types";
 import { DEFAULT_TZ } from "@/lib/timezone";
-import { invoiceStatusLabel } from "@/features/invoices/lib";
+import { canCreateInvoice, invoiceHref } from "@/features/invoices/lib";
 import type { DealTab } from "./deal-tabs";
 import { formatMoney } from "./lib";
 
@@ -77,6 +77,38 @@ export function jobActions({
   if (workOrderId && canViewWorkOrders) actions.push("work_order");
   if (canDelete) actions.push("delete");
   return actions;
+}
+
+/* ----------------------------------------------------------- invoice pill */
+
+/**
+ * The yellow pill beside Actions. Workiz's job page has no Invoice tab: "View
+ * Invoice" opens the job's invoice on its own page, and "Create Invoice"
+ * makes it and then opens it (job_invoice_route_wz_*; Workiz's bundle:
+ * createJobInvoice → history.push("invoice/<uuid>")). Ours asks for an item
+ * first — billing will not invoice an empty job — and says so on the pill.
+ */
+export type JobInvoicePill = { action: "view"; href: string } | { action: "create"; blockedReason?: string };
+
+export function jobInvoicePill({
+  invoice,
+  canView,
+  canCreate,
+  itemCount,
+}: {
+  /** The job's invoice; `null` while it has none, `undefined` until that is known. */
+  invoice: { id: string } | null | undefined;
+  /** `invoices.view`. */
+  canView: boolean;
+  /** `invoices.create`. */
+  canCreate: boolean;
+  itemCount: number;
+}): JobInvoicePill | null {
+  if (!canView || invoice === undefined) return null;
+  if (invoice) return { action: "view", href: invoiceHref(invoice) };
+  if (!canCreate) return null;
+  const check = canCreateInvoice(itemCount);
+  return check.allowed ? { action: "create" } : { action: "create", blockedReason: check.reason };
 }
 
 /* ------------------------------------------------------------------- tags */
@@ -194,7 +226,6 @@ export interface TabSublabelContext {
   /** The job ledger's balance; absent until (or unless) the viewer may see payments. */
   balanceDue?: number;
   estimateCount?: number;
-  invoiceStatus?: InvoiceStatus;
   attachmentCount?: number;
 }
 
@@ -209,8 +240,6 @@ export function dealTabSublabel(tab: DealTab, ctx: TabSublabelContext): string {
       return `${formatMoney(ctx.balanceDue ?? ctx.itemsTotal ?? 0)} balance`;
     case "estimates":
       return countLabel(ctx.estimateCount ?? 0, "estimate");
-    case "invoice":
-      return ctx.invoiceStatus ? invoiceStatusLabel(ctx.invoiceStatus) : "No invoice";
     case "attachments":
       return countLabel(ctx.attachmentCount ?? 0, "attachment");
   }

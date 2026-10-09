@@ -82,7 +82,7 @@ describe("a portal line — what the client did, written by the system (Workiz)"
     });
     expect(screen.getByText("Josh Wilenski signed Invoice #O8E9NQ")).toBeInTheDocument();
     expect(container.querySelector("[data-portal-event='signed']")).not.toBeNull();
-    expect(screen.getByRole("link", { name: "Open invoice" })).toHaveAttribute("href", "/deals/d1?tab=invoice");
+    expect(screen.getByRole("link", { name: "Open invoice" })).toHaveAttribute("href", "/invoices/d1");
     expect(screen.queryByText("System message")).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /edit job/i })).not.toBeInTheDocument();
   });

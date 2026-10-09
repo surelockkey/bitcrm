@@ -151,3 +151,7 @@ export { WzAccountTitle, WzAccountToggle, WzPaySection, WzPayRow, WzDocSettingsF
 
 // Legacy document pages (agent pg_workorders, Workiz's work order view).
 export { WzLegacyActionsMenu } from "./legacy-actions-menu";
+
+
+// A job document's "← Job ID" line (agent job_invoice_route: the estimate's, reused on the invoice page).
+export { WzJobBackLink } from "./job-back-link";

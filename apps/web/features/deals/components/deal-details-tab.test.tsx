@@ -436,6 +436,18 @@ describe("DetailsTab — one Save", () => {
     expect(mocks.push).toHaveBeenCalledWith("/contacts/c1");
   });
 
+  // The page's own ways out (Create / View Invoice) are buttons, not links: it
+  // asks the same question, so it has to know.
+  it("tells the page whether its draft is unsaved", async () => {
+    const onDirtyChange = vi.fn();
+    const u = user();
+    render(<DetailsTab deal={deal} canEdit onDirtyChange={onDirtyChange} />);
+
+    expect(onDirtyChange).toHaveBeenLastCalledWith(false);
+    await u.type(notes(), "PO-3");
+    expect(onDirtyChange).toHaveBeenLastCalledWith(true);
+  });
+
   it("blocks beforeunload only while dirty", async () => {
     const u = user();
     renderTab();

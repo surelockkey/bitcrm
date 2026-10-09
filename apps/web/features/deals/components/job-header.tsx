@@ -3,7 +3,7 @@
 import { useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Building, Check, ChevronDown, ListOrdered, Pencil, ThumbsUp, Trash2, X } from "lucide-react";
+import { Building, Check, ChevronDown, ListOrdered, Loader2, Pencil, ThumbsUp, Trash2, X } from "lucide-react";
 import { JobSuperStatus, type Deal } from "@bitcrm/types";
 import { toast } from "sonner";
 import {
@@ -22,12 +22,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { JobStatusMenu } from "@/features/job-statuses/components/job-status-menu";
 import { JobTagCombobox } from "@/features/job-tags/components/job-tag-combobox";
 import { useDeleteDeal, useMoveStatus, useSetDealTags, useUpdateDeal } from "../hooks";
 import { isUrgent } from "../lib";
-import { dealJobName, jobActions, jobNamePatch, storedTagOrder, type JobAction } from "../job-shell";
+import { dealJobName, jobActions, jobNamePatch, storedTagOrder, type JobAction, type JobInvoicePill } from "../job-shell";
 import { workOrderHref } from "@/features/work-orders/lib";
 import { PriorityFlag } from "./deal-badges";
 import { PILL_OUTLINE, PILL_YELLOW } from "./job-pills";
@@ -48,7 +49,8 @@ export function JobHeader({
   canDelete,
   canViewWorkOrders = false,
   invoice,
-  onOpenInvoice,
+  invoicePending = false,
+  onInvoice,
 }: {
   deal: Deal;
   /** The client half of the title; empty while the job has no client to name. */
@@ -59,11 +61,15 @@ export function JobHeader({
   /** `work_orders.view` — "View Work Order" for a job a work order authorized. */
   canViewWorkOrders?: boolean;
   /**
-   * The yellow pill: "Create Invoice" while the job has none (and the viewer
-   * may make one), "View Invoice" once it exists; absent hides it.
+   * The yellow pill (`jobInvoicePill`): "View Invoice" once the job has one,
+   * "Create Invoice" while it has none (greyed, with the reason, while it
+   * cannot be made yet); absent hides it.
    */
-  invoice?: { exists: boolean };
-  onOpenInvoice: () => void;
+  invoice?: JobInvoicePill | null;
+  /** The invoice is being made. */
+  invoicePending?: boolean;
+  /** View → open its page; Create → make it, then open its page. */
+  onInvoice: () => void;
 }) {
   const moveStatus = useMoveStatus(deal.id);
   const setTags = useSetDealTags(deal.id);
@@ -115,11 +121,7 @@ export function JobHeader({
             }
           />
         ) : null}
-        {invoice ? (
-          <button type="button" className={PILL_YELLOW} onClick={onOpenInvoice}>
-            {invoice.exists ? "View Invoice" : "Create Invoice"}
-          </button>
-        ) : null}
+        {invoice ? <InvoicePill pill={invoice} pending={invoicePending} onClick={onInvoice} /> : null}
       </div>
 
       <HeaderRow label="Job name:" className="mt-6 min-h-6">
@@ -149,6 +151,47 @@ export function JobHeader({
         />
       </HeaderRow>
     </div>
+  );
+}
+
+/**
+ * Workiz's yellow "View Invoice" / "Create Invoice" (data-ai-id view-invoice /
+ * create-invoice): both lead to the invoice's own page. A job that cannot be
+ * invoiced yet keeps the pill, greyed, its reason in a tooltip (and for a
+ * screen reader in its description).
+ */
+function InvoicePill({ pill, pending, onClick }: { pill: JobInvoicePill; pending: boolean; onClick: () => void }) {
+  const label = pill.action === "view" ? "View Invoice" : "Create Invoice";
+  const blocked = pill.action === "create" ? pill.blockedReason : undefined;
+  if (blocked) {
+    return (
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            {/* aria-disabled keeps it focusable, so the tooltip can say why. */}
+            <button
+              type="button"
+              aria-disabled="true"
+              aria-describedby="job-invoice-blocked"
+              className={cn(PILL_YELLOW, "cursor-not-allowed opacity-50 hover:bg-primary")}
+              onClick={(e) => e.preventDefault()}
+            >
+              {label}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>{blocked}</TooltipContent>
+        </Tooltip>
+        <span id="job-invoice-blocked" className="sr-only">
+          {blocked}
+        </span>
+      </TooltipProvider>
+    );
+  }
+  return (
+    <button type="button" className={PILL_YELLOW} onClick={onClick} disabled={pending} aria-busy={pending || undefined}>
+      {pending ? <Loader2 className="animate-spin" aria-hidden /> : null}
+      {label}
+    </button>
   );
 }
 

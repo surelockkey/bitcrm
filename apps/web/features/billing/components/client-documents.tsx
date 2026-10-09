@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { FileSpreadsheet, FileText } from "lucide-react";
 import type { ReactNode } from "react";
-import type { Estimate, Invoice } from "@bitcrm/types";
+import type { Estimate } from "@bitcrm/types";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { formatMoney } from "@/features/billing/lib";
@@ -11,6 +11,7 @@ import { formatYmd } from "@/features/billing/dates";
 import { useEstimatesForContacts } from "@/features/estimates/hooks";
 import { EstimateStatusBadge } from "@/features/estimates/components/estimate-status-badge";
 import { useInvoicesForContacts } from "@/features/invoices/hooks";
+import { invoiceHref } from "@/features/invoices/lib";
 import { InvoiceStatusBadge } from "@/features/invoices/components/invoice-status-badge";
 import { SentBadge } from "@/features/invoices/components/sent-badge";
 
@@ -46,12 +47,10 @@ function DocList({
 }
 
 /**
- * Where a document opens. An invoice: its job's tab, or — with no job — its
- * own page. An estimate always has a page of its own (Workiz): a job's one
- * shows "← Job ID" and the job's other estimates as tabs.
+ * Where a document opens: always a page of its own (Workiz). A job's invoice
+ * or estimate shows "← Job ID" back to the job there.
  */
-export const invoiceHref = (inv: Pick<Invoice, "id" | "dealId">): string =>
-  inv.dealId ? `/deals/${inv.dealId}?tab=invoice` : `/invoices/${inv.id}`;
+export { invoiceHref };
 export const estimateHref = (e: Pick<Estimate, "id">): string => `/estimates/${e.id}`;
 
 /** A client's invoices — their jobs' and their own (no job) — each linking where it lives. */

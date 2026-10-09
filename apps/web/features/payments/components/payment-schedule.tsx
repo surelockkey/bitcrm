@@ -87,8 +87,12 @@ export function PaymentScheduleTable({
   onEdit,
 }: {
   view: PaymentScheduleView;
-  /** The job's invoice — a payment is taken against it. */
-  invoiceId: string;
+  /**
+   * The job's invoice — a payment is taken against it. Absent while the job
+   * has none (the job's Items tab): the payment goes on the job's own ledger,
+   * as the Payments tab takes it.
+   */
+  invoiceId?: string;
   /** payments.collect: Edit / Delete schedule. */
   canEdit: boolean;
   /** Taking a payment on this invoice. */
@@ -184,8 +188,9 @@ export function PaymentScheduleTable({
 
       {canCollect ? (
         <RecordPaymentDialog
-          invoiceId={invoiceId}
+          invoiceId={invoiceId ?? view.dealId}
           dealId={view.dealId}
+          target={invoiceId ? "invoice" : "job"}
           balanceDue={paying?.remaining ?? 0}
           open={paying !== null}
           onOpenChange={(o) => !o && setPaying(null)}

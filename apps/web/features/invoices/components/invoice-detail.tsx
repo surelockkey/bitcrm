@@ -3,7 +3,8 @@
 import { useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { Popover } from "radix-ui";
-import { ChevronDown, Download, Eye, Link2, Loader2, Send, SquarePen, Trash2, Undo2 } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Briefcase, ChevronDown, Download, Eye, Link2, Loader2, Send, SquarePen, Trash2, Undo2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   PaymentTerms,
@@ -87,9 +88,10 @@ import { toLineItems, useClientInvoiceLines } from "./invoice-items-table";
  * 2026-10-09: Workiz's invoice page (/root/invoice/<serial>/, captures
  * pg_invoice_wz_*: 01_partial, 02_paid, 03_due, 04_nojob). Only the dress
  * changed — every hook, permission and handler is the one this screen had
- * (git 297ae8fe: deal-invoice-tab.tsx InvoiceDetail).
+ * (git 297ae8fe: deal-invoice-tab.tsx InvoiceDetail). Since 2026-10-09 a
+ * job's invoice opens here too, on its own page (the job's Invoice tab went).
  *
- *   header-module   the grey header: Client:, Actions ▾, Send; Bill to: |
+ *   header-module   the grey header: (a job's: "← Job ID: …") Client:, Actions ▾, Send; Bill to: |
  *                   Service address: | Invoice ID / Invoice date / Sent (and
  *                   ours: Status, Template).
  *   items-module    "Items" and the grid, "+ Add item".
@@ -117,15 +119,19 @@ export function InvoiceDetail({
   canEditItems,
   onDeleted,
   edge = false,
+  jobLink,
 }: {
   deal?: Deal;
   invoice: InvoiceView;
   canEditItems: boolean;
-  /** Where to go once the invoice is deleted (a client invoice's page has nothing left to show). */
+  /** Where to go once the invoice is deleted (its page has nothing left to show). */
   onDeleted?: () => void;
   /** The page's own column (edge to edge): the items sit 40px in, the sections 20px — Workiz's page. */
   edge?: boolean;
+  /** A job's invoice: Workiz's "← Job ID: …" line, drawn first in the grey header. */
+  jobLink?: ReactNode;
 }) {
+  const router = useRouter();
   const { can } = usePermissions();
   const canEdit = can("invoices", "edit");
   const canSend = can("invoices", "send");
@@ -180,6 +186,12 @@ export function InvoiceDetail({
         </WzButton>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" sideOffset={8} alignOffset={-4} className={WZ_MENU_POPUP}>
+        {deal ? (
+          // Workiz's first row on a job's invoice (wfi-job); ours the sidebar's Jobs glyph.
+          <DropdownMenuItem className={WZ_MENU_POPUP_ITEM} onSelect={() => router.push(`/deals/${encodeURIComponent(deal.id)}`)}>
+            <Briefcase strokeWidth={1.25} /> View job
+          </DropdownMenuItem>
+        ) : null}
         <DropdownMenuItem className={WZ_MENU_POPUP_ITEM} onSelect={() => setPreviewing(true)}>
           <Eye strokeWidth={1.25} /> Preview
         </DropdownMenuItem>
@@ -303,6 +315,7 @@ export function InvoiceDetail({
         invoice={invoice}
         contact={c}
         paymentSummary={paymentSummary}
+        jobLink={jobLink}
         actions={
           <>
             {actionsMenu}
@@ -416,19 +429,22 @@ export function InvoiceDetail({
  * header-module (pg_invoice_wz_01_partial / _04_nojob): #f7f8f8, 20px in;
  * "Client: <name>" 18px/30px (the name a 600 link) with Actions / Send at the
  * right; under it Bill to: | Service address: (a job's) | the facts column.
- * A job's invoice opens on its job here, so Workiz's "← Job ID" line is not
- * drawn: the header keeps the job-less geometry (Client 45px down).
+ * A job's invoice carries Workiz's "← Job ID: XYB3JT" line first (22px down,
+ * the Client row 23px under it, the header 20px taller); without a job the
+ * Client row sits 45px down.
  */
 function InvoiceHeader({
   deal,
   invoice,
   contact,
   paymentSummary,
+  jobLink,
   actions,
   dateField,
   templateField,
 }: {
   deal?: Deal;
+  jobLink?: ReactNode;
   invoice: InvoiceView;
   contact: Contact | undefined;
   paymentSummary: PaymentSummary | undefined;
@@ -445,8 +461,10 @@ function InvoiceHeader({
   const signature = invoice.signedAt ? "Signed" : invoice.requestSignature ? "Signature requested" : null;
 
   return (
-    <section aria-label="Invoice details" className="bg-wz-tile px-5 pt-[45px] pb-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+    <section aria-label="Invoice details" className={cn("bg-wz-tile px-5 pb-5", jobLink ? "pt-[22px]" : "pt-[45px]")}>
+      {/* header-module__jobLink: 22px down, a 20px line, the Client row 23px under it (y 114 → 157). */}
+      {jobLink ? <div className="flex h-5 items-center">{jobLink}</div> : null}
+      <div className={cn("flex flex-wrap items-start justify-between gap-3", jobLink && "mt-[23px]")}>
         <p className="flex min-h-[34px] min-w-0 flex-wrap items-center gap-x-3 text-[18px] leading-[30px] font-medium text-wz-strong">
           <span>
             Client:{" "}

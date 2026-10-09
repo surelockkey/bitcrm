@@ -9,13 +9,12 @@ const sublabels = {
   payments: "$224.62 balance",
   estimates: "1 estimate",
   attachments: "2 attachments",
-  invoice: "No invoice",
 } as const;
 
 function renderBar() {
   render(
     <JobTabBar
-      tabs={["details", "items", "payments", "estimates", "attachments", "invoice"]}
+      tabs={["details", "items", "payments", "estimates", "attachments"]}
       active="details"
       onSelect={vi.fn()}
       sublabels={sublabels}

@@ -608,13 +608,8 @@ function DealForm({
               router.push(`/estimates/${encodeURIComponent(openId)}`);
               return;
             }
-            router.push(
-              then === "estimate"
-                ? `/deals/${deal.id}?tab=estimates&estimate=new`
-                : then === "invoice"
-                  ? `/deals/${deal.id}?tab=invoice`
-                  : `/deals/${deal.id}`,
-            );
+            // `then=invoice` lands on the job itself: its "Create Invoice" is there (no Invoice tab, as Workiz).
+            router.push(then === "estimate" ? `/deals/${deal.id}?tab=estimates&estimate=new` : `/deals/${deal.id}`);
           })();
         },
       },

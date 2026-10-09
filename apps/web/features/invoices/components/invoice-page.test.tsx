@@ -6,7 +6,7 @@ import { PaymentTerms, type InvoiceView } from "@bitcrm/types";
 import { server } from "@/test/msw/server";
 import { renderWithClient } from "@/test/render-with-client";
 
-const mocks = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn() }));
+const mocks = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn(), dealMissing: false }));
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mocks.push, replace: mocks.replace }),
   usePathname: () => "/invoices/inv-9",
@@ -24,9 +24,29 @@ vi.mock("@/features/clients/hooks", () => ({
   useContact: () => ({ data: { id: "c1", firstName: "Jane", lastName: "Client", phones: [], emails: [], addresses: [] } }),
 }));
 vi.mock("@/features/deals/hooks", () => ({
-  useDealProducts: () => ({ data: undefined, isLoading: false }),
-  useDealTotals: () => ({ data: undefined, isLoading: false }),
+  // A job invoice's job (the page asks for it once it knows the invoice is a job's).
+  useDeal: (id: string) =>
+    mocks.dealMissing
+      ? { data: undefined, isError: true, isPending: false, fetchStatus: "idle" }
+      : id
+        ? {
+            data: { id, dealNumber: "1042", contactId: "c1", assignedTechIds: [], address: { street: "9 Elm St", city: "Austin", state: "TX", zip: "78701" } },
+            isError: false,
+            isPending: false,
+            fetchStatus: "idle",
+          }
+        : { data: undefined, isError: false, isPending: true, fetchStatus: "idle" },
+  useDealProducts: () => ({ data: [], isLoading: false, isError: false, isPending: false, fetchStatus: "idle" }),
+  useDealTotals: () => ({ data: undefined, isLoading: false, isError: false, isPending: true, fetchStatus: "idle" }),
+  useRemoveProduct: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetProductTaxable: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetDealTax: () => ({ mutate: vi.fn(), isPending: false }),
+  useResetDealTax: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetDealDiscount: () => ({ mutate: vi.fn(), isPending: false }),
 }));
+vi.mock("@/features/deals/attachments-api", () => ({ listAttachments: () => Promise.resolve([]) }));
+// The job's own item window (technicians, stock) has its own tests.
+vi.mock("@/features/deals/components/add-product-dialog", () => ({ AddProductDialog: () => null }));
 vi.mock("@/features/deals/components/deal-attachments-tab", () => ({
   DealAttachmentsTab: () => <section aria-label="Attachments" />,
 }));
@@ -116,13 +136,38 @@ describe("StandaloneInvoicePage", () => {
     expect(mocks.replace).not.toHaveBeenCalled();
   });
 
-  it("sends a job's invoice to the job's Invoice tab", async () => {
+  // Workiz opens a job's invoice on its own page too (/root/invoice/XYB3JT, from
+  // the job's "View Invoice"): "← Job ID: XYB3JT" in the grey header, back to
+  // the job (pg_invoice_wz_01_partial).
+  it("opens a job's invoice here, with ← Job ID back to the job in its header", async () => {
+    const jobInvoice = invoice({ id: "d1", number: "1042", dealId: "d1" });
     server.use(
-      http.get("*/billing/invoices/d1", () =>
-        HttpResponse.json({ success: true, data: invoice({ id: "d1", number: "1042", dealId: "d1" }) }),
-      ),
+      http.get("*/billing/invoices/d1", () => HttpResponse.json({ success: true, data: jobInvoice })),
+      http.get("*/billing/invoices/by-deal/d1", () => HttpResponse.json({ success: true, data: jobInvoice })),
     );
     renderWithClient(<StandaloneInvoicePage invoiceId="d1" />);
-    await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/deals/d1?tab=invoice"));
+    const header = await screen.findByRole("region", { name: "Invoice details" });
+    expect(within(header).getByRole("link", { name: "Job ID: 1042" })).toHaveAttribute("href", "/deals/d1");
+    // It is the job's: its service address, its files.
+    expect(within(header).getByText("Service address:")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Attachments" })).toBeInTheDocument();
+    expect(usePageHistoryStore.getState().labels["/invoices/inv-9"]).toBe("Invoice (1042)");
+    expect(mocks.replace).not.toHaveBeenCalled();
+  });
+
+  it("says so when the job behind the invoice cannot be loaded", async () => {
+    mocks.dealMissing = true;
+    const jobInvoice = invoice({ id: "d1", number: "1042", dealId: "d1" });
+    server.use(
+      http.get("*/billing/invoices/d1", () => HttpResponse.json({ success: true, data: jobInvoice })),
+      http.get("*/billing/invoices/by-deal/d1", () => HttpResponse.json({ success: true, data: jobInvoice })),
+    );
+    try {
+      renderWithClient(<StandaloneInvoicePage invoiceId="d1" />);
+      expect(await screen.findByText(/this invoice's job couldn't be loaded/i)).toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: /^job id/i })).toBeNull();
+    } finally {
+      mocks.dealMissing = false;
+    }
   });
 });

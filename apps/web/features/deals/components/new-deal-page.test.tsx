@@ -566,13 +566,14 @@ describe("NewDealPage — opened from the client card", () => {
     await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/estimates/e9"));
   });
 
-  it("`?then=invoice` lands on the new job's Invoice tab", async () => {
+  // The job page has no Invoice tab (Workiz): its "Create Invoice" is on the job itself.
+  it("`?then=invoice` lands on the new job, where Create Invoice is", async () => {
     mocks.searchParams = "contactId=c1&then=invoice";
     const u = user();
     render(<NewDealPage />);
     await pickJobType(u);
     await u.click(submit());
-    await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/deals/d-new?tab=invoice"));
+    await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/deals/d-new"));
   });
 
   it("`?address=N` prefills that one of the client's addresses; `address=new` leaves it empty", () => {

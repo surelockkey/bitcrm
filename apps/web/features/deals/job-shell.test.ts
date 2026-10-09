@@ -11,6 +11,7 @@ import {
   jobChatPhone,
   jobClientName,
   jobDueDate,
+  jobInvoicePill,
   jobNamePatch,
   storedTagOrder,
   workizDate,
@@ -186,7 +187,6 @@ describe("tab sublabels (the grey second line)", () => {
     itemsTotal: 150,
     balanceDue: 0,
     estimateCount: 1,
-    invoiceStatus: "paid" as const,
     attachmentCount: 3,
   };
 
@@ -214,9 +214,43 @@ describe("tab sublabels (the grey second line)", () => {
     expect(dealTabSublabel("estimates", { ...ctx, estimateCount: 0 })).toBe("0 estimates");
     expect(dealTabSublabel("attachments", ctx)).toBe("3 attachments");
   });
+});
 
-  it("Invoice reads the invoice's status, or says there is none", () => {
-    expect(dealTabSublabel("invoice", ctx)).toBe("Paid");
-    expect(dealTabSublabel("invoice", { ...ctx, invoiceStatus: undefined })).toBe("No invoice");
+/**
+ * The yellow pill by Actions (job_invoice_route_wz_XYB3JT_details): "View
+ * Invoice" opens the job's invoice on its own page; "Create Invoice" makes it
+ * and then opens it (Workiz's bundle: createJobInvoice → history.push
+ * "invoice/<uuid>"). Ours still asks for an item first.
+ */
+describe("the invoice pill", () => {
+  const base = { canView: true, canCreate: true, itemCount: 2 };
+
+  it("reads View Invoice once the job has one, and goes to its page", () => {
+    expect(jobInvoicePill({ ...base, invoice: { id: "d1" } })).toEqual({ action: "view", href: "/invoices/d1" });
+    // Even for someone who could not have made it.
+    expect(jobInvoicePill({ ...base, canCreate: false, invoice: { id: "d1" } })).toEqual({
+      action: "view",
+      href: "/invoices/d1",
+    });
+  });
+
+  it("reads Create Invoice while there is none", () => {
+    expect(jobInvoicePill({ ...base, invoice: null })).toEqual({ action: "create" });
+  });
+
+  it("says why a job without items cannot have one yet", () => {
+    expect(jobInvoicePill({ ...base, itemCount: 0, invoice: null })).toEqual({
+      action: "create",
+      blockedReason: "Add at least one item to the job first",
+    });
+  });
+
+  it("is not there for someone who may not make one, nor without invoices.view", () => {
+    expect(jobInvoicePill({ ...base, canCreate: false, invoice: null })).toBeNull();
+    expect(jobInvoicePill({ ...base, canView: false, invoice: { id: "d1" } })).toBeNull();
+  });
+
+  it("waits for the answer before offering to create", () => {
+    expect(jobInvoicePill({ ...base, invoice: undefined })).toBeNull();
   });
 });
