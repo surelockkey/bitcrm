@@ -6,17 +6,19 @@ import {
   Building2,
   Calendar,
   ClipboardCheck,
-  Contact,
   FileText,
-  LayoutDashboard,
+  House,
+  LayoutGrid,
   Map,
   MessagesSquare,
   Package,
   Phone,
+  Receipt,
   Settings,
   ShieldCheck,
   Truck,
   UserRound,
+  Users,
   UsersRound,
   Workflow,
   Wrench,
@@ -35,19 +37,31 @@ export interface NavItem {
   status?: "available" | "coming-soon";
 }
 
+/**
+ * One block of the sidebar. Workiz draws its blocks apart with thin rules and
+ * no captions, so `label` is a key for code and tests, never shown. The
+ * `features` block is Workiz's "Features" row with its indented sub-rows.
+ */
 export interface NavGroup {
   label: string;
   items: NavItem[];
+  kind?: "features";
 }
 
-/** Shown above the groups (no gate). */
+/**
+ * The first row, alone above the first rule, as Workiz's "Home". (Its crumb
+ * still reads "Dashboard" — Workiz's breadcrumb says so on the same page.)
+ */
 export const OVERVIEW_ITEM: NavItem = {
-  label: "Dashboard",
+  label: "Home",
   href: "/",
-  icon: LayoutDashboard,
+  icon: House,
 };
 
-/** Shown in the sidebar footer. */
+/**
+ * Not a sidebar row: Workiz keeps Settings in the top-right avatar menu, and
+ * so do we (NavUser). The command palette and the crumbs still know it.
+ */
 export const SETTINGS_ITEM: NavItem = {
   label: "Settings",
   href: "/settings",
@@ -55,56 +69,42 @@ export const SETTINGS_ITEM: NavItem = {
   resource: "settings",
 };
 
+/**
+ * The sidebar after Home, in Workiz's blocks, words and order
+ * (app_audit_wz_home): Workiz Phone … | Schedule · Map · Jobs · Clients … |
+ * Estimates · Invoices · Price book | Reports | Features ▸ Automations …
+ * Inventory. Pages Workiz lacks (Messages, Companies, Work Orders) sit in the
+ * block Workiz would file them under; pages we lack (Answering, Marketing,
+ * Leads, Recordings, Workiz Pay, Online booking …) are not drawn at all.
+ */
 export const MAIN_NAV: NavGroup[] = [
   {
-    label: "Work",
+    label: "Communications",
     items: [
-      { label: "Jobs", href: "/deals", icon: Briefcase, resource: "deals" },
-      { label: "Dispatch Map", href: "/dispatch", icon: Map, resource: "deals" },
-      { label: "Schedule", href: "/schedule", icon: Calendar, resource: "deals" },
-      {
-        label: "Inventory",
-        href: "/inventory",
-        icon: Package,
-        resources: ["products", "warehouses", "containers", "transfers"],
-      },
-      // Workiz "Services & Products": every item, stock-managed or not, and
-      // the categories and brands they're filed under. Inventory is the stock.
-      { label: "Price Book", href: "/price-book", icon: BookOpen, resource: "products" },
+      { label: "BitCRM Phone", href: "/calls", icon: Phone, resource: "calls" },
+      // The client inbox (SMS today; email and in-app land on the same page).
+      { label: "Messages", href: "/messages", icon: MessagesSquare, resource: "messages" },
     ],
   },
   {
-    label: "Clients",
+    label: "Work",
     items: [
-      { label: "Contacts", href: "/contacts", icon: Contact, resource: "contacts" },
+      { label: "Schedule", href: "/schedule", icon: Calendar, resource: "deals" },
+      { label: "Map", href: "/dispatch", icon: Map, resource: "deals" },
+      { label: "Jobs", href: "/deals", icon: Briefcase, resource: "deals" },
+      { label: "Clients", href: "/contacts", icon: Users, resource: "contacts" },
       { label: "Companies", href: "/companies", icon: Building2, resource: "companies" },
     ],
   },
   {
-    label: "Team",
-    items: [
-      { label: "Technicians", href: "/technicians", icon: Wrench, resource: "technicians" },
-      { label: "Users", href: "/admin/users", icon: UsersRound, resource: "users" },
-      { label: "Roles", href: "/admin/roles", icon: ShieldCheck, resource: "roles" },
-    ],
-  },
-  {
-    label: "Communications",
-    items: [
-      { label: "Calls", href: "/calls", icon: Phone, resource: "calls" },
-      // The client inbox (SMS today; email and in-app land on the same page).
-      { label: "Messages", href: "/messages", icon: MessagesSquare, resource: "messages" },
-      // A rule that texts a client on its own belongs next to the inbox, not
-      // buried in settings — Workiz puts its Automation Center at this level too.
-      { label: "Automations", href: "/automations", icon: Workflow, resource: "settings" },
-    ],
-  },
-  {
-    label: "Billing",
+    label: "Documents",
     items: [
       { label: "Estimates", href: "/estimates", icon: FileText, resource: "estimates" },
-      { label: "Invoices", href: "/invoices", icon: FileText, resource: "invoices" },
+      { label: "Invoices", href: "/invoices", icon: Receipt, resource: "invoices" },
       { label: "Work Orders", href: "/work-orders", icon: ClipboardCheck, resource: "work_orders" },
+      // Workiz "Services & Products": every item, stock-managed or not, and
+      // the categories and brands they're filed under. Inventory is the stock.
+      { label: "Price book", href: "/price-book", icon: BookOpen, resource: "products" },
     ],
   },
   {
@@ -115,6 +115,33 @@ export const MAIN_NAV: NavGroup[] = [
       { label: "Reports", href: "/reports", icon: BarChart3, resource: "reports" },
     ],
   },
+  {
+    label: "Features",
+    kind: "features",
+    items: [
+      { label: "Automations", href: "/automations", icon: Workflow, resource: "settings" },
+      {
+        label: "Inventory",
+        href: "/inventory",
+        icon: Package,
+        resources: ["products", "warehouses", "containers", "transfers"],
+      },
+    ],
+  },
+];
+
+/** Workiz's "Features" row: the heading over the block's sub-rows. */
+export const FEATURES_HEADING = { label: "Features", icon: LayoutGrid };
+
+/**
+ * Team, as Workiz keeps it: under Settings only (its Team Management and
+ * Roles & Permissions tiles), never a sidebar row. Reached from the settings
+ * home and the command palette; the crumbs name them from here.
+ */
+export const TEAM_NAV: NavItem[] = [
+  { label: "Technicians", href: "/technicians", icon: Wrench, resource: "technicians" },
+  { label: "Users", href: "/admin/users", icon: UsersRound, resource: "users" },
+  { label: "Roles", href: "/admin/roles", icon: ShieldCheck, resource: "roles" },
 ];
 
 /**

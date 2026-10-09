@@ -69,7 +69,9 @@ describe("SETTINGS_GROUPS", () => {
     const labelsOf = (group: string) => SETTINGS_GROUPS.find((g) => g.label === group)?.sections.map((s) => s.label);
     // General is the settings screen itself (the rail's first link), not a tile on it.
     expect(labelsOf("General Settings")).toEqual(["Companies", "Automations", "Documents"]);
-    expect(labelsOf("Users & Roles")).toEqual(["Users", "Roles"]);
+    // Team is reached from here only, as in Workiz (no sidebar row since the
+    // sidebar copied Workiz's menu): the field team first, then the logins.
+    expect(labelsOf("Users & Roles")).toEqual(["Technicians", "Users", "Roles"]);
     expect(labelsOf("Job Settings")).toEqual([
       "Service Areas",
       "Job Types",

@@ -1,7 +1,7 @@
 import {
   MAIN_NAV,
-  OVERVIEW_ITEM,
   SETTINGS_ITEM,
+  TEAM_NAV,
   TECHNICIAN_NAV,
 } from "@/lib/nav/nav-config";
 
@@ -72,16 +72,21 @@ export function applyLabel(
 
 /** Exact-path labels: sidebar nav plus routes that aren't in the sidebar. */
 const STATIC_LABELS: Record<string, string> = {
-  [OVERVIEW_ITEM.href]: OVERVIEW_ITEM.label,
   [SETTINGS_ITEM.href]: SETTINGS_ITEM.label,
   ...Object.fromEntries(
     MAIN_NAV.flatMap((g) => g.items.map((i) => [i.href, i.label])),
   ),
+  // Team is reached from Settings (as in Workiz) but each page keeps its crumb.
+  ...Object.fromEntries(TEAM_NAV.map((i) => [i.href, i.label])),
+  // Where Workiz's crumb and its menu disagree, the crumb copies the crumb:
+  // its Home page reads "… # DASHBOARD", its Workiz Phone page "… # CALLS".
+  "/": "Dashboard",
+  "/calls": "Calls",
   "/deals/new": "New Job",
-  // The Price Book's tabs: "Items" alone would read as Inventory's Items.
-  "/price-book/items": "Price Book",
-  "/price-book/categories": "Price Book Categories",
-  "/price-book/brands": "Price Book Brands",
+  // The Price book's tabs: "Items" alone would read as Inventory's Items.
+  "/price-book/items": "Price book",
+  "/price-book/categories": "Price book Categories",
+  "/price-book/brands": "Price book Brands",
   // Inventory's tabs, in Workiz's words ("… # INVENTORY # USER LOCATIONS").
   "/inventory/items": "Inventory",
   "/inventory/user-containers": "User locations",
@@ -112,6 +117,9 @@ const DETAIL_LABELS: Record<string, string> = {
   "/inventory/containers": "Container",
   "/inventory/warehouses": "Warehouse",
   "/inventory/items": "Item",
+  // Workiz: "… # ESTIMATE (1)", "… # INVOICE (…)" — the page adds the number.
+  "/estimates": "Estimate",
+  "/invoices": "Invoice",
 };
 
 /** True for segments that are ids (UUIDs, hex blobs, call SIDs, numeric ids). */

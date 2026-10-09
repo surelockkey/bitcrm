@@ -41,8 +41,12 @@ describe("CommandMenu", () => {
     expect(
       screen.getByPlaceholderText(/search deals, contacts/i),
     ).toBeInTheDocument();
-    expect(screen.getByText("Dashboard")).toBeInTheDocument();
+    expect(screen.getByText("Home")).toBeInTheDocument();
     expect(screen.getByText("Jobs")).toBeInTheDocument();
+    // Team and Settings have no sidebar row (as in Workiz) but stay a jump away.
+    expect(screen.getByText("Technicians")).toBeInTheDocument();
+    expect(screen.getByText("Users")).toBeInTheDocument();
+    expect(screen.getByText("Settings")).toBeInTheDocument();
   });
 
   it("queries the backend and shows grouped entity results as you type", async () => {
@@ -90,7 +94,7 @@ describe("CommandMenu", () => {
     // debounced request resolves → grouped result appears, nav is hidden
     expect(await screen.findByText("Acme Corp")).toBeInTheDocument();
     expect(screen.getByText("Companies")).toBeInTheDocument();
-    expect(screen.queryByText("Dashboard")).not.toBeInTheDocument();
+    expect(screen.queryByText("Home")).not.toBeInTheDocument();
   });
 
   // Як у Workiz: глобальний пошук не знаходить товари.

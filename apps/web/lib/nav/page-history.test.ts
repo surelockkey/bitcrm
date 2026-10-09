@@ -67,18 +67,27 @@ describe("pushVisit", () => {
 
 describe("labelForPath", () => {
   it.each([
+    // Workiz's own crumb on its Home page reads "DASHBOARD", and on Workiz
+    // Phone "CALLS" — the sidebar words differ, the crumbs copy Workiz's.
     ["/", "Dashboard"],
+    ["/calls", "Calls"],
+    ["/messages", "Messages"],
     ["/deals", "Jobs"],
-    ["/dispatch", "Dispatch Map"],
+    ["/dispatch", "Map"],
     ["/schedule", "Schedule"],
-    ["/contacts", "Contacts"],
+    ["/contacts", "Clients"],
     ["/companies", "Companies"],
+    ["/estimates", "Estimates"],
+    ["/invoices", "Invoices"],
+    ["/work-orders", "Work Orders"],
+    ["/price-book", "Price book"],
+    ["/reports", "Reports"],
+    ["/automations", "Automations"],
     ["/inventory", "Inventory"],
-    ["/price-book", "Price Book"],
+    // Team lives under Settings now (as in Workiz) but keeps its own crumbs.
     ["/technicians", "Technicians"],
     ["/admin/users", "Users"],
     ["/admin/roles", "Roles"],
-    ["/work-orders", "Work Orders"],
     ["/settings", "Settings"],
     ["/my-jobs", "My Jobs"],
     ["/my-stock", "My Stock"],
@@ -120,10 +129,10 @@ describe("labelForPath", () => {
     expect(labelForPath("/inventory/user-containers")).toBe("User locations");
   });
 
-  it("titles the Price Book tabs as the Price Book, not as Inventory's Items", () => {
-    expect(labelForPath("/price-book/items")).toBe("Price Book");
-    expect(labelForPath("/price-book/categories")).toBe("Price Book Categories");
-    expect(labelForPath("/price-book/brands")).toBe("Price Book Brands");
+  it("titles the Price book tabs as the Price book, not as Inventory's Items", () => {
+    expect(labelForPath("/price-book/items")).toBe("Price book");
+    expect(labelForPath("/price-book/categories")).toBe("Price book Categories");
+    expect(labelForPath("/price-book/brands")).toBe("Price book Brands");
   });
 
   it("titles the Phone section's tabs as Workiz's breadcrumb does, not as a call", () => {
@@ -151,6 +160,10 @@ describe("labelForPath", () => {
     [`/inventory/containers/${UUID}`, "Container"],
     [`/inventory/warehouses/${UUID}`, "Warehouse"],
     [`/inventory/items/${UUID}`, "Item"],
+    // Workiz: "… # ESTIMATE (1)" on an estimate, "INVOICE (…)" on an invoice —
+    // the page fills in the number; the list's plural never stands in.
+    [`/estimates/${UUID}`, "Estimate"],
+    [`/invoices/${UUID}`, "Invoice"],
   ])("labels the detail route %s as %s", (path, label) => {
     expect(labelForPath(path)).toBe(label);
   });
