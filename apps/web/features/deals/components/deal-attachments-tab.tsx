@@ -29,7 +29,7 @@ import { getApiErrorMessage } from "@/lib/api/errors";
 import { useFilePreviewStore } from "@/features/files/preview-store";
 import { fileTitle, workizDateTime } from "../job-shell";
 import { UploadArt } from "./job-empty-art";
-import { PILL_YELLOW_SM } from "./job-pills";
+import { wzPill } from "@/components/workiz";
 import { ATTACHMENT_ACCEPT, getAttachmentDownloadUrl } from "../attachments-api";
 import {
   useAttachments,
@@ -325,7 +325,7 @@ function UploadButton({ dealId, variant = "pill" }: { dealId: string; variant?: 
           {upload.isPending ? <Loader2 className="size-3.5 animate-spin" /> : null}+ Upload files
         </button>
       ) : (
-        <button type="button" className={PILL_YELLOW_SM} disabled={upload.isPending} onClick={() => inputRef.current?.click()}>
+        <button type="button" className={wzPill("yellow", "small")} disabled={upload.isPending} onClick={() => inputRef.current?.click()}>
           {upload.isPending ? <Loader2 className="animate-spin" /> : <Camera className="size-3.5!" strokeWidth={2.25} />}
           Upload
         </button>

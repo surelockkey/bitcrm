@@ -102,7 +102,8 @@ export function WzTabBar({
     >
       {tabs.map((t, i) => {
         const open = t.value === value;
-        const sub = `${id}-${i}-sub`;
+        // The grey line's id follows the tab's own ("job-tab-details-sub").
+        const sub = t.id ? `${t.id}-sub` : `${id}-${i}-sub`;
         return (
           <button
             key={t.value}

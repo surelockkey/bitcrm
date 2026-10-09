@@ -80,13 +80,16 @@ describe("WzPager", () => {
   // Audit L8/L15 on the jobs list: a filtered page comes back short with a
   // cursor past the counted last page, and "Page 1 of 1" then offered a page
   // 2 ("Page 2 of 1"). The count knows the last page; a floor does not.
-  it("rests › on the counted last page, even with a cursor in hand", () => {
-    render(<WzPager pager={{ ...base, page: 1, totalPages: 1, canNext: true }} />);
+  it("rests › on an exact count's last page, even with a cursor in hand", () => {
+    render(<WzPager pager={{ ...base, page: 1, totalPages: 1, totalPagesIsFloor: false, canNext: true }} />);
     expect(screen.getByRole("button", { name: "Next page" })).toBeDisabled();
   });
 
-  it("follows the cursor when the count is only a floor, or nobody counted", () => {
+  it("follows the cursor when the count is a floor, says nothing about itself, or nobody counted", () => {
     const { rerender } = render(<WzPager pager={{ ...base, page: 1, totalPages: 1, totalPagesIsFloor: true, canNext: true }} />);
+    expect(screen.getByRole("button", { name: "Next page" })).toBeEnabled();
+    // A list that numbers its pages as it walks (the Payments report) gives no flag.
+    rerender(<WzPager pager={{ ...base, page: 1, totalPages: 1, canNext: true }} />);
     expect(screen.getByRole("button", { name: "Next page" })).toBeEnabled();
     rerender(<WzPager pager={{ ...base, page: 3, total: undefined, totalPages: undefined, canNext: true }} />);
     expect(screen.getByRole("button", { name: "Next page" })).toBeEnabled();

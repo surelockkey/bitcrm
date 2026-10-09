@@ -87,8 +87,9 @@ describe("WzTabBar", () => {
     );
     const open = screen.getByRole("tab", { name: "Details" });
     expect(open).toHaveAccessibleDescription("Lockout");
-    // A tabpanel names its tab by id (aria-labelledby).
+    // A tabpanel names its tab by id (aria-labelledby); the grey line's id follows it.
     expect(open).toHaveAttribute("id", "job-tab-details");
+    expect(screen.getByText("Lockout")).toHaveAttribute("id", "job-tab-details-sub");
     // Workiz's nine tabs share the bar (149px each on 1345, job_b_01); ours
     // keep that width so each name lands where Workiz's does, and with the
     // Timeline open a tab grows to its text plus 18px a side (rail_chat) —

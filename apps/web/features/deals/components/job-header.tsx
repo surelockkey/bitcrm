@@ -3,7 +3,7 @@
 import { useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Building, Check, ChevronDown, ListOrdered, Loader2, Pencil, ThumbsUp, Trash2, X } from "lucide-react";
+import { Building, Check, ListOrdered, Loader2, Pencil, ThumbsUp, Trash2, X } from "lucide-react";
 import { JobSuperStatus, type Deal } from "@bitcrm/types";
 import { toast } from "sonner";
 import {
@@ -16,13 +16,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { WzActionsMenu, wzPill, type WzMenuAction } from "@/components/workiz";
 import { cn } from "@/lib/utils";
 import { JobStatusMenu } from "@/features/job-statuses/components/job-status-menu";
 import { JobTagCombobox } from "@/features/job-tags/components/job-tag-combobox";
@@ -31,7 +26,6 @@ import { isUrgent } from "../lib";
 import { dealJobName, jobActions, jobNamePatch, storedTagOrder, type JobAction, type JobInvoicePill } from "../job-shell";
 import { workOrderHref } from "@/features/work-orders/lib";
 import { PriorityFlag } from "./deal-badges";
-import { PILL_OUTLINE, PILL_YELLOW } from "./job-pills";
 
 /** Workiz's header ink: 18px/600 title, 13px row labels (rgb 59,76,83 ≈ the ink token). */
 const LABEL = "w-auto shrink-0 text-[13px] leading-[19.5px] text-foreground";
@@ -173,7 +167,7 @@ function InvoicePill({ pill, pending, onClick }: { pill: JobInvoicePill; pending
               type="button"
               aria-disabled="true"
               aria-describedby="job-invoice-blocked"
-              className={cn(PILL_YELLOW, "cursor-not-allowed opacity-50 hover:bg-primary")}
+              className={cn(wzPill("yellow"), "cursor-not-allowed opacity-50 hover:bg-primary")}
               onClick={(e) => e.preventDefault()}
             >
               {label}
@@ -188,7 +182,7 @@ function InvoicePill({ pill, pending, onClick }: { pill: JobInvoicePill; pending
     );
   }
   return (
-    <button type="button" className={PILL_YELLOW} onClick={onClick} disabled={pending} aria-busy={pending || undefined}>
+    <button type="button" className={wzPill("yellow")} onClick={onClick} disabled={pending} aria-busy={pending || undefined}>
       {pending ? <Loader2 className="animate-spin" aria-hidden /> : null}
       {label}
     </button>
@@ -277,60 +271,30 @@ const ACTION_META: Record<JobAction, { label: string; icon: typeof ThumbsUp }> =
 };
 
 /**
- * "Actions ▾" (job_b_02_actions_open): a white 216px card under the pill
- * with a small caret pointing up at it, one 50px row per action with its
- * icon, ruled apart. View Work Order opens the work order that authorized
- * the job; Workiz's Duplicate Job is not in BitCRM, so it is not listed.
+ * "Actions ▾" (job_b_02_actions_open): the kit's `WzActionsMenu` — the white
+ * 216px card under the pill with its caret, one 50px row per action with
+ * its icon, ruled apart. View Work Order opens the work order that
+ * authorized the job; Workiz's Duplicate Job is not in BitCRM, so it is not
+ * listed. Delete Job stays slate like the rest, as Workiz keeps it.
  */
 function ActionsMenu({ deal, actions, onDone }: { deal: Deal; actions: JobAction[]; onDone: () => void }) {
   const router = useRouter();
   const del = useDeleteDeal();
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const select = (a: JobAction) => {
-    if (a === "done") onDone();
-    else if (a === "work_order") router.push(workOrderHref(deal.workOrderId as string));
-    else setConfirmDelete(true);
-  };
+  const items: WzMenuAction[] = actions.map((a) => ({
+    key: a,
+    label: ACTION_META[a].label,
+    icon: ACTION_META[a].icon,
+    onSelect: () => {
+      if (a === "done") onDone();
+      else if (a === "work_order") router.push(workOrderHref(deal.workOrderId as string));
+      else setConfirmDelete(true);
+    },
+  }));
 
   return (
     <>
-      <DropdownMenu modal={false}>
-        <DropdownMenuTrigger asChild>
-          <button type="button" className={PILL_OUTLINE}>
-            {/* Workiz wfi-down: an 18px thin chevron. */}
-            <ChevronDown className="size-[18px]!" strokeWidth={1.25} />
-            Actions
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent
-          align="end"
-          alignOffset={-12}
-          sideOffset={10}
-          className="w-[216px] overflow-visible rounded-[2px] bg-white px-2 py-1.5 shadow-[0_3px_6px_2px_rgba(0,0,0,0.18),0_4px_15px_2px_rgba(0,0,0,0.15)] ring-0"
-        >
-          {/* Workiz's caret: a white notch over the pill's right end (abs x≈1360). */}
-          <span
-            aria-hidden
-            className="absolute -top-1.5 right-[9px] size-0 border-x-[6px] border-b-[6px] border-x-transparent border-b-white [filter:drop-shadow(0_-1px_1px_rgba(0,0,0,0.08))]"
-          />
-          {actions.map((a, i) => {
-            const { label, icon: Icon } = ACTION_META[a];
-            return (
-              <DropdownMenuItem
-                key={a}
-                onSelect={() => select(a)}
-                className={cn(
-                  "h-[50px] gap-3 rounded-none px-[15px] text-[14px] text-[#566d76] focus:bg-[#f3f6f7] focus:text-[#566d76]",
-                  i > 0 && "border-t border-[#cad3d6]",
-                )}
-              >
-                <Icon className="size-5 text-[#566d76]" strokeWidth={1.25} />
-                {label}
-              </DropdownMenuItem>
-            );
-          })}
-        </DropdownMenuContent>
-      </DropdownMenu>
+      <WzActionsMenu items={items} />
 
       <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
         <AlertDialogContent>

@@ -124,7 +124,8 @@ const { DealsPage } = await import("./deals-page");
 
 const tabStrip = () => document.querySelector('[role="tablist"][aria-label="Job status"]') as HTMLElement | null;
 const stripShown = () => !!tabStrip() && !tabStrip()!.className.split(/\s+/).includes("invisible");
-const chips = () => [...tabStrip()!.querySelectorAll('[role="tab"] span')].map((s) => s.textContent?.trim() ?? "");
+// The kit's tab draws its counter in a `wz-tab-count` span (and the open tab a line of its own).
+const chips = () => [...tabStrip()!.querySelectorAll('[role="tab"] [data-slot="wz-tab-count"]')].map((s) => s.textContent?.trim() ?? "");
 const rowsUp = () => !!screen.queryByText("101");
 
 beforeEach(() => {

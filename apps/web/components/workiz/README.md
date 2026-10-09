@@ -1163,9 +1163,11 @@ Where the two disagreed, the Workiz captures were measured again:
   row is 51px, as Workiz's `li` 50 + its 1px rule.
 - **`WzPager`**: ‹ "Page 1 of 5" › is a 238px block centred on the bar, the
   words centred between the discs — the discs sit at the same x for "of 5"
-  and "of 881" (list_07_bottom, uikit_wz_est_scroll1). › rests on the counted
-  last page even with a cursor in hand (**`wzPagerCanNext`**; the jobs list's
-  audit L8 "Page 2 of 1"); a floor or no count follows the cursor.
+  and "of 881" (list_07_bottom, uikit_wz_est_scroll1). › rests on an exact
+  count's last page even with a cursor in hand (**`wzPagerCanNext`**; the jobs
+  list's audit L8 "Page 2 of 1") — exact being `totalPagesIsFloor: false`, as
+  `usePager` says for a counted list; a floor, a count without the flag (the
+  Payments report numbers its pages as it walks) or no count follows the cursor.
 - **`WzSearchBox`**: an 18px magnifier 15px in, a 13px bold clear × (audit
   L14). **`WzPageSizeSelect`**: an 18px thin chevron 8px from the edge (L18).
 - **`WzDrawer`**: the footer is Workiz's 65px band with the 32px pills 21px

@@ -3,9 +3,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronDown, ChevronLeft, ChevronRight, Plus, Search, TriangleAlert, X } from "lucide-react";
+import { Plus, TriangleAlert } from "lucide-react";
 import type { Contact, Deal, PersonName } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
+import { WzListToolbar, WzPageSizeSelect, WzPager, WzSearchBox, WzTabBar } from "@/components/workiz";
 import { cn } from "@/lib/utils";
 import { usePermissions, useDenied } from "@/features/auth/use-permissions";
 import { NoAccess } from "@/features/clients/components/contacts-page";
@@ -39,7 +40,7 @@ import { useJobTags } from "@/features/job-tags/hooks";
 import { activeJobTags } from "@/features/job-tags/lib";
 import { useJobFieldsStore } from "../fields-store";
 import { filterAreas, orderTechs, type FilterCatalogs } from "../job-filters";
-import { canGoNext, pageText, showingText, withSearchedTab } from "../list-numbers";
+import { withSearchedTab } from "../list-numbers";
 import { DealsTable, DealsTableSkeleton } from "./deals-table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DealQuickView } from "./deal-quick-view";
@@ -82,7 +83,8 @@ interface Frame {
  * The jobs list, as Workiz draws `/root/jobs/` (list_01_submitted): the
  * "Filter results" control with "+ Create New" beside it, the five status
  * tabs with their counts, a grey strip holding the Search box, "Show unpaid
- * jobs", the page size and "Fields", then the grid and Workiz's pager.
+ * jobs", the page size and "Fields", then the grid and Workiz's pager — the
+ * tabs, strip, search, page size and pager are the kit's (components/workiz).
  *
  * Everything — the Search box's text included — is a parameter of
  * `GET /deals` (`toListParams`): the server searches inside the tab and the
@@ -258,8 +260,9 @@ export function DealsPage() {
         ) : null}
       </div>
 
-      {/* Status tabs: 13px, the open one 600 with a 2px #3b4b52 underline,
-          the rest 500 #566d76; a grey count chip beside each. */}
+      {/* Status tabs: the kit's small tabs (13px, the open one 600 with a 2px
+          ink bar over the row's #c4c4c4 rule, the rest 500 slate; a grey
+          count chip beside each), 4px under the control as in list_01. */}
       <div className="sticky left-0 mt-[27px] shrink-0">
         {/* Until its numbers are in, the strip is held by five grey tabs over
             its own rule — Workiz has its tabs up before the rows (audit L19).
@@ -272,46 +275,26 @@ export function DealsPage() {
             ))}
           </div>
         ) : null}
-        <div
-          // The rule is an inset shadow, inside the strip's box: a border sat
-          // outside it, where the overflow clipped the tab's bar off it.
-          className={cn("flex overflow-x-auto pt-1 shadow-[inset_0_-1px_0_#c4c4c4]", !tabsShown && "invisible")}
-          role="tablist"
+        <WzTabBar
+          variant="small"
           aria-label="Job status"
-        >
-          {WORKIZ_TABS.map((t) => {
-            const active = t === state.tab;
+          className={cn("pt-1", !tabsShown && "invisible")}
+          tabs={WORKIZ_TABS.map((t) => ({
+            value: t,
+            label: jobTabLabel(t),
             // Searching, the open tab's chip counts what was found (Workiz);
-            // `withSearchedTab` put that number in its place.
-            const n = tabCounts
-              ? tabCount(tabCounts, t)
-              : " ";
-            return (
-              <button
-                key={t}
-                role="tab"
-                aria-selected={active}
-                onClick={() => setState((s) => ({ ...s, tab: t }))}
-                className={cn(
-                  // The 2px bar covers the strip's rule, as Workiz's does (pixels L19).
-                  "flex shrink-0 items-center gap-2 border-b-2 px-5 pt-2.5 pb-[7px] text-[13px] leading-[19px] tracking-[0.4px] whitespace-nowrap",
-                  active ? "border-[#3b4b52] font-semibold text-[#3b4b52]" : "border-transparent font-medium text-[#566d76] hover:text-[#3b4b52]",
-                )}
-              >
-                {jobTabLabel(t)}
-                {/* The tabs are drawn with their numbers, so a chip never grows under the reader. */}
-                <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-[10px] bg-border px-1.5 text-[11px] leading-4 font-semibold text-[#3b4b52] tabular-nums">
-                  {n}
-                </span>
-              </button>
-            );
-          })}
-        </div>
+            // `withSearchedTab` put that number in its place. The tabs are
+            // drawn with their numbers, so a chip never grows under the reader.
+            count: tabCounts ? tabCount(tabCounts, t) : " ",
+          }))}
+          value={state.tab}
+          onValueChange={(t) => setState((s) => ({ ...s, tab: t as JobTab }))}
+        />
       </div>
 
       {/* The grey strip: Search, Show unpaid jobs, and at the right the page size and Fields. */}
-      <div className="sticky left-0 flex min-h-[71px] shrink-0 flex-wrap items-center gap-x-[18px] gap-y-2 border-t border-[#dddddd] bg-muted px-[21px] py-[15px]">
-        <SearchBox value={searchText} onChange={setSearchText} />
+      <WzListToolbar className="sticky left-0 shrink-0">
+        <WzSearchBox value={searchText} onChange={setSearchText} maxLength={JOBS_SEARCH_MAX} />
         {caps.unpaid ? (
           <label className="flex h-10 cursor-pointer items-center gap-2 text-sm whitespace-nowrap text-[#404040]">
             <input
@@ -324,17 +307,19 @@ export function DealsPage() {
           </label>
         ) : null}
         <div className="ml-auto flex items-center gap-4">
-          <PageSizeSelect value={pageSize} onChange={setPageSize} />
+          <WzPageSizeSelect value={pageSize} sizes={JOBS_PAGE_SIZES} onChange={setPageSize} />
           <FieldsMenu />
         </div>
-      </div>
+      </WzListToolbar>
 
-      {/* Body: the grid runs edge to edge, as Workiz's does. */}
+      {/* Body: the grid runs edge to edge, as Workiz's does; under it the
+          kit's pager ("Showing 1 to 50 of 208 results", ‹ "Page 1 of 5" ›),
+          which rests › on the counted last page (audit L8). */}
       <div className="flex-1">
         {held ? (
           <div aria-busy>
             <DealsTable deals={held.rows} contactMap={held.contacts} clientNames={held.clientNames} {...tableProps} />
-            <JobsPagination pager={held.pager} />
+            <WzPager pager={held.pager} className="sticky left-0 w-full" />
           </div>
         ) : firstPaintPending ? (
           <DealsTableSkeleton visibleFields={visibleFields} order={fieldOrder} />
@@ -343,7 +328,7 @@ export function DealsPage() {
         ) : (
           <>
             <DealsTable deals={visible} contactMap={contactMap} clientNames={names.clients} {...tableProps} />
-            <JobsPagination pager={pager} />
+            <WzPager pager={pager} className="sticky left-0 w-full" />
           </>
         )}
       </div>
@@ -368,97 +353,6 @@ function useClientWidth<T extends HTMLElement>() {
     return () => ro.disconnect();
   }, [el]);
   return { ref, width };
-}
-
-/**
- * Workiz's table Search (list_01: 348×40, 1px #9ea6aa, radius 4, 13px text
- * between 44px sides, a magnifier at the left; blue border while focused;
- * a round × once there is text).
- */
-function SearchBox({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  return (
-    <div className="relative w-[348px] max-w-full">
-      <Search className="pointer-events-none absolute top-1/2 left-[15px] size-[18px] -translate-y-1/2 text-[#3b4b52]" strokeWidth={1.75} />
-      <input
-        aria-label="Search"
-        placeholder="Search"
-        maxLength={JOBS_SEARCH_MAX}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="h-10 w-full rounded-[4px] border border-[#9ea6aa] bg-background px-11 text-[13px] leading-4 text-[#3b4b52] outline-none placeholder:text-[#9ea6aa] focus:border-[#6aa8ee]"
-      />
-      {value ? (
-        <button
-          type="button"
-          aria-label="Clear search"
-          onClick={() => onChange("")}
-          className="absolute top-1/2 right-[5px] grid size-[26px] -translate-y-1/2 place-items-center rounded-full bg-[#f3f6f7] text-[#768287] hover:text-[#3b4b52]"
-        >
-          <X className="size-[13px]" strokeWidth={2.75} />
-        </button>
-      ) : null}
-    </div>
-  );
-}
-
-/** Workiz's page-size select: 75×34 on the grey strip, 1px #ccc, radius 2, "50 ⌄". */
-function PageSizeSelect({ value, onChange }: { value: number; onChange: (n: number) => void }) {
-  return (
-    <div className="relative h-[34px] w-[75px] rounded-chip border border-input bg-muted">
-      <select
-        aria-label="Rows per page"
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
-        className="h-full w-full cursor-pointer appearance-none bg-transparent pr-7 pl-2.5 text-[13.86px] font-medium tracking-[0.5px] text-[#444444] outline-none"
-      >
-        {JOBS_PAGE_SIZES.map((n) => (
-          <option key={n} value={n}>
-            {n}
-          </option>
-        ))}
-      </select>
-      <ChevronDown className="pointer-events-none absolute top-1/2 right-2 size-[18px] -translate-y-1/2 text-[#444444]" strokeWidth={1.5} />
-    </div>
-  );
-}
-
-/**
- * Workiz's pager (list_07_bottom): "Showing 1 to 50 of 208 results" at the
- * left of a 64px bar; round ‹ › buttons either side of "Page 1 of 5" in its
- * middle. The cursor list cannot jump to page 7, so there are no numbers to
- * click — exactly Workiz's own control. A list the server did not count
- * says only what is on screen ("Showing 1 to 37 results", "Page 2").
- */
-function JobsPagination({ pager }: { pager: Pager<Deal> }) {
-  // list_07: the round buttons look the same on the first and last page —
-  // #404040 on #fafafa, no fading — they simply do nothing there. The
-  // glyphs are Workiz's thin 18px chevrons.
-  const round =
-    "grid size-[30px] place-items-center rounded-full bg-[#fafafa] text-[#404040] enabled:hover:bg-[#ededed] disabled:cursor-default";
-  return (
-    <div
-      data-testid="list-pagination"
-      className="sticky left-0 flex h-16 w-full items-center border-t-2 border-black/10 px-2.5 text-sm shadow-[0_0_15px_rgba(0,0,0,0.1)]"
-    >
-      <span className="tabular-nums">{showingText(pager)}</span>
-      <div className="absolute left-1/2 flex -translate-x-1/2 items-center gap-[50px]">
-        <button type="button" aria-label="Previous page" disabled={!pager.canPrev} onClick={() => pager.prev()} className={round}>
-          <ChevronLeft className="size-[18px]" strokeWidth={1.5} />
-        </button>
-        <span className="tabular-nums whitespace-nowrap">{pageText(pager)}</span>
-        <button
-          type="button"
-          aria-label="Next page"
-          // The count knows the last page: no "Page 2 of 1" (audit L8).
-          disabled={!canGoNext(pager)}
-          onClick={() => void pager.next()}
-          className={round}
-        >
-          <ChevronRight className="size-[18px]" strokeWidth={1.5} />
-        </button>
-      </div>
-    </div>
-  );
 }
 
 function DealsError({ onRetry, isRetrying }: { onRetry: () => void; isRetrying: boolean }) {
