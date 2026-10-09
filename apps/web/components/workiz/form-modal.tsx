@@ -74,7 +74,11 @@ export function WzFormModal({
       size="big"
       loading={saving}
       disabled={saveDisabled}
-      className={variant === "drawer" ? "flex-1" : undefined}
+      // Workiz's held Save: #eff1f1 with #9ea6aa words (substatus_add_open).
+      className={cn(
+        "disabled:bg-wz-disabled-fill disabled:hover:bg-wz-disabled-fill [&:disabled>span]:text-wz-outline",
+        variant === "drawer" && "flex-1",
+      )}
     >
       {saveLabel}
     </WzButton>
@@ -117,6 +121,12 @@ export function WzFormModal({
       <DialogContent
         aria-describedby={undefined}
         data-variant={variant}
+        // Workiz opens its form with nothing focused (every label resting in
+        // its box); the modal itself takes the focus, so Tab starts inside.
+        onOpenAutoFocus={(e) => {
+          e.preventDefault();
+          (e.currentTarget as HTMLElement | null)?.focus();
+        }}
         className={cn(
           "flex flex-col gap-0",
           full

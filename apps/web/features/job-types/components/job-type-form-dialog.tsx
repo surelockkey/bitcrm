@@ -59,7 +59,7 @@ export function JobTypeFormDialog({
       saveDisabled={!parsed.success}
       error={error}
     >
-      <WzTextField label="Job Type Name" value={name} onChange={(e) => setName(e.target.value)} autoFocus overhang={false} />
+      <WzTextField label="Job Type Name" value={name} onChange={(e) => setName(e.target.value)} overhang={false} />
       <WzTextField
         label="Priority"
         type="number"
