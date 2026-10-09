@@ -74,6 +74,15 @@ describe('EstimateReportRepository', () => {
     expect(q.FilterExpression).toBe('#st = :st AND (contains(#num, :q) OR contains(#num, :qu) OR contains(#name, :q))');
   });
 
+  it('walks the export oldest first when asked, newest first by default', async () => {
+    const send = jest.fn(async () => ({ Items: [] }));
+    const repo = new EstimateReportRepository({ client: { send } } as never);
+    await repo.walk({}, 10);
+    await repo.walk({}, 10, 'asc');
+    const inputs = (send.mock.calls as any[]).map((c) => (c[0] as QueryCommand).input);
+    expect(inputs.map((i) => i.ScanIndexForward)).toEqual([false, true]);
+  });
+
   it('reads only what the cards need for a window', async () => {
     const send = jest.fn(async () => ({ Items: [{ status: 'won', totals: { total: 5 }, dealId: 'd' }] }));
     const repo = new EstimateReportRepository({ client: { send } } as never);
@@ -111,6 +120,19 @@ describe('EstimateReportService', () => {
     expect(repo.cardRows).toHaveBeenCalledWith({ fromIso: '2026-09-01T04:00:00.000Z', toIso: '2026-09-28T04:00:00.000Z' });
     await service.summary({ from: '2026-09-01', to: '2026-09-27' }, caller());
     expect(repo.cardRows).toHaveBeenCalledTimes(1);
+  });
+
+  it('pages newest first unless Created is turned round (Workiz’s header click)', async () => {
+    const { service, repo } = make();
+    await service.list({ limit: 10 }, caller());
+    await service.list({ limit: 10, dir: 'asc' }, caller());
+    expect(repo.page.mock.calls.map((c: any[]) => c[3])).toEqual(['desc', 'asc']);
+  });
+
+  it('exports in the order on screen', async () => {
+    const { service, repo } = make();
+    await service.exportCsv({ dir: 'asc' }, caller());
+    expect((repo.walk.mock.calls as any[])[0][2]).toBe('asc');
   });
 
   it('never caches a technician’s own cards', async () => {
@@ -194,5 +216,13 @@ describe('Estimates report (HTTP)', () => {
     expect(estimates.get).not.toHaveBeenCalled();
     expect((await http.get('/api/billing/estimates/report?status=lost')).status).toBe(400);
     expect((await http.get('/api/billing/estimates/report?to=27.09.2026')).status).toBe(400);
+  });
+
+  it('takes the Created order (asc | desc) and refuses anything else', async () => {
+    const http = request(app.getHttpServer());
+    expect((await http.get('/api/billing/estimates/report?dir=asc')).status).toBe(200);
+    expect(report.list).toHaveBeenLastCalledWith(expect.objectContaining({ dir: 'asc' }), expect.anything());
+    expect((await http.get('/api/billing/estimates/report/export?dir=desc')).status).toBe(200);
+    expect((await http.get('/api/billing/estimates/report?dir=up')).status).toBe(400);
   });
 });

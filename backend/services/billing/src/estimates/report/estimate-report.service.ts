@@ -21,6 +21,8 @@ export interface EstimateReportQuery {
   to?: string;
   status?: EstimateStatus;
   search?: string;
+  /** Created order: newest first unless Workiz's Created header was turned round. */
+  dir?: 'asc' | 'desc';
   limit?: number;
   cursor?: string;
 }
@@ -59,7 +61,7 @@ export class EstimateReportService {
 
   async list(q: EstimateReportQuery, caller: Caller): Promise<{ items: Estimate[]; nextCursor?: string }> {
     const limit = Math.min(Math.max(Number(q.limit) || 10, 1), 100);
-    const result = await this.repo.page(this.filterOf(q), limit, q.cursor);
+    const result = await this.repo.page(this.filterOf(q), limit, q.cursor, q.dir ?? 'desc');
     if (!isAssignedOnly(caller, 'estimates')) return result;
     const mine = await this.deal.listDealIdsByTech(caller.user.id);
     return { ...result, items: result.items.filter((e) => !!e.dealId && mine.has(e.dealId)) };
@@ -71,7 +73,7 @@ export class EstimateReportService {
   }
 
   async exportCsv(q: EstimateReportQuery, caller: Caller, authorization?: string): Promise<ReportCsvExport> {
-    let { items, truncated } = await this.repo.walk(this.filterOf(q), ESTIMATE_REPORT_EXPORT_MAX_ROWS);
+    let { items, truncated } = await this.repo.walk(this.filterOf(q), ESTIMATE_REPORT_EXPORT_MAX_ROWS, q.dir ?? 'desc');
     if (isAssignedOnly(caller, 'estimates')) {
       const mine = await this.deal.listDealIdsByTech(caller.user.id);
       items = items.filter((e) => !!e.dealId && mine.has(e.dealId));
