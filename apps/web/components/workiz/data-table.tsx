@@ -44,7 +44,8 @@ export function WzDataTable({
   /** The sorted column; null when the rows stand in the server's order. */
   sort: { key: string; dir: "asc" | "desc" } | null;
   onSort: (key: string) => void;
-  search?: { value: string; onChange: (value: string) => void };
+  /** `label`: the box's accessible name (default "Search"). */
+  search?: { value: string; onChange: (value: string) => void; label?: string };
   className?: string;
   "aria-label": string;
 }) {
@@ -55,7 +56,7 @@ export function WzDataTable({
         <div className="flex h-[52px] items-center justify-end px-2.5">
           <input
             type="search"
-            aria-label="Search"
+            aria-label={search.label ?? "Search"}
             placeholder="search"
             value={search.value}
             onChange={(e) => search.onChange(e.target.value)}

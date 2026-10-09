@@ -1,19 +1,8 @@
 "use client";
 
-import { useState } from "react";
-import { Loader2, Megaphone, Pencil, Plus, Trash2 } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Loader2, Megaphone, Trash2 } from "lucide-react";
 import type { JobSource } from "@bitcrm/types";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -24,18 +13,31 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { WzButton } from "@/components/workiz/button";
+import type { WzGridColumn } from "@/components/workiz/local-grid";
+import { WzOnOffSwitch } from "@/components/workiz/on-off-switch";
+import { WzSettingsCatalog } from "@/components/workiz/settings-catalog";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { settled, usePageReady } from "@/lib/use-page-ready";
-import { useJobSources, useDeleteJobSource } from "../hooks";
+import { useJobSources, useDeleteJobSource, useUpdateJobSource } from "../hooks";
 import { JobSourceFormDialog } from "./job-source-form-dialog";
 
+const byCatalogOrder = (a: JobSource, b: JobSource) => b.priority - a.priority || a.name.localeCompare(b.name);
+
+/**
+ * Settings → Job Sources, as Workiz's Ad groups page
+ * (pg_settings_catalogs_wz_adgroups): the band, "Show: Active" with "Add
+ * New", the grid — Source Name, Priority, the ON/OFF Status — a row opening
+ * its edit. Workiz's Description column is left out (a source here has
+ * none); Delete is ours, in Workiz's Sub Status way.
+ */
 export function JobSourcesPage() {
   const { can, isLoading: permsLoading } = usePermissions();
   const jobSourcesQuery = useJobSources();
   const jobSources = jobSourcesQuery.data;
-  // One skeleton until both the user and the list are in: the "New" button
-  // and the rows come in the same frame, and nobody is refused for the beat
-  // their permissions are still on the way.
+  // One skeleton until both the user and the list are in: the "Add New"
+  // button and the rows come in the same frame, and nobody is refused for
+  // the beat their permissions are still on the way.
   const ready = usePageReady(!permsLoading && settled(jobSourcesQuery));
   const del = useDeleteJobSource();
 
@@ -46,6 +48,40 @@ export function JobSourcesPage() {
   const canCreate = can("job_sources", "create");
   const canEdit = can("job_sources", "edit");
   const canDelete = can("job_sources", "delete");
+
+  const rows = useMemo(() => [...(jobSources ?? [])].sort(byCatalogOrder), [jobSources]);
+  const columns = useMemo<WzGridColumn<JobSource>[]>(() => {
+    const cols: WzGridColumn<JobSource>[] = [
+      { id: "name", label: "Source Name", render: (s) => s.name, sortValue: (s) => s.name, searchText: (s) => s.name },
+      { id: "priority", label: "Priority", render: (s) => s.priority, sortValue: (s) => s.priority, searchText: (s) => String(s.priority) },
+      {
+        id: "status",
+        label: "Status",
+        render: (s) => <JobSourceStatusSwitch jobSource={s} disabled={!canEdit} />,
+        sortValue: (s) => (s.active ? 1 : 0),
+      },
+    ];
+    if (canDelete) {
+      cols.push({
+        id: "actions",
+        label: "Actions",
+        render: (s) => (
+          <WzButton
+            size="regular"
+            icon={<Trash2 />}
+            aria-label={`Delete ${s.name}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              setDeleting(s);
+            }}
+          >
+            Delete
+          </WzButton>
+        ),
+      });
+    }
+    return cols;
+  }, [canEdit, canDelete]);
 
   if (!permsLoading && !can("job_sources", "view")) {
     return (
@@ -68,76 +104,21 @@ export function JobSourcesPage() {
   };
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h2 className="text-base font-semibold tracking-tight">Job sources</h2>
-          <p className="text-sm text-muted-foreground">
-            Where your jobs come from. A job picks one when it&apos;s created.
-          </p>
-        </div>
-        {ready && canCreate ? (
-          <Button variant="brand" className="h-9 gap-1.5" onClick={openNew}>
-            <Plus className="size-4" /> New job source
-          </Button>
-        ) : null}
-      </div>
-
-      {!ready ? (
-        <div className="space-y-2">
-          <Skeleton className="h-12 w-full" />
-          <Skeleton className="h-12 w-full" />
-        </div>
-      ) : !jobSources || jobSources.length === 0 ? (
-        <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed py-14 text-center">
-          <Megaphone className="size-6 text-muted-foreground" />
-          <p className="text-sm font-medium">No job sources yet</p>
-          <p className="text-sm text-muted-foreground">
-            Add your lead sources so jobs can record where they came from.
-          </p>
-        </div>
-      ) : (
-        <div className="rounded-lg border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Priority</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="w-24 text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {jobSources.map((jobSource) => (
-                <TableRow key={jobSource.id}>
-                  <TableCell className="font-medium">{jobSource.name}</TableCell>
-                  <TableCell>{jobSource.priority}</TableCell>
-                  <TableCell>
-                    <Badge variant={jobSource.active ? "default" : "secondary"}>
-                      {jobSource.active ? "Active" : "Archived"}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex justify-end gap-1">
-                      {canEdit ? (
-                        <Button variant="ghost" size="icon" className="size-8" onClick={() => openEdit(jobSource)} aria-label="Edit">
-                          <Pencil className="size-4" />
-                        </Button>
-                      ) : null}
-                      {canDelete ? (
-                        <Button variant="ghost" size="icon" className="size-8" onClick={() => setDeleting(jobSource)} aria-label="Delete">
-                          <Trash2 className="size-4" />
-                        </Button>
-                      ) : null}
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      )}
-
+    <WzSettingsCatalog<JobSource>
+      icon={<Megaphone />}
+      title="Job Sources"
+      description="Find out what's working for your business with job sources."
+      label="Job sources"
+      ready={ready}
+      rows={rows}
+      rowKey={(s) => s.id}
+      columns={columns}
+      isActive={(s) => s.active}
+      defaultSort={{ id: "priority", dir: "desc" }}
+      onAdd={canCreate ? openNew : undefined}
+      onOpen={canEdit ? openEdit : undefined}
+      openLabel={(s) => `Edit ${s.name}`}
+    >
       {formOpen ? (
         <JobSourceFormDialog
           key={editing?.id ?? "new"}
@@ -168,6 +149,20 @@ export function JobSourcesPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </WzSettingsCatalog>
+  );
+}
+
+/** The row's Status switch: off archives the source, on brings it back. */
+function JobSourceStatusSwitch({ jobSource, disabled }: { jobSource: JobSource; disabled: boolean }) {
+  const update = useUpdateJobSource(jobSource.id);
+  const pending = update.isPending ? (update.variables as { active?: boolean } | undefined)?.active : undefined;
+  return (
+    <WzOnOffSwitch
+      aria-label={`${jobSource.name} status`}
+      checked={pending ?? jobSource.active}
+      disabled={disabled || update.isPending}
+      onCheckedChange={(active) => update.mutate({ active })}
+    />
   );
 }

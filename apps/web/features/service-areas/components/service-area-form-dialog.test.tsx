@@ -52,7 +52,8 @@ describe("ServiceAreaFormDialog — sales tax & default company", () => {
     expect(within(dialog).queryByLabelText("Tax name")).not.toBeInTheDocument();
     await user.click(within(dialog).getByRole("switch", { name: "Charge sales tax in this area" }));
     const name = within(dialog).getByLabelText("Tax name");
-    expect(name).toHaveAttribute("placeholder", "e.g. CT Sales Tax");
+    // Workiz floating-label box: the label is the hint, no placeholder.
+    expect(name).toHaveAttribute("maxlength", "60");
     await user.type(name, "CT Sales Tax");
     await user.type(within(dialog).getByLabelText("Tax rate (%)"), "6.35");
 
@@ -95,5 +96,38 @@ describe("ServiceAreaFormDialog — sales tax & default company", () => {
     await user.type(within(dialog).getByLabelText("Tax rate (%)"), "101");
     expect(within(dialog).getByRole("button", { name: "Save" })).toBeDisabled();
     expect(within(dialog).getByText(/0–100% with at most 3 decimals/)).toBeInTheDocument();
+  });
+});
+
+describe("ServiceAreaFormDialog — Workiz's Choose Color and Advanced area select", () => {
+  it("sends a colour picked from the squares", async () => {
+    const user = userEvent.setup();
+    renderWithClient(<ServiceAreaFormDialog area={{ ...area, color: "#7fffd4" }} open onOpenChange={() => {}} />);
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByRole("radio", { name: "Aquamarine" })).toBeChecked();
+    await user.click(within(dialog).getByRole("radio", { name: "Crimson" }));
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(put).toMatchObject({ color: "#dc143c" }));
+  });
+
+  it("leaves an untouched colour out of the save", async () => {
+    const user = userEvent.setup();
+    renderWithClient(<ServiceAreaFormDialog area={{ ...area, color: "#7fffd4" }} open onOpenChange={() => {}} />);
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(put).toBeDefined());
+    expect(put).not.toHaveProperty("color");
+  });
+
+  it("turns the ZIP area into a map polygon with the Advanced area select switch", async () => {
+    const user = userEvent.setup();
+    renderWithClient(<ServiceAreaFormDialog area={area} open onOpenChange={() => {}} />);
+    const dialog = await screen.findByRole("dialog");
+    const advanced = within(dialog).getByRole("switch", { name: "Advanced area select" });
+    expect(advanced).not.toBeChecked();
+    await user.click(advanced);
+    expect(advanced).toBeChecked();
+    // A polygon needs three dots on the map before it can be saved.
+    expect(within(dialog).getByRole("button", { name: "Save" })).toBeDisabled();
   });
 });

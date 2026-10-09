@@ -118,6 +118,8 @@ export function WzLocalGrid<T>({
   onRowClick,
   rowClassName,
   footer,
+  defaultPageSize = 10,
+  pagerInside = false,
   className,
 }: {
   /** The table's accessible name ("Jobs"). */
@@ -134,17 +136,43 @@ export function WzLocalGrid<T>({
   rowClassName?: string;
   /** Under the pager ("Still counting the client's jobs…"). */
   footer?: ReactNode;
+  /** The page size the grid opens at (Workiz's settings grids: 10, Sub Status 50). */
+  defaultPageSize?: number;
+  /**
+   * The pager inside the grid's 1px frame, as react-table's
+   * `.pagination-bottom` sits on Workiz's settings pages (uikit_wz_set_jobtypes:
+   * the frame runs down round the footer). Off: under the frame, as on the
+   * client page.
+   */
+  pagerInside?: boolean;
   className?: string;
 }) {
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<WzGridSort | null>(defaultSort);
   const [page, setPage] = useState(1);
-  const [size, setSize] = useState(10);
+  const [size, setSize] = useState(defaultPageSize);
 
   const view = useMemo(() => localGridView(rows, columns, { query, sort, page, size }), [rows, columns, query, sort, page, size]);
   const fixed = columns.reduce((sum, c) => sum + (c.width ?? 0), 0);
   const flexible = columns.filter((c) => !c.width).length;
   const minWidth = fixed + flexible * MIN_COL;
+
+  const pager = (
+    <WzPager
+      pager={{
+        page: view.page,
+        from: view.from,
+        to: view.to,
+        total: view.total,
+        totalPages: view.pages,
+        canPrev: view.page > 1,
+        canNext: view.page < view.pages,
+        isFetching: false,
+        prev: () => setPage(view.page - 1),
+        next: () => setPage(view.page + 1),
+      }}
+    />
+  );
 
   return (
     <div data-slot="wz-local-grid" className={cn("flex min-w-0 flex-col", className)}>
@@ -169,7 +197,7 @@ export function WzLocalGrid<T>({
           }}
         />
       </WzListToolbar>
-      <div className="relative overflow-x-auto border border-wz-frame">
+      <div data-slot="wz-local-grid-frame" className="relative overflow-x-auto border border-wz-frame">
         <Table aria-label={label} contained={false} className="table-fixed border-separate border-spacing-0" style={{ minWidth }}>
           <colgroup>
             {columns.map((c) => (
@@ -226,21 +254,9 @@ export function WzLocalGrid<T>({
           </TableBody>
         </Table>
         {view.total === 0 ? <WzTableNoData /> : null}
+        {pagerInside ? pager : null}
       </div>
-      <WzPager
-        pager={{
-          page: view.page,
-          from: view.from,
-          to: view.to,
-          total: view.total,
-          totalPages: view.pages,
-          canPrev: view.page > 1,
-          canNext: view.page < view.pages,
-          isFetching: false,
-          prev: () => setPage(view.page - 1),
-          next: () => setPage(view.page + 1),
-        }}
-      />
+      {pagerInside ? null : pager}
       {footer}
     </div>
   );

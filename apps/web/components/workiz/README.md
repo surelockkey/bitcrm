@@ -913,6 +913,57 @@ plus `pg_technicians_wz_measure_{team,user}.json`); notes:
   `minRows={5}` + `plainFiller`; **`WzMiniToggle` / `WzOutlinedSelect`
   `aria-describedby`**.
 
+## Settings pages (2026-10-09, agent `pg_settings_catalogs`)
+
+Measured off `uikit_wz_settings_home`, `uikit_wz_set_*` and
+`pg_settings_catalogs_wz_*` (notes:
+`workiz-data-parser/docs/import/app-parity-2026-10-08/pg_settings_catalogs.md`).
+Workiz has **no settings rail**: the settings home is the way to every page,
+and each page draws itself edge to edge. `app/(app)/settings/sections.ts`
+`WORKIZ_FRAMED_SETTINGS` lists the pages rebuilt that way — the layout gives
+them no frame; any other settings page keeps the old heading + rail until its
+rebuild adds its href there.
+
+- **`WzSettingsBlock`** `title` + **`WzSettingsTile`** `href` `title` `icon` `hint`
+  (`settings-page.tsx`) — the home: an 18px/30px 500 heading over a #ddd rule,
+  tiles 46px, three to a row 30/25px apart, a 3px ink left rule, the card
+  shadow (lifting under the cursor), a 25px line glyph; `hint` is the tooltip.
+- **`WzSettingsHeader`** `icon` `title` `description` — the #fafcfc band
+  (`._explain`): glyph, 22.4px/600 title, a 48px #ddd rule, the description
+  (Workiz's "Read guide" is left out — no guides here).
+- **`WzSettingsBar`** `show` `onShowChange` `action` — "Show:" (Active /
+  Disabled / All, `WZ_SHOW_OPTIONS`, `wzShowRows`) over a 201×49 select, the
+  yellow add button at the right; without `show`, the button alone at the left
+  (Sub Status).
+- **`WzSettingsCatalog`** (`settings-catalog.tsx`) `icon` `title` `description`
+  `label` `ready` `rows` `rowKey` `columns` `isActive` `defaultShow`
+  `defaultSort` `defaultPageSize` `onAdd` `addLabel` `onOpen` `openLabel` —
+  a whole catalog page: band, Show: + add, `WzLocalGrid pagerInside`; one
+  skeleton under the band until `ready`; rows open their record (the first
+  column's words are a button for the keyboard, named by `openLabel`).
+- **`WzLocalGrid` `pagerInside`** (new, optional) — the pager inside the 1px
+  frame, as on every settings grid; **`defaultPageSize`** (new, optional) —
+  Sub Status opens at 50. Defaults unchanged.
+- **`WzOnOffSwitch`** (`on-off-switch.tsx`) `checked` `onCheckedChange` — the
+  80×24 `react-switch`: #eac300 "ON" / #ccc "OFF", the dotted 32×26 knob. A
+  native `role="switch"` checkbox; its click never reaches the row.
+- **`WzColorBar`** `color|className` `label` `width` — the Color column's
+  100×16 r4 bar (`width="full"`: Service Areas' Color Class).
+- **`WzColorDots`** (`color-dots.tsx`) `label` `options={value,label,color|className}`
+  `value` `onChange` `shape` — "Choose color": 24px dots 8px apart, the chosen
+  one a white ring in a 1px edge round a 16px dot; `shape="square"` is the
+  service-area modal's 20px squares with a ✓. A radio group.
+- **`WzModalTextField`** (`modal-text-field.tsx`) `label` `value`
+  `onChange` `helper` `error` — the 40px FloatingLabel text box of the newer
+  modals (`WzOutlinedSelect`'s shell).
+- **`WzFormModal`** (`form-modal.tsx`) `title` `description` `onSave`
+  `saveLabel` `saving` `saveDisabled` `error` `variant="modal"|"full"|"drawer"`
+  — the settings forms: the 500px modal, the whole-window one (Add New
+  Service area) or the 350px band-headed drawer (Add New Field); fields in a
+  form (Enter saves), Cancel / Save (a held Save greys), nothing focused on
+  open (Workiz's labels rest in their boxes).
+- **`WzDataTable` `search.label`** (new, optional) — the search box's name.
+
 ## Known differences from Workiz (deliberate or unmeasurable)
 - Sub-pixel: Workiz's own fractional layout makes some glyphs land ±1px
   differently from ours in screenshots (e.g. two Workiz selects with identical

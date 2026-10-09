@@ -1,19 +1,8 @@
 "use client";
 
-import { useState } from "react";
-import { Pencil, Plus, RotateCcw, Tags, Trash2 } from "lucide-react";
+import { useMemo, useState } from "react";
+import { PhoneCall } from "lucide-react";
 import type { CallTag } from "@bitcrm/types";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -24,17 +13,26 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { cn } from "@/lib/utils";
+import type { WzGridColumn } from "@/components/workiz/local-grid";
+import { WzOnOffSwitch } from "@/components/workiz/on-off-switch";
+import { WzSettingsCatalog } from "@/components/workiz/settings-catalog";
+import { WzColorBar } from "@/components/workiz/settings-page";
 import { settled, usePageReady } from "@/lib/use-page-ready";
 import { useDenied, usePermissions } from "@/features/auth/use-permissions";
 import { useArchiveCallTag, useCallTags, useRestoreCallTag } from "../hooks";
-import { tagColorClasses } from "../lib";
+import { TAG_SWATCH_CLASSES } from "../lib";
 import { CallTagFormDialog } from "./call-tag-form-dialog";
+
+const byCatalogOrder = (a: CallTag, b: CallTag) => b.priority - a.priority || a.name.localeCompare(b.name);
 
 /**
  * Settings → Call Tags: the catalog behind the "Tags" column on the call log
- * (the Workiz call tags — SPAM CALLER, Tech Call, WRONG NUMBER…). Archived
- * tags stay listed, because the calls that carry them are still in the log.
+ * (the Workiz call tags — SPAM CALLER, Tech Call, WRONG NUMBER…). Workiz
+ * manages them from the call, with no settings page, so this follows its
+ * Sub Status page (the Color bar) with Job Types' ON/OFF Status switch. A
+ * call tag is never deleted: switching one off archives it (after a
+ * confirm), on restores it. Archived tags stay listed — "Show: All" from the
+ * start — because the calls that carry them are still in the log.
  */
 export function CallTagsPage() {
   const { can, isLoading: permissionsLoading } = usePermissions();
@@ -50,6 +48,34 @@ export function CallTagsPage() {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<CallTag | undefined>();
   const [archiving, setArchiving] = useState<CallTag | undefined>();
+
+  const rows = useMemo(() => [...(callTags ?? [])].sort(byCatalogOrder), [callTags]);
+  const columns = useMemo<WzGridColumn<CallTag>[]>(
+    () => [
+      { id: "name", label: "Tag Name", render: (t) => t.name, sortValue: (t) => t.name, searchText: (t) => t.name },
+      {
+        id: "color",
+        label: "Color",
+        width: 200,
+        render: (t) => <WzColorBar className={TAG_SWATCH_CLASSES[t.color]} label={t.color} />,
+      },
+      { id: "priority", label: "Priority", render: (t) => t.priority, sortValue: (t) => t.priority, searchText: (t) => String(t.priority) },
+      {
+        id: "status",
+        label: "Status",
+        sortValue: (t) => (t.active ? 1 : 0),
+        render: (t) => (
+          <WzOnOffSwitch
+            aria-label={`${t.name} status`}
+            checked={t.active}
+            disabled={!canEdit || restore.isPending}
+            onCheckedChange={(on) => (on ? restore.mutate(t.id) : setArchiving(t))}
+          />
+        ),
+      },
+    ],
+    [canEdit, restore],
+  );
 
   // Refused only once the permissions say so — not while they are coming.
   if (denied("settings")) {
@@ -73,112 +99,22 @@ export function CallTagsPage() {
   };
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h2 className="text-base font-semibold tracking-tight">Call tags</h2>
-          <p className="text-sm text-muted-foreground">
-            Colored labels for calls — spam, wrong number, a tech calling in. A
-            call can carry many, and the call log filters on them.
-          </p>
-        </div>
-        {canEdit ? (
-          <Button variant="brand" className="h-9 gap-1.5" onClick={openNew}>
-            <Plus className="size-4" /> New call tag
-          </Button>
-        ) : null}
-      </div>
-
-      {!ready ? (
-        <div className="space-y-2">
-          <Skeleton className="h-12 w-full" />
-          <Skeleton className="h-12 w-full" />
-        </div>
-      ) : !callTags || callTags.length === 0 ? (
-        <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed py-14 text-center">
-          <Tags className="size-6 text-muted-foreground" />
-          <p className="text-sm font-medium">No call tags yet</p>
-          <p className="text-sm text-muted-foreground">
-            Create tags so the team can mark spam, wrong numbers and tech calls
-            — then filter the log by them.
-          </p>
-        </div>
-      ) : (
-        <div className="rounded-lg border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Priority</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="w-24 text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {callTags.map((callTag) => (
-                <TableRow key={callTag.id}>
-                  <TableCell>
-                    <span
-                      className={cn(
-                        "inline-flex items-center rounded-chip border px-2.5 py-0.5 text-xs font-medium",
-                        tagColorClasses(callTag.color),
-                        !callTag.active && "opacity-60",
-                      )}
-                    >
-                      {callTag.name}
-                    </span>
-                  </TableCell>
-                  <TableCell>{callTag.priority}</TableCell>
-                  <TableCell>
-                    <Badge variant={callTag.active ? "default" : "secondary"}>
-                      {callTag.active ? "Active" : "Archived"}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex justify-end gap-1">
-                      {canEdit ? (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="size-8"
-                          onClick={() => openEdit(callTag)}
-                          aria-label={`Edit ${callTag.name}`}
-                        >
-                          <Pencil className="size-4" />
-                        </Button>
-                      ) : null}
-                      {canEdit && callTag.active ? (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="size-8"
-                          onClick={() => setArchiving(callTag)}
-                          aria-label={`Archive ${callTag.name}`}
-                        >
-                          <Trash2 className="size-4" />
-                        </Button>
-                      ) : null}
-                      {canEdit && !callTag.active ? (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="size-8"
-                          disabled={restore.isPending}
-                          onClick={() => restore.mutate(callTag.id)}
-                          aria-label={`Restore ${callTag.name}`}
-                        >
-                          <RotateCcw className="size-4" />
-                        </Button>
-                      ) : null}
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      )}
-
+    <WzSettingsCatalog<CallTag>
+      icon={<PhoneCall />}
+      title="Call Tags"
+      description="Colored labels for calls — spam, wrong number, a tech calling in. The call log filters on them."
+      label="Call tags"
+      ready={ready}
+      rows={rows}
+      rowKey={(t) => t.id}
+      columns={columns}
+      isActive={(t) => t.active}
+      defaultShow="all"
+      defaultSort={{ id: "priority", dir: "desc" }}
+      onAdd={canEdit ? openNew : undefined}
+      onOpen={canEdit ? openEdit : undefined}
+      openLabel={(t) => `Edit ${t.name}`}
+    >
       {formOpen ? (
         <CallTagFormDialog
           key={editing?.id ?? "new"}
@@ -188,17 +124,14 @@ export function CallTagsPage() {
         />
       ) : null}
 
-      <AlertDialog
-        open={Boolean(archiving)}
-        onOpenChange={(v) => !v && setArchiving(undefined)}
-      >
+      <AlertDialog open={Boolean(archiving)} onOpenChange={(v) => !v && setArchiving(undefined)}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Archive call tag?</AlertDialogTitle>
             <AlertDialogDescription>
               &ldquo;{archiving?.name}&rdquo; leaves every picker. Calls already
               tagged with it keep their label — a call tag is never deleted, so
-              the history stays readable. You can restore it from this page.
+              the history stays readable. Switch it back on here to restore it.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -217,6 +150,6 @@ export function CallTagsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </WzSettingsCatalog>
   );
 }

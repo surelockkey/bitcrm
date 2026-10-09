@@ -129,3 +129,20 @@ export { WzSettingsExplain } from "./settings-explain";
 export { WzPopMenu, type WzPopMenuItem } from "./pop-menu";
 export { WzOutlinedTextField, type WzOutlinedTextFieldProps } from "./outlined-text-field";
 export { WzFormSectionTitle, WzInfoTip } from "./form-section-title";
+
+// Settings pages (agent pg_settings_catalogs, Workiz settings home + catalogs).
+export {
+  WzSettingsHeader,
+  WzSettingsBar,
+  WzColorBar,
+  WzSettingsBlock,
+  WzSettingsTile,
+  wzShowRows,
+  WZ_SHOW_OPTIONS,
+  type WzShowFilter,
+} from "./settings-page";
+export { WzOnOffSwitch, type WzOnOffSwitchProps } from "./on-off-switch";
+export { WzColorDots, type WzColorDotOption } from "./color-dots";
+export { WzFormModal } from "./form-modal";
+export { WzSettingsCatalog } from "./settings-catalog";
+export { WzModalTextField } from "./modal-text-field";

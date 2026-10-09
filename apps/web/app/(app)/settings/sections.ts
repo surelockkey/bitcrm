@@ -240,6 +240,33 @@ export function visibleSettingsGroups(can: (resource: Resource) => boolean): Set
   })).filter((group) => group.sections.length > 0);
 }
 
+/**
+ * The settings pages rebuilt as Workiz's: each draws its own frame (the grey
+ * band, the grid edge to edge) and none has a settings rail — Workiz goes
+ * back to the settings home for the next one. A page not in here yet keeps
+ * the old frame (the "Settings" heading and the rail) until its rebuild
+ * lands and adds its href.
+ */
+export const WORKIZ_FRAMED_SETTINGS: ReadonlySet<string> = new Set([
+  SETTINGS_HOME.href,
+  "/settings/job-types",
+  "/settings/job-sources",
+  "/settings/job-statuses",
+  "/settings/job-tags",
+  "/settings/client-tags",
+  "/settings/custom-fields",
+  "/settings/job-fields",
+  "/settings/service-areas",
+  "/settings/external-companies",
+  "/settings/call-tags",
+]);
+
+/** Which frame the settings layout draws round `pathname`. */
+export function settingsFrame(pathname: string): "workiz" | "rail" {
+  const path = pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname;
+  return WORKIZ_FRAMED_SETTINGS.has(path) ? "workiz" : "rail";
+}
+
 /** A DOM id for a block's heading, unique per `scope` on the page. */
 export function settingsGroupId(scope: string, group: SettingsGroup): string {
   return `${scope}-${group.label.toLowerCase().replace(/[^a-z]+/g, "-")}`;

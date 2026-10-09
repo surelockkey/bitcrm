@@ -198,7 +198,7 @@ describe("CallTagCombobox — the tags on one call", () => {
     const dialog = screen.getByRole("dialog");
     expect(within(dialog).getByDisplayValue("platinum")).toBeInTheDocument();
 
-    fireEvent.click(within(dialog).getByRole("button", { name: "Create" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
     expect(createMutate).toHaveBeenCalledWith(
       expect.objectContaining({ name: "platinum" }),
       expect.anything(),

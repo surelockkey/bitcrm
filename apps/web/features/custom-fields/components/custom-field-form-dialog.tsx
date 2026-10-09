@@ -1,24 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Check, Loader2, Plus, X } from "lucide-react";
+import { Check, Plus, X } from "lucide-react";
 import type { CustomFieldDefinition, CustomFieldType } from "@bitcrm/types";
 import { CUSTOM_FIELD_TYPES, isOptionCustomFieldType } from "@bitcrm/types";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from "@/components/ui/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Command,
   CommandEmpty,
@@ -29,24 +14,27 @@ import {
 } from "@/components/ui/command";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
+import { WzFormModal } from "@/components/workiz/form-modal";
+import { WzOutlinedSelect } from "@/components/workiz/outlined-select";
+import { WzModalTextField } from "@/components/workiz/modal-text-field";
+import { WzMiniToggle } from "@/components/workiz/switch-tabs";
 import { useJobTypes } from "@/features/job-types/hooks";
 import { activeJobTypes } from "@/features/job-types/lib";
 import { useCreateCustomField, useUpdateCustomField } from "../hooks";
 import { customFieldFormSchema, toCustomFieldBody } from "../schemas";
 
-/** Friendly labels for the fixed set of input kinds. */
+/** The input kinds in Workiz's words ("Drop Down", "Files"). */
 const TYPE_LABELS: Record<CustomFieldType, string> = {
   text: "Text",
-  large_text: "Large text",
+  large_text: "Large Text",
   number: "Number",
   checkbox: "Checkbox",
-  dropdown: "Dropdown",
+  dropdown: "Drop Down",
   date: "Date",
-  file: "File",
-  multi_select: "Multi-select",
+  file: "Files",
+  multi_select: "Multi Select",
 };
+const TYPE_OPTIONS = CUSTOM_FIELD_TYPES.map((t) => ({ value: t, label: TYPE_LABELS[t] }));
 
 /**
  * Job-type multiselect for a custom field's scope. Selected types show as
@@ -205,6 +193,16 @@ function OptionsEditor({
   );
 }
 
+/**
+ * Workiz's "Add New Field" drawer (pg_settings_catalogs_wz_customfields_add_open):
+ * 350px on the right under its grey band head — Field Name, Field type,
+ * Group in the outlined boxes, the job types it applies to ("All Job Types"
+ * when none), then "Required?", "Required To Close?" and "searchable?" on
+ * Workiz's small dark toggles; Cancel / Save sharing the foot. The options
+ * of a Drop Down / Multi Select and the Priority (Workiz drags the rows
+ * instead) are ours, in the same boxes. On / off is the table's Status
+ * switch; an edit keeps the state.
+ */
 export function CustomFieldFormDialog({
   customField,
   open,
@@ -227,6 +225,7 @@ export function CustomFieldFormDialog({
   const [required, setRequired] = useState(customField?.required ?? false);
   const [requiredToClose, setRequiredToClose] = useState(customField?.requiredToClose ?? false);
   const [searchable, setSearchable] = useState(customField?.searchable ?? false);
+  const [priority, setPriority] = useState(String(customField?.priority ?? 0));
   const [error, setError] = useState<string | null>(null);
 
   const optionType = isOptionCustomFieldType(type);
@@ -242,10 +241,10 @@ export function CustomFieldFormDialog({
         required,
         requiredToClose,
         searchable,
-        priority: customField?.priority ?? 0,
+        priority,
         active: customField?.active ?? true,
       }),
-    [name, type, group, options, jobTypeIds, required, requiredToClose, searchable, customField],
+    [name, type, group, options, jobTypeIds, required, requiredToClose, searchable, priority, customField],
   );
 
   const submit = () => {
@@ -259,103 +258,54 @@ export function CustomFieldFormDialog({
     mutation.mutate(body, { onSuccess: () => onOpenChange(false) });
   };
 
+  const toggles: { label: string; checked: boolean; set: (v: boolean) => void }[] = [
+    { label: "Required?", checked: required, set: setRequired },
+    { label: "Required To Close?", checked: requiredToClose, set: setRequiredToClose },
+    { label: "searchable?", checked: searchable, set: setSearchable },
+  ];
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] w-[95vw] max-w-md overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>
-            {editing ? `Edit ${customField!.name}` : "New custom field"}
-          </DialogTitle>
-          <DialogDescription>
-            A user-defined field on deals. Group related fields and scope them to job types.
-          </DialogDescription>
-        </DialogHeader>
+    <WzFormModal
+      open={open}
+      onOpenChange={onOpenChange}
+      title={editing ? "Edit Field" : "Add New Field"}
+      onSave={submit}
+      saving={pending}
+      saveDisabled={!parsed.success}
+      error={error}
+      variant="drawer"
+    >
+      <WzModalTextField label="Field Name" value={name} onChange={setName} />
+      <WzOutlinedSelect
+        label="Field type"
+        options={TYPE_OPTIONS}
+        value={type}
+        onChange={(v) => setType((v || "text") as CustomFieldType)}
+      />
+      <WzModalTextField label="Group" value={group} onChange={setGroup} />
 
-        <div className="space-y-4 py-1">
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label>Field type</Label>
-              <Select value={type} onValueChange={(v) => setType(v as CustomFieldType)}>
-                <SelectTrigger className="h-9 w-full">
-                  <SelectValue placeholder="Select" />
-                </SelectTrigger>
-                <SelectContent>
-                  {CUSTOM_FIELD_TYPES.map((t) => (
-                    <SelectItem key={t} value={t}>
-                      {TYPE_LABELS[t]}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label>Group</Label>
-              <Input
-                className="h-9"
-                value={group}
-                onChange={(e) => setGroup(e.target.value)}
-                placeholder="General"
-              />
-            </div>
-          </div>
-
-          <div className="space-y-1.5">
-            <Label>Field Name</Label>
-            <Input
-              className="h-9"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Lock Brand"
-            />
-          </div>
-
-          {optionType ? (
-            <div className="space-y-1.5">
-              <Label>Options</Label>
-              <OptionsEditor options={options} onChange={setOptions} />
-            </div>
-          ) : null}
-
-          <div className="space-y-1.5">
-            <Label>Job Types</Label>
-            <JobTypesPicker value={jobTypeIds} onChange={setJobTypeIds} />
-            <p className="text-xs text-muted-foreground">
-              Leave empty to apply to all job types.
-            </p>
-          </div>
-
-          <div className="flex items-center justify-between rounded-md border px-3 py-2.5">
-            <Label>Required?</Label>
-            <Switch checked={required} onCheckedChange={setRequired} />
-          </div>
-          <div className="flex items-center justify-between rounded-md border px-3 py-2.5">
-            <Label>Required To Close?</Label>
-            <Switch checked={requiredToClose} onCheckedChange={setRequiredToClose} />
-          </div>
-          <div className="flex items-center justify-between rounded-md border px-3 py-2.5">
-            <Label>Searchable?</Label>
-            <Switch checked={searchable} onCheckedChange={setSearchable} />
-          </div>
-
-          {error ? <p className="text-sm text-destructive">{error}</p> : null}
+      {optionType ? (
+        <div className="flex flex-col gap-2">
+          <p className="text-sm leading-[21px] text-wz-strong">Options</p>
+          <OptionsEditor options={options} onChange={setOptions} />
         </div>
+      ) : null}
 
-        <DialogFooter>
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            variant="brand"
-            className="gap-1.5"
-            disabled={pending || !parsed.success}
-            onClick={submit}
-          >
-            {pending ? <Loader2 className="size-4 animate-spin" /> : null}
-            {editing ? "Save" : "Create"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      <div className="flex flex-col gap-2">
+        <JobTypesPicker value={jobTypeIds} onChange={setJobTypeIds} />
+        <p className="text-xs leading-[18px] text-wz-caption">Leave empty to apply to all job types.</p>
+      </div>
+
+      <WzModalTextField label="Priority" type="number" min={0} value={priority} onChange={setPriority} />
+
+      <div className="flex flex-col gap-[29px]">
+        {toggles.map((t) => (
+          <div key={t.label} className="flex items-center justify-between">
+            <span className="text-sm leading-[21px] text-wz-strong">{t.label}</span>
+            <WzMiniToggle label={t.label} checked={t.checked} onCheckedChange={t.set} />
+          </div>
+        ))}
+      </div>
+    </WzFormModal>
   );
 }

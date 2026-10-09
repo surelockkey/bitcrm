@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
@@ -65,17 +66,30 @@ beforeEach(() => {
 });
 
 describe("CustomFieldsPage", () => {
-  it("lists fields grouped under their group heading", async () => {
+  it("lists fields under Workiz's \"Group: …\" rows, each with its job types, type and Required", async () => {
     render(<CustomFieldsPage />, { wrapper });
 
-    const hardware = await screen.findByRole("heading", { name: "Hardware" });
-    const access = screen.getByRole("heading", { name: "Access" });
-    expect(hardware).toBeInTheDocument();
-    expect(access).toBeInTheDocument();
+    const hardware = await screen.findByRole("button", { name: "Group: Hardware" });
+    expect(hardware).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("button", { name: "Group: Access" })).toBeInTheDocument();
 
-    expect(await screen.findByText("Lock Brand")).toBeInTheDocument();
+    const row = (await screen.findByText("Lock Brand")).closest("tr")!;
+    expect(within(row).getByText("All Types")).toBeInTheDocument();
+    expect(within(row).getByText("drop down")).toBeInTheDocument();
+    expect(within(row).getByText("No")).toBeInTheDocument();
     expect(screen.getByText("Cylinder")).toBeInTheDocument();
     expect(screen.getByText("Access Notes")).toBeInTheDocument();
+  });
+
+  it("folds a group away and back", async () => {
+    render(<CustomFieldsPage />, { wrapper });
+    const hardware = await screen.findByRole("button", { name: "Group: Hardware" });
+    await userEvent.click(hardware);
+    expect(hardware).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText("Lock Brand")).not.toBeInTheDocument();
+    expect(screen.getByText("Access Notes")).toBeInTheDocument();
+    await userEvent.click(hardware);
+    expect(screen.getByText("Lock Brand")).toBeInTheDocument();
   });
 
   it("blocks access without custom_fields.view", async () => {
@@ -84,8 +98,8 @@ describe("CustomFieldsPage", () => {
     expect(await screen.findByText("No access")).toBeInTheDocument();
   });
 
-  it("shows the New custom field action for creators", async () => {
+  it("shows Workiz's Add New for creators", async () => {
     render(<CustomFieldsPage />, { wrapper });
-    expect(await screen.findByRole("button", { name: /new custom field/i })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Add New" })).toBeInTheDocument();
   });
 });

@@ -112,4 +112,17 @@ describe("WzLocalGrid — Workiz's grid under a client-page tab", () => {
     render(<WzLocalGrid label="Invoices" columns={COLUMNS} rows={ROWS} rowKey={(r) => r.id} toolbar={<button type="button">Pay unpaid invoices</button>} />);
     expect(screen.getByRole("button", { name: "Pay unpaid invoices" })).toBeInTheDocument();
   });
+
+  it("opens at the caller's page size (Workiz's Sub Status opens at 50)", () => {
+    render(<WzLocalGrid label="Sub statuses" columns={COLUMNS} rows={ROWS} rowKey={(r) => r.id} defaultPageSize={50} />);
+    expect(screen.getByRole("combobox", { name: "Rows per page" })).toHaveValue("50");
+  });
+
+  it("can keep the pager inside the grid's frame, as the settings grids do", () => {
+    const { container, rerender } = render(<WzLocalGrid label="Jobs" columns={COLUMNS} rows={ROWS} rowKey={(r) => r.id} />);
+    const frame = () => container.querySelector("[data-slot=wz-local-grid-frame]")!;
+    expect(frame().contains(screen.getByTestId("list-pagination"))).toBe(false);
+    rerender(<WzLocalGrid label="Jobs" columns={COLUMNS} rows={ROWS} rowKey={(r) => r.id} pagerInside />);
+    expect(frame().contains(screen.getByTestId("list-pagination"))).toBe(true);
+  });
 });

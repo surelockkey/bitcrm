@@ -57,16 +57,16 @@ describe("JobFieldsPage — Settings → Job Fields", () => {
   it("lists every built-in job field with its required state", () => {
     render(<JobFieldsPage />);
 
-    expect(screen.getByRole("switch", { name: "Service address" })).toHaveAttribute("aria-checked", "true");
-    expect(screen.getByRole("switch", { name: "Job source" })).toHaveAttribute("aria-checked", "false");
-    expect(screen.getByRole("switch", { name: "PO number" })).toBeInTheDocument();
-    expect(screen.getByRole("switch", { name: "Client phone" })).toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: "Service address Required?" })).toBeChecked();
+    expect(screen.getByRole("switch", { name: "Job source Required?" })).not.toBeChecked();
+    expect(screen.getByRole("switch", { name: "PO number Required?" })).toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: "Client phone Required?" })).toBeInTheDocument();
   });
 
   it("toggling a built-in field saves the new requirement map", () => {
     render(<JobFieldsPage />);
 
-    fireEvent.click(screen.getByRole("switch", { name: "Job source" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Job source Required?" }));
 
     expect(updateSettings).toHaveBeenCalledWith({
       requiredFields: expect.objectContaining({ source: true, address: true }),
@@ -76,7 +76,7 @@ describe("JobFieldsPage — Settings → Job Fields", () => {
   it("lists custom fields and toggles their own required flag", () => {
     render(<JobFieldsPage />);
 
-    fireEvent.click(screen.getByRole("switch", { name: "Gate Code" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Gate Code Required?" }));
 
     expect(updateCustomField).toHaveBeenCalledWith(
       expect.objectContaining({ required: true }),
@@ -87,7 +87,7 @@ describe("JobFieldsPage — Settings → Job Fields", () => {
     perms.edit = false;
     render(<JobFieldsPage />);
 
-    expect(screen.getByRole("switch", { name: "Job source" })).toBeDisabled();
-    expect(screen.getByRole("switch", { name: "Gate Code" })).toBeDisabled();
+    expect(screen.getByRole("switch", { name: "Job source Required?" })).toBeDisabled();
+    expect(screen.getByRole("switch", { name: "Gate Code Required?" })).toBeDisabled();
   });
 });

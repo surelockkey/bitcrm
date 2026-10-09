@@ -61,8 +61,10 @@ interface Catalog {
   rows: unknown[];
   /** What is on screen once the rows are. */
   row: string;
-  /** The page's "New …" button — drawn only for a user who may create. */
+  /** The page's add button ("Add New") — drawn only for a user who may create. */
   button: RegExp;
+  /** Other lists the page reads before it is whole (and so waits for). */
+  also?: { match: RegExp; rows: unknown[] }[];
 }
 
 const CATALOGS: Catalog[] = [
@@ -72,7 +74,8 @@ const CATALOGS: Catalog[] = [
     list: /\/deals\/job-types$/,
     rows: [{ id: "jt-1", name: "Rekey Visit", priority: 1, active: true, ...stamp }],
     row: "Rekey Visit",
-    button: /new job type/i,
+    // Workiz's yellow "Add New" (uikit_wz_set_jobtypes).
+    button: /^add new$/i,
   },
   {
     name: "Job sources",
@@ -80,7 +83,7 @@ const CATALOGS: Catalog[] = [
     list: /\/deals\/job-sources$/,
     rows: [{ id: "js-1", name: "Flyer Drop", priority: 1, active: true, ...stamp }],
     row: "Flyer Drop",
-    button: /new job source/i,
+    button: /^add new$/i,
   },
   {
     name: "Job tags",
@@ -88,7 +91,7 @@ const CATALOGS: Catalog[] = [
     list: /\/deals\/job-tags$/,
     rows: [{ id: "tg-1", name: "Gate Code", color: "blue", priority: 1, active: true, ...stamp }],
     row: "Gate Code",
-    button: /new job tag/i,
+    button: /^add new$/i,
   },
   {
     name: "Job statuses",
@@ -96,7 +99,7 @@ const CATALOGS: Catalog[] = [
     list: /\/deals\/job-statuses$/,
     rows: [{ id: "st-1", name: "Parts Ordered", group: "pending", color: "amber", priority: 1, active: true, ...stamp }],
     row: "Parts Ordered",
-    button: /add status/i,
+    button: /^add new$/i,
   },
   {
     name: "Custom fields",
@@ -119,7 +122,9 @@ const CATALOGS: Catalog[] = [
       },
     ],
     row: "Door Color",
-    button: /new custom field/i,
+    button: /^add new$/i,
+    // The Job Type column names the types the fields are scoped to.
+    also: [{ match: /\/deals\/job-types$/, rows: [] }],
   },
   {
     name: "Service areas",
@@ -137,7 +142,7 @@ const CATALOGS: Catalog[] = [
       },
     ],
     row: "Lakeside",
-    button: /new service area/i,
+    button: /^add service area$/i,
   },
   {
     name: "External companies",
@@ -145,7 +150,8 @@ const CATALOGS: Catalog[] = [
     list: /\/deals\/external-companies$/,
     rows: [{ id: "ec-1", name: "Roadside Partners", active: true, ...stamp }],
     row: "Roadside Partners",
-    button: /new company/i,
+    // Workiz's legacy square "Add New Company".
+    button: /^add new company$/i,
   },
   {
     name: "Companies",
@@ -196,6 +202,7 @@ async function load(c: Catalog, order: "user-last" | "list-last") {
   server = installFakeServer([
     { match: /\/users\/me$/, reply: () => me, delayMs: order === "user-last" ? 90 : 20 },
     { match: c.list, reply: () => c.rows, delayMs: order === "list-last" ? 90 : 20 },
+    ...(c.also ?? []).map((a) => ({ match: a.match, reply: () => a.rows, delayMs: order === "list-last" ? 90 : 20 })),
   ]);
   const rec = recordFrames(() => ({
     noAccess: !!screen.queryByText("No access"),

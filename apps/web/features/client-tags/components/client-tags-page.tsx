@@ -1,20 +1,8 @@
 "use client";
 
-import { useState } from "react";
-import { Loader2, Tags, Pencil, Plus, Trash2 } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Loader2, Tags, Trash2 } from "lucide-react";
 import type { ClientTag } from "@bitcrm/types";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { cn } from "@/lib/utils";
-import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -25,21 +13,36 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { settled, usePageReady } from "@/lib/use-page-ready";
+import { WzButton } from "@/components/workiz/button";
+import type { WzGridColumn } from "@/components/workiz/local-grid";
+import { WzOnOffSwitch } from "@/components/workiz/on-off-switch";
+import { WzSettingsCatalog } from "@/components/workiz/settings-catalog";
+import { WzColorBar } from "@/components/workiz/settings-page";
 import { useDenied, usePermissions } from "@/features/auth/use-permissions";
-import { useClientTags, useDeleteClientTag } from "../hooks";
-import { tagColorClasses } from "../lib";
+import { settled, usePageReady } from "@/lib/use-page-ready";
+import { useClientTags, useDeleteClientTag, useUpdateClientTag } from "../hooks";
+import { TAG_SWATCH_CLASSES } from "../lib";
 import { ClientTagFormDialog } from "./client-tag-form-dialog";
 
+const byCatalogOrder = (a: ClientTag, b: ClientTag) => b.priority - a.priority || a.name.localeCompare(b.name);
+
+/**
+ * Settings → Client Tags. Workiz has no tags settings page (its client tags
+ * are made from the client card), so this follows its nearest pages: Sub
+ * Status's grid (Tag Name, the Color bar, Actions with the yellow Delete)
+ * and Job Types' "Show: Active" with the ON/OFF Status switch. A row opens
+ * the tag's edit.
+ */
 export function ClientTagsPage() {
   const { can, isLoading: permsLoading } = usePermissions();
   const denied = useDenied();
   const tagsQuery = useClientTags();
   const clientTags = tagsQuery.data;
-  const del = useDeleteClientTag();
-  // The tags and the buttons the permissions decide go up together, behind
-  // one skeleton — the button used to turn up on its own beat.
+  // One skeleton until both the user and the list are in: "Add New" and the
+  // rows come in the same frame, and nobody is refused for the beat their
+  // permissions are still on the way.
   const ready = usePageReady(!permsLoading && settled(tagsQuery));
+  const del = useDeleteClientTag();
 
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<ClientTag | undefined>();
@@ -48,6 +51,46 @@ export function ClientTagsPage() {
   const canCreate = can("client_tags", "create");
   const canEdit = can("client_tags", "edit");
   const canDelete = can("client_tags", "delete");
+
+  const rows = useMemo(() => [...(clientTags ?? [])].sort(byCatalogOrder), [clientTags]);
+  const columns = useMemo<WzGridColumn<ClientTag>[]>(() => {
+    const cols: WzGridColumn<ClientTag>[] = [
+      { id: "name", label: "Tag Name", render: (t) => t.name, sortValue: (t) => t.name, searchText: (t) => t.name },
+      {
+        id: "color",
+        label: "Color",
+        width: 200,
+        render: (t) => <WzColorBar className={TAG_SWATCH_CLASSES[t.color]} label={t.color} />,
+      },
+      { id: "priority", label: "Priority", render: (t) => t.priority, sortValue: (t) => t.priority, searchText: (t) => String(t.priority) },
+      {
+        id: "status",
+        label: "Status",
+        render: (t) => <ClientTagStatusSwitch tag={t} disabled={!canEdit} />,
+        sortValue: (t) => (t.active ? 1 : 0),
+      },
+    ];
+    if (canDelete) {
+      cols.push({
+        id: "actions",
+        label: "Actions",
+        render: (t) => (
+          <WzButton
+            size="regular"
+            icon={<Trash2 />}
+            aria-label={`Delete ${t.name}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              setDeleting(t);
+            }}
+          >
+            Delete
+          </WzButton>
+        ),
+      });
+    }
+    return cols;
+  }, [canEdit, canDelete]);
 
   // Refused only once the permissions say so — not while they are on their way.
   if (denied("client_tags", "view")) {
@@ -71,85 +114,21 @@ export function ClientTagsPage() {
   };
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h2 className="text-base font-semibold tracking-tight">Client tags</h2>
-          <p className="text-sm text-muted-foreground">
-            Colored labels for deals. A deal can carry as many as you like.
-          </p>
-        </div>
-        {ready && canCreate ? (
-          <Button variant="brand" className="h-9 gap-1.5" onClick={openNew}>
-            <Plus className="size-4" /> New client tag
-          </Button>
-        ) : null}
-      </div>
-
-      {!ready ? (
-        <div className="space-y-2">
-          <Skeleton className="h-12 w-full" />
-          <Skeleton className="h-12 w-full" />
-        </div>
-      ) : !clientTags || clientTags.length === 0 ? (
-        <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed py-14 text-center">
-          <Tags className="size-6 text-muted-foreground" />
-          <p className="text-sm font-medium">No client tags yet</p>
-          <p className="text-sm text-muted-foreground">
-            Create colored tags so jobs can be labeled and filtered.
-          </p>
-        </div>
-      ) : (
-        <div className="rounded-lg border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Priority</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="w-24 text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {clientTags.map((clientTag) => (
-                <TableRow key={clientTag.id}>
-                  <TableCell>
-                    <span
-                      className={cn(
-                        "inline-flex items-center rounded-chip border px-2.5 py-0.5 text-xs font-medium",
-                        tagColorClasses(clientTag.color),
-                      )}
-                    >
-                      {clientTag.name}
-                    </span>
-                  </TableCell>
-                  <TableCell>{clientTag.priority}</TableCell>
-                  <TableCell>
-                    <Badge variant={clientTag.active ? "default" : "secondary"}>
-                      {clientTag.active ? "Active" : "Archived"}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex justify-end gap-1">
-                      {canEdit ? (
-                        <Button variant="ghost" size="icon" className="size-8" onClick={() => openEdit(clientTag)} aria-label="Edit">
-                          <Pencil className="size-4" />
-                        </Button>
-                      ) : null}
-                      {canDelete ? (
-                        <Button variant="ghost" size="icon" className="size-8" onClick={() => setDeleting(clientTag)} aria-label="Delete">
-                          <Trash2 className="size-4" />
-                        </Button>
-                      ) : null}
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      )}
-
+    <WzSettingsCatalog<ClientTag>
+      icon={<Tags />}
+      title="Client Tags"
+      description="Colored labels for your clients, as PLATINUM or tax free. Added from the client card."
+      label="Client tags"
+      ready={ready}
+      rows={rows}
+      rowKey={(t) => t.id}
+      columns={columns}
+      isActive={(t) => t.active}
+      defaultSort={{ id: "priority", dir: "desc" }}
+      onAdd={canCreate ? openNew : undefined}
+      onOpen={canEdit ? openEdit : undefined}
+      openLabel={(t) => `Edit ${t.name}`}
+    >
       {formOpen ? (
         <ClientTagFormDialog
           key={editing?.id ?? "new"}
@@ -164,8 +143,8 @@ export function ClientTagsPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete client tag?</AlertDialogTitle>
             <AlertDialogDescription>
-              &ldquo;{deleting?.name}&rdquo; will be removed. If any job still uses it, it&apos;s
-              archived instead — it leaves the pickers but old jobs keep their label.
+              &ldquo;{deleting?.name}&rdquo; will be removed. If any client still carries it, it&apos;s
+              archived instead — it leaves the pickers but those clients keep their label.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -180,6 +159,20 @@ export function ClientTagsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </WzSettingsCatalog>
+  );
+}
+
+/** The row's Status switch: off archives the tag, on brings it back. */
+function ClientTagStatusSwitch({ tag, disabled }: { tag: ClientTag; disabled: boolean }) {
+  const update = useUpdateClientTag(tag.id);
+  const pending = update.isPending ? (update.variables as { active?: boolean } | undefined)?.active : undefined;
+  return (
+    <WzOnOffSwitch
+      aria-label={`${tag.name} status`}
+      checked={pending ?? tag.active}
+      disabled={disabled || update.isPending}
+      onCheckedChange={(active) => update.mutate({ active })}
+    />
   );
 }

@@ -2,7 +2,43 @@ import { readdirSync, existsSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import type { Resource } from "@bitcrm/types";
-import { SETTINGS_GROUPS, visibleSettingsGroups } from "./sections";
+import { SETTINGS_GROUPS, settingsFrame, visibleSettingsGroups } from "./sections";
+
+/**
+ * Workiz's settings pages carry their own frame (the grey band, full width)
+ * and have no settings rail. A page rebuilt that way draws itself edge to
+ * edge; one not rebuilt yet keeps the old frame — the "Settings" heading and
+ * the rail — until its own rebuild lands.
+ */
+describe("settingsFrame", () => {
+  it("leaves the settings home and the rebuilt catalogs to draw themselves", () => {
+    for (const href of [
+      "/settings",
+      "/settings/job-types",
+      "/settings/job-sources",
+      "/settings/job-statuses",
+      "/settings/job-tags",
+      "/settings/client-tags",
+      "/settings/custom-fields",
+      "/settings/job-fields",
+      "/settings/service-areas",
+      "/settings/external-companies",
+      "/settings/call-tags",
+    ]) {
+      expect(settingsFrame(href), href).toBe("workiz");
+    }
+  });
+
+  it("keeps the old frame round a page not rebuilt yet", () => {
+    expect(settingsFrame("/settings/companies")).toBe("rail");
+    expect(settingsFrame("/settings/documents/abc")).toBe("rail");
+    expect(settingsFrame("/settings/phone-numbers")).toBe("rail");
+  });
+
+  it("ignores a trailing slash", () => {
+    expect(settingsFrame("/settings/job-types/")).toBe("workiz");
+  });
+});
 
 /**
  * Settings come in blocks, Workiz's: its settings page is not one long list

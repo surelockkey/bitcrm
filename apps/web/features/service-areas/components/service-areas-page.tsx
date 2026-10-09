@@ -1,19 +1,8 @@
 "use client";
 
-import { useState } from "react";
-import { Loader2, MapPin, Pencil, Plus, Trash2 } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Loader2, Map as MapIcon, Trash2 } from "lucide-react";
 import type { ServiceArea } from "@bitcrm/types";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -24,19 +13,34 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { WzButton } from "@/components/workiz/button";
+import type { WzGridColumn } from "@/components/workiz/local-grid";
+import { WzOnOffSwitch } from "@/components/workiz/on-off-switch";
+import { WzSettingsCatalog } from "@/components/workiz/settings-catalog";
+import { WzColorBar } from "@/components/workiz/settings-page";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { settled, usePageReady } from "@/lib/use-page-ready";
 import { serviceAreaTaxLabel } from "@/features/billing/lib";
-import { useServiceAreas, useDeleteServiceArea } from "../hooks";
+import { useServiceAreas, useDeleteServiceArea, useUpdateServiceArea } from "../hooks";
 import { describeArea } from "../lib";
 import { ServiceAreaFormDialog } from "./service-area-form-dialog";
 
+const byCatalogOrder = (a: ServiceArea, b: ServiceArea) => b.priority - a.priority || a.name.localeCompare(b.name);
+
+/**
+ * Settings → Service Areas, as Workiz's (uikit_wz_set_servicearea,
+ * pg_settings_catalogs_wz_metroareas): the band, "Show: Active" with "Add
+ * Service area", the grid — Name, Color Class (the colour bar across the
+ * cell), the ON/OFF Status — a row opening the area. Definition, Sales tax
+ * and Priority are ours, between them; Delete is ours, as Sub Status draws
+ * it. Workiz's "Enabled" column is not (its meaning is Workiz's own).
+ */
 export function ServiceAreasPage() {
   const { can, isLoading: permsLoading } = usePermissions();
   const areasQuery = useServiceAreas();
   const areas = areasQuery.data;
-  // One skeleton until both the user and the list are in: the "New" button
-  // and the rows come in the same frame, and nobody is refused for the beat
+  // One skeleton until both the user and the list are in: the add button and
+  // the rows come in the same frame, and nobody is refused for the beat
   // their permissions are still on the way.
   const ready = usePageReady(!permsLoading && settled(areasQuery));
   const del = useDeleteServiceArea();
@@ -48,6 +52,49 @@ export function ServiceAreasPage() {
   const canCreate = can("service_areas", "create");
   const canEdit = can("service_areas", "edit");
   const canDelete = can("service_areas", "delete");
+
+  const rows = useMemo(() => [...(areas ?? [])].sort(byCatalogOrder), [areas]);
+  const columns = useMemo<WzGridColumn<ServiceArea>[]>(() => {
+    const cols: WzGridColumn<ServiceArea>[] = [
+      { id: "name", label: "Name", render: (a) => a.name, sortValue: (a) => a.name, searchText: (a) => a.name },
+      {
+        id: "color",
+        label: "Color Class",
+        render: (a) => (a.color ? <WzColorBar color={a.color} label={a.color} width="full" /> : null),
+      },
+      { id: "definition", label: "Definition", render: (a) => describeArea(a), searchText: (a) => describeArea(a) },
+      { id: "tax", label: "Sales tax", render: (a) => serviceAreaTaxLabel(a.tax), searchText: (a) => a.tax?.name },
+      { id: "priority", label: "Priority", width: 120, render: (a) => a.priority, sortValue: (a) => a.priority },
+      {
+        id: "status",
+        label: "Status",
+        width: 150,
+        render: (a) => <ServiceAreaStatusSwitch area={a} disabled={!canEdit} />,
+        sortValue: (a) => (a.active ? 1 : 0),
+      },
+    ];
+    if (canDelete) {
+      cols.push({
+        id: "actions",
+        label: "Actions",
+        width: 150,
+        render: (a) => (
+          <WzButton
+            size="regular"
+            icon={<Trash2 />}
+            aria-label={`Delete ${a.name}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              setDeleting(a);
+            }}
+          >
+            Delete
+          </WzButton>
+        ),
+      });
+    }
+    return cols;
+  }, [canEdit, canDelete]);
 
   if (!permsLoading && !can("service_areas", "view")) {
     return (
@@ -70,80 +117,21 @@ export function ServiceAreasPage() {
   };
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h2 className="text-base font-semibold tracking-tight">Service areas</h2>
-          <p className="text-sm text-muted-foreground">
-            Territories used to auto-assign jobs and match technicians. Areas can&apos;t overlap.
-          </p>
-        </div>
-        {ready && canCreate ? (
-          <Button variant="brand" className="h-9 gap-1.5" onClick={openNew}>
-            <Plus className="size-4" /> New service area
-          </Button>
-        ) : null}
-      </div>
-
-      {!ready ? (
-        <div className="space-y-2">
-          <Skeleton className="h-12 w-full" />
-          <Skeleton className="h-12 w-full" />
-        </div>
-      ) : !areas || areas.length === 0 ? (
-        <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed py-14 text-center">
-          <MapPin className="size-6 text-muted-foreground" />
-          <p className="text-sm font-medium">No service areas yet</p>
-          <p className="text-sm text-muted-foreground">
-            Create one to start auto-assigning jobs by address.
-          </p>
-        </div>
-      ) : (
-        <div className="overflow-x-auto border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Definition</TableHead>
-                <TableHead>Sales tax</TableHead>
-                <TableHead>Priority</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="w-24 text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {areas.map((area) => (
-                <TableRow key={area.id}>
-                  <TableCell className="font-medium">{area.name}</TableCell>
-                  <TableCell className="text-muted-foreground">{describeArea(area)}</TableCell>
-                  <TableCell className="text-muted-foreground">{serviceAreaTaxLabel(area.tax)}</TableCell>
-                  <TableCell>{area.priority}</TableCell>
-                  <TableCell>
-                    <Badge variant={area.active ? "default" : "secondary"}>
-                      {area.active ? "Active" : "Inactive"}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex justify-end gap-1">
-                      {canEdit ? (
-                        <Button variant="ghost" size="icon" className="size-8" onClick={() => openEdit(area)} aria-label="Edit">
-                          <Pencil className="size-4" />
-                        </Button>
-                      ) : null}
-                      {canDelete ? (
-                        <Button variant="ghost" size="icon" className="size-8" onClick={() => setDeleting(area)} aria-label="Delete">
-                          <Trash2 className="size-4" />
-                        </Button>
-                      ) : null}
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      )}
-
+    <WzSettingsCatalog<ServiceArea>
+      icon={<MapIcon />}
+      title="Service Areas"
+      description="Divide your service areas to make team scheduling easy. Areas can't overlap."
+      label="Service areas"
+      ready={ready}
+      rows={rows}
+      rowKey={(a) => a.id}
+      columns={columns}
+      isActive={(a) => a.active}
+      onAdd={canCreate ? openNew : undefined}
+      addLabel="Add Service area"
+      onOpen={canEdit ? openEdit : undefined}
+      openLabel={(a) => `Edit ${a.name}`}
+    >
       {formOpen ? (
         <ServiceAreaFormDialog
           key={editing?.id ?? "new"}
@@ -174,6 +162,23 @@ export function ServiceAreasPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </WzSettingsCatalog>
+  );
+}
+
+/**
+ * The row's Status switch: off takes the area out of address matching and
+ * overlap checks (it stays on old jobs), on puts it back.
+ */
+function ServiceAreaStatusSwitch({ area, disabled }: { area: ServiceArea; disabled: boolean }) {
+  const update = useUpdateServiceArea(area.id);
+  const pending = update.isPending ? (update.variables as { active?: boolean } | undefined)?.active : undefined;
+  return (
+    <WzOnOffSwitch
+      aria-label={`${area.name} status`}
+      checked={pending ?? area.active}
+      disabled={disabled || update.isPending}
+      onCheckedChange={(active) => update.mutate({ active })}
+    />
   );
 }

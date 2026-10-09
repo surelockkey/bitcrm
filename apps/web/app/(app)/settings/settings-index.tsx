@@ -1,15 +1,16 @@
 "use client";
 
-import Link from "next/link";
-import { ChevronRight } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { WzSettingsBlock, WzSettingsTile } from "@/components/workiz/settings-page";
 import { usePermissions } from "@/features/auth/use-permissions";
-import { settingsGroupId, visibleSettingsGroups } from "./sections";
+import { visibleSettingsGroups } from "./sections";
 
 /**
- * The settings landing page — choose a section, then edit it. Laid out as
- * Workiz's: a heading per block (General Settings, Job Settings, Calls &
- * Text…) over that block's tiles, the tiles in the Reports hub's shape.
+ * The settings home, Workiz's (uikit_wz_settings_home): a heading per block
+ * (General Settings, Users & Roles, Job Settings, Calls & Text…) over that
+ * block's tiles, three to a row — each tile just the section's name and a
+ * line glyph, its description left to the tooltip. It is the way to every
+ * settings page: there is no rail, as in Workiz.
  *
  * Which sections show depends on the permissions, so until they are in the
  * page is one skeleton: drawn early, it stood at its one unguarded tile and
@@ -20,7 +21,7 @@ export function SettingsIndex() {
 
   if (isLoading) {
     return (
-      <div className="max-w-5xl">
+      <div className="px-5 pt-[34px]">
         <Skeleton className="h-96 w-full rounded-lg" />
       </div>
     );
@@ -29,40 +30,23 @@ export function SettingsIndex() {
   const groups = visibleSettingsGroups((r) => can(r));
 
   return (
-    // Sized by the room the settings rail leaves it, not by the window.
-    <div className="@container flex max-w-5xl flex-col gap-8">
-      {groups.map((group) => {
-        const headingId = settingsGroupId("settings-block", group);
-        return (
-          <section key={group.label} aria-labelledby={headingId}>
-            <h2 id={headingId} className="mb-3 border-b pb-2 text-sm font-semibold tracking-tight">
-              {group.label}
-            </h2>
-            <ul className="grid grid-cols-1 gap-3 @xl:grid-cols-2 @4xl:grid-cols-3">
-              {group.sections.map((section) => {
-                const Icon = section.icon;
-                return (
-                  <li key={section.href} className="min-w-0">
-                    <Link
-                      href={section.href}
-                      className="flex h-full items-center gap-3 rounded-lg border bg-card px-4 py-3.5 transition-colors hover:bg-muted/50"
-                    >
-                      <span className="flex size-9 shrink-0 items-center justify-center rounded-md border bg-muted/40">
-                        <Icon className="size-4" aria-hidden />
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-medium">{section.label}</span>
-                        <span className="line-clamp-2 text-sm text-muted-foreground">{section.description}</span>
-                      </span>
-                      <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
-          </section>
-        );
-      })}
+    <div className="flex flex-col gap-[60px] px-5 pt-[34px] pb-[60px]">
+      {groups.map((group) => (
+        <WzSettingsBlock key={group.label} title={group.label}>
+          {group.sections.map((section) => {
+            const Icon = section.icon;
+            return (
+              <WzSettingsTile
+                key={section.href}
+                href={section.href}
+                title={section.label}
+                hint={section.description}
+                icon={<Icon />}
+              />
+            );
+          })}
+        </WzSettingsBlock>
+      ))}
     </div>
   );
 }

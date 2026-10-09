@@ -1,25 +1,24 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Check, Loader2 } from "lucide-react";
 import { JOB_TAG_COLORS, type JobTag, type JobTagColor } from "@bitcrm/types";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
-import { cn } from "@/lib/utils";
+import { WzColorDots } from "@/components/workiz/color-dots";
+import { WzFormModal } from "@/components/workiz/form-modal";
+import { WzModalTextField } from "@/components/workiz/modal-text-field";
 import { useCreateJobTag, useUpdateJobTag } from "../hooks";
 import { jobTagFormSchema, toJobTagBody } from "../schemas";
-import { TAG_COLOR_CLASSES, TAG_SWATCH_CLASSES } from "../lib";
+import { TAG_SWATCH_CLASSES } from "../lib";
 
+const COLORS = JOB_TAG_COLORS.map((c) => ({ value: c, label: c, className: TAG_SWATCH_CLASSES[c] }));
+
+/**
+ * Add / edit a job tag in Workiz's Sub Status modal
+ * (pg_settings_catalogs_wz_substatus_add_open): Workiz has no tags settings
+ * page, so the tag form borrows its nearest, a name, a priority and the
+ * "Choose color" dots, Cancel / Save. The same modal serves Settings and the
+ * job's "+ Create new" (prefilled with the search, `onCreated`). On / off is
+ * the grid's Status switch; an edit keeps the state.
+ */
 export function JobTagFormDialog({
   jobTag,
   initialName,
@@ -43,7 +42,7 @@ export function JobTagFormDialog({
   const [name, setName] = useState(jobTag?.name ?? initialName ?? "");
   const [color, setColor] = useState<JobTagColor>(jobTag?.color ?? "slate");
   const [priority, setPriority] = useState(String(jobTag?.priority ?? 0));
-  const [active, setActive] = useState(jobTag?.active ?? true);
+  const active = jobTag?.active ?? true;
   const [error, setError] = useState<string | null>(null);
 
   const parsed = useMemo(
@@ -68,75 +67,19 @@ export function JobTagFormDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[95vw] max-w-md">
-        <DialogHeader>
-          <DialogTitle>{editing ? `Edit ${jobTag!.name}` : "New job tag"}</DialogTitle>
-          <DialogDescription>
-            A colored label a job can be tagged with (e.g. Rush, Repeat, VIP).
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-4 py-1">
-          <div className="grid grid-cols-[2fr_1fr] gap-3">
-            <div className="space-y-1.5">
-              <Label>Name</Label>
-              <Input className="h-9" value={name} onChange={(e) => setName(e.target.value)} placeholder="Rush" />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Priority</Label>
-              <Input className="h-9" type="number" min={0} value={priority} onChange={(e) => setPriority(e.target.value)} />
-            </div>
-          </div>
-
-          <div className="space-y-1.5">
-            <Label>Color</Label>
-            <div className="flex flex-wrap gap-2">
-              {JOB_TAG_COLORS.map((c) => (
-                <button
-                  key={c}
-                  type="button"
-                  aria-label={c}
-                  onClick={() => setColor(c)}
-                  className={cn(
-                    "grid size-7 place-items-center rounded-full ring-offset-2 ring-offset-background transition",
-                    TAG_SWATCH_CLASSES[c],
-                    color === c ? "ring-2 ring-foreground" : "hover:opacity-80",
-                  )}
-                >
-                  {color === c ? <Check className="size-3.5 text-white" strokeWidth={3} /> : null}
-                </button>
-              ))}
-            </div>
-            <span
-              className={cn(
-                "mt-1 inline-flex items-center rounded-chip border px-2.5 py-0.5 text-xs font-medium",
-                TAG_COLOR_CLASSES[color],
-              )}
-            >
-              {name.trim() || "Preview"}
-            </span>
-          </div>
-
-          <div className="flex items-center justify-between rounded-md border px-3 py-2.5">
-            <div>
-              <Label>Active</Label>
-              <p className="text-xs text-muted-foreground">Only active tags show in the job picker.</p>
-            </div>
-            <Switch checked={active} onCheckedChange={setActive} />
-          </div>
-
-          {error ? <p className="text-sm text-destructive">{error}</p> : null}
-        </div>
-
-        <DialogFooter>
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button type="button" variant="brand" className="gap-1.5" disabled={pending || !parsed.success} onClick={submit}>
-            {pending ? <Loader2 className="size-4 animate-spin" /> : null}
-            {editing ? "Save" : "Create"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <WzFormModal
+      open={open}
+      onOpenChange={onOpenChange}
+      title={editing ? "Edit Job Tag" : "Add New Job Tag"}
+      onSave={submit}
+      saving={pending}
+      saveDisabled={!parsed.success}
+      error={error}
+      className="w-[524px] sm:max-w-[524px]"
+    >
+      <WzModalTextField label="Tag name" value={name} onChange={setName} />
+      <WzModalTextField label="Priority" type="number" min={0} value={priority} onChange={setPriority} />
+      <WzColorDots label="Choose color" options={COLORS} value={color} onChange={(c) => setColor(c as JobTagColor)} />
+    </WzFormModal>
   );
 }

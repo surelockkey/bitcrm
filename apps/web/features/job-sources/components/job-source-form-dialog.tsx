@@ -1,23 +1,18 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Loader2 } from "lucide-react";
 import type { JobSource } from "@bitcrm/types";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
+import { WzFormModal } from "@/components/workiz/form-modal";
+import { WzTextField } from "@/components/workiz/text-field";
 import { useCreateJobSource, useUpdateJobSource } from "../hooks";
 import { jobSourceFormSchema, toJobSourceBody } from "../schemas";
 
+/**
+ * Workiz's "Add new Ad Group" modal (pg_settings_catalogs_wz_adgroups_add_open)
+ * for a job source: the name and the order in floating-label boxes, Cancel /
+ * Save. Workiz's Description box is not ours to offer (a source has none);
+ * on / off is the grid's Status switch, and an edit keeps the state.
+ */
 export function JobSourceFormDialog({
   jobSource,
   open,
@@ -34,7 +29,7 @@ export function JobSourceFormDialog({
 
   const [name, setName] = useState(jobSource?.name ?? "");
   const [priority, setPriority] = useState(String(jobSource?.priority ?? 0));
-  const [active, setActive] = useState(jobSource?.active ?? true);
+  const active = jobSource?.active ?? true;
   const [error, setError] = useState<string | null>(null);
 
   const parsed = useMemo(
@@ -54,46 +49,24 @@ export function JobSourceFormDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[95vw] max-w-md">
-        <DialogHeader>
-          <DialogTitle>{editing ? `Edit ${jobSource!.name}` : "New job source"}</DialogTitle>
-          <DialogDescription>
-            A lead source a job can be tagged with (e.g. Google Ads, Referral).
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-4 py-1">
-          <div className="grid grid-cols-[2fr_1fr] gap-3">
-            <div className="space-y-1.5">
-              <Label>Name</Label>
-              <Input className="h-9" value={name} onChange={(e) => setName(e.target.value)} placeholder="Lockout" />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Priority</Label>
-              <Input className="h-9" type="number" min={0} value={priority} onChange={(e) => setPriority(e.target.value)} />
-            </div>
-          </div>
-
-          <div className="flex items-center justify-between rounded-md border px-3 py-2.5">
-            <div>
-              <Label>Active</Label>
-              <p className="text-xs text-muted-foreground">Only active sources show in the job picker.</p>
-            </div>
-            <Switch checked={active} onCheckedChange={setActive} />
-          </div>
-
-          {error ? <p className="text-sm text-destructive">{error}</p> : null}
-        </div>
-
-        <DialogFooter>
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button type="button" variant="brand" className="gap-1.5" disabled={pending || !parsed.success} onClick={submit}>
-            {pending ? <Loader2 className="size-4 animate-spin" /> : null}
-            {editing ? "Save" : "Create"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <WzFormModal
+      open={open}
+      onOpenChange={onOpenChange}
+      title={editing ? "Edit Job Source" : "Add new Job Source"}
+      onSave={submit}
+      saving={pending}
+      saveDisabled={!parsed.success}
+      error={error}
+    >
+      <WzTextField label="Job source name" value={name} onChange={(e) => setName(e.target.value)} overhang={false} />
+      <WzTextField
+        label="Priority"
+        type="number"
+        min={0}
+        value={priority}
+        onChange={(e) => setPriority(e.target.value)}
+        overhang={false}
+      />
+    </WzFormModal>
   );
 }
