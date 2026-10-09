@@ -16,7 +16,6 @@ import {
   ShieldCheck,
   Workflow,
   MessagesSquare,
-  FileText,
   Building,
   FileStack,
   CreditCard,
@@ -168,39 +167,36 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
     ],
   },
   {
+    // Workiz's tiles, words and order (uikit_wz_settings_home). Its phone
+    // settings live in its Phone section, so these four open our /calls tabs,
+    // as Workiz's /root/numbers lands on /root/callsReport/numbers. Message
+    // templates are on Text Messages ("Text templates"); no tile of their own.
     label: "Calls & Text",
     sections: [
       {
-        label: "Messaging",
-        href: "/settings/messaging",
-        description: "Default sender, prefix and signature, tech texts, quiet hours, STOP/HELP replies.",
+        label: "Text Messages",
+        href: "/calls/texting",
+        description: "Default sender, prefix and signature, tech texts, quiet hours, STOP/HELP replies, message templates.",
         icon: MessagesSquare,
         resource: "settings",
       },
       {
-        label: "Message Templates",
-        href: "/settings/message-templates",
-        description: "Canned texts with short codes the composer offers.",
-        icon: FileText,
-        resource: "message_templates",
-      },
-      {
-        label: "Phone Numbers",
-        href: "/settings/phone-numbers",
+        label: "Numbers",
+        href: "/calls/numbers",
         description: "Buy, list, and release the numbers you call and receive on.",
         icon: Phone,
         resource: "settings",
       },
       {
         label: "Call Flows",
-        href: "/settings/call-flows",
+        href: "/calls/flows",
         description: "What a caller hears, and who gets rung, before anybody picks up.",
         icon: Workflow,
         resource: "settings",
       },
       {
         label: "Call Groups",
-        href: "/settings/call-groups",
+        href: "/calls/groups",
         description: "Who an incoming call rings — softphones, personal numbers, or both.",
         icon: Users,
         resource: "settings",

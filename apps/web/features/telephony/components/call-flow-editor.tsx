@@ -442,7 +442,7 @@ function NumberField({
         ) : !owned || owned.length === 0 ? (
           <p className="rounded-lg border border-dashed p-3 text-center text-xs text-muted-foreground">
             You don&apos;t own any numbers yet.{" "}
-            <Link href="/settings/phone-numbers" className="text-brand underline">
+            <Link href="/calls/numbers" className="text-brand underline">
               Buy one
             </Link>{" "}
             and it will appear here.

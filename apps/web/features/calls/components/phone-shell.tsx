@@ -52,7 +52,9 @@ export function PhoneTabPage({ children }: { children: ReactNode }) {
     <div className="flex min-h-0 flex-1 flex-col overflow-auto">
       <PhoneHeader number={settled ? number : undefined} />
       <PhoneTabs />
-      <div className={cn("flex flex-1 flex-col px-6 py-5", !settled && "invisible")}>{children}</div>
+      {/* Edge to edge: each tab draws Workiz's own insets (its words 40px
+          in, the strip and the grid the full width — pg_settings_phone_wz_*). */}
+      <div className={cn("flex flex-1 flex-col", !settled && "invisible")}>{children}</div>
     </div>
   );
 }

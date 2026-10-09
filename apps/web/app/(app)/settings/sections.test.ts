@@ -81,13 +81,18 @@ describe("SETTINGS_GROUPS", () => {
       "Job Tags",
       "Client Tags",
     ]);
-    expect(labelsOf("Calls & Text")).toEqual([
-      "Messaging",
-      "Message Templates",
-      "Phone Numbers",
-      "Call Flows",
-      "Call Groups",
-      "Call Tags",
+    // Workiz's tiles, words and order (uikit_wz_settings_home): Text Messages,
+    // Numbers, Call Flows, Call Groups (+ its Call Masking and Devices, which
+    // we have no page for), then ours, Call Tags. Message templates have no
+    // tile: they sit on Text Messages, under "Text templates".
+    expect(labelsOf("Calls & Text")).toEqual(["Text Messages", "Numbers", "Call Flows", "Call Groups", "Call Tags"]);
+    // …and open the Phone section's tabs, as Workiz's /root/numbers lands on /root/callsReport/numbers.
+    const hrefOf = (label: string) => SETTINGS_GROUPS.flatMap((g) => g.sections).find((s) => s.label === label)?.href;
+    expect(["Text Messages", "Numbers", "Call Flows", "Call Groups"].map(hrefOf)).toEqual([
+      "/calls/texting",
+      "/calls/numbers",
+      "/calls/flows",
+      "/calls/groups",
     ]);
     expect(labelsOf("Integrations")).toEqual(["Payments"]);
   });
@@ -102,8 +107,17 @@ describe("SETTINGS_GROUPS", () => {
     const pages = readdirSync(dir, { withFileTypes: true })
       .filter((e) => e.isDirectory() && existsSync(path.join(dir, e.name, "page.tsx")))
       .map((e) => `/settings/${e.name}`);
-    // These two only redirect old bookmarks: to the module, and to the settings screen.
-    const redirects = ["/settings/automations", "/settings/general"];
+    // These only redirect old bookmarks: to the module, to the settings screen,
+    // and to the Phone section's tabs (where Workiz keeps its phone settings).
+    const redirects = [
+      "/settings/automations",
+      "/settings/general",
+      "/settings/phone-numbers",
+      "/settings/call-flows",
+      "/settings/call-groups",
+      "/settings/messaging",
+      "/settings/message-templates",
+    ];
     const listed = [...SETTINGS_GROUPS.flatMap((g) => g.sections.map((s) => s.href)), ...redirects];
     expect(pages.length).toBeGreaterThan(10);
     expect(pages.filter((p) => !listed.includes(p))).toEqual([]);

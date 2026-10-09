@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { queryKeys } from "@/lib/query-keys";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import * as api from "./call-flows-api";
+import { numberFlowMoves } from "./phone-settings";
 
 export function useCallFlows(enabled = true) {
   return useQuery({
@@ -31,6 +32,38 @@ export function useSaveCallFlow(id?: string) {
       toast.success("Flow saved");
     },
     onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+}
+
+/**
+ * The numbers list's Flow select and "Remove flow" (Workiz's numbers tab
+ * assigns a number its flow from the number's row): the flow that answers
+ * the number lets go of it, then the picked flow takes it — the server
+ * refuses a number two flows answer. Worked out from the flows on hand
+ * (`numberFlowMoves`), written one after the other.
+ */
+export function useAssignNumberFlow() {
+  const qc = useQueryClient();
+  const invalidate = useInvalidateCallFlows();
+  return useMutation({
+    mutationFn: async ({ number, toFlowId }: { number: string; toFlowId: string | null }) => {
+      const flows: api.CallFlow[] =
+        qc.getQueryData<api.CallFlow[]>(queryKeys.telephony.callFlows()) ??
+        (await qc.fetchQuery({ queryKey: queryKeys.telephony.callFlows(), queryFn: api.listCallFlows })) ??
+        [];
+      for (const write of numberFlowMoves(flows, number, toFlowId)) {
+        await api.updateCallFlow(write.id, { numbers: write.numbers });
+      }
+    },
+    onSuccess: (_d, { toFlowId }) => {
+      invalidate();
+      toast.success(toFlowId ? "Flow assigned" : "Flow removed");
+    },
+    // A half-done move (taken off, refused on) still changed a flow.
+    onError: (e) => {
+      invalidate();
+      toast.error(getApiErrorMessage(e));
+    },
   });
 }
 

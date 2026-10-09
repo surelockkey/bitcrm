@@ -28,7 +28,8 @@ describe("SettingsIndex", () => {
     expect(headings).toEqual(["General Settings", "Users & Roles", "Job Settings", "Calls & Text", "Integrations"]);
 
     const calls = screen.getByRole("region", { name: "Calls & Text" });
-    expect(within(calls).getByRole("link", { name: /Call Flows/ })).toHaveAttribute("href", "/settings/call-flows");
+    // Workiz's Calls & Text tiles open its Phone section's tabs (/root/flows → /root/callsReport/flows).
+    expect(within(calls).getByRole("link", { name: /Call Flows/ })).toHaveAttribute("href", "/calls/flows");
     expect(within(calls).queryByRole("link", { name: /Job Types/ })).toBeNull();
 
     const team = screen.getByRole("region", { name: "Users & Roles" });

@@ -421,7 +421,7 @@ describe("CallFlowEditor", () => {
 
       expect(screen.getByRole("link", { name: /buy one/i })).toHaveAttribute(
         "href",
-        "/settings/phone-numbers",
+        "/calls/numbers",
       );
       mocks.numbers = [
         { sid: "PN1", phoneNumber: "+15412830739", friendlyName: "Main" },

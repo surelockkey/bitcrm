@@ -14,16 +14,18 @@ import {
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 /**
- * Settings → Messaging and Message templates do not jump.
+ * Workiz Phone → Texting (the messaging settings, with the message templates
+ * under "Text templates") does not jump.
  *
- * Both said "No access" until the permissions came. Messaging then drew the
- * default sender as a free-text box and swapped it for the number picker
- * once the numbers arrived, a beat after the settings.
+ * It said "No access" until the permissions came, then drew the default
+ * sender as a free-text box and swapped it for the number picker once the
+ * numbers arrived, a beat after the settings. The templates, once a page of
+ * their own, now come in the same frame as the rest.
  */
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
-  usePathname: () => "/settings/messaging",
+  usePathname: () => "/calls/texting",
   useSearchParams: () => new URLSearchParams(),
 }));
 const perms = vi.hoisted(() => ({ isLoading: false }));
@@ -41,8 +43,10 @@ const routes: FakeRoute[] = [
   { match: /\/messaging\/settings$/, reply: () => ({ defaultSenderNumber: "+14045550100" }) },
   // The numbers the sender picker offers answer after the settings.
   { match: /\/telephony\/numbers$/, reply: () => [{ sid: "PN1", phoneNumber: "+14045550100", friendlyName: "Main" }], delayMs: 70 },
+  { match: /\/messaging\/templates\/short-codes$/, reply: () => [{ code: "first_name", group: "client", description: "", example: "" }], delayMs: 60 },
   {
     match: /\/messaging\/templates$/,
+    delayMs: 90,
     reply: () => [
       {
         id: "t1",
@@ -62,7 +66,6 @@ const routes: FakeRoute[] = [
 let server: FakeServer;
 
 const { MessagingSettingsPage } = await import("./messaging-settings-page");
-const { TemplatesPage } = await import("./templates-page");
 
 const renderPage = (page: ReactElement) => renderWithClient(<TooltipProvider>{page}</TooltipProvider>);
 
@@ -77,23 +80,21 @@ afterEach(() => {
 });
 
 describe("messaging settings — no jumping", () => {
-  it.each([
-    ["Messaging", <MessagingSettingsPage key="m" />],
-    ["Message templates", <TemplatesPage key="t" />],
-  ])("%s waits for the permissions instead of saying No access", async (_name, page) => {
+  it("waits for the permissions instead of saying No access", async () => {
     perms.isLoading = true;
-    renderPage(page);
+    renderPage(<MessagingSettingsPage />);
     await settle(30);
 
     expect(screen.queryByText("No access")).not.toBeInTheDocument();
     expect(skeletonCount()).toBeGreaterThan(0);
   });
 
-  it("Messaging draws the sender as the number picker from its first frame", async () => {
+  it("draws the sender as the number picker, and the templates, from its first frame", async () => {
     const watch = watchFirstFrame(
       () => !!screen.queryByText("Sender"),
       () => ({
         picker: !!screen.queryByRole("combobox", { name: "Default number" }),
+        templates: !!screen.queryByText("On our way"),
         skeletons: skeletonCount(),
       }),
     );
@@ -101,15 +102,12 @@ describe("messaging settings — no jumping", () => {
     await screen.findByText("Sender", {}, { timeout: 3000 });
     watch.stop();
 
-    expect(watch.frame()).toEqual({ picker: true, skeletons: 0 });
+    expect(watch.frame()).toEqual({ picker: true, templates: true, skeletons: 0 });
   });
 
-  it.each([
-    ["Messaging", <MessagingSettingsPage key="m" />, "Sender"],
-    ["Message templates", <TemplatesPage key="t" />, "On our way"],
-  ])("%s asks for each thing once", async (_name, page, text) => {
-    renderPage(page);
-    await screen.findByText(text, {}, { timeout: 3000 });
+  it("asks for each thing once", async () => {
+    renderPage(<MessagingSettingsPage />);
+    await screen.findByText("On our way", {}, { timeout: 3000 });
     await settle();
 
     expect(duplicates(server.requests)).toEqual([]);

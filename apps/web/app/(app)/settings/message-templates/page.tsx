@@ -1,5 +1,9 @@
-import { TemplatesPage } from "@/features/messaging/components/templates-page";
+import { redirect } from "next/navigation";
 
+/**
+ * Message templates are Workiz's "Text templates", on the Text Messages page
+ * (/root/sms_settings → /root/callsReport/texting); ours live there too.
+ */
 export default function Page() {
-  return <TemplatesPage />;
+  redirect("/calls/texting");
 }
