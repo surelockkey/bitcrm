@@ -1072,6 +1072,11 @@ permissions for role …" modal a role opens; notes:
   tip, the legacy 483×48 Search (`WzTextField overhang={false}`), the rows;
   `RulesTab` / `RulesSection` — the Advanced tab's "Please choose rules" and
   its 20px thin section titles; `EditorSkeleton` — the window while it loads.
+- Workiz's permission control, measured (pg_admin_users_wz_10_role_dispatch):
+  ONE `toggleSwitch-module` small switch per row — 40×20, #50d58c on,
+  #bbbbbb off, a 16px white knob 2px in — which is `WzSwitch`. Its Advanced
+  rules are react-selects (our `Select`). Row words live in
+  `features/roles/permission-catalog.ts` (`permissionWords`).
 
 ## Known differences from Workiz (deliberate or unmeasurable)
 - Sub-pixel: Workiz's own fractional layout makes some glyphs land ±1px
