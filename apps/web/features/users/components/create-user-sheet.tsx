@@ -82,10 +82,12 @@ export function CreateUserSheet({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="flex w-full flex-col gap-0 p-0 data-[side=right]:w-full data-[side=right]:sm:max-w-md">
         <SheetHeader className="border-b">
-          <SheetTitle>Invite a user</SheetTitle>
+          {/* Workiz's pane title. A subcontractor is not invited: there is no sign-in to invite them to. */}
+          <SheetTitle>Add team member</SheetTitle>
           <SheetDescription>
-            They&apos;ll get an email with a temporary password and set their own
-            on first sign-in.
+            {subcontractor
+              ? "No sign-in: job details reach them by text or email."
+              : "They'll get an email with a temporary password and set their own on first sign-in."}
           </SheetDescription>
         </SheetHeader>
 

@@ -47,6 +47,10 @@ describe("CreateUserSheet — User | Subcontractor", () => {
     expect(screen.getByText("Can not login, can take jobs and get messages")).toBeInTheDocument();
     expect(screen.queryByText("Role")).toBeNull();
     expect(screen.getByRole("button", { name: "Add user" })).toBeInTheDocument();
+    // The heading must not promise an email with a temporary password to someone who gets none.
+    expect(screen.getByRole("heading", { name: "Add team member" })).toBeInTheDocument();
+    expect(screen.queryByText(/temporary password/)).toBeNull();
+    expect(screen.getByText(/job details reach them by text or email/)).toBeInTheDocument();
 
     await fill();
     await userEvent.click(screen.getByRole("button", { name: "Add user" }));
