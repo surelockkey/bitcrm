@@ -137,7 +137,8 @@ export function TemplatesTab({ canEdit, permsLoading = false }: { canEdit: boole
         label: "",
         width: 130,
         render: (t) => (
-          <div className="-my-1 flex items-center justify-end gap-2">
+          // The 24px icons in the 20px padding make Workiz's 64px row.
+          <div className="flex items-center justify-end gap-2">
             {kindHasDefault(t.kind) && !t.isDefault ? (
               <RowIcon label={`Set ${t.name} as default`} onClick={() => setDefault.mutate(t.id)}>
                 <Star />

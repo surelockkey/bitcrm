@@ -159,7 +159,8 @@ const CATALOGS: Catalog[] = [
     list: /\/billing\/business-profiles$/,
     rows: [{ id: "bp-1", name: "Northside Locks", active: true, isDefault: true, ...stamp }],
     row: "Northside Locks",
-    button: /add company/i,
+    // A Workiz catalog's add button (WzSettingsCatalog).
+    button: /^add new company$/i,
   },
 ];
 

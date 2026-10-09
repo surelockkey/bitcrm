@@ -85,7 +85,7 @@ export function CompaniesSettingsPage() {
         render: (c) =>
           c.logoUrl ? (
             // eslint-disable-next-line @next/next/no-img-element -- presigned S3 URL
-            <img src={c.logoUrl} alt={`${c.name} logo`} className="-my-2 block h-8 max-w-[120px] object-contain" />
+            <img src={c.logoUrl} alt={`${c.name} logo`} className="block h-8 max-w-[120px] object-contain" />
           ) : null,
       },
       {
@@ -114,7 +114,6 @@ export function CompaniesSettingsPage() {
               variant="secondary"
               size="regular"
               aria-label={`Make ${c.name} the default`}
-              className="-my-2"
               onClick={(e) => {
                 e.stopPropagation();
                 setDefault.mutate(c.id);
@@ -145,7 +144,7 @@ export function CompaniesSettingsPage() {
             disabled={c.isDefault}
             title={c.isDefault ? DEFAULT_FIRST : undefined}
             // Workiz's held button: #eff1f1 with #9ea6aa words.
-            className="-my-2 disabled:bg-wz-disabled-fill disabled:hover:bg-wz-disabled-fill [&:disabled>span]:text-wz-outline"
+            className="disabled:bg-wz-disabled-fill disabled:hover:bg-wz-disabled-fill [&:disabled>span]:text-wz-outline"
             onClick={(e) => {
               e.stopPropagation();
               setDeleting(c);
