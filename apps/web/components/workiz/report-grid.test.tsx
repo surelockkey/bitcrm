@@ -59,6 +59,13 @@ describe("WzReportGrid", () => {
     expect(document.querySelectorAll("tbody tr[aria-hidden]")).toHaveLength(10);
   });
 
+  it("can stay silent over an empty report — Workiz's Call Tracking prints nothing over its blank rows", () => {
+    render(<WzReportGrid aria-label="Activity" columns={columns} rows={[]} rowKey={(r) => r.id} emptyText={null} />);
+    expect(screen.queryByText("No Records Found")).toBeNull();
+    expect(document.querySelector('[data-slot="wz-table-no-data"]')).toBeNull();
+    expect(document.querySelectorAll("tbody tr[aria-hidden]")).toHaveLength(10);
+  });
+
   it("sorts only from a sortable header, and marks the sorted one", async () => {
     const onSort = vi.fn();
     const { rerender } = render(

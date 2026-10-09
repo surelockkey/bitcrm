@@ -738,6 +738,53 @@ exported there either).
   (#eac300 hovered or pressed) and the titled summary table under a legacy
   report (h3 20px #3e4b51 over a #ddd rule, 14px/500 names, 11px rows).
 
+## Call Tracking pieces (2026-10-09, agent `rep_calltracking`)
+
+Measured off `rep_calltracking_wz_*` (notes:
+`workiz-data-parser/docs/import/app-parity-2026-10-08/rep_calltracking.md`).
+Workiz's Call Tracking is a React page (not the legacy iframe) with a
+Chart.js 2 graph. Import each from its file.
+
+- **`WzAreaChart`** (`area-chart.tsx`) `labels` `series={label,values,color}[]`
+  `aspectRatio=5` `legend` `aria-label` — Chart.js 2's filled `line` chart in
+  SVG with Chart.js's own geometry (read off the live `Chart.instances`): the
+  canvas as wide as its box and a fifth as tall; a linear y scale from the
+  data's floor with nice steps (**`chartLinearTicks(min, max, maxTicks)`**,
+  Chart.js's `generateTicks`), 12px Helvetica #666 labels 10px off the axis,
+  rgba(0,0,0,.1) grid, the zero line .25, the axis line; a category x axis
+  without grid lines whose labels tilt up to 50° and thin out
+  (**`areaLayout`** — rotation, plot box, auto-skip); every line tension .4,
+  1px, filled to zero at 20%, 3px rings; the fills under all lines and the
+  first series on top, as Chart.js draws them. The pointer within a point's
+  radius + hit radius (**`nearestPoint`**) raises that bucket's points to 4px
+  at 40% and opens Chart.js's tooltip (black .8, r6, the bucket bold over
+  "■ name: n", placed by its `determineAlignment`, with the caret). Under it
+  Workiz's HTML legend (`ul._flowLegend`): 25.2px in, 10px over and under,
+  items ≤150px with a 20px box of the 20% colour and the name under it — a
+  hundred flows squeeze into stripes, as in Workiz. Colours are any CSS
+  colour (tokens included; tints via `color-mix`). Each bucket's total is an
+  sr-only table. Points are one `<path>` per series, so a year of days by a
+  hundred flows stays light.
+- **`WzFlowViews`** (`flow-views.tsx`) `options` `value` `onChange`
+  `aria-label` — the graph step switch "hour | day | week | month"
+  (`div._flowViews`): 272×28, 1px #ccc, 6px corners, equal 14px parts 5px
+  from top and bottom, #ccc rules between, the chosen (and hovered) part
+  #ddd. A radio group with arrow keys. (Not `WzButtonGroup` — the legacy
+  pages' 32px #ececec one.)
+- **`WzKpiCard size="cardsBar"`** (new, optional) — the report's
+  `react_components_cardsBar` card: the figure 20px/25px, the caption 1.2em
+  (16.8px/16px) 10px under it; the box is `._fCard`'s. Seven share a row as
+  `flex-1 basis-0 min-w-[120px] max-w-[300px] mr-[15px]` (the last keeps its
+  margin) inside `py-[5px]`.
+- **`WzSelect geometry="bare"`** (new, optional) — a react-select with no
+  floating label: the label stays for screen readers only and the value sits
+  centred 16.32px down ("By Call Flow", 200×48.6).
+- **`WzReportGrid emptyText={null}`** (new, optional) — an empty report with
+  nothing printed over its ten blank rows (Call Tracking's `_noData`).
+- `WzDateRangePicker` as Call Tracking draws it: `className="w-auto"` makes
+  the box as wide as its words (228px for "This month / Oct 1st, 2026 - Oct
+  9th, 2026"); Custom keeps its 362px.
+
 ## Known differences from Workiz (deliberate or unmeasurable)
 - Sub-pixel: Workiz's own fractional layout makes some glyphs land ±1px
   differently from ours in screenshots (e.g. two Workiz selects with identical

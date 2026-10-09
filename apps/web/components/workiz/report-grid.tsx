@@ -148,6 +148,7 @@ export function WzReportGrid<R>({
   loading?: boolean;
   /** Another page is coming over the rows on screen. */
   busy?: boolean;
+  /** Over an empty report; `null` prints nothing (Call Tracking's blank rows stay silent). */
   emptyText?: ReactNode;
   /** react-table's `.pagination-bottom`: the pager, inside the frame under the rows. */
   footer?: ReactNode;
@@ -277,7 +278,7 @@ export function WzReportGrid<R>({
             ))}
           </div>
         </div>
-      ) : shown.length === 0 ? (
+      ) : shown.length === 0 && emptyText !== null ? (
         <WzTableNoData className="top-[204px] right-1/2 left-auto translate-x-0 pr-1.5 pl-[26px]">{emptyText}</WzTableNoData>
       ) : null}
       {footer}

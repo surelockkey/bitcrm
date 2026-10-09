@@ -1,47 +1,58 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
-import type { CallTrackingGroupBy, CallTrackingReport } from "@bitcrm/types";
-import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { CALL_TRACKING_MAX_DAYS, type CallTrackingGroupBy, type CallTrackingReport, type CallTrackingRow } from "@bitcrm/types";
 import { Skeleton } from "@/components/ui/skeleton";
+import { WzAreaChart } from "@/components/workiz/area-chart";
+import { WzDateRangePicker, type WzDateRange } from "@/components/workiz/date-range-picker";
+import { WzFlowViews } from "@/components/workiz/flow-views";
+import { WzKpiCard, WzKpiCardSkeleton } from "@/components/workiz/kpi-card";
+import { WzPager, type WzPagerState } from "@/components/workiz/pager";
+import { WzReportGrid, wzNextSort, type WzReportColumn, type WzSortDir } from "@/components/workiz/report-grid";
+import { WzSelect } from "@/components/workiz/select";
 import { settled, usePageReady } from "@/lib/use-page-ready";
 import { useDenied, usePermissions } from "@/features/auth/use-permissions";
 import { NoAccess } from "@/features/clients/components/contacts-page";
-import { LineChart } from "@/features/dashboard/components/line-chart";
 import { useJobSources } from "@/features/job-sources/hooks";
 import { paginate } from "../lib";
-import {
-  CALL_TRACKING_PRESETS,
-  REPORT_PRESET_LABEL,
-  reportPresetRange,
-  type ReportPreset,
-} from "../report-dates";
+import { CALL_TRACKING_PRESETS, REPORT_PRESET_LABEL, reportPresetRange } from "../report-dates";
 import { useCallTracking } from "../call-tracking/hooks";
 import {
-  bucketLabel,
   CALL_TRACKING_PAGE_SIZE,
   callTrackingColumns,
-  cardDuration,
+  graphView,
   pct,
   rowDuration,
+  seriesColor,
   sortTrackingRows,
+  trackingCardFigures,
   usd,
   type CallTrackingColumn,
   type CallTrackingParams,
 } from "../call-tracking/lib";
 
 type GraphBy = CallTrackingParams["graphBy"];
-const GRAPH_STEPS: GraphBy[] = ["hour", "day", "week", "month"];
+const GRAPH_STEPS = (["hour", "day", "week", "month"] as const).map((g) => ({ value: g, label: g }));
+const GROUP_BY = [
+  { value: "flows", label: "By Call Flow" },
+  { value: "numbers", label: "By Phone Number" },
+];
+const PRESETS = CALL_TRACKING_PRESETS.map((id) => ({ id, label: REPORT_PRESET_LABEL[id] }));
+/** react-table's `width: 150` columns against everyone else's 100: 161px of 1400 (rep_calltracking_wz_01_default). */
+const WIDE_COLUMN = 161;
+
+const daysBetween = (from: string, to: string) => (Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000 + 1;
 
 /**
- * Workiz Reports → Call Tracking: inbound calls by call flow or by tracked
- * number — seven cards, the calls-per-flow graph (hour of day / day / week /
- * month), and the table Workiz pages and sorts in the browser, twenty rows a
- * page. Opens on This month by call flow, as Workiz does. Revenue only with
- * `financials.view` (the server leaves it out otherwise); the whole report
- * needs `calls.view` too — Workiz's "Call Reports" restriction.
+ * Workiz Reports → Call Tracking (`/root/callTrackingReport`), drawn as
+ * Workiz draws it (rep_calltracking_wz_*): no title — "By Call Flow" at the
+ * left and the date box at the right; seven cards; the hour | day | week |
+ * month switch over the calls-per-flow graph and its legend; the table across
+ * the page's whole width, twenty rows a page, sorted in the browser. Opens on
+ * This month by call flow, hour by hour; the presets count from the viewer's
+ * own today, "Last N days" including it (checked live 2026-10-09). Revenue
+ * only with `financials.view` (the server leaves it out otherwise); the whole
+ * report needs `calls.view` too — Workiz's "Call Reports" restriction.
  */
 export function CallTrackingPage({ today }: { today: string }) {
   const { can, isLoading: permsLoading } = usePermissions();
@@ -51,17 +62,13 @@ export function CallTrackingPage({ today }: { today: string }) {
 
   const [groupBy, setGroupBy] = useState<CallTrackingGroupBy>("flows");
   const [graphBy, setGraphBy] = useState<GraphBy>("hour");
-  const [preset, setPreset] = useState<ReportPreset>("this_month");
-  const [custom, setCustom] = useState({ from: `${today.slice(0, 7)}-01`, to: today });
-  const range = reportPresetRange(preset, today) ?? custom;
-  const customValid = preset !== "custom" || (!!custom.from && !!custom.to && custom.from <= custom.to);
+  const [range, setRange] = useState<WzDateRange>(() => ({ preset: "this_month", ...reportPresetRange("this_month", today)! }));
+  // Our server reads at most a year at a time; Workiz's own words for a box that asks more.
+  const tooLong = daysBetween(range.from, range.to) > CALL_TRACKING_MAX_DAYS;
 
-  const report = useCallTracking({ from: range.from, to: range.to, groupBy, graphBy }, !blocked && customValid);
+  const report = useCallTracking({ from: range.from, to: range.to, groupBy, graphBy }, !blocked && !tooLong);
   const sources = useJobSources();
-  const sourceNames = useMemo(
-    () => new Map((sources.data ?? []).map((s) => [s.id, s.name])),
-    [sources.data],
-  );
+  const sourceNames = useMemo(() => new Map((sources.data ?? []).map((s) => [s.id, s.name])), [sources.data]);
   // The report was drawn the moment it came: the ad groups' names (a catalog
   // sometimes seconds slow) filled the Ad group column in later, and with the
   // role still being read the Revenue card and column came a beat after. The
@@ -71,71 +78,40 @@ export function CallTrackingPage({ today }: { today: string }) {
   if (blocked) return <NoAccess entity="reports" />;
 
   return (
-    <div className="flex flex-1 flex-col overflow-y-auto">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b px-6 py-4">
-        <h1 className="text-lg font-semibold tracking-tight">Call Tracking</h1>
-        <div className="flex flex-wrap items-center gap-2">
-          <select
-            aria-label="Group by"
-            className="h-9 rounded-md border bg-transparent px-2 text-sm"
-            value={groupBy}
-            onChange={(e) => setGroupBy(e.target.value as CallTrackingGroupBy)}
-          >
-            <option value="flows">By Call Flow</option>
-            <option value="numbers">By Phone Number</option>
-          </select>
-          <select
-            aria-label="Date preset"
-            className="h-9 rounded-md border bg-transparent px-2 text-sm"
-            value={preset}
-            onChange={(e) => setPreset(e.target.value as ReportPreset)}
-          >
-            {CALL_TRACKING_PRESETS.map((p) => (
-              <option key={p} value={p}>
-                {REPORT_PRESET_LABEL[p]}
-              </option>
-            ))}
-          </select>
-          {preset === "custom" ? (
-            <>
-              <input
-                type="date"
-                aria-label="From"
-                className="h-9 rounded-md border bg-transparent px-2 text-sm"
-                value={custom.from}
-                max={today}
-                onChange={(e) => setCustom((c) => ({ ...c, from: e.target.value }))}
-              />
-              <input
-                type="date"
-                aria-label="To"
-                className="h-9 rounded-md border bg-transparent px-2 text-sm"
-                value={custom.to}
-                max={today}
-                onChange={(e) => setCustom((c) => ({ ...c, to: e.target.value }))}
-              />
-            </>
-          ) : (
-            <span className="text-sm text-muted-foreground tabular-nums">
-              {range.from} – {range.to}
-            </span>
-          )}
-        </div>
+    <div className="flex flex-1 flex-col overflow-y-auto bg-background">
+      <div className="flex items-start justify-between gap-4 px-5 pt-6">
+        <WzSelect
+          label="Group by"
+          geometry="bare"
+          className="w-[200px] shrink-0"
+          options={GROUP_BY}
+          value={groupBy}
+          onChange={(v) => v && setGroupBy(v as CallTrackingGroupBy)}
+        />
+        <WzDateRangePicker
+          presets={PRESETS}
+          value={range}
+          onChange={setRange}
+          rangeOf={(id) => reportPresetRange(id as Parameters<typeof reportPresetRange>[0], today)}
+          calendar={{ today }}
+          customError={tooLong ? "Date range exceeds 12 months" : null}
+          // Workiz's box is as wide as its words (228px for "This month"); Custom opens it to 362px.
+          className={range.preset === "custom" ? undefined : "w-auto"}
+        />
       </div>
 
-      {!customValid ? (
-        <p role="alert" className="p-6 text-sm text-destructive">
-          Pick a start day on or before the end day.
-        </p>
-      ) : report.error ? (
-        <p role="alert" className="p-6 text-sm text-destructive">
+      {tooLong ? null : report.error ? (
+        <p role="alert" className="px-5 pt-5 text-sm text-destructive">
           {report.error instanceof Error ? report.error.message : "Could not load the report."}
         </p>
       ) : !ready || !report.data ? (
-        <div role="status" aria-label="Loading report" className="space-y-3 p-6">
-          <Skeleton className="h-20 w-full" />
-          <Skeleton className="h-56 w-full" />
-          <Skeleton className="h-64 w-full" />
+        <div role="status" aria-label="Loading report" className="mx-5 mt-5 flex flex-col">
+          <div className="mb-5 flex py-[5px]">
+            {Array.from({ length: 7 }, (_, i) => (
+              <WzKpiCardSkeleton key={i} className="mr-[15px] max-w-[300px] min-w-[120px] flex-1 basis-0" />
+            ))}
+          </div>
+          <Skeleton className="h-[272px] w-full" />
         </div>
       ) : (
         <Report
@@ -143,7 +119,7 @@ export function CallTrackingPage({ today }: { today: string }) {
           money={money}
           graphBy={graphBy}
           onGraphBy={setGraphBy}
-          adGroupName={(id) => (id ? sourceNames.get(id) ?? "" : "")}
+          adGroupName={(id) => (id ? (sourceNames.get(id) ?? "") : "")}
           stale={report.isPlaceholderData}
         />
       )}
@@ -166,50 +142,45 @@ function Report({
   adGroupName: (id?: string) => string;
   stale: boolean;
 }) {
-  const c = report.cards;
-  const withRevenue = money && c.revenue !== undefined;
+  const withRevenue = money && report.cards.revenue !== undefined;
+  const hasRows = report.rows.some((r) => r.calls > 0);
+  const figures = trackingCardFigures(report.cards, { hasRows, money: withRevenue });
+  const graph = graphView(report.graph);
   return (
-    <div className={`flex flex-col gap-4 p-6 ${stale ? "opacity-60" : ""}`} aria-busy={stale || undefined}>
-      {report.atLeast && (
-        <p role="status" className="text-sm text-muted-foreground">
-          The period is too long to read in one go — these numbers are a floor.
-        </p>
-      )}
-      <div role="group" aria-label="Report totals" className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
-        <Kpi label="Incoming calls" value={c.incomingCalls.toLocaleString("en-US")} />
-        <Kpi label="Callers" value={c.callers.toLocaleString("en-US")} />
-        <Kpi label="Missed calls" value={c.missedCalls.toLocaleString("en-US")} />
-        <Kpi label="Top Flow" value={c.topFlow ?? "N/A"} title={c.topFlow ?? undefined} />
-        <Kpi label="Avg Duration" value={cardDuration(c.avgDurationSeconds)} />
-        <Kpi label="Conversion" value={pct(c.conversion)} />
-        {withRevenue && <Kpi label="Revenue" value={usd(c.revenue)} />}
-      </div>
-
-      <Card className="px-4">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-base font-semibold">Calls by call flow</h2>
-          <div role="radiogroup" aria-label="Graph step" className="inline-flex overflow-hidden rounded-md border text-sm">
-            {GRAPH_STEPS.map((g) => (
-              <button
-                key={g}
-                type="button"
-                role="radio"
-                aria-checked={graphBy === g}
-                onClick={() => onGraphBy(g)}
-                className={`px-3 py-1 ${graphBy === g ? "bg-muted font-medium" : "hover:bg-muted/50"}`}
-              >
-                {g}
-              </button>
-            ))}
-          </div>
+    <div className={stale ? "opacity-60" : undefined} aria-busy={stale || undefined}>
+      <div className="mx-5 mt-5 mb-5">
+        {report.atLeast && (
+          <p role="status" className="mb-2.5 text-sm leading-4 text-wz-strong">
+            The period is too long to read in one go — these numbers are a floor.
+          </p>
+        )}
+        {/* cardsBar: seven cards sharing the row, 15px after each (the last too). */}
+        <div role="group" aria-label="Report totals" className="flex py-[5px]">
+          {figures.map((f) => (
+            <WzKpiCard
+              key={f.caption}
+              size="cardsBar"
+              value={f.value}
+              caption={f.caption}
+              label={f.caption}
+              title={f.caption === "Top Flow" ? f.value : undefined}
+              className="mr-[15px] max-w-[300px] min-w-[120px] flex-1 basis-0"
+            />
+          ))}
         </div>
-        <LineChart
-          title="Calls per call flow"
-          days={report.graph.buckets}
-          series={report.graph.series.map((s) => ({ name: s.name, values: s.counts }))}
-          labelOf={(b) => bucketLabel(report.graph.graphBy, b)}
-        />
-      </Card>
+        {graph.labels.length ? (
+          <div className="mt-5">
+            <div className="mr-[18px] mb-2.5 flex justify-end">
+              <WzFlowViews aria-label="Graph step" options={GRAPH_STEPS} value={graphBy} onChange={onGraphBy} />
+            </div>
+            <WzAreaChart
+              aria-label="Calls per call flow"
+              labels={graph.labels}
+              series={graph.series.map((s, i) => ({ ...s, color: seriesColor(i, s.label) }))}
+            />
+          </div>
+        ) : null}
+      </div>
 
       {/* A new window or grouping starts the table over: first page, server order. */}
       <TrackingTable
@@ -222,19 +193,6 @@ function Report({
   );
 }
 
-function Kpi({ label, value, title }: { label: string; value: string; title?: string }) {
-  return (
-    <Card size="sm" className="px-3">
-      <div className="flex min-w-0 flex-col gap-1">
-        <span className="truncate text-xl font-semibold" title={title ?? value}>
-          {value}
-        </span>
-        <span className="text-xs text-muted-foreground">{label}</span>
-      </div>
-    </Card>
-  );
-}
-
 function TrackingTable({
   report,
   money,
@@ -244,25 +202,31 @@ function TrackingTable({
   money: boolean;
   adGroupName: (id?: string) => string;
 }) {
-  const [sort, setSort] = useState<{ by: CallTrackingColumn; dir: "asc" | "desc" } | null>(null);
+  // Workiz opens the table in the server's order (busiest first), no bar.
+  const [sort, setSort] = useState<{ by: CallTrackingColumn; dir: WzSortDir } | null>(null);
   const [page, setPage] = useState(1);
 
-  const columns = callTrackingColumns(report.groupBy, money);
   const sorted = sortTrackingRows(report.rows, sort, adGroupName);
   const view = paginate(sorted, page, CALL_TRACKING_PAGE_SIZE);
-  const toggle = (by: CallTrackingColumn, numeric: boolean) =>
-    setSort((cur) =>
-      cur?.by === by ? { by, dir: cur.dir === "desc" ? "asc" : "desc" } : { by, dir: numeric ? "desc" : "asc" },
-    );
+  const from = view.total ? (view.page - 1) * CALL_TRACKING_PAGE_SIZE + 1 : 1;
+  const to = Math.min(view.page * CALL_TRACKING_PAGE_SIZE, view.total);
+  const pager: WzPagerState = {
+    page: view.page,
+    from,
+    to,
+    total: view.total,
+    totalPages: view.pages,
+    canPrev: view.page > 1,
+    canNext: view.page < view.pages,
+    isFetching: false,
+    prev: () => setPage(view.page - 1),
+    next: () => setPage(view.page + 1),
+  };
 
-  if (!report.rows.length) {
-    return <p className="py-10 text-center text-sm text-muted-foreground">No calls in this period.</p>;
-  }
-
-  const cell = (key: CallTrackingColumn, r: CallTrackingReport["rows"][number]): string => {
+  const text = (key: CallTrackingColumn, r: CallTrackingRow): string => {
     switch (key) {
       case "name":
-        return r.name || "—";
+        return r.name;
       case "adGroup":
         return adGroupName(r.adGroupId);
       case "avgDurationSeconds":
@@ -273,66 +237,40 @@ function TrackingTable({
       case "revenue":
         return usd(r.revenue);
       default:
-        return (r[key] as number).toLocaleString("en-US");
+        return String(r[key] ?? 0);
     }
   };
 
-  const from = view.total ? (view.page - 1) * CALL_TRACKING_PAGE_SIZE + 1 : 0;
-  const to = Math.min(view.page * CALL_TRACKING_PAGE_SIZE, view.total);
+  const columns: WzReportColumn<CallTrackingRow>[] = callTrackingColumns(report.groupBy, money).map((c) => ({
+    id: c.key,
+    label: c.label,
+    width: c.wide ? WIDE_COLUMN : undefined,
+    sortable: true,
+    cell: (r: CallTrackingRow) => {
+      const t = text(c.key, r);
+      return (
+        <span className="block truncate" title={c.key === "name" || c.key === "adGroup" ? t : undefined}>
+          {t}
+        </span>
+      );
+    },
+  }));
 
   return (
-    <div className="flex flex-col">
-      <div className="overflow-x-auto rounded-md border">
-        <table aria-label="Call Tracking" className="w-full text-sm">
-          <thead className="bg-muted">
-            <tr>
-              {columns.map((col) => (
-                <th
-                  key={col.key}
-                  scope="col"
-                  className="px-3 py-2 text-left font-medium whitespace-nowrap"
-                  aria-sort={sort?.by === col.key ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}
-                >
-                  <button type="button" className="hover:underline" onClick={() => toggle(col.key, col.numeric)}>
-                    {col.label}
-                  </button>
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {view.rows.map((r) => (
-              <tr key={r.key || "none"} className="border-t odd:bg-muted/40">
-                {columns.map((col) => (
-                  <td
-                    key={col.key}
-                    className={`px-3 py-2 ${col.numeric ? "tabular-nums" : "max-w-56 truncate"}`}
-                    title={col.numeric ? undefined : cell(col.key, r)}
-                  >
-                    {cell(col.key, r)}
-                  </td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <div className="flex flex-wrap items-center justify-between gap-3 border-t px-1 py-3 text-xs text-muted-foreground">
-        <span className="tabular-nums">
-          Showing {from} to {to} of {view.total.toLocaleString("en-US")} results
-        </span>
-        <div className="flex items-center gap-1">
-          <Button variant="ghost" size="icon-sm" aria-label="Previous page" disabled={view.page <= 1} onClick={() => setPage(view.page - 1)}>
-            <ChevronLeft />
-          </Button>
-          <span className="tabular-nums">
-            Page {view.page} of {view.pages}
-          </span>
-          <Button variant="ghost" size="icon-sm" aria-label="Next page" disabled={view.page >= view.pages} onClick={() => setPage(view.page + 1)}>
-            <ChevronRight />
-          </Button>
-        </div>
-      </div>
-    </div>
+    <WzReportGrid
+      aria-label="Call Tracking"
+      columns={columns}
+      rows={view.rows}
+      rowKey={(r) => r.key || "none"}
+      sort={sort ? { column: sort.by, dir: sort.dir } : null}
+      onSort={(column) =>
+        setSort((cur) => ({
+          by: column as CallTrackingColumn,
+          dir: wzNextSort(cur?.by === column ? cur.dir : undefined),
+        }))
+      }
+      emptyText={null}
+      footer={<WzPager pager={pager} plainNumbers />}
+    />
   );
 }
