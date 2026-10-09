@@ -18,8 +18,9 @@ import { cn } from "@/lib/utils";
 export function WzPageHeader({ title, pill, end }: { title: string; pill?: ReactNode; end?: ReactNode }) {
   return (
     // shrink-0: in a scrolling flex column the 36px floor would otherwise be
-    // all it got, its 15px top eaten.
-    <div className="sticky left-0 flex min-h-9 shrink-0 items-center gap-4 px-6 pt-[15px]">
+    // all it got, its 15px top eaten. Nothing pins it sideways: the page
+    // scrolls only up and down (a wide grid scrolls inside its own box).
+    <div className="flex min-h-9 shrink-0 items-center gap-4 px-6 pt-[15px]">
       <h2 className="text-[25px] leading-8 font-medium text-foreground">{title}</h2>
       {pill}
       {end ? <div className="ml-auto">{end}</div> : null}
@@ -89,7 +90,7 @@ export function WzTabLinks({
     <nav
       aria-label={label}
       aria-busy={pending || undefined}
-      className={cn("sticky left-0 flex shrink-0 overflow-x-auto border-b border-input", !page && "mt-6", className)}
+      className={cn("flex shrink-0 overflow-x-auto border-b border-input", !page && "mt-6", className)}
     >
       {tabs.map((t) => {
         const on = t.id === active;

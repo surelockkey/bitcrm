@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { FileText, Grid3x3 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -76,19 +76,6 @@ const personName = (u: { firstName?: string; lastName?: string; email?: string; 
 const BY_OPTIONS = JOBS_REPORT_BY.map((b) => ({ value: b, label: JOBS_REPORT_BY_LABEL[b] }));
 const PRESETS = JOBS_REPORT_PRESETS.map((p) => ({ id: p.id, label: p.label }));
 
-/** An element's inner width, kept current; 0 where nothing is laid out (jsdom). */
-function useClientWidth<T extends HTMLElement>() {
-  const [el, ref] = useState<T | null>(null);
-  const [width, setWidth] = useState(0);
-  useEffect(() => {
-    if (!el || typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver(() => setWidth(el.clientWidth));
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [el]);
-  return { ref, width };
-}
-
 /**
  * The Workiz Jobs report (`/root/jobreport`), drawn as Workiz draws it
  * (rep_jobs_wz_*): no title — the "Filter results" box across the top, the
@@ -96,8 +83,10 @@ function useClientWidth<T extends HTMLElement>() {
  * size, Export, Fields); the grid; the pager. Every job of the period, any
  * status, on the date "By:" names — Job created, Job date or Job end date.
  * The server does the work (`GET /deals/report`): it pages, sorts and names;
- * this page holds the toolbar. The page scrolls both ways, so the grid's
- * header sticks to its top and the controls hold still over a wide grid.
+ * this page holds the toolbar. The page scrolls only up and down, as
+ * Workiz's does (the 2026-10-09 probe of /root/jobreport/): the grid's
+ * header is pinned to its top, and a grid wider than the page scrolls
+ * sideways in its own box (`WzScrollGrid`), the controls above it still.
  */
 export function JobsReportPage({ today: todayProp }: { today?: string } = {}) {
   const denied = useDenied();
@@ -122,7 +111,6 @@ export function JobsReportPage({ today: todayProp }: { today?: string } = {}) {
   const [localColumns, setLocalColumns] = useState<JobsReportColumnId[] | null>(null);
   const [fieldsOpen, setFieldsOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
-  const { ref: scrollerRef, width: viewWidth } = useClientWidth<HTMLDivElement>();
 
   const state: JobsReportState = {
     by,
@@ -195,13 +183,13 @@ export function JobsReportPage({ today: todayProp }: { today?: string } = {}) {
   };
 
   return (
-    <div ref={scrollerRef} className="flex min-h-0 flex-1 flex-col overflow-auto text-wz-strong" data-slot="jobs-report-scroller">
+    <div className="flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto text-wz-strong" data-slot="jobs-report-scroller">
       {/* The top band (rep_jobs_wz_01_default): the filter 34px under the
           breadcrumbs, 21px in, running to 20px short of the date box; the
-          box 20px off the right edge; 30px under it to the strip. Sticky
-          makes it a layer of its own: z-20 lets the date lists hang over the
-          strip and the grid's sticky header below it. */}
-      <div className="sticky left-0 z-20 flex shrink-0 items-start gap-5 pt-[34px] pr-5 pb-[30px] pl-[21px]" style={viewWidth ? { width: viewWidth } : undefined}>
+          box 20px off the right edge; 30px under it to the strip. A layer
+          of its own: z-20 lets the date lists hang over the strip and the
+          grid's pinned header below it. */}
+      <div className="relative z-20 flex shrink-0 items-start gap-5 pt-[34px] pr-5 pb-[30px] pl-[21px]">
         <WzGroupedFilter<keyof JobsReportFilters>
           className="min-w-0 flex-1"
           groups={groups}
@@ -233,7 +221,7 @@ export function JobsReportPage({ today: todayProp }: { today?: string } = {}) {
         </div>
       </div>
 
-      <WzListToolbar className="sticky left-0 gap-x-4" style={viewWidth ? { width: viewWidth } : undefined}>
+      <WzListToolbar className="gap-x-4">
         <WzSearchBox
           value={search}
           onChange={(v) => {
@@ -255,11 +243,11 @@ export function JobsReportPage({ today: todayProp }: { today?: string } = {}) {
 
       <div className="flex-1">
         {report.error ? (
-          <p role="alert" className="sticky left-0 px-5 py-4 text-sm text-destructive">
+          <p role="alert" className="px-5 py-4 text-sm text-destructive">
             {report.error instanceof Error ? report.error.message : "Could not load the report."}
           </p>
         ) : !shown || !data ? (
-          <JobsReportTableShell columns={columns} viewWidth={viewWidth} />
+          <JobsReportTableShell columns={columns} />
         ) : (
           <JobsReportTable
             rows={data.rows}
@@ -269,13 +257,10 @@ export function JobsReportPage({ today: todayProp }: { today?: string } = {}) {
             onSort={onSort}
             addFilter={(key, value) => changeFilters(addFilter(filters, key, value))}
             busy={report.isFetching}
-            viewWidth={viewWidth}
           />
         )}
       </div>
-      {shown && data ? (
-        <WzPager pager={pager} className="sticky left-0" />
-      ) : null}
+      {shown && data ? <WzPager pager={pager} /> : null}
 
       <JobsReportFields
         open={fieldsOpen}

@@ -192,3 +192,23 @@ describe("MyJobsPage — the jobs list, only mine", () => {
     expect(await screen.findByText("Couldn't load your jobs", {}, { timeout: 3000 })).toBeInTheDocument();
   });
 });
+
+/**
+ * Сторінка скролить лише вгору-вниз, як список робіт у Workiz (проби
+ * /root/jobs/ на 1440×800 і 1600×1000, 2026-10-09: документ не має бокового
+ * скролу; вбік скролить лише коробка сітки). Коли вбік скролила вся
+ * сторінка, контролі над сіткою з'їжджали — `sticky left-0` не тримає рядок
+ * завширшки з батька.
+ */
+describe("MyJobsPage — scrolls only up and down; the controls above the grid are not pinned sideways", () => {
+  it("has one scroller, up and down, and pins nothing but the grid's header", async () => {
+    renderWithClient(<MyJobsPage />);
+    await screen.findByText("901", {}, { timeout: 3000 });
+    const scroller = screen.getByTestId("my-jobs-scroll");
+    expect(scroller.className).toMatch(/\boverflow-y-auto\b/);
+    expect(scroller.className).toMatch(/\boverflow-x-hidden\b/);
+    expect(scroller.className).not.toMatch(/\boverflow-auto\b/);
+    const pinned = [...scroller.querySelectorAll(".sticky")].filter((el) => el.getAttribute("data-slot") !== "wz-scroll-grid-head");
+    expect(pinned).toHaveLength(0);
+  });
+});

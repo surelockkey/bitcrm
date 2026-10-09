@@ -80,7 +80,7 @@ let server: FakeServer;
 const { JobsReportPage } = await import("./jobs-report-page");
 
 const tableUp = () => !!screen.queryByText("AB12CD");
-const heads = () => [...document.querySelectorAll("th")].map((th) => th.textContent?.trim() ?? "");
+const heads = () => [...document.querySelectorAll("[data-slot=wz-scroll-grid-head] th")].map((th) => th.textContent?.trim() ?? "");
 
 beforeEach(() => {
   server = installFakeServer(routes);

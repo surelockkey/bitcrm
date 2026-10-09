@@ -170,8 +170,11 @@ export function ProductsTable({
         // Workiz's grid opens in its own order with no sort bar; the server pages one order.
         sort={null}
         resize={{ widthOf, setWidth, reset }}
+        // Wider than the page: the rows scroll sideways in their own box and
+        // the header, pinned to the page's top, moves with them (the grid's
+        // split header, 2026-10-09 — before, a sticky header inside that box
+        // was trapped by it, so this passed `stickyHeader={false}`).
         minTableWidth={minTableWidth}
-        stickyHeader={false}
         onRowClick={(p, e) => onEdit(p, e)}
         loading={loading}
         busy={stale}

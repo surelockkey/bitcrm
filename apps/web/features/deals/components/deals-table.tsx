@@ -2,17 +2,10 @@
 
 import type { MouseEvent, ReactNode } from "react";
 import { Eye } from "lucide-react";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { TableBody, TableCell, TableHead, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ResizableHead } from "@/components/ui/resizable-head";
-import { WzTableEmpty } from "@/components/workiz";
+import { WzScrollGrid, WzTableEmpty, type WzScrollColumn } from "@/components/workiz";
 import { useColumnWidths } from "@/lib/table/use-column-widths";
 import { JobSuperStatus, type Contact, type Deal, type PersonName } from "@bitcrm/types";
 import {
@@ -65,17 +58,13 @@ import type { DirectoryUser } from "@/features/deals/hooks";
  *   #cfcfcf rule between columns, clipped rather than wrapped;
  * - rows zebra (#f7f7f7 on the odd ones), rgba(0,0,0,.05) under the cursor.
  */
-// The header sticks to the top of the page's scroller while the rows go
-// under it, as Workiz's does (list_07_bottom: header pinned at y=56).
-const HEAD =
-  "sticky top-0 z-10 h-[42px] border-b border-r border-input bg-muted px-2.5 text-sm leading-[21px] font-medium text-[#404040]";
-/**
- * Workiz's grid frame: 1px #ddd on all four sides, as wide as its columns.
- * Separate borders, so the sticky header keeps its rules while scrolled
- * (a collapsed border stays behind with the table).
- */
-const FRAME = "border border-[#dddddd]";
-const TABLE = "table-fixed w-full border-separate border-spacing-0";
+// The header is pinned to the top of the page's scroller while the rows go
+// under it, as Workiz's is (list_07_bottom: header pinned at y=56), and it
+// moves sideways with the rows: the kit's scroll grid keeps it in its own
+// box over the rows' box (the 2026-10-09 probes of /root/jobs/ at 1440 and
+// 1600: the document never scrolls sideways, the grid's own box does — its
+// 1820px of columns in a 1238/1398px frame).
+const HEAD = "h-[42px] border-b border-r border-input bg-muted px-2.5 text-sm leading-[21px] font-medium text-[#404040]";
 const CELL = "overflow-hidden border-r border-dotted border-table-border p-5 align-top text-sm leading-4 text-[#404040]";
 
 /** The job number: Workiz's Job ID column, always first and never hideable. */
@@ -87,6 +76,24 @@ function columnDefaults(columns: { id: string; width: number }[]): Record<string
     ...columns.map((c) => [c.id, c.width] as const),
     [NUMBER_COLUMN, JOB_NUMBER_WIDTH] as const,
   ]);
+}
+
+/**
+ * The grid's columns — the job number first, then the visible fields —
+ * each at its registry width as a minimum (Workiz's react-table
+ * `flex: <width> 0 auto`: every column grows to a wider page), or at the
+ * width the reader dragged it to, which it then keeps while the others grow.
+ */
+function useScrollColumns(columns: { id: string; label: string; width: number }[]) {
+  const widths = useColumnWidths("jobs", columnDefaults(columns));
+  const column = (id: string, label: string): WzScrollColumn => ({
+    id,
+    label,
+    width: widths.widthOf(id),
+    fixed: widths.isSet(id),
+  });
+  const scrollColumns = [column(NUMBER_COLUMN, "Job ID"), ...columns.map((c) => column(c.id, c.label))];
+  return { ...widths, scrollColumns };
 }
 
 /**
@@ -110,54 +117,41 @@ export function DealsTableSkeleton({
   const columns = orderedColumns(jobFieldOptions(customFieldDefs), visibleFields, order);
   // The reader's saved widths, so the shell is the geometry the rows land in.
   // No handles here: there is nothing to resize until there is a table.
-  const { widthOf } = useColumnWidths("jobs", columnDefaults(columns));
+  const { scrollColumns } = useScrollColumns(columns);
 
   return (
-    <div className={FRAME} style={{ width: tableWidth(columns, widthOf) }} aria-busy role="status" aria-label="Loading jobs">
-      <Table className={TABLE} contained={false}>
-        <colgroup>
-          <col style={{ width: widthOf(NUMBER_COLUMN) }} />
+    <WzScrollGrid
+      columns={scrollColumns}
+      busy
+      role="status"
+      aria-label="Loading jobs"
+      header={() => (
+        <>
+          <TableHead className={cn(HEAD, "truncate")}>Job ID</TableHead>
           {columns.map((c) => (
-            <col key={c.id} style={{ width: widthOf(c.id) }} />
+            <TableHead key={c.id} className={cn(HEAD, "truncate")}>
+              {c.label}
+            </TableHead>
           ))}
-        </colgroup>
-        <TableHeader>
-          <TableRow className="border-0 hover:bg-transparent">
-            <TableHead className={cn(HEAD, "truncate")}>Job ID</TableHead>
+        </>
+      )}
+    >
+      <TableBody>
+        {Array.from({ length: rows }, (_, i) => (
+          <TableRow key={i} className="h-[88px] border-0 hover:bg-transparent">
+            <TableCell className={CELL}>
+              <Skeleton className="h-4 w-14" />
+            </TableCell>
             {columns.map((c) => (
-              <TableHead key={c.id} className={cn(HEAD, "truncate")}>
-                {c.label}
-              </TableHead>
+              <TableCell key={c.id} className={CELL}>
+                <Skeleton className="h-4 w-full" />
+              </TableCell>
             ))}
           </TableRow>
-        </TableHeader>
-        <TableBody>
-          {Array.from({ length: rows }, (_, i) => (
-            <TableRow key={i} className="h-[88px] border-0 hover:bg-transparent">
-              <TableCell className={CELL}>
-                <Skeleton className="h-4 w-14" />
-              </TableCell>
-              {columns.map((c) => (
-                <TableCell key={c.id} className={CELL}>
-                  <Skeleton className="h-4 w-full" />
-                </TableCell>
-              ))}
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </div>
+        ))}
+      </TableBody>
+    </WzScrollGrid>
   );
-}
-
-/**
- * The grid's own width: every column at its declared width. Wider than the
- * page, it scrolls sideways the way Workiz's does (its Zip code and Total
- * Price columns sit past the right edge); narrower, it stretches to fill.
- */
-function tableWidth(columns: { id: string }[], widthOf: (id: string) => number): string {
-  const px = widthOf(NUMBER_COLUMN) + columns.reduce((sum, c) => sum + widthOf(c.id), 0);
-  return `max(100%, ${px}px)`;
 }
 
 /** "RESIDENTIAL" → "Residential", "IN_PROGRESS" → "In progress". */
@@ -187,7 +181,6 @@ export function DealsTable({
   zoneOf,
   accountZone = DEFAULT_TZ,
   emptyText = "No Jobs Found",
-  viewWidth,
 }: {
   deals: Deal[];
   /**
@@ -231,8 +224,6 @@ export function DealsTable({
   /** The account's clock — the first line of every Scheduled cell. */
   accountZone?: string;
   emptyText?: string;
-  /** How much of the grid is on screen (the page scroller's width) — where "No Jobs Found" centres. */
-  viewWidth?: number;
 }) {
   const jobTypeName = useJobTypeName();
   const sourceName = useJobSourceName();
@@ -247,7 +238,7 @@ export function DealsTable({
   // Every offerable field (static + active custom), visible ones in saved order.
   const columns = orderedColumns(jobFieldOptions(customFieldDefs), visibleFields, order);
   // The reader's own widths for this table; the registry only sets the start.
-  const { widthOf, setWidth, reset } = useColumnWidths("jobs", columnDefaults(columns));
+  const { scrollColumns, setWidth, reset } = useScrollColumns(columns);
   const now = new Date();
 
   // A value whose own query has not answered yet. Same height as the text it
@@ -427,123 +418,118 @@ export function DealsTable({
   const scheduledSort = sort === "day_desc" ? "desc" : sort === "none" || sort === "day_asc" ? "asc" : undefined;
 
   return (
-    // No scroller of its own: the page scrolls both ways, so the header can
-    // stick to its top (an overflow-x box here would trap it).
-    <div className={cn("relative", FRAME)} style={{ width: tableWidth(columns, widthOf) }}>
-      {/*
-        `table-fixed` with a declared width per column. A contact (a number,
-        an email) lands a frame after the rows, and with auto layout every
-        column re-measures when it does — the whole grid jumps under the
-        reader's cursor. Fixed widths make the first painted frame the final
-        one, whatever fills in afterwards.
-      */}
-      <Table className={TABLE} contained={false}>
-        <colgroup>
-          <col style={{ width: widthOf(NUMBER_COLUMN) }} />
+    // The kit's scroll grid: the frame at the page's width, the header
+    // pinned to the page's top in its own box, the rows scrolling sideways
+    // in theirs (and the header with them) when the columns are wider than
+    // the page. `table-fixed` with a declared width per column: a contact (a
+    // number, an email) lands a frame after the rows, and with auto layout
+    // every column would re-measure when it does — the whole grid jumping
+    // under the reader's cursor. Fixed widths make the first painted frame
+    // the final one, whatever fills in afterwards.
+    <WzScrollGrid
+      columns={scrollColumns}
+      header={(widthOf) => (
+        <>
+          <ResizableHead
+            columnId={NUMBER_COLUMN}
+            label="Job ID"
+            width={widthOf(NUMBER_COLUMN)}
+            onResize={(px) => setWidth(NUMBER_COLUMN, px)}
+            onReset={reset}
+            className={HEAD}
+          >
+            Job ID
+          </ResizableHead>
           {columns.map((c) => (
-            <col key={c.id} style={{ width: widthOf(c.id) }} />
-          ))}
-        </colgroup>
-        <TableHeader>
-          <TableRow className="border-0 hover:bg-transparent">
             <ResizableHead
-              columnId={NUMBER_COLUMN}
-              label="Job ID"
-              width={widthOf(NUMBER_COLUMN)}
-              onResize={(px) => setWidth(NUMBER_COLUMN, px)}
+              key={c.id}
+              columnId={c.id}
+              label={c.label}
+              width={widthOf(c.id)}
+              onResize={(px) => setWidth(c.id, px)}
               onReset={reset}
-              className={HEAD}
+              sort={c.id === "scheduled" ? scheduledSort : undefined}
+              className={cn(HEAD, c.id === "scheduled" && onSortScheduled && "cursor-pointer")}
             >
-              Job ID
-            </ResizableHead>
-            {columns.map((c) => (
-              <ResizableHead
-                key={c.id}
-                columnId={c.id}
-                label={c.label}
-                width={widthOf(c.id)}
-                onResize={(px) => setWidth(c.id, px)}
-                onReset={reset}
-                sort={c.id === "scheduled" ? scheduledSort : undefined}
-                className={cn(HEAD, c.id === "scheduled" && onSortScheduled && "cursor-pointer")}
-              >
-                {c.id === "scheduled" && onSortScheduled ? (
-                  <button
-                    type="button"
-                    aria-label={`Sort by Scheduled, ${sort === "day_desc" ? "latest first" : "soonest first"}`}
-                    onClick={onSortScheduled}
-                    className="w-full truncate text-left font-medium"
-                  >
-                    {c.label}
-                  </button>
-                ) : (
-                  c.label
-                )}
-              </ResizableHead>
-            ))}
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {deals.map((d) => (
-            <TableRow
-              key={d.id}
-              // Workiz: rgba(0,0,0,.05) under the cursor, over the zebra too.
-              className="group/row cursor-pointer border-0 hover:bg-black/5!"
-              // A row click opens the job, as Workiz does; with ⌘/Ctrl, or
-              // the middle button, it opens in a new tab instead. Right click
-              // goes straight to a new tab in place of the browser menu.
-              onClick={(e) => open(e, d)}
-              onAuxClick={(e) => {
-                if (e.button === 1) open(e, d);
-              }}
-              onContextMenu={(e) => {
-                e.preventDefault();
-                window.open(`/deals/${d.id}`, "_blank", "noopener,noreferrer");
-              }}
-            >
-              <TableCell className={cn(CELL, "group/id")}>
-                <div className="whitespace-nowrap">{d.dealNumber}</div>
-                {/* Workiz shows "Quick view" under the ID while the cursor is on it. */}
+              {c.id === "scheduled" && onSortScheduled ? (
                 <button
                   type="button"
-                  aria-label={`Quick view ${d.dealNumber}`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onOpen(d);
-                  }}
-                  onContextMenu={(e) => e.stopPropagation()}
-                  // jobslist_wz_jobid_hover: 80×18, 12px/500 white on #61747d, r3.
-                  className="mt-[5px] rounded-[3px] bg-[#61747d] px-[5.5px] py-px text-xs leading-4 font-medium tracking-[0.4px] text-white opacity-0 group-hover/id:opacity-100 focus-visible:opacity-100"
+                  aria-label={`Sort by Scheduled, ${sort === "day_desc" ? "latest first" : "soonest first"}`}
+                  onClick={onSortScheduled}
+                  className="w-full truncate text-left font-medium"
                 >
-                  Quick view
+                  {c.label}
                 </button>
+              ) : (
+                c.label
+              )}
+            </ResizableHead>
+          ))}
+        </>
+      )}
+      after={
+        deals.length === 0 ? (
+          // Over the pinned header too (z-20 > its z-10): Workiz washes it all.
+          <WzTableEmpty title={emptyText} art={<EmptyJobsPicture />} className="z-20" />
+        ) : null
+      }
+    >
+      <TableBody>
+        {deals.map((d) => (
+          <TableRow
+            key={d.id}
+            // Workiz: rgba(0,0,0,.05) under the cursor, over the zebra too.
+            className="group/row cursor-pointer border-0 hover:bg-black/5!"
+            // A row click opens the job, as Workiz does; with ⌘/Ctrl, or
+            // the middle button, it opens in a new tab instead. Right click
+            // goes straight to a new tab in place of the browser menu.
+            onClick={(e) => open(e, d)}
+            onAuxClick={(e) => {
+              if (e.button === 1) open(e, d);
+            }}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              window.open(`/deals/${d.id}`, "_blank", "noopener,noreferrer");
+            }}
+          >
+            <TableCell className={cn(CELL, "group/id")}>
+              <div className="whitespace-nowrap">{d.dealNumber}</div>
+              {/* Workiz shows "Quick view" under the ID while the cursor is on it. */}
+              <button
+                type="button"
+                aria-label={`Quick view ${d.dealNumber}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpen(d);
+                }}
+                onContextMenu={(e) => e.stopPropagation()}
+                // jobslist_wz_jobid_hover: 80×18, 12px/500 white on #61747d, r3.
+                className="mt-[5px] rounded-[3px] bg-[#61747d] px-[5.5px] py-px text-xs leading-4 font-medium tracking-[0.4px] text-white opacity-0 group-hover/id:opacity-100 focus-visible:opacity-100"
+              >
+                Quick view
+              </button>
+            </TableCell>
+            {columns.map((c) => (
+              // A long address or note is clipped, not allowed to widen its
+              // column and shove the rest of the row sideways.
+              <TableCell key={c.id} className={CELL}>
+                {cell(d, c.id)}
               </TableCell>
-              {columns.map((c) => (
-                // A long address or note is clipped, not allowed to widen its
-                // column and shove the rest of the row sideways.
-                <TableCell key={c.id} className={CELL}>
-                  {cell(d, c.id)}
-                </TableCell>
-              ))}
-            </TableRow>
-          ))}
-          {/* Workiz's grid never runs shorter than ten rows (react-table
-              `minRows`): blank striped rows, 57px each, keep the rules going. */}
-          {Array.from({ length: Math.max(0, MIN_ROWS - deals.length) }, (_, i) => (
-            <TableRow key={`pad-${i}`} aria-hidden className="h-[57px] border-0 hover:bg-transparent">
-              <TableCell className={CELL} />
-              {columns.map((c) => (
-                <TableCell key={c.id} className={CELL} />
-              ))}
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-      {deals.length === 0 ? (
-        // Over the sticky header too (z-20 > its z-10): Workiz washes it all.
-        <WzTableEmpty title={emptyText} art={<EmptyJobsPicture />} viewWidth={viewWidth || undefined} className="z-20" />
-      ) : null}
-    </div>
+            ))}
+          </TableRow>
+        ))}
+        {/* Workiz's grid never runs shorter than ten rows (react-table
+            `minRows`): blank striped rows, 57px each, keep the rules going. */}
+        {Array.from({ length: Math.max(0, MIN_ROWS - deals.length) }, (_, i) => (
+          <TableRow key={`pad-${i}`} aria-hidden className="h-[57px] border-0 hover:bg-transparent">
+            <TableCell className={CELL} />
+            {columns.map((c) => (
+              <TableCell key={c.id} className={CELL} />
+            ))}
+          </TableRow>
+        ))}
+      </TableBody>
+    </WzScrollGrid>
   );
 }
 
@@ -614,4 +600,3 @@ function ScheduledCell({ deal, zone, accountZone, now }: { deal: Deal; zone?: st
     </>
   );
 }
-

@@ -56,8 +56,12 @@ function setup(rows: JobsReportRow[], over: Partial<Parameters<typeof JobsReport
   return { addFilter, onSort };
 }
 
-const bodyRows = () => within(screen.getByRole("table")).getAllByRole("row").slice(1);
+const bodyRows = () => within(document.querySelector("[data-slot=wz-scroll-grid-body]") as HTMLElement).getAllByRole("row").slice(1);
 const fillers = () => [...document.querySelectorAll("tbody tr[aria-hidden]")];
+
+/** The grid's visible header — the rows' table carries the names once more, `sr-only`, for a screen reader. */
+const gridHead = () => document.querySelector("[data-slot=wz-scroll-grid-head]") as HTMLElement;
+const gridHeaders = () => within(gridHead()).getAllByRole("columnheader");
 
 describe("JobsReportTable — Workiz's grid (rep_jobs_wz_01_default, _21_one_row, _11_empty_search)", () => {
   it("never runs shorter than ten rows: one job, nine blank striped rows", () => {
@@ -125,7 +129,7 @@ describe("JobsReportTable — Workiz's grid (rep_jobs_wz_01_default, _21_one_row
 
   it("marks the sorted column and asks for another sort from a header", async () => {
     const { onSort } = setup([row()]);
-    expect(screen.getByRole("columnheader", { name: "Job Created" })).toHaveAttribute("aria-sort", "descending");
+    expect(within(gridHead()).getByRole("columnheader", { name: "Job Created" })).toHaveAttribute("aria-sort", "descending");
     await userEvent.click(screen.getByRole("button", { name: "Sort by Total" }));
     expect(onSort).toHaveBeenLastCalledWith("total");
   });
@@ -135,9 +139,48 @@ describe("JobsReportTableShell — the loading grid", () => {
   it("is the header and ten blank rows, with a loader", () => {
     render(<JobsReportTableShell columns={COLUMNS} />);
     expect(screen.getByRole("status", { name: "Loading jobs" })).toBeInTheDocument();
-    expect(screen.getAllByRole("columnheader").map((h) => h.textContent)).toEqual([
+    expect(gridHeaders().map((h) => h.textContent)).toEqual([
       "Job #", "Client", "Tags", "Type", "Job Created", "Status", "Tech", "Metro Area", "Total", "Source",
     ]);
     expect(fillers()).toHaveLength(10);
+  });
+});
+
+/**
+ * Скрол убік — у самій сітці, як у Workiz (проба /root/jobreport/ на 1440×800,
+ * 2026-10-09: документ без бокового скролу; `rt-tbody` 1850px скролить у
+ * 1238px, `rt-thead` sticky top:56px їде вбік разом із рядками). Раніше
+ * сітка була завширшки з колонками й вбік скролила вся сторінка.
+ */
+describe("JobsReportTable — scrolls sideways in its own box, the header pinned", () => {
+  it("is the kit's scroll grid, the rows and the shell alike", () => {
+    const { container: real } = render(
+      <JobsReportTable rows={[row()]} columns={COLUMNS} sort="created" dir="desc" onSort={vi.fn()} addFilter={vi.fn()} />,
+    );
+    const { container: shell } = render(<JobsReportTableShell columns={COLUMNS} />);
+    for (const c of [real, shell]) {
+      expect(c.querySelector("[data-slot=wz-scroll-grid]")).not.toBeNull();
+      expect(c.querySelector("[data-slot=wz-scroll-grid-head]")?.className).toMatch(/\bsticky\b/);
+      // One sideways scroller: the rows' box, nothing else.
+      expect(c.querySelectorAll(".overflow-x-auto, .overflow-auto")).toHaveLength(1);
+      expect(c.querySelector("[data-slot=wz-scroll-grid-body]")?.className).toContain("overflow-x-auto");
+      // The frame at the page's width: the columns fill it or scroll inside it.
+      expect((c.querySelector("[data-slot=wz-scroll-grid]") as HTMLElement).style.width).toBe("");
+    }
+  });
+
+  it("draws every column at its Workiz width as a minimum — 100px, the dates 250", () => {
+    const { container } = render(
+      <JobsReportTable rows={[row()]} columns={COLUMNS} sort="created" dir="desc" onSort={vi.fn()} addFilter={vi.fn()} />,
+    );
+    const cols = [...container.querySelectorAll("[data-slot=wz-scroll-grid-head] colgroup col")].map((c) => (c as HTMLElement).style.width);
+    expect(cols).toEqual(COLUMNS.map((c) => (c === "created" ? "250px" : "100px")));
+  });
+
+  it("centres No Records Found and the loader on the grid as drawn, with no sideways pin of their own", () => {
+    setup([]);
+    expect(screen.getByText("No Records Found").closest(".sticky")).toBeNull();
+    const { container } = render(<JobsReportTableShell columns={COLUMNS} />);
+    expect(container.querySelector(".sticky.left-0, .left-0.sticky")).toBeNull();
   });
 });

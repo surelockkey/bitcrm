@@ -104,6 +104,10 @@ beforeEach(() => {
   }
 });
 
+/** The grid's visible header — the rows' table carries the names once more, `sr-only`, for a screen reader. */
+const gridHead = () => document.querySelector("[data-slot=wz-scroll-grid-head]") as HTMLElement;
+const gridHeaders = () => within(gridHead()).getAllByRole("columnheader");
+
 describe("JobsReportPage", () => {
   it("opens as Workiz does: this week Monday to today, by the account's date, newest created first, 50 rows", () => {
     render(<Page today="2026-09-29" />);
@@ -123,12 +127,12 @@ describe("JobsReportPage", () => {
 
   it("shows the account's columns in Workiz's order, and the Workiz result line", () => {
     render(<Page today="2026-09-29" />);
-    const headers = within(screen.getByRole("table")).getAllByRole("columnheader").map((h) => h.getAttribute("aria-label"));
+    const headers = gridHeaders().map((h) => h.getAttribute("aria-label"));
     expect(headers).toEqual([
       "Job #", "Client", "Tags", "Type", "Job Created", "Scheduled", "End", "Phone", "Status", "Tech",
       "City", "State", "Zip code", "Metro Area", "Total", "Source",
     ]);
-    const first = within(screen.getByRole("table")).getAllByRole("row")[1];
+    const first = within(document.querySelector("[data-slot=wz-scroll-grid-body]") as HTMLElement).getAllByRole("row")[1];
     expect(first).toHaveTextContent("C0TCAE");
     expect(first).toHaveTextContent("Tue Sep 29, 2026 02:35 pm");
     expect(first).toHaveTextContent("(580) 555-1234");
@@ -160,7 +164,7 @@ describe("JobsReportPage", () => {
 
   it("filters by a value clicked in a cell, as Workiz does", async () => {
     render(<Page today="2026-09-29" />);
-    const first = within(screen.getByRole("table")).getAllByRole("row")[1];
+    const first = within(document.querySelector("[data-slot=wz-scroll-grid-body]") as HTMLElement).getAllByRole("row")[1];
     await userEvent.click(within(first).getByRole("button", { name: "Car key" }));
     await userEvent.click(within(first).getByRole("button", { name: "Paid" }));
     expect(lastParams()).toMatchObject({ jobTypeId: "jt1", status: "done:ss1" });
@@ -216,12 +220,31 @@ describe("JobsReportPage", () => {
     perms.granted.delete("financials.view");
     hooks.useJobsReport.mockImplementation(() => ({ data: pageOf([row({ total: undefined })], { money: false }), isFetching: false }));
     render(<Page today="2026-09-29" />);
-    expect(screen.queryByRole("columnheader", { name: "Total" })).toBeNull();
+    expect(within(gridHead()).queryByRole("columnheader", { name: "Total" })).toBeNull();
   });
 
   it("is closed to anyone without the reports permission", () => {
     perms.granted = new Set(["deals.view"]);
     render(<Page today="2026-09-29" />);
     expect(screen.getByText(/no access/i)).toBeInTheDocument();
+  });
+});
+
+/**
+ * Сторінка скролить лише вгору-вниз, як Workiz's /root/jobreport/ (проба
+ * 1440×800, 2026-10-09: документ без бокового скролу; вбік скролить
+ * `rt-tbody` 1850px у 1238px, а `rt-thead` — sticky top:56px — їде вбік
+ * разом із рядками). Коли вбік скролила вся сторінка, фільтр, дата й сіра
+ * смуга з'їжджали — `sticky left-0` не тримає рядок завширшки з батька.
+ */
+describe("JobsReportPage — scrolls only up and down; the controls above the grid are not pinned sideways", () => {
+  it("has one scroller, up and down, and pins nothing but the grid's header", () => {
+    const { container } = render(<Page today="2026-09-29" />);
+    const scroller = container.querySelector("[data-slot=jobs-report-scroller]") as HTMLElement;
+    expect(scroller.className).toMatch(/\boverflow-y-auto\b/);
+    expect(scroller.className).toMatch(/\boverflow-x-hidden\b/);
+    expect(scroller.className).not.toMatch(/\boverflow-auto\b/);
+    const pinned = [...scroller.querySelectorAll(".sticky")].filter((el) => el.getAttribute("data-slot") !== "wz-scroll-grid-head");
+    expect(pinned).toHaveLength(0);
   });
 });

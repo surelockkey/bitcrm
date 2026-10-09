@@ -121,7 +121,6 @@ export function MyJobsPage() {
   const visibleFields = useJobFieldsStore((s) => s.visible);
   const fieldOrder = useJobFieldsStore((s) => s.order);
   const scrollerRef = useRef<HTMLDivElement>(null);
-  const [viewWidth, setViewWidth] = useState(0);
 
   // What the server is asked for: the controls, the search as it stood 300ms
   // after the last key, and — always — the viewer as the tech.
@@ -199,15 +198,6 @@ export function MyJobsPage() {
   // A pull at the top of the list, on a phone, asks again.
   const { pull, refreshing } = usePullToRefresh(scrollerRef, () => Promise.all([refetchRows(), refetchCounts()]));
 
-  // The scroller's width — where "No Jobs Found" centres.
-  useEffect(() => {
-    const el = scrollerRef.current;
-    if (!el || typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver(() => setViewWidth(el.clientWidth));
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-
   // One frame for everything the list prints, latched per list and page —
   // the `/deals` rule: a new tab or filter starts behind the skeleton, a
   // new search or page keeps the last whole frame until the next is in.
@@ -245,16 +235,17 @@ export function MyJobsPage() {
     onSortScheduled: () => setState((s) => ({ ...s, sort: s.sort === "day_desc" ? "none" : "day_desc" })),
     zoneOf,
     accountZone: DEFAULT_TZ,
-    viewWidth,
   } as const;
 
   return (
-    // The page scrolls itself, as Workiz's main container does — the grid's
-    // header sticks while rows go under it, and a wide grid scrolls sideways
-    // under controls that hold still (`sticky left-0`).
+    // The page scrolls itself, up and down only, as Workiz's does (the
+    // 2026-10-09 probes of /root/jobs/: its document never scrolls
+    // sideways) — the grid's header is pinned while rows go under it, and a
+    // wide grid scrolls sideways in its own box (`WzScrollGrid`), the
+    // controls above it holding still by themselves.
     <div
       ref={scrollerRef}
-      className="flex min-h-0 flex-1 flex-col overflow-auto text-[#404040]"
+      className="flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto text-[#404040]"
       data-slot="jobs-scroller"
       data-testid="my-jobs-scroll"
     >
@@ -262,7 +253,7 @@ export function MyJobsPage() {
       <div
         role="status"
         aria-hidden={!busy && pull === 0}
-        className="sticky left-0 flex shrink-0 items-center justify-center overflow-hidden text-[13px] text-wz-slate transition-[height] duration-100"
+        className="flex shrink-0 items-center justify-center overflow-hidden text-[13px] text-wz-slate transition-[height] duration-100"
         style={{ height: busy ? 32 : pull }}
       >
         {busy ? (
@@ -275,13 +266,13 @@ export function MyJobsPage() {
       </div>
 
       {/* Ours: "Keep BitCRM on your phone", only where installing is possible. */}
-      <div className="sticky left-0 px-5 empty:hidden">
+      <div className="px-5 empty:hidden">
         <InstallHint />
       </div>
 
       {/* Filter results + Create New: list_01 — the control 20px in, the yellow pill 16px to its right. */}
       {/* On a phone the control takes its own line and the pills wrap under it. */}
-      <div className="sticky left-0 flex flex-wrap items-start gap-4 px-5 pt-[34px]">
+      <div className="flex flex-wrap items-start gap-4 px-5 pt-[34px]">
         <div className="flex min-w-full flex-1 sm:min-w-0">
           <JobsFilterControl state={state} onChange={setState} catalogs={catalogs} caps={caps} />
         </div>
@@ -302,7 +293,7 @@ export function MyJobsPage() {
 
       {/* The five status tabs with their numbers; grey placeholders hold the
           strip until the numbers are in, and go in the frame they come. */}
-      <div className="relative sticky left-0 mt-[27px] shrink-0">
+      <div className="relative mt-[27px] shrink-0">
         {!tabsShown ? (
           <div aria-hidden data-slot="tabs-placeholder" className="absolute inset-0 flex items-center border-b border-wz-tab-rule">
             {TAB_PLACEHOLDER_WIDTHS.map((w, i) => (
@@ -319,7 +310,7 @@ export function MyJobsPage() {
             tabs={WORKIZ_TABS.map((t) => ({
               value: t,
               label: jobTabLabel(t),
-              count: tabCounts ? tabCount(tabCounts, t) : " ",
+              count: tabCounts ? tabCount(tabCounts, t) : " ",
             }))}
             value={state.tab}
             onValueChange={(t) => setState((s) => ({ ...s, tab: t as JobTab }))}
@@ -328,7 +319,7 @@ export function MyJobsPage() {
       </div>
 
       {/* The grey strip: Search, Show unpaid jobs; the page size and Fields at the right. */}
-      <WzListToolbar className="sticky left-0 shrink-0 border-[#dddddd]">
+      <WzListToolbar className="shrink-0 border-[#dddddd]">
         <WzSearchBox value={searchText} onChange={setSearchText} maxLength={JOBS_SEARCH_MAX} />
         {caps.unpaid ? (
           <label className="flex h-10 cursor-pointer items-center gap-2 text-sm whitespace-nowrap text-[#404040]">
@@ -373,7 +364,7 @@ export function MyJobsPage() {
 
 /** Workiz's pager (list_07_bottom); "›" rests on the last counted page, as on `/deals`. */
 function MyJobsPager({ pager }: { pager: Pager<Deal> }) {
-  return <WzPager className="sticky left-0" pager={{ ...pager, canNext: wzPagerCanNext(pager) }} />;
+  return <WzPager pager={{ ...pager, canNext: wzPagerCanNext(pager) }} />;
 }
 
 /** The jobs list's own failure block, in its words. */

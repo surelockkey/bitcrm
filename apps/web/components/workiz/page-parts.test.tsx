@@ -144,3 +144,23 @@ describe("WzBadgeIconButton", () => {
     expect(screen.getByRole("button", { name: "Monitor calls" })).not.toHaveTextContent("0");
   });
 });
+
+/**
+ * Сторінка скролить лише вгору-вниз (Workiz; проби 2026-10-09), тож шапці й
+ * стрічці вкладок нема від чого триматись убік: `sticky left-0` тут тримав
+ * їх на сторінці, що скролила вбік сама, — і не тримав, бо не тримає рядок
+ * завширшки з батька.
+ */
+describe("WzPageHeader and WzTabLinks — not pinned sideways", () => {
+  it("leave the page to scroll up and down and pin nothing", () => {
+    const { container } = render(
+      <>
+        <WzPageHeader title="Workiz Phone" />
+        <WzTabLinks label="Phone" active="a" tabs={[{ id: "a", label: "Calls", href: "/calls" }]} />
+        <WzTabLinks label="Price book" variant="page" active="a" tabs={[{ id: "a", label: "Items", href: "/price-book" }]} />
+      </>,
+    );
+    expect(container.querySelector(".sticky")).toBeNull();
+    expect(container.querySelector(".left-0")).toBeNull();
+  });
+});

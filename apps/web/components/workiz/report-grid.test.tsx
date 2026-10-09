@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { WzReportGrid, wzNextSort, type WzReportColumn } from "./report-grid";
 
@@ -236,23 +236,67 @@ describe("WzReportGrid cellAlign (pg_pricebook)", () => {
 
 describe("WzReportGrid minTableWidth (pg_inventory)", () => {
   // Workiz's Inventory grid: twenty 100px columns (2030px) in a 1400px frame —
-  // the grid scrolls sideways inside its frame instead of squeezing them.
-  it("holds the table at its width and lets the frame scroll sideways", () => {
-    render(
-      <WzReportGrid aria-label="Activity" columns={columns} rows={rows} rowKey={(r) => r.id} minTableWidth={2030} />,
-    );
+  // the grid scrolls sideways inside its frame instead of squeezing them, with
+  // the header pinned to the page's top and moving sideways with the rows (the
+  // 2026-10-09 probes: Workiz's page never scrolls sideways; its `rt-thead` is
+  // sticky and translated by the rows' scroll). A sticky header INSIDE the
+  // sideways box was trapped by it — so, as `WzScrollGrid`: the header in a
+  // box of its own over the rows' box, both on the same columns.
+  const grid = (props: Partial<React.ComponentProps<typeof WzReportGrid<Row>>> = {}) =>
+    render(<WzReportGrid aria-label="Activity" columns={columns} rows={rows} rowKey={(r) => r.id} minTableWidth={2030} {...props} />);
+
+  it("holds the rows' table at its width in a box that scrolls sideways; the frame and the pager stay put", () => {
+    grid();
     const table = screen.getByRole("table", { name: "Activity" });
     expect(table.style.minWidth).toBe("2030px");
-    // The pager under it stays put: only the table's own box scrolls (react-table's rt-table).
-    expect(table.parentElement!.className).toContain("overflow-x-auto");
+    expect(table.closest("[data-slot=wz-report-grid-body]")!.className).toContain("overflow-x-auto");
     expect(table.closest("[data-slot=wz-report-grid]")!.className).not.toContain("overflow-x-auto");
+    expect(document.querySelectorAll(".overflow-x-auto")).toHaveLength(1);
   });
 
-  it("leaves the reports' frame alone without it", () => {
+  it("pins the header to the page's top in a box of its own, on the same columns, and moves it with the rows", () => {
+    const { container } = grid();
+    const head = container.querySelector("[data-slot=wz-report-grid-head]") as HTMLElement;
+    const body = container.querySelector("[data-slot=wz-report-grid-body]") as HTMLElement;
+    expect(head.className).toMatch(/\bsticky\b/);
+    expect(head.className).toMatch(/\btop-0\b/);
+    expect(head.className).toMatch(/\boverflow-hidden\b/);
+    expect(within(head).getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Time", "User"]);
+    // The cells no longer stick on their own: the box does.
+    for (const th of head.querySelectorAll("th")) expect(th.className).not.toMatch(/\bsticky\b/);
+    expect((head.querySelector("table") as HTMLElement).style.minWidth).toBe("2030px");
+    body.scrollLeft = 300;
+    fireEvent.scroll(body);
+    expect(head.scrollLeft).toBe(300);
+  });
+
+  it("keeps the header off the page's top when told so (stickyHeader false)", () => {
+    const { container } = grid({ stickyHeader: false });
+    expect(container.querySelector("[data-slot=wz-report-grid-head]")!.className).not.toMatch(/\bsticky\b/);
+  });
+
+  it("tells a screen reader the rows' columns too, without a second visible header", () => {
+    grid();
+    const heads = within(screen.getByRole("table", { name: "Activity" })).getAllByRole("columnheader");
+    expect(heads.map((h) => h.textContent)).toEqual(["Time", "User"]);
+    expect(heads[0].closest("thead")?.className).toContain("sr-only");
+  });
+
+  it("still sorts from the pinned header", async () => {
+    const onSort = vi.fn();
+    grid({ onSort });
+    await userEvent.click(screen.getByRole("button", { name: "Sort by Time" }));
+    expect(onSort).toHaveBeenCalledWith("time");
+  });
+
+  it("leaves every grid without it exactly as it was", () => {
     render(<WzReportGrid aria-label="Activity" columns={columns} rows={rows} rowKey={(r) => r.id} />);
     const table = screen.getByRole("table", { name: "Activity" });
     expect(table.style.minWidth).toBe("");
     expect(table.closest("[data-slot=wz-report-grid]")!.className).not.toContain("overflow-x-auto");
+    expect(document.querySelector("[data-slot=wz-report-grid-head]")).toBeNull();
+    expect(document.querySelectorAll("table")).toHaveLength(1);
+    expect(table.querySelector("thead th")!.className).toMatch(/\bsticky\b/);
   });
 });
 
