@@ -779,6 +779,21 @@ tests, and — if it emits events — the types in `@bitcrm/types` plus a row in
   converted only in `payments/payment-rules.ts` (`toCents`/`fromCents`). Never
   round twice. A card surcharge is a payment-time charge on the `Payment` row —
   it never enters `DocumentTotals`, and it ships OFF (US card-network rules).
+- **Client documents are numbered from Settings → Numbering, and a deploy is not done until
+  `backfill:numbering` has run.** A job invoice keeps the job's number and a job estimate
+  `<job number>-<n>` (Workiz shows the same); a CLIENT invoice / estimate (no job) takes the next
+  number of its own counter on `COUNTERS#ACCOUNT` (`lastInvoiceNumber` / `lastEstimateNumber`,
+  `GET/PUT /numbering`, `numbering/`): one atomic `SET n = if_not_exists(n, <legacy 1000+documentSeq>) + 1`
+  per document, and the page's "Next … Id" is a conditional `SET` refused once a higher number is out
+  (400 "must be more than the last number (N)", 409 when one went out mid-save). Numbers written by
+  anything else (the Workiz import's stub estimates, 1140 …) are invisible to the counters until
+  `npm run backfill:numbering -w billing-service` (`--dry-run` reports) raises them — run it after the
+  deploy and after every import. Cut-over: the office sets Next Invoice Id / Next Estimate Id to the
+  numbers after Workiz's last ones on the page. Settings → Estimates (`SETTINGS / ESTIMATES`,
+  `GET/PUT /estimate-settings`) holds `attachPdf` (the Send panel asks
+  `POST /{estimates|invoices}/:id/email-attachments` for the PDF, uploaded through messaging's presign
+  on the caller's bearer) and `autoDeclineSameJob` (approving one of a job's estimates declines its
+  other open ones, timeline "Updated estimate N status to Declined"); both default ON, the account's values.
 - **Billing boots and works with no Stripe keys.** The `STRIPE_CLIENT` token
   resolves to `null`, the portal offers no methods, and the offline ledger
   (cash, cheque, card taken in person) is unaffected. Guard every online path

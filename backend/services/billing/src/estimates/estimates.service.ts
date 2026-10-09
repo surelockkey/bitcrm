@@ -30,11 +30,13 @@ import { isYmd, resolveTimezone, todayIn } from '../common/dates';
 import { standaloneDocumentNumber } from '../common/document-number';
 import { AssetsService } from '../assets/assets.service';
 import { DocumentSettingsService } from '../documents/document-settings.service';
+import { EstimateSettingsService } from '../documents/estimate-settings.service';
 import { SignaturesService } from '../signatures/signatures.service';
 import { DocumentsService } from '../documents/documents.service';
 import { BillingEventsPublisher } from '../integrations/billing-events.publisher';
 import { CrmClient } from '../integrations/crm.client';
 import { DealClient, type DealBillingView, type ReplaceAllRequest } from '../integrations/deal.client';
+import { NumberingService } from '../numbering/numbering.service';
 import {
   assertSyncable,
   estimateNumber,
@@ -105,6 +107,9 @@ export type EstimateSummary = Record<EstimateStatus, { count: number; amount: nu
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
+/** Still undecided: what an auto-decline sweeps (the proposals use the same rule). */
+const isOpen = (e: Pick<Estimate, 'status'>) => e.status === 'unsent' || e.status === 'pending';
+
 /**
  * Estimates (Workiz): many per job, own line items, own tax/discount
  * snapshot. `sync-to-job` overwrites the job's items through deal-service.
@@ -135,7 +140,72 @@ export class EstimatesService {
     @Optional() private readonly documentSettings?: DocumentSettingsService,
     @Optional() private readonly signatures?: SignaturesService,
     @Optional() private readonly assets?: AssetsService,
+    @Optional() private readonly numbering?: NumberingService,
+    @Optional() private readonly estimateSettings?: EstimateSettingsService,
   ) {}
+
+  /**
+   * Workiz "Auto-decline estimates related to the same job" (Settings →
+   * Estimates): once one of a job's estimates is approved — by the client on
+   * the portal or by the office — the job's other OPEN estimates (unsent,
+   * pending) are declined, each with Workiz's timeline line "Updated estimate
+   * N status to Declined". Decided ones (approved, declined, won, archived)
+   * and other jobs' estimates are left alone. Best effort: a sibling that
+   * cannot be written is logged and skipped, the approval stands.
+   */
+  private async autoDeclineSiblings(
+    approved: Pick<Estimate, 'id' | 'number' | 'dealId'>,
+    actor: { kind: 'staff'; caller: Caller } | { kind: 'client'; name?: string },
+  ): Promise<void> {
+    if (!approved.dealId || !this.estimateSettings) return;
+    let on = false;
+    try {
+      on = (await this.estimateSettings.get()).autoDeclineSameJob;
+    } catch (err) {
+      this.logger.warn(`estimate settings unavailable, siblings of ${approved.id} not declined: ${(err as Error).message}`);
+      return;
+    }
+    if (!on) return;
+    const siblings = await this.repo.listByDeal(approved.dealId);
+    const reason = `Another estimate for this job was approved (${approved.number})`;
+    for (const sibling of siblings) {
+      if (sibling.id === approved.id || !isOpen(sibling)) continue;
+      const now = new Date().toISOString();
+      try {
+        const updated = await this.write(
+          sibling.id,
+          { ...statusChanges(sibling, 'declined', now), declineReason: reason, updatedAt: now },
+          [],
+          sibling.version,
+        );
+        const metadata = {
+          estimateId: sibling.id,
+          number: sibling.number,
+          from: sibling.status,
+          to: 'declined',
+          approvedEstimateId: approved.id,
+        };
+        if (actor.kind === 'staff') {
+          await this.timeline(approved.dealId, TimelineEventType.ESTIMATE_STATUS_CHANGED, actor.caller, metadata);
+        } else {
+          await this.clientTimeline(approved.dealId, TimelineEventType.ESTIMATE_STATUS_CHANGED, actor.name, metadata);
+        }
+        this.events?.estimate(BillingEventType.ESTIMATE_UPDATED, updated);
+      } catch (err) {
+        this.logger.warn(`estimate ${sibling.id} not auto-declined after ${approved.id} was approved: ${(err as Error).message}`);
+      }
+    }
+  }
+
+  /**
+   * A client estimate's number: Settings → Numbering's estimate counter. The
+   * legacy shared counter only when the numbering service is not wired (a
+   * unit test built with `new`); the module always provides it.
+   */
+  private async standaloneNumber(): Promise<string> {
+    if (this.numbering) return this.numbering.nextNumber('estimate');
+    return standaloneDocumentNumber(await this.repo.nextAccountSeq());
+  }
 
   /** The cover image's short-lived URL, when one is set and assets are wired. */
   private async coverOf(estimate: Pick<Estimate, 'coverAssetId'>): Promise<Pick<EstimateWithItems, 'coverUrl'>> {
@@ -187,12 +257,12 @@ export class EstimatesService {
     }
     const contact = await this.requireCrm().getContact(contactId);
     if (!contact) throw new NotFoundException('Client not found');
-    const seq = await this.repo.nextAccountSeq();
+    const number = await this.standaloneNumber();
     const now = new Date().toISOString();
     const id = randomUUID();
     const estimate: Estimate = {
       id,
-      number: standaloneDocumentNumber(seq),
+      number,
       contactId: contact.id,
       ...(contact.companyId && { companyId: contact.companyId }),
       ...(input.name?.trim() && { name: input.name.trim() }),
@@ -428,9 +498,7 @@ export class EstimatesService {
     const src = await this.load(id, caller);
     const { dealId, dealNumber } = src.estimate;
     const number =
-      dealId && dealNumber
-        ? estimateNumber(dealNumber, await this.repo.nextSeq(dealId))
-        : standaloneDocumentNumber(await this.repo.nextAccountSeq());
+      dealId && dealNumber ? estimateNumber(dealNumber, await this.repo.nextSeq(dealId)) : await this.standaloneNumber();
     const now = new Date().toISOString();
     const newId = randomUUID();
     const {
@@ -658,6 +726,7 @@ export class EstimatesService {
       to: status,
     });
     this.events?.estimate(BillingEventType.ESTIMATE_UPDATED, updated);
+    if (status === 'approved') await this.autoDeclineSiblings(updated, { kind: 'staff', caller });
     return { ...updated, items };
   }
 
@@ -700,6 +769,7 @@ export class EstimatesService {
       signatureId: signature.id,
     });
     this.events?.estimate(BillingEventType.ESTIMATE_UPDATED, updated);
+    await this.autoDeclineSiblings(updated, { kind: 'client', name: signature.signedBy });
     return { ...updated, items, signatures: await signatures.list('estimate', id) };
   }
 

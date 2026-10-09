@@ -81,18 +81,38 @@ export class DocumentsService {
   }
 
   async pdf(source: DocumentSource, opts: { download: boolean; filename: string }): Promise<{ url: string }> {
-    const { template, ctx } = await this.prepare(source);
-    const key = pdfS3Key(source.doc.id, pdfCacheHash(template, ctx));
-    if (!(await this.s3.objectExists(key))) {
-      const html = renderDocumentHtml(template, ctx, { mode: 'pdf' });
-      const buffer = await this.pdfs.render(html, source.kind);
-      await this.s3.putObject(key, buffer, { contentType: 'application/pdf', kmsKeyId: documentsKmsKeyId() });
-    }
+    const { key } = await this.ensurePdf(source);
     const url = await this.s3.getPresignedDownloadUrl(key, {
       expiresIn: URL_TTL_SECONDS,
       contentDisposition: contentDisposition(opts.filename, opts.download),
     });
     return { url };
+  }
+
+  /**
+   * The PDF's bytes — for an email attachment (Workiz "Attach PDF files"):
+   * the cached object when the document is unchanged, a fresh render (which
+   * is cached) otherwise.
+   */
+  async pdfBuffer(source: DocumentSource): Promise<Buffer> {
+    const { key, buffer } = await this.ensurePdf(source);
+    if (buffer) return buffer;
+    const stored = await this.s3.getObjectBuffer(key);
+    if (stored) return stored.body;
+    // Gone between the HEAD and the GET (a lifecycle rule): render once more.
+    const { template, ctx } = await this.prepare(source);
+    return this.pdfs.render(renderDocumentHtml(template, ctx, { mode: 'pdf' }), source.kind);
+  }
+
+  /** The content-addressed PDF in S3, rendered and stored when it is not there yet (then `buffer` is the fresh render). */
+  private async ensurePdf(source: DocumentSource): Promise<{ key: string; buffer?: Buffer }> {
+    const { template, ctx } = await this.prepare(source);
+    const key = pdfS3Key(source.doc.id, pdfCacheHash(template, ctx));
+    if (await this.s3.objectExists(key)) return { key };
+    const html = renderDocumentHtml(template, ctx, { mode: 'pdf' });
+    const buffer = await this.pdfs.render(html, source.kind);
+    await this.s3.putObject(key, buffer, { contentType: 'application/pdf', kmsKeyId: documentsKmsKeyId() });
+    return { key, buffer };
   }
 
   /**

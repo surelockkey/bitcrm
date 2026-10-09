@@ -98,10 +98,11 @@ export const ESTIMATES_GSI1PK = 'ESTIMATES';
 export const dealCountersPk = (dealId: string) => `DEAL#${dealId}`;
 export const COUNTERS_SK = 'COUNTERS';
 /**
- * `COUNTERS#ACCOUNT` / COUNTERS — `documentSeq`, ADDed per new CLIENT document
- * (an estimate or invoice with no job; see `common/document-number.ts`). One
- * counter for both kinds, so a client estimate and a client invoice never
- * share a number.
+ * `COUNTERS#ACCOUNT` / COUNTERS — the account's counters on one row:
+ * `lastInvoiceNumber` / `lastEstimateNumber` (Settings → Numbering: the last
+ * number a CLIENT invoice / estimate got, each `SET … if_not_exists + 1` per
+ * document, settable with a condition — `numbering/`), `proposalSeq`, and the
+ * LEGACY `documentSeq` the two counters start from (`common/document-number.ts`).
  */
 export const ACCOUNT_COUNTERS_PK = 'COUNTERS#ACCOUNT';
 
@@ -181,6 +182,9 @@ export const PAYMENT_SETTINGS_SK = 'PAYMENTS';
 
 /** `SETTINGS` / DOCUMENTS — the account-wide DocumentSettings singleton (default notes, deposit, signature). */
 export const DOCUMENT_SETTINGS_SK = 'DOCUMENTS';
+
+/** `SETTINGS` / ESTIMATES — the EstimateSettings singleton (Workiz Settings → Estimates: attach PDF, auto-decline). */
+export const ESTIMATE_SETTINGS_SK = 'ESTIMATES';
 
 // ---- payments report (a derived projection of the ledger) ----------------------
 /**

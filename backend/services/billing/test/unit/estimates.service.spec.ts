@@ -355,6 +355,139 @@ describe('EstimatesService', () => {
       expect(events.estimate).toHaveBeenCalledWith(BillingEventType.ESTIMATE_UPDATED, expect.objectContaining({ status: 'approved' }));
     });
 
+    describe('auto-decline estimates related to the same job (Settings → Estimates)', () => {
+      const PNG2 = 'data:image/png;base64,iVBORw0KGgo=';
+      const build = (autoDeclineSameJob: boolean) => {
+        const estimateSettings = { get: jest.fn(async () => ({ attachPdf: true, autoDeclineSameJob })) };
+        const svc = new EstimatesService(
+          repo as never,
+          deal as never,
+          documents as never,
+          events as never,
+          undefined,
+          crm as never,
+          undefined,
+          signatures as never,
+          undefined,
+          undefined,
+          estimateSettings as never,
+        );
+        return { svc, estimateSettings };
+      };
+      /** The job's estimates: a sent one (the client approves this), an unsent, a pending, a declined, a won; plus another job's. */
+      const jobWithSiblings = async (svc: EstimatesService) => {
+        const chosen = await svc.create({ dealId: 'deal-1' }, caller());
+        await svc.addItem(chosen.id, itemDto(), caller());
+        await svc.markSent(chosen.id, true, caller());
+        const unsent = await svc.create({ dealId: 'deal-1' }, caller());
+        const pending = await svc.create({ dealId: 'deal-1' }, caller());
+        await svc.markSent(pending.id, true, caller());
+        const declined = await svc.create({ dealId: 'deal-1' }, caller());
+        await svc.setStatus(declined.id, 'declined', caller());
+        const won = await svc.create({ dealId: 'deal-1' }, caller());
+        await svc.setStatus(won.id, 'won', caller());
+        deal.getBillingView.mockResolvedValueOnce(billingView({ id: 'deal-2', dealNumber: 'ZZ9999' }));
+        const other = await svc.create({ dealId: 'deal-2' }, caller());
+        deal.addTimeline.mockClear();
+        events.estimate.mockClear();
+        return { chosen, unsent, pending, declined, won, other };
+      };
+
+      it('the client approving one estimate declines the job’s other OPEN estimates, with Workiz’s timeline line', async () => {
+        const { svc } = build(true);
+        const s = await jobWithSiblings(svc);
+        await svc.approveByClient(s.chosen.id, { imageDataUrl: PNG2, signedBy: 'Jane Client' });
+        expect(repo.estimates.get(s.chosen.id)!.status).toBe('approved');
+        for (const id of [s.unsent.id, s.pending.id]) {
+          const e = repo.estimates.get(id)!;
+          expect(e.status).toBe('declined');
+          expect(e.declinedAt).toBe(NOW);
+          expect(e.declineReason).toBe(`Another estimate for this job was approved (${s.chosen.number})`);
+        }
+        expect(repo.estimates.get(s.declined.id)!.declineReason).toBeUndefined();
+        expect(repo.estimates.get(s.won.id)!.status).toBe('won');
+        expect(repo.estimates.get(s.other.id)!.status).toBe('unsent');
+        // "Updated estimate K4T9ZW-2 status to Declined" — as Workiz words it; the client is the actor.
+        expect(deal.addTimeline).toHaveBeenCalledWith(
+          'deal-1',
+          TimelineEventType.ESTIMATE_STATUS_CHANGED,
+          'client',
+          { estimateId: s.unsent.id, number: s.unsent.number, from: 'unsent', to: 'declined', approvedEstimateId: s.chosen.id },
+          'Jane Client',
+        );
+        expect(deal.addTimeline).toHaveBeenCalledWith(
+          'deal-1',
+          TimelineEventType.ESTIMATE_STATUS_CHANGED,
+          'client',
+          expect.objectContaining({ estimateId: s.pending.id, from: 'pending', to: 'declined' }),
+          'Jane Client',
+        );
+        expect(events.estimate).toHaveBeenCalledWith(
+          BillingEventType.ESTIMATE_UPDATED,
+          expect.objectContaining({ id: s.pending.id, status: 'declined' }),
+        );
+      });
+
+      it('the office approving one estimate does the same, as the user who approved', async () => {
+        const { svc } = build(true);
+        const s = await jobWithSiblings(svc);
+        await svc.setStatus(s.chosen.id, 'approved', caller());
+        expect(repo.estimates.get(s.unsent.id)!.status).toBe('declined');
+        expect(repo.estimates.get(s.pending.id)!.status).toBe('declined');
+        expect(repo.estimates.get(s.won.id)!.status).toBe('won');
+        expect(deal.addTimeline).toHaveBeenCalledWith(
+          'deal-1',
+          TimelineEventType.ESTIMATE_STATUS_CHANGED,
+          'u-1',
+          expect.objectContaining({ estimateId: s.unsent.id, to: 'declined' }),
+          'dispatcher@example.com',
+        );
+        // Approving it again (no change) declines nothing more.
+        deal.addTimeline.mockClear();
+        await svc.setStatus(s.chosen.id, 'approved', caller());
+        expect(deal.addTimeline).not.toHaveBeenCalled();
+      });
+
+      it('with the switch off the other estimates stay as they were', async () => {
+        const { svc, estimateSettings } = build(false);
+        const s = await jobWithSiblings(svc);
+        await svc.approveByClient(s.chosen.id, { imageDataUrl: PNG2, signedBy: 'Jane Client' });
+        expect(estimateSettings.get).toHaveBeenCalled();
+        expect(repo.estimates.get(s.unsent.id)!.status).toBe('unsent');
+        expect(repo.estimates.get(s.pending.id)!.status).toBe('pending');
+        expect(deal.addTimeline).not.toHaveBeenCalledWith(
+          'deal-1',
+          TimelineEventType.ESTIMATE_STATUS_CHANGED,
+          expect.anything(),
+          expect.objectContaining({ to: 'declined' }),
+          expect.anything(),
+        );
+      });
+
+      it('a sibling that cannot be written never fails the approval; the rest are still declined', async () => {
+        const { svc } = build(true);
+        const s = await jobWithSiblings(svc);
+        const realUpdate = repo.update.getMockImplementation()!;
+        repo.update.mockImplementation(async (id: string, ...rest: unknown[]) => {
+          if (id === s.unsent.id) throw new Error('DynamoDB down');
+          return (realUpdate as (...a: unknown[]) => Promise<Estimate>)(id, ...rest);
+        });
+        const approved = await svc.setStatus(s.chosen.id, 'approved', caller());
+        expect(approved.status).toBe('approved');
+        expect(repo.estimates.get(s.pending.id)!.status).toBe('declined');
+        expect(repo.estimates.get(s.unsent.id)!.status).toBe('unsent');
+      });
+
+      it('a client estimate (no job) has no siblings to decline', async () => {
+        const { svc } = build(true);
+        const e = await svc.create({ contactId: 'contact-1' }, caller());
+        await svc.addItem(e.id, itemDto(), caller());
+        await svc.markSent(e.id, true, caller());
+        await svc.approveByClient(e.id, { imageDataUrl: PNG2, signedBy: 'Jane Client' });
+        expect(repo.listByDeal).not.toHaveBeenCalled();
+      });
+    });
+
     it('a client cannot approve an estimate that was never sent, or one already decided', async () => {
       const unsent = await withSignatures.create({ dealId: 'deal-1' }, caller());
       await expect(
@@ -854,6 +987,32 @@ describe('EstimatesService', () => {
     it('404s for an unknown client', async () => {
       crm.getContact.mockResolvedValueOnce(null);
       await expect(noJob()).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('takes its number from Settings → Numbering (the estimate counter) when the numbering service is wired', async () => {
+      const numbering = { nextNumber: jest.fn(async (kind: string): Promise<string> => (kind === 'estimate' ? '1142' : '85427')) };
+      const withNumbering = new EstimatesService(
+        repo as never,
+        deal as never,
+        documents as never,
+        events as never,
+        undefined,
+        crm as never,
+        undefined,
+        undefined,
+        undefined,
+        numbering as never,
+      );
+      const e = await withNumbering.create({ contactId: 'contact-1' }, caller());
+      expect(e.number).toBe('1142');
+      expect(numbering.nextNumber).toHaveBeenCalledWith('estimate');
+      expect(repo.nextAccountSeq).not.toHaveBeenCalled();
+      // A duplicate of a client estimate is numbered the same way; a job's stays `<job>-<n>`.
+      numbering.nextNumber.mockResolvedValueOnce('1143');
+      expect((await withNumbering.duplicate(e.id, caller())).number).toBe('1143');
+      const job = await withNumbering.create({ dealId: 'deal-1' }, caller());
+      expect(job.number).toBe('K4T9ZW-1');
+      expect(numbering.nextNumber).toHaveBeenCalledTimes(2);
     });
 
     it('is office-only: a technician scoped to their jobs cannot see, list or count it', async () => {

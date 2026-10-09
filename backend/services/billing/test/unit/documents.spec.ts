@@ -251,6 +251,7 @@ describe('DocumentsService', () => {
     objectExists: jest.fn(),
     putObject: jest.fn(async () => undefined),
     getPresignedDownloadUrl: jest.fn(async () => 'https://s3/signed'),
+    getObjectBuffer: jest.fn(),
   };
   const pdf = { render: jest.fn(async () => Buffer.from('%PDF')) };
   const templates = { resolveForDocument: jest.fn(async () => template()) };
@@ -322,6 +323,20 @@ describe('DocumentsService', () => {
       expiresIn: 300,
       contentDisposition: 'inline; filename="Invoice-K4T9ZW.pdf"',
     });
+  });
+
+  it('hands the PDF bytes out for an email attachment: the cached object when there is one, a fresh render otherwise', async () => {
+    s3.objectExists.mockResolvedValueOnce(true);
+    s3.getObjectBuffer.mockResolvedValueOnce({ body: Buffer.from('%PDF-cached'), contentType: 'application/pdf' });
+    const hash = pdfCacheHash(template(), ctx as never);
+    await expect(service.pdfBuffer(source)).resolves.toEqual(Buffer.from('%PDF-cached'));
+    expect(s3.getObjectBuffer).toHaveBeenCalledWith(`billing/pdfs/deal-1/${hash}.pdf`);
+    expect(pdf.render).not.toHaveBeenCalled();
+
+    s3.objectExists.mockResolvedValueOnce(false);
+    await expect(service.pdfBuffer(source)).resolves.toEqual(Buffer.from('%PDF'));
+    expect(pdf.render).toHaveBeenCalledWith('<html>K4T9ZW:pdf</html>', 'invoice');
+    expect(s3.putObject).toHaveBeenCalledWith(`billing/pdfs/deal-1/${hash}.pdf`, Buffer.from('%PDF'), expect.anything());
   });
 
   it('renders ad-hoc content for the editor preview (sample or real context)', async () => {
