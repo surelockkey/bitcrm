@@ -31,6 +31,19 @@ export class TechnicianAssignmentsController {
     return this.service.listPending(user);
   }
 
+  @Get('assignments/approved')
+  @RequirePermission('job_types', 'view')
+  @ApiOperation({
+    summary: "Every technician's approved job types and service areas",
+    description:
+      '**Guard:** `job_types.view`. Manager+ only. One answer for the Team list (its Skills and ' +
+      'Areas columns and the service-area filter) instead of one `:id/assignments` call per row.',
+  })
+  async listApproved(@CurrentUser() user: JwtUser) {
+    const data = await this.service.listApproved(user);
+    return { success: true, data };
+  }
+
   @Get(':id/assignments')
   @RequirePermission('job_types', 'view')
   @ApiOperation({
