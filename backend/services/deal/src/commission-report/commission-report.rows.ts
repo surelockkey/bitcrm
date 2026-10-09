@@ -77,11 +77,10 @@ export function needsCompute(item: CommissionDealItem): boolean {
   return !item.commissionSnapshot;
 }
 
+/** Workiz's Address cell: the street and the zip, " , " between ("215 Main St , 06851"). */
 function addressLine(a: CommissionDealItem['address']): string {
   if (!a) return '';
-  const street = a.street?.trim() ?? '';
-  const tail = [a.city, a.state, a.zip].filter(Boolean).join(', ');
-  return [street, tail].filter(Boolean).join(', ');
+  return [a.street?.trim(), a.zip?.trim()].filter(Boolean).join(' , ');
 }
 
 export interface RowContext {
@@ -353,6 +352,21 @@ export function externalSummaries(rows: CommissionReportRow[]): CommissionReport
     .sort((a, b) => (a.externalCompanyName ?? a.externalCompanyId).localeCompare(b.externalCompanyName ?? b.externalCompanyId));
 }
 
+/* ------------------------------------------------------------------ money */
+
+/**
+ * A row for a caller without `financials.view`: every amount 0, no rate and
+ * no fee — the job, its technician, client, dates and place stay.
+ */
+export function withoutMoney(row: CommissionReportRow): CommissionReportRow {
+  const out = { ...row };
+  for (const key of COMMISSION_REPORT_TOTAL_KEYS) out[key] = 0;
+  delete out.rate;
+  delete out.rateUnit;
+  delete out.fees;
+  return out;
+}
+
 /* ------------------------------------------------------------------ order */
 
 function sortValue(row: CommissionReportRow, key: CommissionReportSortKey): string | number {
@@ -397,8 +411,19 @@ const COMMON_HEAD: CsvColumn[] = [
   { header: 'Tech', value: (r) => r.techName ?? '' },
 ];
 
-/** Columns per mode — the ones Workiz shows by default in each, plus client and ad group. */
-export function csvColumns(mode: CommissionReportMode): CsvColumn[] {
+/**
+ * Columns per mode — the ones Workiz shows by default in each, plus client and
+ * ad group. Without `money` only the job's own columns: no amount, no rate.
+ */
+export function csvColumns(mode: CommissionReportMode, withMoney = true): CsvColumn[] {
+  const all = csvMoneyColumns(mode);
+  return withMoney ? all : all.filter((c) => !c.total && !MONEY_HEADERS.has(c.header));
+}
+
+/** The amount columns that have no Totals key (a rate, a derived balance). */
+const MONEY_HEADERS: ReadonlySet<string> = new Set(['Tech Share', 'Balance']);
+
+function csvMoneyColumns(mode: CommissionReportMode): CsvColumn[] {
   const money$ = (header: string, key: keyof CommissionReportTotals): CsvColumn => ({
     header,
     value: (r) => money(r[key]),
@@ -473,8 +498,9 @@ export function commissionReportCsv(
   rows: CommissionReportRow[],
   totals: CommissionReportTotals,
   mode: CommissionReportMode,
+  withMoney = true,
 ): string {
-  const cols = csvColumns(mode);
+  const cols = csvColumns(mode, withMoney);
   const totalLine = cols.map((c, i) => {
     if (i === 0) return `Totals:${rows.length}`;
     if (!c.total) return '';

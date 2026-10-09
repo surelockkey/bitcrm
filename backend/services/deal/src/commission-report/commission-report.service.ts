@@ -27,6 +27,7 @@ import {
   sortRows,
   techSummaries,
   totalsOf,
+  withoutMoney,
   type RowFilters,
 } from './commission-report.rows';
 import {
@@ -90,7 +91,12 @@ export class CommissionReportService {
     private readonly customFields: CustomFieldsRepository,
   ) {}
 
-  async report(dto: CommissionReportQueryDto, caller: JwtUser, dataScope?: string): Promise<CommissionReport> {
+  /**
+   * One page of the report. `money` is the caller's `financials.view`: without
+   * it every amount is 0 and no rate leaves the server (`withoutMoney`) —
+   * before the order is taken, so an order by an amount cannot leak one.
+   */
+  async report(dto: CommissionReportQueryDto, caller: JwtUser, dataScope?: string, money = true): Promise<CommissionReport> {
     const query = this.parse(dto, caller, dataScope);
     const period = await this.period(query, caller, dataScope, dto.fresh === '1' || dto.fresh === 'true');
     const filters = this.filtersOf(query);
@@ -98,7 +104,9 @@ export class CommissionReportService {
     // A search can match a client, and an order by client needs them all: name the period first.
     const byClient = Boolean(query.q) || query.sort === 'clientName';
     if (byClient) await this.nameClients(period, period.rows);
-    const rows = byClient ? period.rows.map((r) => this.withClient(r, period)) : period.rows;
+    const named = byClient ? period.rows.map((r) => this.withClient(r, period)) : period.rows;
+    const rows = money ? named : named.map(withoutMoney);
+    const all = money ? period.rows : period.rows.map(withoutMoney);
     const shown = rows.filter((r) => matchesFilters(r, filters) && matchesSearch(r, query.q));
     const sorted = sortRows(shown, query.sort ?? 'closedDate', query.dir ?? 'asc');
     const page = sorted.slice(query.offset, query.offset + query.limit);
@@ -112,11 +120,12 @@ export class CommissionReportService {
       limit: query.limit,
       rows: page.map((r) => this.withClient(r, period)),
       totals: totalsOf(shown),
-      techs: techSummaries(period.rows.filter((r) => matchesFilters(r, filters, 'tech'))),
-      externalCompanies: externalSummaries(period.rows.filter((r) => matchesFilters(r, filters, 'external'))),
+      techs: techSummaries(all.filter((r) => matchesFilters(r, filters, 'tech'))),
+      externalCompanies: externalSummaries(all.filter((r) => matchesFilters(r, filters, 'external'))),
       computedRows: shown.filter((r) => r.source === 'computed').length,
       truncated: period.truncated,
       warnings: period.warnings,
+      money,
     };
   }
 
@@ -125,6 +134,7 @@ export class CommissionReportService {
     dto: CommissionReportQueryDto,
     caller: JwtUser,
     dataScope?: string,
+    money = true,
   ): Promise<{ filename: string; csv: string }> {
     const query = this.parse(dto, caller, dataScope);
     const period = await this.period(query, caller, dataScope, dto.fresh === '1' || dto.fresh === 'true');
@@ -136,7 +146,7 @@ export class CommissionReportService {
     const sorted = sortRows(shown, query.sort ?? 'closedDate', query.dir ?? 'asc');
     const tech = query.mode === 'tech' && query.techId ? `_${sorted[0]?.techName ?? query.techId}` : '';
     const filename = `commissions_${query.mode}${tech}_${query.by}_${query.from}_${query.to}.csv`.replace(/[^\w.-]+/g, '_');
-    return { filename, csv: commissionReportCsv(sorted, totalsOf(sorted), query.mode) };
+    return { filename, csv: commissionReportCsv(sorted, totalsOf(sorted), query.mode, money) };
   }
 
   /* ------------------------------------------------------------ the query */
@@ -158,8 +168,8 @@ export class CommissionReportService {
       ? (dto.mode as CommissionReportMode)
       : 'standard';
     const ownOnly = dataScope === DataScope.ASSIGNED_ONLY;
+    // The Tech report without a technician is every job in the Tech columns, as in Workiz.
     const techId = ownOnly ? caller.id : dto.techId || undefined;
-    if (mode === 'tech' && !techId) throw new BadRequestException('The Tech report needs a technician (`techId`)');
     const sort = (COMMISSION_REPORT_SORT_KEYS as readonly string[]).includes(dto.sort ?? '')
       ? (dto.sort as CommissionReportSortKey)
       : undefined;
