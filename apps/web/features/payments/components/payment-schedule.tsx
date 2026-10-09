@@ -315,8 +315,8 @@ function ScheduleEditor({
       </DialogHeader>
 
       {/* The strip: REMAINING · JOB TOTAL · NEXT DUE · N PAYMENTS. */}
-      <div className="mt-2 flex flex-wrap items-center gap-x-6 gap-y-3 text-wz-strong">
-        <div className="min-w-[200px] rounded-[8px] bg-wz-secondary-hover px-4 py-3">
+      <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-3 text-wz-strong">
+        <div className="min-w-[170px] rounded-[8px] bg-wz-secondary-hover px-4 py-3">
           <p className="text-[11px] leading-4 tracking-[0.6px] text-wz-text uppercase">Remaining</p>
           <p className="text-[24px] leading-8 font-medium tabular-nums">{formatMoney(summary.remaining)}</p>
         </div>
@@ -340,7 +340,7 @@ function ScheduleEditor({
           </p>
         </div>
         <span aria-hidden className="h-9 w-px bg-border" />
-        <div className="min-w-[110px]">
+        <div className="ml-auto min-w-[100px]">
           <p className="text-[11px] leading-4 tracking-[0.6px] text-wz-text uppercase">
             {summary.paidCount > 0 ? `${summary.paidCount}/${summary.count} payments` : `${summary.count} payments`}
           </p>

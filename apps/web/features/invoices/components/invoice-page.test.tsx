@@ -32,6 +32,7 @@ vi.mock("@/features/deals/components/deal-attachments-tab", () => ({
 }));
 vi.mock("@/features/payments/schedule-hooks", () => ({
   usePaymentSchedule: () => ({ data: undefined, isError: false, isPending: true, fetchStatus: "idle" }),
+  useRefreshScheduleOnTotal: () => {},
 }));
 vi.mock("@/features/payments/hooks", () => ({
   // Never asked here (the payments section is a stub): the page does not wait on it.

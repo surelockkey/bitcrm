@@ -817,6 +817,34 @@ Shared billing components grew a Workiz variant on the same props (default
 unchanged): `DocumentItemsTable variant="workiz"`, `DocumentSummaryPanel
 variant="workiz"`, `SignaturesSection variant="workiz"` (features/billing).
 
+### The invoice page (2026-10-09, agent `pg_invoice`)
+
+Measured off `pg_invoice_wz_*` (XYB3JT part-paid, OCRYJ2 paid, SNP8TI due,
+1YFN8I without a job; notes `docs/import/app-parity-2026-10-08/pg_invoice.md`).
+Additive, defaults unchanged:
+
+- **`WzTotalsBoxRow after`** — a node 10px right of the box that does not move
+  it (the invoice's blue "Pay" beside "Balance :").
+- **`WzButton iconPosition="end"`** — the icon after the words: the invoice
+  page's "Actions ⌄" is the word, then the chevron (the estimate's is the
+  other way round, so the default stays "start").
+- `DocumentSummaryPanel variant="workiz"` + `showPayments` is now Workiz's
+  invoice: Total → Balance (bold; #dd380d while owed) with `onPay` → ours
+  Clearing → `leftRows` (the invoice's Due / Terms); the invoice's boxes stop
+  20px short of the middle (x=880). No Paid row (Workiz has none).
+- `DocumentItemsTable variant="workiz"`: `onOpenLine` (the page's own item
+  window — a job invoice's lines open the job's), `reorderable`,
+  `inlineEdit`, `emptyAction` ("Add line items"), `addHeightClassName`
+  ("h-8" = the invoice's 32px Add item); product lines carry Workiz's
+  outlined PRODUCT tag beside SERVICE.
+- `InvoicePaymentsSection variant="workiz"` (features/payments): Workiz's
+  Payments (Type · Amount · Date · status · ⋮ in a MenuPopup).
+- Payment schedule (features/payments/components/payment-schedule.tsx):
+  `AddPaymentScheduleButton` (the grey "+ Add payment schedule" box),
+  `PaymentScheduleDialog` (Add / Edit payment schedule) and
+  `PaymentScheduleTable` — for the job page's Items tab too, should it want
+  Workiz's schedule there.
+
 ## Known differences from Workiz (deliberate or unmeasurable)
 - Sub-pixel: Workiz's own fractional layout makes some glyphs land ±1px
   differently from ours in screenshots (e.g. two Workiz selects with identical

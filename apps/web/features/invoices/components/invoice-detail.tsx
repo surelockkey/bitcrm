@@ -72,7 +72,7 @@ import {
   PaymentScheduleDialog,
   PaymentScheduleTable,
 } from "@/features/payments/components/payment-schedule";
-import { usePaymentSchedule } from "@/features/payments/schedule-hooks";
+import { usePaymentSchedule, useRefreshScheduleOnTotal } from "@/features/payments/schedule-hooks";
 import { CopyPortalLinkButton, useCopyPortalLink } from "@/features/portal/components/copy-portal-link-button";
 import { SendDocumentDialog, type SendDocumentChannel } from "@/features/portal/components/send-document-dialog";
 import { getInvoiceHtml, getInvoicePdfUrl } from "../api";
@@ -780,6 +780,8 @@ function JobInvoiceLines({
     [items, deal.taxRatePercent, deal.discount],
   );
   const snapshot = totalsQuery.data && !totalsQuery.isFetching ? totalsQuery.data : localTotals;
+  // The schedule's dollars are shares of this total: a new total, a schedule to read again.
+  useRefreshScheduleOnTotal(deal.id, snapshot.total);
   // The ledger, when there is one, restates what is paid.
   const totals = paymentSummary ? applyAmountPaid(snapshot, paymentSummary.settled) : snapshot;
   const lines = useMemo(() => items.map(toJobLine), [items]);

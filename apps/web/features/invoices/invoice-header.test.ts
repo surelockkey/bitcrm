@@ -70,6 +70,10 @@ describe("serviceAddressLines — 'Service address:' of a job's invoice", () => 
     expect(serviceAddressLines({ ...home, street: " 39 glenbrook rd " }, home)).toEqual(["Same as billing address"]);
   });
 
+  it("reads a state written out ('Connecticut', as Workiz imports jobs) as its code ('CT')", () => {
+    expect(serviceAddressLines({ ...home, state: "Connecticut" }, home)).toEqual(["Same as billing address"]);
+  });
+
   it("prints the job's address when it is elsewhere, or when there is no billing address", () => {
     const job: Address = { street: "35 Killingworth Turnpike", city: "Clinton", state: "CT", zip: "06413" };
     expect(serviceAddressLines(job, home)).toEqual(["35 Killingworth Turnpike", "Clinton, CT 06413"]);

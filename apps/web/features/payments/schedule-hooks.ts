@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import type { PaymentScheduleView, SavePaymentScheduleBody } from "@bitcrm/types";
@@ -14,6 +15,20 @@ export function usePaymentSchedule(dealId: string, enabled = true) {
     queryFn: () => getPaymentSchedule(dealId),
     enabled: enabled && !!dealId,
   });
+}
+
+/**
+ * A schedule's dollars are its shares of the job total, worked out when it is
+ * read: once the total moves (an item, the tax, the discount), read it again.
+ */
+export function useRefreshScheduleOnTotal(dealId: string, total: number) {
+  const qc = useQueryClient();
+  const seen = useRef(total);
+  useEffect(() => {
+    if (seen.current === total) return;
+    seen.current = total;
+    if (dealId) qc.invalidateQueries({ queryKey: queryKeys.payments.schedule(dealId) });
+  }, [dealId, total, qc]);
 }
 
 /** Save: billing's answer goes straight into the cache before the window closes. */

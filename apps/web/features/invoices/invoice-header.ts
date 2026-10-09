@@ -2,6 +2,7 @@ import type { Address, Contact } from "@bitcrm/types";
 import { formatPhone } from "@/lib/phone";
 import { isYmd } from "@/features/billing/dates";
 import { addressKey, contactName } from "@/features/clients/lib";
+import { countryOf, stateCode } from "@/features/deals/components/workiz/options";
 
 /*
  * The words of Workiz's invoice header (pg_invoice_wz_01_partial,
@@ -41,6 +42,9 @@ export function billToLines(contact: Contact | undefined): string[] {
 export function serviceAddressLines(service: Address | undefined, billing: Address | undefined): string[] {
   const lines = service ? addressLines(service) : [];
   if (!lines.length) return [];
-  if (billing && addressKey(service!) === addressKey(billing)) return ["Same as billing address"];
+  if (billing && sameKey(service!) === sameKey(billing)) return ["Same as billing address"];
   return lines;
 }
+
+/** An address's comparison key with its state as a code — imported jobs spell it out ("Connecticut"). */
+const sameKey = (a: Address) => addressKey({ ...a, state: stateCode(a.state ?? "", countryOf(a)) });
