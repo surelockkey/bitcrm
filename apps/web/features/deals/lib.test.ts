@@ -1072,6 +1072,8 @@ describe("send-to-tech stamps", () => {
     expect(deliveryReasonLabel("email_not_configured")).toBe("email sending is not set up");
     // Reported when messaging could not read the job back at all.
     expect(deliveryReasonLabel("no_deal")).toBe("the job could not be read");
+    // In-app to a subcontractor: Workiz's "can not login" — the app is not theirs to open.
+    expect(deliveryReasonLabel("no_app_login")).toBe("a subcontractor has no app login");
     // An unknown reason from a newer service is shown as-is, not swallowed.
     expect(deliveryReasonLabel("carrier_rejected")).toBe("carrier_rejected");
     expect(deliveryReasonLabel(undefined)).toBe("no reason given");

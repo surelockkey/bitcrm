@@ -1,6 +1,6 @@
 "use client";
 
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Loader2 } from "lucide-react";
 import {
@@ -29,9 +29,17 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { PhoneInput } from "@/components/ui/phone-input";
-import { createUserSchema, type CreateUserValues } from "../schemas";
+import { WzRadioButtons } from "@/components/workiz/radio-buttons";
+import type { UserType } from "@bitcrm/types";
+import { createUserSchema, toCreateUserRequest, type CreateUserValues } from "../schemas";
 import { useCreateUser } from "../hooks";
 import { useHierarchy } from "../use-can-manage";
+
+/** Workiz's words: "User" (signs in, a paid seat) | "Subcontractor" (free, no sign-in). */
+const USER_TYPE_OPTIONS = [
+  { value: "regular", label: "User" },
+  { value: "subcontractor", label: "Subcontractor" },
+] as const;
 
 export function CreateUserSheet({
   open,
@@ -47,6 +55,7 @@ export function CreateUserSheet({
   const form = useForm<CreateUserValues>({
     resolver: zodResolver(createUserSchema),
     defaultValues: {
+      userType: "regular",
       firstName: "",
       lastName: "",
       email: "",
@@ -56,8 +65,13 @@ export function CreateUserSheet({
     },
   });
 
+  // Workiz's "Add team member": a User signs in and has a role; a
+  // Subcontractor does neither (the API makes them a technician).
+  const userType = useWatch({ control: form.control, name: "userType" }) ?? "regular";
+  const subcontractor = userType === "subcontractor";
+
   const onSubmit = (values: CreateUserValues) =>
-    mutation.mutate(values, {
+    mutation.mutate(toCreateUserRequest(values), {
       onSuccess: () => {
         form.reset();
         onOpenChange(false);
@@ -82,6 +96,19 @@ export function CreateUserSheet({
             noValidate
           >
             <div className="flex-1 space-y-5 overflow-y-auto p-4">
+              <div>
+                <WzRadioButtons<UserType>
+                  aria-label="User type"
+                  aria-describedby="create-user-type-help"
+                  options={USER_TYPE_OPTIONS}
+                  value={userType}
+                  onChange={(v) => form.setValue("userType", v, { shouldValidate: false })}
+                />
+                <small id="create-user-type-help" className="mt-2.5 block text-[11px] leading-[13px] tracking-[0.4px] text-wz-caption">
+                  {subcontractor ? "Can not login, can take jobs and get messages" : "Can login and work on your account"}
+                </small>
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <FormField
                   control={form.control}
@@ -130,6 +157,7 @@ export function CreateUserSheet({
                 )}
               />
 
+              {subcontractor ? null : (
               <FormField
                 control={form.control}
                 name="roleId"
@@ -154,6 +182,7 @@ export function CreateUserSheet({
                   </FormItem>
                 )}
               />
+              )}
 
               <FormField
                 control={form.control}
@@ -214,7 +243,7 @@ export function CreateUserSheet({
                 {mutation.isPending ? (
                   <Loader2 className="size-4 animate-spin" />
                 ) : null}
-                Send invite
+                {subcontractor ? "Add user" : "Send invite"}
               </Button>
             </div>
           </form>

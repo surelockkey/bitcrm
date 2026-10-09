@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createUserSchema, updateUserSchema } from "./schemas";
+import { createUserSchema, toCreateUserRequest, updateUserSchema } from "./schemas";
 
 describe("createUserSchema", () => {
   const base = {
@@ -20,6 +20,41 @@ describe("createUserSchema", () => {
   });
   it("requires a department", () => {
     expect(createUserSchema.safeParse({ ...base, department: "" }).success).toBe(false);
+  });
+
+  // Workiz "Add team member" → Subcontractor: "Can not login, can take jobs and
+  // get messages" — and "Roles are not available for subcontractors".
+  it("asks no role of a subcontractor", () => {
+    expect(createUserSchema.safeParse({ ...base, roleId: "", userType: "subcontractor" }).success).toBe(true);
+    expect(createUserSchema.safeParse({ ...base, roleId: "", userType: "regular" }).success).toBe(false);
+  });
+});
+
+describe("toCreateUserRequest", () => {
+  const values = {
+    firstName: "Tyler",
+    lastName: "Smith",
+    email: "t@s.com",
+    roleId: "role-dispatcher",
+    department: "Field",
+    phone: "",
+  };
+
+  it("sends a User as before: the role, and no type", () => {
+    const body = toCreateUserRequest({ ...values, userType: "regular" });
+    expect(body).toEqual({ ...values });
+    expect("userType" in body).toBe(false);
+  });
+
+  it("sends a subcontractor without a role, typed", () => {
+    expect(toCreateUserRequest({ ...values, userType: "subcontractor" })).toEqual({
+      firstName: "Tyler",
+      lastName: "Smith",
+      email: "t@s.com",
+      department: "Field",
+      phone: "",
+      userType: "subcontractor",
+    });
   });
 });
 

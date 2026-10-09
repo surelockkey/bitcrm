@@ -36,6 +36,9 @@ const MANAGER_ONLY = "A manager sets this.";
 const NOT_YOURS = "You can read this technician's details but not change them.";
 /** The name, the field-team switch and two-step sign-in: the user record's, behind `users.edit`. */
 const ON_USER_RECORD = "Set on the user record, by someone who may edit users.";
+/** Workiz, word for word: "Location tracking is only available for paid users." */
+const NO_TRACKING_FOR_SUBS = "Location tracking is only available for users, not for subcontractors.";
+const NO_SIGN_IN_FOR_SUBS = "A subcontractor cannot sign in, so there is no sign-in to protect.";
 const MAX_ADDITIONAL_PHONES = 5;
 
 /** The days Workiz's week starts from, Monday first, as the schedule shows them. */
@@ -139,7 +142,9 @@ function Form({
       firstName: user?.firstName ?? "",
       lastName: user?.lastName ?? "",
       fieldTeamMember: onFieldTeam,
-      technicianType: profile.technicianType ?? "regular",
+      // Workiz's "User type" is the person's: the user record answers, the
+      // card's copy only for a record from before.
+      technicianType: user?.userType ?? profile.technicianType ?? "regular",
       phone: profile.phone ?? "",
       additionalPhones: profile.additionalPhones ?? [],
       line1: a?.line1 ?? "",
@@ -181,6 +186,9 @@ function Form({
   const workWhy = rights.operational ? undefined : MANAGER_ONLY;
   const identityWhy = rights.identity ? undefined : ON_USER_RECORD;
   const twoFactorOn = !!user?.smsMfaEnabled;
+  // Workiz greys Track location and Two-factor authentication on a
+  // subcontractor's page: they cannot sign in, and are not tracked.
+  const subcontractor = technicianType === "subcontractor";
 
   const setAdditionalPhones = (next: string[]) => setValue("additionalPhones", next, { shouldDirty: true });
 
@@ -255,24 +263,32 @@ function Form({
                 <WzCheckbox
                   label="Track location"
                   checked={gps}
-                  disabled={!rights.operational}
+                  disabled={!rights.operational || subcontractor}
                   aria-describedby={id("gps-why")}
                   onCheckedChange={(c) => setValue("gpsTrackingEnabled", c, { shouldDirty: true })}
                 />
-                <WzInfoTip id={id("gps-why")} label="Track location" text={workWhy ?? "Their position during shifts, on the dispatch map."} />
+                <WzInfoTip
+                  id={id("gps-why")}
+                  label="Track location"
+                  text={workWhy ?? (subcontractor ? NO_TRACKING_FOR_SUBS : "Their position during shifts, on the dispatch map.")}
+                />
               </div>
 
               <WzFormSectionTitle className="mt-[33px] mb-6">User Details</WzFormSectionTitle>
 
-              {/* Workiz's "User type". A subcontractor is paid and insured
-                  differently from an employee — a manager's to set. */}
+              {/* Workiz's "User type": a User signs in; a Subcontractor "can
+                  not login, can take jobs and get messages" — saved, the
+                  sign-in goes (the API, on the user record). A manager's. */}
               <WzOutlinedSelect
                 label="User type"
                 options={TYPE_OPTIONS}
                 value={technicianType}
                 disabled={!rights.operational}
                 aria-describedby={workWhy ? id("work-why") : undefined}
-                onChange={(v) => setValue("technicianType", v as TechnicianType, { shouldDirty: true })}
+                onChange={(v) => {
+                  setValue("technicianType", v as TechnicianType, { shouldDirty: true });
+                  if (v === "subcontractor") setValue("gpsTrackingEnabled", false, { shouldDirty: true });
+                }}
               />
 
               {/* Workiz has one "Name"; the user record keeps the two halves
@@ -425,10 +441,15 @@ function Form({
               <SwitchRow
                 className="mt-6"
                 label="Two-factor authentication"
-                info={identityWhy ?? "After the password, a code is texted to their phone. Turning it on needs a phone on the card."}
+                info={
+                  identityWhy ??
+                  (subcontractor
+                    ? NO_SIGN_IN_FOR_SUBS
+                    : "After the password, a code is texted to their phone. Turning it on needs a phone on the card.")
+                }
                 tipId={id("mfa-why")}
                 checked={twoFactorOn}
-                disabled={!rights.identity || !user || setMfa.isPending}
+                disabled={!rights.identity || !user || setMfa.isPending || subcontractor}
                 onChange={(c) => setMfa.mutate({ id: technicianId, enabled: c })}
               />
             </div>

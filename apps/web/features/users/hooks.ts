@@ -18,6 +18,7 @@ import { getApiErrorMessage } from "@/lib/api/errors";
 import { useMe } from "@/features/auth/use-me";
 import * as api from "./api";
 import type { UserFilter } from "./api";
+import { createdUserMessage } from "./lib";
 
 /**
  * Скільки всього рядків під тими самими фільтрами — з цього панель робить
@@ -125,7 +126,7 @@ export function useCreateUser() {
     mutationFn: (body: CreateUserRequest) => api.createUser(body),
     onSuccess: (u) => {
       invalidate();
-      toast.success(`Invite sent to ${u.email}`);
+      toast.success(createdUserMessage(u));
     },
     onError: (e) => toast.error(getApiErrorMessage(e)),
   });

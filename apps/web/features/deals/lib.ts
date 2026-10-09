@@ -378,6 +378,8 @@ const DELIVERY_REASON_LABEL: Record<string, string> = {
   no_email: "no email on file",
   no_user: "user record not found",
   inactive_user: "user is not active",
+  // In-app to a subcontractor (Workiz: "can not login") — texts and mail still go.
+  no_app_login: "a subcontractor has no app login",
   email_not_configured: "email sending is not set up",
   opted_out: "opted out of texts",
   blank_text: "the job text rendered empty",

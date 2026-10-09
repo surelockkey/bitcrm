@@ -1,4 +1,4 @@
-import type { Role } from "@bitcrm/types";
+import { isSubcontractor, type Role, type User } from "@bitcrm/types";
 import { systemRoleName } from "@/lib/permissions/system-roles";
 
 export function roleName(roleId: string, roles: Role[] | undefined): string {
@@ -22,4 +22,9 @@ export function formatDate(iso?: string): string {
     day: "numeric",
     year: "numeric",
   });
+}
+
+/** What the "+ Add New" toast says: a User was invited; a subcontractor, who cannot sign in, was only added. */
+export function createdUserMessage(u: Pick<User, "email" | "firstName" | "lastName" | "userType">): string {
+  return isSubcontractor(u) ? `${u.firstName} ${u.lastName} added as a subcontractor` : `Invite sent to ${u.email}`;
 }
