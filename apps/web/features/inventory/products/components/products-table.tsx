@@ -7,6 +7,7 @@ import { WzItemImagePlaceholder } from "@/components/workiz/item-image";
 import { WzEditIcon, WzStockIcon } from "@/components/workiz/icons";
 import { WzReportGrid, type WzReportColumn, type WzRowOpenEvent } from "@/components/workiz/report-grid";
 import { useColumnWidths } from "@/lib/table/use-column-widths";
+import { INVENTORY_ROW_HEIGHTS } from "@/features/inventory/row-heights";
 import { displaySku } from "@/features/inventory/item-edit/item-form";
 import { RowIconAction } from "@/features/inventory/components/row-icon-action";
 import { categoryLeaf } from "@/features/price-book/lib";
@@ -156,6 +157,7 @@ export function ProductsTable({
       <WzReportGrid
         aria-label="Inventory"
         className="shrink-0"
+        rowHeight={INVENTORY_ROW_HEIGHTS.items}
         columns={columns}
         rows={loading ? NO_ROWS : products}
         rowKey={(p) => p.id}

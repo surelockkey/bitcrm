@@ -3,11 +3,13 @@ import { cleanup } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { InventoryStatus, ProductType, TransferType, UserContainerAccess } from "@bitcrm/types";
 import {
+  declaredRowHeights,
   duplicates,
   installFakeServer,
   settle,
   skeletonCount,
   watchFirstFrame,
+  watchLoadingRowHeights,
   type FakeRoute,
   type FakeServer,
 } from "@/test/page-load";
@@ -160,17 +162,35 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-/** Every tab: its page, a row it lists, and the "of N" its pager says. */
+/**
+ * Every tab: its page, a row it lists, the "of N" its pager says, and the
+ * height its rows declare — Workiz's (pg_inventory: Inventory 80px, Locations
+ * 64px, User locations 78px) and, for the tabs Workiz lacks, their own
+ * content's (Templates' chips 64px, Transfers' one-line cells 56px).
+ */
 const TABS = [
-  { tab: "Inventory", page: () => <ProductsPage />, row: "Test item 1", total: "of 3" },
-  { tab: "Warehouses", page: () => <WarehousesPage />, row: "Main Store", total: "of 2" },
-  { tab: "Containers", page: () => <ContainersPage />, row: "Van Alpha", total: "of 2" },
-  { tab: "User containers", page: () => <UserContainersPage />, row: "Kim Ode", total: "of 3" },
-  { tab: "Templates", page: () => <TemplatesPage />, row: "Standard van", total: "of 1" },
-  { tab: "Transfers", page: () => <TransfersPage />, row: "Test item 1 ×2", total: "of 1" },
+  { tab: "Inventory", page: () => <ProductsPage />, row: "Test item 1", total: "of 3", rowHeight: "80px" },
+  { tab: "Warehouses", page: () => <WarehousesPage />, row: "Main Store", total: "of 2", rowHeight: "64px" },
+  { tab: "Containers", page: () => <ContainersPage />, row: "Van Alpha", total: "of 2", rowHeight: "64px" },
+  { tab: "User containers", page: () => <UserContainersPage />, row: "Kim Ode", total: "of 3", rowHeight: "78px" },
+  { tab: "Templates", page: () => <TemplatesPage />, row: "Standard van", total: "of 1", rowHeight: "64px" },
+  { tab: "Transfers", page: () => <TransfersPage />, row: "Test item 1 ×2", total: "of 1", rowHeight: "56px" },
 ] as const;
 
-describe.each(TABS)("Inventory — $tab", ({ page, row, total }) => {
+describe.each(TABS)("Inventory — $tab", ({ page, row, total, rowHeight }) => {
+  // app_audit 2026-10-09: CLS 0.08 / 0.06 / 0.02 — the loader's 57px blanks
+  // became the tab's taller rows and the grid grew under the reader. The
+  // blanks, the records and the filler now all declare the tab's row height.
+  it("lands its rows on the loader's blank rows — the same declared row height before and after", async () => {
+    const watch = watchLoadingRowHeights();
+    inTabs(page());
+    await screen.findByText(row, {}, { timeout: 3000 });
+    watch.stop();
+
+    expect(watch.frame()).toEqual([rowHeight]);
+    expect(declaredRowHeights()).toEqual([rowHeight]);
+  });
+
   it("draws its rows whole, with the pager's total, in one frame", async () => {
     const watch = watchFirstFrame(
       () => !!screen.queryByText(row),

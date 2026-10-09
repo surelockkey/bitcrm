@@ -2,12 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, screen } from "@testing-library/react";
 import type { ActivityRow } from "@bitcrm/types";
 import {
+  declaredRowHeights,
   duplicates,
   installFakeServer,
   renderWithClient,
   settle,
   skeletonCount,
   watchFirstFrame,
+  watchLoadingRowHeights,
   type FakeRoute,
   type FakeServer,
 } from "@/test/page-load";
@@ -130,5 +132,18 @@ describe("ActivityPage — no jumping", () => {
     await settle();
 
     expect(duplicates(server.requests)).toEqual([]);
+  });
+
+  // app_audit 2026-10-09: CLS 0.02 — the loader's 57px blanks became Workiz's
+  // 58px rows (the Action column's 18px icon, rep_activity). Blanks, records
+  // and filler now all declare the 58px.
+  it("lands its rows on the loader's blank rows — the same declared row height before and after", async () => {
+    const watch = watchLoadingRowHeights();
+    renderWithClient(<ActivityPage today="2026-10-06" />);
+    await screen.findAllByText("Ann Lee", {}, { timeout: 3000 });
+    watch.stop();
+
+    expect(watch.frame()).toEqual(["58px"]);
+    expect(declaredRowHeights()).toEqual(["58px"]);
   });
 });

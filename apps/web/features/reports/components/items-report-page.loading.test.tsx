@@ -2,12 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, screen } from "@testing-library/react";
 import type { ItemsReportPage as ReportPage } from "@bitcrm/types";
 import {
+  declaredRowHeights,
   duplicates,
   installFakeServer,
   renderWithClient,
   settle,
   skeletonCount,
   watchFirstFrame,
+  watchLoadingRowHeights,
   type FakeRoute,
   type FakeServer,
 } from "@/test/page-load";
@@ -99,5 +101,19 @@ describe("ItemsReportPage — no jumping", () => {
     await settle();
 
     expect(duplicates(server.requests)).toEqual([]);
+  });
+
+  // app_audit 2026-10-09: CLS 0.10–0.13 — the loader's 56px blanks became
+  // Workiz's 77px rows (a line over the grey `_tblLbl` line, rep_items) and
+  // the pager inside the grid went down with them. Blanks, records and
+  // filler now all declare the 77px.
+  it("lands its rows on the loader's blank rows — the same declared row height before and after", async () => {
+    const watch = watchLoadingRowHeights();
+    renderWithClient(<ItemsReportPage today="2026-10-06" />);
+    await screen.findByText("Door lock", {}, { timeout: 3000 });
+    watch.stop();
+
+    expect(watch.frame()).toEqual(["77px"]);
+    expect(declaredRowHeights()).toEqual(["77px"]);
   });
 });

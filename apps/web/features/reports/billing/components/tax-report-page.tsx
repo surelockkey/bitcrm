@@ -223,6 +223,8 @@ function TaxTab({ basis, today, enabled, shown }: { basis: TaxReportBasis; today
         ) : (
           <WzReportGrid
             aria-label={basis === "accrual" ? "Accrual" : "Paid"}
+            // Workiz's rows: 56px (rep_tax) — the loader's ruled 57px blanks crept 1px a row.
+            rowHeight={56}
             columns={columnsOf(basis)}
             rows={pageRows}
             rowKey={(row) => row.key}

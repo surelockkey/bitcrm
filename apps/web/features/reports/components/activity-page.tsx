@@ -222,6 +222,8 @@ export function ActivityPage({ today: todayProp }: { today?: string } = {}) {
           <TooltipProvider>
             <WzReportGrid
               aria-label="Activity"
+              // Workiz's rows: 58px, the Action column's 18px icon (rep_activity).
+              rowHeight={58}
               columns={columns}
               rows={ready ? pager.items : []}
               rowKey={(r) => r.id}

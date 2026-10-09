@@ -203,6 +203,8 @@ export function AgingInvoicesPage() {
         ) : (
           <WzReportGrid
             aria-label="Aging invoices"
+            // Workiz's rows: 82px, a client's name over their email (rep_aging; 80 over a phone).
+            rowHeight={82}
             columns={columns}
             rows={r?.items ?? []}
             rowKey={(row) => row.invoiceId}

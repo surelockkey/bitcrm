@@ -151,6 +151,8 @@ export function ItemsReportTable({
   return (
     <WzReportGrid<GridRow>
       aria-label="Items and services"
+      // Workiz's rows: 77px, the line over the grey `_tblLbl` line (rep_items).
+      rowHeight={77}
       columns={columns}
       rows={gridRows}
       rowKey={(g) => (g.kind === "total" ? "__total" : g.row.key)}
@@ -258,6 +260,8 @@ function ItemJobs({ item, state, money }: { item: ItemsReportRow; state: ItemsRe
       ) : (
         <WzReportGrid<ItemsReportJobRow>
           aria-label="Jobs"
+          // The drill-down's rows are 77px too (rep_items).
+          rowHeight={77}
           columns={columns}
           rows={data?.rows ?? []}
           rowKey={(r) => r.dealId}

@@ -2,12 +2,14 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { cleanup, screen } from "@testing-library/react";
 import type { PaymentReportRow } from "@bitcrm/types";
 import {
+  declaredRowHeights,
   duplicates,
   installFakeServer,
   renderWithClient,
   settle,
   skeletonCount,
   watchFirstFrame,
+  watchLoadingRowHeights,
   type FakeRoute,
   type FakeServer,
 } from "@/test/page-load";
@@ -106,5 +108,18 @@ describe("PaymentsReportPage — no jumping", () => {
     expect(frame).toEqual({ noAccess: false, total: true, row: true, tech: true, phone: true, skeletons: 0 });
     expect(server.requests.slice(asked)).toEqual([]);
     expect(duplicates(server.requests)).toEqual([]);
+  });
+
+  // app_audit 2026-10-09: CLS 0.07 — the shell's 56px blanks became Workiz's
+  // 80px rows (the client's name over their phone, rep_payments) and the pager
+  // went down with them. Blanks, records and filler now all declare the 80px.
+  it("lands its rows on the shell's blank rows — the same declared row height before and after", async () => {
+    const watch = watchLoadingRowHeights();
+    renderWithClient(<PaymentsReportPage />);
+    await screen.findByText("6563K8 (Job)", {}, { timeout: 5000 });
+    watch.stop();
+
+    expect(watch.frame()).toEqual(["80px"]);
+    expect(declaredRowHeights()).toEqual(["80px"]);
   });
 });

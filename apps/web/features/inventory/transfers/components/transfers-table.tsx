@@ -4,6 +4,7 @@ import { useMemo, type ReactNode } from "react";
 import type { Transfer } from "@bitcrm/types";
 import { WzReportGrid, type WzReportColumn } from "@/components/workiz/report-grid";
 import { useColumnWidths } from "@/lib/table/use-column-widths";
+import { INVENTORY_ROW_HEIGHTS } from "@/features/inventory/row-heights";
 import { formatDate } from "@/features/users/lib";
 import { TransferTypeBadge } from "./transfer-type-badge";
 import { TransferRoute } from "./transfer-route";
@@ -75,6 +76,7 @@ export function TransfersTable({
     <WzReportGrid
       aria-label="Transfers"
       className="shrink-0"
+      rowHeight={INVENTORY_ROW_HEIGHTS.transfers}
       columns={columns}
       rows={loading ? NO_ROWS : transfers}
       rowKey={(t) => t.id}

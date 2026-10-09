@@ -2,12 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, screen } from "@testing-library/react";
 import type { AgingBucket, AgingReport } from "@bitcrm/types";
 import {
+  declaredRowHeights,
   duplicates,
   installFakeServer,
   renderWithClient,
   settle,
   skeletonCount,
   watchFirstFrame,
+  watchLoadingRowHeights,
   type FakeRoute,
   type FakeServer,
 } from "@/test/page-load";
@@ -131,5 +133,19 @@ describe("AgingInvoicesPage — no jumping", () => {
     await settle();
 
     expect(duplicates(server.requests)).toEqual([]);
+  });
+
+  // app_audit 2026-10-09: CLS 0.08 — the loader's 57px blanks became 82px
+  // rows (a client's name over their email, rep_aging) and the grid grew
+  // under the reader. The blanks, the records and the filler now all declare
+  // Workiz's 82px, so the rows land exactly where the blanks were.
+  it("lands its rows on the loader's blank rows — the same declared row height before and after", async () => {
+    const watch = watchLoadingRowHeights();
+    renderWithClient(<AgingInvoicesPage />);
+    await screen.findByText("INV100", {}, { timeout: 3000 });
+    watch.stop();
+
+    expect(watch.frame()).toEqual(["82px"]);
+    expect(declaredRowHeights()).toEqual(["82px"]);
   });
 });

@@ -4,6 +4,7 @@ import { useMemo, type ReactNode } from "react";
 import { UserContainerAccess } from "@bitcrm/types";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { WzReportGrid, type WzReportColumn } from "@/components/workiz/report-grid";
+import { INVENTORY_ROW_HEIGHTS } from "@/features/inventory/row-heights";
 import { WzWideSwitch } from "@/components/workiz/wide-switch";
 import { formatDate } from "@/features/users/lib";
 import { assignmentBody, locationChoice, type Assignment } from "../lib";
@@ -103,6 +104,7 @@ export function UserContainersTable({
     <WzReportGrid
       aria-label="User locations"
       className="shrink-0"
+      rowHeight={INVENTORY_ROW_HEIGHTS["user-containers"]}
       columns={columns}
       rows={loading ? NO_ROWS : rows}
       rowKey={(r) => r.userId}

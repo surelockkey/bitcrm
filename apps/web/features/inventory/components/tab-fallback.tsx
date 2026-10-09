@@ -9,6 +9,7 @@ import { CONTAINER_COLUMNS } from "@/features/inventory/containers/components/co
 import { USER_CONTAINER_COLUMNS } from "@/features/inventory/user-containers/components/user-containers-table";
 import { TEMPLATE_COLUMNS } from "@/features/inventory/templates/components/templates-table";
 import { TRANSFER_COLUMNS } from "@/features/inventory/transfers/components/transfers-table";
+import { INVENTORY_ROW_HEIGHTS } from "@/features/inventory/row-heights";
 
 export type InventoryTab = "items" | "warehouses" | "containers" | "user-containers" | "templates" | "transfers";
 
@@ -50,6 +51,7 @@ export function TabFallback({ tab }: { tab: InventoryTab }) {
         rowKey={() => ""}
         loading
         stickyHeader={false}
+        rowHeight={INVENTORY_ROW_HEIGHTS[tab]}
       />
     </div>
   );
