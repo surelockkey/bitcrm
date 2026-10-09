@@ -280,8 +280,11 @@ export function MyJobsPage() {
       </div>
 
       {/* Filter results + Create New: list_01 — the control 20px in, the yellow pill 16px to its right. */}
-      <div className="sticky left-0 flex items-start gap-4 px-5 pt-[34px]">
-        <JobsFilterControl state={state} onChange={setState} catalogs={catalogs} caps={caps} />
+      {/* On a phone the control takes its own line and the pills wrap under it. */}
+      <div className="sticky left-0 flex flex-wrap items-start gap-4 px-5 pt-[34px]">
+        <div className="flex min-w-full flex-1 sm:min-w-0">
+          <JobsFilterControl state={state} onChange={setState} catalogs={catalogs} caps={caps} />
+        </div>
         {/* Ours, beside Workiz's one button: drawn with the page, count and all. */}
         {tabsShown ? <TeamChatBadge className="h-8" /> : null}
         {can("deals", "create") ? (

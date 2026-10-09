@@ -85,12 +85,12 @@ export function MyStockPage() {
   if (!ready) {
     return (
       <div className="flex flex-1 flex-col" aria-busy>
-        <div className="grid grid-cols-2 gap-x-[35px] px-6 pt-6">
+        <div className="grid grid-cols-1 gap-x-[35px] gap-y-4 px-6 pt-6 md:grid-cols-2">
           <div className="space-y-2">
-            <Skeleton className="h-6 w-56" />
-            <Skeleton className="h-4 w-72" />
+            <Skeleton className="h-6 w-56 max-w-full" />
+            <Skeleton className="h-4 w-72 max-w-full" />
           </div>
-          <Skeleton className="h-6 w-60" />
+          <Skeleton className="h-6 w-60 max-w-full" />
         </div>
         <Skeleton className="mx-6 mt-[60px] h-[71px]" />
         <Skeleton className="mx-6 mt-px h-80" />
