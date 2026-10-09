@@ -1,89 +1,137 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { Percent, Search } from "lucide-react";
+import { useState, type ReactNode } from "react";
+import { FileText } from "lucide-react";
 import { toast } from "sonner";
-import {
-  TAX_REPORT_BY,
-  TAX_REPORT_BY_LABELS,
-  type TaxReportBasis,
-  type TaxReportBy,
-  type TaxReportRow,
-} from "@bitcrm/types";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { TAX_REPORT_BY, TAX_REPORT_BY_LABELS, type TaxReportBasis, type TaxReportBy, type TaxReportRow } from "@bitcrm/types";
+import { WzDateRangePicker, type WzDateRange } from "@/components/workiz/date-range-picker";
+import { WzOutlinedSelect } from "@/components/workiz/outlined-select";
+import { WzPager } from "@/components/workiz/pager";
+import { WzPickerSelect } from "@/components/workiz/picker-select";
+import { WzReportGrid, wzNextSort, type WzReportColumn } from "@/components/workiz/report-grid";
+import { WzTabBar } from "@/components/workiz/tab-bar";
+import { WzListToolbar, WzPageSizeSelect, WzSearchBox, WzToolbarButton } from "@/components/workiz/toolbar";
+import { usePageHistoryLabel } from "@/components/shell/page-history";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/table";
 import { getApiErrorMessage } from "@/lib/api/errors";
-import { settled, usePageReady } from "@/lib/use-page-ready";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
-import { cn } from "@/lib/utils";
+import { settled, usePageReady } from "@/lib/use-page-ready";
 import { useDenied, usePermissions } from "@/features/auth/use-permissions";
 import { NoAccess } from "@/features/billing/components/list-bits";
-import { DEFAULT_REPORT_PAGE_SIZE } from "@/features/payments/report";
+import { DEFAULT_REPORT_PAGE_SIZE, REPORT_PAGE_SIZES, paymentsCustomCheck } from "@/features/payments/report";
+import { viewerToday } from "@/features/reports/jobs/lib";
 import { exportTaxReport } from "../api";
+import { agingPager } from "../aging";
 import { useTaxReport } from "../hooks";
-import { DEFAULT_TAX_PRESET, TAX_DATE_PRESETS, downloadCsv } from "../lib";
-import { DateRangeControl, ExportButton, ReportFooter, SortHead, money, useReportRange } from "./report-bits";
+import { downloadCsv } from "../lib";
+import {
+  DEFAULT_TAX_BY,
+  DEFAULT_TAX_REPORT_PRESET,
+  TAX_DEFAULT_SORT,
+  TAX_REPORT_PRESETS,
+  defaultTaxParams,
+  orderTaxRows,
+  taxColumnIds,
+  taxColumnLabel,
+  taxFilterOptions,
+  taxKpi,
+  taxPresetRange,
+  taxRateText,
+  taxReportParams,
+  type TaxColumnId,
+  type TaxGridSort,
+  type TaxReportPreset,
+} from "../tax";
+import { money } from "./report-bits";
 
-type Col = "name" | "description" | "rate" | "amount" | "taxableAmount" | "nonTaxableAmount" | "jobs";
+const TABS = [
+  { value: "accrual", label: "Accrual" },
+  { value: "paid", label: "Paid" },
+] as const;
 
-const COLUMNS: Record<TaxReportBasis, { id: Col; label: string; right?: boolean }[]> = {
-  accrual: [
-    { id: "name", label: "Name" },
-    { id: "description", label: "Description" },
-    { id: "rate", label: "Rate", right: true },
-    { id: "amount", label: "Amount", right: true },
-    { id: "taxableAmount", label: "Taxable Amount", right: true },
-    { id: "nonTaxableAmount", label: "Non-Taxable Amount", right: true },
-    { id: "jobs", label: "Jobs", right: true },
-  ],
-  paid: [
-    { id: "name", label: "Name" },
-    { id: "description", label: "Description" },
-    { id: "rate", label: "Rate", right: true },
-    { id: "amount", label: "Tax", right: true },
-    { id: "taxableAmount", label: "Taxable Amount", right: true },
-    { id: "jobs", label: "Jobs", right: true },
-  ],
+const BY_OPTIONS = TAX_REPORT_BY.map((b) => ({ value: b, label: TAX_REPORT_BY_LABELS[b] }));
+
+/** A value alone in its cell: one line, cut at the cell's edge as react-table cuts it. */
+const Text = ({ children }: { children?: ReactNode }) => <span className="block truncate">{children}</span>;
+
+const CELLS: Record<TaxColumnId, (r: TaxReportRow) => ReactNode> = {
+  name: (r) => <Text>{r.name.trim()}</Text>,
+  description: (r) => <Text>{r.description}</Text>,
+  rate: (r) => <Text>{taxRateText(r.rate)}</Text>,
+  amount: (r) => <Text>{money(r.amount)}</Text>,
+  taxableAmount: (r) => <Text>{money(r.taxableAmount)}</Text>,
+  nonTaxableAmount: (r) => <Text>{money(r.nonTaxableAmount)}</Text>,
+  jobs: (r) => <Text>{r.jobs}</Text>,
 };
 
-const KPI: Record<TaxReportBasis, string> = {
-  accrual: "total tax on sold items",
-  paid: "total tax from collected payments",
-};
+const columnsOf = (basis: TaxReportBasis): WzReportColumn<TaxReportRow>[] =>
+  taxColumnIds(basis).map((id) => ({ id, label: taxColumnLabel(id, basis), sortable: true, cell: CELLS[id] }));
 
 /**
- * Workiz Reports → Tax (`/root/tax_report/`): Accrual (tax on what was sold,
- * "By:" Job created / Job date / Job end date — this account opens on Job end
- * date) and Paid (tax on what was collected, by payment date). One row per
- * tax rate; This month by default; "Tax to show", search, CSV.
+ * Workiz Reports → Tax (`/root/tax_report/`), drawn as Workiz draws it
+ * (rep_tax_wz_*): no title — the Accrual / Paid tabs; under them the
+ * sentence "$X total tax on sold items" over "Tax to show", the date box
+ * (with "By:" on Accrual) at the right; the list strip; the grid with the
+ * pager inside it. One row per tax rate.
+ *
+ * Each tab is a page of its own, as in Workiz: opening one starts it on This
+ * month, Job end date, every tax, Name. Both tabs' opening questions are
+ * asked with the page, so a tab opens whole at once.
+ *
+ * Nothing here is not money: the page needs `reports.view` and
+ * `financials.view` (the server says the same).
  */
-export function TaxReportPage() {
+export function TaxReportPage({ today: todayProp }: { today?: string } = {}) {
   const { can, isLoading: permsLoading } = usePermissions();
   const denied = useDenied();
+  usePageHistoryLabel("Tax Report");
   const canView = can("reports", "view") && can("financials", "view");
-  const range = useReportRange(DEFAULT_TAX_PRESET);
+  // Workiz counts its presets from the viewer's own clock (moment()).
+  const [today] = useState(() => todayProp ?? viewerToday());
   const [basis, setBasis] = useState<TaxReportBasis>("accrual");
-  const [by, setBy] = useState<TaxReportBy>("end");
-  const [tax, setTax] = useState("");
+
+  const accrual = useTaxReport(defaultTaxParams("accrual", today), canView);
+  const paid = useTaxReport(defaultTaxParams("paid", today), canView);
+  // The sentence, the rates and the rows come in one frame (the figure was
+  // drawn as "—" and its caption slid when it came); until the role is read
+  // nothing is asked, which is not an answer.
+  const shown = usePageReady(!permsLoading && settled(accrual) && settled(paid));
+
+  if (denied("reports", "view") || denied("financials", "view")) return <NoAccess what="the tax report" />;
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col overflow-auto text-wz-strong" data-slot="tax-report">
+      {/* The tab row (rep_tax_wz_01_default): the words 18px under the
+          breadcrumbs, its rule at the foot of the open tab's bar. */}
+      <WzTabBar
+        aria-label="Tax report"
+        className="mt-[18px] shrink-0"
+        tabs={TABS}
+        value={basis}
+        onValueChange={(v) => setBasis(v as TaxReportBasis)}
+      />
+      <TaxTab key={basis} basis={basis} today={today} enabled={canView} shown={shown} />
+    </div>
+  );
+}
+
+function TaxTab({ basis, today, enabled, shown }: { basis: TaxReportBasis; today: string; enabled: boolean; shown: boolean }) {
+  const [range, setRange] = useState<WzDateRange>(() => ({
+    preset: DEFAULT_TAX_REPORT_PRESET,
+    ...taxPresetRange(DEFAULT_TAX_REPORT_PRESET, today),
+  }));
+  const [by, setBy] = useState<TaxReportBy>(DEFAULT_TAX_BY);
+  const [tax, setTax] = useState("0");
   const [searchInput, setSearchInput] = useState("");
-  const search = useDebouncedValue(searchInput.trim(), 300);
-  const [sort, setSort] = useState<Col | null>(null);
-  const [dir, setDir] = useState<"asc" | "desc">("asc");
+  const search = useDebouncedValue(searchInput, 300);
+  const [sort, setSort] = useState<TaxGridSort>(TAX_DEFAULT_SORT);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(DEFAULT_REPORT_PAGE_SIZE);
   const [exporting, setExporting] = useState(false);
 
-  const { from, to } = range.range;
-  const params = { basis, by, from: from ?? "", to: to ?? "", tax: tax || undefined, search: search || undefined };
-  const ready = canView && !range.error && !!from && !!to;
-  const q = useTaxReport(params, ready);
-  // The figure was drawn as "—" with its caption beside it, and the caption
-  // slid when the figure came; "Tax to show" widened when the rates came.
-  // They come with the report. (Until the role is read the report is not
-  // asked for, which is not an answer.)
-  const shown = usePageReady(!permsLoading && settled(q));
+  const custom = paymentsCustomCheck(range);
+  const params = taxReportParams({ basis, by, range, tax, search });
+  const q = useTaxReport(params, enabled && custom.usable);
 
   // A new question starts on its first page — reset while rendering, not in an effect.
   const key = JSON.stringify(params);
@@ -93,26 +141,14 @@ export function TaxReportPage() {
     if (page !== 1) setPage(1);
   }
 
-  const rows = useMemo(() => {
-    const all = q.data?.rows ?? [];
-    if (!sort) return all;
-    const sign = dir === "asc" ? 1 : -1;
-    return [...all].sort((a, b) => {
-      const va = a[sort as keyof TaxReportRow];
-      const vb = b[sort as keyof TaxReportRow];
-      return sign * (typeof va === "number" && typeof vb === "number" ? va - vb : String(va ?? "").localeCompare(String(vb ?? "")));
-    });
-  }, [q.data, sort, dir]);
-
-  if (denied("reports", "view") || denied("financials", "view")) return <NoAccess what="the tax report" />;
-
+  const r = shown ? q.data : undefined;
+  const rows = orderTaxRows(r?.rows ?? [], sort, basis);
   const pageRows = rows.slice((page - 1) * pageSize, page * pageSize);
-  const onSort = (id: Col) => {
-    if (sort === id) setDir((d) => (d === "asc" ? "desc" : "asc"));
-    else {
-      setSort(id);
-      setDir("asc");
-    }
+  const pager = agingPager({ page, pageSize, total: rows.length, shown: pageRows.length, fetching: q.isFetching, onPage: setPage });
+
+  const onSort = (column: string) => {
+    setSort((s) => ({ column: column as TaxColumnId, dir: s.column === column ? wzNextSort(s.dir) : "asc" }));
+    setPage(1);
   };
   const runExport = async () => {
     setExporting(true);
@@ -127,163 +163,78 @@ export function TaxReportPage() {
   };
 
   return (
-    <div className="flex min-w-0 flex-1 flex-col">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3 sm:px-6">
-        <h1 className="text-lg font-semibold tracking-tight">Tax report</h1>
-        <div className="flex flex-wrap items-center gap-2">
-          <DateRangeControl presets={TAX_DATE_PRESETS} state={range} />
-          {basis === "accrual" ? (
-            <label className="flex items-center gap-1.5 text-sm text-muted-foreground">
-              By:
-              <select
-                aria-label="By"
-                className="h-9 rounded-md border bg-transparent px-2 text-sm text-foreground"
-                value={by}
-                onChange={(e) => setBy(e.target.value as TaxReportBy)}
-              >
-                {TAX_REPORT_BY.map((b) => (
-                  <option key={b} value={b}>
-                    {TAX_REPORT_BY_LABELS[b]}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : null}
+    <>
+      {/* The band (`flexCont _wp`, 20px all round): the sentence and "Tax to
+          show" in a 480px column; the date box 20px off the right edge, 10px
+          clear of the strip. */}
+      <div className="flex shrink-0 items-start justify-between gap-5 p-5">
+        <div className="w-[480px] min-w-0 shrink">
+          {r ? (
+            <h2 className="text-xl leading-6 font-semibold text-foreground" data-testid="tax-kpi">
+              {taxKpi(basis, r.totalAmount)}
+            </h2>
+          ) : (
+            // The sentence's own line while the report is on its way (Workiz prints "$0.00 …" first).
+            <Skeleton className="h-6 w-[340px] rounded-none" role="status" aria-label="Loading the tax report" />
+          )}
+          <WzOutlinedSelect
+            className="mt-7"
+            label="Tax to show"
+            options={taxFilterOptions(r?.taxes ?? [])}
+            value={tax}
+            onChange={setTax}
+          />
+        </div>
+        <div className={range.preset === "custom" ? "mb-2.5 w-[362px] shrink-0" : "mb-2.5 w-[250px] shrink-0"}>
+          <WzDateRangePicker
+            presets={TAX_REPORT_PRESETS}
+            value={range}
+            onChange={setRange}
+            rangeOf={(id) => (id === "custom" ? null : taxPresetRange(id as Exclude<TaxReportPreset, "custom">, today))}
+            customError={custom.error}
+            calendar={{ today }}
+          />
+          {basis === "accrual" ? <WzPickerSelect prefix="By" options={BY_OPTIONS} value={by} onChange={setBy} /> : null}
         </div>
       </div>
 
-      <div className="min-w-0 flex-1 space-y-4 overflow-auto p-4 sm:p-6">
-        <div role="tablist" aria-label="Tax basis" className="flex w-fit rounded-md border p-0.5">
-          {(["accrual", "paid"] as const).map((b) => (
-            <button
-              key={b}
-              type="button"
-              role="tab"
-              aria-selected={basis === b}
-              onClick={() => setBasis(b)}
-              className={cn(
-                "h-7 rounded px-4 text-xs font-medium transition-colors",
-                basis === b ? "bg-brand text-brand-foreground" : "text-muted-foreground hover:bg-muted",
-              )}
-            >
-              {b === "accrual" ? "Accrual" : "Paid"}
-            </button>
-          ))}
+      <WzListToolbar className="shrink-0">
+        <WzSearchBox value={searchInput} onChange={setSearchInput} />
+        <div className="ml-auto flex items-center gap-4">
+          <WzPageSizeSelect
+            value={pageSize}
+            sizes={REPORT_PAGE_SIZES}
+            onChange={(s) => {
+              setPageSize(s);
+              setPage(1);
+            }}
+          />
+          <WzToolbarButton onClick={() => void runExport()} disabled={exporting || !r || !custom.usable}>
+            <FileText strokeWidth={1.5} /> {exporting ? "Exporting…" : "Export"}
+          </WzToolbarButton>
         </div>
+      </WzListToolbar>
 
-        {range.error ? (
-          <p role="alert" className="text-sm text-destructive">
-            {range.error}
+      <div className="shrink-0">
+        {q.isError && !q.data ? (
+          <p role="alert" className="px-5 py-4 text-sm text-destructive">
+            {getApiErrorMessage(q.error, "Couldn't load the tax report")}
           </p>
-        ) : null}
-
-        {!shown ? (
-          // The figure, the rates and the table, while the report is on its way.
-          <div role="status" aria-label="Loading the tax report" className="space-y-4">
-            <Skeleton className="h-8 w-64" />
-            <Skeleton className="h-9 w-full" />
-            <div className="space-y-2">
-              {Array.from({ length: 4 }, (_, i) => (
-                <Skeleton key={i} className="h-10 w-full" />
-              ))}
-            </div>
-          </div>
         ) : (
-          <>
-            <div className="flex flex-wrap items-baseline gap-2">
-              <span className="font-mono text-2xl font-semibold tabular-nums" data-testid="tax-kpi">
-                {q.isLoading ? "—" : money(q.data?.totalAmount)}
-              </span>
-              <span className="text-sm text-muted-foreground">{KPI[basis]}</span>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <select
-                aria-label="Tax to show"
-                className="h-9 rounded-md border bg-transparent px-2 text-sm"
-                value={tax}
-                onChange={(e) => setTax(e.target.value)}
-              >
-                <option value="">All taxes</option>
-                {(q.data?.taxes ?? []).map((t) => (
-                  <option key={t.key} value={t.key}>
-                    {t.name} ({t.rate.toFixed(2)}%)
-                  </option>
-                ))}
-              </select>
-              <div className="relative w-full max-w-xs">
-                <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                <Input className="h-9 pl-8" placeholder="Search" aria-label="Search" value={searchInput} onChange={(e) => setSearchInput(e.target.value)} />
-              </div>
-              <span className="flex-1" />
-              <ExportButton busy={exporting} disabled={!ready} onClick={() => void runExport()} />
-            </div>
-
-            {q.isLoading && ready ? (
-              <div role="status" aria-label="Loading the tax report" className="space-y-2">
-                {Array.from({ length: 4 }, (_, i) => (
-                  <Skeleton key={i} className="h-10 w-full" />
-                ))}
-              </div>
-            ) : q.isError ? (
-              <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
-                <p>{getApiErrorMessage(q.error, "Couldn't load the tax report")}</p>
-                <Button variant="outline" size="sm" className="mt-3" onClick={() => q.refetch()}>
-                  Try again
-                </Button>
-              </div>
-            ) : (
-              <>
-                <div className={cn("overflow-x-auto border", q.isPlaceholderData && "opacity-60")}>
-                  <Table>
-                    <TableHeader>
-                      <TableRow className="hover:bg-transparent">
-                        {COLUMNS[basis].map((c) => (
-                          <SortHead key={c.id} id={c.id} label={c.label} sort={sort ?? ("" as Col)} dir={dir} onSort={onSort} right={c.right} />
-                        ))}
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {pageRows.map((r) => (
-                        <TableRow key={r.key}>
-                          <TableCell className="font-medium">{r.name || "—"}</TableCell>
-                          <TableCell className="text-muted-foreground">{r.description}</TableCell>
-                          <TableCell className="text-right tabular-nums">{r.rate.toFixed(2)}%</TableCell>
-                          <TableCell className="text-right font-mono tabular-nums">{money(r.amount)}</TableCell>
-                          <TableCell className="text-right font-mono tabular-nums">{money(r.taxableAmount)}</TableCell>
-                          {basis === "accrual" ? (
-                            <TableCell className={cn("text-right font-mono tabular-nums", (r.nonTaxableAmount ?? 0) < 0 && "text-destructive")}>
-                              {money(r.nonTaxableAmount)}
-                            </TableCell>
-                          ) : null}
-                          <TableCell className="text-right tabular-nums">{r.jobs.toLocaleString("en-US")}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                  {q.data && rows.length === 0 ? (
-                    <div className="flex flex-col items-center gap-2 p-12 text-center text-muted-foreground">
-                      <Percent className="size-6" />
-                      <p className="text-sm">No taxed jobs in this period.</p>
-                    </div>
-                  ) : null}
-                </div>
-                <ReportFooter
-                  page={page}
-                  pageSize={pageSize}
-                  total={rows.length}
-                  shown={pageRows.length}
-                  onPage={setPage}
-                  onPageSize={(s) => {
-                    setPageSize(s);
-                    setPage(1);
-                  }}
-                />
-              </>
-            )}
-          </>
+          <WzReportGrid
+            aria-label={basis === "accrual" ? "Accrual" : "Paid"}
+            columns={columnsOf(basis)}
+            rows={pageRows}
+            rowKey={(row) => row.key}
+            sort={sort}
+            onSort={onSort}
+            loading={!r}
+            busy={q.isPlaceholderData}
+            plainFiller
+            footer={r ? <WzPager pager={pager} plainNumbers /> : null}
+          />
         )}
       </div>
-    </div>
+    </>
   );
 }
