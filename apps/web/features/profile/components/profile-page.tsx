@@ -21,6 +21,7 @@ import { useMe } from "@/features/auth/use-me";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { useLogout, useRequestReset } from "@/features/auth/hooks";
 import { useJobTypesLoading } from "@/features/job-types/lib";
+import { useSecuritySettings } from "@/features/security-center/hooks";
 import { useServiceAreas } from "@/features/service-areas/hooks";
 import { useAssignments, useOnboarding, useProfile } from "@/features/technicians/hooks";
 import { technicianEditRights } from "@/features/technicians/lib";
@@ -44,7 +45,9 @@ type ProfileTab = "profile" | "availability" | "commissions" | "documents";
  * job types and service areas to propose, the onboarding checklist; and the
  * card's tabs — Profile, Availability, Commissions, ours Documents. Anyone
  * else gets their account on the same page (`AccountForm`). Two-factor
- * authentication is the self-service row either way.
+ * authentication is the self-service row either way — and reads "Required
+ * by your account" when Settings → Security Center says so, which is why the
+ * account's security row is part of the page's gate.
  *
  * Actions holds Workiz's "Reset password" (asked first: a code goes to the
  * email) and "Log Out" (Workiz keeps it in the avatar menu; ours is here too,
@@ -56,6 +59,7 @@ type ProfileTab = "profile" | "availability" | "commissions" | "documents";
 export function ProfilePage() {
   const { data: me } = useMe();
   const { isTechnician, isLoading: permsLoading } = usePermissions();
+  const security = useSecuritySettings();
   const signOut = useLogout();
   const requestReset = useRequestReset();
   const [confirmReset, setConfirmReset] = useState(false);
@@ -64,6 +68,7 @@ export function ProfilePage() {
     { key: "reset", label: "Reset password", onSelect: () => setConfirmReset(true), disabled: !me },
     { key: "logout", label: "Log Out", onSelect: signOut },
   ];
+  const mfaRequired = security.data?.requireMfa === true;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -71,12 +76,12 @@ export function ProfilePage() {
         <WzPageHeader title="User Settings" end={<WzPopMenu items={actions} className="mr-3" />} />
       </div>
 
-      {!me || permsLoading ? (
+      {!me || permsLoading || !settled(security) ? (
         <ProfileSkeleton />
       ) : isTechnician ? (
-        <TechnicianProfile me={me} />
+        <TechnicianProfile me={me} mfaRequired={mfaRequired} />
       ) : (
-        <AccountProfile me={me} />
+        <AccountProfile me={me} mfaRequired={mfaRequired} />
       )}
 
       <AlertDialog open={confirmReset} onOpenChange={setConfirmReset}>
@@ -111,9 +116,9 @@ function ProfileTabs({ tabs, value, onChange }: { tabs: WzTab[]; value: string; 
  * technician card's; an account has nothing but Profile, and a strip with
  * one tab read as a broken tab row (app_audit #25), so none is drawn.
  */
-function AccountProfile({ me }: { me: User }) {
+function AccountProfile({ me, mfaRequired }: { me: User; mfaRequired: boolean }) {
   const { can, roleName } = usePermissions();
-  return <AccountForm me={me} roleName={roleName} canEditUser={can("users", "edit")} />;
+  return <AccountForm me={me} roleName={roleName} canEditUser={can("users", "edit")} mfaRequired={mfaRequired} />;
 }
 
 /**
@@ -121,7 +126,7 @@ function AccountProfile({ me }: { me: User }) {
  * the card's own gate — the profile, the assignments and the catalogs that
  * name them, the onboarding checklist.
  */
-function TechnicianProfile({ me }: { me: User }) {
+function TechnicianProfile({ me, mfaRequired }: { me: User; mfaRequired: boolean }) {
   const { can, isTechnician } = usePermissions();
   const [tab, setTab] = useState<ProfileTab>("profile");
   const profile = useProfile(me.id);
@@ -154,7 +159,7 @@ function TechnicianProfile({ me }: { me: User }) {
           user={me}
           rights={rights}
           tab={tab === "availability" ? "availability" : "profile"}
-          twoFactor={<SelfTwoFactor me={me} />}
+          twoFactor={<SelfTwoFactor me={me} required={mfaRequired} />}
         />
       </div>
       {tab === "commissions" ? (

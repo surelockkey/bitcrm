@@ -44,7 +44,18 @@ const phoneOnly = updateUserSchema.pick({ phone: true });
  * one Save sends the user record only what changed, and the phone only when
  * it changed.
  */
-export function AccountForm({ me, roleName, canEditUser }: { me: User; roleName: string; canEditUser: boolean }) {
+export function AccountForm({
+  me,
+  roleName,
+  canEditUser,
+  mfaRequired = false,
+}: {
+  me: User;
+  roleName: string;
+  canEditUser: boolean;
+  /** Settings → Security Center requires two-factor authentication of everyone. */
+  mfaRequired?: boolean;
+}) {
   const qc = useQueryClient();
   const updateUser = useUpdateUser();
   const updatePhone = useUpdateMyPhone();
@@ -144,7 +155,7 @@ export function AccountForm({ me, roleName, canEditUser }: { me: User; roleName:
               )}
             </div>
 
-            <SelfTwoFactor me={me} className="mt-7" />
+            <SelfTwoFactor me={me} required={mfaRequired} className="mt-7" />
           </div>
 
           {/* ---------------- The role ---------------- */}

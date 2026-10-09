@@ -109,5 +109,85 @@ describe("LoginForm", () => {
       expect(await screen.findByLabelText("Password")).toBeInTheDocument();
       expect(useAuthStore.getState().mfaChallenge).toBeNull();
     });
+
+    it("has no email option unless the account offers one", async () => {
+      await passwordStep();
+
+      expect(screen.queryByRole("button", { name: /email instead/i })).not.toBeInTheDocument();
+    });
+
+    // Security Center "Login sending options": the code may go to the
+    // account's email as well — on request, beside the text.
+    it("sends the code to the email instead when the account allows it, and signs in with it", async () => {
+      renderForm();
+      await userEvent.type(screen.getByLabelText(/email/i), "a@b.com");
+      await userEvent.type(screen.getByLabelText("Password"), "mfa-email-pass");
+      await userEvent.click(screen.getByRole("button", { name: /sign in/i }));
+      const code = await screen.findByLabelText(/code/i);
+
+      await userEvent.click(screen.getByRole("button", { name: /email instead/i }));
+
+      expect(await screen.findByText(/sent to b•••@x\.com/i)).toBeInTheDocument();
+      await userEvent.type(code, "123456");
+      await userEvent.click(screen.getByRole("button", { name: /verify/i }));
+      await waitFor(() => expect(replace).toHaveBeenCalledWith("/"));
+      expect(useAuthStore.getState().session?.idToken).toBe("id-tok");
+    });
+  });
+
+  /**
+   * Settings → Security Center, "Require Two-factor authentication": the
+   * account insists and this person has no phone yet. Workiz's "Set up
+   * two-factor authentication" step: the phone first, its code next, and only
+   * then the app — the tokens wait on the server throughout.
+   */
+  describe("setting up two-factor authentication on the way in", () => {
+    async function setupStep() {
+      renderForm();
+      await userEvent.type(screen.getByLabelText(/email/i), "new@b.com");
+      await userEvent.type(screen.getByLabelText("Password"), "setup-pass");
+      await userEvent.click(screen.getByRole("button", { name: /sign in/i }));
+      return screen.findByRole("heading", { name: /set up two-factor authentication/i });
+    }
+
+    it("asks for a phone instead of signing in", async () => {
+      await setupStep();
+
+      expect(screen.getByRole("textbox", { name: /phone/i })).toBeInTheDocument();
+      expect(useAuthStore.getState().session).toBeNull();
+      expect(replace).not.toHaveBeenCalled();
+    });
+
+    it("texts the phone, then takes its code and signs in", async () => {
+      await setupStep();
+      await userEvent.type(screen.getByRole("textbox", { name: /phone/i }), "5412830739");
+      await userEvent.click(screen.getByRole("button", { name: /send code/i }));
+
+      const code = await screen.findByLabelText(/code/i);
+      expect(screen.getByText(/•••• 0739/)).toBeInTheDocument();
+      await userEvent.type(code, "123456");
+      await userEvent.click(screen.getByRole("button", { name: /verify/i }));
+
+      await waitFor(() => expect(replace).toHaveBeenCalledWith("/"));
+      expect(useAuthStore.getState().session?.idToken).toBe("id-tok");
+    });
+
+    it("says so when the number is already a teammate's, and keeps asking", async () => {
+      await setupStep();
+      await userEvent.type(screen.getByRole("textbox", { name: /phone/i }), "5412830000");
+      await userEvent.click(screen.getByRole("button", { name: /send code/i }));
+
+      expect(await screen.findByText(/already on/i)).toBeInTheDocument();
+      expect(screen.getByRole("textbox", { name: /phone/i })).toBeInTheDocument();
+      expect(useAuthStore.getState().session).toBeNull();
+    });
+
+    it("goes back to the password", async () => {
+      await setupStep();
+      await userEvent.click(screen.getByRole("button", { name: /back/i }));
+
+      expect(await screen.findByLabelText("Password")).toBeInTheDocument();
+      expect(useAuthStore.getState().mfaChallenge).toBeNull();
+    });
   });
 });

@@ -1384,3 +1384,31 @@ sits beside:
   document page upgrades its own ("Estimate (1)", "Invoice (0G4397)").
 - `input, textarea { letter-spacing: normal }` app-wide (Workiz's inputs are
   untracked under its 0.4px page).
+
+## Settings pages without a band (2026-10-09, agent `feat_security`, Security Center)
+
+Measured off `feat_security_wz_security` (Workiz `/root/securityCenter`; notes
+`workiz-data-parser/docs/import/app-parity-2026-10-08/feat_security.md`). Workiz's
+newer settings pages — Security Center, Estimates settings — have no grey band:
+a plain title 40px in and 39px under the history strip, then sections over
+#dfe2e3 rules. The page is in `WORKIZ_FRAMED_SETTINGS` like the banded ones.
+
+- **`WzSettingsTitle`** (`settings-title.tsx`) `tip` — the title ("Security
+  center ⓘ"): 25px/37px 500 #404040, the 20px ⓘ (`WzInfoTip`) beside the
+  heading, not in it, so the heading's name is the words alone. The page adds
+  `pl-10` and the 24px to the first rule (`mb-6`).
+- **`WzSettingsSection`** (same file) `title` `description` `rule` — a section:
+  the 1px #dfe2e3 rule over it, 868px (Workiz's runs from the content's edge,
+  past the title's inset), the subtitle 24px under it (16px/24px 600 #3b4b52),
+  the description right under (14px/21px #566d76), the rows 44px under that,
+  12px apart. A region named by its title.
+- **`WzLeadToggleRow`** (`lead-toggle-row.tsx`) `label` `hint` `checked`
+  `onCheckedChange` `disabled` — a row with the switch BEFORE the words: the
+  32×16 `WzMiniToggle` (ON #3acf7d, OFF #768287 — Workiz's Toggle-module
+  exactly), the words 12px after it 14px/21px 500 #3b4b52, the hint under
+  them 14px/21px #566d76; 54px pitch with a one-line hint. Saves on flip —
+  `onCheckedChange` is the write (Workiz has no Save on these pages). Not
+  `WzAccountToggle` (13px words, the switch at the right edge) nor
+  `WzSwitchRow` (the permission editors).
+- Left out on purpose: Workiz's "Learn More" (its help site) and "Support PIN
+  code / Generate PIN Code" (its support desk).

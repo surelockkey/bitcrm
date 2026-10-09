@@ -41,6 +41,23 @@ afterEach(() => {
 
 const tabNames = () => screen.getAllByRole("tab").map((t) => t.textContent);
 
+describe("ProfilePage — the account requires two-factor authentication", () => {
+  // Settings → Security Center's row is part of the page's gate: the
+  // two-factor row reads "Required by your account" the moment it shows.
+  it("reads 'Required by your account' on the two-factor row, switched on and locked", async () => {
+    serve([
+      { match: /\/users\/security-settings$/, reply: () => ({ requireMfa: true, loginCodeByEmail: false, otpByEmail: false }) },
+      ...profileRoutes(adminMe),
+    ]);
+    renderWithClient(<ProfilePage />);
+
+    const toggle = await screen.findByRole("switch", { name: "Two-factor authentication" }, { timeout: 3000 });
+    expect(toggle).toHaveAttribute("aria-checked", "true");
+    expect(toggle).toBeDisabled();
+    expect(screen.getByText("Required by your account")).toBeInTheDocument();
+  });
+});
+
 describe("ProfilePage — a technician's own user page", () => {
   it("is 'User Settings' with Workiz's tabs: Profile, Availability, Commissions and ours, Documents", async () => {
     serve(profileRoutes(techMe));

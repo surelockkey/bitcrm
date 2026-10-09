@@ -33,8 +33,12 @@ const ERROR = "text-xs leading-4 text-wz-error";
  * the profile the switch still works — it asks for the phone right under
  * the row, then texts it. The steps hang under the row in Workiz's 40px
  * outlined boxes and pills; the row's switch reads "on" while they are open.
+ *
+ * `required` — Settings → Security Center's "Require Two-factor
+ * authentication": the account decides, so the row reads "Required by your
+ * account", the switch is on and cannot go off (the server refuses too).
  */
-export function SelfTwoFactor({ me, className }: { me: User; className?: string }) {
+export function SelfTwoFactor({ me, required = false, className }: { me: User; required?: boolean; className?: string }) {
   const start = useStartMyMfa();
   const confirm = useConfirmMyMfa();
   const disable = useDisableMyMfa();
@@ -83,21 +87,29 @@ export function SelfTwoFactor({ me, className }: { me: User; className?: string 
   };
 
   const busy = start.isPending || disable.isPending || confirm.isPending || savePhone.isPending;
-  const tip = enabled
-    ? `After your password we text a code to ${me.phone ? formatPhone(me.phone) : "your phone"}.`
-    : "Off: you sign in with your password only. Turn it on to also get a code by text.";
+  const codesTo = me.phone ? formatPhone(me.phone) : "your phone";
+  const tip = required
+    ? `Required by your account: after your password we text a code to ${codesTo}.`
+    : enabled
+      ? `After your password we text a code to ${codesTo}.`
+      : "Off: you sign in with your password only. Turn it on to also get a code by text.";
 
   return (
     <div className={className} data-testid="self-two-factor">
       <div className="flex items-center justify-between gap-3">
-        <span className="flex items-center text-sm leading-4 tracking-[0.4px] text-wz-strong">
-          Two-factor authentication
-          <WzInfoTip id={tipId} label="Two-factor authentication" text={tip} />
+        <span className="flex flex-col">
+          <span className="flex items-center text-sm leading-4 tracking-[0.4px] text-wz-strong">
+            Two-factor authentication
+            <WzInfoTip id={tipId} label="Two-factor authentication" text={tip} />
+          </span>
+          {required ? (
+            <span className="mt-1 text-xs leading-[18px] tracking-[0.4px] text-wz-outline-label">Required by your account</span>
+          ) : null}
         </span>
         <WzMiniToggle
           label="Two-factor authentication"
-          checked={enabled || step !== "idle"}
-          disabled={busy}
+          checked={required || enabled || step !== "idle"}
+          disabled={busy || required}
           onCheckedChange={onToggle}
           aria-describedby={tipId}
         />

@@ -172,3 +172,7 @@ export { WzRadioButtons, type WzRadioButtonsOption } from "./radio-buttons";
 
 // Add team member (agent audit_fix): Workiz's "+1 | Phone" pair.
 export { WzCountryPhoneField } from "./country-phone-field";
+
+// Settings pages without a band (agent feat_security, Security Center): the plain title, a ruled section, a switch-first row.
+export { WzSettingsTitle, WzSettingsSection } from "./settings-title";
+export { WzLeadToggleRow } from "./lead-toggle-row";

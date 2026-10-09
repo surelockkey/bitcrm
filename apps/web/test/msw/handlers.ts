@@ -35,6 +35,20 @@ export const handlers = [
         data: { challengeName: "SMS_MFA", session: "mfa-1", destination: "•••• 1234" },
       });
     }
+    // Security Center "Login sending options": the code may go by email too.
+    if (body.password === "mfa-email-pass") {
+      return HttpResponse.json({
+        success: true,
+        data: { challengeName: "SMS_MFA", session: "mfa-1", destination: "•••• 1234", emailDestination: "b•••@x.com" },
+      });
+    }
+    // The account requires two-factor authentication and this person has no phone.
+    if (body.password === "setup-pass") {
+      return HttpResponse.json({
+        success: true,
+        data: { challengeName: "MFA_SETUP", session: "setup-1" },
+      });
+    }
     if (body.password === "temp-pass") {
       return HttpResponse.json({
         success: true,
@@ -54,6 +68,23 @@ export const handlers = [
 
   http.post("*/users/auth/mfa/resend", async () =>
     HttpResponse.json({ success: true, data: { destination: "•••• 1234" } }),
+  ),
+
+  // The phone given on the way in (MFA_SETUP): "5412830000" is a teammate's.
+  http.post("*/users/auth/mfa/setup", async ({ request }) => {
+    const body = (await request.json()) as { session: string; phone: string };
+    const digits = body.phone.replace(/\D/g, "");
+    if (digits.endsWith("5412830000")) {
+      return HttpResponse.json(
+        { success: false, message: "+15412830000 is already on Ann Lee's profile." },
+        { status: 409 },
+      );
+    }
+    return HttpResponse.json({ success: true, data: { destination: `•••• ${digits.slice(-4)}` } });
+  }),
+
+  http.post("*/users/auth/mfa/email", async () =>
+    HttpResponse.json({ success: true, data: { destination: "b•••@x.com" } }),
   ),
 
   http.post("*/users/auth/change-password", async ({ request }) => {

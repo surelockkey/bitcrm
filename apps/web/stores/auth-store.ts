@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { LoginResponse, ChangePasswordResponse } from "@bitcrm/types";
+import type { MfaChallengeState } from "@/features/auth/login-flow";
 
 /**
  * Client-side auth/session state.
@@ -35,13 +36,15 @@ interface AuthState {
   challengeSession: string | null;
   /**
    * Two-step sign-in in progress: the password was right and a code has been
-   * texted to `destination` (a masked phone). The tokens wait on the server
-   * until the code comes back. Not persisted — a reload starts over.
+   * texted to `destination` (a masked phone) — or, with `setup`, the account
+   * requires two-factor authentication and the phone is still to be given.
+   * The tokens wait on the server until the code comes back. Not persisted —
+   * a reload starts over.
    */
-  mfaChallenge: { session: string; destination: string } | null;
+  mfaChallenge: MfaChallengeState | null;
   setSession: (tokens: TokenPayload) => void;
   setChallenge: (email: string, session: string) => void;
-  setMfaChallenge: (challenge: { session: string; destination: string } | null) => void;
+  setMfaChallenge: (challenge: MfaChallengeState | null) => void;
   clear: () => void;
 }
 

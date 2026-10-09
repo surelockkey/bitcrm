@@ -19,6 +19,7 @@ import {
   Building,
   FileStack,
   CreditCard,
+  LockKeyhole,
 } from "lucide-react";
 import type { Resource } from "@bitcrm/types";
 
@@ -81,6 +82,14 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
         description: "Invoice and estimate PDF templates.",
         icon: FileStack,
         resource: "document_templates",
+      },
+      {
+        // Workiz's Security Center (General Settings, after Numbering).
+        label: "Security Center",
+        href: "/settings/security",
+        description: "Two-factor authentication for everyone who signs in, and whether sign-in codes may go by email.",
+        icon: LockKeyhole,
+        resource: "settings",
       },
     ],
   },
@@ -273,6 +282,7 @@ export const WORKIZ_FRAMED_SETTINGS: ReadonlySet<string> = new Set([
   "/settings/companies",
   "/settings/documents",
   "/settings/payments",
+  "/settings/security",
 ]);
 
 /**

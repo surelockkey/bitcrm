@@ -8,17 +8,21 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { useAuthStore } from "@/stores/auth-store";
-import { useResendMfa, useVerifyMfa } from "@/features/auth/hooks";
+import { useEmailMfaCode, useResendMfa, useVerifyMfa } from "@/features/auth/hooks";
 
 /**
  * The second step of a sign-in: the password was right, and a code has been
  * texted to the account's phone. The tokens wait on the server until the
- * code comes back.
+ * code comes back. When the account lets the code go by email as well
+ * (Security Center "Login sending options"), `emailDestination` names the
+ * masked inbox and the step offers to send it there instead — either code
+ * then opens the sign-in.
  */
-export function MfaCodeStep({ destination }: { destination: string }) {
+export function MfaCodeStep({ destination, emailDestination }: { destination: string; emailDestination?: string }) {
   const [code, setCode] = useState("");
   const verify = useVerifyMfa();
   const resend = useResendMfa();
+  const email = useEmailMfaCode();
   const back = () => useAuthStore.getState().setMfaChallenge(null);
 
   return (
@@ -45,9 +49,17 @@ export function MfaCodeStep({ destination }: { destination: string }) {
         <Alert variant="destructive">
           <AlertDescription>{getApiErrorMessage(resend.error)}</AlertDescription>
         </Alert>
+      ) : email.isError ? (
+        <Alert variant="destructive">
+          <AlertDescription>{getApiErrorMessage(email.error)}</AlertDescription>
+        </Alert>
       ) : resend.isSuccess ? (
         <Alert>
           <AlertDescription>Code sent again to {resend.data.destination}.</AlertDescription>
+        </Alert>
+      ) : email.isSuccess ? (
+        <Alert>
+          <AlertDescription>Code sent to {email.data.destination}. Either code works.</AlertDescription>
         </Alert>
       ) : null}
 
@@ -80,14 +92,26 @@ export function MfaCodeStep({ destination }: { destination: string }) {
         <button type="button" onClick={back} className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground">
           <ArrowLeft className="size-3.5" /> Back
         </button>
-        <button
-          type="button"
-          onClick={() => resend.mutate()}
-          disabled={resend.isPending}
-          className="font-medium text-brand hover:underline disabled:opacity-50"
-        >
-          Send again
-        </button>
+        <span className="flex items-center gap-3">
+          {emailDestination ? (
+            <button
+              type="button"
+              onClick={() => email.mutate()}
+              disabled={email.isPending}
+              className="font-medium text-brand hover:underline disabled:opacity-50"
+            >
+              Send it to my email instead
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => resend.mutate()}
+            disabled={resend.isPending}
+            className="font-medium text-brand hover:underline disabled:opacity-50"
+          >
+            Send again
+          </button>
+        </span>
       </div>
     </form>
   );
