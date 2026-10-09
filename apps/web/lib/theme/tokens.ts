@@ -226,6 +226,10 @@ export const LIGHT = {
   wzSeries6: "#f95d6a",
   wzSeries7: "#a05195",
   wzSeries8: "#ffa600",
+
+  // The Map (pg_dispatch_wz_*): Workiz's green status Tag (Tag-module
+  // success) and the small Toggle-module switch when on.
+  wzTagSuccess: "#3acf7d",
 } as const satisfies Record<string, string>;
 
 /** Pairs that carry running text: WCAG AA, 4.5:1. */

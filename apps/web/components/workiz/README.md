@@ -592,6 +592,37 @@ Measured off `rep_aging_wz_*` (notes:
   (256px cards at 1400). A strip without Search is `WzListToolbar
   className="min-h-[65px]"` (Workiz's is 65px there).
 
+## Map pieces (2026-10-09, agent `pg_dispatch`, Workiz Map)
+
+Measured on `/root/map` (captures `pg_dispatch_wz_*`, notes
+`docs/import/app-parity-2026-10-08/pg_dispatch.md`) and its main.css
+(MapPin-, MapPinGroup-, Marker-, SwitchTabs-, Toggle-module). Import each from
+its file.
+
+- **`WzMapPin`** (`map-pin.tsx`) `color?` `label?` `name` `more?` `tooltip?`
+  `dim?` `children?` — the 42×48.5 teardrop pin (SVG, 3px white edge, blurred
+  14×5 shadow, .9 hovered) with 16px/24px semibold letters at 45% height;
+  no `color` = the slate (#566d76) "Unassigned" pin with the blocked-person
+  glyph; `more` adds the slate "+N" pin 12px under its right edge; `tooltip`
+  shows `name` in the MUI chip 14px over it. Put it in an AdvancedMarker
+  (bottom-centre anchor). **`wzPinInitials(name)`** — first character of the
+  first and last word ("(2) CT - Tyler Boucher" → "(B"); **`wzPinInk(fill)`**
+  — ink letters when they out-contrast white (Workiz's own choice on every
+  pin); **`WZ_UNASSIGNED_PIN`**.
+- **`WzMapPinCard`** `title` `actions={label,icon,onClick}[]` `onClose` — the
+  card a pin opens: 363px, 12px corners, `0 4px 16px rgba(0,0,0,.15)`, 10px
+  over the pin with a 5px arrow; 18px semibold title beside 20px glyphs 14px
+  apart and the ×; rows 14px/21px 12px apart. **`WzMapPinCardRow`** `icon`
+  `end` `rule` — a row with a 20px glyph 8px before the words, something at
+  the right, and the rule under the phone line. Render it as `WzMapPin`'s child.
+- **`WzSwitchTabs`** (`switch-tabs.tsx`) `tabs` `value` `onChange` — the
+  "Jobs | Techs" switch: #f3f6f7 box, 2px in, equal tabs 10px 30px, 13px ink;
+  the chosen one white, 2px corners, soft shadow, 14px semibold #6aa8ee.
+  Arrow keys move. (Not `WzTabBar`, which draws underlined tab rows.)
+- **`WzMiniToggle`** `label` `checked` `onCheckedChange` — the 32×16
+  Toggle-module switch ("Show leads"): `wz-tag-success` (#3acf7d) on,
+  #768287 off, a 12px knob, .4s. (`WzSwitch` is the 40×20 Scheduled toggle.)
+
 ## Known differences from Workiz (deliberate or unmeasurable)
 - Sub-pixel: Workiz's own fractional layout makes some glyphs land ±1px
   differently from ours in screenshots (e.g. two Workiz selects with identical
