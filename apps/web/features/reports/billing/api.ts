@@ -51,7 +51,7 @@ export const exportInvoiceReport = (p: InvoiceReportParams): Promise<ReportCsvEx
   http.get<ReportCsvExport>(`/billing/invoices/report/export${invoiceQuery({ ...p, cursor: undefined, limit: undefined })}`);
 
 const estimateQuery = (p: EstimateReportParams) =>
-  toQuery({ from: p.from, to: p.to, status: p.status, search: p.search?.trim(), limit: p.limit, cursor: p.cursor });
+  toQuery({ from: p.from, to: p.to, status: p.status, search: p.search?.trim(), dir: p.dir, limit: p.limit, cursor: p.cursor });
 
 export const listEstimateReport = (p: EstimateReportParams): Promise<{ items: Estimate[]; nextCursor?: string }> =>
   http.get(`/billing/estimates/report${estimateQuery(p)}`);

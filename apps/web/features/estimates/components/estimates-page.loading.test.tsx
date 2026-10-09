@@ -100,13 +100,13 @@ let server: FakeServer;
 
 const { EstimatesPage } = await import("./estimates-page");
 
-/** The big number on a status card, as the reader sees it. */
-const cardValue = (caption: string) =>
-  screen.queryByRole("button", { name: new RegExp(`${caption}$`) })?.querySelector("span")?.textContent ?? null;
+/** A status card's "N Worth $X" (under the status, as Workiz prints it), as the reader sees it. */
+const cardValue = (status: string) =>
+  screen.queryByRole("button", { name: new RegExp(`${status}$`) })?.lastElementChild?.textContent ?? null;
 const pageUp = () =>
   screen.queryAllByRole("button", { name: /Worth/ }).length > 0 ||
-  !!screen.queryByText("#1042-1") ||
-  !!screen.queryByText(/No estimates/);
+  !!screen.queryByText("1042-1") ||
+  !!screen.queryByText(/No Records Found/);
 
 beforeEach(() => {
   summaryNow = summary(21);
@@ -123,15 +123,15 @@ describe("EstimatesPage — no jumping", () => {
   it("draws the cards with their numbers, the rows and their names in one frame", async () => {
     const watch = watchFirstFrame(pageUp, () => ({
       unsent: cardValue("Unsent"),
-      row: !!screen.queryByText("#1042-1"),
+      row: !!screen.queryByText("1042-1"),
       client: !!screen.queryByText("Jane Smith"),
       author: !!screen.queryByText("Added by Lee Office"),
-      empty: !!screen.queryByText(/No estimates/),
+      empty: !!screen.queryByText(/No Records Found/),
       skeletons: skeletonCount(),
       asked: server.requests.length,
     }));
     renderWithClient(<EstimatesPage />);
-    await screen.findByText("#1042-1", {}, { timeout: 3000 });
+    await screen.findByText("1042-1", {}, { timeout: 3000 });
     await settle();
     watch.stop();
 
@@ -155,12 +155,12 @@ describe("EstimatesPage — no jumping", () => {
 
     let blanked = false;
     const observer = new MutationObserver(() => {
-      if (cardValue("Unsent") === "—" || skeletonCount() > 0 || !screen.queryByText("#1042-1")) blanked = true;
+      if (cardValue("Unsent") === "—" || skeletonCount() > 0 || !screen.queryByText("1042-1")) blanked = true;
     });
     observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true });
     summaryNow = summary(7);
     fireEvent.click(screen.getByRole("button", { name: /date range/i }));
-    fireEvent.click(screen.getByRole("button", { name: "Last month" }));
+    fireEvent.click(screen.getByRole("option", { name: "Last month" }));
     await screen.findByText("7 Worth $3,813.21", {}, { timeout: 3000 });
     observer.disconnect();
 
@@ -175,9 +175,9 @@ describe("EstimatesPage — no jumping", () => {
     const observer = new MutationObserver(() => {
       if (skeletonCount() > 0) halfDrawn = true;
       // The next row, drawn before its client is known.
-      if (screen.queryByText("#2001-1") && !screen.queryByText("Ann Other")) halfDrawn = true;
+      if (screen.queryByText("2001-1") && !screen.queryByText("Ann Other")) halfDrawn = true;
       // Nothing on screen at all between the two sets.
-      if (!screen.queryByText("#1042-1") && !screen.queryByText("#2001-1")) halfDrawn = true;
+      if (!screen.queryByText("1042-1") && !screen.queryByText("2001-1")) halfDrawn = true;
     });
     observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true });
     rowsNow = [est({ id: "e9", number: "2001-1", dealId: "d9", dealNumber: "2001", contactId: "c9", status: "won", createdByName: "Kris Manager" })];
@@ -186,6 +186,6 @@ describe("EstimatesPage — no jumping", () => {
     observer.disconnect();
 
     expect(halfDrawn).toBe(false);
-    expect(screen.queryByText("#1042-1")).not.toBeInTheDocument();
+    expect(screen.queryByText("1042-1")).not.toBeInTheDocument();
   });
 });

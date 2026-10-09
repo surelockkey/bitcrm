@@ -78,3 +78,32 @@ describe("WzKpiCard with onSelect — a card that picks the rows (Aging invoices
     expect(cls(screen.getByRole("group"))).not.toContain("hover:shadow-[0_12px_12px_-8px_rgba(0,0,0,0.4)]");
   });
 });
+
+describe("WzKpiCard — the Estimates page's status cards (pg_estimates_wz_06_card_won)", () => {
+  it("wraps a long caption onto a second line and grows, instead of cutting it", () => {
+    render(<WzKpiCard value="Unsent" caption="50 Worth $8,702,853.93" wrapCaption onSelect={() => {}} />);
+    const card = cls(screen.getByRole("button"));
+    // 81px with one line, 97px with two (uikit_wz_estimates): a floor, not a height.
+    expect(card).toContain("min-h-[81px]");
+    expect(card).not.toContain("h-[81px]");
+    expect(cls(screen.getByText("50 Worth $8,702,853.93"))).not.toContain("truncate");
+  });
+
+  it("keeps the 81px box and the cut caption by default", () => {
+    render(<WzKpiCard value="1" caption="a" />);
+    expect(cls(screen.getByRole("group"))).toContain("h-[81px]");
+    expect(cls(screen.getByText("a"))).toContain("truncate");
+  });
+
+  it("marks the chosen card with another rule instead of the grey (`left-orange`)", () => {
+    const { rerender } = render(<WzKpiCard value="Won" caption="3 Worth $9.00" onSelect={() => {}} selectedTone="orange" />);
+    expect(cls(screen.getByRole("button"))).toContain("border-l-foreground");
+    rerender(<WzKpiCard value="Won" caption="3 Worth $9.00" onSelect={() => {}} selectedTone="orange" selected />);
+    const chosen = cls(screen.getByRole("button"));
+    expect(chosen).toContain("border-l-[#ffae00]");
+    expect(chosen).not.toContain("border-l-foreground");
+    expect(chosen).toContain("bg-background");
+    expect(chosen).not.toContain("bg-[#f0f0f0]");
+    expect(screen.getByRole("button")).toHaveAttribute("aria-pressed", "true");
+  });
+});
