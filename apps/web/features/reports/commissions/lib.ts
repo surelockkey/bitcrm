@@ -8,6 +8,7 @@ import {
   type CommissionReportTotalKey,
 } from "@bitcrm/types";
 import { personName } from "@/features/deals/person-name";
+import { LEGACY_REPORT_PRESETS, type LegacyReportPreset } from "../legacy-presets";
 
 /*
  * Workiz's "Commissions (Legacy)" — Finance Reporting — on the web: the
@@ -17,79 +18,10 @@ import { personName } from "@/features/deals/person-name";
 
 /* ----------------------------------------------------------- date presets */
 
-/** Workiz's thirteen date presets on the Finance Reporting page, in its order and its spelling. */
-export const COMMISSION_DATE_PRESETS = [
-  { id: "custom", label: "Custom" },
-  { id: "today", label: "Today" },
-  { id: "yesterday", label: "Yesterday" },
-  { id: "this_week_sun", label: "This week(Sun - Today)" },
-  { id: "this_week_mon", label: "This week (Mon - Today)" },
-  { id: "last_7_days", label: "Last 7 days" },
-  { id: "last_week_sun", label: "Last week (Sun - Sat)" },
-  { id: "last_week_mon", label: "Last week (Mon - Sun)" },
-  { id: "last_business_week", label: "Last business week (Mon - Fri)" },
-  { id: "last_14_days", label: "Last 14 days" },
-  { id: "this_month", label: "This month" },
-  { id: "last_30_days", label: "Last 30 days" },
-  { id: "last_month", label: "Last month" },
-] as const;
+/** Workiz's thirteen presets on the Finance Reporting page — the legacy pages' list (`legacy-presets.ts`). */
+export const COMMISSION_DATE_PRESETS = LEGACY_REPORT_PRESETS;
 
-export type CommissionDatePreset = (typeof COMMISSION_DATE_PRESETS)[number]["id"];
-
-const shift = (day: string, days: number): string => {
-  const d = new Date(`${day}T00:00:00.000Z`);
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().slice(0, 10);
-};
-/** The same day a month back, overflowing as PHP's `-1 month` does (Mar 31 → Feb 31 → Mar 3). */
-const monthBack = (day: string): string => {
-  const [y, m, d] = day.split("-").map(Number);
-  return new Date(Date.UTC(y, m - 2, d)).toISOString().slice(0, 10);
-};
-/** 0 = Sunday … 6 = Saturday. */
-const weekday = (day: string): number => new Date(`${day}T00:00:00.000Z`).getUTCDay();
-
-/**
- * Inclusive `from` / `to` of a preset, relative to `today` (the business's
- * own day). Workiz's "Last N days" END YESTERDAY (live 2026-10-09: Last 7
- * days = Oct 02 – Oct 08), and "Last 30 days" starts on the same day last
- * month. `custom` → nothing.
- */
-export function commissionPresetRange(preset: CommissionDatePreset, today: string): { from?: string; to?: string } {
-  const sunday = shift(today, -weekday(today));
-  const monday = shift(today, weekday(today) === 0 ? -6 : 1 - weekday(today));
-  const yesterday = shift(today, -1);
-  switch (preset) {
-    case "today":
-      return { from: today, to: today };
-    case "yesterday":
-      return { from: yesterday, to: yesterday };
-    case "this_week_sun":
-      return { from: sunday, to: today };
-    case "this_week_mon":
-      return { from: monday, to: today };
-    case "last_7_days":
-      return { from: shift(today, -7), to: yesterday };
-    case "last_week_sun":
-      return { from: shift(sunday, -7), to: shift(sunday, -1) };
-    case "last_week_mon":
-      return { from: shift(monday, -7), to: shift(monday, -1) };
-    case "last_business_week":
-      return { from: shift(monday, -7), to: shift(monday, -3) };
-    case "last_14_days":
-      return { from: shift(today, -14), to: yesterday };
-    case "this_month":
-      return { from: `${today.slice(0, 7)}-01`, to: today };
-    case "last_30_days":
-      return { from: monthBack(today), to: yesterday };
-    case "last_month": {
-      const lastOfPrev = shift(`${today.slice(0, 7)}-01`, -1);
-      return { from: `${lastOfPrev.slice(0, 7)}-01`, to: lastOfPrev };
-    }
-    default:
-      return {};
-  }
-}
+export type CommissionDatePreset = LegacyReportPreset;
 
 /** Today in a zone, `YYYY-MM-DD` — the business's day, not the browser's. */
 export function todayIn(timeZone: string, now: Date = new Date()): string {

@@ -20,7 +20,7 @@ import {
   tableCsv,
   totalsOf,
 } from "./lib";
-import { presetRange } from "../jobs/lib";
+import { legacyPresetRange } from "../legacy-presets";
 
 const row = (key: string, label: string, all: number, done: number, canceled: number, over: Partial<JobStatisticsRow> = {}): JobStatisticsRow => ({
   key,
@@ -42,7 +42,7 @@ describe("statisticsParams", () => {
     expect(statisticsParams({ by: "scheduled", from: "2026-09-01", to: "2026-09-01", tagIds: [] })).toBe("by=scheduled&from=2026-09-01&to=2026-09-01");
   });
 
-  it("offers Workiz's thirteen presets, each one a range the Jobs report can compute", () => {
+  it("offers Workiz's thirteen legacy presets, each one a range of the legacy page", () => {
     expect(STATISTICS_PRESETS.map((p) => p.label)).toEqual([
       "Custom",
       "Today",
@@ -59,7 +59,7 @@ describe("statisticsParams", () => {
       "Last 30 days",
       "Last month",
     ]);
-    for (const p of STATISTICS_PRESETS) if (p.id !== "custom") expect(presetRange(p.id, "2026-09-29").from).toMatch(/^2026-/);
+    for (const p of STATISTICS_PRESETS) if (p.id !== "custom") expect(legacyPresetRange(p.id, "2026-09-29")?.from).toMatch(/^2026-/);
   });
 });
 

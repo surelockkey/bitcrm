@@ -119,6 +119,21 @@ describe("JobStatisticsPage", () => {
     expect(Object.fromEntries(params())).toEqual({ by: "created", from: "2026-08-01", to: "2026-08-31", serviceAreaId: "sa1", tagId: "tag1" });
   });
 
+  // Workiz's legacy page ends "Last N days" yesterday (statistics_report.source.html
+  // on 2026-09-25: Last 7 days = Sep 18 – Sep 24; live 2026-10-09: Oct 02 – Oct 08).
+  it("counts Last 7 / 14 / 30 days up to yesterday, as Workiz's legacy page does", async () => {
+    render(<JobStatisticsPage today="2026-09-25" />);
+    for (const [preset, from, to] of [
+      ["Last 7 days", "2026-09-18", "2026-09-24"],
+      ["Last 14 days", "2026-09-11", "2026-09-24"],
+      ["Last 30 days", "2026-08-25", "2026-09-24"],
+    ]) {
+      await userEvent.click(screen.getByRole("button", { name: /^Date range/ }));
+      await userEvent.click(screen.getByRole("menuitem", { name: preset }));
+      expect(Object.fromEntries(params())).toMatchObject({ from, to });
+    }
+  });
+
   // The owner, 2026-10-08: "why two windows to pick the time?" — still one
   // control, now Workiz's own box: the period's name over its days, the
   // periods hanging under it, Custom's From / To inside it.

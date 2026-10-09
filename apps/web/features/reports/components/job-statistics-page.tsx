@@ -26,7 +26,8 @@ import { NoAccess } from "@/features/clients/components/contacts-page";
 import { useJobTags } from "@/features/job-tags/hooks";
 import { activeJobTags, tagSolidClasses } from "@/features/job-tags/lib";
 import { useServiceAreas } from "@/features/service-areas/hooks";
-import { accountToday, presetRange, type JobsReportPreset } from "../jobs/lib";
+import { accountToday } from "../jobs/lib";
+import { legacyPresetRange, type LegacyReportPreset } from "../legacy-presets";
 import { useJobStatistics } from "../job-statistics/hooks";
 import {
   DEFAULT_SORT,
@@ -103,7 +104,7 @@ export function JobStatisticsPage({
   // The presets count from today on the account's calendar, not the viewer's.
   const [today] = useState(() => todayProp ?? accountToday());
   const [by, setBy] = useState<JobStatisticsBy>(DEFAULT_STATISTICS_BY);
-  const [preset, setPreset] = useState<JobsReportPreset>(
+  const [preset, setPreset] = useState<LegacyReportPreset>(
     DEFAULT_STATISTICS_PRESET,
   );
   const [custom, setCustom] = useState<{ from: string; to: string }>({
@@ -117,7 +118,8 @@ export function JobStatisticsPage({
   const [drill, setDrill] = useState<AreaDrill>("metro");
   const [areaSearch, setAreaSearch] = useState("");
   const [sorts, setSorts] = useState<Record<string, TableSort | null>>({});
-  const range = preset === "custom" ? custom : presetRange(preset, today);
+  // The legacy page's own presets: "Last N days" end yesterday (not the Jobs report's rules).
+  const range = legacyPresetRange(preset, today) ?? custom;
 
   const stats = useJobStatistics(
     statisticsParams({
@@ -144,7 +146,7 @@ export function JobStatisticsPage({
       cur.includes(id) ? cur.filter((t) => t !== id) : [...cur, id],
     );
   // Custom keeps the days on show until both of its days are picked (Workiz).
-  const pickPreset = (p: JobsReportPreset) => {
+  const pickPreset = (p: LegacyReportPreset) => {
     if (p === "custom") setCustom(range);
     setPreset(p);
   };

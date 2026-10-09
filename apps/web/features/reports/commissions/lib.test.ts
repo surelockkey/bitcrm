@@ -5,7 +5,6 @@ import {
   cellText,
   commissionColumns,
   commissionInfo,
-  commissionPresetRange,
   commissionReportParams,
   commissionTechOptions,
   formatDayTime,
@@ -19,68 +18,11 @@ import {
   wzRawNumber,
   wzTotalNumber,
 } from "./lib";
+import { LEGACY_REPORT_PRESETS } from "../legacy-presets";
 
-describe("commissionPresetRange — Workiz's thirteen presets", () => {
-  // Tuesday, 2026-09-29.
-  const today = "2026-09-29";
-
-  it("lists them in Workiz's order", () => {
-    expect(COMMISSION_DATE_PRESETS.map((p) => p.label)).toEqual([
-      "Custom",
-      "Today",
-      "Yesterday",
-      // Workiz's own spelling, no space (finance_report.source.html, live 2026-10-09).
-      "This week(Sun - Today)",
-      "This week (Mon - Today)",
-      "Last 7 days",
-      "Last week (Sun - Sat)",
-      "Last week (Mon - Sun)",
-      "Last business week (Mon - Fri)",
-      "Last 14 days",
-      "This month",
-      "Last 30 days",
-      "Last month",
-    ]);
-  });
-
-  it.each([
-    ["today", "2026-09-29", "2026-09-29"],
-    ["yesterday", "2026-09-28", "2026-09-28"],
-    ["this_week_sun", "2026-09-27", "2026-09-29"],
-    ["this_week_mon", "2026-09-28", "2026-09-29"],
-    // The "Last N days" end YESTERDAY (live 2026-10-09: Last 7 days = Oct 02 – Oct 08).
-    ["last_7_days", "2026-09-22", "2026-09-28"],
-    ["last_week_sun", "2026-09-20", "2026-09-26"],
-    ["last_week_mon", "2026-09-21", "2026-09-27"],
-    ["last_business_week", "2026-09-21", "2026-09-25"],
-    ["last_14_days", "2026-09-15", "2026-09-28"],
-    ["this_month", "2026-09-01", "2026-09-29"],
-    // Last 30 days = the same day last month … yesterday.
-    ["last_30_days", "2026-08-29", "2026-09-28"],
-    ["last_month", "2026-08-01", "2026-08-31"],
-  ] as const)("%s → %s … %s", (preset, from, to) => {
-    expect(commissionPresetRange(preset, today)).toEqual({ from, to });
-  });
-
-  it("a Sunday is the last day of its Mon–Sun week and the first of its Sun–Sat one", () => {
-    expect(commissionPresetRange("this_week_mon", "2026-09-27")).toEqual({ from: "2026-09-21", to: "2026-09-27" });
-    expect(commissionPresetRange("this_week_sun", "2026-09-27")).toEqual({ from: "2026-09-27", to: "2026-09-27" });
-    expect(commissionPresetRange("last_week_mon", "2026-09-27")).toEqual({ from: "2026-09-14", to: "2026-09-20" });
-  });
-
-  it("matches the days Workiz offered live", () => {
-    // 2026-10-09 (rep_commission_wz presets) and 2026-09-25 (finance_report.source.html).
-    expect(commissionPresetRange("last_7_days", "2026-10-09")).toEqual({ from: "2026-10-02", to: "2026-10-08" });
-    expect(commissionPresetRange("last_14_days", "2026-10-09")).toEqual({ from: "2026-09-25", to: "2026-10-08" });
-    expect(commissionPresetRange("last_30_days", "2026-10-09")).toEqual({ from: "2026-09-09", to: "2026-10-08" });
-    expect(commissionPresetRange("last_30_days", "2026-09-25")).toEqual({ from: "2026-08-25", to: "2026-09-24" });
-    expect(commissionPresetRange("last_week_sun", "2026-10-09")).toEqual({ from: "2026-09-27", to: "2026-10-03" });
-    // A month back from the 31st overflows as PHP's does: Feb 31 is Mar 3.
-    expect(commissionPresetRange("last_30_days", "2026-03-31")).toEqual({ from: "2026-03-03", to: "2026-03-30" });
-  });
-
-  it("custom leaves the days to the picker", () => {
-    expect(commissionPresetRange("custom", today)).toEqual({});
+describe("the period list", () => {
+  it("is the legacy pages' list (Workiz's Finance Reporting = Job Statistics; ranges in legacy-presets.test.ts)", () => {
+    expect(COMMISSION_DATE_PRESETS).toBe(LEGACY_REPORT_PRESETS);
   });
 });
 

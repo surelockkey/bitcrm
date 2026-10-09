@@ -6,7 +6,7 @@ import type {
   JobStatisticsTable,
   JobStatisticsTotals,
 } from "@bitcrm/types";
-import type { JobsReportPreset } from "../jobs/lib";
+import { LEGACY_REPORT_PRESETS, type LegacyReportPreset } from "../legacy-presets";
 
 /*
  * Workiz's Job Statistics, web side: the toolbar, the request it makes of
@@ -17,25 +17,14 @@ import type { JobsReportPreset } from "../jobs/lib";
 
 /* ---------------------------------------------------------------- toolbar */
 
-/** Workiz's Job Statistics presets, in its order and its spelling ("This year" / "Last year" are the Jobs report's only). */
-export const STATISTICS_PRESETS: { id: JobsReportPreset; label: string }[] = [
-  { id: "custom", label: "Custom" },
-  { id: "today", label: "Today" },
-  { id: "yesterday", label: "Yesterday" },
-  { id: "this_week_sun", label: "This week(Sun - Today)" },
-  { id: "this_week_mon", label: "This week (Mon - Today)" },
-  { id: "last_7", label: "Last 7 days" },
-  { id: "last_week_sun", label: "Last week (Sun - Sat)" },
-  { id: "last_week_mon", label: "Last week (Mon - Sun)" },
-  { id: "last_business_week", label: "Last business week (Mon - Fri)" },
-  { id: "last_14", label: "Last 14 days" },
-  { id: "this_month", label: "This month" },
-  { id: "last_30", label: "Last 30 days" },
-  { id: "last_month", label: "Last month" },
-];
+/**
+ * Workiz's Job Statistics presets — the legacy page's list (`legacy-presets.ts`):
+ * its order, its spelling, and "Last N days" ending yesterday.
+ */
+export const STATISTICS_PRESETS = LEGACY_REPORT_PRESETS;
 
 /** Workiz opens Job Statistics on this month, by Closed. */
-export const DEFAULT_STATISTICS_PRESET: JobsReportPreset = "this_month";
+export const DEFAULT_STATISTICS_PRESET: LegacyReportPreset = "this_month";
 export const DEFAULT_STATISTICS_BY: JobStatisticsBy = "end";
 
 export interface StatisticsQuery {
