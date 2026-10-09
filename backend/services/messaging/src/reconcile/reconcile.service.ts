@@ -51,7 +51,8 @@ export interface ReconcileReport {
    * never arrived): the status was written as the callback would have.
    */
   synced: number;
-  inbound: { inserted: number; duplicates: number };
+  /** `blocked`: a sender on telephony's block list — dropped, never inserted. */
+  inbound: { inserted: number; duplicates: number; blocked: number };
   outbound: {
     inserted: number;
     /** An outbound line we had without a sid (worker died mid-send) now carries it. */
@@ -162,7 +163,7 @@ export class ReconcileService {
       scanned: 0,
       skipped: 0,
       synced: 0,
-      inbound: { inserted: 0, duplicates: 0 },
+      inbound: { inserted: 0, duplicates: 0, blocked: 0 },
       outbound: { inserted: 0, adopted: 0, duplicates: 0 },
       failed: 0,
       errors: [],
@@ -191,7 +192,7 @@ export class ReconcileService {
         }
         if (record.direction === 'inbound') {
           const outcome = await this.reconcileInbound(record);
-          report.inbound[outcome === 'stored' ? 'inserted' : 'duplicates']++;
+          report.inbound[outcome === 'stored' ? 'inserted' : outcome === 'blocked' ? 'blocked' : 'duplicates']++;
         } else {
           const outcome = await this.reconcileOutbound(record, at);
           report.outbound[outcome]++;
@@ -360,7 +361,7 @@ export class ReconcileService {
 
   // --------------------------------------------------------------- inbound
 
-  private async reconcileInbound(record: MessageInstance): Promise<'stored' | 'duplicate'> {
+  private async reconcileInbound(record: MessageInstance): Promise<'stored' | 'duplicate' | 'blocked'> {
     const from = tryNormalizePhone(record.from ?? '');
     const to = tryNormalizePhone(record.to ?? '');
     if (!from || !to) throw new Error(`not a phone number pair: ${record.from} → ${record.to}`);

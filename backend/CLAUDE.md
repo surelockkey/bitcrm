@@ -42,7 +42,7 @@ documented surface; keep it in sync when you add a variable.
 | deal      | 4003 | `api/deals`      | deals/jobs, line items, timeline, attachments + the catalogs (job types/sources/tags/statuses, service areas — each with its own sales `tax` and default company —, custom fields, external companies), the read-only tax rates derived from the areas, the technician-eligibility projection, and the commissions report (`reports/commissions`, read-only) |
 | inventory | 4004 | `api/inventory`  | products, brands, item categories, warehouses, containers, stock, transfers |
 | search    | 4005 | `api/search`     | global search — OpenSearch read model + indexer (CQRS) |
-| telephony | 4006 | `api/telephony`  | Twilio softphone: tokens, TwiML, call records, presence, call groups/flows, numbers, job dial-in codes |
+| telephony | 4006 | `api/telephony`  | Twilio softphone: tokens, TwiML, call records, presence, call groups/flows, numbers, job dial-in codes, blocked callers |
 | messaging | 4007 | `api/messaging`  | client inbox + team chat (Workiz Inbox model): conversations, messages (SMS/MMS, email, in-app), templates, opt-outs, settings — Twilio Messages API traffic; telephony stays the owner of the numbers |
 | billing   | 4008 | `api/billing`    | job invoices + estimates (Workiz model), **the payment ledger + Stripe** (offline payments, portal card/ACH, refunds, webhook), document templates + headless-Chromium PDF rendering (`@bitcrm/document-renderer`), companies (many business profiles, one default — jobs pick one), template images, client-portal API (`/public/portal/:token`, `@Public` + Redis rate limit; the pages are `apps/portal`, see §10) |
 
@@ -241,6 +241,12 @@ CALL#<sid>         / METADATA        GSI2 CALL#ALL for the global time-ordered l
                                      path when it differs, older rows by `npm run backfill:call-party-names -w
                                      backend/services/telephony` (dry run without `--apply`)
 CALLTAG#ALL        / CALLTAG#<id>    call-tag catalog — one partition, no GSI keys (never in the log); archive, don't delete
+BLOCKED#ALL        / <E.164>         a blocked caller (Workiz Phone → Blocked callers): { id, number, comment?, createdBy,
+                                     createdAt, externalId? } — one partition, no GSI keys, the shape the Workiz import
+                                     writes. Read (cached 15 s) by the inbound voice webhook, which answers `<Reject/>` and
+                                     logs the call with status `blocked`, and by messaging over
+                                     `GET /blocked-callers/internal/numbers` (cached 60 s, fail-open), which drops the text.
+                                     `calls.block` gates the list / block / unblock routes. Unblock deletes the row
 EXT#<code> / EXTOF#<dealId>          job dial-in codes (both directions, for idempotent minting)
 DEAL#<id> / TIMELINE#<ts>#<id>, <owner> / ACT#<ts>#<id>   job events / job-less imported Workiz events; sparse GSI8
                                      ActivityDayIndex ACTDAY#<New York day> and GSI9 ActorIndex ACTOR#<actorId>, both

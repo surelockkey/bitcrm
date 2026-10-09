@@ -14,6 +14,7 @@ import { CallerIdResolver } from './caller-id.resolver';
 import { ServiceAreaNumbersService } from '../common/service-area-numbers.service';
 import { DealReadService } from '../common/deal-read.service';
 import { ExtsModule } from '../exts/exts.module';
+import { BlockedCallersModule } from '../blocked-callers/blocked-callers.module';
 
 @Module({
   // TelephonyModule exports TELEPHONY_CONFIG (= the shared TWILIO_CONFIG the
@@ -30,6 +31,8 @@ import { ExtsModule } from '../exts/exts.module';
     CallGroupsModule,
     // The flow runner's ext node resolves through the dial-in service.
     forwardRef(() => ExtsModule),
+    // The inbound webhook turns a blocked caller away before any of the above.
+    BlockedCallersModule,
   ],
   controllers: [VoiceController],
   providers: [

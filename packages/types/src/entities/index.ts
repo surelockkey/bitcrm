@@ -32,6 +32,7 @@ export {
 } from './call-flow.entity';
 export { CALL_FLOW_LIMITS } from './call-flow.entity';
 export { CallTag, CALL_TAG_LIMITS } from './call-tag.entity';
+export { BlockedCaller, BLOCKED_CALLER_LIMITS } from './blocked-caller.entity';
 export { DealSubStatus } from './deal-sub-status.entity';
 export { CustomFieldDefinition, CustomFieldValue } from './custom-field.entity';
 export { DealProduct } from './deal-product.entity';

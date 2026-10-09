@@ -28,7 +28,14 @@ export type CallStatus =
   | 'busy'
   | 'no-answer'
   | 'failed'
-  | 'canceled';
+  | 'canceled'
+  /**
+   * An inbound call from a blocked number (Workiz Phone → Blocked callers):
+   * rejected before anything rang. Ours, never Twilio's — written by the
+   * inbound webhook, terminal from the start, and neither answered nor
+   * missed in the reports.
+   */
+  | 'blocked';
 
 /** Statuses that mean the call is still happening (live section of the list). */
 export const LIVE_STATUSES: CallStatus[] = [

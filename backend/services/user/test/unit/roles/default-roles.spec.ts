@@ -94,7 +94,7 @@ describe('DEFAULT_ROLES <-> RESOURCE_REGISTRY consistency', () => {
   });
 
   it('grants calls per the supervision policy (join = supervisory roles only)', () => {
-    expect(RESOURCE_REGISTRY.calls).toEqual(['view', 'join']);
+    expect(RESOURCE_REGISTRY.calls).toEqual(['view', 'join', 'block']);
     const byId = (id: string) => DEFAULT_ROLES.find((r) => r.id === id)!;
     // supervisory tiers may listen/join live calls
     for (const id of ['role-super-admin', 'role-admin', 'role-dept-manager']) {
