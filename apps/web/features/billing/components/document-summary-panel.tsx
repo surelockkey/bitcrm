@@ -52,13 +52,19 @@ export interface DocumentSummaryPanelProps {
   className?: string;
   /**
    * `card` (default): the quiet card as it was. `workiz`: Workiz's totals
-   * under a document's items (pg_estimate_wz_01_job) — "Total :" (with Paid /
-   * Balance due for `showPayments`) right-aligned in the left half, Subtotal →
-   * Discount: → Taxable → Tax rate% → Tax in the right, each a label and a
-   * 132×28 grey box (`WzTotalsBoxRow`); `extraRows` close the right column
-   * and should be `WzTotalsBoxRow`s too.
+   * under a document's items (pg_estimate_wz_01_job) — "Total :" right-aligned
+   * in the left half, Subtotal → Discount: → Taxable → Tax rate% → Tax in the
+   * right, each a label and a 132×28 grey box (`WzTotalsBoxRow`); `extraRows`
+   * close the right column and should be `WzTotalsBoxRow`s too. With
+   * `showPayments` (an invoice, pg_invoice_wz_01_partial / _02_paid) the left
+   * column reads Total → Balance (bold, Workiz's red while owed, with "Pay"
+   * for `onPay`) → Clearing (ours, while a bank payment lands) → `leftRows`.
    */
   variant?: "card" | "workiz";
+  /** Workiz variant: "Pay" beside an owed Balance — the page's way to take a payment. */
+  onPay?: () => void;
+  /** Workiz variant: the document's own rows at the foot of the left column (an invoice's Due). */
+  leftRows?: ReactNode;
 }
 
 /**
@@ -306,6 +312,8 @@ function WorkizTotals({
   paymentSummary,
   extraRows,
   className,
+  onPay,
+  leftRows,
 }: DocumentSummaryPanelProps) {
   const [editingDiscount, setEditingDiscount] = useState(false);
   const exempt = taxSource === "exempt";
@@ -315,6 +323,7 @@ function WorkizTotals({
       ? `${taxRateName ?? "Tax"} (${formatPercent(totals.taxRatePercent)})`
       : "No tax";
   const column = "flex flex-col items-end gap-[5px]";
+  const owed = totals.balanceDue > 0;
 
   return (
     <section
@@ -322,21 +331,37 @@ function WorkizTotals({
       aria-busy={pending || undefined}
       className={cn("grid grid-cols-1 gap-y-[5px] text-wz-strong md:grid-cols-2", className)}
     >
-      <div data-testid="wz-totals-column" className={column}>
+      {/* An invoice's boxes stop 20px short of the middle: "Pay" hangs in that gap (pg_invoice_wz_01_partial, x=880). */}
+      <div data-testid="wz-totals-column" className={cn(column, showPayments && "md:pr-5")}>
         <WzTotalsBoxRow label="Total">{formatBoxAmount(totals.total)}</WzTotalsBoxRow>
         {showPayments ? (
           <>
-            <WzTotalsBoxRow label="Paid">{formatBoxAmount(totals.amountPaid)}</WzTotalsBoxRow>
+            <WzTotalsBoxRow
+              label="Balance"
+              after={
+                onPay && owed ? (
+                  // totals-module__payLink: 14px/28px 500 #3da6e1.
+                  <button
+                    type="button"
+                    onClick={onPay}
+                    className="text-[14px] leading-7 font-medium text-[#3da6e1] underline-offset-2 hover:underline"
+                  >
+                    Pay
+                  </button>
+                ) : undefined
+              }
+            >
+              {/* Workiz bolds the balance and turns it #dd380d while anything is owed. */}
+              <span className={cn("font-bold", owed && "text-[#dd380d]")}>{formatBoxAmount(totals.balanceDue)}</span>
+            </WzTotalsBoxRow>
             {paymentSummary?.hasPending ? (
               <WzTotalsBoxRow label="Clearing" title="A bank payment is on its way — not counted until it lands.">
                 {formatBoxAmount(paymentSummary.pending)}
               </WzTotalsBoxRow>
             ) : null}
-            <WzTotalsBoxRow label="Balance due" bold>
-              {formatBoxAmount(totals.balanceDue)}
-            </WzTotalsBoxRow>
           </>
         ) : null}
+        {leftRows}
       </div>
 
       <div data-testid="wz-totals-column" className={column}>

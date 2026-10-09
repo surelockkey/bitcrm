@@ -49,7 +49,9 @@ export const WZ_TOTALS_BOX =
  * the grey box. `underline` is Workiz's "Item cost :" / "Deposit :", labels
  * that open something; `onClick` makes the box that button. `colon="tight"`
  * is Workiz's "Discount:" (no space), `hint` sits between label and box (the
- * ⓘ). Rows are 33px apart: lay them out with `flex flex-col items-end gap-[5px]`.
+ * ⓘ). `after` hangs 10px right of the box without moving it (the invoice's
+ * "Pay" beside "Balance :", pg_invoice_wz_01_partial). Rows are 33px apart:
+ * lay them out with `flex flex-col items-end gap-[5px]`.
  */
 export function WzTotalsBoxRow({
   label,
@@ -60,6 +62,7 @@ export function WzTotalsBoxRow({
   hint,
   onClick,
   title,
+  after,
   className,
 }: {
   label: string;
@@ -70,11 +73,13 @@ export function WzTotalsBoxRow({
   hint?: ReactNode;
   onClick?: () => void;
   title?: string;
+  /** Beside the box, outside the column's edge (the box stays level with the others). */
+  after?: ReactNode;
   className?: string;
 }) {
   const box = cn(WZ_TOTALS_BOX, bold && "font-bold", onClick && "cursor-pointer hover:border-wz-link");
   return (
-    <div role="group" aria-label={label} className={cn("flex items-center gap-2.5", className)}>
+    <div role="group" aria-label={label} className={cn("flex items-center gap-2.5", after != null && "relative", className)}>
       <span className={cn("text-[14px] leading-5 text-wz-strong", underline && "underline")}>
         {label}
         {colon === "tight" ? ":" : " :"}
@@ -89,6 +94,7 @@ export function WzTotalsBoxRow({
           {children}
         </span>
       )}
+      {after != null ? <span className="absolute top-0 left-full ml-2.5 flex h-7 items-center">{after}</span> : null}
     </div>
   );
 }

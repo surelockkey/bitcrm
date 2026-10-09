@@ -83,4 +83,16 @@ describe("WzTotalsBoxRow — a label and its grey box", () => {
     render(<WzTotalsBoxRow label="Discount" colon="tight">0.00</WzTotalsBoxRow>);
     expect(screen.getByText("Discount:")).toBeInTheDocument();
   });
+
+  it("hangs `after` 10px right of the box, outside the column, inside the row (the invoice's 'Pay')", () => {
+    render(
+      <WzTotalsBoxRow label="Balance" after={<button type="button">Pay</button>}>
+        372.22
+      </WzTotalsBoxRow>,
+    );
+    const row = screen.getByRole("group", { name: "Balance" });
+    expect(cls(row)).toContain("relative");
+    const slot = screen.getByRole("button", { name: "Pay" }).parentElement!;
+    expect(cls(slot)).toEqual(expect.arrayContaining(["absolute", "left-full", "ml-2.5"]));
+  });
 });
