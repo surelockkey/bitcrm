@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Deal, EstimateWithItems } from "@bitcrm/types";
 import { Skeleton } from "@/components/ui/skeleton";
+import { usePageHistoryLabel } from "@/components/shell/page-history";
 import { WzJobBackLink } from "@/components/workiz/job-back-link";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { usePermissions } from "@/features/auth/use-permissions";
@@ -27,10 +28,18 @@ import { proposalSend } from "../lib";
  * Shown once, whole: one skeleton until the estimate, its job, the job's
  * other estimates, the client and the pickers' lists are all in.
  */
+/**
+ * The crumb's number, as Workiz's strip prints it ("… # ESTIMATE (1)"): a
+ * job's estimate counts on its job (`<dealNumber>-<n>` → n), a client's
+ * carries its own number.
+ */
+const crumbNumber = (number: string): string => (number.includes("-") ? number.slice(number.lastIndexOf("-") + 1) : number);
+
 export function StandaloneEstimatePage({ estimateId }: { estimateId: string }) {
   const router = useRouter();
   const data = useEstimatePageData(estimateId);
   const { data: estimate, isError, error } = data.estimate;
+  usePageHistoryLabel(estimate ? `Estimate (${crumbNumber(estimate.number)})` : undefined);
 
   if (!data.ready) {
     return (

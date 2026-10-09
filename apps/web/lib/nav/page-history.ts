@@ -1,7 +1,7 @@
 import {
   MAIN_NAV,
-  OVERVIEW_ITEM,
   SETTINGS_ITEM,
+  TEAM_NAV,
   TECHNICIAN_NAV,
 } from "@/lib/nav/nav-config";
 
@@ -26,24 +26,68 @@ export const HISTORY_LIMIT = 6;
 
 /**
  * Append a visit to the trail: a path already present moves to the end (its
- * label refreshed), and the oldest entries fall off past HISTORY_LIMIT.
+ * label refreshed), and the oldest entries fall off past HISTORY_LIMIT. A
+ * visit under the same name as the newest crumb replaces it — one page, one
+ * crumb, whichever path it re-landed on — as Workiz's strip never shows
+ * "PAYMENTS # PAYMENTS".
  */
 export function pushVisit(
   history: PageVisit[],
   visit: PageVisit,
 ): PageVisit[] {
-  const next = history.filter((e) => e.path !== visit.path);
+  const last = history[history.length - 1];
+  const base =
+    last && last.path !== visit.path && last.label === visit.label
+      ? history.slice(0, -1)
+      : history;
+  const next = base.filter((e) => e.path !== visit.path);
   next.push(visit);
   return next.slice(-HISTORY_LIMIT);
+}
+
+/** Trailing slash off ("/calls/" → "/calls"); the root stays "/". */
+function normalizePath(pathname: string): string {
+  return pathname.length > 1 && pathname.endsWith("/")
+    ? pathname.slice(0, -1)
+    : pathname;
+}
+
+/**
+ * Routes that only hand the reader on — the `redirect()` pages under
+ * `app/(app)` (`redirect-hops.test.ts` walks the tree to keep this list
+ * honest). A hop is never a crumb: "/payments" lands on the Payments report,
+ * and the strip names that page once.
+ */
+const REDIRECT_HOPS = new Set([
+  "/payments",
+  "/price-book",
+  "/inventory",
+  "/settings/general",
+  "/settings/automations",
+  "/settings/call-flows",
+  "/settings/call-groups",
+  "/settings/messaging",
+  "/settings/message-templates",
+  "/settings/phone-numbers",
+]);
+/** The inventory record routes: every one of them lands on its list (the record opens in a dialog). */
+const REDIRECT_HOP_PATTERNS = [/^\/inventory\/(warehouses|containers|products|items)\/[^/]+$/];
+
+/** True for a route that only redirects to another page. */
+export function isRedirectHop(pathname: string): boolean {
+  const path = normalizePath(pathname);
+  return REDIRECT_HOPS.has(path) || REDIRECT_HOP_PATTERNS.some((p) => p.test(path));
 }
 
 /**
  * Record a navigation. An upgraded label registered for the path (by the
  * page itself, possibly before the visit lands — effect order on a re-visit
  * with cached data) wins over the generic route label. Registered labels for
- * paths that have fallen off the trail are dropped.
+ * paths that have fallen off the trail are dropped. A redirect hop records
+ * nothing: the page it lands on is the visit.
  */
 export function applyVisit(state: TrailState, path: string): TrailState {
+  if (isRedirectHop(path)) return state;
   const label = state.labels[path] ?? labelForPath(path);
   const visits = pushVisit(state.visits, { path, label });
   const labels = Object.fromEntries(
@@ -72,16 +116,21 @@ export function applyLabel(
 
 /** Exact-path labels: sidebar nav plus routes that aren't in the sidebar. */
 const STATIC_LABELS: Record<string, string> = {
-  [OVERVIEW_ITEM.href]: OVERVIEW_ITEM.label,
   [SETTINGS_ITEM.href]: SETTINGS_ITEM.label,
   ...Object.fromEntries(
     MAIN_NAV.flatMap((g) => g.items.map((i) => [i.href, i.label])),
   ),
+  // Team is reached from Settings (as in Workiz) but each page keeps its crumb.
+  ...Object.fromEntries(TEAM_NAV.map((i) => [i.href, i.label])),
+  // Where Workiz's crumb and its menu disagree, the crumb copies the crumb:
+  // its Home page reads "… # DASHBOARD", its Workiz Phone page "… # CALLS".
+  "/": "Dashboard",
+  "/calls": "Calls",
   "/deals/new": "New Job",
-  // The Price Book's tabs: "Items" alone would read as Inventory's Items.
-  "/price-book/items": "Price Book",
-  "/price-book/categories": "Price Book Categories",
-  "/price-book/brands": "Price Book Brands",
+  // The Price book's tabs: "Items" alone would read as Inventory's Items.
+  "/price-book/items": "Price book",
+  "/price-book/categories": "Price book Categories",
+  "/price-book/brands": "Price book Brands",
   // Inventory's tabs, in Workiz's words ("… # INVENTORY # USER LOCATIONS").
   "/inventory/items": "Inventory",
   "/inventory/user-containers": "User locations",
@@ -112,6 +161,9 @@ const DETAIL_LABELS: Record<string, string> = {
   "/inventory/containers": "Container",
   "/inventory/warehouses": "Warehouse",
   "/inventory/items": "Item",
+  // Workiz: "… # ESTIMATE (1)", "… # INVOICE (…)" — the page adds the number.
+  "/estimates": "Estimate",
+  "/invoices": "Invoice",
 };
 
 /** True for segments that are ids (UUIDs, hex blobs, call SIDs, numeric ids). */
@@ -134,10 +186,7 @@ function humanize(segment: string): string {
  * falls back to its collection segment ("/widgets/<uuid>" → "Widgets").
  */
 export function labelForPath(pathname: string): string {
-  const path =
-    pathname.length > 1 && pathname.endsWith("/")
-      ? pathname.slice(0, -1)
-      : pathname;
+  const path = normalizePath(pathname);
 
   const staticLabel = STATIC_LABELS[path];
   if (staticLabel) return staticLabel;

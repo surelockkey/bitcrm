@@ -46,7 +46,7 @@ describe("SettingsIndex", () => {
   });
 
   it("leaves out a block the reader can open nothing in", () => {
-    perms.can = (r) => r !== "users" && r !== "roles";
+    perms.can = (r) => r !== "technicians" && r !== "users" && r !== "roles";
     render(<SettingsIndex />);
     expect(screen.queryByRole("heading", { name: "Users & Roles" })).toBeNull();
     expect(screen.getByRole("heading", { name: "Job Settings" })).toBeInTheDocument();

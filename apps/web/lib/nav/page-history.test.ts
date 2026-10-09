@@ -3,6 +3,7 @@ import {
   HISTORY_LIMIT,
   applyLabel,
   applyVisit,
+  isRedirectHop,
   labelForPath,
   pushVisit,
   type PageVisit,
@@ -67,18 +68,27 @@ describe("pushVisit", () => {
 
 describe("labelForPath", () => {
   it.each([
+    // Workiz's own crumb on its Home page reads "DASHBOARD", and on Workiz
+    // Phone "CALLS" — the sidebar words differ, the crumbs copy Workiz's.
     ["/", "Dashboard"],
+    ["/calls", "Calls"],
+    ["/messages", "Messages"],
     ["/deals", "Jobs"],
-    ["/dispatch", "Dispatch Map"],
+    ["/dispatch", "Map"],
     ["/schedule", "Schedule"],
-    ["/contacts", "Contacts"],
+    ["/contacts", "Clients"],
     ["/companies", "Companies"],
+    ["/estimates", "Estimates"],
+    ["/invoices", "Invoices"],
+    ["/work-orders", "Work Orders"],
+    ["/price-book", "Price book"],
+    ["/reports", "Reports"],
+    ["/automations", "Automations"],
     ["/inventory", "Inventory"],
-    ["/price-book", "Price Book"],
+    // Team lives under Settings now (as in Workiz) but keeps its own crumbs.
     ["/technicians", "Technicians"],
     ["/admin/users", "Users"],
     ["/admin/roles", "Roles"],
-    ["/work-orders", "Work Orders"],
     ["/settings", "Settings"],
     ["/my-jobs", "My Jobs"],
     ["/my-stock", "My Stock"],
@@ -120,10 +130,10 @@ describe("labelForPath", () => {
     expect(labelForPath("/inventory/user-containers")).toBe("User locations");
   });
 
-  it("titles the Price Book tabs as the Price Book, not as Inventory's Items", () => {
-    expect(labelForPath("/price-book/items")).toBe("Price Book");
-    expect(labelForPath("/price-book/categories")).toBe("Price Book Categories");
-    expect(labelForPath("/price-book/brands")).toBe("Price Book Brands");
+  it("titles the Price book tabs as the Price book, not as Inventory's Items", () => {
+    expect(labelForPath("/price-book/items")).toBe("Price book");
+    expect(labelForPath("/price-book/categories")).toBe("Price book Categories");
+    expect(labelForPath("/price-book/brands")).toBe("Price book Brands");
   });
 
   it("titles the Phone section's tabs as Workiz's breadcrumb does, not as a call", () => {
@@ -151,6 +161,10 @@ describe("labelForPath", () => {
     [`/inventory/containers/${UUID}`, "Container"],
     [`/inventory/warehouses/${UUID}`, "Warehouse"],
     [`/inventory/items/${UUID}`, "Item"],
+    // Workiz: "… # ESTIMATE (1)" on an estimate, "INVOICE (…)" on an invoice —
+    // the page fills in the number; the list's plural never stands in.
+    [`/estimates/${UUID}`, "Estimate"],
+    [`/invoices/${UUID}`, "Invoice"],
   ])("labels the detail route %s as %s", (path, label) => {
     expect(labelForPath(path)).toBe(label);
   });
@@ -158,6 +172,68 @@ describe("labelForPath", () => {
   it("never renders a raw id, even for unknown detail routes", () => {
     expect(labelForPath(`/widgets/${UUID}`)).toBe("Widgets");
     expect(labelForPath("/widgets/123456789")).toBe("Widgets");
+  });
+});
+
+/**
+ * Workiz's strip holds one crumb per page. A route that only hands the reader
+ * on — `/payments` → `/reports/payments`, `/price-book` → `/price-book/items`,
+ * `/inventory` → `/inventory/items`, `/settings/general` → `/settings` — used
+ * to leave its own crumb behind ("PAYMENTS # PAYMENTS", "SETTINGS # GENERAL #
+ * SETTINGS"); now it leaves none.
+ */
+describe("redirect hops leave no crumb", () => {
+  const empty: TrailState = { visits: [], labels: {} };
+
+  it.each([
+    "/payments",
+    "/price-book",
+    "/inventory",
+    "/inventory/items/new",
+    "/settings/general",
+    "/settings/automations",
+    "/settings/call-flows",
+    "/settings/call-groups",
+    "/settings/messaging",
+    "/settings/message-templates",
+    "/settings/phone-numbers",
+    "/inventory/warehouses/0199c4d2-7b1e-4f7a-9c3d-abcdef123456",
+    "/inventory/containers/0199c4d2-7b1e-4f7a-9c3d-abcdef123456",
+    "/inventory/products/0199c4d2-7b1e-4f7a-9c3d-abcdef123456",
+    "/inventory/items/0199c4d2-7b1e-4f7a-9c3d-abcdef123456",
+  ])("knows %s only redirects", (path) => {
+    expect(isRedirectHop(path)).toBe(true);
+    expect(isRedirectHop(path + "/")).toBe(true);
+  });
+
+  it.each(["/", "/deals", "/reports/payments", "/price-book/items", "/inventory/items", "/settings", "/inventory/warehouses"])(
+    "treats %s as a page of its own",
+    (path) => {
+      expect(isRedirectHop(path)).toBe(false);
+    },
+  );
+
+  it("records the page a hop lands on, never the hop", () => {
+    let s = applyVisit(empty, "/deals");
+    s = applyVisit(s, "/payments");
+    s = applyVisit(s, "/reports/payments");
+    expect(s.visits.map((v) => v.label)).toEqual(["Jobs", "Payments"]);
+
+    s = applyVisit(s, "/settings");
+    s = applyVisit(s, "/settings/general");
+    s = applyVisit(s, "/settings");
+    expect(s.visits.map((v) => v.label)).toEqual(["Jobs", "Payments", "Settings"]);
+  });
+
+  it("keeps one crumb when a page re-lands under the same name", () => {
+    // "/calls" then "/calls/": one page, one crumb, at its newest path.
+    let s = applyVisit(empty, "/deals");
+    s = applyVisit(s, "/calls");
+    s = applyVisit(s, "/calls/");
+    expect(s.visits).toEqual([
+      { path: "/deals", label: "Jobs" },
+      { path: "/calls/", label: "Calls" },
+    ]);
   });
 });
 

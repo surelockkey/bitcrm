@@ -12,9 +12,12 @@ const poppins = Poppins({
   weight: ["300", "400", "500", "600", "700"],
 });
 
+// A line of mono here and there (⌘K, call ids, an SSN field): preloading it
+// on every page only drew "preloaded but not used" in the console.
 const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
+  preload: false,
 });
 
 export const metadata: Metadata = {

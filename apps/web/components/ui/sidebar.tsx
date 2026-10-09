@@ -26,8 +26,8 @@ import { PanelLeftIcon } from "lucide-react"
 
 const SIDEBAR_COOKIE_NAME = "sidebar_state"
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7
-// Workiz runs a tight rail; the stock 16rem eats a column of the jobs grid.
-const SIDEBAR_WIDTH = "13rem"
+// Workiz's rail is 200px (app_audit_wz_home: sideMenu 200 + its 1px rule).
+const SIDEBAR_WIDTH = "12.5rem"
 const SIDEBAR_WIDTH_MOBILE = "18rem"
 const SIDEBAR_WIDTH_ICON = "3rem"
 const SIDEBAR_KEYBOARD_SHORTCUT = "b"
@@ -479,6 +479,11 @@ const sidebarMenuButtonVariants = cva(
         default: "h-8 text-sm",
         sm: "h-7 text-xs",
         lg: "h-12 text-sm group-data-[collapsible=icon]:p-0!",
+        // Workiz's menu row (app_audit_wz_home, nodeMenu): 35px, 8px in, 4px
+        // corners, a 16px glyph then 10px then 13px/19px words; the open page
+        // sits on #e5f1ff with its weight unchanged. Keeps its height on the
+        // icon rail so the rows do not creep up while the width animates.
+        wz: "h-[35px] gap-[10px] rounded-[4px] px-2 py-0 text-[13px] leading-[19px] data-active:bg-accent data-active:font-normal group-data-[collapsible=icon]:h-[35px]!",
       },
     },
     defaultVariants: {
@@ -573,7 +578,7 @@ function SidebarMenuBadge({
       data-slot="sidebar-menu-badge"
       data-sidebar="menu-badge"
       className={cn(
-        "pointer-events-none absolute right-1 flex h-5 min-w-5 items-center justify-center rounded-md px-1 text-xs font-medium text-sidebar-foreground tabular-nums select-none group-data-[collapsible=icon]:hidden peer-hover/menu-button:text-sidebar-accent-foreground peer-data-[size=default]/menu-button:top-1.5 peer-data-[size=lg]/menu-button:top-2.5 peer-data-[size=sm]/menu-button:top-1 peer-data-active/menu-button:text-sidebar-accent-foreground",
+        "pointer-events-none absolute right-1 flex h-5 min-w-5 items-center justify-center rounded-md px-1 text-xs font-medium text-sidebar-foreground tabular-nums select-none group-data-[collapsible=icon]:hidden peer-hover/menu-button:text-sidebar-accent-foreground peer-data-[size=default]/menu-button:top-1.5 peer-data-[size=lg]/menu-button:top-2.5 peer-data-[size=sm]/menu-button:top-1 peer-data-[size=wz]/menu-button:top-[11.5px] peer-data-active/menu-button:text-sidebar-accent-foreground",
         className
       )}
       {...props}

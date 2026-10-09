@@ -7,7 +7,10 @@ import { server } from "@/test/msw/server";
 import { renderWithClient } from "@/test/render-with-client";
 
 const mocks = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn() }));
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.push, replace: mocks.replace }) }));
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: mocks.push, replace: mocks.replace }),
+  usePathname: () => "/estimates/e1",
+}));
 vi.mock("next/link", () => ({
   default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => (
     <a href={href} {...rest}>{children}</a>
@@ -50,6 +53,7 @@ vi.mock("@/features/billing/components/document-summary-panel", () => ({
 }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), message: vi.fn() } }));
 
+import { usePageHistoryStore } from "@/stores/page-history-store";
 import { StandaloneEstimatePage } from "./estimate-page";
 
 const totals = {
@@ -163,6 +167,13 @@ describe("StandaloneEstimatePage — a job's estimate", () => {
       http.get("*/billing/estimates/e1", () => HttpResponse.json({ success: true, data: e1 })),
       http.get("*/billing/estimates/by-deal/d1", () => HttpResponse.json({ success: true, data: [e2, e1] })),
     );
+  });
+
+  it("names its crumb 'Estimate (1)' — the estimate's number on the job — as Workiz's strip does", async () => {
+    usePageHistoryStore.setState({ visits: [], labels: {} });
+    renderWithClient(<StandaloneEstimatePage estimateId="e1" />);
+    await screen.findByRole("link", { name: /job id:\s*1042/i });
+    await waitFor(() => expect(usePageHistoryStore.getState().labels["/estimates/e1"]).toBe("Estimate (1)"));
   });
 
   it("puts ← Job ID back to the job's Estimates above the tabs of the job's estimates", async () => {

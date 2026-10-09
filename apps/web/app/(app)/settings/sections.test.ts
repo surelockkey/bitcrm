@@ -73,7 +73,9 @@ describe("SETTINGS_GROUPS", () => {
     // Roles & Permissions, Ad Groups (job sources), Field Validation (required
     // job fields), Sub-Status (job statuses) — the routes stay ours.
     expect(labelsOf("General Settings")).toEqual(["Companies", "Automation Center", "Documents"]);
-    expect(labelsOf("Users & Roles")).toEqual(["Team Management", "Roles & Permissions"]);
+    // Team is reached from here only, as in Workiz (no sidebar row since the
+    // sidebar copied Workiz's menu): the field team first, then the logins.
+    expect(labelsOf("Users & Roles")).toEqual(["Technicians", "Team Management", "Roles & Permissions"]);
     expect(labelsOf("Job Settings")).toEqual([
       "Service Areas",
       "Job Types",

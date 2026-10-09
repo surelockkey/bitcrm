@@ -85,10 +85,18 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
     ],
   },
   {
-    // Users and roles live in the main nav's Team group; Workiz keeps them in
-    // settings as well, so the shortcuts are here too, as Automations is.
+    // Workiz keeps its Team under Settings only (Team Management, Roles &
+    // Permissions tiles) and so do we since the sidebar copied Workiz's menu:
+    // the field team, the users and the roles are reached from here.
     label: "Users & Roles",
     sections: [
+      {
+        label: "Technicians",
+        href: "/technicians",
+        description: "The field team — who can be assigned to jobs, their skills, areas and onboarding.",
+        icon: Wrench,
+        resource: "technicians",
+      },
       {
         label: "Team Management",
         href: "/admin/users",

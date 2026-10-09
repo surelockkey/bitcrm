@@ -254,6 +254,8 @@ export const queryKeys = {
     count: (filters?: unknown) => ["users", "count", filters] as const,
     detail: (id: string) => ["users", "detail", id] as const,
     permissions: (id: string) => ["users", id, "permissions"] as const,
+    /** Names for a set of ids (`POST /users/by-ids`), one entry per set however it was ordered. */
+    names: (ids: string[]) => ["users", "names", [...ids].sort()] as const,
   },
 
   roles: {
