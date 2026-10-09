@@ -665,6 +665,23 @@ from the kit as it stood — `WzTabBar` small (Accrual / Paid),
   records over blanks shows the 56px kind, so the coordinator may flip it
   kit-wide.
 
+## Status cards (2026-10-09, agent `pg_estimates`, the Estimates list)
+
+Measured off `uikit_wz_estimates` and `pg_estimates_wz_*` (notes:
+`workiz-data-parser/docs/import/app-parity-2026-10-08/pg_estimates.md`). Both
+props are optional; every existing card is untouched.
+
+- **`WzKpiCard` `wrapCaption`** — the Estimates page's card prints the status
+  big over "50 Worth $8,702,853.93", and that caption wraps instead of being
+  cut: the card is 81px with one line and 97px with two (`min-h-[81px]`). Lay
+  them out with `items-start` so a one-line card is not stretched to its
+  neighbour: `grid grid-cols-6 items-start gap-[31px] px-5 pt-[34px]`.
+- **`WzKpiCard` `selectedTone`** — the chosen card's rule instead of Aging's
+  chosen grey: on the Estimates page the picked card turns `left-orange`
+  (`selectedTone="orange"`, #ffae00) and stays white
+  (pg_estimates_wz_06_card_won). A second click there keeps the pick — the
+  card sets the status filter, it does not toggle it.
+
 ## Known differences from Workiz (deliberate or unmeasurable)
 - Sub-pixel: Workiz's own fractional layout makes some glyphs land ±1px
   differently from ours in screenshots (e.g. two Workiz selects with identical

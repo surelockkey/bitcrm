@@ -25,6 +25,7 @@ import { useContactsByIds } from "@/features/clients/hooks";
 import { useUserMap } from "@/features/deals/hooks";
 import { NoAccess } from "@/features/billing/components/list-bits";
 import { estimateHref } from "@/features/billing/components/client-documents";
+import { formatMoney } from "@/features/billing/lib";
 import { DEFAULT_REPORT_PAGE_SIZE, REPORT_PAGE_SIZES } from "@/features/payments/report";
 import { viewerToday } from "@/features/reports/jobs/lib";
 import { exportEstimateReport } from "@/features/reports/billing/api";
@@ -212,6 +213,12 @@ export function EstimatesPage() {
 
       <WzListToolbar className="mt-7">
         <WzSearchBox value={searchText} onChange={setSearchText} maxLength={100} />
+        {/* Ours alone (Workiz has no sum): the window's estimates and their worth, on the strip's empty middle. */}
+        {cards.view ? (
+          <span className="text-sm leading-4 text-wz-caption tabular-nums">
+            {cards.view.total.count.toLocaleString("en-US")} estimates · {formatMoney(cards.view.total.amount)}
+          </span>
+        ) : null}
         <div className="ml-auto flex items-center gap-4">
           <WzPageSizeSelect value={list.pageSize} sizes={REPORT_PAGE_SIZES} onChange={list.setPageSize} />
           <WzToolbarButton onClick={() => void runExport()} disabled={exporting || days === null}>

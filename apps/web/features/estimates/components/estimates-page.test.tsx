@@ -110,6 +110,8 @@ describe("EstimatesPage — Workiz's /root/estimates/", () => {
       expect(screen.getByRole("button", { name: new RegExp(`Worth .* ${s}$`) })).toBeInTheDocument();
     }
     expect(screen.queryByRole("heading", { name: "Estimates" })).not.toBeInTheDocument();
+    // Ours alone, kept on the strip beside Search: the window's estimates and their worth.
+    expect(screen.getByText("3,650 estimates · $6,145,758.50")).toBeInTheDocument();
     // All time by default.
     expect(summaryCalls[0].has("from")).toBe(false);
   });
