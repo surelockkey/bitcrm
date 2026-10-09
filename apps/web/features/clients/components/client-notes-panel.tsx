@@ -93,9 +93,9 @@ function NotesBody({ contactId, description, canEdit }: { contactId: string; des
   const empty = !query.isLoading && groups.length === 0 && !description;
 
   return (
-    <div className="px-4 pt-4 pb-6 text-sm leading-[21px] tracking-[0.4px] text-foreground">
+    <div className="px-4 pt-[13px] pb-6 text-sm leading-[21px] tracking-[0.4px] text-foreground">
       {canEdit ? (
-        <button type="button" onClick={() => setComposing(true)} className={cn(BLUE, "text-[13px] leading-[19px] font-semibold")}>
+        <button type="button" onClick={() => setComposing(true)} className={cn(BLUE, "flex h-[19px] w-fit text-[13px] leading-[19px] font-semibold")}>
           <Plus className="size-4" strokeWidth={1.75} /> Add note
         </button>
       ) : null}

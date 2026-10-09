@@ -113,7 +113,7 @@ function FilesBody({ contactId, canEdit }: { contactId: string; canEdit: boolean
   return (
     <div className="px-4 pb-6">
       {canEdit ? (
-        <div className="mt-4">
+        <div className="mt-[13px]">
           <UploadButton contactId={contactId} />
         </div>
       ) : null}
@@ -246,7 +246,7 @@ function UploadButton({ contactId }: { contactId: string }) {
         type="button"
         disabled={upload.isPending}
         onClick={() => inputRef.current?.click()}
-        className="inline-flex items-center gap-1.5 text-[13px] leading-[19px] font-semibold tracking-[0.4px] text-wz-link outline-none hover:underline focus-visible:underline disabled:opacity-50"
+        className="flex h-[19px] w-fit items-center gap-1.5 text-[13px] leading-[19px] font-semibold tracking-[0.4px] text-wz-link outline-none hover:underline focus-visible:underline disabled:opacity-50"
       >
         {upload.isPending ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" strokeWidth={1.75} />} Upload file
       </button>
