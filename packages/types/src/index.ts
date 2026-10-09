@@ -36,7 +36,7 @@ export {
 } from './enums/custom-field-type.enum';
 
 // Entities
-export { User } from './entities/user.entity';
+export { User, UserType, USER_TYPES, isSubcontractor } from './entities/user.entity';
 export { Role } from './entities/role.entity';
 export { Contact } from './entities/contact.entity';
 export { ContactNote, CONTACT_NOTE_MAX_LENGTH } from './entities/contact-note.entity';

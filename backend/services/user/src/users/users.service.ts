@@ -28,15 +28,18 @@ import {
   type ResolvedPermissions,
   isAssignableTechnician,
   isFieldTeamMember,
+  isSubcontractor,
   TechChangedField,
   TECHNICIAN_ROLE_ID,
   UserEventType,
   UserStatus,
   type ListCount,
+  type UserType,
 } from '@bitcrm/types';
 import { UsersRepository } from './users.repository';
 import { UsersCacheService } from './users-cache.service';
 import { TechniciansRepository } from '../technicians/technicians.repository';
+import { TechniciansCacheService } from '../technicians/technicians-cache.service';
 import { TechnicianAssignmentsRepository } from '../technicians/assignments/technician-assignments.repository';
 import { CommissionRepository } from '../technicians/commission/commission.repository';
 import { buildDefaultCommission } from '../technicians/commission/commission.defaults';
@@ -124,6 +127,7 @@ export class UsersService implements OnModuleInit {
     @Optional()
     private readonly assignmentsRepository?: TechnicianAssignmentsRepository,
     @Optional() private readonly redis?: RedisService,
+    @Optional() private readonly techniciansCache?: TechniciansCacheService,
   ) {}
 
   /**
@@ -345,8 +349,14 @@ export class UsersService implements OnModuleInit {
   }
 
   async create(dto: CreateUserDto, caller: JwtUser): Promise<User> {
+    // A Workiz subcontractor has no role to choose — Workiz prints "Tech",
+    // greyed — and no sign-in: the account exists (the address stays theirs,
+    // and they can be made a User later) but nobody is invited to it.
+    const subcontractor = dto.userType === 'subcontractor';
+    const roleId = subcontractor ? TECHNICIAN_ROLE_ID : dto.roleId;
+
     // Validate the role exists
-    const newRole = await this.rolesService.findById(dto.roleId);
+    const newRole = await this.rolesService.findById(roleId);
 
     // Check caller can assign this role (must have higher priority)
     const callerRoleId = await this.resolveCallerRoleId(caller);
@@ -362,11 +372,14 @@ export class UsersService implements OnModuleInit {
 
     let cognitoSub: string;
     try {
-      const cognitoResult = await this.cognitoAdmin.createUser(dto.email, {
-        'custom:role_id': dto.roleId,
+      const claims = {
+        'custom:role_id': roleId,
         'custom:department': dto.department,
         'custom:user_id': id,
-      });
+      };
+      const cognitoResult = subcontractor
+        ? await this.cognitoAdmin.createUser(dto.email, claims, { suppressInvite: true })
+        : await this.cognitoAdmin.createUser(dto.email, claims);
       cognitoSub = cognitoResult.User?.Attributes?.find(
         (a) => a.Name === 'sub',
       )?.Value as string;
@@ -379,6 +392,7 @@ export class UsersService implements OnModuleInit {
       }
       throw error;
     }
+    if (subcontractor) await this.switchOffSignIn(id, cognitoSub, { sessions: false });
 
     const phone = dto.phone ? await this.claimPhone(dto.phone, id) : undefined;
 
@@ -389,9 +403,11 @@ export class UsersService implements OnModuleInit {
       email: dto.email,
       firstName: dto.firstName,
       lastName: dto.lastName,
-      roleId: dto.roleId,
+      roleId,
       department: dto.department,
       ...(phone ? { phone } : {}),
+      // "Can take jobs and get messages" — on the field team from the start.
+      ...(subcontractor ? { userType: 'subcontractor' as const, fieldTeamMember: true } : {}),
       status: UserStatus.ACTIVE,
       permissionOverrides: undefined,
       createdAt: now,
@@ -681,6 +697,13 @@ export class UsersService implements OnModuleInit {
     caller: JwtUser,
   ): Promise<User> {
     const existingUser = await this.findById(id);
+    // A type change is checked before anything is written: an edit that may
+    // not take someone's sign-in away must not half-happen either.
+    const typeChange =
+      dto.userType !== undefined && dto.userType !== (existingUser.userType ?? 'regular')
+        ? dto.userType
+        : undefined;
+    if (typeChange) await this.assertCanChangeUserType(caller, existingUser);
 
     // What ValidationPipe hands over is a class instance, and an ES2022 class
     // field that was never sent is still an own property — holding undefined.
@@ -689,6 +712,9 @@ export class UsersService implements OnModuleInit {
     // partial update simply did not mention: spread as-is, one
     // `PUT { fieldTeamMember }` wiped a person's name, department and phone.
     const attrs: Partial<User> & UpdateUserDto = withoutUndefined(dto);
+    // The type is never written as a plain attribute — `changeUserType` moves
+    // the sign-in with it.
+    delete attrs.userType;
     // Renamed here, the person is no longer who Workiz's whole name says — so
     // that name goes, or every chip would print the old one for good. An
     // explicit undefined is the repository's REMOVE.
@@ -726,7 +752,43 @@ export class UsersService implements OnModuleInit {
     // deal-service's technician projection prints the name (jobs list, Assign
     // A Tech); without this it kept the old one until its next boot.
     if (renamed) this.publishTechUpdated(id, TechChangedField.NAME);
+    if (typeChange) return this.changeUserType(id, typeChange, caller);
     return updatedUser;
+  }
+
+  /**
+   * Workiz's "User type", and what goes with it. To `subcontractor`: the
+   * sign-in goes at once — the Cognito account off (no new sessions) and the
+   * `user:disabled` flag set (the sessions already open are refused by the
+   * guard on their next request) — and the card stops tracking their location.
+   * Back to `regular`: the sign-in comes back, if the person is active, with
+   * the invitation re-sent (a person who already has a password simply keeps
+   * it). The technician card's copy of the type is kept in step either way.
+   *
+   * Only someone who outranks the person, and never on yourself — this is a
+   * way to lock someone out.
+   */
+  async changeUserType(id: string, type: UserType, caller: JwtUser): Promise<User> {
+    const user = await this.findById(id);
+    if ((user.userType ?? 'regular') === type) return user;
+    await this.assertCanChangeUserType(caller, user);
+
+    const updated = await this.repository.update(id, { userType: type });
+    if (type === 'subcontractor') {
+      await this.switchOffSignIn(id, user.cognitoSub, { sessions: true });
+    } else if (user.status !== UserStatus.INACTIVE) {
+      await this.cognitoAdmin.enableUser(user.cognitoSub);
+      await this.permissionCacheReader.removeUserDisabled(id);
+      await this.cognitoAdmin.resendInvite(user.email).catch((err: Error) =>
+        this.logger.log(
+          `No invitation re-sent to ${id} on becoming a User (${err.name}): they keep their password`,
+        ),
+      );
+    }
+    await this.cache.invalidateUser(id);
+    await this.mirrorTypeOnCard(id, type);
+    this.logger.log(`User ${id} is now ${type === 'subcontractor' ? 'a subcontractor' : 'a User'}`);
+    return updated;
   }
 
   async deactivate(id: string, caller: JwtUser): Promise<void> {
@@ -752,8 +814,11 @@ export class UsersService implements OnModuleInit {
     await this.assertCallerCanManageUser(caller, user);
 
     await this.repository.update(id, { status: UserStatus.ACTIVE });
-    await this.cognitoAdmin.enableUser(user.cognitoSub);
-    await this.permissionCacheReader.removeUserDisabled(id);
+    // A subcontractor comes back to the team, not to the sign-in page.
+    if (!isSubcontractor(user)) {
+      await this.cognitoAdmin.enableUser(user.cognitoSub);
+      await this.permissionCacheReader.removeUserDisabled(id);
+    }
     await this.cache.invalidateUser(id);
     this.publishUserEvent('user.activated', user);
     this.publishTechUpdated(id, TechChangedField.STATUS);
@@ -761,6 +826,11 @@ export class UsersService implements OnModuleInit {
 
   async resendInvite(id: string): Promise<void> {
     const user = await this.findById(id);
+    if (isSubcontractor(user)) {
+      throw new BadRequestException(
+        'A subcontractor cannot sign in, so there is no invitation to send. Make them a User first.',
+      );
+    }
     await this.cognitoAdmin.resendInvite(user.email);
     this.logger.log(`Re-sent invitation email to ${user.email} (${id})`);
     this.publishUserEvent('user.invite-resent', user);
@@ -778,6 +848,12 @@ export class UsersService implements OnModuleInit {
     }
 
     const targetUser = await this.findById(userId);
+    // Workiz: "Roles are not available for subcontractors."
+    if (isSubcontractor(targetUser)) {
+      throw new BadRequestException(
+        'Roles are not available for subcontractors. Make them a User first.',
+      );
+    }
     const newRole = await this.rolesService.findById(roleId);
     const callerRoleId = await this.resolveCallerRoleId(caller);
     const callerRole = await this.rolesService.findById(callerRoleId);
@@ -921,7 +997,7 @@ export class UsersService implements OnModuleInit {
    * Best-effort — never fails the user mutation.
    */
   private async ensureTechnicianProfile(
-    user: Pick<User, 'id' | 'roleId' | 'fieldTeamMember'>,
+    user: Pick<User, 'id' | 'roleId' | 'fieldTeamMember' | 'userType'>,
   ): Promise<void> {
     if (!this.techniciansRepository) return;
     if (!isFieldTeamMember(user)) return;
@@ -932,6 +1008,7 @@ export class UsersService implements OnModuleInit {
       const now = new Date().toISOString();
       await this.techniciansRepository.upsertProfile({
         userId,
+        ...(isSubcontractor(user) ? { technicianType: 'subcontractor' as const } : {}),
         callMaskingEnabled: false,
         gpsTrackingEnabled: false,
         mobileAppInstalled: false,
@@ -1001,6 +1078,56 @@ export class UsersService implements OnModuleInit {
       .catch((err) =>
         this.logger.warn(`Failed to publish ${eventType}: ${err.message}`),
       );
+  }
+
+  /** Changing the user type can lock someone out: never yourself, only below you. */
+  private async assertCanChangeUserType(caller: JwtUser, user: User): Promise<void> {
+    if (caller.id === user.id) {
+      throw new ForbiddenException('You cannot change your own user type');
+    }
+    await this.assertCallerCanManageUser(caller, user);
+  }
+
+  /**
+   * No sign-in for this person: the Cognito account off and — when they may
+   * hold sessions already — the flag the auth guard refuses them by. A failure
+   * is logged, not thrown: the person is a subcontractor either way, and an
+   * account made for one has no password anyone knows.
+   */
+  private async switchOffSignIn(
+    id: string,
+    cognitoSub: string,
+    { sessions }: { sessions: boolean },
+  ): Promise<void> {
+    try {
+      await this.cognitoAdmin.disableUser(cognitoSub);
+      if (sessions) await this.permissionCacheReader.setUserDisabled(id);
+    } catch (err) {
+      this.logger.warn(`Could not switch off the sign-in of subcontractor ${id}: ${(err as Error).message}`);
+    }
+  }
+
+  /**
+   * The technician card keeps a copy of the type (the Team list reads it off
+   * the card), and a subcontractor's location is not tracked (Workiz: "You
+   * will not be able to enable location tracking for subcontractors").
+   * Best-effort: the user record is the truth, and the card reads it back.
+   */
+  private async mirrorTypeOnCard(id: string, type: UserType): Promise<void> {
+    if (!this.techniciansRepository) return;
+    try {
+      const profile = await this.techniciansRepository.getProfile(id);
+      if (!profile) return;
+      await this.techniciansRepository.updateProfile(id, {
+        technicianType: type,
+        ...(type === 'subcontractor' && profile.gpsTrackingEnabled
+          ? { gpsTrackingEnabled: false }
+          : {}),
+      });
+      await this.techniciansCache?.invalidateProfile(id);
+    } catch (err) {
+      this.logger.warn(`Could not update the technician card of ${id}: ${(err as Error).message}`);
+    }
   }
 
   private async assertCallerCanManageUser(

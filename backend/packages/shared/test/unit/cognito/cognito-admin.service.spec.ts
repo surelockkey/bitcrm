@@ -54,6 +54,23 @@ describe('CognitoAdminService', () => {
         DesiredDeliveryMediums: ['EMAIL'],
       });
     });
+
+    it('creates the account without emailing anyone when the invite is suppressed', async () => {
+      // A Workiz subcontractor gets an account (so their email stays theirs
+      // and they can be made a User later) but no invitation to sign in.
+      mockSend.mockResolvedValue({ User: { Attributes: [] } });
+
+      await service.createUser(
+        'sub@example.com',
+        { 'custom:user_id': 'user-9' },
+        { suppressInvite: true },
+      );
+
+      const command = mockSend.mock.calls[0][0];
+      expect(command.input.MessageAction).toBe('SUPPRESS');
+      expect(command.input.DesiredDeliveryMediums).toBeUndefined();
+      expect(command.input.Username).toBe('sub@example.com');
+    });
   });
 
   describe('updateUserAttributes', () => {

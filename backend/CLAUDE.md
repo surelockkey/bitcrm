@@ -610,6 +610,20 @@ tests, and — if it emits events — the types in `@bitcrm/types` plus a row in
   user-service BEFORE deal-service. A rename here drops `workizName`. `ServiceArea.color` (`#rrggbb`) and the
   tags' Workiz `priority` come from the importer; rows already loaded get them from the parser's
   `bitcrm-patch-display` (workiz-data-parser, `docs/import/jobs-parity-2026-10-08/displaydata.md`).
+- **A subcontractor cannot sign in (Workiz "User type").** `User.userType` is `regular` (absent) or
+  `subcontractor` — Workiz's free team member who "can not login, can take jobs and get messages".
+  user-service enforces it: `POST /users` with `userType: subcontractor` makes the Cognito account
+  with the invite suppressed and switches it off, forces the technician role and the field team;
+  `changeUserType` (via `PUT /users/:id { userType }` or the technician card's `technicianType`, never
+  on yourself, only below your rank) switches the account off and sets the `user:disabled` flag, or
+  back on with the invite re-sent; `reactivate` keeps a sub's sign-in off; `resendInvite`,
+  `assignRole`, an admin's 2FA switch-on and `gpsTrackingEnabled: true` are refused for a sub.
+  `TechnicianProfile.technicianType` is the card's copy, kept in step and read back from the user.
+  messaging's send-to-tech skips `in_app` for a sub (`no_app_login`); SMS / email go as before. After
+  the deploy, and after every Workiz users import or the parser's `bitcrm-patch-user-type`, run
+  `npm run backfill:user-type -w backend/services/user -- --apply` (dry run without `--apply`;
+  needs `COGNITO_USER_POOL_ID`): it moves card-only types onto the user, fixes the cards and switches
+  every sub's Cognito account off. Workiz has no sub badge on jobs, the schedule or reports — neither do we.
 - **Redis DB 0 is dev, DB 15 is tests.** Don't flush the wrong one.
 - **Taxes live on service areas.** There is no tax-rate catalog: `ServiceArea.tax`
   (`{name, ratePercent}`) is the rate, exposed read-only as a `TaxRate` whose id is

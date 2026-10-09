@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Inject,
   Injectable,
@@ -90,7 +91,10 @@ export class TechniciansService {
     return this.resolve(profile);
   }
 
-  /** What a stored profile becomes on its way out: the phone joined, the photo linked. */
+  /**
+   * What a stored profile becomes on its way out: the phone and the user type
+   * joined from the user record, the photo linked.
+   */
   private async resolve(profile: TechnicianProfile): Promise<TechnicianProfile> {
     return this.withPhoto(await this.withPhone(profile));
   }
@@ -124,6 +128,11 @@ export class TechniciansService {
    */
   private async withPhone(profile: TechnicianProfile): Promise<TechnicianProfile> {
     const user = await this.users.findById(profile.userId).catch(() => null);
+    // Workiz's "User type" is the person's — whether they can sign in at all —
+    // so the user record answers; the card's own copy only speaks for a record
+    // from before the type moved there.
+    const technicianType = user?.userType ?? profile.technicianType ?? 'regular';
+    profile = { ...profile, technicianType };
     if (user?.phone) return { ...profile, phone: user.phone };
     if (!profile.phone) return { ...profile, phone: undefined };
 
@@ -210,6 +219,24 @@ export class TechniciansService {
     const changedFields = Object.keys(plain);
     const existing = await this.repository.getProfile(id);
 
+    // Workiz's "User type" belongs to the person: it is written on the user
+    // record, where taking a subcontractor's sign-in away goes with it — and
+    // first, so an edit that may not change it changes nothing.
+    const typeAfter =
+      plain.technicianType ??
+      (await this.users.findById(id).catch(() => null))?.userType ??
+      existing?.technicianType ??
+      'regular';
+    if (plain.gpsTrackingEnabled === true && typeAfter === 'subcontractor') {
+      throw new BadRequestException(
+        'Location tracking is only available for users, not for subcontractors.',
+      );
+    }
+    if (plain.technicianType !== undefined) {
+      await this.users.changeUserType(id, plain.technicianType, caller);
+      delete plain.technicianType;
+    }
+
     // One phone per person, and it lives on the user record. A number arriving
     // through this form is written there; any copy left on the technician item
     // by the old "dispatch phone" field is removed in the same save, so the two
@@ -233,7 +260,7 @@ export class TechniciansService {
       const now = new Date().toISOString();
       const created: TechnicianProfile = {
         userId: id,
-        technicianType: 'regular',
+        technicianType: typeAfter,
         callMaskingEnabled: false,
         gpsTrackingEnabled: false,
         mobileAppInstalled: false,

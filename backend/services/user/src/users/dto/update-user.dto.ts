@@ -1,10 +1,12 @@
 import {
   IsBoolean,
+  IsIn,
   IsOptional,
   IsString,
   MinLength,
 } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
+import { USER_TYPES, type UserType } from '@bitcrm/types';
 
 export class UpdateUserDto {
   @ApiPropertyOptional({ example: 'John' })
@@ -45,4 +47,16 @@ export class UpdateUserDto {
   @IsOptional()
   @IsBoolean()
   fieldTeamMember?: boolean;
+
+  @ApiPropertyOptional({
+    enum: USER_TYPES,
+    description:
+      'Workiz "User type". To `subcontractor` takes the sign-in away at once ' +
+      '(account off, live sessions refused); back to `regular` gives it back and ' +
+      're-sends the invitation. Only someone who outranks the person, never on ' +
+      'yourself.',
+  })
+  @IsOptional()
+  @IsIn(USER_TYPES)
+  userType?: UserType;
 }
