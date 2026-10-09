@@ -1157,6 +1157,12 @@ Import from `@/components/workiz/phone-tab-parts`.
   its Save; "Block this number" on a call (`features/calls/components/
   block-caller-button.tsx`) opens the same form on the other side's number.
 
+- **`WzLocalGrid` `leadingRow`** (new, optional, 2026-10-10 `feat_call_flows`) — a
+  complete `<tr>` of the caller's drawn first on page one and dropped while a
+  search is on: Workiz's "Fallback Number" row atop its Call flows grid. It
+  takes one of the ten blank rows' places and is not counted in "Showing … of
+  N". **`WZ_GRID_CELL`** — the body cells' classes, for that row's cells.
+
 ## The jobs pages on the kit (2026-10-09, agent `jobs_kit_switch`)
 
 The jobs pages (`/deals`, `/deals/new`, `/deals/[id]`) drew their Workiz look

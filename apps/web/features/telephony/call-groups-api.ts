@@ -8,11 +8,20 @@ import type {
 
 export type { CallGroupWithMembers, CallGroupChannel, CallGroupType };
 
+/** A device ticked in the group's grid: its catalog id and its place in the ring order. */
+export interface CallGroupDeviceMemberValues {
+  deviceId: string;
+  order?: number;
+  enabled?: boolean;
+}
+
 export interface CreateCallGroupValues {
   name: string;
   description?: string;
   type?: CallGroupType;
   members?: Array<Pick<CallGroupMember, "userId" | "channel">>;
+  /** Devices rung beside the people (Workiz's "Users and devices"). */
+  deviceMembers?: CallGroupDeviceMemberValues[];
   active?: boolean;
   ringSeconds?: number;
 }
@@ -38,13 +47,18 @@ export const updateCallGroup = (
 ): Promise<CallGroupWithMembers> =>
   http.put<CallGroupWithMembers>(`/telephony/call-groups/${id}`, body);
 
-/** The whole membership goes in one write — add, remove and reorder together. */
+/**
+ * The whole membership goes in one write — add, remove and reorder together;
+ * the devices too when sent (omitted, the server keeps the ones it has).
+ */
 export const setCallGroupMembers = (
   id: string,
   members: Array<Pick<CallGroupMember, "userId" | "channel"> & { order?: number; enabled?: boolean }>,
+  deviceMembers?: CallGroupDeviceMemberValues[],
 ): Promise<CallGroupWithMembers> =>
   http.put<CallGroupWithMembers>(`/telephony/call-groups/${id}/members`, {
     members,
+    ...(deviceMembers !== undefined && { deviceMembers }),
   });
 
 export const deleteCallGroup = (

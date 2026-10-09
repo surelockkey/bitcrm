@@ -1,19 +1,23 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { CallGroupWithMembers } from "@bitcrm/types";
+import type { CallDevice, CallGroupWithMembers } from "@bitcrm/types";
 import { CallGroupEditor } from "./call-group-editor";
 
 const mocks = vi.hoisted(() => ({
   create: vi.fn(async () => ({})),
   update: vi.fn(async () => ({})),
   setMembers: vi.fn(async () => ({})),
+  devices: [] as CallDevice[],
 }));
 
 vi.mock("../call-groups-hooks", () => ({
   useCreateCallGroup: () => ({ mutateAsync: mocks.create, isPending: false }),
   useUpdateCallGroup: () => ({ mutateAsync: mocks.update, isPending: false }),
   useSetCallGroupMembers: () => ({ mutateAsync: mocks.setMembers, isPending: false }),
+}));
+vi.mock("../call-devices-hooks", () => ({
+  useCallDevices: () => ({ data: mocks.devices }),
 }));
 vi.mock("@tanstack/react-query", () => ({
   useQuery: () => ({
@@ -73,6 +77,7 @@ describe("CallGroupEditor", () => {
     mocks.create.mockClear();
     mocks.update.mockClear();
     mocks.setMembers.mockClear();
+    mocks.devices = [];
   });
 
   it("creates a group with the teammates ticked", async () => {
@@ -149,7 +154,7 @@ describe("CallGroupEditor", () => {
     await u.click(screen.getByRole("button", { name: "Save" }));
 
     expect(mocks.update).toHaveBeenCalledWith(expect.objectContaining({ name: "Dispatch", type: "in_order" }));
-    expect(mocks.setMembers).toHaveBeenCalledWith([{ userId: "u-marco", channel: "personal", order: 0, enabled: true }]);
+    expect(mocks.setMembers).toHaveBeenCalledWith({ members: [{ userId: "u-marco", channel: "personal", order: 0, enabled: true }] });
   });
 
   it("unticks a member in the draft without touching the server until save", async () => {
@@ -161,7 +166,7 @@ describe("CallGroupEditor", () => {
     expect(mocks.setMembers).not.toHaveBeenCalled();
 
     await u.click(screen.getByRole("button", { name: "Save" }));
-    expect(mocks.setMembers).toHaveBeenCalledWith([]);
+    expect(mocks.setMembers).toHaveBeenCalledWith({ members: [] });
   });
 
   it("refuses to save a group with no name", async () => {
@@ -206,6 +211,85 @@ describe("CallGroupEditor", () => {
       // Offline softphone, no number of his own.
       await u.click(screen.getByRole("checkbox", { name: /tamir@surelockkey/ }));
       expect(screen.getByText(/would go unanswered/i)).toBeInTheDocument();
+    });
+  });
+  describe("devices (Workiz's \"Users and devices\")", () => {
+    const shop: CallDevice = {
+      id: "d-ct", name: "SURE CT LOCKSMITH", number: "+12039893585", type: "shop_line", active: true,
+      createdBy: "u", createdAt: "", updatedAt: "",
+    };
+    const sip: CallDevice = {
+      id: "d-sip", name: "Shop SIP", sipAddress: "shop@sip.example.com", type: "desk_phone", active: true,
+      createdBy: "u", createdAt: "", updatedAt: "",
+    };
+
+    it("offers each device first, as Workiz's card: its name, \"Device\" under it, the number it rings on", () => {
+      mocks.devices = [shop, sip];
+      render(<CallGroupEditor open onClose={vi.fn()} />);
+      const boxes = screen.getAllByRole("checkbox", { name: /./ }).filter((b) => b.closest("ul"));
+      expect(boxes[0]).toHaveAccessibleName(/SURE CT LOCKSMITH/);
+      const shopCard = card(/SURE CT LOCKSMITH/);
+      expect(shopCard).toHaveTextContent("Device");
+      expect(shopCard).toHaveTextContent("(203) 989-3585");
+      expect(card(/Shop SIP/)).toHaveTextContent("shop@sip.example.com");
+    });
+
+    it("creates a group that rings a device beside a teammate", async () => {
+      const u = userEvent.setup();
+      mocks.devices = [shop];
+      render(<CallGroupEditor open onClose={vi.fn()} />);
+      await u.type(screen.getByLabelText("Group name"), "CT");
+      await u.click(screen.getByRole("checkbox", { name: /SURE CT LOCKSMITH/ }));
+      await u.click(screen.getByRole("checkbox", { name: /dana@surelockkey/ }));
+      // A device always rings: it counts as reachable.
+      expect(screen.getByText("2 of 2 reachable right now.")).toBeInTheDocument();
+      await u.click(screen.getByRole("button", { name: "Save" }));
+
+      expect(mocks.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          members: [{ userId: "u-dana", channel: "softphone", order: 0, enabled: true }],
+          deviceMembers: [{ deviceId: "d-ct", order: 0, enabled: true }],
+        }),
+      );
+    });
+
+    it("saves an edit with the devices in the same write as the people", async () => {
+      const u = userEvent.setup();
+      mocks.devices = [shop, sip];
+      render(
+        <CallGroupEditor
+          group={{ ...group, deviceMembers: [{ deviceId: "d-ct", order: 0, enabled: true, name: "SURE CT LOCKSMITH", number: "+12039893585", missing: false }] }}
+          open
+          onClose={vi.fn()}
+        />,
+      );
+      expect(screen.getByRole("checkbox", { name: /SURE CT LOCKSMITH/ })).toBeChecked();
+      await u.click(screen.getByRole("checkbox", { name: /Shop SIP/ }));
+      await u.click(screen.getByRole("checkbox", { name: /SURE CT LOCKSMITH/ }));
+      await u.click(screen.getByRole("button", { name: "Save" }));
+
+      expect(mocks.setMembers).toHaveBeenCalledWith({
+        members: [{ userId: "u-marco", channel: "both", order: 0, enabled: true }],
+        deviceMembers: [{ deviceId: "d-sip", order: 0, enabled: true }],
+      });
+    });
+
+    it("keeps a device the catalog no longer lists, ticked, so a save never drops it by accident", () => {
+      render(
+        <CallGroupEditor
+          group={{ ...group, deviceMembers: [{ deviceId: "d-gone", order: 0, enabled: true, missing: true }] }}
+          open
+          onClose={vi.fn()}
+        />,
+      );
+      expect(screen.getByRole("checkbox", { name: /Deleted device/ })).toBeChecked();
+    });
+
+    it("sends no devices at all to an API that has none (an old group, an empty catalog)", async () => {
+      const u = userEvent.setup();
+      render(<CallGroupEditor group={group} open onClose={vi.fn()} />);
+      await u.click(screen.getByRole("button", { name: "Save" }));
+      expect(mocks.setMembers).toHaveBeenCalledWith({ members: [{ userId: "u-marco", channel: "both", order: 0, enabled: true }] });
     });
   });
 });

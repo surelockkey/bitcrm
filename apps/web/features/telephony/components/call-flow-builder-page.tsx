@@ -6,7 +6,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { settled, usePageReady } from "@/lib/use-page-ready";
 import { useDenied, usePermissions } from "@/features/auth/use-permissions";
 import { useCallFlows } from "../call-flows-hooks";
-import { useCallGroups } from "../call-groups-hooks";
+import { useCallGroups, useTeammates } from "../call-groups-hooks";
+import { useCallDevices } from "../call-devices-hooks";
 import { useNumbers } from "../numbers-hooks";
 import { CallFlowEditor } from "./call-flow-editor";
 
@@ -25,7 +26,13 @@ export function CallFlowBuilderPage({ flowId }: { flowId?: string }) {
   const flowsQuery = useCallFlows(enabled);
   const groupsQuery = useCallGroups(enabled);
   const numbersQuery = useNumbers(enabled);
-  const ready = usePageReady(!permissionsLoading && [flowsQuery, groupsQuery, numbersQuery].every(settled));
+  // The Forward cards name teammates and devices too, so those come in
+  // before the canvas is drawn — never a card that renames itself a beat later.
+  const teammatesQuery = useTeammates(enabled);
+  const devicesQuery = useCallDevices(enabled);
+  const ready = usePageReady(
+    !permissionsLoading && [flowsQuery, groupsQuery, numbersQuery, teammatesQuery, devicesQuery].every(settled),
+  );
 
   if (denied("settings")) {
     return (

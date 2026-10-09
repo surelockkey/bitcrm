@@ -21,14 +21,17 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { WzButton } from "@/components/workiz/button";
 import { WzEditIcon, WzTrashIcon } from "@/components/workiz/icons";
+import { WzSwitch } from "@/components/workiz/toggles";
 import { cn } from "@/lib/utils";
 import { formatPhone } from "@/lib/phone";
-import type { CallFlow, CallFlowNode, CallFlowNodeType } from "@bitcrm/types";
-import { useCallGroups } from "../call-groups-hooks";
+import type { CallDevice, CallFlow, CallFlowNode, CallFlowNodeType, RingNode } from "@bitcrm/types";
+import { useCallGroups, useTeammates } from "../call-groups-hooks";
+import { useCallDevices } from "../call-devices-hooks";
 import { useCallFlows, useSaveCallFlow } from "../call-flows-hooks";
 import { useNumbers } from "../numbers-hooks";
+import type { TransferTarget } from "../api";
 import { BusinessProfileSelect } from "@/features/business-profiles/components/business-profile-select";
-import { blankStep, STEP_LABEL } from "../flow-graph";
+import { blankStep, ringTargetLabel, STEP_LABEL } from "../flow-graph";
 import {
   deleteStep,
   insertStep,
@@ -93,6 +96,9 @@ export function CallFlowEditor({
   const [name, setName] = useState(flow?.name ?? "");
   const [numbers, setNumbers] = useState<string[]>(flow?.numbers ?? []);
   const [active, setActive] = useState(flow?.active ?? true);
+  // Workiz's "Record Call Flow": on unless the flow says otherwise — a flow
+  // from before the switch recorded, and still does.
+  const [record, setRecord] = useState(flow?.record ?? true);
   const [businessProfileId, setBusinessProfileId] = useState<string | null>(
     flow?.businessProfileId ?? null,
   );
@@ -106,7 +112,18 @@ export function CallFlowEditor({
   );
 
   const { data: groups } = useCallGroups(open);
+  // The Forward step's User and Device tabs; absent on an API from before
+  // devices, in which case the tabs simply offer nobody.
+  const { data: teammates } = useTeammates(open);
+  const { data: devices } = useCallDevices(open);
   const save = useSaveCallFlow(flow?.id);
+
+  const targetLabel = (node: RingNode) =>
+    ringTargetLabel(node, {
+      group: (id) => (groups ?? []).find((g) => g.id === id)?.name,
+      user: (id) => (teammates ?? []).find((u) => u.id === id)?.name,
+      device: (id) => (devices ?? []).find((d) => d.id === id)?.name,
+    });
 
   // Recomputed rather than tracked: the selected step's position changes when
   // anything above it moves, and a stale copy would move the wrong step.
@@ -125,6 +142,7 @@ export function CallFlowEditor({
       nodes,
       active,
       businessProfileId,
+      record,
     });
     onClose();
   };
@@ -178,7 +196,7 @@ export function CallFlowEditor({
         <div className="relative flex min-h-0 flex-1">
           <FlowCanvas
             steps={steps}
-            groups={groups ?? []}
+            targetLabel={targetLabel}
             numbers={numbers}
             selectedId={panel?.kind === "step" ? panel.id : undefined}
             onSelect={(node: LayoutNode) => setPanel({ kind: "step", id: node.id })}
@@ -191,12 +209,14 @@ export function CallFlowEditor({
               name={name}
               numbers={numbers}
               active={active}
+              record={record}
               businessProfileId={businessProfileId}
               currentFlowId={flow?.id}
               onApply={(next) => {
                 setName(next.name);
                 setNumbers(next.numbers);
                 setActive(next.active);
+                setRecord(next.record);
                 setBusinessProfileId(next.businessProfileId);
                 setPanel(undefined);
               }}
@@ -220,6 +240,8 @@ export function CallFlowEditor({
             <StepPanel
               node={selected}
               groups={groups ?? []}
+              teammates={teammates ?? []}
+              devices={devices ?? []}
               onChange={(node) =>
                 setSteps((current) =>
                   replaceStep(current, node.id, (step) => ({ ...step, node })),
@@ -243,8 +265,8 @@ export function CallFlowEditor({
 /* --------------------------------------------------------------- the panels */
 
 /**
- * The flow's own settings: what it's called, which numbers enter it, and
- * whether it is answering calls at all.
+ * The flow's own settings: what it's called, which numbers enter it, whether
+ * its calls are recorded, and whether it is answering calls at all.
  *
  * Edited against a copy so Cancel really cancels — half-changing a name and
  * clicking away should leave the flow as it was.
@@ -253,6 +275,7 @@ function BasicInfoPanel({
   name,
   numbers,
   active,
+  record,
   businessProfileId,
   currentFlowId,
   onApply,
@@ -261,12 +284,14 @@ function BasicInfoPanel({
   name: string;
   numbers: string[];
   active: boolean;
+  record: boolean;
   businessProfileId: string | null;
   currentFlowId?: string;
   onApply: (next: {
     name: string;
     numbers: string[];
     active: boolean;
+    record: boolean;
     businessProfileId: string | null;
   }) => void;
   onClose: () => void;
@@ -274,6 +299,7 @@ function BasicInfoPanel({
   const [draftName, setDraftName] = useState(name);
   const [draftNumbers, setDraftNumbers] = useState(numbers);
   const [draftActive, setDraftActive] = useState(active);
+  const [draftRecord, setDraftRecord] = useState(record);
   const [draftCompany, setDraftCompany] = useState(businessProfileId);
 
   return (
@@ -290,6 +316,7 @@ function BasicInfoPanel({
               name: draftName,
               numbers: draftNumbers,
               active: draftActive,
+              record: draftRecord,
               businessProfileId: draftCompany,
             })
           }
@@ -314,6 +341,24 @@ function BasicInfoPanel({
           currentFlowId={currentFlowId}
           onChange={setDraftNumbers}
         />
+
+        {/* Workiz's "Record Call Flow" (pg_settings_phone_wz_builder_basic):
+            the 40×20 green toggle, the 13px/600 title 10px after it, and
+            "Record and save calls in this call flow" 13px under them —
+            the row 31px under the numbers' hint, the words 28px under the title. */}
+        <div className="pt-[11px]">
+          <div className="flex items-center gap-2.5">
+            <WzSwitch
+              aria-label="Record Call Flow"
+              checked={draftRecord}
+              onCheckedChange={setDraftRecord}
+            />
+            <span className="text-[13px] leading-4 font-semibold tracking-[0.4px] text-[#3b4c53]">Record Call Flow</span>
+          </div>
+          <p className="mt-[10px] text-[13px] leading-4 tracking-[0.4px] text-[rgba(59,76,83,0.8)]">
+            Record and save calls in this call flow
+          </p>
+        </div>
 
         <div className="space-y-2">
           <label htmlFor="cf-company" className="block text-[13px] leading-4 font-semibold tracking-[0.4px] text-[#3b4c53]">
@@ -496,7 +541,7 @@ const ICONS: Record<CallFlowNodeType, typeof PhoneCall> = {
 const PALETTE: { type: CallFlowNodeType; detail: string }[] = [
   { type: "say", detail: "Play a greeting, typed or recorded." },
   { type: "menu", detail: "“Press 1 for…” — one path per key." },
-  { type: "ring", detail: "Ring a call group and connect whoever answers." },
+  { type: "ring", detail: "Forward the call to a group, a user, a device or an outside number." },
   { type: "hours", detail: "Split the call on your opening times." },
   { type: "voicemail", detail: "Record a message and attach it to the call." },
   { type: "ext", detail: "A technician dials in with a job code." },
@@ -552,6 +597,8 @@ function AddStepPanel({
 function StepPanel({
   node,
   groups,
+  teammates,
+  devices,
   onChange,
   onMove,
   onRemove,
@@ -559,13 +606,16 @@ function StepPanel({
 }: {
   node: LayoutNode;
   groups: Parameters<typeof FlowStepFields>[0]["groups"];
+  teammates: TransferTarget[];
+  devices: CallDevice[];
   onChange: (node: CallFlowNode) => void;
   onMove: (to: number) => void;
   onRemove: () => void;
   onClose: () => void;
 }) {
   const step = node.step!;
-  const label = STEP_LABEL[step.node.type];
+  // Workiz titles the Forward pane "Forward Calls".
+  const label = step.node.type === "ring" ? "Forward Calls" : STEP_LABEL[step.node.type];
 
   return (
     <FlowPanel
@@ -578,7 +628,7 @@ function StepPanel({
             size="regular"
             className="h-[35px] flex-1"
             icon={<WzTrashIcon />}
-            aria-label={`Remove ${label}`}
+            aria-label={`Remove ${STEP_LABEL[step.node.type]}`}
             onClick={onRemove}
           >
             Remove
@@ -596,7 +646,7 @@ function StepPanel({
               variant="secondary"
               size="regular"
               icon={<MoveUp />}
-              aria-label={`Move ${label} earlier`}
+              aria-label={`Move ${STEP_LABEL[step.node.type]} earlier`}
               disabled={!node.canMoveEarlier}
               onClick={() => onMove(node.index - 1)}
             >
@@ -606,7 +656,7 @@ function StepPanel({
               variant="secondary"
               size="regular"
               icon={<MoveDown />}
-              aria-label={`Move ${label} later`}
+              aria-label={`Move ${STEP_LABEL[step.node.type]} later`}
               disabled={!node.canMoveLater}
               onClick={() => onMove(node.index + 1)}
             >
@@ -615,7 +665,7 @@ function StepPanel({
           </div>
         ) : null}
 
-        <FlowStepFields node={step.node} groups={groups} onChange={onChange} />
+        <FlowStepFields node={step.node} groups={groups} teammates={teammates} devices={devices} onChange={onChange} />
       </div>
     </FlowPanel>
   );

@@ -17,6 +17,7 @@ import {
   type CallGroupWithMembers,
 } from "@bitcrm/types";
 import { listTransferTargets } from "../api";
+import { useCallDevices } from "../call-devices-hooks";
 import { useCreateCallGroup, useSetCallGroupMembers, useUpdateCallGroup } from "../call-groups-hooks";
 
 /** A member as the editor holds it, before anything is saved. */
@@ -27,6 +28,22 @@ interface Draft {
   name: string;
   phone?: string;
   softphoneOnline: boolean;
+}
+
+/** A device ticked in the draft — from the Devices catalog, or one that has left it. */
+interface DeviceDraft {
+  deviceId: string;
+  enabled: boolean;
+}
+
+/** A device the grid offers: Workiz's card says its name, "Device", and the number it rings on. */
+interface DeviceCandidate {
+  id: string;
+  name: string;
+  /** The number as people write it, or the SIP address. */
+  rings?: string;
+  /** Paused in the catalog, or gone from it: ticked, it would not ring. */
+  silent: boolean;
 }
 
 /** A teammate the grid offers — from the directory, or a member who has left it. */
@@ -89,7 +106,9 @@ function ChannelSwitch({ member, onChange }: { member: Draft; onChange: (c: Call
  * 60px card in two columns (phone glyph, name and number over a second line,
  * a tick box at the right). Ours kept in it: All at once | In order (ticked
  * order is ring order), the description, how each ticked member is rung,
- * whether anybody would ring right now, Active. Everything is held in a
+ * whether anybody would ring right now, Active. Devices (the Devices
+ * catalog) come first, as Workiz lists them: name, "Device", the number.
+ * Everything is held in a
  * draft and saved on one click: the group's own fields and its membership
  * are two writes on the server, but one decision here.
  */
@@ -121,7 +140,13 @@ export function CallGroupEditor({
         softphoneOnline: m.softphoneOnline,
       })),
   );
+  const [deviceDrafts, setDeviceDrafts] = useState<DeviceDraft[]>(
+    [...(group?.deviceMembers ?? [])]
+      .sort((a, b) => a.order - b.order)
+      .map((d) => ({ deviceId: d.deviceId, enabled: d.enabled })),
+  );
   const [query, setQuery] = useState("");
+  const { data: catalog } = useCallDevices(open);
 
   const { data: directory } = useQuery({
     queryKey: [...queryKeys.telephony.transferTargets(), "with-self"],
@@ -160,10 +185,34 @@ export function CallGroupEditor({
     return list;
   }, [directory, members, group?.members]);
 
+  // Every device in the catalog once, plus any the group holds that has left it.
+  const deviceCandidates = useMemo<DeviceCandidate[]>(() => {
+    const list: DeviceCandidate[] = (catalog ?? []).map((d) => ({
+      id: d.id,
+      name: d.name,
+      rings: d.number ? formatPhone(d.number) || d.number : d.sipAddress,
+      silent: !d.active,
+    }));
+    for (const d of group?.deviceMembers ?? []) {
+      if (!list.some((c) => c.id === d.deviceId)) {
+        list.push({
+          id: d.deviceId,
+          name: d.missing || !d.name ? "Deleted device" : d.name,
+          rings: d.number ? formatPhone(d.number) || d.number : undefined,
+          silent: d.missing,
+        });
+      }
+    }
+    return list;
+  }, [catalog, group?.deviceMembers]);
+
   const q = query.trim().toLowerCase();
   const shown = q
     ? candidates.filter((c) => c.name.toLowerCase().includes(q) || (c.email ?? "").toLowerCase().includes(q))
     : candidates;
+  const shownDevices = q
+    ? deviceCandidates.filter((d) => d.name.toLowerCase().includes(q) || (d.rings ?? "").toLowerCase().includes(q))
+    : deviceCandidates;
 
   /**
    * How this member would be reached if a call arrived now, or null if they
@@ -176,8 +225,19 @@ export function CallGroupEditor({
     if (m.channel !== "softphone" && m.phone) ways.push(formatPhone(m.phone));
     return ways.length ? ways.join(" + ") : null;
   };
-  const reachable = members.filter((m) => m.enabled && reachOf(m)).length;
-  const full = members.length >= CALL_GROUP_LIMITS.maxMembers;
+  // A device rings whenever the group does, unless it is paused or gone.
+  const ringingDevices = deviceDrafts.filter(
+    (d) => d.enabled && !deviceCandidates.find((c) => c.id === d.deviceId)?.silent,
+  ).length;
+  const reachable = members.filter((m) => m.enabled && reachOf(m)).length + ringingDevices;
+  const everyone = members.length + deviceDrafts.length;
+  // People and devices share the one cap: every one of them is a billed leg.
+  const full = everyone >= CALL_GROUP_LIMITS.maxMembers;
+
+  const toggleDevice = (d: DeviceCandidate) =>
+    setDeviceDrafts((list) =>
+      list.some((x) => x.deviceId === d.id) ? list.filter((x) => x.deviceId !== d.id) : [...list, { deviceId: d.id, enabled: true }],
+    );
 
   const toggle = (c: Candidate) =>
     setMembers((list) =>
@@ -202,6 +262,10 @@ export function CallGroupEditor({
     setMembers((list) => list.map((m) => (m.userId === userId ? { ...m, channel } : m)));
 
   const payload = () => members.map((m, i) => ({ userId: m.userId, channel: m.channel, order: i, enabled: m.enabled }));
+  const devicePayload = () => deviceDrafts.map((d, i) => ({ deviceId: d.deviceId, order: i, enabled: d.enabled }));
+  // Devices go only where there are any to speak of — an API from before
+  // them would refuse a field it doesn't know.
+  const sendsDevices = deviceCandidates.length > 0 || group?.deviceMembers !== undefined;
 
   const save = async () => {
     if (!name.trim()) return;
@@ -209,7 +273,10 @@ export function CallGroupEditor({
       // Fields first, then membership: a rejected membership leaves the group's
       // own edits saved rather than losing both.
       await update.mutateAsync({ name: name.trim(), description: description.trim(), type, active });
-      await setServerMembers.mutateAsync(payload());
+      await setServerMembers.mutateAsync({
+        members: payload(),
+        ...(sendsDevices && { deviceMembers: devicePayload() }),
+      });
     } else {
       await create.mutateAsync({
         name: name.trim(),
@@ -217,6 +284,7 @@ export function CallGroupEditor({
         type,
         active,
         members: payload(),
+        ...(deviceDrafts.length > 0 && { deviceMembers: devicePayload() }),
       });
     }
     onClose();
@@ -263,7 +331,7 @@ export function CallGroupEditor({
             : "Calls forwarded to this group will ring the selected users one after another, in the order they were ticked."}
           {" "}*Softphones will ring if open and available for logged in users; a personal phone rings its own number.
         </p>
-        {members.length > 0 ? (
+        {everyone > 0 ? (
           <p
             className={cn(
               "mt-2 text-[13px] leading-[19px] tracking-[0.4px]",
@@ -272,7 +340,7 @@ export function CallGroupEditor({
           >
             {reachable === 0
               ? "Nobody here can be reached right now — a call to this group would go unanswered."
-              : `${reachable} of ${members.length} reachable right now.`}
+              : `${reachable} of ${everyone} reachable right now.`}
           </p>
         ) : null}
 
@@ -289,6 +357,44 @@ export function CallGroupEditor({
         </div>
 
         <ul aria-label="Members in group" className="mt-4 grid max-h-[360px] grid-cols-1 gap-3 overflow-y-auto pr-1 sm:grid-cols-2">
+          {/* Workiz lists the devices first (pg_settings_phone_wz_groups_edit_open):
+              the name, "Device" under it, the number beside the name. */}
+          {shownDevices.map((d) => {
+            const ticked = deviceDrafts.find((x) => x.deviceId === d.id);
+            const position = ticked ? deviceDrafts.indexOf(ticked) + 1 : 0;
+            return (
+              <li
+                key={`device-${d.id}`}
+                className={cn(
+                  "flex min-h-[60px] items-start gap-3 rounded-[4px] border border-wz-frame px-4 py-2.5",
+                  ticked && "border-foreground/40",
+                )}
+              >
+                <Phone className="mt-0.5 size-[18px] shrink-0 text-foreground" strokeWidth={1.5} aria-hidden />
+                <div className="min-w-0 flex-1 text-sm leading-[21px] tracking-[0.4px] text-foreground">
+                  <div className="flex min-w-0 items-baseline gap-2">
+                    {ticked && type === "in_order" ? (
+                      <span className="shrink-0 text-xs font-semibold text-wz-slate">{position}.</span>
+                    ) : null}
+                    <span className="truncate">{d.name}</span>
+                    {d.rings ? <span className="shrink-0">{d.rings}</span> : null}
+                  </div>
+                  <div className="truncate">Device</div>
+                  {ticked && d.silent ? (
+                    <span className="mt-1 block text-xs leading-4 text-wz-danger">Won&apos;t ring — paused or removed from Devices</span>
+                  ) : null}
+                </div>
+                <input
+                  type="checkbox"
+                  className="mt-1 size-[13px] shrink-0 cursor-pointer disabled:cursor-not-allowed"
+                  aria-label={[d.name, "Device", d.rings].filter(Boolean).join(" ")}
+                  checked={!!ticked}
+                  disabled={!ticked && full}
+                  onChange={() => toggleDevice(d)}
+                />
+              </li>
+            );
+          })}
           {shown.map((c) => {
             const member = members.find((m) => m.userId === c.id);
             const position = member ? members.indexOf(member) + 1 : 0;
@@ -330,12 +436,12 @@ export function CallGroupEditor({
               </li>
             );
           })}
-          {shown.length === 0 ? (
+          {shown.length === 0 && shownDevices.length === 0 ? (
             <li className="col-span-full py-6 text-center text-sm text-wz-slate">{q ? "Nobody matches." : "Loading the team…"}</li>
           ) : null}
         </ul>
         <p className="mt-2 text-xs leading-4 text-wz-caption">
-          {members.length}/{CALL_GROUP_LIMITS.maxMembers} members · numbers are read from each person&apos;s profile when the call comes in.
+          {`${everyone}/${CALL_GROUP_LIMITS.maxMembers} members`} · numbers are read from each person&apos;s profile and each device when the call comes in.
         </p>
       </div>
 

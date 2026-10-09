@@ -92,7 +92,9 @@ const MIN_ROWS = 10;
 const MIN_COL = 100;
 
 /** rt-td: 20px all round, 14px/16px #404040, clipped with "…", a dotted rule between columns. */
-const CELL = "overflow-hidden p-5 align-top text-ellipsis whitespace-nowrap";
+/** A body cell's classes — for a caller's `leadingRow`, so its cells sit as the records' do. */
+export const WZ_GRID_CELL = "overflow-hidden p-5 align-top text-ellipsis whitespace-nowrap";
+const CELL = WZ_GRID_CELL;
 
 /**
  * A Workiz report grid whose rows are all in hand — the client page's Jobs,
@@ -122,6 +124,7 @@ export function WzLocalGrid<T>({
   pagerInside = false,
   emptyText = "No Records Found",
   search = true,
+  leadingRow,
   className,
 }: {
   /** The table's accessible name ("Jobs"). */
@@ -161,6 +164,13 @@ export function WzLocalGrid<T>({
    * strip (#f7f7f7, 1px #ddd over it) where the others put the Search.
    */
   search?: boolean;
+  /**
+   * A row that is not one of the records, drawn first on page one and
+   * dropped while a search is on — Workiz's "Fallback Number" row at the
+   * top of its Call flows grid (pg_settings_phone_wz_flows). A complete
+   * `<tr>` of the caller's; it is not counted in "Showing … of N".
+   */
+  leadingRow?: ReactNode;
   className?: string;
 }) {
   const [query, setQuery] = useState("");
@@ -169,6 +179,7 @@ export function WzLocalGrid<T>({
   const [size, setSize] = useState(defaultPageSize);
 
   const view = useMemo(() => localGridView(rows, columns, { query, sort, page, size }), [rows, columns, query, sort, page, size]);
+  const leading = leadingRow && view.page === 1 && !query.trim() ? leadingRow : null;
   const fixed = columns.reduce((sum, c) => sum + (c.width ?? 0), 0);
   const flexible = columns.filter((c) => !c.width).length;
   const minWidth = fixed + flexible * MIN_COL;
@@ -250,6 +261,7 @@ export function WzLocalGrid<T>({
             </TableRow>
           </TableHeader>
           <TableBody>
+            {leading}
             {view.rows.map((r) => (
               <TableRow
                 key={rowKey(r)}
@@ -264,7 +276,7 @@ export function WzLocalGrid<T>({
                 ))}
               </TableRow>
             ))}
-            {Array.from({ length: Math.max(0, MIN_ROWS - view.rows.length) }, (_, i) => (
+            {Array.from({ length: Math.max(0, MIN_ROWS - view.rows.length - (leading ? 1 : 0)) }, (_, i) => (
               <TableRow key={`pad-${i}`} aria-hidden className="h-[57px] border-0 hover:bg-transparent">
                 {columns.map((c) => (
                   <TableCell key={c.id} className={CELL} />

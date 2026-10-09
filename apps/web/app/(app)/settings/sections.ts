@@ -11,6 +11,7 @@ import {
   ListPlus,
   Phone,
   PhoneCall,
+  PhoneForwarded,
   Users,
   UsersRound,
   ShieldCheck,
@@ -260,6 +261,14 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
         href: "/calls/groups",
         description: "Who an incoming call rings — softphones, personal numbers, or both.",
         icon: Users,
+        resource: "settings",
+      },
+      {
+        // Workiz's Devices tile (callsReport/?devices=1), after Call Groups (its Call Masking stands between).
+        label: "Devices",
+        href: "/calls/devices",
+        description: "Desk phones and shop lines a call group or a call flow can ring.",
+        icon: PhoneForwarded,
         resource: "settings",
       },
       {

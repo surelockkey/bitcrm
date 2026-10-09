@@ -116,6 +116,53 @@ describe("WzLocalGrid — Workiz's grid under a client-page tab", () => {
     expect(screen.getByTestId("list-pagination")).toHaveTextContent("Showing 1 to 3 of 3 results");
   });
 
+  it("draws a leading row first on page one, and drops it while searching (Workiz's Fallback Number row)", async () => {
+    const many = Array.from({ length: 12 }, (_, i) => ({ id: `R${String(i).padStart(2, "0")}`, name: `n${i}`, total: i }));
+    render(
+      <WzLocalGrid
+        label="Flows"
+        columns={COLUMNS}
+        rows={many}
+        rowKey={(r) => r.id}
+        leadingRow={
+          <tr data-testid="leading">
+            <td colSpan={4}>Fallback Number</td>
+          </tr>
+        }
+      />,
+    );
+    const table = screen.getByRole("table", { name: "Flows" });
+    expect(table.querySelector("tbody tr")).toHaveAttribute("data-testid", "leading");
+    // Not counted: Workiz's "of 123" counts it, but a row that is not a record is not one of the results.
+    expect(screen.getByTestId("list-pagination")).toHaveTextContent("Showing 1 to 10 of 12 results");
+
+    await userEvent.click(screen.getByRole("button", { name: "Next page" }));
+    expect(screen.queryByTestId("leading")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Previous page" }));
+    expect(screen.getByTestId("leading")).toBeInTheDocument();
+
+    await userEvent.type(screen.getByRole("searchbox", { name: "Search" }), "n1");
+    expect(screen.queryByTestId("leading")).not.toBeInTheDocument();
+  });
+
+  it("keeps the grid ten rows tall with the leading row in it", () => {
+    render(
+      <WzLocalGrid
+        label="Flows"
+        columns={COLUMNS}
+        rows={ROWS}
+        rowKey={(r) => r.id}
+        leadingRow={
+          <tr data-testid="leading">
+            <td colSpan={4}>Fallback Number</td>
+          </tr>
+        }
+      />,
+    );
+    const table = screen.getByRole("table", { name: "Flows" });
+    expect(table.querySelectorAll("tbody tr")).toHaveLength(10);
+  });
+
   it("puts the caller's toolbar pieces after the search box", () => {
     render(<WzLocalGrid label="Invoices" columns={COLUMNS} rows={ROWS} rowKey={(r) => r.id} toolbar={<button type="button">Pay unpaid invoices</button>} />);
     expect(screen.getByRole("button", { name: "Pay unpaid invoices" })).toBeInTheDocument();

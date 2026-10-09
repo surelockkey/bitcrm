@@ -1,10 +1,40 @@
-import type {
-  CallFlow,
-  CallFlowNode,
-  CallFlowNodeType,
-  HoursNode,
-  MenuNode,
+import {
+  ringTargetOf,
+  type CallFlow,
+  type CallFlowNode,
+  type CallFlowNodeType,
+  type HoursNode,
+  type MenuNode,
+  type RingNode,
 } from "@bitcrm/types";
+import { formatPhone } from "@/lib/phone";
+
+/** Who to call a target's id by — the groups, teammates and devices on hand. */
+export interface TargetNames {
+  group: (id: string) => string | undefined;
+  user: (id: string) => string | undefined;
+  device: (id: string) => string | undefined;
+}
+
+/**
+ * What a Forward step rings, in words: the group's, the teammate's or the
+ * device's name, an outside number as people write it, and plain words for
+ * something that has since been deleted — never a bare id.
+ */
+export function ringTargetLabel(node: Pick<RingNode, "target" | "groupId">, names: TargetNames): string {
+  const target = ringTargetOf(node);
+  if (!target) return "No target picked yet";
+  switch (target.kind) {
+    case "group":
+      return target.id ? (names.group(target.id) ?? "a deleted group") : "No target picked yet";
+    case "user":
+      return target.id ? (names.user(target.id) ?? "a former teammate") : "No target picked yet";
+    case "device":
+      return target.id ? (names.device(target.id) ?? "a deleted device") : "No target picked yet";
+    case "external":
+      return target.number ? formatPhone(target.number) || target.number : "No target picked yet";
+  }
+}
 
 /** Every step this one can lead to — `next` plus whatever branches it has. */
 export function exitsOf(node: CallFlowNode): string[] {
@@ -61,7 +91,8 @@ export const STEP_LABEL: Record<CallFlowNodeType, string> = {
   say: "Say something",
   hours: "Business hours",
   menu: "Voice menu",
-  ring: "Ring a group",
+  // Workiz's "Forward": a group, a user, a device or an outside number.
+  ring: "Forward",
   voicemail: "Take a message",
   hangup: "Hang up",
   ext: "Technician line",
@@ -100,7 +131,8 @@ export function blankStep(type: CallFlowNodeType): CallFlowNode {
     case "menu":
       return { id, type, ...DEFAULT_MENU };
     case "ring":
-      return { id, type, groupId: "" };
+      // Opens on Workiz's Group tab with nothing picked yet.
+      return { id, type, target: { kind: "group", id: "" } };
     case "voicemail":
       return {
         id,

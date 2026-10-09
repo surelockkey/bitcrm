@@ -38,11 +38,26 @@ const flow = {
   createdAt: "",
   updatedAt: "",
 };
+// A flow that forwards to a teammate, then a device, then an outside number.
+const forwards = {
+  ...flow,
+  id: "f2",
+  name: "After hours",
+  entryNodeId: "u",
+  nodes: {
+    u: { id: "u", type: "ring", target: { kind: "user", id: "u-riley" }, next: "d" },
+    d: { id: "d", type: "ring", target: { kind: "device", id: "d-ct" }, next: "x" },
+    x: { id: "x", type: "ring", target: { kind: "external", number: "+18888996849" } },
+  },
+};
 const routes: FakeRoute[] = [
-  { match: /\/telephony\/call-flows$/, reply: () => [flow] },
+  { match: /\/telephony\/call-flows$/, reply: () => [flow, forwards] },
   // The group the ring card names answers last.
   { match: /\/telephony\/call-groups$/, reply: () => [{ id: "g1", name: "Front desk", type: "ring_all", members: [], active: true }], delayMs: 80 },
   { match: /\/telephony\/numbers$/, reply: () => [{ sid: "PN1", phoneNumber: "+15412830739", friendlyName: "Main" }], delayMs: 40 },
+  // The Forward step's User and Device tabs, named on the cards too.
+  { match: /\/telephony\/presence\/online$/, reply: () => [{ id: "u-riley", name: "Riley CSR", softphoneOnline: true }], delayMs: 60 },
+  { match: /\/telephony\/devices$/, reply: () => [{ id: "d-ct", name: "SURE CT LOCKSMITH", number: "+12039893585", type: "shop_line", active: true }], delayMs: 60 },
 ];
 
 let server: FakeServer;
@@ -72,6 +87,31 @@ describe("CallFlowBuilderPage", () => {
     await screen.findByRole("heading", { name: "Main line" }, { timeout: 3000 });
     watch.stop();
     expect(watch.frame()).toEqual({ card: true, skeletons: 0 });
+  });
+
+  it("names a teammate, a device and an outside number on their Forward cards in the first frame", async () => {
+    const watch = watchFirstFrame(
+      () => !!screen.queryByRole("heading", { name: "After hours" }),
+      () => ({
+        user: !!screen.queryByRole("button", { name: "Edit Forward — Riley CSR" }),
+        device: !!screen.queryByRole("button", { name: "Edit Forward — SURE CT LOCKSMITH" }),
+        external: !!screen.queryByRole("button", { name: "Edit Forward — (888) 899-6849" }),
+        skeletons: skeletonCount(),
+      }),
+    );
+    renderWithClient(<CallFlowBuilderPage flowId="f2" />);
+    await screen.findByRole("heading", { name: "After hours" }, { timeout: 3000 });
+    watch.stop();
+    expect(watch.frame()).toEqual({ user: true, device: true, external: true, skeletons: 0 });
+  });
+
+  it("opens on an API that has no Devices yet", async () => {
+    server = installFakeServer([
+      ...routes.filter((r) => !r.match.test("/api/telephony/devices")),
+      { match: /\/telephony\/devices$/, reply: () => ({ success: false, message: "Cannot GET" }), raw: true, status: 404 },
+    ]);
+    renderWithClient(<CallFlowBuilderPage flowId="f2" />);
+    expect(await screen.findByRole("button", { name: "Edit Forward — a deleted device" }, { timeout: 3000 })).toBeInTheDocument();
   });
 
   it("asks for each thing once", async () => {

@@ -5,8 +5,8 @@ import { activePhoneTab, phoneTabs } from "./phone-tabs";
  * The tab strip under the Phone header. Workiz has eight (callspage_wz_tab_*):
  * Calls, Phone numbers, Call flows, Call masking, Call groups, Blocked callers,
  * Devices, Texting. We have pages for six of them — the call log, four
- * telephony settings and the blocked callers — and draw only those, at
- * Workiz's sub-routes.
+ * telephony settings, the blocked callers and Devices — and draw only
+ * those, at Workiz's sub-routes.
  */
 const everything = () => true;
 
@@ -18,6 +18,8 @@ describe("phoneTabs", () => {
       { id: "flows", label: "Call flows", href: "/calls/flows" },
       { id: "groups", label: "Call groups", href: "/calls/groups" },
       { id: "blocked", label: "Blocked callers", href: "/calls/blocked-callers" },
+
+      { id: "devices", label: "Devices", href: "/calls/devices" },
       { id: "texting", label: "Texting", href: "/calls/texting" },
     ]);
   });
@@ -29,7 +31,7 @@ describe("phoneTabs", () => {
 
   it("keeps the call log from a viewer without calls.view", () => {
     const settingsOnly = (resource: string) => resource === "settings";
-    expect(phoneTabs(settingsOnly).map((t) => t.id)).toEqual(["numbers", "flows", "groups", "texting"]);
+    expect(phoneTabs(settingsOnly).map((t) => t.id)).toEqual(["numbers", "flows", "groups", "devices", "texting"]);
   });
 
   it("shows Blocked callers only with calls.block — the log alone is not enough", () => {
@@ -47,6 +49,8 @@ describe("activePhoneTab", () => {
     ["/calls/flows", "flows"],
     ["/calls/groups", "groups"],
     ["/calls/blocked-callers", "blocked"],
+
+    ["/calls/devices", "devices"],
     ["/calls/texting", "texting"],
   ])("%s is the %s tab", (path, id) => {
     expect(activePhoneTab(path)).toBe(id);

@@ -30,6 +30,9 @@ export const queryKeys = {
     callFlows: () => ["telephony", "call-flows"] as const,
     /** Workiz Phone → Blocked callers (the whole list). */
     blockedCallers: () => ["telephony", "blocked-callers"] as const,
+
+    /** The Devices catalog (desk phones / shop lines a group or a Forward step rings). */
+    callDevices: () => ["telephony", "call-devices"] as const,
   },
 
   /**

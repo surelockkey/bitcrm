@@ -34,6 +34,10 @@ vi.mock("../call-groups-hooks", () => ({
       { id: "g2", name: "On call", members: [] },
     ],
   }),
+  useTeammates: () => ({ data: [{ id: "u-riley", name: "Riley CSR", softphoneOnline: true }] }),
+}));
+vi.mock("../call-devices-hooks", () => ({
+  useCallDevices: () => ({ data: [{ id: "d-ct", name: "SURE CT LOCKSMITH", number: "+12039893585", type: "shop_line", active: true }] }),
 }));
 vi.mock("../numbers-hooks", () => ({
   useNumbers: () => ({ data: mocks.numbers, isLoading: false }),
@@ -128,7 +132,7 @@ describe("CallFlowEditor", () => {
 
     expect(screen.getByText("Incoming call")).toBeInTheDocument();
     expect(screen.getByText(/To: .*541.*283.*0739/)).toBeInTheDocument();
-    expect(cards()).toEqual(["Say something", "Ring a group", "Take a message"]);
+    expect(cards()).toEqual(["Say something", "Forward", "Take a message"]);
   });
 
   it("summarises each step on its card, without opening anything", () => {
@@ -143,9 +147,9 @@ describe("CallFlowEditor", () => {
     const u = userEvent.setup();
     render(<CallFlowEditor flow={flow} open onClose={vi.fn()} />);
 
-    await u.click(screen.getByRole("button", { name: new RegExp("^Edit Ring a group — ") }));
+    await u.click(screen.getByRole("button", { name: new RegExp("^Edit Forward — ") }));
 
-    expect(screen.getByRole("dialog", { name: "Ring a group" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Forward Calls" })).toBeInTheDocument();
     expect(screen.getByLabelText("Call group")).toBeInTheDocument();
     // Order is the wiring, so there is no "and then…" anywhere.
     expect(screen.queryByLabelText(/If nobody answers/i)).not.toBeInTheDocument();
@@ -156,11 +160,11 @@ describe("CallFlowEditor", () => {
     const u = userEvent.setup();
     render(<CallFlowEditor flow={flow} open onClose={vi.fn()} />);
 
-    await u.click(screen.getByRole("button", { name: new RegExp("^Edit Ring a group — ") }));
+    await u.click(screen.getByRole("button", { name: new RegExp("^Edit Forward — ") }));
     await u.click(screen.getByRole("button", { name: "Close" }));
 
-    expect(screen.queryByRole("dialog", { name: "Ring a group" })).not.toBeInTheDocument();
-    expect(cards()).toEqual(["Say something", "Ring a group", "Take a message"]);
+    expect(screen.queryByRole("dialog", { name: "Forward Calls" })).not.toBeInTheDocument();
+    expect(cards()).toEqual(["Say something", "Forward", "Take a message"]);
   });
 
   it("wires the saved flow from the order on screen", async () => {
@@ -232,7 +236,7 @@ describe("CallFlowEditor", () => {
       // dispatch, then take a message, then ring the on-call tech.
       const all = plusButtons();
       await u.click(all[all.length - 1]);
-      await u.click(screen.getByRole("button", { name: /^Ring a group/ }));
+      await u.click(screen.getByRole("button", { name: /^Forward/ }));
       await u.click(screen.getByRole("button", { name: /save call flow/i }));
 
       const nodes = savedNodes();
@@ -284,8 +288,8 @@ describe("CallFlowEditor", () => {
     const u = userEvent.setup();
     render(<CallFlowEditor flow={flow} open onClose={vi.fn()} />);
 
-    await u.click(screen.getByRole("button", { name: new RegExp("^Edit Ring a group — ") }));
-    await u.click(screen.getByRole("button", { name: "Remove Ring a group" }));
+    await u.click(screen.getByRole("button", { name: new RegExp("^Edit Forward — ") }));
+    await u.click(screen.getByRole("button", { name: "Remove Forward" }));
     await u.click(screen.getByRole("button", { name: /save call flow/i }));
 
     // Voicemail only existed as the ring's no-answer path.
@@ -309,7 +313,7 @@ describe("CallFlowEditor", () => {
     expect(cards()).toEqual([
       "Hang up",
       "Say something",
-      "Ring a group",
+      "Forward",
       "Take a message",
     ]);
   });
@@ -333,10 +337,10 @@ describe("CallFlowEditor", () => {
     const u = userEvent.setup();
     render(<CallFlowEditor flow={flow} open onClose={vi.fn()} />);
 
-    await u.click(screen.getByRole("button", { name: new RegExp("^Edit Ring a group — ") }));
+    await u.click(screen.getByRole("button", { name: new RegExp("^Edit Forward — ") }));
 
     expect(
-      screen.queryByRole("button", { name: /Move Ring a group/ }),
+      screen.queryByRole("button", { name: /Move Forward/ }),
     ).not.toBeInTheDocument();
   });
 
@@ -460,6 +464,82 @@ describe("CallFlowEditor", () => {
     expect(screen.getByRole("button", { name: "Zoom in" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Zoom out" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /fit the flow/i })).toBeInTheDocument();
+  });
+
+  describe("the Forward step (Workiz's Forward Calls pane)", () => {
+    it("names every kind of target on its card: a group, a teammate, a device, an outside number", () => {
+      const withTargets: CallFlow = {
+        ...flow,
+        entryNodeId: "a",
+        nodes: {
+          a: { id: "a", type: "ring", target: { kind: "user", id: "u-riley" }, next: "b" },
+          b: { id: "b", type: "ring", target: { kind: "device", id: "d-ct" }, next: "c" },
+          c: { id: "c", type: "ring", target: { kind: "external", number: "+18888996849" }, next: "d" },
+          d: { id: "d", type: "ring", groupId: "g2" },
+        },
+      };
+      render(<CallFlowEditor flow={withTargets} open onClose={vi.fn()} />);
+
+      expect(screen.getByRole("button", { name: "Edit Forward — Riley CSR" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Edit Forward — SURE CT LOCKSMITH" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Edit Forward — (888) 899-6849" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Edit Forward — On call" })).toBeInTheDocument();
+    });
+
+    it("forwards to an outside number from the pane, and saves the target with its timeout", async () => {
+      const u = userEvent.setup();
+      render(<CallFlowEditor flow={flow} open onClose={vi.fn()} />);
+
+      await u.click(screen.getByRole("button", { name: new RegExp("^Edit Forward — ") }));
+      await u.click(screen.getByRole("tab", { name: "External Number" }));
+      await u.type(screen.getByRole("textbox", { name: "External number" }), "8888996849");
+      await u.type(screen.getByRole("spinbutton", { name: "Move to next step after" }), "300");
+      await u.click(screen.getByRole("button", { name: "Close" }));
+
+      // The card says where the call goes now.
+      expect(screen.getByRole("button", { name: /^Edit Forward — .*888.*899.*6849/ })).toBeInTheDocument();
+
+      await u.click(screen.getByRole("button", { name: /save call flow/i }));
+      const ring = savedNodes().ring as Extract<CallFlowNode, { type: "ring" }>;
+      expect(ring.target).toEqual({ kind: "external", number: "8888996849" });
+      expect(ring.timeoutSec).toBe(300);
+      expect(ring).not.toHaveProperty("groupId");
+      expect(ring.next).toBe("vm");
+    });
+  });
+
+  describe("Record Call Flow", () => {
+    it("is on for a flow saved before the switch existed, and saved as on", async () => {
+      const u = userEvent.setup();
+      render(<CallFlowEditor flow={flow} open onClose={vi.fn()} />);
+
+      await openBasicInfo(u);
+      expect(screen.getByRole("switch", { name: "Record Call Flow" })).toBeChecked();
+      expect(screen.getByText("Record and save calls in this call flow")).toBeInTheDocument();
+      await u.click(screen.getByRole("button", { name: "Cancel" }));
+      await u.click(screen.getByRole("button", { name: /save call flow/i }));
+
+      expect(saved()).toMatchObject({ record: true });
+    });
+
+    it("switches recording off for the flow's calls", async () => {
+      const u = userEvent.setup();
+      render(<CallFlowEditor flow={flow} open onClose={vi.fn()} />);
+
+      await openBasicInfo(u);
+      await u.click(screen.getByRole("switch", { name: "Record Call Flow" }));
+      await u.click(screen.getByRole("button", { name: "Save" }));
+      await u.click(screen.getByRole("button", { name: /save call flow/i }));
+
+      expect(saved()).toMatchObject({ record: false });
+    });
+
+    it("opens off on a flow that was saved unrecorded", async () => {
+      const u = userEvent.setup();
+      render(<CallFlowEditor flow={{ ...flow, record: false }} open onClose={vi.fn()} />);
+      await openBasicInfo(u);
+      expect(screen.getByRole("switch", { name: "Record Call Flow" })).not.toBeChecked();
+    });
   });
 
   describe("company", () => {

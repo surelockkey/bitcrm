@@ -15,6 +15,8 @@ export interface CallFlowValues {
   active?: boolean;
   /** Company jobs from this flow's calls start with; null clears it. */
   businessProfileId?: string | null;
+  /** Workiz's "Record Call Flow" switch; omitted on an old flow means recorded. */
+  record?: boolean;
 }
 
 /**

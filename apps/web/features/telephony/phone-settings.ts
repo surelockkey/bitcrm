@@ -1,4 +1,9 @@
-import { CALL_FLOW_LIMITS, type CallFlow, type ResolvedCallGroupMember } from "@bitcrm/types";
+import {
+  CALL_FLOW_LIMITS,
+  type CallFlow,
+  type ResolvedCallGroupDeviceMember,
+  type ResolvedCallGroupMember,
+} from "@bitcrm/types";
 import { formatPhone, normalizePhone } from "@/lib/phone";
 import { DEFAULT_TZ } from "@/lib/timezone";
 
@@ -114,11 +119,21 @@ function reachText(m: ResolvedCallGroupMember): string {
 /**
  * Workiz's "Users and devices" cell — "Lily Support Manager (Softphone),
  * SURE CT LOCKSMITH ((203) 989-3585)": every member in ring order, with the
- * phone that rings them.
+ * phone that rings them, then the devices by the number they ring on.
  */
-export function groupMembersText(members: readonly ResolvedCallGroupMember[]): string {
-  return [...members]
+export function groupMembersText(
+  members: readonly ResolvedCallGroupMember[],
+  deviceMembers: readonly ResolvedCallGroupDeviceMember[] = [],
+): string {
+  const people = [...members]
     .sort((a, b) => a.order - b.order)
-    .map((m) => `${m.name ?? "Former teammate"} (${reachText(m)})`)
-    .join(", ");
+    .map((m) => `${m.name ?? "Former teammate"} (${reachText(m)})`);
+  const devices = [...deviceMembers]
+    .sort((a, b) => a.order - b.order)
+    .map((d) => {
+      if (d.missing || !d.name) return "Deleted device";
+      const number = d.number ? formatPhone(d.number) || d.number : undefined;
+      return number ? `${d.name} (${number})` : d.name;
+    });
+  return [...people, ...devices].join(", ");
 }

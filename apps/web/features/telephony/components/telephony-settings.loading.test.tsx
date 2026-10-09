@@ -48,7 +48,12 @@ const flow = {
   name: "Main line",
   numbers: ["+15412830739"],
   entryNodeId: "ring",
-  nodes: { ring: { id: "ring", type: "ring", groupId: "g1" } },
+  nodes: {
+    ring: { id: "ring", type: "ring", groupId: "g1", next: "tech" },
+    // A Forward to one teammate, then to a shop line (Devices).
+    tech: { id: "tech", type: "ring", target: { kind: "user", id: "u-riley" }, next: "shop" },
+    shop: { id: "shop", type: "ring", target: { kind: "device", id: "d-ct" } },
+  },
   active: true,
   version: 1,
   createdBy: "u",
@@ -60,6 +65,10 @@ const routes: FakeRoute[] = [
   { match: /\/telephony\/call-flows$/, reply: () => [flow] },
   // What names things on these pages answers after the rows.
   { match: /\/telephony\/call-groups$/, reply: () => [group], delayMs: 70 },
+  { match: /\/telephony\/presence\/online$/, reply: () => [{ id: "u-riley", name: "Riley CSR", softphoneOnline: true }], delayMs: 60 },
+  { match: /\/telephony\/devices$/, reply: () => [{ id: "d-ct", name: "SURE CT LOCKSMITH", number: "+12039893585", type: "shop_line", active: true }], delayMs: 80 },
+  // The Fallback Number row at the top of the flows grid.
+  { match: /\/telephony\/config$/, reply: () => ({ technicianLine: null, fallbackNumber: "+18557951267" }), delayMs: 90 },
   { match: /\/telephony\/numbers$/, reply: () => [{ sid: "PN1", phoneNumber: "+14045551234", friendlyName: "Ads line" }] },
   {
     match: /\/telephony\/numbers\/settings$/,
@@ -115,7 +124,23 @@ describe("telephony settings — no jumping", () => {
     await screen.findByText("Main line", {}, { timeout: 3000 });
     watch.stop();
 
-    expect(watch.frame()).toEqual({ path: "ring Front desk", skeletons: 0 });
+    expect(watch.frame()).toEqual({ path: "ring Front desk → ring Riley CSR → ring SURE CT LOCKSMITH", skeletons: 0 });
+  });
+
+  it("Call flows draws its Fallback Number row, number and all, in its first frame", async () => {
+    const watch = watchFirstFrame(
+      () => !!screen.queryByText("Main line"),
+      () => ({
+        row: !!screen.queryByText("Fallback Number"),
+        number: !!screen.queryByText("(855) 795-1267"),
+        skeletons: skeletonCount(),
+      }),
+    );
+    renderPage(<CallFlowsPage />);
+    await screen.findByText("Main line", {}, { timeout: 3000 });
+    watch.stop();
+
+    expect(watch.frame()).toEqual({ row: true, number: true, skeletons: 0 });
   });
 
   it("Phone numbers draws each number with its source and company named", async () => {

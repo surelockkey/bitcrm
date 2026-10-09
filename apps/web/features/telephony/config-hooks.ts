@@ -1,7 +1,26 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
-import { fetchJobCode, fetchTelephonyConfig } from "./api";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { getApiErrorMessage } from "@/lib/api/errors";
+import { fetchJobCode, fetchTelephonyConfig, setFallbackNumber } from "./api";
+
+/**
+ * Workiz's Fallback Number (the first row of its Call flows tab): where a
+ * call goes when its flow ends unanswered. Set with any format, cleared with
+ * null; the config every page reads is refreshed on the way back.
+ */
+export function useSetFallbackNumber() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (phoneNumber: string | null) => setFallbackNumber(phoneNumber),
+    onSuccess: (_data, phoneNumber) => {
+      qc.invalidateQueries({ queryKey: ["telephony-config"] });
+      toast.success(phoneNumber ? "Fallback number saved" : "Fallback number removed");
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+}
 
 /**
  * Workspace telephony settings the browser needs.

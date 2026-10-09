@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { CallFlow } from "@bitcrm/types";
 import { CallFlowsPage } from "./call-flows-page";
@@ -9,6 +9,8 @@ const mocks = vi.hoisted(() => ({
   remove: vi.fn(),
   duplicate: vi.fn(),
   can: vi.fn((_resource: string, _action?: string) => true),
+  config: { technicianLine: null, fallbackNumber: null } as { technicianLine: string | null; fallbackNumber?: string | null },
+  setFallback: vi.fn(async (_n: string | null) => ({})),
 }));
 
 vi.mock("@/features/auth/use-permissions", () => ({
@@ -22,6 +24,14 @@ vi.mock("../call-flows-hooks", () => ({
 }));
 vi.mock("../call-groups-hooks", () => ({
   useCallGroups: () => ({ data: [{ id: "g1", name: "Dispatch", members: [] }] }),
+  useTeammates: () => ({ data: [{ id: "u-riley", name: "Riley CSR", softphoneOnline: true }] }),
+}));
+vi.mock("../call-devices-hooks", () => ({
+  useCallDevices: () => ({ data: [{ id: "d-ct", name: "SURE CT LOCKSMITH", number: "+12039893585", type: "shop_line", active: true }] }),
+}));
+vi.mock("../config-hooks", () => ({
+  useTelephonyConfig: () => ({ data: mocks.config }),
+  useSetFallbackNumber: () => ({ mutateAsync: mocks.setFallback, isPending: false }),
 }));
 vi.mock("next/link", () => ({
   default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => (
@@ -61,6 +71,8 @@ describe("CallFlowsPage", () => {
     mocks.remove.mockClear();
     mocks.duplicate.mockClear();
     mocks.can.mockReturnValue(true);
+    mocks.config = { technicianLine: null, fallbackNumber: null };
+    mocks.setFallback.mockClear();
   });
 
   it("draws Workiz's words, Create Call Flow and the columns", () => {
@@ -86,6 +98,85 @@ describe("CallFlowsPage", () => {
     expect(screen.getByText("Main line")).toBeInTheDocument();
     expect(screen.getByText("greeting → ring Dispatch → voicemail")).toBeInTheDocument();
     expect(screen.getByText("(541) 283-0739")).toBeInTheDocument();
+  });
+
+  it("names whoever a Forward step rings: a teammate, a device, an outside number", () => {
+    mocks.flows = [
+      flow({
+        entryNodeId: "u",
+        nodes: {
+          u: { id: "u", type: "ring", target: { kind: "user", id: "u-riley" }, next: "d" },
+          d: { id: "d", type: "ring", target: { kind: "device", id: "d-ct" }, next: "x" },
+          x: { id: "x", type: "ring", target: { kind: "external", number: "+18888996849" } },
+        },
+      }),
+    ];
+    render(<CallFlowsPage />);
+    expect(screen.getByText("ring Riley CSR → ring SURE CT LOCKSMITH → ring (888) 899-6849")).toBeInTheDocument();
+  });
+
+  describe("Workiz's Fallback Number row", () => {
+    const rowOf = (text: string) => screen.getByText(text).closest("tr") as HTMLElement;
+
+    it("is the grid's first row, with Add when none is set", () => {
+      mocks.flows = [flow()];
+      render(<CallFlowsPage />);
+      const rows = screen.getAllByRole("row").slice(1);
+      expect(rows[0]).toHaveTextContent("Fallback Number");
+      expect(within(rowOf("Fallback Number")).getByRole("button", { name: "Add" })).toBeInTheDocument();
+    });
+
+    it("sets the number from Add", async () => {
+      const u = userEvent.setup();
+      render(<CallFlowsPage />);
+      await u.click(within(rowOf("Fallback Number")).getByRole("button", { name: "Add" }));
+      const dialog = screen.getByRole("dialog", { name: "Fallback Number" });
+      expect(dialog).toHaveTextContent(/nobody answers/i);
+      await u.type(within(dialog).getByLabelText("Phone number"), "8557951267");
+      await u.click(within(dialog).getByRole("button", { name: "Save" }));
+      expect(mocks.setFallback).toHaveBeenCalledWith("+18557951267");
+    });
+
+    it("won't save a number that is not one", async () => {
+      const u = userEvent.setup();
+      render(<CallFlowsPage />);
+      await u.click(within(rowOf("Fallback Number")).getByRole("button", { name: "Add" }));
+      const dialog = screen.getByRole("dialog", { name: "Fallback Number" });
+      await u.type(within(dialog).getByLabelText("Phone number"), "12");
+      expect(within(dialog).getByRole("button", { name: "Save" })).toBeDisabled();
+    });
+
+    it("shows the number once set, to change or remove", async () => {
+      const u = userEvent.setup();
+      mocks.config = { technicianLine: null, fallbackNumber: "+18557951267" };
+      render(<CallFlowsPage />);
+      const row = rowOf("Fallback Number");
+      expect(row).toHaveTextContent("(855) 795-1267");
+      expect(within(row).queryByRole("button", { name: "Add" })).not.toBeInTheDocument();
+
+      await u.click(within(row).getByRole("button", { name: "Edit Fallback Number" }));
+      expect(screen.getByLabelText("Phone number")).toHaveValue("(855) 795-1267");
+      await u.keyboard("{Escape}");
+
+      await u.click(within(row).getByRole("button", { name: "Remove Fallback Number" }));
+      await u.click(screen.getByRole("button", { name: "Remove" }));
+      expect(mocks.setFallback).toHaveBeenCalledWith(null);
+    });
+
+    it("is shown, but not changeable, to someone who can only view settings", () => {
+      mocks.can.mockImplementation((_r: string, action?: string) => action !== "edit");
+      mocks.config = { technicianLine: null, fallbackNumber: "+18557951267" };
+      render(<CallFlowsPage />);
+      const row = rowOf("Fallback Number");
+      expect(row).toHaveTextContent("(855) 795-1267");
+      expect(within(row).queryAllByRole("button")).toHaveLength(0);
+    });
+
+    it("stays on an API from before it (no fallbackNumber at all), offering Add", () => {
+      mocks.config = { technicianLine: null };
+      render(<CallFlowsPage />);
+      expect(within(rowOf("Fallback Number")).getByRole("button", { name: "Add" })).toBeInTheDocument();
+    });
   });
 
   it("says a flow answers nothing when it has no numbers", () => {
