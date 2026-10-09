@@ -48,6 +48,23 @@ export class TechnicianAssignmentsService {
     return this.split(await this.repository.listByUser(userId));
   }
 
+  /**
+   * Every technician's approved job types and service areas, in one answer —
+   * the Team list prints them as its Skills and Areas columns and filters by
+   * area, which per-row `listAssignments` calls cannot serve. A manager view,
+   * like the review queue: a technician reads only their own.
+   */
+  async listApproved(caller: JwtUser): Promise<TechnicianAssignments> {
+    if (!(await this.isPrivileged(caller))) {
+      throw new ForbiddenException("Only managers can view every technician's assignments");
+    }
+    const [jobTypes, serviceAreas] = await Promise.all([
+      this.repository.listAllApproved('job_type'),
+      this.repository.listAllApproved('service_area'),
+    ]);
+    return { jobTypes: jobTypes.map(toJobType), serviceAreas: serviceAreas.map(toServiceArea) };
+  }
+
   async listPending(caller: JwtUser) {
     if (!(await this.isPrivileged(caller))) {
       throw new ForbiddenException('Only managers can view pending approvals');

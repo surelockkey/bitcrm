@@ -124,4 +124,44 @@ describe('TechnicianAssignmentsService', () => {
       expect(updated[2]).toMatchObject({ technicianId: 'tech-1', changedFields: ['assignments'] });
     });
   });
+
+  /**
+   * The Team list's Skills and Areas columns (and its service-area filter):
+   * every technician's approved entries in one answer, so the list does not
+   * ask once per row.
+   */
+  describe('listApproved', () => {
+    it("returns every technician's approved job types and service areas, split by kind", async () => {
+      repo.listAllApproved.mockImplementation((kind: string) =>
+        Promise.resolve(
+          kind === 'job_type'
+            ? [
+                asAssignment({ userId: 'tech-1', catalogId: 'jt-1' }),
+                asAssignment({ userId: 'tech-2', catalogId: 'jt-2' }),
+              ]
+            : [asAssignment({ userId: 'tech-2', kind: 'service_area', catalogId: 'sa-1' })],
+        ),
+      );
+
+      const result = await service.listApproved(manager);
+
+      expect(repo.listAllApproved).toHaveBeenCalledWith('job_type');
+      expect(repo.listAllApproved).toHaveBeenCalledWith('service_area');
+      expect(result.jobTypes).toEqual([
+        expect.objectContaining({ userId: 'tech-1', jobTypeId: 'jt-1', status: 'approved' }),
+        expect.objectContaining({ userId: 'tech-2', jobTypeId: 'jt-2', status: 'approved' }),
+      ]);
+      expect(result.serviceAreas).toEqual([
+        expect.objectContaining({ userId: 'tech-2', serviceAreaId: 'sa-1', status: 'approved' }),
+      ]);
+      // The internal shape stays internal.
+      expect(result.jobTypes[0]).not.toHaveProperty('catalogId');
+      expect(result.jobTypes[0]).not.toHaveProperty('kind');
+    });
+
+    it('is a manager view: a technician may not read everyone else', async () => {
+      await expect(service.listApproved(tech)).rejects.toThrow(ForbiddenException);
+      expect(repo.listAllApproved).not.toHaveBeenCalled();
+    });
+  });
 });
