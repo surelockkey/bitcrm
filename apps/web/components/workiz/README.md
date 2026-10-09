@@ -896,6 +896,12 @@ additive; existing callers are untouched.
   **`WzPlusBiggerIcon`** ("Add items"), **`WzMoveItemIcon`** ("Move items"),
   **`WzReturnIcon`** ("Return items", `refresh.svg`) in `icons.tsx` — Workiz's
   stroke glyphs, 1.5px in `currentColor`, at their 24px.
+- **`WzWideSwitch`** (`wide-switch.tsx`) `label` `checked` `onCheckedChange`
+  `disabled` `onText` `offText` — Workiz's old react-switch (User locations'
+  "Restricted", reactCss.css `.react-switch`): a 130×24 bar, 3px corners, #ccc
+  off / #eac300 on, the 30px #efeff4 knob moved 100px when on, "NO" / "YES" in
+  12px bold capitals on the bar. A `role="switch"` button. (`WzSwitch` is the
+  40×20 green toggle, `WzMiniToggle` the 32×16 one.)
 
 ## Known differences from Workiz (deliberate or unmeasurable)
 - Sub-pixel: Workiz's own fractional layout makes some glyphs land ±1px

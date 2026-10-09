@@ -38,13 +38,15 @@ const WZ_FRAMES: Partial<Record<InventoryTab, { band: string; headers: string[] 
   // Workiz's Locations band: Add New 16px under the rule, 73px to the strip.
   warehouses: { band: "h-[73px]", headers: WAREHOUSE_COLUMNS.map((c) => c.label) },
   containers: { band: "h-[73px]", headers: CONTAINER_COLUMNS.map((c) => c.label) },
+  // Workiz's User locations: the strip right under the tab rule.
+  "user-containers": { band: "h-0", headers: USER_CONTAINER_COLUMNS.map((c) => c.label) },
 };
 
 const TABLES: Record<InventoryTab, { key: string; columns: InventoryColumn[]; rowClassName?: string }> = {
   items: { key: "inventory-items", columns: [] },
   warehouses: { key: WAREHOUSES_TABLE_KEY, columns: [] },
   containers: { key: CONTAINERS_TABLE_KEY, columns: [] },
-  "user-containers": { key: USER_CONTAINERS_TABLE_KEY, columns: USER_CONTAINER_COLUMNS, rowClassName: "h-[3.25rem]" },
+  "user-containers": { key: USER_CONTAINERS_TABLE_KEY, columns: [] },
   templates: { key: TEMPLATES_TABLE_KEY, columns: TEMPLATE_COLUMNS },
   transfers: { key: TRANSFERS_TABLE_KEY, columns: TRANSFER_COLUMNS },
 };

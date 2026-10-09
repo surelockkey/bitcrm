@@ -17,10 +17,11 @@ const assignment = (over: Partial<Assignment>): Assignment => ({
 });
 
 const ROWS: UserContainerRow[] = [
-  { userId: "u1", name: "Taras Koval", email: "taras@x.com", assignment: assignment({ limited: true }) },
+  { userId: "u1", name: "Taras Koval", email: "taras@x.com", role: "technician", assignment: assignment({ limited: true }) },
   {
     userId: "u2",
     name: "Olha Melnyk",
+    role: "admin",
     assignment: assignment({ access: UserContainerAccess.ALL, containerId: undefined, containerName: undefined }),
   },
   {
@@ -28,88 +29,101 @@ const ROWS: UserContainerRow[] = [
     name: "Pavlo Bondar",
     assignment: assignment({ containerId: "c3", containerName: "Van 3", legacy: true, updatedAt: undefined }),
   },
-  { userId: "u4", name: "Ivan Shevchuk", assignment: { access: null, limited: false, legacy: false } },
+  { userId: "u4", name: "Never Set", assignment: assignment({ access: null, containerId: undefined }) },
 ];
 
-function table(rows = ROWS) {
+const CHOICES = [
+  { value: "all", label: "All" },
+  { value: "none", label: "No access" },
+  { value: "container:c1", label: "Van 1" },
+];
+
+function table(over: Partial<Parameters<typeof UserContainersTable>[0]> = {}) {
   const onAssign = vi.fn();
-  const utils = renderWithClient(<UserContainersTable rows={rows} onAssign={onAssign} />);
-  const headers = () =>
-    [...utils.container.querySelectorAll("thead th")].map((th) => th.getAttribute("aria-label"));
-  const cells = (userId: string) => {
-    const tr = utils.container.querySelector(`tbody tr[data-user="${userId}"]`) as HTMLElement;
-    return [...tr.querySelectorAll("td")].map((td) => td.textContent);
-  };
-  return { ...utils, onAssign, headers, cells };
+  renderWithClient(
+    <UserContainersTable rows={ROWS} choices={CHOICES} canEdit onAssign={onAssign} {...over} />,
+  );
+  return { onAssign };
 }
 
+const box = (name: string) => screen.getByRole("combobox", { name: `Location — ${name}` });
+const restricted = (name: string) => screen.getByRole("switch", { name: `Restricted — ${name}` });
+
+/** Workiz's User locations grid (pg_inventory_wz_02_user-locations). */
 describe("UserContainersTable", () => {
-  it("lists User · Container · Access · Limited · Updated · Actions", () => {
-    expect(table().headers()).toEqual(["User", "Container", "Access", "Limited", "Updated", "Actions"]);
+  it("lists Name · Role · Location · Restricted, and BitCRM's Updated", () => {
+    table();
+    expect([...document.querySelectorAll("thead th")].map((th) => th.textContent)).toEqual([
+      "Name",
+      "Role",
+      "Location",
+      "Restricted",
+      "Updated",
+    ]);
   });
 
-  it("shows a user's one container, limited or not", () => {
-    const [user, container, access, limited, updated] = table().cells("u1");
-    expect(user).toContain("Taras Koval");
-    expect(container).toBe("Van 1");
-    expect(access).toBe("Container");
-    expect(limited).toBe("Yes");
-    expect(updated).toBe("Sep 28, 2026");
+  it("prints the name and the role; the email is on hover", () => {
+    table();
+    expect(screen.getByText("Taras Koval")).toHaveAttribute("title", "taras@x.com");
+    expect(screen.getByText("technician")).toBeInTheDocument();
   });
 
-  it("shows All locations with no container", () => {
-    const [, container, access, limited] = table().cells("u2");
-    expect(container).toBe("—");
-    expect(access).toBe("All locations");
-    expect(limited).toBe("—");
+  it("shows a user's one van in the box, Restricted switched on when limited", () => {
+    table();
+    expect(box("Taras Koval")).toHaveTextContent("Van 1");
+    expect(restricted("Taras Koval")).toHaveAttribute("aria-checked", "true");
+    expect(restricted("Taras Koval")).toHaveTextContent("Yes");
   });
 
-  it("marks a van that comes from the old technician link", () => {
-    const [, container, access] = table().cells("u3");
-    expect(container).toBe("Van 3legacy");
-    expect(access).toBe("Container");
+  it("shows All, with Restricted off and locked — there is no one van to keep to", () => {
+    table();
+    expect(box("Olha Melnyk")).toHaveTextContent("All");
+    expect(restricted("Olha Melnyk")).toBeDisabled();
+    expect(restricted("Olha Melnyk")).toHaveTextContent("No");
+  });
+
+  it("names a van that comes from the old technician link, even when it is not on the list", () => {
+    table();
+    expect(box("Pavlo Bondar")).toHaveTextContent("Van 3 (legacy)");
   });
 
   it("says Not set for someone never assigned", () => {
-    const [, container, access] = table().cells("u4");
-    expect(container).toBe("—");
-    expect(access).toBe("Not set");
+    table();
+    expect(box("Never Set")).toHaveTextContent("Not set");
+  });
+
+  it("saves a pick at once", async () => {
+    const { onAssign } = table();
+    await userEvent.click(box("Olha Melnyk"));
+    await userEvent.click(await screen.findByRole("option", { name: "No access" }));
+    expect(onAssign).toHaveBeenCalledWith("u2", { userName: "Olha Melnyk", access: UserContainerAccess.NONE });
+  });
+
+  it("lifts the restriction with the switch, keeping the van", async () => {
+    const { onAssign } = table();
+    await userEvent.click(restricted("Taras Koval"));
+    expect(onAssign).toHaveBeenCalledWith("u1", {
+      userName: "Taras Koval",
+      access: UserContainerAccess.CONTAINER,
+      containerId: "c1",
+      limited: false,
+    });
+  });
+
+  it("holds a row's controls while it saves, and every row's without containers.edit", () => {
+    const { unmount } = renderWithClient(
+      <UserContainersTable rows={ROWS} choices={CHOICES} canEdit saving="u1" onAssign={vi.fn()} />,
+    );
+    expect(box("Taras Koval")).toBeDisabled();
+    expect(box("Olha Melnyk")).toBeEnabled();
+    unmount();
+    table({ canEdit: false });
+    expect(box("Olha Melnyk")).toBeDisabled();
+    expect(restricted("Taras Koval")).toBeDisabled();
   });
 
   it("left-aligns every header and cell", () => {
-    const { container } = table();
-    for (const el of container.querySelectorAll("thead th, tbody td")) {
-      expect(el.className).not.toMatch(/text-right|justify-end/);
-    }
-  });
-
-  it("opens the Assign popup from the row and from its button", async () => {
-    const { onAssign } = table();
-    await userEvent.click(screen.getByText("Olha Melnyk"));
-    expect(onAssign).toHaveBeenLastCalledWith("u2");
-    await userEvent.click(screen.getByRole("button", { name: "Assign a container to Taras Koval" }));
-    expect(onAssign).toHaveBeenLastCalledWith("u1");
-    expect(onAssign).toHaveBeenCalledTimes(2);
-  });
-});
-
-describe("UserContainersTable — a stable first frame", () => {
-  it("is fixed-layout with a declared, resizable width per column, fitting 1250px", () => {
-    const { container } = table();
-    expect(container.querySelector("table")?.className).toContain("table-fixed");
-    const cols = [...container.querySelectorAll("colgroup col")] as HTMLElement[];
-    expect(cols).toHaveLength(6);
-    expect(cols.reduce((n, c) => n + parseFloat(c.style.width), 0)).toBeLessThanOrEqual(1250);
-    for (const id of ["user", "container", "access", "limited", "updated", "actions"]) {
-      expect(screen.getByTestId(`resize-${id}`)).toBeInTheDocument();
-    }
-  });
-
-  it("clips every cell and scrolls sideways instead of clipping the table", () => {
-    const { container } = table();
-    for (const td of container.querySelectorAll("tbody td")) {
-      expect(td.className).toMatch(/truncate|overflow-hidden/);
-    }
-    expect(container.querySelector("[data-slot=table-frame]")?.className).toMatch(/overflow-x-auto/);
+    table();
+    for (const cell of document.querySelectorAll("th, td")) expect(cell.className).not.toMatch(/text-right/);
   });
 });

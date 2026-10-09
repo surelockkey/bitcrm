@@ -1,55 +1,47 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Search, TriangleAlert, UsersRound } from "lucide-react";
 import { UserStatus } from "@bitcrm/types";
 import type { User } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { ListPagination } from "@/components/ui/list-pagination";
+import { WZ_GRID_PAGE_SIZES } from "@/components/workiz/local-grid";
+import { WzPager } from "@/components/workiz/pager";
+import { WzListToolbar, WzPageSizeSelect, WzSearchBox } from "@/components/workiz/toolbar";
 import { queryKeys } from "@/lib/query-keys";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { settled } from "@/lib/use-page-ready";
-import { useInventoryPageReady } from "@/features/inventory/components/inventory-frame";
 import { arraySource } from "@/lib/paging/array-source";
 import { pagedSource } from "@/lib/paging/paged-source";
 import { usePageSize } from "@/lib/paging/use-page-size";
 import { usePager } from "@/lib/paging/use-pager";
-import { useDenied } from "@/features/auth/use-permissions";
+import { useDenied, usePermissions } from "@/features/auth/use-permissions";
+import { useInventoryPageReady } from "@/features/inventory/components/inventory-frame";
 import { NoAccess } from "@/features/inventory/components/no-access";
-import { ListBody } from "@/features/inventory/components/list-body";
-import { useSkeletonRows } from "@/features/inventory/components/use-skeleton-rows";
 import { personName } from "@/features/deals/person-name";
+import { useRoles } from "@/features/roles/hooks";
 import { fetchAllUsers } from "@/features/technicians/api";
 import { useUsers, useUsersCount } from "@/features/users/hooks";
 import type { UserFilter } from "@/features/users/api";
 import { useAllLocations } from "@/features/inventory/stock/hooks";
-import { usePopup } from "@/features/inventory/use-popup";
-import { useUserContainers } from "../hooks";
-import { assignmentOf } from "../lib";
-import {
-  USER_CONTAINERS_TABLE_KEY,
-  UserContainersTable,
-  type UserContainerRow,
-} from "./user-containers-table";
-import { AssignContainerDialog } from "./assign-container-dialog";
+import { useDropStaleParams } from "@/features/inventory/use-popup";
+import { useAssignUserContainer, useUserContainers } from "../hooks";
+import type { AssignUserContainerBody } from "../api";
+import { assignmentOf, locationChoices } from "../lib";
+import { USER_CONTAINERS_TABLE_KEY, UserContainersTable, type UserContainerRow } from "./user-containers-table";
 
-/** The popup over the list: one user's container assignment. */
-type AssignPopup = { kind: "assign"; userId: string };
-/** Old links carried the popup in the query; they land on the plain list, the params dropped. */
-const STALE_PARAMS = ["assign"] as const;
-/** The list's own key: its page size, column widths and skeleton height are saved under it. */
-const TABLE_KEY = USER_CONTAINERS_TABLE_KEY;
-
+/** The users the tab lists — the same key the tab row's counter reads. */
 const ACTIVE: UserFilter = { status: UserStatus.ACTIVE };
 
 /**
- * Workiz "User containers": every active user and the one van they work from
- * — or All locations, or No access. Reassigning is one popup away, because a
- * tech taking another's van for the day is ordinary.
+ * Workiz's "User locations" (pg_inventory_wz_02_user-locations): every active
+ * user, their role, the Location box (All, No access or the one van they work
+ * from) and the Restricted switch — both saving at once, as Workiz's do. A
+ * tech taking another's van for the day is one pick; the server logs it.
  */
 export function UserContainersPage() {
+  // An old ?assign= link lands on the plain list — the popup it opened is gone.
+  useDropStaleParams(["assign"]);
   // Refused only once the permissions are known — never a flash of "No access".
   const denied = useDenied();
   if (denied("containers", "view")) {
@@ -68,7 +60,8 @@ function matches(u: User, term: string): boolean {
 }
 
 function Assignments() {
-  const [pageSize, setPageSize] = usePageSize(TABLE_KEY);
+  const { can, isLoading: permsLoading } = usePermissions();
+  const [pageSize, setPageSize] = usePageSize(USER_CONTAINERS_TABLE_KEY, { sizes: WZ_GRID_PAGE_SIZES, fallback: 10 });
   const [search, setSearch] = useState("");
   const term = useDebouncedValue(search.trim(), 300);
   const searching = term.length > 0;
@@ -86,8 +79,6 @@ function Assignments() {
     enabled: searching,
     staleTime: 5 * 60 * 1000,
   });
-  // The matches, once the directory is here. Until then the page on screen
-  // stays, dimmed — a search no longer swaps the table for a skeleton.
   const searched = searching && !!directory.data;
   const found = useMemo(
     () =>
@@ -110,119 +101,85 @@ function Assignments() {
   // one falls back to the van that names them as its technician.
   const assignments = useUserContainers();
   const locations = useAllLocations();
+  // Workiz's Role column — the role's name, for a reader who may see the roles.
+  const canRoles = !permsLoading && can("roles", "view");
+  const roles = useRoles(canRoles);
+  const roleNames = useMemo(() => new Map((roles.data ?? []).map((r) => [r.id, r.name] as const)), [roles.data]);
   const rowsByUser = useMemo(
     () => new Map((assignments.data ?? []).map((r) => [r.userId, r] as const)),
     [assignments.data],
   );
   const vans = useMemo(() => locations.data.filter((l) => l.type === "container"), [locations.data]);
+  const choices = useMemo(() => locationChoices(locations.data), [locations.data]);
   const rows: UserContainerRow[] = pager.items.map((u) => ({
     userId: u.id,
     name: personName(u) ?? u.id,
     email: u.email,
+    role: u.roleId ? roleNames.get(u.roleId) : undefined,
     assignment: assignmentOf(u.id, rowsByUser, vans),
     // No row of their own: their van, if any, is a legacy one the fleet names.
     pending: !rowsByUser.has(u.id) && locations.isLoading,
   }));
 
-  // One skeleton, then the table whole: a row is drawn once it is complete —
-  // the user, their assignment and the van it names — and the pager with its
-  // "of N". Drawn before the assignments, every row read "Not set" and then
-  // changed; before the fleet, a user without a row of their own showed grey
-  // bars where their van would be. Latched: a search or a new page size
-  // keeps the rows on screen, dimmed, not a skeleton.
+  // One loader, then the grid whole: a row is drawn once it is complete — the
+  // user, their role, their assignment and the van it names — with the
+  // pager's "of N". Latched: a search or a new page size keeps the rows on
+  // screen, dimmed.
   const ready = useInventoryPageReady(
-    settled(usersQ) && settled(count) && settled(assignments) && !locations.isLoading,
+    !permsLoading &&
+      settled(usersQ) &&
+      settled(count) &&
+      settled(assignments) &&
+      !locations.isLoading &&
+      (!canRoles || settled(roles)),
   );
-  const loading = !ready;
   const stale = pager.isStale || (searching && !directory.data);
-  const skeletonRows = useSkeletonRows(
-    TABLE_KEY,
-    pageSize,
-    count.data?.total,
-    loading || stale ? undefined : rows.length,
-  );
-
-  const { popup, open, close } = usePopup<AssignPopup>(STALE_PARAMS);
-  const assignId = popup?.userId ?? null;
-
   const failed = searching ? directory.isError : usersQ.isError && !usersQ.data;
-  const empty = !failed && !loading && !stale && rows.length === 0;
+
+  // Each pick saves at once; the row's controls wait while it does.
+  const assign = useAssignUserContainer();
+  const [saving, setSaving] = useState<string | null>(null);
+  const onAssign = useCallback(
+    (userId: string, body: AssignUserContainerBody) => {
+      setSaving(userId);
+      assign.mutate({ userId, body }, { onSettled: () => setSaving(null) });
+    },
+    [assign],
+  );
 
   return (
-    <div className="flex flex-1 flex-col">
-      <div className="flex flex-wrap items-center gap-2 px-6 py-3">
-        <div className="relative w-full max-w-xs">
-          <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            type="search"
-            aria-label="Search users"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search users"
-            className="h-9 pl-8"
-          />
+    <div className="flex flex-col">
+      {/* Workiz's strip sits right under the tab rule: Search, the page size. */}
+      <WzListToolbar data-testid="user-locations-toolbar" className="shrink-0">
+        <WzSearchBox type="search" aria-label="Search users" value={search} onChange={setSearch} />
+        <WzPageSizeSelect className="ml-auto" value={pageSize} sizes={WZ_GRID_PAGE_SIZES} onChange={setPageSize} />
+      </WzListToolbar>
+
+      {failed ? (
+        <div className="border border-wz-frame px-5 py-10 text-center text-sm">
+          <p role="alert">Couldn&apos;t load users</p>
+          <Button
+            variant="outline"
+            size="sm"
+            className="mt-3"
+            onClick={() => (searching ? directory.refetch() : usersQ.refetch())}
+          >
+            Retry
+          </Button>
         </div>
-      </div>
-
-      <div className="flex-1 px-6 pb-6">
-        <ListBody
-          holdKey={searched ? term : ""}
-          scrollKey={`${pager.page}:${pageSize}`}
-          pager={
-            // Drawn with the rows, never under the skeleton, where the rows
-            // would move it when they land.
-            loading || failed || empty ? null : (
-              <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} />
-            )
-          }
-        >
-          {failed ? (
-            <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed py-16 text-center">
-              <div className="flex size-12 items-center justify-center rounded-xl bg-destructive/10 text-destructive">
-                <TriangleAlert className="size-6" />
-              </div>
-              <div className="font-medium">Couldn&apos;t load users</div>
-              <Button variant="outline" onClick={() => (searching ? directory.refetch() : usersQ.refetch())}>
-                Retry
-              </Button>
-            </div>
-          ) : empty ? (
-            <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed py-16 text-center">
-              <div className="flex size-12 items-center justify-center rounded-xl bg-muted text-muted-foreground">
-                <UsersRound className="size-6" />
-              </div>
-              <div>
-                <div className="font-medium">{searching ? "No users match" : "No active users"}</div>
-                {searching ? (
-                  <p className="mt-1 text-sm text-muted-foreground">Try another name or email.</p>
-                ) : null}
-              </div>
-            </div>
-          ) : (
-            <>
-              {/* Loading, loaded or holding the page while a search reads the
-                  directory — one table, so nothing under it moves. */}
-              <UserContainersTable
-                rows={rows}
-                loading={loading}
-                skeletonRows={skeletonRows}
-                stale={stale}
-                onAssign={(id) => open({ kind: "assign", userId: id })}
-              />
-            </>
-          )}
-        </ListBody>
-      </div>
-
-      {/* Mounted only while open, so each opening reads fresh. */}
-      {assignId ? (
-        <AssignContainerDialog
-          userId={assignId}
-          user={rows.find((r) => r.userId === assignId)}
-          open
-          onOpenChange={(next) => (next ? undefined : close())}
+      ) : (
+        <UserContainersTable
+          rows={rows}
+          choices={choices}
+          canEdit={can("containers", "edit")}
+          saving={saving}
+          onAssign={onAssign}
+          loading={!ready}
+          stale={stale}
+          // Drawn with the rows, its total and all — never under the loader.
+          footer={ready ? <WzPager pager={pager} plainNumbers /> : null}
         />
-      ) : null}
+      )}
     </div>
   );
 }

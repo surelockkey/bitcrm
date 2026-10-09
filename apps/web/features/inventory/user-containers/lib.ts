@@ -1,6 +1,7 @@
-import { UserContainerAccess } from "@bitcrm/types";
+import { InventoryStatus, UserContainerAccess } from "@bitcrm/types";
 import type { UserContainer } from "@bitcrm/types";
 import type { StockLocation } from "@/features/inventory/stock/lib";
+import type { AssignUserContainerBody } from "./api";
 
 const ACCESS_LABELS: Record<UserContainerAccess, string> = {
   [UserContainerAccess.CONTAINER]: "Container",
@@ -79,6 +80,42 @@ export function assignmentOf(
     };
   }
   return { access: null, limited: false, legacy: false };
+}
+
+/* ------------------------------------------------------------------ *
+ * Workiz's row: the Location box and the Restricted switch
+ * ------------------------------------------------------------------ */
+
+/**
+ * The Location box's list (pg_inventory_wz_02_user-locations): All, No
+ * access (Workiz keeps a location named "NO ACCESS" for it), then every
+ * active van by name — a user works from a van, not from a warehouse.
+ */
+export function locationChoices(locations: StockLocation[]): { value: string; label: string }[] {
+  const vans = locations
+    .filter((l) => l.type === "container" && l.status === InventoryStatus.ACTIVE)
+    .sort((a, b) => a.name.localeCompare(b.name));
+  return [
+    { value: "all", label: "All" },
+    { value: "none", label: "No access" },
+    ...vans.map((v) => ({ value: `container:${v.id}`, label: v.name })),
+  ];
+}
+
+/** An assignment as the box's value; "" for someone never assigned (the placeholder shows). */
+export function locationChoice(a: Pick<Assignment, "access" | "containerId">): string {
+  if (a.access === UserContainerAccess.ALL) return "all";
+  if (a.access === UserContainerAccess.NONE) return "none";
+  if (a.access === UserContainerAccess.CONTAINER && a.containerId) return `container:${a.containerId}`;
+  return "";
+}
+
+/** What a pick in the box (and the Restricted switch) saves — the whole row, replaced. */
+export function assignmentBody(choice: string, limited: boolean, userName: string): AssignUserContainerBody {
+  if (choice.startsWith("container:")) {
+    return { userName, access: UserContainerAccess.CONTAINER, containerId: choice.slice("container:".length), limited };
+  }
+  return { userName, access: choice === "none" ? UserContainerAccess.NONE : UserContainerAccess.ALL };
 }
 
 export interface ContainerUser {
