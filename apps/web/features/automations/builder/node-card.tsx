@@ -129,6 +129,10 @@ export function AutomationNodeCard({
   const kind = KIND_LABEL[node.kind];
   const unfinished = issue?.level === "blocks";
   const big = isBigLine(node);
+  // What the rule does reads on from its "When …" line, as Workiz writes it:
+  // "send someone a text and email", lower-case — an invitation keeps its capital.
+  const shown =
+    big && node.kind !== "trigger" && !/^Choose\b/.test(summary) ? summary.charAt(0).toLowerCase() + summary.slice(1) : summary;
 
   const items: WzDotsMenuItem[] =
     node.kind === "trigger"
@@ -179,7 +183,7 @@ export function AutomationNodeCard({
             {node.kind === "condition" ? (
               <SentenceParts parts={conditionLineParts(summary)} tone="condition" />
             ) : (
-              <SentenceParts parts={sentenceParts(summary)} tone={big ? "builder" : "condition"} />
+              <SentenceParts parts={sentenceParts(shown)} tone={big ? "builder" : "condition"} />
             )}
           </button>
           {node.kind === "condition" ? (

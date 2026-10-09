@@ -33,7 +33,7 @@ const LABEL = "text-[10px] leading-4 font-semibold tracking-[0.5px] text-wz-stat
  * One rule in "My Automations" (Workiz's `ruleCard` in the Center,
  * pg_automations_wz_10_mine / _11_mine_card_hover / _12_dots_open):
  *
- *   card      white, 16px corners, 24px in (20px at the foot), the shadow
+ *   card      white, 16px corners, 24px 24px 20px 20px in, the shadow
  *             `0 4px 12px rgba(59,75,82,.1), 0 0 4px rgba(59,75,82,.05)`; under
  *             the cursor the left corners go to 8px and an 8px #50d58c bar
  *             shows on the left (GreenBarWrapper);
@@ -157,7 +157,7 @@ export function AutomationRuleCard({
       <div
         onClick={open}
         className={cn(
-          "flex flex-col rounded-[16px] bg-white px-6 pt-6 pb-5 group-hover/rule:rounded-l-[8px]",
+          "flex flex-col rounded-[16px] bg-white pt-6 pr-6 pb-5 pl-5 group-hover/rule:rounded-l-[8px]",
           CENTER_CARD_SHADOW,
           canEdit && "cursor-pointer",
         )}

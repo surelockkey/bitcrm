@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Loader2, Plus, RefreshCw } from "lucide-react";
 import type { AutomationLabelMap, AutomationRule } from "@bitcrm/types";
@@ -164,6 +164,28 @@ export function AutomationsPage() {
   );
   const activeTab = tab ?? (!ready || all.length ? "mine" : "discover");
 
+  // Discover's left rows follow the list as it scrolls, as Workiz's do: the
+  // section whose heading has reached the top band of the window is the one
+  // marked. (Workiz's AnchorLink; here an observer, no scroll handler.)
+  const showingDiscover = ready && activeTab === "discover";
+  useEffect(() => {
+    if (!showingDiscover || typeof IntersectionObserver === "undefined") return;
+    const sections = AUTOMATION_TEMPLATE_SECTIONS.map((name) => document.getElementById(librarySectionId(name))).filter(
+      (el): el is HTMLElement => !!el,
+    );
+    if (!sections.length) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const top = entries.filter((e) => e.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0];
+        const name = AUTOMATION_TEMPLATE_SECTIONS.find((s) => librarySectionId(s) === top?.target.id);
+        if (name) setSection(name);
+      },
+      { rootMargin: "0px 0px -70% 0px" },
+    );
+    for (const el of sections) observer.observe(el);
+    return () => observer.disconnect();
+  }, [showingDiscover, search]);
+
   const clearFilters = () => {
     setSearch("");
     setState(undefined);
@@ -270,7 +292,7 @@ export function AutomationsPage() {
       onClick={() => migrate.mutate(undefined)}
       disabled={migrate.isPending}
     >
-      Re-check imported rules
+      Re-check imports
     </CenterFootLink>
   ) : null;
 

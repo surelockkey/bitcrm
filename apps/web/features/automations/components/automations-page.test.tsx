@@ -202,7 +202,7 @@ describe("AutomationsPage", () => {
     );
     renderPage();
 
-    await user.click(await screen.findByRole("button", { name: /re-check imported rules/i }));
+    await user.click(await screen.findByRole("button", { name: /re-check imports/i }));
     await waitFor(() => expect(migrated).toBe(1));
   });
 

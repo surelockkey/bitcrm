@@ -350,7 +350,7 @@ function ActivityRow({
 }) {
   return (
     <li
-      className={cn("flex flex-col rounded-[16px] bg-white px-6 pt-6 pb-5", CENTER_CARD_SHADOW)}
+      className={cn("flex flex-col rounded-[16px] bg-white pt-6 pr-6 pb-5 pl-5", CENTER_CARD_SHADOW)}
       data-testid={`activity-${run.id}`}
     >
       <div className="flex w-full items-center justify-between gap-4">

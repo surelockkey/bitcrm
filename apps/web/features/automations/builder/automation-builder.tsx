@@ -200,20 +200,16 @@ export function AutomationBuilderDialog({
       aria-label="Step settings"
       className="relative z-20 mt-3 mb-1 ml-[52px] max-w-[600px] rounded-[8px] bg-white p-4 text-left text-foreground shadow-[0_0_4px_rgba(59,75,82,0.05),0_8px_16px_rgba(59,75,82,0.15)]"
     >
-      {/* Which step this is, and the way out of it. */}
-      <div className="mb-3 flex items-center justify-between gap-2">
-        <p className="text-xs leading-4 font-semibold tracking-[0.4px] text-wz-outline-label uppercase">
-          Step {nodes.indexOf(selected) + 1} · {KIND_LABEL[selected.kind]}
-        </p>
-        <button
-          type="button"
-          aria-label="Close step settings"
-          onClick={() => setSelectedId(undefined)}
-          className="grid size-6 cursor-pointer place-items-center text-foreground outline-none focus-visible:ring-2 focus-visible:ring-wz-focus"
-        >
-          <X className="size-4" strokeWidth={1.75} />
-        </button>
-      </div>
+      {/* The way out of the step, at the corner — the panel's own heading
+          says which step it is. */}
+      <button
+        type="button"
+        aria-label="Close step settings"
+        onClick={() => setSelectedId(undefined)}
+        className="absolute top-3 right-3 grid size-6 cursor-pointer place-items-center text-foreground outline-none focus-visible:ring-2 focus-visible:ring-wz-focus"
+      >
+        <X className="size-4" strokeWidth={1.75} />
+      </button>
       <NodePanel
         // Keyed by the step, so choosing another line builds the panel again
         // rather than reusing this one: a panel that survives the switch keeps
@@ -363,7 +359,7 @@ export function AutomationBuilderDialog({
           </div>
 
           {/* The canvas foot: the delivery window left, the buttons right. */}
-          <div className="flex flex-wrap items-end justify-between gap-4 pt-4">
+          <div className="flex flex-wrap items-center justify-between gap-4 pt-4">
             <DeliveryWindowControl value={delivery} disabled={saving} onChange={setDelivery} />
 
             <div className="flex flex-wrap items-center justify-end gap-4">
