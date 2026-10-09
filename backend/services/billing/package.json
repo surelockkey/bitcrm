@@ -18,6 +18,7 @@
     "setup": "npm run setup:db && npm run setup:aws",
     "rebuild:payment-report": "ts-node src/scripts/rebuild-payment-report.ts",
     "backfill:unpaid-index": "ts-node src/scripts/backfill-unpaid-index.ts",
+    "backfill:numbering": "ts-node src/scripts/backfill-numbering.ts",
     "verify:billing-reports": "ts-node --transpile-only src/scripts/verify-billing-reports.ts"
   },
   "dependencies": {
