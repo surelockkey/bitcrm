@@ -89,7 +89,8 @@ describe("PhoneTabs / PhoneHeader — hold their height", () => {
     perms.loading = true;
     renderWithClient(<PhoneTabs />);
     expect(screen.queryAllByRole("link")).toHaveLength(0);
-    expect(document.querySelectorAll("[data-tab-placeholder]")).toHaveLength(5);
+    // Calls, Phone numbers, Call flows, Call groups, Devices, Texting.
+    expect(document.querySelectorAll("[data-tab-placeholder]")).toHaveLength(6);
     expect(screen.getByRole("navigation", { name: "Phone" })).toHaveAttribute("aria-busy", "true");
   });
 

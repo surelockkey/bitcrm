@@ -6,7 +6,7 @@ import type { Resource } from "@bitcrm/types";
  * Devices). The settings tabs are the settings pages themselves, drawn under
  * the same header at Workiz's sub-routes (`/root/callsReport/numbers` …).
  */
-export type PhoneTabId = "calls" | "numbers" | "flows" | "groups" | "texting";
+export type PhoneTabId = "calls" | "numbers" | "flows" | "groups" | "devices" | "texting";
 
 export interface PhoneTab {
   id: PhoneTabId;
@@ -19,6 +19,8 @@ const TABS: (PhoneTab & { resource: Resource })[] = [
   { id: "numbers", label: "Phone numbers", href: "/calls/numbers", resource: "settings" },
   { id: "flows", label: "Call flows", href: "/calls/flows", resource: "settings" },
   { id: "groups", label: "Call groups", href: "/calls/groups", resource: "settings" },
+  // Workiz: … Call groups, Blocked callers, Devices, Texting.
+  { id: "devices", label: "Devices", href: "/calls/devices", resource: "settings" },
   { id: "texting", label: "Texting", href: "/calls/texting", resource: "settings" },
 ];
 

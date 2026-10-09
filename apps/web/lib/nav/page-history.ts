@@ -139,6 +139,7 @@ const STATIC_LABELS: Record<string, string> = {
   "/calls/numbers": "Numbers",
   "/calls/flows": "Call Flows",
   "/calls/groups": "Call groups",
+  "/calls/devices": "Devices",
   "/calls/texting": "Text Messages",
   // Workiz's builder breadcrumb: "CALL FLOW BUILDER (128781)".
   "/calls/flows/new": "Call Flow Builder",

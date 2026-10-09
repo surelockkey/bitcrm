@@ -97,17 +97,18 @@ describe("SETTINGS_GROUPS", () => {
       "/settings/job-statuses",
     ]);
     // Workiz's tiles, words and order (uikit_wz_settings_home): Text Messages,
-    // Numbers, Call Flows, Call Groups (+ its Call Masking and Devices, which
-    // we have no page for), then ours, Call Tags. Message templates have no
-    // tile: they sit on Text Messages, under "Text templates".
-    expect(labelsOf("Calls & Text")).toEqual(["Text Messages", "Numbers", "Call Flows", "Call Groups", "Call Tags"]);
+    // Numbers, Call Flows, Call Groups, Devices (+ its Call Masking, which we
+    // have no page for, between the last two), then ours, Call Tags. Message
+    // templates have no tile: they sit on Text Messages, under "Text templates".
+    expect(labelsOf("Calls & Text")).toEqual(["Text Messages", "Numbers", "Call Flows", "Call Groups", "Devices", "Call Tags"]);
     // …and open the Phone section's tabs, as Workiz's /root/numbers lands on /root/callsReport/numbers.
     const hrefOf = (label: string) => SETTINGS_GROUPS.flatMap((g) => g.sections).find((s) => s.label === label)?.href;
-    expect(["Text Messages", "Numbers", "Call Flows", "Call Groups"].map(hrefOf)).toEqual([
+    expect(["Text Messages", "Numbers", "Call Flows", "Call Groups", "Devices"].map(hrefOf)).toEqual([
       "/calls/texting",
       "/calls/numbers",
       "/calls/flows",
       "/calls/groups",
+      "/calls/devices",
     ]);
     expect(labelsOf("Integrations")).toEqual(["Payments"]);
   });

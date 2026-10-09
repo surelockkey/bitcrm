@@ -140,6 +140,7 @@ describe("labelForPath", () => {
     expect(labelForPath("/calls/numbers")).toBe("Numbers");
     expect(labelForPath("/calls/flows")).toBe("Call Flows");
     expect(labelForPath("/calls/groups")).toBe("Call groups");
+    expect(labelForPath("/calls/devices")).toBe("Devices");
     expect(labelForPath("/calls/texting")).toBe("Text Messages");
   });
 
