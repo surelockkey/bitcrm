@@ -33,7 +33,8 @@ export const TL_HOUR_PX = 70;
 export const TL_PX_PER_MIN = TL_HOUR_PX / 60;
 export const TL_SECTION_PX = 200;
 export const TLW_SECTION_PX = 150;
-export const TL_HEADER_PX = 31;
+/** The hour header: 30px cells over the data's own 1px rule. */
+export const TL_HEADER_PX = 32;
 export const TLW_HEADER_PX = 66;
 export const TL_ROW_MIN_PX = 75;
 export const TL_BAR_PX = 22;

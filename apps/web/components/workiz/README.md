@@ -170,6 +170,23 @@ Helpers: `formatWzDate`, `parseWzDate`. `WzCalendar` alone: `value`,
 ```
 (New Job columns are 287px, job page 217px; rows 24px apart.)
 
+### `WzOutlinedSelect` — a select in the notched outline (Add time off)
+pg_schedule_wz_13_timeoff_open (agent `pg_schedule`): the "Select user" and
+"Reason" selects of Workiz's newer modals — react-select in its FloatingLabel
+shell, the same 42px box as `WzTimeSelect` (1px `#9ea6aa`, ink hovered,
+`#6aa8ee` open), the value 13px ink 12px in, a thin chevron, the time list's
+32px 13px menu. With a `placeholder` the label sits in the notch from the start
+("Select user" over "Select user"); without one it rests inside until a pick
+("Reason"). Unlike the time list the chosen option stays listed. Props:
+`label`, `placeholder`, `options: WzOption[]`, `value` (`""` = none),
+`onChange(value)`, `onBlur`, `name`, `id`, `disabled`, `error`, `className`.
+`OUTLINE` and `NotchedLabel` are exported from `outlined.tsx` for it.
+
+```tsx
+<WzOutlinedSelect label="Select user" placeholder="Select user" options={techs} value={techId} onChange={setTechId} />
+<WzOutlinedSelect label="Reason" options={reasons} value={reason} onChange={setReason} />
+```
+
 ### `WzSwitch` — the green Scheduled toggle
 40×20, `#50d58c` on / `#bbbbbb` off, 16px white knob 2px in, 50ms; disabled
 `#dddddd` / `#b2e5c0`; keyboard focus glows yellow round the knob. A native

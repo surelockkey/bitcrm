@@ -215,8 +215,8 @@ export function SchedulePage() {
         onToggleFilter={() => setFilterOpen((o) => !o)}
       />
       <DndContext sensors={sensors} onDragEnd={onDragEnd}>
-        <div className="flex min-h-0 flex-1 pt-[3px]">
-          <div className="relative flex min-w-0 flex-1 flex-col">
+        <div className="flex min-h-0 flex-1">
+          <div className="relative flex min-w-0 flex-1 flex-col pt-[3px]">
             {!board ? (
               <Skeleton className="m-4 flex-1 rounded-[4px]" />
             ) : shownView === "day" || shownView === "week" ? (

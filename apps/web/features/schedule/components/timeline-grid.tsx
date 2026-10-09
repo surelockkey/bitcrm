@@ -149,7 +149,7 @@ export function TimelineGrid({
                 <div key={d} className="min-w-0 flex-1 pt-[2px] text-center text-[14px] leading-[21px] text-black">
                   <div>{weekdayName(d)}</div>
                   {d === today ? (
-                    <div className="mx-auto mt-[1px] grid size-[35px] place-items-center rounded-full bg-foreground text-[20px] leading-[25px] text-white">
+                    <div className="mx-auto grid size-[35px] place-items-center rounded-full bg-foreground text-[20px] leading-[25px] text-white">
                       {Number(d.slice(8))}
                     </div>
                   ) : (
@@ -273,7 +273,7 @@ function SectionCell({ row, width }: { row: TimelineRow; width: number }) {
       {row.id === null ? (
         <div className="w-full text-center">Unassigned</div>
       ) : (
-        <div className="flex w-full min-w-0 items-center px-2">
+        <div className="flex w-full min-w-0 items-center px-2 pb-1">
           <div className="flex w-[70px] shrink-0 justify-center">
             {row.photoUrl && !broken ? (
               // eslint-disable-next-line @next/next/no-img-element

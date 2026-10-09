@@ -37,11 +37,11 @@ export function EventBox({
   return (
     <div
       data-slot="schedule-event"
-      className="h-full w-full overflow-hidden rounded-[4px] border border-white text-white"
+      className="h-full w-full overflow-hidden rounded-[4px] border border-white text-[12px] leading-[18px] text-white"
       style={fill(color, done)}
     >
       {/* .dhx_title: 12px/14px bold, 8px 6px 5px 10px; the pointer says it opens the job. */}
-      <div className="flex cursor-pointer items-start gap-1 pt-2 pr-[6px] pb-[5px] pl-[10px] text-[12px] leading-[14px] font-bold">
+      <div className="flex h-[28px] cursor-pointer items-start gap-1 pt-2 pr-[6px] pb-[5px] pl-[10px] text-[12px] leading-[14px] font-bold">
         <span className="min-w-0">{title}</span>
         {conflict ? <TriangleAlert aria-label="Schedule conflict" className="size-3 shrink-0" /> : null}
       </div>
@@ -141,12 +141,17 @@ export function Draggable({
       {...attributes}
       {...listeners}
       aria-label={label}
+      // Someone who may not move jobs can still open one.
+      aria-disabled={undefined}
       onClick={() => {
         if (dragged.current) {
           dragged.current = false;
           return;
         }
         onOpen?.();
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") onOpen?.();
       }}
       className={cn("absolute", !disabled && "touch-none", isDragging && "z-50 opacity-70", className)}
       style={{ ...style, transform: t ? `translate3d(${t.x}px, ${t.y}px, 0)` : undefined }}

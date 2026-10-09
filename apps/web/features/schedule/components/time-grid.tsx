@@ -116,12 +116,13 @@ export function TimeGrid({
                   left: `calc(${(from / days.length) * 100}% + 1px)`,
                   width: `calc(${((to - from + 1) / days.length) * 100}% - 3px)`,
                 };
-                return entry.deal && days.length > 1 ? (
+                return entry.deal ? (
                   <Draggable
                     key={entry.id}
                     id={`strip:${entry.id}`}
                     source={{ kind: "days", deal: entry.deal, dayPx: colPx || 1 }}
-                    disabled={readOnly}
+                    // A one-day strip has no other day to move to.
+                    disabled={readOnly || days.length === 1}
                     label={entry.title}
                     style={style}
                     snap={{ x: colPx || undefined, y: 0 }}
@@ -130,12 +131,7 @@ export function TimeGrid({
                     <EventBar color={entry.color} done={entry.done} text={entry.text} conflict={entry.conflict} />
                   </Draggable>
                 ) : (
-                  <div
-                    key={entry.id}
-                    className="absolute"
-                    style={style}
-                    onClick={entry.deal ? () => onOpen(entry.deal!) : undefined}
-                  >
+                  <div key={entry.id} className="absolute" style={style}>
                     <EventBar color={entry.color} done={entry.done} text={entry.text} conflict={entry.conflict} />
                   </div>
                 );
@@ -153,7 +149,7 @@ export function TimeGrid({
             return (
               <div
                 key={h}
-                className="flex justify-center border-b border-[#cecece] text-[#404044]"
+                className="flex items-start justify-center border-b border-[#cecece] text-[#404044]"
                 style={{ height: HOUR_PX }}
               >
                 <span className="text-[22px] leading-[44px]">{big}</span>
@@ -214,7 +210,7 @@ export function TimeGrid({
 function DayNumber({ date, today, onPick }: { date: string; today: boolean; onPick?: (date: string) => void }) {
   const n = String(Number(date.slice(8)));
   const look = today
-    ? "mx-auto mt-[1px] grid size-[35px] place-items-center rounded-full bg-foreground text-[20px] leading-[25px] text-white"
+    ? "mx-auto grid size-[35px] place-items-center rounded-full bg-foreground text-[20px] leading-[25px] text-white"
     : "mt-[5px] text-[20px] leading-[25px] text-[#3e4b51]";
   if (!onPick) return <div className={look}>{n}</div>;
   return (

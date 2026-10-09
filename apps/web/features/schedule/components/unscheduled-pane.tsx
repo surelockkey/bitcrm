@@ -35,7 +35,7 @@ export function UnscheduledPane({
   return (
     <aside
       aria-label="Unscheduled jobs"
-      className="relative z-40 flex w-[370px] shrink-0 flex-col overflow-y-auto bg-white px-10 pt-6 pb-[70px] shadow-[-4px_0_8px_0_rgba(0,0,0,0.12)]"
+      className="relative z-40 -mt-px flex w-[370px] shrink-0 flex-col overflow-y-auto bg-white px-10 pt-6 pb-[70px] shadow-[-4px_0_8px_0_rgba(0,0,0,0.12)]"
     >
       <div className="flex items-start justify-between">
         <h4 className="text-[18px] leading-[27px] font-semibold text-foreground">Unscheduled jobs</h4>
@@ -102,12 +102,16 @@ function JobCard({
       {...attributes}
       {...listeners}
       aria-label={`Job #${deal.dealNumber}`}
+      aria-disabled={undefined}
       onClick={() => {
         if (dragged.current) {
           dragged.current = false;
           return;
         }
         onOpen();
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") onOpen();
       }}
       className={cn(
         "group relative h-[99px] cursor-pointer rounded-[8px] border px-4 pt-[17px] pb-[13px] text-[14px] leading-[21px] text-foreground hover:shadow-[0_4px_4px_0_rgba(0,0,0,0.15)]",

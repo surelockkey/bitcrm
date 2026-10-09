@@ -15,7 +15,7 @@ vi.mock("next/navigation", () => ({
 
 const permissions = vi.hoisted(() => ({
   value: {
-    can: (_r: string, _a: string): boolean => true,
+    can: (() => true) as (resource: string, action: string) => boolean,
     scopeOf: () => "all",
     isTechnician: false,
     roleName: "Admin",

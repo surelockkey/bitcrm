@@ -3,7 +3,6 @@ import {
   type CalendarEvent,
   type Deal,
   type TechnicianProfile,
-  type User,
 } from "@bitcrm/types";
 import type { DirectoryUser } from "@/features/deals/hooks";
 
