@@ -100,3 +100,18 @@ export {
   type WzGridView,
 } from "./local-grid";
 export { WzTotalsBar, WzLeftBorderBox, WzFold, WzSegmented } from "./record-parts";
+
+// Settings pages (agent pg_settings_catalogs, Workiz settings home + catalogs).
+export {
+  WzSettingsHeader,
+  WzSettingsBar,
+  WzColorBar,
+  WzSettingsBlock,
+  WzSettingsTile,
+  wzShowRows,
+  WZ_SHOW_OPTIONS,
+  type WzShowFilter,
+} from "./settings-page";
+export { WzOnOffSwitch, type WzOnOffSwitchProps } from "./on-off-switch";
+export { WzColorDots, type WzColorDotOption } from "./color-dots";
+export { WzFormModal } from "./form-modal";
