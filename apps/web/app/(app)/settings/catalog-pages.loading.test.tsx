@@ -150,7 +150,8 @@ const CATALOGS: Catalog[] = [
     list: /\/deals\/external-companies$/,
     rows: [{ id: "ec-1", name: "Roadside Partners", active: true, ...stamp }],
     row: "Roadside Partners",
-    button: /new company/i,
+    // Workiz's legacy square "Add New Company".
+    button: /^add new company$/i,
   },
   {
     name: "Companies",

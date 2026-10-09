@@ -67,3 +67,33 @@ export function searchExternalCompanies(
     return false;
   });
 }
+
+/** A column of Workiz's companies grid that sorts. */
+export type ExternalCompanySortKey = "name" | "email" | "address" | "phone" | "status";
+
+const SORT_VALUE: Record<ExternalCompanySortKey, (c: ExternalCompany) => string> = {
+  name: (c) => c.name,
+  email: (c) => c.email ?? "",
+  address: (c) => c.address ?? "",
+  phone: (c) => c.phone ?? "",
+  // As the Status column prints it: "Disabled" sorts before "Enabled".
+  status: (c) => (c.active ? "Enabled" : "Disabled"),
+};
+
+/**
+ * The companies in the header's order (Workiz's DataTables grid): words
+ * case-blind, numbers in them as numbers, blanks last either way. A copy.
+ */
+export function sortExternalCompanies(
+  companies: readonly ExternalCompany[],
+  sort: { key: ExternalCompanySortKey; dir: "asc" | "desc" },
+): ExternalCompany[] {
+  const value = SORT_VALUE[sort.key];
+  const sign = sort.dir === "asc" ? 1 : -1;
+  return [...companies].sort((a, b) => {
+    const va = value(a).trim();
+    const vb = value(b).trim();
+    if (!va || !vb) return !va === !vb ? 0 : !va ? 1 : -1;
+    return va.localeCompare(vb, "en", { numeric: true, sensitivity: "base" }) * sign;
+  });
+}

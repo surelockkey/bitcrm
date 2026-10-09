@@ -1,20 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Building2, Loader2, Pencil, Plus, Search, Trash2 } from "lucide-react";
+import { Loader2, Pencil, Trash2 } from "lucide-react";
 import type { ExternalCompany } from "@bitcrm/types";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -25,22 +14,51 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { WzDataTable } from "@/components/workiz/data-table";
 import { formatPhone } from "@/features/clients/lib";
 import { usePermissions } from "@/features/auth/use-permissions";
+import { cn } from "@/lib/utils";
 import { settled, usePageReady } from "@/lib/use-page-ready";
 import {
   useExternalCompanies,
   useDeleteExternalCompany,
   useToggleExternalCompany,
 } from "../hooks";
-import { searchExternalCompanies } from "../lib";
+import { searchExternalCompanies, sortExternalCompanies, type ExternalCompanySortKey } from "../lib";
 import { ExternalCompanyFormDialog } from "./external-company-form-dialog";
 
+const COLUMNS: { key: ExternalCompanySortKey | "actions"; label: string }[] = [
+  { key: "name", label: "company name" },
+  { key: "email", label: "company email" },
+  { key: "address", label: "company address" },
+  { key: "phone", label: "company phone" },
+  { key: "status", label: "status" },
+  { key: "actions", label: "Actions" },
+];
+
+/*
+ * Workiz's legacy `a.button`s (pg_settings_catalogs_wz_companies_frame):
+ * #ffd400, 13px/600 #404040, 0 15px, 0.5px tracking, 32px — square-cornered
+ * (2px) for "Add New Company", round (15px) for the row's "Disable/Enable"
+ * and pencil. #ffd400 is the legacy pages' yellow (wz-focus).
+ */
+const LEGACY_BUTTON =
+  "inline-flex h-8 shrink-0 items-center justify-center bg-wz-focus px-[15px] text-[13px] leading-8 font-semibold tracking-[0.5px] text-wz-strong outline-none hover:bg-wz-primary-hover focus-visible:ring-2 focus-visible:ring-wz-strong/40 disabled:cursor-not-allowed disabled:opacity-60";
+
+/**
+ * Settings → External Companies, as Workiz's (`/root/companies/`, a legacy
+ * page in a frame — pg_settings_catalogs_wz_companies): no band, the square
+ * yellow "Add New Company", then DataTables' grid — the #f7f7f7 strip with
+ * the "search" box at the right, company name / email / address / phone /
+ * status / Actions, sorted by name (▼, the column #f1f1f1), each row's
+ * yellow "Disable/Enable" and pencil — and "Showing 1 to 33 of 33 entries"
+ * under it. Delete is ours, a third yellow button after the pencil.
+ */
 export function ExternalCompaniesPage() {
   const { can, isLoading: permsLoading } = usePermissions();
   const companiesQuery = useExternalCompanies();
   const companies = companiesQuery.data;
-  // One skeleton until both the user and the list are in: the "New" button
+  // One skeleton until both the user and the list are in: "Add New Company"
   // and the rows come in the same frame, and nobody is refused for the beat
   // their permissions are still on the way.
   const ready = usePageReady(!permsLoading && settled(companiesQuery));
@@ -48,6 +66,7 @@ export function ExternalCompaniesPage() {
   const toggle = useToggleExternalCompany();
 
   const [search, setSearch] = useState("");
+  const [sort, setSort] = useState<{ key: ExternalCompanySortKey; dir: "asc" | "desc" }>({ key: "name", dir: "asc" });
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<ExternalCompany | undefined>();
   const [deleting, setDeleting] = useState<ExternalCompany | undefined>();
@@ -57,8 +76,8 @@ export function ExternalCompaniesPage() {
   const canDelete = can("external_companies", "delete");
 
   const rows = useMemo(
-    () => searchExternalCompanies(companies, search),
-    [companies, search],
+    () => sortExternalCompanies(searchExternalCompanies(companies, search), sort),
+    [companies, search, sort],
   );
 
   if (!permsLoading && !can("external_companies", "view")) {
@@ -80,126 +99,87 @@ export function ExternalCompaniesPage() {
     setEditing(company);
     setFormOpen(true);
   };
+  const onSort = (key: string) => {
+    if (key === "actions") return;
+    setSort((s) => (s.key === key ? { key: s.key, dir: s.dir === "asc" ? "desc" : "asc" } : { key: key as ExternalCompanySortKey, dir: "asc" }));
+  };
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h2 className="text-base font-semibold tracking-tight">External companies</h2>
-          <p className="text-sm text-muted-foreground">
-            Partners that send you work. A job can record which one referred it.
-          </p>
-        </div>
-        {ready && canCreate ? (
-          <Button variant="brand" className="h-9 gap-1.5" onClick={openNew}>
-            <Plus className="size-4" /> New company
-          </Button>
-        ) : null}
-      </div>
-
-      <div className="relative max-w-sm">
-        <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          className="h-9 pl-8"
-          placeholder="Search name, email, address, phone…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          aria-label="Search external companies"
-        />
-      </div>
-
+    <div className="flex min-w-0 flex-1 flex-col pt-[13px]">
+      <h2 className="sr-only">External Companies</h2>
       {!ready ? (
-        <div className="space-y-2">
-          <Skeleton className="h-12 w-full" />
-          <Skeleton className="h-12 w-full" />
-        </div>
-      ) : !companies || companies.length === 0 ? (
-        <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed py-14 text-center">
-          <Building2 className="size-6 text-muted-foreground" />
-          <p className="text-sm font-medium">No external companies yet</p>
-          <p className="text-sm text-muted-foreground">
-            Add the partners that send you work so jobs can record where they came from.
-          </p>
-        </div>
-      ) : rows.length === 0 ? (
-        <div className="rounded-lg border border-dashed py-14 text-center text-sm text-muted-foreground">
-          No company matches &ldquo;{search}&rdquo;.
+        <div className="px-5">
+          <Skeleton className="h-[480px] w-full rounded-none" />
         </div>
       ) : (
-        <div className="rounded-lg border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Company name</TableHead>
-                <TableHead>Company email</TableHead>
-                <TableHead>Company address</TableHead>
-                <TableHead>Company phone</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="w-40 text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.map((company) => (
-                <TableRow key={company.id}>
-                  <TableCell className="font-medium">{company.name}</TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
-                    {company.email || "—"}
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
-                    {company.address || "—"}
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
-                    {company.phone ? formatPhone(company.phone) : "—"}
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={company.active ? "default" : "secondary"}>
-                      {company.active ? "Enabled" : "Disabled"}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex justify-end gap-1">
-                      {canEdit ? (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-8"
-                          disabled={toggle.isPending}
-                          onClick={() =>
-                            toggle.mutate({ id: company.id, active: !company.active })
-                          }
-                        >
-                          {company.active ? "Disable" : "Enable"}
-                        </Button>
-                      ) : null}
-                      {canEdit ? (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="size-8"
-                          onClick={() => openEdit(company)}
-                          aria-label={`Edit ${company.name}`}
-                        >
-                          <Pencil className="size-4" />
-                        </Button>
-                      ) : null}
-                      {canDelete ? (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="size-8"
-                          onClick={() => setDeleting(company)}
-                          aria-label={`Delete ${company.name}`}
-                        >
-                          <Trash2 className="size-4" />
-                        </Button>
-                      ) : null}
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
+        <>
+          <div className="flex h-8 px-5">
+            {canCreate ? (
+              <button type="button" onClick={openNew} className={cn(LEGACY_BUTTON, "rounded-[2px]")}>
+                Add New Company
+              </button>
+            ) : null}
+          </div>
+          <WzDataTable
+            aria-label="External companies"
+            className="mt-7"
+            columns={COLUMNS}
+            sort={sort}
+            onSort={onSort}
+            search={{ value: search, onChange: setSearch, label: "Search external companies" }}
+            rows={rows.map((company) => ({
+              key: company.id,
+              cells: [
+                company.name,
+                company.email || "",
+                company.address || "",
+                company.phone ? formatPhone(company.phone) : "",
+                company.active ? "Enabled" : "Disabled",
+                <div key="actions" className="flex items-center gap-px">
+                  {canEdit ? (
+                    <button
+                      type="button"
+                      aria-label={company.active ? "Disable" : "Enable"}
+                      title={company.active ? "Disable" : "Enable"}
+                      disabled={toggle.isPending}
+                      onClick={() => toggle.mutate({ id: company.id, active: !company.active })}
+                      className={cn(LEGACY_BUTTON, "rounded-[15px]")}
+                    >
+                      Disable/Enable
+                    </button>
+                  ) : null}
+                  {canEdit ? (
+                    <button
+                      type="button"
+                      aria-label={`Edit ${company.name}`}
+                      title="Edit"
+                      onClick={() => openEdit(company)}
+                      className={cn(LEGACY_BUTTON, "w-[39px] rounded-[15px] px-0")}
+                    >
+                      <Pencil className="size-3" strokeWidth={2.5} />
+                    </button>
+                  ) : null}
+                  {canDelete ? (
+                    <button
+                      type="button"
+                      aria-label={`Delete ${company.name}`}
+                      title="Delete"
+                      onClick={() => setDeleting(company)}
+                      className={cn(LEGACY_BUTTON, "w-[39px] rounded-[15px] px-0")}
+                    >
+                      <Trash2 className="size-3" strokeWidth={2.5} />
+                    </button>
+                  ) : null}
+                </div>,
+              ],
+            }))}
+          />
+          {/* DataTables' info line: 14px/30px, 10px all round. */}
+          <p className="p-2.5 text-sm leading-[30px] text-wz-strong">
+            {rows.length === 0 ? "Showing 0 to 0 of 0 entries" : `Showing 1 to ${rows.length} of ${rows.length} entries`}
+            {search && companies && rows.length !== companies.length ? ` (filtered from ${companies.length} total entries)` : ""}
+          </p>
+        </>
       )}
 
       {formOpen ? (
