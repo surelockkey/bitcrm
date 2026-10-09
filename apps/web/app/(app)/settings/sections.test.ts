@@ -27,6 +27,7 @@ describe("settingsFrame", () => {
       "/settings/companies",
       "/settings/documents",
       "/settings/payments",
+      "/settings/preferences",
     ]) {
       expect(settingsFrame(href), href).toBe("workiz");
     }
@@ -72,7 +73,8 @@ describe("SETTINGS_GROUPS", () => {
     // (app_audit_wz_settings, 2026-10-09): Automation Center, Team Management,
     // Roles & Permissions, Ad Groups (job sources), Field Validation (required
     // job fields), Sub-Status (job statuses) — the routes stay ours.
-    expect(labelsOf("General Settings")).toEqual(["Companies", "Automation Center", "Documents"]);
+    // Account Preferences: Workiz's Account → Preferences toggles (Update Job End Time), reached from the settings home here.
+    expect(labelsOf("General Settings")).toEqual(["Companies", "Automation Center", "Documents", "Account Preferences"]);
     expect(labelsOf("Users & Roles")).toEqual(["Team Management", "Roles & Permissions"]);
     expect(labelsOf("Job Settings")).toEqual([
       "Service Areas",
