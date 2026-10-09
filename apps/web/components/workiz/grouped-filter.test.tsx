@@ -194,3 +194,23 @@ describe("WzGroupedFilter — key-less and coloured chips (Payments report)", ()
     expect(screen.getByText("Cash").closest("[data-chip-color]")).toBeNull();
   });
 });
+
+// The Items report's box (rep_items_wz_01_loaded / _05_filter_open): 48.64px
+// tall (react-select's 3.04rem) where the Jobs report's is 38, and it keeps
+// that height when the yellow ring replaces its edge.
+describe("WzGroupedFilter size", () => {
+  const control = () => document.querySelector('[data-slot="wz-grouped-filter-control"]')!;
+
+  it("is the 38px box by default", () => {
+    render(<WzGroupedFilter groups={GROUPS} value={{}} onChange={() => {}} />);
+    expect(control()).toHaveClass("min-h-[38px]");
+    expect(control()).not.toHaveClass("min-h-[48.64px]");
+  });
+
+  it("is 48.64px tall, focused too, when tall", () => {
+    render(<WzGroupedFilter size="tall" groups={GROUPS} value={{}} onChange={() => {}} />);
+    expect(control()).toHaveClass("min-h-[48.64px]", "group-data-[focused=true]/wzgf:min-h-[48.64px]");
+    expect(control()).not.toHaveClass("min-h-[38px]");
+    expect(control()).not.toHaveClass("group-data-[focused=true]/wzgf:min-h-9");
+  });
+});

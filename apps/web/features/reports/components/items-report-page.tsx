@@ -1,88 +1,95 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight, Download, Search } from "lucide-react";
+import { FileText } from "lucide-react";
 import { toast } from "sonner";
-import { ITEMS_REPORT_ITEM_TYPES, type ItemsReportFilters, type ItemsReportPage as ItemsPage, type ItemsReportSort } from "@bitcrm/types";
+import type { ItemsReportFilters, ItemsReportSort } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Skeleton } from "@/components/ui/skeleton";
-import { PeriodControl, nextCustomDays, type PeriodDays } from "./period-control";
+import { usePageHistoryLabel } from "@/components/shell/page-history";
+import { WzDateRangePicker, type WzDateRange } from "@/components/workiz/date-range-picker";
+import { WzGroupedFilter } from "@/components/workiz/grouped-filter";
+import { WzPager } from "@/components/workiz/pager";
+import { WzListToolbar, WzPageSizeSelect, WzSearchBox, WzToolbarButton } from "@/components/workiz/toolbar";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { useDenied, usePermissions } from "@/features/auth/use-permissions";
 import { NoAccess } from "@/features/clients/components/contacts-page";
+import { useUserMap } from "@/features/deals/hooks";
+import { personName } from "@/features/deals/person-name";
+import { useItemCategories } from "@/features/inventory/products/hooks";
 import { useJobTypes } from "@/features/job-types/hooks";
-import { accountToday } from "../jobs/lib";
+import { viewerToday } from "../jobs/lib";
 import { downloadItemsReportCsv } from "../items/api";
 import { useItemsReport } from "../items/hooks";
 import {
   DEFAULT_ITEMS_PRESET,
+  ITEMS_FILTER_CHIP_ORDER,
   ITEMS_REPORT_PAGE_SIZES,
   ITEMS_REPORT_PRESETS,
+  itemsCustomCheck,
   itemsExportParams,
+  itemsFilterGroups,
+  itemsPager,
   itemsPresetRange,
   itemsReportParams,
   nextSort,
   type ItemsReportPreset,
   type ItemsReportState,
 } from "../items/lib";
-import { ItemsReportFilter, type ItemsFilterGroup } from "../items/components/items-report-filter";
 import { ItemsReportTable } from "../items/components/items-report-table";
 
+const PRESETS = ITEMS_REPORT_PRESETS.map((p) => ({ id: p.id, label: p.label }));
+
 /**
- * The Workiz Items and services report (`/root/itemsReport`): every
- * price-book item the period's Done jobs sold — units, price, cost, profit
- * with its margin, jobs — under a bold Total row; ▸ opens the jobs that
- * used an item. Workiz's four-group filter (Item type, Job type, Category,
- * Sold by), its date presets (This month by default, Last 3 months), a
- * search, a sort on every column, 50 rows a page and a CSV. The server does
- * the work (`GET /deals/report/items`); this page only holds the toolbar.
+ * Workiz Reports → Items and services (`/root/itemsReport`), drawn as Workiz
+ * draws it (rep_items_wz_*; notes docs/import/app-parity-2026-10-08/rep_items.md):
+ * no title; the "Filter results" box (Item type, Job type, Category, Sold by)
+ * beside the date box; the list strip (Search, page size, Export); the grid
+ * — the bold Total row first, then every price-book item the period's Done
+ * jobs sold, on their job date: units, price, cost, profit with its margin,
+ * jobs — each ▸ opening the jobs that used it; the pager inside the frame.
+ * The server counts, sorts and pages (`GET /deals/report/items`).
+ *
+ * Money (Price, Cost, Profit) needs `financials.view`. Workiz's "Meet Price
+ * Book Pro catalog!" banner over the filter is an upsell of Workiz's own and
+ * is left out.
  */
 export function ItemsReportPage({ today: todayProp }: { today?: string } = {}) {
+  usePageHistoryLabel("Items Report");
   const denied = useDenied();
   const { can } = usePermissions();
-  // The presets count from today on the account's calendar (Eastern), not the viewer's.
-  const [today] = useState(() => todayProp ?? accountToday());
+  // Workiz counts its presets from the viewer's own clock (moment()).
+  const [today] = useState(() => todayProp ?? viewerToday());
 
-  const [preset, setPreset] = useState<ItemsReportPreset>(DEFAULT_ITEMS_PRESET);
-  const [custom, setCustom] = useState<{ from: string; to: string }>({ from: today, to: today });
-  const range = preset === "custom" ? custom : itemsPresetRange(preset, today);
+  const [range, setRange] = useState<WzDateRange>(() => ({ preset: DEFAULT_ITEMS_PRESET, ...itemsPresetRange(DEFAULT_ITEMS_PRESET, today) }));
   const [filters, setFilters] = useState<ItemsReportFilters>({});
-  const [search, setSearch] = useState("");
-  const q = useDebouncedValue(search, 400);
-  // Workiz opens on `item_id desc`: the newest items first.
+  const [searchInput, setSearchInput] = useState("");
+  const q = useDebouncedValue(searchInput, 400);
+  // Workiz opens on `item_id desc` — the newest items first, no header marked.
   const [sort, setSort] = useState<{ column: ItemsReportSort; dir: "asc" | "desc" }>({ column: "number", dir: "desc" });
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   const [exporting, setExporting] = useState(false);
 
+  // A Custom range over twelve months is refused in the box and never asked
+  // for: the report keeps the last answer on screen, as Workiz does.
+  const custom = itemsCustomCheck(range);
+
+  // A new question starts from its first page — reset while rendering, so no
+  // frame shows page 3 of a set that has none.
+  const questionKey = JSON.stringify([range.from, range.to, filters, q, sort, pageSize]);
+  const [seenKey, setSeenKey] = useState(questionKey);
+  if (seenKey !== questionKey) {
+    setSeenKey(questionKey);
+    if (page !== 1) setPage(1);
+  }
+
   const state: ItemsReportState = { from: range.from, to: range.to, filters, search: q, sort: sort.column, dir: sort.dir, page, pageSize };
-  const report = useItemsReport(itemsReportParams(state), !denied("reports", "view"));
+  const report = useItemsReport(itemsReportParams(state), !denied("reports", "view") && custom.usable);
   const data = report.data;
   const money = data?.money ?? can("financials");
-  const groups = useFilterGroups(data);
+  const groups = useFilterGroups(data?.options);
 
   if (denied("reports", "view")) return <NoAccess entity="reports" />;
-
-  const resetPage = <T,>(set: (v: T) => void) => (v: T) => {
-    set(v);
-    setPage(1);
-  };
-  // Custom opens on the days on show, so the report does not jump to today.
-  const pickPreset = (p: ItemsReportPreset) => {
-    if (p === "custom") setCustom(range);
-    resetPage(setPreset)(p);
-  };
-  const pickDays = (days: PeriodDays) => {
-    setCustom((cur) => nextCustomDays(cur, days));
-    setPage(1);
-  };
-  const changeFilters = resetPage(setFilters);
-
-  const onSort = (column: ItemsReportSort) => {
-    setSort((cur) => nextSort(cur, column));
-    setPage(1);
-  };
 
   const exportCsv = async () => {
     setExporting(true);
@@ -102,153 +109,99 @@ export function ItemsReportPage({ today: todayProp }: { today?: string } = {}) {
     }
   };
 
-  const pagination = data?.pagination;
-
   return (
-    <div className="flex min-w-0 flex-1 flex-col">
-      <div className="flex flex-wrap items-center gap-2 border-b px-4 py-3 sm:px-6">
-        <h1 className="text-lg font-semibold tracking-tight">Items and services</h1>
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-auto bg-background text-wz-strong" data-slot="items-report-scroller">
+      {/* The band (rep_items_wz_01_loaded): 20px all round; the 48.64px
+          filter from 20px in to 20px short of the date box; the strip 30px
+          under the box. */}
+      <div className="flex shrink-0 items-start gap-5 px-5 pt-5 pb-[30px]">
+        <WzGroupedFilter<keyof ItemsReportFilters>
+          size="tall"
+          className="min-w-0 flex-1"
+          placeholder="Filter results"
+          groups={groups}
+          chipOrder={ITEMS_FILTER_CHIP_ORDER}
+          value={filters}
+          onChange={(next) => setFilters(next as ItemsReportFilters)}
+        />
+        <WzDateRangePicker
+          presets={PRESETS}
+          value={range}
+          onChange={setRange}
+          rangeOf={(id) => (id === "custom" ? null : itemsPresetRange(id as Exclude<ItemsReportPreset, "custom">, today))}
+          customError={custom.error}
+          calendar={{ today }}
+        />
       </div>
 
-      {/* Workiz's top band: the multi-filter, and the period box. */}
-      <div className="flex flex-col gap-3 border-b px-4 py-4 sm:px-6 lg:flex-row lg:items-start">
-        <div className="min-w-0 flex-1">
-          <ItemsReportFilter groups={groups} filters={filters} onChange={changeFilters} />
+      <WzListToolbar className="shrink-0">
+        <WzSearchBox value={searchInput} onChange={setSearchInput} />
+        <div className="ml-auto flex items-center gap-4">
+          <WzPageSizeSelect value={pageSize} sizes={ITEMS_REPORT_PAGE_SIZES} onChange={setPageSize} />
+          <WzToolbarButton onClick={() => void exportCsv()} disabled={exporting || !data || !custom.usable}>
+            <FileText strokeWidth={1.5} /> {exporting ? "Exporting…" : "Export"}
+          </WzToolbarButton>
         </div>
-        <div className="flex w-full flex-col gap-2 rounded-md border p-2 lg:w-[22rem]">
-          <PeriodControl
-            presets={ITEMS_REPORT_PRESETS.map((p) => ({ value: p.id, label: p.label }))}
-            preset={preset}
-            onPresetChange={pickPreset}
-            range={range}
-            custom={custom}
-            onCustomChange={pickDays}
-            today={today}
-            className="w-full"
-          />
-        </div>
-      </div>
+      </WzListToolbar>
 
-      <div className="flex min-w-0 flex-1 flex-col gap-3 bg-muted/30 px-4 py-4 sm:px-6">
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative w-full sm:max-w-sm">
-            <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              aria-label="Search"
-              className="h-9 bg-background pl-8"
-              placeholder="Search"
-              value={search}
-              onChange={(e) => {
-                setSearch(e.target.value);
-                setPage(1);
-              }}
-            />
-          </div>
-          <span className="flex-1" />
-          <select
-            aria-label="Rows per page"
-            className="h-9 rounded-md border bg-background px-2 text-sm"
-            value={pageSize}
-            onChange={(e) => resetPage(setPageSize)(Number(e.target.value))}
-          >
-            {ITEMS_REPORT_PAGE_SIZES.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
-          <Button variant="outline" size="sm" className="h-9 gap-1.5 bg-background" onClick={() => void exportCsv()} disabled={exporting || !data}>
-            <Download className="size-3.5" /> {exporting ? "Exporting…" : "Export"}
-          </Button>
-        </div>
-
+      <div className="shrink-0">
         {report.error ? (
-          <p role="alert" className="text-sm text-destructive">
-            {report.error instanceof Error ? report.error.message : "Could not load the report."}
-          </p>
-        ) : !data ? (
-          <div role="status" aria-label="Loading items" className="space-y-2">
-            <Skeleton className="h-10 w-full" />
-            {Array.from({ length: 8 }, (_, i) => (
-              <Skeleton key={i} className="h-12 w-full" />
-            ))}
+          <div className="border border-wz-frame px-5 py-10 text-center text-sm">
+            <p role="alert">{report.error instanceof Error ? report.error.message : "Could not load the report."}</p>
+            <Button variant="outline" size="sm" className="mt-3" onClick={() => void report.refetch()}>
+              Try again
+            </Button>
           </div>
         ) : (
-          <>
-            <ItemsReportTable
-              // A new period or filter closes every opened item.
-              key={`${state.from}|${state.to}|${JSON.stringify(filters)}|${q}`}
-              rows={data.rows}
-              totals={data.totals}
-              money={money}
-              sort={data.sort.column}
-              dir={data.sort.dir}
-              onSort={onSort}
-              state={state}
-              busy={report.isFetching}
-            />
-            {pagination ? (
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="text-xs tabular-nums text-muted-foreground">
-                  {pagination.total === 0
-                    ? "No results"
-                    : `Showing ${pagination.from.toLocaleString()} to ${pagination.to.toLocaleString()} of ${pagination.total.toLocaleString()} results`}
-                </span>
-                <Pager page={pagination.page} pages={pagination.pages} onPage={setPage} />
-              </div>
-            ) : null}
-          </>
+          <ItemsReportTable
+            // A new period or filter closes every opened item.
+            key={`${state.from}|${state.to}|${JSON.stringify(filters)}|${q}`}
+            rows={data?.rows ?? []}
+            totals={data?.totals}
+            money={money}
+            sort={data?.sort.column ?? sort.column}
+            dir={data?.sort.dir ?? sort.dir}
+            onSort={(column) => setSort((cur) => nextSort(cur, column))}
+            state={state}
+            loading={!data}
+            busy={report.isPlaceholderData && report.isFetching}
+            footer={
+              <WzPager
+                plainNumbers
+                loading={!data}
+                pager={itemsPager(data?.pagination ?? { page, pageSize, total: 0, pages: 1, from: 0, to: 0 }, setPage, report.isFetching)}
+              />
+            }
+          />
         )}
       </div>
     </div>
   );
 }
 
-/** Previous / a window of page numbers / Next. */
-function Pager({ page, pages, onPage }: { page: number; pages: number; onPage: (p: number) => void }) {
-  if (pages <= 1) return null;
-  const first = Math.max(1, Math.min(page - 2, pages - 4));
-  const numbers = Array.from({ length: Math.min(5, pages) }, (_, i) => first + i);
-  return (
-    <nav aria-label="Pages" className="flex items-center gap-1">
-      <Button variant="outline" size="icon" className="size-8" aria-label="Previous page" disabled={page <= 1} onClick={() => onPage(page - 1)}>
-        <ChevronLeft className="size-4" />
-      </Button>
-      {numbers.map((n) => (
-        <Button
-          key={n}
-          variant={n === page ? "default" : "ghost"}
-          size="sm"
-          className="h-8 min-w-8 px-2 tabular-nums"
-          aria-current={n === page ? "page" : undefined}
-          onClick={() => onPage(n)}
-        >
-          {n}
-        </Button>
-      ))}
-      <Button variant="outline" size="icon" className="size-8" aria-label="Next page" disabled={page >= pages} onClick={() => onPage(page + 1)}>
-        <ChevronRight className="size-4" />
-      </Button>
-    </nav>
-  );
-}
-
 /**
- * The filter's groups, in Workiz's order: the six item types, every job
- * type, and — as only the period knows them — its categories and sellers.
- * The last page's options are kept while the next loads, so a group does
- * not blink empty.
+ * The filter's lists, in Workiz's order: the six item types, every job type,
+ * the price book's categories and everyone in the directory (Workiz names),
+ * plus whatever the period's own answer holds that those lack. The lists
+ * only feed the closed filter, so the grid does not wait for them.
  */
-function useFilterGroups(data: ItemsPage | undefined): ItemsFilterGroup[] {
+function useFilterGroups(options: { categories: string[]; soldBy: { id: string; name: string }[] } | undefined) {
+  const { can, isLoading } = usePermissions();
   const types = useJobTypes().data;
-  const options = data?.options;
+  const categories = useItemCategories(isLoading || can("product_categories", "view")).data;
+  const { users } = useUserMap();
   return useMemo(
-    () => [
-      { key: "type", label: "Item type", options: ITEMS_REPORT_ITEM_TYPES.map((t) => ({ value: t.id, label: t.label })) },
-      { key: "jobTypeId", label: "Job type", options: (types ?? []).map((t) => ({ value: t.id, label: t.name })) },
-      { key: "category", label: "Category", options: (options?.categories ?? []).map((c) => ({ value: c, label: c })) },
-      { key: "soldBy", label: "Sold by", options: (options?.soldBy ?? []).map((p) => ({ value: p.id, label: p.name })) },
-    ],
-    [types, options],
+    () =>
+      itemsFilterGroups({
+        jobTypes: (types ?? []).map((t) => ({ id: t.id, name: t.name })),
+        categories: (categories ?? []).map((c) => c.name),
+        periodCategories: options?.categories ?? [],
+        people: users.flatMap((u) => {
+          const name = personName(u);
+          return name ? [{ id: u.id, name }] : [];
+        }),
+        periodSellers: options?.soldBy ?? [],
+      }),
+    [types, categories, users, options],
   );
 }
