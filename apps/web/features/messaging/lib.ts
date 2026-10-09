@@ -212,10 +212,15 @@ export function categoryCount(
   return { total: undefined, approximate: false, unread };
 }
 
-/** "42,657", or "42+" while the number is only what has been loaded so far. */
-export function formatCategoryCount(count: CategoryCount): string {
+/**
+ * "42657" — bare, as Workiz prints the column (pg_messages_wz_01_list) — or
+ * "42+" while the number is only what has been loaded so far. `grouped` puts
+ * the separators back for prose (the tooltip).
+ */
+export function formatCategoryCount(count: CategoryCount, grouped = false): string {
   if (count.total === undefined) return "";
-  return `${count.total.toLocaleString("en-US")}${count.approximate ? "+" : ""}`;
+  const n = grouped ? count.total.toLocaleString("en-US") : String(count.total);
+  return `${n}${count.approximate ? "+" : ""}`;
 }
 
 /** The tooltip line: "Clients · 42,423 conversations · 3 unread". */
@@ -223,7 +228,7 @@ export function categoryTooltip(label: string, count: CategoryCount): string {
   const parts = [label];
   if (count.total !== undefined) {
     const plural = count.total === 1 && !count.approximate ? "" : "s";
-    parts.push(`${formatCategoryCount(count)} conversation${plural}`);
+    parts.push(`${formatCategoryCount(count, true)} conversation${plural}`);
   }
   if (count.unread) parts.push(`${count.unread.toLocaleString("en-US")} unread`);
   return parts.join(" · ");
@@ -477,18 +482,17 @@ export function formatMessageStamp(iso: string): string {
   return `${month} ${d.getDate()} ${d.getFullYear()} ${formatMessageTime(iso)}`;
 }
 
-/** List-row timestamp: time today, weekday this week, else a short date. */
+/**
+ * List-row timestamp as Workiz prints it (pg_messages_wz_01_list): "2:18 AM"
+ * today, "Oct 08" on any earlier day of the year, "Dec 31 2025" before that.
+ */
 export function formatListTime(iso: string | undefined, now = new Date()): string {
   if (!iso) return "";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
   if (sameDay(d, now)) return formatMessageTime(iso);
-  const diffDays = (now.getTime() - d.getTime()) / 86_400_000;
-  if (diffDays < 6) return d.toLocaleDateString("en-US", { weekday: "short" });
-  if (d.getFullYear() === now.getFullYear()) {
-    return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-  }
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" });
+  const day = `${d.toLocaleDateString("en-US", { month: "short" })} ${String(d.getDate()).padStart(2, "0")}`;
+  return d.getFullYear() === now.getFullYear() ? day : `${day} ${d.getFullYear()}`;
 }
 
 /* ------------------------------------------------------------ the feed */
