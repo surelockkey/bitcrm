@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {
   ClientType,
@@ -18,6 +18,39 @@ const mocks = vi.hoisted(() => ({
   // Every render of the (stubbed) dialog records its props so tests can
   // assert what the tab handed it last.
   dialogProps: [] as Array<{ open: boolean; editing?: DealProduct }>,
+  // The job's payment schedule (billing): what usePaymentSchedule answers, and what it was asked.
+  schedule: { data: null, isSuccess: true, isError: false, isPending: false, fetchStatus: "idle" } as Record<string, unknown>,
+  scheduleAsked: [] as Array<{ dealId: string; enabled: boolean }>,
+  payProps: [] as Array<{ open: boolean; target?: string; balanceDue: number; invoiceId: string }>,
+  scheduleDialogProps: [] as Array<{ open: boolean; total: number; amountPaid: number; view: unknown }>,
+  scheduleTableProps: [] as Array<{ invoiceId?: string; canCollect: boolean; canViewPdf: boolean }>,
+}));
+
+vi.mock("@/features/payments/schedule-hooks", () => ({
+  usePaymentSchedule: (dealId: string, enabled = true) => {
+    mocks.scheduleAsked.push({ dealId, enabled });
+    return enabled ? mocks.schedule : { data: undefined, isSuccess: false, isError: false, isPending: true, fetchStatus: "idle" };
+  },
+  useRefreshScheduleOnTotal: () => {},
+}));
+// "Pay" opens the job's Record a payment; its own tests cover the form.
+vi.mock("@/features/payments/components/record-payment-dialog", () => ({
+  RecordPaymentDialog: (p: { open: boolean; target?: string; balanceDue: number; invoiceId: string }) => {
+    mocks.payProps.push(p);
+    return p.open ? <div role="dialog" aria-label="Record a payment" /> : null;
+  },
+}));
+// The schedule window and table have their own tests (payment-schedule.test.tsx); the button is the real one.
+vi.mock("@/features/payments/components/payment-schedule", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/features/payments/components/payment-schedule")>()),
+  PaymentScheduleDialog: (p: { open: boolean; total: number; amountPaid: number; view: unknown }) => {
+    mocks.scheduleDialogProps.push(p);
+    return p.open ? <div role="dialog" aria-label="Add payment schedule" /> : null;
+  },
+  PaymentScheduleTable: (p: { invoiceId?: string; canCollect: boolean; canViewPdf: boolean }) => {
+    mocks.scheduleTableProps.push(p);
+    return <section aria-label="Payment schedule" />;
+  },
 }));
 
 vi.mock("../hooks", () => ({
@@ -104,6 +137,11 @@ beforeEach(() => {
   mocks.summaryProps.length = 0;
   mocks.products = [line()];
   mocks.dialogProps.length = 0;
+  mocks.schedule = { data: null, isSuccess: true, isError: false, isPending: false, fetchStatus: "idle" };
+  mocks.scheduleAsked.length = 0;
+  mocks.payProps.length = 0;
+  mocks.scheduleDialogProps.length = 0;
+  mocks.scheduleTableProps.length = 0;
 });
 
 describe("DealProductsTab (editable items)", () => {
@@ -327,5 +365,91 @@ describe("DealProductsTab (job variant — Workiz's Items tab)", () => {
     expect(box("Tax")).toHaveTextContent("8.00");
     // No shared summary card on the job page.
     expect(screen.queryByTestId("summary")).toBeNull();
+  });
+});
+
+/**
+ * The money under Workiz's job Items totals (job_invoice_route_wz_XYB3JT_items_scroll1,
+ * job_b_tab_items_scroll0): Balance bold and #dd380d while owed, "Pay" beside it, and
+ * "+ Add payment schedule" closing the right column (greyed when nothing is owed) —
+ * or, once the job has one, its schedule under the totals (help centre 38044340324753).
+ */
+describe("DealProductsTab (job variant — Balance, Pay and the payment schedule)", () => {
+  const collector = { canCollect: true, canViewPdf: true, invoiceId: "d1" };
+  const lastPay = () => mocks.payProps[mocks.payProps.length - 1];
+  const lastScheduleDialog = () => mocks.scheduleDialogProps[mocks.scheduleDialogProps.length - 1];
+
+  it("reds the balance while anything is owed, and Pay records a payment for it on the job", async () => {
+    mocks.products = [line({ quantity: 2, priceClient: 50 })];
+    render(<DealProductsTab deal={deal} canEdit variant="job" balance={60} payments={collector} />);
+
+    const balance = screen.getByRole("group", { name: "Balance" });
+    expect(balance).toHaveTextContent("60.00");
+    expect(within(balance).getByText("60.00")).toHaveClass("font-bold", "text-[#dd380d]");
+    await userEvent.setup().click(within(balance).getByRole("button", { name: "Pay" }));
+    expect(screen.getByRole("dialog", { name: "Record a payment" })).toBeInTheDocument();
+    expect(lastPay()).toMatchObject({ open: true, target: "job", balanceDue: 60 });
+  });
+
+  it("keeps a settled balance grey and offers no Pay — nor to someone who may not collect", () => {
+    const { unmount } = render(<DealProductsTab deal={deal} canEdit variant="job" balance={0} payments={collector} />);
+    const balance = screen.getByRole("group", { name: "Balance" });
+    expect(within(balance).getByText("0.00")).not.toHaveClass("text-[#dd380d]");
+    expect(within(balance).queryByRole("button", { name: "Pay" })).toBeNull();
+    unmount();
+
+    render(<DealProductsTab deal={deal} canEdit variant="job" balance={60} payments={{ ...collector, canCollect: false }} />);
+    expect(screen.queryByRole("button", { name: "Pay" })).toBeNull();
+  });
+
+  it("closes the totals with + Add payment schedule, which opens the schedule window on the job total", async () => {
+    mocks.products = [line({ quantity: 2, priceClient: 50 })];
+    render(<DealProductsTab deal={deal} canEdit variant="job" balance={60} payments={collector} />);
+
+    const add = screen.getByRole("button", { name: "Add payment schedule" });
+    expect(add).toBeEnabled();
+    await userEvent.setup().click(add);
+    expect(screen.getByRole("dialog", { name: "Add payment schedule" })).toBeInTheDocument();
+    expect(lastScheduleDialog()).toMatchObject({ open: true, total: 100, amountPaid: 40, view: null });
+    expect(mocks.scheduleAsked.at(-1)).toEqual({ dealId: "d1", enabled: true });
+  });
+
+  it("greys + Add payment schedule when nothing is owed (5TU7ZA)", () => {
+    render(<DealProductsTab deal={deal} canEdit variant="job" balance={0} payments={collector} />);
+    expect(screen.getByRole("button", { name: "Add payment schedule" })).toBeDisabled();
+  });
+
+  it("shows the job's schedule under the totals once it has one, instead of the button", () => {
+    mocks.schedule = { ...mocks.schedule, data: { dealId: "d1", lines: [] } };
+    render(<DealProductsTab deal={deal} canEdit variant="job" balance={60} payments={collector} />);
+
+    expect(screen.getByRole("region", { name: "Payment schedule" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add payment schedule" })).toBeNull();
+    expect(mocks.scheduleTableProps.at(-1)).toMatchObject({ invoiceId: "d1", canCollect: true, canViewPdf: true });
+  });
+
+  it("shows a schedule read-only to someone who may see payments but not take them", () => {
+    mocks.schedule = { ...mocks.schedule, data: { dealId: "d1", lines: [] } };
+    render(<DealProductsTab deal={deal} canEdit variant="job" balance={60} payments={{ canCollect: false, canViewPdf: false }} />);
+    expect(screen.getByRole("region", { name: "Payment schedule" })).toBeInTheDocument();
+    expect(mocks.scheduleTableProps.at(-1)).toMatchObject({ invoiceId: undefined, canCollect: false, canViewPdf: false });
+
+    mocks.schedule = { ...mocks.schedule, data: null };
+    render(<DealProductsTab deal={deal} canEdit variant="job" balance={60} payments={{ canCollect: false, canViewPdf: false }} />);
+    expect(screen.queryByRole("button", { name: "Add payment schedule" })).toBeNull();
+  });
+
+  it("asks nothing about schedules without payments.view", () => {
+    render(<DealProductsTab deal={deal} canEdit variant="job" balance={60} />);
+    expect(screen.queryByRole("button", { name: "Add payment schedule" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Pay" })).toBeNull();
+    expect(mocks.scheduleAsked.every((a) => !a.enabled)).toBe(true);
+  });
+
+  it("comes up whole: the tab waits for the schedule rather than pushing it in under the totals", () => {
+    mocks.schedule = { data: undefined, isSuccess: false, isError: false, isPending: true, fetchStatus: "fetching" };
+    const { container } = render(<DealProductsTab deal={deal} canEdit variant="job" balance={60} payments={collector} />);
+    expect(screen.queryByRole("heading", { name: "Job Items" })).toBeNull();
+    expect(container.querySelector("[data-slot=skeleton]")).not.toBeNull();
   });
 });

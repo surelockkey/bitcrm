@@ -85,6 +85,31 @@ describe("PaymentScheduleTable", () => {
     expect(within(dialog).getByLabelText(/amount/i)).toHaveValue("192.47");
   });
 
+  // The job's Items tab shows the schedule before the job has an invoice: the
+  // payment then goes on the job's own ledger, as the Payments tab takes it.
+  it("takes the payment on the job itself while the job has no invoice", async () => {
+    let body: unknown;
+    let onInvoice = false;
+    server.use(
+      http.post("*/billing/deals/d1/payments", async ({ request }) => {
+        body = await request.json();
+        return HttpResponse.json({ success: true, data: { id: "pay-1" } });
+      }),
+      http.post("*/billing/invoices/:id/payments", () => {
+        onInvoice = true;
+        return HttpResponse.json({ success: true, data: { id: "pay-x" } });
+      }),
+    );
+    render({ invoiceId: undefined });
+    const u = user();
+    await u.click(screen.getByRole("button", { name: "Add payment for payment 2" }));
+    const dialog = await screen.findByRole("dialog", { name: /record a payment/i });
+    expect(within(dialog).getByText(/off the job balance/i)).toBeInTheDocument();
+    await u.click(within(dialog).getByRole("button", { name: /record payment/i }));
+    await waitFor(() => expect(body).toMatchObject({ amount: 292.46 }));
+    expect(onInvoice).toBe(false);
+  });
+
   it("shows a reader the schedule without Edit, Delete or Add payment", () => {
     render({ canEdit: false, canCollect: false });
     expect(screen.queryByRole("button", { name: "Edit schedule" })).toBeNull();

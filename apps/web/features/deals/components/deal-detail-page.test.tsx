@@ -31,6 +31,7 @@ const mocks = vi.hoisted(() => ({
   moveStatus: vi.fn(),
   setTags: vi.fn(),
   tagPicker: null as null | { value: string[]; onChange: (ids: string[]) => void },
+  itemsTabProps: null as null | Record<string, unknown>,
 }));
 
 vi.mock("next/navigation", () => ({
@@ -265,7 +266,10 @@ vi.mock("@/features/payments/components/deal-payments-tab", () => ({
   paymentsTabCaption: () => null,
 }));
 vi.mock("./deal-products-tab", () => ({
-  DealProductsTab: () => <div data-testid="items-tab" />,
+  DealProductsTab: (p: Record<string, unknown>) => {
+    mocks.itemsTabProps = p;
+    return <div data-testid="items-tab" />;
+  },
 }));
 vi.mock("@/features/estimates/components/deal-estimates-tab", () => ({
   DealEstimatesTab: ({ estimateId, startCreating }: { estimateId: string | null; startCreating?: boolean }) => (
@@ -632,6 +636,31 @@ describe("DealDetailPage — billing tabs and deep links", () => {
 
     await user().click(screen.getByRole("tab", { name: /^details$/i }));
     expect(`${window.location.pathname}${window.location.search}`).toBe("/deals/d1");
+  });
+
+  // job_invoice_route_wz_XYB3JT_items_scroll1: the Items totals carry the job's
+  // Balance and the invoice's Due, "Pay", and "+ Add payment schedule".
+  it("hands the Items tab the job's money: Pay and the schedule, against the invoice once there is one", async () => {
+    mocks.perms.deals = true;
+    mocks.invoice = { id: "d1", status: "due", dueDate: "2026-10-09" };
+    render(<DealDetailPage dealId="d1" initialTab="items" />);
+
+    expect(mocks.itemsTabProps).toMatchObject({
+      due: "10/9/2026",
+      payments: { canCollect: true, invoiceId: "d1", canViewPdf: true },
+    });
+  });
+
+  it("gives the Items tab no payments to someone without payments.view, and no Pay without payments.collect", () => {
+    mocks.perms.deals = true;
+    mocks.denied = new Set(["payments.collect"]);
+    const { unmount } = render(<DealDetailPage dealId="d1" initialTab="items" />);
+    expect(mocks.itemsTabProps).toMatchObject({ payments: { canCollect: false, canViewPdf: false } });
+    unmount();
+
+    mocks.denied = new Set(["payments.view"]);
+    render(<DealDetailPage dealId="d1" initialTab="items" />);
+    expect(mocks.itemsTabProps?.payments).toBeUndefined();
   });
 
   it("falls back to Details when the linked tab isn't permitted", () => {

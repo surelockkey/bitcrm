@@ -11,8 +11,16 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { useContact } from "@/features/clients/hooks";
+import { settled } from "@/lib/use-page-ready";
 import { DocumentSummaryPanel } from "@/features/billing/components/document-summary-panel";
 import { applyAmountPaid } from "@/features/payments/lib";
+import { RecordPaymentDialog } from "@/features/payments/components/record-payment-dialog";
+import {
+  AddPaymentScheduleButton,
+  PaymentScheduleDialog,
+  PaymentScheduleTable,
+} from "@/features/payments/components/payment-schedule";
+import { usePaymentSchedule, useRefreshScheduleOnTotal } from "@/features/payments/schedule-hooks";
 import {
   useDealProducts,
   useDealTotals,
@@ -109,6 +117,7 @@ export function DealProductsTab({
   showCost = false,
   balance,
   due,
+  payments,
 }: {
   deal: Deal;
   canEdit: boolean;
@@ -132,8 +141,26 @@ export function DealProductsTab({
   balance?: number;
   /** Job variant: the invoice's due date, already formatted. */
   due?: string;
+  /**
+   * Job variant, for someone with payments.view: Workiz's money under the
+   * totals — "Pay" beside an owed balance and the job's payment schedule
+   * ("+ Add payment schedule", or the schedule itself).
+   */
+  payments?: {
+    /** payments.collect: Pay, and add / edit / delete the schedule. */
+    canCollect: boolean;
+    /** The job's invoice, once it has one — a scheduled payment is taken against it. */
+    invoiceId?: string;
+    /** A scheduled payment's View (the invoice's PDF): invoices.view and an invoice. */
+    canViewPdf: boolean;
+  };
 }) {
   const { data: products, isLoading } = useDealProducts(deal.id);
+  // The job's schedule: asked for with the tab, and the tab waits for it, so
+  // it never drops in under the totals after they are drawn.
+  const schedule = usePaymentSchedule(deal.id, variant === "job" && !!payments);
+  const [paying, setPaying] = useState(false);
+  const [scheduling, setScheduling] = useState(false);
   const totalsQuery = useDealTotals(deal.id);
   const remove = useRemoveProduct(deal.id);
   const markOrdered = useMarkProductOrdered(deal.id);
@@ -163,8 +190,10 @@ export function DealProductsTab({
   const snapshot = totalsQuery.data && !totalsQuery.isFetching ? totalsQuery.data : localTotals;
   // The ledger, when the Invoice tab has it, restates Paid / Balance due.
   const totals = paymentSummary ? applyAmountPaid(snapshot, paymentSummary.settled) : snapshot;
+  // The schedule's dollars are shares of this total: a new total, a schedule to read again.
+  useRefreshScheduleOnTotal(deal.id, snapshot.total);
 
-  if (isLoading) return <Skeleton className="h-40 w-full" />;
+  if (isLoading || !settled(schedule)) return <Skeleton className="h-40 w-full" />;
 
   const dialog = (
     <AddProductDialog
@@ -216,6 +245,10 @@ export function DealProductsTab({
 
   if (variant === "job") {
     const withActions = canEdit && items.length > 0;
+    // What is still owed: Workiz's red Balance, its "Pay", and whether a schedule can split anything.
+    const owedNow = balance ?? Math.max(0, totals.total - totals.amountPaid);
+    const canCollect = !!payments?.canCollect;
+    const scheduleView = schedule.data ?? null;
     // Workiz's column widths: 56 + 579 + 5 × 126 on an empty grid; with
     // rows 71 + 287 + 160 × 5 + 106 (audit_pixels T1/T2). The first column
     // is Workiz's drag-handle column — job items do not reorder here, so it
@@ -334,7 +367,13 @@ export function DealProductsTab({
 
         <JobItemsTotals
           totals={totals}
-          balance={balance ?? Math.max(0, totals.total - totals.amountPaid)}
+          balance={owedNow}
+          onPay={canCollect ? () => setPaying(true) : undefined}
+          extraRows={
+            canCollect && schedule.isSuccess && !scheduleView ? (
+              <AddPaymentScheduleButton onClick={() => setScheduling(true)} disabled={owedNow <= 0} />
+            ) : null
+          }
           due={due}
           cost={showCost ? deal.totals?.cost : undefined}
           taxRateId={deal.taxRateId}
@@ -349,7 +388,42 @@ export function DealProductsTab({
           exemptLabel={contact?.taxExemptReason}
         />
 
+        {/* The job's schedule under the totals, as the invoice page draws it (hc-38044340324753-03). */}
+        {payments && scheduleView ? (
+          <div className="mt-10">
+            <PaymentScheduleTable
+              view={scheduleView}
+              invoiceId={payments.invoiceId}
+              canEdit={canCollect}
+              canCollect={canCollect}
+              canViewPdf={payments.canViewPdf}
+              onEdit={() => setScheduling(true)}
+            />
+          </div>
+        ) : null}
+
         {dialog}
+        {canCollect ? (
+          <>
+            {/* Pay: the job's own ledger, as its Payments tab takes a payment. */}
+            <RecordPaymentDialog
+              invoiceId={deal.id}
+              dealId={deal.id}
+              target="job"
+              balanceDue={owedNow}
+              open={paying}
+              onOpenChange={setPaying}
+            />
+            <PaymentScheduleDialog
+              open={scheduling}
+              onOpenChange={setScheduling}
+              dealId={deal.id}
+              total={totals.total}
+              amountPaid={Math.max(0, totals.total - owedNow)}
+              view={scheduleView}
+            />
+          </>
+        ) : null}
       </section>
     );
   }

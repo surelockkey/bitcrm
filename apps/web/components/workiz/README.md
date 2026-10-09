@@ -992,6 +992,21 @@ Additive, defaults unchanged:
   `PaymentScheduleTable` — for the job page's Items tab too, should it want
   Workiz's schedule there.
 
+### A job document's "← Job ID" (2026-10-09, agent `job_invoice_route`)
+
+- **`WzJobBackLink`** (`job-back-link.tsx`) `href` `className` + the words as
+  children — the line over a job's estimate ("Job ID:JTX319", on white above
+  the tabs, `className="ml-5"`) and a job's invoice ("Job ID: XYB3JT", first
+  in the grey header): 14px/16px ink, a 16px left arrow 10px before the words,
+  underlined on hover. Moved out of the estimate page unchanged; the invoice
+  page (`InvoiceDetail jobLink`) uses it too. It is the document's link to its
+  job, not a page-header "‹ Parent" link.
+- The job page's Items tab now carries the invoice page's money pieces too:
+  "Pay" beside an owed (#dd380d) Balance, `AddPaymentScheduleButton` closing
+  the right column, `PaymentScheduleTable` under the totals
+  (`PaymentScheduleTable invoiceId` is optional: without one a scheduled
+  payment goes on the job's own ledger).
+
 ## Known differences from Workiz (deliberate or unmeasurable)
 - Sub-pixel: Workiz's own fractional layout makes some glyphs land ±1px
   differently from ours in screenshots (e.g. two Workiz selects with identical

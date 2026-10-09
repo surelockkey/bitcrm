@@ -186,6 +186,12 @@ export function DealDetailPage({
                   showCost={can("financials", "view")}
                   balance={balance}
                   due={jobDueDate(deal, invoice?.dueDate) || undefined}
+                  // Workiz's "Pay" and payment schedule under the totals (payments.view).
+                  payments={
+                    canPayments
+                      ? { canCollect: can("payments", "collect"), invoiceId: invoice?.id, canViewPdf: canInvoices && !!invoice }
+                      : undefined
+                  }
                 />
               </TabPanel>
             ) : null}
