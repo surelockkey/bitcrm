@@ -90,7 +90,7 @@ export function WorkOrderPaper({
             <tbody>
               {rows.map(([label, value]) => (
                 <tr key={label}>
-                  <td className="w-[150px] pb-0.5">{label}</td>
+                  <td className="pr-3 pb-0.5 sm:w-[150px] sm:pr-0">{label}</td>
                   <td className="pb-0.5">{value}</td>
                 </tr>
               ))}

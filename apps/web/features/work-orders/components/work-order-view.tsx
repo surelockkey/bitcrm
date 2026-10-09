@@ -39,7 +39,7 @@ import { WorkOrderPaper } from "./work-order-paper";
  * Workiz's "← Job #5TU7ZA" over the h3 is a back link, which BitCRM headers
  * never carry: the job is Actions → View Job, as in Workiz's own menu.
  */
-const FRAME = "mx-5 mt-2 mb-5 min-h-[922px] border border-input p-5";
+const FRAME = "mx-4 mt-2 mb-5 min-h-[922px] border border-input p-2.5 sm:mx-5 sm:p-5";
 
 export function WorkOrderView({ id }: { id: string }) {
   const router = useRouter();
@@ -102,7 +102,7 @@ export function WorkOrderView({ id }: { id: string }) {
   return (
     // The page scrolls itself inside the shell, as Workiz's main container does.
     <div className="flex min-h-0 flex-1 flex-col overflow-auto text-wz-strong" data-slot="work-order-scroller">
-      <div className="flex items-start gap-4 px-5 pt-[17px]">
+      <div className="flex items-start gap-4 px-4 pt-[17px] sm:px-5">
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-[20px] leading-[25px] font-normal text-wz-tab-bar">Work Order #{wo.woNumber}</h1>
           <p className="mt-2 truncate text-base leading-[19px]">
@@ -186,7 +186,7 @@ export function WorkOrderView({ id }: { id: string }) {
 function WorkOrderSkeleton() {
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-auto" aria-busy="true" aria-label="Loading work order">
-      <div className="flex items-start gap-4 px-5 pt-[17px]">
+      <div className="flex items-start gap-4 px-4 pt-[17px] sm:px-5">
         <div className="min-w-0 flex-1">
           <Skeleton className="h-[25px] w-64" />
           <Skeleton className="mt-2 h-[19px] w-48" />
