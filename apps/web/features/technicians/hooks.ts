@@ -147,6 +147,25 @@ export function usePendingAssignments(enabled = true) {
   });
 }
 
+/**
+ * Every technician's approved job types and service areas, in one answer —
+ * the Team list's Skills and Areas columns and its service-area filter. An
+ * API from before the endpoint answers 404: nothing approved, so the list
+ * opens with those columns blank instead of failing.
+ */
+export function useApprovedAssignments(enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.technicians.approvedAssignments(),
+    queryFn: () =>
+      api.listApprovedAssignments().catch((e) => {
+        if (e instanceof ApiError && e.status === 404) return { jobTypes: [], serviceAreas: [] };
+        throw e;
+      }),
+    enabled,
+    staleTime: 30_000,
+  });
+}
+
 /** Latest commission config — 404 (never set) resolves to null, not an error. */
 export function useCommission(id: string, enabled = true) {
   return useQuery({

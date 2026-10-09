@@ -66,6 +66,13 @@ describe("WzReportGrid", () => {
     expect(document.querySelectorAll("tbody tr[aria-hidden]")).toHaveLength(10);
   });
 
+  it("emptyText={null}: only the blank rows, no band — Workiz's Team list (pg_technicians_wz_07_search_empty)", () => {
+    render(<WzReportGrid aria-label="Activity" columns={columns} rows={[]} rowKey={(r) => r.id} emptyText={null} minRows={5} />);
+    expect(document.querySelector("[data-slot=wz-table-no-data]")).toBeNull();
+    expect(screen.queryByText("No Records Found")).toBeNull();
+    expect(document.querySelectorAll("tbody tr[aria-hidden]")).toHaveLength(5);
+  });
+
   it("sorts only from a sortable header, and marks the sorted one", async () => {
     const onSort = vi.fn();
     const { rerender } = render(

@@ -1,18 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import {
-  AVAILABILITY_NOT_CONNECTED,
-  SETTINGS_NOT_CONNECTED,
-  allNotConnected,
-} from "../not-connected";
 import { TechnicianDetailPage } from "./technician-detail-page";
 
 /**
- * The card is assembled from live controls and dead ones. What is asserted here
- * is the join between them: the order a Workiz user reads the page in, that
- * every dead control really is dead, and that the two halves of the API's edit
- * rule are drawn where the API draws them.
+ * The card as Workiz's user page (pg_technicians_wz_10_user_profile): what is
+ * asserted is the order a Workiz user reads it in, that nothing on it is drawn
+ * dead, and that the API's edit rule is drawn where the API draws it.
  */
 
 const state = vi.hoisted(() => ({
@@ -25,16 +19,20 @@ const state = vi.hoisted(() => ({
   canViewServiceAreas: true,
   canViewRoles: true,
   canEditUsers: true,
+  canSendMessages: true,
   meId: "mgr-1",
 }));
 
 const fx = vi.hoisted(() => ({
   update: vi.fn(),
   updateUser: vi.fn(),
+  setMfa: vi.fn(),
+  setMasking: vi.fn(),
   uploadPhoto: vi.fn(),
   deletePhoto: vi.fn(),
   rolesEnabled: [] as boolean[],
   assignments: { jobTypes: [] as unknown[], serviceAreas: [] as unknown[] },
+  smsMfaEnabled: false,
   profile: {
     userId: "t1",
     phone: "+14045551234",
@@ -52,6 +50,13 @@ const fx = vi.hoisted(() => ({
 }));
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
+vi.mock("next/link", () => ({
+  default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => (
+    <a href={href} {...rest}>
+      {children}
+    </a>
+  ),
+}));
 
 vi.mock("@/features/auth/use-permissions", () => ({
   useDenied: () => () => false,
@@ -74,6 +79,8 @@ vi.mock("@/features/auth/use-permissions", () => ({
           return state.canEditUsers;
         case "roles":
           return state.canViewRoles;
+        case "messages":
+          return state.canSendMessages;
         default:
           return false;
       }
@@ -87,7 +94,14 @@ vi.mock("../hooks", () => ({
     data: new Map([
       [
         "t1",
-        { id: "t1", firstName: "Riley", lastName: "Santos", email: "riley@slk", roleId: "role-technician" },
+        {
+          id: "t1",
+          firstName: "Riley",
+          lastName: "Santos",
+          email: "riley@slk",
+          roleId: "role-technician",
+          smsMfaEnabled: fx.smsMfaEnabled,
+        },
       ],
     ]),
   }),
@@ -111,18 +125,18 @@ vi.mock("../hooks", () => ({
   useAssignDirect: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
-// The name and the field-team flag live on the user record and save through
-// the users feature; only that the card reaches for it matters here.
+// The name, the field-team flag and two-step sign-in live on the user record
+// and save through the users feature; only that the card reaches for it matters.
 vi.mock("@/features/users/hooks", () => ({
   useUpdateUser: () => ({ mutate: fx.updateUser, isPending: false }),
+  useSetUserMfa: () => ({ mutate: fx.setMfa, isPending: false }),
 }));
 
 vi.mock("../masking-hooks", () => ({
-  useSetClientNumberVisibility: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetClientNumberVisibility: () => ({ mutate: fx.setMasking, isPending: false }),
 }));
 
-// Honours `enabled` the way the real hook does, so a test can tell the
-// difference between "asked and got it" and "never asked".
+// Honours `enabled` the way the real hook does.
 vi.mock("@/features/roles/hooks", () => ({
   useRoles: (enabled = true) => {
     fx.rolesEnabled.push(enabled);
@@ -134,35 +148,17 @@ vi.mock("@/features/service-areas/hooks", () => ({ useServiceAreas: () => ({ dat
 vi.mock("@/features/job-types/lib", () => ({ useJobTypesLoading: () => false, useJobTypeName: () => (id: string) => id }));
 
 // Heavy neighbours, each with its own tests: only their presence matters here.
-vi.mock("@/features/messaging/components/text-button", () => ({
-  TextButton: () => <button type="button">Text</button>,
+vi.mock("@/features/messaging/components/party-chat", () => ({
+  PartyChat: ({ partyId }: { partyId: string }) => <div data-testid="party-chat" data-party={partyId} />,
 }));
-vi.mock("@/features/schedule/components/working-hours-editor", () => ({
-  WorkingHoursEditor: ({ readOnly }: { readOnly?: boolean }) => (
-    <div data-testid="working-hours" data-readonly={readOnly ? "yes" : "no"} />
+// Forwards what the card gives it and invents nothing.
+vi.mock("@/features/deals/components/address-autocomplete", () => ({
+  AddressAutocomplete: ({ value, id, ariaLabel, placeholder }: { value: string; id?: string; ariaLabel?: string; placeholder?: string }) => (
+    <input id={id} aria-label={ariaLabel} placeholder={placeholder} defaultValue={value} />
   ),
 }));
-// Forwards what the card gives it and invents nothing: a mock that hardcoded
-// `aria-label` would prove the mock has a name, not the field.
-vi.mock("@/features/deals/components/address-autocomplete", () => ({
-  AddressAutocomplete: ({
-    value,
-    id,
-    ariaLabel,
-    placeholder,
-  }: {
-    value: string;
-    id?: string;
-    ariaLabel?: string;
-    placeholder?: string;
-  }) => <input id={id} aria-label={ariaLabel} placeholder={placeholder} defaultValue={value} />,
-}));
-vi.mock("./commission-tab", () => ({
-  CommissionTab: () => <div data-testid="commission-panel" />,
-}));
-vi.mock("./documents-tab", () => ({
-  DocumentsTab: () => <div data-testid="documents-panel" />,
-}));
+vi.mock("./commission-tab", () => ({ CommissionTab: () => <div data-testid="commission-panel" /> }));
+vi.mock("./documents-tab", () => ({ DocumentsTab: () => <div data-testid="documents-panel" /> }));
 
 beforeEach(() => {
   state.canViewTechs = true;
@@ -174,13 +170,17 @@ beforeEach(() => {
   state.canViewServiceAreas = true;
   state.canViewRoles = true;
   state.canEditUsers = true;
+  state.canSendMessages = true;
   state.meId = "mgr-1";
   fx.update.mockReset();
   fx.updateUser.mockReset();
+  fx.setMfa.mockReset();
+  fx.setMasking.mockReset();
   fx.uploadPhoto.mockReset();
   fx.deletePhoto.mockReset();
   fx.rolesEnabled.length = 0;
   fx.assignments = { jobTypes: [], serviceAreas: [] };
+  fx.smsMfaEnabled = false;
 });
 
 /** Index of a piece of text inside an element, for order assertions. */
@@ -189,208 +189,209 @@ const at = (el: HTMLElement, text: string) => {
   expect(i, `"${text}" is missing`).toBeGreaterThan(-1);
   return i;
 };
+const inOrder = (el: HTMLElement, texts: string[]) => {
+  const order = texts.map((t) => at(el, t));
+  expect(order).toEqual([...order].sort((a, b) => a - b));
+};
+const openTab = (name: string) => userEvent.click(screen.getByRole("tab", { name }));
+const save = () => userEvent.click(screen.getByRole("button", { name: "Save" }));
+const reason = (el: HTMLElement) =>
+  (el.getAttribute("aria-describedby") ?? "")
+    .split(" ")
+    .map((id) => document.getElementById(id)?.textContent ?? "")
+    .join(" ");
 
-describe("TechnicianDetailPage — one page, two columns", () => {
-  it("keeps the tabs this card has always had, opening on the form", () => {
-    // Assignments moved onto the form on 2026-09-17, under the labor cost,
-    // where Workiz has job types and areas — so one tab fewer.
+describe("TechnicianDetailPage — Workiz's user page", () => {
+  it("is 'User Settings' with Workiz's tabs, ours (Documents) last, opening on Profile", () => {
     render(<TechnicianDetailPage technicianId="t1" />);
-    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual([
-      "Profile",
-      "Overview",
-      "Commission",
-      "Documents",
-    ]);
+    expect(screen.getByRole("heading", { level: 2, name: "User Settings" })).toBeInTheDocument();
+    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["Profile", "Availability", "Commissions", "Documents"]);
     expect(screen.getByRole("tab", { name: "Profile" })).toHaveAttribute("aria-selected", "true");
-  });
-
-  it("pins the Save bar under the middle of both columns", () => {
-    render(<TechnicianDetailPage technicianId="t1" />);
-    const bar = screen.getByRole("button", { name: /save changes/i }).parentElement!;
-    // The job card's own footer: centred, bordered, and outside the scroll
-    // region so it cannot scroll away while somebody edits.
-    expect(bar.className).toContain("justify-center");
-    expect(bar.className).toContain("border-t");
   });
 
   it("draws the person column in Workiz's order", () => {
     render(<TechnicianDetailPage technicianId="t1" />);
-    const col = screen.getByTestId("person-column");
-    // Track location sits under the photo, where the owner asked for it.
-    const order = [
+    inOrder(screen.getByTestId("person-column"), [
       "Profile picture",
       "Track location",
+      "User Details",
       "User type",
       "First name",
       "Email",
-      "Phone",
-      "Additional phone numbers",
       "Home address",
-    ].map((label) => at(col, label));
-    expect(order).toEqual([...order].sort((a, b) => a - b));
+      "Phone",
+      "Additional phone",
+      "Call masking",
+      "Two-factor authentication",
+    ]);
   });
 
-  it("draws the work column in Workiz's order, with ours at the foot", () => {
+  it("draws the work column in Workiz's order, with ours under a title of their own", () => {
     render(<TechnicianDetailPage technicianId="t1" />);
-    const col = screen.getByTestId("work-column");
-    const order = [
+    inOrder(screen.getByTestId("work-column"), [
+      "Roles and permissions",
       "Field team member",
       "Labor cost per hour",
-      "Job types — what they can do",
-      "Service areas — where they work",
+      "Job types",
+      "User skills",
+      "Service areas",
       "Schedule color",
-      "Hide client numbers",
-      "Two-factor authentication",
-      "Notes",
-      "Not on the Workiz card — ours",
+      "Technician status",
       "Status",
-    ].map((label) => at(col, label));
-    expect(order).toEqual([...order].sort((a, b) => a - b));
+      "Mobile app installed",
+      "Onboarding",
+    ]);
   });
 
   it("carries no Role field, and never asks for the roles list", () => {
     // The role is set on the user record, with its confirmation and its reset
-    // of overrides; the owner struck the read-only copy from this card.
+    // of overrides; the owner struck the copy from this card.
     render(<TechnicianDetailPage technicianId="t1" />);
-    const col = screen.getByTestId("work-column");
-    expect(within(col).queryByText("Role")).toBeNull();
-    expect(screen.queryByRole("link", { name: /customize roles and permissions here/i })).toBeNull();
+    expect(within(screen.getByTestId("work-column")).queryByText("Role")).toBeNull();
+    expect(screen.queryByRole("link", { name: /customize roles and permissions/i })).toBeNull();
     expect(fx.rolesEnabled).toEqual([]);
+  });
+
+  it("draws nothing dead: Workiz's fields we hold no data for are left out", () => {
+    render(<TechnicianDetailPage technicianId="t1" />);
+    for (const words of ["Notes", "User signature", "Sync email", "Allowed IP", "Advanced", "same as business hours"]) {
+      expect(screen.queryByText(new RegExp(words, "i")), words).toBeNull();
+    }
   });
 
   it("carries the live values we hold into the form", () => {
     render(<TechnicianDetailPage technicianId="t1" />);
     expect(screen.getByLabelText("Labor cost per hour")).toHaveValue(45);
     expect(screen.getByLabelText("City")).toHaveValue("Phoenix");
-    expect(screen.getByRole("switch", { name: "Track location" })).toBeChecked();
+    expect(screen.getByLabelText("Home address")).toHaveValue("12 Oak St");
+    expect(screen.getByRole("checkbox", { name: "Track location" })).toBeChecked();
+    expect(screen.getByRole("combobox", { name: "User type" })).toBeInTheDocument();
+    expect(screen.getByText("User")).toBeInTheDocument();
   });
 
-  it("names the street field itself, editable or not — the group label names the block", () => {
-    const { unmount } = render(<TechnicianDetailPage technicianId="t1" />);
-    // Editable: the autocomplete. A placeholder is not a name.
-    expect(screen.getByLabelText("Street address")).toHaveValue("12 Oak St");
-    unmount();
-
-    state.canEditTechs = false;
+  it("pins Workiz's Save bar under the form", () => {
     render(<TechnicianDetailPage technicianId="t1" />);
-    expect(screen.getByLabelText("Street address")).toBeDisabled();
+    const bar = screen.getByRole("button", { name: "Save" }).closest("[data-slot=wz-action-bar]");
+    expect(bar).not.toBeNull();
   });
 });
 
-/** Radix renders only the open tab, so a check has to go where its field lives. */
-const openTab = (name: string) => userEvent.click(screen.getByRole("tab", { name }));
-
-/** Availability and the Workiz-settings block live on Overview; every other dead field on Profile. */
-const OVERVIEW_KEYS = new Set([AVAILABILITY_NOT_CONNECTED.key, ...SETTINGS_NOT_CONNECTED.map((f) => f.key)]);
-const tabOf = (key: string) => (OVERVIEW_KEYS.has(key) ? "Overview" : "Profile");
-
-describe("TechnicianDetailPage — what is drawn but dead", () => {
-  it("disables every not-connected control and says why beside it", async () => {
+describe("TechnicianDetailPage — the switches", () => {
+  it("names the masking switch as Workiz does, and writes it at once", async () => {
     render(<TechnicianDetailPage technicianId="t1" />);
-    for (const field of allNotConnected()) {
-      await openTab(tabOf(field.key));
-      const block = screen.getByTestId(`not-connected-${field.key}`);
-      expect(block).toHaveTextContent(field.label);
-      expect(block).toHaveTextContent(field.note);
-      for (const control of block.querySelectorAll("input, textarea, button, select")) {
-        expect(control).toBeDisabled();
-      }
-    }
+    const masking = screen.getByRole("switch", { name: "Call masking" });
+    expect(reason(masking)).toMatch(/never the number/);
+    await userEvent.click(masking);
+    expect(fx.setMasking).toHaveBeenCalledWith({ userId: "t1", hideNumbers: true });
   });
 
-  it("gives no dead control a value to be misread", async () => {
+  it("shows two-step sign-in as the user record has it, and switches it there, at once", async () => {
+    fx.smsMfaEnabled = true;
     render(<TechnicianDetailPage technicianId="t1" />);
-    for (const field of allNotConnected()) {
-      await openTab(tabOf(field.key));
-      const block = screen.getByTestId(`not-connected-${field.key}`);
-      // Radix's switch keeps a hidden checkbox for form submission; its "on" is
-      // the checkbox default, not a value of ours — `checked` below is what
-      // says whether the switch reads as set.
-      for (const control of block.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>(
-        'input:not([type="checkbox"]):not([type="hidden"]), textarea',
-      )) {
-        expect(control.value).toBe("");
-      }
-      for (const control of block.querySelectorAll('[role="switch"]')) {
-        expect(control).not.toBeChecked();
-      }
-    }
+    const twoFactor = screen.getByRole("switch", { name: "Two-factor authentication" });
+    expect(twoFactor).toBeChecked();
+    await userEvent.click(twoFactor);
+    expect(fx.setMfa).toHaveBeenCalledWith({ id: "t1", enabled: false });
   });
 
-  it("ties the live controls that are disabled to their reason too", () => {
-    state.isTechnician = true;
+  it("locks two-step sign-in for a manager without users.edit, and says where it lives", () => {
     state.canEditUsers = false;
+    render(<TechnicianDetailPage technicianId="t1" />);
+    const twoFactor = screen.getByRole("switch", { name: "Two-factor authentication" });
+    expect(twoFactor).toBeDisabled();
+    expect(reason(twoFactor)).toMatch(/user record/);
+  });
+});
+
+describe("TechnicianDetailPage — the Availability tab", () => {
+  it("saves the hours with the card once touched", async () => {
+    render(<TechnicianDetailPage technicianId="t1" />);
+    await openTab("Availability");
+    await userEvent.click(screen.getByRole("checkbox", { name: "Sat" }));
+    await save();
+    await waitFor(() => expect(fx.update).toHaveBeenCalled());
+    expect(fx.update.mock.calls[0][0].body).toMatchObject({ workingDays: [1, 2, 3, 4, 5, 6], workStart: "08:00", workEnd: "17:00" });
+  });
+
+  it("leaves unset hours unset when the card is saved without touching them", async () => {
+    render(<TechnicianDetailPage technicianId="t1" />);
+    await save();
+    await waitFor(() => expect(fx.update).toHaveBeenCalled());
+    const body = fx.update.mock.calls[0][0].body;
+    expect(body.workingDays).toBeUndefined();
+    expect(body.workStart).toBeUndefined();
+  });
+
+  it("is read-only for a viewer who may not set the hours", async () => {
+    state.isTechnician = true;
     state.meId = "t1";
     render(<TechnicianDetailPage technicianId="t1" />);
-
-    // Why it is greyed has to reach whoever can't see that it is greyed.
-    const reason = (el: HTMLElement) =>
-      document.getElementById(el.getAttribute("aria-describedby") ?? "")?.textContent;
-    expect(reason(screen.getByLabelText("Labor cost per hour"))).toBe("A manager sets this.");
-    expect(reason(screen.getByLabelText("Status"))).toBe("A manager sets this.");
-    // Read-only by role, not by permission: the name and email are the user
-    // record's, and the one line that says so answers for all three.
-    expect(reason(screen.getByLabelText("First name"))).toMatch(/live on the user record/);
-    expect(reason(screen.getByLabelText("Email"))).toMatch(/live on the user record/);
-  });
-
-  it("gives the locked-out viewer's address fields the reason they are locked", () => {
-    state.canEditTechs = false;
-    render(<TechnicianDetailPage technicianId="t1" />);
-    const city = screen.getByLabelText("City");
-    expect(city).toBeDisabled();
-    expect(
-      document.getElementById(city.getAttribute("aria-describedby") ?? "")?.textContent,
-    ).toBe("You can read this technician's details but not change them.");
-  });
-
-  it("ties each dead control to its own explanation for a screen reader", () => {
-    render(<TechnicianDetailPage technicianId="t1" />);
-    const block = screen.getByTestId("not-connected-two-factor");
-    const control = block.querySelector('[role="switch"]');
-    const describedBy = control?.getAttribute("aria-describedby");
-    expect(describedBy).toBeTruthy();
-    expect(document.getElementById(describedBy as string)?.textContent).toContain("Cognito");
+    await openTab("Availability");
+    expect(screen.getByRole("checkbox", { name: "Mon" })).toBeDisabled();
   });
 });
 
-describe("TechnicianDetailPage — the blocks below the columns", () => {
-  it("keeps availability, onboarding, commission and documents, each on its tab", async () => {
+describe("TechnicianDetailPage — the other tabs and Actions", () => {
+  it("keeps commission and documents, each on its tab, and the form steps aside", async () => {
     render(<TechnicianDetailPage technicianId="t1" />);
-    // Radix renders only the open tab, so each is asserted where it lives.
-    await openTab("Overview");
-    expect(screen.getByTestId("working-hours")).toHaveAttribute("data-readonly", "no");
-    expect(screen.getByText("Onboarding")).toBeInTheDocument();
-    await openTab("Commission");
+    await openTab("Commissions");
     expect(screen.getByTestId("commission-panel")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
     await openTab("Documents");
     expect(screen.getByTestId("documents-panel")).toBeInTheDocument();
   });
 
-  it("hides the commission and documents blocks without their permissions", () => {
+  it("hides the commission and documents tabs without their permissions", () => {
     state.canViewCommission = false;
     state.canViewDocuments = false;
     render(<TechnicianDetailPage technicianId="t1" />);
-    expect(screen.queryByRole("tab", { name: "Commission" })).toBeNull();
+    expect(screen.queryByRole("tab", { name: "Commissions" })).toBeNull();
     expect(screen.queryByRole("tab", { name: "Documents" })).toBeNull();
   });
 
-  it("hides the job-type and service-area assignments without their view permissions", () => {
+  it("puts the team chat in Actions, for someone else's card", async () => {
+    render(<TechnicianDetailPage technicianId="t1" />);
+    await userEvent.click(screen.getByRole("button", { name: "Actions" }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Send a text" }));
+    expect(screen.getByRole("dialog", { name: "Text Riley Santos" })).toBeInTheDocument();
+    expect(screen.getByTestId("party-chat")).toHaveAttribute("data-party", "t1");
+  });
+
+  it("draws no Actions on one's own card, or for someone who may not send", () => {
+    state.meId = "t1";
+    const { unmount } = render(<TechnicianDetailPage technicianId="t1" />);
+    expect(screen.queryByRole("button", { name: "Actions" })).toBeNull();
+    unmount();
+    state.meId = "mgr-1";
+    state.canSendMessages = false;
+    render(<TechnicianDetailPage technicianId="t1" />);
+    expect(screen.queryByRole("button", { name: "Actions" })).toBeNull();
+  });
+
+  it("has no way back in the header — the sidebar is the way back", () => {
+    render(<TechnicianDetailPage technicianId="t1" />);
+    expect(screen.queryByRole("button", { name: /technicians/i })).toBeNull();
+  });
+});
+
+describe("TechnicianDetailPage — job types and service areas", () => {
+  it("hides them without their view permissions", () => {
     state.canViewJobTypes = false;
     state.canViewServiceAreas = false;
     render(<TechnicianDetailPage technicianId="t1" />);
-    expect(screen.queryByText(/Job types — what they can do/)).toBeNull();
-    expect(screen.queryByText(/Service areas — where they work/)).toBeNull();
+    expect(screen.queryByText("User skills")).toBeNull();
+    expect(screen.queryByRole("group", { name: "Service areas" })).toBeNull();
   });
 
-  it("draws an approved assignment plain on the card — the owner struck the green", () => {
+  it("draws an approved entry as Workiz's plain chip — the owner struck the green", () => {
     fx.assignments = {
       jobTypes: [{ jobTypeId: "jt-lockout", status: "approved", proposedBy: "m", proposedAt: "t" }],
       serviceAreas: [],
     };
     render(<TechnicianDetailPage technicianId="t1" />);
-    const chip = screen.getByText("jt-lockout").closest("span.rounded-chip") as HTMLElement;
-    expect(chip).not.toBeNull();
+    const chip = screen.getByText("jt-lockout").closest("[data-status]") as HTMLElement;
+    expect(chip).toHaveAttribute("data-status", "approved");
+    expect(chip.className).toContain("rounded-chip");
     expect(chip.className).not.toMatch(/green/);
   });
 });
@@ -405,45 +406,43 @@ describe("TechnicianDetailPage — guards", () => {
   it("locks the whole card for a viewer who may not edit technicians", async () => {
     state.canEditTechs = false;
     render(<TechnicianDetailPage technicianId="t1" />);
-    expect(screen.queryByRole("button", { name: /save changes/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+    expect(screen.getByText("You can read this card but not change it.")).toBeInTheDocument();
     expect(screen.getByLabelText("City")).toBeDisabled();
+    expect(reason(screen.getByLabelText("City"))).toBe("You can read this technician's details but not change them.");
     expect(screen.getByLabelText("Labor cost per hour")).toBeDisabled();
-    await openTab("Overview");
-    expect(screen.getByTestId("working-hours")).toHaveAttribute("data-readonly", "yes");
   });
 
-  it("lets a technician on their own card edit their details but not their labor cost", async () => {
+  it("lets a technician on their own card edit their details but not what a manager sets, and says why", () => {
     state.isTechnician = true;
+    state.canEditUsers = false;
     state.meId = "t1";
     render(<TechnicianDetailPage technicianId="t1" />);
 
     expect(screen.getByLabelText("City")).toBeEnabled();
     expect(screen.getByLabelText("Labor cost per hour")).toBeDisabled();
-    expect(screen.getByRole("switch", { name: "Track location" })).toBeDisabled();
-    expect(screen.getByRole("switch", { name: "Mobile app installed" })).toBeDisabled();
-    expect(screen.getAllByText("A manager sets this.").length).toBeGreaterThan(0);
-    await openTab("Overview");
-    expect(screen.getByTestId("working-hours")).toHaveAttribute("data-readonly", "yes");
+    expect(reason(screen.getByLabelText("Labor cost per hour"))).toContain("A manager sets this.");
+    expect(screen.getByRole("combobox", { name: "Status" })).toBeDisabled();
+    expect(reason(screen.getByRole("combobox", { name: "User type" }))).toContain("A manager sets this.");
+    expect(screen.getByRole("checkbox", { name: "Track location" })).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: "Mobile app installed" })).toBeDisabled();
+    expect(reason(screen.getByLabelText("First name"))).toMatch(/live on the user record/);
+    expect(reason(screen.getByLabelText("Email"))).toMatch(/live on the user record/);
   });
 
   it("sends a technician's own save without the operational fields the API would refuse", async () => {
     state.isTechnician = true;
     state.meId = "t1";
     render(<TechnicianDetailPage technicianId="t1" />);
-
-    await userEvent.click(screen.getByRole("button", { name: /save changes/i }));
+    await save();
     await waitFor(() => expect(fx.update).toHaveBeenCalled());
-
-    const { body } = fx.update.mock.calls[0][0];
-    expect(Object.keys(body).sort()).toEqual(["additionalPhones", "homeAddress", "phone"]);
+    expect(Object.keys(fx.update.mock.calls[0][0].body).sort()).toEqual(["additionalPhones", "homeAddress", "phone"]);
   });
 
   it("sends the operational fields when a manager saves", async () => {
     render(<TechnicianDetailPage technicianId="t1" />);
-
-    await userEvent.click(screen.getByRole("button", { name: /save changes/i }));
+    await save();
     await waitFor(() => expect(fx.update).toHaveBeenCalled());
-
     const { body } = fx.update.mock.calls[0][0];
     expect(body.laborCostPerHour).toBe(45);
     expect(body.status).toBe("active");
@@ -452,52 +451,21 @@ describe("TechnicianDetailPage — guards", () => {
   });
 });
 
-/**
- * The fields the owner asked for on 2026-09-17, each live where Workiz has it:
- * no way back in the header, the photo on the card, a real user type, real
- * additional numbers, and the two that belong to the user record — the name
- * and the field-team switch — saved there.
- */
 describe("TechnicianDetailPage — the card's own fields", () => {
-  it("has no way back in the header — the sidebar is the way back", () => {
+  it("lets a manager put a photo on the card through the disc", () => {
     render(<TechnicianDetailPage technicianId="t1" />);
-    expect(screen.queryByRole("button", { name: /technicians/i })).toBeNull();
-  });
-
-  it("shows the user type, and keeps it with the manager", () => {
-    const { unmount } = render(<TechnicianDetailPage technicianId="t1" />);
-    expect(screen.getByLabelText("User type")).toHaveTextContent("Regular");
-    expect(screen.getByLabelText("User type")).toBeEnabled();
-    unmount();
-
-    state.isTechnician = true;
-    state.canEditUsers = false;
-    state.meId = "t1";
-    render(<TechnicianDetailPage technicianId="t1" />);
-    const select = screen.getByLabelText("User type");
-    expect(select).toBeDisabled();
-    expect(document.getElementById(select.getAttribute("aria-describedby") ?? "")?.textContent).toBe(
-      "A manager sets this.",
-    );
-  });
-
-  it("lets a manager put a photo on the card, and says nothing about documents", () => {
-    render(<TechnicianDetailPage technicianId="t1" />);
-    expect(screen.queryByText(/uploaded with their documents/i)).toBeNull();
-    expect(screen.getByRole("button", { name: /upload photo/i })).toBeEnabled();
-
+    expect(screen.getByRole("button", { name: "Upload photo" })).toBeEnabled();
     const input = document.querySelector('input[type="file"]') as HTMLInputElement;
     expect(input.accept).toBe("image/png,image/jpeg,image/webp");
     const file = new File(["x"], "riley.png", { type: "image/png" });
     fireEvent.change(input, { target: { files: [file] } });
-
     expect(fx.uploadPhoto).toHaveBeenCalledWith({ id: "t1", file });
   });
 
   it("offers no photo controls to a viewer who may not edit the card", () => {
     state.canEditTechs = false;
     render(<TechnicianDetailPage technicianId="t1" />);
-    expect(screen.queryByRole("button", { name: /upload photo/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Upload photo" })).toBeNull();
     expect(document.querySelector('input[type="file"]')).toBeNull();
   });
 
@@ -508,24 +476,22 @@ describe("TechnicianDetailPage — the card's own fields", () => {
     await userEvent.click(screen.getByRole("button", { name: "Remove additional phone 1" }));
     expect(screen.queryByLabelText("Additional phone 1")).toBeNull();
 
-    await userEvent.click(screen.getByRole("button", { name: /add number/i }));
+    await userEvent.click(screen.getByRole("button", { name: "Additional phone numbers" }));
     expect(screen.getByLabelText("Additional phone 1")).toHaveValue("");
 
     await userEvent.click(screen.getByRole("button", { name: "Remove additional phone 1" }));
-    await userEvent.click(screen.getByRole("button", { name: /save changes/i }));
+    await save();
     await waitFor(() => expect(fx.update).toHaveBeenCalled());
     expect(fx.update.mock.calls[0][0].body.additionalPhones).toEqual([]);
   });
 
   it("saves the field-team switch to the user record, not the technician one", async () => {
     render(<TechnicianDetailPage technicianId="t1" />);
-    const flag = screen.getByRole("switch", { name: "Field team member" });
+    const flag = screen.getByRole("checkbox", { name: "Field team member" });
     // Unset on the record: a technician is on the field team until switched off.
     expect(flag).toBeChecked();
-
     await userEvent.click(flag);
-    await userEvent.click(screen.getByRole("button", { name: /save changes/i }));
-
+    await save();
     await waitFor(() => expect(fx.updateUser).toHaveBeenCalled());
     expect(fx.updateUser).toHaveBeenCalledWith({ id: "t1", body: { fieldTeamMember: false } });
     expect(fx.update.mock.calls[0][0].body.fieldTeamMember).toBeUndefined();
@@ -537,15 +503,14 @@ describe("TechnicianDetailPage — the card's own fields", () => {
     expect(first).toBeEnabled();
     await userEvent.clear(first);
     await userEvent.type(first, "Riley-Ann");
-    await userEvent.click(screen.getByRole("button", { name: /save changes/i }));
-
+    await save();
     await waitFor(() => expect(fx.updateUser).toHaveBeenCalled());
     expect(fx.updateUser).toHaveBeenCalledWith({ id: "t1", body: { firstName: "Riley-Ann" } });
   });
 
   it("leaves the user record alone when nothing on it changed", async () => {
     render(<TechnicianDetailPage technicianId="t1" />);
-    await userEvent.click(screen.getByRole("button", { name: /save changes/i }));
+    await save();
     await waitFor(() => expect(fx.update).toHaveBeenCalled());
     expect(fx.updateUser).not.toHaveBeenCalled();
   });
@@ -554,19 +519,14 @@ describe("TechnicianDetailPage — the card's own fields", () => {
     render(<TechnicianDetailPage technicianId="t1" />);
     const email = screen.getByLabelText("Email");
     expect(email).toBeDisabled();
-    expect(document.getElementById(email.getAttribute("aria-describedby") ?? "")?.textContent).toMatch(
-      /sign-in/,
-    );
+    expect(reason(email)).toMatch(/sign-in/);
   });
 
-  it("locks the name and the switch for a manager without users.edit, and says where they live", () => {
+  it("locks the name and the field-team switch for a manager without users.edit", () => {
     state.canEditUsers = false;
     render(<TechnicianDetailPage technicianId="t1" />);
     expect(screen.getByLabelText("First name")).toBeDisabled();
-    expect(screen.getByRole("switch", { name: "Field team member" })).toBeDisabled();
-    const reason = document.getElementById(
-      screen.getByLabelText("First name").getAttribute("aria-describedby") ?? "",
-    )?.textContent;
-    expect(reason).toMatch(/live on the user record/);
+    expect(screen.getByRole("checkbox", { name: "Field team member" })).toBeDisabled();
+    expect(reason(screen.getByLabelText("First name"))).toMatch(/live on the user record/);
   });
 });

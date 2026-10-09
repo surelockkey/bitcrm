@@ -1,67 +1,66 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import type { User } from "@bitcrm/types";
-import { Button } from "@/components/ui/button";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
-import { initials } from "@/features/users/lib";
+import { WzButton } from "@/components/workiz/button";
+import { WzPageHeader } from "@/components/workiz/page-parts";
+import { WzPopMenu, type WzPopMenuItem } from "@/components/workiz/pop-menu";
+import { WzTabBar, type WzTab } from "@/components/workiz/tab-bar";
 import { usePermissions } from "@/features/auth/use-permissions";
-import { TextButton } from "@/features/messaging/components/text-button";
-import { WorkingHoursEditor } from "@/features/schedule/components/working-hours-editor";
-import { settled, usePageReady } from "@/lib/use-page-ready";
-import { useServiceAreas } from "@/features/service-areas/hooks";
+import { personName } from "@/features/deals/person-name";
 import { useJobTypesLoading } from "@/features/job-types/lib";
-import { useAssignments, useProfile, useUserMap } from "../hooks";
-import { techName, techUser, technicianEditRights } from "../lib";
-import {
-  AVAILABILITY_NOT_CONNECTED,
-  NOT_CONNECTED_BANNER,
-  SETTINGS_NOT_CONNECTED,
-} from "../not-connected";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { TechnicianStatusBadge } from "./technician-status-badge";
-import { TechnicianForm } from "./technician-form";
-import { NotConnectedField } from "./not-connected-field";
-import { OnboardingSection } from "./onboarding-section";
+import { useServiceAreas } from "@/features/service-areas/hooks";
+import { settled, usePageReady } from "@/lib/use-page-ready";
+import { useAssignments, useOnboarding, useProfile, useUserMap } from "../hooks";
+import { techUser, technicianEditRights } from "../lib";
 import { CommissionTab } from "./commission-tab";
 import { DocumentsTab } from "./documents-tab";
+import { TechnicianForm } from "./technician-form";
+import { TechnicianTextDialog } from "./technician-text-dialog";
+
+type CardTab = "profile" | "availability" | "commissions" | "documents";
 
 /**
- * The technician card, in the shape of the Workiz user page it replaces: one
- * form in two columns, then the blocks that carry their own Save.
+ * The technician card as Workiz's user page (`/root/editUser/<id>`,
+ * pg_technicians_wz_10_user_profile): "User Settings" at the top with
+ * "Actions ⌄" at the right, the small tab row — Profile, Availability,
+ * Commissions — and the two-column form over Workiz's Save bar.
  *
- * There are no tabs. Profile and Assignments were two halves of one form, and
- * the three that remained — Overview, Commission, Documents — were not worth a
- * tab strip over a page you scroll. What each block costs to read is now
- * visible at once, which is how the owner's people use the Workiz page.
+ * Ours beside Workiz's: a Documents tab after Commissions (Workiz has none),
+ * and in Actions the team chat with this person. Workiz's Advanced tab (sync
+ * email, allowed IPs, notification switches, signature) and its Actions
+ * "Reset password" / "Disable user" have nothing behind them here and are
+ * left out; the account's own life is the Users page's.
  *
- * Order below the columns: availability (theirs, where they put it), then our
- * onboarding, commission and documents, and last the settings we hold no data
- * for. Workiz lists those four higher up; putting dead controls above three
- * working features would be parity of layout at the price of the page.
+ * No way back in the header: the sidebar is the way back (the owner struck the
+ * button that duplicated it), and Workiz has none either.
  */
 export function TechnicianDetailPage({ technicianId }: { technicianId: string }) {
   const router = useRouter();
   const { can, me, isTechnician, isLoading: permsLoading } = usePermissions();
+  const [tab, setTab] = useState<CardTab>("profile");
+  const [texting, setTexting] = useState(false);
+
   const query = useProfile(technicianId);
   const userMapQuery = useUserMap();
   const userMap = userMapQuery.data;
   // What the Profile tab shows besides the profile, asked for with it: the
-  // technician's assignments and the catalogs that name them. Each used to
-  // land on its own and push down every block under it.
+  // assignments and the catalogs that name them, and the onboarding
+  // checklist. Each used to land on its own and push down every block under it.
   const assignments = useAssignments(technicianId);
+  const onboarding = useOnboarding(technicianId);
   const areas = useServiceAreas();
   const jobTypesLoading = useJobTypesLoading();
   const ready = usePageReady(
-    !permsLoading && [query, userMapQuery, assignments, areas].every(settled) && !jobTypesLoading,
+    !permsLoading && [query, userMapQuery, assignments, onboarding, areas].every(settled) && !jobTypesLoading,
   );
 
   const rights = technicianEditRights({
     canEdit: can("technicians", "edit"),
     isTechnician,
-    // The name and the field-team switch are the user record's.
+    // The name, the field-team switch and two-step sign-in are the user record's.
     canEditUser: can("users", "edit"),
   });
 
@@ -75,117 +74,73 @@ export function TechnicianDetailPage({ technicianId }: { technicianId: string })
         title="No technician profile"
         body="This user isn't a technician, or the profile hasn't been provisioned yet."
         action={
-          <Button variant="outline" onClick={() => router.push("/technicians")}>
+          <WzButton variant="secondary" size="regular" onClick={() => router.push("/technicians")}>
             Back to technicians
-          </Button>
+          </WzButton>
         }
       />
     );
   }
 
-  const profile = query.data;
   // `me` fallback: a technician viewing their own page has no users.view,
-  // so the map is empty — but their own name is already in the session.
+  // so the map is empty — but their own record is already in the session.
   const map = userMap ?? new Map<string, User>();
   const u = techUser(technicianId, map, me);
-  const name = techName(technicianId, map, me);
+  const name = personName(u) ?? "this technician";
+
+  const tabs: WzTab[] = [
+    { value: "profile", label: "Profile" },
+    { value: "availability", label: "Availability" },
+    ...(can("commission", "view") ? [{ value: "commissions", label: "Commissions" }] : []),
+    ...(can("documents", "view") ? [{ value: "documents", label: "Documents" }] : []),
+  ];
+
+  const actions: WzPopMenuItem[] = [];
+  if (me?.id !== technicianId && can("messages", "send")) {
+    actions.push({ key: "text", label: "Send a text", onSelect: () => setTexting(true) });
+  }
 
   return (
-    <div className="flex flex-1 flex-col">
-      {/* No way back up here: the sidebar is the way back, and the owner
-          struck the button that duplicated it. */}
-      <div className="flex items-center gap-3 border-b px-6 py-4">
-        <Avatar className="size-8">
-          {profile.profilePhotoUrl ? <AvatarImage src={profile.profilePhotoUrl} alt="" /> : null}
-          <AvatarFallback className="text-xs">{initials(u?.firstName, u?.lastName)}</AvatarFallback>
-        </Avatar>
-        <div className="min-w-0 flex-1">
-          <h1 className="truncate text-lg font-semibold tracking-tight">{name}</h1>
-          {u?.email ? <div className="truncate text-xs text-muted-foreground">{u.email}</div> : null}
-        </div>
-        {me?.id !== technicianId ? (
-          <TextButton partyKind="user" partyId={technicianId} name={name} />
-        ) : null}
-        <TechnicianStatusBadge status={profile.status} />
+    <div className="flex min-h-0 flex-1 flex-col">
+      {/* "User Settings" (25px/32px 500 ink, 24px in) with Actions at the right:
+          a 40px row whose top sits 14px under the breadcrumb, the h2 centred in it. */}
+      <div className="-mt-px">
+        <WzPageHeader title="User Settings" end={actions.length ? <WzPopMenu items={actions} className="mr-3" /> : null} />
+      </div>
+      <WzTabBar
+        aria-label="Technician"
+        className="-ml-px shrink-0"
+        tabs={tabs}
+        value={tab}
+        onValueChange={(v) => setTab(v as CardTab)}
+      />
+
+      {/* Profile and Availability are one form with one Save, as on Workiz's
+          page; the other two tabs carry their own controls, so the form and
+          its bar step aside while they are open. */}
+      <div hidden={tab !== "profile" && tab !== "availability"} className="flex min-h-0 flex-1 flex-col">
+        <TechnicianForm
+          technicianId={technicianId}
+          user={u}
+          rights={rights}
+          tab={tab === "availability" ? "availability" : "profile"}
+        />
       </div>
 
-      {/* The tabs this card has always had. Workiz puts everything on one
-          scrolling page; the owner asked for their arrangement, not for the
-          navigation he already knows to be taken away — so the two columns are
-          theirs, and the tabs stay ours. */}
-      <Tabs defaultValue="profile" className="flex flex-1 flex-col overflow-hidden">
-        {/* Left-aligned, not centred — the owner reads the card from the
-            left edge, as the rest of the app is laid out. The max width stays
-            so a line does not run across a wide screen. */}
-        <div className="border-b px-6">
-          <div className="max-w-5xl">
-            <TabsList variant="line" className="h-11">
-              <TabsTrigger value="profile" className="px-2">Profile</TabsTrigger>
-              <TabsTrigger value="overview" className="px-2">Overview</TabsTrigger>
-              {can("commission", "view") ? (
-                <TabsTrigger value="commission" className="px-2">Commission</TabsTrigger>
-              ) : null}
-              {can("documents", "view") ? (
-                <TabsTrigger value="documents" className="px-2">Documents</TabsTrigger>
-              ) : null}
-            </TabsList>
-          </div>
+      {tab === "commissions" ? (
+        <div className="min-h-0 flex-1 overflow-y-auto px-12 pt-9 pb-12">
+          <CommissionTab technicianId={technicianId} />
         </div>
+      ) : null}
 
-        {/* Profile keeps its own scroll region so the Save bar can sit in a
-            footer that never moves, the way the job card does it. */}
-        <TabsContent value="profile" className="mt-0 flex flex-1 flex-col overflow-hidden">
-          <TechnicianForm technicianId={technicianId} user={u} rights={rights} />
-        </TabsContent>
+      {tab === "documents" ? (
+        <div className="min-h-0 flex-1 overflow-y-auto px-12 pt-9 pb-12">
+          <DocumentsTab technicianId={technicianId} />
+        </div>
+      ) : null}
 
-        <TabsContent value="overview" className="mt-0 flex-1 overflow-y-auto">
-          <div className="max-w-5xl space-y-8 px-6 py-6">
-            <OnboardingSection technicianId={technicianId} />
-
-            <Block title="User availability">
-              <NotConnectedField field={AVAILABILITY_NOT_CONNECTED} />
-              {/* Its own Save, as on their page — and as it already had here. */}
-              <WorkingHoursEditor profile={profile} readOnly={!rights.operational} />
-            </Block>
-
-            <Block title="Workiz settings we don't hold yet">
-              <p className="text-sm text-muted-foreground">{NOT_CONNECTED_BANNER}</p>
-              <div className="space-y-5">
-                {SETTINGS_NOT_CONNECTED.map((field) => (
-                  <NotConnectedField key={field.key} field={field} />
-                ))}
-              </div>
-            </Block>
-          </div>
-        </TabsContent>
-
-        {can("commission", "view") ? (
-          <TabsContent value="commission" className="mt-0 flex-1 overflow-y-auto">
-            <div className="max-w-5xl px-6 py-6">
-              <CommissionTab technicianId={technicianId} />
-            </div>
-          </TabsContent>
-        ) : null}
-
-        {can("documents", "view") ? (
-          <TabsContent value="documents" className="mt-0 flex-1 overflow-y-auto">
-            <div className="max-w-5xl px-6 py-6">
-              <DocumentsTab technicianId={technicianId} />
-            </div>
-          </TabsContent>
-        ) : null}
-      </Tabs>
+      <TechnicianTextDialog technicianId={technicianId} name={name} open={texting} onOpenChange={setTexting} />
     </div>
-  );
-}
-
-/** A full-width block below the two columns, each with its own heading. */
-function Block({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <section className="space-y-4 rounded-xl border bg-card p-4">
-      <h2 className="text-sm font-semibold">{title}</h2>
-      {children}
-    </section>
   );
 }
 
@@ -193,22 +148,27 @@ function Center({ title, body, action }: { title: string; body: string; action?:
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
       <h2 className="text-lg font-medium">{title}</h2>
-      <p className="text-sm text-muted-foreground">{body}</p>
+      <p className="text-sm text-wz-outline-label">{body}</p>
       {action}
     </div>
   );
 }
 
+/** The page's one skeleton: the header, the tab row and the two columns. */
 function DetailSkeleton() {
   return (
     <div className="flex flex-1 flex-col">
-      <div className="flex items-center gap-3 border-b px-6 py-4">
-        <Skeleton className="size-8 rounded-full" />
-        <Skeleton className="h-5 w-40" />
+      <div className="px-6 pt-7">
+        <Skeleton className="h-8 w-48" />
       </div>
-      <div className="grid w-full max-w-5xl gap-x-10 gap-y-6 p-6 md:grid-cols-2">
-        <Skeleton className="h-96 w-full" />
-        <Skeleton className="h-96 w-full" />
+      <div className="mt-4 flex gap-10 border-b border-wz-tab-rule px-5 pb-2.5">
+        <Skeleton className="h-5 w-14" />
+        <Skeleton className="h-5 w-20" />
+        <Skeleton className="h-5 w-24" />
+      </div>
+      <div className="grid grid-cols-[minmax(0,480px)_minmax(0,480px)] gap-x-11 px-12 pt-9">
+        <Skeleton className="h-[28rem] w-full" />
+        <Skeleton className="h-[28rem] w-full" />
       </div>
     </div>
   );

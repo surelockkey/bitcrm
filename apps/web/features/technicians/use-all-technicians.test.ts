@@ -37,8 +37,9 @@ function mockTwoPages() {
 }
 
 function wrapper(client: QueryClient) {
-  return ({ children }: { children: ReactNode }) =>
-    createElement(QueryClientProvider, { client }, children);
+  return function Wrapper({ children }: { children: ReactNode }) {
+    return createElement(QueryClientProvider, { client }, children);
+  };
 }
 
 function newClient() {

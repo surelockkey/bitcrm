@@ -123,3 +123,9 @@ export { WzDocSectionHead, WzTotalsBoxRow, WZ_TOTALS_BOX } from "./document-part
 export { WzExplainHeader } from "./explain-header";
 export { WzItemImage, WzItemImagePlaceholder } from "./item-image";
 export { WzEditIcon, WzTrashIcon } from "./icons";
+
+// The Team list and the user page (agent pg_technicians, /technicians + /technicians/[id]).
+export { WzSettingsExplain } from "./settings-explain";
+export { WzPopMenu, type WzPopMenuItem } from "./pop-menu";
+export { WzOutlinedTextField, type WzOutlinedTextFieldProps } from "./outlined-text-field";
+export { WzFormSectionTitle, WzInfoTip } from "./form-section-title";

@@ -102,3 +102,42 @@ describe("WzFilterSelect — Workiz's Filter results", () => {
     expect(onChange).toHaveBeenLastCalledWith([]);
   });
 });
+
+/**
+ * Workiz's Team filter (pg_technicians_wz_04_filter_open): the status column
+ * has no heading, and its pick is a white chip with #333 words
+ * ("status: Active", react-select's multi-value as Workiz styles it).
+ */
+describe("WzFilterSelect — an untitled group with white chips", () => {
+  const TEAM: WzFilterGroup[] = [
+    {
+      id: "status",
+      title: "",
+      chipPrefix: "status",
+      chipTone: "white",
+      options: [
+        { value: "active", label: "Active" },
+        { value: "inactive", label: "Disabled" },
+      ],
+    },
+    { id: "role", title: "Role", chipPrefix: "role", options: [{ value: "r1", label: "tech" }] },
+  ];
+
+  it("draws no heading over a group without a title, and names it by its chips' word", async () => {
+    render(<WzFilterSelect groups={TEAM} value={[]} onChange={() => {}} />);
+    await userEvent.click(screen.getByRole("combobox", { name: "Filter results" }));
+    const status = screen.getByRole("listbox", { name: "status" });
+    expect(within(status).queryByRole("heading")).toBeNull();
+    expect(within(screen.getByRole("listbox", { name: "Role" })).getByRole("heading", { name: "Role" })).toBeInTheDocument();
+  });
+
+  it("prints a white-toned group's pick as a white chip", () => {
+    render(<WzFilterSelect groups={TEAM} value={[{ group: "status", value: "active" }]} onChange={() => {}} />);
+    // Regular words: 400, where a coloured chip's are 500 (uikit_wz_pricebook vs pg_contacts_wz_12).
+    expect(screen.getByText("status: Active").className).toContain("font-normal");
+    const chip = screen.getByText("status: Active").parentElement!;
+    expect(chip.className).toContain("bg-background");
+    expect(chip.className).toContain("text-wz-value");
+    expect(chip.className).not.toContain("bg-wz-disabled-border");
+  });
+});

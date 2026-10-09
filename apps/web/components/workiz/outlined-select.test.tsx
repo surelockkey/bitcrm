@@ -37,6 +37,16 @@ describe("WzOutlinedSelect — the notched select of Workiz's newer forms (Add t
     expect(screen.getByText("Pick a technician")).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "Select user" })).toHaveAttribute("aria-invalid", "true");
   });
+
+  it("can point at the words that say why it is locked (the user page's User type)", () => {
+    render(
+      <>
+        <span id="why">A manager sets this.</span>
+        <WzOutlinedSelect label="User type" options={OPTIONS} value="t1" onChange={() => {}} disabled aria-describedby="why" />
+      </>,
+    );
+    expect(screen.getByRole("combobox", { name: "User type" })).toHaveAccessibleDescription("A manager sets this.");
+  });
 });
 
 describe("WzOutlinedSelect labelHidden (pg_pricebook)", () => {

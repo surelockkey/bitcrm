@@ -1,122 +1,164 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { ChevronRight } from "lucide-react";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { ResizableHead } from "@/components/ui/resizable-head";
+import type { ReactNode } from "react";
+import { Glasses } from "lucide-react";
+import type { WzGridColumn } from "@/components/workiz/local-grid";
+import { WzReportGrid, type WzReportColumn, type WzRowOpenEvent, type WzSortDir } from "@/components/workiz/report-grid";
+import { formatPhone } from "@/lib/phone";
 import { useColumnWidths } from "@/lib/table/use-column-widths";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import type { TechnicianProfile } from "@bitcrm/types";
-import { initials } from "@/features/users/lib";
-import { formatMoney, techName, techUser } from "../lib";
-import { TechnicianStatusBadge } from "./technician-status-badge";
-import type { DirectoryUser } from "@/features/deals/hooks";
+import { cn } from "@/lib/utils";
+import { formatTeamCreated, TEAM_TYPE_LABEL, type TeamRow } from "../team-list";
+
+/** Workiz splits a list cell's names with " ," ("SURE LOCK CT ,SURE LOCK NY", pg_technicians_wz_06_search_bohdan). */
+const joinNames = (names: string[]) => names.join(" ,");
 
 /**
- * Every column, in order, with the width it starts at.
- *
- * One list, read by both the `<colgroup>` and the headers. The table is
- * `table-fixed`: the chevron column used to pin itself with a `w-8`, and a
- * width class on a cell beats the column's declared width and shoves the row
- * sideways — so the width is declared here only.
+ * The Team grid's chips (pg_technicians_wz_measure_team.json): Workiz's
+ * `tag small` — 11px/13px 500 white on its colour, 3px corners, 1px 4px —
+ * 8px under the email. "2FA" is Workiz's (#6aa8ee); "Pending" and
+ * "Inactive" are ours, in the same shape.
  */
-const COLUMNS = [
-  { id: "technician", label: "Technician", width: 280, align: "" },
-  { id: "department", label: "Department", width: 180, align: "" },
-  { id: "status", label: "Status", width: 140, align: "" },
-  { id: "labor", label: "Labor", width: 140, align: "text-right" },
-  { id: "open", label: "Open", width: 56, align: "" },
-] as const;
-
-/** Starting widths, until the reader drags their own. */
-const COLUMN_DEFAULTS: Record<string, number> = Object.fromEntries(
-  COLUMNS.map((c) => [c.id, c.width] as const),
-);
-
-export function TechniciansTable({
-  technicians,
-  userMap,
-}: {
-  technicians: TechnicianProfile[];
-  userMap: Map<string, DirectoryUser>;
-}) {
-  const router = useRouter();
-  const { widthOf, setWidth, reset } = useColumnWidths("technicians", COLUMN_DEFAULTS);
-
-  /** The chevron column carries no visible heading, only a name for the reader. */
-  const headLabel = (id: string, label: string) =>
-    id === "open" ? <span className="sr-only">{label}</span> : undefined;
-
+function Chip({ children, className }: { children: ReactNode; className: string }) {
   return (
-    <div className="overflow-x-auto border">
-      <Table className="table-fixed">
-        <colgroup>
-          {COLUMNS.map((c) => (
-            <col key={c.id} style={{ width: widthOf(c.id) }} />
-          ))}
-        </colgroup>
-        <TableHeader>
-          <TableRow className="hover:bg-transparent">
-            {COLUMNS.map((c) => (
-              <ResizableHead
-                key={c.id}
-                columnId={c.id}
-                label={c.label}
-                width={widthOf(c.id)}
-                onResize={(px) => setWidth(c.id, px)}
-                onReset={reset}
-                className={c.align}
-              >
-                {headLabel(c.id, c.label)}
-              </ResizableHead>
-            ))}
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {technicians.map((t) => {
-            const u = techUser(t.userId, userMap);
-            return (
-              <TableRow
-                key={t.userId}
-                className="cursor-pointer"
-                onClick={() => router.push(`/technicians/${t.userId}`)}
-              >
-                <TableCell className="overflow-hidden">
-                  <div className="flex items-center gap-2.5">
-                    <Avatar className="size-8">
-                      <AvatarFallback className="text-xs">
-                        {initials(u?.firstName, u?.lastName)}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div className="min-w-0">
-                      <div className="truncate font-medium">{techName(t.userId, userMap)}</div>
-                      <div className="truncate text-xs text-muted-foreground">
-                        {u?.email ?? t.userId}
-                      </div>
-                    </div>
-                  </div>
-                </TableCell>
-                <TableCell className="truncate text-muted-foreground">{u?.department || "—"}</TableCell>
-                <TableCell className="overflow-hidden">
-                  <TechnicianStatusBadge status={t.status} />
-                </TableCell>
-                <TableCell className="truncate text-right tabular-nums text-muted-foreground">
-                  {t.laborCostPerHour != null ? `${formatMoney(t.laborCostPerHour)}/hr` : "—"}
-                </TableCell>
-                <TableCell className="overflow-hidden">
-                  <ChevronRight className="size-4 text-muted-foreground" />
-                </TableCell>
-              </TableRow>
-            );
-          })}
-        </TableBody>
-      </Table>
-    </div>
+    <span className={cn("block w-fit rounded-[3px] px-1 py-px text-[11px] leading-[13px] font-medium tracking-[0.4px] text-white", className)}>
+      {children}
+    </span>
+  );
+}
+
+const STATUS_CHIP: Partial<Record<TeamRow["status"], { label: string; className: string }>> = {
+  pending: { label: "Pending", className: "bg-warning" },
+  inactive: { label: "Inactive", className: "bg-wz-outline" },
+};
+
+/**
+ * The columns in Workiz's order (pg_technicians_wz_01_team). Each also says
+ * how it sorts and what Search reads in it, for `localGridView`.
+ */
+export const TEAM_COLUMNS: (WzReportColumn<TeamRow> & Pick<WzGridColumn<TeamRow>, "sortValue" | "searchText">)[] = [
+  {
+    id: "name",
+    label: "Name",
+    sortable: true,
+    sortValue: (r) => r.name,
+    searchText: (r) => `${r.name} ${r.email ?? ""}`,
+    cell: (r) => {
+      const status = STATUS_CHIP[r.status];
+      return (
+        <>
+          <span className="block truncate">{r.name}</span>
+          {r.email ? <span className="mt-[5px] block overflow-hidden text-xs leading-4 text-wz-caption">{r.email}</span> : null}
+          {r.twoFactor || status ? (
+            <span className="mt-2 flex gap-1">
+              {r.twoFactor ? <Chip className="bg-wz-link">2FA</Chip> : null}
+              {status ? <Chip className={status.className}>{status.label}</Chip> : null}
+            </span>
+          ) : null}
+        </>
+      );
+    },
+  },
+  {
+    id: "phone",
+    label: "Phone",
+    sortable: true,
+    sortValue: (r) => r.phone,
+    searchText: (r) => (r.phone ? `${r.phone} ${formatPhone(r.phone)}` : ""),
+    cell: (r) => (
+      <>
+        {r.phone ? (
+          <a href={`tel:${r.phone}`} onClick={(e) => e.stopPropagation()} className="inline-block truncate text-wz-link hover:underline">
+            {formatPhone(r.phone)}
+          </a>
+        ) : null}
+        {r.callMasking ? (
+          // team-module__callMaskingTag: #3589e9, 4px corners, 0 4px, 13px/19px white, the glyph after the words.
+          <span className="mt-[5px] flex w-fit items-center gap-1 rounded-[4px] bg-brand px-1 text-[13px] leading-[19px] text-white">
+            Call masking
+            <Glasses className="size-4" strokeWidth={1.75} aria-hidden />
+          </span>
+        ) : null}
+      </>
+    ),
+  },
+  { id: "role", label: "Role", sortable: true, sortValue: (r) => r.role, cell: (r) => <span className="block truncate">{r.role}</span> },
+  {
+    id: "fieldTeam",
+    label: "Field team",
+    sortable: true,
+    sortValue: (r) => (r.fieldTeam ? "yes" : "no"),
+    cell: (r) => (r.fieldTeam ? "yes" : "no"),
+  },
+  { id: "type", label: "Type", sortable: true, sortValue: (r) => TEAM_TYPE_LABEL[r.type], cell: (r) => TEAM_TYPE_LABEL[r.type] },
+  {
+    id: "created",
+    label: "Created",
+    sortable: true,
+    sortValue: (r) => r.createdAt,
+    cell: (r) => <span className="block truncate">{formatTeamCreated(r.createdAt)}</span>,
+  },
+  {
+    id: "skills",
+    label: "Skills",
+    sortable: true,
+    sortValue: (r) => joinNames(r.skills),
+    cell: (r) => <span className="block truncate">{joinNames(r.skills)}</span>,
+  },
+  {
+    id: "areas",
+    label: "Areas",
+    sortable: true,
+    sortValue: (r) => joinNames(r.areas),
+    cell: (r) => <span className="block truncate">{joinNames(r.areas)}</span>,
+  },
+];
+
+/**
+ * Workiz's columns share the row alike (175px each on its 1400px grid). Ours
+ * start at 160 and the fixed table stretches them alike to the width it has —
+ * 175 would overrun our 8px-narrower page and scroll it sideways. The reader
+ * may drag them.
+ */
+const COLUMN_DEFAULTS: Record<string, number> = Object.fromEntries(TEAM_COLUMNS.map((c) => [c.id, 160] as const));
+
+/**
+ * The Team grid (react-table, pg_technicians_wz_01_team): the report grid
+ * with Workiz's Team settings — never shorter than five rows, blanks under
+ * records 56px without a rule, an empty grid just its ruled blanks and no
+ * words (pg_technicians_wz_07_search_empty); a row opens the technician.
+ */
+export function TechniciansTable({
+  rows,
+  sort,
+  onSort,
+  onOpen,
+  loading = false,
+  footer,
+}: {
+  rows: readonly TeamRow[];
+  sort: { column: string; dir: WzSortDir } | null;
+  onSort: (column: string) => void;
+  onOpen: (row: TeamRow, event: WzRowOpenEvent) => void;
+  loading?: boolean;
+  footer?: ReactNode;
+}) {
+  const { widthOf, setWidth, reset } = useColumnWidths("technicians-team", COLUMN_DEFAULTS);
+  return (
+    <WzReportGrid
+      aria-label="Technicians"
+      className="shrink-0"
+      columns={TEAM_COLUMNS}
+      rows={rows}
+      rowKey={(r) => r.id}
+      sort={sort}
+      onSort={onSort}
+      resize={{ widthOf, setWidth, reset }}
+      onRowClick={onOpen}
+      loading={loading}
+      minRows={5}
+      plainFiller
+      emptyText={null}
+      footer={footer}
+    />
   );
 }

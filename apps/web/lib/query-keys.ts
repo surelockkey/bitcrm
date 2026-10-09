@@ -271,6 +271,7 @@ export const queryKeys = {
     onboarding: (id: string) => ["technicians", id, "onboarding"] as const,
     assignments: (id: string) => ["technicians", id, "assignments"] as const,
     pendingAssignments: () => ["technicians", "assignments", "pending"] as const,
+    approvedAssignments: () => ["technicians", "assignments", "approved"] as const,
     commission: (id: string) => ["technicians", id, "commission"] as const,
     commissionHistory: (id: string) => ["technicians", id, "commission", "history"] as const,
     commissionCalc: (id: string, q?: unknown) => ["technicians", id, "commission", "calc", q] as const,

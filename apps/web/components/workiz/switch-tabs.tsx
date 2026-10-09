@@ -82,6 +82,7 @@ export function WzMiniToggle({
   onCheckedChange,
   disabled = false,
   className,
+  "aria-describedby": describedBy,
 }: {
   /** The row's words — the switch's accessible name. */
   label: string;
@@ -89,6 +90,8 @@ export function WzMiniToggle({
   onCheckedChange: (checked: boolean) => void;
   disabled?: boolean;
   className?: string;
+  /** The words that explain it (an ⓘ's, a reason it is locked). */
+  "aria-describedby"?: string;
 }) {
   return (
     <button
@@ -96,6 +99,7 @@ export function WzMiniToggle({
       role="switch"
       aria-checked={checked}
       aria-label={label}
+      aria-describedby={describedBy}
       disabled={disabled}
       onClick={() => onCheckedChange(!checked)}
       data-slot="wz-mini-toggle"
