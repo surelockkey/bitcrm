@@ -164,7 +164,8 @@ export function RolesPage() {
         />
       )}
 
-      <CreateRoleDialog open={createOpen} onOpenChange={setCreateOpen} roles={roles} />
+      {/* Mounted when asked for: its defaults (the role to copy, the rank) read the roles as they are then. */}
+      {createOpen ? <CreateRoleDialog open onOpenChange={setCreateOpen} roles={roles} /> : null}
       {deleting ? (
         <DeleteRoleDialog
           role={deleting}
