@@ -46,6 +46,7 @@ const NO_BOARD: ScheduleBoard = {
   profiles: [],
   users: new Map(),
   jobTypes: new Map(),
+  activeJobTypes: [],
   roles: new Map(),
 };
 
@@ -207,7 +208,7 @@ export function SchedulePage() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-white pt-[14px]">
-      {filterOpen ? <ScheduleFilter techs={team} jobTypes={b.jobTypes} value={picks} onChange={setPicks} /> : null}
+      {filterOpen ? <ScheduleFilter techs={team} jobTypes={b.activeJobTypes} value={picks} onChange={setPicks} /> : null}
       <ScheduleToolbar
         view={view}
         date={date}

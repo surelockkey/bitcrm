@@ -41,8 +41,8 @@ export function EventBox({
       style={fill(color, done)}
     >
       {/* .dhx_title: 12px/14px bold, 8px 6px 5px 10px; the pointer says it opens the job. */}
-      <div className="flex h-[28px] cursor-pointer items-start gap-1 pt-2 pr-[6px] pb-[5px] pl-[10px] text-[12px] leading-[14px] font-bold">
-        <span className="min-w-0">{title}</span>
+      <div className="flex h-[28px] cursor-pointer items-start gap-1 overflow-hidden pt-2 pr-[6px] pb-[5px] pl-[10px] text-[12px] leading-[14px] font-bold whitespace-nowrap">
+        <span className="min-w-0 overflow-hidden">{title}</span>
         {conflict ? <TriangleAlert aria-label="Schedule conflict" className="size-3 shrink-0" /> : null}
       </div>
       {/* .dhx_body: 13px/16.9px medium, 0 10px; the template's line breaks fold like Workiz's. */}

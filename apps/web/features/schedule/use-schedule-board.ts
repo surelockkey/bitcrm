@@ -33,6 +33,8 @@ export interface ScheduleBoard {
   profiles: TechnicianProfile[];
   users: Map<string, DirectoryUser>;
   jobTypes: Map<string, string>;
+  /** The live job types, A to Z — Filter results' JOB TYPE. */
+  activeJobTypes: { id: string; name: string }[];
   /** role id → name, when the viewer may read roles (the Timeline's second line). */
   roles: Map<string, string>;
 }
@@ -100,6 +102,14 @@ export function useScheduleBoard({ view, date }: { view: ScheduleView; date: str
 
   const jobTypeList = jobTypesQuery.data ?? NO_TYPES;
   const jobTypes = useMemo(() => new Map(jobTypeList.map((t) => [t.id, t.name])), [jobTypeList]);
+  const activeJobTypes = useMemo(
+    () =>
+      jobTypeList
+        .filter((t) => t.active !== false)
+        .map((t) => ({ id: t.id, name: t.name }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [jobTypeList],
+  );
   const roleList = rolesQuery.data ?? NO_ROLES;
   const roles = useMemo(() => new Map(roleList.map((r) => [r.id, r.name])), [roleList]);
 
@@ -114,9 +124,10 @@ export function useScheduleBoard({ view, date }: { view: ScheduleView; date: str
       profiles: roster.profiles,
       users: users.map,
       jobTypes,
+      activeJobTypes,
       roles,
     }),
-    [view, date, deals, unscheduled, events.data, contacts.map, roster.profiles, users.map, jobTypes, roles],
+    [view, date, deals, unscheduled, events.data, contacts.map, roster.profiles, users.map, jobTypes, activeJobTypes, roles],
   );
 
   return { board: useLastWhole(current, whole) };

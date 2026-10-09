@@ -22,7 +22,7 @@ export function ScheduleFilter({
   onChange,
 }: {
   techs: { id: string; name: string }[];
-  jobTypes: Map<string, string>;
+  jobTypes: { id: string; name: string }[];
   value: SchedulePick[];
   onChange: (next: SchedulePick[]) => void;
 }) {
@@ -55,13 +55,13 @@ export function ScheduleFilter({
         id: FILTER_GROUP.jobType,
         title: "Job type",
         chipPrefix: "job type",
-        options: [...jobTypes].map(([id, name]) => ({ value: id, label: name })).sort((a, b) => a.label.localeCompare(b.label)),
+        options: jobTypes.map((t) => ({ value: t.id, label: t.name })),
       },
       {
         id: FILTER_GROUP.areas,
         title: "Service areas",
         chipPrefix: "service area",
-        options: (areas.data ?? []).map((a) => ({
+        options: (areas.data ?? []).filter((a) => a.active !== false).map((a) => ({
           value: a.name,
           label: a.name,
           style: { backgroundColor: scheduleColor(a.name), color: "#fff" },
