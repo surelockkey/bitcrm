@@ -1,4 +1,4 @@
-import { type AutomationRule } from '@bitcrm/types';
+import { AUTOMATION_NOTIFICATION_CATEGORY, type AutomationRule } from '@bitcrm/types';
 import { bitcrmId } from '../../../src/automations/translator/workiz-ids';
 import {
   AutomationsService,
@@ -162,20 +162,20 @@ describe('AutomationsService', () => {
 
   it('a saved spec the engine cannot act on stays not runnable and cannot be switched on', async () => {
     const { service } = makeService([translatable()]);
-    const emailOnly = await service.update(
+    const inAppOnly = await service.update(
       'w3',
       {
         spec: {
           version: 1,
           trigger: { kind: 'deal.created' },
           conditions: [],
-          actions: [{ type: 'send_email', to: 'client', body: 'Welcome' }],
+          actions: [{ type: 'send_in_app', to: 'assigned_techs', body: 'Welcome' }],
         } as never,
       },
       caller,
     );
-    expect(emailOnly.runnable).toBe(false);
-    expect(emailOnly.notRunnableReason).toMatch(/email/i);
+    expect(inAppOnly.runnable).toBe(false);
+    expect(inAppOnly.notRunnableReason).toMatch(/in-app/i);
 
     const err = await service.update('w3', { enabled: true }, caller).catch((e) => e);
     expect(err).toBeInstanceOf(RuleNotRunnableException);
@@ -188,13 +188,32 @@ describe('AutomationsService', () => {
           version: 1,
           trigger: { kind: 'deal.created' },
           conditions: [],
-          actions: [{ type: 'send_email', to: 'client', body: 'Welcome' }, { type: 'send_sms', to: 'client', body: 'Hi' }],
+          actions: [{ type: 'send_in_app', to: 'assigned_techs', body: 'Welcome' }, { type: 'send_sms', to: 'client', body: 'Hi' }],
         } as never,
       },
       caller,
     );
     expect(withSms.runnable).toBe(true);
     expect(withSms.notRunnableReason).toBeUndefined();
+    expect((await service.update('w3', { enabled: true }, caller)).enabled).toBe(true);
+  });
+
+  it('an e-mail-only rule is runnable and can be switched on (Workiz "Notify by Email")', async () => {
+    const { service } = makeService([translatable()]);
+    const emailOnly = await service.update(
+      'w3',
+      {
+        spec: {
+          version: 1,
+          trigger: { kind: 'deal.created' },
+          conditions: [],
+          actions: [{ type: 'send_email', to: 'client', subject: 'Welcome', body: 'Welcome' }],
+        } as never,
+      },
+      caller,
+    );
+    expect(emailOnly.runnable).toBe(true);
+    expect(emailOnly.notRunnableReason).toBeUndefined();
     expect((await service.update('w3', { enabled: true }, caller)).enabled).toBe(true);
   });
 
@@ -240,25 +259,30 @@ describe('AutomationsService', () => {
 
   it('refuses to create an enabled rule the engine cannot act on, with the same 422 as PATCH', async () => {
     const { service, repo } = makeService();
-    const emailOnly = {
+    const inAppOnly = {
       version: 1,
       trigger: { kind: 'deal.created' },
       conditions: [],
-      actions: [{ type: 'send_email', to: 'client', body: 'Hi' }],
+      actions: [{ type: 'send_in_app', to: 'assigned_techs', body: 'Hi' }],
     } as never;
 
-    const err = await service.create({ name: 'Email only', spec: emailOnly, enabled: true }, caller).catch((e) => e);
+    const err = await service.create({ name: 'In-app only', spec: inAppOnly, enabled: true }, caller).catch((e) => e);
     expect(err).toBeInstanceOf(RuleNotRunnableException);
     expect(err.getStatus()).toBe(422);
     expect(err.message).toMatch(/^RULE_NOT_RUNNABLE/);
-    expect(err.message).toMatch(/email/i);
+    expect(err.message).toMatch(/in-app/i);
     expect(repo.put).not.toHaveBeenCalled();
 
     // The same rule created off is stored, and says why it cannot be switched on.
-    const off = await service.create({ name: 'Email only', spec: emailOnly }, caller);
+    const off = await service.create({ name: 'In-app only', spec: inAppOnly }, caller);
     expect(off).toMatchObject({ enabled: false, runnable: false });
-    expect(off.notRunnableReason).toMatch(/email/i);
+    expect(off.notRunnableReason).toMatch(/in-app/i);
     await expect(service.update(off.id, { enabled: true }, caller)).rejects.toBeInstanceOf(RuleNotRunnableException);
+
+    // An e-mail-only rule is a rule the engine runs: it may be created switched on.
+    const emailOnly = { ...(inAppOnly as object), actions: [{ type: 'send_email', to: 'client', subject: 'Hi', body: 'Hi' }] } as never;
+    const mailed = await service.create({ name: 'Email only', spec: emailOnly, enabled: true }, caller);
+    expect(mailed).toMatchObject({ enabled: true, runnable: true });
   });
 
   // --- duplicate
@@ -460,5 +484,83 @@ describe('AutomationsService', () => {
     expect(table.map((r) => r.id)).toEqual(['w5']);
     expect(table[0].written).toBe(false);
     expect(repo.put).not.toHaveBeenCalled();
+  });
+});
+
+// --- the Notifications page: rows are automation rules filed under
+// `category: 'notification'` with a `notificationKind` (one engine, two doors).
+
+describe('AutomationsService — notification rules', () => {
+  const reminderSpec = {
+    version: 1,
+    trigger: { kind: 'schedule.relative', anchor: 'scheduledStart', offsetMinutes: -60 },
+    conditions: [],
+    actions: [{ type: 'send_sms', to: 'client', body: 'See you at {{appointment_time}}' }],
+  } as never;
+
+  it('lists only the notification rows when asked by category, and everything otherwise', async () => {
+    const { service } = makeService([
+      workizRule({ id: 'n1', name: 'Client reminder', category: 'notification', notificationKind: 'client_reminder' }),
+      workizRule({ id: 'n2', name: 'Call alert', category: 'notification', notificationKind: 'call_alert' }),
+      workizRule({ id: 'w1', name: 'Scheduled jobs', category: 'job' }),
+    ]);
+
+    const notifications = await service.list({ category: AUTOMATION_NOTIFICATION_CATEGORY });
+    expect(notifications.map((r) => r.id)).toEqual(['n2', 'n1']);
+    expect(notifications.map((r) => r.notificationKind)).toEqual(['call_alert', 'client_reminder']);
+
+    // No filter: the Automation Center still sees every rule, built-ins included.
+    const all = await service.list();
+    expect(all.map((r) => r.id)).toEqual(['n2', 'n1', 'new-job-sms', 'on-my-way', 'late', 'w1']);
+    expect((await service.list({})).map((r) => r.id)).toEqual(all.map((r) => r.id));
+    expect(await service.list({ category: 'lead' })).toEqual([]);
+  });
+
+  it('creates a notification row with its kind, filed under the notification category by default', async () => {
+    const { service, rows } = makeService();
+    const created = await service.create(
+      { name: 'Client reminder', spec: reminderSpec, notificationKind: 'client_reminder' },
+      caller,
+    );
+    expect(created).toMatchObject({ category: 'notification', notificationKind: 'client_reminder', enabled: false });
+    expect(rows.get(created.id)).toMatchObject({ category: 'notification', notificationKind: 'client_reminder' });
+    // Every read carries it.
+    expect(await service.get(created.id)).toMatchObject({ category: 'notification', notificationKind: 'client_reminder' });
+    expect((await service.list({ category: 'notification' })).map((r) => r.id)).toEqual([created.id]);
+
+    // An explicit category is kept as given.
+    const explicit = await service.create(
+      { name: 'Tech reminder', spec: reminderSpec, category: 'notification', notificationKind: 'tech_reminder' },
+      caller,
+    );
+    expect(explicit).toMatchObject({ category: 'notification', notificationKind: 'tech_reminder' });
+
+    // A plain Automation Center rule gets neither.
+    const plain = await service.create({ name: 'Plain', spec: reminderSpec, category: 'job' }, caller);
+    expect(plain.category).toBe('job');
+    expect(plain.notificationKind).toBeUndefined();
+  });
+
+  it('updates the category and the kind, and keeps them across unrelated edits', async () => {
+    const { service, rows } = makeService();
+    const created = await service.create({ name: 'Reminder', spec: reminderSpec, notificationKind: 'client_reminder' }, caller);
+
+    const retargeted = await service.update(
+      created.id,
+      { notificationKind: 'tech_reminder', category: 'notification' },
+      caller,
+    );
+    expect(retargeted).toMatchObject({ notificationKind: 'tech_reminder', category: 'notification' });
+
+    const toggled = await service.update(created.id, { enabled: true }, caller);
+    expect(toggled).toMatchObject({ enabled: true, notificationKind: 'tech_reminder', category: 'notification' });
+    expect(rows.get(created.id)).toMatchObject({ notificationKind: 'tech_reminder', category: 'notification' });
+  });
+
+  it('a copy of a notification row keeps its kind', async () => {
+    const { service } = makeService();
+    const created = await service.create({ name: 'Call alert', spec: reminderSpec, notificationKind: 'call_alert' }, caller);
+    const copy = await service.duplicate(created.id, undefined, caller);
+    expect(copy).toMatchObject({ name: 'Call alert (copy)', category: 'notification', notificationKind: 'call_alert', enabled: false });
   });
 });

@@ -30,8 +30,8 @@ import { rewriteShortCodes } from './workiz-short-codes';
  *     Only account plumbing (`account_id`, `doctype`, `is_deleted`, the
  *     export timestamp) is dropped, and said so in the notes.
  *   • Never claim to do something the engine cannot. A rule whose only
- *     actions are email or in-app is not runnable yet, because the system
- *     send path is SMS-only.
+ *     action is an in-app line is not runnable yet (`EXECUTABLE_ACTION_TYPES`);
+ *     texts, e-mails and webhooks run.
  *
  * The result is advisory: it is computed at read time and only written to
  * the table by `POST /automations/migrate`, so re-running a better
@@ -51,8 +51,11 @@ import { rewriteShortCodes } from './workiz-short-codes';
  *   2  reads Workiz's `{any: [...]}` condition groups (25 rules kept their
  *      three sources in one, and a rule read without its group fires for
  *      every source).
+ *   3  the engine sends e-mail: a rule migrated as "not runnable — only
+ *      email" (Key Kiosk mail, the e-mail half of the FB campaigns) is
+ *      read again and becomes runnable.
  */
-export const TRANSLATOR_VERSION = 2;
+export const TRANSLATOR_VERSION = 3;
 
 export interface TranslationResult {
   spec?: AutomationSpec;

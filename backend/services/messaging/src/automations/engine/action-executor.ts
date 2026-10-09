@@ -1,9 +1,11 @@
-import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { Inject, Injectable, Logger, NotImplementedException, Optional } from '@nestjs/common';
 import { tryNormalizePhone } from '@bitcrm/shared';
 import { type AutomationAction, type AutomationRunAction, type Conversation } from '@bitcrm/types';
 import { ConversationsRepository } from '../../conversations/conversations.repository';
 import { INTERNAL_FETCH, defaultFetch, type FetchLike } from '../../outbound/internal/internal-fetch';
 import { RecipientOptedOutException, SendService } from '../../outbound/send.service';
+import { looksLikeHtml } from '../../templates/html-text';
+import { type RenderRefs } from '../../templates/render-context';
 import { TemplateRenderer } from '../../templates/template-renderer';
 import { AUTOMATIONS_ACTOR } from '../automations.constants';
 import { AutomationPeersClient, type AutomationUser } from '../internal/peers.client';
@@ -14,6 +16,8 @@ import { sha1, type AutomationEvent } from './trigger-event';
 /** Everything an action needs besides the action itself. */
 export interface ActionContext {
   ruleId: string;
+  /** The rule's name — the subject line of an e-mail action that has none of its own. */
+  ruleName?: string;
   event: AutomationEvent;
   facts: AutomationFacts;
   /** `deal:<id>` / `call:<sid>` / `message:<id>`. */
@@ -35,6 +39,8 @@ interface Recipient {
   contactId?: string;
   user?: AutomationUser;
   phone?: string;
+  /** A bare address (`to: number` with `email`) — reachable by e-mail only. */
+  email?: string;
 }
 
 const HTTP_TIMEOUT_MS = 8_000;
@@ -44,14 +50,22 @@ const HTTP_TIMEOUT_MS = 8_000;
  * `AutomationRunAction` — what was attempted, to whom, and how it went —
  * which is what the firing log stores and the test-run dialog shows.
  *
+ * `send_sms` and `send_email` resolve the same recipients the same way (the
+ * client's thread, a technician's team thread, a user, a role, a bare
+ * number or address) and differ only in the address each needs: a text goes
+ * to the thread's number or the employee's phone, an e-mail to the contact's
+ * address on their thread, the employee's work address, or the bare address
+ * itself. Workiz's "Both" is one rule carrying one of each; they run in
+ * order under their own idempotency keys. A recipient the channel cannot
+ * reach is logged `skipped` with the reason (`no phone`, `no email`), never
+ * failed.
+ *
  * Deliberate limits of this milestone, reported honestly rather than
  * failing silently (outcome `unsupported`):
  *
- *   send_email / send_in_app  the system send path is SMS-only
- *                             (`SendService.sendSystem`); an email or in-app
- *                             automation needs the email worker and a team
- *                             thread author, which the outbound module does
- *                             not expose to a caller-less sender yet.
+ *   send_in_app               a caller-less in-app line needs a thread
+ *                             author the outbound module does not expose yet
+ *                             (the in-app bell is a later wave).
  *   add_tag / change_sub_status  deal-service has no internal write endpoint
  *                             for either; the action is typed, translated
  *                             and editable, and starts working the day the
@@ -78,16 +92,17 @@ export class AutomationActionExecutor {
     switch (action.type) {
       case 'send_sms':
         return this.sendSms(action, ctx);
+      case 'send_email':
+        return this.sendEmail(action, ctx);
       case 'webhook':
         return [await this.webhook(action, ctx)];
-      case 'send_email':
       case 'send_in_app':
         return [
           {
             type: action.type,
             to: action.to,
             outcome: 'unsupported',
-            error: `${action.type} is not sent by the engine yet (SMS only)`,
+            error: `${action.type} is not sent by the engine yet (text and e-mail only)`,
           },
         ];
       case 'add_tag':
@@ -125,6 +140,8 @@ export class AutomationActionExecutor {
     recipient: Recipient,
   ): Promise<AutomationRunAction> {
     const base: AutomationRunAction = { type: action.type, to: recipient.label, outcome: 'skipped' };
+    // A bare address has nothing to text — said before any thread is opened for it.
+    if (recipient.email) return { ...base, error: 'no phone' };
     try {
       // A test run must leave the table exactly as it found it: the
       // find-or-create resolvers open a thread (and its ADDR# pointers) for
@@ -143,13 +160,7 @@ export class AutomationActionExecutor {
           ...(action.body ? { body: action.body } : {}),
           format: 'text',
         },
-        {
-          ...(conversation ? { conversationId: conversation.id } : {}),
-          contactId: recipient.contactId ?? ctx.facts.deal?.contactId,
-          dealId: ctx.facts.deal?.id,
-          userId: recipient.user?.id,
-          values: ctx.values,
-        },
+        this.renderRefs(ctx, recipient, conversation),
       );
       const body = rendered.body.trim();
       if (!body) return { ...base, error: 'the text rendered empty' };
@@ -184,11 +195,117 @@ export class AutomationActionExecutor {
     }
   }
 
+  /** The ids the renderer loads the short-code context from, the same for a text and an e-mail. */
+  private renderRefs(ctx: ActionContext, recipient: Recipient, conversation: Conversation | undefined): RenderRefs {
+    return {
+      ...(conversation ? { conversationId: conversation.id } : {}),
+      contactId: recipient.contactId ?? ctx.facts.deal?.contactId,
+      dealId: ctx.facts.deal?.id,
+      userId: recipient.user?.id,
+      values: ctx.values,
+    };
+  }
+
+  // -------------------------------------------------------------- send_email
+
+  private async sendEmail(action: AutomationAction, ctx: ActionContext): Promise<AutomationRunAction[]> {
+    const recipients = await this.recipients(action, ctx);
+    if (!recipients.length) {
+      return [{ type: action.type, to: action.to, outcome: 'skipped', error: 'no recipient resolved' }];
+    }
+
+    const out: AutomationRunAction[] = [];
+    for (const recipient of recipients) {
+      out.push(await this.emailTo(action, ctx, recipient));
+    }
+    return out;
+  }
+
+  /**
+   * One e-mail. The address is the employee's work e-mail (directory), the
+   * bare address itself, or the contact's e-mail on their thread — the thread
+   * copies it from CRM when it is opened and follows `contact.updated`. The
+   * subject and body render through the same short-code context as a text.
+   *
+   * A plain body renders as `text` on purpose: `sendSystem` escapes it and
+   * turns its line breaks into `<br>` exactly once (`emailBodies`). A body
+   * that already carries markup (an imported Workiz e-mail template) renders
+   * as `html`, where the substituted values are escaped and the tags are
+   * kept. Rendering a plain body as html would escape the values twice.
+   */
+  private async emailTo(
+    action: AutomationAction,
+    ctx: ActionContext,
+    recipient: Recipient,
+  ): Promise<AutomationRunAction> {
+    const base: AutomationRunAction = { type: action.type, to: recipient.label, outcome: 'skipped' };
+    // An employee without a work address: said before their thread is opened.
+    if (recipient.user && !recipient.user.email) return { ...base, error: 'no email' };
+    try {
+      const conversation = ctx.dryRun
+        ? await this.existingConversation(recipient)
+        : await this.openConversation(recipient);
+
+      const to = recipient.user?.email ?? recipient.email ?? conversation?.addresses?.emails?.[0];
+      if (!to) return { ...base, error: 'no email' };
+
+      const rendered = await this.renderer.render(
+        {
+          ...(action.templateId ? { templateId: action.templateId } : {}),
+          ...(action.body ? { body: action.body, format: looksLikeHtml(action.body) ? 'html' : 'text' } : {}),
+          ...(action.subject !== undefined ? { subject: action.subject } : {}),
+        },
+        this.renderRefs(ctx, recipient, conversation),
+      );
+      const body = rendered.body.trim();
+      if (!body) return { ...base, error: 'the text rendered empty' };
+      const subject = rendered.subject?.trim() || ctx.ruleName?.trim();
+      if (!subject) return { ...base, error: 'no subject' };
+      if (ctx.dryRun) {
+        return { ...base, outcome: 'dry_run', body, subject, ...(conversation ? { conversationId: conversation.id } : {}) };
+      }
+      if (!conversation) return { ...base, error: 'no conversation for the recipient' };
+
+      const result = await this.send.sendSystem({
+        conversation,
+        channel: 'email',
+        body,
+        subject,
+        to,
+        dealId: ctx.facts.deal?.id,
+        origin: 'automation',
+        automationRuleId: ctx.ruleId,
+        templateId: action.templateId,
+        clientMessageId: this.clientMessageId(ctx, recipient),
+        actorId: AUTOMATIONS_ACTOR,
+      });
+      return {
+        ...base,
+        outcome: result.duplicate ? 'duplicate' : 'sent',
+        body,
+        subject,
+        messageId: result.message.id,
+        conversationId: result.message.conversationId,
+      };
+    } catch (error) {
+      if (error instanceof RecipientOptedOutException) return { ...base, outcome: 'skipped', error: 'opted out' };
+      // No `MESSAGING_EMAIL_FROM`: nothing can be mailed by anybody, which is
+      // a fact about the deployment, not a failure of this rule.
+      if (error instanceof NotImplementedException) {
+        return { ...base, outcome: 'skipped', error: 'email is not configured (MESSAGING_EMAIL_FROM)' };
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`Rule ${ctx.ruleId} could not e-mail ${recipient.label}: ${message}`);
+      return { ...base, outcome: 'failed', error: message };
+    }
+  }
+
   /** The recipient's thread, opened if they have none — the real send path. */
   private async openConversation(recipient: Recipient): Promise<Conversation | undefined> {
     if (recipient.user) return this.threads.forTechnician(recipient.user);
     if (recipient.contactId) return (await this.send.conversationForContact(recipient.contactId)).conversation;
     if (recipient.phone) return (await this.send.conversationForParty({ phone: recipient.phone })).conversation;
+    if (recipient.email) return (await this.send.conversationForEmail(recipient.email)).conversation;
     return undefined;
   }
 
@@ -203,6 +320,10 @@ export class AutomationActionExecutor {
     if (recipient.contactId) return (await this.conversations.getByParty('contact', recipient.contactId)) ?? undefined;
     if (recipient.phone) {
       const pointer = await this.conversations.getByAddress(tryNormalizePhone(recipient.phone) ?? recipient.phone);
+      return pointer ? ((await this.conversations.get(pointer.conversationId)) ?? undefined) : undefined;
+    }
+    if (recipient.email) {
+      const pointer = await this.conversations.getByAddress(recipient.email);
       return pointer ? ((await this.conversations.get(pointer.conversationId)) ?? undefined) : undefined;
     }
     return undefined;
@@ -239,8 +360,12 @@ export class AutomationActionExecutor {
         for (const roleId of action.roleIds ?? []) ids.push(...(await this.peers.userIdsByRole(roleId)));
         return this.users([...new Set(ids)], 'user');
       }
-      case 'number':
-        return action.number ? [{ key: `num:${action.number}`, label: action.number, phone: action.number }] : [];
+      case 'number': {
+        if (action.number) return [{ key: `num:${action.number}`, label: action.number, phone: action.number }];
+        // The builder's "a number" may be an e-mail address instead (`AutomationAction.email`).
+        const address = action.email?.trim().toLowerCase();
+        return address ? [{ key: `email:${address}`, label: address, email: address }] : [];
+      }
       default:
         return [];
     }

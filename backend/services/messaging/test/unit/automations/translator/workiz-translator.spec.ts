@@ -454,9 +454,33 @@ describe('translateWorkizRule', () => {
   /**
    * The version is what tells an already-migrated row its stored spec is out
    * of date; a translation change without a bump never reaches those rows.
-   * Reading OR groups was such a change, so this is 2, not 1.
+   * Reading OR groups was such a change (2); so was the engine learning to
+   * send e-mail — a rule migrated as "not runnable: only email" must be read
+   * again to become runnable (3).
    */
   it('carries a version that moves whenever the translation does', () => {
-    expect(TRANSLATOR_VERSION).toBe(2);
+    expect(TRANSLATOR_VERSION).toBe(3);
+  });
+
+  it('runs a rule whose only action is an e-mail — the engine sends e-mail now', () => {
+    const result = translateWorkizRule(
+      workizRule({
+        name: 'Key Kiosk / Email',
+        conditions: conditions({ fact: 'status', operator: 'equal', value: 'Submitted', friendly_strings: { value: 'Submitted', fact: 'status' } }),
+        events: [
+          notification({
+            notify_medium: 'email',
+            receiverType: 'users',
+            users_to: ['123'],
+            message_subject_template: 'New kiosk job {{uuid}}',
+          }),
+        ],
+      }),
+    );
+    expect(result.runnable).toBe(true);
+    expect(result.notRunnableReason).toBeUndefined();
+    expect(result.spec?.actions).toEqual([
+      expect.objectContaining({ type: 'send_email', to: 'users', subject: 'New kiosk job {{job_id}}' }),
+    ]);
   });
 });

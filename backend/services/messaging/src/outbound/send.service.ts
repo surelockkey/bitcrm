@@ -1263,6 +1263,31 @@ export class SendService {
 
   // ---------------------------------------------- POST /messages: the party
 
+  /**
+   * A bare e-mail address's thread: the one its `ADDR#` pointer names (a
+   * client or team thread that carries the address), else the `unknown`
+   * thread an inbound mail from it would open — the same `CONVOF#address#`
+   * pointer `EmailThreadResolver` keys its route 5 by, so the reply to this
+   * mail and this mail land in one thread. What an automation e-mails a
+   * number-less recipient (`to: number` with `email`) through.
+   */
+  async conversationForEmail(email: string): Promise<FoundConversation> {
+    const address = email.trim().toLowerCase();
+    const pointer = await this.conversations.getByAddress(address);
+    if (pointer) {
+      const routed = await this.conversations.get(pointer.conversationId);
+      if (routed) return { conversation: routed, created: false };
+    }
+    return this.createConversation({
+      kind: 'unknown',
+      partyKind: 'none',
+      pointer: { kind: 'address', id: address },
+      phones: [],
+      emails: [address],
+      addressSource: 'manual',
+    });
+  }
+
   /** The contact's thread, opened from CRM when there is none yet — also what the automations text a client through. */
   async conversationForContact(contactId: string, phone?: string): Promise<FoundConversation> {
     const existing = await this.conversations.getByParty('contact', contactId);
