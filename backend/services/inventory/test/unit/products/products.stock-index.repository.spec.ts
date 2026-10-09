@@ -221,6 +221,44 @@ describe('ProductsRepository — stock-managed index', () => {
     });
   });
 
+  // Workiz's stock levels split its 3 106 inventory items in two: Stocked
+  // (1 888 — more than the re-order point) and Low Stock (1 218 — at or under
+  // it; an item without one is low at zero).
+  describe('stockLevel', () => {
+    it('stocked: more on hand than the re-order point (none = 0)', async () => {
+      dynamoDb.client.send.mockResolvedValue({ Items: [] });
+
+      await repository.findStockManaged(50, undefined, { status: 'active', stockLevel: 'stocked' });
+
+      const input = dynamoDb.client.send.mock.calls[0][0].input;
+      expect(input.FilterExpression).toBe(
+        '#status = :status AND onHand > :zero AND (attribute_not_exists(reorderLevel) OR onHand > reorderLevel)',
+      );
+      expect(input.ExpressionAttributeValues).toMatchObject({ ':zero': 0, ':status': 'active' });
+    });
+
+    it('low: nothing on hand, or no more than the re-order point', async () => {
+      dynamoDb.client.send.mockResolvedValue({ Items: [] });
+
+      await repository.findStockManaged(50, undefined, { stockLevel: 'low' });
+
+      const input = dynamoDb.client.send.mock.calls[0][0].input;
+      expect(input.FilterExpression).toBe(
+        '(attribute_not_exists(onHand) OR onHand <= :zero OR onHand <= reorderLevel)',
+      );
+      expect(input.ExpressionAttributeValues).toMatchObject({ ':zero': 0 });
+    });
+
+    it('is counted under the same filter as the list', async () => {
+      dynamoDb.client.send.mockResolvedValue({ Count: 1218 });
+
+      expect(await repository.countStockManaged({ stockLevel: 'low' })).toEqual({ total: 1218, atLeast: false });
+      expect(dynamoDb.client.send.mock.calls[0][0].input.FilterExpression).toBe(
+        '(attribute_not_exists(onHand) OR onHand <= :zero OR onHand <= reorderLevel)',
+      );
+    });
+  });
+
   describe('countStockManaged', () => {
     it('counts the partition under the same filters, without bodies', async () => {
       dynamoDb.client.send.mockResolvedValue({ Count: 3102 });

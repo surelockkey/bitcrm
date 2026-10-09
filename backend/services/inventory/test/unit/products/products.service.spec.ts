@@ -459,6 +459,18 @@ describe('ProductsService', () => {
       expect(repository.findCatalog).not.toHaveBeenCalled();
     });
 
+    it('manageStock=true passes the stock level on to the stock-managed partition', async () => {
+      repository.findStockManaged.mockResolvedValue({ items: [] });
+
+      await service.list({ manageStock: true, stockLevel: 'low', limit: 10 } as any);
+
+      expect(repository.findStockManaged).toHaveBeenCalledWith(
+        10,
+        undefined,
+        expect.objectContaining({ stockLevel: 'low' }),
+      );
+    });
+
     it('manageStock=true with a category stays on the category index', async () => {
       repository.findByCategory.mockResolvedValue({ items: [] });
 
@@ -1014,6 +1026,16 @@ describe('ProductsService', () => {
         manageStock: undefined,
       });
       expect(repository.countAll).not.toHaveBeenCalled();
+    });
+
+    it('counts the stock-managed partition under the stock level, as the list reads it', async () => {
+      repository.countStockManaged.mockResolvedValue({ total: 1888, atLeast: false });
+
+      expect(await service.count({ manageStock: true, stockLevel: 'stocked' } as never)).toEqual({
+        total: 1888,
+        atLeast: false,
+      });
+      expect(repository.countStockManaged).toHaveBeenCalledWith(expect.objectContaining({ stockLevel: 'stocked' }));
     });
 
     it('counts on the category index when a category is given, as the list does', async () => {

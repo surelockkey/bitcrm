@@ -63,8 +63,8 @@ export class ProductsController {
       '**Guard:** `products.view` permission required. Filters combine: `category` picks the ' +
       'CategoryIndex, else `manageStock=true` reads the stock-managed partition (name order), ' +
       'else the Price Book partition — every item, products and services, active and archived, ' +
-      'in name order; the other filters (`type`, `status`, `search`, `brandId`, `manageStock`) ' +
-      'apply on top. On both name-ordered partitions a filtered page is filled across the whole ' +
+      'in name order; the other filters (`type`, `status`, `search`, `brandId`, `manageStock`, ' +
+      '`stockLevel` — Workiz\'s Stocked / Low Stock against `reorderLevel`) apply on top. On both name-ordered partitions a filtered page is filled across the whole ' +
       'partition, never an empty page with a cursor. A cursor is only good for the partition that ' +
       'handed it out; any other is a 400. An item with a photo whose thumbnail has been made ' +
       'carries `thumbnailUrl` — a presigned GET of a 128×128 webp, the same URL all hour.' + MONEY_NOTE,
@@ -86,7 +86,7 @@ export class ProductsController {
     summary: 'How many products the list holds',
     description:
       '**Guard:** `products.view` permission required. Takes the same filters as the list ' +
-      '(`category`, `type`, `status`, `search`, `brandId`, `manageStock`; `cursor` and `limit` ' +
+      '(`category`, `type`, `status`, `search`, `brandId`, `manageStock`, `stockLevel`; `cursor` and `limit` ' +
       'are ignored) and answers ' +
       '`{ total, atLeast }` — the row count behind "Page 2 of 7", read off the same partition ' +
       'the list reads. `atLeast` means the walk ' +

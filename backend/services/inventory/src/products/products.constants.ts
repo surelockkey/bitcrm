@@ -12,3 +12,12 @@ export function productSearchName(name: string): string {
 export function productSearchSku(sku: string): string {
   return sku.trim().toLowerCase();
 }
+
+/**
+ * Workiz's "All Stock Levels" box on its inventory list: `stocked` — more on
+ * hand than the item's re-order point (`reorderLevel`, none = 0); `low` — at
+ * or under it, nothing on hand included. The two split the stock-managed
+ * items between them (Workiz: 1 888 + 1 218 = 3 106).
+ */
+export const PRODUCT_STOCK_LEVELS = ['stocked', 'low'] as const;
+export type ProductStockLevel = (typeof PRODUCT_STOCK_LEVELS)[number];

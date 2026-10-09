@@ -421,14 +421,14 @@ export class ProductsService {
    * the search indexer's internal walk.
    */
   async list(query: ListProductsQueryDto) {
-    const { category, type, search, status, brandId, manageStock, limit = 20, cursor } = query;
-    const filters: ProductListFilters = { type, status, search, brandId, manageStock };
+    const { category, type, search, status, brandId, manageStock, stockLevel, limit = 20, cursor } = query;
+    const filters: ProductListFilters = { type, status, search, brandId, manageStock, stockLevel };
 
     if (category) {
       return this.repository.findByCategory(category, limit, cursor, filters);
     }
     if (manageStock === true) {
-      return this.repository.findStockManaged(limit, cursor, { type, status, search, brandId });
+      return this.repository.findStockManaged(limit, cursor, { type, status, search, brandId, stockLevel });
     }
     return this.repository.findCatalog(limit, cursor, filters);
   }
@@ -443,13 +443,13 @@ export class ProductsService {
    * re-walk the table.
    */
   async count(query: ListProductsQueryDto): Promise<ListCount> {
-    const { category, type, search, status, brandId, manageStock } = query;
-    const filters: ProductListFilters = { type, status, search, brandId, manageStock };
+    const { category, type, search, status, brandId, manageStock, stockLevel } = query;
+    const filters: ProductListFilters = { type, status, search, brandId, manageStock, stockLevel };
 
     const take = () => {
       if (category) return this.repository.countByCategory(category, filters);
       if (manageStock === true) {
-        return this.repository.countStockManaged({ type, status, search, brandId });
+        return this.repository.countStockManaged({ type, status, search, brandId, stockLevel });
       }
       return this.repository.countCatalog(filters);
     };
@@ -457,7 +457,7 @@ export class ProductsService {
     if (!this.redis) return take();
     return cachedCount(
       this.redis.client,
-      countCacheKey('products', { category, type, search, status, brandId, manageStock }),
+      countCacheKey('products', { category, type, search, status, brandId, manageStock, stockLevel }),
       COUNT_TTL_SECONDS,
       take,
     );
