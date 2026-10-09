@@ -1,7 +1,8 @@
 "use client";
 
-import { Fragment, type ReactNode } from "react";
+import { Fragment, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 
+import { ResizableHead } from "@/components/ui/resizable-head";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { WzTableNoData } from "./no-data";
@@ -24,6 +25,20 @@ export interface WzReportColumn<R> {
 }
 
 export type WzSortDir = "asc" | "desc";
+
+/**
+ * Column widths the reader can drag (react-table's `rt-resizable-header`):
+ * the caller keeps them (`useColumnWidths`), the grid draws the handles.
+ */
+export interface WzReportGridResize {
+  widthOf: (column: string) => number;
+  setWidth: (column: string, px: number) => void;
+  /** Double-click or Home on a handle: back to the defaults. */
+  reset?: () => void;
+}
+
+/** What opened a record: a click (⌘/Ctrl/middle for a new tab) or Enter on the focused row. */
+export type WzRowOpenEvent = MouseEvent<HTMLTableRowElement> | KeyboardEvent<HTMLTableRowElement>;
 
 /**
  * react-table's click on a header: an unsorted column sorts ascending, a
@@ -119,6 +134,8 @@ export function WzReportGrid<R>({
   stickyHeader = true,
   padRowRule = true,
   plainFiller = false,
+  onRowClick,
+  resize,
   "aria-label": ariaLabel,
   className,
 }: {
@@ -156,6 +173,14 @@ export function WzReportGrid<R>({
    * rep_tax_wz_11b_search_empty). Off by default.
    */
   plainFiller?: boolean;
+  /**
+   * The whole record opens something (the Invoices list's `rt-tr-group
+   * pointer`): a click anywhere on the row, a middle click, or Enter on the
+   * focused row. Links inside the row should stop their own clicks.
+   */
+  onRowClick?: (row: R, event: WzRowOpenEvent) => void;
+  /** The header edges can be dragged; the widths are the caller's. */
+  resize?: WzReportGridResize;
   "aria-label"?: string;
   className?: string;
 }) {
@@ -164,28 +189,44 @@ export function WzReportGrid<R>({
     <div data-slot="wz-report-grid" className={cn(FRAME, className)} aria-busy={loading || busy || undefined}>
       <Table contained={false} aria-label={ariaLabel} className={TABLE}>
         <colgroup>
-          {columns.map((c) => (
-            <col key={c.id} style={c.width ? { width: c.width } : undefined} />
-          ))}
+          {columns.map((c) => {
+            const width = resize ? resize.widthOf(c.id) : c.width;
+            return <col key={c.id} style={width ? { width } : undefined} />;
+          })}
         </colgroup>
         <TableHeader>
           <TableRow className="border-0 hover:bg-transparent">
             {columns.map((c) => {
               const dir = sort && sort.column === c.id ? sort.dir : undefined;
-              return (
+              const words =
+                c.sortable && onSort ? (
+                  <button
+                    type="button"
+                    onClick={() => onSort(c.id)}
+                    aria-label={`Sort by ${c.label}`}
+                    className={cn("block w-full cursor-pointer truncate text-left font-medium", c.headerClassName)}
+                  >
+                    {c.label}
+                  </button>
+                ) : (
+                  <span className={cn("block truncate", c.headerClassName)}>{c.label}</span>
+                );
+              return resize ? (
+                <ResizableHead
+                  key={c.id}
+                  columnId={c.id}
+                  label={c.label}
+                  width={resize.widthOf(c.id)}
+                  onResize={(px) => resize.setWidth(c.id, px)}
+                  onReset={resize.reset}
+                  sort={dir}
+                  className={cn(HEAD, stickyHeader && STICKY)}
+                >
+                  {words}
+                </ResizableHead>
+              ) : (
                 <TableHead key={c.id} sort={dir} className={cn(HEAD, stickyHeader && STICKY)}>
-                  {c.sortable && onSort ? (
-                    <button
-                      type="button"
-                      onClick={() => onSort(c.id)}
-                      aria-label={`Sort by ${c.label}`}
-                      className={cn("block w-full cursor-pointer truncate text-left font-medium", c.headerClassName)}
-                    >
-                      {c.label}
-                    </button>
-                  ) : (
-                    <span className={cn("block truncate", c.headerClassName)}>{c.label}</span>
-                  )}
+                  {words}
                 </TableHead>
               );
             })}
@@ -197,7 +238,19 @@ export function WzReportGrid<R>({
             return (
               <Fragment key={rowKey(row)}>
                 {/* An open ▸ is not a selection: the record keeps its stripe. */}
-                <TableRow className={cn("border-0", renderExpanded && "has-aria-expanded:bg-transparent")}>
+                <TableRow
+                  className={cn("border-0", renderExpanded && "has-aria-expanded:bg-transparent", onRowClick && "cursor-pointer")}
+                  {...(onRowClick && {
+                    tabIndex: 0,
+                    onClick: (e: MouseEvent<HTMLTableRowElement>) => onRowClick(row, e),
+                    onAuxClick: (e: MouseEvent<HTMLTableRowElement>) => {
+                      if (e.button === 1) onRowClick(row, e);
+                    },
+                    onKeyDown: (e: KeyboardEvent<HTMLTableRowElement>) => {
+                      if (e.key === "Enter" && e.target === e.currentTarget) onRowClick(row, e);
+                    },
+                  })}
+                >
                   {columns.map((c) => (
                     <TableCell key={c.id} className={CELL}>
                       {c.cell(row)}

@@ -22,9 +22,10 @@ import {
  * (the slowest of the lot), whose "Needs invoice · 29" widened the view
  * switch and slid the date presets beside it.
  *
- * Now the cards, the switch with its number, the rows and their clients come
- * in one frame; another window or filter keeps what is on screen until the
- * next set is whole.
+ * Now (Workiz's layout, pg_invoices) the four cards — "29 jobs / Need
+ * invoices" among them — the rows and their clients come in one frame;
+ * another window or filter keeps what is on screen until the next set is
+ * whole.
  */
 
 vi.mock("next/navigation", () => ({
@@ -76,18 +77,28 @@ const routes: FakeRoute[] = [
     },
     delayMs: 40,
   },
+  // The jobs of the page (Workiz's "Job name"), asked for beside the clients — slower here.
+  {
+    match: /\/deals\/by-ids$/,
+    reply: (_url, init) => {
+      const { ids } = JSON.parse(String(init?.body ?? "{}")) as { ids: string[] };
+      return ids.map((id) => ({ id, jobName: id === "d1" ? "Mailbox lock" : "Junk removal" }));
+    },
+    delayMs: 90,
+  },
 ];
 
 let server: FakeServer;
 
 const { InvoicesPage } = await import("./invoices-page");
 
-/** The big number on a card, as the reader sees it. */
+/** The big number on a card, as the reader sees it (the card's first line). */
 const cardValue = (caption: RegExp) =>
-  screen.queryByRole("button", { name: caption })?.querySelector("span")?.textContent ?? null;
-const needsTab = () => screen.queryByRole("tab", { name: /Needs invoice/ })?.textContent ?? null;
-const pageUp = () =>
-  !!screen.queryByRole("button", { name: /Due from/ }) || !!screen.queryByText("#1042") || !!screen.queryByText(/No invoices/);
+  screen.queryByRole("button", { name: caption })?.querySelector("div")?.textContent ?? null;
+const needsCard = () => cardValue(/Need invoices/);
+/** An invoice number on screen — its own cell and the Job link both print it. */
+const shows = (text: string) => screen.queryAllByText(text).length > 0;
+const pageUp = () => !!screen.queryByRole("button", { name: /Due from/ }) || shows("1042") || shows("No Records Found");
 
 beforeEach(() => {
   summaryNow = summary(1234.5);
@@ -101,29 +112,31 @@ afterEach(() => {
 });
 
 describe("InvoicesPage — no jumping", () => {
-  it("draws the cards, the view switch with its number, the rows and their clients in one frame", async () => {
+  it("draws the four cards, the rows and their clients in one frame", async () => {
     const watch = watchFirstFrame(pageUp, () => ({
       due: cardValue(/Due from/),
-      needs: needsTab(),
-      row: !!screen.queryByText("#1042"),
+      needs: needsCard(),
+      row: shows("1042"),
       client: !!screen.queryByText("Jane Smith"),
       email: !!screen.queryByText("jane@client.test"),
-      empty: !!screen.queryByText(/No invoices/),
+      jobName: !!screen.queryByText("Mailbox lock"),
+      empty: shows("No Records Found"),
       skeletons: skeletonCount(),
       asked: server.requests.length,
     }));
     renderWithClient(<InvoicesPage />);
-    await screen.findByText("#1042", {}, { timeout: 3000 });
+    await screen.findByText("Jane Smith", {}, { timeout: 3000 });
     await settle();
     watch.stop();
 
     const { asked, ...frame } = watch.frame()!;
     expect(frame).toEqual({
       due: "$1,234.50",
-      needs: "Needs invoice · 29",
+      needs: "29 jobs",
       row: true,
       client: true,
       email: true,
+      jobName: true,
       empty: false,
       skeletons: 0,
     });
@@ -137,13 +150,13 @@ describe("InvoicesPage — no jumping", () => {
 
     let blanked = false;
     const observer = new MutationObserver(() => {
-      if (cardValue(/Due from/) === "—" || needsTab() === "Needs invoice") blanked = true;
-      if (skeletonCount() > 0 || !screen.queryByText("#1042")) blanked = true;
+      if (cardValue(/Due from/) === null || needsCard() === null) blanked = true;
+      if (skeletonCount() > 0 || !shows("1042")) blanked = true;
     });
     observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true });
     summaryNow = summary(77);
-    fireEvent.click(screen.getByRole("button", { name: /date range/i }));
-    fireEvent.click(screen.getByRole("button", { name: "Last month" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Date range/ }));
+    fireEvent.click(screen.getByRole("option", { name: "Last month" }));
     await screen.findByText("$77.00", {}, { timeout: 3000 });
     observer.disconnect();
 
@@ -157,8 +170,8 @@ describe("InvoicesPage — no jumping", () => {
     let halfDrawn = false;
     const observer = new MutationObserver(() => {
       if (skeletonCount() > 0) halfDrawn = true;
-      if (screen.queryByText("#2001") && !screen.queryByText("Ann Other")) halfDrawn = true;
-      if (!screen.queryByText("#1042") && !screen.queryByText("#2001")) halfDrawn = true;
+      if (shows("2001") && !screen.queryByText("Ann Other")) halfDrawn = true;
+      if (!shows("1042") && !shows("2001")) halfDrawn = true;
     });
     observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true });
     rowsNow = [inv({ id: "d9", dealId: "d9", number: "2001", contactId: "c9", status: "overdue" })];
@@ -167,6 +180,6 @@ describe("InvoicesPage — no jumping", () => {
     observer.disconnect();
 
     expect(halfDrawn).toBe(false);
-    expect(screen.queryByText("#1042")).not.toBeInTheDocument();
+    expect(shows("1042")).toBe(false);
   });
 });
