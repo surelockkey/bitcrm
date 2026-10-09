@@ -76,7 +76,7 @@ export function ClientSummaryPanel({
               </button>
             </DropdownMenuTrigger>
             {/* pg_contact_wz_269669_08: 167px, 1px #e5e7eb, r8, two 52px rows, 13px. */}
-            <DropdownMenuContent align="end" sideOffset={-12} alignOffset={0} className="w-[167px] min-w-[167px] rounded-[8px] border border-[#e5e7eb] px-0 py-0 shadow-[0_4px_6px_-1px_rgba(0,0,0,0.1),0_2px_4px_-1px_rgba(0,0,0,0.06)]">
+            <DropdownMenuContent align="end" sideOffset={2} className="w-[167px] min-w-[167px] rounded-[8px] border border-[#e5e7eb] px-0 py-0 shadow-[0_4px_6px_-1px_rgba(0,0,0,0.1),0_2px_4px_-1px_rgba(0,0,0,0.06)]">
               {canEdit ? (
                 <DropdownMenuItem onSelect={onEdit} className="min-h-[52px] gap-2 border-t-0! px-3.5 py-0 text-[13px] text-wz-strong focus:text-wz-strong">
                   <Pencil className="size-4" strokeWidth={1.5} /> Edit client info

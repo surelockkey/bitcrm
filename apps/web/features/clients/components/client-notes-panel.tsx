@@ -192,7 +192,8 @@ function NoteText({ text }: { text: string }) {
   const long = isLongNote(text);
   return (
     <>
-      <p data-testid="note-text" className={cn("mt-3 whitespace-pre-wrap break-words", long && !expanded && "line-clamp-4")}>
+      {/* Clamped, Workiz runs the lines together; opened, they keep their breaks. */}
+      <p data-testid="note-text" className={cn("mt-3 break-words", long && !expanded ? "line-clamp-4" : "whitespace-pre-wrap")}>
         {text}
       </p>
       {long ? (

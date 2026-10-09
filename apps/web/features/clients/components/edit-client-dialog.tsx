@@ -22,7 +22,7 @@ export function EditClientDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[92vh] overflow-y-auto px-6 sm:max-w-4xl">
+      <DialogContent className="max-h-[92vh] overflow-y-auto px-6 sm:max-w-[1048px]">
         <DialogHeader>
           <DialogTitle>Edit client info</DialogTitle>
           <DialogDescription className="sr-only">

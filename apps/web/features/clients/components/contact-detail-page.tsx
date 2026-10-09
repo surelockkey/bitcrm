@@ -148,18 +148,19 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
       </div>
 
       <div className="flex min-w-0 flex-1 flex-col border-t border-border pt-6 md:overflow-y-auto">
-        <div className="mb-5 flex flex-wrap items-start justify-between gap-3 pr-[26px]">
+        <div className="mb-5 flex shrink-0 flex-wrap items-start justify-between gap-3 pr-[26px]">
           <ClientKpiStrip kpis={kpis} money={money} />
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               {/* pg_contact_wz_269669_01: a 40px yellow pill, the chevron before the words. */}
-              <Button variant="brand" size="lg" className="mt-px gap-1 px-3">
+              <Button variant="brand" size="lg" className="min-w-[133px] gap-1.5 px-3">
                 <ChevronDown className="size-[18px]" strokeWidth={1.75} /> Create new
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent
               align="end"
               sideOffset={5}
+              alignOffset={-8}
               className="w-[236px] min-w-[236px] rounded-[8px] p-2 shadow-[0_0_4px_rgba(59,75,82,0.05),0_8px_16px_rgba(59,75,82,0.15)]"
             >
               {/* Workiz's list in its order, minus what BitCRM has nothing for (Lead, Service Plan). */}
@@ -205,9 +206,9 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
           </DropdownMenu>
         </div>
 
-        <WzTabBar aria-label="Client tabs" variant="small" tabs={tabs} value={tab} onValueChange={(v) => setTab(v as TabId)} className="-ml-px" />
+        <WzTabBar aria-label="Client tabs" variant="small" tabs={tabs} value={tab} onValueChange={(v) => setTab(v as TabId)} className="mt-1 -ml-px shrink-0" />
 
-        <div role="tabpanel" aria-label={tabs.find((t) => t.value === tab)?.label} className="min-w-0">
+        <div role="tabpanel" aria-label={tabs.find((t) => t.value === tab)?.label} className="min-w-0 shrink-0">
           {tab === "jobs" ? (
             <ClientJobsTab deals={deals} amountDue={amountDue} pastDue={pastDue} money={money} zoneOf={zoneOf} complete={!hasNextPage} />
           ) : tab === "estimates" ? (

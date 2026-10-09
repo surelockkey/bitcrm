@@ -24,8 +24,8 @@ function oneLine(a: Address | undefined): string {
   return [street, a.city, tail].filter(Boolean).join(", ");
 }
 
-/** Workiz's blue link (an invoice Id): #3589e9, underlined. */
-const BLUE_LINK = "text-brand underline underline-offset-2 outline-none hover:text-wz-accent-hover";
+/** Workiz's grid link (the invoice Id): #3da6e1 underlined (pg_contact_wz_269669_tab_invoices — a one-off blue). */
+const BLUE_LINK = "text-[#3da6e1] underline underline-offset-2 outline-none hover:text-wz-accent-hover";
 
 /**
  * Workiz's Estimates tab (pg_contact_wz_269669_tab_estimates): Id | Name |
