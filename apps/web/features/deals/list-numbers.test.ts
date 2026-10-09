@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { JobSuperStatus } from "@bitcrm/types";
 import type { DealCounts } from "./api";
-import { canGoNext, pageText, showingText, withSearchedTab } from "./list-numbers";
+import { withSearchedTab } from "./list-numbers";
 
 const counts = (over: Partial<DealCounts> = {}): DealCounts => ({
   submitted: 210,
@@ -20,6 +20,10 @@ const counts = (over: Partial<DealCounts> = {}): DealCounts => ({
  * Workiz, searching "Dustin" on Submitted: "Submitted 1 · In Progress 6 ·
  * Pending 338 …" — the open tab counts what was found, every other tab keeps
  * its unsearched number (jobslist_wz_search_Dustin).
+ *
+ * The pager's words and its "no page past the counted last one" rule live in
+ * the kit now (components/workiz/pager: wzPagerSummary, wzPagerPages,
+ * wzPagerCanNext).
  */
 describe("withSearchedTab — the tab numbers while a search is on", () => {
   it("without a search, the tabs are the plain counts", () => {
@@ -53,65 +57,5 @@ describe("withSearchedTab — the tab numbers while a search is on", () => {
 
   it("nothing yet without the plain counts", () => {
     expect(withSearchedTab(undefined, counts(), JobSuperStatus.SUBMITTED)).toBeUndefined();
-  });
-});
-
-/** Workiz's pager line (list_07_bottom, jobslist_wz_search_zzqxwv). */
-describe("showingText", () => {
-  it("rows on screen out of the counted total", () => {
-    expect(showingText({ from: 1, to: 50, total: 208 })).toBe("Showing 1 to 50 of 208 results");
-    expect(showingText({ from: 51, to: 100, total: 1325 })).toBe("Showing 51 to 100 of 1,325 results");
-  });
-
-  it("nothing found reads the way Workiz says it", () => {
-    expect(showingText({ from: 0, to: 0, total: 0 })).toBe("Showing 1 to 0 of 0 results");
-  });
-
-  it("a number the server stopped counting is a floor", () => {
-    expect(showingText({ from: 1, to: 50, total: 10_000, totalIsFloor: true })).toBe("Showing 1 to 50 of 10,000+ results");
-  });
-
-  /**
-   * A closed status searched without a date window is not counted, and its
-   * page can come back short. The line then says only what is on screen.
-   */
-  it("an uncounted list says what is on screen and nothing it does not know", () => {
-    expect(showingText({ from: 1, to: 37, total: null })).toBe("Showing 1 to 37 results");
-    expect(showingText({ from: 1, to: 37, total: undefined })).toBe("Showing 1 to 37 results");
-  });
-});
-
-/**
- * Audit L8/L15: with a filter chip the pager said "Page 1 of 1" and still
- * offered Next, which then read "Page 2 of 1". The count knows the last page.
- */
-describe("canGoNext", () => {
-  const p = { page: 1, canNext: true, isFetching: false, totalPages: 1 as number | undefined, totalPagesIsFloor: false };
-
-  it("stops on the counted last page, even with a cursor in hand", () => {
-    expect(canGoNext(p)).toBe(false);
-    expect(canGoNext({ ...p, page: 1, totalPages: 2 })).toBe(true);
-    expect(canGoNext({ ...p, page: 2, totalPages: 2 })).toBe(false);
-  });
-
-  it("follows the cursor when nothing was counted, or the count is a floor", () => {
-    expect(canGoNext({ ...p, totalPages: undefined })).toBe(true);
-    expect(canGoNext({ ...p, totalPages: 1, totalPagesIsFloor: true })).toBe(true);
-    expect(canGoNext({ ...p, totalPages: undefined, canNext: false })).toBe(false);
-  });
-
-  it("waits while the next page is on its way", () => {
-    expect(canGoNext({ ...p, totalPages: 5, isFetching: true })).toBe(false);
-  });
-});
-
-describe("pageText", () => {
-  it("Page N of M when the total is known", () => {
-    expect(pageText({ page: 1, totalPages: 5 })).toBe("Page 1 of 5");
-    expect(pageText({ page: 2, totalPages: 200, totalPagesIsFloor: true })).toBe("Page 2 of 200+");
-  });
-
-  it("just Page N when it is not", () => {
-    expect(pageText({ page: 3, totalPages: undefined })).toBe("Page 3");
   });
 });

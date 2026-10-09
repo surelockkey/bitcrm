@@ -7,14 +7,16 @@ import { cn } from "@/lib/utils";
 /**
  * A picked value inside Workiz's "Filter results" / "Show:" selects
  * (react-select multi-value; jobslist_wz_filter_three, uikit_wz_pricebook
- * "status: Active items"): a 26px white frame (1px #ccc, 2px corner) round a
- * block in the value's own colour (3px corner) holding the 11.9px/500 label,
- * then a 23px × segment behind a #ccc rule. Workiz's × is a small bold glyph
+ * "status: Active items"): a 26px white frame (1px #ccc, 2px corner) holding
+ * a 22px block in the value's own colour (3px corner) 4px in from either
+ * side and 1px from the top — the label 11.9px/500 with 6px before it, then
+ * a 23px × segment behind a #ccc rule. Workiz's × is a small bold glyph
  * (audit_pixels L7). Uncoloured values are grey with dark words.
  */
 export function WzFilterChip({
   label,
   colorClassName,
+  color,
   tone,
   onRemove,
   className,
@@ -22,28 +24,32 @@ export function WzFilterChip({
   label: string;
   /** The value's colour as a background class (a tech's, a tag's); none → grey. */
   colorClassName?: string | null;
+  /** The value's colour as a CSS colour (a service area's own `#rrggbb`), when no class carries it. */
+  color?: string | null;
   /** An uncoloured value printed white with #333 words ("status: Active", pg_technicians_wz_01_team). */
   tone?: "white";
   onRemove: () => void;
   className?: string;
 }) {
+  const coloured = Boolean(colorClassName || color);
   return (
     <span
       data-slot="wz-filter-chip"
       onMouseDown={(e) => e.stopPropagation()}
-      className={cn("inline-flex h-[26px] max-w-[22rem] items-stretch rounded-chip border border-input bg-background p-px", className)}
+      className={cn("inline-flex h-[26px] max-w-[22rem] items-stretch rounded-chip border border-input bg-background px-1 py-px", className)}
     >
       <span
         className={cn(
           "flex min-w-0 items-stretch overflow-hidden rounded-[3px]",
-          colorClassName
+          coloured
             ? [colorClassName, "text-white"]
             : tone === "white"
               ? "bg-background text-wz-value"
               : "bg-wz-disabled-border text-wz-value",
         )}
+        style={color ? { backgroundColor: color } : undefined}
       >
-        <span className={cn("truncate py-[3px] pr-[3px] pl-1.5 text-[11.9px] leading-4", tone === "white" && !colorClassName ? "font-normal" : "font-medium")}>
+        <span className={cn("truncate py-[3px] pr-[3px] pl-1.5 text-[11.9px] leading-4", tone === "white" && !coloured ? "font-normal" : "font-medium")}>
           {label}
         </span>
         <button

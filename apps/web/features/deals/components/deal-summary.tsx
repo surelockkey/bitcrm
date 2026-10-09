@@ -2,12 +2,13 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Briefcase, Building2, DollarSign, Loader2, User, UserPlus, Wrench, X } from "lucide-react";
+import { Briefcase, Building2, DollarSign, Loader2, User, UserPlus, Wrench } from "lucide-react";
 import type { Deal } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { workOrderHref } from "@/features/work-orders/lib";
 import { useCompany } from "@/features/clients/hooks";
-import { formatPhone, initials, primaryPhone, clientTypeLabel } from "@/features/clients/lib";
+import { formatPhone, primaryPhone, clientTypeLabel } from "@/features/clients/lib";
 import { useDealProducts, useUnassignTech, useUserMap } from "../hooks";
 import { useContact } from "@/features/clients/hooks";
 import { dealClientName, dealTotal, formatMoney, formatSchedule } from "../lib";
@@ -55,7 +56,7 @@ export function DealSummary({ deal, canEdit }: { deal: Deal; canEdit: boolean })
           ) : null}
           {deal.poNumber ? <Row label="PO number" value={deal.poNumber} /> : null}
           {deal.workOrderId ? (
-            <Row label="Work order" value={<Link href="/work-orders" className="text-primary hover:underline">View</Link>} />
+            <Row label="Work order" value={<Link href={workOrderHref(deal.workOrderId)} className="text-wz-link hover:underline">View</Link>} />
           ) : null}
           {deal.tagIds.length ? <Row label="Tags" value={<JobTagChips ids={deal.tagIds} />} /> : null}
         </dl>

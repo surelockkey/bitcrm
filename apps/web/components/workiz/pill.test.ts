@@ -1,19 +1,29 @@
 import { describe, expect, it } from "vitest";
 
-import * as jobPills from "@/features/deals/components/job-pills";
 import { wzPill } from "./pill";
 
 /**
  * The job page drew its own Workiz pills (features/deals/components/
- * job-pills.ts). The kit owns them now; until the job page switches, the
- * kit's must be the very same classes so the switch is pixel-identical.
+ * job-pills.ts) until the kit took them over (2026-10-09). These are the
+ * classes it measured on job_b_01_details / job_b_tab_items: 34px, 13px/600
+ * ink with 0.2px tracking, 16px sides; yellow #fad400 hovering to #eac300, or
+ * a 1px ink edge hovering to the top bar's #f3f6f7.
  */
 describe("wzPill", () => {
-  it("reproduces the job page's pills class for class", () => {
-    expect(wzPill("yellow")).toBe(jobPills.PILL_YELLOW);
-    expect(wzPill("outline")).toBe(jobPills.PILL_OUTLINE);
-    expect(wzPill("outline", "tall")).toBe(jobPills.PILL_OUTLINE_TALL);
-    expect(wzPill("yellow", "small")).toBe(jobPills.PILL_YELLOW_SM);
+  it("is the job page's 34px pill, yellow or outlined", () => {
+    const yellow = wzPill("yellow").split(/\s+/);
+    expect(yellow).toEqual(
+      expect.arrayContaining(["h-[34px]", "px-4", "bg-primary", "hover:bg-[#eac300]", "text-[13px]", "font-semibold", "tracking-[0.2px]", "text-foreground"]),
+    );
+    const outline = wzPill("outline").split(/\s+/);
+    expect(outline).toEqual(
+      expect.arrayContaining(["h-[34px]", "px-4", "border", "border-foreground", "bg-transparent", "hover:bg-topbar", "aria-expanded:bg-topbar"]),
+    );
+  });
+
+  it("grows to 40px with 24px sides for the Estimates tab, and shrinks to 32px for Add payment / Upload", () => {
+    expect(wzPill("outline", "tall").split(/\s+/)).toEqual(expect.arrayContaining(["h-10", "px-6", "border-foreground"]));
+    expect(wzPill("yellow", "small").split(/\s+/)).toEqual(expect.arrayContaining(["h-8", "px-4", "bg-primary"]));
   });
 
   it("is always a pill, never a padded rounded-full", () => {

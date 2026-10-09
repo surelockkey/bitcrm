@@ -12,7 +12,7 @@ import { usePermissions } from "@/features/auth/use-permissions";
 import { useUserMap } from "@/features/deals/hooks";
 import { workizDateTime } from "@/features/deals/job-shell";
 import { PaymentsArt } from "@/features/deals/components/job-empty-art";
-import { PILL_OUTLINE, PILL_YELLOW_SM } from "@/features/deals/components/job-pills";
+import { wzPill } from "@/components/workiz";
 import { formatMoney } from "@/features/billing/lib";
 import { formatYmd } from "@/features/billing/dates";
 import { useDealPayments, useResendReceipt } from "../hooks";
@@ -150,12 +150,12 @@ export function DealPaymentsTab({
         </h2>
         <span className="flex-1" />
         {onCreateInvoice ? (
-          <button type="button" className={PILL_OUTLINE} onClick={onCreateInvoice}>
+          <button type="button" className={wzPill("outline")} onClick={onCreateInvoice}>
             <FileText /> Create invoice
           </button>
         ) : null}
         {canCollect ? (
-          <button type="button" className={PILL_YELLOW_SM} onClick={() => setRecording(true)}>
+          <button type="button" className={wzPill("yellow", "small")} onClick={() => setRecording(true)}>
             Add payment
           </button>
         ) : null}

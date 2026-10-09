@@ -1,54 +1,22 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
-import { Dialog } from "radix-ui";
-import {
-  DndContext,
-  KeyboardSensor,
-  PointerSensor,
-  closestCenter,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from "@dnd-kit/core";
-import { restrictToParentElement, restrictToVerticalAxis } from "@dnd-kit/modifiers";
-import {
-  SortableContext,
-  sortableKeyboardCoordinates,
-  useSortable,
-  verticalListSortingStrategy,
-} from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
+import type { ReactNode } from "react";
 import {
   BarChart3,
   CalendarDays,
   CircleDollarSign,
   Diamond,
-  GripVertical,
   Mail,
   Map as MapIcon,
   MapPin,
   Phone,
-  Search,
-  Grid3x3,
   Tag,
   Users,
   Wrench,
-  X,
 } from "lucide-react";
-import { Checkbox } from "@/components/ui/checkbox";
-import { cn } from "@/lib/utils";
+import { WzFieldsPanel, type WzFieldOption } from "@/components/workiz";
 import { useCustomFields } from "@/features/custom-fields/hooks";
-import {
-  draftFromSaved,
-  jobFieldOptions,
-  moveDraft,
-  panelLists,
-  savedFromDraft,
-  toggleDraft,
-  type FieldIcon,
-  type JobFieldOption,
-} from "../fields";
+import { draftFromSaved, jobFieldOptions, savedFromDraft, type FieldIcon } from "../fields";
 import { useJobFieldsStore } from "../fields-store";
 
 /** Workiz's panel glyphs (`wfi-*`), drawn with their nearest lucide twins. */
@@ -67,14 +35,13 @@ const ICONS: Record<FieldIcon, ReactNode> = {
 };
 
 /** The Job ID row: always first and always on, as the table draws it. */
-const JOB_ID: JobFieldOption = { id: "__jobId", label: "Job ID", width: 0, icon: "job" };
+const JOB_ID: WzFieldOption[] = [{ id: "__jobId", label: "Job ID", icon: ICONS.job }];
 
 /**
- * Workiz's "Visible fields" side panel (list_02_fields_menu): a 422px drawer
- * over a dimmed page — "Search fields", USED FIELDS as bordered rows you drag
- * into column order (handle, tick, name, glyph), UNSELECTED FIELDS under
- * them, and "Cancel" / a yellow "Save fields" pill at the bottom. Nothing
- * reaches the table until "Save fields"; Cancel, × or Escape drop the draft.
+ * Workiz's "Visible fields" side panel (list_02_fields_menu) — the kit's
+ * `WzFieldsPanel` over the jobs list's field registry: every static and
+ * custom field with its glyph, Job ID locked first, the saved order as the
+ * draft's start, and "Save fields" writing the store (visibility + order).
  */
 export function FieldsMenu() {
   const visible = useJobFieldsStore((s) => s.visible);
@@ -83,191 +50,12 @@ export function FieldsMenu() {
   const { data: customFieldDefs } = useCustomFields();
   const options = jobFieldOptions(customFieldDefs);
 
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const [used, setUsed] = useState<string[]>([]);
-
-  const openPanel = (next: boolean) => {
-    if (next) {
-      setUsed(draftFromSaved(options, visible, order));
-      setQuery("");
-    }
-    setOpen(next);
-  };
-
-  const lists = panelLists(options, used, query);
-  const jobIdShown = !query.trim() || JOB_ID.label.toLowerCase().includes(query.trim().toLowerCase());
-
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
-  );
-  const onDragEnd = ({ active, over }: DragEndEvent) => {
-    if (over && active.id !== over.id) setUsed((u) => moveDraft(u, String(active.id), String(over.id)));
-  };
-
   return (
-    <Dialog.Root open={open} onOpenChange={openPanel}>
-      <Dialog.Trigger asChild>
-        {/* list_01: 82×34, 1px #ccc, radius 2, 14px, no fill of its own (the
-            strip's #f7f7f7 shows through), Workiz's 3×3 grid glyph. */}
-        <button
-          type="button"
-          className="inline-flex h-[34px] items-center gap-1 rounded-chip border border-input bg-transparent px-2.5 text-sm text-[#404040] hover:bg-black/5"
-        >
-          <Grid3x3 className="size-3.5" strokeWidth={1.75} />
-          Fields
-        </button>
-      </Dialog.Trigger>
-      <Dialog.Portal>
-        {/* The page dims under #666 at 60% — #ffffff → #a3a3a3 and #f7f7f7 →
-            #a0a0a0, sampled off list_02 and audit_pixels_list_fields alike. */}
-        <Dialog.Overlay className="fixed inset-0 z-50 bg-[#666666]/60 data-open:animate-in data-open:fade-in-0" />
-        <Dialog.Content
-          aria-describedby={undefined}
-          className="fixed inset-y-0 right-0 z-50 flex w-[422px] max-w-full flex-col bg-background text-[#3b4b52] shadow-lg data-open:animate-in data-open:slide-in-from-right-10"
-        >
-          <div className="flex h-[47px] shrink-0 items-center justify-between pr-[15px] pl-6">
-            <Dialog.Title className="text-lg leading-[19px] font-semibold text-[#3b4c53]">Visible fields</Dialog.Title>
-            <Dialog.Close aria-label="Close" className="grid size-6 place-items-center text-[#607890] hover:text-foreground">
-              <X className="size-[18px]" />
-            </Dialog.Close>
-          </div>
-
-          <div className="shrink-0 px-6 pt-6">
-            <h5 className="text-base leading-6 font-medium tracking-[0.2px]">Search fields</h5>
-            <div className="relative">
-              <Search className="pointer-events-none absolute top-1/2 left-4 size-4 -translate-y-1/2 text-[#3b4b52]" />
-              <input
-                placeholder="Type field name here"
-                aria-label="Search fields"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                className="h-10 w-full rounded-[4px] border border-[#9ea6aa] bg-background pr-4 pl-11 text-[13px] outline-none placeholder:text-[#9ea6aa] focus:border-[#6aa8ee]"
-              />
-            </div>
-          </div>
-
-          <div className="min-h-0 flex-1 overflow-y-auto px-6 pt-4 pb-2">
-            <p className="mb-4 text-xs leading-[21px] font-medium tracking-[0.4px] text-[#9ea6aa] uppercase">Used fields</p>
-            {jobIdShown ? <FieldRow option={JOB_ID} checked locked /> : null}
-            <DndContext
-              sensors={sensors}
-              collisionDetection={closestCenter}
-              modifiers={[restrictToVerticalAxis, restrictToParentElement]}
-              onDragEnd={onDragEnd}
-            >
-              <SortableContext items={lists.used.map((o) => o.id)} strategy={verticalListSortingStrategy}>
-                <div>
-                  {lists.used.map((o) => (
-                    <SortableFieldRow key={o.id} option={o} onToggle={() => setUsed((u) => toggleDraft(u, o.id))} />
-                  ))}
-                </div>
-              </SortableContext>
-            </DndContext>
-
-            <p className="mt-4 mb-4 text-xs leading-[21px] font-medium tracking-[0.4px] text-[#9ea6aa] uppercase">
-              Unselected fields
-            </p>
-            {lists.unselected.map((o) => (
-              <FieldRow key={o.id} option={o} checked={false} onToggle={() => setUsed((u) => toggleDraft(u, o.id))} />
-            ))}
-            {!lists.used.length && !lists.unselected.length && !jobIdShown ? (
-              <p className="text-sm text-muted-foreground">No fields match your search.</p>
-            ) : null}
-          </div>
-
-          {/* list_02: a white footer under the list (rows end at y≈935), Cancel
-              (text) and Save fields (yellow pill), 32px, at y=956 on the right. */}
-          <div className="flex h-[65px] shrink-0 items-start justify-end gap-[9px] bg-background px-6 pt-[21px]">
-            <Dialog.Close asChild>
-              <button
-                type="button"
-                className="h-8 rounded-pill px-4 text-[13px] font-semibold tracking-[0.2px] text-[#3b4b52] hover:bg-muted"
-              >
-                Cancel
-              </button>
-            </Dialog.Close>
-            <button
-              type="button"
-              onClick={() => {
-                save(savedFromDraft(options, used));
-                setOpen(false);
-              }}
-              className="h-8 rounded-pill bg-primary px-4 text-[13px] font-semibold tracking-[0.2px] text-primary-foreground hover:bg-primary/85"
-            >
-              Save fields
-            </button>
-          </div>
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
-  );
-}
-
-/** A USED FIELDS row you can drag by its handle. */
-function SortableFieldRow({ option, onToggle }: { option: JobFieldOption; onToggle: () => void }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: option.id });
-  return (
-    <div
-      ref={setNodeRef}
-      style={{ transform: CSS.Transform.toString(transform), transition }}
-      className={cn("relative", isDragging && "z-10 opacity-80")}
-    >
-      <FieldRow
-        option={option}
-        checked
-        onToggle={onToggle}
-        handle={
-          <button
-            type="button"
-            aria-label={`Move ${option.label}`}
-            className="grid w-4 cursor-grab place-items-center text-[#9ea6aa] active:cursor-grabbing"
-            {...attributes}
-            {...listeners}
-          >
-            <GripVertical className="size-4" />
-          </button>
-        }
-      />
-    </div>
-  );
-}
-
-/**
- * One field: list_02 measures a 354×42 box, 1px #dfe2e3, radius 8, 8px
- * padding, 8px apart; a 13px tick, the name 14px/500, the glyph at the right.
- */
-function FieldRow({
-  option,
-  checked,
-  onToggle,
-  locked = false,
-  handle,
-}: {
-  option: JobFieldOption;
-  checked: boolean;
-  onToggle?: () => void;
-  locked?: boolean;
-  handle?: ReactNode;
-}) {
-  return (
-    // list_02: handle at +11, tick at +35 (+11 without a handle), name 13px after the tick.
-    <div className="mb-2 flex h-[42px] w-full max-w-[354px] items-center gap-2 rounded-[8px] border border-border bg-background pr-2 pl-[10px]">
-      {handle ?? (locked ? <span className="w-4" aria-hidden /> : null)}
-      <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-[13px]">
-        <Checkbox
-          checked={checked}
-          disabled={locked}
-          onCheckedChange={() => onToggle?.()}
-          // list_02: Workiz's tick is its link blue, #6aa8ee.
-          className="size-[13px] rounded-[2px] border-[#767676] data-[state=checked]:border-[#6aa8ee] data-[state=checked]:bg-[#6aa8ee] disabled:opacity-100 [&_svg]:size-2.5"
-        />
-        <span className="truncate text-sm leading-[21px] font-medium tracking-[0.4px]">{option.label}</span>
-      </label>
-      <span aria-hidden className="grid size-5 shrink-0 place-items-center text-[#3b4b52] [&_svg]:size-4">
-        {ICONS[option.icon]}
-      </span>
-    </div>
+    <WzFieldsPanel
+      options={options.map((o) => ({ id: o.id, label: o.label, icon: ICONS[o.icon] }))}
+      locked={JOB_ID}
+      used={draftFromSaved(options, visible, order)}
+      onSave={(used) => save(savedFromDraft(options, used))}
+    />
   );
 }
