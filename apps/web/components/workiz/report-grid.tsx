@@ -92,17 +92,38 @@ function ExpandedRow({ columns, children }: { columns: number; children: ReactNo
   );
 }
 
-/** react-table's `-padRow`s, keeping the zebra going. */
-function PadRows({ count, columns, rule = true }: { count: number; columns: number; rule?: boolean }) {
+/**
+ * react-table's `-padRow`s, keeping the zebra going. Told the row `height`,
+ * a blank takes the record cells' own classes (the same padding and
+ * alignment) under that height; otherwise Workiz's 56/57px blank.
+ */
+function PadRows({
+  count,
+  columns,
+  rule = true,
+  height,
+  cellAlign = "top",
+}: {
+  count: number;
+  columns: number;
+  rule?: boolean;
+  height?: number;
+  cellAlign?: "top" | "middle";
+}) {
+  const cell = height
+    ? cn(CELL, cellAlign === "middle" && "align-middle", rule && "border-b border-b-black/5 [border-bottom-style:solid]")
+    : cn(CELL, rule ? "h-[57px] border-b border-b-black/5 py-0 [border-bottom-style:solid]" : "h-[56px] py-0");
   return (
     <>
       {Array.from({ length: Math.max(0, count) }, (_, i) => (
-        <TableRow key={`pad-${i}`} aria-hidden className="border-0 hover:bg-transparent">
+        <TableRow
+          key={`pad-${i}`}
+          aria-hidden
+          className="border-0 hover:bg-transparent"
+          style={height ? { height } : undefined}
+        >
           {Array.from({ length: columns }, (_, c) => (
-            <TableCell
-              key={c}
-              className={cn(CELL, rule ? "h-[57px] border-b border-b-black/5 py-0 [border-bottom-style:solid]" : "h-[56px] py-0")}
-            />
+            <TableCell key={c} className={cell} />
           ))}
         </TableRow>
       ))}
@@ -138,6 +159,7 @@ export function WzReportGrid<R>({
   resize,
   cellAlign = "top",
   minTableWidth,
+  rowHeight,
   "aria-label": ariaLabel,
   className,
 }: {
@@ -199,10 +221,27 @@ export function WzReportGrid<R>({
    * the page (pass `stickyHeader={false}`). Off by default.
    */
   minTableWidth?: number;
+  /**
+   * A record row's height on this grid, in px. Workiz's rows are as tall as
+   * what they hold — 56 for one 14px/16px line in 20px padding, 58 with the
+   * Activity report's icon, 77 for the Items report's two lines, 80 beside a
+   * 40px picture, 82 for a name over an email — while its loader's blank rows
+   * are react-table's 56/57px, so the records land lower than the blanks
+   * they replace and everything under them moves (app_audit 2026-10-09: CLS
+   * 0.02–0.13 on twelve grids). Given, the loader's blanks, the records and
+   * the blank filler under them all take it: the grid is the same height
+   * before and after the rows come and nothing moves — the house rule, one
+   * skeleton, then the page. A record taller than it still grows. Off by
+   * default: a grid without it keeps Workiz's blanks as they were.
+   */
+  rowHeight?: number;
   "aria-label"?: string;
   className?: string;
 }) {
   const shown = loading ? [] : rows;
+  const rowStyle = rowHeight ? { height: rowHeight } : undefined;
+  // Workiz's dots sit 340px down ten of its own 56/57px blanks; over taller rows, the grid's middle.
+  const workizBlanks = minRows === MIN_ROWS && (rowHeight === undefined || rowHeight <= 57);
   const table = (
     <Table
       contained={false}
@@ -262,6 +301,7 @@ export function WzReportGrid<R>({
               {/* An open ▸ is not a selection: the record keeps its stripe. */}
               <TableRow
                 className={cn("border-0", renderExpanded && "has-aria-expanded:bg-transparent", onRowClick && "cursor-pointer")}
+                style={rowStyle}
                 {...(onRowClick && {
                   tabIndex: 0,
                   onClick: (e: MouseEvent<HTMLTableRowElement>) => onRowClick(row, e),
@@ -283,7 +323,13 @@ export function WzReportGrid<R>({
             </Fragment>
           );
         })}
-        <PadRows count={minRows - shown.length} columns={columns.length} rule={padRowRule && !(plainFiller && shown.length > 0)} />
+        <PadRows
+          count={minRows - shown.length}
+          columns={columns.length}
+          rule={padRowRule && !(plainFiller && shown.length > 0)}
+          height={rowHeight}
+          cellAlign={cellAlign}
+        />
       </TableBody>
     </Table>
   );
@@ -292,8 +338,7 @@ export function WzReportGrid<R>({
       {minTableWidth ? <div className="overflow-x-auto">{table}</div> : table}
       {loading ? (
         <div role="status" aria-label="Loading" className="absolute inset-0 z-20 bg-white/80">
-          {/* Workiz's dots sit halfway down the whole grid: 340px on ten rows, the middle on fewer. */}
-          <div className={cn("absolute left-1/2 flex -translate-x-1/2 gap-2", minRows === MIN_ROWS ? "top-[340px]" : "top-1/2 -translate-y-1/2")}>
+          <div className={cn("absolute left-1/2 flex -translate-x-1/2 gap-2", workizBlanks ? "top-[340px]" : "top-1/2 -translate-y-1/2")}>
             {[0, 1, 2].map((i) => (
               <span
                 key={i}
