@@ -99,6 +99,8 @@ export interface EstimateReportParams {
   to?: string;
   status?: EstimateStatus;
   search?: string;
+  /** Created order; the server's own is newest first (`desc`). */
+  dir?: "asc" | "desc";
   limit?: number;
   cursor?: string;
 }

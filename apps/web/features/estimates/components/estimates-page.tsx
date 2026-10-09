@@ -1,124 +1,108 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type KeyboardEvent, type MouseEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ExternalLink, FileSpreadsheet, Plus, Search } from "lucide-react";
+import { FileText, Plus, Settings } from "lucide-react";
 import { toast } from "sonner";
-import {
-  ESTIMATE_STATUSES,
-  ESTIMATE_STATUS_LABELS,
-  estimateDepositDue,
-  estimateReportAmount,
-  type Estimate,
-  type EstimateStatus,
-} from "@bitcrm/types";
+import { ESTIMATE_STATUSES, ESTIMATE_STATUS_LABELS, type Estimate, type EstimateStatus } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { ListPagination } from "@/components/ui/list-pagination";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { ResizableHead } from "@/components/ui/resizable-head";
-import { useColumnWidths } from "@/lib/table/use-column-widths";
+import { WzDateRangePicker, type WzDateRange } from "@/components/workiz/date-range-picker";
+import { WzKpiCard, WzKpiCardSkeleton } from "@/components/workiz/kpi-card";
+import { WzPager } from "@/components/workiz/pager";
+import { WzListToolbar, WzPageSizeSelect, WzSearchBox, WzToolbarButton } from "@/components/workiz/toolbar";
 import { getApiErrorMessage } from "@/lib/api/errors";
-import { useDebouncedValue } from "@/lib/use-debounced-value";
-import { settled, usePageReady } from "@/lib/use-page-ready";
-import { cn } from "@/lib/utils";
-import { heldPager, useHeldView } from "@/features/billing/use-held-view";
-import { usePermissions, useDenied } from "@/features/auth/use-permissions";
-import { useContactsByIds } from "@/features/clients/hooks";
-import { contactName } from "@/features/clients/lib";
-import { useUserMap } from "@/features/deals/hooks";
-import { formatMoney } from "@/features/billing/lib";
-import { NoAccess } from "@/features/billing/components/list-bits";
-import { exportEstimateReport } from "@/features/reports/billing/api";
-import { useEstimateReport, useEstimateReportCount, useEstimateReportSummary } from "@/features/reports/billing/hooks";
-import {
-  DEFAULT_ESTIMATE_PRESET,
-  ESTIMATE_DATE_PRESETS,
-  ESTIMATE_STATUS_COLORS,
-  downloadCsv,
-  workizDate,
-  type EstimateReportParams,
-} from "@/features/reports/billing/lib";
-import { DateRangeControl, ExportButton, ReportCard, money, useReportRange } from "@/features/reports/billing/components/report-bits";
-import { NewClientEstimateDialog } from "./new-client-estimate-dialog";
-import { estimateStatusLabel } from "../lib";
-import { EstimateStatusBadge } from "./estimate-status-badge";
 import { pagedSource } from "@/lib/paging/paged-source";
 import { usePageSize } from "@/lib/paging/use-page-size";
 import { usePager } from "@/lib/paging/use-pager";
+import { useDebouncedValue } from "@/lib/use-debounced-value";
+import { settled, usePageReady } from "@/lib/use-page-ready";
+import { heldPager, useHeldView } from "@/features/billing/use-held-view";
+import { usePermissions, useDenied } from "@/features/auth/use-permissions";
+import { useContactsByIds } from "@/features/clients/hooks";
+import { useUserMap } from "@/features/deals/hooks";
+import { NoAccess } from "@/features/billing/components/list-bits";
 import { estimateHref } from "@/features/billing/components/client-documents";
+import { DEFAULT_REPORT_PAGE_SIZE, REPORT_PAGE_SIZES } from "@/features/payments/report";
+import { viewerToday } from "@/features/reports/jobs/lib";
+import { exportEstimateReport } from "@/features/reports/billing/api";
+import { useEstimateReport, useEstimateReportCount, useEstimateReportSummary } from "@/features/reports/billing/hooks";
+import { downloadCsv, type EstimateReportParams } from "@/features/reports/billing/lib";
+import {
+  DEFAULT_ESTIMATES_RANGE,
+  ESTIMATES_LIST_PRESETS,
+  estimateCardText,
+  estimatesListParams,
+  estimatesListRange,
+  estimatesRangeText,
+  estimatesWindow,
+  nextCreatedSort,
+  openCustom,
+  type CreatedSort,
+} from "../estimates-list";
+import { EstimatesGrid, EstimatesGridSkeleton } from "./estimates-grid";
+import { NewClientEstimateDialog } from "./new-client-estimate-dialog";
 
-/**
- * Every column of the list — Workiz's Estimates page, in its order — with the
- * width it starts at.
- *
- * `table-fixed` on purpose: the client name comes from its own contacts
- * request and lands after the rows, and under auto layout the grid would
- * re-measure itself when it does. Declared once — the colgroup and the
- * headers are both built from here, and the reader's own widths are kept
- * under `estimates`, the same name the page size is saved under.
+/** Workiz asks for its matches a moment after the last key, as the clients list does. */
+const SEARCH_DEBOUNCE_MS = 350;
+
+/*
+ * The page's frame, measured off uikit_wz_estimates (1600×1000, content from
+ * x=200): the cards 34px under the breadcrumbs, 20px in, 31px apart; 28px
+ * down to the status select (471×38) and, at the right, the period box (250)
+ * and the 115×32 Add New, 25px off the edge; 25px down to the row Workiz
+ * keeps for its bulk actions and "Estimates settings"; 28px down to the grey
+ * strip, the grid under it edge to edge.
  */
-const COLUMNS: { id: string; label: string; width: number; right?: boolean }[] = [
-  { id: "number", label: "Estimate", width: 120 },
-  { id: "name", label: "Estimate Name", width: 200 },
-  { id: "client", label: "Client", width: 190 },
-  { id: "created", label: "Created", width: 170 },
-  { id: "total", label: "Amount", width: 130, right: true },
-  { id: "status", label: "Status", width: 150 },
-  { id: "job", label: "Source", width: 130 },
-  { id: "deposit", label: "Deposit due", width: 120, right: true },
+const CARDS = "grid grid-cols-3 items-start gap-[31px] px-5 pt-[34px] xl:grid-cols-6";
+
+/** "All statuses", then the six — the list filter (pg_estimates_wz_03_status_filter_open). */
+const STATUS_OPTIONS: { value: EstimateStatus | "all"; label: string }[] = [
+  { value: "all", label: "All statuses" },
+  ...ESTIMATE_STATUSES.map((s) => ({ value: s, label: ESTIMATE_STATUS_LABELS[s] })),
 ];
 
-const COLUMN_WIDTHS: Record<string, number> = Object.fromEntries(
-  COLUMNS.map((c) => [c.id, c.width]),
-);
-
-/** Workiz shows when an estimate was approved, declined or won, under its status. */
-const UPDATED_ON: Partial<Record<EstimateStatus, keyof Estimate>> = {
-  approved: "approvedAt",
-  declined: "declinedAt",
-  won: "wonAt",
-};
-
 /**
- * Workiz's Estimates page (`/root/estimates`, also its Reports tile): All time
- * by default; six status cards ("N Worth $X") for the chosen created-date
- * window, each one the status filter; the status select, search, Workiz's
- * columns and its CSV.
+ * Workiz's Estimates page (`/root/estimates/`, also its Reports tile), drawn
+ * as Workiz draws it (uikit_wz_estimates, pg_estimates_wz_*): no title — six
+ * status cards ("N Worth $X" for the created-date window) that ARE the
+ * status filter; the status select, the period box and "+ Add New"; the
+ * "Estimates settings" link; the grey strip (Search, page size, Export); the
+ * grid with the pager inside its frame. All time by default, newest first.
+ *
+ * Workiz's tick column and its bulk Change status / Send reminder / Delete
+ * are left out: there are no bulk actions here. Ours alone: client
+ * estimates (no job) are listed too, with a blank Source.
  */
 export function EstimatesPage() {
+  const router = useRouter();
   const { can, isLoading: permsLoading } = usePermissions();
   const denied = useDenied();
   const canView = can("estimates", "view");
-  const range = useReportRange(DEFAULT_ESTIMATE_PRESET);
+  const [range, setRange] = useState<WzDateRange>(DEFAULT_ESTIMATES_RANGE);
   const [status, setStatus] = useState<EstimateStatus | "all">("all");
-  const [searchInput, setSearchInput] = useState("");
-  const search = useDebouncedValue(searchInput.trim(), 350);
+  const [dir, setDir] = useState<CreatedSort>("desc");
+  const [searchText, setSearchText] = useState("");
+  const settledSearch = useDebouncedValue(searchText.trim(), SEARCH_DEBOUNCE_MS);
+  // Cleared text asks at once: there is nothing to wait for.
+  const search = searchText.trim() ? settledSearch : "";
   const [exporting, setExporting] = useState(false);
   const [adding, setAdding] = useState(false);
-  const { from, to } = range.range;
-  // `canView` still gates the queries — they must not fetch on a maybe. Until
-  // the permissions answer, a disabled query is not an empty answer: the cards
-  // would read "0 Worth $0.00" and the list "No estimates yet".
-  const enabled = canView && !range.error;
-  const summary = useEstimateReportSummary({ from, to }, enabled);
+  const today = viewerToday();
+  // The days asked for; null while a Custom span is refused.
+  const { window: days, error: rangeError } = estimatesWindow(range);
+
+  // `canView` gates the queries — they must not fetch on a maybe. Until the
+  // permissions answer, a disabled query is not an empty answer: the cards
+  // would read "0 Worth $0.00" and the grid "No Records Found".
+  const enabled = canView && days !== null;
+  const summary = useEstimateReportSummary({ from: days?.from, to: days?.to }, enabled);
   // Another date window keeps the numbers on the cards until its own are in.
   const cards = useHeldView(summary.data, [summary.data], !permsLoading && settled(summary));
 
-  const params: Omit<EstimateReportParams, "cursor"> = {
-    ...(from && { from }),
-    ...(to && { to }),
-    ...(status !== "all" && { status }),
-    ...(search && { search }),
-  };
+  const params = estimatesListParams({ window: days ?? {}, status, search, dir });
   const list = useEstimateRows(params, enabled, !permsLoading);
   // The cards with their numbers, the rows and the names beside them come up
   // in one frame — the numbers widen the cards and the names the rows, so
@@ -140,97 +124,149 @@ export function EstimatesPage() {
     }
   };
 
+  // ⌘/Ctrl/middle click: the estimate in a tab of its own, the list kept.
+  const open = (e: Estimate, ev: MouseEvent | KeyboardEvent) => {
+    const url = estimateHref(e);
+    if (ev.metaKey || ev.ctrlKey || ("button" in ev && ev.button === 1)) window.open(url, "_blank", "noopener,noreferrer");
+    else router.push(url);
+  };
+
+  if (!ready) return <EstimatesSkeleton />;
+
+  const { rows, contacts, users, pager, error } = list.view;
+  const author = (e: Estimate): string | undefined => {
+    if (e.createdByName) return e.createdByName;
+    const u = users.get(e.createdBy);
+    return u ? `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() || undefined : undefined;
+  };
+
   return (
-    <div className="flex flex-1 flex-col">
-      <div className="flex flex-wrap items-center gap-3 border-b px-6 py-3">
-        <h1 className="text-lg font-semibold tracking-tight">Estimates</h1>
-        {/* Held invisible, at its height, until the page is up: "Add New" waits
-            for the permissions and would push the dates aside when it came. */}
-        <div className={cn("ml-auto flex flex-wrap items-center gap-3", !ready && "invisible")}>
-          <DateRangeControl presets={ESTIMATE_DATE_PRESETS} state={range} />
+    // The page scrolls itself inside the shell, as Workiz's main container does.
+    <div className="flex min-h-0 flex-1 flex-col overflow-auto text-wz-strong" data-slot="estimates-scroller">
+      <div className={CARDS} aria-label="Filter by status" aria-busy={cards.held || undefined}>
+        {ESTIMATE_STATUSES.map((s) => {
+          const text = estimateCardText(s, cards.view?.[s]);
+          return (
+            <WzKpiCard
+              key={s}
+              value={text.value}
+              caption={text.caption}
+              label={text.label}
+              wrapCaption
+              selected={status === s}
+              selectedTone="orange"
+              onSelect={() => setStatus(s)}
+            />
+          );
+        })}
+      </div>
+
+      <div className="mt-7 flex items-start gap-4 pr-[25px] pl-5">
+        <div className="min-w-0 flex-1">
+          <Select value={status} onValueChange={(v) => setStatus(v as EstimateStatus | "all")}>
+            <SelectTrigger aria-label="Status" className="h-[38px] w-[471px] max-w-full pl-[11px] text-base leading-4 text-[#333333]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {STATUS_OPTIONS.map((o) => (
+                <SelectItem key={o.value} value={o.value} className="pr-3 leading-4 [&>span:first-child]:hidden">
+                  {o.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {/* Workiz's bulk bar row (y=314): ours keeps only "Estimates settings" there. */}
+          <div className="mt-[25px] flex h-[34px] items-center">
+            {can("document_templates", "view") ? (
+              <Link
+                href="/settings/documents?tab=defaults"
+                // uikit_wz_estimates: 199×34, 5px 12px, 15px/18px 500 #3589e9 after a 24px gear.
+                className="inline-flex items-center gap-1.5 px-3 py-[5px] text-[15px] leading-[18px] font-medium text-brand no-underline"
+              >
+                <Settings className="size-6" strokeWidth={1.5} aria-hidden />
+                Estimates settings
+              </Link>
+            ) : null}
+          </div>
+        </div>
+        <div className="flex shrink-0 items-start gap-[5px]">
+          <WzDateRangePicker
+            presets={ESTIMATES_LIST_PRESETS}
+            value={range}
+            onChange={(next) => setRange(openCustom(next, today))}
+            rangeOf={(id) => estimatesListRange(id, today)}
+            rangeText={estimatesRangeText}
+            customError={rangeError}
+            calendar={{ today }}
+          />
           {/* Workiz: "+ Add New" beside the dates asks for the client, then opens the new estimate. */}
           {can("estimates", "create") ? (
-            <Button className="h-9 gap-1.5 rounded-md px-4 font-semibold shadow-xs" onClick={() => setAdding(true)}>
-              <Plus className="size-4" /> Add New
+            <Button className="h-8 shrink-0 gap-[3px] border-0 px-3" onClick={() => setAdding(true)}>
+              <Plus className="size-5" strokeWidth={2} />
+              <span className="px-1">Add New</span>
             </Button>
           ) : null}
         </div>
       </div>
       <NewClientEstimateDialog open={adding} onOpenChange={setAdding} />
-      <div className="flex-1 space-y-4 overflow-auto p-4 sm:p-6">
-        {range.error ? (
-          <p role="alert" className="text-sm text-destructive">
-            {range.error}
-          </p>
-        ) : null}
-        {ready ? (
-          <>
-            <div
-              className={cn("grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6", cards.held && "opacity-60")}
-              aria-label="Filter by status"
-              aria-busy={cards.held || undefined}
-            >
-              {ESTIMATE_STATUSES.map((s) => {
-                const card = cards.view?.[s];
-                return (
-                  <ReportCard
-                    key={s}
-                    value={`${(card?.count ?? 0).toLocaleString("en-US")} Worth ${money(card?.amount)}`}
-                    caption={ESTIMATE_STATUS_LABELS[s]}
-                    swatch={ESTIMATE_STATUS_COLORS[s]}
-                    active={status === s}
-                    onClick={() => setStatus(status === s ? "all" : s)}
-                  />
-                );
-              })}
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <select
-                aria-label="Status"
-                className="h-9 rounded-md border bg-transparent px-2 text-sm"
-                value={status}
-                onChange={(e) => setStatus(e.target.value as EstimateStatus | "all")}
-              >
-                <option value="all">All statuses</option>
-                {ESTIMATE_STATUSES.map((s) => (
-                  <option key={s} value={s}>
-                    {ESTIMATE_STATUS_LABELS[s]}
-                  </option>
-                ))}
-              </select>
-              <div className="relative w-full max-w-xs">
-                <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                <Input className="h-9 pl-8" placeholder="Search estimate # or name" aria-label="Search" value={searchInput} onChange={(e) => setSearchInput(e.target.value)} />
-              </div>
-              {cards.view ? (
-                <span className="text-xs text-muted-foreground tabular-nums">
-                  {cards.view.total.count.toLocaleString("en-US")} estimates · {money(cards.view.total.amount)}
-                </span>
-              ) : null}
-              <span className="flex-1" />
-              <ExportButton busy={exporting} disabled={!!range.error} onClick={() => void runExport()} />
-            </div>
-            <EstimatesTable list={list} status={status === "all" ? undefined : status} />
-          </>
-        ) : (
-          <EstimatesSkeleton />
-        )}
-      </div>
+
+      <WzListToolbar className="mt-7">
+        <WzSearchBox value={searchText} onChange={setSearchText} maxLength={100} />
+        <div className="ml-auto flex items-center gap-4">
+          <WzPageSizeSelect value={list.pageSize} sizes={REPORT_PAGE_SIZES} onChange={list.setPageSize} />
+          <WzToolbarButton onClick={() => void runExport()} disabled={exporting || days === null}>
+            <FileText strokeWidth={1.5} /> {exporting ? "Exporting…" : "Export"}
+          </WzToolbarButton>
+        </div>
+      </WzListToolbar>
+
+      {error ? (
+        <div role="alert" className="border border-wz-frame px-5 py-10 text-center text-sm">
+          <p>{getApiErrorMessage(error, "Couldn't load estimates")}</p>
+          <Button variant="outline" className="mt-3" onClick={list.retry}>
+            Try again
+          </Button>
+        </div>
+      ) : (
+        <EstimatesGrid
+          rows={rows}
+          contacts={contacts}
+          author={author}
+          sort={dir}
+          onSort={() => setDir(nextCreatedSort)}
+          onOpen={open}
+          editable={can("estimates", "edit")}
+          busy={list.held}
+          footer={<WzPager pager={list.held ? heldPager(pager) : pager} plainNumbers />}
+        />
+      )}
     </div>
   );
 }
 
-/** The page before its first frame: the six cards, the filters, the list. */
+/** The page before its first frame: the same boxes, empty. */
 function EstimatesSkeleton() {
   return (
-    <div className="space-y-4" aria-busy="true" aria-label="Loading estimates">
-      <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6">
+    <div className="flex min-h-0 flex-1 flex-col overflow-auto" aria-busy="true" aria-label="Loading estimates">
+      <div className={CARDS}>
         {ESTIMATE_STATUSES.map((s) => (
-          <Skeleton key={s} className="h-18 rounded-lg" />
+          <WzKpiCardSkeleton key={s} />
         ))}
       </div>
-      <Skeleton className="h-9 w-full max-w-md" />
-      <Skeleton className="h-64 w-full" />
+      <div className="mt-7 flex items-start gap-4 pr-[25px] pl-5">
+        <div className="min-w-0 flex-1">
+          <Skeleton className="h-[38px] w-[471px] max-w-full" />
+          <div className="mt-[25px] h-[34px]" />
+        </div>
+        <div className="flex shrink-0 items-start gap-[5px]">
+          <Skeleton className="h-16 w-[250px]" />
+          <Skeleton className="h-8 w-[115px] rounded-pill" />
+        </div>
+      </div>
+      <WzListToolbar className="mt-7">
+        <Skeleton className="h-10 w-[348px] max-w-full" />
+      </WzListToolbar>
+      <EstimatesGridSkeleton />
     </div>
   );
 }
@@ -248,10 +284,11 @@ const NO_ROWS: Estimate[] = [];
  * user directory. Rows drawn before them filled in a beat later (an author's
  * "Added by" line makes the row taller and pushes every row under it).
  */
-function useEstimateRows(params: Omit<EstimateReportParams, "cursor">, enabled: boolean, permsIn: boolean) {
-  const [pageSize, setPageSize] = usePageSize("estimates");
+function useEstimateRows(params: Omit<EstimateReportParams, "cursor" | "limit">, enabled: boolean, permsIn: boolean) {
+  const [pageSize, setPageSize] = usePageSize("estimates", { sizes: REPORT_PAGE_SIZES, fallback: DEFAULT_REPORT_PAGE_SIZE });
   const q = useEstimateReport({ ...params, limit: pageSize }, enabled);
-  const count = useEstimateReportCount(params, enabled);
+  // The count does not depend on the order (an undefined `dir` drops out of the key).
+  const count = useEstimateReportCount({ ...params, dir: undefined }, enabled);
   const pager = usePager(pagedSource(q, (page: { items: Estimate[] }) => page.items), {
     total: count.data?.total,
     totalIsFloor: count.data?.atLeast,
@@ -274,115 +311,4 @@ function useEstimateRows(params: Omit<EstimateReportParams, "cursor">, enabled: 
     complete,
   );
   return { ...held, pageSize, setPageSize, retry: () => void q.refetch() };
-}
-
-function EstimatesTable({ list, status }: { list: ReturnType<typeof useEstimateRows>; status?: EstimateStatus }) {
-  const router = useRouter();
-  const { rows, contacts, users, pager, error } = list.view;
-  // The reader's own widths for this list; the declarations only set the start.
-  const { widthOf, setWidth, reset } = useColumnWidths("estimates", COLUMN_WIDTHS);
-
-  if (error) {
-    return (
-      <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
-        <p>{getApiErrorMessage(error, "Couldn't load estimates")}</p>
-        <Button variant="outline" size="sm" className="mt-3" onClick={list.retry}>Try again</Button>
-      </div>
-    );
-  }
-  if (rows.length === 0) {
-    return (
-      <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed p-12 text-center text-muted-foreground">
-        <FileSpreadsheet className="size-6" />
-        <p className="text-sm">{status ? `No ${estimateStatusLabel(status).toLowerCase()} estimates.` : "No estimates yet."}</p>
-      </div>
-    );
-  }
-
-  const open = (e: Estimate) => router.push(estimateHref(e));
-  const author = (e: Estimate): string | undefined => {
-    if (e.createdByName) return e.createdByName;
-    const u = users.get(e.createdBy);
-    return u ? `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() || undefined : undefined;
-  };
-
-  return (
-    // The previous set, dimmed, while the next one is on its way.
-    <div className={cn("space-y-3", list.held && "opacity-60")} aria-busy={list.held || undefined}>
-      <div className="overflow-x-auto border">
-        <Table className="table-fixed">
-          <colgroup>
-            {COLUMNS.map((c) => (
-              <col key={c.id} style={{ width: widthOf(c.id) }} />
-            ))}
-          </colgroup>
-          <TableHeader>
-            <TableRow className="hover:bg-transparent">
-              {COLUMNS.map((c) => (
-                <ResizableHead
-                  key={c.id}
-                  columnId={c.id}
-                  label={c.label}
-                  width={widthOf(c.id)}
-                  onResize={(px) => setWidth(c.id, px)}
-                  onReset={reset}
-                  className={c.right ? "text-right" : undefined}
-                />
-              ))}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {rows.map((e) => {
-              const c = contacts.get(e.contactId);
-              const by = author(e);
-              const updatedKey = UPDATED_ON[e.status];
-              const updated = updatedKey ? (e[updatedKey] as string | undefined) : undefined;
-              return (
-                <TableRow
-                  key={e.id}
-                  tabIndex={0}
-                  className="cursor-pointer align-top"
-                  onClick={() => open(e)}
-                  onKeyDown={(ev) => {
-                    if (ev.key === "Enter") open(e);
-                  }}
-                >
-                  {/* Under `table-fixed` a cell that does not clip spills over
-                      the next column instead of widening its own. */}
-                  <TableCell className="truncate font-mono font-medium">#{e.number}</TableCell>
-                  <TableCell className="truncate">{e.name || "—"}</TableCell>
-                  <TableCell className="truncate">{c ? contactName(c) : "—"}</TableCell>
-                  <TableCell className="overflow-hidden">
-                    <span className="block truncate tabular-nums text-muted-foreground">{workizDate(e.createdAt)}</span>
-                    {by ? <span className="block truncate text-xs text-muted-foreground">Added by {by}</span> : null}
-                  </TableCell>
-                  <TableCell className="truncate text-right font-mono tabular-nums">{formatMoney(estimateReportAmount(e))}</TableCell>
-                  <TableCell className="overflow-hidden">
-                    <EstimateStatusBadge status={e.status} />
-                    {updated ? <span className="block truncate text-xs text-muted-foreground">Updated: {workizDate(updated)}</span> : null}
-                  </TableCell>
-                  <TableCell className="overflow-hidden">
-                    {e.dealId ? (
-                      <Link
-                        href={`/deals/${e.dealId}`}
-                        onClick={(ev) => ev.stopPropagation()}
-                        className="inline-flex items-center gap-1 text-wz-link hover:underline"
-                      >
-                        Job - {e.dealNumber} <ExternalLink className="size-3" />
-                      </Link>
-                    ) : (
-                      // A client estimate (Workiz's "stub"): no job behind it.
-                      <span className="text-muted-foreground">—</span>
-                    )}
-                  </TableCell>
-                  <TableCell className="truncate text-right font-mono tabular-nums">{formatMoney(estimateDepositDue(e))}</TableCell>
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
-      </div>
-      <ListPagination pager={list.held ? heldPager(pager) : pager} size={list.pageSize} onSizeChange={list.setPageSize} />
-    </div>
-  );
 }
