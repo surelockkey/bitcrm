@@ -1,75 +1,81 @@
 "use client";
 
-import { Boxes, Pencil } from "lucide-react";
-import { useState, type ReactNode } from "react";
-import { TableCell, TableRow } from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
-import { InventoryStatus } from "@bitcrm/types";
+import { useMemo, useState, type ReactNode } from "react";
 import type { Product } from "@bitcrm/types";
-import { cn } from "@/lib/utils";
-import { formatMoney, type ProductWithMedia } from "../lib";
+import { Skeleton } from "@/components/ui/skeleton";
+import { WzItemImagePlaceholder } from "@/components/workiz/item-image";
+import { WzEditIcon, WzStockIcon } from "@/components/workiz/icons";
+import { WzReportGrid, type WzReportColumn, type WzRowOpenEvent } from "@/components/workiz/report-grid";
+import { useColumnWidths } from "@/lib/table/use-column-widths";
+import { displaySku } from "@/features/inventory/item-edit/item-form";
 import { RowIconAction } from "@/features/inventory/components/row-icon-action";
-import {
-  INVENTORY_ROW,
-  InventoryTable,
-  type InventoryColumn,
-} from "@/features/inventory/components/inventory-table";
-import { useProductRowActions } from "./product-row-actions";
+import { categoryLeaf } from "@/features/price-book/lib";
+import type { ProductWithMedia } from "../lib";
+import { wzAmount } from "../items-view";
 import { ProductThumb } from "./product-thumb";
 import { ProductPhotoDialog } from "./product-photo-dialog";
 
-type ColumnId =
-  | "productId"
-  | "name"
-  | "description"
-  | "price"
-  | "cost"
-  | "quantity"
-  | "sku"
-  | "category"
-  | "actions";
+/** The list's own key: its page size (and, with `-wz`, its column widths) are saved under it. */
+export const PRODUCTS_TABLE_KEY = "inventory-items";
+
+type BaseColumn = "productId" | "name" | "description" | "price" | "cost" | "quantity" | "sku" | "category" | "brand";
 
 /**
- * The Workiz item grid, in its order, with the width each column starts at.
- *
- * One place, read by both the `<colgroup>` and the headers: a width written
- * twice is a width that drifts. From here on the reader owns it — the drag
- * handle writes their own into `useColumnWidths`. Everything is left-aligned,
- * money and counts included: that is how Workiz lays the grid out.
- *
- * Together they fit the ~1250px a 1600px screen leaves beside the sidebar —
- * at 1430 the Actions column was cut to "Actio" and Manage stock went missing.
- * Product ID holds the item's picture beside its number, as Workiz's does;
- * Name and Description gave it the room.
+ * Workiz's Inventory grid (pg_inventory_wz_01_inventory), its columns in its
+ * order and words: Product ID · Name · Description · Price · Cost · Quantity
+ * · SKU · Category · Brand, then one per item custom field, then Actions.
+ * Every column is react-table's 100px; Actions 130. Workiz's Product ID is
+ * 100px too and cuts the number to "35"; ours is wide enough for the picture,
+ * its 20px and a five-digit number.
  */
-export const PRODUCT_COLUMNS: (InventoryColumn & { id: ColumnId })[] = [
-  // The 40px picture, its gap and a five-digit number.
-  { id: "productId", label: "Product ID", width: 116 },
-  { id: "name", label: "Name", width: 250 },
-  { id: "description", label: "Description", width: 214 },
-  { id: "price", label: "Price", width: 95 },
-  { id: "cost", label: "Cost", width: 95 },
-  { id: "quantity", label: "Quantity", width: 90 },
-  { id: "sku", label: "SKU", width: 130 },
-  { id: "category", label: "Category", width: 130 },
-  // Three 32px buttons, their gaps and the cell's padding.
-  { id: "actions", label: "Actions", width: 120 },
+export const ITEM_BASE_COLUMNS: { id: BaseColumn; label: string; width: number }[] = [
+  { id: "productId", label: "Product ID", width: 150 },
+  { id: "name", label: "Name", width: 100 },
+  { id: "description", label: "Description", width: 100 },
+  { id: "price", label: "Price", width: 100 },
+  { id: "cost", label: "Cost", width: 100 },
+  { id: "quantity", label: "Quantity", width: 100 },
+  { id: "sku", label: "SKU", width: 100 },
+  { id: "category", label: "Category", width: 100 },
+  { id: "brand", label: "Brand", width: 100 },
 ];
 
-const WITHOUT_COST = PRODUCT_COLUMNS.filter((c) => c.id !== "cost");
+/** A custom field's column — react-table's 100px. */
+const FIELD_WIDTH = 100;
+/** The two glyphs, 15px apart, in 20px of padding each side. */
+const ACTIONS = { id: "actions", label: "Actions", width: 130 } as const;
 
-/** The list's own key: the same name its page-size preference is saved under. */
-export const PRODUCTS_TABLE_KEY = "inventory-items";
+/** The column ids and their starting widths, custom fields included. */
+export function itemColumnWidths(customFields: readonly string[], showCost: boolean): Record<string, number> {
+  return Object.fromEntries([
+    ...ITEM_BASE_COLUMNS.filter((c) => showCost || c.id !== "cost").map((c) => [c.id, c.width] as const),
+    ...customFields.map((name) => [`field:${name}`, FIELD_WIDTH] as const),
+    [ACTIONS.id, ACTIONS.width] as const,
+  ]);
+}
+
+/** Rows have no identity of their own while there are none. */
+const NO_ROWS: Product[] = [];
+
+/** Workiz's cells cut a long word with "…" at the cell's edge. */
+function Cut({ children, title }: { children: ReactNode; title?: string }) {
+  return (
+    <span className="block truncate" title={title}>
+      {children}
+    </span>
+  );
+}
 
 export function ProductsTable({
   products,
   showCost,
+  brandNames,
+  customFields,
   onEdit,
   onStock,
   loading = false,
-  skeletonRows = 0,
   stale = false,
+  footer,
 }: {
   products: Product[];
   /**
@@ -78,143 +84,93 @@ export function ProductsTable({
    * neither appears late nor shows money it may not.
    */
   showCost: boolean | "pending";
-  onEdit: (product: Product) => void;
+  /** Brand id → name, from the brands catalog. */
+  brandNames: Map<string, string>;
+  /** The item custom fields, a column each after Brand. */
+  customFields: readonly string[];
+  onEdit: (product: Product, event?: WzRowOpenEvent) => void;
   onStock: (product: Product) => void;
-  /** First load: the same table, a page of skeleton rows. */
+  /** First load: the header and Workiz's loader. */
   loading?: boolean;
-  skeletonRows?: number;
-  /** The previous filter's rows, held while the new ones load. */
+  /** The previous filter's rows, dimmed, while the new ones load. */
   stale?: boolean;
+  /** The pager, inside the frame under the rows. */
+  footer?: ReactNode;
 }) {
-  const columns = showCost ? PRODUCT_COLUMNS : WITHOUT_COST;
-  const actions = useProductRowActions();
-  // The photo opened from a thumbnail — over the list, not the item's popup.
+  // The photo opened from a picture — over the list, not the item's popup.
   const [photo, setPhoto] = useState<ProductWithMedia | null>(null);
+  const defaults = useMemo(() => itemColumnWidths(customFields, showCost !== false), [customFields, showCost]);
+  const { widthOf, setWidth, reset } = useColumnWidths(`${PRODUCTS_TABLE_KEY}-wz`, defaults);
+
+  const columns = useMemo<WzReportColumn<Product>[]>(() => {
+    const cell: Record<BaseColumn, (p: Product) => ReactNode> = {
+      // Workiz's imageAndIdWrapper: the 40px picture, 20px, the number at the top of its 40px box.
+      productId: (p) => (
+        <div className="flex items-center gap-5">
+          <ProductThumb product={p} onOpen={setPhoto} placeholder={<WzItemImagePlaceholder />} />
+          <span className="block h-10 leading-4 tabular-nums">{p.number ?? ""}</span>
+        </div>
+      ),
+      name: (p) => <Cut title={p.name}>{p.name}</Cut>,
+      description: (p) => <Cut title={p.description || undefined}>{p.description ?? ""}</Cut>,
+      price: (p) => <Cut>{wzAmount(p.priceClient)}</Cut>,
+      cost: (p) => (showCost === "pending" ? <Skeleton className="h-4 w-12" /> : <Cut>{wzAmount(p.costCompany)}</Cut>),
+      quantity: (p) => <Cut>{wzAmount(p.onHand)}</Cut>,
+      sku: (p) => <Cut>{displaySku(p)}</Cut>,
+      category: (p) => <Cut>{categoryLeaf(p.category)}</Cut>,
+      brand: (p) => <Cut>{(p.brandId && brandNames.get(p.brandId)) || ""}</Cut>,
+    };
+    return [
+      ...ITEM_BASE_COLUMNS.filter((c) => showCost !== false || c.id !== "cost").map((c) => ({
+        id: c.id,
+        label: c.label,
+        cell: cell[c.id],
+      })),
+      ...customFields.map((name) => ({
+        id: `field:${name}`,
+        label: name,
+        cell: (p: Product) => <Cut title={p.customAttributes?.[name]}>{p.customAttributes?.[name] ?? ""}</Cut>,
+      })),
+      {
+        id: ACTIONS.id,
+        label: ACTIONS.label,
+        // The glyphs open popups over the row; their clicks must not reach it.
+        cell: (p: Product) => (
+          <div className="flex items-center gap-[15px]" onClick={(e) => e.stopPropagation()}>
+            <RowIconAction label={`Edit ${p.name}`} tip="Edit" onClick={() => onEdit(p)}>
+              <WzEditIcon />
+            </RowIconAction>
+            <RowIconAction label={`Manage stock for ${p.name}`} tip="Stock" onClick={() => onStock(p)}>
+              <WzStockIcon />
+            </RowIconAction>
+          </div>
+        ),
+      },
+    ];
+  }, [brandNames, customFields, showCost, onEdit, onStock]);
+
+  const minTableWidth = columns.reduce((sum, c) => sum + widthOf(c.id), 0);
 
   return (
     <>
-      {/*
-        `table-fixed` with a declared width per column: a 70-character product
-        name used to take 739px of the 1182 available. Now the column decides,
-        not the name — and the reader can drag the edge if they want more.
-      */}
-      <InventoryTable
-        tableKey={PRODUCTS_TABLE_KEY}
+      <WzReportGrid
+        aria-label="Inventory"
+        className="shrink-0"
         columns={columns}
+        rows={loading ? NO_ROWS : products}
+        rowKey={(p) => p.id}
+        // Workiz's grid opens in its own order with no sort bar; the server pages one order.
+        sort={null}
+        resize={{ widthOf, setWidth, reset }}
+        minTableWidth={minTableWidth}
+        stickyHeader={false}
+        onRowClick={(p, e) => onEdit(p, e)}
         loading={loading}
-        skeletonRows={skeletonRows}
-        stale={stale}
-      >
-        {products.map((p) => {
-          const archived = p.status === InventoryStatus.ARCHIVED;
-          return (
-            <TableRow
-              key={p.id}
-              className={cn(INVENTORY_ROW, "cursor-pointer", archived && "opacity-55")}
-              onClick={() => onEdit(p)}
-            >
-              {columns.map((c) => (
-                <Cell
-                  key={c.id}
-                  column={c.id as ColumnId}
-                  product={p}
-                  archived={archived}
-                  costPending={showCost === "pending"}
-                  menu={actions.menu}
-                  onEdit={onEdit}
-                  onStock={onStock}
-                  onPhoto={setPhoto}
-                />
-              ))}
-            </TableRow>
-          );
-        })}
-      </InventoryTable>
-      {actions.dialog}
+        busy={stale}
+        plainFiller
+        footer={footer}
+      />
       <ProductPhotoDialog product={photo} onOpenChange={(open) => (open ? undefined : setPhoto(null))} />
     </>
   );
-}
-
-/* Under fixed layout a cell that doesn't clip doesn't widen its column — it
-   spills over the next one. So every cell truncates or hides overflow. */
-function Cell({
-  column,
-  product: p,
-  archived,
-  costPending,
-  menu,
-  onEdit,
-  onStock,
-  onPhoto,
-}: {
-  column: ColumnId;
-  product: Product;
-  archived: boolean;
-  costPending: boolean;
-  menu: (product: Product) => ReactNode;
-  onEdit: (product: Product) => void;
-  onStock: (product: Product) => void;
-  onPhoto: (product: ProductWithMedia) => void;
-}) {
-  switch (column) {
-    case "productId":
-      // Workiz's id cell: the picture, then the number. py-1: a 40px picture
-      // in the 48px row, without growing it.
-      return (
-        <TableCell className="overflow-hidden py-1">
-          <div className="flex items-center gap-2">
-            <ProductThumb product={p} onOpen={onPhoto} />
-            <span className="truncate tabular-nums text-muted-foreground">{p.number ?? "—"}</span>
-          </div>
-        </TableCell>
-      );
-    case "name":
-      return (
-        <TableCell className="overflow-hidden">
-          <div className="flex items-center gap-2">
-            <span className="truncate font-medium">{p.name}</span>
-            {archived ? (
-              <Badge variant="outline" className="flex-none font-normal text-muted-foreground">
-                Archived
-              </Badge>
-            ) : null}
-          </div>
-        </TableCell>
-      );
-    case "description":
-      return (
-        <TableCell className="truncate text-muted-foreground" title={p.description || undefined}>
-          {p.description || "—"}
-        </TableCell>
-      );
-    case "price":
-      return <TableCell className="truncate tabular-nums">{formatMoney(p.priceClient)}</TableCell>;
-    case "cost":
-      return (
-        <TableCell className="truncate tabular-nums">
-          {costPending ? <Skeleton className="h-4 w-12" /> : formatMoney(p.costCompany)}
-        </TableCell>
-      );
-    case "quantity":
-      return <TableCell className="truncate tabular-nums">{p.onHand ?? 0}</TableCell>;
-    case "sku":
-      return <TableCell className="truncate font-mono text-xs">{p.sku}</TableCell>;
-    case "category":
-      return <TableCell className="truncate text-muted-foreground">{p.category || "—"}</TableCell>;
-    case "actions":
-      return (
-        <TableCell className="overflow-hidden" onClick={(e) => e.stopPropagation()}>
-          <div className="flex items-center gap-0.5">
-            <RowIconAction label={`Edit ${p.name}`} tip="Edit" onClick={() => onEdit(p)}>
-              <Pencil />
-            </RowIconAction>
-            <RowIconAction label={`Manage stock for ${p.name}`} tip="Manage stock" onClick={() => onStock(p)}>
-              <Boxes />
-            </RowIconAction>
-            {menu(p)}
-          </div>
-        </TableCell>
-      );
-  }
 }

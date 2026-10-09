@@ -11,7 +11,7 @@ import type { ProductWithMedia } from "../lib";
  * The size is fixed, so nothing moves when the picture loads.
  */
 const BOX =
-  "grid size-10 flex-none place-items-center overflow-hidden rounded-lg border-[0.5px] border-border bg-muted text-muted-foreground";
+  "grid size-10 flex-none place-items-center overflow-hidden rounded-[8px] border border-wz-rule bg-muted text-muted-foreground";
 
 /**
  * An item's photo in its list row: the server's thumbnail (`thumbnailUrl`, a

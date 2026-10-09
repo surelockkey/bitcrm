@@ -6,12 +6,15 @@ import { renderWithClient } from "@/test/render-with-client";
 import { TabFallback, type InventoryTab } from "./tab-fallback";
 
 /**
- * An Inventory tab's Suspense fallback is the tab's own frame: toolbar, the
- * table's header over a page of placeholder rows, and the pager's place — an
- * empty fallback meant a blank body and then the whole page popping in.
+ * An Inventory tab's Suspense fallback is the tab's own frame: the band, the
+ * strip, the grid's header over Workiz's loader — an empty fallback meant a
+ * blank body and then the whole page popping in.
  */
-const HEADERS: Record<InventoryTab, string> = {
+const WZ_HEADERS: Partial<Record<InventoryTab, string>> = {
   items: "Product ID",
+};
+
+const TABLE_HEADERS: Partial<Record<InventoryTab, string>> = {
   warehouses: "SKUs",
   containers: "Department",
   "user-containers": "Access",
@@ -20,7 +23,17 @@ const HEADERS: Record<InventoryTab, string> = {
 };
 
 describe("TabFallback", () => {
-  it.each(Object.entries(HEADERS) as [InventoryTab, string][])(
+  it.each(Object.entries(WZ_HEADERS) as [InventoryTab, string][])(
+    "draws the %s tab's Workiz grid header over its loader while the page loads",
+    (tab, header) => {
+      renderWithClient(<TabFallback tab={tab} />);
+      const headers = [...document.querySelectorAll("thead th")].map((th) => th.textContent);
+      expect(headers).toContain(header);
+      expect(screen.getByRole("status", { name: "Loading" })).toBeInTheDocument();
+    },
+  );
+
+  it.each(Object.entries(TABLE_HEADERS) as [InventoryTab, string][])(
     "draws the %s tab's own table while the page loads",
     (tab, header) => {
       renderWithClient(<TabFallback tab={tab} />);

@@ -162,7 +162,7 @@ afterEach(() => {
 
 /** Every tab: its page, a row it lists, and the "of N" its pager says. */
 const TABS = [
-  { tab: "Items", page: () => <ProductsPage />, row: "Test item 1", total: "of 3" },
+  { tab: "Inventory", page: () => <ProductsPage />, row: "Test item 1", total: "of 3" },
   { tab: "Warehouses", page: () => <WarehousesPage />, row: "Main Store", total: "of 2" },
   { tab: "Containers", page: () => <ContainersPage />, row: "Van Alpha", total: "of 2" },
   { tab: "User containers", page: () => <UserContainersPage />, row: "Kim Ode", total: "of 3" },
@@ -279,17 +279,18 @@ describe("Inventory — what the rows print comes with them", () => {
 describe("Inventory — Items, when the permissions answer", () => {
   it.each([
     ["an admin, who gets every control", "role-admin"],
-    ["a dispatcher, who gets no New item, no Import and no Cost", "role-dispatcher"],
-  ])("never reshuffles the toolbar or the columns — %s", async (_, who) => {
+    ["a dispatcher, who gets no Add New, no Import and no Cost", "role-dispatcher"],
+  ])("never reshuffles the boxes, the strip or the columns — %s", async (_, who) => {
     role = who;
     server = installFakeServer(routes());
-    const toolbarOf = () => screen.getByPlaceholderText("Search name or SKU").closest("div.flex-wrap") as HTMLElement;
+    const toolbarOf = () => screen.getByTestId("items-toolbar");
+    const boxesOf = () => screen.getByTestId("items-filters");
     const columnsOf = (root: ParentNode) => [...root.querySelectorAll("thead th")].map((th) => th.textContent?.trim());
     const watch = watchFirstFrame(
-      () => !!screen.queryByPlaceholderText("Search name or SKU"),
+      () => !!screen.queryByTestId("items-toolbar"),
       () => {
         const root = toolbarOf().parentElement!;
-        return { root, controls: controlsIn(toolbarOf()), columns: columnsOf(root) };
+        return { root, controls: [...controlsIn(boxesOf()), ...controlsIn(toolbarOf())], columns: columnsOf(root) };
       },
     );
     inTabs(<ProductsPage />);
@@ -297,7 +298,7 @@ describe("Inventory — Items, when the permissions answer", () => {
     watch.stop();
 
     const first = watch.frame()!;
-    const now = { controls: controlsIn(toolbarOf()), columns: columnsOf(toolbarOf().parentElement!) };
+    const now = { controls: [...controlsIn(boxesOf()), ...controlsIn(toolbarOf())], columns: columnsOf(toolbarOf().parentElement!) };
     // Either the guess was right and nothing changed, or the frame was drawn
     // anew — new boxes in their places, not the old ones sliding across.
     const unchanged = JSON.stringify(now) === JSON.stringify({ controls: first.controls, columns: first.columns });

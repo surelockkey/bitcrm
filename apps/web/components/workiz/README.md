@@ -887,6 +887,15 @@ additive; existing callers are untouched.
   #dfe2e3 counter 8px after the name, "99+" past 99 (**`wzTabCount(n)`**).
   `pending` holds every tab's place. Workiz puts the row 18px under the
   breadcrumb (`mt-[18px]`).
+- **`WzReportGrid` `minTableWidth`** (new, optional) — the table never
+  narrower than this; past the frame it scrolls sideways in its own box (the
+  pager stays put under it): Workiz's Inventory grid is twenty 100px columns
+  (2030px) in a 1400px frame. Pair with `stickyHeader={false}` (the header
+  would stick to that box). With `resize`, pass the sum of `widthOf`.
+- **`WzStockIcon`** (`inventory_new.svg`, the rows' "Stock" box),
+  **`WzPlusBiggerIcon`** ("Add items"), **`WzMoveItemIcon`** ("Move items"),
+  **`WzReturnIcon`** ("Return items", `refresh.svg`) in `icons.tsx` — Workiz's
+  stroke glyphs, 1.5px in `currentColor`, at their 24px.
 
 ## Known differences from Workiz (deliberate or unmeasurable)
 - Sub-pixel: Workiz's own fractional layout makes some glyphs land ±1px

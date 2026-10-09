@@ -137,6 +137,7 @@ export function WzReportGrid<R>({
   onRowClick,
   resize,
   cellAlign = "top",
+  minTableWidth,
   "aria-label": ariaLabel,
   className,
 }: {
@@ -190,89 +191,105 @@ export function WzReportGrid<R>({
    * (pg_pricebook_wz_01_default: 80px rows, every word on the middle).
    */
   cellAlign?: "top" | "middle";
+  /**
+   * The table never narrower than this: past the frame's width it scrolls
+   * sideways in its own box, the pager staying put under it — Workiz's
+   * Inventory grid, twenty 100px columns (2030px) in a 1400px frame
+   * (pg_inventory_wz_01_inventory). The header then sticks to that box, not
+   * the page (pass `stickyHeader={false}`). Off by default.
+   */
+  minTableWidth?: number;
   "aria-label"?: string;
   className?: string;
 }) {
   const shown = loading ? [] : rows;
-  return (
-    <div data-slot="wz-report-grid" className={cn(FRAME, className)} aria-busy={loading || busy || undefined}>
-      <Table contained={false} aria-label={ariaLabel} className={TABLE}>
-        <colgroup>
+  const table = (
+    <Table
+      contained={false}
+      aria-label={ariaLabel}
+      className={TABLE}
+      style={minTableWidth ? { minWidth: minTableWidth } : undefined}
+    >
+      <colgroup>
+        {columns.map((c) => {
+          const width = resize ? resize.widthOf(c.id) : c.width;
+          return <col key={c.id} style={width ? { width } : undefined} />;
+        })}
+      </colgroup>
+      <TableHeader>
+        <TableRow className="border-0 hover:bg-transparent">
           {columns.map((c) => {
-            const width = resize ? resize.widthOf(c.id) : c.width;
-            return <col key={c.id} style={width ? { width } : undefined} />;
-          })}
-        </colgroup>
-        <TableHeader>
-          <TableRow className="border-0 hover:bg-transparent">
-            {columns.map((c) => {
-              const dir = sort && sort.column === c.id ? sort.dir : undefined;
-              const words =
-                c.sortable && onSort ? (
-                  <button
-                    type="button"
-                    onClick={() => onSort(c.id)}
-                    aria-label={`Sort by ${c.label}`}
-                    className={cn("block w-full cursor-pointer truncate text-left font-medium", c.headerClassName)}
-                  >
-                    {c.label}
-                  </button>
-                ) : (
-                  <span className={cn("block truncate", c.headerClassName)}>{c.label}</span>
-                );
-              return resize ? (
-                <ResizableHead
-                  key={c.id}
-                  columnId={c.id}
-                  label={c.label}
-                  width={resize.widthOf(c.id)}
-                  onResize={(px) => resize.setWidth(c.id, px)}
-                  onReset={resize.reset}
-                  sort={dir}
-                  className={cn(HEAD, stickyHeader && STICKY)}
+            const dir = sort && sort.column === c.id ? sort.dir : undefined;
+            const words =
+              c.sortable && onSort ? (
+                <button
+                  type="button"
+                  onClick={() => onSort(c.id)}
+                  aria-label={`Sort by ${c.label}`}
+                  className={cn("block w-full cursor-pointer truncate text-left font-medium", c.headerClassName)}
                 >
-                  {words}
-                </ResizableHead>
+                  {c.label}
+                </button>
               ) : (
-                <TableHead key={c.id} sort={dir} className={cn(HEAD, stickyHeader && STICKY)}>
-                  {words}
-                </TableHead>
+                <span className={cn("block truncate", c.headerClassName)}>{c.label}</span>
               );
-            })}
-          </TableRow>
-        </TableHeader>
-        <TableBody className={cn(busy && "opacity-60")}>
-          {shown.map((row) => {
-            const box = renderExpanded?.(row);
-            return (
-              <Fragment key={rowKey(row)}>
-                {/* An open ▸ is not a selection: the record keeps its stripe. */}
-                <TableRow
-                  className={cn("border-0", renderExpanded && "has-aria-expanded:bg-transparent", onRowClick && "cursor-pointer")}
-                  {...(onRowClick && {
-                    tabIndex: 0,
-                    onClick: (e: MouseEvent<HTMLTableRowElement>) => onRowClick(row, e),
-                    onAuxClick: (e: MouseEvent<HTMLTableRowElement>) => {
-                      if (e.button === 1) onRowClick(row, e);
-                    },
-                    onKeyDown: (e: KeyboardEvent<HTMLTableRowElement>) => {
-                      if (e.key === "Enter" && e.target === e.currentTarget) onRowClick(row, e);
-                    },
-                  })}
-                >
-                  {columns.map((c) => (
-                    <TableCell key={c.id} className={cn(CELL, cellAlign === "middle" && "align-middle")}>
-                      {c.cell(row)}
-                    </TableCell>
-                  ))}
-                </TableRow>
-                {box ? <ExpandedRow columns={columns.length}>{box}</ExpandedRow> : null}
-              </Fragment>
+            return resize ? (
+              <ResizableHead
+                key={c.id}
+                columnId={c.id}
+                label={c.label}
+                width={resize.widthOf(c.id)}
+                onResize={(px) => resize.setWidth(c.id, px)}
+                onReset={resize.reset}
+                sort={dir}
+                className={cn(HEAD, stickyHeader && STICKY)}
+              >
+                {words}
+              </ResizableHead>
+            ) : (
+              <TableHead key={c.id} sort={dir} className={cn(HEAD, stickyHeader && STICKY)}>
+                {words}
+              </TableHead>
             );
           })}
-          <PadRows count={minRows - shown.length} columns={columns.length} rule={padRowRule && !(plainFiller && shown.length > 0)} />
-        </TableBody>
-      </Table>
+        </TableRow>
+      </TableHeader>
+      <TableBody className={cn(busy && "opacity-60")}>
+        {shown.map((row) => {
+          const box = renderExpanded?.(row);
+          return (
+            <Fragment key={rowKey(row)}>
+              {/* An open ▸ is not a selection: the record keeps its stripe. */}
+              <TableRow
+                className={cn("border-0", renderExpanded && "has-aria-expanded:bg-transparent", onRowClick && "cursor-pointer")}
+                {...(onRowClick && {
+                  tabIndex: 0,
+                  onClick: (e: MouseEvent<HTMLTableRowElement>) => onRowClick(row, e),
+                  onAuxClick: (e: MouseEvent<HTMLTableRowElement>) => {
+                    if (e.button === 1) onRowClick(row, e);
+                  },
+                  onKeyDown: (e: KeyboardEvent<HTMLTableRowElement>) => {
+                    if (e.key === "Enter" && e.target === e.currentTarget) onRowClick(row, e);
+                  },
+                })}
+              >
+                {columns.map((c) => (
+                  <TableCell key={c.id} className={cn(CELL, cellAlign === "middle" && "align-middle")}>
+                    {c.cell(row)}
+                  </TableCell>
+                ))}
+              </TableRow>
+              {box ? <ExpandedRow columns={columns.length}>{box}</ExpandedRow> : null}
+            </Fragment>
+          );
+        })}
+        <PadRows count={minRows - shown.length} columns={columns.length} rule={padRowRule && !(plainFiller && shown.length > 0)} />
+      </TableBody>
+    </Table>
+  );
+  return (
+    <div data-slot="wz-report-grid" className={cn(FRAME, className)} aria-busy={loading || busy || undefined}>
+      {minTableWidth ? <div className="overflow-x-auto">{table}</div> : table}
       {loading ? (
         <div role="status" aria-label="Loading" className="absolute inset-0 z-20 bg-white/80">
           {/* Workiz's dots sit halfway down the whole grid: 340px on ten rows, the middle on fewer. */}
