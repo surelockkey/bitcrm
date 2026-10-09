@@ -100,3 +100,9 @@ export {
   type WzGridView,
 } from "./local-grid";
 export { WzTotalsBar, WzLeftBorderBox, WzFold, WzSegmented } from "./record-parts";
+
+// The Team list and the user page (agent pg_technicians, /technicians + /technicians/[id]).
+export { WzSettingsExplain } from "./settings-explain";
+export { WzPopMenu, type WzPopMenuItem } from "./pop-menu";
+export { WzOutlinedTextField, type WzOutlinedTextFieldProps } from "./outlined-text-field";
+export { WzFormSectionTitle, WzInfoTip } from "./form-section-title";

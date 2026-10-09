@@ -35,4 +35,16 @@ describe("WzMiniToggle", () => {
     fireEvent.click(sw);
     expect(onChange).toHaveBeenCalledWith(true);
   });
+
+  it("can point at the words that explain it (the user page's Call masking ⓘ)", () => {
+    render(
+      <>
+        <span id="why">They see the client's name, never the number.</span>
+        <WzMiniToggle label="Call masking" checked onCheckedChange={vi.fn()} aria-describedby="why" />
+      </>,
+    );
+    expect(screen.getByRole("switch", { name: "Call masking" })).toHaveAccessibleDescription(
+      "They see the client's name, never the number.",
+    );
+  });
 });

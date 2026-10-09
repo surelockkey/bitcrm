@@ -18,8 +18,15 @@ export interface WzFilterOption {
 /** One column of the menu: "TAGS", "HAS SERVICE PLAN". `chipPrefix` names the pick ("tag: PLATINUM"). */
 export interface WzFilterGroup {
   id: string;
+  /** The column's heading; "" draws none (the Team filter's status column). */
   title: string;
   chipPrefix?: string;
+  /**
+   * How an uncoloured pick is printed: grey (the default) or "white" — the
+   * Team / Price book "status: Active" chip, white with #333 words
+   * (pg_technicians_wz_01_team, uikit_wz_pricebook).
+   */
+  chipTone?: "white";
   options: WzFilterOption[];
 }
 
@@ -83,7 +90,7 @@ export function WzFilterSelect({
     const g = groups.find((x) => x.id === p.group);
     const o = g?.options.find((x) => x.value === p.value);
     if (!g || !o) return [];
-    return [{ pick: p, label: g.chipPrefix ? `${g.chipPrefix}: ${o.label}` : o.label, option: o }];
+    return [{ pick: p, label: g.chipPrefix ? `${g.chipPrefix}: ${o.label}` : o.label, option: o, tone: g.chipTone }];
   });
 
   const pick = (group: string, option: WzFilterOption) => {
@@ -141,6 +148,7 @@ export function WzFilterSelect({
                 key={`${c.pick.group}:${c.pick.value}`}
                 label={c.label}
                 colorClassName={c.option.colorClassName ?? null}
+                tone={c.tone}
                 onRemove={() => remove(c.pick)}
               />
             ))}
@@ -205,10 +213,12 @@ export function WzFilterSelect({
             {shown.length ? (
               <div className="grid" style={{ gridTemplateColumns: `repeat(${shown.length}, minmax(0, 1fr))` }}>
                 {shown.map((g) => (
-                  <section key={g.id} role="listbox" aria-label={g.title} className="min-w-0 pt-2">
-                    <h3 className="mb-0.5 h-4 px-3 text-[10.5px] leading-4 font-medium tracking-[0.4px] text-wz-caption uppercase">
-                      {g.title}
-                    </h3>
+                  <section key={g.id} role="listbox" aria-label={g.title || g.chipPrefix || g.id} className="min-w-0 pt-2">
+                    {g.title ? (
+                      <h3 className="mb-0.5 h-4 px-3 text-[10.5px] leading-4 font-medium tracking-[0.4px] text-wz-caption uppercase">
+                        {g.title}
+                      </h3>
+                    ) : null}
                     {g.options.map((o) => {
                       const i = flat.findIndex((f) => f.group === g.id && f.option.value === o.value);
                       const chip = Boolean(o.colorClassName || o.style);

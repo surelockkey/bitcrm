@@ -15,12 +15,15 @@ import { cn } from "@/lib/utils";
 export function WzFilterChip({
   label,
   colorClassName,
+  tone,
   onRemove,
   className,
 }: {
   label: string;
   /** The value's colour as a background class (a tech's, a tag's); none → grey. */
   colorClassName?: string | null;
+  /** An uncoloured value printed white with #333 words ("status: Active", pg_technicians_wz_01_team). */
+  tone?: "white";
   onRemove: () => void;
   className?: string;
 }) {
@@ -33,10 +36,16 @@ export function WzFilterChip({
       <span
         className={cn(
           "flex min-w-0 items-stretch overflow-hidden rounded-[3px]",
-          colorClassName ? [colorClassName, "text-white"] : "bg-wz-disabled-border text-wz-value",
+          colorClassName
+            ? [colorClassName, "text-white"]
+            : tone === "white"
+              ? "bg-background text-wz-value"
+              : "bg-wz-disabled-border text-wz-value",
         )}
       >
-        <span className="truncate py-[3px] pr-[3px] pl-1.5 text-[11.9px] leading-4 font-medium">{label}</span>
+        <span className={cn("truncate py-[3px] pr-[3px] pl-1.5 text-[11.9px] leading-4", tone === "white" && !colorClassName ? "font-normal" : "font-medium")}>
+          {label}
+        </span>
         <button
           type="button"
           aria-label={`Remove ${label}`}
