@@ -24,6 +24,7 @@ export {
   type WzTimeSelectProps,
   type WzDateFieldProps,
 } from "./outlined";
+export { WzOutlinedSelect, type WzOutlinedSelectProps } from "./outlined-select";
 export { WzCalendar, type WzCalendarProps } from "./calendar";
 export { WzCalendarOutlineIcon } from "./icons";
 export { WzSwitch, WzCheckbox, type WzSwitchProps, type WzCheckboxProps } from "./toggles";
