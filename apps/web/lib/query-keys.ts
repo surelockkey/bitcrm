@@ -174,6 +174,7 @@ export const queryKeys = {
     all: () => ["work-orders"] as const,
     list: (filters?: unknown) => ["work-orders", "list", filters] as const,
     detail: (id: string) => ["work-orders", "detail", id] as const,
+    document: (id: string) => ["work-orders", "document", id] as const,
   },
 
   inventory: {

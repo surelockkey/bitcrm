@@ -992,6 +992,25 @@ Additive, defaults unchanged:
   `PaymentScheduleTable` — for the job page's Items tab too, should it want
   Workiz's schedule there.
 
+## Legacy document pages (2026-10-09, agent `pg_workorders`, the work order view)
+
+Workiz's "View Work Order" (a job's Actions) opens `/root/work_order/<job>/`,
+an old PHP page in an iframe: "Work Order #…" (20px/25px 400 #3e4b51),
+"Client: …" (16px/19px #404040), "Actions ⌄" + yellow "Send", and the
+document's PDF in a 1px #ccc frame (captures `pg_workorders_wz_*`; notes
+`workiz-data-parser/docs/import/app-parity-2026-10-08/pg_workorders.md`).
+
+- **`WzLegacyActionsMenu`** (`legacy-actions-menu.tsx`) `items={WzMenuAction[]}`
+  `label` — that page's `a.button._clear.min90` (34px, white, 1px #ccc, 15px
+  corners, 13px/600 #666 at 0.5px, the chevron AFTER the word, no hover or
+  open fill) opening `#docActions._popActions`: 216px, 2px corners,
+  `0 3px 6px rgba(0,0,0,.18), 0 4px 15px rgba(0,0,0,.15)`, the caret, centred
+  10px under the button (20px collision padding, so a lone button at the
+  page's edge keeps it on screen); 50px rows, a glyph then 14px/16px #666,
+  ruled #ccc; `destructive` rows red. Workiz's own rows there: View Job /
+  Print / Download / Sign. Not `WzActionsMenu` (the job page's: chevron first,
+  slate rows ruled #cad3d6) nor `WzPopMenu` (the user page's 40px ink pill).
+
 ## Known differences from Workiz (deliberate or unmeasurable)
 - Sub-pixel: Workiz's own fractional layout makes some glyphs land ±1px
   differently from ours in screenshots (e.g. two Workiz selects with identical

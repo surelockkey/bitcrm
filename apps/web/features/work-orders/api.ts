@@ -22,6 +22,10 @@ export const updateWorkOrder = (id: string, body: Partial<WorkOrder>): Promise<W
 export const deleteWorkOrder = (id: string): Promise<{ archived: boolean }> =>
   http.delete<{ archived: boolean }>(`/crm/work-orders/${id}`);
 
+/** A five-minute link to the uploaded WO document; 404 when none was uploaded. */
+export const getWorkOrderDocumentUrl = (id: string): Promise<{ downloadUrl: string }> =>
+  http.get<{ downloadUrl: string }>(`/crm/work-orders/${id}/document`);
+
 export const getWorkOrderDocumentUploadUrl = (
   id: string,
   contentType: string,
