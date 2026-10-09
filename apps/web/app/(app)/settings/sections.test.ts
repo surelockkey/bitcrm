@@ -68,18 +68,31 @@ describe("SETTINGS_GROUPS", () => {
   it("file each section under the block Workiz keeps it in", () => {
     const labelsOf = (group: string) => SETTINGS_GROUPS.find((g) => g.label === group)?.sections.map((s) => s.label);
     // General is the settings screen itself (the rail's first link), not a tile on it.
-    expect(labelsOf("General Settings")).toEqual(["Companies", "Automations", "Documents"]);
-    expect(labelsOf("Users & Roles")).toEqual(["Users", "Roles"]);
+    // The tiles carry Workiz's names where the thing is the same
+    // (app_audit_wz_settings, 2026-10-09): Automation Center, Team Management,
+    // Roles & Permissions, Ad Groups (job sources), Field Validation (required
+    // job fields), Sub-Status (job statuses) — the routes stay ours.
+    expect(labelsOf("General Settings")).toEqual(["Companies", "Automation Center", "Documents"]);
+    expect(labelsOf("Users & Roles")).toEqual(["Team Management", "Roles & Permissions"]);
     expect(labelsOf("Job Settings")).toEqual([
       "Service Areas",
       "Job Types",
       "External Companies",
-      "Job Sources",
-      "Job Fields",
+      "Ad Groups",
+      "Field Validation",
       "Custom Fields",
-      "Job Statuses",
+      "Sub-Status",
       "Job Tags",
       "Client Tags",
+    ]);
+    const hrefOfLabel = (label: string) => SETTINGS_GROUPS.flatMap((g) => g.sections).find((s) => s.label === label)?.href;
+    expect(["Automation Center", "Team Management", "Roles & Permissions", "Ad Groups", "Field Validation", "Sub-Status"].map(hrefOfLabel)).toEqual([
+      "/automations",
+      "/admin/users",
+      "/admin/roles",
+      "/settings/job-sources",
+      "/settings/job-fields",
+      "/settings/job-statuses",
     ]);
     // Workiz's tiles, words and order (uikit_wz_settings_home): Text Messages,
     // Numbers, Call Flows, Call Groups (+ its Call Masking and Devices, which
@@ -140,6 +153,6 @@ describe("visibleSettingsGroups", () => {
   it("drops a block left with nothing in it, rather than draw a bare heading", () => {
     const groups = visibleSettingsGroups((r) => r === "users");
     expect(groups.map((g) => g.label)).toEqual(["Users & Roles"]);
-    expect(groups[0].sections.map((s) => s.label)).toEqual(["Users"]);
+    expect(groups[0].sections.map((s) => s.label)).toEqual(["Team Management"]);
   });
 });
