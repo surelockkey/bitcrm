@@ -1,147 +1,114 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
-import {
-  ClientType,
-  ContactSource,
-  ContactType,
-  CrmStatus,
-  DealPriority,
-  DealStatus,
-  JobSuperStatus,
-  type Contact,
-  type Deal,
-} from "@bitcrm/types";
-import { TechJobPage } from "./tech-job-page";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { cleanup, fireEvent, screen } from "@testing-library/react";
+import { installFakeServer, renderWithClient, type FakeServer } from "@/test/page-load";
+import { techJobRoutes } from "./tech-job-page.fixtures";
 
-const can = vi.fn((resource: string) => resource === "deals");
+/**
+ * `/my-jobs/:id` is Workiz's job page (job_b_01_details) — the one a Workiz
+ * technician opens too: the grey band with "Job #… - Client", Job name /
+ * Status / Tags and the job tab bar, the Details form, the right rail. Ours
+ * on top of it: the visit's steps as one more row of the band.
+ */
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
+  usePathname: () => "/my-jobs/d1",
+}));
+vi.mock("next/link", () => ({
+  default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => (
+    <a href={href} {...rest}>
+      {children}
+    </a>
+  ),
+}));
+
+/** What the technician may do — the seeded Technician role; a test narrows it. */
+let granted = (resource: string, action = "view") =>
+  !(resource === "deals" && (action === "create" || action === "delete")) && resource !== "users" && resource !== "settings";
 vi.mock("@/features/auth/use-permissions", () => ({
-  // This suite asserts the refusal, so `useDenied` mirrors its own `can`
-  // instead of declaring that nobody is ever refused.
-  useDenied: () => (r: never) => !can(r),
-  usePermissions: () => ({ can, isTechnician: true, isLoading: false }),
+  useDenied: () => (resource: string, action?: string) => !granted(resource, action),
+  usePermissions: () => ({
+    can: (resource: string, action?: string) => granted(resource, action),
+    isTechnician: true,
+    isLoading: false,
+    me: { id: "t1", firstName: "Tess", lastName: "Tech" },
+  }),
 }));
+vi.mock("@/features/calls/components/live-call-strip", () => ({ LiveCallStrip: () => null }));
 
-const dealQuery = vi.fn();
-const addNote = { mutate: vi.fn(), isPending: false };
-vi.mock("@/features/deals/hooks", () => ({
-  useDeal: () => dealQuery(),
-  useAddNote: () => addNote,
-}));
+let server: FakeServer;
 
-const contactData = vi.hoisted(() => ({ value: undefined as Contact | undefined }));
-vi.mock("@/features/clients/hooks", () => ({ useContact: () => ({ data: contactData.value }) }));
-vi.mock("@/features/job-types/lib", () => ({ useJobTypesLoading: () => false, useJobTypeName: () => () => "Lockout" }));
-vi.mock("@/features/job-statuses/lib", () => ({ useJobStatusName: () => () => "On site" }));
-vi.mock("@/features/telephony/components/call-client-button", () => ({
-  CallClientButton: () => <button type="button">Call client</button>,
-}));
-vi.mock("./tech-actions", () => ({ TechActions: () => <div data-testid="tech-actions" /> }));
-// Every hook the page reads is stubbed above, so everything is already in
-// (the load itself is covered by tech-job-page.loading.test.tsx).
-vi.mock("../tech-job-page-data", () => ({ useTechJobPageData: () => ({ ready: true }) }));
-vi.mock("./tech-photo-capture", () => ({ TechPhotoCapture: () => <div data-testid="tech-photos" /> }));
+const { TechJobPage } = await import("./tech-job-page");
 
-const CONTACT: Contact = {
-  id: "c1",
-  firstName: "Jane",
-  lastName: "Smith",
-  phones: ["+14045551234"],
-  emails: [],
-  addresses: [],
-  type: ContactType.RESIDENTIAL,
-  source: ContactSource.PHONE_CALL,
-  status: CrmStatus.ACTIVE,
-  createdBy: "u1",
-  createdAt: "",
-  updatedAt: "",
-};
+beforeEach(() => {
+  granted = (resource: string, action = "view") =>
+    !(resource === "deals" && (action === "create" || action === "delete")) && resource !== "users" && resource !== "settings";
+  server = installFakeServer(techJobRoutes(), { delayMs: 5 });
+});
 
-function deal(over: Partial<Deal> = {}): Deal {
-  return {
-    id: "d1",
-    dealNumber: "A1B2C3",
-    contactId: "c1",
-    clientType: ClientType.RESIDENTIAL,
-    serviceArea: "CT",
-    address: { street: "1 Main St", city: "Hartford", state: "CT", zip: "06103" },
-    jobTypeId: "jt1",
-    superStatus: JobSuperStatus.IN_PROGRESS,
-    assignedTechIds: ["t1"],
-    assignedDispatcherId: "u1",
-    priority: DealPriority.NORMAL,
-    tagIds: [],
-    status: DealStatus.ACTIVE,
-    createdBy: "u1",
-    scheduledDate: "2026-09-16",
-    scheduledTimeSlot: "09:00-12:00",
-    createdAt: "",
-    updatedAt: "",
-    ...over,
-  };
-}
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
-describe("TechJobPage", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    can.mockImplementation((resource: string) => resource === "deals");
-    contactData.value = CONTACT;
-    dealQuery.mockReturnValue({ data: deal(), isLoading: false, isError: false });
-  });
-
+describe("TechJobPage — the job page, with the visit", () => {
   it("refuses a viewer who may not see jobs", () => {
-    can.mockReturnValue(false);
-    render(<TechJobPage dealId="d1" />);
-    expect(screen.getByText(/don't have permission/i)).toBeInTheDocument();
+    granted = () => false;
+    renderWithClient(<TechJobPage dealId="d1" />);
+    expect(screen.getByText("No access")).toBeInTheDocument();
   });
 
-  it("leads with where to go and how to reach the client", () => {
-    render(<TechJobPage dealId="d1" />);
+  it("is Workiz's job page: the title, Status and Tags, the job tabs", async () => {
+    renderWithClient(<TechJobPage dealId="d1" />);
 
-    expect(screen.getByRole("heading", { name: "Jane Smith" })).toBeInTheDocument();
-    expect(screen.getByText("1 Main St, Hartford, CT 06103")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /^navigate to/i })).toHaveAttribute(
-      "href",
-      expect.stringContaining("google.com/maps/dir"),
-    );
-    expect(screen.getByRole("button", { name: "Call client" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Job #1042 - Jane Smith" }, { timeout: 3000 })).toBeInTheDocument();
+    expect(screen.getByText("Status:")).toBeInTheDocument();
+    expect(screen.getByText("Tags:")).toBeInTheDocument();
+    const tabs = screen.getByRole("tablist", { name: "Job sections" });
+    expect(tabs).toHaveTextContent("Details");
+    expect(tabs).toHaveTextContent("Attachments");
   });
 
-  it("carries the visit actions and the photos, with no back link: the sidebar and the browser do that", () => {
-    render(<TechJobPage dealId="d1" />);
+  it("carries the visit as a row of the band — under Tags, over the tab bar", async () => {
+    renderWithClient(<TechJobPage dealId="d1" />);
+    const visit = await screen.findByRole("group", { name: "Visit" }, { timeout: 3000 });
 
-    expect(screen.getByTestId("tech-actions")).toBeInTheDocument();
-    expect(screen.getByTestId("tech-photos")).toBeInTheDocument();
+    const tags = screen.getByText("Tags:");
+    const tabBar = screen.getByRole("tablist", { name: "Job sections" });
+    expect(tags.compareDocumentPosition(visit) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(visit.compareDocumentPosition(tabBar) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Confirm receipt/ })).toBeInTheDocument();
+  });
+
+  it("marks the job seen when its technician opens it, as the job page does", async () => {
+    renderWithClient(<TechJobPage dealId="d1" />);
+    await screen.findByRole("heading", { name: "Job #1042 - Jane Smith" }, { timeout: 3000 });
+
+    await vi.waitFor(() => expect(server.requests.some((r) => r.endsWith("/deals/d1/seen"))).toBe(true));
+  });
+
+  it("puts the photos where Workiz keeps them: Attachments → Upload", async () => {
+    renderWithClient(<TechJobPage dealId="d1" />);
+    await screen.findByRole("heading", { name: "Job #1042 - Jane Smith" }, { timeout: 3000 });
+    fireEvent.click(screen.getByRole("tab", { name: "Attachments" }));
+
+    // The yellow "Upload" pill (and, with nothing attached yet, "+ Upload files").
+    expect(await screen.findByRole("button", { name: "Upload" })).toBeInTheDocument();
+  });
+
+  it("has no back link and no 'full job' detour — this is the full job", async () => {
+    renderWithClient(<TechJobPage dealId="d1" />);
+    await screen.findByRole("heading", { name: "Job #1042 - Jane Smith" }, { timeout: 3000 });
+
     expect(screen.queryByRole("link", { name: /my jobs/i })).toBeNull();
-    // The office view is a link away for anything this page leaves out.
-    expect(screen.getByRole("link", { name: /open the full job/i })).toHaveAttribute(
-      "href",
-      "/deals/d1",
-    );
+    expect(screen.queryByRole("link", { name: /open the full job/i })).toBeNull();
   });
 
-  it("saves a note and clears the box", async () => {
-    render(<TechJobPage dealId="d1" />);
-    const save = screen.getByRole("button", { name: /save note/i });
-    expect(save).toBeDisabled();
+  it("says so, with a way back to the list, when the job is gone", async () => {
+    server.fail(/\/deals\/d1$/);
+    renderWithClient(<TechJobPage dealId="d1" />);
 
-    await userEvent.type(screen.getByLabelText("Note"), "Replaced the cylinder");
-    await userEvent.click(save);
-
-    expect(addNote.mutate).toHaveBeenCalledWith(
-      "Replaced the cylinder",
-      expect.objectContaining({ onSuccess: expect.any(Function) }),
-    );
-  });
-
-  it("says so, with a way back, when the job is gone", () => {
-    dealQuery.mockReturnValue({ data: undefined, isLoading: false, isError: true });
-    render(<TechJobPage dealId="d1" />);
-
-    expect(screen.getByText("Job not found")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /back to my jobs/i })).toHaveAttribute(
-      "href",
-      "/my-jobs",
-    );
+    expect(await screen.findByText("Job not found", {}, { timeout: 3000 })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /back to my jobs/i })).toHaveAttribute("href", "/my-jobs");
   });
 });
