@@ -31,6 +31,7 @@ import { usePager } from "@/lib/paging/use-pager";
 import { heldPager, useHeldView } from "@/features/billing/use-held-view";
 import { usePermissions, useDenied } from "@/features/auth/use-permissions";
 import { useContactsByIds } from "@/features/clients/hooks";
+import { useDealsByIds } from "@/features/deals/hooks";
 import { clientSubline } from "@/features/clients/clients-list";
 import { contactName, extensionOf, formatPhoneWithExtension } from "@/features/clients/lib";
 import { formatMoney } from "@/features/billing/lib";
@@ -127,7 +128,7 @@ export function InvoicesPage() {
     ...invoiceFilterQuery(filter),
     ...(search && { search }),
   };
-  const list = useInvoiceRows(params, enabled, !permsLoading);
+  const list = useInvoiceRows(params, enabled, !permsLoading, can("deals", "view"));
   // The cards, the rows and the clients beside them come up in one frame.
   const ready = usePageReady(cards.shown && list.shown);
 
@@ -250,9 +251,15 @@ const NO_ROWS: InvoiceReportRow[] = [];
  *
  * The clients are a second round trip that cannot start until the rows say
  * whose names to ask for; rows drawn before them grew a line when they
- * landed and pushed every row under them.
+ * landed and pushed every row under them. The jobs (for Workiz's "Job name")
+ * are asked for beside them, by whoever may see jobs.
  */
-function useInvoiceRows(params: Omit<InvoiceReportParams, "cursor">, enabled: boolean, permsIn: boolean) {
+function useInvoiceRows(
+  params: Omit<InvoiceReportParams, "cursor">,
+  enabled: boolean,
+  permsIn: boolean,
+  seesJobs: boolean,
+) {
   const [pageSize, setPageSize] = usePageSize("invoices", { sizes: REPORT_PAGE_SIZES, fallback: DEFAULT_REPORT_PAGE_SIZE });
   const q = useInvoiceReport({ ...params, limit: pageSize }, enabled);
   const count = useInvoiceReportCount(params, enabled);
@@ -264,10 +271,13 @@ function useInvoiceRows(params: Omit<InvoiceReportParams, "cursor">, enabled: bo
   });
   const rows: InvoiceReportRow[] = pager.items.length ? pager.items : NO_ROWS;
   const contacts = useContactsByIds(rows.map((r) => r.contactId));
-  const complete = permsIn && settled(q) && settled(count) && !contacts.isLoading;
+  const dealIds = useMemo(() => rows.map((r) => r.dealId).filter((id): id is string => !!id), [rows]);
+  const deals = useDealsByIds(dealIds, seesJobs);
+  const jobNames = useMemo(() => new Map((deals.data ?? []).map((d) => [d.id, d.jobName ?? ""] as const)), [deals.data]);
+  const complete = permsIn && settled(q) && settled(count) && !contacts.isLoading && settled(deals);
   const held = useHeldView(
-    { rows, contacts: contacts.map, pager, error: q.error },
-    [rows, contacts.map, pager.page, pager.total, q.error],
+    { rows, contacts: contacts.map, jobNames, pager, error: q.error },
+    [rows, contacts.map, jobNames, pager.page, pager.total, q.error],
     complete,
   );
   return { ...held, pageSize, setPageSize, retry: () => void q.refetch() };
@@ -305,7 +315,10 @@ function ClientCell({ contact }: { contact: Contact | undefined }) {
   );
 }
 
-function invoiceColumns(contacts: Map<string, Contact>): WzReportColumn<InvoiceReportRow>[] {
+function invoiceColumns(
+  contacts: Map<string, Contact>,
+  jobNames: Map<string, string>,
+): WzReportColumn<InvoiceReportRow>[] {
   // Workiz's figures: Subtotal without the card fee, Amount with the tip, a
   // cent or less owed shown as Paid / $0.00. The stored totals are untouched.
   const figures = (inv: InvoiceReportRow) => inv.report ?? invoiceReportFigures(inv);
@@ -347,7 +360,8 @@ function invoiceColumns(contacts: Map<string, Contact>): WzReportColumn<InvoiceR
           {inv.number}
         </Link>
       ) : null,
-    jobName: () => null,
+    // Workiz's `job_name` — the job's own name (Deal.jobName), often blank.
+    jobName: (inv) => <Text>{(inv.dealId && jobNames.get(inv.dealId)) || ""}</Text>,
   };
   return INVOICE_GRID_COLUMNS.map((c) => ({ id: c.id, label: c.label, cell: cell[c.id] }));
 }
@@ -361,10 +375,10 @@ function InvoicesGrid({
   ready: boolean;
   onOpen: (inv: InvoiceReportRow, e: WzRowOpenEvent) => void;
 }) {
-  const { rows, contacts, pager, error } = list.view;
+  const { rows, contacts, jobNames, pager, error } = list.view;
   // The reader's own widths for this grid; the declarations only set the start.
   const { widthOf, setWidth, reset } = useColumnWidths("invoices-list", INVOICE_WIDTHS);
-  const columns = useMemo(() => invoiceColumns(contacts), [contacts]);
+  const columns = useMemo(() => invoiceColumns(contacts, jobNames), [contacts, jobNames]);
 
   if (ready && error) {
     return (

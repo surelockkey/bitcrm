@@ -77,6 +77,15 @@ const routes: FakeRoute[] = [
     },
     delayMs: 40,
   },
+  // The jobs of the page (Workiz's "Job name"), asked for beside the clients — slower here.
+  {
+    match: /\/deals\/by-ids$/,
+    reply: (_url, init) => {
+      const { ids } = JSON.parse(String(init?.body ?? "{}")) as { ids: string[] };
+      return ids.map((id) => ({ id, jobName: id === "d1" ? "Mailbox lock" : "Junk removal" }));
+    },
+    delayMs: 90,
+  },
 ];
 
 let server: FakeServer;
@@ -110,6 +119,7 @@ describe("InvoicesPage — no jumping", () => {
       row: shows("1042"),
       client: !!screen.queryByText("Jane Smith"),
       email: !!screen.queryByText("jane@client.test"),
+      jobName: !!screen.queryByText("Mailbox lock"),
       empty: shows("No Records Found"),
       skeletons: skeletonCount(),
       asked: server.requests.length,
@@ -126,6 +136,7 @@ describe("InvoicesPage — no jumping", () => {
       row: true,
       client: true,
       email: true,
+      jobName: true,
       empty: false,
       skeletons: 0,
     });

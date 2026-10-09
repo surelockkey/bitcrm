@@ -84,6 +84,11 @@ beforeEach(() => {
       }
       return HttpResponse.json({ success: true, data: { items: [inv({})], nextCursor: "next" } });
     }),
+    // The jobs behind a page of rows: Workiz's "Job name" is the job's.
+    http.post("*/deals/by-ids", async ({ request }) => {
+      const { ids } = (await request.json()) as { ids: string[] };
+      return HttpResponse.json({ success: true, data: ids.filter((id) => id === "d1").map((id) => ({ id, jobName: "Mailbox lock" })) });
+    }),
     http.get("*/billing/invoices/needing-invoice", () =>
       HttpResponse.json({
         success: true,
@@ -131,6 +136,8 @@ describe("InvoicesPage — Workiz's /root/invoices/", () => {
     expect(within(c[9]).getByText("Due")).toHaveClass("text-[#f5ad0b]");
     expect(within(c[9]).getByText("Not sent")).toBeInTheDocument();
     expect(within(c[10]).getByRole("link", { name: "1042" })).toHaveAttribute("href", "/deals/d1");
+    // Job name is the job's own (Deal.jobName), asked for with the page.
+    expect(c[11]).toHaveTextContent("Mailbox lock");
     // All time by default: no created window on either request; ten a page.
     expect(summaryCalls[0].has("from")).toBe(false);
     expect(listCalls[0].has("from")).toBe(false);
