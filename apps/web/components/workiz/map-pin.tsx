@@ -194,7 +194,7 @@ export function WzMapPinCard({
     >
       <div className="mb-3 flex items-start justify-between gap-2 text-[18px] leading-[21px] font-semibold text-foreground">
         <span className="flex min-w-0 flex-wrap items-center gap-2 break-words">{title}</span>
-        <span className="flex shrink-0 items-center gap-[14px] pl-[6px]">
+        <span className="flex shrink-0 items-center gap-[14px] pl-[14px]">
           {actions.map((a) => (
             <button
               key={a.label}

@@ -30,7 +30,8 @@ function Section({
       className="flex flex-col items-start gap-2 border-b border-border p-4"
     >
       <p className="text-[13px] leading-[19px] font-semibold tracking-[0.4px] text-foreground">{title}</p>
-      <div className="flex flex-col">
+      {/* Each row keeps an 8px margin under it inside the section's 8px gap: 37px apart. */}
+      <div className="flex flex-col gap-2">
         {options.map((o) => (
           <WzCheckbox
             key={o.value}

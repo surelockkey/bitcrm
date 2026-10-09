@@ -1,7 +1,10 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useMap } from "@vis.gl/react-google-maps";
+import { ChevronDown } from "lucide-react";
+import { wzPinInk } from "@/components/workiz/map-pin";
+import { cn } from "@/lib/utils";
 import type { ServiceArea } from "@bitcrm/types";
 import { circleToPath } from "@/features/service-areas/lib";
 import { scheduleColor } from "@/features/schedule/calendar";
@@ -63,31 +66,47 @@ export function ServiceAreaOverlay({ areas }: { areas: ServiceArea[] }) {
 }
 
 /**
- * The areas' key — ours (Workiz's map has no area layer), drawn as Workiz
- * draws an area wherever it lists one: a chip of white 14px/500 words on the
- * area's colour, 22px tall, 3px corners, in a white 8px-cornered box like the
- * date box, at the map's bottom-left above Google's mark.
+ * The areas' key — ours (Workiz's map has no area layer). Folded by default to
+ * one white 8px-cornered button at the map's bottom-left, above Google's mark,
+ * so the map reads as Workiz's; open, it lists each area as Workiz draws one
+ * wherever it lists areas: a chip of 14px/500 words on the area's colour,
+ * 22px tall, 3px corners (ink words on the light colours, so they read).
  */
 export function ServiceAreaLegend({ areas }: { areas: ServiceArea[] }) {
+  const [open, setOpen] = useState(false);
   if (areas.length === 0) return null;
   return (
-    <div
-      aria-label="Service areas"
-      className="absolute bottom-8 left-3 z-10 flex max-h-[40%] max-w-[320px] flex-col gap-2 overflow-auto rounded-[8px] bg-white p-3 shadow-[0_4px_16px_rgba(0,0,0,0.15)]"
-    >
-      <p className="text-[13px] leading-[19px] font-semibold tracking-[0.4px] text-foreground">Service areas</p>
-      <ul className="flex flex-wrap gap-1">
-        {areas.map((area) => (
-          <li
-            key={area.id}
-            title={area.active ? area.name : `${area.name} (off)`}
-            style={{ backgroundColor: areaColor(area) }}
-            className={`inline-flex h-[22px] items-center rounded-[3px] px-1.5 text-sm font-medium text-white ${area.active ? "" : "opacity-50"}`}
-          >
-            {area.name}
-          </li>
-        ))}
-      </ul>
+    <div className="absolute bottom-8 left-3 z-10 flex max-h-[40%] max-w-[320px] flex-col overflow-hidden rounded-[8px] bg-white shadow-[0_4px_16px_rgba(0,0,0,0.15)]">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+        className="flex cursor-pointer items-center justify-between gap-2 px-3 py-2 text-[13px] leading-[19px] font-semibold tracking-[0.4px] text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+      >
+        Service areas ({areas.length})
+        <ChevronDown className={cn("size-4 transition-transform", open && "rotate-180")} strokeWidth={1.6} />
+      </button>
+      {open ? (
+        <ul aria-label="Service areas" className="flex flex-wrap gap-1 overflow-auto px-3 pb-3">
+          {areas.map((area) => {
+            const fill = areaColor(area);
+            return (
+              <li
+                key={area.id}
+                title={area.active ? area.name : `${area.name} (off)`}
+                style={{ backgroundColor: fill }}
+                className={cn(
+                  "inline-flex h-[22px] items-center rounded-[3px] px-1.5 text-sm font-medium",
+                  wzPinInk(fill) ? "text-foreground" : "text-white",
+                  !area.active && "opacity-50",
+                )}
+              >
+                {area.name}
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
     </div>
   );
 }

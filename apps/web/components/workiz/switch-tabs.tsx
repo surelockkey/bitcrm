@@ -64,8 +64,8 @@ export function WzSwitchTabs<T extends string>({
             className={cn(
               "relative flex-1 cursor-pointer px-[30px] py-2.5 text-center leading-[19px] tracking-[0.4px] outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
               on
-                ? "rounded-[2px] bg-white text-sm font-semibold text-wz-link shadow-[0_2px_4px_rgba(59,75,82,0.1)]"
-                : "text-[13px] font-normal text-foreground",
+                ? "rounded-[2px] bg-white text-sm leading-[19px] font-semibold text-wz-link shadow-[0_2px_4px_rgba(59,75,82,0.1)]"
+                : "text-[13px] leading-[19px] font-normal text-foreground",
             )}
           >
             {t.label}
