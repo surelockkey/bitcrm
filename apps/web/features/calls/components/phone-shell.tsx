@@ -52,7 +52,7 @@ export function PhoneTabs() {
   return (
     <WzTabLinks
       label="Phone"
-      tabs={phoneTabs((r) => waiting || can(r))}
+      tabs={phoneTabs((r, a) => waiting || can(r, a ?? "view"))}
       active={activePhoneTab(pathname)}
       pending={waiting}
     />

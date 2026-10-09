@@ -16,6 +16,8 @@ vi.mock("../hooks", () => ({
 vi.mock("./call-associations", () => ({
   CallAssociations: () => <div>associations</div>,
 }));
+// "Block this number" reads the permissions (a query of its own); not this panel's subject.
+vi.mock("./block-caller-button", () => ({ BlockCallerButton: () => null }));
 vi.mock("./call-party-cell", () => ({
   CallPartyCell: () => <span>party</span>,
 }));

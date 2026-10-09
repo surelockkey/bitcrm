@@ -28,6 +28,8 @@ export const queryKeys = {
     teammates: () => ["telephony", "transfer-targets", "with-self"] as const,
     callGroups: () => ["telephony", "call-groups"] as const,
     callFlows: () => ["telephony", "call-flows"] as const,
+    /** Workiz Phone → Blocked callers (the whole list). */
+    blockedCallers: () => ["telephony", "blocked-callers"] as const,
   },
 
   /**

@@ -23,13 +23,15 @@ const PATHS = {
 // ::before colour (callspage_wz_icons.json) — one-offs, not theme tokens.
 const ANSWERED = "text-[#87dcbf]";
 const UNANSWERED = "text-[#dd380d]";
+// Ours: a blocked caller's incoming arrow in the caption grey — turned away, not missed.
+const BLOCKED = "text-wz-caption";
 
 /** One call's direction and outcome, with Workiz's tooltip ("Missed call"). */
 export function CallStatusGlyph({ call }: { call: Pick<CallRecord, "direction" | "status" | "answeredAt"> }) {
   const { kind, tooltip } = callStatusIcon(call);
   const path = kind === "active" ? PATHS.active : kind.startsWith("in-") ? PATHS.incoming : PATHS.outgoing;
   const size = kind === "active" ? 19.6 : 14;
-  const tone = kind === "in-missed" || kind === "out-unanswered" ? UNANSWERED : ANSWERED;
+  const tone = kind === "in-missed" || kind === "out-unanswered" ? UNANSWERED : kind === "in-blocked" ? BLOCKED : ANSWERED;
   return (
     <TooltipProvider>
       <Tooltip>

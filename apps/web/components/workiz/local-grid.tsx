@@ -121,6 +121,7 @@ export function WzLocalGrid<T>({
   defaultPageSize = 10,
   pagerInside = false,
   emptyText = "No Records Found",
+  search = true,
   className,
 }: {
   /** The table's accessible name ("Jobs"). */
@@ -154,6 +155,12 @@ export function WzLocalGrid<T>({
    * and flows grids).
    */
   emptyText?: ReactNode;
+  /**
+   * `false`: no Search box and no page size — Workiz's Blocked callers grid
+   * has neither (settings_audit_wz_blocked_callers_v4), only its empty 31px
+   * strip (#f7f7f7, 1px #ddd over it) where the others put the Search.
+   */
+  search?: boolean;
   className?: string;
 }) {
   const [query, setQuery] = useState("");
@@ -185,27 +192,31 @@ export function WzLocalGrid<T>({
 
   return (
     <div data-slot="wz-local-grid" className={cn("flex min-w-0 flex-col", className)}>
-      <WzListToolbar>
-        <WzSearchBox
-          type="search"
-          aria-label={searchLabel}
-          value={query}
-          onChange={(v) => {
-            setQuery(v);
-            setPage(1);
-          }}
-        />
-        {toolbar}
-        <WzPageSizeSelect
-          className="ml-auto"
-          value={size}
-          sizes={WZ_GRID_PAGE_SIZES}
-          onChange={(n) => {
-            setSize(n);
-            setPage(1);
-          }}
-        />
-      </WzListToolbar>
+      {search ? (
+        <WzListToolbar>
+          <WzSearchBox
+            type="search"
+            aria-label={searchLabel}
+            value={query}
+            onChange={(v) => {
+              setQuery(v);
+              setPage(1);
+            }}
+          />
+          {toolbar}
+          <WzPageSizeSelect
+            className="ml-auto"
+            value={size}
+            sizes={WZ_GRID_PAGE_SIZES}
+            onChange={(n) => {
+              setSize(n);
+              setPage(1);
+            }}
+          />
+        </WzListToolbar>
+      ) : (
+        <div data-slot="wz-local-grid-strip" className="h-[31px] shrink-0 border-t border-wz-frame bg-muted" />
+      )}
       <div data-slot="wz-local-grid-frame" className="relative overflow-x-auto border border-wz-frame">
         <Table aria-label={label} contained={false} className="table-fixed border-separate border-spacing-0" style={{ minWidth }}>
           <colgroup>

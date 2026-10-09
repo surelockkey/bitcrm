@@ -16,6 +16,7 @@ import {
   PARTICIPANT_ROLE_LABEL,
   type CallRecord,
 } from "../lib";
+import { BlockCallerButton } from "./block-caller-button";
 import { CallAssociations } from "./call-associations";
 import { CallFlowPath } from "./call-flow-path";
 import { CallPartyCell } from "./call-party-cell";
@@ -89,7 +90,9 @@ export function CallDetailPage({ callId }: { callId: string }) {
             </p>
           </div>
         </div>
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-3">
+          {/* "Block this number" (Workiz Phone → Blocked callers) beside the status. */}
+          <BlockCallerButton call={call} />
           <CallStatusBadge status={call.status} />
         </div>
       </div>

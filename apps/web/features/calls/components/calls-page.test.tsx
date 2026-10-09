@@ -152,6 +152,7 @@ describe("CallsPage — Workiz Phone's frame", () => {
       "Phone numbers",
       "Call flows",
       "Call groups",
+      "Blocked callers",
       "Texting",
     ]);
     expect(within(tabs).getByRole("link", { name: "Calls" })).toHaveAttribute("aria-current", "page");

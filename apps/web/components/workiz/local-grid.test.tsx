@@ -108,6 +108,14 @@ describe("WzLocalGrid — Workiz's grid under a client-page tab", () => {
     expect(onRowClick).toHaveBeenCalledWith(many[3], expect.anything());
   });
 
+  it("can leave the Search and the page size out, keeping Workiz's empty strip (Blocked callers)", () => {
+    const { container } = render(<WzLocalGrid label="Blocked callers" columns={COLUMNS} rows={ROWS} rowKey={(r) => r.id} search={false} />);
+    expect(screen.queryByRole("searchbox")).not.toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "Rows per page" })).not.toBeInTheDocument();
+    expect(container.querySelector("[data-slot=wz-local-grid-strip]")).toBeInTheDocument();
+    expect(screen.getByTestId("list-pagination")).toHaveTextContent("Showing 1 to 3 of 3 results");
+  });
+
   it("puts the caller's toolbar pieces after the search box", () => {
     render(<WzLocalGrid label="Invoices" columns={COLUMNS} rows={ROWS} rowKey={(r) => r.id} toolbar={<button type="button">Pay unpaid invoices</button>} />);
     expect(screen.getByRole("button", { name: "Pay unpaid invoices" })).toBeInTheDocument();
