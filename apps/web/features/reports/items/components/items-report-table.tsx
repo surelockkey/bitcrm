@@ -1,295 +1,280 @@
 "use client";
 
-import { Fragment, useState } from "react";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
-import {
-  ITEMS_REPORT_COLUMNS,
-  type ItemsReportColumnId,
-  type ItemsReportRow,
-  type ItemsReportSort,
-  type ItemsReportTotals,
-} from "@bitcrm/types";
-import { Button } from "@/components/ui/button";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { cn } from "@/lib/utils";
+import type { ItemsReportJobRow, ItemsReportRow, ItemsReportSort, ItemsReportTotals } from "@bitcrm/types";
+import { WzPager } from "@/components/workiz/pager";
+import { WzReportGrid, type WzReportColumn } from "@/components/workiz/report-grid";
+import { personName } from "@/features/deals/person-name";
+import { useUserMap } from "@/features/deals/hooks";
 import { workizDate } from "../../jobs/lib";
 import { useItemsReportJobs } from "../hooks";
-import { itemJobsParams, itemSubline, marginText, money, unitsText, type ItemsReportState } from "../lib";
+import {
+  itemJobsParams,
+  itemSubline,
+  itemsPager,
+  marginText,
+  money as moneyText,
+  servicePlanText,
+  totalUnitsText,
+  unitsText,
+  type ItemsReportState,
+} from "../lib";
 
-/** Where each column starts, in px — Workiz's proportions. */
-const WIDTH: Record<ItemsReportColumnId, number> = {
-  item: 300,
-  model: 160,
-  units: 110,
-  category: 160,
-  price: 130,
-  cost: 130,
-  profit: 140,
-  jobs: 80,
-};
+/*
+ * The Items and services grid as Workiz draws it (rep_items_wz_01_loaded,
+ * _12c_drill): react-table with the Item column fixed at 300px and the other
+ * seven sharing the rest; the bold Total row first; each item's ▸ opening a
+ * nested grid of its jobs under it.
+ */
 
-const NUMERIC = new Set<ItemsReportColumnId>(["units", "price", "cost", "profit", "jobs"]);
+/** A line under a figure or a name: Workiz's `_tblLbl` (12px/16px #999, 5px down). */
+function Sub({ children }: { children: ReactNode }) {
+  return <span className="mt-[5px] block text-xs leading-4 text-wz-caption">{children}</span>;
+}
 
-/** Rows of an expanded item per page — Workiz asks 50. */
-const JOBS_PAGE_SIZE = 50;
+/** Workiz's links in the drill-down (`a.pointer`, `a.hoverLink`): the page's default #607890 (rep_items_wz_12c_drill). */
+const LINK = "text-[#607890] hover:underline";
 
-function Figure({ value, margin }: { value?: number; margin?: number }) {
-  return (
-    <div className="tabular-nums">
-      <div>{money(value)}</div>
-      {margin !== undefined ? <div className="text-xs text-muted-foreground">{marginText(margin)}</div> : null}
-    </div>
-  );
+/**
+ * react-table's `.rt-expander`: a 7px rgba(0,0,0,.8) triangle in a 10px box
+ * with 10px either side, pointing right; open, it turns down (.3s, the
+ * overshooting curve). Centred on the name's 16px line.
+ */
+const EXPANDER =
+  "relative mx-2.5 mt-2 block h-0 w-2.5 shrink-0 after:absolute after:top-0 after:left-[5px] after:size-0 after:border-x-[5px] after:border-t-[7px] after:border-x-transparent after:border-t-black/80 after:content-[''] after:[transform:translate(-50%,-50%)_rotate(-90deg)] after:transition-transform after:duration-300 after:ease-[cubic-bezier(0.175,0.885,0.32,1.275)] data-open:after:[transform:translate(-50%,-50%)_rotate(0deg)]";
+
+type GridRow = { kind: "total"; totals: ItemsReportTotals } | { kind: "item"; row: ItemsReportRow };
+
+const one = (text: ReactNode) => <span className="block truncate">{text}</span>;
+
+/** A money cell: bold on the Total row, plain on an item's. */
+function figure(g: GridRow, pick: (r: ItemsReportRow | ItemsReportTotals) => number | undefined): ReactNode {
+  return g.kind === "total" ? <b className="block truncate font-bold">{moneyText(pick(g.totals))}</b> : one(moneyText(pick(g.row)));
 }
 
 /**
- * The report grid: Workiz's eight columns, the bold Total row first, a sort
- * on every header, and ▸ on each item to open its jobs underneath.
+ * The report grid: Workiz's eight columns (the money three only with
+ * `financials.view`), the Total row first, the pager inside the frame. Every
+ * header sorts on the server; the report opens on the items' numbers, newest
+ * first, which no header shows (`sort="number"`).
  */
 export function ItemsReportTable({
   rows,
   totals,
-  money: showMoney,
+  money,
   sort,
   dir,
   onSort,
   state,
+  loading,
   busy,
+  footer,
 }: {
   rows: ItemsReportRow[];
-  totals: ItemsReportTotals;
+  totals: ItemsReportTotals | undefined;
   money: boolean;
   sort: ItemsReportSort;
   dir: "asc" | "desc";
   onSort: (column: ItemsReportSort) => void;
   /** The report's window and filters — an opened item's jobs are asked over the same. */
   state: ItemsReportState;
+  loading?: boolean;
   busy?: boolean;
+  footer?: ReactNode;
 }) {
   const [open, setOpen] = useState<Set<string>>(new Set());
-  const columns = ITEMS_REPORT_COLUMNS.filter((c) => showMoney || !c.money);
-  const toggle = (key: string) =>
-    setOpen((cur) => {
-      const next = new Set(cur);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
+  const toggle = useCallback(
+    (key: string) =>
+      setOpen((cur) => {
+        const next = new Set(cur);
+        if (next.has(key)) next.delete(key);
+        else next.add(key);
+        return next;
+      }),
+    [],
+  );
+
+  const columns = useMemo<WzReportColumn<GridRow>[]>(() => {
+    const all: (WzReportColumn<GridRow> & { money?: boolean })[] = [
+      {
+        id: "item",
+        label: "Item",
+        width: 300,
+        sortable: true,
+        headerClassName: "text-center font-normal",
+        cell: (g) =>
+          g.kind === "total" ? (
+            <b className="font-bold">Total</b>
+          ) : (
+            <ItemCell row={g.row} open={open.has(g.row.key)} onToggle={() => toggle(g.row.key)} />
+          ),
+      },
+      { id: "model", label: "Model #", sortable: true, cell: (g) => (g.kind === "item" ? one(g.row.model ?? "") : null) },
+      {
+        id: "units",
+        label: "Units",
+        sortable: true,
+        cell: (g) => (g.kind === "total" ? <b className="block truncate font-bold">{totalUnitsText(g.totals)}</b> : one(unitsText(g.row.units))),
+      },
+      { id: "category", label: "Category", sortable: true, cell: (g) => (g.kind === "item" ? one(g.row.category ?? "") : null) },
+      { id: "price", label: "Price", sortable: true, money: true, cell: (g) => figure(g, (r) => r.price) },
+      { id: "cost", label: "Cost", sortable: true, money: true, cell: (g) => figure(g, (r) => r.cost) },
+      {
+        id: "profit",
+        label: "Profit",
+        sortable: true,
+        money: true,
+        cell: (g) =>
+          g.kind === "total" ? (
+            <div>
+              <b className="block truncate font-bold">{moneyText(g.totals.profit)}</b>
+              <Sub>{marginText(g.totals.margin)}</Sub>
+            </div>
+          ) : (
+            <div>
+              {one(moneyText(g.row.profit))}
+              <Sub>{marginText(g.row.margin, g.row.profit)}</Sub>
+            </div>
+          ),
+      },
+      { id: "jobs", label: "Jobs", sortable: true, cell: (g) => (g.kind === "item" ? one(g.row.jobs) : null) },
+    ];
+    return all.filter((c) => money || !c.money);
+  }, [money, open, toggle]);
+
+  const gridRows = useMemo<GridRow[]>(
+    () => (totals ? [{ kind: "total", totals }, ...rows.map((row) => ({ kind: "item" as const, row }))] : []),
+    [rows, totals],
+  );
 
   return (
-    <div className="overflow-x-auto border bg-background" aria-busy={busy || undefined}>
-      <Table contained={false} className="table-fixed" style={{ minWidth: columns.reduce((w, c) => w + WIDTH[c.id], 0) }}>
-        <colgroup>
-          {columns.map((c) => (
-            <col key={c.id} style={{ width: WIDTH[c.id] }} />
-          ))}
-        </colgroup>
-        <TableHeader>
-          <TableRow className="hover:bg-transparent">
-            {columns.map((c) => {
-              const active = sort === c.id;
-              return (
-                <TableHead key={c.id} className={cn(active && "border-b-2 border-b-foreground")}>
-                  <button
-                    type="button"
-                    onClick={() => onSort(c.id)}
-                    aria-label={`Sort by ${c.label}${active ? `, sorted ${dir === "asc" ? "ascending" : "descending"}` : ""}`}
-                    className={cn("flex w-full items-center gap-1 truncate font-medium", NUMERIC.has(c.id) ? "justify-end" : "text-left")}
-                  >
-                    <span className="truncate">{c.label}</span>
-                    {active ? dir === "asc" ? <ArrowUp className="size-3 shrink-0" /> : <ArrowDown className="size-3 shrink-0" /> : null}
-                  </button>
-                </TableHead>
-              );
-            })}
-          </TableRow>
-        </TableHeader>
-        <TableBody className={cn(busy && "opacity-60")}>
-          <TableRow aria-label="Total" className="font-semibold">
-            {columns.map((c) => (
-              <TableCell key={c.id} className={cn("align-top text-sm", NUMERIC.has(c.id) && "text-right")}>
-                {c.id === "item" ? (
-                  "Total"
-                ) : c.id === "units" ? (
-                  <span className="tabular-nums">{unitsText(totals.units)}</span>
-                ) : c.id === "price" ? (
-                  <Figure value={totals.price} />
-                ) : c.id === "cost" ? (
-                  <Figure value={totals.cost} />
-                ) : c.id === "profit" ? (
-                  <Figure value={totals.profit} margin={totals.margin} />
-                ) : null}
-              </TableCell>
-            ))}
-          </TableRow>
-          {rows.map((row) => {
-            const expanded = open.has(row.key);
-            return (
-              <Fragment key={row.key}>
-                <TableRow className="align-top">
-                  {columns.map((c) => (
-                    <TableCell key={c.id} className={cn("overflow-hidden text-sm", NUMERIC.has(c.id) && "text-right")}>
-                      {c.id === "item" ? (
-                        <div className="flex min-w-0 items-start gap-1.5">
-                          <button
-                            type="button"
-                            aria-expanded={expanded}
-                            aria-label={`${expanded ? "Hide" : "Show"} the jobs of ${row.name}`}
-                            onClick={() => toggle(row.key)}
-                            className="mt-0.5 shrink-0 rounded-sm text-muted-foreground hover:text-foreground"
-                          >
-                            <ChevronRight className={cn("size-4 transition-transform", expanded && "rotate-90")} />
-                          </button>
-                          <div className="min-w-0">
-                            <div className="truncate" title={row.name}>
-                              {row.name || "—"}
-                            </div>
-                            <div className="truncate text-xs text-muted-foreground">{itemSubline(row)}</div>
-                          </div>
-                        </div>
-                      ) : c.id === "model" ? (
-                        <span className="block truncate" title={row.model}>
-                          {row.model ?? ""}
-                        </span>
-                      ) : c.id === "units" ? (
-                        <span className="tabular-nums">{unitsText(row.units)}</span>
-                      ) : c.id === "category" ? (
-                        <span className="block truncate">{row.category ?? ""}</span>
-                      ) : c.id === "price" ? (
-                        <Figure value={row.price} />
-                      ) : c.id === "cost" ? (
-                        <Figure value={row.cost} />
-                      ) : c.id === "profit" ? (
-                        <Figure value={row.profit} margin={row.margin} />
-                      ) : (
-                        <span className="tabular-nums">{row.jobs}</span>
-                      )}
-                    </TableCell>
-                  ))}
-                </TableRow>
-                {expanded ? (
-                  <TableRow className="hover:bg-transparent">
-                    <TableCell colSpan={columns.length} className="bg-background p-2 sm:p-3">
-                      <ItemJobs item={row} state={state} money={showMoney} />
-                    </TableCell>
-                  </TableRow>
-                ) : null}
-              </Fragment>
-            );
-          })}
-        </TableBody>
-      </Table>
-      {rows.length === 0 ? <p className="py-10 text-center text-sm text-muted-foreground">No items match the filters.</p> : null}
-    </div>
+    <WzReportGrid<GridRow>
+      aria-label="Items and services"
+      columns={columns}
+      rows={gridRows}
+      rowKey={(g) => (g.kind === "total" ? "__total" : g.row.key)}
+      sort={sort === "number" ? null : { column: sort, dir }}
+      onSort={(c) => onSort(c as ItemsReportSort)}
+      loading={loading}
+      busy={busy}
+      footer={footer}
+      padRowRule={false}
+      renderExpanded={(g) => (g.kind === "item" && open.has(g.row.key) ? <ItemJobs item={g.row} state={state} money={money} /> : null)}
+    />
   );
 }
 
+/** The Item cell: the whole cell opens the item's jobs, as react-table's expandable cell does. */
+function ItemCell({ row, open, onToggle }: { row: ItemsReportRow; open: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-expanded={open}
+      aria-label={`${open ? "Hide" : "Show"} the jobs of ${row.name}`}
+      onClick={onToggle}
+      className="flex w-full min-w-0 cursor-pointer items-start text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+    >
+      <span aria-hidden data-open={open || undefined} className={EXPANDER} />
+      <span className="min-w-0">
+        <span className="block">{row.name || "—"}</span>
+        <Sub>{itemSubline(row)}</Sub>
+      </span>
+    </button>
+  );
+}
+
+/** Rows of an opened item per page — Workiz asks 50. */
+const JOBS_PAGE_SIZE = 50;
+
 /**
- * Workiz's expanded row: the jobs that used the item — Job, Client, Date,
- * Units, Price, Cost, Profit, Service Plan, Sold By — with its own pager.
+ * Workiz's opened item (rep_items_wz_12c_drill): a box with a faint rule
+ * above and 10px all round, holding a nested grid of the jobs that used the
+ * item — nine equal columns, five rows at least, its own pager; while it
+ * loads, the header over blank rows and the dots.
  */
-function ItemJobs({ item, state, money: showMoney }: { item: ItemsReportRow; state: ItemsReportState; money: boolean }) {
+function ItemJobs({ item, state, money }: { item: ItemsReportRow; state: ItemsReportState; money: boolean }) {
   const [page, setPage] = useState(1);
   const query = useItemsReportJobs(itemJobsParams(state, item.key, page, JOBS_PAGE_SIZE), true);
   const data = query.data;
+  // Sellers named as Workiz names them ("(1) (Betty) Platinum Manager") when the directory knows them.
+  const sellerIds = useMemo(() => (data?.rows ?? []).flatMap((r) => r.soldBy.map((s) => s.id)), [data]);
+  const { map } = useUserMap(sellerIds);
 
-  if (query.error) {
-    return (
-      <p role="alert" className="text-sm text-destructive">
-        {query.error instanceof Error ? query.error.message : "Could not load the jobs."}
-      </p>
-    );
-  }
-  if (!data) {
-    return (
-      <div role="status" aria-label={`Loading the jobs of ${item.name}`} className="flex items-center gap-2 py-4 text-sm text-muted-foreground">
-        <Loader2 className="size-4 animate-spin" /> Loading…
-      </div>
-    );
-  }
+  const columns = useMemo<WzReportColumn<ItemsReportJobRow>[]>(() => {
+    const all: (WzReportColumn<ItemsReportJobRow> & { money?: boolean })[] = [
+      {
+        id: "job",
+        label: "Job",
+        cell: (r) => (
+          <Link href={`/deals/${r.dealId}`} target="_blank" rel="noopener noreferrer" className={LINK}>
+            Job #{r.jobNumber}
+          </Link>
+        ),
+      },
+      {
+        id: "client",
+        label: "Client",
+        cell: (r) => (
+          <div className="min-w-0">
+            <Link href={`/contacts/${r.contactId}`} target="_blank" rel="noopener noreferrer" className={LINK}>
+              {r.client || "—"}
+            </Link>
+            {r.clientCompany && r.clientCompany !== r.client ? <Sub>{r.clientCompany}</Sub> : null}
+          </div>
+        ),
+      },
+      { id: "date", label: "Date", cell: (r) => one(workizDate(r.jobDate)) },
+      { id: "units", label: "Units", cell: (r) => one(unitsText(r.units)) },
+      { id: "price", label: "Price", money: true, cell: (r) => one(moneyText(r.price)) },
+      { id: "cost", label: "Cost", money: true, cell: (r) => one(moneyText(r.cost)) },
+      {
+        id: "profit",
+        label: "Profit",
+        money: true,
+        cell: (r) => (
+          <div>
+            {one(moneyText(r.profit))}
+            <Sub>{marginText(r.margin, r.profit)}</Sub>
+          </div>
+        ),
+      },
+      { id: "servicePlan", label: "Service Plan", cell: (r) => one(servicePlanText(r.servicePlan)) },
+      {
+        id: "soldBy",
+        label: "Sold By",
+        cell: (r) => one(r.soldBy.map((s) => personName(map.get(s.id)) || s.name).filter(Boolean).join(", ")),
+      },
+    ];
+    return all.filter((c) => money || !c.money);
+  }, [money, map]);
 
-  const head = ["Job", "Client", "Date", "Units", ...(showMoney ? ["Price", "Cost", "Profit"] : []), "Service Plan", "Sold By"];
-  const { pagination } = data;
   return (
-    <div className="space-y-2" aria-label={`Jobs of ${item.name}`}>
-      <div className="overflow-x-auto border">
-        <Table contained={false} className="min-w-[56rem]">
-          <TableHeader>
-            <TableRow className="hover:bg-transparent">
-              {head.map((h) => (
-                <TableHead key={h} className={cn("text-xs", ["Units", "Price", "Cost", "Profit"].includes(h) && "text-right")}>
-                  {h}
-                </TableHead>
-              ))}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {data.rows.map((r) => (
-              <TableRow key={r.dealId} className="align-top">
-                <TableCell className="text-sm">
-                  <Link href={`/deals/${r.dealId}`} target="_blank" rel="noopener noreferrer" className="text-wz-link hover:underline">
-                    Job #{r.jobNumber}
-                  </Link>
-                </TableCell>
-                <TableCell className="text-sm">
-                  <div className="truncate">{r.client || "—"}</div>
-                  {r.clientCompany && r.clientCompany !== r.client ? (
-                    <div className="truncate text-xs text-muted-foreground">{r.clientCompany}</div>
-                  ) : null}
-                </TableCell>
-                <TableCell className="text-sm whitespace-nowrap">{workizDate(r.jobDate)}</TableCell>
-                <TableCell className="text-right text-sm tabular-nums">{unitsText(r.units)}</TableCell>
-                {showMoney ? (
-                  <>
-                    <TableCell className="text-right text-sm">
-                      <Figure value={r.price} />
-                    </TableCell>
-                    <TableCell className="text-right text-sm">
-                      <Figure value={r.cost} />
-                    </TableCell>
-                    <TableCell className="text-right text-sm">
-                      <Figure value={r.profit} margin={r.margin} />
-                    </TableCell>
-                  </>
-                ) : null}
-                <TableCell className="text-sm">{r.servicePlan ? "Yes" : "No"}</TableCell>
-                <TableCell className="text-sm">{r.soldBy.map((s) => s.name).filter(Boolean).join(", ")}</TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
-      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-        <span className="tabular-nums">
-          {pagination.total === 0 ? "No results" : `Showing ${pagination.from} to ${pagination.to} of ${pagination.total} results`}
-        </span>
-        <div className="flex items-center gap-1">
-          <Button
-            variant="outline"
-            size="icon"
-            className="size-7"
-            aria-label="Previous jobs page"
-            disabled={pagination.page <= 1}
-            onClick={() => setPage(pagination.page - 1)}
-          >
-            <ChevronLeft className="size-4" />
-          </Button>
-          <span className="px-1 tabular-nums">
-            Page {pagination.page} of {pagination.pages}
-          </span>
-          <Button
-            variant="outline"
-            size="icon"
-            className="size-7"
-            aria-label="Next jobs page"
-            disabled={pagination.page >= pagination.pages}
-            onClick={() => setPage(pagination.page + 1)}
-          >
-            <ChevronRight className="size-4" />
-          </Button>
-        </div>
-      </div>
+    <div className="border-t border-black/5 p-2.5" aria-label={`Jobs of ${item.name}`} role="region">
+      {query.error ? (
+        <p role="alert" className="p-5 text-sm text-destructive">
+          {query.error instanceof Error ? query.error.message : "Could not load the jobs."}
+        </p>
+      ) : (
+        <WzReportGrid<ItemsReportJobRow>
+          aria-label="Jobs"
+          columns={columns}
+          rows={data?.rows ?? []}
+          rowKey={(r) => r.dealId}
+          minRows={5}
+          stickyHeader={false}
+          padRowRule={false}
+          loading={!data}
+          busy={query.isPlaceholderData && query.isFetching}
+          footer={
+            <WzPager
+              plainNumbers
+              loading={!data}
+              pager={itemsPager(data?.pagination ?? { page, pageSize: JOBS_PAGE_SIZE, total: 0, pages: 1, from: 0, to: 0 }, setPage, query.isFetching)}
+            />
+          }
+        />
+      )}
     </div>
   );
 }

@@ -110,6 +110,14 @@ describe("WzReportGrid", () => {
     expect(body.querySelectorAll("tr[aria-hidden]:not([hidden])")).toHaveLength(8);
   });
 
+  // rep_items_wz_11_empty_search: the Items report's blank rows are 56px with no rule under them.
+  it("draws its blank rows without the faint rule when asked", () => {
+    render(<WzReportGrid aria-label="Activity" columns={columns} rows={rows} rowKey={(r) => r.id} padRowRule={false} />);
+    const blank = document.querySelector("tbody tr[aria-hidden] td")!;
+    expect(blank).toHaveClass("h-14");
+    expect(blank.className).not.toMatch(/border-b-black/);
+  });
+
   it("takes a row minimum of its own (the drill-down's five) and can leave its header unpinned", () => {
     render(<WzReportGrid aria-label="Activity" columns={columns} rows={rows} rowKey={(r) => r.id} minRows={5} stickyHeader={false} />);
     expect(document.querySelectorAll("tbody tr[aria-hidden]")).toHaveLength(3);

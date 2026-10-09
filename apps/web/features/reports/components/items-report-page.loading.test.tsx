@@ -15,7 +15,7 @@ import {
 /**
  * The Items and services report stays still while it loads — a guard, not a
  * fix: the audit found it already clean (CLS 0, one skeleton, then the
- * table). The job types it asks for only feed the closed filter's popover,
+ * table). The job types, categories and people it asks for only feed the closed filter's list,
  * so the table does not wait for them; this keeps it that way, and keeps a
  * new period from blanking the table.
  */
@@ -48,7 +48,8 @@ let server: FakeServer;
 
 const { ItemsReportPage } = await import("./items-report-page");
 
-const tableUp = () => !!screen.queryByRole("row", { name: "Total" });
+// The bold Total row is the grid's first record (rep_items_wz_01_loaded).
+const tableUp = () => !!screen.queryByText("Total", { selector: "b" });
 
 beforeEach(() => {
   server = installFakeServer(routes);
@@ -85,7 +86,7 @@ describe("ItemsReportPage — no jumping", () => {
     });
     observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true });
     fireEvent.click(screen.getByRole("button", { name: /^Date range/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Last month" }));
+    fireEvent.click(screen.getByRole("option", { name: "Last month" }));
     await screen.findByText("Key blank", {}, { timeout: 3000 });
     observer.disconnect();
 

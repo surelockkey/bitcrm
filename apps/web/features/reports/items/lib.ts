@@ -1,4 +1,14 @@
-import { type ItemsReportFilters, type ItemsReportSort } from "@bitcrm/types";
+import {
+  ITEMS_REPORT_ITEM_TYPES,
+  ITEMS_REPORT_MAX_DAYS,
+  type ItemsReportFilters,
+  type ItemsReportPagination,
+  type ItemsReportSort,
+  type ItemsReportTotals,
+} from "@bitcrm/types";
+import type { WzDateRange } from "@/components/workiz/date-range-picker";
+import type { WzFilterGroup } from "@/components/workiz/grouped-filter";
+import type { WzPagerState } from "@/components/workiz/pager";
 import { JOBS_REPORT_PRESETS, presetRange, type JobsReportPreset } from "../jobs/lib";
 
 /*
@@ -11,8 +21,10 @@ import { JOBS_REPORT_PRESETS, presetRange, type JobsReportPreset } from "../jobs
 /* ---------------------------------------------------------------- presets */
 
 /**
- * Workiz's presets on this report (checked live 2026-09-29): the Jobs
- * report's fifteen plus "Last 3 months"; no All time.
+ * Workiz's presets on this report (checked live 2026-09-29 and again
+ * 2026-10-09, rep_items_wz_06_date_open): the Jobs report's fifteen in the
+ * same words plus "Last 3 months" — not the Payments report's twenty (no
+ * six / twelve months, All time or Recent).
  */
 export const ITEMS_REPORT_PRESETS = [
   ...JOBS_REPORT_PRESETS,
@@ -22,7 +34,7 @@ export const ITEMS_REPORT_PRESETS = [
 export type ItemsReportPreset = JobsReportPreset | "last_3_months";
 
 /** Workiz opens this report on This month. */
-export const DEFAULT_ITEMS_PRESET: ItemsReportPreset = "this_month";
+export const DEFAULT_ITEMS_PRESET: Exclude<ItemsReportPreset, "custom"> = "this_month";
 
 const shift = (day: string, days: number): string => {
   const d = new Date(`${day}T00:00:00.000Z`);
@@ -101,21 +113,93 @@ export function itemJobsParams(state: ItemsReportState, item: string, page: numb
   return p.toString();
 }
 
-/** Tick or untick one value of a filter group; an emptied group is dropped. */
-export function toggleItemsFilter(filters: ItemsReportFilters, key: keyof ItemsReportFilters, value: string): ItemsReportFilters {
-  const current = filters[key] ?? [];
-  const next = current.includes(value) ? current.filter((v) => v !== value) : [...current, value];
-  const out: ItemsReportFilters = { ...filters };
-  if (next.length) out[key] = next;
-  else delete out[key];
-  return out;
-}
-
-/** A header click: the same column flips, another starts on its natural order (text A→Z, figures high→low). */
+/**
+ * A header click, as react-table makes it (rep_items_wz_15_sort_*): the same
+ * column turns round, any other starts ascending — figures too.
+ */
 export function nextSort(current: { column: ItemsReportSort; dir: "asc" | "desc" }, column: ItemsReportSort) {
   if (current.column === column) return { column, dir: current.dir === "asc" ? ("desc" as const) : ("asc" as const) };
-  const text = column === "item" || column === "model" || column === "category";
-  return { column, dir: text ? ("asc" as const) : ("desc" as const) };
+  return { column, dir: "asc" as const };
+}
+
+/**
+ * Workiz's Custom rule (rep_items_wz_16g_custom_over_year): at most twelve
+ * months, refused inside the date box and never asked of the server.
+ */
+export function itemsCustomCheck(range: WzDateRange): { usable: boolean; error: string | null } {
+  if (range.preset !== "custom") return { usable: true, error: null };
+  if (!range.from || !range.to) return { usable: false, error: null };
+  const days = (Date.parse(`${range.to}T00:00:00Z`) - Date.parse(`${range.from}T00:00:00Z`)) / 86_400_000 + 1;
+  if (days > ITEMS_REPORT_MAX_DAYS) return { usable: false, error: "Date range exceeds 12 months" };
+  return { usable: true, error: null };
+}
+
+/* ----------------------------------------------------------------- filter */
+
+/**
+ * The chips' order: Workiz's filters object (`{type, jobType, sold_by,
+ * category}`), not the menu's.
+ */
+export const ITEMS_FILTER_CHIP_ORDER = ["type", "jobTypeId", "soldBy", "category"] as const satisfies readonly (keyof ItemsReportFilters)[];
+
+/**
+ * "Filter results" (rep_items_wz_05_filter_open; the 09-29 live_filters
+ * capture for CATEGORY): ITEM TYPE, JOB TYPE, CATEGORY, SOLD BY, side by
+ * side, each chip keyed by Workiz's filters object ("type: Service",
+ * "jobType: …", "category: …", "sold_by: …"). Workiz lists every category of
+ * its catalog and every user; so do we — the price book's categories, the
+ * directory (by name, Workiz's names) — and keep whatever the period itself
+ * holds that those lists lack (an archived category, a seller the directory
+ * cannot show).
+ */
+export function itemsFilterGroups({
+  jobTypes,
+  categories,
+  periodCategories,
+  people,
+  periodSellers,
+}: {
+  jobTypes: { id: string; name: string }[];
+  categories: string[];
+  periodCategories: string[];
+  people: { id: string; name: string }[];
+  periodSellers: { id: string; name: string }[];
+}): WzFilterGroup<keyof ItemsReportFilters>[] {
+  const names = [...new Set([...categories, ...periodCategories])];
+  const known = new Set(people.map((p) => p.id));
+  const sellers = [
+    ...[...people].sort((a, b) => a.name.localeCompare(b.name)),
+    ...periodSellers.filter((p) => !known.has(p.id)),
+  ];
+  return [
+    { key: "type", label: "Item Type", chip: "type", options: ITEMS_REPORT_ITEM_TYPES.map((t) => ({ value: t.id, label: t.label })) },
+    { key: "jobTypeId", label: "Job type", chip: "jobType", options: jobTypes.map((t) => ({ value: t.id, label: t.name })) },
+    { key: "category", label: "Category", chip: "category", options: names.map((c) => ({ value: c, label: c })) },
+    { key: "soldBy", label: "Sold By", chip: "sold_by", options: sellers.map((p) => ({ value: p.id, label: p.name })) },
+  ];
+}
+
+/* ------------------------------------------------------------------ pager */
+
+/**
+ * The server's page as Workiz's footer reads it: "Showing 11 to 20 of 147
+ * results" counts items (the Total row is not one), "Page 2 of 15", at
+ * least page 1 of 1.
+ */
+export function itemsPager(p: ItemsReportPagination, go: (page: number) => void, fetching: boolean): WzPagerState {
+  const pages = Math.max(1, p.pages);
+  return {
+    page: p.page,
+    from: p.from,
+    to: p.to,
+    total: p.total,
+    totalPages: pages,
+    canPrev: p.page > 1,
+    canNext: p.page < pages,
+    isFetching: fetching,
+    prev: () => go(Math.max(1, p.page - 1)),
+    next: () => go(Math.min(pages, p.page + 1)),
+  };
 }
 
 /* ------------------------------------------------------------------ cells */
@@ -123,12 +207,24 @@ export function nextSort(current: { column: ItemsReportSort; dir: "asc" | "desc"
 export const money = (n: number | undefined): string =>
   typeof n === "number" ? n.toLocaleString("en-US", { style: "currency", currency: "USD" }) : "";
 
-/** Units as Workiz prints them: two decimals, no float noise. */
-export const unitsText = (n: number): string =>
-  n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+/** Units as Workiz prints them ("1.00", "1382.00"): two decimals, no separators, no float noise. */
+export const unitsText = (n: number): string => n.toFixed(2);
 
-/** `90.26% margin`. */
-export const marginText = (n: number | undefined): string => (typeof n === "number" ? `${n.toFixed(2)}% margin` : "");
+/** The Total row's units — blank when no item is listed, as Workiz's null. */
+export const totalUnitsText = (t: Pick<ItemsReportTotals, "items" | "units">): string => (t.items === 0 ? "" : unitsText(t.units));
+
+/**
+ * `90.26% margin`. Given the profit, a row that made none prints Workiz's
+ * `0% margin` (it sends an integer 0 for those), whatever the ratio says.
+ */
+export function marginText(margin: number | undefined, profit?: number): string {
+  if (typeof margin !== "number") return "";
+  if (typeof profit === "number" && profit <= 0) return "0% margin";
+  return `${margin.toFixed(2)}% margin`;
+}
+
+/** The drill-down's Service Plan column: Workiz prints the boolean itself. */
+export const servicePlanText = (on: boolean): string => (on ? "true" : "false");
 
 /** Under the name, grey: `#17011 - product`. */
 export function itemSubline(row: { number?: number; type: string }): string {

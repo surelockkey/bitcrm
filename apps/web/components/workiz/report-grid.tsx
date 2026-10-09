@@ -78,13 +78,16 @@ function ExpandedRow({ columns, children }: { columns: number; children: ReactNo
 }
 
 /** react-table's `-padRow`s, keeping the zebra going. */
-function PadRows({ count, columns }: { count: number; columns: number }) {
+function PadRows({ count, columns, rule = true }: { count: number; columns: number; rule?: boolean }) {
   return (
     <>
       {Array.from({ length: Math.max(0, count) }, (_, i) => (
         <TableRow key={`pad-${i}`} aria-hidden className="border-0 hover:bg-transparent">
           {Array.from({ length: columns }, (_, c) => (
-            <TableCell key={c} className={cn(CELL, "h-[57px] border-b border-b-black/5 py-0 [border-bottom-style:solid]")} />
+            <TableCell
+              key={c}
+              className={cn(CELL, rule ? "h-[57px] border-b border-b-black/5 py-0 [border-bottom-style:solid]" : "h-14 py-0")}
+            />
           ))}
         </TableRow>
       ))}
@@ -114,6 +117,7 @@ export function WzReportGrid<R>({
   renderExpanded,
   minRows = MIN_ROWS,
   stickyHeader = true,
+  padRowRule = true,
   "aria-label": ariaLabel,
   className,
 }: {
@@ -139,6 +143,12 @@ export function WzReportGrid<R>({
   minRows?: number;
   /** The header sticks to the top of the scrolling page (off for a grid nested in another). */
   stickyHeader?: boolean;
+  /**
+   * The blank rows' faint rule (57px over 1px rgba(0,0,0,.05), the Activity
+   * report's). Off: 56px with no rule, as the Items report draws them
+   * (rep_items_wz_11_empty_search).
+   */
+  padRowRule?: boolean;
   "aria-label"?: string;
   className?: string;
 }) {
@@ -191,7 +201,7 @@ export function WzReportGrid<R>({
               </Fragment>
             );
           })}
-          <PadRows count={minRows - shown.length} columns={columns.length} />
+          <PadRows count={minRows - shown.length} columns={columns.length} rule={padRowRule} />
         </TableBody>
       </Table>
       {loading ? (
