@@ -11,6 +11,11 @@ export interface OwnedNumber {
   phoneNumber: string;
   friendlyName: string;
   voiceUrl?: string | null;
+  /**
+   * When the number was bought (ISO), null when Twilio doesn't say — the
+   * "Created" column of the numbers list, as Workiz's has.
+   */
+  dateCreated?: string | null;
 }
 
 export interface OwnedNumberCapabilities {
@@ -66,6 +71,7 @@ const toOwnedNumber = (n: OwnedInstance): OwnedNumber => ({
   phoneNumber: n.phoneNumber,
   friendlyName: n.friendlyName,
   voiceUrl: n.voiceUrl,
+  dateCreated: n.dateCreated instanceof Date ? n.dateCreated.toISOString() : null,
 });
 
 @Injectable()

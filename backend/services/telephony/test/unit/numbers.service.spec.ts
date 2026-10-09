@@ -18,6 +18,7 @@ type FakeNumber = {
   friendlyName: string;
   voiceUrl?: string | null;
   smsUrl?: string | null;
+  dateCreated?: Date | null;
   capabilities?: { sms?: boolean; mms?: boolean; voice?: boolean; fax?: boolean };
 };
 
@@ -127,7 +128,20 @@ describe('NumbersService.listOwned', () => {
       phoneNumber: '+15550000007',
       friendlyName: 'Line 7',
       voiceUrl: 'https://api.example.test/api/telephony/voice/inbound',
+      dateCreated: null,
     });
+  });
+
+  it('says when each number was bought — the "Created" column of the numbers list', async () => {
+    const { service } = makeService({
+      numbers: [
+        fakeNumber(1, { dateCreated: new Date('2020-09-28T03:11:00.000Z') }),
+        fakeNumber(2, { dateCreated: null }),
+      ],
+    });
+    const [bought, unknown] = await service.listOwned();
+    expect(bought.dateCreated).toBe('2020-09-28T03:11:00.000Z');
+    expect(unknown.dateCreated).toBeNull();
   });
 
   it('returns an empty list for an account with no numbers', async () => {
