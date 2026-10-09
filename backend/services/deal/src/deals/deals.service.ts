@@ -160,6 +160,8 @@ import { type ListDealsQueryDto } from './dto/list-deals-query.dto';
 import { type AddNoteDto } from './dto/add-note.dto';
 import { type UpdateNoteDto } from './dto/update-note.dto';
 import { JobFieldSettingsService } from '../job-field-settings/job-field-settings.service';
+import { JobRulesService } from '../job-rules/job-rules.service';
+import { closeEndPatch } from './close-end-time';
 import { type AddDealProductDto } from './dto/add-deal-product.dto';
 import { type AddItemGroupDto } from './dto/add-item-group.dto';
 import { type UpdatePaymentStatusDto } from './dto/update-payment-status.dto';
@@ -205,6 +207,7 @@ export class DealsService {
     @Optional() private readonly snsPublisher?: SnsPublisherService,
     @Optional() private readonly businessMetrics?: BusinessMetricsService,
     @Optional() private readonly jobFieldSettings?: JobFieldSettingsService,
+    @Optional() private readonly jobRules?: JobRulesService,
     @Optional() private readonly taxResolver?: DealTaxResolver,
     @Optional() private readonly businessProfiles?: BusinessProfilesClient,
   ) {}
@@ -451,10 +454,12 @@ export class DealsService {
       throw new BadRequestException(`Contact ${dto.contactId} not found`);
     }
 
-    // Admin-configured required fields (Settings → Job Fields) — same 422
-    // shape as the close gate so clients can name the exact fields.
+    // Admin-configured required fields (Settings → Field Validation) — same
+    // 422 shape as the close gate so clients can name the exact fields. The
+    // client-owned rows (names, numbers, the client's address…) are judged
+    // against the contact itself, read only when one of them is on.
     const missingRequired =
-      (await this.jobFieldSettings?.missingRequiredForCreate(dto)) ?? [];
+      (await this.jobFieldSettings?.missingRequiredForCreate(dto, () => this.internalHttp.getContact(dto.contactId))) ?? [];
     if (missingRequired.length) {
       throw new UnprocessableEntityException({
         message: `Fill required field(s): ${missingRequired.map((f) => f.label).join(', ')}`,
@@ -1501,7 +1506,15 @@ export class DealsService {
     // Closing (Done/Canceled, or their sub-statuses) stamps closedAt; leaving a
     // closed status clears it. done_pending_approval isn't a close.
     if (CLOSED_SUPER_STATUSES.has(dto.superStatus)) {
-      updates.closedAt = new Date().toISOString();
+      const closedAt = new Date().toISOString();
+      updates.closedAt = closedAt;
+      // Workiz "Update Job End Time" (Account → Preferences): the job ends at
+      // this moment — the end day and time on its clock, and the end instant
+      // the EndIndex (the "Job end date" reports) is restamped from. The
+      // start stays. Reopening does not put the old end back, as in Workiz.
+      if (await this.updatesEndTimeOnClose()) {
+        Object.assign(updates as Record<string, unknown>, closeEndPatch(deal, closedAt, await this.areaTimezoneOf(deal)));
+      }
     } else if (CLOSED_SUPER_STATUSES.has(from)) {
       updates.closedAt = null;
     }
@@ -1535,6 +1548,31 @@ export class DealsService {
     }
 
     return result;
+  }
+
+  /**
+   * Whether the account moves a closed job's end to the closing moment —
+   * ON unless switched off (Workiz's account has it on). A rules row that
+   * cannot be read costs nothing but the default.
+   */
+  private async updatesEndTimeOnClose(): Promise<boolean> {
+    if (!this.jobRules) return true;
+    try {
+      return (await this.jobRules.get()).updateJobEndTimeOnClose;
+    } catch (error) {
+      this.logger.warn(`Job rules unavailable, closing with the default: ${(error as Error).message}`);
+      return true;
+    }
+  }
+
+  /** The zone of the job's service area, when it has one and the area can be read. */
+  private async areaTimezoneOf(deal: Deal): Promise<string | undefined> {
+    if (!deal.serviceAreaId) return undefined;
+    try {
+      return (await this.serviceAreas.findById(deal.serviceAreaId))?.timezone;
+    } catch {
+      return undefined;
+    }
   }
 
   async getTimeline(dealId: string, limit = 20, cursor?: string) {
