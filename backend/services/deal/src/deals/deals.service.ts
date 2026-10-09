@@ -1515,6 +1515,9 @@ export class DealsService {
       toStatus: dto.superStatus,
       fromSubStatusId: deal.subStatusId ?? null,
       subStatusId: dto.subStatusId || null,
+      // Workiz's Activity line names them ("Status Updated - Canceled - Cant Do - tech said cant do").
+      ...(sub && { subStatusName: sub.name }),
+      ...(dto.superStatus === JobSuperStatus.CANCELED && cancellationReason && { cancellationReason }),
     });
 
     this.publishEvent('deal.status_changed', {
@@ -2290,6 +2293,8 @@ export class DealsService {
       productId: dto.productId,
       productName: dto.name,
       quantity: dto.quantity,
+      // Workiz's Activity: "Added item Service Call (150.00)".
+      priceClient: dto.priceClient,
       fulfillment,
     });
 
@@ -2642,6 +2647,8 @@ export class DealsService {
     await this.addTimelineEntry(id, TimelineEventType.PRODUCT_REMOVED, caller, {
       productId: product.productId,
       productName: product.name,
+      // Workiz's Activity: "Removed item Parts (35.00)".
+      priceClient: product.priceClient,
     });
 
     this.publishEvent('deal.product_removed', {

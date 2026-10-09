@@ -883,6 +883,27 @@ describe('DealsService', () => {
       );
     });
 
+    // Workiz's Activity reads "Status Updated - Canceled - Cant Do - tech said cant do":
+    // the entry carries the sub-status's name and the reason typed, so the line needs no lookup.
+    it('names the sub-status and the typed reason on the timeline entry', async () => {
+      const deal = mockFindById(createMockDeal({ superStatus: JobSuperStatus.PENDING }));
+      jobStatuses.findById.mockResolvedValue({ id: 'sub-9', name: 'Cant Do', group: JobSuperStatus.CANCELED });
+      repo.update.mockResolvedValue({ ...deal, superStatus: JobSuperStatus.CANCELED, subStatusId: 'sub-9' });
+
+      await service.moveStatus(
+        'deal-1',
+        { superStatus: JobSuperStatus.CANCELED, subStatusId: 'sub-9', cancellationReason: 'tech said cant do' },
+        caller,
+      );
+
+      expect(timeline.addEntry).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: TimelineEventType.STATUS_CHANGED,
+          details: expect.objectContaining({ subStatusName: 'Cant Do', cancellationReason: 'tech said cant do' }),
+        }),
+      );
+    });
+
     it('records a null fromSubStatusId when the deal had no sub-status', async () => {
       const deal = mockFindById(createMockDeal({ superStatus: JobSuperStatus.SUBMITTED }));
       repo.update.mockResolvedValue({ ...deal, superStatus: JobSuperStatus.IN_PROGRESS });
@@ -1290,6 +1311,20 @@ describe('DealsService', () => {
       expect(sns.publish).toHaveBeenCalledWith('deal-events', 'deal.product_added', expect.any(Object));
     });
 
+    // Workiz's Activity: "Added item Service Call (150.00)" — the line's price rides on the entry.
+    it('records the line’s price on the timeline entry', async () => {
+      mockFindById(createMockDeal({ assignedTechIds: ['tech-1'], stage: DealStage.WORK_IN_PROGRESS }));
+
+      await service.addProduct('deal-1', dto as any, caller);
+
+      expect(timeline.addEntry).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: TimelineEventType.PRODUCT_ADDED,
+          details: expect.objectContaining({ productName: 'Deadbolt', priceClient: 45 }),
+        }),
+      );
+    });
+
     it('throws if no tech assigned', async () => {
       mockFindById(createMockDeal({ assignedTechIds: [] }));
       await expect(service.addProduct('deal-1', dto as any, caller)).rejects.toThrow(BadRequestException);
@@ -1429,6 +1464,21 @@ describe('DealsService', () => {
       expect(http.restoreStock).toHaveBeenCalledWith(expect.objectContaining({ containerId: 'tech-2' }));
       expect(products.removeProduct).toHaveBeenCalledWith('deal-1', 'product-1');
       expect(sns.publish).toHaveBeenCalledWith('deal-events', 'deal.product_removed', expect.any(Object));
+    });
+
+    // Workiz's Activity: "Removed item Parts (35.00)".
+    it('records the removed line’s price on the timeline entry', async () => {
+      mockFindById(createMockDeal({ assignedTechIds: ['tech-1'] }));
+      products.findProduct.mockResolvedValue(createMockDealProduct({ name: 'Parts', priceClient: 35 }));
+
+      await service.removeProduct('deal-1', 'product-1', caller);
+
+      expect(timeline.addEntry).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: TimelineEventType.PRODUCT_REMOVED,
+          details: expect.objectContaining({ productName: 'Parts', priceClient: 35 }),
+        }),
+      );
     });
 
     it('falls back to the sole assigned tech for a legacy line with no source', async () => {
