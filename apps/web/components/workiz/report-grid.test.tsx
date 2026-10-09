@@ -256,6 +256,82 @@ describe("WzReportGrid minTableWidth (pg_inventory)", () => {
   });
 });
 
+describe("WzReportGrid rowHeight (the one-load rule)", () => {
+  // A record row on Workiz is as tall as what it holds — 80px beside a 40px
+  // picture, 82px for a name over an email, 58px for a two-line time — while
+  // the loader's blank rows are react-table's 56/57px: the records then land
+  // lower than the blanks they replace and everything under them moves
+  // (app_audit 2026-10-09: CLS 0.02–0.13 on twelve grids). Told the row
+  // height, the grid gives it to the loader's blanks, the records and the
+  // filler alike, so it is the same height before and after the rows come.
+  const heights = () => [...document.querySelectorAll<HTMLElement>("tbody tr:not([hidden])")].map((tr) => tr.style.height);
+
+  it("declares the same height on the loader's blank rows as on the records and the filler that follow", () => {
+    const { rerender } = render(<WzReportGrid aria-label="Activity" columns={columns} rows={rows} rowKey={(r) => r.id} loading rowHeight={80} />);
+    expect(heights()).toEqual(Array(10).fill("80px"));
+    rerender(<WzReportGrid aria-label="Activity" columns={columns} rows={rows} rowKey={(r) => r.id} rowHeight={80} />);
+    expect(heights()).toEqual(Array(10).fill("80px"));
+    expect(screen.getByText("Ann").closest("tr")!.style.height).toBe("80px");
+  });
+
+  it("drops the blanks' own 56/57px classes, which would fight the height it was given", () => {
+    const { rerender } = render(<WzReportGrid aria-label="Activity" columns={columns} rows={rows} rowKey={(r) => r.id} rowHeight={82} />);
+    const pad = () => document.querySelector("tbody tr[aria-hidden] td")!;
+    expect(pad().className).not.toMatch(/h-\[5[67]px\]/);
+    // The faint rule is still the filler's (and plainFiller still takes it off under records).
+    expect(pad().className).toContain("border-b-black/5");
+    rerender(<WzReportGrid aria-label="Activity" columns={columns} rows={rows} rowKey={(r) => r.id} rowHeight={82} plainFiller />);
+    expect(pad().className).not.toContain("border-b-black/5");
+    expect(pad().className).not.toMatch(/h-\[5[67]px\]/);
+  });
+
+  it("gives the loader's blank cells the record cells' own classes — the same padding, the same alignment", () => {
+    render(<WzReportGrid aria-label="Activity" columns={columns} rows={rows} rowKey={(r) => r.id} loading rowHeight={80} cellAlign="middle" />);
+    const blank = document.querySelector("tbody tr[aria-hidden] td")!;
+    expect(blank.className).toContain("p-5");
+    expect(blank.className).toContain("align-middle");
+    expect(blank.className).not.toContain("py-0");
+  });
+
+  it("sits the loader's dots in the grid's middle when the rows are taller than Workiz's blanks", () => {
+    const { rerender } = render(<WzReportGrid aria-label="Activity" columns={columns} rows={rows} rowKey={(r) => r.id} loading rowHeight={80} />);
+    const dots = () => screen.getByRole("status", { name: "Loading" }).firstElementChild!;
+    expect(dots().className).toContain("top-1/2");
+    // Workiz's own ten 56px blanks keep its measured 340px.
+    rerender(<WzReportGrid aria-label="Activity" columns={columns} rows={rows} rowKey={(r) => r.id} loading rowHeight={56} />);
+    expect(dots().className).toContain("top-[340px]");
+  });
+
+  // Chrome reported the filler rows under three warehouses moving 192px
+  // (app_audit → probe_shift 2026-10-09): keyed by their index, the blanks
+  // that were rows 1–3 while loading became rows 4–6 once the records went
+  // in above them — the same elements, pushed down. Keyed by their slot, a
+  // blank keeps the row it had, and the records take the blanks' places as
+  // new elements: nothing on screen moves.
+  it("keys a filler by its slot, so the blanks under the records are the rows they were while loading", () => {
+    const { rerender } = render(<WzReportGrid aria-label="Activity" columns={columns} rows={rows} rowKey={(r) => r.id} loading rowHeight={80} />);
+    const blanks = () => [...document.querySelectorAll<HTMLElement>("tbody tr[aria-hidden]")];
+    const loadingRows = blanks();
+    expect(loadingRows).toHaveLength(10);
+    rerender(<WzReportGrid aria-label="Activity" columns={columns} rows={rows} rowKey={(r) => r.id} rowHeight={80} />);
+    const fillers = blanks();
+    expect(fillers).toHaveLength(8);
+    // The eight fillers are the very elements that were rows 3–10 of the loader.
+    expect(fillers).toEqual(loadingRows.slice(2));
+    // And they sit where they sat: third row onwards.
+    const body = document.querySelector("tbody")!;
+    expect([...body.children].indexOf(fillers[0])).toBe(2);
+  });
+
+  it("leaves every grid without it exactly as it was — no declared heights at all", () => {
+    const { rerender } = render(<WzReportGrid aria-label="Activity" columns={columns} rows={rows} rowKey={(r) => r.id} loading />);
+    expect(heights().every((h) => h === "")).toBe(true);
+    rerender(<WzReportGrid aria-label="Activity" columns={columns} rows={rows} rowKey={(r) => r.id} />);
+    expect(heights().every((h) => h === "")).toBe(true);
+    expect(document.querySelector("tbody tr[aria-hidden] td")!.className).toContain("h-[57px]");
+  });
+});
+
 describe("wzNextSort", () => {
   // react-table: the first click on an unsorted column sorts it ascending,
   // then each click turns it round (rep_activity_wz_08_sort_asc / _08b).

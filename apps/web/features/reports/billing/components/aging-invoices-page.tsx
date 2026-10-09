@@ -103,7 +103,11 @@ export function AgingInvoicesPage() {
   const { can, isLoading: permsLoading } = usePermissions();
   const denied = useDenied();
   const canView = can("invoices", "view");
-  const showMoney = can("financials", "view");
+  // While the permissions load the grid is drawn with the money (most readers
+  // have it); should they refuse it, the grid is drawn anew (its `key`), not
+  // reshuffled under the reader — the two columns arriving narrowed every
+  // other cell (app_audit 2026-10-09: CLS 0.08).
+  const showMoney = permsLoading || can("financials", "view");
   const [bucket, setBucket] = useState<AgingBucket>("all");
   const [sort, setSort] = useState<AgingGridSort>(null);
   const [page, setPage] = useState(1);
@@ -202,7 +206,10 @@ export function AgingInvoicesPage() {
           </p>
         ) : (
           <WzReportGrid
+            key={showMoney ? "money" : "count"}
             aria-label="Aging invoices"
+            // Workiz's rows: 82px, a client's name over their email (rep_aging; 80 over a phone).
+            rowHeight={82}
             columns={columns}
             rows={r?.items ?? []}
             rowKey={(row) => row.invoiceId}

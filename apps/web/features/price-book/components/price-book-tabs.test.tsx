@@ -43,6 +43,15 @@ describe("PriceBookTabs", () => {
     expect(document.querySelectorAll("[data-tab-placeholder]")).toHaveLength(3);
   });
 
+  // The frame over the tabs holds them until the page under them is whole
+  // (one skeleton, then the page), permissions in or not.
+  it("holds the three places while the frame says so", () => {
+    render(<PriceBookTabs pending />);
+    expect(screen.queryAllByRole("link")).toHaveLength(0);
+    expect(document.querySelectorAll("[data-tab-placeholder]")).toHaveLength(3);
+    expect(screen.getByRole("navigation", { name: "Price Book sections" })).toHaveAttribute("aria-busy", "true");
+  });
+
   it("gates each tab on its own resource", () => {
     mocks.can = (r) => r === "products";
     const { unmount } = render(<PriceBookTabs />);

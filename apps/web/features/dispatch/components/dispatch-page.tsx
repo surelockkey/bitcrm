@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { KeyRound, Loader2, TriangleAlert } from "lucide-react";
+import { KeyRound, TriangleAlert } from "lucide-react";
 import type { Deal } from "@bitcrm/types";
 import { MapsProvider } from "@/components/maps/maps-provider";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,7 @@ import { AssignTechDialog } from "@/features/deals/components/assign-tech-dialog
 import type { DealsWindow } from "@/features/deals/window";
 import { useJobTypes } from "@/features/job-types/hooks";
 import { activeJobTypes, useJobTypeName } from "@/features/job-types/lib";
+import { DispatchBoardSkeleton } from "./board-skeleton";
 import { DispatchMap } from "./dispatch-map";
 import { ServiceAreaLegend } from "./service-area-overlay";
 import { JobList } from "./job-list";
@@ -249,14 +250,10 @@ function DispatchBoardPage() {
     );
   }
 
-  // One wait for the whole board, then the board in one frame.
-  if (!board) {
-    return (
-      <div className="flex flex-1 items-center justify-center">
-        <Loader2 className="size-5 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
+  // One wait for the whole board, then the board in one frame — behind the
+  // page's own shape meanwhile, not a spinner: the open jobs drain a hundred
+  // a page and can take a few seconds.
+  if (!board) return <DispatchBoardSkeleton showTabs={canSeeTechs} />;
 
   // Enter in the search box centres the map on the first match.
   const zoomToFirstMatch = () => {

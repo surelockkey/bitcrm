@@ -6,6 +6,7 @@ import type { Container } from "@bitcrm/types";
 import { WzReportGrid, type WzReportColumn } from "@/components/workiz/report-grid";
 import { useColumnWidths } from "@/lib/table/use-column-widths";
 import { LocationActions, LocationName } from "@/features/inventory/components/locations-grid";
+import { INVENTORY_ROW_HEIGHTS } from "@/features/inventory/row-heights";
 import { formatTotal, type LocationTotals } from "@/features/inventory/stock/lib";
 import { namesSummary, type ContainerUser } from "@/features/inventory/user-containers/lib";
 import { containerTitle } from "../lib";
@@ -79,6 +80,7 @@ export function ContainersTable({
     <WzReportGrid
       aria-label="Containers"
       className="shrink-0"
+      rowHeight={INVENTORY_ROW_HEIGHTS.containers}
       columns={columns}
       rows={loading ? NO_ROWS : containers}
       rowKey={(c) => c.id}

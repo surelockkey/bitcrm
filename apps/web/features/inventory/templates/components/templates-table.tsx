@@ -8,6 +8,7 @@ import { WzEditIcon } from "@/components/workiz/icons";
 import { WzReportGrid, type WzReportColumn } from "@/components/workiz/report-grid";
 import { useColumnWidths } from "@/lib/table/use-column-widths";
 import { LocationName } from "@/features/inventory/components/locations-grid";
+import { INVENTORY_ROW_HEIGHTS } from "@/features/inventory/row-heights";
 import { RowIconAction } from "@/features/inventory/components/row-icon-action";
 import { templateUnits } from "../lib";
 import { TemplateRowActions } from "./template-row-actions";
@@ -86,6 +87,7 @@ export function TemplatesTable({
     <WzReportGrid
       aria-label="Templates"
       className="shrink-0"
+      rowHeight={INVENTORY_ROW_HEIGHTS.templates}
       columns={columns}
       rows={loading ? NO_ROWS : templates}
       rowKey={(t) => t.id}

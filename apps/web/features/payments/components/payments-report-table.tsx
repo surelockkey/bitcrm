@@ -70,6 +70,16 @@ const WIDTHS_KEY = "payments-report-v1";
 /** react-table's `minRows` on Workiz's report. */
 export const MIN_ROWS = 10;
 
+/**
+ * A row's height: Workiz's 80px (the client's name, 16px/24px, over their
+ * phone; rep_payments_wz_01_default). Declared on the shell's blanks, the
+ * records and the filler alike — Workiz's own shell is ten 56px blanks and
+ * its rows land 24px lower each (app_audit 2026-10-09: CLS 0.07); ours
+ * keep the house rule, one skeleton, then the page where it was.
+ */
+export const ROW_HEIGHT = 80;
+const ROW_STYLE = { height: ROW_HEIGHT };
+
 const FRAME = "relative overflow-x-auto border border-wz-frame";
 const TABLE = "table-fixed border-separate border-spacing-0";
 const HEAD = "h-[42px] border-b border-r border-input bg-muted px-2.5 text-sm leading-[21px] font-medium text-wz-strong last:border-r-0";
@@ -214,12 +224,12 @@ function Cell({
 const gridWidth = (columns: readonly { id: string }[], widthOf: (id: string) => number) =>
   `max(100%, ${columns.reduce((w, c) => w + widthOf(c.id), 0)}px)`;
 
-/** Blank striped rows up to `MIN_ROWS` — react-table's `-padRow`, 56px and a faint rule. */
+/** Blank striped rows up to `MIN_ROWS` — react-table's `-padRow` with its faint rule, at the row height. */
 function PadRows({ count, columns }: { count: number; columns: readonly { id: string }[] }) {
   return (
     <>
       {Array.from({ length: Math.max(0, count) }, (_, i) => (
-        <TableRow key={`pad-${i}`} aria-hidden className="h-14 hover:bg-transparent">
+        <TableRow key={`pad-${i}`} aria-hidden className="hover:bg-transparent" style={ROW_STYLE}>
           {columns.map((c) => (
             <TableCell key={c.id} className={cn(CELL, "border-b border-b-black/5")} />
           ))}
@@ -283,7 +293,7 @@ export function PaymentsReportTable({ rows, money, dir, onSortDate, contactOf, n
         </TableHeader>
         <TableBody className={cn(busy && "opacity-60")}>
           {rows.map((row) => (
-            <TableRow key={`${row.kind}:${row.id}`} className="border-0 hover:bg-black/5!">
+            <TableRow key={`${row.kind}:${row.id}`} className="border-0 hover:bg-black/5!" style={ROW_STYLE}>
               {columns.map((c) => (
                 <TableCell key={c.id} className={CELL}>
                   <Cell row={row} column={c.id} contactOf={contactOf} nameOf={nameOf} />
@@ -308,7 +318,7 @@ export function PaymentsReportTableShell({ money }: { money: boolean }) {
   const { widthOf } = useColumnWidths(WIDTHS_KEY, WIDTHS);
   const columns = paymentsReportColumns(money);
   return (
-    <div role="status" aria-label="Loading payments" aria-busy className={FRAME}>
+    <div role="status" aria-label="Loading payments" aria-busy="true" data-slot="payments-report-grid" className={FRAME}>
       <Table contained={false} className={TABLE} style={{ width: gridWidth(columns, widthOf) }}>
         <Colgroup columns={columns} widthOf={widthOf} />
         <TableHeader>

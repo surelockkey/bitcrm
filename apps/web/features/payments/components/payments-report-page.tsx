@@ -55,7 +55,12 @@ export function PaymentsReportPage() {
   const { can, isLoading: permsLoading } = usePermissions();
   const denied = useDenied();
   const canView = can("payments");
-  const money = can("financials");
+  // While the permissions load the shell is drawn with the money columns
+  // (most readers have them); should they refuse it, the grid is drawn anew
+  // (its `key`), not reshuffled — Amount and Tip arriving narrowed every
+  // other column (probe_shift 2026-10-09: CLS 0.06). No figure is shown
+  // before they answer: the report itself is not asked for until then.
+  const money = permsLoading || can("financials");
 
   // Workiz counts its presets from the viewer's own clock (moment()).
   const [today] = useState(() => viewerToday());
@@ -232,7 +237,7 @@ export function PaymentsReportPage() {
         </div>
       </WzListToolbar>
 
-      <div className="shrink-0">
+      <div className="shrink-0" key={money ? "money" : "plain"}>
         {!ready ? (
           <PaymentsReportTableShell money={money} />
         ) : q.isError ? (

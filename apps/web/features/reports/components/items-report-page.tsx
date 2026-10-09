@@ -56,7 +56,7 @@ const PRESETS = ITEMS_REPORT_PRESETS.map((p) => ({ id: p.id, label: p.label }));
 export function ItemsReportPage({ today: todayProp }: { today?: string } = {}) {
   usePageHistoryLabel("Items Report");
   const denied = useDenied();
-  const { can } = usePermissions();
+  const { can, isLoading: permsLoading } = usePermissions();
   // Workiz counts its presets from the viewer's own clock (moment()).
   const [today] = useState(() => todayProp ?? viewerToday());
 
@@ -86,7 +86,12 @@ export function ItemsReportPage({ today: todayProp }: { today?: string } = {}) {
   const state: ItemsReportState = { from: range.from, to: range.to, filters, search: q, sort: sort.column, dir: sort.dir, page, pageSize };
   const report = useItemsReport(itemsReportParams(state), !denied("reports", "view") && custom.usable);
   const data = report.data;
-  const money = data?.money ?? can("financials");
+  // The report's own word on the money columns once it answers; until then
+  // a guess — with them while the permissions load (most readers have them),
+  // so the loader's grid is the grid the rows land in. A wrong guess draws
+  // the grid anew (its `key`), not reshuffled under the reader: the three
+  // columns arriving narrowed every other cell (probe_shift 2026-10-09).
+  const money = data?.money ?? (permsLoading || can("financials"));
   const groups = useFilterGroups(data?.options);
 
   if (denied("reports", "view")) return <NoAccess entity="reports" />;
@@ -155,7 +160,7 @@ export function ItemsReportPage({ today: todayProp }: { today?: string } = {}) {
         ) : (
           <ItemsReportTable
             // A new period or filter closes every opened item.
-            key={`${state.from}|${state.to}|${JSON.stringify(filters)}|${q}`}
+            key={`${state.from}|${state.to}|${JSON.stringify(filters)}|${q}|${money ? "money" : "plain"}`}
             rows={data?.rows ?? []}
             totals={data?.totals}
             money={money}

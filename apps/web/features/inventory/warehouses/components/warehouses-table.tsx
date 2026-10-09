@@ -6,6 +6,7 @@ import type { Warehouse } from "@bitcrm/types";
 import { WzReportGrid, type WzReportColumn } from "@/components/workiz/report-grid";
 import { useColumnWidths } from "@/lib/table/use-column-widths";
 import { LocationActions, LocationName } from "@/features/inventory/components/locations-grid";
+import { INVENTORY_ROW_HEIGHTS } from "@/features/inventory/row-heights";
 import { formatTotal, type LocationTotals } from "@/features/inventory/stock/lib";
 
 /**
@@ -67,6 +68,7 @@ export function WarehousesTable({
     <WzReportGrid
       aria-label="Warehouses"
       className="shrink-0"
+      rowHeight={INVENTORY_ROW_HEIGHTS.warehouses}
       columns={columns}
       rows={loading ? NO_ROWS : warehouses}
       rowKey={(w) => w.id}

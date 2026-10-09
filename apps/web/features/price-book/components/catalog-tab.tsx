@@ -13,13 +13,13 @@ import { WzPager } from "@/components/workiz/pager";
 import { WzReportGrid, type WzReportColumn } from "@/components/workiz/report-grid";
 import { WzListToolbar, WzPageSizeSelect, WzSearchBox, WzToolbarButton } from "@/components/workiz/toolbar";
 import { cn } from "@/lib/utils";
-import { usePageReady } from "@/lib/use-page-ready";
 import { useDenied, usePermissions } from "@/features/auth/use-permissions";
 import { usePopup } from "@/features/inventory/use-popup";
 import { WzConfirm } from "@/features/inventory/item-edit/wz";
 import { useCategoryItemCounts, useUpdateCatalogEntry, type CatalogKind } from "../hooks";
 import { catalogRows, catalogsToCsv, filterCatalog, type CatalogEntry, type CatalogRow, type CatalogStatus } from "../lib";
 import { CatalogDialog } from "./catalog-dialog";
+import { usePriceBookPageReady } from "./price-book-frame";
 
 /** Everything that differs between Workiz's "Item categories" and "Item brands" tabs. */
 export interface CatalogConfig {
@@ -103,7 +103,8 @@ export function CatalogTab({
   // A catalog the permissions haven't enabled yet has no data and isn't
   // "loading" either — it is still the loader, not an empty catalog. The
   // rows also wait for the permissions (their actions) and the counts.
-  const ready = usePageReady(!permsLoading && (query.data !== undefined || query.isError) && !counts.isLoading);
+  // Reported to the frame: the tab row appears in this same frame.
+  const ready = usePriceBookPageReady(!permsLoading && (query.data !== undefined || query.isError) && !counts.isLoading);
 
   const sortColumns = useMemo<WzGridColumn<CatalogRow>[]>(
     () => [
@@ -218,6 +219,8 @@ export function CatalogTab({
         <WzReportGrid
           aria-label={categories ? "Item categories" : "Item brands"}
           className="shrink-0"
+          // Workiz's rows: categories 80px (the 40px picture), brands 61px (pg_pricebook).
+          rowHeight={categories ? 80 : 61}
           columns={columns}
           rows={ready ? view.rows : NO_ROWS}
           rowKey={(r) => r.id}

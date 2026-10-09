@@ -2,12 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, screen } from "@testing-library/react";
 import type { TaxReport, TaxReportBasis } from "@bitcrm/types";
 import {
+  declaredRowHeights,
   duplicates,
   installFakeServer,
   renderWithClient,
   settle,
   skeletonCount,
   watchFirstFrame,
+  watchLoadingRowHeights,
   type FakeRoute,
   type FakeServer,
 } from "@/test/page-load";
@@ -110,5 +112,18 @@ describe("TaxReportPage — no jumping", () => {
     await settle();
 
     expect(duplicates(server.requests)).toEqual([]);
+  });
+
+  // app_audit 2026-10-09: CLS 0.06 — the loader's ruled 57px blanks became
+  // Workiz's 56px rows (rep_tax) and ten rows crept up 10px. Blanks, records
+  // and filler now all declare the 56px.
+  it("lands its rows on the loader's blank rows — the same declared row height before and after", async () => {
+    const watch = watchLoadingRowHeights();
+    renderWithClient(<TaxReportPage today="2026-10-09" />);
+    await screen.findByText("State sales tax", {}, { timeout: 3000 });
+    watch.stop();
+
+    expect(watch.frame()).toEqual(["56px"]);
+    expect(declaredRowHeights()).toEqual(["56px"]);
   });
 });

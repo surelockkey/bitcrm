@@ -125,6 +125,32 @@ export function skeletonCount(root: ParentNode = document): number {
   return root.querySelectorAll('[data-slot="skeleton"]').length;
 }
 
+/**
+ * The heights a report grid's body rows declare — `<tr style="height: 80px">`
+ * on every row of a `WzReportGrid` given its `rowHeight` (the loader's blank
+ * rows, the records and the filler alike) — one entry per distinct value, or
+ * `"(none)"` for rows that declare nothing. jsdom lays nothing out, so this is
+ * what a loading test can check: one value, the same while the grid loads and
+ * once its rows are in, means the rows landed exactly where the blanks were.
+ */
+export function declaredRowHeights(root: ParentNode = document): string[] {
+  const rows = [...root.querySelectorAll(GRIDS)].flatMap((grid) => [...grid.querySelectorAll<HTMLElement>("tbody tr:not([hidden])")]);
+  return [...new Set(rows.map((tr) => tr.style.height || "(none)"))];
+}
+
+/** The report grids whose rows declare a height: the kit's, and the Payments report's own. */
+const GRIDS = '[data-slot="wz-report-grid"], [data-slot="payments-report-grid"]';
+const LOADING_GRID_ROWS = '[data-slot="wz-report-grid"][aria-busy="true"] tbody tr, [data-slot="payments-report-grid"][aria-busy="true"] tbody tr';
+
+/**
+ * Watch a grid from its loader to its rows: what its rows declared in the
+ * first frame it was loading, to compare with `declaredRowHeights()` once the
+ * rows are in. Start it before rendering; `stop` it after.
+ */
+export function watchLoadingRowHeights(): { frame: () => string[] | null; stop: () => void } {
+  return watchFirstFrame(() => !!document.querySelector(LOADING_GRID_ROWS), () => declaredRowHeights());
+}
+
 /** The requests made more than once, once each. */
 export function duplicates(requests: string[]): string[] {
   return [...new Set(requests.filter((r, i) => requests.indexOf(r) !== i))];

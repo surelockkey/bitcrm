@@ -1271,6 +1271,45 @@ boxes (`WzTextField`), react-selects (`WzSelect`) and 11px/13px #999 helpers
   box); the value and placeholder now sit on the box's middle (13px down in
   the 42px box, as before) and the input fills its height.
 
+## The one-load rule on the grids (2026-10-09, agent `jumps_fix`)
+
+The whole-app audit (`workiz-data-parser/docs/import/app-parity-2026-10-08/app_audit.md`,
+findings 4, 15–18) measured CLS 0.02–0.13 on twelve grids: Workiz's loader is
+ten 56/57px blank rows, and the records land at their own height (80 beside a
+40px picture, 82 for a name over an email…), so the grid grows under the
+reader. Notes: `…/app-parity-2026-10-08/jumps_fix.md`. Additive; every grid
+without it is untouched.
+
+- **`WzReportGrid` `rowHeight`** (new, optional, px) — the record row's
+  height on this grid, declared (`<tr style="height: 80px">`) on the loader's
+  blanks, the records and the blank filler alike, so the grid is the same
+  height before and after the rows come and nothing under it moves. The
+  loader's blanks then take the record cells' own classes (the same padding
+  and `cellAlign`) instead of the 56/57px `py-0` ones, and the dots sit in the
+  grid's middle (Workiz's 340px stays for its own 56/57px blanks). A record
+  taller than it still grows; a shorter one is held to it, so a grid whose
+  rows Workiz draws at varying heights (Invoices 80/82) should not take it.
+  Set on: Inventory 80 / 64 / 64 / 78 / 64 / 56 per tab (and `TabFallback`),
+  Price book 80 / 80 / 61, Aging 82, Items 77, Tax 56, Activity 58.
+- `test/page-load.tsx` **`declaredRowHeights()`** + **`watchLoadingRowHeights()`**
+  — the loading tests' check: the heights the rows declare while the grid
+  loads must equal the ones once the rows are in (`["80px"]` both times).
+- The Payments report's own table (`payments-report-table.tsx`) declares its
+  `ROW_HEIGHT` (80) the same way on its shell, records and filler.
+- The grid's blank filler rows are keyed by the slot they fill, not their
+  index (`pad-<records before it + i>`): once the records are in, the blanks
+  under them are the very rows they were while loading, in the same places,
+  and Chrome reports no shift. Keyed by index they slid down a record row
+  each (probe_shift 2026-10-09: 0.02–0.13 left after the heights matched).
+  Same DOM for every grid; only the keys changed.
+- A grid whose **column set** is not known at the first paint (money columns
+  behind `financials.view`, custom-field columns from a catalog) must not
+  reflow under the loader: guess the fuller set while the permissions load
+  (`permsLoading || can(…)`, as the Inventory Items strip does) and `key` the
+  grid by the set (`columns.map((c) => c.id).join("|")`, or `money ? "money"
+  : "plain"`), so a wrong guess is drawn anew rather than squeezed — Aging,
+  the Payments and Items reports, Inventory Items do this.
+
 ## Team member type (2026-10-09, agent `subcontractor`)
 
 Measured off `subcontractor_wz_04b_add_new_subcontractor` (Team → "+ Add New" →

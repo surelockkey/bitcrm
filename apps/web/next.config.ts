@@ -7,6 +7,34 @@ const dirname = path.dirname(fileURLToPath(import.meta.url));
 /** Where the client portal is served (apps/portal). */
 const PORTAL_URL = (process.env.NEXT_PUBLIC_PORTAL_URL ?? "https://portal.bitcrm.tech-slk.com").replace(/\/+$/, "");
 
+/**
+ * Addresses that only send the reader on: the Payments report under Reports,
+ * Inventory and the Price Book on their Items tab, the old phone and
+ * automation settings on the Phone tabs and the module.
+ *
+ * Each has a page file calling `redirect()` too (for the bookmarks, and the
+ * tests on them), but inside the streamed app shell that redirect is a meta
+ * refresh: the browser drew the old address first — the settings rail, the
+ * Inventory frame, a skeleton — and then the real page over it, the sidebar
+ * jumping from the 48px rail to its full width (CLS 0.10–0.13), two skeletons
+ * where the house rule allows one, and the old address left standing in the
+ * breadcrumb trail ("PAYMENTS # PAYMENTS"; app_audit 2026-10-09, findings 3
+ * and 5). Answered here, before the filesystem is consulted, a typed address
+ * and a Link alike get a 307 and the old page never renders.
+ */
+const MOVED: [source: string, destination: string][] = [
+  ["/payments", "/reports/payments"],
+  ["/inventory", "/inventory/items"],
+  ["/price-book", "/price-book/items"],
+  ["/settings/general", "/settings"],
+  ["/settings/automations", "/automations"],
+  ["/settings/phone-numbers", "/calls/numbers"],
+  ["/settings/call-flows", "/calls/flows"],
+  ["/settings/call-groups", "/calls/groups"],
+  ["/settings/messaging", "/calls/texting"],
+  ["/settings/message-templates", "/calls/texting"],
+];
+
 const nextConfig: NextConfig = {
   // Transpile the shared workspace package so its output is bundled cleanly.
   transpilePackages: ["@bitcrm/types", "@bitcrm/document-renderer", "@bitcrm/portal-ui"],
@@ -42,6 +70,7 @@ const nextConfig: NextConfig = {
         destination: `${PORTAL_URL}/:token`,
         permanent: false,
       },
+      ...MOVED.map(([source, destination]) => ({ source, destination, permanent: false })),
     ];
   },
 

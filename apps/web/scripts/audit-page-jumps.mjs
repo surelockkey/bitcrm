@@ -82,12 +82,22 @@ await ctx.addInitScript(() => {
 });
 
 const login = await ctx.newPage();
-await login.goto(base + "/login", { waitUntil: "domcontentloaded" });
-await login.waitForTimeout(3500);
+await login.goto(base + "/login", { waitUntil: "networkidle" });
+// Hydrated first — on a warm server a fixed wait once lost the race, the form
+// went off as a native GET, nothing was signed in, and every route measured
+// the login page (first = settled, no skeletons) without a word.
+await login.waitForTimeout(1500);
 await login.fill('input[type="email"], input[name="email"]', email);
 await login.fill('input[type="password"]', password);
 await login.click('button[type="submit"]');
-await login.waitForTimeout(6000);
+try {
+  await login.waitForURL((u) => !u.pathname.startsWith("/login"), { timeout: 30000 });
+} catch {
+  console.error("Login did not leave /login — check AUDIT_EMAIL / AUDIT_PASSWORD, or the server was not hydrated.");
+  await browser.close();
+  process.exit(1);
+}
+await login.waitForTimeout(3000);
 await login.close();
 
 const results = [];

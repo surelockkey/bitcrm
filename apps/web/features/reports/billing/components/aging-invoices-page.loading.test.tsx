@@ -1,13 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { AgingBucket, AgingReport } from "@bitcrm/types";
 import {
+  declaredRowHeights,
   duplicates,
   installFakeServer,
   renderWithClient,
   settle,
   skeletonCount,
   watchFirstFrame,
+  watchLoadingRowHeights,
   type FakeRoute,
   type FakeServer,
 } from "@/test/page-load";
@@ -31,9 +34,14 @@ vi.mock("next/link", () => ({
     </a>
   ),
 }));
+const perms = vi.hoisted(() => ({ loading: false, money: true }));
 vi.mock("@/features/auth/use-permissions", () => ({
   useDenied: () => () => false,
-  usePermissions: () => ({ can: () => true, isLoading: false }),
+  // While the matrix loads, `can` says no to everything — as the real one does.
+  usePermissions: () => ({
+    can: (resource: string) => !perms.loading && (resource !== "financials" || perms.money),
+    isLoading: perms.loading,
+  }),
 }));
 
 const report = (bucket: AgingBucket): AgingReport => ({
@@ -79,12 +87,64 @@ const cards = () => [...document.querySelectorAll<HTMLButtonElement>("button[ari
 const cardsUp = () => cards().length > 0;
 
 beforeEach(() => {
+  perms.loading = false;
+  perms.money = true;
   server = installFakeServer(routes);
 });
 
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+});
+
+/**
+ * app_audit → probe_shift 2026-10-09 (CLS 0.08): with the permissions still
+ * on their way the loader drew the grid without Total and Balance, and when
+ * they answered the two columns came in and every cell to their left
+ * narrowed. The loader now guesses the full grid — most readers have the
+ * money — and a reader the permissions keep from it gets a grid drawn anew,
+ * not reshuffled.
+ */
+describe("AgingInvoicesPage — the columns while the permissions load", () => {
+  const headers = () => [...document.querySelectorAll("thead th")].map((th) => th.textContent?.trim());
+  const grid = () => document.querySelector('[data-slot="wz-report-grid"]');
+  // A mocked permissions hook cannot wake the page; re-rendering it under the same client can.
+  const mount = () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const ui = () => (
+      <QueryClientProvider client={client}>
+        <AgingInvoicesPage />
+      </QueryClientProvider>
+    );
+    const { rerender } = render(ui());
+    return () => rerender(ui());
+  };
+
+  it("guesses the money columns while the permissions load and keeps the very grid once they confirm it", async () => {
+    perms.loading = true;
+    const rerender = mount();
+    const first = grid();
+    expect(headers()).toEqual(expect.arrayContaining(["Total", "Balance"]));
+
+    perms.loading = false;
+    rerender();
+    expect(grid()).toBe(first);
+    await screen.findByText("INV100", {}, { timeout: 3000 });
+    expect(grid()).toBe(first);
+    expect(headers()).toEqual(expect.arrayContaining(["Total", "Balance"]));
+  });
+
+  it("draws the grid anew — not reshuffled — for a reader the permissions keep from the money", () => {
+    perms.loading = true;
+    perms.money = false;
+    const rerender = mount();
+    const first = grid();
+
+    perms.loading = false;
+    rerender();
+    expect(headers()).not.toContain("Total");
+    expect(first!.isConnected).toBe(false);
+  });
 });
 
 describe("AgingInvoicesPage — no jumping", () => {
@@ -131,5 +191,19 @@ describe("AgingInvoicesPage — no jumping", () => {
     await settle();
 
     expect(duplicates(server.requests)).toEqual([]);
+  });
+
+  // app_audit 2026-10-09: CLS 0.08 — the loader's 57px blanks became 82px
+  // rows (a client's name over their email, rep_aging) and the grid grew
+  // under the reader. The blanks, the records and the filler now all declare
+  // Workiz's 82px, so the rows land exactly where the blanks were.
+  it("lands its rows on the loader's blank rows — the same declared row height before and after", async () => {
+    const watch = watchLoadingRowHeights();
+    renderWithClient(<AgingInvoicesPage />);
+    await screen.findByText("INV100", {}, { timeout: 3000 });
+    watch.stop();
+
+    expect(watch.frame()).toEqual(["82px"]);
+    expect(declaredRowHeights()).toEqual(["82px"]);
   });
 });
