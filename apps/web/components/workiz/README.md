@@ -546,6 +546,31 @@ Measured off `rep_payments_wz_*` (notes:
   box under From / To ("Date range exceeds 12 months", 14px `#ff0000`, 5px
   in), only while Custom is open.
 
+### Items report pieces (2026-10-09, agent `rep_items`)
+
+Measured off `rep_items_wz_*` (notes:
+`workiz-data-parser/docs/import/app-parity-2026-10-08/rep_items.md`). All
+additive; every existing caller is untouched.
+
+- **`WzReportGrid` `renderExpanded={(row) => ReactNode | null}`** —
+  react-table's SubComponent: what a record opens under its row (the Items
+  report's jobs of an item), one cell across every column, white over the
+  zebra, no hover, no padding; the zebra keeps counting records (a hidden
+  spacer row follows the box), and a record holding an open
+  `aria-expanded` control keeps its stripe instead of the "menu open" grey.
+- **`WzReportGrid` `minRows`** (default 10; the Items drill-down's 5 — the
+  loader's dots then sit halfway down), **`stickyHeader`** (default on; off
+  for a grid nested in another), **`padRowRule`** (default on: 57px blank rows
+  over the faint .05 rule; off: Workiz Items' 56px rows without it).
+- **`WzReportColumn.headerClassName`** — classes on the header's words: the
+  Items report's "Item" is react-table's plain header, `"text-center
+  font-normal"`.
+- **`WzGroupedFilter` `size="tall"`** — the Items report's "Filter results":
+  48.64px (react-select's 3.04rem), the same height under the yellow ring.
+- The ▸ itself is react-table's `.rt-expander` drawn in CSS (a 7px
+  rgba(0,0,0,.8) triangle in a 10px box with 10px margins, turning down in
+  .3s on the overshooting curve) — see `features/reports/items/components/items-report-table.tsx`.
+
 ### Record-page pieces (2026-10-09, agent `pg_contact`, the client page)
 
 Lifted from Workiz's client page (`pg_contact_wz_269669_*`, notes:
