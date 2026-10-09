@@ -81,6 +81,17 @@ describe('Telephony app (e2e)', () => {
       '/api/telephony/numbers',
     );
     expect(numbers.status).toBe(401);
+
+    // The Devices catalog and the account fallback number are settings too.
+    const devices = await request(app.getHttpServer()).get(
+      '/api/telephony/devices',
+    );
+    expect(devices.status).toBe(401);
+
+    const fallback = await request(app.getHttpServer())
+      .put('/api/telephony/config/fallback-number')
+      .send({ phoneNumber: '+15550001111' });
+    expect(fallback.status).toBe(401);
   });
 
   it('gates the internal owned-numbers route on the service secret, not a bearer token', async () => {

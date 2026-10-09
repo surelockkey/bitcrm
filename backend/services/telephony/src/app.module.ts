@@ -15,6 +15,7 @@ import { CallsModule } from './calls/calls.module';
 import { VoiceModule } from './voice/voice.module';
 import { ExtsModule } from './exts/exts.module';
 import { NumbersModule } from './numbers/numbers.module';
+import { CallDevicesModule } from './call-devices/call-devices.module';
 import { CallGroupsModule } from './call-groups/call-groups.module';
 import { CallFlowsModule } from './call-flows/call-flows.module';
 import { CallTagsModule } from './call-tags/call-tags.module';
@@ -76,6 +77,8 @@ import { CALL_FLOWS_TABLE } from './call-flows/call-flows.constants';
     VoiceModule,
     ExtsModule,
     NumbersModule,
+    // The Devices catalog (`devices`) before the groups and flows that ring it.
+    CallDevicesModule,
     CallGroupsModule,
     CallFlowsModule,
   ],

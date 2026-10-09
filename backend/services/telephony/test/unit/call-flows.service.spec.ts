@@ -42,7 +42,7 @@ describe('CallFlowsService', () => {
 
       expect(flow.entryNodeId).toBe('greeting');
       expect(flow.nodes.greeting).toMatchObject({ type: 'say', next: 'ring' });
-      expect(flow.nodes.ring).toMatchObject({ type: 'ring', groupId: 'g1', next: 'end' });
+      expect(flow.nodes.ring).toMatchObject({ type: 'ring', target: { kind: 'group', id: 'g1' }, next: 'end' });
       expect(flow.nodes.end).toMatchObject({ type: 'voicemail' });
     });
 

@@ -86,6 +86,11 @@ export {
   VoicemailNode,
 } from './entities/call-flow.entity';
 export { CALL_FLOW_LIMITS } from './entities/call-flow.entity';
+// Forward-step targets (group | user | device | external number), the legacy `groupId` read through `ringTargetOf`.
+export { RingTarget, RingTargetKind, ringTargetOf, FALLBACK_NODE_ID } from './entities/call-flow.entity';
+// Devices (Workiz's desk phones / shop lines) — group members and Forward targets beside the users.
+export { CallGroupDeviceMember, ResolvedCallGroupDeviceMember } from './entities/call-group.entity';
+export { CallDevice, CallDeviceType, CALL_DEVICE_TYPES, CALL_DEVICE_LIMITS } from './entities/call-device.entity';
 export { CallTag, CALL_TAG_LIMITS } from './entities/call-tag.entity';
 export { BlockedCaller, BLOCKED_CALLER_LIMITS } from './entities/blocked-caller.entity';
 // Reports — Workiz Call Tracking (`GET /telephony/calls/stats/tracking`)

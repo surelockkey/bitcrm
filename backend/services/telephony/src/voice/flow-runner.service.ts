@@ -3,11 +3,14 @@ import twilio from 'twilio';
 import { RedisService } from '@bitcrm/shared';
 import {
   CALL_FLOW_LIMITS,
+  FALLBACK_NODE_ID,
+  ringTargetOf,
   type CallFlow,
   type CallFlowNode,
   type HoursNode,
   type MenuNode,
   type RingNode,
+  type RingTarget as FlowRingTarget,
   type SayNode,
   type ExtNode,
 } from '@bitcrm/types';
@@ -41,8 +44,15 @@ import {
   type InboundLeg,
 } from './conference.service';
 import { DialInService } from '../exts/dial-in.service';
+import { TelephonySettingsService } from '../telephony/telephony-settings.service';
 
 const VoiceResponse = twilio.twiml.VoiceResponse;
+
+/** "(888) 899-6849" for the call log; anything that is not a US number stays as typed. */
+function prettyNumber(e164: string): string {
+  const m = /^\+1(\d{3})(\d{3})(\d{4})$/.exec(e164);
+  return m ? `(${m[1]}) ${m[2]}-${m[3]}` : e164;
+}
 
 /** Everything a running call needs to keep, pinned for its lifetime. */
 interface FlowState {
@@ -111,6 +121,9 @@ export class FlowRunnerService {
     private readonly calls: CallsService,
     private readonly redis: RedisService,
     @Optional() private readonly dialIn?: DialInService,
+    // The account's fallback number. Optional so the runner specs construct
+    // without it, in which case an unanswered last step simply ends the call.
+    @Optional() private readonly settings?: TelephonySettingsService,
   ) {}
 
   /**
@@ -248,6 +261,13 @@ export class FlowRunnerService {
         `Flow "${state.flow.name}" exceeded ${CALL_FLOW_LIMITS.maxHops} steps on ${callSid}`,
       );
       return this.goodbye('Sorry, something went wrong with this call.');
+    }
+
+    // The account's fallback number is a step no flow holds: a last step that
+    // went unanswered points here, and the number rings before the call ends.
+    if (nodeId === FALLBACK_NODE_ID) {
+      await this.save(callSid, { ...state, nodeId, hops: state.hops + 1 });
+      return this.fallback(callSid, state);
     }
 
     const node = state.flow.nodes?.[nodeId];
@@ -643,57 +663,149 @@ export class FlowRunnerService {
   }
 
   /**
-   * Ring a group and park the caller in the conference — this is the node that
-   * ends in today's behaviour, and the only one that touches Twilio directly.
+   * Ring whoever the Forward step names — a group, one user, a device or an
+   * outside number — and park the caller in the conference. This is the node
+   * that ends in today's behaviour, and the only one that touches Twilio
+   * directly.
    */
   private async ring(
     callSid: string,
     state: FlowState,
     node: RingNode,
   ): Promise<string | null> {
-    const { groupId, next, answeredNext, whisper } = node;
-    const group = await this.groups.findRaw(groupId);
-    if (!group) {
-      this.logger.error(`Flow step rings group ${groupId}, which is gone — falling back`);
+    const { next, answeredNext, whisper } = node;
+    const target = ringTargetOf(node);
+    if (!target) {
+      this.logger.error(
+        `Flow "${state.flow.name}" step ${node.id} rings nobody — falling back`,
+      );
       return null;
     }
 
-    const targets = await this.groups.resolveTargets(group);
+    const resolved = await this.resolveRing(target);
+    if (!resolved) {
+      this.logger.error(
+        `Flow step forwards to ${target.kind} ${'id' in target ? target.id : target.number}, which is gone — falling back`,
+      );
+      return null;
+    }
+    const { label, targets } = resolved;
+    // Workiz's "Move to next step after N sec"; else the group's own ring
+    // time; else Workiz's default for a user or an outside line.
+    const ringSeconds =
+      node.timeoutSec ?? resolved.ringSeconds ?? CALL_FLOW_LIMITS.defaultRingTimeoutSec;
+
     this.trace(
       callSid,
       node,
       targets.length
-        ? `Rang ${group.name} — ${targets.length} phone${targets.length === 1 ? '' : 's'}`
-        : `${group.name} — nobody reachable`,
+        ? `Rang ${label} — ${targets.length} phone${targets.length === 1 ? '' : 's'}`
+        : `${label} — nobody reachable`,
     );
     if (targets.length === 0) {
-      // Nobody in this group is reachable. Going straight to the next step is
-      // the whole point of having one — the alternative is ringing silence.
-      this.logger.log(`Flow: group "${group.name}" has nobody reachable`);
-      if (!next) return this.goodbye('Sorry, nobody is available to take your call.');
-      return this.resume(callSid, next);
+      // Nobody here is reachable. Going straight to the next step is the
+      // whole point of having one — the alternative is ringing silence.
+      this.logger.log(`Flow: "${label}" has nobody reachable`);
+      if (next) return this.resume(callSid, next);
+      return this.fallback(callSid, state);
     }
 
-    const legs: InboundLeg[] = targets.map((target) => ({
-      endpoint: target.endpoint,
-      // A softphone shows the customer's number so the screen-pop works. A
-      // personal phone shows ours, so the tech's callback comes back through
-      // the CRM instead of going direct and vanishing from the log.
-      callerId: target.channel === 'softphone' ? state.from : state.to,
+    const legs: InboundLeg[] = targets.map((leg) => ({
+      endpoint: leg.endpoint,
+      // A softphone shows the customer's number so the screen-pop works.
+      // Every real phone shows ours: a tech's callback then comes back through
+      // the CRM, and Twilio would refuse a leg from a number we do not own.
+      callerId: leg.channel === 'softphone' ? state.from : state.to,
       // Only a real phone can be answered by voicemail, so only a real phone
       // needs to prove a human is there.
-      whisper: !!whisper && target.channel === 'personal',
+      whisper: !!whisper && leg.channel !== 'softphone',
     }));
 
+    // Nobody answering goes to the next step; a last step goes to the
+    // account's fallback number when one is set, else the call simply ends.
+    const fallback = next ? null : await this.fallbackNumber();
     await this.conference.initInbound(callSid, state.from, state.to, legs, {
-      ringSeconds: group.ringSeconds,
-      noAnswerUrl: next ? this.stepUrl(next) : undefined,
+      ringSeconds,
+      noAnswerUrl: next
+        ? this.stepUrl(next)
+        : fallback
+          ? this.stepUrl(FALLBACK_NODE_ID)
+          : undefined,
     });
+    return this.park(callSid, state.flow, answeredNext);
+  }
 
+  /** Who a target rings, what to call it in the log, and the ring time it brings. */
+  private async resolveRing(
+    target: FlowRingTarget,
+  ): Promise<{ label: string; targets: Array<{ channel: string; endpoint: string }>; ringSeconds?: number } | null> {
+    switch (target.kind) {
+      case 'group': {
+        const group = await this.groups.findRaw(target.id);
+        if (!group) return null;
+        return {
+          label: group.name,
+          targets: await this.groups.resolveTargets(group),
+          ringSeconds: group.ringSeconds,
+        };
+      }
+      case 'user': {
+        const user = await this.groups.resolveUserTargets(target.id);
+        return user && { label: user.name, targets: user.targets };
+      }
+      case 'device': {
+        const device = await this.groups.resolveDeviceTarget(target.id);
+        return device && { label: device.name, targets: device.targets };
+      }
+      case 'external':
+        return {
+          label: prettyNumber(target.number),
+          targets: [{ channel: 'external', endpoint: target.number }],
+        };
+    }
+  }
+
+  /** The account's fallback number, or null; a settings blip reads as "none". */
+  private async fallbackNumber(): Promise<string | null> {
+    try {
+      return (await this.settings?.fallbackNumber()) ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * The end of a flow that nobody answered: Workiz's "Fallback Number" rings
+   * from our number for a minute, then the call ends. Without one, the
+   * apology this has always given.
+   */
+  private async fallback(callSid: string, state: FlowState): Promise<string> {
+    const number = await this.fallbackNumber();
+    if (!number) return this.goodbye('Sorry, nobody is available to take your call.');
+
+    this.trace(
+      callSid,
+      { id: FALLBACK_NODE_ID, type: 'ring' } as CallFlowNode,
+      `Rang the fallback number ${prettyNumber(number)}`,
+    );
+    await this.conference.initInbound(
+      callSid,
+      state.from,
+      state.to,
+      [{ endpoint: number, callerId: state.to, whisper: false }],
+      { ringSeconds: CALL_FLOW_LIMITS.fallbackRingSec },
+    );
+    return this.park(callSid, state.flow);
+  }
+
+  /**
+   * Park the caller in the conference the legs are being rung into. `action`
+   * is what lets anything follow the conversation: without it the TwiML ends
+   * with the <Dial>, so the moment the conference closes the caller is simply
+   * hung up on — no closing message, nothing.
+   */
+  private park(callSid: string, flow: CallFlow, answeredNext?: string): string {
     const twiml = new VoiceResponse();
-    // `action` is what lets anything follow the conversation. Without it the
-    // TwiML ends with the <Dial>, so the moment the conference closes the
-    // caller is simply hung up on — no closing message, nothing.
     const dial = answeredNext
       ? twiml.dial({
           // `after=1` marks this as the post-conversation branch, so it can be
@@ -707,6 +819,9 @@ export class FlowRunnerService {
         ...this.conference.sharedConferenceAttrs(),
         startConferenceOnEnter: false,
         endConferenceOnExit: true,
+        // Workiz's "Record Call Flow" switched off: the conference goes
+        // unrecorded; a voicemail left on the flow is still the caller's own.
+        ...(flow.record === false && { record: 'do-not-record' }),
       } as Parameters<InstanceType<typeof VoiceResponse.Dial>['conference']>[0],
       confName(callSid),
     );

@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import twilio from 'twilio';
+import { CALL_FLOW_LIMITS } from '@bitcrm/types';
 import {
   TELEPHONY_CONFIG,
   type TelephonyConfig,
@@ -348,6 +349,31 @@ export class VoiceService {
     const { CallSid: callSid, From: from = '', To: to = '' } = body;
 
     const online = callSid ? await this.presence.listOnline() : [];
+    if (callSid && online.length === 0) {
+      // Nobody online and no flow to say otherwise: the account's fallback
+      // number (Workiz: "if the call flow fails, calls are forwarded to this
+      // number") rings from our number for a minute before the apology.
+      const fallback = await this.settings?.fallbackNumber().catch(() => null);
+      if (fallback) {
+        await this.conference.initInbound(
+          callSid,
+          from,
+          to,
+          [{ endpoint: fallback, callerId: to, whisper: false }],
+          { ringSeconds: CALL_FLOW_LIMITS.fallbackRingSec },
+        );
+        const dial = twiml.dial();
+        dial.conference(
+          {
+            ...this.sharedConferenceAttrs(),
+            startConferenceOnEnter: false,
+            endConferenceOnExit: true,
+          },
+          confName(callSid),
+        );
+        return twiml.toString();
+      }
+    }
     if (!callSid || online.length === 0) {
       twiml.say(
         'Sorry, no agents are available to take your call right now. Please try again later.',
