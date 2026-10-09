@@ -20,6 +20,7 @@ import { WzSettingsCatalog } from "@/components/workiz/settings-catalog";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { settled, usePageReady } from "@/lib/use-page-ready";
 import { useJobTypes, useDeleteJobType, useUpdateJobType } from "../hooks";
+import { formatJobTypeDuration, jobTypeDurationMinutes } from "../lib";
 import { JobTypeFormDialog } from "./job-type-form-dialog";
 
 /** The catalog order: priority first (higher first), then the name. */
@@ -27,10 +28,9 @@ const byCatalogOrder = (a: JobType, b: JobType) => b.priority - a.priority || a.
 
 /**
  * Settings → Job Types, as Workiz's (uikit_wz_set_jobtypes): the band, "Show:
- * Active" with "Add New", the grid — Type Name, Priority, the ON/OFF Status
- * switch — a row opening "Edit Job Type". Workiz's Duration column is left
- * out (a job type here has no length); Delete is ours, in Workiz's Sub Status
- * way (a yellow pill in Actions).
+ * Active" with "Add New", the grid — Type Name, Priority, Duration ("2 hours",
+ * Workiz's words), the ON/OFF Status switch — a row opening "Edit Job Type".
+ * Delete is ours, in Workiz's Sub Status way (a yellow pill in Actions).
  */
 export function JobTypesPage() {
   const { can, isLoading: permsLoading } = usePermissions();
@@ -55,6 +55,12 @@ export function JobTypesPage() {
     const cols: WzGridColumn<JobType>[] = [
       { id: "name", label: "Type Name", render: (t) => t.name, sortValue: (t) => t.name, searchText: (t) => t.name },
       { id: "priority", label: "Priority", render: (t) => t.priority, sortValue: (t) => t.priority, searchText: (t) => String(t.priority) },
+      {
+        id: "duration",
+        label: "Duration",
+        render: (t) => formatJobTypeDuration(t.durationMinutes),
+        sortValue: (t) => jobTypeDurationMinutes(t),
+      },
       {
         id: "status",
         label: "Status",

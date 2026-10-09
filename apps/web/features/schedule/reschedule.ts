@@ -148,7 +148,11 @@ export function resolveDrop(
   }
 }
 
-/** An unscheduled job dropped on the calendar: that day, an hour from where it landed (9 AM on a day cell). */
-export function scheduleBody(date: string, startMin = 9 * 60): { scheduledDate: string; scheduledTimeSlot: string } {
-  return { scheduledDate: date, scheduledTimeSlot: formatSlot(startMin, startMin + 60) };
+/**
+ * An unscheduled job dropped on the calendar: that day, from where it landed
+ * (9 AM on a day cell), as long as its job type's duration (Workiz; an hour
+ * without one), held inside the day.
+ */
+export function scheduleBody(date: string, startMin = 9 * 60, durationMinutes = 60): { scheduledDate: string; scheduledTimeSlot: string } {
+  return { scheduledDate: date, scheduledTimeSlot: formatSlot(startMin, startMin + Math.max(durationMinutes, 1)) };
 }

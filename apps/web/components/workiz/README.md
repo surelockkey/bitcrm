@@ -1417,3 +1417,18 @@ a plain title 40px in and 39px under the history strip, then sections over
   `WzSwitchRow` (the permission editors).
 - Left out on purpose: Workiz's "Learn More" (its help site) and "Support PIN
   code / Generate PIN Code" (its support desk).
+
+## Job type Duration (2026-10-09, agent `feat_job_rules`)
+
+Measured off `pg_settings_catalogs_wz_jobtypes_add_open` / `_row_open` and the
+open menus `feat_job_rules_wz_jobtype_{days,hours,minutes}_open`; notes
+`workiz-data-parser/docs/import/app-parity-2026-10-08/feat_job_rules.md`.
+
+- **`WzDurationFields`** (`duration-fields.tsx`) `value` (minutes) `onChange(minutes)`
+  `disabled` `helper` — Workiz's Days / Hours / Minutes row on a job type:
+  three `WzSelect geometry="bare"` boxes 137×49 (Days 0–31, Hours 0–23,
+  Minutes 0–59) 10px apart, each under its 12px/16px bold #666 word 3px
+  above, and the 11px/16px #999 "How long does this type of job usually take?"
+  right under them. The boxes name themselves ("Days"); the words over them are
+  decoration. Reports the whole length in minutes
+  (`features/job-types/lib.ts` `splitDuration` / `joinDuration` do the sums).

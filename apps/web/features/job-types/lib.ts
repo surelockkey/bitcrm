@@ -42,3 +42,48 @@ export function activeJobTypes(jobTypes: JobType[] | undefined): JobType[] {
     .filter((t) => t.active)
     .sort((a, b) => b.priority - a.priority || a.name.localeCompare(b.name));
 }
+
+/* ------------------------------------------------------------- duration */
+
+/** What a job gets when its type has no duration of its own: Workiz's hour. */
+export const DEFAULT_JOB_DURATION_MINUTES = 60;
+
+/**
+ * How long a job of this type is planned for — Workiz's Duration on the
+ * job type (Days / Hours / Minutes), an hour when the type has none.
+ */
+export function jobTypeDurationMinutes(jobType: Pick<JobType, "durationMinutes"> | undefined): number {
+  const minutes = jobType?.durationMinutes;
+  return minutes && minutes > 0 ? minutes : DEFAULT_JOB_DURATION_MINUTES;
+}
+
+export interface DurationParts {
+  days: number;
+  hours: number;
+  minutes: number;
+}
+
+/** Minutes → Workiz's three boxes. */
+export function splitDuration(totalMinutes: number | undefined): DurationParts {
+  const total = Math.max(0, Math.round(totalMinutes ?? 0));
+  return { days: Math.floor(total / 1440), hours: Math.floor((total % 1440) / 60), minutes: total % 60 };
+}
+
+/** Workiz's three boxes → minutes. */
+export function joinDuration({ days, hours, minutes }: DurationParts): number {
+  return days * 1440 + hours * 60 + minutes;
+}
+
+/**
+ * The Job Types grid's Duration column, in Workiz's words ("2 hours",
+ * "1 hours" — it never singularises); days and minutes only when there are
+ * any. A type without a duration shows the hour the pickers give it.
+ */
+export function formatJobTypeDuration(totalMinutes: number | undefined): string {
+  const { days, hours, minutes } = splitDuration(jobTypeDurationMinutes({ durationMinutes: totalMinutes }));
+  const parts: string[] = [];
+  if (days) parts.push(`${days} days`);
+  if (hours) parts.push(`${hours} hours`);
+  if (minutes) parts.push(`${minutes} minutes`);
+  return parts.join(" ");
+}

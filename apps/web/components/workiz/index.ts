@@ -176,3 +176,6 @@ export { WzCountryPhoneField } from "./country-phone-field";
 // Settings pages without a band (agent feat_security, Security Center): the plain title, a ruled section, a switch-first row.
 export { WzSettingsTitle, WzSettingsSection } from "./settings-title";
 export { WzLeadToggleRow } from "./lead-toggle-row";
+
+// Job type Duration (agent feat_job_rules): Workiz's Days / Hours / Minutes boxes.
+export { WzDurationFields, type WzDurationFieldsProps } from "./duration-fields";

@@ -102,6 +102,15 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
         icon: LockKeyhole,
         resource: "settings",
       },
+      {
+        // Workiz keeps these toggles on its Account page (avatar menu →
+        // Account → Account Preferences); ours open from the settings home.
+        label: "Account Preferences",
+        href: "/settings/preferences",
+        description: "What happens to a job on its own — update the job end time when it is done or canceled.",
+        icon: SlidersHorizontal,
+        resource: "settings",
+      },
     ],
   },
   {
@@ -296,6 +305,7 @@ export const WORKIZ_FRAMED_SETTINGS: ReadonlySet<string> = new Set([
   "/settings/security",
 
   "/settings/notifications",
+  "/settings/preferences",
 ]);
 
 /**

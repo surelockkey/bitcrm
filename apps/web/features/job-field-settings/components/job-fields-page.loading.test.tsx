@@ -85,7 +85,7 @@ describe("JobFieldsPage — loading", () => {
       { match: /\/deals\/custom-fields$/, reply: () => [field], delayMs: delay.custom },
     ]);
     const rec = recordFrames(() => {
-      const address = screen.queryByRole("switch", { name: "Service address Required?" });
+      const address = screen.queryByRole("switch", { name: "Job Address Required" });
       return {
         skeletons: skeletonCount(),
         defaults: !!address,
@@ -96,7 +96,7 @@ describe("JobFieldsPage — loading", () => {
 
     renderWithClient(<JobFieldsPage />);
     await screen.findByRole("switch", { name: "Door Color Required?" });
-    await screen.findByRole("switch", { name: "Service address Required?" });
+    await screen.findByRole("switch", { name: "Job Address Required" });
     await settle();
     rec.stop();
     const frames = rec.frames();

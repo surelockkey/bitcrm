@@ -10,6 +10,8 @@ export const queryKeys = {
   me: () => ["me"] as const,
 
   jobFieldSettings: () => ["job-field-settings"] as const,
+  /** The account's job rules (Settings → Account Preferences). */
+  jobRules: () => ["job-rules"] as const,
 
   /** Reports with an endpoint of their own (the job reports ride on `deals`). */
   reports: {

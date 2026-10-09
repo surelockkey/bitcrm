@@ -12,6 +12,7 @@ import * as dealApi from "@/features/deals/api";
 import { useDealsStreamStore } from "@/features/deals/stream-store";
 import { useLastWhole } from "@/features/dispatch/use-last-whole";
 import { useJobTypes } from "@/features/job-types/hooks";
+import { jobTypeDurationMinutes } from "@/features/job-types/lib";
 import { useRoles } from "@/features/roles/hooks";
 import { useServiceAreas } from "@/features/service-areas/hooks";
 import { filterAreas } from "@/features/deals/job-filters";
@@ -35,6 +36,8 @@ export interface ScheduleBoard {
   profiles: TechnicianProfile[];
   users: Map<string, DirectoryUser>;
   jobTypes: Map<string, string>;
+  /** job type id → how long such a job is planned for (Workiz's Duration; an hour without one) — a dropped unscheduled job's length. */
+  jobTypeDurations: Map<string, number>;
   /** The live job types, A to Z — Filter results' JOB TYPE. */
   activeJobTypes: { id: string; name: string }[];
   /**
@@ -115,6 +118,7 @@ export function useScheduleBoard({ view, date }: { view: ScheduleView; date: str
 
   const jobTypeList = jobTypesQuery.data ?? NO_TYPES;
   const jobTypes = useMemo(() => new Map(jobTypeList.map((t) => [t.id, t.name])), [jobTypeList]);
+  const jobTypeDurations = useMemo(() => new Map(jobTypeList.map((t) => [t.id, jobTypeDurationMinutes(t)])), [jobTypeList]);
   const activeJobTypes = useMemo(
     () =>
       jobTypeList
@@ -143,12 +147,13 @@ export function useScheduleBoard({ view, date }: { view: ScheduleView; date: str
       profiles: roster.profiles,
       users: users.map,
       jobTypes,
+      jobTypeDurations,
       activeJobTypes,
       areas,
       areaColors,
       roles,
     }),
-    [view, date, deals, unscheduled, events.data, contacts.map, roster.profiles, users.map, jobTypes, activeJobTypes, areas, areaColors, roles],
+    [view, date, deals, unscheduled, events.data, contacts.map, roster.profiles, users.map, jobTypes, jobTypeDurations, activeJobTypes, areas, areaColors, roles],
   );
 
   return { board: useLastWhole(current, whole) };

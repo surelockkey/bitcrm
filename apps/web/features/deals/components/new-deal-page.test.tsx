@@ -10,6 +10,8 @@ import {
 } from "@bitcrm/types";
 
 const mocks = vi.hoisted(() => ({
+  /** What the stubbed job-type select hands along with the id (a type with a duration). */
+  pickedType: undefined as unknown,
   push: vi.fn(),
   createDeal: vi.fn(),
   copyEstimate: vi.fn(async () => ({ estimate: { id: "e9" }, itemCount: 1 })),
@@ -120,9 +122,9 @@ vi.mock("./workiz/catalog-selects", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./workiz/catalog-selects")>();
   return {
     ...actual,
-    WzJobTypeSelect: ({ onChange, error }: { onChange: (v: string) => void; error?: string }) => (
+    WzJobTypeSelect: ({ onChange, error }: { onChange: (v: string, type?: unknown) => void; error?: string }) => (
       <div>
-        <button type="button" onClick={() => onChange("jt-rekey")}>pick job type</button>
+        <button type="button" onClick={() => onChange("jt-rekey", mocks.pickedType)}>pick job type</button>
         {error ? <span>{error}</span> : null}
       </div>
     ),
@@ -826,5 +828,77 @@ describe("NewDealPage — leaving with unsaved work", () => {
     await u.click(screen.getByRole("link", { name: "Add a custom field" }));
     expect(await screen.findByRole("alertdialog")).toBeInTheDocument();
     expect(mocks.push).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Workiz's Field Validation rows we lacked (pg_settings_catalogs_wz_managefields):
+ * each says "Required field" under its own box, in Workiz's words.
+ */
+describe("NewDealPage — Workiz's Field Validation rows", () => {
+  it("'External Company or Ad Group' marks both boxes until either is picked", async () => {
+    mocks.searchParams = "";
+    mocks.requiredFields = { externalCompanyOrSource: true };
+    const u = user();
+    render(<NewDealPage />);
+    await u.click(submit());
+    expect(mocks.createDeal).not.toHaveBeenCalled();
+    expect(screen.getByRole("status")).toHaveTextContent("External Company or Ad Group");
+    expect(within(screen.getByTestId("job-source-select")).getByText("Required field")).toBeInTheDocument();
+  });
+
+  it("First / Last Name read the client name typed: one word is a first name with no last name", async () => {
+    mocks.searchParams = "";
+    mocks.requiredFields = { lastName: true };
+    const u = user();
+    render(<NewDealPage />);
+    await u.type(clientName(), "Nova");
+    await u.click(submit());
+    expect(screen.getByRole("status")).toHaveTextContent("Last Name");
+    expect(clientName()).toHaveAttribute("aria-invalid", "true");
+    await u.type(clientName(), " Reyes");
+    expect(clientName()).not.toHaveAttribute("aria-invalid");
+  });
+
+  it("Client Company Name and Secondary Phone are marked under their own boxes", async () => {
+    mocks.searchParams = "";
+    mocks.requiredFields = { companyName: true, secondaryPhone: true };
+    const u = user();
+    render(<NewDealPage />);
+    await u.click(submit());
+    expect(screen.getByRole("status")).toHaveTextContent("Client Company Name, Secondary Phone");
+    expect(screen.getByRole("textbox", { name: "Company name" })).toHaveAttribute("aria-invalid", "true");
+    // The second number's box is brought up so it can be typed, marked like the rest.
+    expect(screen.getByRole("textbox", { name: "Phone 2" })).toHaveAttribute("aria-invalid", "true");
+  });
+});
+
+/**
+ * Workiz's job type carries a Duration: picking the type ends the visit
+ * that long after its start; a type without one keeps the hour.
+ */
+describe("NewDealPage — the job type's duration", () => {
+  const minutesOf = (hhmm: string) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5));
+  const lengthOf = (slot: string) => {
+    const [s, e] = slot.split("-");
+    return (minutesOf(e) - minutesOf(s) + 24 * 60) % (24 * 60);
+  };
+
+  it("picking a 2-hour type ends the visit two hours after the start", async () => {
+    mocks.pickedType = { id: "jt-rekey", name: "Rekey", priority: 0, active: true, durationMinutes: 120 };
+    const u = user();
+    render(<NewDealPage />);
+    await pickJobType(u);
+    await u.click(submit());
+    expect(lengthOf(lastDeal().scheduledTimeSlot)).toBe(120);
+    mocks.pickedType = undefined;
+  });
+
+  it("a type without a duration keeps the hour", async () => {
+    const u = user();
+    render(<NewDealPage />);
+    await pickJobType(u);
+    await u.click(submit());
+    expect(lengthOf(lastDeal().scheduledTimeSlot)).toBe(60);
   });
 });
