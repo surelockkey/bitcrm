@@ -1304,10 +1304,34 @@ in a 1240px page).
   controls drop `sticky left-0`. Done on `/calls` (its columns at Workiz's
   minimums 70 / 160 / 100 / 120 / 180 / 100 / 135 / 180 / 100 / 100, Status /
   From / Call Flow / Answered By fixed — at 1600 that is callspage_wz_01's
-  1398px grid to the pixel). Still on the old pattern, to move over the same
-  way: the jobs list (`deals-table.tsx`, 1791px wide), `/my-jobs`, the Jobs
-  report table, and `WzReportGrid`'s `minTableWidth` wrapper (which traps
-  its sticky header).
+  1398px grid to the pixel).
+- Moved over the same way (2026-10-09, agent `scroll_grids`; notes in
+  `workiz-data-parser/docs/import/app-parity-2026-10-08/scroll_grids.md`):
+  - the **jobs list** (`deals-table.tsx` + `DealsTableSkeleton`, on `/deals`
+    and `/my-jobs`): the job number (140) and the registry widths as
+    minimums, every column growing, the reader's dragged one `fixed`
+    (`isSet`). At 1600 the frame is the page's 1400px, as Workiz's rt-table
+    (probes of `/root/jobs/`: 1820px of columns in 1238 / 1398px), the 1791px
+    of columns scrolling inside it; "No Jobs Found" centres on the frame by
+    itself (`WzTableEmpty` lost its `viewWidth` variant). Before, the page
+    scrolled sideways and the pager slid to x=-351 (1440) / -191 (1600).
+  - the **Jobs report** (`jobs-report-table.tsx` + its shell, on
+    `/reports/jobs`): Workiz's 100px columns, the two dates 250, all growing
+    (probe of `/root/jobreport/` at 1440: `rt-tbody` 1850px in 1238px, the
+    `rt-thead` sticky top:56 moving sideways with it).
+  - **`WzReportGrid` with `minTableWidth`** (the Inventory grid): the same
+    split — the header a table of its own in a box pinned by `stickyHeader`
+    (`products-table.tsx` no longer passes `stickyHeader={false}`), the rows
+    the one sideways scroller, sr-only names on the rows' table; a grid
+    without `minTableWidth` is one table, exactly as before.
+  - `WzPageHeader` and `WzTabLinks` dropped their `sticky left-0`: nothing
+    pins sideways any more. The schedule's `timeline-grid.tsx` keeps its
+    `sticky left-0` name column — that one sits inside its own both-way
+    scroller whose row is as wide as the content, the case sticky is for.
+- Testing a grid: the rows' table carries the column names once more
+  (`sr-only`), so a `columnheader` query over the document finds each header
+  twice — scope it to `[data-slot=wz-scroll-grid-head]` (the pages' tests
+  keep `gridHead()` / `gridHeaders()` helpers).
 
 ## The one-load rule on the grids (2026-10-09, agent `jumps_fix`)
 
