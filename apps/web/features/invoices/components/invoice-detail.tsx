@@ -3,7 +3,8 @@
 import { useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { Popover } from "radix-ui";
-import { ChevronDown, Download, Eye, Link2, Loader2, Send, SquarePen, Trash2, Undo2 } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Briefcase, ChevronDown, Download, Eye, Link2, Loader2, Send, SquarePen, Trash2, Undo2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   PaymentTerms,
@@ -130,6 +131,7 @@ export function InvoiceDetail({
   /** A job's invoice: Workiz's "← Job ID: …" line, drawn first in the grey header. */
   jobLink?: ReactNode;
 }) {
+  const router = useRouter();
   const { can } = usePermissions();
   const canEdit = can("invoices", "edit");
   const canSend = can("invoices", "send");
@@ -184,6 +186,12 @@ export function InvoiceDetail({
         </WzButton>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" sideOffset={8} alignOffset={-4} className={WZ_MENU_POPUP}>
+        {deal ? (
+          // Workiz's first row on a job's invoice (wfi-job); ours the sidebar's Jobs glyph.
+          <DropdownMenuItem className={WZ_MENU_POPUP_ITEM} onSelect={() => router.push(`/deals/${encodeURIComponent(deal.id)}`)}>
+            <Briefcase strokeWidth={1.25} /> View job
+          </DropdownMenuItem>
+        ) : null}
         <DropdownMenuItem className={WZ_MENU_POPUP_ITEM} onSelect={() => setPreviewing(true)}>
           <Eye strokeWidth={1.25} /> Preview
         </DropdownMenuItem>

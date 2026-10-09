@@ -186,6 +186,16 @@ describe("a job's invoice on its own page", () => {
     await waitFor(() => expect(body).toEqual({ sent: true }));
   });
 
+  // pg_invoice_wz_05_actions_open: "View job" heads Workiz's Actions on a job's invoice.
+  it("heads Actions with Workiz's 'View job', which opens the job", async () => {
+    renderWithClient(<StandaloneInvoicePage invoiceId="d1" />);
+    await user().click(await screen.findByRole("button", { name: /^actions$/i }));
+    const rows = await screen.findAllByRole("menuitem");
+    expect(rows[0]).toHaveTextContent("View job");
+    await user().click(rows[0]);
+    expect(mocks.push).toHaveBeenCalledWith("/deals/d1");
+  });
+
   it("offers Send only to someone who may both send invoices and send messages", async () => {
     const { unmount } = renderWithClient(<StandaloneInvoicePage invoiceId="d1" />);
     await screen.findByRole("region", { name: "Invoice details" });
