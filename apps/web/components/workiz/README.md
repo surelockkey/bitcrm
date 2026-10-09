@@ -817,6 +817,29 @@ Shared billing components grew a Workiz variant on the same props (default
 unchanged): `DocumentItemsTable variant="workiz"`, `DocumentSummaryPanel
 variant="workiz"`, `SignaturesSection variant="workiz"` (features/billing).
 
+## Hub cards (2026-10-09, agent `rep_hub`, the Reports hub)
+
+Measured off `rep_hub_wz_*` (`/root/_reports?view=workiz-reports`; notes:
+`workiz-data-parser/docs/import/app-parity-2026-10-08/rep_hub.md`). Import
+from `@/components/workiz/hub-cards`.
+
+- **`WzHubGrid`** `aria-label` — Developr's `.columns.with-padding` as a list:
+  pulled 2.25% left, 20px in all round, the last row's margin taken back.
+- **`WzHubCard`** `href` `title` `icon` (a `LucideIcon`) — one
+  `.c_hover` column holding a `.card.widget.left-green` link: 3px ink rule on
+  the left, 1px corners, 15px in (46px tall), shadow
+  `0 1px 3px rgba(0,0,0,.16), 0 2px 10px rgba(0,0,0,.12)`; the title
+  16px/16px 500 ink; the glyph #404040 where Workiz's 30px Linearicons box
+  sits (10px down, 20px in from the right) — drawn 34px with a 1.35 stroke so
+  Lucide's ink (20/24 of its box) is as big and as heavy as Workiz's.
+  Columns: one to a row (97.75%) under 768px, two (47.75%) to 1199px, three
+  (31.0833%) from 1200px, 20px apart (25px from 1200px) — Workiz's media
+  queries on the window, as `min-[768px]` / `min-[1200px]` (not `md:`, which
+  Tailwind would sort after the arbitrary 1200px). Hover = `.c_hover`'s
+  `0 12px 12px -8px rgba(0,0,0,.4)` under the column (.3s); ours also on
+  keyboard focus (Workiz shows no focus at all).
+- **`WzHubCardSkeleton`** — the same column and card with a grey bar.
+
 ## Known differences from Workiz (deliberate or unmeasurable)
 - Sub-pixel: Workiz's own fractional layout makes some glyphs land ±1px
   differently from ours in screenshots (e.g. two Workiz selects with identical

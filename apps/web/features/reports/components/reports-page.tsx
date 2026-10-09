@@ -1,121 +1,66 @@
 "use client";
 
-import { useId } from "react";
-import Link from "next/link";
-import { ChevronRight } from "lucide-react";
-import { toast } from "sonner";
 import { NoAccess } from "@/features/clients/components/contacts-page";
 import { useDenied, usePermissions } from "@/features/auth/use-permissions";
-import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
-import { cn } from "@/lib/utils";
-import { REPORT_TILES, type ReportTile } from "../hub/report-tiles";
-
-export { REPORT_TILES };
+import { WzHubCard, WzHubCardSkeleton, WzHubGrid } from "@/components/workiz/hub-cards";
+import { WzTabBar } from "@/components/workiz/tab-bar";
+import { hubTiles, REPORT_TILES } from "../hub/report-tiles";
 
 /**
- * The Reports hub, laid out like the rest of BitCRM: the page title, then one
- * tile per kept report (see `REPORT_TILES`) in the Settings list's shape — an
- * icon, the name, a line on what it answers.
+ * Workiz's "Workiz reports" tab, ours by name — as Workiz Phone is our
+ * "BitCRM Phone". BitCRM has no custom reports, so there is no "Custom
+ * reports" tab beside it and no "Create report" buttons.
+ */
+const TAB = { value: "bitcrm", label: "BitCRM reports" } as const;
+
+/**
+ * The Reports hub as Workiz draws it (`/root/_reports?view=workiz-reports`,
+ * rep_hub_wz_01_default): the 25px "Reports" heading 30px under the
+ * breadcrumb, the small tab row, and a card per report on Developr's
+ * three-column grid — only the reports BitCRM has a page for, in Workiz's
+ * order (`hubTiles`).
  *
  * `built` = the report routes that have a page in this build (the server page
- * reads it); a tile opens only those. Left out, every route counts as built.
+ * reads it). Left out, every route counts as built.
  */
 export function ReportsPage({ built }: { built?: readonly string[] }) {
   const denied = useDenied();
-  // Until the role is read nothing is refused, so every tile was drawn and
-  // the ones the role may not open were taken out a moment later — the tiles
-  // after them moved up a place. The tiles wait for the role.
+  // Until the role is read nothing is refused, so every card was drawn and
+  // the ones the role may not open were taken out a moment later — the cards
+  // after them moved up a place. The cards wait for the role.
   const { isLoading } = usePermissions();
 
   if (denied("reports", "view")) return <NoAccess entity="reports" />;
 
-  // Workiz leaves out the reports a role may not open; so do we.
-  const tiles = REPORT_TILES.filter((t) => !(t.requires ?? []).some(([resource, action]) => denied(resource, action)));
-  const isBuilt = (href: string) => (built ? built.includes(href) : true);
+  const tiles = hubTiles({ built, denied });
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-      <div className="border-b px-6 pt-4 pb-4">
-        <h1 className="text-lg font-semibold tracking-tight">Reports</h1>
+      {/* Workiz's header row is 40px (its Create report buttons); the title
+          sits at its top. */}
+      <div className="mt-[30px] flex h-10 shrink-0 items-start px-5">
+        <h1 className="text-[25px] leading-8 font-medium text-foreground">Reports</h1>
       </div>
+      {/* 4px under the header; the tab is 1px left of the content as in Workiz. */}
+      <WzTabBar aria-label="Reports" tabs={[TAB]} value={TAB.value} onValueChange={() => {}} className="mt-1 -ml-px shrink-0" />
 
-      {isLoading ? (
-        <div role="status" aria-label="Loading reports" className="grid grid-cols-1 gap-3 p-6 md:grid-cols-2 xl:grid-cols-3">
-          {REPORT_TILES.map((t) => (
-            <Skeleton key={t.name} className="h-[4.25rem] rounded-lg" />
-          ))}
-        </div>
-      ) : (
-        <ul aria-label="Reports" className="grid grid-cols-1 gap-3 p-6 md:grid-cols-2 xl:grid-cols-3">
-          {tiles.map((tile) => (
-            <li key={tile.name} className="min-w-0">
-              <ReportTileCard tile={tile} built={tile.href !== undefined && isBuilt(tile.href)} />
-            </li>
-          ))}
-        </ul>
-      )}
+      <div role="tabpanel" aria-label={TAB.label}>
+        {isLoading ? (
+          <div role="status" aria-label="Loading reports">
+            <WzHubGrid aria-label="Loading reports">
+              {REPORT_TILES.filter((t) => t.href && (built ? built.includes(t.href) : true)).map((t) => (
+                <WzHubCardSkeleton key={t.name} />
+              ))}
+            </WzHubGrid>
+          </div>
+        ) : (
+          <WzHubGrid aria-label="Reports">
+            {tiles.map((tile) => (
+              <WzHubCard key={tile.name} href={tile.href!} title={tile.name} icon={tile.icon} />
+            ))}
+          </WzHubGrid>
+        )}
+      </div>
     </div>
-  );
-}
-
-const TILE = "flex w-full items-center gap-3 rounded-lg border bg-card px-4 py-3.5 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring";
-
-/**
- * One report tile. A built report is a link that opens it. A report BitCRM
- * doesn't have yet is the same tile, dimmed, with a badge saying why, and it
- * doesn't navigate — clicking it says so.
- */
-function ReportTileCard({ tile, built }: { tile: ReportTile; built: boolean }) {
-  const { name, description, icon: Icon, href } = tile;
-  // The tile is named by the report; the line under it describes it.
-  const describedBy = useId();
-
-  const body = (
-    <>
-      <span className="flex size-9 shrink-0 items-center justify-center rounded-md border bg-muted/40">
-        <Icon className="size-4" aria-hidden />
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="flex items-center gap-2">
-          <span data-slot="report-name" className="truncate text-sm font-medium">
-            {name}
-          </span>
-          {!built && (
-            <Badge variant="secondary" className="shrink-0">
-              {href !== undefined ? "Coming soon" : "Not in BitCRM"}
-            </Badge>
-          )}
-        </span>
-        <span id={describedBy} className="block truncate text-sm text-muted-foreground">
-          {description}
-        </span>
-      </span>
-    </>
-  );
-
-  if (built && href) {
-    return (
-      <Link href={href} aria-label={name} aria-describedby={describedBy} className={cn(TILE, "hover:bg-muted/50")}>
-        {body}
-        <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-      </Link>
-    );
-  }
-
-  // `href` set = the report's page is in an open PR; none = nobody builds it.
-  const why = href !== undefined ? `${name} is on the way — it isn't in BitCRM yet.` : `${name} isn't in BitCRM.`;
-  return (
-    <button
-      type="button"
-      aria-label={name}
-      aria-describedby={describedBy}
-      aria-disabled="true"
-      title={why}
-      onClick={() => toast.info(why)}
-      className={cn(TILE, "cursor-default opacity-60")}
-    >
-      {body}
-    </button>
   );
 }
