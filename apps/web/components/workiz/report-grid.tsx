@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
+import { Fragment, useRef, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 
 import { ResizableHead } from "@/components/ui/resizable-head";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -223,11 +223,14 @@ export function WzReportGrid<R>({
    */
   cellAlign?: "top" | "middle";
   /**
-   * The table never narrower than this: past the frame's width it scrolls
-   * sideways in its own box, the pager staying put under it — Workiz's
-   * Inventory grid, twenty 100px columns (2030px) in a 1400px frame
-   * (pg_inventory_wz_01_inventory). The header then sticks to that box, not
-   * the page (pass `stickyHeader={false}`). Off by default.
+   * The table never narrower than this: past the frame's width the rows
+   * scroll sideways in their own box, the pager staying put under it —
+   * Workiz's Inventory grid, twenty 100px columns (2030px) in a 1400px frame
+   * (pg_inventory_wz_01_inventory). The header is then a table of its own in
+   * a box pinned to the page's top (`stickyHeader`) that moves sideways with
+   * the rows, as `WzScrollGrid` draws it — a sticky header inside the
+   * sideways box was trapped by it (2026-10-09). Off by default: a grid
+   * without it is one table, exactly as it was.
    */
   minTableWidth?: number;
   /**
@@ -251,57 +254,63 @@ export function WzReportGrid<R>({
   const rowStyle = rowHeight ? { height: rowHeight } : undefined;
   // Workiz's dots sit 340px down ten of its own 56/57px blanks; over taller rows, the grid's middle.
   const workizBlanks = minRows === MIN_ROWS && (rowHeight === undefined || rowHeight <= 57);
-  const table = (
-    <Table
-      contained={false}
-      aria-label={ariaLabel}
-      className={TABLE}
-      style={minTableWidth ? { minWidth: minTableWidth } : undefined}
-    >
-      <colgroup>
+  const headRef = useRef<HTMLDivElement>(null);
+  // Wider than its frame, the grid is two tables on the same columns: the
+  // header in a pinned box, the rows in the one sideways scroller (as
+  // `WzScrollGrid`); otherwise one table, as it always was.
+  const split = Boolean(minTableWidth);
+  const tableStyle = minTableWidth ? { minWidth: minTableWidth } : undefined;
+  const colgroup = (
+    <colgroup>
+      {columns.map((c) => {
+        const width = resize ? resize.widthOf(c.id) : c.width;
+        return <col key={c.id} style={width ? { width } : undefined} />;
+      })}
+    </colgroup>
+  );
+  // In one table the header cells stick on their own; split, their box does.
+  const headClass = cn(HEAD, stickyHeader && !split && STICKY);
+  const header = (
+    <TableHeader>
+      <TableRow className="border-0 hover:bg-transparent">
         {columns.map((c) => {
-          const width = resize ? resize.widthOf(c.id) : c.width;
-          return <col key={c.id} style={width ? { width } : undefined} />;
-        })}
-      </colgroup>
-      <TableHeader>
-        <TableRow className="border-0 hover:bg-transparent">
-          {columns.map((c) => {
-            const dir = sort && sort.column === c.id ? sort.dir : undefined;
-            const words =
-              c.sortable && onSort ? (
-                <button
-                  type="button"
-                  onClick={() => onSort(c.id)}
-                  aria-label={`Sort by ${c.label}`}
-                  className={cn("block w-full cursor-pointer truncate text-left font-medium", c.headerClassName)}
-                >
-                  {c.label}
-                </button>
-              ) : (
-                <span className={cn("block truncate", c.headerClassName)}>{c.label}</span>
-              );
-            return resize ? (
-              <ResizableHead
-                key={c.id}
-                columnId={c.id}
-                label={c.label}
-                width={resize.widthOf(c.id)}
-                onResize={(px) => resize.setWidth(c.id, px)}
-                onReset={resize.reset}
-                sort={dir}
-                className={cn(HEAD, stickyHeader && STICKY)}
+          const dir = sort && sort.column === c.id ? sort.dir : undefined;
+          const words =
+            c.sortable && onSort ? (
+              <button
+                type="button"
+                onClick={() => onSort(c.id)}
+                aria-label={`Sort by ${c.label}`}
+                className={cn("block w-full cursor-pointer truncate text-left font-medium", c.headerClassName)}
               >
-                {words}
-              </ResizableHead>
+                {c.label}
+              </button>
             ) : (
-              <TableHead key={c.id} sort={dir} className={cn(HEAD, stickyHeader && STICKY)}>
-                {words}
-              </TableHead>
+              <span className={cn("block truncate", c.headerClassName)}>{c.label}</span>
             );
-          })}
-        </TableRow>
-      </TableHeader>
+          return resize ? (
+            <ResizableHead
+              key={c.id}
+              columnId={c.id}
+              label={c.label}
+              width={resize.widthOf(c.id)}
+              onResize={(px) => resize.setWidth(c.id, px)}
+              onReset={resize.reset}
+              sort={dir}
+              className={headClass}
+            >
+              {words}
+            </ResizableHead>
+          ) : (
+            <TableHead key={c.id} sort={dir} className={headClass}>
+              {words}
+            </TableHead>
+          );
+        })}
+      </TableRow>
+    </TableHeader>
+  );
+  const body = (
       <TableBody className={cn(busy && "opacity-60")}>
         {shown.map((row) => {
           const box = renderExpanded?.(row);
@@ -341,11 +350,52 @@ export function WzReportGrid<R>({
           from={shown.length}
         />
       </TableBody>
+  );
+  const table = split ? (
+    <>
+      <div
+        ref={headRef}
+        data-slot="wz-report-grid-head"
+        className={cn("overflow-hidden", stickyHeader && "sticky top-0 z-10")}
+      >
+        <Table contained={false} className={TABLE} style={tableStyle}>
+          {colgroup}
+          {header}
+        </Table>
+      </div>
+      <div
+        data-slot="wz-report-grid-body"
+        className="overflow-x-auto"
+        onScroll={(e) => {
+          if (headRef.current) headRef.current.scrollLeft = e.currentTarget.scrollLeft;
+        }}
+      >
+        <Table contained={false} aria-label={ariaLabel} className={TABLE} style={tableStyle}>
+          {colgroup}
+          {/* The column names once more, for a screen reader; out of layout. */}
+          <thead className="sr-only">
+            <tr>
+              {columns.map((c) => (
+                <th key={c.id} scope="col">
+                  {c.label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          {body}
+        </Table>
+      </div>
+    </>
+  ) : (
+    <Table contained={false} aria-label={ariaLabel} className={TABLE}>
+      {colgroup}
+      {header}
+      {body}
     </Table>
   );
   return (
     <div data-slot="wz-report-grid" className={cn(FRAME, className)} aria-busy={loading || busy || undefined}>
-      {minTableWidth ? <div className="overflow-x-auto">{table}</div> : table}
+      {table}
       {loading ? (
         <div role="status" aria-label="Loading" className="absolute inset-0 z-20 bg-white/80">
           <div className={cn("absolute left-1/2 flex -translate-x-1/2 gap-2", workizBlanks ? "top-[340px]" : "top-1/2 -translate-y-1/2")}>

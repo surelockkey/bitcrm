@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Plus, TriangleAlert } from "lucide-react";
@@ -103,7 +103,6 @@ export function DealsPage() {
   const [searchText, setSearchText] = useState("");
   const search = useDebouncedValue(searchText, SEARCH_DEBOUNCE_MS);
   const [openId, setOpenId] = useState<string | null>(null);
-  const { ref: scrollerRef, width: viewWidth } = useClientWidth<HTMLDivElement>();
   const visibleFields = useJobFieldsStore((s) => s.visible);
   const fieldOrder = useJobFieldsStore((s) => s.order);
 
@@ -233,19 +232,19 @@ export function DealsPage() {
     onSortScheduled: () => setState((s) => ({ ...s, sort: s.sort === "day_desc" ? "none" : "day_desc" })),
     zoneOf,
     accountZone: DEFAULT_TZ,
-    viewWidth,
   } as const;
 
   return (
-    // The page scrolls itself, inside the shell, the way Workiz's main
-    // container does: the top bar stays put, and the grid's header sticks to
-    // the top while 50 tall rows go under it (audit L1). It scrolls sideways
-    // too, for a wide set of columns — the controls above the grid hold
-    // still (`sticky left-0`), only the grid moves.
-    <div ref={scrollerRef} className="flex min-h-0 flex-1 flex-col overflow-auto text-[#404040]" data-slot="jobs-scroller">
+    // The page scrolls itself, inside the shell, the way Workiz's does: up
+    // and down only (the 2026-10-09 probes of /root/jobs/ at 1440 and 1600:
+    // the document never scrolls sideways). The top bar stays put, the
+    // grid's header is pinned to the top while 50 tall rows go under it
+    // (audit L1), and a grid wider than the page scrolls sideways in its own
+    // box (`WzScrollGrid`) — the controls above it hold still by themselves.
+    <div className="flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto text-[#404040]" data-slot="jobs-scroller">
       {/* Filter results + Create New: list_01 puts the control 20px in, 49px
           high, and the yellow pill 16px to its right, tops aligned. */}
-      <div className="sticky left-0 flex items-start gap-4 px-5 pt-[34px]">
+      <div className="flex items-start gap-4 px-5 pt-[34px]">
         <JobsFilterControl state={state} onChange={setState} catalogs={catalogs} caps={caps} />
         {can("deals", "create") ? (
           <Button
@@ -263,7 +262,7 @@ export function DealsPage() {
       {/* Status tabs: the kit's small tabs (13px, the open one 600 with a 2px
           ink bar over the row's #c4c4c4 rule, the rest 500 slate; a grey
           count chip beside each), 4px under the control as in list_01. */}
-      <div className="sticky left-0 mt-[27px] shrink-0">
+      <div className="relative mt-[27px] shrink-0">
         {/* Until its numbers are in, the strip is held by five grey tabs over
             its own rule — Workiz has its tabs up before the rows (audit L19).
             They go in the frame the strip shows. Beside the strip, not in it:
@@ -293,7 +292,7 @@ export function DealsPage() {
       </div>
 
       {/* The grey strip: Search, Show unpaid jobs, and at the right the page size and Fields. */}
-      <WzListToolbar className="sticky left-0 shrink-0">
+      <WzListToolbar className="shrink-0">
         <WzSearchBox value={searchText} onChange={setSearchText} maxLength={JOBS_SEARCH_MAX} />
         {caps.unpaid ? (
           <label className="flex h-10 cursor-pointer items-center gap-2 text-sm whitespace-nowrap text-[#404040]">
@@ -319,7 +318,7 @@ export function DealsPage() {
         {held ? (
           <div aria-busy>
             <DealsTable deals={held.rows} contactMap={held.contacts} clientNames={held.clientNames} {...tableProps} />
-            <WzPager pager={{ ...held.pager, canNext: wzPagerCanNext(held.pager) }} className="sticky left-0 w-full" />
+            <WzPager pager={{ ...held.pager, canNext: wzPagerCanNext(held.pager) }} />
           </div>
         ) : firstPaintPending ? (
           <DealsTableSkeleton visibleFields={visibleFields} order={fieldOrder} />
@@ -328,7 +327,7 @@ export function DealsPage() {
         ) : (
           <>
             <DealsTable deals={visible} contactMap={contactMap} clientNames={names.clients} {...tableProps} />
-            <WzPager pager={{ ...pager, canNext: wzPagerCanNext(pager) }} className="sticky left-0 w-full" />
+            <WzPager pager={{ ...pager, canNext: wzPagerCanNext(pager) }} />
           </>
         )}
       </div>
@@ -336,23 +335,6 @@ export function DealsPage() {
       <DealQuickView dealId={openId} open={!!openId} onOpenChange={(o) => !o && setOpenId(null)} />
     </div>
   );
-}
-
-/**
- * An element's inner width, kept current. 0 where nothing is laid out (jsdom),
- * so a consumer falls back to its own width.
- */
-function useClientWidth<T extends HTMLElement>() {
-  // A callback ref: the element may arrive after the first render.
-  const [el, ref] = useState<T | null>(null);
-  const [width, setWidth] = useState(0);
-  useEffect(() => {
-    if (!el || typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver(() => setWidth(el.clientWidth));
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [el]);
-  return { ref, width };
 }
 
 function DealsError({ onRetry, isRetrying }: { onRetry: () => void; isRetrying: boolean }) {

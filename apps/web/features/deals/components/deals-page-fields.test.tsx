@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {
   ClientType,
@@ -162,6 +162,10 @@ beforeEach(() => {
  * Workiz sorts by a column header, never from Filter results (audit L14):
  * the order is the Scheduled header's, shown by its bar, not as a chip.
  */
+/** The grid's visible header — the rows' table carries the names once more, `sr-only`, for a screen reader. */
+const gridHead = () => document.querySelector("[data-slot=wz-scroll-grid-head]") as HTMLElement;
+const gridHeaders = () => within(gridHead()).getAllByRole("columnheader");
+
 describe("DealsPage sorting — the Scheduled header only", () => {
   it("offers no sort in Filter results, and the header's order leaves no chip", () => {
     render(<DealsPage />);
@@ -257,14 +261,14 @@ describe("DealsPage fields visibility", () => {
   it("unticking a field hides its column once the fields are saved", async () => {
     const u = userEvent.setup();
     render(<DealsPage />);
-    expect(screen.getByRole("columnheader", { name: "Tags" })).toBeInTheDocument();
+    expect(within(gridHead()).getByRole("columnheader", { name: "Tags" })).toBeInTheDocument();
 
     await u.click(screen.getByRole("button", { name: /fields/i }));
     await u.click(screen.getByRole("checkbox", { name: "Tags" }));
     await u.click(screen.getByRole("button", { name: "Save fields" }));
 
-    expect(screen.queryByRole("columnheader", { name: "Tags" })).toBeNull();
-    expect(screen.getByRole("columnheader", { name: "Client" })).toBeInTheDocument();
+    expect(within(gridHead()).queryByRole("columnheader", { name: "Tags" })).toBeNull();
+    expect(within(gridHead()).getByRole("columnheader", { name: "Client" })).toBeInTheDocument();
   });
 
   it("lists every deal field in the panel, searchable, grouped by used/unselected", async () => {
@@ -292,7 +296,7 @@ describe("DealsPage fields visibility", () => {
     await u.click(screen.getByRole("checkbox", { name: "Gate Code" }));
     await u.click(screen.getByRole("button", { name: "Save fields" }));
 
-    expect(screen.getByRole("columnheader", { name: "Gate Code" })).toBeInTheDocument();
+    expect(within(gridHead()).getByRole("columnheader", { name: "Gate Code" })).toBeInTheDocument();
     expect(screen.getByText("4417")).toBeInTheDocument();
   });
 
@@ -315,8 +319,8 @@ describe("DealsPage fields visibility", () => {
     await useJobFieldsStore.persist.rehydrate();
 
     render(<DealsPage />);
-    expect(screen.queryByRole("columnheader", { name: "Scheduled" })).toBeNull();
-    expect(screen.getByRole("columnheader", { name: "Client" })).toBeInTheDocument();
+    expect(within(gridHead()).queryByRole("columnheader", { name: "Scheduled" })).toBeNull();
+    expect(within(gridHead()).getByRole("columnheader", { name: "Client" })).toBeInTheDocument();
   });
 });
 

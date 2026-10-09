@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {
   ClientType,
@@ -11,7 +11,7 @@ import {
   DealStatus,
 } from "@bitcrm/types";
 import type { Contact, Deal, User } from "@bitcrm/types";
-import { DEFAULT_VISIBLE, JOB_FIELDS, type VisibleFields } from "../fields";
+import { DEFAULT_VISIBLE, JOB_FIELDS, JOB_NUMBER_WIDTH, type VisibleFields } from "../fields";
 import { DealsTable, DealsTableSkeleton } from "./deals-table";
 
 // Resolve job-type ids to names without a QueryClient/live catalog.
@@ -104,6 +104,10 @@ const withExtension = new Map([
 ]);
 const userMap = new Map<string, User>();
 
+/** The grid's visible header — the rows' table carries the names once more, `sr-only`, for a screen reader. */
+const gridHead = () => document.querySelector("[data-slot=wz-scroll-grid-head]") as HTMLElement;
+const gridHeaders = () => within(gridHead()).getAllByRole("columnheader");
+
 describe("DealsTable", () => {
   let openSpy: ReturnType<typeof vi.spyOn>;
 
@@ -169,7 +173,7 @@ describe("DealsTable", () => {
     render(
       <DealsTable deals={[deal()]} contactMap={contactMap} userMap={userMap} onOpen={vi.fn()} />,
     );
-    expect(screen.getAllByRole("columnheader")[0]).toHaveTextContent("Job ID");
+    expect(gridHeaders()[0]).toHaveTextContent("Job ID");
     const id = screen.getByText("1042");
     expect(id.closest("td")!.cellIndex).toBe(0);
     expect(screen.queryByText("#1042")).toBeNull();
@@ -206,7 +210,7 @@ describe("DealsTable", () => {
     const { rerender } = render(
       <DealsTable deals={[deal()]} contactMap={contactMap} userMap={userMap} onOpen={vi.fn()} sort="none" onSortScheduled={onSortScheduled} />,
     );
-    const head = () => screen.getByRole("columnheader", { name: "Scheduled" });
+    const head = () => within(gridHead()).getByRole("columnheader", { name: "Scheduled" });
     expect(head().className).toContain("shadow-[inset_0_3px_0_0_rgba(0,0,0,0.6)]");
     await userEvent.click(screen.getByRole("button", { name: /Sort by Scheduled/ }));
     expect(onSortScheduled).toHaveBeenCalled();
@@ -220,7 +224,7 @@ describe("DealsTable", () => {
     render(
       <DealsTable deals={[deal()]} contactMap={contactMap} userMap={userMap} onOpen={vi.fn()} order={["scheduled", "client"]} />,
     );
-    expect(screen.getAllByRole("columnheader").map((h) => h.getAttribute("aria-label"))).toEqual([
+    expect(gridHeaders().map((h) => h.getAttribute("aria-label"))).toEqual([
       "Job ID",
       "Scheduled",
       "Client",
@@ -238,14 +242,14 @@ describe("DealsTable", () => {
   it("an empty list says No Jobs Found across the grid, under its header", () => {
     render(<DealsTable deals={[]} contactMap={contactMap} userMap={userMap} onOpen={vi.fn()} />);
     expect(screen.getByText("No Jobs Found")).toBeInTheDocument();
-    expect(screen.getAllByRole("columnheader")).toHaveLength(11);
+    expect(gridHeaders()).toHaveLength(11);
   });
 
   it("has no separate far-right new-tab column anymore", () => {
     render(
       <DealsTable deals={[deal()]} contactMap={contactMap} userMap={userMap} onOpen={vi.fn()} />,
     );
-    expect(screen.getAllByRole("columnheader")).toHaveLength(11);
+    expect(gridHeaders()).toHaveLength(11);
     expect(screen.queryByText("Open in new tab")).toBeNull();
   });
 
@@ -259,8 +263,8 @@ describe("DealsTable", () => {
         visibleFields={{ ...DEFAULT_VISIBLE, tags: false }}
       />,
     );
-    expect(screen.queryByRole("columnheader", { name: "Tags" })).toBeNull();
-    expect(screen.getAllByRole("columnheader")).toHaveLength(10);
+    expect(within(gridHead()).queryByRole("columnheader", { name: "Tags" })).toBeNull();
+    expect(gridHeaders()).toHaveLength(10);
     // Cells stay aligned with the remaining headers.
     const row = screen.getByText("Jane Smith").closest("tr")!;
     expect(row.querySelectorAll("td")).toHaveLength(10);
@@ -286,7 +290,7 @@ describe("DealsTable", () => {
     render(
       <DealsTable deals={[deal()]} contactMap={contactMap} userMap={userMap} onOpen={vi.fn()} />,
     );
-    expect(screen.getAllByRole("columnheader")).toHaveLength(11);
+    expect(gridHeaders()).toHaveLength(11);
   });
 
   it("can show any deal field — e.g. Source resolved through the catalog", () => {
@@ -299,7 +303,7 @@ describe("DealsTable", () => {
         visibleFields={{ ...DEFAULT_VISIBLE, source: true }}
       />,
     );
-    expect(screen.getByRole("columnheader", { name: "Source" })).toBeInTheDocument();
+    expect(within(gridHead()).getByRole("columnheader", { name: "Source" })).toBeInTheDocument();
     expect(screen.getByText("Website")).toBeInTheDocument();
   });
 
@@ -313,7 +317,7 @@ describe("DealsTable", () => {
         visibleFields={{ ...DEFAULT_VISIBLE, externalCompany: true }}
       />,
     );
-    expect(screen.getByRole("columnheader", { name: "External Company" })).toBeInTheDocument();
+    expect(within(gridHead()).getByRole("columnheader", { name: "External Company" })).toBeInTheDocument();
     expect(screen.getByText("Allied Dispatch Solutions")).toBeInTheDocument();
   });
 
@@ -325,10 +329,10 @@ describe("DealsTable", () => {
       onOpen: vi.fn(),
     };
     const { rerender } = render(<DealsTable {...props} visibleFields={DEFAULT_VISIBLE} />);
-    expect(screen.getByRole("columnheader", { name: "Choose Company" })).toBeInTheDocument();
+    expect(within(gridHead()).getByRole("columnheader", { name: "Choose Company" })).toBeInTheDocument();
     expect(screen.getByText("KeyPro")).toBeInTheDocument();
     rerender(<DealsTable {...props} visibleFields={{ ...DEFAULT_VISIBLE, company: false }} />);
-    expect(screen.queryByRole("columnheader", { name: "Choose Company" })).not.toBeInTheDocument();
+    expect(within(gridHead()).queryByRole("columnheader", { name: "Choose Company" })).not.toBeInTheDocument();
   });
 
   it("renders an enabled custom field as a column with the deal's answer", () => {
@@ -341,7 +345,7 @@ describe("DealsTable", () => {
         visibleFields={{ ...DEFAULT_VISIBLE, "cf:cf-gate": true }}
       />,
     );
-    expect(screen.getByRole("columnheader", { name: "Gate Code" })).toBeInTheDocument();
+    expect(within(gridHead()).getByRole("columnheader", { name: "Gate Code" })).toBeInTheDocument();
     expect(screen.getByText("4417")).toBeInTheDocument();
   });
 
@@ -358,7 +362,7 @@ describe("DealsTable", () => {
         visibleFields={none}
       />,
     );
-    expect(screen.getAllByRole("columnheader")).toHaveLength(1);
+    expect(gridHeaders()).toHaveLength(1);
     expect(screen.getByText("1042")).toBeInTheDocument();
   });
 
@@ -387,8 +391,8 @@ describe("DealsTable", () => {
       render(
         <DealsTable deals={[deal()]} contactMap={contactMap} userMap={userMap} onOpen={vi.fn()} />,
       );
-      expect(screen.queryByRole("columnheader", { name: "Sent" })).toBeNull();
-      expect(screen.queryByRole("columnheader", { name: "Seen" })).toBeNull();
+      expect(within(gridHead()).queryByRole("columnheader", { name: "Sent" })).toBeNull();
+      expect(within(gridHead()).queryByRole("columnheader", { name: "Seen" })).toBeNull();
     });
 
     it("shows when the job went out, over which channels, and when it was opened", () => {
@@ -407,8 +411,8 @@ describe("DealsTable", () => {
           visibleFields={sentSeen}
         />,
       );
-      expect(screen.getByRole("columnheader", { name: "Sent" })).toBeInTheDocument();
-      expect(screen.getByRole("columnheader", { name: "Seen" })).toBeInTheDocument();
+      expect(within(gridHead()).getByRole("columnheader", { name: "Sent" })).toBeInTheDocument();
+      expect(within(gridHead()).getByRole("columnheader", { name: "Seen" })).toBeInTheDocument();
       expect(screen.getByText("12:10 PM")).toBeInTheDocument();
       expect(screen.getByText("SMS & Email")).toBeInTheDocument();
       expect(screen.getByText("12:14 PM")).toBeInTheDocument();
@@ -424,7 +428,7 @@ describe("DealsTable", () => {
           visibleFields={sentSeen}
         />,
       );
-      const headers = screen.getAllByRole("columnheader").map((h) => h.textContent);
+      const headers = gridHeaders().map((h) => h.textContent);
       const row = screen.getByText("Jane Smith").closest("tr")!;
       const cells = [...row.querySelectorAll("td")].map((c) => c.textContent);
       expect(cells[headers.indexOf("Sent")]).toBe("—");
@@ -536,7 +540,7 @@ describe("the Workiz grid", () => {
     // list_01_submitted: a solid #cccccc rule between header cells, a dotted
     // #cfcfcf one between body cells.
     const container = grid();
-    const heads = Array.from(container.querySelectorAll("thead th"));
+    const heads = Array.from(gridHead().querySelectorAll("thead th"));
     const cells = Array.from(container.querySelectorAll("tbody tr:first-child td"));
     expect(heads.length).toBeGreaterThan(1);
     expect(cells.length).toBeGreaterThan(1);
@@ -695,5 +699,54 @@ describe("DealsTable — client numbers", () => {
       />,
     );
     expect(container.querySelector("tbody")?.textContent).toContain("555");
+  });
+});
+
+/**
+ * Скрол убік — у самій сітці, як у Workiz (проби /root/jobs/ на 1440×800 і
+ * 1600×1000, 2026-10-09: документ ніколи не скролить убік; єдиний боковий
+ * скролер — коробка самої сітки, rt-table 1820px у 1238/1398px; шапка
+ * пришпилена зверху й їде вбік разом із рядками — `transform: translateX`
+ * на `.rt-thead` під `reportTable-module__stickyHeader`). Раніше вбік
+ * скролила вся сторінка, і контролі над сіткою з'їжджали — `sticky left-0`
+ * не тримає рядок завширшки з батька.
+ */
+describe("DealsTable — scrolls sideways in its own box, the header pinned", () => {
+  const grid = (deals: Deal[] = [deal()]) =>
+    render(<DealsTable deals={deals} contactMap={contactMap} userMap={userMap} onOpen={vi.fn()} />).container;
+
+  it("is the kit's scroll grid, the rows and the skeleton alike", () => {
+    const real = grid();
+    const { container: shell } = render(<DealsTableSkeleton />);
+    for (const c of [real, shell]) {
+      expect(c.querySelector("[data-slot=wz-scroll-grid]")).not.toBeNull();
+      expect(c.querySelector("[data-slot=wz-scroll-grid-head]")?.className).toMatch(/\bsticky\b/);
+      // One sideways scroller: the rows' box, nothing else.
+      expect(c.querySelectorAll(".overflow-x-auto, .overflow-auto")).toHaveLength(1);
+      expect(c.querySelector("[data-slot=wz-scroll-grid-body]")?.className).toContain("overflow-x-auto");
+    }
+  });
+
+  it("keeps the frame at the page's width — the columns fill it or scroll inside it", () => {
+    const frame = grid().querySelector("[data-slot=wz-scroll-grid]") as HTMLElement;
+    expect(frame.style.width).toBe("");
+  });
+
+  it("draws the job number first and every visible field after, each at its width as a minimum", () => {
+    // Unmeasured (jsdom), every column keeps its minimum: Workiz's react-table
+    // widths, the job number's 140.
+    const cols = [...grid().querySelectorAll("[data-slot=wz-scroll-grid-head] colgroup col")].map(
+      (c) => (c as HTMLElement).style.width,
+    );
+    expect(cols).toHaveLength(11);
+    expect(cols[0]).toBe(`${JOB_NUMBER_WIDTH}px`);
+    expect(cols[1]).toBe(`${JOB_FIELDS.find((f) => f.id === "client")!.width}px`);
+  });
+
+  it("says No Jobs Found centred on the grid as drawn, with no sideways pin of its own", () => {
+    grid([]);
+    const block = screen.getByRole("heading", { name: "No Jobs Found" }).parentElement!;
+    expect(block.className).not.toMatch(/\bsticky\b/);
+    expect(block.style.width).toBe("");
   });
 });

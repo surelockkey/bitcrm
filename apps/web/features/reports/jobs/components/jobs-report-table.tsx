@@ -3,8 +3,9 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import type { JobsReportColumnId, JobsReportFilters, JobsReportRow } from "@bitcrm/types";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { TableBody, TableCell, TableHead, TableRow } from "@/components/ui/table";
 import { ResizableHead } from "@/components/ui/resizable-head";
+import { WzScrollGrid, type WzScrollColumn } from "@/components/workiz/scroll-grid";
 import { useColumnWidths } from "@/lib/table/use-column-widths";
 import { formatPhone } from "@/features/clients/lib";
 import { tagSolidClasses } from "@/features/job-tags/lib";
@@ -19,6 +20,11 @@ import { COLUMN_LABEL, accountWall, money, workizDate, workizStatusLabel } from 
  *   #f7f7f7 (14px/500 #404040, 10px in, solid #ccc rules) sticks under the
  *   top bar while the page scrolls; the sorted column carries the 3px bar
  *   (at the foot descending, on top ascending);
+ * - wider than the page, the rows scroll sideways in the grid's own box and
+ *   the pinned header moves with them — the page never scrolls sideways
+ *   (the 2026-10-09 probe of /root/jobreport/ at 1440: `rt-tbody` 1850px in
+ *   1238px, `rt-thead` sticky top:56 at x=-411 after the scroll): the kit's
+ *   `WzScrollGrid`;
  * - react-table's columns: 100px each, Job Created and Lead Created 250px,
  *   all growing alike to fill a wide page; resizable;
  * - cells 20px all round, top-aligned, one line each, clipped;
@@ -56,9 +62,7 @@ const WIDTHS_KEY = "jobs-report-v3";
 /** react-table's `minRows` on Workiz's report. */
 export const MIN_ROWS = 10;
 
-const FRAME = "relative border border-wz-frame";
-const TABLE = "table-fixed w-full border-separate border-spacing-0";
-const HEAD = "sticky top-0 z-10 h-[42px] border-b border-r border-input bg-muted px-2.5 text-sm leading-[21px] font-medium text-wz-strong";
+const HEAD = "h-[42px] border-b border-r border-input bg-muted px-2.5 text-sm leading-[21px] font-medium text-wz-strong";
 const CELL = "overflow-hidden border-r border-dotted border-table-border p-5 align-top text-sm leading-4 whitespace-nowrap text-wz-strong";
 /**
  * Workiz's `hoverLink`: a value that filters the report when clicked. A value
@@ -238,9 +242,21 @@ function Cell({ row, column, addFilter }: { row: JobsReportRow; column: JobsRepo
   }
 }
 
-/** The grid's width: every column at its own, and never narrower than the page. */
-const gridWidth = (columns: readonly JobsReportColumnId[], widthOf: (id: string) => number) =>
-  `max(100%, ${columns.reduce((w, c) => w + widthOf(c), 0)}px)`;
+/**
+ * The grid's columns, each at its Workiz width as a minimum (react-table's
+ * `flex: <width> 0 auto`: every column grows to a wider page) — or at the
+ * width the reader dragged it to, which it then keeps while the others grow.
+ */
+function useScrollColumns(columns: readonly JobsReportColumnId[]) {
+  const widths = useColumnWidths(WIDTHS_KEY, WIDTHS);
+  const scrollColumns: WzScrollColumn[] = columns.map((c) => ({
+    id: c,
+    label: COLUMN_LABEL.get(c) ?? c,
+    width: widths.widthOf(c),
+    fixed: widths.isSet(c),
+  }));
+  return { ...widths, scrollColumns };
+}
 
 /** Blank striped rows up to `MIN_ROWS` — react-table's `-padRow`, 56px each. */
 function PadRows({ count, columns }: { count: number; columns: readonly JobsReportColumnId[] }) {
@@ -259,10 +275,10 @@ function PadRows({ count, columns }: { count: number; columns: readonly JobsRepo
 
 /**
  * The report grid: the visible columns in Workiz's order, each header a
- * server-side sort, values that Workiz lets you click to filter by. No
- * scroller of its own — the page scrolls both ways, so the header can stick
- * to its top. `viewWidth` is how much of the grid is on screen, where
- * "No Records Found" centres.
+ * server-side sort, values that Workiz lets you click to filter by. The
+ * kit's scroll grid: the frame at the page's width, the header pinned to
+ * the page's top in its own box, the rows scrolling sideways in theirs (and
+ * the header with them) when the columns are wider than the page.
  */
 export function JobsReportTable({
   rows,
@@ -272,7 +288,6 @@ export function JobsReportTable({
   onSort,
   addFilter,
   busy,
-  viewWidth,
 }: {
   rows: JobsReportRow[];
   columns: JobsReportColumnId[];
@@ -281,69 +296,62 @@ export function JobsReportTable({
   onSort: (column: JobsReportColumnId) => void;
   addFilter: AddFilter;
   busy?: boolean;
-  viewWidth?: number;
 }) {
-  const { widthOf, setWidth, reset } = useColumnWidths(WIDTHS_KEY, WIDTHS);
+  const { scrollColumns, setWidth, reset } = useScrollColumns(columns);
 
   return (
-    <div className={FRAME} style={{ width: gridWidth(columns, widthOf) }} aria-busy={busy || undefined}>
-      <Table contained={false} className={TABLE}>
-        <colgroup>
-          {columns.map((c) => (
-            <col key={c} style={{ width: widthOf(c) }} />
-          ))}
-        </colgroup>
-        <TableHeader>
-          <TableRow className="border-0 hover:bg-transparent">
-            {columns.map((c) => {
-              const label = COLUMN_LABEL.get(c) ?? c;
-              const active = sort === c;
-              return (
-                <ResizableHead
-                  key={c}
-                  columnId={c}
-                  label={label}
-                  width={widthOf(c)}
-                  onResize={(px) => setWidth(c, px)}
-                  onReset={reset}
-                  sort={active ? dir : undefined}
-                  className={cn(HEAD, "cursor-pointer last:border-r-0")}
-                >
-                  <button
-                    type="button"
-                    onClick={() => onSort(c)}
-                    aria-label={`Sort by ${label}`}
-                    className="block w-full cursor-pointer truncate text-left font-medium"
-                  >
-                    {label}
-                  </button>
-                </ResizableHead>
-              );
-            })}
-          </TableRow>
-        </TableHeader>
-        <TableBody className={cn(busy && "opacity-60")}>
-          {rows.map((row) => (
-            <TableRow key={row.id} className="border-0 hover:bg-black/5!">
-              {columns.map((c) => (
-                <TableCell key={c} className={cn(CELL, "last:border-r-0")}>
-                  <Cell row={row} column={c} addFilter={addFilter} />
-                </TableCell>
-              ))}
-            </TableRow>
-          ))}
-          <PadRows count={MIN_ROWS - rows.length} columns={columns} />
-        </TableBody>
-      </Table>
-      {rows.length === 0 ? (
-        // Workiz's `.rt-noData`: 15px/500 on a white 70% band, over the blank rows.
-        <div className="pointer-events-none absolute inset-x-0 top-[200px] z-[5]">
-          <div className="sticky left-0 flex justify-center" style={{ width: viewWidth || "100%" }}>
+    <WzScrollGrid
+      columns={scrollColumns}
+      busy={busy}
+      header={(widthOf) =>
+        columns.map((c) => {
+          const label = COLUMN_LABEL.get(c) ?? c;
+          const active = sort === c;
+          return (
+            <ResizableHead
+              key={c}
+              columnId={c}
+              label={label}
+              width={widthOf(c)}
+              onResize={(px) => setWidth(c, px)}
+              onReset={reset}
+              sort={active ? dir : undefined}
+              className={cn(HEAD, "cursor-pointer last:border-r-0")}
+            >
+              <button
+                type="button"
+                onClick={() => onSort(c)}
+                aria-label={`Sort by ${label}`}
+                className="block w-full cursor-pointer truncate text-left font-medium"
+              >
+                {label}
+              </button>
+            </ResizableHead>
+          );
+        })
+      }
+      after={
+        rows.length === 0 ? (
+          // Workiz's `.rt-noData`: 15px/500 on a white 70% band, over the blank rows.
+          <div className="pointer-events-none absolute inset-x-0 top-[200px] z-[5] flex justify-center">
             <span className="bg-white/70 px-[26px] text-[15px] leading-4 font-medium text-wz-strong">No Records Found</span>
           </div>
-        </div>
-      ) : null}
-    </div>
+        ) : null
+      }
+    >
+      <TableBody className={cn(busy && "opacity-60")}>
+        {rows.map((row) => (
+          <TableRow key={row.id} className="border-0 hover:bg-black/5!">
+            {columns.map((c) => (
+              <TableCell key={c} className={cn(CELL, "last:border-r-0")}>
+                <Cell row={row} column={c} addFilter={addFilter} />
+              </TableCell>
+            ))}
+          </TableRow>
+        ))}
+        <PadRows count={MIN_ROWS - rows.length} columns={columns} />
+      </TableBody>
+    </WzScrollGrid>
   );
 }
 
@@ -352,36 +360,32 @@ export function JobsReportTable({
  * (rep_jobs_wz_00_loading): the header, ten blank striped rows and a small
  * three-dot loader in the middle. Same widths as the grid it turns into.
  */
-export function JobsReportTableShell({ columns, viewWidth }: { columns: JobsReportColumnId[]; viewWidth?: number }) {
-  const { widthOf } = useColumnWidths(WIDTHS_KEY, WIDTHS);
+export function JobsReportTableShell({ columns }: { columns: JobsReportColumnId[] }) {
+  const { scrollColumns } = useScrollColumns(columns);
   return (
-    <div role="status" aria-label="Loading jobs" aria-busy className={FRAME} style={{ width: gridWidth(columns, widthOf) }}>
-      <Table contained={false} className={TABLE}>
-        <colgroup>
-          {columns.map((c) => (
-            <col key={c} style={{ width: widthOf(c) }} />
-          ))}
-        </colgroup>
-        <TableHeader>
-          <TableRow className="border-0 hover:bg-transparent">
-            {columns.map((c) => (
-              <TableHead key={c} className={cn(HEAD, "truncate text-wz-strong/40 last:border-r-0")}>
-                {COLUMN_LABEL.get(c) ?? c}
-              </TableHead>
-            ))}
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          <PadRows count={MIN_ROWS} columns={columns} />
-        </TableBody>
-      </Table>
-      <div className="pointer-events-none absolute inset-x-0 top-[300px]">
-        <div className="sticky left-0 flex justify-center gap-1.5" style={{ width: viewWidth || "100%" }}>
+    <WzScrollGrid
+      columns={scrollColumns}
+      busy
+      role="status"
+      aria-label="Loading jobs"
+      header={() =>
+        columns.map((c) => (
+          <TableHead key={c} className={cn(HEAD, "truncate text-wz-strong/40 last:border-r-0")}>
+            {COLUMN_LABEL.get(c) ?? c}
+          </TableHead>
+        ))
+      }
+      after={
+        <div className="pointer-events-none absolute inset-x-0 top-[300px] flex justify-center gap-1.5">
           {[0, 1, 2].map((i) => (
             <span key={i} className="size-2 animate-pulse rounded-full bg-wz-strong" style={{ animationDelay: `${i * 160}ms` }} />
           ))}
         </div>
-      </div>
-    </div>
+      }
+    >
+      <TableBody>
+        <PadRows count={MIN_ROWS} columns={columns} />
+      </TableBody>
+    </WzScrollGrid>
   );
 }

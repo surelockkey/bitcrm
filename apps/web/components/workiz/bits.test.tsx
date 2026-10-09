@@ -64,13 +64,15 @@ describe("WzTableEmpty", () => {
     expect(screen.getByTestId("art").parentElement!.className).toContain("mb-[44px]");
   });
 
-  // A grid wider than the page scrolls sideways under the list's controls;
-  // the words centre on the part on screen, not on columns scrolled away.
-  it("centres its words on the part of the grid on screen when told how wide that is", () => {
-    render(<WzTableEmpty title="No Jobs Found" viewWidth={1200} />);
+  // The grid's frame is the page's width (its columns scroll inside it —
+  // `WzScrollGrid`), so the words centre on the frame and nothing pins
+  // sideways: the `viewWidth` variant, which held the block on a page that
+  // scrolled sideways itself, is gone with that page pattern (2026-10-09).
+  it("centres its words on the grid as drawn and pins nothing sideways", () => {
+    render(<WzTableEmpty title="No Jobs Found" />);
     const block = screen.getByRole("heading", { name: "No Jobs Found" }).parentElement!;
-    expect(block).toHaveStyle({ width: "1200px" });
-    expect(block.className).toContain("sticky");
-    expect(block.className).toContain("left-0");
+    expect(block.className).toContain("mx-auto");
+    expect(block.className).not.toMatch(/\bsticky\b/);
+    expect(block.style.width).toBe("");
   });
 });

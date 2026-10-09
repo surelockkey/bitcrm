@@ -316,7 +316,7 @@ describe("DealsPage — Search, on the server", () => {
     mocks.searchedCounts = { ...mocks.counts, submitted: 1, done: null, canceled: null };
     await type("Dustin");
     expect(lastPageParams()).toEqual({ superStatus: "submitted", sort: "schedule", dir: "asc", limit: 50, q: "Dustin" });
-    const rows = screen.getAllByRole("row").filter((r) => !r.hasAttribute("aria-hidden")).slice(1);
+    const rows = [...document.querySelectorAll("tbody tr:not([aria-hidden])")];
     expect(rows).toHaveLength(1);
     expect(rows[0].textContent).toContain("5TU7ZA");
   });
@@ -490,7 +490,7 @@ describe("DealsPage — the names that arrive with the rows", () => {
     render(<DealsPage />);
 
     fireEvent.click(screen.getByRole("button", { name: "Next page" }));
-    expect(screen.getAllByRole("row")[1].textContent).toContain("B22222");
+    expect(document.querySelector("tbody tr")!.textContent).toContain("B22222");
     expect(screen.getByLabelText("Technician")).toHaveTextContent("Bob Poole");
     expect(screen.getByText("Jane Smith")).toBeInTheDocument();
   });
@@ -615,5 +615,25 @@ describe("DealsPage — switching tabs", () => {
 
     expect(await screen.findByText(/No jobs/i)).toBeInTheDocument();
     expect(screen.queryByRole("status", { name: "Loading jobs" })).toBeNull();
+  });
+});
+
+/**
+ * Сторінка скролить лише вгору-вниз, як у Workiz (проби /root/jobs/ на
+ * 1440×800 і 1600×1000, 2026-10-09: документ не має бокового скролу; вбік
+ * скролить лише коробка сітки). Коли вбік скролила вся сторінка, «Filter
+ * results», вкладки й сіра смуга з'їжджали разом із сіткою — `sticky left-0`
+ * не тримає рядок завширшки з батька.
+ */
+describe("DealsPage — scrolls only up and down; the controls above the grid are not pinned sideways", () => {
+  it("has one scroller, up and down, and pins nothing but the grid's header", () => {
+    const { container } = render(<DealsPage />);
+    const scroller = container.querySelector("[data-slot=jobs-scroller]") as HTMLElement;
+    expect(scroller.className).toMatch(/\boverflow-y-auto\b/);
+    expect(scroller.className).toMatch(/\boverflow-x-hidden\b/);
+    expect(scroller.className).not.toMatch(/\boverflow-auto\b/);
+    const pinned = [...scroller.querySelectorAll(".sticky")].filter((el) => el.getAttribute("data-slot") !== "wz-scroll-grid-head");
+    expect(pinned).toHaveLength(0);
+    expect(scroller.querySelector(".left-0.sticky, .sticky.left-0")).toBeNull();
   });
 });
