@@ -1,165 +1,109 @@
 "use client";
 
-import { Eye, MapPin, MapPinOff, Send } from "lucide-react";
+import Link from "next/link";
 import type { Deal } from "@bitcrm/types";
 import { cn } from "@/lib/utils";
-import { StageBadge } from "@/features/deals/components/deal-badges";
 import { seenByTechLabel, sentToTechLabel } from "@/features/deals/lib";
-import { useJobTypeName } from "@/features/job-types/lib";
+import { mapAddress, mapStatusWord } from "../map-words";
+import { MapTag } from "./map-tag";
+
+/*
+ * The Map's job cards (Sidebar-module cardWrapper, pg_dispatch_wz_02_loaded):
+ * 16px in, 8px between lines, a #dfe2e3 rule under each; "<type> - Job #<id>"
+ * 14px/16px semibold, the address under it, and the green status tag. No
+ * hover or selected look — Workiz shows the pointer only.
+ */
 
 /**
- * The Workiz dispatch stamps as two small chips on a board row: whether the
- * job has been handed to its technician (`last_sent`) and whether they have
- * opened it (`seen`). A job never sent shows nothing — the board's job is to
- * make the gap visible, not to nag about every row.
+ * Ours, kept from the dispatch board: whether the job has been handed to its
+ * technician (`last_sent`) and whether they have opened it (`seen`), as two
+ * more Workiz tags beside the status. A job never sent shows neither.
  */
-function SendStateChips({ deal }: { deal: Deal }) {
+function SendStamps({ deal }: { deal: Deal }) {
   const sent = sentToTechLabel(deal);
   if (!sent) return null;
   const seen = seenByTechLabel(deal);
   return (
-    <span className="ml-auto flex shrink-0 items-center gap-1">
-      <span
-        title={sent}
-        className="inline-flex items-center gap-1 rounded-chip bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
-      >
-        <Send className="size-2.5" /> Sent
-      </span>
+    <>
+      <MapTag tone="archived" bold title={sent}>
+        Sent
+      </MapTag>
       {seen ? (
-        <span
-          title={seen}
-          className="inline-flex items-center gap-1 rounded-chip bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300"
-        >
-          <Eye className="size-2.5" /> Seen
-        </span>
+        <MapTag tone="primary" bold title={seen}>
+          Seen
+        </MapTag>
       ) : null}
-    </span>
+    </>
   );
 }
 
-function JobRow({
-  deal,
-  clientName,
-  techName,
-  hovered,
-  selected,
-  locatable,
-  onHover,
-  onSelect,
-}: {
-  deal: Deal;
-  clientName: string;
-  techName?: string;
-  hovered: boolean;
-  selected: boolean;
-  locatable: boolean;
-  onHover: (id: string | null) => void;
-  onSelect: (id: string) => void;
-}) {
-  const jobTypeName = useJobTypeName();
+const CARD = "flex w-full flex-col gap-2 border-b border-border p-4 text-left text-sm leading-4 tracking-[0.4px] text-wz-strong outline-none focus-visible:bg-wz-secondary-hover";
+
+function CardBody({ deal, title }: { deal: Deal; title: string }) {
   return (
-    <button
-      type="button"
-      data-testid={`job-row-${deal.id}`}
-      data-hovered={hovered ? "true" : "false"}
-      onMouseEnter={() => onHover(deal.id)}
-      onMouseLeave={() => onHover(null)}
-      onFocus={() => onHover(deal.id)}
-      onBlur={() => onHover(null)}
-      onClick={() => onSelect(deal.id)}
-      className={cn(
-        "flex w-full flex-col gap-1 border-b px-4 py-3 text-left transition-colors",
-        "hover:bg-muted/60 focus-visible:bg-muted/60 focus-visible:outline-none",
-        (hovered || selected) && "bg-muted",
-        selected && "ring-1 ring-inset ring-primary/40",
-      )}
-    >
-      <div className="flex items-center gap-2">
-        {locatable ? (
-          <MapPin className="size-3.5 shrink-0 text-muted-foreground" />
-        ) : (
-          <MapPinOff className="size-3.5 shrink-0 text-amber-600" />
-        )}
-        <span className="truncate text-sm font-medium">{clientName}</span>
-        <span className="ml-auto text-xs text-muted-foreground">#{deal.dealNumber}</span>
-      </div>
-
-      <div className="flex items-center gap-2 pl-5">
-        <StageBadge status={deal.superStatus} />
-        <span className="truncate text-xs text-muted-foreground">
-          {jobTypeName(deal.jobTypeId)}
-        </span>
-        <SendStateChips deal={deal} />
-      </div>
-
-      <div className="truncate pl-5 text-xs text-muted-foreground">
-        {deal.address.street}, {deal.address.city}
-        {deal.scheduledTimeSlot ? ` · ${deal.scheduledTimeSlot}` : ""}
-      </div>
-
-      <div className="truncate pl-5 text-xs text-muted-foreground">
-        {techName ? techName : <span className="text-red-600">Unassigned</span>}
-      </div>
-    </button>
+    <>
+      <span className="font-semibold">{title}</span>
+      <span>{mapAddress(deal.address)}</span>
+      <span className="flex flex-wrap items-center gap-1">
+        <MapTag bold>{mapStatusWord(deal.superStatus)}</MapTag>
+        <SendStamps deal={deal} />
+      </span>
+    </>
   );
 }
 
 export function JobList({
   mapped,
   unmapped,
-  clientName,
-  techName,
+  title,
   hoveredId,
-  selectedId,
   onHover,
   onSelect,
 }: {
   mapped: Deal[];
   unmapped: Deal[];
-  clientName: (deal: Deal) => string;
-  techName: (deal: Deal) => string | undefined;
+  /** "Car Key Copy - Job #A4IC4E". */
+  title: (deal: Deal) => string;
   hoveredId: string | null;
-  selectedId: string | null;
   onHover: (id: string | null) => void;
   onSelect: (id: string) => void;
 }) {
-  const row = (deal: Deal, locatable: boolean) => (
-    <JobRow
-      key={deal.id}
-      deal={deal}
-      clientName={clientName(deal)}
-      techName={techName(deal)}
-      hovered={hoveredId === deal.id}
-      selected={selectedId === deal.id}
-      locatable={locatable}
-      onHover={onHover}
-      onSelect={onSelect}
-    />
-  );
-
   return (
-    <div className="flex h-full flex-col overflow-y-auto">
-      {mapped.length === 0 && unmapped.length === 0 ? (
-        <p className="px-4 py-8 text-center text-sm text-muted-foreground">
-          No jobs match these filters.
-        </p>
-      ) : null}
-
-      {mapped.map((deal) => row(deal, true))}
+    <>
+      {mapped.map((deal) => (
+        <button
+          key={deal.id}
+          type="button"
+          data-testid={`job-row-${deal.id}`}
+          data-hovered={hoveredId === deal.id ? "true" : "false"}
+          onMouseEnter={() => onHover(deal.id)}
+          onMouseLeave={() => onHover(null)}
+          onFocus={() => onHover(deal.id)}
+          onBlur={() => onHover(null)}
+          onClick={() => onSelect(deal.id)}
+          className={cn(CARD, "cursor-pointer")}
+        >
+          <CardBody deal={deal} title={title(deal)} />
+        </button>
+      ))}
 
       {/*
         Jobs we could not place. Shown, not hidden — a map missing a third of the
         day's work looks complete and is worse than one that admits the gap.
+        With no pin to open a card over, each opens its job page.
       */}
       {unmapped.length > 0 ? (
         <>
-          <div className="sticky top-0 flex items-center gap-2 border-b bg-amber-50 px-4 py-2 text-xs font-medium text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
-            <MapPinOff className="size-3.5" />
+          <p className="border-b border-border px-4 pt-3 pb-3 text-sm leading-[21px] tracking-[0.4px] text-wz-slate">
             Not on the map ({unmapped.length}) — address has no coordinates yet
-          </div>
-          {unmapped.map((deal) => row(deal, false))}
+          </p>
+          {unmapped.map((deal) => (
+            <Link key={deal.id} href={`/deals/${deal.id}`} data-testid={`job-row-${deal.id}`} data-hovered="false" className={CARD}>
+              <CardBody deal={deal} title={title(deal)} />
+            </Link>
+          ))}
         </>
       ) : null}
-    </div>
+    </>
   );
 }

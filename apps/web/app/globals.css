@@ -128,6 +128,7 @@
   --color-wz-series6: var(--wz-series6);
   --color-wz-series7: var(--wz-series7);
   --color-wz-series8: var(--wz-series8);
+  --color-wz-tag-success: var(--wz-tag-success);
   --font-sans: var(--font-sans);
   --font-mono: var(--font-geist-mono);
   --font-heading: var(--font-sans);
@@ -264,6 +265,7 @@
   --wz-series6: #f95d6a;
   --wz-series7: #a05195;
   --wz-series8: #ffa600;
+  --wz-tag-success: #3acf7d;
   /* Workiz corners are tight; the stock shadcn 0.625rem is far too round.
      5px puts \`rounded-md\` (×0.8) on exactly Workiz's 4px field corner —
      inputs, selects, textareas, menus — and \`rounded-sm\` on its 3px chip. */

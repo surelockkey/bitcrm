@@ -1,21 +1,14 @@
 "use client";
 
-import { MapPin, Wrench } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { personName } from "@/features/deals/person-name";
+import type { DirectoryUser } from "@/features/deals/hooks";
 import {
   technicianStatus,
   formatAge,
   type TechnicianPosition,
   type TechStatus,
 } from "../lib";
-import type { DirectoryUser } from "@/features/deals/hooks";
-
-const DOT: Record<TechStatus, string> = {
-  live: "bg-emerald-500",
-  stale: "bg-amber-500",
-  derived: "bg-zinc-400",
-  offline: "bg-zinc-300",
-};
 
 /** Online first, then by name — the dispatcher cares about who's actually out there. */
 const STATUS_ORDER: Record<TechStatus, number> = { live: 0, stale: 1, derived: 2, offline: 3 };
@@ -35,147 +28,102 @@ function statusLabel(status: TechStatus, position: TechnicianPosition | undefine
   }
 }
 
-function TechRow({
-  userId,
-  name,
-  status,
-  label,
-  address,
-  locatable,
-  selected,
-  hovered,
-  onHover,
-  onSelect,
-}: {
+export interface TechRow {
   userId: string;
   name: string;
   status: TechStatus;
   label: string;
-  address?: string;
   locatable: boolean;
-  selected: boolean;
-  hovered: boolean;
-  onHover: (id: string | null) => void;
-  onSelect: (id: string) => void;
-}) {
-  return (
-    <button
-      type="button"
-      data-testid={`tech-row-${userId}`}
-      data-hovered={hovered ? "true" : "false"}
-      // Only a technician we can place has a marker to highlight / centre on.
-      onMouseEnter={() => locatable && onHover(userId)}
-      onMouseLeave={() => onHover(null)}
-      onFocus={() => locatable && onHover(userId)}
-      onBlur={() => onHover(null)}
-      onClick={() => locatable && onSelect(userId)}
-      className={cn(
-        "flex w-full items-center gap-2.5 border-b px-4 py-3 text-left transition-colors",
-        locatable && "hover:bg-muted/60 focus-visible:bg-muted/60",
-        (hovered || selected) && "bg-muted",
-        selected && "ring-1 ring-inset ring-primary/40",
-        "focus-visible:outline-none",
-      )}
-    >
-      <span className="flex size-8 items-center justify-center rounded-full bg-muted text-muted-foreground">
-        <Wrench className="size-4" />
-      </span>
-      <div className="min-w-0 flex-1">
-        <div className="truncate text-sm font-medium">{name}</div>
-        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <span className={cn("size-2 rounded-full", DOT[status])} />
-          {label}
-        </div>
-        {address ? (
-          <div className="mt-0.5 flex items-start gap-1 text-xs text-muted-foreground">
-            <MapPin className="mt-0.5 size-3 shrink-0" />
-            <span className="truncate">{address}</span>
-          </div>
-        ) : null}
-      </div>
-    </button>
-  );
 }
 
 /**
- * The technician roster for the map's "Techs" view. Shows everyone, online or
- * not — a technician with no live fix and no derived spot still belongs on the
- * team list, just marked offline. Hovering a locatable row highlights their map
- * marker.
+ * The Techs tab's people: everyone on the roster, online or not — a
+ * technician with no live fix and no derived spot still belongs on the team
+ * list, just marked offline — narrowed by the search box.
  */
-export function TechList({
+export function techRows({
   userIds,
   positions,
-  addresses,
-  now,
   userMap,
-  hoveredId,
-  selectedId,
-  onHover,
-  onSelect,
+  now,
+  query = "",
 }: {
   /** Every technician's userId, so offline ones appear too. */
   userIds: string[];
   positions: TechnicianPosition[];
+  userMap: Map<string, DirectoryUser>;
+  /** What a live fix's age is counted from: when the fixes were read. */
+  now: number;
+  query?: string;
+}): TechRow[] {
+  const byId = new Map(positions.map((p) => [p.userId, p]));
+  const q = query.trim().toLowerCase();
+  return userIds
+    .map((userId) => {
+      const position = byId.get(userId);
+      const status = technicianStatus(position);
+      return {
+        userId,
+        name: personName(userMap.get(userId)) ?? "Technician",
+        status,
+        label: statusLabel(status, position, now),
+        locatable: Boolean(position),
+      };
+    })
+    .filter((row) => !q || row.name.toLowerCase().includes(q))
+    .sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status] || a.name.localeCompare(b.name));
+}
+
+/*
+ * The Map's tech cards (pg_dispatch_wz_11_techs): 16px in, a #dfe2e3 rule,
+ * the name 14px/16px semibold. Ours adds the live status and the street under
+ * it in the sidebar's slate 13px — Workiz keeps those for the pin's card.
+ */
+export function TechList({
+  rows,
+  addresses,
+  hoveredId,
+  onHover,
+  onSelect,
+}: {
+  rows: TechRow[];
   /**
    * userId → the street they are on. Looked up by the page with everything
    * else it shows, so each row is drawn with its address line rather than
    * growing one when the lookup lands.
    */
   addresses: Map<string, string>;
-  /** What a live fix's age is counted from: when the fixes were read. */
-  now: number;
-  userMap: Map<string, DirectoryUser>;
   hoveredId: string | null;
-  selectedId: string | null;
   onHover: (id: string | null) => void;
   onSelect: (id: string) => void;
 }) {
-  const byId = new Map(positions.map((p) => [p.userId, p]));
-
-  const rows = userIds
-    .map((userId) => {
-      const position = byId.get(userId);
-      const user = userMap.get(userId);
-      const name = user
-        ? `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim() || user.email || userId
-        : "Technician";
-      const status = technicianStatus(position);
-      return {
-        userId,
-        name,
-        status,
-        label: statusLabel(status, position, now),
-        locatable: Boolean(position),
-      };
-    })
-    .sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status] || a.name.localeCompare(b.name));
-
-  if (rows.length === 0) {
-    return (
-      <p className="px-4 py-8 text-center text-sm text-muted-foreground">
-        No technicians.
-      </p>
-    );
-  }
-
   return (
-    <div className="flex h-full flex-col overflow-y-auto">
-      {rows.map((row) => (
-        <TechRow
-          key={row.userId}
-          userId={row.userId}
-          name={row.name}
-          status={row.status}
-          label={row.label}
-          address={addresses.get(row.userId)}
-          locatable={row.locatable}
-          selected={selectedId === row.userId}
-          hovered={hoveredId === row.userId}
-          onHover={onHover}
-          onSelect={onSelect}
-        />
-      ))}
-    </div>
+    <>
+      {rows.map((row) => {
+        const address = addresses.get(row.userId);
+        return (
+          <button
+            key={row.userId}
+            type="button"
+            data-testid={`tech-row-${row.userId}`}
+            data-hovered={hoveredId === row.userId ? "true" : "false"}
+            // Only a technician we can place has a pin to point at / centre on.
+            onMouseEnter={() => row.locatable && onHover(row.userId)}
+            onMouseLeave={() => onHover(null)}
+            onFocus={() => row.locatable && onHover(row.userId)}
+            onBlur={() => onHover(null)}
+            onClick={() => row.locatable && onSelect(row.userId)}
+            className={cn(
+              "flex w-full flex-col gap-1 border-b border-border p-4 text-left tracking-[0.4px] outline-none focus-visible:bg-wz-secondary-hover",
+              row.locatable ? "cursor-pointer" : "cursor-default",
+            )}
+          >
+            <span className="text-sm leading-4 font-semibold text-wz-strong">{row.name}</span>
+            <span className="text-[13px] leading-[19px] text-wz-slate">{row.label}</span>
+            {address ? <span className="truncate text-[13px] leading-[19px] text-wz-slate">{address}</span> : null}
+          </button>
+        );
+      })}
+    </>
   );
 }

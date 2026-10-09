@@ -61,12 +61,6 @@ vi.mock("@vis.gl/react-google-maps", () => ({
         }
       : null,
 }));
-vi.mock("@googlemaps/markerclusterer", () => ({
-  MarkerClusterer: class {
-    clearMarkers() {}
-    addMarkers() {}
-  },
-}));
 vi.mock("@/lib/env", () => ({
   env: { apiBaseUrl: "http://api.test", googleMapsApiKey: "test-key", googleMapsMapId: "test-map-id" },
 }));
@@ -84,7 +78,11 @@ vi.mock("@/features/auth/use-permissions", () => ({
   }),
 }));
 
-const today = new Date().toISOString().slice(0, 10);
+/** The viewer's day — the Map opens on the week around it. */
+const localDay = (() => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+})();
 
 const deal = (n: number, over: Partial<Deal> = {}): Deal => ({
   id: `d${n}`,
@@ -95,6 +93,7 @@ const deal = (n: number, over: Partial<Deal> = {}): Deal => ({
   address: { street: `${n} Elm St`, city: "Testville", state: "GA", zip: "30001", lat: 33.7 + n / 100, lng: -84.4 },
   jobTypeId: "jt-lockout",
   superStatus: JobSuperStatus.SUBMITTED,
+  scheduledDate: localDay,
   assignedDispatcherId: "u-disp",
   priority: DealPriority.NORMAL,
   assignedTechIds: [],
@@ -131,7 +130,7 @@ function dealsReply(url: URL) {
   const page = (data: Deal[], nextCursor?: string) => ({ success: true, data, pagination: { nextCursor } });
   if (status === "submitted") return cursor ? page([deal(2)]) : page([deal(1)], "next");
   if (status === "in_progress")
-    return page([deal(3, { superStatus: JobSuperStatus.IN_PROGRESS, scheduledDate: today, assignedTechIds: ["t-home"] })]);
+    return page([deal(3, { superStatus: JobSuperStatus.IN_PROGRESS, scheduledDate: localDay, assignedTechIds: ["t-home"] })]);
   return page([]);
 }
 
@@ -161,26 +160,33 @@ const routes: FakeRoute[] = [
 
 let server: FakeServer;
 
-/** The board is up: its title is on screen. */
-const boardIsUp = () => !!screen.queryByText("Dispatch Map");
+/** The board is up: the Map's sidebar and map are on screen. */
+const boardIsUp = () => !!document.querySelector('[data-testid="dispatch-board"]');
+const boardUp = (timeout = 3000) => screen.findByTestId("dispatch-board", {}, { timeout });
 
 const techRowOrder = () =>
   Array.from(document.querySelectorAll('[data-testid^="tech-row-"]')).map((el) =>
     el.getAttribute("data-testid")!.replace("tech-row-", ""),
   );
 
+/** What a dispatcher sees on the Techs tab the moment it opens. */
+const rosterFrame = () => ({
+  techNames: ["Hana Home", "Lev Live", "Ola Off"].every((n) => screen.queryAllByText(n).length > 0),
+  liveStatus: screen.queryAllByText(/Online · just now/).length > 0,
+  techAddresses: screen.queryAllByText(/Test Way/).length,
+  techOrder: techRowOrder(),
+});
+
 function watchBoardFirstFrame() {
   return watchFirstFrame(boardIsUp, () => ({
     requestsSoFar: server.requests.length,
     jobRows: document.querySelectorAll('[data-testid^="job-row-"]').length,
-    clientNames: ["Ivy Quill", "Otto Brisk", "Pia Lark"].every((n) => screen.queryAllByText(n).length > 0),
+    jobTitles: ["Lockout - Job #701", "Lockout - Job #702", "Lockout - Job #703"].every(
+      (t) => screen.queryAllByText(t).length > 0,
+    ),
     unknownClient: screen.queryAllByText("Unknown client").length,
-    unknownType: screen.queryAllByText("Unknown type").length,
-    techNames: ["Hana Home", "Lev Live", "Ola Off"].every((n) => screen.queryAllByText(n).length > 0),
-    liveStatus: screen.queryAllByText(/Online · just now/).length > 0,
-    techAddresses: screen.queryAllByText(/Test Way/).length,
-    techOrder: techRowOrder(),
-    jobCount: !!screen.queryByText(/Showing 3 of 3 jobs/),
+    unknownType: screen.queryAllByText(/Unknown type/).length,
+    jobCount: !!screen.queryByText("Found 3 out of 3 open jobs"),
     skeletons: skeletonCount(),
   }));
 }
@@ -193,7 +199,7 @@ beforeEach(() => {
   geocoder.delayMs = 30;
   window.sessionStorage.clear();
   server = installFakeServer(routes);
-  // FitToJobs builds a LatLngBounds; stub the slice it touches.
+  // FitTo builds a LatLngBounds; stub the slice it touches.
   vi.stubGlobal("google", { maps: { LatLngBounds: class { extend() {} } } });
 });
 
@@ -206,18 +212,14 @@ describe("DispatchPage — one load, not waves", () => {
   it("shows the board only once everything on it has arrived", async () => {
     const watch = watchBoardFirstFrame();
     renderWithClient(<DispatchPage />);
-    await screen.findByText("Dispatch Map", {}, { timeout: 3000 });
+    await boardUp();
     watch.stop();
 
     expect(watch.frame()).toMatchObject({
       jobRows: 3,
-      clientNames: true,
+      jobTitles: true,
       unknownClient: 0,
       unknownType: 0,
-      techNames: true,
-      liveStatus: true,
-      // Both placed technicians already carry their street.
-      techAddresses: 2,
       jobCount: true,
       skeletons: 0,
     });
@@ -226,7 +228,7 @@ describe("DispatchPage — one load, not waves", () => {
   it("asks for nothing more once the board is on screen", async () => {
     const watch = watchBoardFirstFrame();
     renderWithClient(<DispatchPage />);
-    await screen.findByText("Dispatch Map", {}, { timeout: 3000 });
+    await boardUp();
     watch.stop();
     await settle();
 
@@ -235,27 +237,40 @@ describe("DispatchPage — one load, not waves", () => {
 
   it("asks for each thing once", async () => {
     renderWithClient(<DispatchPage />);
-    await screen.findByText("Dispatch Map", {}, { timeout: 3000 });
+    await boardUp();
     await settle();
 
     expect(duplicates(server.requests)).toEqual([]);
   });
 
-  it("does not reshuffle the technicians once they are on screen", async () => {
-    const watch = watchBoardFirstFrame();
+  it("has the whole team — names, live status, streets — the moment the Techs tab opens", async () => {
     renderWithClient(<DispatchPage />);
-    await screen.findByText("Dispatch Map", {}, { timeout: 3000 });
-    watch.stop();
+    await boardUp();
+    await settle();
+    const asked = server.requests.length;
+
+    fireEvent.click(screen.getByRole("tab", { name: "Techs" }));
+
+    expect(rosterFrame()).toMatchObject({ techNames: true, liveStatus: true, techAddresses: 2 });
+    await settle();
+    expect(server.requests.slice(asked)).toEqual([]);
+  });
+
+  it("does not reshuffle the technicians once they are on screen", async () => {
+    renderWithClient(<DispatchPage />);
+    await boardUp();
+    fireEvent.click(screen.getByRole("tab", { name: "Techs" }));
+    const first = rosterFrame().techOrder;
     await settle();
 
     // Online first, then by name — and that order is the first one drawn.
-    expect(watch.frame()!.techOrder).toEqual(["t-live", "t-home", "t-off"]);
-    expect(techRowOrder()).toEqual(watch.frame()!.techOrder);
+    expect(first).toEqual(["t-live", "t-home", "t-off"]);
+    expect(techRowOrder()).toEqual(first);
   });
 
   it("looks up each technician's street once, all at once", async () => {
     renderWithClient(<DispatchPage />);
-    await screen.findByText("Dispatch Map", {}, { timeout: 3000 });
+    await boardUp();
     await settle();
 
     expect(geocoder.lookups).toBe(2);
@@ -269,41 +284,37 @@ describe("DispatchPage — one load, not waves", () => {
     expect(screen.queryByText(/no access/i)).not.toBeInTheDocument();
   });
 
-  it("keeps the board on screen while another set of statuses loads", async () => {
+  it("filters among the jobs in hand: the date box and the Filters ask for nothing", async () => {
     renderWithClient(<DispatchPage />);
-    await screen.findByText("Dispatch Map", {}, { timeout: 3000 });
+    await boardUp();
+    await settle();
+    const asked = server.requests.length;
+
+    fireEvent.click(screen.getByRole("button", { name: "Filter by" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "In progress" }));
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+    // At once: only the in-progress job, never an empty board in between.
+    expect(screen.getByTestId("job-row-d3")).toBeInTheDocument();
+    expect(screen.queryByTestId("job-row-d1")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    expect(screen.queryByTestId("job-row-d3")).not.toBeInTheDocument();
     await settle();
 
-    // Watch every frame from the click until the new jobs are in.
-    let lostRows = false;
-    const observer = new MutationObserver(() => {
-      if (!document.querySelector('[data-testid^="job-row-"]')) lostRows = true;
-    });
-    observer.observe(document.body, { childList: true, subtree: true });
-    fireEvent.click(screen.getByRole("button", { name: "Submitted" }));
-    // Until the new jobs are in, the board is the one it was — not the old
-    // jobs re-filtered, which would change twice for one click.
-    expect(screen.getByTestId("job-row-d3")).toBeInTheDocument();
-    // The new window: only the submitted jobs, the in-progress one gone.
-    await vi.waitFor(() => expect(screen.queryByTestId("job-row-d3")).not.toBeInTheDocument(), { timeout: 2000 });
-    observer.disconnect();
-
-    expect(lostRows).toBe(false);
-    expect(screen.getByTestId("job-row-d1")).toBeInTheDocument();
-    expect(screen.queryByText("Unknown client")).not.toBeInTheDocument();
+    expect(server.requests.slice(asked)).toEqual([]);
   });
 
   it("a request that fails does not hold the board off the screen", async () => {
     server.fail(/\/users\/technicians\/locations$/);
     renderWithClient(<DispatchPage />);
 
-    expect(await screen.findByText("Dispatch Map", {}, { timeout: 3000 })).toBeInTheDocument();
+    expect(await boardUp()).toBeInTheDocument();
   });
 
   it("a geocoder that never answers does not hold the board off the screen", async () => {
     geocoder.delayMs = 60_000;
     renderWithClient(<DispatchPage />);
 
-    expect(await screen.findByText("Dispatch Map", {}, { timeout: 5000 })).toBeInTheDocument();
+    expect(await boardUp(5000)).toBeInTheDocument();
   });
 });
