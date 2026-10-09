@@ -147,3 +147,7 @@ export { WzFormModal } from "./form-modal";
 export { WzSettingsCatalog } from "./settings-catalog";
 export { WzModalTextField } from "./modal-text-field";
 export { WzAccountTitle, WzAccountToggle, WzPaySection, WzPayRow, WzDocSettingsField } from "./settings-form";
+
+
+// Legacy document pages (agent pg_workorders, Workiz's work order view).
+export { WzLegacyActionsMenu } from "./legacy-actions-menu";
