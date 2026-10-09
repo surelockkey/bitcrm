@@ -25,6 +25,10 @@ vi.mock("@/features/deals/components/deals-stream-provider", () => ({
 vi.mock("@/features/messaging/components/inbox-sidebar-collapse", () => ({
   InboxSidebarCollapse: () => null,
 }));
+// Fires browser notifications off the realtime bus; needs the app router.
+vi.mock("@/features/notifications/components/on-screen-notifications-provider", () => ({
+  OnScreenNotificationsProvider: () => null,
+}));
 
 // Whether the run starts in apps/web or at the repo root.
 const globalsCssPath = ["app/globals.css", "apps/web/app/globals.css"]
