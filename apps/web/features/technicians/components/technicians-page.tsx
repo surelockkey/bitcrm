@@ -171,7 +171,8 @@ export function TechniciansPage() {
 
       <WzListToolbar>
         <WzSearchBox
-          type="search"
+          // A search box without the browser's own blue × beside Workiz's round one.
+          role="searchbox"
           value={query}
           onChange={(v) => {
             setQuery(v);

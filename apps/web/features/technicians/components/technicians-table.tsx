@@ -113,8 +113,13 @@ export const TEAM_COLUMNS: (WzReportColumn<TeamRow> & Pick<WzGridColumn<TeamRow>
   },
 ];
 
-/** Workiz's columns share the row alike (175px each on a 1400px grid); the reader may drag them. */
-const COLUMN_DEFAULTS: Record<string, number> = Object.fromEntries(TEAM_COLUMNS.map((c) => [c.id, 175] as const));
+/**
+ * Workiz's columns share the row alike (175px each on its 1400px grid). Ours
+ * start at 160 and the fixed table stretches them alike to the width it has —
+ * 175 would overrun our 8px-narrower page and scroll it sideways. The reader
+ * may drag them.
+ */
+const COLUMN_DEFAULTS: Record<string, number> = Object.fromEntries(TEAM_COLUMNS.map((c) => [c.id, 160] as const));
 
 /**
  * The Team grid (react-table, pg_technicians_wz_01_team): the report grid
