@@ -22,6 +22,7 @@ export function JobPinCard({
   clientName,
   phone,
   techNames,
+  sequence,
   canEdit,
   onEdit,
   onView,
@@ -34,6 +35,8 @@ export function JobPinCard({
   phone?: string;
   /** "(2) CT - Tyler Boucher, (2) CT - Bill Ryan"; none = Unassigned. */
   techNames?: string;
+  /** Ours: where the job sits in its first tech's day (a manual re-sequence). */
+  sequence?: number;
   canEdit: boolean;
   onEdit: () => void;
   onView: () => void;
@@ -82,6 +85,17 @@ export function JobPinCard({
         </a>
       </p>
       <WzMapPinCardRow
+        icon={
+          sequence ? (
+            // Workiz's appointmentIndexBadge: #768287 on #f3f6f7, 12px semibold.
+            <span
+              title={`Stop ${sequence} of the tech's day`}
+              className="inline-flex shrink-0 items-center justify-center rounded-[999px] bg-wz-secondary-hover px-2 py-0.5 text-xs leading-[1.2] font-semibold text-wz-outline-label"
+            >
+              {sequence}
+            </span>
+          ) : undefined
+        }
         end={
           canEdit ? (
             <button

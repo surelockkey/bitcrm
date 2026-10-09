@@ -288,6 +288,26 @@ describe("DispatchPage — Workiz's Map", () => {
     expect(screen.queryByRole("dialog", { name: "Lockout - Job #101" })).not.toBeInTheDocument();
   });
 
+  // Ours: the job's place in its tech's day, as Workiz's appointment badge.
+  it("shows the job's place in its tech's day on the card", async () => {
+    server.use(
+      http.get("*/deals", () =>
+        HttpResponse.json({
+          success: true,
+          data: [{ ...LOCATED, assignedTechIds: ["tech-1"], sequences: { "tech-1": 2 } }],
+          pagination: { count: 1 },
+        }),
+      ),
+    );
+    const user = userEvent.setup();
+    render(<DispatchPage />, { wrapper });
+
+    await user.click(await screen.findByTestId("job-row-deal-1"));
+    const card = await screen.findByRole("dialog", { name: "Lockout - Job #101" });
+    expect(card).toHaveTextContent("(2) TX - Daniel Munoz");
+    expect(screen.getByTitle("Stop 2 of the tech's day")).toHaveTextContent("2");
+  });
+
   it("offers no Edit or Assign without deals.edit", async () => {
     permissions.value = { ...permissions.value, can: (_r: string, a: string) => a !== "edit" };
     const user = userEvent.setup();

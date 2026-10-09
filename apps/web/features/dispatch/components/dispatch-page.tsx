@@ -274,6 +274,7 @@ function DispatchBoardPage() {
       clientName={clientOf(deal)}
       phone={deal.phones?.[0] ?? contacts.get(deal.contactId)?.phones?.[0]}
       techNames={deal.assignedTechIds.length ? deal.assignedTechIds.map(nameOf).join(", ") : undefined}
+      sequence={deal.assignedTechIds[0] ? deal.sequences?.[deal.assignedTechIds[0]] : undefined}
       canEdit={canEdit}
       onEdit={() => setEditing(true)}
       onView={() => router.push(`/deals/${deal.id}`)}
