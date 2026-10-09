@@ -66,6 +66,17 @@ export class WorkOrdersController {
     return { success: true, data };
   }
 
+  @Get(':id/document')
+  @RequirePermission('work_orders', 'view')
+  @ApiOperation({
+    summary: 'Get a short-TTL presigned download URL for the WO document',
+    description: '**Guard:** `work_orders.view`. 404 when no document was uploaded.',
+  })
+  async getDocument(@Param('id') id: string) {
+    const data = await this.service.getDocumentUrl(id);
+    return { success: true, data };
+  }
+
   @Delete(':id')
   @RequirePermission('work_orders', 'delete')
   @ApiOperation({

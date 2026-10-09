@@ -17,7 +17,7 @@ describe('WorkOrdersService', () => {
   let repo: {
     create: jest.Mock; listAll: jest.Mock; get: jest.Mock; put: jest.Mock; remove: jest.Mock;
   };
-  let s3: { getPresignedUpload: jest.Mock };
+  let s3: { getPresignedUpload: jest.Mock; getPresignedDownloadUrl: jest.Mock };
   let service: WorkOrdersService;
 
   beforeEach(() => {
@@ -28,7 +28,10 @@ describe('WorkOrdersService', () => {
       put: jest.fn().mockResolvedValue(undefined),
       remove: jest.fn().mockResolvedValue(undefined),
     };
-    s3 = { getPresignedUpload: jest.fn().mockResolvedValue({ url: 'https://s3/up', headers: {} }) };
+    s3 = {
+      getPresignedUpload: jest.fn().mockResolvedValue({ url: 'https://s3/up', headers: {} }),
+      getPresignedDownloadUrl: jest.fn().mockResolvedValue('https://s3/down'),
+    };
     service = new WorkOrdersService(repo as never, s3 as never);
   });
 
@@ -93,6 +96,28 @@ describe('WorkOrdersService', () => {
       expect(res.uploadUrl).toBe('https://s3/up');
       expect(s3.getPresignedUpload).toHaveBeenCalledWith('work-orders/wo-1', expect.objectContaining({ contentType: 'application/pdf' }));
       expect(repo.put).toHaveBeenCalledWith(expect.objectContaining({ s3Key: 'work-orders/wo-1' }));
+    });
+  });
+
+  // The web's "View Work Order" shows the uploaded WO document, as Workiz's
+  // work order page shows its document in a frame.
+  describe('getDocumentUrl', () => {
+    it('returns a short-lived presigned GET for the stored document', async () => {
+      repo.get.mockResolvedValue(wo({ s3Key: 'work-orders/wo-1' }));
+      const res = await service.getDocumentUrl('wo-1');
+      expect(res).toEqual({ downloadUrl: 'https://s3/down' });
+      expect(s3.getPresignedDownloadUrl).toHaveBeenCalledWith('work-orders/wo-1', 300);
+    });
+
+    it('404s a work order without a document', async () => {
+      repo.get.mockResolvedValue(wo({ s3Key: undefined }));
+      await expect(service.getDocumentUrl('wo-1')).rejects.toBeInstanceOf(NotFoundException);
+      expect(s3.getPresignedDownloadUrl).not.toHaveBeenCalled();
+    });
+
+    it('404s an unknown work order', async () => {
+      repo.get.mockResolvedValue(null);
+      await expect(service.getDocumentUrl('nope')).rejects.toBeInstanceOf(NotFoundException);
     });
   });
 });
