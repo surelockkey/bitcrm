@@ -111,6 +111,8 @@ const routes: FakeRoute[] = [
     delayMs: 30,
   },
   { match: /\/deals\/job-types$/, reply: () => [{ id: "jt-lockout", name: "Car lockout", active: true }], delayMs: 50 },
+  // The area's stored Workiz colour paints its jobs — it comes last of all.
+  { match: /\/deals\/service-areas$/, reply: () => [{ id: "sa-n", name: "North", color: "#556b2f", active: true }], delayMs: 200 },
   { match: /\/users\/roles$/, reply: () => [{ id: "role-tech", name: "tech" }], delayMs: 45 },
   {
     match: /\/crm\/contacts\/by-ids$/,
@@ -144,6 +146,9 @@ function watchGridFirstFrame() {
     jobBlock: /801\s+Car lockout,[\s\S]*Sam Reyes/.test(jobText("801")),
     timeOff: !!screen.queryByText(/Dentist - Nia Holt/),
     unscheduledCount: screen.queryByRole("button", { name: "Unscheduled jobs" })?.textContent === "1",
+    areaColour:
+      (screen.queryByRole("button", { name: "Job ID: 801" })?.querySelector("[data-slot=schedule-event]") as HTMLElement | null)
+        ?.style.backgroundColor === "rgb(85, 107, 47)",
     skeletons: skeletonCount(),
   }));
 }
@@ -171,6 +176,7 @@ describe("SchedulePage — one load, not waves", () => {
       jobBlock: true,
       timeOff: true,
       unscheduledCount: true,
+      areaColour: true,
       skeletons: 0,
     });
   });

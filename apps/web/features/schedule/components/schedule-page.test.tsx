@@ -111,7 +111,16 @@ function mockApi({ deals = [DEAL], undated = [UNDATED] }: { deals?: unknown[]; u
       }),
     ),
     http.get("*/deals/job-tags", () => HttpResponse.json({ success: true, data: [] })),
-    http.get("*/deals/service-areas", () => HttpResponse.json({ success: true, data: [] })),
+    http.get("*/deals/service-areas", () =>
+      HttpResponse.json({
+        success: true,
+        data: [
+          { id: "sa-1", name: "Austin", color: "#556b2f", active: true },
+          { id: "sa-2", name: "Dallas", active: true },
+          { id: "sa-0", name: "All areas", color: "#ff6347", active: true },
+        ],
+      }),
+    ),
   );
 }
 
@@ -221,6 +230,42 @@ describe("SchedulePage — Workiz's Schedule", () => {
     await userEvent.click(screen.getByRole("tab", { name: "Timeline" }));
     expect(await screen.findByText("Dana Reeves")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Job ID: AB12CD" })).toBeInTheDocument();
+  });
+
+  it("paints a job in its service area's stored Workiz colour", async () => {
+    render(<SchedulePage />, { wrapper });
+    const box = await job();
+    expect(box.querySelector("[data-slot=schedule-event]")).toHaveStyle({ backgroundColor: "#556b2f" });
+  });
+
+  it("Timeline: a technician imported from Workiz is named the Workiz way", async () => {
+    server.use(
+      http.get("*/users", () =>
+        HttpResponse.json({
+          success: true,
+          data: [
+            { id: "tech-1", firstName: "Sam", lastName: "Ochoa", workizName: "(2) TX - Sam Ochoa", roleId: "role-technician" },
+            { id: "tech-2", firstName: "Nia", lastName: "Holt", roleId: "role-technician" },
+          ],
+          pagination: { count: 2 },
+        }),
+      ),
+    );
+    render(<SchedulePage />, { wrapper });
+    await job();
+    await userEvent.click(screen.getByRole("tab", { name: "Timeline" }));
+    expect(await screen.findByText("(2) TX - Sam Ochoa")).toBeInTheDocument();
+    expect(screen.getByText("Nia Holt")).toBeInTheDocument();
+  });
+
+  it("Filter results paints SERVICE AREAS in their colours, A to Z, without Workiz's 'All areas'", async () => {
+    render(<SchedulePage />, { wrapper });
+    await job();
+    await userEvent.click(screen.getByRole("button", { name: "Filter results" }));
+    await userEvent.click(screen.getByRole("combobox", { name: "Filter results" }));
+    const areas = screen.getByRole("listbox", { name: "Service areas" });
+    expect(within(areas).getAllByRole("option").map((o) => o.textContent)).toEqual(["Austin", "Dallas"]);
+    expect(within(areas).getByText("Austin")).toHaveStyle({ backgroundColor: "#556b2f" });
   });
 
   it("counts the unscheduled jobs and lists them in the pane", async () => {

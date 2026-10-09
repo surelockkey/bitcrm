@@ -47,6 +47,8 @@ const NO_BOARD: ScheduleBoard = {
   users: new Map(),
   jobTypes: new Map(),
   activeJobTypes: [],
+  areas: [],
+  areaColors: new Map(),
   roles: new Map(),
 };
 
@@ -102,8 +104,13 @@ export function SchedulePage() {
   const entries = useMemo(() => {
     const deals = applyScheduleFilter(b.deals, picks);
     const events = b.events.filter((e) => !picked || picked.includes(e.technicianId));
-    return buildEntries(deals, events, { jobTypeName, techName, profiles: profileMap });
-  }, [b.deals, b.events, picks, picked, jobTypeName, techName, profileMap]);
+    return buildEntries(deals, events, {
+      jobTypeName,
+      techName,
+      profiles: profileMap,
+      areaColor: (name) => b.areaColors.get(name),
+    });
+  }, [b.deals, b.events, b.areaColors, picks, picked, jobTypeName, techName, profileMap]);
 
   const rows = useMemo<TimelineRow[]>(() => {
     const row = (id: string, p?: (typeof roster)[number]): TimelineRow => {
@@ -208,7 +215,7 @@ export function SchedulePage() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-white pt-[14px]">
-      {filterOpen ? <ScheduleFilter techs={team} jobTypes={b.activeJobTypes} value={picks} onChange={setPicks} /> : null}
+      {filterOpen ? <ScheduleFilter techs={team} jobTypes={b.activeJobTypes} areas={b.areas} value={picks} onChange={setPicks} /> : null}
       <ScheduleToolbar
         view={view}
         date={date}

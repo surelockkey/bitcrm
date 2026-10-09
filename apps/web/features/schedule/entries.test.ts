@@ -63,6 +63,11 @@ describe("buildEntries — what the calendar draws", () => {
       techIds: ["t1"],
     });
   });
+  it("paints a job in its service area's stored colour", () => {
+    const areaColor = (name: string) => (name === "North" ? "#556b2f" : undefined);
+    expect(buildEntries([deal("a")], [], { ...ctx, areaColor })[0].color).toBe("#556b2f");
+    expect(buildEntries([deal("b", { serviceArea: "South" })], [], { ...ctx, areaColor })[0].color).toBe(scheduleColor("South"));
+  });
   it("marks a Done job (striped)", () => {
     expect(buildEntries([deal("a", { superStatus: JobSuperStatus.DONE })], [], ctx)[0].done).toBe(true);
   });

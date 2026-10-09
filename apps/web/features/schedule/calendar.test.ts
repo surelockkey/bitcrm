@@ -260,4 +260,12 @@ describe("scheduleColor — jobs coloured by service area (Workiz 'Color Job By:
   it("gives a job outside every area the first colour", () => {
     expect(scheduleColor("")).toBe(WZ_EVENT_COLORS[0]);
   });
+  it("uses the area's own stored colour (Workiz's color_class) when it has one", () => {
+    expect(scheduleColor("Platinum_TX", "#b8860b")).toBe("#b8860b");
+    expect(scheduleColor("Platinum_CT", "#7FFFD4")).toBe("#7fffd4");
+  });
+  it("falls back to the name's pick when the stored colour is missing or not #rrggbb", () => {
+    expect(scheduleColor("Platinum_TX", undefined)).toBe(scheduleColor("Platinum_TX"));
+    expect(scheduleColor("Platinum_TX", "bgc16")).toBe(scheduleColor("Platinum_TX"));
+  });
 });
