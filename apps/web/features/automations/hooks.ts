@@ -13,10 +13,12 @@ export function useAutomationsAccess() {
   return { isLoading, canView: can("settings", "view"), canEdit: can("settings", "edit") };
 }
 
-export function useAutomations(enabled = true) {
+export function useAutomations(enabled = true, params?: api.ListAutomationsParams) {
   return useQuery({
-    queryKey: queryKeys.automations.list(),
-    queryFn: api.listAutomations,
+    queryKey: queryKeys.automations.list(params),
+    // Called with the params on purpose: React Query would otherwise pass its
+    // own context where the filter goes.
+    queryFn: () => api.listAutomations(params),
     enabled,
     staleTime: 30_000,
   });

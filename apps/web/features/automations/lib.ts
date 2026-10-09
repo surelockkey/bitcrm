@@ -205,6 +205,8 @@ const CATEGORY_LABEL: Record<string, string> = {
   marketing: "Marketing",
   actions: "Actions",
   job: "Job status",
+  // The Notifications page's rows (Settings → Notifications): the same rules, listed there too.
+  notification: "Notifications",
 };
 
 export function ruleCategory(rule: AutomationRule): string {

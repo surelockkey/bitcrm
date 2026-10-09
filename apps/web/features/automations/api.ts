@@ -4,7 +4,17 @@ import { http } from "@/lib/api/http";
 /** The Automation Center lives under the messaging gateway route. */
 const BASE = "/messaging/automations";
 
-export const listAutomations = (): Promise<AutomationRule[]> => http.get<AutomationRule[]>(BASE);
+export interface ListAutomationsParams {
+  /** Only the rules of this category (the Notifications page asks `notification`). */
+  category?: string;
+}
+
+export const listAutomations = (params: ListAutomationsParams = {}): Promise<AutomationRule[]> => {
+  const query = new URLSearchParams();
+  if (params.category) query.set("category", params.category);
+  const qs = query.toString();
+  return http.get<AutomationRule[]>(`${BASE}${qs ? `?${qs}` : ""}`);
+};
 
 export const getAutomation = (id: string): Promise<AutomationRule> =>
   http.get<AutomationRule>(`${BASE}/${id}`);
@@ -15,6 +25,8 @@ export interface CreateAutomationBody {
   enabled?: boolean;
   category?: string;
   description?: string;
+  /** A Notifications-page row: which of its four forms wrote it (`backend/notifications`). */
+  notificationKind?: string;
 }
 
 export const createAutomation = (body: CreateAutomationBody): Promise<AutomationRule> =>
@@ -24,6 +36,7 @@ export interface UpdateAutomationBody {
   enabled?: boolean;
   name?: string;
   spec?: AutomationSpec;
+  notificationKind?: string;
 }
 
 export const updateAutomation = (id: string, body: UpdateAutomationBody): Promise<AutomationRule> =>

@@ -1022,6 +1022,11 @@ Import from `@/components/workiz/settings-form`.
 - **`WzFormModal` `readOnly`** (new, optional) — no Save, Cancel reads "Close",
   Enter saves nothing; **`aside`** (new, optional, `full` only) — a column 48px
   right of the fields (the Account page's logo). Defaults unchanged.
+- **`WzFormModal` `formClassName`** (2026-10-09, agent `feat_notif_web`, optional) —
+  classes merged into the `<form>` round the fields: the Notification Center's
+  editor (`notif_audit_wz_04_row_tech_reminder`) is Workiz's `_full` modal with
+  one 1015px column centred on the window (`"mx-auto w-[1015px] max-w-full
+  pl-0"`), where the Account page's is 755px at the left. Default unchanged.
 
 ## Card menus (2026-10-09, agent `pg_automations`, the Automation Center)
 

@@ -22,6 +22,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { useLogout } from "@/features/auth/hooks";
 import { useSoftphoneStore } from "@/features/telephony/softphone-store";
+import { OnScreenSwitchItem } from "@/features/notifications/components/on-screen-switch-item";
 
 function initials(first?: string, last?: string): string {
   const value = `${first?.[0] ?? ""}${last?.[0] ?? ""}`.toUpperCase();
@@ -53,7 +54,8 @@ export function NavUser() {
         </Button>
       </DropdownMenuTrigger>
 
-      <DropdownMenuContent align="end" className="w-64">
+      {/* Workiz's `_popMenu` is 290px (uikit_wz_avatar_menu): "On-screen notifications" and its switch share one line. */}
+      <DropdownMenuContent align="end" className="w-[290px]">
         <div className="px-2 py-1.5">
           <div className="truncate text-sm font-medium">{name}</div>
           <div className="truncate text-xs text-muted-foreground">{me.email}</div>
@@ -68,6 +70,8 @@ export function NavUser() {
         </div>
 
         <DropdownMenuSeparator />
+        {/* Workiz's first row under the name: the On-screen notifications switch (uikit_wz_avatar_menu). */}
+        <OnScreenSwitchItem />
         <DropdownMenuItem onClick={() => setDialerOpen(true)}>
           <Phone />
           Open dialer

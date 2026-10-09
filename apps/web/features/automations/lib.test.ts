@@ -357,6 +357,8 @@ describe("categories", () => {
     expect(categoryLabel("followUps")).toBe("Follow-ups");
     expect(categoryLabel("custom")).toBe("Custom");
     expect(categoryLabel("job-status")).toBe("Job status");
+    // The Notifications page's rows show in the Center under their own row.
+    expect(categoryLabel("notification")).toBe("Notifications");
   });
 
   it("lists only the categories the workspace actually uses, by label", () => {

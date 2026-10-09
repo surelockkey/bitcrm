@@ -40,6 +40,7 @@ export function WzFormModal({
   readOnly = false,
   aside,
   className,
+  formClassName,
   children,
 }: {
   open: boolean;
@@ -62,6 +63,14 @@ export function WzFormModal({
    */
   aside?: ReactNode;
   className?: string;
+  /**
+   * Classes merged into the `<form>` holding the fields — the Notification
+   * Center's editor lays its fields in one 1015px column centred on the
+   * window (`"mx-auto w-[1015px] max-w-full pl-0"`, notif_audit_wz_04):
+   * Workiz's `_full` modal with a narrower, centred column than the Account
+   * page's. Nothing changes without it.
+   */
+  formClassName?: string;
   children: ReactNode;
 }) {
   const formId = useId();
@@ -115,7 +124,7 @@ export function WzFormModal({
           </div>
         }
       >
-        <form id={formId} onSubmit={submit} className="flex flex-col gap-6">
+        <form id={formId} onSubmit={submit} className={cn("flex flex-col gap-6", formClassName)}>
           {description ? <p className="text-sm leading-[21px] text-foreground">{description}</p> : null}
           {children}
           {refusal}
@@ -149,14 +158,14 @@ export function WzFormModal({
           {description ? <p className="mt-2 text-sm leading-[21px] text-foreground">{description}</p> : null}
           {full && aside ? (
             <div className="mt-6 flex items-start gap-12">
-              <form id={formId} onSubmit={submit} className="flex min-w-0 flex-col gap-6">
+              <form id={formId} onSubmit={submit} className={cn("flex min-w-0 flex-col gap-6", formClassName)}>
                 {children}
                 {refusal}
               </form>
               <div className="shrink-0">{aside}</div>
             </div>
           ) : (
-            <form id={formId} onSubmit={submit} className={cn("mt-6 flex flex-col gap-6", full && "max-w-[755px] pl-1.5")}>
+            <form id={formId} onSubmit={submit} className={cn("mt-6 flex flex-col gap-6", full && "max-w-[755px] pl-1.5", formClassName)}>
               {children}
               {refusal}
             </form>

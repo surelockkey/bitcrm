@@ -9,6 +9,7 @@ import { refreshOnReconnect } from "@/lib/refresh-on-reconnect";
 import { useMe } from "@/features/auth/use-me";
 import { MESSAGING_EVENTS_PATH } from "./api";
 import { applyRealtimeEvent } from "./cache";
+import { publishRealtimeEvent } from "./realtime-bus";
 import { openMessagingStream } from "./stream";
 import { useMessagingStreamStore } from "./stream-store";
 
@@ -40,7 +41,11 @@ export function useMessagingStream(enabled: boolean) {
     const stream = openMessagingStream({
       url: `${env.apiBaseUrl}${MESSAGING_EVENTS_PATH}`,
       getToken: getIdToken,
-      onEvent: (event) => applyRealtimeEvent(qc, event, meRef.current),
+      onEvent: (event) => {
+        applyRealtimeEvent(qc, event, meRef.current);
+        // The on-screen notifications hear the frame after the cache has it.
+        publishRealtimeEvent(event);
+      },
       onConnect: () => {
         setConnected(true);
         refresh();
