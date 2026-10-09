@@ -37,7 +37,6 @@ import {
   visibleColumns,
   wzRawNumber,
   type ColumnChoices,
-  type CommissionColumn,
   type CommissionDatePreset,
   type CommissionReportFilters,
 } from "../commissions/lib";
@@ -408,5 +407,3 @@ function Summaries({ report, mode }: { report: CommissionReport; mode: Commissio
     </div>
   );
 }
-
-export type { CommissionColumn };
