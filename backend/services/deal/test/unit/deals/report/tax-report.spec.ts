@@ -80,8 +80,8 @@ describe('Tax report rules (Workiz, verified live 2026-09-29)', () => {
     expect(rows.filter((r) => r.name === 'AZ').map((r) => r.rate).sort()).toEqual([5.6, 8.6]);
   });
 
-  it('Paid: tax × min(1, collected / total), the full taxable base, one job each', () => {
-    const f = dealTaxFigures(imported({ taxAmount: 100, taxableAmount: 1000, jobTotalPrice: 1100 }))!;
+  it('Paid: taxable × rate × min(1, collected / total), the full taxable base, one job each', () => {
+    const f = dealTaxFigures(imported({ taxRatePercent: 10, taxAmount: 100, taxableAmount: 1000, jobTotalPrice: 1100 }))!;
     expect(paidShare(f, 550)).toBe(50);
     expect(paidShare(f, 5000)).toBe(100);
     expect(paidShare(f, 0)).toBeNull();
@@ -90,7 +90,44 @@ describe('Tax report rules (Workiz, verified live 2026-09-29)', () => {
       { figures: f, collected: 550 },
       { figures: { ...f, dealId: 'z' }, collected: -1 },
     ]);
-    expect(rows).toEqual([{ key: 'CT|6.35', name: 'CT', description: '', rate: 6.35, ratePercent: 6.35, amount: 50, taxableAmount: 1000, jobs: 1 }]);
+    expect(rows).toEqual([{ key: 'CT|10', name: 'CT', description: '', rate: 10, ratePercent: 10, amount: 50, taxableAmount: 1000, jobs: 1 }]);
+  });
+
+  // Workiz's own Paid figures for 2026-09-01..27 (live 2026-09-29) against the
+  // jobs of the parser dump: the tax is worked out from the taxable base and the
+  // rate, summed unrounded and rounded once — not the jobs' stored tax rounded
+  // job by job (that gives 202.14 and 906.70).
+  const paidJob = (id: string, name: string, percent: number, tax: number, taxable: number, total: number, collected: number) => ({
+    figures: dealTaxFigures(imported({ id, taxRateName: name, taxRatePercent: percent, taxAmount: tax, taxableAmount: taxable, subTotal: taxable, jobTotalPrice: total }))!,
+    collected,
+  });
+
+  it('Paid: SURE NY 202.15 as Workiz (two jobs paid in part)', () => {
+    const rows = paidRows([
+      paidJob('0K1Q35', 'SURE NY', 8.875, 15.97, 179.99, 191.42, 191.42),
+      paidJob('GG7SCI', 'SURE NY', 8.875, 91.68, 1033, 1158.43, 553.98),
+      paidJob('P7C8II', 'SURE NY', 8.875, 73.56, 828.83, 929.46, 374.27),
+      paidJob('HACQG6', 'SURE NY', 8.875, 39.94, 450.06, 490, 490),
+      paidJob('906MUL', 'SURE NY', 8.875, 46.59, 525, 588.74, 588.74),
+      paidJob('3Z4PCL', 'SURE NY', 8.875, 26.18, 295, 330.82, 330.82),
+    ]);
+    expect(rows).toEqual([
+      { key: 'SURE NY|8.875', name: 'SURE NY', description: '', rate: 8.88, ratePercent: 8.875, amount: 202.15, taxableAmount: 3311.88, jobs: 6 },
+    ]);
+  });
+
+  it('Paid: IL CHICAGO 906.69 as Workiz (every job paid in full)', () => {
+    const rows = paidRows([
+      paidJob('DITZFR', 'IL CHICAGO', 10.25, 296.41, 2891.79, 4538.76, 4538.76),
+      paidJob('WPQTPB', 'IL CHICAGO', 10.25, 19.43, 189.58, 550.39, 550.39),
+      paidJob('F92AJA', 'IL CHICAGO', 10.25, 27.3, 266.35, 795.27, 795.27),
+      paidJob('MASLSY', 'IL CHICAGO', 10.25, 363.88, 3550, 3913.88, 3913.88),
+      paidJob('E8KXSS', 'IL CHICAGO', 10.25, 20.5, 200, 220.5, 220.5),
+      paidJob('GNADB7', 'IL CHICAGO', 10.25, 25.63, 250, 250, 250),
+      paidJob('WXSO7X', 'IL CHICAGO', 10.25, 30.75, 300, 330.75, 330.75),
+      paidJob('D8SXQR', 'IL CHICAGO', 10.25, 122.8, 1198, 1350.79, 1350.79),
+    ]);
+    expect(rows[0]).toMatchObject({ amount: 906.69, taxableAmount: 8845.72, jobs: 8 });
   });
 
   it('orders the tabs as Workiz does: Accrual A→Z, Paid Z→A', () => {
@@ -107,10 +144,21 @@ describe('Tax report rules (Workiz, verified live 2026-09-29)', () => {
 });
 
 describe('TaxReportService', () => {
-  function make(windowRows: Record<string, unknown>[] = [], byIds: Record<string, unknown>[] = [], paid: Array<{ dealId: string; paid: number }> = []) {
+  function make(
+    windowRows: Record<string, unknown>[] = [],
+    byIds: Record<string, unknown>[] = [],
+    paid: Array<{ dealId: string; paid: number }> = [],
+    accountRates: Array<{ name: string; ratePercent: number; active: boolean }> = [],
+  ) {
     const repo = { window: jest.fn(async () => windowRows), byIds: jest.fn(async () => byIds) };
     const billing = { paidByJob: jest.fn(async () => paid) };
-    return { service: new TaxReportService(repo as unknown as TaxReportRepository, billing as never), repo, billing };
+    const rates = { listAll: jest.fn(async () => accountRates) };
+    return {
+      service: new TaxReportService(repo as unknown as TaxReportRepository, billing as never, rates as never),
+      repo,
+      billing,
+      rates,
+    };
   }
 
   it('needs financials.view', async () => {
@@ -142,10 +190,13 @@ describe('TaxReportService', () => {
   it('Paid: asks billing what each job collected, then reads those jobs', async () => {
     const { service, repo, billing } = make(
       [],
-      [imported({ id: 'a', taxAmount: 100, jobTotalPrice: 1000, taxableAmount: 900 }), imported({ id: 'b', taxAmount: 10, jobTotalPrice: 100 })],
       [
-        { dealId: 'a', paid: 500 },
-        { dealId: 'b', paid: 100 },
+        imported({ id: 'a', taxRatePercent: 10, taxAmount: 90, jobTotalPrice: 990, taxableAmount: 900 }),
+        imported({ id: 'b', taxRatePercent: 10, taxAmount: 10, jobTotalPrice: 110, taxableAmount: 100 }),
+      ],
+      [
+        { dealId: 'a', paid: 495 },
+        { dealId: 'b', paid: 110 },
         { dealId: 'c', paid: -5 },
       ],
     );
@@ -153,8 +204,8 @@ describe('TaxReportService', () => {
     expect(billing.paidByJob).toHaveBeenCalledWith('2026-09-01', '2026-09-27');
     expect(repo.byIds).toHaveBeenCalledWith(['a', 'b']);
     expect(r.by).toBeUndefined();
-    expect(r.rows[0]).toMatchObject({ amount: 60, taxableAmount: 1124.99, jobs: 2 });
-    expect(r.totalAmount).toBe(60);
+    expect(r.rows[0]).toMatchObject({ amount: 55, taxableAmount: 1000, jobs: 2 });
+    expect(r.totalAmount).toBe(55);
   });
 
   it('keeps an assigned-only reader to their own jobs', async () => {
@@ -173,6 +224,40 @@ describe('TaxReportService', () => {
     expect(r.taxes).toHaveLength(2);
     const s = await service.report({ from: '2026-09-01', to: '2026-09-27', search: 'ct' }, owner);
     expect(s.rows.map((x) => x.name)).toEqual(['CT']);
+  });
+
+  it('offers every tax the account has in "Tax to show" — archived ones and the window’s own too — once per name and rate, A→Z', async () => {
+    // Workiz lists all the account's taxes (`crud.taxes`), not just the period's.
+    // Ours live on service areas, several areas sharing one tax.
+    const { service } = make(
+      [imported({ id: 'a' }), imported({ id: 'b', taxRateName: 'AL Jefferson', taxRatePercent: 10 })],
+      [],
+      [],
+      [
+        { name: 'SURE NY', ratePercent: 8.875, active: true },
+        { name: 'CT', ratePercent: 6.35, active: true },
+        { name: 'CT', ratePercent: 6.35, active: true },
+        { name: 'AZ', ratePercent: 8.6, active: true },
+        { name: 'AZ', ratePercent: 5.6, active: false },
+        { name: 'IL CHICAGO ', ratePercent: 10.25, active: true },
+      ],
+    );
+    const r = await service.report({ from: '2026-09-01', to: '2026-09-27' }, owner);
+    expect(r.taxes).toEqual([
+      { key: 'AL Jefferson|10', name: 'AL Jefferson', rate: 10 },
+      { key: 'AZ|5.6', name: 'AZ', rate: 5.6 },
+      { key: 'AZ|8.6', name: 'AZ', rate: 8.6 },
+      { key: 'CT|6.35', name: 'CT', rate: 6.35 },
+      { key: 'IL CHICAGO|10.25', name: 'IL CHICAGO', rate: 10.25 },
+      { key: 'SURE NY|8.875', name: 'SURE NY', rate: 8.88 },
+    ]);
+  });
+
+  it('still answers when the account’s taxes cannot be read — the window’s rates are the options', async () => {
+    const { service, rates } = make([imported()]);
+    rates.listAll.mockRejectedValueOnce(new Error('service areas down'));
+    const r = await service.report({ from: '2026-09-01', to: '2026-09-27' }, owner);
+    expect(r.taxes).toEqual([{ key: 'CT|6.35', name: 'CT', rate: 6.35 }]);
   });
 
   it('refuses a period longer than Workiz allows', async () => {

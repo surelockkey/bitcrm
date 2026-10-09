@@ -707,7 +707,9 @@ tests, and — if it emits events — the types in `@bitcrm/types` plus a row in
   Accrual reads the Jobs report's `readReportWindow` (the EndIndex for "Job
   end date"), Paid asks billing `GET /reports/internal/paid-by-job` — the
   Payments report's `PAYLINE#` lines, so it is only as complete as
-  `rebuild:payment-report` made them. A deploy is not done until
+  `rebuild:payment-report` made them — and works the tax out as Workiz does:
+  taxable base × rate × min(1, collected / total), summed unrounded, rounded
+  once per rate (not the jobs' stored tax). A deploy is not done until
   `npm run backfill:unpaid-index -w billing-service` has run (Terraform first:
   the UnpaidIndex GSI); run it again after every Workiz import. Offline
   checks against an import package: `verify:billing-reports` (billing) and

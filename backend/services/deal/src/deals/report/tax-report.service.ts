@@ -10,6 +10,7 @@ import {
   type TaxReportBy,
 } from '@bitcrm/types';
 import { BillingReportsClient } from '../../common/services/billing-reports.client';
+import { TaxRatesService } from '../../tax-rates/tax-rates.service';
 import { ReportWindowTooLargeError } from '../deals.repository';
 import { reportDay, type ReportDateSource } from './report-dates';
 import { TaxReportRepository } from './tax-report.repository';
@@ -22,6 +23,7 @@ import {
   sortTaxRows,
   sumAmount,
   taxCsvLine,
+  taxOptions,
   type DealTaxFigures,
   type TaxDealRow,
 } from './tax-report.rules';
@@ -57,6 +59,7 @@ export class TaxReportService {
   constructor(
     private readonly repo: TaxReportRepository,
     private readonly billing: BillingReportsClient,
+    private readonly taxRates: TaxRatesService,
   ) {}
 
   async report(q: TaxReportQuery, caller: TaxReportCaller): Promise<TaxReport> {
@@ -68,7 +71,10 @@ export class TaxReportService {
       throw new BadRequestException(`A period can span at most ${JOBS_REPORT_MAX_DAYS} days`);
     }
 
-    const all = basis === 'paid' ? await this.paid(q.from, q.to, caller) : await this.accrual(by, q.from, q.to, caller);
+    const [all, accountRates] = await Promise.all([
+      basis === 'paid' ? this.paid(q.from, q.to, caller) : this.accrual(by, q.from, q.to, caller),
+      this.accountRates(),
+    ]);
     const rows = sortTaxRows(filterTaxRows(all, { tax: q.tax, search: q.search }), basis);
     return {
       basis,
@@ -77,8 +83,18 @@ export class TaxReportService {
       to: q.to,
       rows,
       totalAmount: sumAmount(rows),
-      taxes: sortTaxRows(all, 'accrual').map((r) => ({ key: r.key, name: r.name, rate: r.rate })),
+      taxes: taxOptions(all, accountRates),
     };
+  }
+
+  /** Every tax the account has (archived areas too) — the "Tax to show" list; the window's rates alone if unreadable. */
+  private async accountRates(): Promise<Array<{ name: string; ratePercent: number }>> {
+    try {
+      return await this.taxRates.listAll();
+    } catch (err) {
+      this.logger.warn(`Tax report: the account's taxes are unavailable (${(err as Error).message}) — offering the period's rates`);
+      return [];
+    }
   }
 
   async exportCsv(q: TaxReportQuery, caller: TaxReportCaller): Promise<ReportCsvExport> {
