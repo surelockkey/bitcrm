@@ -107,6 +107,29 @@ describe("CallGroupsPage", () => {
     expect(screen.getAllByText("Paused")).toHaveLength(1);
   });
 
+  it("lists a group's devices after its people, as Workiz's Users and devices column does", () => {
+    mocks.groups = [
+      group({
+        deviceMembers: [
+          { deviceId: "d-ct", order: 0, enabled: true, name: "SURE CT LOCKSMITH", number: "+12039893585", missing: false },
+        ],
+      }),
+      // A group of devices only still has somebody to ring.
+      group({
+        id: "g2",
+        name: "SURE FL LOCKSMITH",
+        members: [],
+        deviceMembers: [
+          { deviceId: "d-fl", order: 0, enabled: true, name: "SURE FL LOCKSMITH", number: "+15613030120", missing: false },
+        ],
+      }),
+    ];
+    render(<CallGroupsPage />);
+    expect(screen.getByText("Dana Petrenko (Softphone), SURE CT LOCKSMITH ((203) 989-3585)")).toBeInTheDocument();
+    expect(screen.getByText("SURE FL LOCKSMITH ((561) 303-0120)")).toBeInTheDocument();
+    expect(screen.queryByText("No members yet")).not.toBeInTheDocument();
+  });
+
   it("names a member who has left rather than showing a bare id", () => {
     mocks.groups = [
       group({

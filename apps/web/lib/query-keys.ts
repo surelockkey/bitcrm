@@ -26,6 +26,8 @@ export const queryKeys = {
     teammates: () => ["telephony", "transfer-targets", "with-self"] as const,
     callGroups: () => ["telephony", "call-groups"] as const,
     callFlows: () => ["telephony", "call-flows"] as const,
+    /** The Devices catalog (desk phones / shop lines a group or a Forward step rings). */
+    callDevices: () => ["telephony", "call-devices"] as const,
   },
 
   /**

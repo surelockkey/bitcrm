@@ -155,4 +155,19 @@ describe("groupMembersText", () => {
   it("is empty for a group with nobody in it", () => {
     expect(groupMembersText([])).toBe("");
   });
+
+  it("lists the devices after the people, by their number, as Workiz's column does", () => {
+    expect(
+      groupMembersText(
+        [m({ name: "Lily Support Manager", channel: "softphone" })],
+        [
+          { deviceId: "d1", order: 1, enabled: true, name: "SURE CT LOCKSMITH", number: "+12039893585", missing: false },
+          { deviceId: "d0", order: 0, enabled: true, name: "Shop SIP", number: "sip:shop@sip.example.com", missing: false },
+          { deviceId: "d-gone", order: 2, enabled: true, missing: true },
+        ],
+      ),
+    ).toBe(
+      "Lily Support Manager (Softphone), Shop SIP (sip:shop@sip.example.com), SURE CT LOCKSMITH ((203) 989-3585), Deleted device",
+    );
+  });
 });

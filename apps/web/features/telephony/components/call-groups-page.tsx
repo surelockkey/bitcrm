@@ -77,10 +77,10 @@ export function CallGroupsPage() {
       {
         id: "members",
         label: "Users and devices",
-        searchText: (g) => groupMembersText(g.members),
+        searchText: (g) => groupMembersText(g.members, g.deviceMembers),
         render: (g) =>
-          g.members.length ? (
-            <span className="block truncate">{groupMembersText(g.members)}</span>
+          g.members.length || g.deviceMembers?.length ? (
+            <span className="block truncate">{groupMembersText(g.members, g.deviceMembers)}</span>
           ) : (
             <span className="text-wz-caption">No members yet</span>
           ),
