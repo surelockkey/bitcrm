@@ -11,16 +11,31 @@ vi.mock("@/features/auth/use-permissions", () => ({
   usePermissions: () => ({ can: (resource: string, action = "view") => perms.granted.has(`${resource}.${action}`), isLoading: false }),
 }));
 
-const { useCommissionReport, downloadCommissionCsv } = vi.hoisted(() => ({
+const { useCommissionReport, downloadCommissionCsv, reloadCommissionReport } = vi.hoisted(() => ({
   useCommissionReport: vi.fn(),
   downloadCommissionCsv: vi.fn(async () => undefined),
+  reloadCommissionReport: vi.fn(async () => undefined),
 }));
-vi.mock("../commissions/hooks", () => ({ useCommissionReport, downloadCommissionCsv }));
+vi.mock("../commissions/hooks", () => ({ useCommissionReport, downloadCommissionCsv, reloadCommissionReport }));
+vi.mock("@tanstack/react-query", async (orig) => ({
+  ...(await orig<typeof import("@tanstack/react-query")>()),
+  useQueryClient: () => ({}),
+}));
 vi.mock("@/features/job-types/hooks", () => ({ useJobTypes: () => ({ data: [{ id: "jt-1", name: "Lockout" }] }) }));
 vi.mock("@/features/service-areas/hooks", () => ({ useServiceAreas: () => ({ data: [{ id: "area-1", name: "SURE LOCK CT" }] }) }));
 vi.mock("@/features/job-sources/hooks", () => ({ useJobSources: () => ({ data: [{ id: "src-1", name: "Google" }] }) }));
 vi.mock("@/features/external-companies/hooks", () => ({
   useExternalCompanies: () => ({ data: [{ id: "ext-1", name: "Partner LLC" }] }),
+}));
+vi.mock("@/features/deals/hooks", () => ({
+  useUserMap: () => ({
+    users: [
+      { id: "moshe", firstName: "Moshe", lastName: "Szender" },
+      { id: "ann", firstName: "Ann", lastName: "Office" },
+    ],
+    map: new Map(),
+    isLoading: false,
+  }),
 }));
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn(), info: vi.fn() } }));
 
@@ -39,7 +54,8 @@ const row = (over: Partial<CommissionReportRow> = {}): CommissionReportRow => ({
   closedDate: "2026-09-02",
   closedTime: "19:00",
   jobTypeName: "(A-1) Door Service",
-  address: "215 Main St, Norwalk",
+  address: "215 Main St , 06851",
+  clientName: "Jane Client",
   total: 197.17,
   cash: 0,
   credit: 197.17,
@@ -79,103 +95,147 @@ const report = (over: Partial<CommissionReport> = {}): CommissionReport => ({
   computedRows: 0,
   truncated: false,
   warnings: [],
+  money: true,
   ...over,
 });
 
 const lastFilters = () => useCommissionReport.mock.calls.at(-1)?.[0];
+const grid = () => screen.getByRole("table", { name: "Commissions" });
+const headerRow = () => within(grid()).getAllByRole("row")[0];
+const pick = async (combobox: string, option: string) => {
+  await userEvent.click(screen.getByRole("combobox", { name: combobox }));
+  await userEvent.click(screen.getByRole("option", { name: option }));
+};
 
 beforeEach(() => {
-  perms.granted = new Set(["commission.view"]);
+  perms.granted = new Set(["commission.view", "financials.view"]);
   useCommissionReport.mockReset();
   useCommissionReport.mockImplementation(() => ({ data: report(), error: null }));
   downloadCommissionCsv.mockClear();
+  reloadCommissionReport.mockClear();
   window.localStorage.clear();
 });
 
-describe("CommissionsPage", () => {
-  it("opens on Today, by Closed, in the Standard report — as Workiz does", () => {
+describe("CommissionsPage — Workiz's Finance Reporting", () => {
+  it("opens on Today, by Closed, in the Standard report, in Workiz's own order (creation, nothing marked)", () => {
     render(<CommissionsPage today="2026-09-29" />);
-    expect(lastFilters()).toMatchObject({ from: "2026-09-29", to: "2026-09-29", by: "closed", mode: "standard", offset: 0, limit: 50 });
+    expect(lastFilters()).toMatchObject({ from: "2026-09-29", to: "2026-09-29", by: "closed", mode: "standard", sort: "createdAt", dir: "asc", offset: 0, limit: 50 });
+    for (const th of within(headerRow()).getAllByRole("columnheader")) expect(th).toHaveAttribute("aria-sort", "none");
+    // No page heading: Workiz names the report in the breadcrumb only.
+    expect(screen.getByRole("heading", { level: 1, name: "Commissions" })).toHaveClass("sr-only");
   });
 
-  it("shows the Totals row first, then the jobs, and the two summaries", () => {
+  it("the Totals row sits in the head under the names, the jobs below, both printed as Workiz prints them", () => {
     render(<CommissionsPage today="2026-09-29" />);
-    const table = screen.getByRole("table", { name: "Commissions" });
-    const rows = within(table).getAllByRole("row");
-    expect(rows[1]).toHaveTextContent("Totals:1");
-    expect(rows[1]).toHaveTextContent("197.17");
+    const rows = within(grid()).getAllByRole("row");
+    expect(rows[0]).toHaveTextContent(/^Job IdTechScheduledClosedJob TypeAddressTotal/);
+    expect(rows[1]).toHaveTextContent(/^Totals:1/);
+    expect(within(rows[1]).getAllByRole("cell")[6]).toHaveTextContent("197.17");
     expect(rows[2]).toHaveTextContent("TGQ6NS");
-    expect(rows[2]).toHaveTextContent("Moshe Szender");
+    expect(rows[2]).toHaveTextContent("09/02/2026 07:00 PM");
     expect(rows[2]).toHaveTextContent("50%");
-    expect(rows[2]).toHaveTextContent("48.63");
     expect(within(rows[2]).getByRole("link", { name: "TGQ6NS" })).toHaveAttribute("href", "/deals/deal-1");
-    expect(within(screen.getByRole("table", { name: "Total Profits" })).getByText("company profit").parentElement).toHaveTextContent("54.37");
-    expect(within(screen.getByRole("table", { name: "Total by type" })).getByText("credit").parentElement).toHaveTextContent("197.17");
+    expect(screen.getByText("Showing 1 to 1 of 1 entries")).toBeInTheDocument();
   });
 
-
-  // The owner, 2026-10-08: "why two windows to pick the time?" — one period control.
-  it("picks the period from one control, not a list beside a calendar", () => {
+  it("Total Profits and Total by type under the grid, the numbers as they are", () => {
     render(<CommissionsPage today="2026-09-29" />);
-    expect(screen.queryByRole("combobox", { name: "Date preset" })).toBeNull();
-    expect(screen.queryByRole("button", { name: /^Days/ })).toBeNull();
+    const profits = screen.getByRole("table", { name: "Total Profits" });
+    expect(within(profits).getAllByRole("row").map((r) => r.textContent)).toEqual([
+      "Profit ForAmount",
+      "external company profit0",
+      "company profit54.37",
+      "tech profit48.63",
+    ]);
+    const byType = screen.getByRole("table", { name: "Total by type" });
+    expect(within(byType).getByText("credit").closest("tr")).toHaveTextContent("credit197.171");
+  });
+
+  it("picks the period from Workiz's box, its presets in its spelling", async () => {
+    render(<CommissionsPage today="2026-09-29" />);
     expect(screen.getAllByRole("button", { name: /^Date range/ })).toHaveLength(1);
-  });
-
-  it("the weekly settlement: Last week (Mon – Sun), Tech Report, pick the technician", async () => {
-    render(<CommissionsPage today="2026-09-29" />);
     await userEvent.click(screen.getByRole("button", { name: /^Date range/ }));
-    await userEvent.click(screen.getByRole("button", { name: "Last week (Mon - Sun)" }));
-    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Report mode" }), "tech");
-    // No technician yet: the period's technicians to pick from (the Standard slice).
-    expect(lastFilters()).toMatchObject({ from: "2026-09-21", to: "2026-09-27", mode: "standard" });
-    const picker = screen.getByRole("table", { name: "Technicians" });
-    expect(picker).toHaveTextContent("15,026.35");
-    await userEvent.click(within(picker).getByRole("button", { name: "Moshe Szender" }));
-    expect(lastFilters()).toMatchObject({ mode: "tech", techId: "moshe", from: "2026-09-21", to: "2026-09-27" });
-    const header = within(screen.getByRole("table", { name: "Commissions" })).getAllByRole("row")[0];
-    expect(header).toHaveTextContent("Balance Tech");
-    expect(header).not.toHaveTextContent("Company Profit");
+    expect(screen.getByRole("menuitem", { name: "This week(Sun - Today)" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("menuitem", { name: "Last week (Mon - Sun)" }));
+    expect(lastFilters()).toMatchObject({ from: "2026-09-21", to: "2026-09-27" });
   });
 
-  it("the technician list carries each one's job count, as Workiz's “[N]”", () => {
+  it("the Tech Report without a technician lists every job in the Tech columns; a technician narrows it", async () => {
     render(<CommissionsPage today="2026-09-29" />);
-    expect(screen.getByRole("option", { name: "Moshe Szender [14]" })).toBeInTheDocument();
+    await pick("Report mode", "Tech Report");
+    expect(lastFilters()).toMatchObject({ mode: "standard", techId: undefined });
+    expect(headerRow()).toHaveTextContent("Balance Tech");
+    expect(headerRow()).toHaveTextContent("Created");
+    expect(headerRow()).not.toHaveTextContent("Company Profit");
+    // Workiz's Tech mode has no Ad Group (its Settlement filter sits there).
+    expect(screen.queryByRole("combobox", { name: "Ad group" })).toBeNull();
+    await pick("Technician", "Moshe Szender [14]");
+    expect(lastFilters()).toMatchObject({ mode: "tech", techId: "moshe" });
+    expect(within(screen.getByRole("table", { name: "Total Profits" })).getAllByRole("row")[1]).toHaveTextContent("tech profit48.63");
   });
 
-  it("switches By Time and sorts by a column", async () => {
+  it("the technician list is every user, with “[N]” after those with jobs in the period", async () => {
+    render(<CommissionsPage today="2026-09-29" />);
+    await userEvent.click(screen.getByRole("combobox", { name: "Technician" }));
+    const names = within(screen.getByRole("listbox", { name: "Technician" }))
+      .getAllByRole("option")
+      .map((o) => o.textContent?.replace(/\s+/g, " "));
+    expect(names).toEqual(["Select Technician", "Ann Office", "Moshe Szender [14]"]);
+  });
+
+  it("switches By Time and sorts by a header: ascending first, then descending", async () => {
     render(<CommissionsPage today="2026-09-29" />);
     await userEvent.click(screen.getByRole("radio", { name: "Created" }));
     expect(lastFilters()).toMatchObject({ by: "created" });
-    await userEvent.click(screen.getByRole("button", { name: "Sort by Total" }));
+    await userEvent.click(within(headerRow()).getByRole("button", { name: "Total" }));
     expect(lastFilters()).toMatchObject({ sort: "total", dir: "asc" });
-    await userEvent.click(screen.getByRole("button", { name: "Sort by Total" }));
+    await userEvent.click(within(headerRow()).getByRole("button", { name: /Total/ }));
     expect(lastFilters()).toMatchObject({ sort: "total", dir: "desc" });
   });
 
   it("External Company and Ad Group exclude each other", async () => {
     render(<CommissionsPage today="2026-09-29" />);
-    await userEvent.selectOptions(screen.getByRole("combobox", { name: "External company" }), "only");
+    await pick("External company", "External Only");
     expect(lastFilters()).toMatchObject({ externalCompanyId: "only" });
     expect(screen.getByRole("combobox", { name: "Ad group" })).toBeDisabled();
   });
 
   it("searches from the third character", async () => {
     render(<CommissionsPage today="2026-09-29" />);
-    await userEvent.type(screen.getByRole("textbox", { name: "Search" }), "TG");
+    await userEvent.type(screen.getByRole("searchbox", { name: "Search" }), "TG");
     await new Promise((r) => setTimeout(r, 350));
     expect(lastFilters()?.q).toBeUndefined();
-    await userEvent.type(screen.getByRole("textbox", { name: "Search" }), "Q");
+    await userEvent.type(screen.getByRole("searchbox", { name: "Search" }), "Q");
     await vi.waitFor(() => expect(lastFilters()?.q).toBe("TGQ"));
   });
 
-  it("Fields hides and shows columns, and remembers the choice", async () => {
+  it("Fields opens Workiz's switch panel; a switch hides a column and is remembered; ✕ closes it", async () => {
     render(<CommissionsPage today="2026-09-29" />);
-    await userEvent.click(screen.getByRole("button", { name: "Fields" }));
-    await userEvent.click(screen.getByRole("menuitemcheckbox", { name: "Client" }));
-    await userEvent.keyboard("{Escape}");
-    expect(within(screen.getByRole("table", { name: "Commissions" })).getAllByRole("row")[0]).toHaveTextContent("Client");
-    expect(JSON.parse(window.localStorage.getItem("bitcrm.commissions.fields") ?? "{}")).toEqual({ standard: { clientName: true } });
+    expect(headerRow()).toHaveTextContent("Client");
+    const fields = screen.getByRole("button", { name: "Fields" });
+    await userEvent.click(fields);
+    expect(fields).toHaveAttribute("aria-expanded", "true");
+    await userEvent.click(screen.getByRole("switch", { name: "Client" }));
+    expect(headerRow()).not.toHaveTextContent("Client");
+    expect(JSON.parse(window.localStorage.getItem("bitcrm.commissions.fields") ?? "{}")).toEqual({ standard: { clientName: false } });
+    await userEvent.click(screen.getByRole("button", { name: "Hide fields" }));
+    expect(screen.queryByRole("group", { name: "Fields" })).toBeNull();
+  });
+
+  it("pages with Previous / Next and changes the page size", async () => {
+    useCommissionReport.mockImplementation(() => ({ data: report({ count: 244 }), error: null }));
+    render(<CommissionsPage today="2026-09-29" />);
+    expect(screen.getByText("Showing 1 to 50 of 244 entries (filtered from 50 total entries)")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Next" }));
+    expect(lastFilters()).toMatchObject({ offset: 50, limit: 50 });
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Show entries" }), "100");
+    expect(lastFilters()).toMatchObject({ offset: 0, limit: 100 });
+  });
+
+  it("Reload Results re-reads the period", async () => {
+    render(<CommissionsPage today="2026-09-29" />);
+    await userEvent.click(screen.getByRole("button", { name: "Reload Results" }));
+    expect(reloadCommissionReport).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ from: "2026-09-29", mode: "standard" }));
   });
 
   it("exports the whole filtered set", async () => {
@@ -184,11 +244,29 @@ describe("CommissionsPage", () => {
     expect(downloadCommissionCsv).toHaveBeenCalledWith(expect.objectContaining({ from: "2026-09-29", mode: "standard" }));
   });
 
+  it("an empty period: Totals:0, No Records Found, and the summaries with their names only", () => {
+    useCommissionReport.mockImplementation(() => ({ data: report({ count: 0, rows: [], totals: totals() }), error: null }));
+    render(<CommissionsPage today="2026-09-29" />);
+    expect(within(grid()).getAllByRole("row")[1]).toHaveTextContent(/^Totals:0$/);
+    expect(screen.getByRole("cell", { name: "No Records Found" })).toBeInTheDocument();
+    expect(screen.getByText("Showing 0 to 0 of 0 entries")).toBeInTheDocument();
+    expect(within(screen.getByRole("table", { name: "Total Profits" })).getAllByRole("row")).toHaveLength(1);
+  });
+
+  it("without financials.view: the jobs, no amounts, no rate, no summaries", () => {
+    perms.granted = new Set(["commission.view"]);
+    useCommissionReport.mockImplementation(() => ({ data: report({ money: false }), error: null }));
+    render(<CommissionsPage today="2026-09-29" />);
+    expect(headerRow()).toHaveTextContent(/^Job IdTechScheduledClosedJob TypeAddressClient$/);
+    expect(within(grid()).getAllByRole("row")[1]).toHaveTextContent(/^Totals:1$/);
+    expect(screen.queryByRole("table", { name: "Total Profits" })).toBeNull();
+    expect(screen.queryByRole("table", { name: "Total by type" })).toBeNull();
+  });
+
   it("says when figures are incomplete", () => {
     useCommissionReport.mockImplementation(() => ({ data: report({ warnings: ["Payments could not be read for 2 job(s)"] }), error: null }));
     render(<CommissionsPage today="2026-09-29" />);
-    expect(screen.getByText("Some figures are incomplete")).toBeInTheDocument();
-    expect(screen.getByText(/Payments could not be read/)).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent(/Payments could not be read/);
   });
 
   it("is closed without commission.view, and does not ask for the report", () => {

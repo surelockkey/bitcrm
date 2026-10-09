@@ -2,48 +2,41 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Columns3, Download, Printer, Search } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import type {
-  CommissionReport,
-  CommissionReportBy,
-  CommissionReportMode,
-  CommissionReportRow,
-  CommissionReportTotalKey,
-} from "@bitcrm/types";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
+import type { CommissionReport, CommissionReportBy, CommissionReportMode } from "@bitcrm/types";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { PeriodControl, nextCustomDays } from "./period-control";
+import { WzButtonGroup } from "@/components/workiz/button-group";
+import { WzLegacyFieldsPanel } from "@/components/workiz/legacy-fields-panel";
+import { WzLegacyGrid } from "@/components/workiz/legacy-grid";
+import { WzLegacyPillButton, WzLegacySummary } from "@/components/workiz/legacy-report-parts";
+import { WzLegacySelect } from "@/components/workiz/legacy-select";
+import { WzPeriodPicker } from "@/components/workiz/period-picker";
+import { usePageHistoryLabel } from "@/components/shell/page-history";
 import { settled, usePageReady } from "@/lib/use-page-ready";
-import { useDenied } from "@/features/auth/use-permissions";
+import { useDenied, usePermissions } from "@/features/auth/use-permissions";
 import { NoAccess } from "@/features/clients/components/contacts-page";
+import { useUserMap } from "@/features/deals/hooks";
 import { useExternalCompanies } from "@/features/external-companies/hooks";
 import { useJobSources } from "@/features/job-sources/hooks";
 import { useJobTypes } from "@/features/job-types/hooks";
 import { useServiceAreas } from "@/features/service-areas/hooks";
-import { downloadCommissionCsv, useCommissionReport } from "../commissions/hooks";
+import { downloadCommissionCsv, reloadCommissionReport, useCommissionReport } from "../commissions/hooks";
 import {
   COMMISSION_DATE_PRESETS,
   cellText,
   commissionColumns,
+  commissionInfo,
   commissionPresetRange,
-  formatMoney,
+  commissionTechOptions,
   loadColumnChoices,
+  profitRows,
   saveColumnChoices,
-  type ColumnChoices,
+  totalsCell,
+  typeRows,
   visibleColumns,
+  wzRawNumber,
+  type ColumnChoices,
   type CommissionColumn,
   type CommissionDatePreset,
   type CommissionReportFilters,
@@ -51,43 +44,41 @@ import {
 
 const ALL = "";
 const PAGE_SIZES = [10, 25, 50, 100];
-const MODES: { id: CommissionReportMode; label: string }[] = [
-  { id: "standard", label: "Standard Report" },
-  { id: "tech", label: "Tech Report" },
-  { id: "external", label: "External Company" },
+const MODES: { value: CommissionReportMode; label: string }[] = [
+  { value: "standard", label: "Standard Report" },
+  { value: "tech", label: "Tech Report" },
+  { value: "external", label: "External Company" },
 ];
-const BY: { id: CommissionReportBy; label: string }[] = [
-  { id: "created", label: "Created" },
-  { id: "scheduled", label: "Scheduled" },
-  { id: "closed", label: "Closed" },
+const BY: { value: CommissionReportBy; label: string }[] = [
+  { value: "created", label: "Created" },
+  { value: "scheduled", label: "Scheduled" },
+  { value: "closed", label: "Closed" },
 ];
-const BY_TYPE: { label: string; key: CommissionReportTotalKey }[] = [
-  { label: "cash", key: "cash" },
-  { label: "credit", key: "credit" },
-  { label: "billing", key: "billing" },
-  { label: "check", key: "check" },
-  { label: "cash by external", key: "cashByExternal" },
-  { label: "credit by external", key: "creditByExternal" },
-  { label: "billing by external", key: "billingByExternal" },
-  { label: "check by external", key: "checkByExternal" },
-];
-
-const selectClass = "h-9 rounded-md border bg-transparent px-2 text-sm disabled:opacity-50";
 
 /**
- * Workiz "Commissions (Legacy)" — Finance Reporting. Every Done job of a
- * period with what was collected and how, the technician's rate and profit,
- * the company's, and the balance; three modes (Standard, Tech, External
- * Company), Workiz's thirteen date presets, "By Time" Created / Scheduled /
- * Closed (Closed = the end of the visit window), the Fields panel, a Totals
- * row, Total Profits and Total by type, CSV export and print. The office
- * settles technicians weekly (Last week, Mon – Sun) from the Tech Report.
+ * Workiz "Commissions (Legacy)" — Finance Reporting — as Workiz draws it
+ * (rep_commission_wz_*, 2026-10-09): no heading (the breadcrumb names it),
+ * the mode select, the filter row (Job Type · Select Technician · All Service
+ * Areas · External Company · Ad Group, compact legacy selects), the yellow
+ * Export · Fields · Print, the period box and By Time at the right; Fields
+ * slides Workiz's switch panel open; the DataTables grid with the Totals row
+ * in its head; Total Profits and Total by type under it.
  *
- * Not here (yet): Export By Mail / Send Bulk and Report History — BitCRM has
- * no mail provider — and Settle, which the business never used in Workiz.
+ * Every Done job of the period with what was collected and how, the
+ * technician's rate and profit, the company's and the balance. Amounts need
+ * `financials.view` (the server leaves them out too). The office settles
+ * technicians weekly from the Tech Report (Last week, Mon – Sun).
+ *
+ * Not here, Workiz has them: Export By Mail, Send Bulk and Report History
+ * (BitCRM sends no mail), the Settlement filter and the settle checkboxes
+ * (nobody settles in Workiz), "Balance as of" (the technician's all-time
+ * running balance), Invoice, Company Share and Fees By Company.
  */
 export function CommissionsPage({ today }: { today: string }) {
   const denied = useDenied();
+  const { can } = usePermissions();
+  const queryClient = useQueryClient();
+  usePageHistoryLabel("Commissions");
 
   const [mode, setMode] = useState<CommissionReportMode>("standard");
   const [by, setBy] = useState<CommissionReportBy>("closed");
@@ -100,14 +91,16 @@ export function CommissionsPage({ today }: { today: string }) {
   const [sourceId, setSourceId] = useState(ALL);
   const [search, setSearch] = useState("");
   const [q, setQ] = useState("");
-  const [sort, setSort] = useState<{ key: string; dir: "asc" | "desc" }>({ key: "closedDate", dir: "asc" });
+  // Unsorted: Workiz's own order, its job id ascending — the order the jobs were created in.
+  const [sort, setSort] = useState<{ id: string; dir: "asc" | "desc" } | null>(null);
   const [page, setPage] = useState(1);
   const [size, setSize] = useState(50);
   const [choices, setChoices] = useState<ColumnChoices>(() => loadColumnChoices());
-  const [exporting, setExporting] = useState(false);
+  const [fieldsOpen, setFieldsOpen] = useState(false);
+  const [reloading, setReloading] = useState(false);
   const choice = choices[mode] ?? {};
 
-  // Workiz searches from the third character; a cleared box searches nothing.
+  // DataTables searches from the third character; a cleared box searches nothing.
   useEffect(() => {
     const t = setTimeout(() => {
       const next = search.trim();
@@ -122,22 +115,23 @@ export function CommissionsPage({ today }: { today: string }) {
   const range = preset === "custom" ? custom : commissionPresetRange(preset, today);
   const from = range.from ?? today;
   const to = range.to ?? from;
-  // The Tech Report needs a technician: until one is picked, the period's
-  // technicians are listed (the Standard report's slice) to pick from.
-  const picking = mode === "tech" && !techId;
+  const allColumns = commissionColumns(mode);
+  const sortKey = sort ? allColumns.find((c) => c.id === sort.id)?.sort : undefined;
+  // The Tech Report without a technician is every job (Workiz) — the Standard rows in the Tech columns.
+  const everyTech = mode === "tech" && !techId;
   const filters: CommissionReportFilters = {
     from,
     to,
     by,
-    mode: picking ? "standard" : mode,
+    mode: everyTech ? "standard" : mode,
     techId: techId || undefined,
     jobTypeId: jobTypeId || undefined,
     serviceAreaId: serviceAreaId || undefined,
     externalCompanyId: externalCompanyId || undefined,
-    sourceId: sourceId || undefined,
+    sourceId: (mode === "standard" && sourceId) || undefined,
     q: q || undefined,
-    sort: sort.key,
-    dir: sort.dir,
+    sort: sortKey ?? "createdAt",
+    dir: sortKey ? sort!.dir : "asc",
     offset: (page - 1) * size,
     limit: size,
   };
@@ -147,499 +141,272 @@ export function CommissionsPage({ today }: { today: string }) {
   const areasQuery = useServiceAreas();
   const companiesQuery = useExternalCompanies();
   const sourcesQuery = useJobSources();
-  const jobTypes = jobTypesQuery.data ?? [];
-  const areas = areasQuery.data ?? [];
-  const companies = companiesQuery.data ?? [];
-  const sources = sourcesQuery.data ?? [];
-  // A select is as wide as its widest option: drawn before its catalog, each
-  // one widened as the catalog came — the ad groups seconds after the rest —
-  // and pushed every filter after it along, wrapping the row onto the report.
-  // The filters wait for their options and the report, and come with it.
-  const ready = usePageReady([report, jobTypesQuery, areasQuery, companiesQuery, sourcesQuery].every(settled));
+  const people = useUserMap();
+  // Each select is drawn holding its options, with the report, in one frame.
+  const ready = usePageReady(
+    [report, jobTypesQuery, areasQuery, companiesQuery, sourcesQuery].every(settled) && !people.isLoading,
+  );
 
   if (denied("commission", "view")) return <NoAccess entity="the commissions report" />;
+
+  const data = report.data;
+  const money = can("financials", "view") && data?.money !== false;
+  const columns = visibleColumns(mode, choice, money);
 
   const reset = <T,>(set: (v: T) => void) => (v: T) => {
     set(v);
     setPage(1);
   };
-  const columns = visibleColumns(mode, choice);
-  const toggleColumn = (c: CommissionColumn) => {
-    const next = { ...choices, [mode]: { ...choice, [c.id]: !(choice[c.id] ?? c.default) } };
+  const changeMode = (next: CommissionReportMode) => {
+    setMode(next);
+    // Workiz re-renders the page for a mode: the filters stay, Ad Group and the order do not.
+    setSourceId(ALL);
+    setSort(null);
+    setPage(1);
+  };
+  const toggleColumn = (id: string) => {
+    const c = allColumns.find((x) => x.id === id);
+    if (!c) return;
+    const next = { ...choices, [mode]: { ...choice, [id]: !(choice[id] ?? c.default) } };
     setChoices(next);
     saveColumnChoices(next);
   };
+  const onSort = (id: string) => {
+    setSort((s) => ({ id, dir: s?.id === id && s.dir === "asc" ? "desc" : "asc" }));
+    setPage(1);
+  };
   const exportCsv = async () => {
-    setExporting(true);
     try {
-      await downloadCommissionCsv(filters);
+      await downloadCommissionCsv({ ...filters, mode });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Export failed");
+    }
+  };
+  const reload = async () => {
+    setReloading(true);
+    try {
+      await reloadCommissionReport(queryClient, filters);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not reload the report");
     } finally {
-      setExporting(false);
+      setReloading(false);
     }
   };
 
-  const data = report.data;
-  const techOptions = data?.techs ?? [];
+  const techOptions = commissionTechOptions(people.users, data?.techs ?? []);
   const companyJobs = new Map((data?.externalCompanies ?? []).map((c) => [c.externalCompanyId, c.jobs]));
+  const count = data?.count ?? 0;
+  const pages = Math.max(1, Math.ceil(count / size));
 
   return (
-    <div className="flex flex-1 flex-col overflow-y-auto print:overflow-visible">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b px-6 py-4 print:hidden">
-        <div>
-          <h1 className="text-lg font-semibold tracking-tight">Commissions</h1>
-          <p className="text-xs text-muted-foreground">Finance Reporting — Done jobs, by technician</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <select
-            aria-label="Report mode"
-            className={selectClass}
-            value={mode}
-            onChange={(e) => reset(setMode)(e.target.value as CommissionReportMode)}
-          >
-            {MODES.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.label}
-              </option>
-            ))}
-          </select>
-          <div role="radiogroup" aria-label="By time" className="flex items-center rounded-md border p-0.5 text-sm">
-            <span className="px-2 text-xs text-muted-foreground">By Time:</span>
-            {BY.map((b) => (
-              <button
-                key={b.id}
-                type="button"
-                role="radio"
-                aria-checked={by === b.id}
-                onClick={() => reset(setBy)(b.id)}
-                className={`rounded px-2.5 py-1 ${by === b.id ? "bg-accent font-medium" : "text-muted-foreground"}`}
-              >
-                {b.label}
-              </button>
-            ))}
-          </div>
-          <PeriodControl
-            presets={COMMISSION_DATE_PRESETS.map((p) => ({ value: p.id, label: p.label }))}
-            preset={preset}
-            onPresetChange={(p) => {
-              // Custom opens on the days on show, so the report does not jump.
-              if (p === "custom") setCustom({ from, to });
-              reset(setPreset)(p);
-            }}
-            range={{ from, to }}
-            custom={custom}
-            onCustomChange={(days) => {
-              setCustom((cur) => nextCustomDays({ from: cur.from ?? from, to: cur.to ?? to }, days));
-              setPage(1);
-            }}
-            today={today}
-          />
-        </div>
-      </div>
-
-      {ready ? (
-        <div className="flex flex-wrap items-center gap-2 border-b px-6 py-3 print:hidden">
-          <select aria-label="Job type" className={selectClass} value={jobTypeId} onChange={(e) => reset(setJobTypeId)(e.target.value)}>
-            <option value={ALL}>Job Type</option>
-            {jobTypes.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name}
-              </option>
-            ))}
-          </select>
-          <select aria-label="Technician" className={selectClass} value={techId} onChange={(e) => reset(setTechId)(e.target.value)}>
-            <option value={ALL}>{mode === "tech" ? "Select Technician" : "All Technicians"}</option>
-            {techId && !techOptions.some((t) => t.techId === techId) && <option value={techId}>{techId}</option>}
-            {techOptions.map((t) => (
-              <option key={t.techId} value={t.techId}>
-                {`${t.techName ?? t.techId}  [${t.jobs}]`}
-              </option>
-            ))}
-          </select>
-          <select
-            aria-label="Service area"
-            className={selectClass}
-            value={serviceAreaId}
-            onChange={(e) => reset(setServiceAreaId)(e.target.value)}
-          >
-            <option value={ALL}>All Service Areas</option>
-            {areas.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.name}
-              </option>
-            ))}
-          </select>
-          {/* External Company and Ad Group exclude each other, as in Workiz. */}
-          <select
-            aria-label="External company"
-            className={selectClass}
-            value={externalCompanyId}
-            disabled={Boolean(sourceId)}
-            onChange={(e) => reset(setExternalCompanyId)(e.target.value)}
-          >
-            <option value={ALL}>External Company</option>
-            <option value="only">External Only</option>
-            {companies.map((c) => (
-              <option key={c.id} value={c.id}>
-                {companyJobs.has(c.id) ? `${c.name}  [${companyJobs.get(c.id)}]` : c.name}
-              </option>
-            ))}
-          </select>
-          <select
-            aria-label="Ad group"
-            className={selectClass}
-            value={sourceId}
-            disabled={Boolean(externalCompanyId)}
-            onChange={(e) => reset(setSourceId)(e.target.value)}
-          >
-            <option value={ALL}>Ad Group</option>
-            {sources.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
-            ))}
-          </select>
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
-            <Input
-              aria-label="Search"
-              placeholder="Search"
-              className="h-9 w-48 pl-8"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-          </div>
-          <span className="flex-1" />
-          <Button variant="outline" size="sm" className="h-9 gap-1.5" onClick={() => void exportCsv()} disabled={exporting || picking}>
-            <Download className="size-4" aria-hidden />
-            Export
-          </Button>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm" className="h-9 gap-1.5" disabled={picking}>
-                <Columns3 className="size-4" aria-hidden />
-                Fields
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="max-h-96 overflow-y-auto">
-              <DropdownMenuLabel>Columns</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              {commissionColumns(mode).map((c) => (
-                <DropdownMenuCheckboxItem
-                  key={c.id}
-                  checked={choice[c.id] ?? c.default}
-                  onCheckedChange={() => toggleColumn(c)}
-                  onSelect={(e) => e.preventDefault()}
-                >
-                  {c.label}
-                </DropdownMenuCheckboxItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <Button variant="outline" size="sm" className="h-9 gap-1.5" onClick={() => window.print()} disabled={picking}>
-            <Printer className="size-4" aria-hidden />
-            Print
-          </Button>
-        </div>
-      ) : null}
-
+    // Workiz's report is a white page iframed 14px under the breadcrumb strip.
+    <div className="flex min-w-0 flex-1 flex-col overflow-y-auto bg-background pt-3.5 text-wz-strong print:overflow-visible">
+      <h1 className="sr-only">Commissions</h1>
       {!ready ? (
-        // One block for the filters and the report while either is on its way.
-        <div role="status" aria-label="Loading report" className="print:hidden">
-          <div className="border-b px-6 py-3">
-            <Skeleton className="h-9 w-full" />
-          </div>
-          <div className="space-y-3 p-6">
-            <Skeleton className="h-10 w-full" />
-            <Skeleton className="h-64 w-full" />
-          </div>
+        <div role="status" aria-label="Loading report" className="space-y-3 px-5 pt-[19px]">
+          <Skeleton className="h-[26px] w-[186px]" />
+          <Skeleton className="h-[26px] w-[836px]" />
+          <Skeleton className="h-8 w-[260px]" />
+          <Skeleton className="mt-8 h-[480px] w-full" />
         </div>
-      ) : report.error ? (
-        <p role="alert" className="p-6 text-sm text-destructive">
-          {report.error instanceof Error ? report.error.message : "Could not load the report."}
-        </p>
-      ) : !data ? (
-        <div role="status" aria-label="Loading report" className="space-y-3 p-6">
-          <Skeleton className="h-10 w-full" />
-          <Skeleton className="h-64 w-full" />
-        </div>
-      ) : picking ? (
-        <TechPicker report={data} onPick={(id) => reset(setTechId)(id)} />
       ) : (
-        <div className="flex flex-col gap-6 p-6">
-          <div className="hidden print:block">
-            <h1 className="text-lg font-semibold">
-              Commissions — {MODES.find((m) => m.id === mode)?.label}
-              {mode === "tech" && data.rows[0]?.techName ? ` — ${data.rows[0].techName}` : ""}
-            </h1>
+        <>
+          {/* Workiz's controls: 19px down, the selects, the pills; the period box and By Time at the right. */}
+          <div className="relative min-h-[216px] px-5 pt-[19px] pb-[65px] print:hidden">
+            <WzLegacySelect
+              aria-label="Report mode"
+              size="compact"
+              className="w-[186px]"
+              options={MODES}
+              value={mode}
+              onChange={(v) => changeMode(v as CommissionReportMode)}
+            />
+            <div className="mt-5 flex gap-1">
+              <WzLegacySelect
+                aria-label="Job type"
+                size="compact"
+                searchable
+                className="w-[164px]"
+                options={[{ value: ALL, label: "Job Type" }, ...(jobTypesQuery.data ?? []).map((t) => ({ value: t.id, label: t.name }))]}
+                value={jobTypeId}
+                onChange={reset(setJobTypeId)}
+              />
+              <WzLegacySelect
+                aria-label="Technician"
+                size="compact"
+                searchable
+                className="w-[164px]"
+                options={[{ value: ALL, label: "Select Technician" }, ...techOptions]}
+                value={techId}
+                onChange={reset(setTechId)}
+              />
+              <WzLegacySelect
+                aria-label="Service area"
+                size="compact"
+                searchable
+                className="w-[164px]"
+                options={[{ value: ALL, label: "All Service Areas" }, ...(areasQuery.data ?? []).map((a) => ({ value: a.id, label: a.name }))]}
+                value={serviceAreaId}
+                onChange={reset(setServiceAreaId)}
+              />
+              {/* External Company and Ad Group exclude each other, as in Workiz. */}
+              <WzLegacySelect
+                aria-label="External company"
+                size="compact"
+                searchable
+                className="w-[164px]"
+                disabled={mode === "standard" && Boolean(sourceId)}
+                options={[
+                  { value: ALL, label: "External Company" },
+                  { value: "only", label: "External Only" },
+                  ...(companiesQuery.data ?? []).map((c) => ({
+                    value: c.id,
+                    label: companyJobs.get(c.id) ? `${c.name}   [${companyJobs.get(c.id)}]` : c.name,
+                  })),
+                ]}
+                value={externalCompanyId}
+                onChange={reset(setExternalCompanyId)}
+              />
+              {mode === "standard" ? (
+                <WzLegacySelect
+                  aria-label="Ad group"
+                  size="compact"
+                  searchable
+                  className="w-[164px]"
+                  disabled={Boolean(externalCompanyId)}
+                  options={[{ value: ALL, label: "Ad Group" }, ...(sourcesQuery.data ?? []).map((s) => ({ value: s.id, label: s.name }))]}
+                  value={sourceId}
+                  onChange={reset(setSourceId)}
+                />
+              ) : null}
+            </div>
+            <div className="mt-7 flex gap-[5px]">
+              <WzLegacyPillButton onClick={() => void exportCsv()}>Export</WzLegacyPillButton>
+              <WzLegacyPillButton aria-expanded={fieldsOpen} pressed={fieldsOpen} onClick={() => setFieldsOpen((o) => !o)}>
+                Fields
+              </WzLegacyPillButton>
+              <WzLegacyPillButton onClick={() => window.print()}>Print</WzLegacyPillButton>
+            </div>
+            <div className="absolute top-[62px] right-5 flex flex-col items-end">
+              <WzPeriodPicker
+                presets={COMMISSION_DATE_PRESETS}
+                preset={preset}
+                range={{ from, to }}
+                onPresetChange={(p) => {
+                  // Custom opens on the days on show, so the report does not jump.
+                  if (p === "custom") setCustom({ from, to });
+                  reset(setPreset)(p);
+                }}
+                onCustomChange={(days) => {
+                  setCustom(days);
+                  setPage(1);
+                }}
+                today={today}
+              />
+              <div className="mt-[19px] flex items-center gap-[3px]">
+                <span className="text-sm leading-[34px] tracking-[0.4px]">By Time:</span>
+                <WzButtonGroup aria-label="By Time" options={BY} value={by} onChange={reset(setBy)} />
+              </div>
+            </div>
+          </div>
+
+          {fieldsOpen ? (
+            <WzLegacyFieldsPanel
+              className="mx-5 mt-5 mb-9 print:hidden"
+              fields={commissionColumns(mode, money).map((c) => ({ id: c.id, label: c.label, on: choice[c.id] ?? c.default }))}
+              onToggle={toggleColumn}
+              onClose={() => setFieldsOpen(false)}
+            />
+          ) : null}
+
+          {data?.warnings.length ? (
+            <ul role="alert" className="px-5 pb-2 text-xs leading-4 text-wz-danger print:hidden">
+              {data.warnings.map((w) => (
+                <li key={w}>{w}</li>
+              ))}
+            </ul>
+          ) : null}
+
+          <div className="hidden px-5 pb-3 print:block">
+            <p className="text-lg font-semibold">
+              Finance Reporting — {MODES.find((m) => m.value === mode)?.label}
+              {techId ? ` — ${techOptions.find((t) => t.value === techId)?.label.replace(/\s+\[\d+\]$/, "") ?? ""}` : ""}
+            </p>
             <p className="text-sm">
               {from} to {to}, by {by}
             </p>
           </div>
-          {data.warnings.length > 0 && (
-            <Alert variant="destructive">
-              <AlertTitle>Some figures are incomplete</AlertTitle>
-              <AlertDescription>
-                <ul className="list-disc pl-4">
-                  {data.warnings.map((w) => (
-                    <li key={w}>{w}</li>
-                  ))}
-                </ul>
-              </AlertDescription>
-            </Alert>
+
+          {report.error ? (
+            <p role="alert" className="p-5 text-sm text-destructive">
+              {report.error instanceof Error ? report.error.message : "Could not load the report."}
+            </p>
+          ) : !data ? (
+            <div role="status" aria-label="Loading report" className="px-5">
+              <Skeleton className="h-[480px] w-full" />
+            </div>
+          ) : (
+            <>
+              <WzLegacyGrid
+                aria-label="Commissions"
+                columns={columns.map((c) => ({ id: c.id, label: c.label, sortable: Boolean(c.sort) }))}
+                rows={data.rows.map((r) => ({
+                  key: r.dealId,
+                  cells: columns.map((c) =>
+                    c.id === "dealNumber" ? (
+                      <Link key={c.id} href={`/deals/${r.dealId}`} className="text-foreground underline">
+                        {r.dealNumber}
+                      </Link>
+                    ) : (
+                      cellText(r, c.id)
+                    ),
+                  ),
+                }))}
+                totals={columns.map((c, i) => totalsCell(data, c, i))}
+                sort={sort}
+                onSort={onSort}
+                pageSize={size}
+                pageSizes={PAGE_SIZES}
+                onPageSize={(s) => {
+                  setSize(s);
+                  setPage(1);
+                }}
+                search={search}
+                onSearch={setSearch}
+                onRefresh={() => void reload()}
+                info={commissionInfo(page, size, count)}
+                onPrevious={page > 1 ? () => setPage(page - 1) : undefined}
+                onNext={page < pages ? () => setPage(page + 1) : undefined}
+                busy={reloading || report.isFetching === true}
+              />
+              {money ? <Summaries report={data} mode={mode} /> : null}
+            </>
           )}
-          <ReportTable
-            report={data}
-            columns={columns}
-            sort={sort}
-            onSort={(key) => {
-              setSort((s) => ({ key, dir: s.key === key && s.dir === "asc" ? "desc" : "asc" }));
-              setPage(1);
-            }}
-          />
-          <Pager
-            page={page}
-            size={size}
-            count={data.count}
-            onPage={setPage}
-            onSize={(s) => {
-              setSize(s);
-              setPage(1);
-            }}
-          />
-          <div className="grid gap-6 lg:grid-cols-2">
-            <TotalProfits report={data} mode={mode} />
-            <TotalsByType report={data} />
-          </div>
-        </div>
+        </>
       )}
     </div>
   );
 }
 
-function ReportTable({
-  report,
-  columns,
-  sort,
-  onSort,
-}: {
-  report: CommissionReport;
-  columns: CommissionColumn[];
-  sort: { key: string; dir: "asc" | "desc" };
-  onSort: (key: string) => void;
-}) {
+/** Total Profits and Total by type, the two halves under the grid (21px in, 31px apart). */
+function Summaries({ report, mode }: { report: CommissionReport; mode: CommissionReportMode }) {
   return (
-    <div className="overflow-x-auto border print:overflow-visible">
-      <Table aria-label="Commissions" contained={false}>
-        <TableHeader>
-          <TableRow>
-            {columns.map((c) => (
-              <TableHead key={c.id} className={c.numeric ? "text-right" : undefined}>
-                {c.sort ? (
-                  <button
-                    type="button"
-                    className="inline-flex items-center gap-1 font-medium"
-                    onClick={() => onSort(c.sort!)}
-                    aria-label={`Sort by ${c.label}`}
-                  >
-                    {c.label}
-                    {sort.key === c.sort &&
-                      (sort.dir === "asc" ? <ArrowUp className="size-3" aria-hidden /> : <ArrowDown className="size-3" aria-hidden />)}
-                  </button>
-                ) : (
-                  c.label
-                )}
-              </TableHead>
-            ))}
-          </TableRow>
-          <TableRow className="bg-muted/40 font-medium">
-            {columns.map((c, i) => (
-              <TableCell key={c.id} className={c.numeric ? "text-right tabular-nums" : undefined}>
-                {i === 0 ? `Totals:${report.count}` : c.total ? formatMoney(report.totals[c.total].amount) : c.id === "externalBalance" ? formatMoney(-report.totals.cashByExternal.amount) : ""}
-              </TableCell>
-            ))}
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {report.rows.length === 0 ? (
-            <TableRow>
-              <TableCell colSpan={columns.length} className="py-8 text-center text-sm text-muted-foreground">
-                No Done jobs in this period.
-              </TableCell>
-            </TableRow>
-          ) : (
-            report.rows.map((row) => <ReportRow key={row.dealId} row={row} columns={columns} />)
-          )}
-        </TableBody>
-      </Table>
+    <div className="grid grid-cols-2 gap-[31px] pt-[52px] pr-5 pb-10 pl-[21px] print:break-inside-avoid">
+      <WzLegacySummary
+        title="Total Profits"
+        columns={["Profit For", "Amount"]}
+        rows={profitRows(mode, report.count).map((r) => ({ key: r.key, cells: [r.label, wzRawNumber(report.totals[r.key].amount)] }))}
+      />
+      <WzLegacySummary
+        title="Total by type"
+        columns={["Type", "Total", "Jobs"]}
+        rows={typeRows(report.count).map((r) => ({
+          key: r.key,
+          cells: [r.label, wzRawNumber(report.totals[r.key].amount), String(report.totals[r.key].jobs)],
+        }))}
+      />
     </div>
   );
 }
 
-function ReportRow({ row, columns }: { row: CommissionReportRow; columns: CommissionColumn[] }) {
-  return (
-    <TableRow>
-      {columns.map((c) => (
-        <TableCell key={c.id} className={c.numeric ? "text-right tabular-nums" : "whitespace-normal"}>
-          {c.id === "dealNumber" ? (
-            <Link href={`/deals/${row.dealId}`} className="font-medium text-brand underline-offset-2 hover:underline">
-              {row.dealNumber}
-            </Link>
-          ) : (
-            cellText(row, c.id)
-          )}
-        </TableCell>
-      ))}
-    </TableRow>
-  );
-}
-
-function Pager({
-  page,
-  size,
-  count,
-  onPage,
-  onSize,
-}: {
-  page: number;
-  size: number;
-  count: number;
-  onPage: (p: number) => void;
-  onSize: (s: number) => void;
-}) {
-  const pages = Math.max(1, Math.ceil(count / size));
-  const first = count === 0 ? 0 : (page - 1) * size + 1;
-  const last = Math.min(count, page * size);
-  return (
-    <div className="flex flex-wrap items-center gap-2 text-sm print:hidden">
-      <span className="text-muted-foreground">Show</span>
-      <select aria-label="Rows per page" className="h-8 rounded-md border bg-transparent px-2" value={size} onChange={(e) => onSize(Number(e.target.value))}>
-        {PAGE_SIZES.map((s) => (
-          <option key={s} value={s}>
-            {s}
-          </option>
-        ))}
-      </select>
-      <span className="text-muted-foreground">entries</span>
-      <span className="flex-1" />
-      <span className="tabular-nums text-muted-foreground">{`Showing ${first} to ${last} of ${count.toLocaleString("en-US")} entries`}</span>
-      <Button variant="outline" size="icon" className="size-8" aria-label="Previous page" disabled={page <= 1} onClick={() => onPage(page - 1)}>
-        <ChevronLeft className="size-4" />
-      </Button>
-      <Button variant="outline" size="icon" className="size-8" aria-label="Next page" disabled={page >= pages} onClick={() => onPage(page + 1)}>
-        <ChevronRight className="size-4" />
-      </Button>
-    </div>
-  );
-}
-
-function TotalProfits({ report, mode }: { report: CommissionReport; mode: CommissionReportMode }) {
-  const rows: { label: string; key: CommissionReportTotalKey }[] =
-    mode === "tech"
-      ? [{ label: "tech profit", key: "techProfit" }]
-      : [
-          { label: "external company profit", key: "externalCompanyProfit" },
-          { label: "company profit", key: "companyProfit" },
-          { label: "tech profit", key: "techProfit" },
-        ];
-  return (
-    <Card className="gap-3 px-4 py-4">
-      <h2 className="text-base font-semibold">Total Profits</h2>
-      <Table aria-label="Total Profits">
-        <TableHeader>
-          <TableRow>
-            <TableHead>Profit For</TableHead>
-            <TableHead className="text-right">Amount</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {rows.map((r) => (
-            <TableRow key={r.key}>
-              <TableCell>{r.label}</TableCell>
-              <TableCell className="text-right tabular-nums">{formatMoney(report.totals[r.key].amount)}</TableCell>
-            </TableRow>
-          ))}
-          {mode === "tech" && (
-            <TableRow>
-              <TableCell>balance</TableCell>
-              <TableCell className="text-right tabular-nums">{formatMoney(report.totals.balance.amount)}</TableCell>
-            </TableRow>
-          )}
-        </TableBody>
-      </Table>
-    </Card>
-  );
-}
-
-function TotalsByType({ report }: { report: CommissionReport }) {
-  return (
-    <Card className="gap-3 px-4 py-4">
-      <h2 className="text-base font-semibold">Total by type</h2>
-      <Table aria-label="Total by type">
-        <TableHeader>
-          <TableRow>
-            <TableHead>Type</TableHead>
-            <TableHead className="text-right">Total</TableHead>
-            <TableHead className="text-right">Jobs</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {BY_TYPE.map((t) => (
-            <TableRow key={t.key}>
-              <TableCell>{t.label}</TableCell>
-              <TableCell className="text-right tabular-nums">{formatMoney(report.totals[t.key].amount)}</TableCell>
-              <TableCell className="text-right tabular-nums">{report.totals[t.key].jobs}</TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </Card>
-  );
-}
-
-/** The Tech Report before a technician is picked: who worked the period, and where each one stands. */
-function TechPicker({ report, onPick }: { report: CommissionReport; onPick: (techId: string) => void }) {
-  const techs = report.techs;
-  return (
-    <div className="flex flex-col gap-3 p-6">
-      <p className="text-sm text-muted-foreground">Select a technician to open their report for this period.</p>
-      <div className="overflow-x-auto border">
-        <Table aria-label="Technicians" contained={false}>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Tech</TableHead>
-              <TableHead className="text-right">Jobs</TableHead>
-              <TableHead className="text-right">Total</TableHead>
-              <TableHead className="text-right">Tech Profit</TableHead>
-              <TableHead className="text-right">Balance</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {techs.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={5} className="py-8 text-center text-sm text-muted-foreground">
-                  No Done jobs in this period.
-                </TableCell>
-              </TableRow>
-            ) : (
-              techs.map((t) => (
-                <TableRow key={t.techId}>
-                  <TableCell>
-                    <button type="button" className="font-medium text-brand underline-offset-2 hover:underline" onClick={() => onPick(t.techId)}>
-                      {t.techName ?? t.techId}
-                    </button>
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums">{t.jobs}</TableCell>
-                  <TableCell className="text-right tabular-nums">{formatMoney(t.total)}</TableCell>
-                  <TableCell className="text-right tabular-nums">{formatMoney(t.techProfit)}</TableCell>
-                  <TableCell className="text-right tabular-nums">{formatMoney(t.balance)}</TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </div>
-    </div>
-  );
-}
+export type { CommissionColumn };
