@@ -1,4 +1,4 @@
-import { screen } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -36,6 +36,25 @@ describe("the user menu", () => {
     await openMenu();
     expect(await screen.findByText("Settings")).toBeInTheDocument();
     expect(screen.getByText("Sign out")).toBeInTheDocument();
+  });
+
+  it("offers Workiz's On-screen notifications switch, which asks the browser and keeps the menu open", async () => {
+    const requestPermission = vi.fn(async () => "granted" as NotificationPermission);
+    vi.stubGlobal("Notification", { permission: "default", requestPermission });
+    try {
+      await openMenu();
+      const item = await screen.findByRole("menuitemcheckbox", { name: /On-screen notifications/ });
+      expect(item).toHaveAttribute("aria-checked", "false");
+      await userEvent.click(item);
+      await screen.findByRole("menuitemcheckbox", { name: /On-screen notifications/ });
+      expect(requestPermission).toHaveBeenCalledTimes(1);
+      await waitFor(() => expect(screen.getByRole("menuitemcheckbox", { name: /On-screen notifications/ })).toHaveAttribute("aria-checked", "true"));
+      // Still open: a switch was flipped, not a page opened.
+      expect(screen.getByText("Sign out")).toBeInTheDocument();
+    } finally {
+      vi.unstubAllGlobals();
+      window.localStorage.removeItem("bitcrm.on-screen-notifications");
+    }
   });
 
   it("offers no theme switch while the app is light-only", async () => {
