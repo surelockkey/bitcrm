@@ -1,11 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { MessageSquareText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { useInboxCounters } from "../hooks";
+import { WzNewMessageIcon } from "./inbox-icons";
 
 /** Workiz caps the top-bar badge at two digits. */
 export const formatBadgeCount = (n: number): string => (n > 99 ? "99+" : String(n));
@@ -30,16 +30,19 @@ export function InboxHeaderButton() {
           asChild
           variant="ghost"
           size="icon"
-          className="relative h-9 w-9 text-muted-foreground"
+          className="relative h-9 w-9 text-foreground"
           aria-label={label}
           data-testid="inbox-header-button"
         >
           <Link href="/messages">
-            <MessageSquareText className="size-4" />
+            <WzNewMessageIcon className="size-6" />
+            {/* Workiz's `messages_indicator` (pg_messages_wz_01_list): a 22px
+                #f45e44 disc, 2px #f3f6f7 ring, 10px/18px 500 white, hung 6px
+                above the icon's top-right. */}
             {unread > 0 ? (
               <span
                 data-testid="inbox-header-badge"
-                className="absolute -right-0.5 -top-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-chip bg-destructive px-1 text-[10px] font-semibold leading-none text-white tabular-nums ring-2 ring-background"
+                className="absolute -top-1.5 left-5 grid size-[22px] place-items-center rounded-full border-2 border-topbar bg-wz-danger text-[10px] leading-[18px] font-medium tracking-normal text-white tabular-nums"
               >
                 {formatBadgeCount(unread)}
               </span>

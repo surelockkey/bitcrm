@@ -33,10 +33,16 @@ export function ShortCodeMenu({
   onInsert,
   disabled,
   compact,
+  glyph = false,
 }: {
   onInsert: (code: string) => void;
   disabled?: boolean;
   compact?: boolean;
+  /**
+   * A bare 18px glyph, the way Workiz draws the tools inside its message box
+   * (the paperclip beside it) — the composer's look. Off: the ghost button.
+   */
+  glyph?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const { data: codes, isLoading } = useShortCodes(open);
@@ -47,17 +53,29 @@ export function ShortCodeMenu({
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size={compact ? "icon-sm" : "sm"}
-          className="gap-1.5 text-muted-foreground"
-          disabled={disabled}
-          aria-label="Insert a short code"
-        >
-          <Braces className="size-3.5" />
-          {compact ? null : "Short codes"}
-        </Button>
+        {glyph ? (
+          <button
+            type="button"
+            className="grid size-[18px] place-items-center text-[#3b4c53] transition-opacity hover:opacity-70 disabled:opacity-40"
+            disabled={disabled}
+            aria-label="Insert a short code"
+            title="Short codes"
+          >
+            <Braces className="size-[18px]" strokeWidth={1.25} />
+          </button>
+        ) : (
+          <Button
+            type="button"
+            variant="ghost"
+            size={compact ? "icon-sm" : "sm"}
+            className="gap-1.5 text-muted-foreground"
+            disabled={disabled}
+            aria-label="Insert a short code"
+          >
+            <Braces className="size-3.5" />
+            {compact ? null : "Short codes"}
+          </Button>
+        )}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="max-h-80 w-72 overflow-y-auto">
         {isLoading ? (

@@ -106,10 +106,10 @@ describe("InboxCategories", () => {
     expect(tabs[0]).toHaveAttribute("aria-selected", "true");
 
     // The numbers are the size of each category, not the unread count.
-    await waitFor(() => expect(screen.getByTestId("category-count-all")).toHaveTextContent("42,657"));
+    await waitFor(() => expect(screen.getByTestId("category-count-all")).toHaveTextContent("42657"));
     // Requests really is empty, and a counted 0 is printed as 0.
     expect(screen.getByTestId("category-count-requests")).toHaveTextContent("0");
-    expect(screen.getByTestId("category-count-clients")).toHaveTextContent("42,423");
+    expect(screen.getByTestId("category-count-clients")).toHaveTextContent("42423");
     // Team folds the group threads in, as the category filter does: 200 + 34.
     expect(screen.getByTestId("category-count-team")).toHaveTextContent("234");
     expect(screen.getByTestId("category-count-archived")).toHaveTextContent("2");
@@ -122,7 +122,7 @@ describe("InboxCategories", () => {
 
   it("keeps the unread number in the tooltip", async () => {
     renderCategories();
-    await waitFor(() => expect(screen.getByTestId("category-count-clients")).toHaveTextContent("42,423"));
+    await waitFor(() => expect(screen.getByTestId("category-count-clients")).toHaveTextContent("42423"));
 
     await userEvent.hover(screen.getByRole("tab", { name: /^Clients/ }));
     await waitFor(() =>
@@ -173,7 +173,7 @@ describe("InboxCategories", () => {
 
   it("folds to an icon rail and back, remembering the choice", async () => {
     renderCategories();
-    await waitFor(() => expect(screen.getByTestId("category-count-clients")).toHaveTextContent("42,423"));
+    await waitFor(() => expect(screen.getByTestId("category-count-clients")).toHaveTextContent("42423"));
 
     await userEvent.click(screen.getByRole("button", { name: "Collapse categories" }));
     expect(screen.queryByRole("heading", { name: "Messages" })).toBeNull();

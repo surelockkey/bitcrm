@@ -152,7 +152,8 @@ describe("ConversationList", () => {
     await userEvent.click(screen.getByRole("button", { name: "Filter" }));
     const unread = await screen.findByRole("menuitemradio", { name: /^Unread/ });
     expect(unread).toHaveTextContent("4");
-    expect(screen.getByRole("menuitemradio", { name: /^Flagged/ })).toHaveTextContent("1");
+    // Workiz calls the flagged view "Starred".
+    expect(screen.getByRole("menuitemradio", { name: /^Starred/ })).toHaveTextContent("1");
     await userEvent.click(unread);
 
     await waitFor(() => expect(requestedViews).toContain("unread"));

@@ -197,11 +197,11 @@ describe("ConversationThread", () => {
     expect(screen.getByRole("menuitem", { name: /Open record/ })).toHaveAttribute("href", "/contacts/ct1");
   });
 
-  it("names the client on incoming bubbles and shows the recap chip", async () => {
+  it("names the client on incoming bubbles, with no AI recap chip to fake", async () => {
     renderThread();
     const incoming = (await screen.findByText("Running late, sorry")).closest("[data-direction]") as HTMLElement;
     expect(incoming).toHaveTextContent("Jane Doe");
-    expect(screen.getByRole("button", { name: "Recap conversation" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Recap conversation" })).toBeNull();
   });
 
   it("draws the failed line in the Workiz way and resends it through the resend route", async () => {

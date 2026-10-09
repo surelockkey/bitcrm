@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useMemo, useSyncExternalStore } from "react";
-import { Archive, Lightbulb, PanelLeft, Rows2, Users, UsersRound, type LucideIcon } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { useConversations, useInboxCounters } from "../hooks";
@@ -17,14 +16,22 @@ import {
   type InboxCategory,
   type ListState,
 } from "../lib";
+import {
+  WzAllIcon,
+  WzArchiveIcon,
+  WzCategoriesMenuIcon,
+  WzClientsIcon,
+  WzRequestsIcon,
+  WzTeamIcon,
+} from "./inbox-icons";
 
-/** The glyph each category gets when the column is folded to a rail (Workiz 08). */
-const CATEGORY_ICON: Record<InboxCategory, LucideIcon> = {
-  all: Rows2,
-  requests: Lightbulb,
-  clients: Users,
-  team: UsersRound,
-  archived: Archive,
+/** The glyph each category gets when the column is folded to a rail (Workiz 08, its own SVGs). */
+const CATEGORY_ICON: Record<InboxCategory, typeof WzAllIcon> = {
+  all: WzAllIcon,
+  requests: WzRequestsIcon,
+  clients: WzClientsIcon,
+  team: WzTeamIcon,
+  archived: WzArchiveIcon,
 };
 
 const STORAGE_KEY = "bitcrm.inbox.categories-collapsed";
@@ -58,8 +65,9 @@ export function useCategoriesCollapsed(): [boolean, () => void] {
   return [collapsed, toggle];
 }
 
+/** Workiz's IconButton large/white: 40×40, r8, #f3f6f7 under the pointer, the glyph at 24px in ink. */
 const railButton =
-  "relative grid size-9 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground";
+  "relative grid size-10 shrink-0 place-items-center rounded-[8px] text-foreground transition-colors hover:bg-wz-secondary-hover";
 
 /**
  * The left column of the Workiz Inbox: "Messages", a collapse toggle, and
@@ -115,28 +123,33 @@ export function InboxCategories({
     categoryCount(cat, counters, cat === active ? loadedInActive : undefined);
 
   if (collapsed) {
+    // Workiz folded (`categories__collapsedCategoriesContainer`): a 60px rail
+    // ruled #cad3d6 on the right; the fold button 12px in; each category a
+    // 40×56 cell, 8px apart, #f3f6f7 when open or hovered, its dot at 6/8.
     return (
       <nav
         aria-label="Categories"
         data-collapsed="true"
-        className={cn("flex w-14 shrink-0 flex-col items-center border-r py-2", className)}
+        className={cn("flex w-[61px] shrink-0 flex-col border-r border-wz-rule bg-background", className)}
       >
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              onClick={onToggleCollapsed}
-              aria-label="Expand categories"
-              aria-expanded={false}
-              className={railButton}
-            >
-              <PanelLeft className="size-5" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="right">Show categories</TooltipContent>
-        </Tooltip>
+        <div className="flex h-[58px] shrink-0 items-start pl-3 pt-2">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={onToggleCollapsed}
+                aria-label="Expand categories"
+                aria-expanded={false}
+                className={railButton}
+              >
+                <WzCategoriesMenuIcon />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right">Expand menu</TooltipContent>
+          </Tooltip>
+        </div>
 
-        <div role="tablist" aria-orientation="vertical" className="mt-3 flex flex-col gap-3">
+        <div role="tablist" aria-orientation="vertical" className="flex flex-col gap-2 pb-[13px] pl-3 pr-2 pt-[13px]">
           {INBOX_CATEGORIES.map((cat) => {
             const Icon = CATEGORY_ICON[cat.value];
             const selected = active === cat.value;
@@ -150,14 +163,17 @@ export function InboxCategories({
                     aria-selected={selected}
                     aria-label={cat.label}
                     onClick={() => pick(cat.value)}
-                    className={cn(railButton, selected && "bg-muted text-foreground")}
+                    className={cn(
+                      "relative grid h-14 w-10 place-items-center rounded-[4px] text-foreground transition-colors hover:bg-wz-secondary-hover",
+                      selected && "bg-wz-secondary-hover",
+                    )}
                   >
-                    <Icon className="size-5" />
+                    <Icon />
                     {count.unread && countsShown ? (
                       <span
                         data-testid="unread-dot"
                         aria-hidden
-                        className="absolute right-1 top-1 size-2 rounded-full bg-destructive ring-2 ring-background"
+                        className="absolute right-2 top-[6px] size-2 rounded-full bg-wz-danger"
                       />
                     ) : null}
                   </button>
@@ -171,10 +187,18 @@ export function InboxCategories({
     );
   }
 
+  // Workiz open (`categories__categoriesContainer`, pg_messages_wz_01_list):
+  // 200px + a #cad3d6 rule; a 58px head ruled under ("Messages" 18px/27px 600,
+  // the fold button 16px from the edge); the categories 13px/8px in, 37px
+  // tall, 13px/19px — the open one #f3f6f7 and semibold, its count too; the
+  // others' counts regular; an 8px #f45e44 dot 8px before the number.
   return (
-    <nav aria-label="Categories" className={cn("flex w-48 shrink-0 flex-col border-r", className)}>
-      <div className="flex h-14 shrink-0 items-center justify-between pl-4 pr-2">
-        <h2 className="text-lg font-semibold tracking-tight">Messages</h2>
+    <nav
+      aria-label="Categories"
+      className={cn("flex w-[201px] shrink-0 flex-col border-r border-wz-rule bg-background", className)}
+    >
+      <div className="flex h-[58px] shrink-0 items-center justify-between border-b border-wz-rule pl-4 pr-4">
+        <h2 className="text-[18px] leading-[27px] font-semibold text-foreground">Messages</h2>
         <Tooltip>
           <TooltipTrigger asChild>
             <button
@@ -184,14 +208,14 @@ export function InboxCategories({
               aria-expanded={true}
               className={railButton}
             >
-              <PanelLeft className="size-5" />
+              <WzCategoriesMenuIcon />
             </button>
           </TooltipTrigger>
-          <TooltipContent side="right">Hide categories</TooltipContent>
+          <TooltipContent side="right">Collapse menu</TooltipContent>
         </Tooltip>
       </div>
 
-      <div role="tablist" aria-orientation="vertical" className="flex flex-col gap-px px-1.5">
+      <div role="tablist" aria-orientation="vertical" className="flex flex-col px-2 py-[13px]">
         {INBOX_CATEGORIES.map((cat) => {
           const selected = active === cat.value;
           const count = countOf(cat.value);
@@ -205,21 +229,20 @@ export function InboxCategories({
                   aria-selected={selected}
                   onClick={() => pick(cat.value)}
                   className={cn(
-                    "flex h-9 items-center justify-between rounded-md px-2.5 text-sm transition-colors hover:bg-muted/60",
-                    selected ? "bg-muted font-semibold text-foreground" : "font-medium text-foreground/80",
+                    "flex h-[37px] items-center justify-between rounded-[4px] border border-transparent px-2 text-[13px] leading-[19px] text-foreground",
+                    "hover:border-wz-secondary-hover hover:shadow-[0_0_4px_rgba(59,75,82,0.05),0_4px_12px_rgba(59,75,82,0.1)]",
+                    selected ? "bg-wz-secondary-hover font-semibold" : "font-medium",
                   )}
                 >
                   <span>{cat.label}</span>
                   <span
-                    className={cn("flex items-center gap-1.5 tabular-nums", !countsShown && "invisible")}
+                    className={cn("flex items-center gap-2", !countsShown && "invisible")}
                     data-testid={`category-count-${cat.value}`}
                   >
                     {count.unread ? (
-                      <span data-testid="unread-dot" aria-hidden className="size-1.5 rounded-full bg-destructive" />
+                      <span data-testid="unread-dot" aria-hidden className="size-2 rounded-full bg-wz-danger" />
                     ) : null}
-                    {text ? (
-                      <span className={selected ? "font-semibold" : "font-normal text-foreground/80"}>{text}</span>
-                    ) : null}
+                    {text ? <span className={selected ? "font-semibold" : "font-normal"}>{text}</span> : null}
                   </span>
                 </button>
               </TooltipTrigger>

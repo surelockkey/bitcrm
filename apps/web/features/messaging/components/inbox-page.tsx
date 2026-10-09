@@ -22,6 +22,7 @@ import { ConversationList } from "./conversation-list";
 import { ConversationThread } from "./conversation-thread";
 import { InboxCategories, useCategoriesCollapsed } from "./inbox-categories";
 import { NewConversationDialog } from "./new-conversation-dialog";
+import { NoConversationSelectedArt } from "./inbox-art";
 import { PartyCard } from "./party-card";
 import { ThreadComposer } from "./thread-composer";
 
@@ -83,8 +84,8 @@ export function InboxPage() {
   if (!isLoading && !canView) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
-        <h2 className="text-lg font-medium">No access</h2>
-        <p className="text-sm text-muted-foreground">You don&apos;t have permission to view messages.</p>
+        <h2 className="text-[14px] leading-[21px] font-semibold text-foreground">No access</h2>
+        <p className="text-[14px] leading-[21px] text-wz-outline-label">You don&apos;t have permission to view messages.</p>
       </div>
     );
   }
@@ -102,8 +103,9 @@ export function InboxPage() {
       />
 
       {/* Column 2 — the conversations. */}
+      {/* Workiz: 319px + a 1px #ccc rule (pg_messages_wz_01_list). */}
       <aside
-        className={cn("w-full shrink-0 border-r md:flex md:w-80", selectedId ? "hidden" : "flex")}
+        className={cn("w-full shrink-0 border-r border-input md:flex md:w-80", selectedId ? "hidden" : "flex")}
         aria-label="Conversations"
       >
         <ConversationList
@@ -118,8 +120,9 @@ export function InboxPage() {
       </aside>
 
       {/* Column 3 — the thread. */}
+      {/* The thread pane: Workiz's `ms_container`, #f7f8f8. */}
       <section
-        className={cn("min-w-0 flex-1 flex-col md:flex", selectedId ? "flex" : "hidden")}
+        className={cn("min-w-0 flex-1 flex-col bg-wz-tile md:flex", selectedId ? "flex" : "hidden")}
         aria-label="Conversation"
       >
         {selectedId ? (
@@ -139,11 +142,17 @@ export function InboxPage() {
             )}
           />
         ) : (
-          <div className="flex flex-1 flex-col items-center justify-center bg-muted/30 p-8 text-center">
-            <NoConversationSelected />
-            <p className="mt-4 text-[15px] font-semibold">No conversation selected</p>
-            <p className="mt-1 text-[15px] text-muted-foreground">Please select a conversation to begin</p>
-          </div>
+          // Workiz's empty pane: its 58px white bar over the #f7f8f8 pane, the
+          // two-bubble picture 117px under the bar (15px of it its own margin)
+          // and two 14px/21px lines under it.
+          <>
+            <div className="h-[58px] shrink-0 border-b border-input bg-background" />
+            <div className="flex flex-1 flex-col items-center px-8 pt-[102px] text-center">
+              <NoConversationSelectedArt className="mt-[15px]" />
+              <p className="text-[14px] leading-[21px] font-semibold text-foreground">No conversation selected</p>
+              <p className="text-[14px] leading-[21px] text-wz-outline-label">Please select a conversation to begin</p>
+            </div>
+          </>
         )}
       </section>
 
@@ -167,32 +176,5 @@ export function InboxPage() {
         </SheetContent>
       </Sheet>
     </div>
-  );
-}
-
-/** Workiz's "nothing open" picture: two speech bubbles with dots on a pale disc. */
-function NoConversationSelected() {
-  return (
-    <svg width="152" height="152" viewBox="0 0 152 152" aria-hidden className="text-foreground/70">
-      <circle cx="76" cy="76" r="60" className="fill-muted" />
-      <path
-        d="M30 28 h68 a8 8 0 0 1 8 8 v40 a8 8 0 0 1 -8 8 h-40 l-16 14 v-14 h-12 a8 8 0 0 1 -8 -8 v-40 a8 8 0 0 1 8 -8 z"
-        className="fill-background stroke-current"
-        strokeWidth="2.5"
-        strokeLinejoin="round"
-      />
-      <circle cx="50" cy="56" r="4" className="fill-emerald-500" />
-      <circle cx="64" cy="56" r="4" className="fill-emerald-500" />
-      <circle cx="78" cy="56" r="4" className="fill-emerald-500" />
-      <path
-        d="M90 70 h40 a6 6 0 0 1 6 6 v24 a6 6 0 0 1 -6 6 h-6 v10 l-12 -10 h-22 a6 6 0 0 1 -6 -6 v-24 a6 6 0 0 1 6 -6 z"
-        className="fill-background stroke-current"
-        strokeWidth="2.5"
-        strokeLinejoin="round"
-      />
-      <circle cx="101" cy="88" r="3.5" className="fill-amber-400" />
-      <circle cx="112" cy="88" r="3.5" className="fill-amber-400" />
-      <circle cx="123" cy="88" r="3.5" className="fill-amber-400" />
-    </svg>
   );
 }

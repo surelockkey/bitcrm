@@ -29,18 +29,18 @@ describe("the quick-reply chips", () => {
     expect(screen.getByText("Pictures request")).toBeInTheDocument();
   });
 
-  it("reads blue but quiet — a tinted pill, not a row of saturated outlines", () => {
-    // Workiz outlines these in #6aa8ee, which is 2.49:1 on white — too faint
-    // to keep as a label colour. A pale blue fill carries the blue instead,
-    // and the label sits in a deep blue that clears AA on that tint (5.6:1).
+  it("draws Workiz's chips: #6aa8ee words in a #6aa8ee outline, r4, 32px", () => {
+    // 2026-10-08 the owner asked for the inbox identical to Workiz, colours
+    // included (pg_messages_wz_07_thread_client: 13px/16px 500 rgb(106,168,238),
+    // 1px solid the same, r4, 8px 12px). The earlier pale-fill variant, kept
+    // for contrast (#6aa8ee is 2.49:1 on white), is gone; the report flags it.
     render(<QuickReplies channel="sms" onPick={vi.fn()} />);
     for (const chip of chips()) {
-      expect(chip.className).toContain("bg-accent");
-      expect(chip.className).toContain("text-info-text");
-      expect(chip.className).toContain("border-brand/25");
-      // Not the full-strength accent that made the row shout.
-      expect(chip.className).not.toContain("text-brand");
-      expect(chip.className).not.toContain("border-brand/50");
+      expect(chip.className).toContain("text-wz-link");
+      expect(chip.className).toContain("border-wz-link");
+      expect(chip.className).toContain("h-8");
+      expect(chip.className).toContain("rounded-[4px]");
+      expect(chip.className).not.toContain("bg-accent");
     }
   });
 });

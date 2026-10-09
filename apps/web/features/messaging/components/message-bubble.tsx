@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import type { ComponentProps } from "react";
-import { BadgeDollarSign, Bot, Copy, Eye, Pencil, PenLine, SquarePen, Star, Voicemail, XCircle } from "lucide-react";
+import { BadgeDollarSign, Bot, Eye, Pencil, PenLine, Voicemail, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -11,6 +11,7 @@ import type { FeedMessage } from "../api";
 import { channelLabel, formatMessageStamp, formatMessageTime, isFailedStatus, statusText } from "../lib";
 import { MessageAttachments } from "./message-attachments";
 import { estimateHref, invoiceHref } from "@/features/billing/components/client-documents";
+import { WzCopyIcon, WzForwardIcon, WzStarIcon } from "./inbox-icons";
 import { StatusTicks } from "./status-ticks";
 
 /** Lines that are events rather than conversation: voicemails, portal notices, system sends. */
@@ -20,26 +21,31 @@ export const isSystemNote = (m: FeedMessage): boolean =>
 /** Workiz keeps every bubble at 60% of the thread's width, however short the text. */
 const BUBBLE_WIDTH = "w-[60%] max-md:w-[88%]";
 
-/** The yellow "✎ Edit Job" button of a dispatcher's job message, straight to the job. */
+/** The yellow "✎ Edit Job" of a dispatcher's job message: Workiz's primary regular pill, straight to the job. */
 function EditJobButton({ dealId }: { dealId: string }) {
   return (
-    <Button asChild variant="brand" size="sm" className="mt-3 rounded-chip px-4 font-semibold">
+    <Button asChild className="mt-4 gap-0 px-3 text-wz-strong!">
       <Link href={`/deals/${dealId}`}>
-        <Pencil className="size-3.5" /> Edit Job
+        <Pencil className="size-[15px]" strokeWidth={1.5} />
+        <span className="px-1">Edit Job</span>
       </Link>
     </Button>
   );
 }
 
-/** "Sep 15 2026 12:10 PM  Text" — the stamp with the channel, dotted-underlined as Workiz does. */
+/**
+ * "Oct 08 2026 11:15 PM Text" — the stamp, the channel word dotted-underlined
+ * as Workiz does; an automation's adds " | AUTOMATED NOTIFICATION".
+ */
 function Stamp({ message }: { message: FeedMessage }) {
   const channel = channelLabel(message.channel);
   return (
-    <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-[11px] text-muted-foreground">
-      <time dateTime={message.createdAt}>{formatMessageStamp(message.createdAt)}</time>
+    <span className="whitespace-nowrap">
+      <time dateTime={message.createdAt}>{formatMessageStamp(message.createdAt)}</time>{" "}
       <strong className="border-b border-dotted border-current font-medium" title={`Sent as ${channel.toLowerCase()}`}>
         {channel}
       </strong>
+      {message.origin === "automation" ? " | AUTOMATED NOTIFICATION" : null}
     </span>
   );
 }
@@ -48,10 +54,7 @@ function IconButton({ className, ...props }: ComponentProps<"button">) {
   return (
     <button
       type="button"
-      className={cn(
-        "grid size-6 place-items-center rounded-md opacity-80 transition-opacity hover:bg-white/10 hover:opacity-100",
-        className,
-      )}
+      className={cn("grid h-5 place-items-center transition-opacity hover:opacity-70", className)}
       {...props}
     />
   );
@@ -63,7 +66,8 @@ const PORTAL_ICON = { viewed: Eye, signed: PenLine, declined: XCircle, payment: 
  * What the client did on the portal, written by the system (Workiz puts
  * these in the thread: "Viewed estimate #…", "… signed Invoice #…", "…
  * submitted payment for invoice #…"): one centred line with its time and the
- * document a click away — not a bubble, and no Edit Job.
+ * document a click away — drawn as Workiz draws the day chip (white, #e3e3e3,
+ * r70, 12px/16px), not a bubble, and no Edit Job.
  */
 function PortalLine({ message }: { message: FeedMessage }) {
   const kind = message.portalEvent!;
@@ -76,13 +80,15 @@ function PortalLine({ message }: { message: FeedMessage }) {
         ? invoiceHref({ id: message.entityId, dealId: message.dealId })
         : null;
   return (
-    <div className="flex w-full justify-center" data-direction="system" data-portal-event={kind} data-message-id={message.id}>
-      <div className="inline-flex max-w-[min(90%,36rem)] flex-wrap items-center justify-center gap-x-2 gap-y-0.5 rounded-pill border bg-muted/50 px-3 py-1.5 text-xs text-muted-foreground">
-        <Icon className="size-3.5 flex-none" aria-hidden />
-        <span className="font-medium text-foreground">{message.subject}</span>
-        <time dateTime={message.createdAt}>{formatMessageTime(message.createdAt)}</time>
+    <div className="my-[12.5px] flex w-full justify-center px-5" data-direction="system" data-portal-event={kind} data-message-id={message.id}>
+      <div className="inline-flex max-w-[min(90%,36rem)] flex-wrap items-center justify-center gap-x-2 gap-y-0.5 rounded-[70px] border border-[#e3e3e3] bg-background px-[11px] py-1 text-[12px] leading-4 text-wz-strong">
+        <Icon className="size-3.5 flex-none" aria-hidden strokeWidth={1.5} />
+        <span className="font-semibold">{message.subject}</span>
+        <time dateTime={message.createdAt} className="text-wz-text">
+          {formatMessageTime(message.createdAt)}
+        </time>
         {href ? (
-          <Link href={href} className="font-medium text-brand hover:underline">
+          <Link href={href} className="font-semibold text-wz-link hover:underline">
             Open {docKind}
           </Link>
         ) : null}
@@ -92,25 +98,33 @@ function PortalLine({ message }: { message: FeedMessage }) {
 }
 
 /**
- * A voicemail, a client-portal event, a system notice — centred in the
- * thread as a note, the way Workiz shows them, with the recording playable
- * in place and the transcript underneath.
+ * A voicemail, a system notice — centred in the thread as a note on white
+ * (1px #e3e3e3, r8, 12px/16px), the recording playable in place and the
+ * transcript underneath.
  */
 function SystemNote({ message, showJob }: { message: FeedMessage; showJob: boolean }) {
   return (
-    <div className="flex w-full justify-center" data-direction="system" data-message-id={message.id}>
-      <div className="max-w-[min(90%,36rem)] rounded-lg border border-dashed bg-background/60 px-3 py-2 text-center text-xs text-muted-foreground">
-        <div className="flex items-center justify-center gap-1.5 font-medium text-foreground">
-          {message.recordingUrl || message.callSid ? <Voicemail className="size-3.5" /> : <Bot className="size-3.5" />}
+    <div className="my-[12.5px] flex w-full justify-center px-5" data-direction="system" data-message-id={message.id}>
+      <div className="max-w-[min(90%,36rem)] rounded-[8px] border border-[#e3e3e3] bg-background px-4 py-3 text-center text-[12px] leading-4 text-wz-text">
+        <div className="flex items-center justify-center gap-1.5 font-semibold text-foreground">
+          {message.recordingUrl || message.callSid ? (
+            <Voicemail className="size-3.5" strokeWidth={1.5} />
+          ) : (
+            <Bot className="size-3.5" strokeWidth={1.5} />
+          )}
           {message.subject ?? (message.recordingUrl ? "Voicemail" : "System message")}
-          <span className="font-normal text-muted-foreground">· {formatMessageTime(message.createdAt)}</span>
+          <span className="font-normal text-wz-text">· {formatMessageTime(message.createdAt)}</span>
         </div>
         {message.recordingUrl ? (
-          <audio controls preload="none" src={message.recordingUrl} className="mx-auto mt-1.5 h-8 w-full max-w-xs" />
+          <audio controls preload="none" src={message.recordingUrl} className="mx-auto mt-2 h-8 w-full max-w-xs" />
         ) : null}
-        {message.body ? <p className="mt-1 whitespace-pre-wrap break-words text-left">{message.body}</p> : null}
+        {message.body ? (
+          <p className="mt-2 whitespace-pre-wrap break-words text-left text-[14px] leading-[1.3em] text-foreground">
+            {message.body}
+          </p>
+        ) : null}
         {message.attachments?.length ? (
-          <div className="mt-1.5">
+          <div className="mt-2">
             <MessageAttachments attachments={message.attachments} />
           </div>
         ) : null}
@@ -121,15 +135,18 @@ function SystemNote({ message, showJob }: { message: FeedMessage; showJob: boole
 }
 
 /**
- * One line of the thread, drawn as Workiz draws it: outgoing messages are
- * dark rounded bubbles on the right with the sender's name in bold on top
- * and forward / copy / star at the top-right on hover; incoming ones are
- * white bubbles on the left with the client's name. Image attachments sit
- * inside as thumbnails; a job message carries the yellow "Edit Job"
- * button. Under the bubble: the delivery state on the left ("Message
- * received") and the stamp with the channel on the right. A line that did
- * not arrive reads "Failed · <why>" in red with an alert mark and a Resend
- * button; once resent it says so instead.
+ * One line of the thread, drawn as Workiz draws it (`ms_msg_container` /
+ * `ms_message`, pg_messages_wz_07_* and the stylesheet): 60% of the pane,
+ * 12.5px above and below, 20px from the left and 25px from the right; a 25px
+ * padded bubble rounded 25px except the speaker's corner, 14px/18.2px.
+ * Outgoing is ink with white words on the right, incoming white with ink on
+ * the left. On top, the sender in semibold (none on an automation) and the
+ * forward / copy / star glyphs; the text 10px under. Image attachments are
+ * Workiz's 100×85 framed tiles; a job message carries the yellow "Edit Job".
+ * Under the bubble, 10px #666: outgoing has the tick and "Message received"
+ * on the left and the stamp on the right, incoming the stamp alone. A line
+ * that did not arrive reads "Failed · <why>" in #f45e44 with Resend (ours);
+ * once resent it says so instead.
  */
 export function MessageBubble({
   message,
@@ -173,42 +190,43 @@ export function MessageBubble({
     );
   };
 
+  // Workiz names the sender on every line but an automation's.
   const name = outbound
     ? message.origin === "automation"
-      ? "Automation"
+      ? undefined
       : (authorName ?? message.sentByName ?? "You")
     : partyName || (message.from && !message.fromMasked ? formatPhone(message.from) : undefined);
 
   return (
     <div
-      className={cn("group/msg flex w-full flex-col", outbound ? "items-end" : "items-start")}
+      className={cn(
+        "group/msg relative ml-5 mr-[25px] my-[12.5px] break-words",
+        BUBBLE_WIDTH,
+        outbound ? "self-end" : "self-start",
+      )}
       data-direction={message.direction}
       data-message-id={message.id}
     >
       <div
         className={cn(
-          "relative rounded-2xl px-6 py-4 text-[15px] shadow-xs",
-          BUBBLE_WIDTH,
-          outbound ? "bg-foreground text-background" : "bg-card text-card-foreground",
-          failed && "ring-1 ring-destructive/60",
+          "mb-2 rounded-[25px] p-[25px] text-[14px] leading-[1.3em]",
+          outbound
+            ? "rounded-br-none bg-foreground text-white [&_a]:text-white"
+            : "rounded-bl-none bg-background text-foreground",
+          failed && "ring-1 ring-wz-danger",
         )}
       >
-        <div className="mb-2 flex items-start justify-between gap-6">
-          <div className="min-w-0 truncate font-semibold capitalize">{name}</div>
-          <div
-            className={cn(
-              "flex shrink-0 items-center gap-2 opacity-0 transition-opacity focus-within:opacity-100 group-hover/msg:opacity-100",
-              message.flagged && "opacity-100",
-            )}
-          >
+        <div className="flex items-start justify-between font-semibold capitalize">
+          <div className="mr-2 min-w-0 flex-1 truncate">{name}</div>
+          <div className="flex shrink-0 items-start gap-4">
             {onForward ? (
               <IconButton aria-label="Forward message" title="Forward" onClick={() => onForward(message)}>
-                <SquarePen className="size-4" />
+                <WzForwardIcon />
               </IconButton>
             ) : null}
             {message.body ? (
               <IconButton aria-label="Copy message" title="Copy" onClick={copy}>
-                <Copy className="size-4" />
+                <WzCopyIcon />
               </IconButton>
             ) : null}
             {canManage && onToggleFlag ? (
@@ -218,16 +236,16 @@ export function MessageBubble({
                 title="Star message"
                 onClick={() => onToggleFlag(message)}
               >
-                <Star className={cn("size-4", message.flagged && "fill-current")} />
+                <WzStarIcon tone={outbound ? "outgoing" : "incoming"} starred={!!message.flagged} />
               </IconButton>
             ) : null}
           </div>
         </div>
 
-        {message.subject ? <div className="mb-1 text-sm font-medium opacity-80">{message.subject}</div> : null}
-        {body ? <p className="whitespace-pre-wrap break-words leading-relaxed">{body}</p> : null}
+        {message.subject ? <div className="mt-2.5 font-semibold">{message.subject}</div> : null}
+        {body ? <p className="mt-2.5 whitespace-pre-wrap">{body}</p> : null}
         {message.attachments?.length ? (
-          <div className={cn(body && "mt-3")}>
+          <div className={cn(body ? "mt-[18px]" : "mt-2.5")}>
             <MessageAttachments attachments={message.attachments} thumbnails />
           </div>
         ) : null}
@@ -236,25 +254,19 @@ export function MessageBubble({
 
       <div
         className={cn(
-          "mt-1.5 flex items-center gap-4 px-1 text-[11px] text-muted-foreground",
-          BUBBLE_WIDTH,
+          "flex w-full items-center gap-4 text-[10px] leading-4 text-wz-text",
           outbound ? "justify-between" : "justify-start",
         )}
       >
         {outbound ? (
           <span
-            className={cn("inline-flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5", failed && "text-destructive")}
+            className={cn("inline-flex min-w-0 flex-wrap items-center gap-x-[3px] gap-y-0.5", failed && "text-wz-danger")}
             data-status={message.status}
           >
-            <StatusTicks
-              status={message.status}
-              errorCode={message.errorCode}
-              errorMessage={message.errorMessage}
-              className={cn(failed && "text-destructive")}
-            />
+            <StatusTicks status={message.status} errorCode={message.errorCode} errorMessage={message.errorMessage} />
             <span className={cn("break-words", failed && "font-medium")}>{statusText(message.status, message)}</span>
             {message.resentAsMessageId ? (
-              <span className="font-normal text-muted-foreground" data-testid="resent-note">
+              <span className="text-wz-text" data-testid="resent-note">
                 · Resent
               </span>
             ) : failed && onResend ? (
@@ -262,7 +274,7 @@ export function MessageBubble({
                 type="button"
                 disabled={resending}
                 onClick={() => onResend(message)}
-                className="font-semibold underline underline-offset-2 hover:opacity-80 disabled:cursor-default disabled:opacity-60"
+                className="ml-1 font-semibold underline underline-offset-2 hover:opacity-80 disabled:cursor-default disabled:opacity-60"
               >
                 {resending ? "Resending…" : "Resend"}
               </button>

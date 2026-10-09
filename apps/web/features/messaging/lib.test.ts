@@ -183,10 +183,14 @@ describe("day labels", () => {
     expect(formatDayLabel(new Date(2025, 8, 10).toISOString(), now)).toMatch(/2025/);
   });
 
-  it("formats list times relative to now", () => {
-    expect(formatListTime(new Date(2026, 8, 15, 9, 5).toISOString(), now)).toMatch(/9:05/);
-    expect(formatListTime(new Date(2026, 8, 13, 9).toISOString(), now)).toBe("Sun");
-    expect(formatListTime(new Date(2026, 7, 1).toISOString(), now)).toBe("Aug 1");
+  // pg_messages_wz_01_list: "2:18 AM" for today, "Oct 08" for every day before it
+  // (yesterday included — no weekday names), the day padded to two digits.
+  it("formats list times as Workiz does: the time today, else the month and a two-digit day", () => {
+    expect(formatListTime(new Date(2026, 8, 15, 9, 5).toISOString(), now)).toBe("9:05 AM");
+    expect(formatListTime(new Date(2026, 8, 14, 23, 50).toISOString(), now)).toBe("Sep 14");
+    expect(formatListTime(new Date(2026, 8, 13, 9).toISOString(), now)).toBe("Sep 13");
+    expect(formatListTime(new Date(2026, 7, 1).toISOString(), now)).toBe("Aug 01");
+    expect(formatListTime(new Date(2025, 11, 31).toISOString(), now)).toBe("Dec 31 2025");
     expect(formatListTime(undefined, now)).toBe("");
   });
 });
@@ -354,9 +358,11 @@ describe("category counters", () => {
     expect(categoryUnread("team", counted)).toBe(0);
   });
 
-  it("prefers the real total and marks it exact", () => {
+  // Workiz prints the column's numbers bare — "44717", "42657" (pg_messages_wz_01_list);
+  // the tooltip, which is ours, keeps the separators.
+  it("prefers the real total and marks it exact, printed bare as Workiz prints it", () => {
     expect(categoryCount("all", counted, 50)).toEqual({ total: 42_657, approximate: false, unread: 4 });
-    expect(formatCategoryCount(categoryCount("all", counted))).toBe("42,657");
+    expect(formatCategoryCount(categoryCount("all", counted))).toBe("42657");
   });
 
   it("falls back to the loaded rows with a + when the totals are missing", () => {
