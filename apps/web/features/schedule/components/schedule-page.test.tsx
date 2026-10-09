@@ -214,6 +214,15 @@ describe("SchedulePage — Workiz's Schedule", () => {
     await waitFor(() => expect(screen.getAllByRole("button", { name: "Job ID: AB12CD" })).toHaveLength(2));
   });
 
+  it("Timeline: someone off the roster who still has a job that day keeps a row", async () => {
+    mockApi({ deals: [{ ...DEAL, assignedTechIds: ["tech-3"] }] });
+    render(<SchedulePage />, { wrapper });
+    await job();
+    await userEvent.click(screen.getByRole("tab", { name: "Timeline" }));
+    expect(await screen.findByText("Dana Reeves")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Job ID: AB12CD" })).toBeInTheDocument();
+  });
+
   it("counts the unscheduled jobs and lists them in the pane", async () => {
     render(<SchedulePage />, { wrapper });
     await job();

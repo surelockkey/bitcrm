@@ -105,21 +105,28 @@ export function SchedulePage() {
   }, [b.deals, b.events, picks, picked, jobTypeName, techName, profileMap]);
 
   const rows = useMemo<TimelineRow[]>(() => {
-    const techRows = roster
-      .filter((p) => !picked || picked.includes(p.userId))
-      .map((p) => {
-        const user = b.users.get(p.userId) as ({ roleId?: string } & object) | undefined;
-        return {
-          id: p.userId,
-          name: techName(p.userId) || "—",
-          role: user?.roleId ? b.roles.get(user.roleId) : undefined,
-          color: scheduleColor(p.userId),
-          photoUrl: p.profilePhotoUrl,
-          hours: p,
-        };
-      });
-    return picked ? techRows : [{ id: null, name: "Unassigned", color: "" }, ...techRows];
-  }, [roster, picked, b.users, b.roles, techName]);
+    const row = (id: string, p?: (typeof roster)[number]): TimelineRow => {
+      const user = b.users.get(id) as ({ roleId?: string } & object) | undefined;
+      return {
+        id,
+        name: techName(id) || "—",
+        role: user?.roleId ? b.roles.get(user.roleId) : undefined,
+        color: scheduleColor(id),
+        photoUrl: p?.profilePhotoUrl,
+        hours: p,
+      };
+    };
+    const shown = (id: string) => !picked || picked.includes(id);
+    const techRows = roster.filter((p) => shown(p.userId)).map((p) => row(p.userId, p));
+    // Someone off the roster (inactive, off the field team) who still has a job on
+    // these days keeps a row, so the job does not drop off the Timeline.
+    const onRoster = new Set(roster.map((p) => p.userId));
+    const extra = [...new Set(entries.filter((e) => e.kind === "job").flatMap((e) => e.techIds))]
+      .filter((id) => !onRoster.has(id) && shown(id))
+      .map((id) => row(id, profileMap.get(id)));
+    const all = [...techRows, ...extra];
+    return picked ? all : [{ id: null, name: "Unassigned", color: "" }, ...all];
+  }, [roster, picked, entries, profileMap, b.users, b.roles, techName]);
 
   const openJob = useCallback((deal: Deal) => router.push(`/deals/${deal.id}`), [router]);
   const pickDay = useCallback((d: string) => {
