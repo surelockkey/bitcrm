@@ -180,10 +180,9 @@ export function InvoicesPage() {
                   label={text.label}
                   // Workiz's `left-orange`: the picked card's rule turns orange
                   // and the card stays white (no grey fill, unlike Aging's).
-                  tone={on ? "orange" : "ink"}
                   selected={on}
+                  selectedTone="orange"
                   onSelect={() => pickCard(card)}
-                  className="bg-background"
                 />
               );
             })
@@ -404,6 +403,9 @@ function InvoicesGrid({
       resize={{ widthOf, setWidth, reset }}
       onRowClick={onOpen}
       loading={!ready}
+      // Blanks under records are 56px without a rule; an empty grid keeps
+      // the ruled ones (pg_invoices_wz_11c_filter_two vs _12b_search_empty).
+      plainFiller
       // The previous set, faded, while the next one is on its way.
       busy={list.held}
       footer={ready ? <WzPager pager={list.held ? heldPager(pager) : pager} plainNumbers /> : null}
