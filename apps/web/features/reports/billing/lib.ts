@@ -60,15 +60,6 @@ export interface AgingParams {
   pageSize?: number;
 }
 
-/** Workiz's card borders, from the dark "all" card to the red "over 90". */
-export const AGING_TONES: Record<AgingBucket, string> = {
-  all: "border-l-foreground/70",
-  under30: "border-l-amber-400",
-  from30to60: "border-l-orange-500",
-  from60to90: "border-l-red-400",
-  over90: "border-l-red-600",
-};
-
 // -------------------------------------------------------------- invoices
 
 export interface InvoiceReportParams {

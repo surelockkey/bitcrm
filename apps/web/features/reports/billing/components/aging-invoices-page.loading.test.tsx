@@ -17,10 +17,11 @@ import {
  *
  * The five cards were drawn at once holding "—" and filled when the report
  * came: right-aligned, a "$235,074.06" starts far to the left of a "—", so
- * every figure slid; "As of" and the note about the unpaid-invoice index
- * came with the data, the note above the cards, pushing them down. Now the
- * cards, their figures, the note and the table come in one frame, and
- * another card keeps the figures on screen until the new rows are in.
+ * every figure slid; the note about the unpaid-invoice index came with the
+ * data, pushing the grid down. Now the cards, their figures, the note and
+ * the table come in one frame (Workiz-grey card skeletons and the grid's own
+ * loader before it), and another card keeps the figures on screen until the
+ * new rows are in.
  */
 
 vi.mock("next/link", () => ({
@@ -89,8 +90,7 @@ afterEach(() => {
 describe("AgingInvoicesPage — no jumping", () => {
   it("draws the cards with their figures, the note and the table in one frame", async () => {
     const watch = watchFirstFrame(cardsUp, () => ({
-      figures: cards().map((c) => c.querySelector("span")?.textContent),
-      asOf: !!screen.queryByText(/^As of /),
+      figures: cards().map((c) => c.querySelector("div")?.textContent),
       note: !!screen.queryByText(/unpaid-invoice index is not built/),
       table: !!screen.queryByText("INV100"),
       skeletons: skeletonCount(),
@@ -102,7 +102,6 @@ describe("AgingInvoicesPage — no jumping", () => {
 
     expect(watch.frame()).toEqual({
       figures: ["$23,507.06", "$2,005.78", "$521.06", "$0.00", "$980.22"],
-      asOf: true,
       note: true,
       table: true,
       skeletons: 0,
