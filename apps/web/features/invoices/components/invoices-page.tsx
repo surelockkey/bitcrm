@@ -407,12 +407,13 @@ interface NeedsCol {
 
 function needsColumns(canCreate: boolean): NeedsCol[] {
   return [
+    // Together inside the window's 852px, so nothing scrolls sideways.
     ...(canCreate ? [{ id: "select", label: "Select", width: 44 }] : []),
-    { id: "job", label: "Job NO.", width: 110 },
-    { id: "client", label: "Client", width: 240 },
-    { id: "created", label: "Date", width: 130 },
-    { id: "items", label: "Items", width: 90, right: true },
-    { id: "total", label: "Amount", width: 120, right: true },
+    { id: "job", label: "Job NO.", width: 100 },
+    { id: "client", label: "Client", width: 220 },
+    { id: "created", label: "Date", width: 120 },
+    { id: "items", label: "Items", width: 70, right: true },
+    { id: "total", label: "Amount", width: 110, right: true },
     ...(canCreate ? [{ id: "create", label: "Generate invoice", width: 170, right: true }] : []),
   ];
 }
@@ -469,7 +470,8 @@ function NeedsInvoiceTable({ canCreate }: { canCreate: boolean }) {
   if (jobs.length === 0) return <p className="py-10 text-center text-sm text-wz-caption">Every job with items has an invoice.</p>;
 
   return (
-    <div className="space-y-3">
+    // `min-w-0`: the dialog is a grid, and a grid item would otherwise grow to the table.
+    <div className="min-w-0 space-y-3">
       {canCreate ? (
         <div className="flex items-center gap-2">
           <p className="text-sm text-wz-caption">
