@@ -1,5 +1,5 @@
 import { HttpException, HttpStatus, Injectable, Logger, NotImplementedException } from '@nestjs/common';
-import { type Conversation, type DealSentToTechEvent, type SendToTechChannel } from '@bitcrm/types';
+import { isSubcontractor, type Conversation, type DealSentToTechEvent, type SendToTechChannel } from '@bitcrm/types';
 import { RecipientOptedOutException, SendService } from '../outbound/send.service';
 import { MessagingSettingsService } from '../settings/messaging-settings.service';
 import { TemplateRenderer } from '../templates/template-renderer';
@@ -33,6 +33,8 @@ export type SendToTechOutcome =
   | 'email_not_configured'
   | 'opted_out'
   | 'blank_text'
+  /** In-app to a subcontractor — Workiz's "can not login": there is no app for them to read it in. */
+  | 'no_app_login'
   /** The send was refused for good (a 4xx) — reported `failed`, with the refusal as the reason. */
   | 'failed';
 
@@ -203,6 +205,7 @@ export class SendToTechService {
     }
 
     if (channel === 'sms' && !user.phone) return this.skip(event, user.id, channel, 'no_phone');
+    if (channel === 'in_app' && isSubcontractor(user)) return this.skip(event, user.id, channel, 'no_app_login');
     if (channel === 'email' && !user.email) return this.skip(event, user.id, channel, 'no_email');
 
     let outcome: SendToTechOutcome;
