@@ -68,8 +68,10 @@ export function BlockNumberDialog({
       saveLabel="Block"
       saving={block.isPending}
       error={error}
-      // Workiz's modal is 528px here, not the catalog modals' 500.
+      // Workiz's modal is 528px here, not the catalog modals' 500, and its
+      // buttons sit 24px under the last box (528×267 in all).
       className="w-[528px] sm:max-w-[528px]"
+      footerClassName="pt-6"
     >
       <input
         className={INPUT}

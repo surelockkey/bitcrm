@@ -74,8 +74,11 @@ export function BlockedCallersPage() {
         label: "Actions",
         // Workiz: 152px, the bin centred (the three others share the rest).
         width: 152,
+        // Workiz's rows are 58px (a 16px line in 20px of padding); the 24px
+        // icon button sits in a 16px line, overhanging 4px each way, so the
+        // row keeps that height instead of growing to 64px.
         render: (r) => (
-          <span className="flex items-center justify-center">
+          <span className="flex h-4 items-center justify-center">
             <WzRowIconButton label={`Unblock ${formatPhone(r.number) || r.number}`} onClick={() => setUnblocking(r)} className="text-wz-danger">
               <WzTrashIcon size={19} />
             </WzRowIconButton>
@@ -123,6 +126,9 @@ export function BlockedCallersPage() {
           defaultSort={{ id: "created", dir: "asc" }}
           search={false}
           pagerInside
+          // Workiz's rows: a 16px line in 20px of padding plus react-table's
+          // hairlines — 58px (settings_audit_wz_blocked_callers_v4).
+          rowClassName="h-[58px]"
         />
       )}
 

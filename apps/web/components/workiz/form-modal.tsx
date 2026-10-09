@@ -40,6 +40,7 @@ export function WzFormModal({
   readOnly = false,
   aside,
   className,
+  footerClassName,
   children,
 }: {
   open: boolean;
@@ -62,6 +63,12 @@ export function WzFormModal({
    */
   aside?: ReactNode;
   className?: string;
+  /**
+   * Over the modal's Cancel / Save row (`modal` and `full`): Workiz's
+   * "Block a Number" puts them 24px under its last box (`pt-6`), the catalog
+   * modals 40px (the default).
+   */
+  footerClassName?: string;
   children: ReactNode;
 }) {
   const formId = useId();
@@ -166,6 +173,7 @@ export function WzFormModal({
           className={cn(
             "flex shrink-0 items-center justify-end gap-4",
             full ? "border-t border-[#eeeeee] py-[19px] pr-20" : "pt-10",
+            footerClassName,
           )}
         >
           {cancel}
