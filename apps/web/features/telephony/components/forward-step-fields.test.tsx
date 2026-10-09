@@ -69,6 +69,16 @@ describe("ForwardStepFields", () => {
     expect(screen.getByText("Are you sure you want to take the risk?")).toBeInTheDocument();
   });
 
+  it("gives back the group picked before when a look at another tab ends on Group again", async () => {
+    const { u, last } = setup({ id: "r", type: "ring", groupId: "g1" });
+    await u.click(screen.getByRole("tab", { name: "External Number" }));
+    await u.type(screen.getByRole("textbox", { name: "External number" }), "8888996849");
+    await u.click(screen.getByRole("tab", { name: "Group" }));
+    expect(last().target).toEqual({ kind: "group", id: "g1" });
+    await u.click(screen.getByRole("tab", { name: "External Number" }));
+    expect(last().target).toEqual({ kind: "external", number: "8888996849" });
+  });
+
   it("takes the number as typed; the server stores it as E.164", async () => {
     const { u, last } = setup({ id: "r", type: "ring", target: { kind: "external", number: "" } });
     await u.type(screen.getByRole("textbox", { name: "External number" }), "8888996849");

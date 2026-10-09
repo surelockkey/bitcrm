@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { WzCheckbox } from "@/components/workiz/toggles";
 import { cn } from "@/lib/utils";
@@ -18,10 +18,11 @@ import type { TransferTarget } from "../api";
 
 /**
  * Workiz's "Forward Calls" pane (pg_settings_phone_wz_builder_forward),
- * measured: the words 14px/20px #404040; the small text tabs Group | User |
- * External Number 13px #3e4b51 (the open one 600 over a 2px ink bar), 15px
- * apart, 22px over the box; a 380×44 box (14px #666, 1px #b8bfc1, 8px
- * corners); under an outside number the pink box (rgba(255,111,100,.24), 8px
+ * measured: the words 14px/20px #404040; 16px under them the small text tabs
+ * Group | User | External Number 13px #3e4b51 (the open one 600 over a 3px
+ * ink bar 9px under the words, 28px in all), 15px apart, 10px over the box;
+ * a 380×44 box (14px #666, 1px #b8bfc1, 8px corners, the browser's 1px 2px
+ * in); under an outside number the pink box (rgba(255,111,100,.24), 8px
  * corners, 12px 23px) with "We really don’t recommend this option," 13px/600,
  * "Here's why" under it, three 14px bullets and "Are you sure you want to take
  * the risk?"; "Move to next step after [66×32] sec" 14px; then "Advanced"
@@ -55,6 +56,8 @@ export function ForwardStepFields({
 }) {
   const target = ringTargetOf(node) ?? { kind: "group" as const, id: "" };
   const [advanced, setAdvanced] = useState(!!node.whisper);
+  // What each tab last held, so a look at another tab doesn't lose a pick.
+  const picks = useRef<Partial<Record<RingTargetKind, RingTarget>>>({});
 
   /** The step without either target shape — what every change starts from. */
   const bare = (): Omit<RingNode, "target" | "groupId"> => {
@@ -65,7 +68,8 @@ export function ForwardStepFields({
 
   const switchTo = (kind: RingTargetKind) => {
     if (kind === target.kind) return;
-    setTarget(kind === "external" ? { kind, number: "" } : { kind, id: "" });
+    picks.current[target.kind] = target;
+    setTarget(picks.current[kind] ?? (kind === "external" ? { kind, number: "" } : { kind, id: "" }));
   };
 
   const setTimeout_ = (raw: string) => {
@@ -81,7 +85,7 @@ export function ForwardStepFields({
         Direct incoming calls to a group, a single user, or multiple users
       </p>
 
-      <div role="tablist" aria-label="Forward to" className="mb-[22px] flex items-end gap-[15px] px-[25px]">
+      <div role="tablist" aria-label="Forward to" className="mt-4 mb-[10px] flex items-end gap-[15px] px-[25px]">
         {TABS.map((tab) => {
           const on = tab.kind === target.kind;
           return (
@@ -92,7 +96,7 @@ export function ForwardStepFields({
               aria-selected={on}
               onClick={() => switchTo(tab.kind)}
               className={cn(
-                "cursor-pointer border-b-2 pb-1 text-[13px] leading-4 tracking-[0.4px] text-[#3e4b51] outline-none focus-visible:ring-2 focus-visible:ring-wz-focus",
+                "cursor-pointer border-b-[3px] pb-[9px] text-[13px] leading-4 tracking-[0.4px] text-[#3e4b51] outline-none focus-visible:ring-2 focus-visible:ring-wz-focus",
                 on ? "border-[#3e4b51] font-semibold" : "border-transparent font-normal",
               )}
             >
@@ -146,7 +150,7 @@ export function ForwardStepFields({
               type="tel"
               aria-label="External number"
               placeholder="Phone number"
-              className={BOX}
+              className={cn(BOX, "px-0.5 text-[#666]")}
               value={target.number}
               onChange={(e) => setTarget({ kind: "external", number: e.target.value })}
             />
@@ -161,7 +165,7 @@ export function ForwardStepFields({
               <li>Calls sent to voicemail will NOT be marked as missed.</li>
               <li>Who answered the call is NOT tracked.</li>
             </ul>
-            <p className="mt-[37px] text-sm leading-4 tracking-[0.4px] text-wz-strong">Are you sure you want to take the risk?</p>
+            <p className="mt-[37px] mb-5 text-sm leading-4 tracking-[0.4px] text-wz-strong">Are you sure you want to take the risk?</p>
           </>
         ) : null}
       </div>
@@ -174,14 +178,14 @@ export function ForwardStepFields({
           min={CALL_FLOW_LIMITS.minRingTimeoutSec}
           max={CALL_FLOW_LIMITS.maxRingTimeoutSec}
           placeholder={String(CALL_FLOW_LIMITS.defaultRingTimeoutSec)}
-          className="h-8 w-[66px] rounded-[8px] border border-[#b8bfc1] bg-white px-2 text-sm leading-4 text-wz-value outline-none focus:border-wz-link"
+          className="h-8 w-[66px] rounded-[8px] border border-[#b8bfc1] bg-white px-0.5 text-sm leading-4 text-[#666] outline-none focus:border-wz-link"
           value={node.timeoutSec ?? ""}
           onChange={(e) => setTimeout_(e.target.value)}
         />
         sec
       </label>
 
-      <div className="mx-[30px] border-b border-[rgba(62,75,81,0.24)] pt-[15px]">
+      <div className="mx-[30px] border-b border-[rgba(62,75,81,0.24)] pt-3">
         <button
           type="button"
           aria-expanded={advanced}
