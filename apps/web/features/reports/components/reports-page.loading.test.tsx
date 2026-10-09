@@ -41,7 +41,7 @@ let server: FakeServer;
 
 const { ReportsPage } = await import("./reports-page");
 
-const tiles = () => [...document.querySelectorAll('[data-slot="report-name"]')].map((n) => n.textContent);
+const tiles = () => [...document.querySelectorAll('[data-slot="wz-hub-card-title"]')].map((n) => n.textContent);
 
 beforeEach(() => {
   server = installFakeServer([{ match: /\/users\/me$/, raw: true, reply: () => ({ id: "u-disp" }), delayMs: 40 }]);
