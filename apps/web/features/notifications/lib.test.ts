@@ -10,6 +10,7 @@ import {
   isNotificationRule,
   notificationKindOf,
   notificationName,
+  notifyByCell,
   notifyByOf,
   toSpec,
   type NotificationForm,
@@ -291,6 +292,8 @@ describe("isNotificationRule / notificationKindOf / notifyByOf", () => {
     expect(notifyByOf(spec)).toBe("both");
     expect(notifyByOf({ ...spec, actions: [spec.actions[0]] })).toBe("sms");
     expect(notifyByOf({ ...spec, actions: [spec.actions[1]] })).toBe("email");
+    // The Notify By column prints Workiz's word; the sentence spells the pair out.
+    expect(["sms", "email", "both"].map((v) => notifyByCell(v as "sms" | "email" | "both"))).toEqual(["SMS", "Email", "Both"]);
   });
 });
 

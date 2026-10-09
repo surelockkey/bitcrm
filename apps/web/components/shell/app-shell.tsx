@@ -11,6 +11,7 @@ import { SoftphoneProvider } from "@/features/telephony/components/softphone-pro
 import { MessagingStreamProvider } from "@/features/messaging/components/messaging-stream-provider";
 import { DealsStreamProvider } from "@/features/deals/components/deals-stream-provider";
 import { InboxSidebarCollapse } from "@/features/messaging/components/inbox-sidebar-collapse";
+import { OnScreenNotificationsProvider } from "@/features/notifications/components/on-screen-notifications-provider";
 
 /** Authenticated app chrome: sidebar + header + command palette. */
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -45,6 +46,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {/* Jobs live updates (SSE): any change refetches the jobs on screen, so
           the boards need not poll while it is up (renders nothing). */}
       <DealsStreamProvider />
+      {/* Workiz's "On-screen notifications": browser notifications for an
+          inbound message, an @mention and an incoming call while the switch
+          in the avatar menu is on (renders nothing). */}
+      <OnScreenNotificationsProvider />
       {/* The Inbox owns the screen: fold the navigation to its icon rail while
           it is open, unfold on the way out (renders nothing). */}
       <InboxSidebarCollapse />

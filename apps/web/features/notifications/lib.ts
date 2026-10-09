@@ -327,6 +327,13 @@ export function notifyByText(notifyBy: NotifyBy): string {
   return NOTIFY_BY_TEXT[notifyBy];
 }
 
+const NOTIFY_BY_CELL: Record<NotifyBy, string> = { sms: "SMS", email: "Email", both: "Both" };
+
+/** The Notify By column: SMS / Email / Both (Workiz prints the stored word; the sentence says "SMS and Email"). */
+export function notifyByCell(notifyBy: NotifyBy): string {
+  return NOTIFY_BY_CELL[notifyBy];
+}
+
 export function callStatusText(status: CallStatus): string {
   return CALL_STATUS_TEXT[status];
 }

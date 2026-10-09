@@ -5,7 +5,9 @@ import {
   readOnScreenSetting,
   writeOnScreenSetting,
   type OnScreenContext,
+  type OnScreenConversation,
   type OnScreenInput,
+  type OnScreenMessage,
 } from "./on-screen";
 
 const ctx: OnScreenContext = {
@@ -16,7 +18,17 @@ const ctx: OnScreenContext = {
   openConversationId: undefined,
 };
 
-const inbound = (over: Partial<OnScreenInput & { kind: "message" }> = {}): OnScreenInput => ({
+type MessageInput = Extract<OnScreenInput, { kind: "message" }>;
+
+interface InboundOverrides {
+  message?: Partial<OnScreenMessage>;
+  conversation?: Partial<OnScreenConversation>;
+  partyName?: string;
+  recipients?: string[];
+  mentions?: string[];
+}
+
+const inbound = (over: InboundOverrides = {}): MessageInput => ({
   kind: "message",
   message: { id: "m1", conversationId: "c1", direction: "inbound", body: "Hello there", ...(over.message ?? {}) },
   conversation: { id: "c1", kind: "client", partyKind: "contact", partyId: "p1", ...(over.conversation ?? {}) },
