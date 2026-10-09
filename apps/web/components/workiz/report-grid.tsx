@@ -96,6 +96,13 @@ function ExpandedRow({ columns, children }: { columns: number; children: ReactNo
  * react-table's `-padRow`s, keeping the zebra going. Told the row `height`,
  * a blank takes the record cells' own classes (the same padding and
  * alignment) under that height; otherwise Workiz's 56/57px blank.
+ *
+ * Keyed by the slot a blank fills (`from` records before it), not by its
+ * index: once the records are in, the blanks under them are the very rows
+ * they were while loading, in the same places, and the records take the
+ * places of the blanks they replace as new elements — so nothing the
+ * browser can see moves (keyed by index, the blanks slid down by a record
+ * row each; Chrome reported them, probe_shift 2026-10-09).
  */
 function PadRows({
   count,
@@ -103,12 +110,14 @@ function PadRows({
   rule = true,
   height,
   cellAlign = "top",
+  from = 0,
 }: {
   count: number;
   columns: number;
   rule?: boolean;
   height?: number;
   cellAlign?: "top" | "middle";
+  from?: number;
 }) {
   const cell = height
     ? cn(CELL, cellAlign === "middle" && "align-middle", rule && "border-b border-b-black/5 [border-bottom-style:solid]")
@@ -117,7 +126,7 @@ function PadRows({
     <>
       {Array.from({ length: Math.max(0, count) }, (_, i) => (
         <TableRow
-          key={`pad-${i}`}
+          key={`pad-${from + i}`}
           aria-hidden
           className="border-0 hover:bg-transparent"
           style={height ? { height } : undefined}
@@ -329,6 +338,7 @@ export function WzReportGrid<R>({
           rule={padRowRule && !(plainFiller && shown.length > 0)}
           height={rowHeight}
           cellAlign={cellAlign}
+          from={shown.length}
         />
       </TableBody>
     </Table>

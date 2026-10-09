@@ -302,6 +302,27 @@ describe("WzReportGrid rowHeight (the one-load rule)", () => {
     expect(dots().className).toContain("top-[340px]");
   });
 
+  // Chrome reported the filler rows under three warehouses moving 192px
+  // (app_audit → probe_shift 2026-10-09): keyed by their index, the blanks
+  // that were rows 1–3 while loading became rows 4–6 once the records went
+  // in above them — the same elements, pushed down. Keyed by their slot, a
+  // blank keeps the row it had, and the records take the blanks' places as
+  // new elements: nothing on screen moves.
+  it("keys a filler by its slot, so the blanks under the records are the rows they were while loading", () => {
+    const { rerender } = render(<WzReportGrid aria-label="Activity" columns={columns} rows={rows} rowKey={(r) => r.id} loading rowHeight={80} />);
+    const blanks = () => [...document.querySelectorAll<HTMLElement>("tbody tr[aria-hidden]")];
+    const loadingRows = blanks();
+    expect(loadingRows).toHaveLength(10);
+    rerender(<WzReportGrid aria-label="Activity" columns={columns} rows={rows} rowKey={(r) => r.id} rowHeight={80} />);
+    const fillers = blanks();
+    expect(fillers).toHaveLength(8);
+    // The eight fillers are the very elements that were rows 3–10 of the loader.
+    expect(fillers).toEqual(loadingRows.slice(2));
+    // And they sit where they sat: third row onwards.
+    const body = document.querySelector("tbody")!;
+    expect([...body.children].indexOf(fillers[0])).toBe(2);
+  });
+
   it("leaves every grid without it exactly as it was — no declared heights at all", () => {
     const { rerender } = render(<WzReportGrid aria-label="Activity" columns={columns} rows={rows} rowKey={(r) => r.id} loading />);
     expect(heights().every((h) => h === "")).toBe(true);

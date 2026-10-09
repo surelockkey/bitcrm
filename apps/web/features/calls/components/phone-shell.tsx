@@ -16,7 +16,12 @@ import { activePhoneTab, phoneTabs } from "../phone-tabs";
  */
 export const PHONE_TITLE = "BitCRM Phone";
 
-/** The heading with the number pill (callspage_wz_01: "Workiz Phone" + "(203) 403-6303"). */
+/**
+ * The heading with the number pill (callspage_wz_01: "Workiz Phone" +
+ * "(203) 403-6303"). Before the number is known — and when there is none —
+ * the pill's 36px beside the 32px title is held, so the strip and the grid
+ * under it never move for it (app_audit 2026-10-09, finding 15: 4px).
+ */
 export function PhoneHeader({ number }: { number?: string }) {
   return (
     <WzPageHeader
@@ -26,17 +31,32 @@ export function PhoneHeader({ number }: { number?: string }) {
           <WzHeaderPill icon={<Phone className="size-3.5 fill-current" strokeWidth={0} aria-hidden />}>
             {formatPhone(number) || number}
           </WzHeaderPill>
-        ) : null
+        ) : (
+          <span aria-hidden data-testid="phone-header-pill-place" className="block h-9 w-0" />
+        )
       }
     />
   );
 }
 
-/** The tab strip: the tabs this viewer may open, the current route marked. */
+/**
+ * The tab strip: the tabs this viewer may open, the current route marked.
+ * While the permissions load every tab holds its place as a placeholder —
+ * an empty strip that filled in later pushed the whole page down 46px
+ * (app_audit 2026-10-09, finding 15).
+ */
 export function PhoneTabs() {
   const pathname = usePathname() ?? "/calls";
-  const { can } = usePermissions();
-  return <WzTabLinks label="Phone" tabs={phoneTabs((r) => can(r))} active={activePhoneTab(pathname)} />;
+  const { can, isLoading } = usePermissions();
+  const waiting = !!isLoading;
+  return (
+    <WzTabLinks
+      label="Phone"
+      tabs={phoneTabs((r) => waiting || can(r))}
+      active={activePhoneTab(pathname)}
+      pending={waiting}
+    />
+  );
 }
 
 /**
