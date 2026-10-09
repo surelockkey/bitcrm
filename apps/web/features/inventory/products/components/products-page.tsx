@@ -19,7 +19,8 @@ import { NoAccess } from "@/features/inventory/components/no-access";
 import { useSkeletonRows } from "@/features/inventory/components/use-skeleton-rows";
 import { ManageStockDialog } from "@/features/inventory/stock/components/manage-stock-dialog";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
-import { settled, usePageReady } from "@/lib/use-page-ready";
+import { settled } from "@/lib/use-page-ready";
+import { useInventoryPageReady } from "@/features/inventory/components/inventory-frame";
 import { usePopup } from "@/features/inventory/use-popup";
 import { useItemCategories, useProducts, useProductsCount } from "../hooks";
 import { productsToCsv, type ProductFilter } from "../lib";
@@ -77,7 +78,7 @@ export function ProductsPage() {
   // (the Cost column, the row menus) and for the count (the pager's "of N"),
   // which came a beat after them. Latched: a new filter keeps the rows on
   // screen, dimmed, not a skeleton.
-  const ready = usePageReady(!permsLoading && settled(query) && settled(count));
+  const ready = useInventoryPageReady(!permsLoading && settled(query) && settled(count));
   const loading = !ready;
   const skeletonRows = useSkeletonRows(
     TABLE_KEY,

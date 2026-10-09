@@ -15,7 +15,8 @@ import { ListPagination } from "@/components/ui/list-pagination";
 import { arraySource } from "@/lib/paging/array-source";
 import { usePageSize } from "@/lib/paging/use-page-size";
 import { usePager } from "@/lib/paging/use-pager";
-import { settled, usePageReady } from "@/lib/use-page-ready";
+import { settled } from "@/lib/use-page-ready";
+import { useInventoryPageReady } from "@/features/inventory/components/inventory-frame";
 import { useDenied, usePermissions } from "@/features/auth/use-permissions";
 import { NoAccess } from "@/features/inventory/components/no-access";
 import { ListBody } from "@/features/inventory/components/list-body";
@@ -66,7 +67,7 @@ function Templates() {
   // printed grey bars, then the numbers) and for the permissions (the row's
   // menu popped in after the rows). Latched: another status keeps the rows on
   // screen, dimmed, not a skeleton.
-  const ready = usePageReady(!permsLoading && settled(query) && !locations.isLoading);
+  const ready = useInventoryPageReady(!permsLoading && settled(query) && !locations.isLoading);
   const loading = !ready;
   const stale = query.isPlaceholderData;
   const [pageSize, setPageSize] = usePageSize(TEMPLATES_TABLE_KEY);

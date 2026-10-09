@@ -183,6 +183,23 @@ describe.each(TABS)("Inventory — $tab", ({ page, row, total }) => {
     expect(watch.frame()).toEqual({ pager: true, skeletons: 0 });
   });
 
+  // Workiz's tab counters ("Inventory 99+", "Locations 94"): drawn one by one
+  // they would slide the tabs about; they come in the rows' frame.
+  it("brings the tab row's counters in the rows' frame", async () => {
+    const watch = watchFirstFrame(
+      () => !!screen.queryByText(row),
+      () => ({
+        warehouses: !!screen.queryByRole("link", { name: "Warehouses 2" }),
+        templates: !!screen.queryByRole("link", { name: "Templates 1" }),
+      }),
+    );
+    inTabs(page());
+    await screen.findByText(row, {}, { timeout: 3000 });
+    watch.stop();
+
+    expect(watch.frame()).toEqual({ warehouses: true, templates: true });
+  });
+
   it("puts no pager under the skeleton, where the rows would move it", async () => {
     const watch = watchPagerUnderSkeleton();
     inTabs(page());

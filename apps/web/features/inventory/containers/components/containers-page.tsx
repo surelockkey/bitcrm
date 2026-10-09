@@ -15,7 +15,8 @@ import {
 import { DataScope, InventoryStatus } from "@bitcrm/types";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
-import { settled, usePageReady } from "@/lib/use-page-ready";
+import { settled } from "@/lib/use-page-ready";
+import { useInventoryPageReady } from "@/features/inventory/components/inventory-frame";
 import { useAllLocations } from "@/features/inventory/stock/hooks";
 import { LocationStockDialog } from "@/features/inventory/stock/components/location-stock-dialog";
 import { ContainerTemplateBar } from "@/features/inventory/templates/components/container-template-bar";
@@ -143,7 +144,7 @@ function Fleet() {
   // pager's "of N") and for who works from each van — named a beat after the
   // rows, the Users column read "+1" and then changed. Latched: a new filter
   // keeps the rows on screen, dimmed, not a skeleton.
-  const ready = usePageReady(settled(query) && settled(count) && settled(assignments) && !namesLoading);
+  const ready = useInventoryPageReady(settled(query) && settled(count) && settled(assignments) && !namesLoading);
   const loading = !ready;
   const empty = !loading && containers.length === 0;
   const skeletonRows = useSkeletonRows(

@@ -34,12 +34,13 @@ export function useWarehousesList(filter: api.WarehouseFilter, limit = 100) {
  * Скільки всього рядків під тими самими фільтрами — з цього панель робить
  * «Page 2 of 7». Сервер тримає число тридцять секунд, тож і тут стільки ж.
  */
-export function useWarehousesCount(filter: api.WarehouseFilter) {
+export function useWarehousesCount(filter: api.WarehouseFilter, enabled = true) {
   return useQuery({
     // The previous page stays on screen (dimmed) while a new filter or size loads.
     placeholderData: keepPreviousData,
     queryKey: queryKeys.inventory.warehouses.count(filter),
     queryFn: () => api.countWarehouses(filter),
+    enabled,
     staleTime: 30_000,
   });
 }

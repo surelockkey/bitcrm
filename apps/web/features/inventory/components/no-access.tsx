@@ -1,5 +1,11 @@
+"use client";
+
+import { useReportInventoryReady } from "./inventory-frame";
+
 /** The screen a caller sees once it is known they may not see this one. */
 export function NoAccess({ text }: { text: string }) {
+  // Whole as it is: the tab row over it stops holding its places.
+  useReportInventoryReady(true);
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
       <h2 className="text-lg font-medium">No access</h2>

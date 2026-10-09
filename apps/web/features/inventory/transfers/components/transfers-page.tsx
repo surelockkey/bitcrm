@@ -19,7 +19,8 @@ import { ListPagination } from "@/components/ui/list-pagination";
 import { pagedSource } from "@/lib/paging/paged-source";
 import { usePageSize } from "@/lib/paging/use-page-size";
 import { usePager } from "@/lib/paging/use-pager";
-import { settled, usePageReady } from "@/lib/use-page-ready";
+import { settled } from "@/lib/use-page-ready";
+import { useInventoryPageReady } from "@/features/inventory/components/inventory-frame";
 
 /** Workiz's type chips. The server filters by them, the count included. */
 const TYPE_CHIPS: { value: TransferType | "all"; label: string }[] = [
@@ -57,7 +58,7 @@ export function TransfersPage() {
   // pager's "of N") and for the names of the warehouses and vans their
   // routes run between — drawn first, every route showed grey bars, then
   // names. Latched: another type keeps the rows on screen, dimmed.
-  const ready = usePageReady(settled(query) && settled(count) && !names.isLoading);
+  const ready = useInventoryPageReady(settled(query) && settled(count) && !names.isLoading);
   const loading = !ready;
   const failed = query.isError && !query.data;
   const empty = !failed && !loading && transfers.length === 0;

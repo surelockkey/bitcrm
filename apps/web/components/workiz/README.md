@@ -873,6 +873,21 @@ files plus optional props; every existing caller is untouched.
   box for a screen reader but is not drawn: Workiz's catalog status box
   (Active / All / Disabled, 350×42) shows only its value.
 
+## Inventory pieces (2026-10-09, agent `pg_inventory`)
+
+Measured off `pg_inventory_wz_*` (`/root/inventory`, notes:
+`workiz-data-parser/docs/import/app-parity-2026-10-08/pg_inventory.md`) and
+Workiz's `main.css` (Tabs-, inventory-, stockModal-, Metrics-, Tag-module). All
+additive; existing callers are untouched.
+
+- **`WzTabLinks` `variant="small"`** (new, optional) — Workiz's Tabs-module as
+  *links* (sub-routes), the look of `WzTabBar variant="small"`: a 1px #c4c4c4
+  rule, tabs 10px 20px 7px with 13px/19px words, slate #566d76 500 idle, ink 600
+  over a 2px ink bar when open; a tab's optional **`count`** is the 20px
+  #dfe2e3 counter 8px after the name, "99+" past 99 (**`wzTabCount(n)`**).
+  `pending` holds every tab's place. Workiz puts the row 18px under the
+  breadcrumb (`mt-[18px]`).
+
 ## Known differences from Workiz (deliberate or unmeasurable)
 - Sub-pixel: Workiz's own fractional layout makes some glyphs land ±1px
   differently from ours in screenshots (e.g. two Workiz selects with identical

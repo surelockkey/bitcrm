@@ -10,7 +10,8 @@ import { Input } from "@/components/ui/input";
 import { ListPagination } from "@/components/ui/list-pagination";
 import { queryKeys } from "@/lib/query-keys";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
-import { settled, usePageReady } from "@/lib/use-page-ready";
+import { settled } from "@/lib/use-page-ready";
+import { useInventoryPageReady } from "@/features/inventory/components/inventory-frame";
 import { arraySource } from "@/lib/paging/array-source";
 import { pagedSource } from "@/lib/paging/paged-source";
 import { usePageSize } from "@/lib/paging/use-page-size";
@@ -129,7 +130,7 @@ function Assignments() {
   // changed; before the fleet, a user without a row of their own showed grey
   // bars where their van would be. Latched: a search or a new page size
   // keeps the rows on screen, dimmed, not a skeleton.
-  const ready = usePageReady(
+  const ready = useInventoryPageReady(
     settled(usersQ) && settled(count) && settled(assignments) && !locations.isLoading,
   );
   const loading = !ready;

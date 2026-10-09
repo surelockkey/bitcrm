@@ -17,7 +17,8 @@ import { NoAccess } from "@/features/inventory/components/no-access";
 import { ListBody } from "@/features/inventory/components/list-body";
 import { useSkeletonRows } from "@/features/inventory/components/use-skeleton-rows";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
-import { settled, usePageReady } from "@/lib/use-page-ready";
+import { settled } from "@/lib/use-page-ready";
+import { useInventoryPageReady } from "@/features/inventory/components/inventory-frame";
 import { ListPagination } from "@/components/ui/list-pagination";
 import { pagedSource } from "@/lib/paging/paged-source";
 import { usePageSize } from "@/lib/paging/use-page-size";
@@ -76,7 +77,7 @@ export function WarehousesPage() {
   // One skeleton, then the list whole — the rows wait for the count, whose
   // "of N" came a beat after them. Latched: a new filter keeps the rows on
   // screen, dimmed, not a skeleton.
-  const ready = usePageReady(settled(query) && settled(count));
+  const ready = useInventoryPageReady(settled(query) && settled(count));
   const loading = !ready;
   const failed = query.isError && !query.data;
   const empty = !failed && !loading && warehouses.length === 0;

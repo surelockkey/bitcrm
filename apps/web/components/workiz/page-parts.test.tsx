@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { WzBadgeIconButton, WzPageHeader, WzStatCard, WzTabLinks } from "./page-parts";
+import { WzBadgeIconButton, WzPageHeader, WzStatCard, WzTabLinks, wzTabCount } from "./page-parts";
 
 vi.mock("next/link", () => ({
   default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => (
@@ -68,6 +68,53 @@ describe("WzTabLinks variant page (pg_pricebook)", () => {
   it("takes the caller's spacing", () => {
     render(<WzTabLinks label="Price book" active="items" tabs={tabs} variant="page" className="mt-5" />);
     expect(screen.getByRole("navigation", { name: "Price book" }).className).toContain("mt-5");
+  });
+});
+
+describe("WzTabLinks variant small (pg_inventory)", () => {
+  const tabs = [
+    { id: "items", label: "Inventory", href: "/inventory/items", count: 3106 },
+    { id: "users", label: "User locations", href: "/inventory/user-containers", count: 12 },
+    { id: "transfers", label: "Transfers", href: "/inventory/transfers" },
+  ];
+
+  it("draws Workiz's Tabs-module: 13px words 20px apart, slate 500 idle, ink 600 over a 2px bar when open", () => {
+    render(<WzTabLinks label="Inventory sections" active="items" tabs={tabs} variant="small" />);
+    const open = screen.getByRole("link", { name: /^Inventory/ });
+    expect(open.className).toContain("text-[13px]");
+    expect(open.className).toContain("px-5");
+    expect(open.className).toContain("font-semibold");
+    expect(open.className).toContain("after:h-0.5");
+    const idle = screen.getByRole("link", { name: /^User locations/ });
+    expect(idle.className).toContain("font-medium");
+    expect(idle.className).toContain("text-wz-slate");
+    expect(screen.getByRole("navigation", { name: "Inventory sections" }).className).toContain("border-wz-tab-rule");
+  });
+
+  it("puts the grey counter after the name, 99+ past ninety-nine, none without a count", () => {
+    render(<WzTabLinks label="Inventory sections" active="items" tabs={tabs} variant="small" />);
+    expect(screen.getByRole("link", { name: "Inventory 99+" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "User locations 12" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Transfers" })).toBeInTheDocument();
+    expect(document.querySelectorAll("[data-slot=wz-tab-count]")).toHaveLength(2);
+  });
+
+  it("holds each tab's place while pending, its counter's too", () => {
+    render(<WzTabLinks label="Inventory sections" active="items" tabs={tabs} variant="small" pending />);
+    expect(screen.queryAllByRole("link")).toHaveLength(0);
+    const placeholders = document.querySelectorAll("[data-tab-placeholder]");
+    expect(placeholders).toHaveLength(3);
+    expect(placeholders[0].className).toContain("px-5");
+  });
+});
+
+describe("wzTabCount", () => {
+  it("prints Workiz's counter: the number up to 99, then 99+", () => {
+    expect(wzTabCount(0)).toBe("0");
+    expect(wzTabCount(94)).toBe("94");
+    expect(wzTabCount(99)).toBe("99");
+    expect(wzTabCount(100)).toBe("99+");
+    expect(wzTabCount(3106)).toBe("99+");
   });
 });
 
