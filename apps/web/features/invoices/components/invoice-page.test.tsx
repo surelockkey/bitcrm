@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { PaymentTerms, type InvoiceView } from "@bitcrm/types";
@@ -7,7 +7,10 @@ import { server } from "@/test/msw/server";
 import { renderWithClient } from "@/test/render-with-client";
 
 const mocks = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn() }));
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.push, replace: mocks.replace }) }));
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: mocks.push, replace: mocks.replace }),
+  usePathname: () => "/invoices/inv-9",
+}));
 vi.mock("next/link", () => ({
   default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => (
     <a href={href} {...rest}>{children}</a>
@@ -24,8 +27,11 @@ vi.mock("@/features/deals/hooks", () => ({
   useDealProducts: () => ({ data: undefined, isLoading: false }),
   useDealTotals: () => ({ data: undefined, isLoading: false }),
 }));
-vi.mock("@/features/deals/components/deal-products-tab", () => ({
-  DealProductsTab: () => <div data-testid="job-items" />,
+vi.mock("@/features/deals/components/deal-attachments-tab", () => ({
+  DealAttachmentsTab: () => <section aria-label="Attachments" />,
+}));
+vi.mock("@/features/payments/schedule-hooks", () => ({
+  usePaymentSchedule: () => ({ data: undefined, isError: false, isPending: true, fetchStatus: "idle" }),
 }));
 vi.mock("@/features/payments/hooks", () => ({
   // Never asked here (the payments section is a stub): the page does not wait on it.
@@ -56,6 +62,7 @@ vi.mock("@/features/billing/components/product-picker-dialog", () => ({
 }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), message: vi.fn() } }));
 
+import { usePageHistoryStore } from "@/stores/page-history-store";
 import { StandaloneInvoicePage } from "./invoice-page";
 
 const totals = {
@@ -87,15 +94,22 @@ describe("StandaloneInvoicePage", () => {
       }),
     );
     renderWithClient(<StandaloneInvoicePage invoiceId="inv-9" />);
-    expect(await screen.findByRole("heading", { name: /invoice #1001/i })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Jane Client/ })).toHaveAttribute("href", "/contacts/c1");
-    expect(screen.queryByTestId("job-items")).not.toBeInTheDocument();
-    expect(screen.getByText("No items on this invoice yet.")).toBeInTheDocument();
+    // pg_invoice_wz_04_nojob: Workiz's header straight under the breadcrumb — "Client:", no job, no service address.
+    const header = await screen.findByRole("region", { name: "Invoice details" });
+    expect(within(header).getByText("Invoice ID:").nextSibling).toHaveTextContent("1001");
+    expect(within(header).getByRole("link", { name: /Jane Client/ })).toHaveAttribute("href", "/contacts/c1");
+    expect(within(header).queryByText("Service address:")).toBeNull();
+    expect(screen.queryByText(/not tied to a job/i)).toBeNull();
+    // The breadcrumb names it as Workiz's does: "INVOICE (1001)".
+    expect(usePageHistoryStore.getState().labels["/invoices/inv-9"]).toBe("Invoice (1001)");
+    // Its own lines: Workiz's empty grid says "Add line items"; no job, so no job files.
+    expect(screen.getByRole("button", { name: "Add line items" })).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Attachments" })).toBeNull();
     // Its own tax and discount, editable here (a job invoice's are the job's).
     expect(screen.getByTestId("summary")).toHaveAttribute("data-can-edit", "true");
 
     const u = user();
-    await u.click(screen.getByRole("button", { name: /add item/i }));
+    await u.click(screen.getByRole("button", { name: /^add item$/i }));
     await u.click(await screen.findByRole("button", { name: "Pick Deadbolt" }));
     await waitFor(() => expect(body).toMatchObject({ productId: "p1", name: "Deadbolt", quantity: 1, priceClient: 80 }));
     expect(mocks.replace).not.toHaveBeenCalled();

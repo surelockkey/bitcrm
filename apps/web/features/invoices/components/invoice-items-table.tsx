@@ -2,7 +2,11 @@
 
 import { useMemo } from "react";
 import type { BillingLine } from "@bitcrm/types";
-import { DocumentItemsTable, type DocumentLineItem } from "@/features/billing/components/document-items-table";
+import {
+  DocumentItemsTable,
+  type DocumentItemsTableProps,
+  type DocumentLineItem,
+} from "@/features/billing/components/document-items-table";
 import { usePermissions } from "@/features/auth/use-permissions";
 import {
   useAddInvoiceItem,
@@ -30,6 +34,29 @@ export function toLineItems(items: BillingLine[]): DocumentLineItem[] {
   }));
 }
 
+/** What the items grid needs to edit a CLIENT invoice's own lines: the mutations behind its callbacks. */
+export function useClientInvoiceLines(
+  invoiceId: string,
+): Pick<DocumentItemsTableProps, "pending" | "onAdd" | "onUpdate" | "onRemove" | "onReorder" | "onTaxable"> {
+  const add = useAddInvoiceItem(invoiceId);
+  const update = useUpdateInvoiceItem(invoiceId);
+  const remove = useDeleteInvoiceItem(invoiceId);
+  const reorder = useReorderInvoiceItems(invoiceId);
+  const setTaxable = useSetInvoiceItemTaxable(invoiceId);
+  return {
+    pending: {
+      add: add.isPending,
+      update: update.isPending,
+      removingLineId: remove.isPending ? remove.variables : undefined,
+    },
+    onAdd: (body, done) => add.mutate(body, { onSuccess: done }),
+    onUpdate: (lineId, body, done) => update.mutate({ lineId, body }, { onSuccess: done }),
+    onRemove: (lineId) => remove.mutate(lineId),
+    onReorder: (lineIds) => reorder.mutate(lineIds),
+    onTaxable: (lineId, taxable) => setTaxable.mutate({ lineId, taxable }),
+  };
+}
+
 /** The lines of a CLIENT invoice (no job) — a job invoice's lines are the job's items. */
 export function InvoiceItemsTable({
   invoiceId,
@@ -41,11 +68,7 @@ export function InvoiceItemsTable({
   canEdit: boolean;
 }) {
   const { can } = usePermissions();
-  const add = useAddInvoiceItem(invoiceId);
-  const update = useUpdateInvoiceItem(invoiceId);
-  const remove = useDeleteInvoiceItem(invoiceId);
-  const reorder = useReorderInvoiceItems(invoiceId);
-  const setTaxable = useSetInvoiceItemTaxable(invoiceId);
+  const grid = useClientInvoiceLines(invoiceId);
   const lines = useMemo(() => toLineItems(items), [items]);
 
   return (
@@ -54,16 +77,7 @@ export function InvoiceItemsTable({
       canEdit={canEdit}
       showCost={can("financials", "view")}
       emptyText="No items on this invoice yet."
-      pending={{
-        add: add.isPending,
-        update: update.isPending,
-        removingLineId: remove.isPending ? remove.variables : undefined,
-      }}
-      onAdd={(body, done) => add.mutate(body, { onSuccess: done })}
-      onUpdate={(lineId, body, done) => update.mutate({ lineId, body }, { onSuccess: done })}
-      onRemove={(lineId) => remove.mutate(lineId)}
-      onReorder={(lineIds) => reorder.mutate(lineIds)}
-      onTaxable={(lineId, taxable) => setTaxable.mutate({ lineId, taxable })}
+      {...grid}
     />
   );
 }

@@ -57,7 +57,7 @@ export function AddPaymentScheduleButton({ onClick, disabled }: { onClick: () =>
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="mt-[15px] inline-flex h-10 items-center gap-2 rounded-[4px] bg-wz-secondary-hover px-[18px] text-[13px] leading-[19px] font-semibold tracking-[0.4px] text-wz-link transition-colors hover:bg-border disabled:cursor-not-allowed disabled:text-wz-outline disabled:hover:bg-wz-secondary-hover"
+      className="mt-2.5 inline-flex h-10 items-center gap-2.5 rounded-[4px] bg-wz-secondary-hover px-4 text-[13px] leading-[19px] font-semibold tracking-[0.4px] text-wz-link transition-colors hover:bg-border disabled:cursor-not-allowed disabled:text-wz-outline disabled:hover:bg-wz-secondary-hover"
     >
       <Plus className="size-4" strokeWidth={1.5} aria-hidden />
       Add payment schedule

@@ -87,7 +87,7 @@ afterEach(() => {
 describe("StandaloneInvoicePage — no jumping", () => {
   it("draws a client invoice with its client, payments and pickers in one frame", async () => {
     const watch = watchFirstFrame(
-      () => !!screen.queryByText(/Invoice #1001/),
+      () => !!screen.queryByText("Invoice ID:"),
       () => ({
         client: !!screen.queryByRole("link", { name: "Jane Client" }),
         payments: !!screen.queryByText("No payments on this invoice yet."),
@@ -97,7 +97,7 @@ describe("StandaloneInvoicePage — no jumping", () => {
       }),
     );
     renderPage("inv-9");
-    await screen.findByText(/Invoice #1001/, {}, { timeout: 3000 });
+    await screen.findByText("Invoice ID:", {}, { timeout: 3000 });
     await settle();
     watch.stop();
 

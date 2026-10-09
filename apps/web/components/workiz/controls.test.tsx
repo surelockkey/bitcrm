@@ -129,6 +129,18 @@ describe("WzButton", () => {
     const button = screen.getByRole("button", { name: "View schedule" });
     expect(button.firstElementChild?.querySelector("[data-testid=cal]")).not.toBeNull();
   });
+
+  // pg_invoice_wz_01_partial: the invoice page's "Actions" is the word, then its chevron.
+  it("puts the icon after the words when asked", () => {
+    render(
+      <WzButton variant="secondary" size="regular" icon={<svg data-testid="down" />} iconPosition="end">
+        Actions
+      </WzButton>,
+    );
+    const button = screen.getByRole("button", { name: "Actions" });
+    expect(button.firstElementChild).toHaveTextContent("Actions");
+    expect(button.lastElementChild?.querySelector("[data-testid=down]")).not.toBeNull();
+  });
 });
 
 describe("WzLink", () => {
