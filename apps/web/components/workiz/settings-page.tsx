@@ -75,7 +75,7 @@ export function WzSettingsHeader({
       <h2 className="ml-[28px] shrink-0 text-[22.4px] leading-[26.88px] font-semibold">{title}</h2>
       {description ? (
         <>
-          <span aria-hidden className="mx-10 h-12 w-px shrink-0 bg-wz-frame" />
+          <span aria-hidden className="ml-10 h-12 w-px shrink-0 bg-wz-frame" />
           <div className="min-w-0 pl-[30px] text-sm leading-[22.4px]">{description}</div>
         </>
       ) : null}

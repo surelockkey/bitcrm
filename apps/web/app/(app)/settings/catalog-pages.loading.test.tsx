@@ -61,7 +61,7 @@ interface Catalog {
   rows: unknown[];
   /** What is on screen once the rows are. */
   row: string;
-  /** The page's "New …" button — drawn only for a user who may create. */
+  /** The page's add button ("Add New") — drawn only for a user who may create. */
   button: RegExp;
 }
 
@@ -72,7 +72,8 @@ const CATALOGS: Catalog[] = [
     list: /\/deals\/job-types$/,
     rows: [{ id: "jt-1", name: "Rekey Visit", priority: 1, active: true, ...stamp }],
     row: "Rekey Visit",
-    button: /new job type/i,
+    // Workiz's yellow "Add New" (uikit_wz_set_jobtypes).
+    button: /^add new$/i,
   },
   {
     name: "Job sources",

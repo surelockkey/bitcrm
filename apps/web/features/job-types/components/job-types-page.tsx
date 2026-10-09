@@ -1,19 +1,8 @@
 "use client";
 
-import { useState } from "react";
-import { Loader2, Wrench, Pencil, Plus, Trash2 } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Loader2, Trash2, Wrench } from "lucide-react";
 import type { JobType } from "@bitcrm/types";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -24,19 +13,33 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { WzButton } from "@/components/workiz/button";
+import type { WzGridColumn } from "@/components/workiz/local-grid";
+import { WzOnOffSwitch } from "@/components/workiz/on-off-switch";
+import { WzSettingsCatalog } from "@/components/workiz/settings-catalog";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { settled, usePageReady } from "@/lib/use-page-ready";
-import { useJobTypes, useDeleteJobType } from "../hooks";
+import { useJobTypes, useDeleteJobType, useUpdateJobType } from "../hooks";
 import { JobTypeFormDialog } from "./job-type-form-dialog";
 
+/** The catalog order: priority first (higher first), then the name. */
+const byCatalogOrder = (a: JobType, b: JobType) => b.priority - a.priority || a.name.localeCompare(b.name);
+
+/**
+ * Settings → Job Types, as Workiz's (uikit_wz_set_jobtypes): the band, "Show:
+ * Active" with "Add New", the grid — Type Name, Priority, the ON/OFF Status
+ * switch — a row opening "Edit Job Type". Workiz's Duration column is left
+ * out (a job type here has no length); Delete is ours, in Workiz's Sub Status
+ * way (a yellow pill in Actions).
+ */
 export function JobTypesPage() {
   const { can, isLoading: permsLoading } = usePermissions();
   const jobTypesQuery = useJobTypes();
   const jobTypes = jobTypesQuery.data;
   const del = useDeleteJobType();
-  // One skeleton until both the user and the list are in: the "New" button
-  // and the rows come in the same frame, and nobody is refused for the beat
-  // their permissions are still on the way.
+  // One skeleton until both the user and the list are in: the "Add New"
+  // button and the rows come in the same frame, and nobody is refused for
+  // the beat their permissions are still on the way.
   const ready = usePageReady(!permsLoading && settled(jobTypesQuery));
 
   const [formOpen, setFormOpen] = useState(false);
@@ -46,6 +49,40 @@ export function JobTypesPage() {
   const canCreate = can("job_types", "create");
   const canEdit = can("job_types", "edit");
   const canDelete = can("job_types", "delete");
+
+  const rows = useMemo(() => [...(jobTypes ?? [])].sort(byCatalogOrder), [jobTypes]);
+  const columns = useMemo<WzGridColumn<JobType>[]>(() => {
+    const cols: WzGridColumn<JobType>[] = [
+      { id: "name", label: "Type Name", render: (t) => t.name, sortValue: (t) => t.name, searchText: (t) => t.name },
+      { id: "priority", label: "Priority", render: (t) => t.priority, sortValue: (t) => t.priority, searchText: (t) => String(t.priority) },
+      {
+        id: "status",
+        label: "Status",
+        render: (t) => <JobTypeStatusSwitch jobType={t} disabled={!canEdit} />,
+        sortValue: (t) => (t.active ? 1 : 0),
+      },
+    ];
+    if (canDelete) {
+      cols.push({
+        id: "actions",
+        label: "Actions",
+        render: (t) => (
+          <WzButton
+            size="regular"
+            icon={<Trash2 />}
+            aria-label={`Delete ${t.name}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              setDeleting(t);
+            }}
+          >
+            Delete
+          </WzButton>
+        ),
+      });
+    }
+    return cols;
+  }, [canEdit, canDelete]);
 
   if (!permsLoading && !can("job_types", "view")) {
     return (
@@ -68,76 +105,21 @@ export function JobTypesPage() {
   };
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h2 className="text-base font-semibold tracking-tight">Job types</h2>
-          <p className="text-sm text-muted-foreground">
-            The kinds of work you dispatch. Jobs pick one; technicians are approved for them.
-          </p>
-        </div>
-        {ready && canCreate ? (
-          <Button variant="brand" className="h-9 gap-1.5" onClick={openNew}>
-            <Plus className="size-4" /> New job type
-          </Button>
-        ) : null}
-      </div>
-
-      {!ready ? (
-        <div className="space-y-2">
-          <Skeleton className="h-12 w-full" />
-          <Skeleton className="h-12 w-full" />
-        </div>
-      ) : !jobTypes || jobTypes.length === 0 ? (
-        <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed py-14 text-center">
-          <Wrench className="size-6 text-muted-foreground" />
-          <p className="text-sm font-medium">No job types yet</p>
-          <p className="text-sm text-muted-foreground">
-            Create one so jobs can be categorised and technicians approved for it.
-          </p>
-        </div>
-      ) : (
-        <div className="rounded-lg border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Priority</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="w-24 text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {jobTypes.map((jobType) => (
-                <TableRow key={jobType.id}>
-                  <TableCell className="font-medium">{jobType.name}</TableCell>
-                  <TableCell>{jobType.priority}</TableCell>
-                  <TableCell>
-                    <Badge variant={jobType.active ? "default" : "secondary"}>
-                      {jobType.active ? "Active" : "Archived"}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex justify-end gap-1">
-                      {canEdit ? (
-                        <Button variant="ghost" size="icon" className="size-8" onClick={() => openEdit(jobType)} aria-label="Edit">
-                          <Pencil className="size-4" />
-                        </Button>
-                      ) : null}
-                      {canDelete ? (
-                        <Button variant="ghost" size="icon" className="size-8" onClick={() => setDeleting(jobType)} aria-label="Delete">
-                          <Trash2 className="size-4" />
-                        </Button>
-                      ) : null}
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      )}
-
+    <WzSettingsCatalog<JobType>
+      icon={<Wrench />}
+      title="Job Types"
+      description="Add your job types and assign to jobs."
+      label="Job types"
+      ready={ready}
+      rows={rows}
+      rowKey={(t) => t.id}
+      columns={columns}
+      isActive={(t) => t.active}
+      defaultSort={{ id: "priority", dir: "desc" }}
+      onAdd={canCreate ? openNew : undefined}
+      onOpen={canEdit ? openEdit : undefined}
+      openLabel={(t) => `Edit ${t.name}`}
+    >
       {formOpen ? (
         <JobTypeFormDialog
           key={editing?.id ?? "new"}
@@ -168,6 +150,24 @@ export function JobTypesPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </WzSettingsCatalog>
+  );
+}
+
+/**
+ * The row's Status switch: switching a type off archives it (it leaves the
+ * pickers, old jobs keep it), on brings it back. It shows the state asked
+ * for while the save is on its way, as Workiz's flips at once.
+ */
+function JobTypeStatusSwitch({ jobType, disabled }: { jobType: JobType; disabled: boolean }) {
+  const update = useUpdateJobType(jobType.id);
+  const pending = update.isPending ? (update.variables as { active?: boolean } | undefined)?.active : undefined;
+  return (
+    <WzOnOffSwitch
+      aria-label={`${jobType.name} status`}
+      checked={pending ?? jobType.active}
+      disabled={disabled || update.isPending}
+      onCheckedChange={(active) => update.mutate({ active })}
+    />
   );
 }
