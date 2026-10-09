@@ -73,6 +73,21 @@ export interface DocumentItemsTableProps {
    * pill under it (`addClassName` is the card's only). Same callbacks.
    */
   variant?: "card" | "workiz";
+  /**
+   * Workiz variant: the page's own item window. Given, "Add item" (`null`),
+   * the empty grid's words and a line (its id) open it instead of the
+   * catalog picker — a job invoice's lines are the job's items, edited in the
+   * job's window. `onAdd` / `onUpdate` are then unused.
+   */
+  onOpenLine?: (lineId: string | null) => void;
+  /** Workiz variant: the grip that reorders lines (default on). */
+  reorderable?: boolean;
+  /** Workiz variant: quantity / price turn into boxes on a click (default on). */
+  inlineEdit?: boolean;
+  /** Workiz variant: the empty grid's words — "Add items" (estimate, default), "Add line items" (invoice). */
+  emptyAction?: string;
+  /** Workiz variant: the "Add item" pill's height — 34px (estimate, default) or "h-8" (invoice's 32px). */
+  addHeightClassName?: string;
 }
 
 const th = "px-3 py-2.5 text-left text-[13px] font-semibold";

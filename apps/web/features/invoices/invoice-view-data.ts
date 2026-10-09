@@ -1,12 +1,16 @@
 "use client";
 
+import { useQuery } from "@tanstack/react-query";
 import type { Deal, InvoiceView } from "@bitcrm/types";
+import { queryKeys } from "@/lib/query-keys";
 import { settled } from "@/lib/use-page-ready";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { useDocumentTemplatesOfKind } from "@/features/billing/templates-api";
 import { useContact } from "@/features/clients/hooks";
+import { listAttachments } from "@/features/deals/attachments-api";
 import { useDealProducts, useDealTotals } from "@/features/deals/hooks";
 import { useInvoicePayments } from "@/features/payments/hooks";
+import { usePaymentSchedule } from "@/features/payments/schedule-hooks";
 import { useActiveTaxRates } from "@/features/tax-rates/hooks";
 
 /**
@@ -44,7 +48,16 @@ export function useInvoiceViewData({
   // A job's invoice is the job's items, tax and discount.
   const products = useDealProducts(dealId, !!dealId);
   const totals = useDealTotals(dealId, !!dealId && shown);
+  // Workiz's invoice page also carries the job's payment schedule (or "Add
+  // payment schedule") and the job's files — asked with the same keys their
+  // blocks use (`usePaymentSchedule`, `useAttachments`), so they find them.
+  const schedule = usePaymentSchedule(dealId, !!dealId && shown && can("payments"));
+  const files = useQuery({
+    queryKey: queryKeys.deals.attachments(dealId),
+    queryFn: () => listAttachments(dealId),
+    enabled: !!dealId && shown,
+  });
 
-  const jobIn = !deal || [products, totals].every(settled);
+  const jobIn = !deal || [products, totals, schedule, files].every(settled);
   return { allIn: invoice !== undefined && jobIn && [ledger, templates, client, taxRates].every(settled) };
 }

@@ -1,22 +1,21 @@
 "use client";
 
 import { useEffect } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FileText } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { usePageHistoryLabel } from "@/components/shell/page-history";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { usePermissions } from "@/features/auth/use-permissions";
-import { useContact } from "@/features/clients/hooks";
-import { contactName } from "@/features/clients/lib";
 import { usePageReady } from "@/lib/use-page-ready";
 import { useInvoice } from "../hooks";
 import { useInvoiceViewData } from "../invoice-view-data";
-import { InvoiceDetail } from "./deal-invoice-tab";
+import { InvoiceDetail } from "./invoice-detail";
 
 /**
  * `/invoices/[id]` — a CLIENT invoice (Workiz: one made from the client card,
- * with no job) on a page of its own. A job's invoice has its home in the
+ * with no job) on a page of its own, as Workiz's invoice page without a job
+ * (pg_invoice_wz_04_nojob): the grey header straight under the breadcrumb
+ * ("INVOICE (1140)"), edge to edge. A job's invoice has its home in the
  * job's Invoice tab, so this page sends it there.
  */
 export function StandaloneInvoicePage({ invoiceId }: { invoiceId: string }) {
@@ -28,9 +27,9 @@ export function StandaloneInvoicePage({ invoiceId }: { invoiceId: string }) {
   // is asked for it here. A client's comes up whole — its client, payments
   // and pickers with it.
   const own = invoice === undefined ? undefined : dealId ? null : invoice;
-  const { data: contact } = useContact(own?.contactId ?? "");
   const { allIn } = useInvoiceViewData({ invoice: own, canEditItems: can("invoices", "edit") });
   const ready = usePageReady(!permsLoading && allIn);
+  usePageHistoryLabel(own ? `Invoice (${own.number})` : undefined);
 
   useEffect(() => {
     if (dealId) router.replace(`/deals/${dealId}?tab=invoice`);
@@ -55,24 +54,12 @@ export function StandaloneInvoicePage({ invoiceId }: { invoiceId: string }) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-      <div className="flex flex-wrap items-center gap-2 border-b px-6 py-3 text-sm text-muted-foreground">
-        <FileText className="size-4" />
-        <span>
-          Invoice for{" "}
-          <Link href={`/contacts/${invoice.contactId}`} className="font-medium text-wz-link hover:underline">
-            {contact ? contactName(contact) : "the client"}
-          </Link>
-        </span>
-        <span aria-hidden="true">·</span>
-        <span>Not tied to a job</span>
-      </div>
-      <div className="p-6">
-        <InvoiceDetail
-          invoice={invoice}
-          canEditItems={can("invoices", "edit")}
-          onDeleted={() => router.push(`/contacts/${invoice.contactId}`)}
-        />
-      </div>
+      <InvoiceDetail
+        edge
+        invoice={invoice}
+        canEditItems={can("invoices", "edit")}
+        onDeleted={() => router.push(`/contacts/${invoice.contactId}`)}
+      />
     </div>
   );
 }

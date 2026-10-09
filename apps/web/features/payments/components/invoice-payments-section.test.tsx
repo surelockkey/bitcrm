@@ -162,3 +162,62 @@ describe("InvoicePaymentsSection", () => {
     expect(await screen.findByLabelText("Amount")).toHaveValue("250.00");
   });
 });
+
+/**
+ * Workiz's Payments on the invoice page (pg_invoice_wz_01_partial / _03_due):
+ * the head with "Add payment", a Type · Amount · Date · status · ⋮ table, the
+ * picture and "+ Add payments" when there are none.
+ */
+describe("InvoicePaymentsSection — variant workiz", () => {
+  function renderWz() {
+    renderWithClient(<InvoicePaymentsSection invoice={invoice} dealId="d1" variant="workiz" />);
+  }
+
+  it("lists type, amount, date and status under a 'Payments' head with Add payment", async () => {
+    ledger([payment({ method: "card", cardBrand: "visa", last4: "4242" })], summary());
+    renderWz();
+    expect(await screen.findByRole("heading", { name: "Payments" })).toBeInTheDocument();
+    expect((await screen.findAllByRole("columnheader")).map((h) => h.textContent)).toEqual(["Type", "Amount", "Date", "status", ""]);
+    const row = screen.getAllByRole("row")[1];
+    expect(row).toHaveTextContent("Card");
+    expect(row).toHaveTextContent("••••4242");
+    expect(row).toHaveTextContent("$150.00");
+    expect(row).toHaveTextContent("9/20/2026 at");
+    expect(row).toHaveTextContent("Paid");
+    expect(screen.getByRole("button", { name: "Add payment" })).toBeInTheDocument();
+    // Workiz says nothing of "collected · due" here: the balance is in the totals.
+    expect(screen.queryByText(/collected ·/)).toBeNull();
+  });
+
+  it("keeps Resend receipt and Refund behind the row's ⋮", async () => {
+    let sent = false;
+    ledger([payment()], summary());
+    server.use(
+      http.post("*/billing/payments/p1/receipt", () => {
+        sent = true;
+        return HttpResponse.json({ success: true, data: { sent: true, sentTo: "jane@example.com" } });
+      }),
+    );
+    renderWz();
+    const u = user();
+    await u.click(await screen.findByRole("button", { name: /^actions for the \$150\.00 check payment/i }));
+    expect(screen.getByRole("menuitem", { name: /refund/i })).toBeInTheDocument();
+    await u.click(screen.getByRole("menuitem", { name: /resend receipt/i }));
+    await waitFor(() => expect(sent).toBe(true));
+  });
+
+  it("shows the picture and '+ Add payments' when there are none", async () => {
+    ledger([], summary({ settled: 0, paymentCount: 0 }));
+    renderWz();
+    await user().click(await screen.findByRole("button", { name: "Add payments" }));
+    expect(await screen.findByLabelText("Amount")).toHaveValue("400.00");
+  });
+
+  it("tells a reader who may not collect that there are no payments yet", async () => {
+    mocks.perms = new Set(["payments.view"]);
+    ledger([], summary({ settled: 0, paymentCount: 0 }));
+    renderWz();
+    expect(await screen.findByText("No payments on this invoice yet.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /add payment/i })).toBeNull();
+  });
+});

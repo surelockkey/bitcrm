@@ -74,6 +74,9 @@ const routes: FakeRoute[] = [
   { match: /\/billing\/invoices\/inv-1\/payments$/, reply: () => ({ payments: [], summary: { settled: 0, pending: 0, refunded: 0, paymentCount: 0, hasPending: false } }), delayMs: 60 },
   { match: /\/deals\/tax-rates$/, reply: () => [], delayMs: 30 },
   { match: /\/crm\/contacts\/c1$/, reply: () => contact, delayMs: 20 },
+  // Workiz's invoice page also shows the job's payment schedule (or "Add payment schedule") and the job's files.
+  { match: /\/billing\/deals\/d1\/payment-schedule$/, reply: () => null, delayMs: 70 },
+  { match: /\/deals\/d1\/attachments$/, reply: () => [], delayMs: 80 },
 ];
 
 let server: FakeServer;
@@ -106,25 +109,27 @@ afterEach(() => {
 });
 
 describe("DealInvoiceTab — no jumping", () => {
-  it("draws the invoice, the job's items, the payments and the pickers in one frame", async () => {
+  it("draws the invoice, the job's items, the payments, the schedule, the files and the pickers in one frame", async () => {
     const watch = watchFirstFrame(
-      () => !!screen.queryByText(/Invoice #1042/),
+      () => !!screen.queryByText("Invoice ID:"),
       () => ({
         client: screen.queryAllByText(/Jane Client/).length > 0,
         items: !!screen.queryByText("Deadbolt"),
-        payments: !!screen.queryByText("No payments on this invoice yet."),
+        payments: !!screen.queryByRole("button", { name: "Add payments" }),
+        schedule: !!screen.queryByRole("button", { name: "Add payment schedule" }),
+        files: !!screen.queryByText(/upload files/i),
         pickersLoading: screen.queryAllByText("Loading…").length,
         skeletons: skeletonCount(),
         asked: server.requests.length,
       }),
     );
     renderTab();
-    await screen.findByText(/Invoice #1042/, {}, { timeout: 3000 });
+    await screen.findByText("Invoice ID:", {}, { timeout: 3000 });
     await settle();
     watch.stop();
 
     const { asked, ...frame } = watch.frame()!;
-    expect(frame).toEqual({ client: true, items: true, payments: true, pickersLoading: 0, skeletons: 0 });
+    expect(frame).toEqual({ client: true, items: true, payments: true, schedule: true, files: true, pickersLoading: 0, skeletons: 0 });
     expect(server.requests.slice(asked)).toEqual([]);
     expect(duplicates(server.requests)).toEqual([]);
   });

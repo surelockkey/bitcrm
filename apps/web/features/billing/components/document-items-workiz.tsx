@@ -62,9 +62,19 @@ export function WorkizDocumentItems({
   onTaxable,
   toolbar,
   showCost = true,
+  onOpenLine,
+  reorderable = true,
+  inlineEdit = true,
+  emptyAction = "Add items",
+  addHeightClassName = "h-[34px]",
 }: DocumentItemsTableProps) {
-  const [adding, setAdding] = useState(false);
-  const [editing, setEditing] = useState<DocumentLineItem | null>(null);
+  const [addingHere, setAdding] = useState(false);
+  const [editingHere, setEditing] = useState<DocumentLineItem | null>(null);
+  // A page with its own item window takes Add item and the lines there; the picker stays shut.
+  const adding = onOpenLine ? false : addingHere;
+  const editing = onOpenLine ? null : editingHere;
+  const openAdd = () => (onOpenLine ? onOpenLine(null) : setAdding(true));
+  const openLine = (item: DocumentLineItem) => (onOpenLine ? onOpenLine(item.lineId) : setEditing(item));
 
   const sorted = useMemo(() => [...items].sort((a, b) => a.position - b.position), [items]);
   const sensors = useSensors(
@@ -105,7 +115,7 @@ export function WorkizDocumentItems({
           <table className="w-full min-w-[52rem] table-fixed border-separate border-spacing-0">
             <thead>
               <tr>
-                <th className={cn(TH, "w-[56px]")} aria-label={canEdit ? "Reorder" : undefined} />
+                <th className={cn(TH, "w-[56px]")} aria-label={canEdit && reorderable ? "Reorder" : undefined} />
                 <th className={TH}>Item</th>
                 <th className={cn(TH, "w-[126px]")}>Quantity</th>
                 <th className={cn(TH, "w-[126px]")}>Price</th>
@@ -126,8 +136,10 @@ export function WorkizDocumentItems({
                       item={item}
                       canEdit={canEdit}
                       showCost={showCost}
+                      reorderable={reorderable}
+                      inlineEdit={inlineEdit}
                       removing={pending.removingLineId === item.lineId}
-                      onEdit={() => setEditing(item)}
+                      onEdit={() => openLine(item)}
                       onRemove={() => onRemove(item.lineId)}
                       onTaxable={(taxable) => onTaxable(item.lineId, taxable)}
                       onInline={(changes) => saveInline(item, changes)}
@@ -145,8 +157,8 @@ export function WorkizDocumentItems({
         <div className="flex h-[232px] flex-col items-center justify-end gap-1 border-b border-[#e6e6e6] pb-[13px]">
           <ItemsArt />
           {canEdit ? (
-            <button type="button" onClick={() => setAdding(true)} className="text-[16px] leading-[19px] text-wz-strong hover:underline">
-              Add items
+            <button type="button" onClick={openAdd} className="text-[16px] leading-[19px] text-wz-strong hover:underline">
+              {emptyAction}
             </button>
           ) : (
             <span className="text-[16px] leading-[19px]">{emptyText}</span>
@@ -157,7 +169,7 @@ export function WorkizDocumentItems({
       {canEdit || toolbar ? (
         <div className="mt-5 flex flex-wrap items-center gap-2.5">
           {canEdit ? (
-            <WzButton size="regular" icon={<Plus strokeWidth={1.75} />} className="h-[34px]" onClick={() => setAdding(true)}>
+            <WzButton size="regular" icon={<Plus strokeWidth={1.75} />} className={addHeightClassName} onClick={openAdd}>
               Add item
             </WzButton>
           ) : null}
@@ -185,6 +197,8 @@ function WorkizItemRow({
   item,
   canEdit,
   showCost,
+  reorderable,
+  inlineEdit,
   removing,
   onEdit,
   onRemove,
@@ -194,6 +208,8 @@ function WorkizItemRow({
   item: DocumentLineItem;
   canEdit: boolean;
   showCost: boolean;
+  reorderable: boolean;
+  inlineEdit: boolean;
   removing: boolean;
   onEdit: () => void;
   onRemove: () => void;
@@ -201,8 +217,10 @@ function WorkizItemRow({
   onInline: (changes: { quantity?: string; priceClient?: string }) => void;
 }) {
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } =
-    useSortable({ id: item.lineId, disabled: !canEdit });
+    useSortable({ id: item.lineId, disabled: !canEdit || !reorderable });
   const isService = item.productType === ProductType.SERVICE;
+  const isProduct = item.productType === ProductType.PRODUCT;
+  const editNumbers = canEdit && inlineEdit;
   const taxable = item.taxable !== false;
   const margin = marginPercent(item.priceClient, item.costCompany);
   const stop = (e: React.SyntheticEvent) => e.stopPropagation();
@@ -219,7 +237,7 @@ function WorkizItemRow({
       )}
     >
       <td className={cn(TD, "text-center")} onClick={stop}>
-        {canEdit ? (
+        {canEdit && reorderable ? (
           <button
             type="button"
             ref={setActivatorNodeRef}
@@ -260,18 +278,19 @@ function WorkizItemRow({
             {item.description ? (
               <p className="mt-[5px] break-words whitespace-break-spaces text-wz-text">{item.description}</p>
             ) : null}
-            {isService || taxable ? (
+            {isService || isProduct || taxable ? (
               <div className="mt-2.5 flex flex-wrap gap-x-2 gap-y-1">
                 {isService ? <span className={cn(TAG, "border-wz-link text-wz-link")}>Service</span> : null}
+                {isProduct ? <span className={cn(TAG, "border-wz-link text-wz-link")}>Product</span> : null}
                 {taxable ? <span className={cn(TAG, "border-[#d574e4] bg-[#d574e4] text-white")}>Taxable</span> : null}
               </div>
             ) : null}
           </div>
         </div>
       </td>
-      <td className={cn(TD, "tabular-nums")} onClick={canEdit ? stop : undefined}>
+      <td className={cn(TD, "tabular-nums")} onClick={editNumbers ? stop : undefined}>
         <CellEditor
-          canEdit={canEdit}
+          canEdit={editNumbers}
           label={`${item.name} quantity`}
           value={String(item.quantity)}
           display={item.quantity.toFixed(2)}
@@ -281,9 +300,9 @@ function WorkizItemRow({
           onCommit={(quantity) => onInline({ quantity })}
         />
       </td>
-      <td className={cn(TD, "tabular-nums")} onClick={canEdit ? stop : undefined}>
+      <td className={cn(TD, "tabular-nums")} onClick={editNumbers ? stop : undefined}>
         <CellEditor
-          canEdit={canEdit}
+          canEdit={editNumbers}
           label={`${item.name} price`}
           value={String(item.priceClient)}
           display={formatMoney(item.priceClient)}

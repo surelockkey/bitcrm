@@ -38,6 +38,8 @@ export interface WzButtonProps extends ComponentProps<"button"> {
   size?: keyof typeof SIZE;
   /** An icon before the words ("View schedule" has a calendar). */
   icon?: ReactNode;
+  /** Where the icon sits: before the words (default) or after them (the invoice page's "Actions ⌄"). */
+  iconPosition?: "start" | "end";
   /** Busy: the words hide (the button keeps its width) under a spinner. */
   loading?: boolean;
 }
@@ -51,6 +53,7 @@ export function WzButton({
   variant = "primary",
   size = "big",
   icon,
+  iconPosition = "start",
   loading = false,
   disabled,
   type = "button",
@@ -58,6 +61,18 @@ export function WzButton({
   children,
   ...rest
 }: WzButtonProps) {
+  const iconSlot = (
+    <span
+      data-slot="wz-button-icon"
+      className={cn(
+        "relative flex items-center justify-center text-foreground [&_svg]:shrink-0",
+        size === "big" ? "size-6 text-[18px] [&_svg]:size-[18px]" : "size-[19px] text-[13px] [&_svg]:size-[15px]",
+        loading && "invisible",
+      )}
+    >
+      {icon}
+    </span>
+  );
   return (
     <button
       {...rest}
@@ -74,18 +89,7 @@ export function WzButton({
         className,
       )}
     >
-      {icon ? (
-        <span
-          data-slot="wz-button-icon"
-          className={cn(
-            "relative flex items-center justify-center text-foreground [&_svg]:shrink-0",
-            size === "big" ? "size-6 text-[18px] [&_svg]:size-[18px]" : "size-[19px] text-[13px] [&_svg]:size-[15px]",
-            loading && "invisible",
-          )}
-        >
-          {icon}
-        </span>
-      ) : null}
+      {icon && iconPosition === "start" ? iconSlot : null}
       <span
         className={cn(
           "flex items-center px-1 text-[13px] leading-[19px] font-semibold tracking-[0.2px] whitespace-nowrap text-foreground",
@@ -94,6 +98,7 @@ export function WzButton({
       >
         {children}
       </span>
+      {icon && iconPosition === "end" ? iconSlot : null}
       {loading ? (
         <span className="absolute inset-0 flex items-center justify-center text-foreground">
           <Loader2 className="size-[19px] animate-spin" aria-hidden />

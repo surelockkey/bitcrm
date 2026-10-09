@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { calculateDocumentTotals } from "@bitcrm/types";
 import type { TaxRate } from "@bitcrm/types";
@@ -199,10 +199,53 @@ describe("DocumentSummaryPanel — variant workiz", () => {
     expect(within(right).getAllByRole("group").at(-1)).toHaveAttribute("aria-label", "Deposit");
   });
 
-  it("an invoice adds Paid and Balance due under Total", () => {
-    setup({ variant: "workiz", showPayments: true });
+  // pg_invoice_wz_01_partial / _02_paid: "Total :", "Balance :" (bold, #dd380d while owed) with "Pay", then the
+  // invoice's own "Due :" — Workiz shows no Paid row.
+  it("an invoice adds Balance under Total, then the invoice's own rows; no Paid row", () => {
+    setup({
+      variant: "workiz",
+      showPayments: true,
+      leftRows: <div role="group" aria-label="Due">Due :</div>,
+    });
     const left = screen.getAllByTestId("wz-totals-column")[0];
-    expect(within(left).getByRole("group", { name: "Paid" })).toHaveTextContent("50.00");
-    expect(within(left).getByRole("group", { name: "Balance due" })).toHaveTextContent("45.72");
+    expect(within(left).getAllByRole("group").map((g) => g.getAttribute("aria-label"))).toEqual(["Total", "Balance", "Due"]);
+    expect(box("Balance")).toHaveTextContent("Balance :45.72");
+    expect(screen.queryByRole("group", { name: "Paid" })).toBeNull();
+    expect(screen.queryByText("Balance due")).toBeNull();
+  });
+
+  it("prints what is still owed in Workiz's red, and a settled balance in the box's grey", () => {
+    setup({ variant: "workiz", showPayments: true });
+    expect(within(box("Balance")).getByText("45.72")).toHaveClass("font-bold", "text-[#dd380d]");
+    cleanup();
+    const paid = calculateDocumentTotals({ lines: [{ quantity: 1, priceClient: 100 }], amountPaid: 100 });
+    setup({ variant: "workiz", showPayments: true, totals: paid });
+    expect(within(box("Balance")).getByText("0.00")).toHaveClass("font-bold");
+    expect(within(box("Balance")).getByText("0.00")).not.toHaveClass("text-[#dd380d]");
+  });
+
+  it("offers Pay beside an owed balance only when the page can take a payment", async () => {
+    const onPay = vi.fn();
+    setup({ variant: "workiz", showPayments: true, onPay });
+    await userEvent.setup().click(within(box("Balance")).getByRole("button", { name: "Pay" }));
+    expect(onPay).toHaveBeenCalledTimes(1);
+    cleanup();
+    const paid = calculateDocumentTotals({ lines: [{ quantity: 1, priceClient: 100 }], amountPaid: 100 });
+    setup({ variant: "workiz", showPayments: true, totals: paid, onPay });
+    expect(screen.queryByRole("button", { name: "Pay" })).toBeNull();
+    cleanup();
+    setup({ variant: "workiz", showPayments: true });
+    expect(screen.queryByRole("button", { name: "Pay" })).toBeNull();
+  });
+
+  it("keeps a bank payment that has not landed apart as Clearing, under Balance", () => {
+    setup({
+      variant: "workiz",
+      showPayments: true,
+      paymentSummary: { settled: 50, pending: 20, refunded: 0, paymentCount: 2, hasPending: true },
+    });
+    const left = screen.getAllByTestId("wz-totals-column")[0];
+    expect(within(left).getAllByRole("group").map((g) => g.getAttribute("aria-label"))).toEqual(["Total", "Balance", "Clearing"]);
+    expect(box("Clearing")).toHaveTextContent("Clearing :20.00");
   });
 });

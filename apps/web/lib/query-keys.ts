@@ -376,6 +376,8 @@ export const queryKeys = {
     byInvoice: (invoiceId: string) => ["payments", "by-invoice", invoiceId] as const,
     /** The job's ledger (Payments tab) — with or without an invoice. */
     byDeal: (dealId: string) => ["payments", "by-deal", dealId] as const,
+    /** The job's Payment schedule — under its ledger's key, so a payment refreshes it too. */
+    schedule: (dealId: string) => ["payments", "by-deal", dealId, "schedule"] as const,
     settings: () => ["payments", "settings"] as const,
   },
 

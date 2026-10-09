@@ -95,4 +95,38 @@ describe("DocumentItemsTable — variant workiz", () => {
     expect(screen.queryByRole("button", { name: /edit push bar install price/i })).not.toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: /push bar install is taxable/i })).toBeDisabled();
   });
+
+  // pg_invoice_wz_01_partial: a product line carries an outlined PRODUCT tag, as a service line SERVICE.
+  it("tags a product line 'Product'", () => {
+    setup({ items: [{ ...line, productType: ProductType.PRODUCT, taxable: false }] });
+    const row = screen.getByRole("row", { name: /push bar install/i });
+    expect(within(row).getByText("Product")).toBeInTheDocument();
+    expect(within(row).queryByText("Service")).toBeNull();
+  });
+
+  /*
+   * A job's invoice: the lines ARE the job's items, which have their own item
+   * window (the job's, with its technicians and stock) and no order of their
+   * own — so the page opens its window, and the grid neither drags nor edits
+   * numbers in place.
+   */
+  it("hands Add item and a line to the page's own item window when it has one", async () => {
+    const onOpenLine = vi.fn();
+    setup({ onOpenLine, reorderable: false, inlineEdit: false, emptyAction: "Add line items" });
+    const u = user();
+    await u.click(screen.getByRole("button", { name: /^add item$/i }));
+    expect(onOpenLine).toHaveBeenLastCalledWith(null);
+    await u.click(screen.getByRole("button", { name: "Edit Push bar install" }));
+    expect(onOpenLine).toHaveBeenLastCalledWith("l1");
+    expect(screen.queryByRole("button", { name: /reorder push bar install/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /edit push bar install price/i })).toBeNull();
+    expect(screen.getByRole("row", { name: /push bar install/i })).toHaveTextContent("$912.17");
+  });
+
+  it("says the page's own words on an empty grid ('Add line items' on an invoice)", async () => {
+    const onOpenLine = vi.fn();
+    setup({ items: [], onOpenLine, emptyAction: "Add line items" });
+    await user().click(screen.getByRole("button", { name: "Add line items" }));
+    expect(onOpenLine).toHaveBeenCalledWith(null);
+  });
 });
