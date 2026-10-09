@@ -453,3 +453,33 @@ describe('AutomationActionExecutor — send_email', () => {
     expect(notTexting.sendSystem).not.toHaveBeenCalled();
   });
 });
+
+// --- call alerts (Workiz "When a call comes in" has no editable text; ours
+// sends a default one, so the renderer must be told about the call).
+
+describe('AutomationActionExecutor — the call behind a call alert', () => {
+  it('hands the renderer the call, so the text can say who called, how it ended and on which line', async () => {
+    const { executor, renderer } = harness();
+    const callCtx = ctx({
+      event: { kind: 'call.completed', at: NOW, call: { sid: 'CA1', outcome: 'missed', direction: 'inbound' } },
+      facts: {
+        call: { callSid: 'CA1', direction: 'inbound', status: 'no-answer', from: '+14045551234', to: '+14045550000', flowName: 'Main line' },
+      },
+      entity: 'call:CA1',
+      occurrence: 'call:CA1',
+    });
+    await executor.run(sms({ to: 'users', userIds: ['u1'], body: 'Missed call from {{caller_number}}' }), callCtx);
+    await executor.run(email({ to: 'users', userIds: ['u1'], body: 'Missed call from {{caller_number}}' }), callCtx);
+
+    const refs = (renderer.render.mock.calls as Array<[unknown, { call?: unknown }]>).map((c) => c[1]);
+    expect(refs).toHaveLength(2);
+    for (const ref of refs) {
+      expect(ref.call).toEqual({ from: '+14045551234', to: '+14045550000', direction: 'inbound', outcome: 'missed', flowName: 'Main line' });
+    }
+
+    // A job rule carries no call.
+    const { executor: jobExecutor, renderer: jobRenderer } = harness();
+    await jobExecutor.run(sms(), ctx());
+    expect((jobRenderer.render.mock.calls as Array<[unknown, { call?: unknown }]>)[0][1].call).toBeUndefined();
+  });
+});

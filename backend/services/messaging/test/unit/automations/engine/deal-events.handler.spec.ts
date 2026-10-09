@@ -142,6 +142,22 @@ describe('AutomationDealEventsHandler', () => {
       expect.objectContaining({ call: expect.objectContaining({ callSid: 'CA1', status: 'no-answer' }) }),
     );
   });
+
+  it('carries the flow and line names into the facts once telephony publishes them', async () => {
+    const { handler, engine } = harness();
+    await handler.onCallCompleted({
+      callSid: 'CA2',
+      direction: 'inbound',
+      status: 'completed',
+      startedAt: '2026-09-16T14:00:00.000Z',
+      flowName: 'Main line',
+      lineName: 'Office',
+    });
+    expect(engine.handle).toHaveBeenCalledWith(
+      expect.objectContaining({ call: { sid: 'CA2', outcome: 'answered', direction: 'inbound' } }),
+      expect.objectContaining({ call: expect.objectContaining({ flowName: 'Main line', lineName: 'Office' }) }),
+    );
+  });
 });
 
 describe('callOutcome', () => {

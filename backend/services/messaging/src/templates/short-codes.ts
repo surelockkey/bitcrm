@@ -1,6 +1,6 @@
 import type { Address } from '@bitcrm/types';
 import { formatDate, formatTime, resolveTimezone, splitTimeSlot } from './date-format';
-import type { RenderContext, RenderPerson } from './render-context';
+import type { RenderCall, RenderContext, RenderPerson } from './render-context';
 
 /**
  * Short-code registry. Names are Workiz's, byte for byte, so the 39 imported
@@ -13,7 +13,7 @@ import type { RenderContext, RenderPerson } from './render-context';
  * `GET /templates/short-codes` serves this list (plus the live custom-field
  * names) to the composer and the template editor.
  */
-export type ShortCodeGroup = 'client' | 'job' | 'technician' | 'business' | 'links';
+export type ShortCodeGroup = 'client' | 'job' | 'technician' | 'business' | 'links' | 'call';
 
 export interface ShortCodeDefinition {
   code: string;
@@ -63,6 +63,17 @@ export function buildLink(base: string | undefined, deal: RenderContext['deal'])
 
 const client = (ctx: RenderContext) => ctx.deal?.clientName ?? ctx.contact;
 const jobAddress = (ctx: RenderContext) => ctx.deal?.address ?? ctx.contact?.addresses?.[0];
+
+/** Workiz's wording for a call alert's "When call is" — Completed / Voicemail / Missed. */
+const CALL_STATUS_TEXT: Record<NonNullable<RenderCall['outcome']>, string> = {
+  answered: 'Completed',
+  missed: 'Missed',
+  voicemail: 'Voicemail',
+};
+/** The other end of the call: who rang us, or whom we dialled. */
+const callerNumber = (c?: RenderCall) => (c ? formatPhone(c.direction === 'outbound' ? c.to : c.from) : undefined);
+/** Our own end: the line the call came through. */
+const ourLine = (c?: RenderCall) => (c ? formatPhone(c.direction === 'outbound' ? c.from : c.to) : undefined);
 const zone = (ctx: RenderContext) =>
   resolveTimezone(ctx.timezone ?? ctx.deal?.jobTimezone ?? ctx.settings?.timezone ?? ctx.settings?.quietHours?.timezone);
 
@@ -101,6 +112,12 @@ const RESOLVERS: Record<string, Resolver> = {
   // --- links ---
   confirm_link: (ctx) => buildLink(ctx.settings?.confirmLinkBaseUrl, ctx.deal),
   info_link: (ctx) => buildLink(ctx.settings?.infoLinkBaseUrl, ctx.deal),
+  // --- call (a call alert's `call.completed` firing) ---
+  caller_number: (ctx) => callerNumber(ctx.call),
+  call_status: (ctx) => (ctx.call?.outcome ? CALL_STATUS_TEXT[ctx.call.outcome] : undefined),
+  // The flow's name, the line's name, else the line's number: telephony's
+  // `call.completed` carries no names yet, so today this is the dialled number.
+  call_flow: (ctx) => ctx.call?.flowName?.trim() || ctx.call?.lineName?.trim() || ourLine(ctx.call),
 };
 
 const def = (
@@ -148,6 +165,10 @@ export const SHORT_CODES: readonly ShortCodeDefinition[] = [
   def('late_value', 'technician', 'Minutes late — supplied by the sender of a "late" message', '15'),
   // BitCRM addition.
   def('tech_phone', 'technician', "Assigned technician's phone", '(404) 555-9876'),
+  // Call alerts (Workiz "When a call comes in" sends its own fixed text; ours needs a text, so the call is sayable).
+  def('caller_number', 'call', "The caller's number (on an outbound call, the number we dialled)", '(404) 555-1234'),
+  def('call_status', 'call', 'How the call ended: Completed, Voicemail or Missed', 'Missed'),
+  def('call_flow', 'call', 'The call flow or line the call came through (its number until telephony names the flow)', 'Main line'),
 ];
 
 const BY_CODE = new Map(SHORT_CODES.map((d) => [d.code, d]));

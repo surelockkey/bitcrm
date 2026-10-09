@@ -62,7 +62,29 @@ export interface RenderCompany {
   address?: string;
 }
 
+/**
+ * The call a phone-trigger automation (`call.completed`) is about —
+ * `{{caller_number}}`, `{{call_status}}`, `{{call_flow}}`. Workiz's call
+ * alert has no editable text; ours sends one, so the call has to be sayable.
+ * Handed in by the rule engine (`RenderRefs.call`), never loaded: telephony's
+ * event carries the numbers and the outcome, and no flow or line name yet —
+ * `call_flow` says the dialled line's number until it does.
+ */
+export interface RenderCall {
+  from?: string;
+  to?: string;
+  direction?: 'inbound' | 'outbound';
+  /** How it ended, as the automation trigger saw it. */
+  outcome?: 'answered' | 'missed' | 'voicemail';
+  /** The call flow that answered the line, once telephony publishes it. */
+  flowName?: string;
+  /** The line's own name, once telephony publishes it. */
+  lineName?: string;
+}
+
 export interface RenderContext {
+  /** Set for a `call.completed` firing; absent on a job or a message. */
+  call?: RenderCall;
   contact?: RenderContact;
   deal?: RenderDeal;
   technician?: RenderPerson;
@@ -85,4 +107,6 @@ export interface RenderRefs {
   /** The sending user — becomes `technician` when they are on the job's roster (or there is no job). */
   userId?: string;
   values?: Record<string, string>;
+  /** The call of a `call.completed` firing, passed through as it is. */
+  call?: RenderCall;
 }

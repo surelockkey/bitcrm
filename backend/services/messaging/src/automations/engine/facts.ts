@@ -44,6 +44,10 @@ export interface AutomationCallFacts {
   from?: string;
   to?: string;
   contactId?: string;
+  /** The call flow that answered the line — `{{call_flow}}` — once telephony publishes it on `call.completed`. */
+  flowName?: string;
+  /** The line's own name, likewise. */
+  lineName?: string;
 }
 
 /** The slice of an inbound message the `message.received` rules read. */

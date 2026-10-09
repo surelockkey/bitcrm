@@ -195,14 +195,32 @@ export class AutomationActionExecutor {
     }
   }
 
-  /** The ids the renderer loads the short-code context from, the same for a text and an e-mail. */
+  /**
+   * The ids the renderer loads the short-code context from, the same for a
+   * text and an e-mail — plus the call itself on a `call.completed` firing,
+   * which nothing could load from an id (`{{caller_number}}`,
+   * `{{call_status}}`, `{{call_flow}}`).
+   */
   private renderRefs(ctx: ActionContext, recipient: Recipient, conversation: Conversation | undefined): RenderRefs {
+    const call = ctx.facts.call;
     return {
       ...(conversation ? { conversationId: conversation.id } : {}),
       contactId: recipient.contactId ?? ctx.facts.deal?.contactId,
       dealId: ctx.facts.deal?.id,
       userId: recipient.user?.id,
       values: ctx.values,
+      ...(call
+        ? {
+            call: {
+              from: call.from,
+              to: call.to,
+              direction: call.direction,
+              outcome: ctx.event.call?.outcome,
+              flowName: call.flowName,
+              lineName: call.lineName,
+            },
+          }
+        : {}),
     };
   }
 

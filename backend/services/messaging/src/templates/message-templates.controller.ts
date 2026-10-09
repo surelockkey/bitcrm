@@ -68,8 +68,9 @@ export class MessageTemplatesController {
     summary: 'Short codes the composer and the template editor may insert',
     description:
       '**Guard:** `messages.send`. The Workiz-compatible standard codes (`{{first_name}}`, `{{job_date}}`, ' +
-      '`{{confirm_link}}`, …) with a description each, followed by the active deal custom fields, which are ' +
-      'inserted by name (`{{Manager Note}}`).',
+      '`{{confirm_link}}`, …) with a description each, grouped (`client`, `job`, `technician`, `business`, `links`, ' +
+      'and `call` — `{{caller_number}}`, `{{call_status}}`, `{{call_flow}}`, which resolve only on a call-alert ' +
+      "automation's firing), followed by the active deal custom fields, which are inserted by name (`{{Manager Note}}`).",
   })
   async shortCodes() {
     const customFields = await this.contextLoader.listCustomFields();

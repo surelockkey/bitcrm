@@ -35,5 +35,6 @@ export function fullContext(): RenderContext {
     },
     values: { late_value: '15' },
     timezone: 'America/New_York',
+    call: { from: '+14045551234', to: '+12034036303', direction: 'inbound', outcome: 'missed', flowName: 'Main line' },
   };
 }
