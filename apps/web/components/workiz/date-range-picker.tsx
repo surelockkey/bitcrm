@@ -25,6 +25,12 @@ export interface WzDateRangePickerProps {
    * bold. Off by default: typed days only.
    */
   calendar?: { today: string };
+  /**
+   * Words to print in place of the days, when a preset has no span to show —
+   * Workiz's "All time" box reads "All time" twice (rep_activity_wz_05).
+   * `undefined` keeps the days.
+   */
+  rangeText?: (value: WzDateRange) => string | undefined;
   className?: string;
 }
 
@@ -37,12 +43,13 @@ export interface WzDateRangePickerProps {
  * inputs (158×32, #f7f7f7, 1px #ccc, radius 2, 14px #666, MM/DD/YYYY) inside
  * it, read on blur or Enter.
  */
-export function WzDateRangePicker({ presets, value, onChange, rangeOf, calendar, className }: WzDateRangePickerProps) {
+export function WzDateRangePicker({ presets, value, onChange, rangeOf, calendar, rangeText, className }: WzDateRangePickerProps) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const listId = useId();
   const custom = value.preset === "custom";
   const label = presets.find((p) => p.id === value.preset)?.label ?? "";
+  const days = rangeText?.(value) ?? formatWzDayRange(value.from, value.to);
 
   useEffect(() => {
     if (!open) return;
@@ -75,7 +82,7 @@ export function WzDateRangePicker({ presets, value, onChange, rangeOf, calendar,
     >
       <button
         type="button"
-        aria-label={`Date range: ${label}, ${formatWzDayRange(value.from, value.to)}`}
+        aria-label={`Date range: ${label}, ${days}`}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={open ? listId : undefined}
@@ -83,7 +90,7 @@ export function WzDateRangePicker({ presets, value, onChange, rangeOf, calendar,
         className="block w-full cursor-pointer text-left"
       >
         <span className="block px-2.5 pt-2.5">{label}</span>
-        <span className="block p-2.5 font-semibold whitespace-nowrap">{formatWzDayRange(value.from, value.to)}</span>
+        <span className="block p-2.5 font-semibold whitespace-nowrap">{days}</span>
       </button>
 
       {custom ? (

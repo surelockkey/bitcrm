@@ -84,3 +84,6 @@ export {
   type WzPoint,
   type WzPieSlice,
 } from "./chart-scale";
+
+// Report grid (Activity report).
+export { WzReportGrid, wzNextSort, type WzReportColumn, type WzSortDir } from "./report-grid";

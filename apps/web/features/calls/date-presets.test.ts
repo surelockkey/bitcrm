@@ -3,8 +3,8 @@ import { CALLS_PRESETS, callsPresetRange, dayRangeToInstants } from "./date-pres
 
 /**
  * The call log's date box, as Workiz has it on Thu 2026-10-08
- * (callspage_wz_date_presets.json): the same list as its reports, but the
- * "Last N days" end TODAY here, where the reports' end yesterday.
+ * (callspage_wz_date_presets.json): the same list as its reports, and like
+ * them the "Last N days" end TODAY.
  */
 const TODAY = "2026-10-08";
 

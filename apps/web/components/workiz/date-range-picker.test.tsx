@@ -110,4 +110,20 @@ describe("WzDateRangePicker", () => {
     expect(onChange).toHaveBeenLastCalledWith({ preset: "custom", from: "2026-10-01", to: "2026-10-07" });
     expect(screen.queryByRole("grid")).not.toBeInTheDocument();
   });
+
+  // Workiz's "All time" (rep_activity_wz_05_date_open): the box says "All time"
+  // where the days would be — its request carries no days at all.
+  it("with `rangeText`, prints the caller's words instead of the days", () => {
+    render(
+      <WzDateRangePicker
+        presets={[...presets, { id: "all_time", label: "All time" }]}
+        rangeOf={rangeOf}
+        value={{ preset: "all_time", from: "2015-01-01", to: "2026-10-08" }}
+        onChange={vi.fn()}
+        rangeText={(v) => (v.preset === "all_time" ? "All time" : undefined)}
+      />,
+    );
+    const box = screen.getByRole("button", { name: "Date range: All time, All time" });
+    expect(box).not.toHaveTextContent("2015");
+  });
 });

@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
-import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Download, Laptop, Smartphone, Sparkles, X } from "lucide-react";
+import { useMemo, useState } from "react";
+import { FileText, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import {
   ACTIVITY_DEFAULT_PAGE_SIZE,
@@ -10,56 +10,65 @@ import {
   ACTIVITY_PAGE_SIZES,
   UserStatus,
   type ActivityRow,
-  type ActivitySort,
 } from "@bitcrm/types";
-import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { WzDateRangePicker, type WzDateRange } from "@/components/workiz/date-range-picker";
+import { WzGroupedFilter, type WzFilterGroup, type WzFilterValue } from "@/components/workiz/grouped-filter";
+import { WzPager } from "@/components/workiz/pager";
+import { WzReportGrid, wzNextSort, type WzReportColumn, type WzSortDir } from "@/components/workiz/report-grid";
+import { WzListToolbar, WzPageSizeSelect, WzSearchBox, WzToolbarButton } from "@/components/workiz/toolbar";
 import { useDenied, usePermissions } from "@/features/auth/use-permissions";
 import { NoAccess } from "@/features/clients/components/contacts-page";
 import { useUserMap } from "@/features/deals/hooks";
 import { personName } from "@/features/deals/person-name";
 import { getApiErrorMessage } from "@/lib/api/errors";
+import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { settled, usePageReady } from "@/lib/use-page-ready";
 import { pagedSource } from "@/lib/paging/paged-source";
 import { usePager } from "@/lib/paging/use-pager";
-import { ACTIVITY_PRESETS, REPORT_PRESET_LABEL, reportPresetRange, type ReportPreset } from "../report-dates";
+import { ACTIVITY_PRESETS, REPORT_PRESET_LABEL, reportPresetRange, reportToday, type ReportPreset } from "../report-dates";
 import { exportActivity, useActivity, useActivityCount } from "../activity/hooks";
 import { activityCsv, activityTime, activityUser, type ActivityFilter } from "../activity/lib";
+import { ActivityDeviceIcon } from "../activity/device-icon";
 
 /** How long the search waits for the typing to stop. */
 const SEARCH_DELAY_MS = 400;
 
+const PRESETS = ACTIVITY_PRESETS.map((id) => ({ id, label: REPORT_PRESET_LABEL[id] }));
+
+/** The filter's one group: Workiz's TEAM, its chips "uid: <name>" (rep_activity_wz_11). */
+type TeamKey = "uid";
+
 /**
- * Workiz Reports → Activity: who did what, and when — newest first, today by
- * default. "Filter results" narrows to current teammates (Workiz's own filter
- * lists only them), the search matches the action and the Job Id, the Time
- * column turns the order round, and Export writes the four columns as CSV
- * (at most 10,000 rows, as Workiz). Pages walk the server's cursor.
+ * Workiz Reports → Activity (`/root/activity`), drawn as Workiz draws it
+ * (rep_activity_wz_*): no title — "Filter results" across the top with the
+ * date box at its right (no "By:" row); the list strip (Search, page size,
+ * Export); the four-column grid; the pager. Who did what and when, today by
+ * default, newest first. The presets count from the viewer's own today and
+ * the server reads those days on the account's calendar, as Workiz's do.
+ * "Filter results" narrows to current teammates (Workiz's own list), the
+ * search matches the action and the Job Id, the Time header sorts, and
+ * Export writes the four columns as CSV (at most 10,000 rows, as Workiz).
+ * Pages walk the server's cursor.
  */
-export function ActivityPage({ today }: { today: string }) {
+export function ActivityPage({ today: todayProp }: { today?: string } = {}) {
   const denied = useDenied();
   const blocked = denied("reports", "view");
+  const [today] = useState(() => todayProp ?? reportToday());
 
-  const [preset, setPreset] = useState<ReportPreset>("today");
-  const [custom, setCustom] = useState({ from: today, to: today });
-  const [userIds, setUserIds] = useState<string[]>([]);
-  const [typed, setTyped] = useState("");
-  const [q, setQ] = useState("");
-  const [sort, setSort] = useState<ActivitySort>("desc");
+  const [range, setRange] = useState<WzDateRange>(() => ({ preset: "today", ...reportPresetRange("today", today)! }));
+  const [team, setTeam] = useState<WzFilterValue<TeamKey>>({});
+  const [search, setSearch] = useState("");
+  const q = useDebouncedValue(search, SEARCH_DELAY_MS);
+  // Workiz opens unsorted (newest first, no bar); the header then sorts ascending first.
+  const [sort, setSort] = useState<WzSortDir | null>(null);
   const [pageSize, setPageSize] = useState<number>(ACTIVITY_DEFAULT_PAGE_SIZE);
   const [exporting, setExporting] = useState(false);
 
-  useEffect(() => {
-    const t = setTimeout(() => setQ(typed), SEARCH_DELAY_MS);
-    return () => clearTimeout(t);
-  }, [typed]);
+  const filter: ActivityFilter = { from: range.from, to: range.to, userIds: team.uid ?? [], q, sort: sort ?? "desc" };
 
-  const range = reportPresetRange(preset, today) ?? custom;
-  const valid = !!range.from && !!range.to && range.from <= range.to;
-  const filter: ActivityFilter = { from: range.from, to: range.to, userIds, q, sort };
-
-  const list = useActivity(filter, pageSize, !blocked && valid);
-  const count = useActivityCount(filter, !blocked && valid);
+  const list = useActivity(filter, pageSize, !blocked);
+  const count = useActivityCount(filter, !blocked);
   const pager = usePager(pagedSource(list), {
     total: count.data?.total,
     totalIsFloor: count.data?.atLeast,
@@ -70,12 +79,18 @@ export function ActivityPage({ today }: { today: string }) {
   const { isLoading: permsLoading } = usePermissions();
   const { map: userMap, users, isLoading: namesLoading } = useUserMap();
   const directoryName = (id: string) => personName(userMap.get(id));
-  const team = useMemo(
-    () =>
-      users
-        .filter((u) => (u as { status?: string }).status !== UserStatus.INACTIVE)
-        .map((u) => ({ id: u.id, name: personName(u) ?? u.id }))
-        .sort((a, b) => a.name.localeCompare(b.name)),
+  const groups = useMemo<WzFilterGroup<TeamKey>[]>(
+    () => [
+      {
+        key: "uid",
+        label: "Team",
+        chip: "uid",
+        options: users
+          .filter((u) => (u as { status?: string }).status !== UserStatus.INACTIVE)
+          .map((u) => ({ value: u.id, label: personName(u) ?? u.id }))
+          .sort((a, b) => a.label.localeCompare(b.label)),
+      },
+    ],
     [users],
   );
 
@@ -106,283 +121,122 @@ export function ActivityPage({ today }: { today: string }) {
     }
   };
 
-  return (
-    <div className="flex flex-1 flex-col overflow-y-auto">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b px-6 py-4">
-        <h1 className="text-lg font-semibold tracking-tight">Activity</h1>
-        <div className="flex flex-wrap items-center gap-2">
-          <select
-            aria-label="Date preset"
-            className="h-9 rounded-md border bg-transparent px-2 text-sm"
-            value={preset}
-            onChange={(e) => setPreset(e.target.value as ReportPreset)}
-          >
-            {ACTIVITY_PRESETS.map((p) => (
-              <option key={p} value={p}>
-                {REPORT_PRESET_LABEL[p]}
-              </option>
-            ))}
-          </select>
-          {preset === "custom" ? (
-            <>
-              <input
-                type="date"
-                aria-label="From"
-                className="h-9 rounded-md border bg-transparent px-2 text-sm"
-                value={custom.from}
-                onChange={(e) => setCustom((c) => ({ ...c, from: e.target.value }))}
-              />
-              <input
-                type="date"
-                aria-label="To"
-                className="h-9 rounded-md border bg-transparent px-2 text-sm"
-                value={custom.to}
-                onChange={(e) => setCustom((c) => ({ ...c, to: e.target.value }))}
-              />
-            </>
-          ) : (
-            <span className="text-sm text-muted-foreground tabular-nums">
-              {range.from === range.to ? range.from : `${range.from} – ${range.to}`}
+  const changeTeam = (next: WzFilterValue<TeamKey>) => {
+    const picked = next.uid ?? [];
+    // The server answers for up to twenty people at once (one index walk each).
+    if (picked.length > ACTIVITY_MAX_USERS) {
+      toast.info(`Filter by up to ${ACTIVITY_MAX_USERS} teammates at once.`);
+      return;
+    }
+    setTeam(next);
+  };
+
+  const columns: WzReportColumn<ActivityRow>[] = [
+    {
+      id: "time",
+      label: "Time",
+      sortable: true,
+      cell: (r) => <span className="block truncate">{activityTime(r.timestamp)}</span>,
+    },
+    {
+      id: "user",
+      label: "User",
+      cell: (r) => (
+        <div className="flex">
+          <span className="shrink-0">{activityUser(r, directoryName)}</span>
+          {r.doneByAI ? (
+            <span role="img" aria-label="Done by AI" title="Done by AI" className="ml-1.5 inline-flex shrink-0">
+              <Sparkles className="size-3.5 text-brand" aria-hidden />
             </span>
-          )}
+          ) : null}
         </div>
+      ),
+    },
+    {
+      id: "action",
+      label: "Action",
+      // Workiz's cell is a flex row: the words never shrink, so a long one
+      // runs to the cell's edge and pushes the device mark out of sight.
+      cell: (r) => (
+        <div className="flex h-[18px]">
+          <span className="shrink-0">{r.text}</span>
+          <ActivityDeviceIcon source={r.source} />
+        </div>
+      ),
+    },
+    {
+      id: "job",
+      label: "Job Id",
+      cell: (r) =>
+        r.dealId && r.jobRef ? (
+          // Ink, and no change under the cursor (rep_activity_wz_03d_job_hover).
+          <Link href={`/deals/${r.dealId}`} className="text-foreground no-underline">
+            {r.jobRef}
+          </Link>
+        ) : (
+          (r.jobRef ?? "")
+        ),
+    },
+  ];
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col overflow-auto text-wz-strong" data-slot="activity-report">
+      {/* The top band (rep_activity_wz_06_yesterday): the filter 34px under
+          the breadcrumbs, 21px in, to 20px short of the date box; the box
+          20px off the right edge; 30px under it to the strip. z-20 lets the
+          date list hang over the strip and the grid's sticky header. */}
+      <div className="relative z-20 flex shrink-0 items-start gap-5 pt-[34px] pr-5 pb-[30px] pl-[21px]">
+        <WzGroupedFilter<TeamKey>
+          className="min-w-0 flex-1"
+          groups={groups}
+          value={team}
+          onChange={changeTeam}
+          placeholder="Filter results"
+        />
+        <WzDateRangePicker
+          presets={PRESETS}
+          value={range}
+          onChange={setRange}
+          rangeOf={(id) => reportPresetRange(id as ReportPreset, today)}
+          rangeText={(v) => (v.preset === "all_time" ? REPORT_PRESET_LABEL.all_time : undefined)}
+          calendar={{ today }}
+        />
       </div>
 
-      <div className="flex flex-col gap-3 p-6">
-        <TeamFilter team={team} selected={userIds} onChange={setUserIds} />
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <input
-            type="search"
-            aria-label="Search"
-            placeholder="Search"
-            className="h-9 w-full max-w-sm rounded-md border bg-transparent px-3 text-sm"
-            value={typed}
-            onChange={(e) => setTyped(e.target.value)}
-          />
-          <Button variant="outline" size="sm" onClick={onExport} disabled={exporting || !valid}>
-            <Download className="size-4" /> {exporting ? "Exporting…" : "Export"}
-          </Button>
+      <WzListToolbar className="gap-x-4">
+        <WzSearchBox value={search} onChange={setSearch} />
+        <div className="ml-auto flex items-center gap-4">
+          <WzPageSizeSelect value={pageSize} sizes={ACTIVITY_PAGE_SIZES} onChange={setPageSize} />
+          <WzToolbarButton onClick={() => void onExport()} disabled={exporting}>
+            <FileText strokeWidth={1.5} /> {exporting ? "Exporting…" : "Export"}
+          </WzToolbarButton>
         </div>
+      </WzListToolbar>
 
-        {!valid ? (
-          <p role="alert" className="text-sm text-destructive">
-            Pick a start day on or before the end day.
-          </p>
-        ) : !ready ? (
-          // The table and its footer, while the rows, the total or the names are on their way.
-          <div role="status" aria-label="Loading activity" className="space-y-2">
-            {Array.from({ length: 6 }, (_, i) => (
-              <Skeleton key={i} className="h-9 w-full" />
-            ))}
-          </div>
-        ) : list.error ? (
-          <p role="alert" className="text-sm text-destructive">
+      <div className="flex-1">
+        {list.error ? (
+          <p role="alert" className="px-5 py-4 text-sm text-destructive">
             {getApiErrorMessage(list.error)}
           </p>
         ) : (
-          <>
-            <div className={`overflow-x-auto rounded-md border ${pager.isStale ? "opacity-60" : ""}`}>
-              <table aria-label="Activity" className="w-full text-sm">
-                <thead className="bg-muted">
-                  <tr>
-                    <th scope="col" className="w-56 px-3 py-2 text-left font-medium" aria-sort={sort === "asc" ? "ascending" : "descending"}>
-                      <button
-                        type="button"
-                        className="inline-flex items-center gap-1 hover:underline"
-                        onClick={() => setSort((s) => (s === "desc" ? "asc" : "desc"))}
-                      >
-                        Time {sort === "desc" ? <ArrowDown className="size-3.5" /> : <ArrowUp className="size-3.5" />}
-                      </button>
-                    </th>
-                    <th scope="col" className="w-56 px-3 py-2 text-left font-medium">User</th>
-                    <th scope="col" className="px-3 py-2 text-left font-medium">Action</th>
-                    <th scope="col" className="w-28 px-3 py-2 text-left font-medium">Job Id</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {pager.isLoading && !pager.items.length ? (
-                    Array.from({ length: 5 }, (_, i) => (
-                      <tr key={i} className="border-t">
-                        <td colSpan={4} className="px-3 py-2">
-                          <Skeleton className="h-4 w-full" />
-                        </td>
-                      </tr>
-                    ))
-                  ) : pager.items.length ? (
-                    pager.items.map((r) => <ActivityLine key={r.id} row={r} user={activityUser(r, directoryName)} />)
-                  ) : (
-                    <tr>
-                      <td colSpan={4} className="px-3 py-10 text-center text-muted-foreground">
-                        {list.hasNextPage ? "Nothing yet — keep going with the next page." : "No activity in this period."}
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-            <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
-              <span className="tabular-nums">
-                Showing {pager.from} to {pager.to}
-                {typeof pager.total === "number"
-                  ? ` of ${pager.total.toLocaleString("en-US")}${pager.totalIsFloor ? "+" : ""} results`
-                  : ""}
-              </span>
-              <div className="flex items-center gap-1">
-                <Button variant="ghost" size="icon-sm" aria-label="Previous page" disabled={!pager.canPrev} onClick={() => pager.prev()}>
-                  <ChevronLeft />
-                </Button>
-                <span className="tabular-nums">
-                  Page {pager.page}
-                  {pager.totalPages === undefined ? "" : ` of ${pager.totalPages.toLocaleString("en-US")}${pager.totalPagesIsFloor ? "+" : ""}`}
-                </span>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label="Next page"
-                  disabled={!pager.canNext || pager.isFetching}
-                  onClick={() => void pager.next()}
-                >
-                  <ChevronRight />
-                </Button>
-              </div>
-              <label className="flex items-center gap-2">
-                Rows per page
-                <select
-                  aria-label="Rows per page"
-                  className="h-8 rounded-md border bg-transparent px-1 text-xs"
-                  value={pageSize}
-                  onChange={(e) => setPageSize(Number(e.target.value))}
-                >
-                  {ACTIVITY_PAGE_SIZES.map((n) => (
-                    <option key={n} value={n}>
-                      {n}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-          </>
+          <TooltipProvider>
+            <WzReportGrid
+              aria-label="Activity"
+              columns={columns}
+              rows={ready ? pager.items : []}
+              rowKey={(r) => r.id}
+              sort={sort ? { column: "time", dir: sort } : null}
+              onSort={() => setSort((s) => wzNextSort(s ?? undefined))}
+              loading={!ready}
+              busy={pager.isStale}
+              // A searched walk may stop on its read budget with nothing yet — ours, not Workiz's.
+              emptyText={list.hasNextPage ? "Nothing yet — keep going with the next page." : "No Records Found"}
+              // Inside the frame, right under the rows (rep_activity_wz_06: pagination-bottom).
+              footer={ready ? <WzPager pager={pager} plainNumbers /> : null}
+            />
+          </TooltipProvider>
         )}
       </div>
-    </div>
-  );
-}
-
-function ActivityLine({ row, user }: { row: ActivityRow; user: string }) {
-  const mobile = row.source === "mobile";
-  return (
-    <tr className="border-t odd:bg-muted/40">
-      <td className="px-3 py-2 whitespace-nowrap tabular-nums">{activityTime(row.timestamp)}</td>
-      <td className="px-3 py-2">
-        <span className="inline-flex items-center gap-1">
-          {user}
-          {row.doneByAI && (
-            <span role="img" aria-label="Done by AI" title="Done by AI">
-              <Sparkles className="size-3.5 text-brand" aria-hidden />
-            </span>
-          )}
-        </span>
-      </td>
-      <td className="px-3 py-2">
-        <span className="inline-flex items-center gap-2">
-          <span>{row.text}</span>
-          {row.source && row.source !== "system" ? (
-            <span role="img" aria-label={mobile ? "Mobile App" : "Web App"} title={mobile ? "Mobile App" : "Web App"}>
-              {mobile ? (
-                <Smartphone className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
-              ) : (
-                <Laptop className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
-              )}
-            </span>
-          ) : null}
-        </span>
-      </td>
-      <td className="px-3 py-2 whitespace-nowrap">
-        {row.dealId && row.jobRef ? (
-          <Link href={`/deals/${row.dealId}`} className="text-brand hover:underline">
-            {row.jobRef}
-          </Link>
-        ) : (
-          (row.jobRef ?? "")
-        )}
-      </td>
-    </tr>
-  );
-}
-
-/**
- * Workiz's "Filter results": current teammates, several at once (the server
- * takes up to 20). A searchable checklist, the picks shown as chips.
- */
-function TeamFilter({
-  team,
-  selected,
-  onChange,
-}: {
-  team: { id: string; name: string }[];
-  selected: string[];
-  onChange: (ids: string[]) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [find, setFind] = useState("");
-  const names = new Map(team.map((t) => [t.id, t.name]));
-  const shown = team.filter((t) => t.name.toLowerCase().includes(find.trim().toLowerCase()));
-  const full = selected.length >= ACTIVITY_MAX_USERS;
-  const toggle = (id: string) =>
-    onChange(selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id]);
-
-  return (
-    <div className="relative">
-      <div className="flex min-h-9 flex-wrap items-center gap-1.5 rounded-md border px-2 py-1">
-        {selected.map((id) => (
-          <span key={id} className="inline-flex items-center gap-1 rounded-chip border px-2 py-0.5 text-xs">
-            {names.get(id) ?? id}
-            <button type="button" aria-label={`Remove ${names.get(id) ?? id}`} onClick={() => toggle(id)}>
-              <X className="size-3" />
-            </button>
-          </span>
-        ))}
-        <button
-          type="button"
-          aria-expanded={open}
-          aria-haspopup="listbox"
-          className="flex-1 text-left text-sm text-muted-foreground"
-          onClick={() => setOpen((o) => !o)}
-        >
-          {selected.length ? "" : "Filter results"}
-        </button>
-      </div>
-      {open && (
-        <div className="absolute z-20 mt-1 w-full max-w-md rounded-md border bg-popover p-2 shadow-md">
-          <input
-            type="search"
-            aria-label="Find a teammate"
-            placeholder="Team"
-            className="mb-2 h-8 w-full rounded-md border bg-transparent px-2 text-sm"
-            value={find}
-            onChange={(e) => setFind(e.target.value)}
-          />
-          <ul role="listbox" aria-label="Team" aria-multiselectable className="max-h-64 overflow-y-auto">
-            {shown.map((t) => {
-              const on = selected.includes(t.id);
-              return (
-                <li key={t.id} role="option" aria-selected={on}>
-                  <label className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 text-sm hover:bg-muted">
-                    <input type="checkbox" checked={on} disabled={!on && full} onChange={() => toggle(t.id)} />
-                    {t.name}
-                  </label>
-                </li>
-              );
-            })}
-            {!shown.length && <li className="px-1 py-1 text-sm text-muted-foreground">No teammate by that name.</li>}
-          </ul>
-          <div className="mt-2 flex justify-end">
-            <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>
-              Done
-            </Button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

@@ -1,10 +1,12 @@
 import { ACTIVITY_FIRST_DAY, DASHBOARD_TIMEZONE, dashboardDay } from "@bitcrm/types";
+import { presetRange, viewerToday } from "./jobs/lib";
 
 /*
  * Workiz's report date picker, for the reports that use its long list
- * (Activity, Call Tracking): the presets in Workiz's order, and the account
- * days each one covers. Days are the business's (America/New_York) — the
- * calendar the servers count by.
+ * (Activity, Call Tracking) and the call log: the presets in Workiz's order,
+ * and the days each one covers, counted from the viewer's today as Workiz
+ * does. The servers read those days on the business's calendar
+ * (America/New_York).
  */
 
 export type ReportPreset =
@@ -86,68 +88,51 @@ export function accountToday(now: Date = new Date()): string {
   return dashboardDay(now, DASHBOARD_TIMEZONE);
 }
 
+/**
+ * The day the presets count from: the viewer's own today, as Workiz's
+ * datepicker counts from `moment()` (rep_activity, 2026-10-09: at 01:25 in
+ * Kyiv — 18:25 the day before in New York — its "Today" asked for Oct 9).
+ * The server still reads the days it is given on the account's calendar.
+ */
+export function reportToday(now: Date = new Date()): string {
+  return viewerToday(now);
+}
+
 const shift = (day: string, n: number): string => {
   const d = new Date(`${day}T00:00:00.000Z`);
   d.setUTCDate(d.getUTCDate() + n);
   return d.toISOString().slice(0, 10);
 };
-const weekday = (day: string): number => new Date(`${day}T00:00:00.000Z`).getUTCDay(); // 0 = Sunday
 const monthsBack = (day: string, n: number): string => {
   const [y, m] = day.split("-").map(Number);
   return new Date(Date.UTC(y, m - 1 - n, 1)).toISOString().slice(0, 10);
 };
 
 /**
- * The account days a preset covers, both ends included. "Last N days" ends
- * yesterday (Workiz's "Last 7 days" on 29.09 is 22–28.09); "Recent" is the 30
- * days up to and including today; "Last N months" are whole months. `null`
- * for Custom — the page holds its own days.
+ * The days a preset covers, both ends included — Workiz's datepicker rules
+ * (report_table_and_datepicker.js getOptions, read live 2026-10-09). The
+ * presets the Jobs report shares come from its `presetRange`: "Last N days"
+ * up to and including today, weeks by moment's isoWeekday. "Last N months"
+ * are whole months before this one; "Recent" is today and the thirty days
+ * before it (Sep 9th - Oct 9th on the 9th); "All time" reaches back to the
+ * account's first activity. `null` for Custom — the page holds its own days.
  */
 export function reportPresetRange(preset: ReportPreset, today: string): { from: string; to: string } | null {
-  const firstOfMonth = `${today.slice(0, 7)}-01`;
-  const year = Number(today.slice(0, 4));
-  const sunday = shift(today, -weekday(today));
-  const monday = shift(today, weekday(today) === 0 ? -6 : 1 - weekday(today));
+  const lastOfLastMonth = shift(`${today.slice(0, 7)}-01`, -1);
   switch (preset) {
-    case "today":
-      return { from: today, to: today };
-    case "yesterday":
-      return { from: shift(today, -1), to: shift(today, -1) };
-    case "last_7":
-      return { from: shift(today, -7), to: shift(today, -1) };
-    case "last_14":
-      return { from: shift(today, -14), to: shift(today, -1) };
-    case "last_30":
-      return { from: shift(today, -30), to: shift(today, -1) };
-    case "recent":
-      return { from: shift(today, -29), to: today };
-    case "last_month":
-      return { from: monthsBack(today, 1), to: shift(firstOfMonth, -1) };
-    case "this_month":
-      return { from: firstOfMonth, to: today };
-    case "this_year":
-      return { from: `${year}-01-01`, to: today };
-    case "last_year":
-      return { from: `${year - 1}-01-01`, to: `${year - 1}-12-31` };
-    case "this_week_sun":
-      return { from: sunday, to: today };
-    case "this_week_mon":
-      return { from: monday, to: today };
-    case "last_week_sun":
-      return { from: shift(sunday, -7), to: shift(sunday, -1) };
-    case "last_week_mon":
-      return { from: shift(monday, -7), to: shift(monday, -1) };
-    case "last_business_week":
-      return { from: shift(monday, -7), to: shift(monday, -3) };
-    case "last_3_months":
-      return { from: monthsBack(today, 3), to: shift(firstOfMonth, -1) };
-    case "last_6_months":
-      return { from: monthsBack(today, 6), to: shift(firstOfMonth, -1) };
-    case "last_12_months":
-      return { from: monthsBack(today, 12), to: shift(firstOfMonth, -1) };
-    case "all_time":
-      return { from: ACTIVITY_FIRST_DAY, to: today };
     case "custom":
       return null;
+    case "last_3_months":
+      return { from: monthsBack(today, 3), to: lastOfLastMonth };
+    case "last_6_months":
+      return { from: monthsBack(today, 6), to: lastOfLastMonth };
+    case "last_12_months":
+      return { from: monthsBack(today, 12), to: lastOfLastMonth };
+    case "recent":
+      return { from: shift(today, -30), to: today };
+    case "all_time":
+      return { from: ACTIVITY_FIRST_DAY, to: today };
+    default:
+      return presetRange(preset, today);
   }
 }

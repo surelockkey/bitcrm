@@ -1,4 +1,4 @@
-import { accountWindowUtc, shiftAccountDay } from "@bitcrm/types";
+import { accountWindowUtc } from "@bitcrm/types";
 import { DEFAULT_TZ } from "@/lib/timezone";
 import { reportPresetRange, type ReportPreset } from "@/features/reports/report-dates";
 
@@ -27,18 +27,13 @@ export const CALLS_PRESETS: ReportPreset[] = [
 
 export const DEFAULT_CALLS_PRESET: ReportPreset = "today";
 
-/** Days back the call log's "Last N days" reach, today included. */
-const LAST_N: Partial<Record<ReportPreset, number>> = { last_7: 7, last_14: 14, last_30: 30 };
-
 /**
- * The account days a preset covers, both ends included. Workiz's call log
- * counts "Last 7 days" up to TODAY (Oct 2–8 on the 8th) where its reports
- * stop at yesterday; every other preset is the reports' own. `null` for
- * Custom — the page holds those days.
+ * The days a preset covers, both ends included — the reports' own rules:
+ * Workiz's call log counts "Last 7 days" up to TODAY (Oct 2–8 on the 8th),
+ * as its reports do (rep_activity, 2026-10-09). `null` for Custom — the
+ * page holds those days.
  */
 export function callsPresetRange(preset: ReportPreset, today: string): { from: string; to: string } | null {
-  const n = LAST_N[preset];
-  if (n) return { from: shiftAccountDay(today, 1 - n), to: today };
   return reportPresetRange(preset, today);
 }
 

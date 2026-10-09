@@ -1,9 +1,9 @@
 "use client";
 
 import { CallTrackingPage } from "@/features/reports/components/call-tracking-page";
-import { accountToday } from "@/features/reports/report-dates";
+import { reportToday } from "@/features/reports/report-dates";
 
 export default function Page() {
-  // The presets count from today on the account's (New York) calendar.
-  return <CallTrackingPage today={accountToday()} />;
+  // The presets count from the viewer's own today, as Workiz's datepicker does.
+  return <CallTrackingPage today={reportToday()} />;
 }
