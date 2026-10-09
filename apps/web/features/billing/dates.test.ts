@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addDaysYmd, formatYmd, isYmd, todayYmd, ymdOf } from "./dates";
+import { addDaysYmd, formatWzDocDate, formatYmd, isYmd, todayYmd, ymdOf } from "./dates";
 
 describe("billing dates", () => {
   it("validates YYYY-MM-DD", () => {
@@ -30,5 +30,12 @@ describe("billing dates", () => {
     const d = new Date(2026, 8, 16, 23, 30);
     expect(todayYmd(d)).toBe("2026-09-16");
     expect(ymdOf(d)).toBe("2026-09-16");
+  });
+
+  it("prints a document day as Workiz's header does (\"Thu Jun 18 2026\"), never through UTC", () => {
+    expect(formatWzDocDate("2026-06-18")).toBe("Thu Jun 18 2026");
+    expect(formatWzDocDate("2026-06-08")).toBe("Mon Jun 08 2026");
+    expect(formatWzDocDate("2026-02-30")).toBe("");
+    expect(formatWzDocDate(undefined)).toBe("");
   });
 });

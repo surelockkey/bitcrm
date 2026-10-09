@@ -785,6 +785,38 @@ Chart.js 2 graph. Import each from its file.
   the box as wide as its words (228px for "This month / Oct 1st, 2026 - Oct
   9th, 2026"); Custom keeps its 362px.
 
+## Document pages (2026-10-09, agent `pg_estimate`, the estimate page)
+
+Measured off `pg_estimate_wz_*` (job estimate 6764834, client estimate
+6067865; notes `workiz-data-parser/docs/import/app-parity-2026-10-08/pg_estimate.md`)
+and main.css (`Button-module`, `MenuPopup-module`, `estimate-module`,
+`signatures-module`, `totals-module`). The invoice page is built from the same
+modules, so these are meant for it too. All new; nothing existing changed.
+
+- **`WzButtonLink`** (`button.tsx`) `href` `variant` `size` `icon` — `WzButton`'s
+  look on a Next `Link`, for the buttons that go somewhere ("Price book",
+  "Create new job"): `size="regular"` is Workiz's 32px (34px outlined).
+- **`WZ_MENU_POPUP`** / **`WZ_MENU_POPUP_ITEM`** (`menu-popup.ts`) — class
+  strings for `DropdownMenuContent` / `DropdownMenuItem` that turn them into
+  Workiz's small MenuPopup (the estimate's Actions / Send / Add estimate): as
+  wide as its longest row, r8, 8px in, `0 0 4px rgba(59,75,82,.05), 0 8px 16px
+  rgba(59,75,82,.15)`, 35px rows of 13px ink with a 24px glyph slot, #f3f6f7
+  under the cursor, Delete left ink. Hang it `align="end" sideOffset={8}
+  alignOffset={-4}`. (The job page's 216px slate menu stays the default.)
+- **`WzDocSectionHead`** (`document-parts.tsx`) `title` `icon` `action` — a
+  section head under a document's totals: glyph + 18px/22px 500 #3b4c53 title,
+  the button at the right, a 1px #cad3d6 rule 6px under (Signatures,
+  Attachments). Notes: `className="border-input pb-[15px]"`.
+- **`WzTotalsBoxRow`** `label` `colon="spaced"|"tight"` `underline` `bold`
+  `hint` `onClick` `title` — "Subtotal :" + the 132×28 grey box
+  (**`WZ_TOTALS_BOX`**: #f7f7f7, 1px #ccc, r2, 14px #666, normal tracking);
+  `onClick` makes the box a button ("Deposit :", the Discount box). Stack them
+  with `flex flex-col items-end gap-[5px]` (33px apart).
+
+Shared billing components grew a Workiz variant on the same props (default
+unchanged): `DocumentItemsTable variant="workiz"`, `DocumentSummaryPanel
+variant="workiz"`, `SignaturesSection variant="workiz"` (features/billing).
+
 ## Known differences from Workiz (deliberate or unmeasurable)
 - Sub-pixel: Workiz's own fractional layout makes some glyphs land ±1px
   differently from ours in screenshots (e.g. two Workiz selects with identical

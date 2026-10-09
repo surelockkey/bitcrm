@@ -3,6 +3,11 @@ import { formatMoney } from "@/features/deals/lib";
 
 export { formatMoney };
 
+/** Workiz's totals boxes: the amount without its sign, grouped, two places ("1,003.39"). */
+export function formatBoxAmount(n: number): string {
+  return n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
 /** "6%", "6.35%", "8.875%" — at most 3 decimals, no trailing zeros. */
 export function formatPercent(n: number | undefined | null): string {
   const v = typeof n === "number" && Number.isFinite(n) ? n : 0;

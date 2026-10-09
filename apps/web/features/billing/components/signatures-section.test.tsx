@@ -60,4 +60,16 @@ describe("SignaturesSection (Workiz Signatures +)", () => {
     await user().click(save);
     await waitFor(() => expect(onSign).toHaveBeenCalledWith({ imageDataUrl: "data:image/png;base64,QUJD", signedBy: "J. Client" }));
   });
+
+  /** pg_estimate_wz_01_job: the section head over a #cad3d6 rule, the yellow Sign at its right, "No signatures found". */
+  it("variant workiz: Workiz's head, its yellow Sign and its empty words", async () => {
+    render(<SignaturesSection variant="workiz" signatures={[]} signerName="Jane" canSign onSign={vi.fn()} />);
+    const heading = screen.getByRole("heading", { name: "Signatures" });
+    expect(heading.className).toContain("text-[18px]");
+    const sign = screen.getByRole("button", { name: /^sign$/i });
+    expect(sign).toHaveAttribute("data-variant", "primary");
+    expect(screen.getByText("No signatures found")).toBeInTheDocument();
+    await user().click(sign);
+    expect(screen.getByLabelText(/signer/i)).toHaveValue("Jane");
+  });
 });

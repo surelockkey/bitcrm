@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import type { TaxRate } from "@bitcrm/types";
 import {
   discountLabel,
+  formatBoxAmount,
   formatPercent,
   isAutoTaxSource,
   normalizeDiscount,
@@ -100,5 +101,13 @@ describe("TAX_EXEMPT_REASONS", () => {
     expect(TAX_EXEMPT_REASONS).toContain("Charitable organization");
     expect(TAX_EXEMPT_REASONS).toContain("Resale");
     expect(TAX_EXEMPT_REASONS).toContain("Other");
+  });
+});
+
+describe("formatBoxAmount (Workiz's totals boxes)", () => {
+  it("prints grouped amounts to two places, without the dollar sign", () => {
+    expect(formatBoxAmount(1003.39)).toBe("1,003.39");
+    expect(formatBoxAmount(0)).toBe("0.00");
+    expect(formatBoxAmount(91.2)).toBe("91.20");
   });
 });

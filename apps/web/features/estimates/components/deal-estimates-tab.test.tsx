@@ -412,7 +412,8 @@ describe("EstimateEditor — sync to job", () => {
       http.get("*/billing/estimates/e1", () => HttpResponse.json({ success: true, data: { ...estimate, items: [] } })),
     );
     renderWithClient(<Editor />);
-    expect(await screen.findByText(/no items on this estimate yet/i)).toBeInTheDocument();
+    // Workiz's empty grid: its art and "Add items".
+    expect(await screen.findByRole("button", { name: "Add items" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /sync to job/i })).toHaveAttribute("aria-disabled", "true");
   });
 

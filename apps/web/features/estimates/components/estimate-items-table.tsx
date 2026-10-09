@@ -20,6 +20,7 @@ export function EstimateItemsTable({
   canEdit,
   toolbar,
   addClassName,
+  variant,
 }: {
   estimateId: string;
   dealId?: string;
@@ -29,6 +30,8 @@ export function EstimateItemsTable({
   toolbar?: ReactNode;
   /** The estimate page's look for "Add item". */
   addClassName?: string;
+  /** `workiz`: Workiz's Items grid (the estimate page). */
+  variant?: "card" | "workiz";
 }) {
   const { can } = usePermissions();
   const add = useAddEstimateItem(estimateId, dealId);
@@ -45,6 +48,7 @@ export function EstimateItemsTable({
       emptyText="No items on this estimate yet."
       toolbar={toolbar}
       addClassName={addClassName}
+      variant={variant}
       pending={{
         add: add.isPending,
         update: update.isPending,

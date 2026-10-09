@@ -36,6 +36,8 @@ export function EstimateCoverField({
     });
   };
 
+  // pg_estimate_wz_01_job (`headerJob-module__img` / `__uploadIcon`): a 100px
+  // #3b4b52 disc, "Upload Image" in white, the 32px yellow + 72px in and 60px down.
   return (
     <div className="relative flex-none">
       <button
@@ -44,7 +46,7 @@ export function EstimateCoverField({
         onClick={() => fileRef.current?.click()}
         aria-label={coverUrl ? "Change cover image" : "Upload cover image"}
         className={cn(
-          "flex size-28 items-center justify-center overflow-hidden rounded-full bg-foreground text-center text-sm font-semibold text-background",
+          "flex size-[100px] items-center justify-center overflow-hidden rounded-full bg-foreground text-center text-[13px] leading-[18px] font-semibold text-white",
           !disabled && "hover:bg-foreground/90",
           disabled && "cursor-default",
         )}
@@ -64,21 +66,22 @@ export function EstimateCoverField({
       </button>
       {!disabled ? (
         coverUrl ? (
+          // Workiz's `clearImage`: a 22px #ff6f64 disc with a white ×.
           <button
             type="button"
             onClick={() => onChange(null)}
             disabled={busy}
             aria-label="Remove cover image"
-            className="absolute -right-1 bottom-1 flex size-8 items-center justify-center rounded-full border-2 border-background bg-muted text-foreground shadow-sm hover:bg-destructive hover:text-white"
+            className="absolute top-0 left-[78px] flex size-[22px] items-center justify-center rounded-full bg-[#ff6f64] text-white hover:bg-wz-danger-hover"
           >
-            <X className="size-4" />
+            <X className="size-3.5" strokeWidth={2.5} />
           </button>
         ) : (
           <span
             aria-hidden
-            className="pointer-events-none absolute -right-1 bottom-1 flex size-8 items-center justify-center rounded-full border-2 border-background bg-primary text-primary-foreground shadow-sm"
+            className="pointer-events-none absolute top-[60px] left-[72px] flex size-8 items-center justify-center rounded-full bg-primary text-foreground"
           >
-            <Plus className="size-4" />
+            <Plus className="size-4" strokeWidth={1.75} />
           </span>
         )
       ) : null}

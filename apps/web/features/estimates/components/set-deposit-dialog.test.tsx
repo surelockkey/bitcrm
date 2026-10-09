@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { SetDepositDialog, depositLabel } from "./set-deposit-dialog";
+import { SetDepositDialog, depositBoxText, depositLabel } from "./set-deposit-dialog";
 
 const user = () => userEvent.setup({ pointerEventsCheck: 0 });
 
@@ -10,6 +10,15 @@ describe("depositLabel", () => {
     expect(depositLabel({ depositPercentage: 50, totals: { total: 3511.22 } } as never)).toBe("$1,755.61 (50%)");
     expect(depositLabel({ depositAmount: 75, totals: { total: 300 } } as never)).toBe("$75.00");
     expect(depositLabel({ totals: { total: 300 } } as never)).toBeNull();
+  });
+});
+
+describe("depositBoxText", () => {
+  it("prints Workiz's Deposit box: the amount, then the percent to two places when it is one", () => {
+    expect(depositBoxText({ depositPercentage: 50, totals: { total: 1003.39 } } as never)).toBe("501.70 (50.00%)");
+    expect(depositBoxText({ depositPercentage: 12.5, totals: { total: 0 } } as never)).toBe("0.00 (12.50%)");
+    expect(depositBoxText({ depositAmount: 1250, totals: { total: 3000 } } as never)).toBe("1,250.00");
+    expect(depositBoxText({ totals: { total: 300 } } as never)).toBe("0.00");
   });
 });
 

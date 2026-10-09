@@ -1,6 +1,7 @@
 "use client";
 
 import type { ComponentProps, ReactNode } from "react";
+import Link from "next/link";
 import { Loader2 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -99,6 +100,55 @@ export function WzButton({
         </span>
       ) : null}
     </button>
+  );
+}
+
+/**
+ * WzButton's look on a link (a Next `Link`): the estimate page's "Price book"
+ * and "Create new job" (pg_estimate_wz_01_job), which go somewhere rather
+ * than act. Same variants, sizes, icon slot and words as `WzButton`.
+ */
+export function WzButtonLink({
+  variant = "primary",
+  size = "big",
+  icon,
+  className,
+  children,
+  ...rest
+}: Omit<ComponentProps<typeof Link>, "children"> & {
+  variant?: keyof typeof VARIANT;
+  size?: keyof typeof SIZE;
+  icon?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <Link
+      {...rest}
+      data-slot="wz-button"
+      data-variant={variant}
+      className={cn(
+        "relative inline-flex shrink-0 cursor-pointer flex-row items-center justify-center gap-1 rounded-pill outline-none transition-colors",
+        "focus-visible:ring-2 focus-visible:ring-wz-focus",
+        VARIANT[variant],
+        SIZE[size],
+        className,
+      )}
+    >
+      {icon ? (
+        <span
+          data-slot="wz-button-icon"
+          className={cn(
+            "relative flex items-center justify-center text-foreground [&_svg]:shrink-0",
+            size === "big" ? "size-6 text-[18px] [&_svg]:size-[18px]" : "size-[19px] text-[13px] [&_svg]:size-[15px]",
+          )}
+        >
+          {icon}
+        </span>
+      ) : null}
+      <span className="flex items-center px-1 text-[13px] leading-[19px] font-semibold tracking-[0.2px] whitespace-nowrap text-foreground">
+        {children}
+      </span>
+    </Link>
   );
 }
 
