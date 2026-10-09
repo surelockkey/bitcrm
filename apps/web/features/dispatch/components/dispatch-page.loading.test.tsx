@@ -225,6 +225,26 @@ describe("DispatchPage — one load, not waves", () => {
     });
   });
 
+  // app_audit 2026-10-09 (finding 6): 10–15 s of a bare spinner before
+  // anything drew. The wait is the board's — every open job, their clients,
+  // the team — but what the dispatcher looks at meanwhile must be the page's
+  // own shape: the sidebar with its search, tabs and card places, and the
+  // map's frame with the date box, grey where the words will be.
+  it("holds the board's own shape while it waits — the sidebar and the map's frame, never a bare spinner", async () => {
+    renderWithClient(<DispatchPage />);
+
+    const shape = screen.getByTestId("dispatch-board-skeleton");
+    expect(shape).toBeInTheDocument();
+    expect(skeletonCount(shape)).toBeGreaterThan(3);
+    expect(document.querySelector(".animate-spin")).toBeNull();
+    // The sidebar's width and the map beside it, as on the board.
+    expect(shape.querySelector('[data-testid="map-sidebar-skeleton"]')?.className).toContain("w-[386px]");
+    expect(shape.querySelector('[data-testid="map-skeleton"]')).toBeInTheDocument();
+
+    await boardUp();
+    expect(screen.queryByTestId("dispatch-board-skeleton")).toBeNull();
+  });
+
   it("asks for nothing more once the board is on screen", async () => {
     const watch = watchBoardFirstFrame();
     renderWithClient(<DispatchPage />);
