@@ -115,6 +115,8 @@ export function ItemsTable({
       <WzReportGrid
         aria-label="Items & products"
         className="shrink-0"
+        // Workiz's rows: 80px, centred beside the 40px picture (pg_pricebook).
+        rowHeight={80}
         columns={columns}
         rows={loading ? NO_ROWS : items}
         rowKey={(p) => p.id}

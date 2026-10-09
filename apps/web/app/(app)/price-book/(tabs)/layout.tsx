@@ -1,5 +1,5 @@
 import { WzExplainHeader } from "@/components/workiz/explain-header";
-import { PriceBookTabs } from "@/features/price-book/components/price-book-tabs";
+import { PriceBookFrame } from "@/features/price-book/components/price-book-frame";
 
 /**
  * Workiz's Price book (`/root/service_and_products`): its explanation band
@@ -8,7 +8,8 @@ import { PriceBookTabs } from "@/features/price-book/components/price-book-tabs"
  * scrolls as one, as Workiz's main container does, so a grid's header can
  * stick to the top. Items, categories and brands open as popups over their
  * tab. Workiz's help links, video card and "Price Book Pro" banner are its
- * own and are left out.
+ * own and are left out. The tab row comes with the tab's page, in its first
+ * whole frame (`PriceBookFrame`).
  */
 export default function PriceBookTabsLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -17,8 +18,7 @@ export default function PriceBookTabsLayout({ children }: { children: React.Reac
         Price book streamlines your estimating process by letting you organize and manage your business offerings and
         pricing
       </WzExplainHeader>
-      <PriceBookTabs className="mt-6" />
-      {children}
+      <PriceBookFrame className="mt-6">{children}</PriceBookFrame>
     </div>
   );
 }

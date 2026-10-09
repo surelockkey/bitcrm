@@ -3,11 +3,13 @@ import { cleanup, waitFor } from "@testing-library/react";
 import { InventoryStatus, ProductType } from "@bitcrm/types";
 import type { Product } from "@bitcrm/types";
 import {
+  declaredRowHeights,
   duplicates,
   installFakeServer,
   settle,
   skeletonCount,
   watchFirstFrame,
+  watchLoadingRowHeights,
   type FakeRoute,
   type FakeServer,
 } from "@/test/page-load";
@@ -109,6 +111,7 @@ let server: FakeServer;
 const { default: PriceBookTabsLayout } = await import("@/app/(app)/price-book/(tabs)/layout");
 const { ItemsPage } = await import("./items-page");
 const { CategoriesPage } = await import("./categories-page");
+const { BrandsPage } = await import("./brands-page");
 
 const tabRow = () => screen.queryByRole("navigation", { name: "Price Book sections" });
 const toolbar = () => screen.queryByTestId("price-book-toolbar");
@@ -144,6 +147,27 @@ describe("Price Book — the tab row", () => {
     watch.stop();
 
     // Items, Categories, Brands — placeholders first, the same size as the links.
+    expect(watch.frame()).toBe(3);
+  });
+
+  // One skeleton, then the page (app_audit 2026-10-09, finding 18): the tab
+  // names used to appear the moment the permissions answered, over a grid
+  // still on its loader, and the rows a beat later — two phases. The row now
+  // holds its placeholders until the tab's page is whole, as the Inventory
+  // frame does, and draws the names in the rows' frame.
+  it("draws the tab names in the rows' frame, never over the grid's loader", async () => {
+    let namesOverLoader = false;
+    const observer = new MutationObserver(() => {
+      if (tabRow()?.querySelector("a") && document.querySelector('[role="status"][aria-label="Loading"]')) namesOverLoader = true;
+    });
+    observer.observe(document.body, { childList: true, subtree: true, attributes: true });
+    const watch = watchFirstFrame(rowsUp, () => tabRow()!.querySelectorAll("a").length);
+    renderItems();
+    await screen.findByText("Test item 1", {}, { timeout: 3000 });
+    watch.stop();
+    observer.disconnect();
+
+    expect(namesOverLoader).toBe(false);
     expect(watch.frame()).toBe(3);
   });
 });
@@ -212,6 +236,41 @@ describe("Price Book — Items", () => {
 
     expect(duplicates(server.requests)).toEqual([]);
   });
+
+  // The loader's 57px blanks became Workiz's 80px rows (a 40px picture
+  // beside the name, pg_pricebook); blanks, records and filler now all
+  // declare the 80px, so the rows land exactly where the blanks were.
+  it("lands its rows on the loader's blank rows — the same declared row height before and after", async () => {
+    const watch = watchLoadingRowHeights();
+    renderItems();
+    await screen.findByText("Test item 1", {}, { timeout: 3000 });
+    watch.stop();
+
+    expect(watch.frame()).toEqual(["80px"]);
+    expect(declaredRowHeights()).toEqual(["80px"]);
+  });
+});
+
+describe("Price Book — Brands", () => {
+  beforeEach(() => {
+    mocks.pathname = "/price-book/brands";
+  });
+
+  // app_audit 2026-10-09: CLS 0.03 — the loader's 57px blanks became Workiz's
+  // 61px brand rows (pg_pricebook); now all three declare the 61px.
+  it("lands its rows on the loader's blank rows — the same declared row height before and after", async () => {
+    const watch = watchLoadingRowHeights();
+    renderPage(
+      <PriceBookTabsLayout>
+        <BrandsPage />
+      </PriceBookTabsLayout>,
+    );
+    await screen.findByText("Acme Hardware", {}, { timeout: 3000 });
+    watch.stop();
+
+    expect(watch.frame()).toEqual(["61px"]);
+    expect(declaredRowHeights()).toEqual(["61px"]);
+  });
 });
 
 describe("Price Book — Categories", () => {
@@ -250,5 +309,17 @@ describe("Price Book — Categories", () => {
     await screen.findByText("Keys", {}, { timeout: 3000 });
     await settle();
     expect(duplicates(server.requests)).toEqual([]);
+  });
+
+  // Workiz's 80px category rows (the 40px picture, pg_pricebook) over the
+  // loader's 57px blanks; now all three declare the 80px.
+  it("lands its rows on the loader's blank rows — the same declared row height before and after", async () => {
+    const watch = watchLoadingRowHeights();
+    renderCategories();
+    await screen.findByText("Keys", {}, { timeout: 3000 });
+    watch.stop();
+
+    expect(watch.frame()).toEqual(["80px"]);
+    expect(declaredRowHeights()).toEqual(["80px"]);
   });
 });

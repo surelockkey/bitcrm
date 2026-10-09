@@ -15,13 +15,14 @@ import { productsToCsv } from "@/features/inventory/products/lib";
 import { ProductDialog } from "@/features/inventory/products/components/product-dialog";
 import { ImportProductsDialog } from "@/features/inventory/products/components/import-products-dialog";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
-import { settled, usePageReady } from "@/lib/use-page-ready";
+import { settled } from "@/lib/use-page-ready";
 import { pagedSource } from "@/lib/paging/paged-source";
 import { usePageSize } from "@/lib/paging/use-page-size";
 import { usePager } from "@/lib/paging/use-pager";
 import { usePriceBookCount, usePriceBookItems } from "../hooks";
 import { SHOW_DEFAULT, brandNameMap, normalizeShow, showGroups, toProductFilter, type ShowValue } from "../lib";
 import { ITEMS_TABLE_KEY, ItemsTable } from "./items-table";
+import { usePriceBookPageReady } from "./price-book-frame";
 
 /** The popup over the list — one at a time: an item's Edit, or a new item. */
 type ItemPopup = { kind: "edit"; id: string } | { kind: "new" };
@@ -83,7 +84,8 @@ export function ItemsPage() {
   const categoryCatalog = useItemCategories(canCategories);
   const brandCatalog = useBrands(canBrands);
 
-  const ready = usePageReady(
+  // Reported to the frame: the tab row appears in this same frame.
+  const ready = usePriceBookPageReady(
     !permsLoading && settled(query) && settled(count) && (!canBrands || settled(brandCatalog)),
   );
   const groups = useMemo(

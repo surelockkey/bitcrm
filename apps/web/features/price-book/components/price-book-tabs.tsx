@@ -18,21 +18,23 @@ const TABS: { id: string; label: string; href: string; resource: Resource }[] = 
 
 /**
  * The Price book's big tabs (Workiz `_tabs`), each its own route, each behind
- * its own view permission. While the permissions load every tab holds its
- * place as a placeholder: an empty row that filled in later was 46px that
- * pushed the whole page down.
+ * its own view permission. While the permissions load — and while the frame
+ * over them says the page under them is not whole yet (`pending`) — every
+ * tab holds its place as a placeholder: an empty row that filled in later
+ * was 46px that pushed the whole page down.
  */
-export function PriceBookTabs({ className }: { className?: string }) {
+export function PriceBookTabs({ className, pending = false }: { className?: string; pending?: boolean }) {
   const pathname = usePathname();
   const { can, isLoading } = usePermissions();
-  const shown = isLoading ? TABS : TABS.filter((t) => can(t.resource));
+  const waiting = !!isLoading || pending;
+  const shown = waiting ? TABS : TABS.filter((t) => can(t.resource));
   const active = TABS.find((t) => pathname?.startsWith(t.href))?.id ?? null;
 
   return (
     <WzTabLinks
       label="Price Book sections"
       variant="page"
-      pending={!!isLoading}
+      pending={waiting}
       active={active}
       tabs={shown}
       className={className}
