@@ -76,7 +76,9 @@ export function JobHeader({
   });
 
   return (
-    <div className="px-4 pt-5 md:px-10">
+    // 19px under the breadcrumb strip: Workiz's title row starts at y=111
+    // (job_b_01_details — rows 111 / 169 / 213 / 257, audit_pixels J3).
+    <div className="px-4 pt-[19px] md:px-10">
       <div className="flex min-h-[34px] flex-wrap items-center gap-x-3 gap-y-2">
         <h1 className="text-[18px] leading-[27px] font-semibold text-foreground">
           Job <span>#{deal.dealNumber}</span>

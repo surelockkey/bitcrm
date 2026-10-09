@@ -32,7 +32,8 @@ export function JobTabBar({
     <WzTabBar
       variant="job"
       aria-label="Job sections"
-      className="mt-[22px]"
+      // The bar's top at y=304 (job_b_01_details) with the header's rows above it at Workiz's 111 / 169 / 213 / 257.
+      className="mt-[23px]"
       tabs={tabs.map((t) => ({ value: t, label: TAB_LABEL[t], sublabel: sublabels[t], id: `job-tab-${t}` }))}
       value={active}
       onValueChange={(v) => onSelect(v as DealTab)}
