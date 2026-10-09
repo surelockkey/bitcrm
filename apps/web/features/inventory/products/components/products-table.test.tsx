@@ -53,7 +53,9 @@ function table(products: Product[] = [product()], over: Partial<Parameters<typeo
       />
     </TooltipProvider>,
   );
-  const headers = () => [...utils.container.querySelectorAll("thead th")].map((th) => th.textContent?.trim());
+  // The pinned header (the rows' table repeats the names for a screen reader only).
+  const headers = () =>
+    [...utils.container.querySelectorAll("[data-slot=wz-report-grid-head] thead th")].map((th) => th.textContent?.trim());
   const cell = (column: string) => {
     const index = headers().indexOf(column);
     return utils.container.querySelectorAll("tbody tr:first-child td")[index] as HTMLElement;

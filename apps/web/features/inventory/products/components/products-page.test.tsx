@@ -103,6 +103,9 @@ vi.mock("@/features/inventory/stock/components/manage-stock-dialog", () => ({
 
 import { ProductsPage } from "./products-page";
 
+/** The grid's pinned header: the rows' own table repeats the column names for a screen reader only. */
+const gridHead = () => document.querySelector("[data-slot=wz-report-grid-head]") as HTMLElement;
+
 const render = () =>
   renderWithClient(
     <TooltipProvider>
@@ -229,14 +232,15 @@ describe("ProductsPage — Workiz's boxes, filtered on the server", () => {
   it("shows Cost only with financials.view", () => {
     mocks.denied = new Set(["financials.view"]);
     render();
-    expect(screen.getByRole("columnheader", { name: "Price" })).toBeInTheDocument();
-    expect(screen.queryByRole("columnheader", { name: "Cost" })).toBeNull();
+    const head = within(gridHead());
+    expect(head.getByRole("columnheader", { name: "Price" })).toBeInTheDocument();
+    expect(head.queryByRole("columnheader", { name: "Cost" })).toBeNull();
   });
 
   it("gives every item custom field a column after Brand", () => {
     mocks.attributes = [{ id: "a1", name: "ALL SKU", type: "text", visible: false, resource: "items" }];
     render();
-    expect(screen.getByRole("columnheader", { name: "ALL SKU" })).toBeInTheDocument();
+    expect(within(gridHead()).getByRole("columnheader", { name: "ALL SKU" })).toBeInTheDocument();
   });
 });
 
@@ -342,7 +346,8 @@ describe("ProductsPage — the strip", () => {
  * the catalogs answer.
  */
 describe("ProductsPage — a stable first frame", () => {
-  const headers = () => [...document.querySelectorAll("thead th")].map((th) => th.textContent?.trim());
+  const headers = () =>
+    [...document.querySelectorAll("[data-slot=wz-report-grid-head] thead th")].map((th) => th.textContent?.trim());
 
   it("draws the pager inside the grid, with the rows", () => {
     render();
@@ -369,7 +374,7 @@ describe("ProductsPage — a stable first frame", () => {
     mocks.permsLoading = true;
     render();
     expect(screen.queryByText("No access")).toBeNull();
-    expect(screen.getByRole("table")).toBeInTheDocument();
+    expect(gridHead().querySelector("table")).toBeInTheDocument();
   });
 
   it("says No access once it is known", () => {

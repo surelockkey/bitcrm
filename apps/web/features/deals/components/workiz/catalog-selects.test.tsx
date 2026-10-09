@@ -81,13 +81,13 @@ beforeEach(() => {
 });
 
 describe("WzJobTypeSelect", () => {
-  it("is Workiz's 'Job type' select over the active catalog, emitting the id", async () => {
+  it("is Workiz's 'Job type' select over the active catalog, emitting the id and the type (its duration sets the visit's end)", async () => {
     const onChange = vi.fn();
     render(<WzJobTypeSelect value="" onChange={onChange} />);
     await open("Job type");
     expect(optionLabels()).toEqual(["Service", "Lockout"]);
     await userEvent.click(screen.getByRole("option", { name: "Lockout" }));
-    expect(onChange).toHaveBeenCalledWith("jt-lock");
+    expect(onChange).toHaveBeenCalledWith("jt-lock", expect.objectContaining({ id: "jt-lock", name: "Lockout" }));
   });
 
   it("keeps showing an archived type the job still has", () => {
