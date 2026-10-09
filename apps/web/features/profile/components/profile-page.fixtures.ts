@@ -54,6 +54,13 @@ export const techAssignments = {
 export function profileRoutes(who: typeof adminMe, delays: Partial<Record<string, number>> = {}): FakeRoute[] {
   return [
     { match: /\/users\/me$/, method: "GET", reply: () => who, delayMs: delays.me ?? 10 },
+    // Settings → Security Center's row: the two-factor row reads "Required by your account" off it.
+    // A test that wants it required puts its own route for this path first.
+    {
+      match: /\/users\/security-settings$/,
+      reply: () => ({ requireMfa: false, loginCodeByEmail: false, otpByEmail: false }),
+      delayMs: delays.security,
+    },
     { match: /\/users\/technicians\/u-tech\/profile$/, reply: () => techProfile, delayMs: delays.profile },
     { match: /\/users\/technicians\/u-tech\/assignments$/, reply: () => techAssignments, delayMs: delays.assignments },
     { match: /\/users\/technicians\/u-tech\/onboarding-status$/, reply: () => techOnboarding, delayMs: delays.onboarding },

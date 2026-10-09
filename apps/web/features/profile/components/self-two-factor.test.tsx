@@ -58,11 +58,11 @@ beforeEach(() => {
   );
 });
 
-function renderRow(user: User) {
+function renderRow(user: User, { required = false }: { required?: boolean } = {}) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <SelfTwoFactor me={user} />
+      <SelfTwoFactor me={user} required={required} />
     </QueryClientProvider>,
   );
 }
@@ -133,5 +133,25 @@ describe("SelfTwoFactor", () => {
 
     await waitFor(() => expect(toggle()).toHaveAttribute("aria-checked", "false"));
     expect(calls.map((c) => c.path)).toEqual(["off"]);
+  });
+
+  // Settings → Security Center, "Require Two-factor authentication": the
+  // account decides, so the row reads so and the switch cannot go off.
+  describe("while the account requires it", () => {
+    it("reads 'Required by your account', on, and cannot be switched off", async () => {
+      renderRow(me({ smsMfaEnabled: false }), { required: true });
+
+      expect(screen.getByText("Required by your account")).toBeInTheDocument();
+      expect(toggle()).toHaveAttribute("aria-checked", "true");
+      expect(toggle()).toBeDisabled();
+      await userEvent.click(toggle());
+      expect(calls).toEqual([]);
+    });
+
+    it("says so in the ⓘ, naming the phone the codes go to", () => {
+      renderRow(me({ smsMfaEnabled: true }), { required: true });
+
+      expect(screen.getByText(/required by your account.*\(404\) 555-1234/i)).toBeInTheDocument();
+    });
   });
 });

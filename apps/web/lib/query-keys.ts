@@ -423,4 +423,7 @@ export const queryKeys = {
   portal: {
     link: (contactId: string) => ["portal", "link", contactId] as const,
   },
+
+  /** Settings → Security Center: the account's one row (require 2FA, codes by email). */
+  securitySettings: () => ["security-settings"] as const,
 } as const;
