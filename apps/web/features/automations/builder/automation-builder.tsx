@@ -233,6 +233,13 @@ export function AutomationBuilderDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         showCloseButton={false}
+        // Open on the window itself, as Workiz's does — not with "Back to
+        // automations" lit up as if somebody had tabbed to it. Tab still
+        // starts there.
+        onOpenAutoFocus={(e) => {
+          e.preventDefault();
+          (e.currentTarget as HTMLElement | null)?.focus();
+        }}
         // Workiz's Center with the builder open (pg_automations_wz_20 / _31): the
         // 1344px white modal, 90% of the window tall, 16px corners.
         className="flex h-[90vh] w-[min(1344px,calc(100vw-32px))] max-w-none flex-col gap-0 overflow-hidden rounded-[16px] bg-white p-0 sm:max-w-none"

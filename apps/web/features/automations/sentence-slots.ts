@@ -153,7 +153,7 @@ const OPERATOR: Record<string, string> = { is: "=", "is one of": "=", "is not": 
 export function conditionLineParts(clause: string): SentencePart[] {
   // "Its source is …" loses its "Its"; "It has a technician" keeps its words,
   // lower-cased, since "Only if" now starts the line.
-  const body = clause.replace(/^\s*Its\s+/, "").replace(/^\s*It\b/, "it");
+  const body = clause.replace(/^\s*Its\s+/, "").replace(/^\s*(It|This)\b/, (word) => word.toLowerCase());
   const out: SentencePart[] = [{ text: "Only if ", slot: false }];
   for (const part of sentenceParts(body)) {
     const text = part.slot

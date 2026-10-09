@@ -116,6 +116,7 @@ describe("conditionLineParts", () => {
 
   it("keeps the words of a condition that has no value", () => {
     expect(drawn(conditionLineParts("It has a technician"))).toBe("Only if it has a [technician]");
+    expect(drawn(conditionLineParts("This check holds for every job"))).toBe("Only if [this check holds for every job]");
     expect(drawn(conditionLineParts("Choose what to check"))).toBe("Only if [Choose what to check]");
   });
 });
