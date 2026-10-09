@@ -126,8 +126,11 @@ export function TechniciansPage() {
 
   return (
     <div className="flex flex-1 flex-col">
-      <WzSettingsExplain icon={<UsersRound />} title="Technicians">
-        Field team — onboarding, skills, commission, and paperwork.
+      {/* Workiz's band (app_audit_wz_team): "Team — Manage and add users to
+          your team". The list is the field team, but a Workiz user looks for
+          the Team page's words (its "Read guide" is its help site; none here). */}
+      <WzSettingsExplain icon={<UsersRound />} title="Team">
+        Manage and add users to your team
       </WzSettingsExplain>
 
       {/* The filter row (pg_technicians_wz_01_team): Filter results two thirds

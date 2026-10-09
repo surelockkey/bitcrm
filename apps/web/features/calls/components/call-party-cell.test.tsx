@@ -108,7 +108,7 @@ describe("CallPartyCell", () => {
         "href",
         "/contacts/c1",
       );
-      expect(screen.getByText("+380 95 860 1427")).toBeInTheDocument();
+      expect(screen.getByText("+380958601427")).toBeInTheDocument();
       // Clients are not staff — no role badge.
       expect(screen.queryByText("Team")).not.toBeInTheDocument();
     });
@@ -125,7 +125,7 @@ describe("CallPartyCell", () => {
         />,
       );
       // No record to open — only Workiz's dial link on the number itself.
-      expect(screen.getByRole("link", { name: "+380 95 860 1427" })).toHaveAttribute("href", "tel:+380958601427");
+      expect(screen.getByRole("link", { name: "+380958601427" })).toHaveAttribute("href", "tel:+380958601427");
 
       await user.click(screen.getByRole("button", { name: /add client/i }));
       expect(onAddClient).toHaveBeenCalledWith("+380958601427");

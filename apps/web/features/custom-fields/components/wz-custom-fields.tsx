@@ -37,7 +37,7 @@ import {
 import { useAttachmentUrls } from "@/features/deals/attachments-hooks";
 import { useFilePreviewStore } from "@/features/files/preview-store";
 import { useCustomFields } from "../hooks";
-import { applicableFields, customFieldControl, workizOrderedGroups } from "../lib";
+import { applicableFields, customFieldControl, workizGroupColumns, workizOrderedGroups } from "../lib";
 
 /** Workiz allows five files per file field. */
 const MAX_FILES = 5;
@@ -66,6 +66,11 @@ export interface WzCustomFieldsProps {
 /**
  * One card or section per group, Workiz-ordered, returned side by side (a
  * fragment) so the page's own grid places them. Nothing when no field applies.
+ *
+ * A card is pinned to its Workiz column (`col-start-1` / `col-start-2`,
+ * `workizGroupColumns`): the New Job grid flows row by row, so with a group
+ * missing the rest would slide a column over (app_audit #7). Rows stay
+ * aligned as in Workiz's capture because the grid still lays them out.
  */
 export function WzCustomFields({
   layout,
@@ -85,6 +90,12 @@ export function WzCustomFields({
     const all = workizOrderedGroups(applicableFields(data, jobTypeId));
     return onlyGroup ? all.filter((g) => g.group === onlyGroup) : all;
   }, [data, jobTypeId, onlyGroup]);
+  // Each group's Workiz column, worked out over every group of the job type
+  // (the sides depend on the whole set, not on the one card being drawn).
+  const rightColumn = useMemo(() => {
+    const all = workizOrderedGroups(applicableFields(data, jobTypeId));
+    return new Set(workizGroupColumns(all)[1].map((g) => g.group));
+  }, [data, jobTypeId]);
 
   const write = (id: string, next: CustomFieldValue | undefined) => {
     const copy = { ...value };
@@ -116,7 +127,12 @@ export function WzCustomFields({
           />
         ));
         return layout === "card" ? (
-          <WzCard key={group} title={group} className={className} data-cf-group={group}>
+          <WzCard
+            key={group}
+            title={group}
+            className={cn(rightColumn.has(group) ? "col-start-2" : "col-start-1", className)}
+            data-cf-group={group}
+          >
             {body}
           </WzCard>
         ) : (

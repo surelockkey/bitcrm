@@ -49,6 +49,22 @@ describe("WzOutlinedSelect — the notched select of Workiz's newer forms (Add t
   });
 });
 
+describe("WzOutlinedSelect controlClassName (Add team member's +1 box)", () => {
+  // subcontractor_wz_04_add_new_user: the same FloatingLabel shell drawn
+  // 49px tall beside the 48px Phone box; the value stays on its middle.
+  it("takes the box's own classes — its height — and keeps the value centred", () => {
+    const { container } = render(
+      <WzOutlinedSelect label="Country code" labelHidden options={[{ value: "US", label: "🇺🇸 +1" }]} value="US" onChange={() => {}} controlClassName="h-[49px]" />,
+    );
+    const anchor = [...container.querySelectorAll("div")].find((d) => d.className.includes("h-[49px]"));
+    expect(anchor).toBeTruthy();
+    expect(anchor?.className).not.toContain("h-[42px]");
+    const value = screen.getByText("🇺🇸 +1");
+    expect(value.className).toContain("top-1/2");
+    expect(value.className).toContain("-translate-y-1/2");
+  });
+});
+
 describe("WzOutlinedSelect labelHidden (pg_pricebook)", () => {
   it("names the box without drawing the label — Workiz's catalog status box shows only its value", () => {
     render(<WzOutlinedSelect label="Status" labelHidden options={OPTIONS} value="t1" onChange={() => {}} />);

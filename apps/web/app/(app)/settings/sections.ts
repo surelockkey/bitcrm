@@ -47,6 +47,13 @@ export const SETTINGS_HOME = { label: "General", href: "/settings", icon: Slider
  * The settings, in Workiz's blocks and Workiz's order: its settings page is
  * a heading per block over that block's tiles, and the office moving over
  * from it looks for Call Flows under Calls & Text.
+ *
+ * Where a tile is the same thing as Workiz's it carries Workiz's name
+ * (app_audit_wz_settings, 2026-10-09): Automation Center, Team Management,
+ * Roles & Permissions, Ad Groups (our job sources), Field Validation (which
+ * job fields are required), Sub-Status (job statuses). The routes, the
+ * pages' own titles and the sidebar words are untouched — only the tile a
+ * Workiz user scans for.
  */
 export const SETTINGS_GROUPS: SettingsGroup[] = [
   {
@@ -62,7 +69,7 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
       {
         // The module moved out to /automations; the settings index keeps the
         // shortcut so anyone who looks for it here still lands on it.
-        label: "Automations",
+        label: "Automation Center",
         href: "/automations",
         description: "What the system texts on its own — job status, missed calls, reminders.",
         icon: Workflow,
@@ -83,14 +90,14 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
     label: "Users & Roles",
     sections: [
       {
-        label: "Users",
+        label: "Team Management",
         href: "/admin/users",
         description: "Who signs in — accounts, roles and access.",
         icon: UsersRound,
         resource: "users",
       },
       {
-        label: "Roles",
+        label: "Roles & Permissions",
         href: "/admin/roles",
         description: "What each role can see and do.",
         icon: ShieldCheck,
@@ -123,14 +130,14 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
         resource: "external_companies",
       },
       {
-        label: "Job Sources",
+        label: "Ad Groups",
         href: "/settings/job-sources",
-        description: "Where your jobs come from. Jobs pick one when created.",
+        description: "Where your jobs come from (job sources). Jobs pick one when created.",
         icon: Megaphone,
         resource: "job_sources",
       },
       {
-        label: "Job Fields",
+        label: "Field Validation",
         href: "/settings/job-fields",
         description: "Which fields are required when creating a job — default and custom.",
         icon: Asterisk,
@@ -144,7 +151,7 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
         resource: "custom_fields",
       },
       {
-        label: "Job Statuses",
+        label: "Sub-Status",
         href: "/settings/job-statuses",
         description: "Custom colored statuses under each super-status. A job carries one.",
         icon: ListChecks,

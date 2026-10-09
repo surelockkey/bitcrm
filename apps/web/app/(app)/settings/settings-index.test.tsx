@@ -32,9 +32,17 @@ describe("SettingsIndex", () => {
     expect(within(calls).getByRole("link", { name: /Call Flows/ })).toHaveAttribute("href", "/calls/flows");
     expect(within(calls).queryByRole("link", { name: /Job Types/ })).toBeNull();
 
+    // Workiz's tile words (app_audit_wz_settings): a Workiz user looks for
+    // "Team Management" and "Roles & Permissions", not "Users" and "Roles".
     const team = screen.getByRole("region", { name: "Users & Roles" });
-    expect(within(team).getByRole("link", { name: /Users/ })).toHaveAttribute("href", "/admin/users");
-    expect(within(team).getByRole("link", { name: /Roles/ })).toHaveAttribute("href", "/admin/roles");
+    expect(within(team).getByRole("link", { name: /^Team Management$/ })).toHaveAttribute("href", "/admin/users");
+    expect(within(team).getByRole("link", { name: /^Roles & Permissions$/ })).toHaveAttribute("href", "/admin/roles");
+    const jobs = screen.getByRole("region", { name: "Job Settings" });
+    expect(within(jobs).getByRole("link", { name: /^Ad Groups$/ })).toHaveAttribute("href", "/settings/job-sources");
+    expect(within(jobs).getByRole("link", { name: /^Field Validation$/ })).toHaveAttribute("href", "/settings/job-fields");
+    expect(within(jobs).getByRole("link", { name: /^Sub-Status$/ })).toHaveAttribute("href", "/settings/job-statuses");
+    const general = screen.getByRole("region", { name: "General Settings" });
+    expect(within(general).getByRole("link", { name: /^Automation Center$/ })).toHaveAttribute("href", "/automations");
   });
 
   it("leaves out a block the reader can open nothing in", () => {

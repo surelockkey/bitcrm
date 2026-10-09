@@ -78,6 +78,27 @@ describe("WzCustomFields — card layout (New Job)", () => {
     expect(screen.queryByText("Only for safes")).not.toBeInTheDocument();
   });
 
+  // new_01_empty_scroll1: Extra Info / Dispatchers / Platinum at x264, Other
+  // Contact / Tech at x939 — each card pinned to its column by name, so the
+  // page's flowing grid keeps Workiz's sides whatever groups exist (app_audit #7).
+  it("pins each card to Workiz's column", () => {
+    render(<WzCustomFields layout="card" jobTypeId="jt-1" value={{}} onChange={vi.fn()} />);
+    const column = (title: string) => screen.getByRole("region", { name: title }).className;
+    expect(column("Extra Info")).toContain("col-start-1");
+    expect(column("Other Contact")).toContain("col-start-2");
+    expect(column("Dispatchers")).toContain("col-start-1");
+    expect(column("Tech")).toContain("col-start-2");
+    expect(column("Platinum")).toContain("col-start-1");
+  });
+
+  it("keeps Dispatchers left and Tech right without an Other Contact group", () => {
+    m.defs = ALL.filter((d) => d.group !== "Other Contact");
+    render(<WzCustomFields layout="card" jobTypeId="jt-1" value={{}} onChange={vi.fn()} />);
+    const column = (title: string) => screen.getByRole("region", { name: title }).className;
+    expect(column("Dispatchers")).toContain("col-start-1");
+    expect(column("Tech")).toContain("col-start-2");
+  });
+
   it("draws each type with its kit control", () => {
     render(<WzCustomFields layout="card" jobTypeId="jt-1" value={{}} onChange={vi.fn()} dealId="d1" />);
     expect(screen.getByRole("combobox", { name: "Jobs Dispatch" })).toBeInTheDocument();

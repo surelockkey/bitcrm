@@ -675,12 +675,13 @@ function DealForm({
                   </button>
                 </div>
               ) : null}
+              {/* Nothing focused on open: Workiz's "Client name" rests in its
+                  box until clicked (new_01_empty; app_audit #19). */}
               <WzClientNameField
                 value={clientForm.name}
                 onChange={(name) => setClient({ name })}
                 onPick={pick}
                 error={errorFor("client")}
-                autoFocus={!contact}
               />
               <WzTextField
                 label="Company name"

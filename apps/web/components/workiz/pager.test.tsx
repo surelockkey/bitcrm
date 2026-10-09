@@ -13,10 +13,19 @@ describe("wzPagerSummary — Workiz's footer words", () => {
     expect(wzPagerSummary({ from: 0, to: 0, total: 0 })).toBe("Showing 1 to 0 of 0 results");
   });
 
-  it("groups thousands and marks a floor", () => {
-    expect(wzPagerSummary({ from: 51, to: 100, total: 8806 })).toBe("Showing 51 to 100 of 8,806 results");
+  // react-table prints its counts raw — "8806", "370338", "78617" — in
+  // every Workiz capture (rep_activity_wz_06, app_audit 2026-10-09), so the
+  // kit does by default; the separators are an opt-in nobody uses.
+  it("prints thousands as Workiz does, without a separator, and marks a floor", () => {
+    expect(wzPagerSummary({ from: 51, to: 100, total: 8806 })).toBe("Showing 51 to 100 of 8806 results");
     expect(wzPagerSummary({ from: 1, to: 50, total: 10000, totalIsFloor: true })).toBe(
-      "Showing 1 to 50 of 10,000+ results",
+      "Showing 1 to 50 of 10000+ results",
+    );
+  });
+
+  it("groups thousands only when asked (`plainNumbers: false`)", () => {
+    expect(wzPagerSummary({ from: 51, to: 100, total: 8806 }, { plainNumbers: false })).toBe(
+      "Showing 51 to 100 of 8,806 results",
     );
   });
 
@@ -29,7 +38,8 @@ describe("wzPagerSummary — Workiz's footer words", () => {
 describe("wzPagerPages — the words between ‹ and ›", () => {
   it("names the page and the count", () => {
     expect(wzPagerPages({ page: 1, totalPages: 881 })).toBe("Page 1 of 881");
-    expect(wzPagerPages({ page: 2, totalPages: 1234 })).toBe("Page 2 of 1,234");
+    expect(wzPagerPages({ page: 2, totalPages: 1234 })).toBe("Page 2 of 1234");
+    expect(wzPagerPages({ page: 2, totalPages: 1234 }, { plainNumbers: false })).toBe("Page 2 of 1,234");
   });
 
   it("never says 'of 0' — an empty list is Page 1 of 1", () => {
@@ -127,10 +137,17 @@ describe("WzPager", () => {
   });
 
   // react-table prints its numbers raw: "Showing 1 to 10 of 4392 results",
-  // "Page 1 of 440" (rep_activity_wz_06, and every Workiz capture since).
-  it("with `plainNumbers`, prints the counts without thousands separators, as Workiz", () => {
-    render(<WzPager pager={{ ...base, to: 10, total: 4392, totalPages: 440, page: 1 }} plainNumbers />);
+  // "Page 1 of 440" (rep_activity_wz_06, and every Workiz capture since) —
+  // so does the footer, on every list, without being asked (app_audit #9:
+  // Contacts printed "4,641" beside reports printing "3103").
+  it("prints the counts without thousands separators, as Workiz, by default", () => {
+    render(<WzPager pager={{ ...base, to: 10, total: 4392, totalPages: 440, page: 1 }} />);
     expect(screen.getByText("Showing 1 to 10 of 4392 results")).toBeInTheDocument();
     expect(screen.getByText("Page 1 of 440")).toBeInTheDocument();
+  });
+
+  it("groups them only for a list that asks (`plainNumbers={false}`)", () => {
+    render(<WzPager pager={{ ...base, to: 10, total: 4392, totalPages: 440, page: 1 }} plainNumbers={false} />);
+    expect(screen.getByText("Showing 1 to 10 of 4,392 results")).toBeInTheDocument();
   });
 });

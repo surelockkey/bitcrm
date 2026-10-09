@@ -407,7 +407,12 @@ export class UsersService implements OnModuleInit {
       department: dto.department,
       ...(phone ? { phone } : {}),
       // "Can take jobs and get messages" — on the field team from the start.
-      ...(subcontractor ? { userType: 'subcontractor' as const, fieldTeamMember: true } : {}),
+      // A User carries Workiz's "Field tech" answer when the form gave one.
+      ...(subcontractor
+        ? { userType: 'subcontractor' as const, fieldTeamMember: true }
+        : dto.fieldTeamMember !== undefined
+          ? { fieldTeamMember: dto.fieldTeamMember }
+          : {}),
       status: UserStatus.ACTIVE,
       permissionOverrides: undefined,
       createdAt: now,
@@ -427,7 +432,10 @@ export class UsersService implements OnModuleInit {
     await this.cache.setUser(user);
     this.businessMetrics?.entityCreated.inc({ entity_type: 'user' });
     this.publishUserEvent('user.activated', user);
-    await this.ensureTechnicianProfile(user);
+    // Workiz's "Track Location" seeds the card; a subcontractor has no app to track.
+    await this.ensureTechnicianProfile(user, {
+      gpsTrackingEnabled: !subcontractor && dto.gpsTrackingEnabled === true,
+    });
     return user;
   }
 
@@ -1005,6 +1013,7 @@ export class UsersService implements OnModuleInit {
    */
   private async ensureTechnicianProfile(
     user: Pick<User, 'id' | 'roleId' | 'fieldTeamMember' | 'userType'>,
+    seed: { gpsTrackingEnabled?: boolean } = {},
   ): Promise<void> {
     if (!this.techniciansRepository) return;
     if (!isFieldTeamMember(user)) return;
@@ -1017,7 +1026,7 @@ export class UsersService implements OnModuleInit {
         userId,
         ...(isSubcontractor(user) ? { technicianType: 'subcontractor' as const } : {}),
         callMaskingEnabled: false,
-        gpsTrackingEnabled: false,
+        gpsTrackingEnabled: seed.gpsTrackingEnabled === true,
         mobileAppInstalled: false,
         status: 'pending',
         createdAt: now,

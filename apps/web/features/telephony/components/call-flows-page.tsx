@@ -174,6 +174,11 @@ export function CallFlowsPage() {
       >
         {FLOWS_INTRO}
       </WzTabIntro>
+      {/* Workiz's "Use smart callback" row stands here (pg_settings_phone_wz_flows:
+          the 13px checkbox at y321, its words y318–339, the strip at y347 —
+          app_audit #23). No callback feature here, so the row's 29px stay and
+          the box does not: a dead checkbox is worse than a gap. */}
+      <div aria-hidden data-slot="smart-callback-space" className="h-[29px] shrink-0" />
 
       {!ready ? (
         <div className="px-5">

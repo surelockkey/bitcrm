@@ -397,10 +397,11 @@ Measured off `rep_activity_wz_*` (notes:
 - **`WzDateRangePicker` `rangeText={(value) => string | undefined}`** (new,
   optional) — words in place of the days: Activity's "All time" box reads
   "All time" twice (Workiz sends no dates for it).
-- **`WzPager` `plainNumbers`** (new, optional) — "Showing 1 to 10 of 4392
-  results", "Page 1 of 440": react-table prints its counts without thousands
-  separators, in every Workiz capture (370338, 8806…). Off by default so
-  existing lists keep theirs; the coordinator may flip it kit-wide.
+- **`WzPager` `plainNumbers`** — "Showing 1 to 10 of 4392 results", "Page 1
+  of 440": react-table prints its counts without thousands separators, in
+  every Workiz capture (370338, 8806…). **On by default since 2026-10-09**
+  (app_audit #9: Contacts printed "4,641" beside reports printing "3103");
+  `plainNumbers={false}` groups them for a list that wants that.
 
 ## The legacy report kit (2026-10-08, agent `rep_jobstats`)
 
@@ -1243,6 +1244,32 @@ permissions for role …" modal a role opens; notes:
   labels it with its own hidden label (so a real visible `<label for>` is
   impossible), swallows Enter on a closed menu and reorders DOM while
   filtering.
+
+## Add team member (2026-10-09, agent `audit_fix`, app_audit #10)
+
+Measured off `subcontractor_wz_04_add_new_user` / `_04b` (Team → "+ Add New";
+notes: `workiz-data-parser/docs/import/app-parity-2026-10-08/audit_fix.md`).
+The pane is `WzDrawer head="band" width={400}` with the 48px floating-label
+boxes (`WzTextField`), react-selects (`WzSelect`) and 11px/13px #999 helpers
+10px under a box, rows 15px apart. Additive; every existing caller untouched.
+
+- **`WzCountryPhoneField`** (`country-phone-field.tsx`) `value` (E.164 or "")
+  `onChange(e164)` `onBlur` `error` `label` `id` `disabled` — Workiz's
+  "+1 | Phone" pair: a 123×49 FloatingLabel select with the flag and dial
+  code (`phoneCountries`, favourites first) and the 232×48 "Phone" box 5px
+  after it, filling a 360px column. National digits formatted as you type,
+  capped at the country's longest number, the country changed only by a
+  pick, E.164 out; "Invalid phone number" once an unfinished number is left.
+- **`WzDrawer` `footerClassName`** (new, optional) — classes merged into the
+  65px footer bar: Workiz's older `_paneButtons` sit 15px down, 20px from
+  the right, 16px apart under a `0 0 5px rgba(50,50,50,.2)` glow (`"gap-4
+  px-5 pt-[15px] shadow-[0_0_5px_rgba(50,50,50,0.2)]"`). **`onInteractOutside`**
+  (new, optional) — Radix's, for a pick in a portalled list that must not
+  close the pane.
+- **`WzOutlinedSelect` `controlClassName`** (new, optional) — classes merged
+  into the box itself, its height above all (`"h-[49px]"` beside a 48px text
+  box); the value and placeholder now sit on the box's middle (13px down in
+  the 42px box, as before) and the input fills its height.
 
 ## Team member type (2026-10-09, agent `subcontractor`)
 

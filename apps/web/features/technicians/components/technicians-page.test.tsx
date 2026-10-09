@@ -123,6 +123,13 @@ const names = () =>
   [...document.querySelectorAll("tbody tr:not([aria-hidden])")].map((r) => r.querySelector("td span")?.textContent);
 
 describe("TechniciansPage — Workiz's Team", () => {
+  // app_audit_wz_team: the band says "Team — Manage and add users to your team".
+  it("wears Workiz's Team band", () => {
+    render(<TechniciansPage />);
+    expect(screen.getByRole("heading", { name: "Team" })).toBeInTheDocument();
+    expect(screen.getByText("Manage and add users to your team")).toBeInTheDocument();
+  });
+
   it("opens on 'status: Active', which keeps a technician still awaiting setup", () => {
     render(<TechniciansPage />);
     expect(screen.getByText("status: Active")).toBeInTheDocument();

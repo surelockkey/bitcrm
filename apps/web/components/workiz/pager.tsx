@@ -31,11 +31,13 @@ const plain = (v: number) => String(v);
  * "Showing 1 to 50 of 208 results" (list_07_bottom, uikit_wz_est_scroll1).
  * An empty list reads "Showing 1 to 0 of 0 results", as Workiz's does; an
  * uncounted total is left out; a total that is only a floor gets a "+".
- * `plainNumbers` drops the thousands separators, as Workiz prints them.
+ * The counts print raw ("4641"), as react-table prints them on every Workiz
+ * list (app_audit 2026-10-09: "370338", "8806", "78617" — never a
+ * separator); `plainNumbers: false` groups them for a list that wants that.
  */
 export function wzPagerSummary(
   { from, to, total, totalIsFloor }: Pick<WzPagerState, "from" | "to" | "total" | "totalIsFloor">,
-  { plainNumbers = false }: { plainNumbers?: boolean } = {},
+  { plainNumbers = true }: { plainNumbers?: boolean } = {},
 ): string {
   const n = plainNumbers ? plain : grouped;
   const start = to === 0 ? 1 : from;
@@ -46,7 +48,7 @@ export function wzPagerSummary(
 /** "Page 1 of 881" — at least "of 1"; just "Page 3" when nobody counted. */
 export function wzPagerPages(
   { page, totalPages, totalPagesIsFloor }: Pick<WzPagerState, "page" | "totalPages" | "totalPagesIsFloor">,
-  { plainNumbers = false }: { plainNumbers?: boolean } = {},
+  { plainNumbers = true }: { plainNumbers?: boolean } = {},
 ): string {
   const n = plainNumbers ? plain : grouped;
   if (totalPages === undefined) return `Page ${n(page)}`;
@@ -98,7 +100,7 @@ export function WzPager({
   end,
   loading = false,
   nav = true,
-  plainNumbers = false,
+  plainNumbers = true,
   className,
 }: {
   pager: WzPagerState;
@@ -106,7 +108,10 @@ export function WzPager({
   loading?: boolean;
   /** Draw ‹ ›. Off for a list that cannot page (a read-only view stays button-free). */
   nav?: boolean;
-  /** Print the counts as react-table does, without thousands separators ("4392"). */
+  /**
+   * Print the counts as react-table does, without thousands separators
+   * ("4392") — on by default, as on every Workiz list; `false` groups them.
+   */
   plainNumbers?: boolean;
   className?: string;
 }) {

@@ -394,6 +394,24 @@ describe("DetailsTab — one Save", () => {
     expect(mocks.updateDeal.mock.calls[0][0]).toEqual({ scheduledDate: null });
   });
 
+  // job_b_01_details_scroll1: Extra Info / Dispatchers / Platinum down the
+  // left column, Other Contact / Tech down the right — by name, so a catalog
+  // without one of them keeps the rest where Workiz has them (app_audit #7).
+  it("stacks the custom-field groups in Workiz's columns by name", () => {
+    mocks.customFields = [
+      { ...gateCode, id: "cf-tech", name: "Tech Parts cost", group: "Tech" },
+      { ...gateCode, id: "cf-plat", name: "Warranty", group: "Platinum" },
+      gateCode,
+    ];
+    const { container } = renderTab();
+    const columns = [...container.querySelectorAll("[data-cf-column]")];
+    const titlesIn = (col: Element) => [...col.querySelectorAll("[data-cf-group]")].map((s) => s.getAttribute("data-cf-group"));
+    expect(columns.map(titlesIn)).toEqual([
+      ["Platinum", "Access"],
+      ["Tech"],
+    ]);
+  });
+
   it("marks the page dirty when a custom field is edited and sends it on Save", async () => {
     const u = user();
     renderTab();

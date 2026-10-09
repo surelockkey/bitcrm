@@ -261,6 +261,33 @@ describe("NewDealPage — Workiz layout", () => {
     expect(screen.getByRole("textbox", { name: "Check Image Front" })).toBeInTheDocument();
   });
 
+  // new_01_empty_scroll1: Extra Info, Dispatchers, Platinum at x264 (left),
+  // Other Contact and Tech at x939 (right). Dev has no "Other Contact" group,
+  // and the flowing grid slid Dispatchers right and Tech left (app_audit #7):
+  // each known group is pinned to Workiz's column.
+  it("pins each custom-field card to Workiz's column, whatever groups the catalog has", () => {
+    mocks.customFieldDefs = [
+      def("cf-e", "Jobs Dispatch", "Extra Info"),
+      def("cf-d", "Manager Note", "Dispatchers"),
+      def("cf-t", "Check Image Front", "Tech"),
+      def("cf-p", "Warranty", "Platinum"),
+    ];
+    render(<NewDealPage />);
+    const column = (title: string) => screen.getByRole("region", { name: title }).className;
+    expect(column("Extra Info")).toContain("col-start-1");
+    expect(column("Dispatchers")).toContain("col-start-1");
+    expect(column("Tech")).toContain("col-start-2");
+    expect(column("Platinum")).toContain("col-start-1");
+  });
+
+  // Workiz opens with nothing focused: "Client name" rests in its box
+  // (new_01_empty; app_audit #19).
+  it("opens with nothing focused", () => {
+    mocks.searchParams = "";
+    render(<NewDealPage />);
+    expect(document.activeElement).toBe(document.body);
+  });
+
   it("shows PO number and Tags only when an admin made them required", () => {
     mocks.requiredFields = { poNumber: true, tags: true };
     render(<NewDealPage />);
