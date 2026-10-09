@@ -72,14 +72,14 @@ describe('MainNumberService', () => {
 });
 
 describe('TelephonyController.telephonyConfig', () => {
-  it('serves the main number beside the technician line, to any signed-in user', async () => {
-    const settings = { technicianLine: jest.fn().mockResolvedValue('+15550002222') };
+  it('serves the main number beside the technician line and the fallback number, to any signed-in user', async () => {
+    const settings = { get: jest.fn().mockResolvedValue({ technicianLine: '+15550002222', fallbackNumber: '+18888996849' }) };
     const main = { mainNumber: jest.fn().mockResolvedValue('+12034036303') };
     const controller = new TelephonyController({} as never, settings as never, main as never);
 
     await expect(controller.telephonyConfig()).resolves.toEqual({
       success: true,
-      data: { technicianLine: '+15550002222', mainNumber: '+12034036303' },
+      data: { technicianLine: '+15550002222', mainNumber: '+12034036303', fallbackNumber: '+18888996849' },
     });
   });
 });
