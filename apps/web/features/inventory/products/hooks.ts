@@ -33,12 +33,13 @@ export function useProducts(filter: ProductFilter, limit = 50) {
  * Скільки всього товарів під тими самими фільтрами — з цього панель робить
  * «Page 2 of 7». Сервер тримає число тридцять секунд, тож і тут стільки ж.
  */
-export function useProductsCount(filter: ProductFilter) {
+export function useProductsCount(filter: ProductFilter, enabled = true) {
   return useQuery({
     // The previous page stays on screen (dimmed) while a new filter or size loads.
     placeholderData: keepPreviousData,
     queryKey: queryKeys.inventory.products.count(filter),
     queryFn: () => api.countProducts(filter),
+    enabled,
     staleTime: 30_000,
   });
 }

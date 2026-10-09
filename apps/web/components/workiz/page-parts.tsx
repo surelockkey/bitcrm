@@ -54,7 +54,8 @@ export function WzTabLinks({
   pending = false,
   className,
 }: {
-  tabs: { id: string; label: string; href: string }[];
+  /** `count` (small variant only): the grey counter after the name, "99+" past 99. */
+  tabs: { id: string; label: string; href: string; count?: number }[];
   active: string | null;
   /** The strip's accessible name. */
   label: string;
@@ -62,9 +63,13 @@ export function WzTabLinks({
    * `"legacy"` (default): the Phone strip above. `"page"`: Workiz's big
    * `_tabs` (the Price book, pg_pricebook_wz_01_default) — 16px/16px #404040
    * words 15px 25px, 500 idle; the open one 600 on white over a 4px #3e4b51
-   * bar (4px corners) laid over the 1px #ccc rule.
+   * bar (4px corners) laid over the 1px #ccc rule. `"small"`: Workiz's
+   * Tabs-module as links (the Inventory tabs, pg_inventory_wz_01_inventory)
+   * — `WzTabBar`'s small row: a 1px #c4c4c4 rule, 10px 20px 7px tabs of
+   * 13px/19px words, slate 500 idle, ink 600 when open over a 2px ink bar
+   * that covers the rule, the 20px #dfe2e3 counter 8px after the name.
    */
-  variant?: "legacy" | "page";
+  variant?: "legacy" | "page" | "small";
   /**
    * The links are not known yet (the permissions are loading): each tab
    * holds its place, the same size, as a placeholder instead of a link.
@@ -73,6 +78,9 @@ export function WzTabLinks({
   /** Spacing from the caller (the page variant has none of its own). */
   className?: string;
 }) {
+  if (variant === "small") {
+    return <SmallTabLinks tabs={tabs} active={active} label={label} pending={pending} className={className} />;
+  }
   const page = variant === "page";
   const shape = page
     ? "relative shrink-0 px-[25px] py-[15px] text-base leading-4 whitespace-nowrap text-wz-strong"
@@ -109,6 +117,82 @@ export function WzTabLinks({
             )}
           >
             {t.label}
+          </Link>
+        );
+      })}
+    </nav>
+  );
+}
+
+/** Workiz's tab counter (`Tabs-module__counterBadge`): the number up to 99, then "99+". */
+export function wzTabCount(n: number): string {
+  return n > 99 ? "99+" : String(n);
+}
+
+/** One tab's box: 10px 20px 7px + the 2px bar's room — 39px with the 20px counter. */
+const SMALL_TAB =
+  "relative flex shrink-0 items-center gap-2 px-5 pt-2.5 pb-[9px] text-[13px] leading-[19px] tracking-[0.4px] whitespace-nowrap";
+
+function SmallTabLinks({
+  tabs,
+  active,
+  label,
+  pending,
+  className,
+}: {
+  tabs: { id: string; label: string; href: string; count?: number }[];
+  active: string | null;
+  label: string;
+  pending: boolean;
+  className?: string;
+}) {
+  return (
+    <nav
+      aria-label={label}
+      aria-busy={pending || undefined}
+      className={cn(
+        "flex max-w-full shrink-0 overflow-x-auto border-b border-wz-tab-rule [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+        className,
+      )}
+    >
+      {tabs.map((t) => {
+        const count =
+          t.count === undefined ? null : (
+            <span
+              data-slot="wz-tab-count"
+              className={cn(
+                "inline-flex h-5 min-w-5 items-center justify-center rounded-[10px] bg-border px-1.5 text-[11px] leading-4 font-semibold text-foreground tabular-nums",
+                pending && "text-transparent",
+              )}
+            >
+              {wzTabCount(t.count)}
+            </span>
+          );
+        if (pending) {
+          return (
+            <span key={t.id} data-tab-placeholder aria-hidden className={cn(SMALL_TAB, "font-medium")}>
+              <span className="animate-pulse rounded bg-muted text-transparent">{t.label}</span>
+              {count}
+            </span>
+          );
+        }
+        const on = t.id === active;
+        return (
+          <Link
+            key={t.id}
+            href={t.href}
+            aria-current={on ? "page" : undefined}
+            className={cn(
+              SMALL_TAB,
+              on
+                ? "font-semibold text-foreground after:absolute after:inset-x-0 after:-bottom-px after:h-0.5 after:bg-foreground"
+                : "font-medium text-wz-slate hover:text-foreground",
+            )}
+          >
+            {t.label}
+            {/* A space for the link's name ("Inventory 99+"); the flex row draws none. */}
+            {count ? " " : null}
+            {count}
           </Link>
         );
       })}

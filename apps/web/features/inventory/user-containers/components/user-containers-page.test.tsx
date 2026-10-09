@@ -23,6 +23,8 @@ const mocks = vi.hoisted(() => ({
   /** The directory a search reads: held back until a test releases it. */
   directoryGate: null as Promise<void> | null,
   usersOptions: [] as unknown[],
+  assign: vi.fn(),
+  roles: [] as { id: string; name: string }[],
 }));
 
 vi.mock("next/navigation", () => ({
@@ -67,6 +69,15 @@ vi.mock("../hooks", () => ({
     isLoading: mocks.assignmentsLoading,
     isError: false,
   }),
+  useAssignUserContainer: () => ({ isPending: false, mutate: mocks.assign }),
+}));
+vi.mock("@/features/roles/hooks", () => ({
+  useRoles: (enabled: boolean) => ({
+    data: enabled ? mocks.roles : undefined,
+    isError: false,
+    isPending: !enabled,
+    fetchStatus: "idle",
+  }),
 }));
 vi.mock("@/features/inventory/stock/hooks", () => ({
   useAllLocations: () => ({
@@ -74,13 +85,6 @@ vi.mock("@/features/inventory/stock/hooks", () => ({
     isLoading: mocks.locationsLoading,
     isError: false,
   }),
-}));
-// The popup has a suite of its own; here only which user the URL opens matters.
-vi.mock("./assign-container-dialog", () => ({
-  AssignContainerDialog: (props: { userId: string; user?: { name: string }; open: boolean }) =>
-    props.open ? (
-      <div data-testid="assign-popup" data-user={props.userId} data-name={props.user?.name ?? ""} />
-    ) : null,
 }));
 
 import { UserContainersPage } from "./user-containers-page";
@@ -95,7 +99,7 @@ const user = (id: string, firstName: string, lastName: string, over: Partial<Use
     ...over,
   }) as User;
 
-const TARAS = user("u1", "Taras", "Koval");
+const TARAS = user("u1", "Taras", "Koval", { roleId: "role-tech" });
 const OLHA = user("u2", "Olha", "Melnyk");
 const PAVLO = user("u3", "Pavlo", "Bondar");
 const GONE = user("u4", "Pavla", "Former", { status: UserStatus.INACTIVE });
@@ -128,40 +132,94 @@ beforeEach(() => {
   mocks.locationsLoading = false;
   mocks.directoryGate = null;
   mocks.usersOptions = [];
+  mocks.assign.mockReset();
+  mocks.roles = [{ id: "role-tech", name: "technician" }];
 });
 
 const rowOf = (name: string) => screen.getByText(name).closest("tr") as HTMLElement;
 
+
+/** A row's Location box and Restricted switch, by the user's name. */
+const box = (name: string) => screen.getByRole("combobox", { name: `Location — ${name}` });
+const restricted = (name: string) => screen.getByRole("switch", { name: `Restricted — ${name}` });
+
+/**
+ * Workiz's "User locations" (pg_inventory_wz_02_user-locations): Name, Role,
+ * the Location box and the Restricted switch — both saving at once.
+ */
 describe("UserContainersPage — the users and their vans", () => {
-  // A new search holds the area the rows are drawn in, so the pager under it
-  // does not jump up into view (see ListBody).
-  it("draws its rows in the list's held area, with the pager under it", () => {
+  // Workiz's grid is never shorter than ten rows and holds its pager.
+  it("draws its rows in Workiz's grid, the pager inside it under them", () => {
     renderWithClient(<UserContainersPage />);
-    const area = document.querySelector("[data-slot=list-area]");
-    expect(area).toContainElement(screen.getByRole("table"));
-    expect(area).not.toContainElement(screen.getByTestId("list-pagination"));
+    const grid = document.querySelector("[data-slot=wz-report-grid]");
+    expect(grid).toContainElement(screen.getByRole("table"));
+    expect(grid).toContainElement(screen.getByTestId("list-pagination"));
   });
 
-  it("lists the active users, a server page at a time", () => {
+  it("has Workiz's columns, BitCRM's Updated at the end", () => {
+    renderWithClient(<UserContainersPage />);
+    expect([...document.querySelectorAll("thead th")].map((th) => th.textContent)).toEqual([
+      "Name",
+      "Role",
+      "Location",
+      "Restricted",
+      "Updated",
+    ]);
+  });
+
+  it("lists the active users, a server page at a time, with their role", () => {
     renderWithClient(<UserContainersPage />);
     expect(mocks.userFilters.at(-1)).toEqual({ status: UserStatus.ACTIVE });
-    expect(screen.getByText("Taras Koval")).toBeInTheDocument();
+    expect(rowOf("Taras Koval")).toHaveTextContent("technician");
     expect(screen.getByText("Olha Melnyk")).toBeInTheDocument();
     // The whole directory is not fetched just to show a page.
     expect(mocks.directoryCalls).toBe(0);
   });
 
-  it("joins each user with their assignment — one row, or Not set", () => {
+  it("puts each user's assignment in the Location box — a van, or Not set", () => {
     renderWithClient(<UserContainersPage />);
-    expect(rowOf("Taras Koval")).toHaveTextContent("Van 1");
-    expect(rowOf("Taras Koval")).toHaveTextContent("Container");
-    expect(rowOf("Olha Melnyk")).toHaveTextContent("Not set");
+    expect(box("Taras Koval")).toHaveTextContent("Van 1");
+    expect(box("Olha Melnyk")).toHaveTextContent("Not set");
   });
 
   it("shows the legacy van of a user without a row", () => {
     mocks.page = [PAVLO];
     renderWithClient(<UserContainersPage />);
-    expect(rowOf("Pavlo Bondar")).toHaveTextContent("Van 3legacy");
+    expect(box("Pavlo Bondar")).toHaveTextContent("Van 3 (legacy)");
+  });
+
+  it("saves a pick in the Location box at once — All, No access or a van", async () => {
+    renderWithClient(<UserContainersPage />);
+    await userEvent.click(box("Olha Melnyk"));
+    await userEvent.click(await screen.findByRole("option", { name: "Van 3" }));
+    expect(mocks.assign).toHaveBeenCalledWith(
+      { userId: "u2", body: { userName: "Olha Melnyk", access: UserContainerAccess.CONTAINER, containerId: "c3", limited: false } },
+      expect.anything(),
+    );
+
+    await userEvent.click(box("Taras Koval"));
+    await userEvent.click(await screen.findByRole("option", { name: "All" }));
+    expect(mocks.assign).toHaveBeenLastCalledWith(
+      { userId: "u1", body: { userName: "Taras Koval", access: UserContainerAccess.ALL } },
+      expect.anything(),
+    );
+  });
+
+  it("restricts a user to their van with the switch, and has no switch to flip without one", async () => {
+    renderWithClient(<UserContainersPage />);
+    expect(restricted("Olha Melnyk")).toBeDisabled();
+    await userEvent.click(restricted("Taras Koval"));
+    expect(mocks.assign).toHaveBeenCalledWith(
+      { userId: "u1", body: { userName: "Taras Koval", access: UserContainerAccess.CONTAINER, containerId: "c1", limited: true } },
+      expect.anything(),
+    );
+  });
+
+  it("is read-only without containers.edit", () => {
+    mocks.denied.add("containers.edit");
+    renderWithClient(<UserContainersPage />);
+    expect(box("Taras Koval")).toBeDisabled();
+    expect(restricted("Taras Koval")).toBeDisabled();
   });
 
   // The users service can't search, and filtering the one page on screen
@@ -173,35 +231,19 @@ describe("UserContainersPage — the users and their vans", () => {
     expect(screen.queryByText("Taras Koval")).toBeNull();
     // Inactive users stay out, search or not.
     expect(screen.queryByText("Pavla Former")).toBeNull();
-    expect(rowOf("Pavlo Bondar")).toHaveTextContent("Van 3legacy");
+    expect(box("Pavlo Bondar")).toHaveTextContent("Van 3 (legacy)");
   });
 
-  it("says so when nobody matches", async () => {
+  it("leaves the blank rows when nobody matches, as Workiz does", async () => {
     renderWithClient(<UserContainersPage />);
     await userEvent.type(screen.getByRole("searchbox", { name: "Search users" }), "zzz");
-    expect(await screen.findByText("No users match")).toBeInTheDocument();
-  });
-});
-
-describe("UserContainersPage — the Assign popup", () => {
-  const address = () => `${window.location.pathname}${window.location.search}`;
-  beforeEach(() => window.history.replaceState(null, "", "/inventory/user-containers"));
-
-  it("opens from a row, handing over the row it has — the address untouched", async () => {
-    renderWithClient(<UserContainersPage />);
-    await userEvent.click(screen.getByText("Olha Melnyk"));
-    const popup = screen.getByTestId("assign-popup");
-    expect(popup).toHaveAttribute("data-user", "u2");
-    expect(popup).toHaveAttribute("data-name", "Olha Melnyk");
-    expect(address()).toBe("/inventory/user-containers");
-    expect(mocks.push).not.toHaveBeenCalled();
+    expect(await screen.findByText("Showing 1 to 0 of 0 results")).toBeInTheDocument();
   });
 
-  it("opens nothing from an old ?assign= link, and takes it out of the address", () => {
+  it("takes an old ?assign= link's param out of the address", () => {
     window.history.replaceState(null, "", "/inventory/user-containers?assign=u1");
     renderWithClient(<UserContainersPage />);
-    expect(screen.queryByTestId("assign-popup")).toBeNull();
-    expect(address()).toBe("/inventory/user-containers");
+    expect(`${window.location.pathname}${window.location.search}`).toBe("/inventory/user-containers");
   });
 });
 
@@ -222,16 +264,15 @@ describe("UserContainersPage — access", () => {
 });
 
 /**
- * "Nothing jumps": the table is drawn at its own size while loading, a row
- * never reads "Not set" and then changes its mind, and a search keeps the
- * page on screen while the directory downloads.
+ * "Nothing jumps": one loader, a row never reads "Not set" and then changes
+ * its mind, and a search keeps the page on screen while the directory downloads.
  */
 describe("UserContainersPage — a stable first frame", () => {
-  it("draws the real table while the first page loads, and no pager for the rows to move", () => {
+  it("draws the grid's header over Workiz's loader while the first page loads, no pager", () => {
     mocks.usersLoading = true;
     renderWithClient(<UserContainersPage />);
-    expect([...document.querySelectorAll("thead th")].map((th) => th.textContent)).toContain("Container");
-    expect(screen.getAllByTestId("skeleton-row").length).toBeGreaterThan(0);
+    expect([...document.querySelectorAll("thead th")].map((th) => th.textContent)).toContain("Location");
+    expect(screen.getByRole("status", { name: "Loading" })).toBeInTheDocument();
     expect(screen.queryByTestId("list-pagination")).toBeNull();
   });
 
@@ -239,18 +280,16 @@ describe("UserContainersPage — a stable first frame", () => {
     mocks.assignmentsLoading = true;
     renderWithClient(<UserContainersPage />);
     expect(screen.queryByText("Not set")).toBeNull();
-    expect(screen.getAllByTestId("skeleton-row").length).toBeGreaterThan(0);
+    expect(screen.getByRole("status", { name: "Loading" })).toBeInTheDocument();
   });
 
   // A user without a row of their own may work from a legacy van the fleet
-  // names: the table waits for the fleet, rather than drawing grey bars (or
-  // "Not set") in that row and changing them a beat later.
-  it("waits for the fleet before it draws a row — no grey bars that turn into a van", () => {
+  // names: the grid waits for the fleet rather than changing that row later.
+  it("waits for the fleet before it draws a row", () => {
     mocks.locationsLoading = true;
     renderWithClient(<UserContainersPage />);
     expect(screen.queryByText("Olha Melnyk")).toBeNull();
-    expect(screen.queryByTestId("assignment-pending")).toBeNull();
-    expect(screen.getAllByTestId("skeleton-row").length).toBeGreaterThan(0);
+    expect(screen.getByRole("status", { name: "Loading" })).toBeInTheDocument();
   });
 
   it("keeps the page on screen, dimmed, while a search downloads the directory", async () => {
@@ -261,8 +300,7 @@ describe("UserContainersPage — a stable first frame", () => {
     await waitFor(() => expect(mocks.directoryCalls).toBe(1));
 
     expect(screen.getByText("Taras Koval")).toBeInTheDocument();
-    expect(screen.queryByTestId("skeleton-row")).toBeNull();
-    expect(screen.getByRole("table")).toHaveAttribute("aria-busy", "true");
+    expect(document.querySelector("[data-slot=wz-report-grid]")).toHaveAttribute("aria-busy", "true");
 
     release();
     await waitFor(() => expect(screen.getByText("Pavlo Bondar")).toBeInTheDocument());

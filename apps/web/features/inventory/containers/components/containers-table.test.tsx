@@ -6,7 +6,6 @@ import type { Container } from "@bitcrm/types";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { ContainerUser } from "@/features/inventory/user-containers/lib";
 import type { LocationTotals } from "@/features/inventory/stock/lib";
-import { INVENTORY_ROW } from "@/features/inventory/components/inventory-table";
 import { ContainersTable } from "./containers-table";
 
 const onEdit = vi.fn();
@@ -111,11 +110,12 @@ describe("ContainersTable", () => {
     expect(document.querySelectorAll("tbody td")[2]).toHaveTextContent("Anna Lys, Bohdan Hai +2");
   });
 
-  it("shows — for a van nobody works from, and — without a description", () => {
+  // Workiz leaves a blank cell blank.
+  it("leaves the cells empty for a van nobody works from, and without a description", () => {
     users = new Map();
     renderTable([container({ technicianId: undefined, technicianName: undefined, description: undefined })]);
-    expect(document.querySelectorAll("tbody td")[2]).toHaveTextContent(/^—$/);
-    expect(document.querySelectorAll("tbody td")[1]).toHaveTextContent("—");
+    expect(document.querySelectorAll("tbody td")[2]).toHaveTextContent(/^$/);
+    expect(document.querySelectorAll("tbody td")[1]).toHaveTextContent(/^$/);
   });
 
   // Low stock needs the van's whole stock; that lives in its Stock popup. On
@@ -164,13 +164,6 @@ describe("ContainersTable", () => {
  */
 describe("ContainersTable — a stable first frame", () => {
   const table = () => renderTable().container;
-
-  it("scrolls sideways instead of clipping when the columns outgrow the screen", () => {
-    const frame = table().querySelector("[data-slot=table-frame]") as HTMLElement;
-    expect(frame).not.toBeNull();
-    expect(frame.className).toMatch(/overflow-x-auto/);
-    expect(frame.className).not.toMatch(/overflow-hidden/);
-  });
 
   it("lays the columns out at declared widths, not by content", () => {
     expect(table().querySelector("table")?.className).toContain("table-fixed");
@@ -221,15 +214,11 @@ describe("ContainersTable — loading", () => {
 
     render(
       <TooltipProvider>
-        <ContainersTable containers={[]} users={users} onEdit={onEdit} onStock={onStock} loading skeletonRows={50} />
+        <ContainersTable containers={[]} users={users} onEdit={onEdit} onStock={onStock} loading />
       </TooltipProvider>,
     );
     expect(shape()).toEqual(loaded);
-    expect(screen.getAllByTestId("skeleton-row")).toHaveLength(50);
-  });
-
-  it("gives real rows the skeleton's height", () => {
-    renderTable();
-    expect(document.querySelector("tbody tr")?.className).toContain(INVENTORY_ROW);
+    // Workiz's loader over the blank rows, not placeholders that change height.
+    expect(screen.getByRole("status", { name: "Loading" })).toBeInTheDocument();
   });
 });

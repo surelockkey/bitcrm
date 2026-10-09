@@ -3,6 +3,7 @@
 import { Truck } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useReportInventoryReady } from "@/features/inventory/components/inventory-frame";
 import { useMyContainer } from "../hooks";
 import { ContainerStockSkeleton, ContainerStockTab } from "./container-stock-tab";
 
@@ -11,6 +12,7 @@ const HEADER = "flex items-center gap-3 border-b px-6 py-4";
 
 export function MyContainerView() {
   const { data: container, isLoading, isError } = useMyContainer();
+  useReportInventoryReady(!isLoading);
 
   if (isLoading) {
     return (

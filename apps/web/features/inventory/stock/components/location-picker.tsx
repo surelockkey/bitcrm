@@ -1,7 +1,7 @@
 "use client";
 
 import { useId } from "react";
-import { ChevronsUpDown } from "lucide-react";
+import { ChevronDown, ChevronsUpDown } from "lucide-react";
 import { Popover } from "radix-ui";
 import {
   Command,
@@ -36,6 +36,7 @@ export function LocationPicker({
   searchPlaceholder = "Search locations",
   emptyText = "No other locations.",
   disabled = false,
+  look = "default",
 }: {
   labelId: string;
   groups: { warehouses: StockLocation[]; containers: StockLocation[] };
@@ -50,6 +51,12 @@ export function LocationPicker({
   searchPlaceholder?: string;
   emptyText?: string;
   disabled?: boolean;
+  /**
+   * `workiz`: the box of Workiz's newer modals (Move items to container — a
+   * FloatingLabel react-select: 42px, 1px #9ea6aa, 4px corners, the 13px
+   * #768287 placeholder 12px in, #6aa8ee while open, a thin chevron).
+   */
+  look?: "default" | "workiz";
 }) {
   const empty = groups.warehouses.length === 0 && groups.containers.length === 0;
   const listId = useId();
@@ -65,12 +72,20 @@ export function LocationPicker({
           aria-controls={listId}
           aria-haspopup="listbox"
           disabled={disabled}
-          className="flex h-10 w-full items-center justify-between gap-2 rounded-md border border-input bg-card px-2.5 text-left text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30"
+          className={
+            look === "workiz"
+              ? "flex h-[42px] w-full items-center justify-between gap-2 rounded-[4px] border border-wz-outline bg-background pr-3 pl-3 text-left text-[13px] leading-4 text-foreground outline-none hover:border-foreground focus-visible:border-wz-link disabled:cursor-not-allowed disabled:opacity-50 aria-expanded:border-wz-link"
+              : "flex h-10 w-full items-center justify-between gap-2 rounded-md border border-input bg-card px-2.5 text-left text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30"
+          }
         >
-          <span className={cn("truncate", !value && "text-muted-foreground")}>
+          <span className={cn("truncate", !value && (look === "workiz" ? "text-wz-outline-label" : "text-muted-foreground"))}>
             {value ? value.name : placeholder}
           </span>
-          <ChevronsUpDown className="size-4 shrink-0 opacity-50" />
+          {look === "workiz" ? (
+            <ChevronDown className="size-4 shrink-0 text-foreground" strokeWidth={1.5} />
+          ) : (
+            <ChevronsUpDown className="size-4 shrink-0 opacity-50" />
+          )}
         </button>
       </Popover.Trigger>
 

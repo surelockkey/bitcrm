@@ -1,28 +1,25 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { ClipboardList, Plus, TriangleAlert } from "lucide-react";
+import { useCallback, useMemo, useState } from "react";
 import { InventoryStatus } from "@bitcrm/types";
+import type { ContainerTemplate } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { ListPagination } from "@/components/ui/list-pagination";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { WZ_GRID_PAGE_SIZES } from "@/components/workiz/local-grid";
+import { WzPager } from "@/components/workiz/pager";
+import { WzListToolbar, WzPageSizeSelect, WzSearchBox } from "@/components/workiz/toolbar";
 import { arraySource } from "@/lib/paging/array-source";
 import { usePageSize } from "@/lib/paging/use-page-size";
 import { usePager } from "@/lib/paging/use-pager";
-import { settled, usePageReady } from "@/lib/use-page-ready";
+import { settled } from "@/lib/use-page-ready";
+import { useInventoryPageReady } from "@/features/inventory/components/inventory-frame";
+import { LocationsBand } from "@/features/inventory/components/locations-grid";
 import { useDenied, usePermissions } from "@/features/auth/use-permissions";
 import { NoAccess } from "@/features/inventory/components/no-access";
-import { ListBody } from "@/features/inventory/components/list-body";
-import { useSkeletonRows } from "@/features/inventory/components/use-skeleton-rows";
 import { useAllLocations } from "@/features/inventory/stock/hooks";
 import { usePopup } from "@/features/inventory/use-popup";
 import { useContainerTemplates } from "../hooks";
+import { searchTemplates } from "../lib";
 import { TEMPLATES_TABLE_KEY, TemplatesTable } from "./templates-table";
 import { TemplateDialog } from "./template-dialog";
 import { ApplyTemplateDialog } from "./apply-template-dialog";
@@ -39,8 +36,10 @@ type TemplatesPopup =
 const STALE_PARAMS = ["template", "apply", "container"] as const;
 
 /**
- * Container templates: a van's ideal loadout, made once and applied to any
- * van — see what it has, what is missing, and fill the gap from a warehouse.
+ * Container templates — BitCRM's own (a van's ideal loadout, applied to any
+ * van: what it has, what is missing, fill the gap from a warehouse), drawn as
+ * Workiz's Locations tab: Add New in the band; the strip with Search, the
+ * status box and the page size; the grid with the pager in it.
  */
 export function TemplatesPage() {
   const denied = useDenied();
@@ -54,36 +53,29 @@ export function TemplatesPage() {
 function Templates() {
   const { can, isLoading: permsLoading } = usePermissions();
   const [status, setStatus] = useState<InventoryStatus>(InventoryStatus.ACTIVE);
-  // The server answers one status at a time, whole — templates are few, but
-  // the table still pages, under the same panel as every other list.
+  const [search, setSearch] = useState("");
+  // The server answers one status at a time, whole — templates are few; the
+  // search and the pages run over the ones in hand.
   const query = useContainerTemplates(status);
   const all = useMemo(() => query.data ?? [], [query.data]);
+  const matching = useMemo(() => searchTemplates(all, search), [all, search]);
 
   // Used by: the vans naming each template, across the whole fleet.
   const locations = useAllLocations();
 
-  // One skeleton, then the list whole: the rows wait for the fleet (Used by
-  // printed grey bars, then the numbers) and for the permissions (the row's
-  // menu popped in after the rows). Latched: another status keeps the rows on
-  // screen, dimmed, not a skeleton.
-  const ready = usePageReady(!permsLoading && settled(query) && !locations.isLoading);
+  // One loader, then the list whole: the rows wait for the fleet (Used by)
+  // and for the permissions (the row's glyphs). Latched: another status keeps
+  // the rows on screen, dimmed.
+  const ready = useInventoryPageReady(!permsLoading && settled(query) && !locations.isLoading);
   const loading = !ready;
-  const stale = query.isPlaceholderData;
-  const [pageSize, setPageSize] = usePageSize(TEMPLATES_TABLE_KEY);
-  const pager = usePager(arraySource(all, pageSize, loading), {
-    total: loading ? undefined : all.length,
+  const [pageSize, setPageSize] = usePageSize(TEMPLATES_TABLE_KEY, { sizes: WZ_GRID_PAGE_SIZES, fallback: 10 });
+  const pager = usePager(arraySource(matching, pageSize, loading), {
+    total: loading ? undefined : matching.length,
     pageSize,
-    resetKey: JSON.stringify({ status, pageSize }),
+    resetKey: JSON.stringify({ status, search, pageSize }),
   });
   const templates = pager.items;
   const failed = query.isError && !query.data;
-  const empty = !failed && !loading && templates.length === 0;
-  const skeletonRows = useSkeletonRows(
-    TEMPLATES_TABLE_KEY,
-    pageSize,
-    undefined,
-    loading || stale ? undefined : templates.length,
-  );
 
   const usedBy = useMemo(() => {
     const counts = new Map<string, number>();
@@ -94,12 +86,24 @@ function Templates() {
   }, [locations.data]);
 
   const { popup, open, close } = usePopup<TemplatesPopup>(STALE_PARAMS);
+  const onEdit = useCallback((t: ContainerTemplate) => open({ kind: "template", id: t.id }), [open]);
+  const onApply = useCallback(
+    (t: ContainerTemplate) => open({ kind: "apply", templateId: t.id, containerId: null }),
+    [open],
+  );
 
   return (
-    <div className="flex flex-1 flex-col">
-      <div className="flex flex-wrap items-center gap-2 px-6 py-3">
+    <div className="flex flex-col">
+      <LocationsBand
+        canAdd={permsLoading || can("containers", "create")}
+        pending={permsLoading}
+        onAdd={() => open({ kind: "template", id: null })}
+      />
+
+      <WzListToolbar data-testid="templates-toolbar" className="shrink-0">
+        <WzSearchBox value={search} onChange={setSearch} />
         <Select value={status} onValueChange={(v) => setStatus(v as InventoryStatus)}>
-          <SelectTrigger className="h-9 w-32" aria-label="Status">
+          <SelectTrigger className="h-10 w-[200px]" aria-label="Status">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -107,81 +111,32 @@ function Templates() {
             <SelectItem value={InventoryStatus.ARCHIVED}>Archived</SelectItem>
           </SelectContent>
         </Select>
-        <span className="ml-auto" />
-        {permsLoading || can("containers", "create") ? (
-          <Button
-            className="h-9 gap-1.5 px-3.5"
-            disabled={permsLoading}
-            onClick={() => open({ kind: "template", id: null })}
-          >
-            <Plus className="size-4" />
-            New template
-          </Button>
-        ) : null}
-      </div>
+        <WzPageSizeSelect className="ml-auto" value={pageSize} sizes={WZ_GRID_PAGE_SIZES} onChange={setPageSize} />
+      </WzListToolbar>
 
-      <div className="flex-1 px-6 pb-6">
-        <ListBody
-          holdKey={status}
-          scrollKey={`${pager.page}:${pageSize}`}
-          pager={
-            // Drawn with the rows, never under the skeleton, where the rows
-            // would move it when they land.
-            loading || failed || empty ? null : (
-              <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} />
-            )
-          }
-        >
-          {failed ? (
-            <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed py-16 text-center">
-              <div className="flex size-12 items-center justify-center rounded-xl bg-destructive/10 text-destructive">
-                <TriangleAlert className="size-6" />
-              </div>
-              <div className="font-medium">Couldn&apos;t load templates</div>
-              <Button variant="outline" onClick={() => query.refetch()}>
-                Retry
-              </Button>
-            </div>
-          ) : empty ? (
-            <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed py-16 text-center">
-              <div className="flex size-12 items-center justify-center rounded-xl bg-muted text-muted-foreground">
-                <ClipboardList className="size-6" />
-              </div>
-              <div>
-                <div className="font-medium">
-                  {status === InventoryStatus.ACTIVE ? "No templates yet" : "No archived templates"}
-                </div>
-                {status === InventoryStatus.ACTIVE ? (
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    A template is a van&apos;s ideal loadout — make one, then apply it to any van.
-                  </p>
-                ) : null}
-              </div>
-            </div>
-          ) : (
-            <>
-              <TemplatesTable
-                templates={templates}
-                usedBy={usedBy}
-                usedByPending={locations.isLoading}
-                loading={loading}
-                skeletonRows={skeletonRows}
-                stale={stale}
-                onEdit={(t) => open({ kind: "template", id: t.id })}
-                onApply={(t) => open({ kind: "apply", templateId: t.id, containerId: null })}
-              />
-            </>
-          )}
-        </ListBody>
-      </div>
+      {failed ? (
+        <div className="border border-wz-frame px-5 py-10 text-center text-sm">
+          <p role="alert">Couldn&apos;t load templates</p>
+          <Button variant="outline" size="sm" className="mt-3" onClick={() => query.refetch()}>
+            Retry
+          </Button>
+        </div>
+      ) : (
+        <TemplatesTable
+          templates={templates}
+          usedBy={usedBy}
+          loading={loading}
+          stale={query.isPlaceholderData}
+          onEdit={onEdit}
+          onApply={onApply}
+          // Drawn with the rows, its total and all — never under the loader.
+          footer={ready ? <WzPager pager={pager} plainNumbers /> : null}
+        />
+      )}
 
       {/* Mounted only while open, so each opening reads fresh. */}
       {popup?.kind === "template" ? (
-        <TemplateDialog
-          templateId={popup.id}
-          open
-          onOpenChange={(next) => (next ? undefined : close())}
-        />
+        <TemplateDialog templateId={popup.id} open onOpenChange={(next) => (next ? undefined : close())} />
       ) : null}
       {popup?.kind === "apply" ? (
         <ApplyTemplateDialog

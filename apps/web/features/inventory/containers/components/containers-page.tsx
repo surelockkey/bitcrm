@@ -1,47 +1,38 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import Link from "next/link";
-import { ArrowUpRight, Plus, Search, Truck } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { useCallback, useMemo, useState } from "react";
 import { DataScope, InventoryStatus } from "@bitcrm/types";
+import type { Container } from "@bitcrm/types";
+import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { WzButtonLink } from "@/components/workiz/button";
+import { WZ_GRID_PAGE_SIZES } from "@/components/workiz/local-grid";
+import { WzPager } from "@/components/workiz/pager";
+import { WzListToolbar, WzPageSizeSelect, WzSearchBox } from "@/components/workiz/toolbar";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
-import { settled, usePageReady } from "@/lib/use-page-ready";
+import { settled } from "@/lib/use-page-ready";
+import { useInventoryPageReady } from "@/features/inventory/components/inventory-frame";
+import { LocationsBand } from "@/features/inventory/components/locations-grid";
 import { useAllLocations } from "@/features/inventory/stock/hooks";
 import { LocationStockDialog } from "@/features/inventory/stock/components/location-stock-dialog";
 import { ContainerTemplateBar } from "@/features/inventory/templates/components/container-template-bar";
 import { ApplyTemplateDialog } from "@/features/inventory/templates/components/apply-template-dialog";
 import { useDropStaleParams, usePopup } from "@/features/inventory/use-popup";
 import { useUserContainers, useUserNames } from "@/features/inventory/user-containers/hooks";
-import {
-  containerUserNames,
-  unnamedUserIds,
-  usersOfContainer,
-} from "@/features/inventory/user-containers/lib";
-import { useContainersList, useContainersCount } from "../hooks";
-import type { ContainerFilter } from "../api";
-import { ContainersTable } from "./containers-table";
-import { ContainerCreateDialog } from "./container-create-dialog";
-import { ContainerEditDialog } from "./container-edit-dialog";
-import { MyContainerView } from "./my-container-view";
-import { ListPagination } from "@/components/ui/list-pagination";
+import { containerUserNames, unnamedUserIds, usersOfContainer } from "@/features/inventory/user-containers/lib";
 import { pagedSource } from "@/lib/paging/paged-source";
 import { usePageSize } from "@/lib/paging/use-page-size";
 import { usePager } from "@/lib/paging/use-pager";
-import { useSkeletonRows } from "@/features/inventory/components/use-skeleton-rows";
-import { ListBody } from "@/features/inventory/components/list-body";
+import { useContainersList, useContainersCount } from "../hooks";
+import type { ContainerFilter } from "../api";
+import { CONTAINERS_TABLE_KEY, ContainersTable } from "./containers-table";
+import { ContainerCreateDialog } from "./container-create-dialog";
+import { ContainerEditDialog } from "./container-edit-dialog";
+import { MyContainerView } from "./my-container-view";
 
-/** The list's own key: its page size and its skeleton's height are saved under it. */
-const TABLE_KEY = "inventory-vans";
+/** Workiz's page size before the reader picks one. */
+const PAGE_SIZE = { sizes: WZ_GRID_PAGE_SIZES, fallback: 10 };
 
 /**
  * The popup over the fleet — one at a time: a van's stock, its settings, or a
@@ -77,9 +68,17 @@ export function ContainersPage() {
   return <Fleet />;
 }
 
+/**
+ * The vans — Workiz's Locations tab (pg_inventory_wz_02_locations) for the
+ * mobile locations, the owner's split from the warehouses: Add New in the
+ * band (with BitCRM's link to Technicians beside it); the strip with Search,
+ * BitCRM's Department and Status boxes and the page size; the grid with the
+ * pager in it. The pencil opens Workiz's Edit Location, the box (or the row)
+ * the van's Manage stock.
+ */
 function Fleet() {
   const { can } = usePermissions();
-  const [pageSize, setPageSize] = usePageSize(TABLE_KEY);
+  const [pageSize, setPageSize] = usePageSize(CONTAINERS_TABLE_KEY, PAGE_SIZE);
   const [search, setSearch] = useState("");
   const [department, setDepartment] = useState("all");
   const [status, setStatus] = useState("all");
@@ -90,6 +89,8 @@ function Fleet() {
   const { popup, open, close } = usePopup<ContainersPopup>();
   const stockId = popup?.kind === "stock" ? popup.id : null;
   const editId = popup?.kind === "edit" ? popup.id : null;
+  const onEdit = useCallback((c: Container) => open({ kind: "edit", id: c.id }), [open]);
+  const onStock = useCallback((c: Container) => open({ kind: "stock", id: c.id }), [open]);
 
   // The server filters before it cuts the page — filtering a page in the
   // browser is what made every page show a different number of vans.
@@ -105,7 +106,8 @@ function Fleet() {
 
   const query = useContainersList(filter, pageSize);
   const count = useContainersCount(filter);
-  const pager = usePager(pagedSource(query), {
+  const src = pagedSource(query);
+  const pager = usePager(query.isPlaceholderData ? { ...src, hasNextPage: false } : src, {
     total: count.data?.total,
     totalIsFloor: count.data?.atLeast,
     pageSize,
@@ -117,15 +119,11 @@ function Fleet() {
   const locations = useAllLocations();
   const departments = useMemo(
     () =>
-      [
-        ...new Set(
-          locations.data.map((l) => l.department).filter((d): d is string => !!d),
-        ),
-      ].sort((a, b) => a.localeCompare(b)),
+      [...new Set(locations.data.map((l) => l.department).filter((d): d is string => !!d))].sort((a, b) =>
+        a.localeCompare(b),
+      ),
     [locations.data],
   );
-
-  const filtered = !!filter.search || !!filter.department || !!filter.status;
 
   // Who works from each van: every assignment in one request, named from the
   // directory where the backfill left only an id.
@@ -139,23 +137,16 @@ function Fleet() {
     return new Map(containers.map((c) => [c.id, usersOfContainer(c, byVan, byUser)] as const));
   }, [assignments.data, names, containers]);
 
-  // One skeleton, then the fleet whole: the rows wait for the count (the
+  // One loader, then the fleet whole: the rows wait for the count (the
   // pager's "of N") and for who works from each van — named a beat after the
   // rows, the Users column read "+1" and then changed. Latched: a new filter
-  // keeps the rows on screen, dimmed, not a skeleton.
-  const ready = usePageReady(settled(query) && settled(count) && settled(assignments) && !namesLoading);
-  const loading = !ready;
-  const empty = !loading && containers.length === 0;
-  const skeletonRows = useSkeletonRows(
-    TABLE_KEY,
-    pageSize,
-    count.data?.total,
-    loading || pager.isStale ? undefined : containers.length,
-  );
+  // keeps the rows on screen, dimmed.
+  const ready = useInventoryPageReady(settled(query) && settled(count) && settled(assignments) && !namesLoading);
+  const failed = query.isError && !query.data;
 
   return (
-    <div className="flex flex-1 flex-col">
-      <FleetToolbar
+    <div className="flex flex-col">
+      <FleetChrome
         search={search}
         onSearch={setSearch}
         department={department}
@@ -166,51 +157,29 @@ function Fleet() {
         onStatus={setStatus}
         canCreate={can("containers", "create")}
         onCreate={() => setCreateOpen(true)}
+        pageSize={pageSize}
+        onPageSize={setPageSize}
       />
 
-      <div className="flex-1 px-6 pb-6">
-        <ListBody
-          holdKey={JSON.stringify(filter)}
-          scrollKey={`${pager.page}:${pageSize}`}
-          pager={
-            // Drawn with the rows, never under the skeleton, where the rows
-            // would move it when they land.
-            loading || empty ? null : (
-              <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} />
-            )
-          }
-        >
-          {empty ? (
-            <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed py-16 text-center">
-              <div className="flex size-12 items-center justify-center rounded-xl bg-muted text-muted-foreground">
-                <Truck className="size-6" />
-              </div>
-              <div>
-                <div className="font-medium">{filtered ? "No containers match" : "No containers"}</div>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  {filtered
-                    ? "Try clearing your search or filter."
-                    : "A van appears here when a technician is activated."}
-                </p>
-              </div>
-            </div>
-          ) : (
-            <>
-              {/* Loading, loaded or holding the last filter's rows — one table,
-                  so nothing under it moves when the rows land. */}
-              <ContainersTable
-                containers={containers}
-                users={users}
-                loading={loading}
-                skeletonRows={skeletonRows}
-                stale={pager.isStale}
-                onEdit={(c) => open({ kind: "edit", id: c.id })}
-                onStock={(c) => open({ kind: "stock", id: c.id })}
-              />
-            </>
-          )}
-        </ListBody>
-      </div>
+      {failed ? (
+        <div className="border border-wz-frame px-5 py-10 text-center text-sm">
+          <p role="alert">Couldn&apos;t load containers</p>
+          <Button variant="outline" size="sm" className="mt-3" onClick={() => query.refetch()}>
+            Try again
+          </Button>
+        </div>
+      ) : (
+        <ContainersTable
+          containers={containers}
+          users={users}
+          loading={!ready}
+          stale={query.isPlaceholderData}
+          onEdit={onEdit}
+          onStock={onStock}
+          // Drawn with the rows, its total and all — never under the loader.
+          footer={ready ? <WzPager pager={pager} plainNumbers /> : null}
+        />
+      )}
 
       <ContainerCreateDialog open={createOpen} onOpenChange={setCreateOpen} />
       {/* Mounted only while open, so each opening reads fresh. */}
@@ -239,22 +208,18 @@ function Fleet() {
         />
       ) : null}
       {editId ? (
-        <ContainerEditDialog
-          containerId={editId}
-          open
-          onOpenChange={(next) => (next ? undefined : close())}
-        />
+        <ContainerEditDialog containerId={editId} open onOpenChange={(next) => (next ? undefined : close())} />
       ) : null}
     </div>
   );
 }
 
 /**
- * The fleet's toolbar. Every control is there from the first frame: the
- * Department select waits (disabled) for the departments instead of popping
- * in and pushing Status and the buttons sideways.
+ * The band and the strip. Every control is there from the first frame: the
+ * Department box waits (disabled) for the departments instead of popping in
+ * and pushing Status and the page size sideways.
  */
-function FleetToolbar({
+function FleetChrome({
   search,
   onSearch,
   department,
@@ -265,6 +230,8 @@ function FleetToolbar({
   onStatus,
   canCreate,
   onCreate,
+  pageSize,
+  onPageSize,
   pending = false,
 }: {
   search: string;
@@ -277,75 +244,63 @@ function FleetToolbar({
   onStatus: (status: string) => void;
   canCreate: boolean;
   onCreate: () => void;
+  pageSize: number;
+  onPageSize: (size: number) => void;
   /** Permissions still loading: everything in place, nothing to press yet. */
   pending?: boolean;
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-2 px-6 py-3">
-      <div className="relative w-full max-w-xs">
-        <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          value={search}
-          onChange={(e) => onSearch(e.target.value)}
-          placeholder="Search containers"
-          className="h-9 pl-8"
-          disabled={pending}
-        />
-      </div>
-      <Select value={department} onValueChange={onDepartment} disabled={pending || departmentsLoading}>
-        <SelectTrigger className="h-9 w-44" aria-label="Department">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="all">All departments</SelectItem>
-          {departments.map((d) => (
-            <SelectItem key={d} value={d}>
-              {d}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-      <Select value={status} onValueChange={onStatus} disabled={pending}>
-        <SelectTrigger className="h-9 w-32" aria-label="Status">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="all">All statuses</SelectItem>
-          <SelectItem value={InventoryStatus.ACTIVE}>Active</SelectItem>
-          <SelectItem value={InventoryStatus.ARCHIVED}>Archived</SelectItem>
-        </SelectContent>
-      </Select>
-      {/* Скільки всього — каже панель під таблицею; тут було б число однієї сторінки. */}
-      <span className="ml-auto" />
-      <Button asChild variant="outline" className="h-9 gap-1.5">
-        <Link href="/technicians">
+    <>
+      <LocationsBand canAdd={pending || canCreate} pending={pending} onAdd={onCreate}>
+        {/* BitCRM's way to who drives the vans; Workiz has none. */}
+        <WzButtonLink href="/technicians" variant="secondary" size="regular">
           Technicians
-          <ArrowUpRight className="size-3.5" />
-        </Link>
-      </Button>
-      {pending || canCreate ? (
-        <Button variant="brand" className="h-9 gap-1.5 px-3.5" disabled={pending} onClick={onCreate}>
-          <Plus className="size-4" />
-          New container
-        </Button>
-      ) : null}
-    </div>
+        </WzButtonLink>
+      </LocationsBand>
+      <WzListToolbar data-testid="containers-toolbar" className="shrink-0">
+        <WzSearchBox value={search} onChange={onSearch} disabled={pending} />
+        {/* BitCRM's own boxes: vans by department, archived ones findable. */}
+        <Select value={department} onValueChange={onDepartment} disabled={pending || departmentsLoading}>
+          <SelectTrigger className="h-10 w-[200px]" aria-label="Department">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All departments</SelectItem>
+            {departments.map((d) => (
+              <SelectItem key={d} value={d}>
+                {d}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={status} onValueChange={onStatus} disabled={pending}>
+          <SelectTrigger className="h-10 w-[200px]" aria-label="Status">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All statuses</SelectItem>
+            <SelectItem value={InventoryStatus.ACTIVE}>Active</SelectItem>
+            <SelectItem value={InventoryStatus.ARCHIVED}>Archived</SelectItem>
+          </SelectContent>
+        </Select>
+        <WzPageSizeSelect className="ml-auto" value={pageSize} sizes={WZ_GRID_PAGE_SIZES} onChange={onPageSize} />
+      </WzListToolbar>
+    </>
   );
 }
 
 const noop = () => {};
 
 /**
- * The fleet as it will look, before anything is known: the toolbar and a
- * page of skeleton rows — and no pager, which the rows would move. It reads
- * nothing — not the list, not "my van".
+ * The fleet as it will look, before anything is known: the band, the strip
+ * and the grid's header over Workiz's loader — no pager. It reads nothing —
+ * not the list, not "my van".
  */
 function FleetFrame() {
-  const [pageSize] = usePageSize(TABLE_KEY);
-  const skeletonRows = useSkeletonRows(TABLE_KEY, pageSize, undefined, undefined);
+  const [pageSize] = usePageSize(CONTAINERS_TABLE_KEY, PAGE_SIZE);
   return (
-    <div className="flex flex-1 flex-col">
-      <FleetToolbar
+    <div className="flex flex-col">
+      <FleetChrome
         search=""
         onSearch={noop}
         department="all"
@@ -356,18 +311,11 @@ function FleetFrame() {
         onStatus={noop}
         canCreate={false}
         onCreate={noop}
+        pageSize={pageSize}
+        onPageSize={noop}
         pending
       />
-      <div className="flex-1 px-6 pb-6">
-        <ContainersTable
-          containers={[]}
-          users={new Map()}
-          loading
-          skeletonRows={skeletonRows}
-          onEdit={noop}
-          onStock={noop}
-        />
-      </div>
+      <ContainersTable containers={[]} users={new Map()} loading onEdit={noop} onStock={noop} />
     </div>
   );
 }

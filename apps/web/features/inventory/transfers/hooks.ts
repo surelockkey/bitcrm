@@ -10,12 +10,13 @@ import * as api from "./api";
  * Скільки всього рядків під тими самими фільтрами — з цього панель робить
  * «Page 2 of 7». Сервер тримає число тридцять секунд, тож і тут стільки ж.
  */
-export function useTransfersCount(filter: api.TransferFilter = {}) {
+export function useTransfersCount(filter: api.TransferFilter = {}, enabled = true) {
   return useQuery({
     // The previous page stays on screen (dimmed) while a new filter or size loads.
     placeholderData: keepPreviousData,
     queryKey: queryKeys.inventory.transfers.count(filter),
     queryFn: () => api.countTransfers(filter),
+    enabled,
     staleTime: 30_000,
   });
 }

@@ -103,13 +103,19 @@ beforeEach(() => {
 });
 
 describe("TemplatesPage", () => {
-  // A new search holds the area the rows are drawn in, so the pager under it
-  // does not jump up into view (see ListBody).
-  it("draws its rows in the list's held area, with the pager under it", () => {
+  // Workiz's grid is never shorter than ten rows and holds its pager.
+  it("draws its rows in Workiz's grid, the pager inside it under them", () => {
     renderWithClient(<TemplatesPage />);
-    const area = document.querySelector("[data-slot=list-area]");
-    expect(area).toContainElement(screen.getByRole("table"));
-    expect(area).not.toContainElement(screen.getByTestId("list-pagination"));
+    const grid = document.querySelector("[data-slot=wz-report-grid]");
+    expect(grid).toContainElement(screen.getByRole("table"));
+    expect(grid).toContainElement(screen.getByTestId("list-pagination"));
+  });
+
+  it("searches the templates in hand by name or description", async () => {
+    renderWithClient(<TemplatesPage />);
+    await userEvent.type(screen.getByPlaceholderText("Search"), "lockout");
+    expect(screen.getByText("Lockout van")).toBeInTheDocument();
+    expect(screen.queryByText("Standard van")).toBeNull();
   });
 
   it("lists the active templates with how many vans use each", () => {
@@ -128,9 +134,9 @@ describe("TemplatesPage", () => {
     expect(mocks.statuses.at(-1)).toBe(InventoryStatus.ARCHIVED);
   });
 
-  it("opens New template from the yellow button — as state, the address untouched", async () => {
+  it("opens a new template from the yellow Add New — as state, the address untouched", async () => {
     renderWithClient(<TemplatesPage />);
-    const button = screen.getByRole("button", { name: "New template" });
+    const button = screen.getByRole("button", { name: "Add New" });
     expect(button).toHaveAttribute("data-variant", "default");
     await userEvent.click(button);
     expect(screen.getByTestId("template-popup")).toHaveAttribute("data-id", "new");
@@ -138,10 +144,10 @@ describe("TemplatesPage", () => {
     expect(window.location.search).toBe("");
   });
 
-  it("offers no New template without containers.create", () => {
+  it("offers no Add New without containers.create", () => {
     mocks.denied.add("containers.create");
     renderWithClient(<TemplatesPage />);
-    expect(screen.queryByRole("button", { name: "New template" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Add New" })).toBeNull();
   });
 
   it("opens a template from its row and Apply from its button", async () => {
@@ -157,7 +163,7 @@ describe("TemplatesPage", () => {
   it("says so when there are none", () => {
     mocks.templates = [];
     renderWithClient(<TemplatesPage />);
-    expect(screen.getByText("No templates yet")).toBeInTheDocument();
+    expect(screen.getByText("No Records Found")).toBeInTheDocument();
   });
 
   it("is closed without containers.view", () => {
@@ -189,7 +195,7 @@ describe("TemplatesPage — nothing jumps, and it pages", () => {
     mocks.templatesLoading = true;
     renderWithClient(<TemplatesPage />);
     expect([...document.querySelectorAll("thead th")].map((th) => th.textContent)).toContain("Used by");
-    expect(screen.getAllByTestId("skeleton-row").length).toBeGreaterThan(0);
+    expect(screen.getByRole("status", { name: "Loading" })).toBeInTheDocument();
     expect(screen.queryByTestId("list-pagination")).toBeNull();
   });
 
@@ -197,7 +203,7 @@ describe("TemplatesPage — nothing jumps, and it pages", () => {
     mocks.permsLoading = true;
     renderWithClient(<TemplatesPage />);
     expect(screen.queryByText("No access")).toBeNull();
-    expect(screen.getByRole("button", { name: "New template" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Add New" })).toBeDisabled();
   });
 
   // "Used by" counted 0 until the whole fleet arrived, then changed; then it
@@ -206,8 +212,7 @@ describe("TemplatesPage — nothing jumps, and it pages", () => {
     mocks.locationsLoading = true;
     renderWithClient(<TemplatesPage />);
     expect(screen.queryByText("Standard van")).toBeNull();
-    expect(screen.queryByTestId("used-by-pending")).toBeNull();
-    expect(screen.getAllByTestId("skeleton-row").length).toBeGreaterThan(0);
+    expect(screen.getByRole("status", { name: "Loading" })).toBeInTheDocument();
   });
 
   // The row's menu depends on the permissions: drawn before them, it popped in.
@@ -215,13 +220,13 @@ describe("TemplatesPage — nothing jumps, and it pages", () => {
     mocks.permsLoading = true;
     renderWithClient(<TemplatesPage />);
     expect(screen.queryByText("Standard van")).toBeNull();
-    expect(screen.getAllByTestId("skeleton-row").length).toBeGreaterThan(0);
+    expect(screen.getByRole("status", { name: "Loading" })).toBeInTheDocument();
   });
 
-  it("pages a long list instead of drawing it whole", () => {
+  it("pages a long list ten at a time, as Workiz does", () => {
     mocks.templates = Array.from({ length: 60 }, (_, i) => tpl(`t${i}`, `Template ${i}`));
     renderWithClient(<TemplatesPage />);
-    expect(document.querySelectorAll("tbody tr")).toHaveLength(50);
-    expect(screen.getByText("Showing 1 to 50 of 60 results")).toBeInTheDocument();
+    expect(document.querySelectorAll("tbody tr:not([aria-hidden])")).toHaveLength(10);
+    expect(screen.getByText("Showing 1 to 10 of 60 results")).toBeInTheDocument();
   });
 });

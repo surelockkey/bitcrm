@@ -3,49 +3,27 @@
 import { useState, type ReactNode } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Archive, Info, Loader2 } from "lucide-react";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { DialogLoadingBody } from "@/features/inventory/components/dialog-loading";
-import type { LocationTotals } from "@/features/inventory/stock/lib";
-import { Textarea } from "@/components/ui/textarea";
+import { Skeleton } from "@/components/ui/skeleton";
+import { WzButton } from "@/components/workiz/button";
 import { InventoryStatus } from "@bitcrm/types";
 import type { Warehouse } from "@bitcrm/types";
 import { usePermissions } from "@/features/auth/use-permissions";
+import { WzConfirm } from "@/features/inventory/item-edit/wz";
 import {
-  useArchiveWarehouse,
-  useUpdateWarehouse,
-  useWarehouse,
-  useWarehouseStock,
-} from "../hooks";
+  LocationDialog,
+  LocationFields,
+  LocationFooter,
+  LocationInput,
+  LocationTextarea,
+} from "@/features/inventory/components/location-form";
+import type { LocationTotals } from "@/features/inventory/stock/lib";
+import { useArchiveWarehouse, useUpdateWarehouse, useWarehouse, useWarehouseStock } from "../hooks";
 import { warehouseSchema, type WarehouseValues } from "../schemas";
 
-/** The footer's Save sits outside the scrolling body and submits by this id. */
-const FORM_ID = "warehouse-edit-form";
-
 /**
- * The warehouse's Edit popup — Inventory has no warehouse page any more.
- * Opened from the row's pencil or a link to the warehouse; view-only without
- * `warehouses.edit`. Archive sits in its footer, as on an item's popup.
+ * A warehouse's Workiz "Edit Location" popup — Inventory has no warehouse
+ * page. Opened from the row's pencil; view-only without `warehouses.edit`.
+ * BitCRM archives rather than deletes: Archive sits at the footer's left.
  */
 export function WarehouseEditDialog({
   warehouseId,
@@ -61,23 +39,33 @@ export function WarehouseEditDialog({
   const canEdit = can("warehouses", "edit");
   const close = () => onOpenChange(false);
 
+  let title = canEdit ? "Edit Location" : "Location";
   let content: ReactNode;
   if (query.isLoading) {
     content = (
-      <>
-        <Header title={canEdit ? "Edit warehouse" : "Warehouse"} />
-        <DialogLoadingBody testId="warehouse-edit-loading" fields={["input", "input", "area"]} />
-      </>
+      <div data-testid="warehouse-edit-loading" aria-busy="true" className="flex flex-col">
+        <LocationFields>
+          <Skeleton className="h-12 w-full" />
+          <Skeleton className="h-12 w-full" />
+          <Skeleton className="h-[132px] w-full" />
+        </LocationFields>
+        {/* The buttons' place, so the popup does not grow when the form arrives. */}
+        <div data-testid="dialog-footer-placeholder" aria-hidden className="mt-[61px] flex justify-end gap-4">
+          <Skeleton className="h-10 w-24 rounded-pill" />
+          <Skeleton className="h-10 w-20 rounded-pill" />
+        </div>
+      </div>
     );
   } else if (query.isError || !query.data) {
+    title = "Location not found";
     content = (
       <>
-        <Header title="Warehouse not found" description="It may have been deleted." />
-        <DialogFooter className="m-0 flex-none">
-          <Button variant="outline" onClick={close}>
+        <p className="mt-4 text-sm text-wz-outline-label">It may have been deleted.</p>
+        <LocationFooter>
+          <WzButton variant="secondary" size="big" onClick={close}>
             Close
-          </Button>
-        </DialogFooter>
+          </WzButton>
+        </LocationFooter>
       </>
     );
   } else {
@@ -94,11 +82,14 @@ export function WarehouseEditDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-lg">
-        {content}
-      </DialogContent>
-    </Dialog>
+    <LocationDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title={title}
+      description="The warehouse's name, address and description."
+    >
+      {content}
+    </LocationDialog>
   );
 }
 
@@ -126,127 +117,79 @@ function WarehouseForm({
     address: warehouse.address ?? "",
     description: warehouse.description ?? "",
   };
-  const form = useForm<WarehouseValues>({
-    resolver: zodResolver(warehouseSchema),
-    defaultValues: saved,
-  });
+  const form = useForm<WarehouseValues>({ resolver: zodResolver(warehouseSchema), defaultValues: saved });
 
   const archived = warehouse.status === InventoryStatus.ARCHIVED;
   const heldUnits =
     typeof total === "number" ? total : (stock.data ?? []).reduce((n, s) => n + Math.max(0, s.quantity), 0);
 
   const onSubmit = (values: WarehouseValues) => {
-    const unchanged = (Object.keys(saved) as (keyof WarehouseValues)[]).every(
-      (k) => (values[k] ?? "") === saved[k],
-    );
+    const unchanged = (Object.keys(saved) as (keyof WarehouseValues)[]).every((k) => (values[k] ?? "") === saved[k]);
     if (unchanged) return onClose();
     update.mutate({ id: warehouse.id, body: values }, { onSuccess: onClose });
   };
 
   return (
-    <>
-      <Header title={readOnly ? "Warehouse" : "Edit warehouse"} />
-      <form
-        id={FORM_ID}
-        noValidate
-        onSubmit={form.handleSubmit(onSubmit)}
-        className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4"
+    <form noValidate onSubmit={form.handleSubmit(onSubmit)} className="flex min-h-0 flex-col">
+      <LocationFields>
+        {readOnly ? (
+          <p className="text-sm text-wz-outline-label">You have view-only access to warehouses.</p>
+        ) : null}
+        <LocationInput
+          label="Location Name"
+          disabled={readOnly}
+          error={form.formState.errors.name?.message}
+          {...form.register("name")}
+        />
+        <LocationInput label="Address" disabled={readOnly} {...form.register("address")} />
+        <LocationTextarea label="Description" disabled={readOnly} {...form.register("description")} />
+      </LocationFields>
+
+      <LocationFooter
+        start={
+          canArchive && !archived ? (
+            <WzButton variant="tertiary" size="big" className="text-wz-danger" onClick={() => setConfirmArchive(true)}>
+              Archive
+            </WzButton>
+          ) : null
+        }
       >
         {readOnly ? (
-          <div className="flex items-center gap-2 rounded-lg bg-muted/60 px-3 py-2 text-sm text-muted-foreground">
-            <Info className="size-4" />
-            You have view-only access to warehouses.
-          </div>
-        ) : null}
-        <div className="space-y-1.5">
-          <Label htmlFor="w-name">Name</Label>
-          <Input id="w-name" className="h-10" disabled={readOnly} {...form.register("name")} />
-          {form.formState.errors.name ? (
-            <p className="text-xs text-destructive">{form.formState.errors.name.message}</p>
-          ) : null}
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="w-address">Address</Label>
-          <Input
-            id="w-address"
-            className="h-10"
-            placeholder="Street, city, state"
-            disabled={readOnly}
-            {...form.register("address")}
-          />
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="w-desc">Description</Label>
-          <Textarea id="w-desc" rows={3} disabled={readOnly} {...form.register("description")} />
-        </div>
-      </form>
-
-      <DialogFooter className="m-0 flex-none">
-        {canArchive && !archived ? (
-          <Button
-            variant="outline"
-            className="gap-1.5 text-destructive hover:text-destructive sm:mr-auto"
-            onClick={() => setConfirmArchive(true)}
-          >
-            <Archive className="size-4" />
-            Archive
-          </Button>
-        ) : null}
-        {readOnly ? (
-          <Button variant="outline" onClick={onClose}>
+          <WzButton variant="secondary" size="big" onClick={onClose}>
             Close
-          </Button>
+          </WzButton>
         ) : (
           <>
-            <Button variant="outline" onClick={onClose}>
+            <WzButton variant="tertiary" size="big" onClick={onClose}>
               Cancel
-            </Button>
-            <Button type="submit" form={FORM_ID} disabled={update.isPending} className="gap-1.5">
-              {update.isPending ? <Loader2 className="size-4 animate-spin" /> : null}
+            </WzButton>
+            <WzButton type="submit" variant="primary" size="big" loading={update.isPending}>
               Save
-            </Button>
+            </WzButton>
           </>
         )}
-      </DialogFooter>
+      </LocationFooter>
 
-      <AlertDialog open={confirmArchive} onOpenChange={setConfirmArchive}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Archive “{warehouse.name}”?</AlertDialogTitle>
-            <AlertDialogDescription>
-              It&apos;s hidden from active lists and transfer targets. Archiving doesn&apos;t move its stock.
-              {heldUnits > 0 ? (
-                <>
-                  {" "}
-                  This warehouse still holds <b>{heldUnits.toLocaleString()} units</b> — move them out
-                  first if you don&apos;t want them stranded.
-                </>
-              ) : null}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-white hover:bg-destructive/90"
-              onClick={() => archive.mutate(warehouse.id, { onSuccess: onClose })}
-            >
-              Archive warehouse
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </>
-  );
-}
-
-function Header({ title, description }: { title: string; description?: string }) {
-  return (
-    // Right padding keeps the title clear of the close button.
-    <DialogHeader className="border-b px-4 py-3 pr-12">
-      <DialogTitle className="text-base">{title}</DialogTitle>
-      <DialogDescription className={description ? undefined : "sr-only"}>
-        {description ?? "The warehouse's name, address and description."}
-      </DialogDescription>
-    </DialogHeader>
+      <WzConfirm
+        open={confirmArchive}
+        onOpenChange={setConfirmArchive}
+        title={`Archive “${warehouse.name}”?`}
+        confirmText="Archive warehouse"
+        pending={archive.isPending}
+        onConfirm={() => archive.mutate(warehouse.id, { onSuccess: onClose })}
+        message={
+          <>
+            It&apos;s hidden from active lists and transfer targets. Archiving doesn&apos;t move its stock.
+            {heldUnits > 0 ? (
+              <>
+                {" "}
+                This warehouse still holds <b>{heldUnits.toLocaleString()} units</b> — move them out first if you
+                don&apos;t want them stranded.
+              </>
+            ) : null}
+          </>
+        }
+      />
+    </form>
   );
 }

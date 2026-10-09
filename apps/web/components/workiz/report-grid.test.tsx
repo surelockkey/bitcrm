@@ -234,6 +234,28 @@ describe("WzReportGrid cellAlign (pg_pricebook)", () => {
   });
 });
 
+describe("WzReportGrid minTableWidth (pg_inventory)", () => {
+  // Workiz's Inventory grid: twenty 100px columns (2030px) in a 1400px frame —
+  // the grid scrolls sideways inside its frame instead of squeezing them.
+  it("holds the table at its width and lets the frame scroll sideways", () => {
+    render(
+      <WzReportGrid aria-label="Activity" columns={columns} rows={rows} rowKey={(r) => r.id} minTableWidth={2030} />,
+    );
+    const table = screen.getByRole("table", { name: "Activity" });
+    expect(table.style.minWidth).toBe("2030px");
+    // The pager under it stays put: only the table's own box scrolls (react-table's rt-table).
+    expect(table.parentElement!.className).toContain("overflow-x-auto");
+    expect(table.closest("[data-slot=wz-report-grid]")!.className).not.toContain("overflow-x-auto");
+  });
+
+  it("leaves the reports' frame alone without it", () => {
+    render(<WzReportGrid aria-label="Activity" columns={columns} rows={rows} rowKey={(r) => r.id} />);
+    const table = screen.getByRole("table", { name: "Activity" });
+    expect(table.style.minWidth).toBe("");
+    expect(table.closest("[data-slot=wz-report-grid]")!.className).not.toContain("overflow-x-auto");
+  });
+});
+
 describe("wzNextSort", () => {
   // react-table: the first click on an unsorted column sorts it ascending,
   // then each click turns it round (rep_activity_wz_08_sort_asc / _08b).

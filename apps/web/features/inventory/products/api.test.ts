@@ -42,6 +42,16 @@ describe("listProducts", () => {
     });
   });
 
+  // Workiz's "All Stock Levels" box: the server splits Stocked from Low Stock.
+  it("sends the stock level to the list and the count", async () => {
+    const list = capture("/inventory/products", { data: [], pagination: {} });
+    const count = capture("/inventory/products/count", { data: { total: 1, atLeast: false } });
+    await listProducts({ manageStock: true, stockLevel: "low" });
+    await countProducts({ manageStock: true, stockLevel: "stocked" });
+    expect(list[0].get("stockLevel")).toBe("low");
+    expect(count[0].get("stockLevel")).toBe("stocked");
+  });
+
   it("sends manageStock=false rather than dropping it", async () => {
     const seen = capture("/inventory/products", { data: [], pagination: {} });
     await listProducts({ manageStock: false });

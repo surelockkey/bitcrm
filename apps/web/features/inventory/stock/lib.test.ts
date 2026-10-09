@@ -10,6 +10,7 @@ import {
   moveTargets,
   movementMessages,
   pageSlice,
+  locationTotals,
   stockRowsOf,
   stockSummary,
   toLocations,
@@ -287,6 +288,23 @@ describe("locationHint", () => {
 });
 
 /** F2's rows arrive named and priced; the views read them as stock rows. */
+// Workiz's location popup (pg_inventory_wz_13_location_stock): "Total Items
+// On Hand: 1538", "Total Items cost: 36996.365", "Sale Items Value: 310458.19".
+describe("locationTotals — the three lines of a warehouse's or van's popup", () => {
+  it("sums the units, their cost and their sale value, as plain numbers", () => {
+    expect(
+      locationTotals([
+        { quantity: 2, unitCost: 20.16, unitPrice: 125 },
+        { quantity: 1, unitCost: 13.69, unitPrice: 145 },
+      ]),
+    ).toEqual({ onHand: "3", cost: "54.01", sale: "395.00" });
+  });
+
+  it("counts a row without a cost or a price as nothing", () => {
+    expect(locationTotals([{ quantity: 4 }])).toEqual({ onHand: "4", cost: "0.00", sale: "0.00" });
+  });
+});
+
 describe("stockRowsOf", () => {
   it("takes the name, SKU, category and price the server sent, and values the row", () => {
     expect(
@@ -306,6 +324,11 @@ describe("stockRowsOf", () => {
         isLow: false,
       },
     ]);
+  });
+
+  it("carries the company cost the server sent, for the Cost column", () => {
+    const [row] = stockRowsOf([{ productId: "p1", productName: "Deadbolt", quantity: 2, costCompany: 20.16 }]);
+    expect(row.unitCost).toBe(20.16);
   });
 
   it("leaves value unknown without a price", () => {

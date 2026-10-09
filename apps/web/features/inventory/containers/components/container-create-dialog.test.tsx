@@ -33,10 +33,10 @@ describe("ContainerCreateDialog", () => {
   it("creates a container from name, description and department", async () => {
     render(<ContainerCreateDialog open onOpenChange={() => {}} />);
 
-    await userEvent.type(screen.getByLabelText("Name"), "Van 5");
+    await userEvent.type(screen.getByLabelText("Location Name"), "Van 5");
     await userEvent.type(screen.getByLabelText("Description"), "Spare van");
     await userEvent.type(screen.getByLabelText("Department"), "Locksmith");
-    await userEvent.click(screen.getByRole("button", { name: /create/i }));
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
 
     expect(mutate).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -57,10 +57,10 @@ describe("ContainerCreateDialog", () => {
   it("can start the van on a template", async () => {
     render(<ContainerCreateDialog open onOpenChange={() => {}} />);
 
-    await userEvent.type(screen.getByLabelText("Name"), "Van 6");
+    await userEvent.type(screen.getByLabelText("Location Name"), "Van 6");
     await userEvent.click(screen.getByRole("combobox", { name: "Template" }));
     await userEvent.click(await screen.findByRole("option", { name: "Standard van" }));
-    await userEvent.click(screen.getByRole("button", { name: /create/i }));
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
 
     expect(mutate).toHaveBeenCalledWith(
       expect.objectContaining({ name: "Van 6", templateId: "tp1" }),
@@ -70,8 +70,8 @@ describe("ContainerCreateDialog", () => {
 
   it("sends no template when none is picked", async () => {
     render(<ContainerCreateDialog open onOpenChange={() => {}} />);
-    await userEvent.type(screen.getByLabelText("Name"), "Van 7");
-    await userEvent.click(screen.getByRole("button", { name: /create/i }));
+    await userEvent.type(screen.getByLabelText("Location Name"), "Van 7");
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
     expect(mutate.mock.calls[0][0]).not.toHaveProperty("templateId");
     expect(mutate.mock.calls[0][0]).not.toHaveProperty("technicianId");
   });
@@ -81,8 +81,8 @@ describe("ContainerCreateDialog", () => {
     const onOpenChange = vi.fn();
     render(<ContainerCreateDialog open onOpenChange={onOpenChange} />);
 
-    await userEvent.type(screen.getByLabelText("Name"), "Van 5");
-    await userEvent.click(screen.getByRole("button", { name: /create/i }));
+    await userEvent.type(screen.getByLabelText("Location Name"), "Van 5");
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
 
     expect(onOpenChange).toHaveBeenCalledWith(false);
     expect(push).not.toHaveBeenCalled();
@@ -91,7 +91,7 @@ describe("ContainerCreateDialog", () => {
   it("requires a name", async () => {
     render(<ContainerCreateDialog open onOpenChange={() => {}} />);
 
-    await userEvent.click(screen.getByRole("button", { name: /create/i }));
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
 
     expect(mutate).not.toHaveBeenCalled();
     expect(screen.getByText(/name is required/i)).toBeInTheDocument();

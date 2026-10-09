@@ -81,7 +81,15 @@ export interface ProductFilter {
   /** `true` — stock-managed items only; `false` — the ones that opted out. */
   manageStock?: boolean;
   brandId?: string;
+  /**
+   * Workiz's "All Stock Levels": `stocked` — more on hand than the re-order
+   * point; `low` — at or under it (nothing on hand included).
+   */
+  stockLevel?: ProductStockLevel;
 }
+
+/** Workiz's stock levels, as the API takes them. */
+export type ProductStockLevel = "stocked" | "low";
 
 /* ------------------------------------------------------------------ *
  * CSV import

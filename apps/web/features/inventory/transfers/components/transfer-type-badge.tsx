@@ -2,27 +2,31 @@ import { TransferType } from "@bitcrm/types";
 import { cn } from "@/lib/utils";
 import { transferTypeLabel, isAutoType } from "../lib";
 
+/**
+ * Workiz's Tag-module colours (main.css: success #3acf7d, primary #3589e9,
+ * denied #f45e44, pending #f5ba45, archived #9ea6aa) — the tags it prints on
+ * its inventory rows ("Low stock") and statuses.
+ */
 const TONE: Record<TransferType, string> = {
-  [TransferType.RECEIVE]: "border-green-500/26 bg-green-500/10 text-green-700 dark:text-green-500",
-  [TransferType.TRANSFER]: "border-brand/22 bg-brand/10 text-brand",
-  [TransferType.DEDUCT]: "border-destructive/22 bg-destructive/10 text-destructive",
-  [TransferType.RESTORE]: "border-amber-500/24 bg-amber-500/10 text-amber-700 dark:text-amber-500",
-  [TransferType.RETURN]: "border-neutral/24 bg-neutral/10 text-neutral-text",
+  [TransferType.RECEIVE]: "bg-[#3acf7d]",
+  [TransferType.TRANSFER]: "bg-[#3589e9]",
+  [TransferType.DEDUCT]: "bg-[#f45e44]",
+  [TransferType.RESTORE]: "bg-[#f5ba45]",
+  [TransferType.RETURN]: "bg-[#9ea6aa]",
 };
 
+/** A movement's type as a Workiz Tag: 4px corners, 0 4px, white 14px/16px words. */
 export function TransferTypeBadge({ type }: { type: TransferType }) {
   return (
-    <span className="inline-flex items-center gap-1.5">
-      <span
-        className={cn(
-          "inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-semibold tracking-wide uppercase",
-          TONE[type],
-        )}
-      >
+    <span className="inline-flex items-center gap-1">
+      <span className={cn("inline-flex rounded-[4px] px-1 text-sm leading-4 text-white", TONE[type])}>
         {transferTypeLabel(type)}
       </span>
       {isAutoType(type) ? (
-        <span className="rounded-chip border px-1.5 text-[10px] text-muted-foreground">auto</span>
+        // Tag-module__default: white with a 1px #c4c4c4 edge.
+        <span className="inline-flex rounded-[4px] border border-wz-tab-rule bg-background px-1 text-xs leading-4 text-wz-strong">
+          auto
+        </span>
       ) : null}
     </span>
   );

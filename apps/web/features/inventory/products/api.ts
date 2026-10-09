@@ -28,6 +28,7 @@ function filterParams(filter: ProductFilter): Record<string, string | undefined>
     // `false` is a filter of its own ("not stock-managed"), not an absence.
     manageStock: filter.manageStock === undefined ? undefined : String(filter.manageStock),
     brandId: filter.brandId,
+    stockLevel: filter.stockLevel,
   };
 }
 

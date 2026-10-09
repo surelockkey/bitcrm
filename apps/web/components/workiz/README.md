@@ -1080,6 +1080,36 @@ document's PDF in a 1px #ccc frame (captures `pg_workorders_wz_*`; notes
   (`PaymentScheduleTable invoiceId` is optional: without one a scheduled
   payment goes on the job's own ledger).
 
+## Inventory pieces (2026-10-09, agent `pg_inventory`)
+
+Measured off `pg_inventory_wz_*` (`/root/inventory`, notes:
+`workiz-data-parser/docs/import/app-parity-2026-10-08/pg_inventory.md`) and
+Workiz's `main.css` (Tabs-, inventory-, stockModal-, Metrics-, Tag-module). All
+additive; existing callers are untouched.
+
+- **`WzTabLinks` `variant="small"`** (new, optional) — Workiz's Tabs-module as
+  *links* (sub-routes), the look of `WzTabBar variant="small"`: a 1px #c4c4c4
+  rule, tabs 10px 20px 7px with 13px/19px words, slate #566d76 500 idle, ink 600
+  over a 2px ink bar when open; a tab's optional **`count`** is the 20px
+  #dfe2e3 counter 8px after the name, "99+" past 99 (**`wzTabCount(n)`**).
+  `pending` holds every tab's place. Workiz puts the row 18px under the
+  breadcrumb (`mt-[18px]`).
+- **`WzReportGrid` `minTableWidth`** (new, optional) — the table never
+  narrower than this; past the frame it scrolls sideways in its own box (the
+  pager stays put under it): Workiz's Inventory grid is twenty 100px columns
+  (2030px) in a 1400px frame. Pair with `stickyHeader={false}` (the header
+  would stick to that box). With `resize`, pass the sum of `widthOf`.
+- **`WzStockIcon`** (`inventory_new.svg`, the rows' "Stock" box),
+  **`WzPlusBiggerIcon`** ("Add items"), **`WzMoveItemIcon`** ("Move items"),
+  **`WzReturnIcon`** ("Return items", `refresh.svg`) in `icons.tsx` — Workiz's
+  stroke glyphs, 1.5px in `currentColor`, at their 24px.
+- **`WzWideSwitch`** (`wide-switch.tsx`) `label` `checked` `onCheckedChange`
+  `disabled` `onText` `offText` — Workiz's old react-switch (User locations'
+  "Restricted", reactCss.css `.react-switch`): a 130×24 bar, 3px corners, #ccc
+  off / #eac300 on, the 30px #efeff4 knob moved 100px when on, "NO" / "YES" in
+  12px bold capitals on the bar. A `role="switch"` button. (`WzSwitch` is the
+  40×20 green toggle, `WzMiniToggle` the 32×16 one.)
+
 ## Known differences from Workiz (deliberate or unmeasurable)
 - Sub-pixel: Workiz's own fractional layout makes some glyphs land ±1px
   differently from ours in screenshots (e.g. two Workiz selects with identical

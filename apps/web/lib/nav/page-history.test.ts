@@ -112,8 +112,12 @@ describe("labelForPath", () => {
     expect(labelForPath("/reports/commission")).toBe("Commission");
     expect(labelForPath("/some-new-page")).toBe("Some New Page");
     // Inventory tab routes label themselves off their last segment.
-    expect(labelForPath("/inventory/items")).toBe("Items");
     expect(labelForPath("/inventory/warehouses")).toBe("Warehouses");
+  });
+
+  it("titles the Inventory tabs as Workiz's breadcrumb does (… # INVENTORY # USER LOCATIONS)", () => {
+    expect(labelForPath("/inventory/items")).toBe("Inventory");
+    expect(labelForPath("/inventory/user-containers")).toBe("User locations");
   });
 
   it("titles the Price Book tabs as the Price Book, not as Inventory's Items", () => {

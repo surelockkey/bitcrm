@@ -61,8 +61,9 @@ describe("ProductThumb", () => {
     render(<ProductThumb product={product({ thumbnailUrl: "https://cdn.test/p1.webp", photoKey: "k" })} onOpen={vi.fn()} />);
     const box = screen.getByRole("button", { name: "View photo of Deadbolt" });
     expect(box.className).toMatch(/(^|\s)size-10(\s|$)/);
-    expect(box.className).toMatch(/(^|\s)rounded-lg(\s|$)/);
-    expect(box.className).toMatch(/border-\[0\.5px\]/);
+    expect(box.className).toContain("rounded-[8px]");
+    // itemImage-module: a .1px #cad3d6 hairline (drawn 1px).
+    expect(box.className).toContain("border-wz-rule");
     expect((document.querySelector("img") as HTMLImageElement).className).toMatch(/object-cover/);
   });
 

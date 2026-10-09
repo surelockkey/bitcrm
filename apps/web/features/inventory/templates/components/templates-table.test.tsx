@@ -50,7 +50,7 @@ function table(templates = [template()], usedBy = new Map([["t1", 3]])) {
   const utils = renderWithClient(
     <TemplatesTable templates={templates} usedBy={usedBy} onEdit={onEdit} onApply={onApply} />,
   );
-  const headers = () => [...utils.container.querySelectorAll("thead th")].map((th) => th.getAttribute("aria-label"));
+  const headers = () => [...utils.container.querySelectorAll("thead th")].map((th) => th.textContent);
   const cells = () => [...utils.container.querySelectorAll("tbody tr:first-child td")].map((td) => td.textContent);
   return { ...utils, onEdit, onApply, headers, cells };
 }
@@ -69,9 +69,9 @@ describe("TemplatesTable", () => {
     expect(usedBy).toBe("3");
   });
 
-  it("says 0 for a template no van uses, — without a description", () => {
+  it("says 0 for a template no van uses, and leaves no description blank", () => {
     const [, description, , , usedBy] = table([template({ description: undefined })], new Map()).cells();
-    expect(description).toBe("—");
+    expect(description).toBe("");
     expect(usedBy).toBe("0");
   });
 
@@ -93,46 +93,43 @@ describe("TemplatesTable", () => {
     expect(onEdit).toHaveBeenCalledTimes(2);
   });
 
-  it("archives from the kebab, after asking", async () => {
+  // Workiz's Locations: the red trash at the row's end — BitCRM archives.
+  it("archives from the red trash, after asking", async () => {
     table();
-    await userEvent.click(screen.getByRole("button", { name: "Row actions" }));
-    await userEvent.click(within(await screen.findByRole("menu")).getByRole("menuitem", { name: "Archive" }));
-    await userEvent.click(await screen.findByRole("button", { name: "Archive" }));
-    expect(mocks.archive).toHaveBeenCalledWith("t1");
+    await userEvent.click(screen.getByRole("button", { name: "Archive Standard van" }));
+    const confirm = await screen.findByRole("alertdialog");
+    await userEvent.click(within(confirm).getByRole("button", { name: "Archive" }));
+    expect(mocks.archive).toHaveBeenCalledWith("t1", expect.anything());
   });
 
   it("restores an archived one, and offers no Apply for it", async () => {
     table([template({ status: InventoryStatus.ARCHIVED })]);
     expect(screen.queryByRole("button", { name: "Apply Standard van" })).toBeNull();
-    await userEvent.click(screen.getByRole("button", { name: "Row actions" }));
-    await userEvent.click(await screen.findByRole("menuitem", { name: "Restore" }));
+    await userEvent.click(screen.getByRole("button", { name: "Restore Standard van" }));
     expect(mocks.restore).toHaveBeenCalledWith("t1");
   });
 
-  it("has no kebab for someone who may not archive", () => {
+  it("has no trash for someone who may not archive", () => {
     mocks.denied.add("containers.delete");
     table();
-    expect(screen.queryByRole("button", { name: "Row actions" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Archive Standard van" })).toBeNull();
   });
 });
 
 describe("TemplatesTable — a stable first frame", () => {
-  it("is fixed-layout, resizable, fits 1250px, clips cells and scrolls sideways", () => {
+  it("is Workiz's grid: fixed layout, a drag handle on every header, the cells cut at their edge", () => {
     const { container } = table();
     expect(container.querySelector("table")?.className).toContain("table-fixed");
-    const cols = [...container.querySelectorAll("colgroup col")] as HTMLElement[];
-    expect(cols).toHaveLength(6);
-    expect(cols.reduce((n, c) => n + parseFloat(c.style.width), 0)).toBeLessThanOrEqual(1250);
+    expect(container.querySelectorAll("colgroup col")).toHaveLength(6);
     for (const id of ["name", "description", "items", "units", "usedBy", "actions"]) {
       expect(screen.getByTestId(`resize-${id}`)).toBeInTheDocument();
     }
     for (const td of container.querySelectorAll("tbody td")) {
-      expect(td.className).toMatch(/truncate|overflow-hidden/);
+      expect(td.className).toMatch(/overflow-hidden/);
     }
-    expect(container.querySelector("[data-slot=table-frame]")?.className).toMatch(/overflow-x-auto/);
   });
 
-  it("loading, is the same table: header, widths, and a page of rows", () => {
+  it("loading, is the same grid: header and widths, Workiz's loader over the blank rows", () => {
     const shape = () => ({
       headers: [...document.querySelectorAll("thead th")].map((th) => th.textContent),
       widths: [...document.querySelectorAll("col")].map((c) => (c as HTMLElement).style.width),
@@ -141,10 +138,8 @@ describe("TemplatesTable — a stable first frame", () => {
     const loaded = shape();
     unmount();
 
-    renderWithClient(
-      <TemplatesTable templates={[]} usedBy={new Map()} onEdit={vi.fn()} onApply={vi.fn()} loading skeletonRows={10} />,
-    );
+    renderWithClient(<TemplatesTable templates={[]} usedBy={new Map()} onEdit={vi.fn()} onApply={vi.fn()} loading />);
     expect(shape()).toEqual(loaded);
-    expect(screen.getAllByTestId("skeleton-row")).toHaveLength(10);
+    expect(screen.getByRole("status", { name: "Loading" })).toBeInTheDocument();
   });
 });

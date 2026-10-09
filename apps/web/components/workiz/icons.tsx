@@ -138,3 +138,67 @@ export function WzTrashIcon({ size = 21, ...props }: IconProps) {
     </svg>
   );
 }
+
+/** Workiz's stroke glyphs are 1.5px round-capped lines in `currentColor` (ink #3b4b52). */
+const STROKE = {
+  stroke: "currentColor",
+  strokeWidth: 1.5,
+  strokeLinecap: "round",
+  strokeLinejoin: "round",
+} as const;
+
+/**
+ * Workiz's "Stock" glyph (`_assets/svg/inventory_new.svg`, 25×24): an open
+ * box — the Inventory grid's and Locations' row button that opens Manage stock.
+ */
+export function WzStockIcon({ size = 24, ...props }: IconProps) {
+  return (
+    <svg width={(size * 25) / 24} height={size} viewBox="0 0 25 24" fill="none" aria-hidden focusable="false" {...props}>
+      <path d="M12.625 3L3.5 6.65L12.625 10.3L21.75 6.65L12.625 3Z" {...STROKE} />
+      <path d="M3.5 6.65002V17.6L12.625 21.25V10.3L3.5 6.65002Z" {...STROKE} />
+      <path d="M21.75 6.65002V17.6L12.625 21.25V10.3L21.75 6.65002Z" {...STROKE} />
+      <path d="M17.6433 8.29252L8.51831 4.64252" {...STROKE} />
+      <path d="M19.6209 15.775L18.1001 16.3834" {...STROKE} />
+    </svg>
+  );
+}
+
+/** Workiz's "Add items" glyph in Manage stock (`plus_bigger.svg`, 25×24). */
+export function WzPlusBiggerIcon({ size = 24, ...props }: IconProps) {
+  return (
+    <svg width={(size * 25) / 24} height={size} viewBox="0 0 25 24" fill="none" aria-hidden focusable="false" {...props}>
+      <path d="M12.5 5V19" {...STROKE} />
+      <path d="M5.5 11.9569H19.5" {...STROKE} />
+    </svg>
+  );
+}
+
+/** Workiz's "Move items" glyph in Manage stock (`move_item.svg`, 25×24): a box with an arrow out. */
+export function WzMoveItemIcon({ size = 24, ...props }: IconProps) {
+  return (
+    <svg width={(size * 25) / 24} height={size} viewBox="0 0 25 24" fill="none" aria-hidden focusable="false" {...props}>
+      <path d="M11.4998 3L2.5 6.59993L11.4998 10.1999L20.4997 6.59993L11.4998 3Z" {...STROKE} />
+      <path d="M2.5 6.59924V17.399L11.4998 20.999V10.1992L2.5 6.59924Z" {...STROKE} />
+      <path d="M13.8684 20.0517L11.5005 20.9991V10.1993L20.5003 6.59937V9.15735" {...STROKE} />
+      <path d="M16.45 8.22017L7.4502 4.62024" {...STROKE} />
+      <path d="M20.6382 11.9951L22.4953 13.8523L20.6382 15.7094" {...STROKE} />
+      <path
+        d="M22.4956 13.8521H20.6385C19.4071 13.8521 18.2262 14.3412 17.3555 15.2119C16.4847 16.0826 15.9956 17.2636 15.9956 18.4949"
+        {...STROKE}
+      />
+    </svg>
+  );
+}
+
+/** Workiz's "Return items" glyph in Manage stock (`refresh.svg`, 24×24): a turning-back arrow. */
+export function WzReturnIcon({ size = 24, ...props }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden focusable="false" {...props}>
+      <path
+        d="M13.0917 19.8167C14.6558 19.8167 16.1848 19.3529 17.4853 18.4839C18.7858 17.6149 19.7994 16.3797 20.398 14.9348C20.9966 13.4897 21.1532 11.8996 20.848 10.3655C20.5429 8.83143 19.7897 7.42231 18.6837 6.3163C17.5777 5.2103 16.1686 4.4571 14.6345 4.15196C13.1004 3.84681 11.5103 4.00342 10.0652 4.60199C8.62025 5.20055 7.38509 6.21419 6.51615 7.5147C5.64712 8.81522 5.18333 10.3442 5.18333 11.9083V12.5167"
+        {...STROKE}
+      />
+      <path d="M2.75003 10.0809L5.18337 12.5143L7.6167 10.0809" {...STROKE} />
+    </svg>
+  );
+}

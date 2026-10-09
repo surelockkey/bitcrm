@@ -1,28 +1,20 @@
 "use client";
 
 import { useMemo, useState, type ReactNode } from "react";
-import { Info, Loader2 } from "lucide-react";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { DialogLoadingBody } from "@/features/inventory/components/dialog-loading";
+import Link from "next/link";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
-import { Textarea } from "@/components/ui/textarea";
+import { WzButton } from "@/components/workiz/button";
 import { InventoryStatus } from "@bitcrm/types";
 import type { Container } from "@bitcrm/types";
 import { usePermissions } from "@/features/auth/use-permissions";
-import { useContainer, useUpdateContainer } from "../hooks";
-import type { UpdateContainerBody } from "../api";
-import { containerSchema } from "../schemas";
-import Link from "next/link";
+import {
+  LocationDialog,
+  LocationFields,
+  LocationFooter,
+  LocationInput,
+  LocationTextarea,
+} from "@/features/inventory/components/location-form";
 import { TemplateSelect } from "@/features/inventory/templates/components/template-select";
 import { useUserContainers, useUserNames } from "@/features/inventory/user-containers/hooks";
 import {
@@ -30,10 +22,27 @@ import {
   unnamedUserIds,
   usersOfContainer,
 } from "@/features/inventory/user-containers/lib";
+import { useContainer, useUpdateContainer } from "../hooks";
+import type { UpdateContainerBody } from "../api";
+import { containerSchema } from "../schemas";
+
+/** A labelled step of the popup — the Move popup's "Move" / "To": 14px/21px 600 ink. */
+export function LocationStep({ htmlFor, label, children }: { htmlFor?: string; label: string; children: ReactNode }) {
+  return (
+    <div className="flex shrink-0 flex-col gap-2">
+      <label htmlFor={htmlFor} className="text-sm leading-[21px] font-semibold text-foreground">
+        {label}
+      </label>
+      {children}
+    </div>
+  );
+}
 
 /**
- * The van's Edit popup — Inventory has no container page any more. Opened
- * from the row's pencil or a link to the van; view-only without `containers.edit`.
+ * A van's Workiz "Edit Location" popup — Inventory has no container page.
+ * Opened from the row's pencil; view-only without `containers.edit`. Workiz's
+ * Location Name and Description, then BitCRM's own: department, template,
+ * who works from it and whether it is active.
  */
 export function ContainerEditDialog({
   containerId,
@@ -49,41 +58,50 @@ export function ContainerEditDialog({
   const canEdit = can("containers", "edit");
   const close = () => onOpenChange(false);
 
+  let title = canEdit ? "Edit Location" : "Location";
   let content: ReactNode;
   if (query.isLoading) {
     content = (
-      <>
-        <Header title={canEdit ? "Edit container" : "Container"} />
-        <DialogLoadingBody
-          testId="container-edit-loading"
-          fields={["input", "area", "input", "input", "input", "switch"]}
-        />
-      </>
+      <div data-testid="container-edit-loading" aria-busy="true" className="flex flex-col">
+        <LocationFields>
+          <Skeleton className="h-12 w-full" />
+          <Skeleton className="h-[132px] w-full" />
+          <Skeleton className="h-12 w-full" />
+          <Skeleton className="h-[71px] w-full" />
+          <Skeleton className="h-10 w-full" />
+        </LocationFields>
+        <div data-testid="dialog-footer-placeholder" aria-hidden className="mt-[61px] flex justify-end gap-4">
+          <Skeleton className="h-10 w-24 rounded-pill" />
+          <Skeleton className="h-10 w-20 rounded-pill" />
+        </div>
+      </div>
     );
   } else if (query.isError || !query.data) {
+    title = "Location not found";
     content = (
       <>
-        <Header title="Container not found" description="It may have been deleted." />
-        <DialogFooter className="m-0 flex-none">
-          <Button variant="outline" onClick={close}>
+        <p className="mt-4 text-sm text-wz-outline-label">It may have been deleted.</p>
+        <LocationFooter>
+          <WzButton variant="secondary" size="big" onClick={close}>
             Close
-          </Button>
-        </DialogFooter>
+          </WzButton>
+        </LocationFooter>
       </>
     );
   } else {
     // Keyed by the save time: a fresh copy of the van starts a fresh form.
-    content = (
-      <ContainerForm key={query.data.updatedAt} container={query.data} readOnly={!canEdit} onClose={close} />
-    );
+    content = <ContainerForm key={query.data.updatedAt} container={query.data} readOnly={!canEdit} onClose={close} />;
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-lg">
-        {content}
-      </DialogContent>
-    </Dialog>
+    <LocationDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title={title}
+      description="The van's name, description, department, template and status."
+    >
+      {content}
+    </LocationDialog>
   );
 }
 
@@ -129,143 +147,105 @@ function ContainerForm({
 
   return (
     <form
-      className="flex min-h-0 flex-1 flex-col"
+      className="flex min-h-0 flex-col"
       noValidate
       onSubmit={(e) => {
         e.preventDefault();
         if (!readOnly) save();
       }}
     >
-      <Header title={readOnly ? "Container" : "Edit container"} />
-      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
-        {readOnly ? (
-          <div className="flex items-center gap-2 rounded-lg bg-muted/60 px-3 py-2 text-sm text-muted-foreground">
-            <Info className="size-4" />
-            You have view-only access to containers.
-          </div>
-        ) : null}
-
-        <div className="space-y-1.5">
-          <Label htmlFor="c-name">Name</Label>
-          <Input
-            id="c-name"
-            className="h-10"
-            disabled={readOnly}
-            value={name}
-            aria-invalid={error ? true : undefined}
-            onChange={(e) => {
-              setName(e.target.value);
-              setError(null);
-            }}
-          />
-          {error ? <p className="text-xs text-destructive">{error}</p> : null}
-        </div>
-
-        <div className="space-y-1.5">
-          <Label htmlFor="c-desc">Description</Label>
-          <Textarea
-            id="c-desc"
-            rows={3}
-            disabled={readOnly}
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-          />
-        </div>
-
-        <div className="space-y-1.5">
-          <Label htmlFor="c-department">Department</Label>
-          <Input
-            id="c-department"
-            className="h-10"
-            disabled={readOnly}
-            value={department}
-            onChange={(e) => setDepartment(e.target.value)}
-          />
-        </div>
-
-        <div className="space-y-1.5">
-          <Label htmlFor="c-template">Template</Label>
+      <LocationFields>
+        {readOnly ? <p className="text-sm text-wz-outline-label">You have view-only access to containers.</p> : null}
+        <LocationInput
+          label="Location Name"
+          disabled={readOnly}
+          value={name}
+          error={error ?? undefined}
+          onChange={(e) => {
+            setName(e.target.value);
+            setError(null);
+          }}
+        />
+        <LocationTextarea
+          label="Description"
+          disabled={readOnly}
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+        />
+        <LocationInput
+          label="Department"
+          disabled={readOnly}
+          value={department}
+          onChange={(e) => setDepartment(e.target.value)}
+        />
+        <LocationStep label="Template" htmlFor="c-template">
           <TemplateSelect id="c-template" value={templateId} onChange={setTemplateId} disabled={readOnly} />
-          <p className="text-sm text-muted-foreground">The van&apos;s ideal loadout.</p>
-        </div>
-
+          <p className="-mt-1 text-[11px] leading-4 text-wz-outline-label">The van&apos;s ideal loadout.</p>
+        </LocationStep>
         <VanUsers container={container} />
-
-        <div className="flex items-center justify-between rounded-lg border px-4 py-3">
-          <div>
-            <Label htmlFor="c-active">Active</Label>
-            <p className="text-sm text-muted-foreground">Inactive vans are hidden from transfer pickers.</p>
-          </div>
-          <Switch id="c-active" disabled={readOnly} checked={active} onCheckedChange={setActive} />
+        {/* BitCRM's status, as a Workiz switch row: the words at the left, the switch at the right. */}
+        <div className="flex shrink-0 items-center justify-between gap-3">
+          <span className="min-w-0">
+            <span className="block text-sm leading-4 text-foreground">Active</span>
+            <span className="block text-[11px] leading-4 text-wz-outline-label">
+              Inactive vans are hidden from transfer pickers.
+            </span>
+          </span>
+          <Switch aria-label="Active" disabled={readOnly} checked={active} onCheckedChange={setActive} />
         </div>
-      </div>
+      </LocationFields>
 
-      <DialogFooter className="m-0 flex-none">
+      <LocationFooter>
         {readOnly ? (
-          <Button type="button" variant="outline" onClick={onClose}>
+          <WzButton variant="secondary" size="big" onClick={onClose}>
             Close
-          </Button>
+          </WzButton>
         ) : (
           <>
-            <Button type="button" variant="outline" onClick={onClose}>
+            <WzButton variant="tertiary" size="big" onClick={onClose}>
               Cancel
-            </Button>
-            <Button type="submit" disabled={update.isPending} className="gap-1.5">
-              {update.isPending ? <Loader2 className="size-4 animate-spin" /> : null}
+            </WzButton>
+            <WzButton type="submit" variant="primary" size="big" loading={update.isPending}>
               Save
-            </Button>
+            </WzButton>
           </>
         )}
-      </DialogFooter>
+      </LocationFooter>
     </form>
   );
 }
 
 /**
  * Who works from the van — read-only here. Several people may share a van,
- * and reassigning is done on User containers.
+ * and reassigning is done on User locations.
  */
 function VanUsers({ container }: { container: Container }) {
   const assignments = useUserContainers();
   const rows = useMemo(() => assignments.data ?? [], [assignments.data]);
   const { names } = useUserNames(useMemo(() => unnamedUserIds(rows), [rows]));
   const users = useMemo(
-    () =>
-      usersOfContainer(
-        container,
-        containerUserNames(rows, names),
-        new Map(rows.map((r) => [r.userId, r] as const)),
-      ),
+    () => usersOfContainer(container, containerUserNames(rows, names), new Map(rows.map((r) => [r.userId, r] as const))),
     [container, rows, names],
   );
   const named = users.map((u) => u.name).filter((n): n is string => !!n);
   const rest = users.length - named.length;
 
   return (
-    <div className="space-y-1.5">
+    <div className="flex shrink-0 flex-col gap-2">
       <div className="flex items-baseline justify-between gap-2">
-        <span className="text-sm font-medium">Users</span>
-        <Link href="/inventory/user-containers" className="text-sm text-brand underline-offset-4 hover:underline">
-          Manage in User containers
+        <span className="text-sm leading-[21px] font-semibold text-foreground">Users</span>
+        <Link
+          href="/inventory/user-containers"
+          className="text-[13px] leading-[19px] font-semibold text-wz-link hover:underline"
+        >
+          Manage in User locations
         </Link>
       </div>
-      <p className="text-sm text-muted-foreground">
+      <p className="text-sm leading-4 text-foreground">
         {users.length === 0
           ? "Nobody works from this van yet."
           : [...named, ...(rest ? [`${rest} other${rest === 1 ? "" : "s"}`] : [])].join(", ")}
       </p>
     </div>
-  );
-}
-
-function Header({ title, description }: { title: string; description?: string }) {
-  return (
-    // Right padding keeps the title clear of the close button.
-    <DialogHeader className="border-b px-4 py-3 pr-12">
-      <DialogTitle className="text-base">{title}</DialogTitle>
-      <DialogDescription className={description ? undefined : "sr-only"}>
-        {description ?? "The van's name, department, template and status."}
-      </DialogDescription>
-    </DialogHeader>
   );
 }

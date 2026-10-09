@@ -105,6 +105,7 @@ export function useLocationStock(type: LocationSummaryType, id: string, enabled 
 
   return {
     name: query.data?.name,
+    description: query.data?.description,
     status: query.data?.status,
     rows,
     summary,

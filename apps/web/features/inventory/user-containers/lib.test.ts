@@ -4,6 +4,9 @@ import type { UserContainer } from "@bitcrm/types";
 import type { StockLocation } from "@/features/inventory/stock/lib";
 import {
   accessLabel,
+  assignmentBody,
+  locationChoice,
+  locationChoices,
   assignmentOf,
   containerUserNames,
   nameOf,
@@ -151,5 +154,56 @@ describe("usersOfContainer", () => {
     ]);
     expect(usersOfContainer(van({ id: "c2", technicianId: "u5", technicianName: "Olha" }), byVan, byUser)).toEqual([]);
     expect(usersOfContainer(van({ id: "c3" }), byVan, byUser)).toEqual([]);
+  });
+});
+
+/**
+ * Workiz's User locations row (pg_inventory_wz_02_user-locations): one
+ * "Location" box — All, a location, or (BitCRM's word for Workiz's "NO
+ * ACCESS" location) No access — and the "Restricted" switch beside it.
+ */
+describe("locationChoices", () => {
+  it("offers All, No access, then every active van by name", () => {
+    expect(
+      locationChoices([
+        van({ id: "c2", name: "Van 2" }),
+        van({ id: "w1", type: "warehouse", name: "Main" }),
+        van({ id: "c1", name: "Van 1" }),
+        van({ id: "c9", name: "Old van", status: InventoryStatus.ARCHIVED }),
+      ]),
+    ).toEqual([
+      { value: "all", label: "All" },
+      { value: "none", label: "No access" },
+      { value: "container:c1", label: "Van 1" },
+      { value: "container:c2", label: "Van 2" },
+    ]);
+  });
+});
+
+describe("locationChoice", () => {
+  it("is the box's value for an assignment", () => {
+    expect(locationChoice({ access: UserContainerAccess.ALL })).toBe("all");
+    expect(locationChoice({ access: UserContainerAccess.NONE })).toBe("none");
+    expect(
+      locationChoice({ access: UserContainerAccess.CONTAINER, containerId: "c1" }),
+    ).toBe("container:c1");
+    // Never assigned: the box shows its placeholder.
+    expect(locationChoice({ access: null })).toBe("");
+  });
+});
+
+describe("assignmentBody", () => {
+  it("saves a van with the Restricted switch, the user's name kept on the row", () => {
+    expect(assignmentBody("container:c1", true, "Ann Lee")).toEqual({
+      userName: "Ann Lee",
+      access: UserContainerAccess.CONTAINER,
+      containerId: "c1",
+      limited: true,
+    });
+  });
+
+  it("saves All and No access without a van or a restriction", () => {
+    expect(assignmentBody("all", true, "Ann Lee")).toEqual({ userName: "Ann Lee", access: UserContainerAccess.ALL });
+    expect(assignmentBody("none", false, "Ann Lee")).toEqual({ userName: "Ann Lee", access: UserContainerAccess.NONE });
   });
 });

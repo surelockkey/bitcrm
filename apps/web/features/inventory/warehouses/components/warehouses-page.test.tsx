@@ -93,13 +93,13 @@ beforeEach(() => {
 });
 
 describe("WarehousesPage — the server filters, the page shows what it got", () => {
-  // A new search holds the area the rows are drawn in, so the pager under it
-  // does not jump up into view (see ListBody).
-  it("draws its rows in the list's held area, with the pager under it", () => {
+  // Workiz's grid is never shorter than ten rows and holds its pager: a
+  // short page does not pull the pager up the screen.
+  it("draws its rows in Workiz's grid, the pager inside it under them", () => {
     renderWithClient(<WarehousesPage />);
-    const area = document.querySelector("[data-slot=list-area]");
-    expect(area).toContainElement(screen.getByRole("table"));
-    expect(area).not.toContainElement(screen.getByTestId("list-pagination"));
+    const grid = document.querySelector("[data-slot=wz-report-grid]");
+    expect(grid).toContainElement(screen.getByRole("table"));
+    expect(grid).toContainElement(screen.getByTestId("list-pagination"));
   });
 
   it("starts on active warehouses, asked of the server", () => {
@@ -110,7 +110,7 @@ describe("WarehousesPage — the server filters, the page shows what it got", ()
 
   it("sends the search after a pause and shows exactly the rows that came back", async () => {
     renderWithClient(<WarehousesPage />);
-    await userEvent.type(screen.getByPlaceholderText("Search warehouses"), "dal");
+    await userEvent.type(screen.getByPlaceholderText("Search"), "dal");
     await waitFor(() => expect(mocks.listFilters.at(-1)).toMatchObject({ search: "dal" }));
     expect(mocks.countFilters.at(-1)).toEqual(mocks.listFilters.at(-1));
     expect(screen.getByText("Dallas")).toBeInTheDocument();
@@ -179,7 +179,7 @@ describe("WarehousesPage — a stable first frame", () => {
     renderWithClient(<WarehousesPage />);
 
     expect(headers()).toEqual(["Name", "Description", "Items", "SKUs", "Actions"]);
-    expect(screen.getAllByTestId("skeleton-row").length).toBeGreaterThan(0);
+    expect(screen.getByRole("status", { name: "Loading" })).toBeInTheDocument();
     expect(screen.queryByTestId("list-pagination")).toBeNull();
   });
 
@@ -189,7 +189,7 @@ describe("WarehousesPage — a stable first frame", () => {
 
     expect(screen.getByText("Dallas")).toBeInTheDocument();
     expect(screen.queryByTestId("skeleton-row")).toBeNull();
-    expect(screen.getByRole("table")).toHaveAttribute("aria-busy", "true");
+    expect(document.querySelector("[data-slot=wz-report-grid]")).toHaveAttribute("aria-busy", "true");
   });
 
   it("never flashes No access while permissions are still loading", () => {
@@ -206,9 +206,9 @@ describe("WarehousesPage — a stable first frame", () => {
     expect(screen.getByText("No access")).toBeInTheDocument();
   });
 
-  it("holds New warehouse's place, disabled, until permissions are known", () => {
+  it("holds Add New's place, disabled, until permissions are known", () => {
     mocks.perms = { loading: true, can: false };
     renderWithClient(<WarehousesPage />);
-    expect(screen.getByRole("button", { name: /New warehouse/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Add New/ })).toBeDisabled();
   });
 });

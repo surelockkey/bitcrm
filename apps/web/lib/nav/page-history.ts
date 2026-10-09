@@ -82,6 +82,9 @@ const STATIC_LABELS: Record<string, string> = {
   "/price-book/items": "Price Book",
   "/price-book/categories": "Price Book Categories",
   "/price-book/brands": "Price Book Brands",
+  // Inventory's tabs, in Workiz's words ("… # INVENTORY # USER LOCATIONS").
+  "/inventory/items": "Inventory",
+  "/inventory/user-containers": "User locations",
   // The Phone section's tabs, as Workiz's breadcrumb names them ("Calls #
   // Numbers"); under /calls they would otherwise read as a single call.
   "/calls/numbers": "Numbers",

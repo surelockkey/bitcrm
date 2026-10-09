@@ -95,10 +95,30 @@ export function stockRowsOf(rows: LocationStockRowIn[]): EnrichedStockRow[] {
       quantity: r.quantity,
       unitPrice,
       value: unitPrice != null ? unitPrice * r.quantity : undefined,
+      ...(r.costCompany != null && { unitCost: r.costCompany }),
       minLevel,
       isLow: minLevel != null && minLevel > 0 && r.quantity <= minLevel,
     };
   });
+}
+
+/**
+ * The three lines over a warehouse's or van's stock in Workiz
+ * (pg_inventory_wz_13_location_stock): Total Items On Hand, Total Items cost,
+ * Sale Items Value — plain numbers, the money to the cent. A row without a
+ * cost or a price counts for nothing.
+ */
+export function locationTotals(rows: { quantity: number; unitCost?: number; unitPrice?: number }[]): {
+  onHand: string;
+  cost: string;
+  sale: string;
+} {
+  const sum = (f: (r: (typeof rows)[number]) => number) => rows.reduce((n, r) => n + f(r), 0);
+  return {
+    onHand: String(Math.round(sum((r) => r.quantity))),
+    cost: cents(sum((r) => r.quantity * (r.unitCost ?? 0))),
+    sale: cents(sum((r) => r.quantity * (r.unitPrice ?? 0))),
+  };
 }
 
 /* ------------------------------------------------------------------ *
