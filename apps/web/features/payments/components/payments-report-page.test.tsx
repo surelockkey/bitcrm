@@ -5,8 +5,9 @@ import { http, HttpResponse } from "msw";
 import type { PaymentReportRow } from "@bitcrm/types";
 import { server } from "@/test/msw/server";
 import { renderWithClient } from "@/test/render-with-client";
+import { viewerToday } from "@/features/reports/jobs/lib";
 
-const mocks = vi.hoisted(() => ({ canView: true, toast: { warning: vi.fn(), error: vi.fn() } }));
+const mocks = vi.hoisted(() => ({ canView: true, money: true, toast: { warning: vi.fn(), error: vi.fn() } }));
 vi.mock("sonner", () => ({ toast: mocks.toast }));
 vi.mock("next/link", () => ({
   default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => (
@@ -16,13 +17,17 @@ vi.mock("next/link", () => ({
 vi.mock("@/features/auth/use-permissions", () => ({
   // This suite asserts the refusal, so `useDenied` mirrors its own `can`.
   useDenied: () => () => !mocks.canView,
-  usePermissions: () => ({ can: () => mocks.canView }),
+  usePermissions: () => ({ can: (r: string) => (r === "financials" ? mocks.money : mocks.canView), isLoading: false }),
 }));
-vi.mock("@/features/deals/hooks", () => ({
-  useUserMap: () => ({ map: new Map([["t1", { id: "t1", firstName: "Tom", lastName: "Tech" }]]) }),
+vi.mock("@/features/deals/hooks", () => {
+  const tom = { id: "t1", firstName: "Tom", lastName: "Tech", workizName: "(2) TX - Tom Tech" };
+  return { useUserMap: () => ({ map: new Map([["t1", tom]]), users: [tom], isLoading: false }) };
+});
+vi.mock("@/features/technicians/hooks", () => ({
+  useAllTechnicians: () => ({ profiles: [{ userId: "t1", createdAt: "2020-01-01T00:00:00.000Z" }], isLoading: false }),
 }));
 vi.mock("@/features/service-areas/hooks", () => ({
-  useServiceAreas: () => ({ data: [{ id: "a1", name: "North Carolina", active: true }] }),
+  useServiceAreas: () => ({ data: [{ id: "a1", name: "North Carolina", active: true, color: "#e0103a" }] }),
 }));
 
 import { PaymentsReportPage } from "./payments-report-page";
@@ -39,7 +44,7 @@ const row = (over: Partial<PaymentReportRow> = {}): PaymentReportRow => ({
   type: "charge",
   typeLabel: "Credit charge",
   status: "succeeded",
-  description: "Transaction was approved",
+  description: "Approved",
   contactId: "c1",
   clientName: "Jane Doe",
   card: "XXXX4242",
@@ -56,6 +61,7 @@ const user = () => userEvent.setup({ pointerEventsCheck: 0 });
 
 beforeEach(() => {
   mocks.canView = true;
+  mocks.money = true;
   calls.length = 0;
   server.use(
     http.get("*/billing/payments/report", ({ request }) => {
@@ -76,8 +82,14 @@ beforeEach(() => {
         },
       });
     }),
+    http.post("*/crm/contacts/by-ids", () =>
+      HttpResponse.json({ success: true, data: [{ id: "c1", firstName: "Jane", lastName: "Doe", phones: ["4695000793"], emails: [] }] }),
+    ),
   );
 });
+
+const box = () => screen.getByRole("button", { name: /^Date range:/ });
+const lineOf = (job: string) => screen.getByRole("link", { name: `${job} (Job)` }).closest("tr")!;
 
 describe("PaymentsReportPage", () => {
   it("refuses anyone without payments.view", () => {
@@ -86,98 +98,117 @@ describe("PaymentsReportPage", () => {
     expect(screen.getByText("No access")).toBeInTheDocument();
   });
 
-  it("opens on This month, newest first, 10 a page — Workiz's defaults", async () => {
+  it("opens on This month to today, newest first, 10 a page — Workiz's defaults", async () => {
     renderWithClient(<PaymentsReportPage />);
-    await screen.findByText("6563K8");
+    await screen.findByText("6563K8 (Job)");
+    const today = viewerToday();
     const first = calls[0];
+    expect(first.get("from")).toBe(`${today.slice(0, 7)}-01`);
+    expect(first.get("to")).toBe(today);
     expect(first.get("dir")).toBe("desc");
     expect(first.get("limit")).toBe("10");
-    expect(first.get("from")).toMatch(/^\d{4}-\d{2}-01$/);
-    expect(screen.getByLabelText("Date range")).toHaveValue("this_month");
+    expect(box()).toHaveTextContent("This month");
+    expect(screen.getByRole("heading", { name: "Payments report" })).toBeInTheDocument();
   });
 
-  it("shows the two cards and Workiz's 14 columns", async () => {
+  it("shows the two cards and the lines as Workiz prints them", async () => {
     renderWithClient(<PaymentsReportPage />);
-    await screen.findByText("6563K8");
-    expect(screen.getByText("$687,302.60")).toBeInTheDocument();
-    expect(screen.getByText("$2,980.70")).toBeInTheDocument();
-    const headers = screen.getAllByRole("columnheader").map((h) => h.textContent);
-    expect(headers).toEqual([
-      "ID",
-      "Amount",
-      "Payment date",
-      "Status",
-      "Type",
-      "Confirmation code",
-      "Description",
-      "Client",
-      "Tip",
-      "Card",
-      "Technician",
-      "Transaction method",
-      "Collected by",
-      "Job Type",
-    ]);
-    const charge = screen.getByText("6563K8").closest("tr")!;
+    await screen.findByText("6563K8 (Job)");
+    expect(within(screen.getByRole("group", { name: "Total amount" })).getByText("$687,302.60")).toBeInTheDocument();
+    expect(within(screen.getByRole("group", { name: "Total tips" })).getByText("$2,980.70")).toBeInTheDocument();
+    expect(screen.getAllByRole("columnheader")).toHaveLength(14);
+
+    const charge = lineOf("6563K8");
     expect(within(charge).getByText("$1,064.44")).toBeInTheDocument();
     expect(within(charge).getByText("Succeeded")).toBeInTheDocument();
+    expect(within(charge).getByText("Sat, Sep 12, 2026")).toBeInTheDocument();
     expect(within(charge).getByRole("link", { name: "Jane Doe" })).toHaveAttribute("href", "/contacts/c1");
-    expect(within(charge).getByRole("link", { name: "6563K8" })).toHaveAttribute("href", "/deals/d1");
+    // The tech by their Workiz name, the client's phone under the name.
+    expect(within(charge).getByRole("link", { name: "(2) TX - Tom Tech" })).toHaveAttribute("href", "/technicians/t1");
+    expect(await within(charge).findByRole("link", { name: "(469) 500-0793" })).toBeInTheDocument();
     // A refund is its own line, in parentheses.
-    expect(screen.getByText("($85.74)")).toBeInTheDocument();
-    expect(screen.getByText(/Showing 1 to 2 of 3 results/)).toBeInTheDocument();
+    expect(within(lineOf("R7KQ2P")).getByText("($85.74)")).toBeInTheDocument();
+    expect(screen.getByText("Showing 1 to 2 of 3 results")).toBeInTheDocument();
     expect(screen.getByText("Page 1 of 1")).toBeInTheDocument();
+  });
+
+  it("without financials.view shows the lines but no money: no cards, no Amount, no Tip", async () => {
+    mocks.money = false;
+    renderWithClient(<PaymentsReportPage />);
+    await screen.findByText("6563K8 (Job)");
+    expect(screen.queryByRole("group", { name: "Total amount" })).toBeNull();
+    expect(screen.queryByText("$1,064.44")).toBeNull();
+    expect(screen.getAllByRole("columnheader").map((h) => h.textContent)).not.toContain("Amount");
   });
 
   it("walks to the next page with the server's cursor, and back", async () => {
     renderWithClient(<PaymentsReportPage />);
-    await screen.findByText("6563K8");
+    await screen.findByText("6563K8 (Job)");
     await user().click(screen.getByRole("button", { name: "Next page" }));
-    await screen.findByText("AF6A0K");
+    await screen.findByText("AF6A0K (Job)");
     expect(calls.at(-1)?.get("cursor")).toBe("page2");
-    expect(screen.getByText(/Showing 3 to 3 of 3 results/)).toBeInTheDocument();
+    expect(screen.getByText("Showing 3 to 3 of 3 results")).toBeInTheDocument();
     await user().click(screen.getByRole("button", { name: "Previous page" }));
-    expect(await screen.findByText("6563K8")).toBeInTheDocument();
+    expect(await screen.findByText("6563K8 (Job)")).toBeInTheDocument();
   });
 
-  it("sends the chosen filter groups and the date preset", async () => {
+  it("sends the picks of Filter results, shown as Workiz's chips", async () => {
     renderWithClient(<PaymentsReportPage />);
-    await screen.findByText("6563K8");
-    await user().click(screen.getByRole("button", { name: "Filter results" }));
-    await user().click(await screen.findByText("Refund", { selector: "[cmdk-item], [cmdk-item] *" }));
-    await user().click(await screen.findByText("North Carolina"));
-    await user().click(await screen.findByText("Tom Tech", { selector: "[cmdk-item], [cmdk-item] *" }));
+    await screen.findByText("6563K8 (Job)");
+    const filter = screen.getByRole("combobox", { name: "Filter results" });
+    await user().click(filter);
+    await user().click(screen.getByRole("option", { name: "Refund" }));
+    await user().click(filter);
+    await user().click(screen.getByRole("option", { name: "North Carolina" }));
+    await user().click(filter);
+    await user().click(screen.getByRole("option", { name: "(2) TX - Tom Tech" }));
     await waitFor(() => {
       const last = calls.at(-1)!;
       expect(last.get("types")).toBe("refund");
       expect(last.get("serviceAreaIds")).toBe("a1");
       expect(last.get("technicianIds")).toBe("t1");
     });
+    expect(screen.getByText("Refund", { selector: "[data-slot=wz-filter-chip] span" })).toBeInTheDocument();
+    expect(screen.getByText("metro: North Carolina")).toBeInTheDocument();
+    expect(screen.getByText("technician: (2) TX - Tom Tech")).toBeInTheDocument();
+  });
 
-    await user().keyboard("{Escape}");
-    await user().selectOptions(screen.getByLabelText("Date range"), "all_time");
+  it("asks for every day there is on All time, and for last month on Last month", async () => {
+    renderWithClient(<PaymentsReportPage />);
+    await screen.findByText("6563K8 (Job)");
+    await user().click(box());
+    await user().click(screen.getByRole("option", { name: "All time" }));
     await waitFor(() => {
       const last = calls.at(-1)!;
       expect(last.get("from")).toBeNull();
       expect(last.get("to")).toBeNull();
     });
+    expect(box()).toHaveTextContent("All timeAll time");
+
+    await user().click(box());
+    await user().click(screen.getByRole("option", { name: "Last month" }));
+    await waitFor(() => expect(calls.at(-1)!.get("to")).toMatch(/-(28|29|30|31)$/));
   });
 
   it("sorts by payment date both ways", async () => {
     renderWithClient(<PaymentsReportPage />);
-    await screen.findByText("6563K8");
-    await user().click(screen.getByRole("button", { name: /Sort by payment date/ }));
+    await screen.findByText("6563K8 (Job)");
+    await user().click(screen.getByRole("button", { name: "Sort by Payment date" }));
     await waitFor(() => expect(calls.at(-1)?.get("dir")).toBe("asc"));
   });
 
   it("a Custom range over 12 months is refused before asking the server", async () => {
     renderWithClient(<PaymentsReportPage />);
-    await screen.findByText("6563K8");
-    await user().selectOptions(screen.getByLabelText("Date range"), "custom");
+    await screen.findByText("6563K8 (Job)");
+    await user().click(box());
+    await user().click(screen.getByRole("option", { name: "Custom" }));
     const before = calls.length;
-    await user().type(screen.getByLabelText("From"), "2024-01-01");
-    await user().type(screen.getByLabelText("To"), "2026-01-01");
-    expect(await screen.findByRole("alert")).toHaveTextContent(/12 months/);
+    const from = screen.getByRole("textbox", { name: "From" });
+    await user().clear(from);
+    await user().type(from, "01/01/2024{Enter}");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Date range exceeds 12 months");
+    // The grid keeps what it showed, as Workiz does.
+    expect(screen.getByText("6563K8 (Job)")).toBeInTheDocument();
     expect(calls.length).toBe(before);
   });
 
@@ -193,7 +224,7 @@ describe("PaymentsReportPage", () => {
       }),
     );
     renderWithClient(<PaymentsReportPage />);
-    await screen.findByText("6563K8");
+    await screen.findByText("6563K8 (Job)");
     await user().click(screen.getByRole("button", { name: /Export/ }));
     await waitFor(() => expect(exported).toBeDefined());
     expect(exported!.get("limit")).toBeNull();

@@ -1,4 +1,5 @@
 import type {
+  Contact,
   Invoice,
   JobPaymentLedger,
   OnlinePaymentMethod,
@@ -11,6 +12,7 @@ import type {
   PaymentSummary,
 } from "@bitcrm/types";
 import { http } from "@/lib/api/http";
+import { getContactsByIds } from "@/features/clients/api";
 import { buildPaymentListQuery, type OfflinePaymentMethod, type PaymentListParams } from "./lib";
 import { buildPaymentReportQuery } from "./report";
 import type { PaymentSettingsBody } from "./schemas";
@@ -88,6 +90,36 @@ export const listPayments = (params: PaymentListParams = {}): Promise<PaymentPag
  */
 export const getPaymentReport = (q: PaymentReportQuery): Promise<PaymentReportPage> =>
   http.get<PaymentReportPage>(`${BASE}/payments/report${buildPaymentReportQuery(q)}`);
+
+/** What the Client cell prints under the name: the first phone, else the first email. */
+export interface PaymentReportClient {
+  phone?: string;
+  email?: string;
+}
+
+/** A page of the report with its clients' phone / email, by contact id. */
+export type PaymentReportPageWithClients = PaymentReportPage & { clients: Record<string, PaymentReportClient> };
+
+/**
+ * A page of lines together with its clients (`POST /crm/contacts/by-ids`,
+ * which masks the numbers per viewer) — one answer, so a row never grows its
+ * phone line after it is on screen. `withClients` false (no `contacts.view`)
+ * or a refusal leaves the clients out; the lines stand on their own.
+ */
+export async function getPaymentReportPage(q: PaymentReportQuery, withClients: boolean): Promise<PaymentReportPageWithClients> {
+  const page = await getPaymentReport(q);
+  const clients: Record<string, PaymentReportClient> = {};
+  const ids = [...new Set(page.items.map((r) => r.contactId).filter(Boolean))];
+  if (withClients && ids.length) {
+    const found = await getContactsByIds(ids.slice(0, 100)).catch(() => [] as Contact[]);
+    for (const c of found ?? []) {
+      const phone = c.phones?.[0];
+      const email = c.emails?.[0];
+      clients[c.id] = { ...(phone && { phone }), ...(email && { email }) };
+    }
+  }
+  return { ...page, clients };
+}
 
 export const getPaymentReportTotals = (q: PaymentReportQuery): Promise<PaymentReportTotals> =>
   http.get<PaymentReportTotals>(`${BASE}/payments/report/totals${buildPaymentReportQuery(q)}`);

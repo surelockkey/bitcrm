@@ -42,12 +42,13 @@ export function usePaymentList(params: Omit<PaymentListParams, "cursor">, enable
 /**
  * Workiz Reports → Payments, paged by cursor (Workiz's ‹ › arrows). The
  * first page carries the totals of the WHOLE range — the two cards and the
- * "of N".
+ * "of N". `withClients` (the viewer holds `contacts.view`): each page comes
+ * with its clients' phone / email, for the line under the client's name.
  */
-export function usePaymentReport(params: Omit<PaymentReportQuery, "cursor">, enabled = true) {
+export function usePaymentReport(params: Omit<PaymentReportQuery, "cursor">, enabled = true, withClients = false) {
   return useInfiniteQuery({
-    queryKey: queryKeys.payments.report(params),
-    queryFn: ({ pageParam }) => api.getPaymentReport({ ...params, cursor: pageParam }),
+    queryKey: [...queryKeys.payments.report(params), withClients ? "clients" : "lines"],
+    queryFn: ({ pageParam }) => api.getPaymentReportPage({ ...params, cursor: pageParam }, withClients),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.nextCursor || undefined,
     placeholderData: keepPreviousData,

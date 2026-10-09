@@ -520,6 +520,28 @@ Letter-spacing inside a widget is Workiz's, not the app's 0.4px: body text
 older right pane — a 49px #f7f7f7 band with the title centred and a #eeeeee
 rule — used by the dashboard's "Dashboard widgets" panel.
 
+### Payments report pieces (2026-10-09, agent `rep_payments`)
+
+Measured off `rep_payments_wz_*` (notes:
+`workiz-data-parser/docs/import/app-parity-2026-10-08/rep_payments.md`).
+
+- **`WzTotalCard`** (`total-card.tsx`) `value` `caption` `label` — the
+  Payments report's card (`PaymentsReport-module__cardContainer`): 188×72,
+  white, 8px corners, `rgba(59,75,82,.05) 0 0 4px, rgba(59,75,82,.1) 0 4px
+  12px`, a 4px ink bar on the left; the figure 16px/24px 500 ink (0.2px
+  tracking) over a 14px/21px `#768287` caption, 16px from the bar and the top.
+  Two sit 40px apart, 100px after the page's h3.
+- **`WzGroupedFilter`** (additions): a group with `chip: ""` prints its chips
+  as the bare name ("Cash"); an option's `color` (`#rrggbb`) draws it as a
+  chip of that colour in the list (a service area); `chipColored` on a group
+  keeps that colour on the chip a pick leaves ("metro: SURE LOCK CT", white
+  11.9px/500 on the colour, the × too, inside the white #ccc box).
+- **`WzDateRangePicker` `rangeText`** (new, optional) — the days line for a
+  period without days: Workiz's "All time" box reads "All time" over
+  "All time". **`customError`** (new, optional) — Workiz's refusal inside the
+  box under From / To ("Date range exceeds 12 months", 14px `#ff0000`, 5px
+  in), only while Custom is open.
+
 ## Known differences from Workiz (deliberate or unmeasurable)
 - Sub-pixel: Workiz's own fractional layout makes some glyphs land ±1px
   differently from ours in screenshots (e.g. two Workiz selects with identical
