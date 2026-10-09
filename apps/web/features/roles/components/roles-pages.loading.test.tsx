@@ -88,12 +88,12 @@ describe("RolesPage — loading", () => {
       () => ({
         skeletons: skeletonCount(),
         counts: ["1", "3", "2"].every((n) => screen.queryAllByText(n).length > 0),
-        total: !!screen.queryByText("3 roles"),
-        zero: !!screen.queryByText("0 roles"),
-        newRole: !!screen.queryByRole("button", { name: /new role/i }),
+        total: !!screen.queryByText("Showing 1 to 3 of 3 results"),
+        zero: !!screen.queryByText("Showing 1 to 0 of 0 results"),
+        newRole: !!screen.queryByRole("button", { name: "Add New Role" }),
       }),
     );
-    const zero = watchFirstFrame(() => !!screen.queryByText("0 roles"), () => true);
+    const zero = watchFirstFrame(() => !!screen.queryByText("Showing 1 to 0 of 0 results"), () => true);
 
     renderWithClient(<RolesPage />);
     await screen.findByText("Night Desk");

@@ -1,146 +1,167 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { ChevronRight, Users } from "lucide-react";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { ResizableHead } from "@/components/ui/resizable-head";
-import { useColumnWidths } from "@/lib/table/use-column-widths";
-import { Skeleton } from "@/components/ui/skeleton";
+import type { ReactNode } from "react";
 import type { Role } from "@bitcrm/types";
-import { dominantScope, roleSwatch, scopeLabel, sortRolesByPriority } from "../lib";
-import { RoleTypeBadge } from "./role-type-badge";
+import { WzButton } from "@/components/workiz/button";
+import { WzTrashIcon } from "@/components/workiz/icons";
+import type { WzGridColumn } from "@/components/workiz/local-grid";
+import { WzReportGrid, type WzReportColumn, type WzRowOpenEvent, type WzSortDir } from "@/components/workiz/report-grid";
+import { useColumnWidths } from "@/lib/table/use-column-widths";
+import { dominantScope, isSuperAdmin, scopeLabel } from "../lib";
+
+type Column = WzReportColumn<Role> & Pick<WzGridColumn<Role>, "sortValue">;
+
+/** "Locked", in the Team grid's `tag small` shape (11px/13px 500 white, 3px corners). */
+function Chip({ children }: { children: ReactNode }) {
+  return (
+    <span className="ml-2 inline-block rounded-[3px] bg-wz-outline px-1 py-px align-[1px] text-[11px] leading-[13px] font-medium tracking-[0.4px] text-white">
+      {children}
+    </span>
+  );
+}
+
+export const typeLabel = (r: Role) => (r.isSystem ? "System" : "Custom");
 
 /**
- * Every column, in order, with the width it starts at.
- *
- * One list, read by both the `<colgroup>` and the headers. The table is
- * `table-fixed`: the chevron column used to pin itself with a `w-8`, and a
- * width class on a cell beats the column's declared width and shoves the row
- * sideways — so the width is declared here only.
+ * The columns: Workiz's Role first and Actions last
+ * (pg_admin_users_wz_01_roles); ours between them, as the Team grid keeps
+ * its extra columns — Type, Priority, Default scope, Members.
  */
-const COLUMNS = [
-  { id: "role", label: "Role", width: 280, align: "" },
-  { id: "type", label: "Type", width: 150, align: "" },
-  { id: "priority", label: "Priority", width: 180, align: "" },
-  { id: "scope", label: "Default scope", width: 180, align: "" },
-  { id: "members", label: "Members", width: 120, align: "text-right" },
-  { id: "open", label: "Open", width: 56, align: "" },
-] as const;
+function columns({
+  memberCounts,
+  canDelete,
+  onDelete,
+}: {
+  memberCounts: Record<string, number | undefined>;
+  canDelete: boolean;
+  onDelete: (role: Role) => void;
+}): Column[] {
+  return [
+    {
+      id: "role",
+      label: "Role",
+      sortable: true,
+      sortValue: (r) => r.name,
+      cell: (r) => (
+        <>
+          <span className="block truncate">{r.name}</span>
+          {r.description ? (
+            <span className="mt-[5px] block overflow-hidden text-xs leading-4 text-ellipsis text-wz-caption">{r.description}</span>
+          ) : null}
+        </>
+      ),
+    },
+    {
+      id: "type",
+      label: "Type",
+      sortable: true,
+      sortValue: typeLabel,
+      cell: (r) => (
+        <span className="block truncate">
+          {typeLabel(r)}
+          {isSuperAdmin(r) ? <Chip>Locked</Chip> : null}
+        </span>
+      ),
+    },
+    { id: "priority", label: "Priority", sortable: true, sortValue: (r) => r.priority, cell: (r) => r.priority },
+    {
+      id: "scope",
+      label: "Default scope",
+      sortable: true,
+      sortValue: (r) => scopeLabel(dominantScope(r.dataScope)),
+      cell: (r) => <span className="block truncate">{scopeLabel(dominantScope(r.dataScope))}</span>,
+    },
+    {
+      id: "members",
+      label: "Members",
+      sortable: true,
+      sortValue: (r) => memberCounts[r.id],
+      cell: (r) => memberCounts[r.id] ?? "",
+    },
+    {
+      id: "actions",
+      label: "Actions",
+      // Workiz's yellow "Delete Role" (a trash glyph, 32px regular) on every
+      // role a person made; its own two (admin, tech) carry nothing. Ours
+      // asks first, and says why when the role cannot go yet.
+      cell: (r) =>
+        canDelete && !r.isSystem ? (
+          <WzButton
+            size="regular"
+            icon={<WzTrashIcon size={15} />}
+            aria-label={`Delete Role ${r.name}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete(r);
+            }}
+          >
+            Delete Role
+          </WzButton>
+        ) : null,
+    },
+  ];
+}
 
-/** Starting widths, until the reader drags their own. */
-const COLUMN_DEFAULTS: Record<string, number> = Object.fromEntries(
-  COLUMNS.map((c) => [c.id, c.width] as const),
-);
+/** The sort keys for `localGridView`, one per sortable column. */
+export function roleSortColumns(memberCounts: Record<string, number | undefined>): WzGridColumn<Role>[] {
+  return columns({ memberCounts, canDelete: false, onDelete: () => {} })
+    .filter((c) => c.sortValue)
+    .map((c) => ({ id: c.id, label: c.label, render: () => null, sortValue: c.sortValue, searchText: undefined }));
+}
 
+/** Workiz's two columns split its 1400px grid alike; ours start at 160 and stretch. */
+const COLUMN_DEFAULTS: Record<string, number> = {
+  role: 320,
+  type: 160,
+  priority: 120,
+  scope: 160,
+  members: 120,
+  actions: 200,
+};
+
+/**
+ * The Roles & Permissions grid (react-table, pg_admin_users_wz_01_roles):
+ * never shorter than five rows, blanks under records 56px without a rule, an
+ * empty search just its ruled blanks; a row opens the role's editor.
+ */
 export function RolesTable({
   roles,
   memberCounts,
+  canDelete,
+  sort,
+  onSort,
+  onOpen,
+  onDelete,
+  loading = false,
+  footer,
 }: {
-  roles: Role[];
+  roles: readonly Role[];
   memberCounts: Record<string, number | undefined>;
+  canDelete: boolean;
+  sort: { column: string; dir: WzSortDir } | null;
+  onSort: (column: string) => void;
+  onOpen: (role: Role, event: WzRowOpenEvent) => void;
+  onDelete: (role: Role) => void;
+  loading?: boolean;
+  footer?: ReactNode;
 }) {
-  const router = useRouter();
-  const ordered = sortRolesByPriority(roles);
-  const max = ordered[0]?.priority || 100;
-  const { widthOf, setWidth, reset } = useColumnWidths("roles", COLUMN_DEFAULTS);
-
-  /** The chevron column carries no visible heading, only a name for the reader. */
-  const headLabel = (id: string, label: string) =>
-    id === "open" ? <span className="sr-only">{label}</span> : undefined;
-
+  const { widthOf, setWidth, reset } = useColumnWidths("roles-workiz", COLUMN_DEFAULTS);
   return (
-    <div className="overflow-x-auto border">
-      <Table className="table-fixed">
-        <colgroup>
-          {COLUMNS.map((c) => (
-            <col key={c.id} style={{ width: widthOf(c.id) }} />
-          ))}
-        </colgroup>
-        <TableHeader>
-          <TableRow className="hover:bg-transparent">
-            {COLUMNS.map((c) => (
-              <ResizableHead
-                key={c.id}
-                columnId={c.id}
-                label={c.label}
-                width={widthOf(c.id)}
-                onResize={(px) => setWidth(c.id, px)}
-                onReset={reset}
-                className={c.align}
-              >
-                {headLabel(c.id, c.label)}
-              </ResizableHead>
-            ))}
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {ordered.map((r) => {
-            const count = memberCounts[r.id];
-            return (
-              <TableRow
-                key={r.id}
-                className="cursor-pointer"
-                onClick={() => router.push(`/admin/roles/${r.id}`)}
-              >
-                <TableCell className="overflow-hidden">
-                  <div className="flex items-center gap-2.5">
-                    <span
-                      className="size-2.5 flex-none rounded-[3px]"
-                      style={{ background: roleSwatch(r.id) }}
-                    />
-                    <div className="min-w-0">
-                      <div className="truncate font-medium">{r.name}</div>
-                      {r.description ? (
-                        <div className="truncate text-xs text-muted-foreground">
-                          {r.description}
-                        </div>
-                      ) : null}
-                    </div>
-                  </div>
-                </TableCell>
-                <TableCell className="overflow-hidden">
-                  <RoleTypeBadge role={r} />
-                </TableCell>
-                <TableCell className="overflow-hidden">
-                  <div className="flex items-center gap-2.5">
-                    <span className="w-7 flex-none font-mono text-sm tabular-nums text-muted-foreground">
-                      {r.priority}
-                    </span>
-                    <span className="h-1.5 w-16 flex-none overflow-hidden rounded-full bg-muted">
-                      <span
-                        className="block h-full rounded-full bg-brand/70"
-                        style={{ width: `${Math.round((r.priority / max) * 100)}%` }}
-                      />
-                    </span>
-                  </div>
-                </TableCell>
-                <TableCell className="truncate text-muted-foreground">
-                  {scopeLabel(dominantScope(r.dataScope))}
-                </TableCell>
-                <TableCell className="overflow-hidden text-right tabular-nums">
-                  {count === undefined ? (
-                    <Skeleton className="ml-auto h-4 w-6" />
-                  ) : (
-                    <span className="inline-flex items-center gap-1.5 text-muted-foreground">
-                      <Users className="size-3.5" />
-                      {count}
-                    </span>
-                  )}
-                </TableCell>
-                <TableCell className="overflow-hidden">
-                  <ChevronRight className="size-4 text-muted-foreground" />
-                </TableCell>
-              </TableRow>
-            );
-          })}
-        </TableBody>
-      </Table>
-    </div>
+    <WzReportGrid
+      aria-label="Roles"
+      className="shrink-0"
+      columns={columns({ memberCounts, canDelete, onDelete })}
+      rows={roles}
+      rowKey={(r) => r.id}
+      sort={sort}
+      onSort={onSort}
+      resize={{ widthOf, setWidth, reset }}
+      onRowClick={onOpen}
+      loading={loading}
+      minRows={5}
+      plainFiller
+      emptyText={null}
+      footer={footer}
+    />
   );
 }
