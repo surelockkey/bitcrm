@@ -98,7 +98,7 @@ function NewConversationBody({
   return (
     <>
       <DialogHeader className="border-b px-4 py-3">
-        <DialogTitle className="flex items-center gap-2 text-base">
+        <DialogTitle className="flex items-center gap-2">
           {target ? (
             <Button variant="ghost" size="icon-sm" onClick={() => setTarget(null)} aria-label="Pick someone else">
               <ChevronLeft className="size-4" />
@@ -142,20 +142,20 @@ function NewConversationBody({
               className="h-9 pl-8"
             />
           </div>
-          <ul className="mt-2 max-h-72 divide-y overflow-y-auto rounded-lg border" aria-label="Matches">
+          <ul className="mt-2 max-h-72 overflow-y-auto rounded-[4px] border border-input" aria-label="Matches">
             {hits.map((c) => (
               <li key={c.id}>
                 <button
                   type="button"
                   onClick={() => setTarget({ kind: "contact", contact: c })}
-                  className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-accent"
+                  className="flex w-full items-center gap-2.5 px-4 py-3 text-left hover:bg-[#dcdcdc]"
                 >
-                  <span className="grid size-8 place-items-center rounded-full bg-muted text-muted-foreground">
+                  <span className="grid size-[35px] place-items-center rounded-full bg-wz-tab-bar text-white">
                     <UserRound className="size-4" />
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-medium">{contactName(c)}</span>
-                    <span className="block truncate text-xs text-muted-foreground">
+                    <span className="block truncate text-[14px] leading-4 font-medium text-wz-strong">{contactName(c)}</span>
+                    <span className="mt-2 block truncate text-[12px] leading-4 text-[#3b4c53]">
                       {[c.phones[0] ? formatPhone(c.phones[0]) : c.phonesMasked ? "number hidden" : undefined, c.emails[0], c.companyId ? companyNames.get(c.companyId) : undefined]
                         .filter(Boolean)
                         .join(" · ")}
@@ -169,20 +169,20 @@ function NewConversationBody({
                 <button
                   type="button"
                   onClick={() => setTarget({ kind: "phone", phone: typedPhone })}
-                  className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-accent"
+                  className="flex w-full items-center gap-2.5 px-4 py-3 text-left hover:bg-[#dcdcdc]"
                 >
-                  <span className="grid size-8 place-items-center rounded-full bg-muted text-muted-foreground">
+                  <span className="grid size-[35px] place-items-center rounded-full bg-wz-tab-bar text-white">
                     <Phone className="size-4" />
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-medium">Text {formatPhone(typedPhone)}</span>
-                    <span className="block truncate text-xs text-muted-foreground">Not a client yet</span>
+                    <span className="block truncate text-[14px] leading-4 font-medium text-wz-strong">Text {formatPhone(typedPhone)}</span>
+                    <span className="mt-2 block truncate text-[12px] leading-4 text-[#3b4c53]">Not a client yet</span>
                   </span>
                 </button>
               </li>
             ) : null}
             {hits.length === 0 && !typedPhone ? (
-              <li className="px-3 py-6 text-center text-xs text-muted-foreground">
+              <li className="px-3 py-6 text-center text-[14px] leading-[21px] text-wz-outline-label">
                 {debounced.trim().length < MIN_QUERY
                   ? "Start typing a name, a number or an email."
                   : "No client matches. A full phone number can be texted directly."}

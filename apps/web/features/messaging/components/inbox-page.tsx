@@ -84,8 +84,8 @@ export function InboxPage() {
   if (!isLoading && !canView) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
-        <h2 className="text-lg font-medium">No access</h2>
-        <p className="text-sm text-muted-foreground">You don&apos;t have permission to view messages.</p>
+        <h2 className="text-[14px] leading-[21px] font-semibold text-foreground">No access</h2>
+        <p className="text-[14px] leading-[21px] text-wz-outline-label">You don&apos;t have permission to view messages.</p>
       </div>
     );
   }
