@@ -19,6 +19,8 @@ import {
   Building,
   FileStack,
   CreditCard,
+  Hash,
+  FileSignature,
 } from "lucide-react";
 import type { Resource } from "@bitcrm/types";
 
@@ -81,6 +83,21 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
         description: "Invoice and estimate PDF templates.",
         icon: FileStack,
         resource: "document_templates",
+      },
+      // Workiz's own tiles, in its order after Documents (settings_audit_wz_home).
+      {
+        label: "Numbering",
+        href: "/settings/numbering",
+        description: "Set the serial numbers for your next invoice/estimate.",
+        icon: Hash,
+        resource: "settings",
+      },
+      {
+        label: "Estimates",
+        href: "/settings/estimates",
+        description: "Attach PDF files to estimate emails; auto-decline a job's other estimates when one is approved.",
+        icon: FileSignature,
+        resource: "settings",
       },
     ],
   },
@@ -265,6 +282,8 @@ export const WORKIZ_FRAMED_SETTINGS: ReadonlySet<string> = new Set([
   "/settings/companies",
   "/settings/documents",
   "/settings/payments",
+  "/settings/numbering",
+  "/settings/estimates",
 ]);
 
 /**

@@ -27,6 +27,8 @@ describe("settingsFrame", () => {
       "/settings/companies",
       "/settings/documents",
       "/settings/payments",
+      "/settings/numbering",
+      "/settings/estimates",
     ]) {
       expect(settingsFrame(href), href).toBe("workiz");
     }
@@ -72,7 +74,9 @@ describe("SETTINGS_GROUPS", () => {
     // (app_audit_wz_settings, 2026-10-09): Automation Center, Team Management,
     // Roles & Permissions, Ad Groups (job sources), Field Validation (required
     // job fields), Sub-Status (job statuses) — the routes stay ours.
-    expect(labelsOf("General Settings")).toEqual(["Companies", "Automation Center", "Documents"]);
+    // Numbering and Estimates: Workiz's own tiles, in its order after Documents
+    // (settings_audit_wz_home: … Documents · Schedule Settings · Lead Status · Numbering · Security Center · Estimates).
+    expect(labelsOf("General Settings")).toEqual(["Companies", "Automation Center", "Documents", "Numbering", "Estimates"]);
     expect(labelsOf("Users & Roles")).toEqual(["Team Management", "Roles & Permissions"]);
     expect(labelsOf("Job Settings")).toEqual([
       "Service Areas",

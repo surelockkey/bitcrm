@@ -18,12 +18,12 @@ import { queryKeys } from "@/lib/query-keys";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { formatPhone } from "@/lib/phone";
 import { useContact } from "@/features/clients/hooks";
-import { sendToParty } from "@/features/messaging/api";
+import { sendToParty, type SendAttachment } from "@/features/messaging/api";
 import { countSegments } from "@/features/messaging/segments";
 import { useBusinessProfiles } from "@/features/business-profiles/hooks";
 import { useDocumentSettings } from "@/features/documents/hooks";
-import { updateEstimate } from "@/features/estimates/api";
-import { updateInvoice } from "@/features/invoices/api";
+import { getEstimateEmailAttachments, updateEstimate } from "@/features/estimates/api";
+import { getInvoiceEmailAttachments, updateInvoice } from "@/features/invoices/api";
 import { useSetAllowedMethods } from "@/features/payments/hooks";
 import { sameMethods } from "@/features/payments/lib";
 import { AllowedMethodsField } from "@/features/payments/components/allowed-methods-field";
@@ -234,6 +234,21 @@ export function SendDocumentDialog({
       setSending(null);
       return;
     }
+    // Workiz "Attach PDF files" (Settings → Estimates): billing makes the
+    // document's PDF and hands back what the email's attachments[] takes —
+    // nothing when the switch is off, nothing plus a warning when the file
+    // could not be made. The email goes out either way.
+    let attachments: SendAttachment[] | undefined;
+    let attachmentWarning: string | null = null;
+    if (via === "email" && doc.kind !== "proposal") {
+      try {
+        const extra = await (invoice ? getInvoiceEmailAttachments(doc.id) : getEstimateEmailAttachments(doc.id));
+        if (extra.attachments.length) attachments = extra.attachments;
+        if (extra.warning) attachmentWarning = extra.warning;
+      } catch (e) {
+        attachmentWarning = getApiErrorMessage(e, "The PDF could not be attached — the email goes out with the portal link only.");
+      }
+    }
     try {
       // Messaging takes ONE recipient; the other To addresses ride along as Cc.
       const [first, ...moreTo] = to;
@@ -247,10 +262,14 @@ export function SendDocumentDialog({
           : phonePick
             ? { toAddress: phonePick }
             : {}),
+        ...(attachments ? { attachments } : {}),
         clientMessageId: key.current,
         dealId: doc.dealId,
       });
-      toast.success(`${via === "email" ? "Email" : "Text"} sent to ${c ? c.firstName : "the client"}`);
+      toast.success(
+        `${via === "email" ? "Email" : "Text"} sent to ${c ? c.firstName : "the client"}${attachments ? " with the PDF" : ""}`,
+      );
+      if (attachmentWarning) toast.message(attachmentWarning);
       onOpenChange(false);
     } catch (e) {
       const why = getApiErrorMessage(e, `The ${via === "email" ? "email" : "text"} couldn't be sent`);

@@ -1,8 +1,10 @@
 import type {
   DocumentDiscount,
+  DocumentEmailAttachments,
   DocumentVisibility,
   Estimate,
   EstimateItem,
+  EstimateSettings,
   EstimateStatus,
   EstimateWithItems,
   ListCount,
@@ -120,6 +122,29 @@ export const markEstimateSent = (id: string, sent: boolean): Promise<Estimate> =
   http.post<Estimate>(`${BASE}/${id}/mark-sent`, { sent });
 
 export const deleteEstimate = (id: string): Promise<unknown> => http.delete<unknown>(`${BASE}/${id}`);
+
+/**
+ * Workiz "Attach PDF files": what the Send panel adds to this estimate's
+ * email — the PDF, already uploaded through messaging on the caller's
+ * bearer — or nothing, with a `warning` when the account attaches PDFs but
+ * the file could not be made.
+ */
+export const getEstimateEmailAttachments = (id: string): Promise<DocumentEmailAttachments> =>
+  http.post<DocumentEmailAttachments>(`${BASE}/${id}/email-attachments`);
+
+/* ------------------------------------------------ Settings → Estimates */
+
+/** A switch left out is left alone. */
+export interface EstimateSettingsBody {
+  attachPdf?: boolean;
+  autoDeclineSameJob?: boolean;
+}
+
+export const getEstimateSettings = (): Promise<EstimateSettings> =>
+  http.get<EstimateSettings>("/billing/estimate-settings");
+
+export const updateEstimateSettings = (body: EstimateSettingsBody): Promise<EstimateSettings> =>
+  http.put<EstimateSettings>("/billing/estimate-settings", body);
 
 export const getEstimatePdfUrl = (id: string, download = false): Promise<{ url: string }> =>
   http.get<{ url: string }>(`${BASE}/${id}/pdf${download ? "?download=1" : ""}`);
