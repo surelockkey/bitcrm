@@ -1,13 +1,17 @@
 import Image from "next/image";
-import icon from "@/app/icon.png";
+import wordmark from "@/components/brand/wordmark.png";
 import { cn } from "@/lib/utils";
 
-/** BitCRM wordmark: blob logo + name. */
+/** The SHMORKIZ pill — the wordmark alone, since it already spells the name. */
 export function BrandLogo({ className }: { className?: string }) {
   return (
-    <div className={cn("flex items-center gap-2.5", className)}>
-      <Image src={icon} alt="" width={44} height={44} className="size-11" />
-      <span className="text-2xl font-bold tracking-tight">BitCRM</span>
-    </div>
+    <Image
+      src={wordmark}
+      alt="Shmorkiz"
+      width={142}
+      height={44}
+      priority
+      className={cn("h-11 w-auto", className)}
+    />
   );
 }
