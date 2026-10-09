@@ -1255,3 +1255,28 @@ Measured off `subcontractor_wz_04b_add_new_subcontractor` (Team → "+ Add New" 
   padding, the chosen part #ffd400 (`_selected`). A radio group with arrow
   keys. (Not `WzButtonGroup` — the legacy reports' grey label buttons — nor
   `WzSegmented`, the Files panel's tab list.)
+
+## The app shell (2026-10-09, agent `shell_fix`)
+
+Measured off `app_audit_wz_home` and the live sidebar (`shell_fix_wz_*`; notes:
+`workiz-data-parser/docs/import/app-parity-2026-10-08/shell_fix.md`). Not kit
+components — the shell lives in `components/shell/` — but the numbers every page
+sits beside:
+
+- **Rail** 200px + its 1px `#dfe2e3` rule (`SIDEBAR_WIDTH` 12.5rem), so content
+  starts at x=200 like Workiz's. Workiz's words and order; thin rules between
+  blocks, no captions; nothing pinned under the menu (Settings is in the
+  avatar menu, Team under Settings), so a short window scrolls the list.
+- **Rows** `SidebarMenuButton size="wz"`: 184×35 at x=8, 8px in, 4px corners,
+  16px glyph, 10px, 13px/19px words; 8px between rows (43px pitch, 52 across a
+  rule); hover `sidebar-accent` #f3f6f7, the open page `accent` #e5f1ff, weight
+  unchanged. The badge sits at `top-[11.5px]` on that size.
+- **"Create new"** (`create-new-menu.tsx`): 184×40 white row, 24px yellow
+  disc, 13px/19px 600 words 0.4px; its menu 200px, r8,
+  `0 4px 20px rgba(0,0,0,.25)`, 10px air, 32px rows 25px in, rules between
+  groups — Job · Client | Estimate, each gated on `create`.
+- **Crumbs** (`lib/nav/page-history.ts`): one per page; redirect-only routes
+  never leave one (`isRedirectHop`, guarded by `redirect-hops.test.ts`); a
+  document page upgrades its own ("Estimate (1)", "Invoice (0G4397)").
+- `input, textarea { letter-spacing: normal }` app-wide (Workiz's inputs are
+  untracked under its 0.4px page).
