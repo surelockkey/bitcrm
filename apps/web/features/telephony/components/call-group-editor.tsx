@@ -441,7 +441,7 @@ export function CallGroupEditor({
           ) : null}
         </ul>
         <p className="mt-2 text-xs leading-4 text-wz-caption">
-          {everyone}/{CALL_GROUP_LIMITS.maxMembers} members · numbers are read from each person&apos;s profile and each device when the call comes in.
+          {`${everyone}/${CALL_GROUP_LIMITS.maxMembers} members`} · numbers are read from each person&apos;s profile and each device when the call comes in.
         </p>
       </div>
 

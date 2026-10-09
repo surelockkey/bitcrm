@@ -25,7 +25,7 @@ import { useCallDevices, useDeleteCallDevice } from "../call-devices-hooks";
 import { CallDeviceEditor, DEVICE_TYPE_LABEL } from "./call-device-editor";
 
 const DEVICES_INTRO =
-  "Devices are the desk phones and shop lines your call groups and call flows can ring beside your team's softphones. Add a device once, then pick it in a group or in a Forward step.";
+  "Devices are the desk phones and shop lines your call groups and call flows can ring beside your team's softphones.";
 
 /** The empty grid, in the Call groups tab's words and look (14px/21px 600 over 14px/21px, ink). */
 const EMPTY = (

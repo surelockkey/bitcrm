@@ -344,8 +344,9 @@ function BasicInfoPanel({
 
         {/* Workiz's "Record Call Flow" (pg_settings_phone_wz_builder_basic):
             the 40×20 green toggle, the 13px/600 title 10px after it, and
-            "Record and save calls in this call flow" 13px under them. */}
-        <div>
+            "Record and save calls in this call flow" 13px under them —
+            the row 31px under the numbers' hint, the words 28px under the title. */}
+        <div className="pt-[11px]">
           <div className="flex items-center gap-2.5">
             <WzSwitch
               aria-label="Record Call Flow"
@@ -354,7 +355,7 @@ function BasicInfoPanel({
             />
             <span className="text-[13px] leading-4 font-semibold tracking-[0.4px] text-[#3b4c53]">Record Call Flow</span>
           </div>
-          <p className="mt-3 text-[13px] leading-4 tracking-[0.4px] text-[rgba(59,76,83,0.8)]">
+          <p className="mt-[10px] text-[13px] leading-4 tracking-[0.4px] text-[rgba(59,76,83,0.8)]">
             Record and save calls in this call flow
           </p>
         </div>
