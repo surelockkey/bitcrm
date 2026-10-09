@@ -32,6 +32,18 @@ describe("WzRail", () => {
     );
     expect(screen.getByText("Notes").className).toContain("text-[11px]");
   });
+
+  it("marks the open panel's button (Workiz's #f3f6f7 tile) and says it is pressed", () => {
+    render(
+      <WzRail aria-label="Client rail">
+        <WzRailButton icon={SquarePen} label="Notes" caption active onClick={() => {}} />
+        <WzRailButton icon={History} label="History" caption onClick={() => {}} />
+      </WzRail>,
+    );
+    expect(screen.getByRole("button", { name: "Notes" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Notes" }).className).toContain("bg-wz-secondary-hover");
+    expect(screen.getByRole("button", { name: "History" })).not.toHaveAttribute("aria-pressed");
+  });
 });
 
 describe("WzRailPanel", () => {
@@ -45,6 +57,20 @@ describe("WzRailPanel", () => {
     const panel = screen.getByRole("complementary", { name: "Job timeline" });
     expect(panel.className).toContain("w-[350px]");
     expect(screen.getByRole("heading", { name: "Timeline" }).className).toContain("font-semibold");
+    await userEvent.click(screen.getByRole("button", { name: "Close panel" }));
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it("plain: the client page's white panel — the title at the left, × at the right", async () => {
+    const onClose = vi.fn();
+    render(
+      <WzRailPanel variant="plain" aria-label="Notes" title="Notes" onClose={onClose}>
+        body
+      </WzRailPanel>,
+    );
+    const heading = screen.getByRole("heading", { name: "Notes" });
+    expect(heading.className).toContain("text-[18px]");
+    expect(heading.className).not.toContain("text-center");
     await userEvent.click(screen.getByRole("button", { name: "Close panel" }));
     expect(onClose).toHaveBeenCalled();
   });

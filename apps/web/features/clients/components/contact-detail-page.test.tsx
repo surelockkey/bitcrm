@@ -193,6 +193,8 @@ describe("ContactDetailPage — the client card, laid out as Workiz's", () => {
           ],
         }),
       ),
+      http.get("*/deals/service-areas", () => HttpResponse.json({ success: true, data: [] })),
+      http.get("*/deals/job-statuses", () => HttpResponse.json({ success: true, data: [] })),
       http.get("*/deals/job-sources", () =>
         HttpResponse.json({ success: true, data: [{ id: "src-tx-platinum", name: "SURE TX PLATINUM", priority: 1, active: true }] }),
       ),
@@ -233,17 +235,21 @@ describe("ContactDetailPage — the client card, laid out as Workiz's", () => {
     const panel = screen.getByRole("complementary", { name: "Client" });
 
     expect(await within(panel).findByRole("link", { name: "CBRE Facilities Management" })).toHaveAttribute("href", "/companies/co1");
-    expect(within(panel).getByText("(855) 783-6342")).toBeInTheDocument();
+    // Workiz's phones: plain lines, the dash spaced out.
+    expect(within(panel).getByText("(855) 783 - 6342")).toBeInTheDocument();
+    expect(within(panel).getByText("(475) 329 - 6229")).toBeInTheDocument();
     expect(within(panel).getByText("pendingvendorinvoice@cbre.com")).toBeInTheDocument();
-    expect(within(panel).getByText("Tax exempt")).toBeInTheDocument();
     // Workiz's tags, as chips with a way off and a way to add.
     expect(await within(panel).findByText("PLATINUM")).toBeInTheDocument();
     expect(within(panel).getByText("tax free")).toBeInTheDocument();
     expect(within(panel).getByRole("button", { name: "Add tag" })).toBeInTheDocument();
-    // Workiz's Ad source and payment terms, by name — not the closed "Manual" enum.
-    expect(await within(panel).findByText("SURE TX PLATINUM")).toBeInTheDocument();
-    expect(within(panel).queryByText("Manual")).toBeNull();
-    expect(within(panel).getByText("Net-60 (custom)")).toBeInTheDocument();
+    // As in Workiz, the Ad source, terms and tax status live in Edit client info, not on the card.
+    expect(within(panel).queryByText("SURE TX PLATINUM")).toBeNull();
+    expect(within(panel).queryByText("Tax exempt")).toBeNull();
+
+    // Workiz's Addresses fold starts closed.
+    expect(within(panel).queryByText("Service address")).toBeNull();
+    await userEvent.click(within(panel).getByRole("button", { name: "Addresses" }));
 
     expect(within(panel).getByText("Service address").closest("[data-slot=address-card]")).toHaveTextContent("241 E Farm to Market Rd 1382, Cedar Hill, TX 75104");
     expect(within(panel).getByText("Billing address").closest("[data-slot=address-card]")).toHaveTextContent("200 E Campus View Blvd ste 120, Columbus, OH 43235");
@@ -251,11 +257,17 @@ describe("ContactDetailPage — the client card, laid out as Workiz's", () => {
     expect(within(panel).queryByText(/18840 I-35/)).toBeNull();
   });
 
-  it("shows Workiz's four cards over the client's invoices and estimates, money only with financials.view", async () => {
+  it("shows Workiz's four totals — revenue being what the client paid — money only with financials.view", async () => {
+    mocks.payments = [
+      { id: "p1", dealId: "d2", amount: 200, refundedAmount: 0, method: "cash", status: "settled", takenAt: "2026-09-30T03:10:33.000Z" } as Payment,
+      { id: "p2", dealId: "d2", amount: 75, refundedAmount: 0, method: "card", status: "pending", takenAt: "2026-09-30T03:10:33.000Z" } as Payment,
+    ];
     await renderPage();
-    expect(screen.getByText("Past due").parentElement).toHaveTextContent("$100.00");
-    expect(screen.getByText("Due").parentElement).toHaveTextContent("$150.00");
-    expect(screen.getByText("Total revenue").parentElement).toHaveTextContent("$350.00");
+    const totals = screen.getByRole("group", { name: "Client totals" });
+    expect(within(totals).getByText("Past due").parentElement).toHaveTextContent("$100.00");
+    expect(within(totals).getByText("$100.00")).toHaveAttribute("data-tone", "danger");
+    expect(within(totals).getByText("Due").parentElement).toHaveTextContent("$150.00");
+    expect(within(totals).getByText("Total revenue").parentElement).toHaveTextContent("$200.00");
     expect(screen.getByText("Estimates", { selector: "[data-slot=kpi-label]" }).parentElement).toHaveTextContent("3");
   });
 
@@ -276,8 +288,10 @@ describe("ContactDetailPage — the client card, laid out as Workiz's", () => {
 
     const table = screen.getByRole("table", { name: "Jobs" });
     expect(within(table).getAllByRole("columnheader").map((h) => h.textContent)).toEqual([
-      "Id", "Name", "Address", "City", "State", "Zipcode", "Job Date", "Job Type", "Status", "Total", "Amount Due",
+      "Id", "Job Name", "Name", "Address", "City", "State", "Zipcode", "Job Date", "Job Type", "Status", "Total", "Amount Due", "Past Due",
     ]);
+    // Newest visit first: the Job Date header carries Workiz's sort bar.
+    expect(within(table).getByRole("columnheader", { name: "Job Date" })).toHaveAttribute("aria-sort", "descending");
     const rows = within(table).getAllByRole("row").slice(1);
     expect(rows).toHaveLength(3);
     expect(within(rows[0]).getByRole("link", { name: "3Y1CNX" })).toHaveAttribute("href", "/deals/d1");
@@ -287,8 +301,9 @@ describe("ContactDetailPage — the client card, laid out as Workiz's", () => {
     expect(rows[0]).toHaveTextContent("Fri Oct 09, 2026 11:00 am");
     expect(rows[0]).toHaveTextContent("Lock Repair");
     expect(rows[0]).toHaveTextContent("Done");
-    expect(rows[0]).toHaveTextContent("$100.00");
-    expect(rows[1]).toHaveTextContent("$50.00"); // amount due from the invoice
+    // Workiz's plain figures: Total, Amount Due, Past Due (the invoice was due 2026-09-01).
+    expect(within(rows[0]).getAllByRole("cell").slice(-3).map((c) => c.textContent)).toEqual(["100.00", "100.00", "100.00"]);
+    expect(within(rows[1]).getAllByRole("cell").slice(-3).map((c) => c.textContent)).toEqual(["0.00", "50.00", "0.00"]);
     expect(rows[2]).toHaveTextContent("Unscheduled");
   });
 
@@ -312,6 +327,10 @@ describe("ContactDetailPage — the client card, laid out as Workiz's", () => {
     await renderPage();
     const rows = within(screen.getByRole("table", { name: "Jobs" })).getAllByRole("row").slice(1);
     expect(rows.map((r) => within(r).getByRole("link").textContent)).toEqual(["NEWEST", "MIDDLE", "OLDEST", "UNDATED"]);
+    // The header turns it round, the undated job staying last.
+    await userEvent.click(screen.getByRole("button", { name: "Job Date" }));
+    const asc = within(screen.getByRole("table", { name: "Jobs" })).getAllByRole("row").slice(1);
+    expect(asc.map((r) => within(r).getByRole("link").textContent)).toEqual(["OLDEST", "MIDDLE", "NEWEST", "UNDATED"]);
   });
 
   it("pages the jobs like Workiz: arrows, Page X of Y, Showing a to b of N results, ten a page", async () => {
@@ -326,17 +345,20 @@ describe("ContactDetailPage — the client card, laid out as Workiz's", () => {
 
     const table = screen.getByRole("table", { name: "Jobs" });
     expect(within(table).getAllByRole("row").slice(1)).toHaveLength(10);
-    const pager = screen.getByTestId("client-pagination");
+    const pager = screen.getByTestId("list-pagination");
     expect(pager).toHaveTextContent("Showing 1 to 10 of 12 results");
     expect(pager).toHaveTextContent("Page 1 of 2");
     expect(within(pager).getByRole("button", { name: "Previous page" })).toBeDisabled();
 
     await userEvent.click(within(pager).getByRole("button", { name: "Next page" }));
     expect(within(screen.getByRole("table", { name: "Jobs" })).getAllByRole("row").slice(1)).toHaveLength(2);
-    expect(screen.getByTestId("client-pagination")).toHaveTextContent("Showing 11 to 12 of 12 results");
-    expect(screen.getByTestId("client-pagination")).toHaveTextContent("Page 2 of 2");
-    expect(within(screen.getByTestId("client-pagination")).getByRole("button", { name: "Next page" })).toBeDisabled();
+    expect(screen.getByTestId("list-pagination")).toHaveTextContent("Showing 11 to 12 of 12 results");
+    expect(screen.getByTestId("list-pagination")).toHaveTextContent("Page 2 of 2");
+    expect(within(screen.getByTestId("list-pagination")).getByRole("button", { name: "Next page" })).toBeDisabled();
     expect(screen.getByRole("tab", { name: /^Jobs/ })).toHaveTextContent("12");
+    // A row opens the job.
+    await userEvent.click(within(screen.getByRole("table", { name: "Jobs" })).getAllByRole("row")[1].querySelectorAll("td")[2]);
+    expect(mocks.push).toHaveBeenCalledWith("/deals/d11");
   });
 
   it("asks for every page of the client's jobs as the card opens, so the count and the pages are exact", async () => {
@@ -365,16 +387,16 @@ describe("ContactDetailPage — the client card, laid out as Workiz's", () => {
 
     await userEvent.type(screen.getByRole("searchbox", { name: "Search addresses" }), "austin");
     expect(within(screen.getByRole("table", { name: "Addresses" })).getAllByRole("row").slice(1)).toHaveLength(1);
-    expect(screen.getByTestId("client-pagination")).toHaveTextContent("Showing 1 to 1 of 1 results");
-    expect(screen.getByTestId("client-pagination")).toHaveTextContent("Page 1 of 1");
+    expect(screen.getByTestId("list-pagination")).toHaveTextContent("Showing 1 to 1 of 1 results");
+    expect(screen.getByTestId("list-pagination")).toHaveTextContent("Page 1 of 1");
   });
 
 
-  it("Create new has Workiz's items that BitCRM can honour: Job, Estimate, Invoice, Message, Address, Pay Invoices", async () => {
+  it("Create new has Workiz's items that BitCRM can honour, in Workiz's order: Estimate, Job, Invoice, Message, Address, Pay Invoices", async () => {
     await renderPage();
     await userEvent.click(screen.getByRole("button", { name: "Create new" }));
     const items = await screen.findAllByRole("menuitem");
-    expect(items.map((i) => i.textContent?.trim())).toEqual(["Job", "Estimate", "Invoice", "Message", "Address", "Pay Invoices"]);
+    expect(items.map((i) => i.textContent?.trim())).toEqual(["Estimate", "Job", "Invoice", "Message", "Address", "Pay Invoices"]);
     await userEvent.click(screen.getByRole("menuitem", { name: "Message" }));
     expect(await screen.findByTestId("party-chat")).toBeInTheDocument();
   });
@@ -457,6 +479,7 @@ describe("ContactDetailPage — the client card, laid out as Workiz's", () => {
     );
     await renderPage();
     const panel = screen.getByRole("complementary", { name: "Client" });
+    await userEvent.click(within(panel).getByRole("button", { name: "Addresses" }));
     await userEvent.click(within(panel).getByRole("button", { name: "Edit billing address" }));
 
     const sheet = await screen.findByRole("dialog", { name: "Address" });
@@ -486,6 +509,7 @@ describe("ContactDetailPage — the client card, laid out as Workiz's", () => {
     );
     await renderPage();
     const panel = screen.getByRole("complementary", { name: "Client" });
+    await userEvent.click(within(panel).getByRole("button", { name: "Addresses" }));
     await userEvent.click(within(panel).getByRole("button", { name: "Edit service address" }));
 
     const sheet = await screen.findByRole("dialog", { name: "Address" });
@@ -553,26 +577,30 @@ describe("ContactDetailPage — the client card, laid out as Workiz's", () => {
     it("stacks the three buttons, Notes with a badge counting the CRM notes plus the legacy description", async () => {
       await renderPage();
       const rail = screen.getByRole("complementary", { name: "Client rail" });
-      expect(within(rail).getAllByRole("button").map((b) => b.getAttribute("aria-label"))).toEqual(["Notes", "History", "Files"]);
-      expect(await within(within(rail).getByRole("button", { name: "Notes" })).findByText("3")).toBeInTheDocument();
+      expect(within(rail).getAllByRole("button").map((b) => b.getAttribute("aria-label"))).toEqual(["Notes (3)", "History", "Files"]);
+      expect(within(within(rail).getByRole("button", { name: "Notes (3)" })).getByText("3")).toBeInTheDocument();
     });
 
     it("Notes opens the notes panel: the legacy description first, then the CRM notes, pinned on top", async () => {
       await renderPage();
-      await userEvent.click(screen.getByRole("button", { name: "Notes" }));
-      const dialog = await screen.findByRole("dialog", { name: "Notes" });
+      await userEvent.click(screen.getByRole("button", { name: /^Notes/ }));
+      // Laid over the page, as Workiz's: the open one's tile is pressed; again, it closes.
+      const dialog = await screen.findByRole("complementary", { name: "Notes" });
+      expect(screen.getByRole("button", { name: /^Notes/ })).toHaveAttribute("aria-pressed", "true");
       await within(dialog).findByText("Gate code 4421");
       const cards = within(dialog).getAllByTestId("note-card");
       expect(cards[0]).toHaveTextContent("Net 45 client. Tax exempt.");
       expect(cards[1]).toHaveTextContent("Call before arriving");
       expect(cards[2]).toHaveTextContent("Gate code 4421");
       expect(within(dialog).getByRole("button", { name: "Add note" })).toBeInTheDocument();
+      await userEvent.click(screen.getByRole("button", { name: /^Notes/ }));
+      expect(screen.queryByRole("complementary", { name: "Notes" })).toBeNull();
     });
 
     it("History opens the client's feed across jobs, each row linking its job", async () => {
       await renderPage();
       await userEvent.click(screen.getByRole("button", { name: "History" }));
-      const dialog = await screen.findByRole("dialog", { name: "History" });
+      const dialog = await screen.findByRole("complementary", { name: "History" });
       expect(await within(dialog).findByText(/scheduled 10-12pm/)).toBeInTheDocument();
       expect(within(dialog).getByRole("link", { name: "3Y1CNX" })).toHaveAttribute("href", "/deals/d1");
       expect(within(dialog).getByRole("combobox", { name: "Filters" })).toBeInTheDocument();
@@ -581,8 +609,9 @@ describe("ContactDetailPage — the client card, laid out as Workiz's", () => {
     it("Files opens the client's files across jobs, with Upload file for contacts.edit", async () => {
       await renderPage();
       await userEvent.click(screen.getByRole("button", { name: "Files" }));
-      const dialog = await screen.findByRole("dialog", { name: "Files" });
-      expect(await within(dialog).findByText("invoice.pdf")).toBeInTheDocument();
+      const dialog = await screen.findByRole("complementary", { name: "Files" });
+      await userEvent.click(within(dialog).getByRole("tab", { name: "All" }));
+      expect(await within(dialog).findByRole("button", { name: /Open invoice\.pdf/ })).toBeInTheDocument();
       expect(within(dialog).getByRole("link", { name: "3Y1CNX" })).toHaveAttribute("href", "/deals/d1");
       expect(within(dialog).getByRole("button", { name: "Upload file" })).toBeInTheDocument();
     });
@@ -596,7 +625,8 @@ describe("ContactDetailPage — the client card, laid out as Workiz's", () => {
     await userEvent.click(screen.getByRole("tab", { name: /^Payments/ }));
     const table = screen.getByRole("table", { name: "Payments" });
     expect(within(table).getAllByRole("row").slice(1)).toHaveLength(1);
-    expect(table).toHaveTextContent("$481.00");
+    expect(table).toHaveTextContent("481.00");
+    expect(within(table).getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Job Id", "Date", "Amount", "Type", "Approval Code", "Payment Status", "Tip"]);
     expect(table).toHaveTextContent("Cash");
     expect(within(table).getByRole("link", { name: "3Y1CNX" })).toHaveAttribute("href", "/deals/d1");
   });

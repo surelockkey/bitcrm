@@ -44,35 +44,54 @@ describe("ClientTagsField — Workiz's tag chips and the Add tag popup", () => {
     await waitFor(() => expect(puts).toEqual([{ tagIds: [] }]));
   });
 
-  it("Add tag lists the catalog's active tags the client doesn't have yet, and attaches the picked one", async () => {
+  // Workiz's tag editor (pg_contact_wz_269669_10_addtag_open): "Available tags (N)",
+  // "+ Create new", "Search tags" with an order toggle, a checkbox per tag, Apply.
+  it("Add tag opens Workiz's Available tags: a box per active tag the client lacks; Apply puts the ticked ones on", async () => {
     renderWithClient(<ClientTagsField contactId="c1" tagIds={["t-platinum"]} canEdit canCreate />);
     await userEvent.click(await screen.findByRole("button", { name: "Add tag" }));
 
-    const list = await screen.findByRole("listbox");
-    expect(within(list).getByText("tax free")).toBeInTheDocument();
-    expect(within(list).queryByText("PLATINUM")).toBeNull();
-    expect(within(list).queryByText("Old")).toBeNull();
+    const editor = await screen.findByRole("dialog", { name: "Available tags (1)" });
+    expect(within(editor).getByRole("checkbox", { name: "tax free" })).not.toBeChecked();
+    expect(within(editor).queryByRole("checkbox", { name: "PLATINUM" })).toBeNull();
+    expect(within(editor).queryByRole("checkbox", { name: "Old" })).toBeNull();
+    const apply = within(editor).getByRole("button", { name: "Apply" });
+    expect(apply).toBeDisabled();
 
-    await userEvent.click(within(list).getByText("tax free"));
+    await userEvent.click(within(editor).getByRole("checkbox", { name: "tax free" }));
+    expect(apply).toBeEnabled();
+    await userEvent.click(apply);
     await waitFor(() => expect(puts).toEqual([{ tagIds: ["t-platinum", "t-taxfree"] }]));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: /Available tags/ })).toBeNull());
   });
 
-  it("a name that isn't in the catalog can be created on the spot and goes straight onto the client", async () => {
+  it("Search tags narrows the list; the order button turns it round", async () => {
     renderWithClient(<ClientTagsField contactId="c1" tagIds={[]} canEdit canCreate />);
     await userEvent.click(await screen.findByRole("button", { name: "Add tag" }));
-    await userEvent.type(screen.getByRole("combobox"), "VIP");
+    const editor = await screen.findByRole("dialog", { name: "Available tags (2)" });
+    const names = () => within(editor).getAllByRole("checkbox").map((c) => c.getAttribute("aria-label"));
+    expect(names()).toEqual(["PLATINUM", "tax free"]);
+    await userEvent.click(within(editor).getByRole("button", { name: "Sort tags" }));
+    expect(names()).toEqual(["tax free", "PLATINUM"]);
+    await userEvent.type(within(editor).getByRole("searchbox", { name: "Search tags" }), "tax");
+    expect(names()).toEqual(["tax free"]);
+  });
 
-    await userEvent.click(await screen.findByText('Create "VIP"'));
+  it("+ Create new makes a tag from a typed name and puts it straight onto the client", async () => {
+    renderWithClient(<ClientTagsField contactId="c1" tagIds={[]} canEdit canCreate />);
+    await userEvent.click(await screen.findByRole("button", { name: "Add tag" }));
+    const editor = await screen.findByRole("dialog", { name: /Available tags/ });
+    await userEvent.click(within(editor).getByRole("button", { name: "Create new" }));
+    await userEvent.type(within(editor).getByRole("textbox", { name: "Tag name" }), "VIP");
+    await userEvent.click(within(editor).getByRole("button", { name: "Create" }));
     await waitFor(() => expect(posts).toEqual([{ name: "VIP", color: "slate" }]));
     await waitFor(() => expect(puts).toEqual([{ tagIds: ["t-new"] }]));
   });
 
-  it("offers no Create line for a name already in the catalog, and none at all without client_tags.create", async () => {
+  it("offers no Create new without client_tags.create", async () => {
     renderWithClient(<ClientTagsField contactId="c1" tagIds={[]} canEdit canCreate={false} />);
     await userEvent.click(await screen.findByRole("button", { name: "Add tag" }));
-    await userEvent.type(screen.getByRole("combobox"), "plat");
-    expect(await screen.findByText("PLATINUM")).toBeInTheDocument();
-    expect(screen.queryByText(/^Create/)).toBeNull();
+    const editor = await screen.findByRole("dialog", { name: /Available tags/ });
+    expect(within(editor).queryByRole("button", { name: "Create new" })).toBeNull();
   });
 
   it("without contacts.edit the chips are read-only and there is no Add tag", async () => {

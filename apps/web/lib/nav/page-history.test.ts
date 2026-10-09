@@ -99,7 +99,8 @@ describe("labelForPath", () => {
     ["/deals/new", "New Job"],
     ["/deals/abc-123", "Job"],
     ["/my-jobs/abc-123", "Job"],
-    ["/contacts/c1", "Contact"],
+    // Workiz's breadcrumb on a client page: "… # DASHBOARD # CLIENT".
+    ["/contacts/c1", "Client"],
     ["/companies/co1", "Company"],
     ["/technicians/t9", "Technician"],
     ["/profile", "My Profile"],

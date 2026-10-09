@@ -3,10 +3,9 @@
 import { useMemo, useState } from "react";
 import { Loader2, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
+import { WzRailPanel } from "@/components/workiz/rail";
 import { useContactTimeline, useUserMap } from "@/features/deals/hooks";
 import {
   actorLabel,
@@ -20,9 +19,11 @@ import {
 } from "@/features/deals/components/deal-timeline-panel";
 
 /**
- * Workiz's History rail on the client card: every job's timeline as one
- * feed, each row naming its job, with the job timeline's filters and search.
- * Notes are read here and edited on the job they belong to.
+ * Workiz's History panel on the client page (pg_contact_wz_269669_12): the
+ * outlined "Filters" select (All, Notes, Activities, Calls) and every job's
+ * timeline as one feed, newest first, each row naming its job. Ours adds a
+ * search under the filter. Notes are read here and edited on the job they
+ * belong to.
  */
 export function ClientHistoryPanel({
   contactId,
@@ -33,16 +34,11 @@ export function ClientHistoryPanel({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
+  if (!open) return null;
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="flex flex-col gap-0 p-0 data-[side=right]:w-full data-[side=right]:sm:max-w-[400px]">
-        <SheetHeader className="border-b px-4 py-3">
-          <SheetTitle>History</SheetTitle>
-          <SheetDescription className="sr-only">What happened on the client&apos;s jobs, newest first.</SheetDescription>
-        </SheetHeader>
-        {open ? <HistoryBody contactId={contactId} /> : null}
-      </SheetContent>
-    </Sheet>
+    <WzRailPanel variant="plain" aria-label="History" title="History" onClose={() => onOpenChange(false)} className="max-md:w-full">
+      <HistoryBody contactId={contactId} />
+    </WzRailPanel>
   );
 }
 
@@ -63,34 +59,42 @@ function HistoryBody({ contactId }: { contactId: string }) {
   }, [entries, filter, search, lookups]);
 
   return (
-    <>
-      <div className="space-y-2 border-b px-4 py-3">
-        <label className="block space-y-1">
-          <span className="text-xs text-muted-foreground">Filters</span>
-          <Select value={filter} onValueChange={(v) => setFilter(v as TimelineFilter)}>
-            <SelectTrigger className="h-9 w-full" aria-label="Filters">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {FILTERS.map((f) => (
-                <SelectItem key={f.key} value={f.key}>
-                  {f.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </label>
-        <div className="relative">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-          <Input className="h-8 pl-8" aria-label="Search history" placeholder="Search history…" value={search} onChange={(e) => setSearch(e.target.value)} />
-        </div>
+    <div className="px-4 pb-6">
+      {/* pg_contact_wz_269669_12: a 42px box, 1px #9ea6aa, r4; "Filters" notched in at 11px; "All" 13px #768287. */}
+      <div className="relative mt-[26px]">
+        <span className="pointer-events-none absolute -top-2 left-2 z-10 bg-white px-1 text-[11px] leading-4 tracking-[0.4px] text-foreground">Filters</span>
+        <Select value={filter} onValueChange={(v) => setFilter(v as TimelineFilter)}>
+          <SelectTrigger className="h-[42px] w-full rounded-[4px] border-wz-outline text-[13px] text-wz-outline-label" aria-label="Filters">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {FILTERS.map((f) => (
+              <SelectItem key={f.key} value={f.key}>
+                {f.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      {/* Ours: a search over the feed. */}
+      <div className="relative mt-3">
+        <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-foreground" aria-hidden />
+        <input
+          aria-label="Search history"
+          placeholder="Search history"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="h-10 w-full rounded-[4px] border border-wz-outline bg-white pr-3 pl-10 text-[13px] leading-4 text-foreground outline-none placeholder:text-wz-outline focus:border-wz-link"
+        />
       </div>
 
-      <div className="flex-1 space-y-3 overflow-y-auto px-4 py-3">
+      <div className="mt-7">
         {query.isLoading ? (
           <Skeleton className="h-48 w-full" />
         ) : rows.length === 0 ? (
-          <p className="py-6 text-center text-sm text-muted-foreground">{search.trim() ? "Nothing matches your search." : "No activity yet."}</p>
+          <p className="mt-[180px] text-center text-sm leading-[21px] tracking-[0.4px] text-foreground">
+            {search.trim() ? "Nothing matches your search." : "This client doesn’t have any records"}
+          </p>
         ) : (
           <ol className="space-y-3">
             {rows.map((row) => (
@@ -106,11 +110,11 @@ function HistoryBody({ contactId }: { contactId: string }) {
         )}
 
         {query.hasNextPage ? (
-          <Button variant="ghost" size="sm" className="w-full" onClick={() => query.fetchNextPage()} disabled={query.isFetchingNextPage}>
+          <Button variant="ghost" size="sm" className="mt-3 w-full" onClick={() => query.fetchNextPage()} disabled={query.isFetchingNextPage}>
             {query.isFetchingNextPage ? <Loader2 className="size-4 animate-spin" /> : "Load more"}
           </Button>
         ) : null}
       </div>
-    </>
+    </div>
   );
 }

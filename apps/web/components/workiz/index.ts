@@ -88,3 +88,15 @@ export {
 
 // Report grid (Activity report).
 export { WzReportGrid, wzNextSort, type WzReportColumn, type WzSortDir } from "./report-grid";
+
+// Record-page pieces (Workiz's client page, pg_contact_wz_*).
+export {
+  WzLocalGrid,
+  localGridView,
+  nextGridSort,
+  WZ_GRID_PAGE_SIZES,
+  type WzGridColumn,
+  type WzGridSort,
+  type WzGridView,
+} from "./local-grid";
+export { WzTotalsBar, WzLeftBorderBox, WzFold, WzSegmented } from "./record-parts";

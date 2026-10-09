@@ -128,6 +128,9 @@ export function WzTabBar({
             ) : (
               <>
                 {t.label}
+                {/* A space between the name and its counter, for the tab's name
+                    ("Jobs 18", not "Jobs18"); a flex row draws none. */}
+                {t.count !== undefined && t.count !== null ? " " : null}
                 {t.count !== undefined && t.count !== null ? (
                   <span
                     data-slot="wz-tab-count"

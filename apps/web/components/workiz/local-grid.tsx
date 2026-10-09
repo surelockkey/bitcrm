@@ -1,0 +1,247 @@
+"use client";
+
+import { useMemo, useState, type MouseEvent, type ReactNode } from "react";
+
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { cn } from "@/lib/utils";
+
+import { WzTableNoData } from "./no-data";
+import { WzPager } from "./pager";
+import { WzListToolbar, WzPageSizeSelect, WzSearchBox } from "./toolbar";
+
+/** One column of a `WzLocalGrid`. */
+export interface WzGridColumn<T> {
+  id: string;
+  label: string;
+  /**
+   * A fixed width in px (react-table's `maxWidth`: the Id column's 130).
+   * Without it the column takes an equal share of the row, never under
+   * Workiz's 100px — past that the grid scrolls sideways, as Workiz's does.
+   */
+  width?: number;
+  render: (row: T) => ReactNode;
+  /** What the header sorts by. Absent: the header does not sort. */
+  sortValue?: (row: T) => string | number | null | undefined;
+  /** The words the Search box looks in. Absent: not searched. */
+  searchText?: (row: T) => string | null | undefined;
+  /** Extra classes for this column's cells (a link colour, a wrap). */
+  cellClassName?: string;
+}
+
+export interface WzGridSort {
+  id: string;
+  dir: "asc" | "desc";
+}
+
+export interface WzGridView<T> {
+  rows: T[];
+  total: number;
+  page: number;
+  pages: number;
+  from: number;
+  to: number;
+}
+
+const blank = (v: unknown) => v === undefined || v === null || v === "";
+
+/**
+ * The rows a client-side react-table shows: those the query finds in any
+ * searchable column (any case), in the header's order — numbers as numbers,
+ * words as words, blanks last whichever way — cut to the page. A page past
+ * the end comes back to the last one.
+ */
+export function localGridView<T>(
+  rows: readonly T[],
+  columns: readonly WzGridColumn<T>[],
+  { query, sort, page, size }: { query: string; sort: WzGridSort | null; page: number; size: number },
+): WzGridView<T> {
+  const q = query.trim().toLowerCase();
+  let shown = q
+    ? rows.filter((r) => columns.some((c) => c.searchText?.(r)?.toString().toLowerCase().includes(q)))
+    : [...rows];
+  const col = sort ? columns.find((c) => c.id === sort.id && c.sortValue) : undefined;
+  if (col && sort) {
+    const sign = sort.dir === "asc" ? 1 : -1;
+    shown = [...shown].sort((a, b) => {
+      const va = col.sortValue!(a);
+      const vb = col.sortValue!(b);
+      if (blank(va) || blank(vb)) return blank(va) === blank(vb) ? 0 : blank(va) ? 1 : -1;
+      if (typeof va === "number" && typeof vb === "number") return (va - vb) * sign;
+      return String(va).localeCompare(String(vb), "en", { numeric: true, sensitivity: "base" }) * sign;
+    });
+  }
+  const total = shown.length;
+  const pages = Math.max(1, Math.ceil(total / size));
+  const at = Math.min(Math.max(1, page), pages);
+  const start = (at - 1) * size;
+  const slice = shown.slice(start, start + size);
+  return { rows: slice, total, page: at, pages, from: total === 0 ? 0 : start + 1, to: start + slice.length };
+}
+
+/** react-table's header click: a new column sorts ascending, the same one flips. */
+export function nextGridSort(current: WzGridSort | null, id: string): WzGridSort {
+  if (current?.id === id) return { id, dir: current.dir === "asc" ? "desc" : "asc" };
+  return { id, dir: "asc" };
+}
+
+export const WZ_GRID_PAGE_SIZES = [5, 10, 20, 25, 50, 100] as const;
+
+/** Workiz pads a grid to ten rows (react-table `minRows`), 57px each. */
+const MIN_ROWS = 10;
+/** react-table's smallest column. */
+const MIN_COL = 100;
+
+/** rt-td: 20px all round, 14px/16px #404040, clipped with "…", a dotted rule between columns. */
+const CELL = "overflow-hidden p-5 align-top text-ellipsis whitespace-nowrap";
+
+/**
+ * A Workiz report grid whose rows are all in hand — the client page's Jobs,
+ * Estimates, Invoices, Payments, Addresses and Calls tabs
+ * (pg_contact_wz_269669_*): the 71px #f7f7f7 strip with Search (and the
+ * caller's `toolbar` pieces after it) and the page size (5…100, ten by
+ * default) at the right; react-table's grid in a 1px #ddd frame — fixed
+ * columns at their width, the rest sharing the row, never under 100px (past
+ * that it scrolls sideways); headers that sort on click with the 3px bar;
+ * rows padded to ten, "No Records Found" over them when there is nothing;
+ * then Workiz's footer, "Showing 1 to 10 of 18 results" ‹ Page 1 of 2 ›.
+ *
+ * Search, sort and pages are worked out here (`localGridView`).
+ */
+export function WzLocalGrid<T>({
+  label,
+  columns,
+  rows,
+  rowKey,
+  defaultSort = null,
+  searchLabel = "Search",
+  toolbar,
+  onRowClick,
+  rowClassName,
+  footer,
+  className,
+}: {
+  /** The table's accessible name ("Jobs"). */
+  label: string;
+  columns: readonly WzGridColumn<T>[];
+  rows: readonly T[];
+  rowKey: (row: T) => string;
+  defaultSort?: WzGridSort | null;
+  searchLabel?: string;
+  /** Pieces after the Search box ("Pay unpaid invoices"). */
+  toolbar?: ReactNode;
+  /** The row opens something (Workiz's rows are links); gets the click for ⌘/Ctrl. */
+  onRowClick?: (row: T, e: MouseEvent<HTMLTableRowElement>) => void;
+  rowClassName?: string;
+  /** Under the pager ("Still counting the client's jobs…"). */
+  footer?: ReactNode;
+  className?: string;
+}) {
+  const [query, setQuery] = useState("");
+  const [sort, setSort] = useState<WzGridSort | null>(defaultSort);
+  const [page, setPage] = useState(1);
+  const [size, setSize] = useState(10);
+
+  const view = useMemo(() => localGridView(rows, columns, { query, sort, page, size }), [rows, columns, query, sort, page, size]);
+  const fixed = columns.reduce((sum, c) => sum + (c.width ?? 0), 0);
+  const flexible = columns.filter((c) => !c.width).length;
+  const minWidth = fixed + flexible * MIN_COL;
+
+  return (
+    <div data-slot="wz-local-grid" className={cn("flex min-w-0 flex-col", className)}>
+      <WzListToolbar>
+        <WzSearchBox
+          type="search"
+          aria-label={searchLabel}
+          value={query}
+          onChange={(v) => {
+            setQuery(v);
+            setPage(1);
+          }}
+        />
+        {toolbar}
+        <WzPageSizeSelect
+          className="ml-auto"
+          value={size}
+          sizes={WZ_GRID_PAGE_SIZES}
+          onChange={(n) => {
+            setSize(n);
+            setPage(1);
+          }}
+        />
+      </WzListToolbar>
+      <div className="relative overflow-x-auto border border-wz-frame">
+        <Table aria-label={label} contained={false} className="table-fixed border-separate border-spacing-0" style={{ minWidth }}>
+          <colgroup>
+            {columns.map((c) => (
+              <col key={c.id} style={c.width ? { width: c.width } : undefined} />
+            ))}
+          </colgroup>
+          <TableHeader>
+            <TableRow className="border-0 hover:bg-transparent">
+              {columns.map((c) => {
+                const dir = sort?.id === c.id ? sort.dir : undefined;
+                return (
+                  <TableHead key={c.id} sort={dir} className="h-[42px] border-b border-input">
+                    {c.sortValue ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSort((s) => nextGridSort(s, c.id));
+                          setPage(1);
+                        }}
+                        className="block w-full truncate text-left outline-none focus-visible:underline"
+                      >
+                        {c.label}
+                      </button>
+                    ) : (
+                      <span className="block truncate">{c.label}</span>
+                    )}
+                  </TableHead>
+                );
+              })}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {view.rows.map((r) => (
+              <TableRow
+                key={rowKey(r)}
+                className={cn("border-0", onRowClick && "cursor-pointer", rowClassName)}
+                onClick={onRowClick ? (e) => onRowClick(r, e) : undefined}
+                onAuxClick={onRowClick ? (e) => e.button === 1 && onRowClick(r, e) : undefined}
+              >
+                {columns.map((c) => (
+                  <TableCell key={c.id} className={cn(CELL, c.cellClassName)}>
+                    {c.render(r)}
+                  </TableCell>
+                ))}
+              </TableRow>
+            ))}
+            {Array.from({ length: Math.max(0, MIN_ROWS - view.rows.length) }, (_, i) => (
+              <TableRow key={`pad-${i}`} aria-hidden className="h-[57px] border-0 hover:bg-transparent">
+                {columns.map((c) => (
+                  <TableCell key={c.id} className={CELL} />
+                ))}
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+        {view.total === 0 ? <WzTableNoData /> : null}
+      </div>
+      <WzPager
+        pager={{
+          page: view.page,
+          from: view.from,
+          to: view.to,
+          total: view.total,
+          totalPages: view.pages,
+          canPrev: view.page > 1,
+          canNext: view.page < view.pages,
+          isFetching: false,
+          prev: () => setPage(view.page - 1),
+          next: () => setPage(view.page + 1),
+        }}
+      />
+      {footer}
+    </div>
+  );
+}

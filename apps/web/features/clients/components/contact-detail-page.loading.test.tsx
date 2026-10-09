@@ -94,7 +94,8 @@ const routes: FakeRoute[] = [
   { match: /\/crm\/contacts\/c1$/, reply: () => contact },
   { match: /\/crm\/companies\/co1$/, reply: () => ({ id: "co1", title: "Acme Storage", clientType: "commercial", phones: [], emails: [] }) },
   { match: /\/deals\/client-tags$/, reply: () => [{ id: "t-vip", name: "VIP", color: "blue", priority: 0, active: true }], delayMs: 120 },
-  { match: /\/deals\/job-sources$/, reply: () => [{ id: "src-1", name: "Google Ads", priority: 1, active: true }], delayMs: 150 },
+  { match: /\/deals\/job-statuses$/, reply: () => [], delayMs: 150 },
+  { match: /\/deals\/service-areas$/, reply: () => [{ id: "sa-1", name: "Atlanta", timezone: "America/New_York" }], delayMs: 110 },
   { match: /\/deals\/job-types$/, reply: () => [{ id: "jt-1", name: "Lockout", priority: 1, active: true }], delayMs: 60 },
   jobsRoute,
   {
@@ -149,15 +150,13 @@ describe("ContactDetailPage — one load, not waves", () => {
         requestsSoFar: server.requests.length,
         company: screen.queryAllByText("Acme Storage").length > 0,
         tag: !!screen.queryByText("VIP"),
-        adSource: !!screen.queryByText("Google Ads"),
         moneyCards: !!screen.queryByText("Past due"),
         jobsTab: tabText(/^Jobs/),
         estimatesTab: tabText(/^Estimates/),
         invoicesTab: tabText(/^Invoices/),
         paymentsTab: tabText(/^Payments/),
         jobType: !!screen.queryAllByText("Lockout").length && !screen.queryByText("Unknown type"),
-        portal: !!screen.queryByText("Last viewed"),
-        notesBadge: rail ? within(rail).getByRole("button", { name: "Notes" }).textContent : null,
+        notesBadge: rail ? within(rail).getByRole("button", { name: /^Notes/ }).textContent : null,
         skeletons: skeletonCount(),
         pulses: document.querySelectorAll(".animate-pulse").length,
       };
@@ -169,18 +168,26 @@ describe("ContactDetailPage — one load, not waves", () => {
     expect(watch.frame()).toMatchObject({
       company: true,
       tag: true,
-      adSource: true,
       moneyCards: true,
       jobsTab: "Jobs 2",
       estimatesTab: "Estimates 2",
       invoicesTab: "Invoices 1",
       paymentsTab: "Payments 1",
       jobType: true,
-      portal: true,
       notesBadge: "Notes1",
       skeletons: 0,
       pulses: 0,
     });
+  });
+
+  it("the folded client portal opens on what is already in hand — no wait, no new request", async () => {
+    renderCard();
+    await screen.findByRole("heading", { name: "Jane Smith" }, { timeout: 3000 });
+    await settle();
+    const before = server.requests.length;
+    (await screen.findByRole("button", { name: "Client portal" })).click();
+    expect(await screen.findByText("Last viewed")).toBeInTheDocument();
+    expect(server.requests.length).toBe(before);
   });
 
   it("asks for nothing more once the card is on screen", async () => {

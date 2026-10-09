@@ -7,10 +7,11 @@ import { useClientTags } from "@/features/client-tags/hooks";
 import { useDealsPage } from "@/features/deals/hooks";
 import { useEstimatesForContacts } from "@/features/estimates/hooks";
 import { useInvoicesForContacts } from "@/features/invoices/hooks";
-import { useJobSources } from "@/features/job-sources/hooks";
+import { useJobStatuses } from "@/features/job-statuses/hooks";
 import { useJobTypes } from "@/features/job-types/hooks";
 import { usePaymentList } from "@/features/payments/hooks";
 import { usePortalLink } from "@/features/portal/hooks";
+import { useServiceAreas } from "@/features/service-areas/hooks";
 import { useCompany, useContact } from "./hooks";
 import { useContactNotes } from "./notes-hooks";
 
@@ -89,13 +90,16 @@ export function useClientPageData(contactId: string): { ready: boolean } {
   const payments = useClientPayments(contactId, can("payments"));
   const invoices = useInvoicesForContacts([contactId], can("invoices"));
   const estimates = useEstimatesForContacts([contactId], can("estimates"));
-  // What the blocks print beside the client: tag names, the Ad source, the
-  // jobs' types, the portal link, the Notes badge.
+  // What the blocks print beside the client: tag names, the jobs' types, the
+  // portal link, the Notes badge.
   const tags = useClientTags();
-  const sources = useJobSources();
   const jobTypes = useJobTypes();
   const portal = usePortalLink(contactId, can("invoices") || can("estimates"));
   const notes = useContactNotes(contactId);
+  // The zones the Jobs tab turns its visits to the account's clock with.
+  const areas = useServiceAreas();
+  // The sub-status names of the Jobs tab's Status column.
+  const statuses = useJobStatuses();
 
   // Every page, one after another: the Jobs tab pages them with an exact
   // "Page 1 of 76", the Addresses tab counts jobs per address, and the badges
@@ -111,7 +115,7 @@ export function useClientPageData(contactId: string): { ready: boolean } {
 
   const allIn =
     !permsLoading &&
-    [contact, company, tags, sources, jobTypes, portal, notes].every(settled) &&
+    [contact, company, tags, jobTypes, portal, notes, areas, statuses].every(settled) &&
     pagesIn(jobs) &&
     pagesIn(payments) &&
     !invoices.isLoading &&
