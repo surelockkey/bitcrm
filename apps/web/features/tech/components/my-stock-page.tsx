@@ -1,48 +1,99 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { PackageX, Search, Truck } from "lucide-react";
-import { Input } from "@/components/ui/input";
+import { useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { FileText, Truck } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
-import { cn } from "@/lib/utils";
+import { WzLocalGrid, type WzGridColumn } from "@/components/workiz/local-grid";
+import { WzToolbarButton } from "@/components/workiz/toolbar";
 import { usePageReady } from "@/lib/use-page-ready";
-import { useDenied } from "@/features/auth/use-permissions";
+import { useDenied, usePermissions } from "@/features/auth/use-permissions";
 import { NoAccess } from "@/features/clients/components/contacts-page";
-import { useContainerStockView, useMyContainer } from "@/features/inventory/containers/hooks";
+import { useMyContainer } from "@/features/inventory/containers/hooks";
 import { containerTitle } from "@/features/inventory/containers/lib";
-import { filterStockRows, sortStockRows } from "../lib";
+import { locationStockQuery } from "@/features/inventory/stock/hooks";
+import { downloadCsv } from "@/features/reports/billing/lib";
+import { myStockCsv, myStockRows, myStockTotals, stockFigure, type MyStockRow } from "../my-stock";
+
+/** Workiz's sheet heading (`h3.thin`): 20px/25px 400 #3e4b51 — the name and each total. */
+const SHEET_H3 = "text-[20px] leading-[25px] font-normal tracking-[0.4px] text-[#3e4b51]";
 
 /**
- * `/my-stock` — what is on the van, for the person standing at its back door.
+ * `/my-stock` — what is on the technician's van, as Workiz shows a location's
+ * stock ("Manage stock: <location>", pg_inventory_wz_13_location_stock),
+ * read-only: the van's name (20px) and description at the left, "Total Items
+ * On Hand: N" at the right — and, for a viewer with `financials.view`,
+ * Workiz's "Total Items cost" and "Sale Items Value" under it; then Workiz's
+ * grey strip (Search, the page size, Export) and the grid: Product Name,
+ * ours SKU and Category, Quantity, and Price and Cost for that same viewer.
  *
- * A list, not the office's table: the part, how many are left, and a mark when
- * that is nearly none. Low stock floats to the top because it is the only row
- * that needs doing something about. Read-only — a technician moves stock by
+ * Low stock comes first — the only rows that need doing something about —
+ * each with Workiz's own "Low stock" tag (#f5ba45) under the name. No "Add
+ * items" column and no move / return glyphs: a technician moves stock by
  * putting it on a job, and the office does the restocking.
+ *
+ * One skeleton until the van and what is on it are both in.
  */
 export function MyStockPage() {
   const denied = useDenied();
+  const { can } = usePermissions();
+  const money = can("financials", "view");
   const { data: container, isLoading: containerLoading, isError: containerError } = useMyContainer();
-  const stock = useContainerStockView(container?.id ?? "", Boolean(container?.id));
-  const [search, setSearch] = useState("");
-  // One skeleton until the van and what is on it are both in: drawn as each
-  // arrived, the van's name and counts stood over three grey cards that then
-  // turned into the parts. Latched — a refetch never takes the list away.
+  const stock = useQuery({ ...locationStockQuery("container", container?.id ?? ""), enabled: Boolean(container?.id) });
+  const rows = useMemo(() => myStockRows(stock.data?.rows ?? []), [stock.data]);
+  const totals = useMemo(() => myStockTotals(rows), [rows]);
+  // Latched: a refetch never takes the van away.
   const ready = usePageReady(!containerLoading && (!container || !stock.isLoading));
 
-  const rows = useMemo(
-    () => sortStockRows(filterStockRows(stock.rows, search)),
-    [stock.rows, search],
+  const columns = useMemo<WzGridColumn<MyStockRow>[]>(
+    () => [
+      {
+        id: "name",
+        label: "Product Name",
+        render: (r) => (
+          <>
+            <div className="truncate">{r.name}</div>
+            {r.isLow ? (
+              <p className="mt-2 inline-block rounded-[4px] bg-[#f5ba45] px-1 text-[13px] leading-[19px] text-white">Low stock</p>
+            ) : null}
+          </>
+        ),
+        sortValue: (r) => r.name,
+        searchText: (r) => r.name,
+      },
+      { id: "sku", label: "SKU", render: (r) => r.sku ?? "", sortValue: (r) => r.sku, searchText: (r) => r.sku },
+      {
+        id: "category",
+        label: "Category",
+        render: (r) => r.category ?? "",
+        sortValue: (r) => r.category,
+        searchText: (r) => r.category,
+      },
+      { id: "quantity", label: "Quantity", render: (r) => stockFigure(r.quantity), sortValue: (r) => r.quantity },
+      ...(money
+        ? [
+            { id: "price", label: "Price", render: (r: MyStockRow) => stockFigure(r.unitPrice), sortValue: (r: MyStockRow) => r.unitPrice },
+            { id: "cost", label: "Cost", render: (r: MyStockRow) => stockFigure(r.cost), sortValue: (r: MyStockRow) => r.cost },
+          ]
+        : []),
+    ],
+    [money],
   );
 
   if (denied("containers", "view")) return <NoAccess entity="stock" />;
 
   if (!ready) {
     return (
-      <div className="space-y-3 p-4">
-        <Skeleton className="h-6 w-40" />
-        <Skeleton className="h-12 w-full rounded-xl" />
-        <Skeleton className="h-64 w-full rounded-xl" />
+      <div className="flex flex-1 flex-col" aria-busy>
+        <div className="grid grid-cols-2 gap-x-[35px] px-6 pt-6">
+          <div className="space-y-2">
+            <Skeleton className="h-6 w-56" />
+            <Skeleton className="h-4 w-72" />
+          </div>
+          <Skeleton className="h-6 w-60" />
+        </div>
+        <Skeleton className="mx-6 mt-[60px] h-[71px]" />
+        <Skeleton className="mx-6 mt-px h-80" />
       </div>
     );
   }
@@ -50,125 +101,57 @@ export function MyStockPage() {
   if (containerError || !container) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
-        <Truck className="size-8 text-muted-foreground" />
-        <h2 className="text-lg font-medium">No van assigned</h2>
-        <p className="max-w-xs text-sm text-muted-foreground">
+        <Truck className="size-8 text-wz-outline-label" strokeWidth={1.5} />
+        <h2 className="text-[18px] leading-[27px] font-semibold text-foreground">No van assigned</h2>
+        <p className="max-w-xs text-[13px] leading-[19px] text-wz-outline-label">
           Ask the office to assign you a container — your stock shows up here once they do.
         </p>
       </div>
     );
   }
 
-  const { summary } = stock;
+  const name = stock.data?.name || containerTitle(container);
+  const description = [container.description, container.department].filter(Boolean).join(" ");
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="border-b px-4 py-3 sm:px-6">
-        <h1 className="text-lg font-semibold tracking-tight">My Stock</h1>
-        <p className="text-sm text-muted-foreground">
-          {containerTitle(container)}
-          {container.department ? ` · ${container.department}` : ""}
-        </p>
-        <div className="mt-3 flex flex-wrap gap-2 text-xs">
-          <Chip label={`${summary.skuCount} item${summary.skuCount === 1 ? "" : "s"}`} />
-          <Chip label={`${summary.totalUnits.toLocaleString()} on hand`} />
-          {summary.lowCount > 0 ? <Chip label={`${summary.lowCount} low`} tone="warn" /> : null}
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+      {/* The sheet's head: the location at the left, its totals at the right, two equal columns. */}
+      <div className="grid grid-cols-1 gap-x-[35px] gap-y-4 px-6 pt-6 md:grid-cols-2">
+        <div>
+          <h3 className={SHEET_H3}>{name}</h3>
+          {description ? <p className="mt-2 text-sm leading-4 tracking-[0.4px] text-[#404040]">{description}</p> : null}
         </div>
-        <div className="relative mt-3">
-          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search parts, SKU, category…"
-            aria-label="Search my stock"
-            className="h-11 pl-9"
-            data-testid="my-stock-search"
+        <div className="space-y-[30px]">
+          <h3 className={SHEET_H3}>Total Items On Hand: {stockFigure(totals.onHand)}</h3>
+          {money ? <h3 className={SHEET_H3}>Total Items cost: {stockFigure(totals.cost)}</h3> : null}
+          {money ? <h3 className={SHEET_H3}>Sale Items Value: {stockFigure(totals.sale)}</h3> : null}
+        </div>
+      </div>
+
+      <div className="px-6 pt-[33px] pb-12">
+        {stock.isError ? (
+          <div className="flex flex-col items-center gap-2 border border-wz-frame py-16 text-center">
+            <p className="text-[15px] font-medium text-[#404040]">Couldn&apos;t load your stock</p>
+            <p className="text-[13px] text-wz-outline-label">Check your connection and try again.</p>
+          </div>
+        ) : (
+          <WzLocalGrid
+            label="My stock"
+            columns={columns}
+            rows={rows}
+            rowKey={(r) => r.productId}
+            toolbar={
+              // After the page size, as Workiz's strip has it (order-last).
+              <WzToolbarButton
+                className="order-last"
+                onClick={() => downloadCsv(`my-stock-${name.replace(/[^\w-]+/g, "-")}.csv`, myStockCsv(rows, { money }))}
+              >
+                <FileText strokeWidth={1.5} />
+                Export
+              </WzToolbarButton>
+            }
           />
-        </div>
-      </div>
-
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-2xl px-4 pb-24 pt-3 sm:px-6">
-          {stock.isLoading ? (
-            <div className="space-y-2">
-              <Skeleton className="h-16 w-full rounded-xl" />
-              <Skeleton className="h-16 w-full rounded-xl" />
-              <Skeleton className="h-16 w-full rounded-xl" />
-            </div>
-          ) : stock.isError ? (
-            <Empty title="Couldn't load your stock" body="Check your connection and try again." />
-          ) : rows.length === 0 ? (
-            <Empty
-              title={search ? "Nothing matches" : "Empty van"}
-              body={
-                search
-                  ? "No part on your van matches that."
-                  : "Nothing on your van yet — the office restocks it with a transfer."
-              }
-            />
-          ) : (
-            <ul className="space-y-2" data-testid="my-stock-list">
-              {rows.map((r) => (
-                <li
-                  key={r.productId}
-                  className="flex items-center gap-3 rounded-xl border bg-card p-4"
-                  data-testid="my-stock-row"
-                >
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold">{r.name}</p>
-                    <p className="truncate text-xs text-muted-foreground">
-                      {[r.sku, r.category].filter(Boolean).join(" · ") || "—"}
-                    </p>
-                  </div>
-                  <div className="flex-none text-right">
-                    <p
-                      className={cn(
-                        "text-xl font-semibold tabular-nums",
-                        r.isLow && "text-amber-600 dark:text-amber-500",
-                      )}
-                    >
-                      {r.quantity}
-                    </p>
-                    {r.isLow ? (
-                      <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-500">
-                        Low
-                      </p>
-                    ) : null}
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function Chip({ label, tone }: { label: string; tone?: "warn" }) {
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center rounded-chip border px-2.5 py-1 font-medium",
-        tone === "warn"
-          ? "border-amber-500/40 text-amber-600 dark:text-amber-500"
-          : "text-muted-foreground",
-      )}
-    >
-      {label}
-    </span>
-  );
-}
-
-function Empty({ title, body }: { title: string; body: string }) {
-  return (
-    <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed py-14 text-center">
-      <div className="flex size-12 items-center justify-center rounded-xl bg-muted text-muted-foreground">
-        <PackageX className="size-6" />
-      </div>
-      <div>
-        <p className="font-medium">{title}</p>
-        <p className="mx-auto mt-1 max-w-xs text-sm text-muted-foreground">{body}</p>
+        )}
       </div>
     </div>
   );
