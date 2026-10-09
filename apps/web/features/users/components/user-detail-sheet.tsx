@@ -1,44 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { useForm } from "react-hook-form";
+import Link from "next/link";
+import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Ban, Loader2, MailPlus, MoreHorizontal, RotateCcw } from "lucide-react";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { PhoneInput } from "@/components/ui/phone-input";
-import { Switch } from "@/components/ui/switch";
-import { UserTwoStepSwitch } from "./user-two-step-switch";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -49,22 +16,38 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { WzButton } from "@/components/workiz/button";
+import { WzFormSectionTitle } from "@/components/workiz/form-section-title";
+import { WzOutlinedSelect } from "@/components/workiz/outlined-select";
+import { WzOutlinedTextField } from "@/components/workiz/outlined-text-field";
+import { WzPopMenu, type WzPopMenuItem } from "@/components/workiz/pop-menu";
+import { WzTabBar } from "@/components/workiz/tab-bar";
+import { WzCheckbox } from "@/components/workiz/toggles";
 import type { User } from "@bitcrm/types";
 import { UserStatus, isFieldTeamMember } from "@bitcrm/types";
 import { usePermissions } from "@/features/auth/use-permissions";
+import { personName } from "@/features/deals/person-name";
+import { formatTeamCreated } from "@/features/technicians/team-list";
 import { updateUserSchema, type UpdateUserValues } from "../schemas";
-import {
-  useAssignRole,
-  useDeactivateUser,
-  useReactivateUser,
-  useResendInvite,
-  useUpdateUser,
-} from "../hooks";
+import { useAssignRole, useDeactivateUser, useReactivateUser, useResendInvite, useUpdateUser } from "../hooks";
 import { useHierarchy } from "../use-can-manage";
-import { initials, formatDate, roleName } from "../lib";
-import { UserStatusBadge } from "./status-badge";
+import { roleName } from "../lib";
 import { UserPermissionsSummary } from "./user-permissions-summary";
+import { UserTwoStepSwitch } from "./user-two-step-switch";
 
+/** The Team grid's `tag small` chip: 11px/13px 500 white on its colour, 3px corners. */
+const CHIP = "rounded-[3px] px-1 py-px text-[11px] leading-[13px] font-medium tracking-[0.4px] text-white";
+
+/**
+ * A user's card, opened from the Users list — in the words and boxes of
+ * Workiz's user page (`/root/editUser/<id>`, pg_technicians_wz_10_user_profile):
+ * the name with "Actions ⌄" (ours: Resend invite / Deactivate / Reactivate),
+ * small tabs, "User Details" in outlined boxes, "Field team member" as
+ * Workiz's checkbox, "Roles and permissions" with the Role box and
+ * "Customize roles and permissions here". Ours, kept: the drawer itself (the
+ * list stays behind it), Department, the two-step switch, the per-user
+ * permissions tab and the activity dates.
+ */
 export function UserDetailSheet({
   user,
   defaultTab = "profile",
@@ -84,6 +67,7 @@ export function UserDetailSheet({
   const deactivate = useDeactivateUser();
   const reactivate = useReactivateUser();
 
+  const [tab, setTab] = useState(defaultTab);
   const [pendingRole, setPendingRole] = useState(user.roleId);
   const [confirmRole, setConfirmRole] = useState(false);
   const [confirmDeactivate, setConfirmDeactivate] = useState(false);
@@ -100,11 +84,24 @@ export function UserDetailSheet({
       fieldTeamMember: isFieldTeamMember(user),
     },
   });
+  const errors = form.formState.errors;
 
   const canEdit = can("users", "edit") && manageable;
   // The profile tab alone: your own card as well as those below you.
   const canEditProfileTab = can("users", "edit") && canEditProfile(user);
   const isActive = user.status === UserStatus.ACTIVE;
+  const role = roleName(user.roleId, roles);
+
+  const actions: WzPopMenuItem[] = [
+    ...(can("users", "create") ? [{ key: "resend", label: "Resend invite", onSelect: () => resendInvite.mutate(user.id) }] : []),
+    ...(isActive
+      ? can("users", "delete") && manageable
+        ? [{ key: "deactivate", label: "Deactivate", onSelect: () => setConfirmDeactivate(true) }]
+        : []
+      : can("users", "edit") && manageable
+        ? [{ key: "reactivate", label: "Reactivate", onSelect: () => reactivate.mutate(user.id) }]
+        : []),
+  ];
 
   return (
     <Sheet open onOpenChange={(o) => !o && onClose()}>
@@ -116,241 +113,197 @@ export function UserDetailSheet({
           const target = e.target as Element | null;
           if (
             target?.closest(
-              '[data-slot="select-content"],[data-radix-popper-content-wrapper],[role="listbox"],[role="menu"]',
+              '[data-slot="select-content"],[data-radix-popper-content-wrapper],[role="listbox"],[role="menu"],[data-wz-combobox-root]',
             )
           ) {
             e.preventDefault();
           }
         }}
       >
-        <SheetHeader className="border-b">
-          <div className="flex items-start gap-3 pr-10">
-            <Avatar className="size-11">
-              <AvatarFallback>{initials(user.firstName, user.lastName)}</AvatarFallback>
-            </Avatar>
+        <SheetHeader className="gap-0 px-6 pt-6 pb-4">
+          <div className="flex items-start gap-4 pr-8">
             <div className="min-w-0 flex-1">
-              <SheetTitle className="truncate">
-                {user.firstName} {user.lastName}
-              </SheetTitle>
-              <div className="truncate text-sm text-muted-foreground">{user.email}</div>
-              <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                <Badge variant="secondary">{roleName(user.roleId, roles)}</Badge>
-                <span className="text-xs text-muted-foreground">{user.department}</span>
-                <UserStatusBadge status={user.status} />
+              <SheetTitle className="truncate">{personName(user) ?? user.email}</SheetTitle>
+              <div className="mt-[5px] truncate text-xs leading-4 text-wz-caption">{user.email}</div>
+              <div className="mt-2 flex flex-wrap items-center gap-1">
+                <span className={`${CHIP} bg-wz-link`}>{role}</span>
+                {!isActive ? <span className={`${CHIP} bg-wz-outline`}>Inactive</span> : null}
+                {user.department ? (
+                  <span className="ml-1 text-xs leading-4 text-wz-outline-label">{user.department}</span>
+                ) : null}
               </div>
             </div>
-            <UserHeaderActions
-              canResend={can("users", "create")}
-              canDeactivate={can("users", "delete") && manageable}
-              canReactivate={can("users", "edit") && manageable}
-              isActive={isActive}
-              onResend={() => resendInvite.mutate(user.id)}
-              onDeactivate={() => setConfirmDeactivate(true)}
-              onReactivate={() => reactivate.mutate(user.id)}
-            />
+            {actions.length ? <WzPopMenu items={actions} /> : null}
           </div>
         </SheetHeader>
 
-        <Tabs defaultValue={defaultTab} className="flex flex-1 flex-col overflow-hidden">
-          <div className="border-b px-4">
-            <TabsList variant="line" className="h-10">
-              <TabsTrigger value="profile" className="px-2">Profile</TabsTrigger>
-              <TabsTrigger value="role" className="px-2">Role &amp; access</TabsTrigger>
-              <TabsTrigger value="permissions" className="px-2">Permissions</TabsTrigger>
-              <TabsTrigger value="activity" className="px-2">Activity</TabsTrigger>
-            </TabsList>
-          </div>
+        <WzTabBar
+          aria-label="User"
+          className="px-1"
+          value={tab}
+          onValueChange={setTab}
+          tabs={[
+            { value: "profile", label: "Profile" },
+            { value: "role", label: "Role & access" },
+            { value: "permissions", label: "Permissions" },
+            { value: "activity", label: "Activity" },
+          ]}
+        />
 
-          {/* Profile */}
-          <TabsContent value="profile" className="flex-1 overflow-y-auto p-4">
-            <Form {...form}>
-              <form
-                onSubmit={form.handleSubmit((v) =>
-                  updateUser.mutate({ id: user.id, body: v }),
-                )}
-                className="space-y-4"
-                noValidate
-              >
-                <div className="grid grid-cols-2 gap-3">
-                  <FormField
-                    control={form.control}
-                    name="firstName"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>First name</FormLabel>
-                        <FormControl>
-                          <Input className="h-10" disabled={!canEditProfileTab} {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="lastName"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Last name</FormLabel>
-                        <FormControl>
-                          <Input className="h-10" disabled={!canEditProfileTab} {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-                <FormItem>
-                  <FormLabel>Email</FormLabel>
-                  <Input className="h-10" value={user.email} readOnly disabled />
-                  <p className="text-xs text-muted-foreground">Email can&apos;t be changed.</p>
-                </FormItem>
-                <FormField
-                  control={form.control}
-                  name="department"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Department</FormLabel>
-                      <FormControl>
-                        <Input className="h-10" disabled={!canEditProfileTab} {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
+        <div className="flex-1 overflow-y-auto px-6 pt-6 pb-6">
+          {tab === "profile" ? (
+            <form
+              onSubmit={form.handleSubmit((v) => updateUser.mutate({ id: user.id, body: v }))}
+              className="flex flex-col gap-6"
+              noValidate
+            >
+              <WzFormSectionTitle>User Details</WzFormSectionTitle>
+              <div className="grid grid-cols-2 gap-4">
+                <WzOutlinedTextField
+                  label="First name"
+                  disabled={!canEditProfileTab}
+                  error={errors.firstName?.message}
+                  {...form.register("firstName")}
                 />
-                <FormField
+                <WzOutlinedTextField
+                  label="Last name"
+                  disabled={!canEditProfileTab}
+                  error={errors.lastName?.message}
+                  {...form.register("lastName")}
+                />
+              </div>
+              <div>
+                <WzOutlinedTextField label="Email" value={user.email} readOnly disabled />
+                <p className="mt-1 pl-3 text-xs leading-[18px] text-wz-outline-label">Email can&apos;t be changed.</p>
+              </div>
+              <WzOutlinedTextField
+                label="Department"
+                disabled={!canEditProfileTab}
+                error={errors.department?.message}
+                {...form.register("department")}
+              />
+              <div>
+                <label htmlFor={`phone-${user.id}`} className="mb-1.5 block text-[13px] leading-[19px] font-medium text-foreground">
+                  Phone
+                </label>
+                <Controller
                   control={form.control}
                   name="phone"
                   render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Phone</FormLabel>
-                      <FormControl>
-                        <PhoneInput
-                          className="h-10"
-                          disabled={!canEditProfileTab}
-                          value={field.value ?? ""}
-                          onChange={field.onChange}
-                          onBlur={field.onBlur}
-                        />
-                      </FormControl>
-                      <p className="text-xs text-muted-foreground">
-                        Their own number — calls to or from it are attributed to
-                        them in the call log.
-                      </p>
-                      <FormMessage />
-                    </FormItem>
+                    <PhoneInput
+                      id={`phone-${user.id}`}
+                      className="h-10"
+                      disabled={!canEditProfileTab}
+                      value={field.value ?? ""}
+                      onChange={field.onChange}
+                      onBlur={field.onBlur}
+                    />
                   )}
                 />
-                {/* Workiz's "Field team member", for everyone: the owner who
-                    still does calls is on the field team; a technician who
-                    moved into the office is not. Switching it on opens their
-                    technician card. */}
-                <FormField
+                <p className="mt-1 pl-3 text-xs leading-[18px] text-wz-outline-label">
+                  Their own number — calls to or from it are attributed to them in the call log.
+                </p>
+                {errors.phone?.message ? <p className="mt-1 pl-3 text-xs text-wz-error">{errors.phone.message}</p> : null}
+              </div>
+              {/* Workiz's "Field team member", for everyone: the owner who
+                  still does calls is on the field team; a technician who
+                  moved into the office is not. Switching it on opens their
+                  technician card. */}
+              <div>
+                <Controller
                   control={form.control}
                   name="fieldTeamMember"
                   render={({ field }) => (
-                    <FormItem className="flex items-center justify-between gap-3 space-y-0 rounded-lg border p-3">
-                      <div className="space-y-0.5">
-                        <FormLabel>Field team member</FormLabel>
-                        <p className="text-xs text-muted-foreground">
-                          Goes out on jobs and can be put on one, whatever their role.
-                        </p>
-                      </div>
-                      <FormControl>
-                        <Switch checked={field.value ?? false} disabled={!canEditProfileTab} onCheckedChange={field.onChange} />
-                      </FormControl>
-                    </FormItem>
+                    <WzCheckbox
+                      label="Field team member"
+                      checked={field.value ?? false}
+                      disabled={!canEditProfileTab}
+                      onCheckedChange={field.onChange}
+                    />
                   )}
                 />
-                {/* Saves on its own: an admin switching off a lost phone should
-                    not have to save the rest of the profile to do it. */}
-                <UserTwoStepSwitch user={user} canEdit={canEditProfileTab} />
-                {canEditProfileTab ? (
-                  <div className="flex justify-end">
-                    <Button type="submit" variant="brand" disabled={updateUser.isPending} className="gap-1.5">
-                      {updateUser.isPending ? <Loader2 className="size-4 animate-spin" /> : null}
-                      Save changes
-                    </Button>
-                  </div>
-                ) : null}
-              </form>
-            </Form>
-          </TabsContent>
-
-          {/* Role & access */}
-          <TabsContent value="role" className="flex-1 overflow-y-auto p-4">
-            <div className="space-y-4">
-              <div>
-                <div className="text-sm font-medium">Current role</div>
-                <Badge variant="secondary" className="mt-1">
-                  {roleName(user.roleId, roles)}
-                </Badge>
+                <p className="mt-1 pl-[28px] text-xs leading-[18px] text-wz-outline-label">
+                  Goes out on jobs and can be put on one, whatever their role.
+                </p>
               </div>
-              {can("users", "edit") && manageable ? (
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Change role</label>
-                  <Select value={pendingRole} onValueChange={setPendingRole}>
-                    <SelectTrigger className="h-10 w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {assignableRoles(roles).map((r) => (
-                        <SelectItem key={r.id} value={r.id}>
-                          {r.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <p className="text-xs text-muted-foreground">
+              {/* Saves on its own: an admin switching off a lost phone should
+                  not have to save the rest of the profile to do it. */}
+              <UserTwoStepSwitch user={user} canEdit={canEditProfileTab} />
+              {canEditProfileTab ? (
+                <div className="flex justify-end">
+                  <WzButton type="submit" variant="primary" size="big" loading={updateUser.isPending} className="min-w-[150px]">
+                    Save
+                  </WzButton>
+                </div>
+              ) : null}
+            </form>
+          ) : null}
+
+          {tab === "role" ? (
+            <div className="flex flex-col gap-6">
+              <WzFormSectionTitle>Roles and permissions</WzFormSectionTitle>
+              {canEdit ? (
+                <div>
+                  <WzOutlinedSelect
+                    label="Role"
+                    options={assignableRoles(roles).map((r) => ({ value: r.id, label: r.name }))}
+                    value={pendingRole}
+                    onChange={setPendingRole}
+                  />
+                  <p className="mt-1 pl-3 text-xs leading-[18px] text-wz-outline-label">
                     Changing the role resets this user&apos;s custom permission overrides.
                   </p>
-                  <div className="flex justify-end">
-                    <Button
-                      variant="brand"
-                      disabled={pendingRole === user.roleId || assignRole.isPending}
+                  <div className="mt-4 flex justify-end">
+                    <WzButton
+                      variant="primary"
+                      size="regular"
+                      disabled={pendingRole === user.roleId}
+                      loading={assignRole.isPending}
                       onClick={() => setConfirmRole(true)}
-                      className="gap-1.5"
                     >
-                      {assignRole.isPending ? <Loader2 className="size-4 animate-spin" /> : null}
                       Update role
-                    </Button>
+                    </WzButton>
                   </div>
                 </div>
               ) : (
-                <p className="text-sm text-muted-foreground">
-                  You don&apos;t have permission to change this user&apos;s role.
-                </p>
+                <div>
+                  <WzOutlinedTextField label="Role" value={role} readOnly disabled />
+                  <p className="mt-1 pl-3 text-xs leading-[18px] text-wz-outline-label">
+                    You don&apos;t have permission to change this user&apos;s role.
+                  </p>
+                </div>
               )}
+              <Link
+                href={`/admin/users/${user.id}/permissions`}
+                onClick={onClose}
+                className="text-sm leading-[21px] text-wz-link hover:underline"
+              >
+                Customize roles and permissions here
+              </Link>
             </div>
-          </TabsContent>
+          ) : null}
 
-          {/* Permissions */}
-          <TabsContent value="permissions" className="flex-1 overflow-y-auto p-4">
-            <UserPermissionsSummary
-              user={user}
-              roleLabel={roleName(user.roleId, roles)}
-              canEdit={canEdit}
-              onClose={onClose}
-            />
-          </TabsContent>
+          {tab === "permissions" ? (
+            <UserPermissionsSummary user={user} roleLabel={role} canEdit={canEdit} onClose={onClose} />
+          ) : null}
 
-          {/* Activity */}
-          <TabsContent value="activity" className="flex-1 overflow-y-auto p-4">
-            <dl className="space-y-3 text-sm">
-              <div className="flex justify-between">
-                <dt className="text-muted-foreground">Created</dt>
-                <dd>{formatDate(user.createdAt)}</dd>
+          {tab === "activity" ? (
+            <dl className="divide-y divide-wz-frame text-sm leading-4 tracking-[0.4px] text-wz-strong">
+              <div className="flex justify-between py-4">
+                <dt className="text-wz-outline-label">Created</dt>
+                <dd>{formatTeamCreated(user.createdAt) || "—"}</dd>
               </div>
-              <div className="flex justify-between">
-                <dt className="text-muted-foreground">Last updated</dt>
-                <dd>{formatDate(user.updatedAt)}</dd>
+              <div className="flex justify-between py-4">
+                <dt className="text-wz-outline-label">Last updated</dt>
+                <dd>{formatTeamCreated(user.updatedAt) || "—"}</dd>
               </div>
-              <div className="flex justify-between">
-                <dt className="text-muted-foreground">User ID</dt>
+              <div className="flex justify-between py-4">
+                <dt className="text-wz-outline-label">User ID</dt>
                 <dd className="font-mono text-xs">{user.id}</dd>
               </div>
             </dl>
-          </TabsContent>
-        </Tabs>
+          ) : null}
+        </div>
       </SheetContent>
 
       {/* Confirm: change role */}
@@ -359,16 +312,13 @@ export function UserDetailSheet({
           <AlertDialogHeader>
             <AlertDialogTitle>Change this user&apos;s role?</AlertDialogTitle>
             <AlertDialogDescription>
-              They&apos;ll get the permissions of{" "}
-              <strong>{roleName(pendingRole, roles)}</strong>. Any custom
-              permission overrides on this user will be removed.
+              They&apos;ll get the permissions of <strong>{roleName(pendingRole, roles)}</strong>. Any custom permission
+              overrides on this user will be removed.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => assignRole.mutate({ id: user.id, roleId: pendingRole })}
-            >
+            <AlertDialogAction onClick={() => assignRole.mutate({ id: user.id, roleId: pendingRole })}>
               Update role
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -381,8 +331,7 @@ export function UserDetailSheet({
           <AlertDialogHeader>
             <AlertDialogTitle>Deactivate {user.firstName}?</AlertDialogTitle>
             <AlertDialogDescription>
-              They lose access immediately. Their history is kept and you can
-              reactivate them later.
+              They lose access immediately. Their history is kept and you can reactivate them later.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -399,56 +348,5 @@ export function UserDetailSheet({
         </AlertDialogContent>
       </AlertDialog>
     </Sheet>
-  );
-}
-
-function UserHeaderActions({
-  canResend,
-  canDeactivate,
-  canReactivate,
-  isActive,
-  onResend,
-  onDeactivate,
-  onReactivate,
-}: {
-  canResend: boolean;
-  canDeactivate: boolean;
-  canReactivate: boolean;
-  isActive: boolean;
-  onResend: () => void;
-  onDeactivate: () => void;
-  onReactivate: () => void;
-}) {
-  const anything = canResend || (isActive ? canDeactivate : canReactivate);
-  if (!anything) return null;
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" aria-label="User actions">
-          <MoreHorizontal />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-48">
-        {canResend ? (
-          <DropdownMenuItem onClick={onResend}>
-            <MailPlus />
-            Resend invite
-          </DropdownMenuItem>
-        ) : null}
-        {isActive
-          ? canDeactivate && (
-              <DropdownMenuItem variant="destructive" onClick={onDeactivate}>
-                <Ban />
-                Deactivate
-              </DropdownMenuItem>
-            )
-          : canReactivate && (
-              <DropdownMenuItem onClick={onReactivate}>
-                <RotateCcw />
-                Reactivate
-              </DropdownMenuItem>
-            )}
-      </DropdownMenuContent>
-    </DropdownMenu>
   );
 }
