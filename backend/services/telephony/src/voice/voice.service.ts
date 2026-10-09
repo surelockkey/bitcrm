@@ -8,9 +8,10 @@ import { PresenceService } from '../presence/presence.service';
 import { NumbersService } from '../numbers/numbers.service';
 import { ConferenceService, confName } from './conference.service';
 import { FlowRunnerService } from './flow-runner.service';
-import { agentFromEndpoint } from '../calls/calls.service';
+import { agentFromEndpoint, CallsService } from '../calls/calls.service';
 import { BridgeService } from '../common/bridge.service';
 import { TelephonySettingsService } from '../telephony/telephony-settings.service';
+import { BlockedCallersService } from '../blocked-callers/blocked-callers.service';
 
 const VoiceResponse = twilio.twiml.VoiceResponse;
 type ConferenceAttrs = Parameters<
@@ -53,6 +54,10 @@ export class VoiceService {
     private readonly numbers?: NumbersService,
     @Optional() private readonly bridge?: BridgeService,
     @Optional() private readonly settings?: TelephonySettingsService,
+    // Workiz Phone → Blocked callers: asked first on every inbound call.
+    @Optional() private readonly blockedCallers?: BlockedCallersService,
+    // Writes the `blocked` log row; the record writer the conference uses too.
+    @Optional() private readonly calls?: CallsService,
   ) {}
 
   /** Shared by every <Conference> we emit — see ConferenceService. */
@@ -250,8 +255,19 @@ export class VoiceService {
    * until an agent joins) and ring every online agent via REST legs. Nobody
    * online → a short message, then hang up.
    */
-  async buildInbound(body: InboundBody): Promise<string> {
+  async buildInbound(
+    body: InboundBody,
+    now: string = new Date().toISOString(),
+  ): Promise<string> {
     const { CallSid: callSid, From: from = '', To: to = '' } = body;
+
+    // A blocked caller (Workiz Phone → Blocked callers) is turned away before
+    // the flow, the technician line or the legacy ring ever see the call. The
+    // check itself never throws (it fails open), so a list that cannot be
+    // read means the call rings through, never a dead line.
+    if (callSid && from && (await this.isBlockedCaller(from))) {
+      return this.rejectBlocked(callSid, from, to, now);
+    }
 
     // A flow for this number decides everything from here — greeting, who
     // rings, what happens when nobody does. It returns null when there is no
@@ -276,6 +292,51 @@ export class VoiceService {
     }
 
     return this.buildLegacyInbound(body);
+  }
+
+  private async isBlockedCaller(from: string): Promise<boolean> {
+    try {
+      return (await this.blockedCallers?.isBlocked(from)) ?? false;
+    } catch (error) {
+      this.logger.error(
+        `Blocked-caller check threw for ${from} — letting the call through: ${error instanceof Error ? error.message : error}`,
+      );
+      return false;
+    }
+  }
+
+  /**
+   * `<Reject/>`: Twilio drops the call unbilled and plays the caller its
+   * "not in service" message. The log keeps a row with status `blocked` so
+   * the block is visible in the call log (Workiz's own log hides these
+   * calls); it starts and ends at once, nobody rang, nothing to answer. The
+   * row is a courtesy — failing to write it must not fail the rejection.
+   */
+  private async rejectBlocked(
+    callSid: string,
+    from: string,
+    to: string,
+    now: string,
+  ): Promise<string> {
+    this.logger.log(`Rejecting blocked caller ${from} → ${to} (${callSid})`);
+    try {
+      await this.calls?.applyLifecycle({
+        callSid,
+        direction: 'inbound',
+        from,
+        to,
+        status: 'blocked',
+        startedAt: now,
+        endedAt: now,
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Could not log blocked call ${callSid}: ${error instanceof Error ? error.message : error}`,
+      );
+    }
+    const twiml = new VoiceResponse();
+    twiml.reject();
+    return twiml.toString();
   }
 
   /**

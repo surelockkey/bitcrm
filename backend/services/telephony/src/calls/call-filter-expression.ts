@@ -118,7 +118,9 @@ function categoryExpression(category: StatusCategory, names: Names, values: Valu
       values[':vmBox'] = 2;
       const importedMissed =
         `(#dialCallStatus = :dialNoAnswer OR ((attribute_not_exists(#dialCallStatus) OR #dialCallStatus = :empty) AND NOT #voicemail = :vmBox))`;
-      const oursMissed = `NOT ${t.pickedUp} AND NOT ${liveIn(names, values)}`;
+      // A blocked caller's row was turned away on purpose — not a miss.
+      values[':blocked'] = 'blocked';
+      const oursMissed = `NOT ${t.pickedUp} AND NOT ${liveIn(names, values)} AND NOT #status = :blocked`;
       return `(${t.inbound} AND ((${t.imported} AND ${importedMissed}) OR (NOT ${t.imported} AND ${oursMissed})))`;
     }
     case 'voicemail': {

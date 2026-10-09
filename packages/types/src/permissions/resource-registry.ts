@@ -63,8 +63,10 @@ export const RESOURCE_REGISTRY = {
   financials: ['view'],
   documents: ['view', 'upload', 'delete'],
   // Telephony call history + live supervision. `view` gates the calls list,
-  // call detail and recording playback; `join` gates live listen/join.
-  calls: ['view', 'join'],
+  // call detail and recording playback; `join` gates live listen/join;
+  // `block` is Workiz Phone's "Blocked callers" — see the list, block a
+  // number, unblock one (the office holds it; a technician does not).
+  calls: ['view', 'join', 'block'],
   // Client inbox: SMS, email and in-app threads with contacts, companies and
   // unknown numbers. `view` is data-scoped (all | department | assigned_only →
   // conversations of jobs the user is assigned to); `send` covers texting and

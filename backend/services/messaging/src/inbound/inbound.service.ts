@@ -22,6 +22,7 @@ import { MessagesRepository } from '../messages/messages.repository';
 import { OptOutsRepository } from '../opt-outs/opt-outs.repository';
 import { MediaQueueService } from '../media/media-queue.service';
 import { RealtimePublisher } from '../realtime/realtime.publisher';
+import { BlockedNumbersClient } from './blocked-numbers.client';
 import { PartyResolver, type ResolvedParty } from './party-resolver';
 import { mediaFileName, type InboundMessageInput } from './twilio-inbound.payload';
 
@@ -35,8 +36,10 @@ export interface IngestOptions {
 }
 
 export interface IngestResult {
-  outcome: 'stored' | 'duplicate';
-  conversationId: string;
+  /** `blocked`: the sender is on telephony's block list — nothing was stored. */
+  outcome: 'stored' | 'duplicate' | 'blocked';
+  /** Absent only when the message was dropped (`blocked`). */
+  conversationId?: string;
   messageId?: string;
   conversationCreated: boolean;
   /** How many media copy jobs were queued (0 when there is no media or no queue). */
@@ -56,6 +59,8 @@ export interface LocatedConversation {
  * the fallback replay and the reconciliation:
  *
  *   1. the `AccountSid` must be ours (403 otherwise);
+ *   1b. a sender on telephony's block list (Workiz Phone → Blocked callers)
+ *       is dropped here — nothing read, nothing written, Twilio gets its 200;
  *   2. `PSID#<MessageSid>` already written → duplicate, nothing else runs;
  *   3. party: `ADDR#` → user → CRM → unknown (`PartyResolver`);
  *   4. conversation: `CONVOF#<kind>#<id>` find-or-create, `ADDR#` (re)pointed;
@@ -81,12 +86,21 @@ export class InboundService {
     @Optional() private readonly snsPublisher?: SnsPublisherService,
     @Optional() private readonly businessMetrics?: BusinessMetricsService,
     @Optional() private readonly realtime?: RealtimePublisher,
+    @Optional() private readonly blockedNumbers?: BlockedNumbersClient,
   ) {}
 
   async ingest(input: InboundMessageInput, opts: IngestOptions): Promise<IngestResult> {
     if (this.config.accountSid && input.accountSid && input.accountSid !== this.config.accountSid) {
       this.logger.warn(`Inbound ${input.providerSid} from foreign account ${input.accountSid} rejected`);
       throw new ForbiddenException('Message belongs to another Twilio account');
+    }
+
+    // Step 1b: a blocked sender's text is dropped before any read or write.
+    // Dropped, not stored-and-hidden: the inbox must never grow a thread for
+    // a number the office has turned away. A retry re-checks and re-drops.
+    if (await this.blockedNumbers?.isBlocked(input.from)) {
+      this.logger.log(`Inbound ${input.providerSid} from blocked ${input.from} dropped (${opts.source})`);
+      return { outcome: 'blocked', conversationCreated: false, mediaQueued: 0 };
     }
 
     // Cheap first line: most retries never reach the transaction.

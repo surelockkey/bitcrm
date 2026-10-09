@@ -81,6 +81,7 @@ export {
 } from './entities/call-flow.entity';
 export { CALL_FLOW_LIMITS } from './entities/call-flow.entity';
 export { CallTag, CALL_TAG_LIMITS } from './entities/call-tag.entity';
+export { BlockedCaller, BLOCKED_CALLER_LIMITS } from './entities/blocked-caller.entity';
 // Reports — Workiz Call Tracking (`GET /telephony/calls/stats/tracking`)
 export {
   CALL_TRACKING_GROUP_BY,

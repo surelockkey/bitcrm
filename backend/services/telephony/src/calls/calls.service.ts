@@ -107,6 +107,7 @@ const STATUS_RANK: Record<CallStatus, number> = {
   'no-answer': 4,
   failed: 4,
   canceled: 4,
+  blocked: 4,
 };
 
 export function statusRank(status: CallStatus): number {
@@ -714,6 +715,11 @@ export class CallsService {
 
     const existing = await this.repo.getBySid(params.CallSid);
     const reported = normalizeStatus(params.CallStatus);
+
+    // A blocked caller's leg was rejected before it rang; Twilio still
+    // reports the leg's own end (busy / no-answer / failed, by the reject
+    // reason). The row already says everything: `blocked` stays.
+    if (existing?.status === 'blocked') return;
 
     // Conference-managed calls are written exclusively by the orchestration —
     // the TwiML-App-level status callback reports SDK legs as

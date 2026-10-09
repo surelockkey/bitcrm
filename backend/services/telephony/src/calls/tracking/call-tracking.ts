@@ -110,6 +110,8 @@ export function answerClassOf(call: TrackedCall): AnswerClass {
   if (call.answeredAt || call.status === 'completed') return 'answered';
   // Still ringing: not missed yet.
   if (call.status && LIVE.has(call.status)) return 'neither';
+  // Turned away on purpose (a blocked caller): nobody was meant to answer.
+  if (call.status === 'blocked') return 'neither';
   return 'missed';
 }
 
