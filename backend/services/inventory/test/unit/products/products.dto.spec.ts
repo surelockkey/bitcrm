@@ -176,4 +176,13 @@ describe('ListProductsQueryDto', () => {
       }),
     ).toEqual([]);
   });
+
+  // Workiz's "All Stock Levels" box: Stocked / Low Stock.
+  it.each(['stocked', 'low'])('accepts stockLevel=%s', async (stockLevel) => {
+    expect(await errorsFor(ListProductsQueryDto, { manageStock: 'true', stockLevel })).toEqual([]);
+  });
+
+  it('rejects a stockLevel it does not know', async () => {
+    expect(await errorsFor(ListProductsQueryDto, { stockLevel: 'empty' })).toEqual(['stockLevel']);
+  });
 });

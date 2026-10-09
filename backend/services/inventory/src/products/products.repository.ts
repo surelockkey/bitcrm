@@ -19,7 +19,7 @@ import {
   GSI3_NAME,
   GSI4_NAME,
 } from '../common/constants/dynamo.constants';
-import { productSearchName, productSearchSku } from './products.constants';
+import { productSearchName, productSearchSku, type ProductStockLevel } from './products.constants';
 import {
   PRODUCT_CATALOG_INDEX_PK,
   CATALOG_INDEX_MAX_READS,
@@ -62,6 +62,11 @@ export interface ProductListFilters {
    * rows that say `manageStock: false` explicitly.
    */
   manageStock?: boolean;
+  /**
+   * Workiz's stock levels: `stocked` — `onHand` over the re-order point
+   * (`reorderLevel`, none = 0); `low` — at or under it, no `onHand` included.
+   */
+  stockLevel?: ProductStockLevel;
 }
 
 /** Key and derived attributes that must never leak onto an entity. */
@@ -390,6 +395,15 @@ export class ProductsRepository {
     } else if (filters?.manageStock === false) {
       parts.push('manageStock = :false');
       values[':false'] = false;
+    }
+    // Workiz's Stocked / Low Stock. DynamoDB compares two attributes directly;
+    // a missing one makes its comparison false, hence the explicit guards.
+    if (filters?.stockLevel === 'stocked') {
+      parts.push('onHand > :zero AND (attribute_not_exists(reorderLevel) OR onHand > reorderLevel)');
+      values[':zero'] = 0;
+    } else if (filters?.stockLevel === 'low') {
+      parts.push('(attribute_not_exists(onHand) OR onHand <= :zero OR onHand <= reorderLevel)');
+      values[':zero'] = 0;
     }
 
     return { parts, values, names };

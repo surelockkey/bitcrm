@@ -1,7 +1,8 @@
-import { IsOptional, IsString, IsEnum, IsInt, IsBoolean, Min, Max } from 'class-validator';
+import { IsOptional, IsString, IsEnum, IsIn, IsInt, IsBoolean, Min, Max } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { ProductType, InventoryStatus } from '@bitcrm/types';
+import { PRODUCT_STOCK_LEVELS, type ProductStockLevel } from '../products.constants';
 
 export class ListProductsQueryDto {
   @ApiPropertyOptional()
@@ -43,6 +44,16 @@ export class ListProductsQueryDto {
   })
   @IsBoolean()
   manageStock?: boolean;
+
+  @ApiPropertyOptional({
+    enum: PRODUCT_STOCK_LEVELS,
+    description:
+      "Workiz's stock levels: `stocked` — more on hand than the re-order point (`reorderLevel`, none = 0); " +
+      '`low` — at or under it (nothing on hand counts as low).',
+  })
+  @IsOptional()
+  @IsIn(PRODUCT_STOCK_LEVELS)
+  stockLevel?: ProductStockLevel;
 
   @ApiPropertyOptional({ default: 20 })
   @IsOptional()
