@@ -96,7 +96,8 @@ const STATIC_LABELS: Record<string, string> = {
 const DETAIL_LABELS: Record<string, string> = {
   "/deals": "Job",
   "/my-jobs": "Job",
-  "/contacts": "Contact",
+  // Workiz calls the page a client's ("… # DASHBOARD # CLIENT").
+  "/contacts": "Client",
   "/companies": "Company",
   "/technicians": "Technician",
   "/calls": "Call",

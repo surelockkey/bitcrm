@@ -298,6 +298,10 @@ Spec with every measurement and capture name:
 - **`WzFilterChip`** `label` `colorClassName` `onRemove` — "tag: Needs a call ×".
 - **`WzRail`** / **`WzRailButton`** / **`WzRailPanel`** — the right rail strip,
   its icons (red count, optional caption) and the 350px panel chrome.
+  `WzRailButton active` (new) is the client page's open-panel tile (`#f3f6f7`,
+  r6, `aria-pressed`); with `caption` the count rides the 54px tile's corner.
+  `WzRailPanel variant="plain"` (new) is the client page's white panel: the
+  18px/27px 600 title 16px in, a thin × at the right, no grey cap.
 
 ### Section-page pieces (agent `callspage`, Workiz Phone)
 
@@ -429,6 +433,34 @@ page can use them.
   over a report grid's blank rows (pg_contacts_wz_05_search_empty): 15px/500
   `#404040` on a white-70% band, 203px under the grid's top. Put it in the
   grid's `relative` frame. (Jobs has the bigger `WzTableEmpty`.)
+
+### Record-page pieces (2026-10-09, agent `pg_contact`, the client page)
+
+Lifted from Workiz's client page (`pg_contact_wz_269669_*`, notes:
+`workiz-data-parser/docs/import/app-parity-2026-10-08/pg_contact.md`); any
+record page with tabs of grids can use them.
+
+- **`WzLocalGrid`** (`local-grid.tsx`) `label` `columns={{id,label,width?,render,sortValue?,searchText?,cellClassName?}[]}`
+  `rows` `rowKey` `defaultSort={{id,dir}}` `searchLabel` `toolbar` `onRowClick`
+  `rowClassName` `footer` — a react-table grid whose rows are all in hand: the
+  71px strip (Search, the caller's `toolbar` pieces, page size 5…100 with 10
+  first), the 1px #ddd frame, fixed columns at their `width` (Id 130) and the
+  rest sharing the row but never under 100px (past that it scrolls sideways),
+  headers that sort on click (asc first, then flip; blanks last) with the 3px
+  bar + `aria-sort`, cells 20px all round clipped with "…", rows padded to ten
+  57px blanks, "No Records Found" over them, `WzPager` under it. The logic is
+  `localGridView(rows, columns, {query, sort, page, size})` and
+  `nextGridSort(sort, id)`.
+- **`WzTotalsBar`** `aria-label` + **`WzLeftBorderBox`** `label` `value` `tone="danger"`
+  (`record-parts.tsx`) — the totals over a record's tabs (`LeftBorderBox`): a
+  10px/14px 500 #9ea6aa capital caption over a 28px light (300) figure, red
+  #f45e44 for `danger`; the first 76px in, each next 80px after the last.
+- **`WzFold`** `title` `defaultOpen` `action` — a folding section of a record's
+  left column ("> Addresses", "Additional contacts (6) +"): 1px #dfe2e3 rule,
+  chevron 19px in, 14px/21px 600 title, the `action` outside the title's button.
+- **`WzSegmented`** `options` `value` `onChange` `aria-label` — the Files
+  panel's All | Media | Documents switch (#f3f6f7 box, the chosen part white,
+  14px 600 #6aa8ee, soft shadow); a tab list.
 
 ## Known differences from Workiz (deliberate or unmeasurable)
 - Sub-pixel: Workiz's own fractional layout makes some glyphs land ±1px
