@@ -155,15 +155,20 @@ describe("Payments report — Filter results (rep_payments_wz_05_filter_open, _1
   const groups = paymentFilterGroups(
     [
       { id: "a2", name: "SURE LOCK TX", color: "#7fffd4" },
+      { id: "a0", name: "All areas" },
+      { id: "a3", name: "Platinum_AL", color: "#b8860b" },
+      { id: "a4", name: "PLATINUM ALL STATES" },
       { id: "a1", name: "North Carolina" },
     ],
+    // The caller's order (Workiz's: who joined the team first).
     [
-      { id: "t2", name: "(2) CT - Tyler Boucher" },
       { id: "t1", name: "(1) YAKOV SZENDER" },
+      { id: "t2", name: "(2) CT - Tyler Boucher" },
+      { id: "t3", name: "(1) Harry EM" },
     ],
   );
 
-  it("has Workiz's three groups: types in Workiz's order, areas and techs by name", () => {
+  it("has Workiz's three groups: types in Workiz's order, areas A→Z without All areas, techs as given", () => {
     expect(groups.map((g) => g.label)).toEqual(["Payment type", "Service Areas", "Technician"]);
     expect(groups[0].options.map((o) => o.label)).toEqual([
       "Credit charge",
@@ -182,11 +187,14 @@ describe("Payments report — Filter results (rep_payments_wz_05_filter_open, _1
       "Refund",
       "Other",
     ]);
+    // rep_payments_wz_05_filter_open: North Carolina, PLATINUM ALL STATES, Platinum_AL… — no "All areas".
     expect(groups[1].options).toEqual([
       { value: "a1", label: "North Carolina" },
+      { value: "a4", label: "PLATINUM ALL STATES" },
+      { value: "a3", label: "Platinum_AL", color: "#b8860b" },
       { value: "a2", label: "SURE LOCK TX", color: "#7fffd4" },
     ]);
-    expect(groups[2].options.map((o) => o.label)).toEqual(["(1) YAKOV SZENDER", "(2) CT - Tyler Boucher"]);
+    expect(groups[2].options.map((o) => o.label)).toEqual(["(1) YAKOV SZENDER", "(2) CT - Tyler Boucher", "(1) Harry EM"]);
   });
 
   it("names the chips as Workiz does: the type alone, metro: and technician: before the others", () => {

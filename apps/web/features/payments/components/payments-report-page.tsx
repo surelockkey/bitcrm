@@ -16,7 +16,9 @@ import { settled, usePageReady } from "@/lib/use-page-ready";
 import { useDenied, usePermissions } from "@/features/auth/use-permissions";
 import { NoAccess } from "@/features/billing/components/list-bits";
 import { useUserMap } from "@/features/deals/hooks";
+import { orderTechs } from "@/features/deals/job-filters";
 import { personName } from "@/features/deals/person-name";
+import { useAllTechnicians } from "@/features/technicians/hooks";
 import { viewerToday } from "@/features/reports/jobs/lib";
 import { useServiceAreas } from "@/features/service-areas/hooks";
 import { exportPaymentReport } from "../api";
@@ -103,15 +105,21 @@ export function PaymentsReportPage() {
   // not asked for, and an unasked report is not an empty one.
   const ready = usePageReady(!permsLoading && settled(q) && !userMap.isLoading);
 
+  // The filter's lists: every area (inactive too, as Workiz), and the team in
+  // Workiz's order — who joined first; without the grant to list the team,
+  // everyone the directory holds, by name.
   const { data: areaData } = useServiceAreas(canView);
-  const groups = useMemo(
-    () =>
-      paymentFilterGroups(
-        (areaData ?? []).filter((a) => a.active !== false).map((a) => ({ id: a.id, name: a.name, color: a.color })),
-        userMap.users.map((u) => ({ id: u.id, name: personName(u) ?? u.id })),
-      ),
-    [areaData, userMap.users],
-  );
+  const { profiles } = useAllTechnicians(can("technicians", "view"));
+  const groups = useMemo(() => {
+    const nameOf = (id: string) => personName(userMap.map.get(id)) ?? id;
+    const team = profiles.length
+      ? orderTechs(profiles, nameOf)
+      : userMap.users.map((u) => ({ id: u.id, name: personName(u) ?? u.id })).sort((a, b) => a.name.localeCompare(b.name));
+    return paymentFilterGroups(
+      (areaData ?? []).map((a) => ({ id: a.id, name: a.name, color: a.color })),
+      team,
+    );
+  }, [areaData, profiles, userMap.map, userMap.users]);
 
   // A refusal only once the answer is in — before it, `can` says no to all.
   if (denied("payments")) return <NoAccess what="payments" />;

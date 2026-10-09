@@ -23,6 +23,9 @@ vi.mock("@/features/deals/hooks", () => {
   const tom = { id: "t1", firstName: "Tom", lastName: "Tech", workizName: "(2) TX - Tom Tech" };
   return { useUserMap: () => ({ map: new Map([["t1", tom]]), users: [tom], isLoading: false }) };
 });
+vi.mock("@/features/technicians/hooks", () => ({
+  useAllTechnicians: () => ({ profiles: [{ userId: "t1", createdAt: "2020-01-01T00:00:00.000Z" }], isLoading: false }),
+}));
 vi.mock("@/features/service-areas/hooks", () => ({
   useServiceAreas: () => ({ data: [{ id: "a1", name: "North Carolina", active: true, color: "#e0103a" }] }),
 }));

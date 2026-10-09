@@ -144,8 +144,11 @@ function Cell({
       return <Text>{paymentDay(row.at)}</Text>;
     case "status": {
       const s = row.status ? STATUS[row.status] : undefined;
+      // Workiz's tag box is 20px tall, its 16px line centred in it.
       return s ? (
-        <span className={cn("rounded-[4px] p-1 text-[13px] leading-4 text-white", s.className)}>{s.label}</span>
+        <span className={cn("inline-flex h-5 items-center rounded-[4px] p-1 align-top text-[13px] leading-4 text-white", s.className)}>
+          {s.label}
+        </span>
       ) : null;
     }
     case "type":

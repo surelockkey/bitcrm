@@ -7,6 +7,7 @@ import { formatWzDayRange } from "@/components/workiz/dates";
 import type { WzFilterGroup } from "@/components/workiz/grouped-filter";
 import { DEFAULT_TZ } from "@/lib/timezone";
 import { JOBS_REPORT_PRESETS, presetRange, type JobsReportPreset } from "@/features/reports/jobs/lib";
+import { filterAreas } from "@/features/deals/job-filters";
 
 /*
  * The Payments report's toolbar logic (Workiz Reports → Payments,
@@ -257,15 +258,15 @@ export function paymentsReportQuery({
   };
 }
 
-const byName = <T extends { name: string }>(a: T, b: T) => a.name.localeCompare(b.name);
-
 /**
  * Workiz's "Filter results" (rep_payments_wz_05_filter_open): PAYMENT TYPE in
- * Workiz's order (Refund also takes Refund offline — the server expands it),
- * SERVICE AREAS as chips in their own colours, TECHNICIAN — a group with
- * nothing to offer is left out. Chips (rep_payments_wz_17c_chip_tech): the
- * type alone ("Cash"), "metro: SURE LOCK CT" in the area's colour,
- * "technician: (2) CT - Tyler Boucher".
+ * Workiz's order (Refund also takes Refund offline — the server expands it);
+ * SERVICE AREAS A→Z regardless of case, without Workiz's default "All
+ * areas", as chips in their own colours (the jobs list's `filterAreas`);
+ * TECHNICIAN in the order given (Workiz's: who joined first — `orderTechs`).
+ * A group with nothing to offer is left out. Chips
+ * (rep_payments_wz_17c_chip_tech): the type alone ("Cash"), "metro: SURE
+ * LOCK CT" in the area's colour, "technician: (2) CT - Tyler Boucher".
  */
 export function paymentFilterGroups(
   areas: { id: string; name: string; color?: string }[],
@@ -283,13 +284,13 @@ export function paymentFilterGroups(
       label: "Service Areas",
       chip: "metro",
       chipColored: true,
-      options: [...areas].sort(byName).map((a) => ({ value: a.id, label: a.name, ...(a.color && { color: a.color }) })),
+      options: filterAreas(areas).map((a) => ({ value: a.id, label: a.name, ...(a.color && { color: a.color }) })),
     },
     {
       key: "technicianIds",
       label: "Technician",
       chip: "technician",
-      options: [...techs].sort(byName).map((t) => ({ value: t.id, label: t.name })),
+      options: techs.map((t) => ({ value: t.id, label: t.name })),
     },
   ];
   return groups.filter((g) => g.options.length > 0);

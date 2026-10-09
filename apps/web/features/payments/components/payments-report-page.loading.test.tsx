@@ -60,6 +60,8 @@ const routes: FakeRoute[] = [
   // The filter's options: the technicians and the service areas.
   { match: /\/users$/, raw: true, reply: () => ({ success: true, data: [{ id: "t1", firstName: "Tom", lastName: "Tech" }], pagination: {} }) },
   { match: /\/deals\/service-areas$/, reply: () => [{ id: "a1", name: "North", active: true }] },
+  // The filter's team, in Workiz's order.
+  { match: /\/technicians$/, raw: true, reply: () => ({ success: true, data: [{ userId: "t1", createdAt: "2020-01-01T00:00:00.000Z" }], pagination: {} }) },
   // The page's clients, for the phone under each name.
   {
     match: /\/crm\/contacts\/by-ids$/,
