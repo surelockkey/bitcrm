@@ -6,6 +6,7 @@ import {
   groupFields,
   isCustomFieldAnswerEmpty,
   missingRequiredCustomFields,
+  workizGroupColumns,
   workizOrderedGroups,
 } from "./lib";
 
@@ -65,6 +66,35 @@ describe("groupFields", () => {
     expect(groups.map((g) => g.group)).toEqual(["Alpha", "Zeta", "Other"]);
     // Same priority → name ascending.
     expect(groups[0].fields.map((f) => f.name)).toEqual(["Alfie", "Alpha"]);
+  });
+});
+
+/**
+ * new_01_empty_scroll1 / job_b_01_details_scroll1: Extra Info, Dispatchers and
+ * Platinum stand in the left column, Other Contact and Tech in the right —
+ * by name, so a catalog missing one of them (dev has no "Other Contact")
+ * does not slide the rest over (app_audit #7).
+ */
+describe("workizGroupColumns", () => {
+  const g = (group: string) => ({ group, fields: [] });
+
+  it("puts Workiz's groups in Workiz's columns", () => {
+    const [left, right] = workizGroupColumns([g("Extra Info"), g("Other Contact"), g("Dispatchers"), g("Tech"), g("Platinum")]);
+    expect(left.map((x) => x.group)).toEqual(["Extra Info", "Dispatchers", "Platinum"]);
+    expect(right.map((x) => x.group)).toEqual(["Other Contact", "Tech"]);
+  });
+
+  it("keeps them there when one is missing", () => {
+    const [left, right] = workizGroupColumns([g("Extra Info"), g("Dispatchers"), g("Tech"), g("Platinum")]);
+    expect(left.map((x) => x.group)).toEqual(["Extra Info", "Dispatchers", "Platinum"]);
+    expect(right.map((x) => x.group)).toEqual(["Tech"]);
+  });
+
+  it("fills the column with fewer groups with the ones Workiz has no place for, left on a tie", () => {
+    const [left, right] = workizGroupColumns([g("Extra Info"), g("Dispatchers"), g("Tech"), g("Platinum"), g("Need to order"), g("Work Order"), g("Zeta")]);
+    expect(left.map((x) => x.group)).toEqual(["Extra Info", "Dispatchers", "Platinum", "Zeta"]);
+    expect(right.map((x) => x.group)).toEqual(["Tech", "Need to order", "Work Order"]);
+    expect(workizGroupColumns([g("Access")])).toEqual([[g("Access")], []]);
   });
 });
 

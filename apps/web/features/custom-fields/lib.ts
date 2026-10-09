@@ -69,6 +69,38 @@ export function workizOrderedGroups(
 }
 
 /**
+ * The column each known group sits in on both Workiz job forms — the New Job
+ * cards (new_01_empty_scroll1: Extra Info x264 | Other Contact x939,
+ * Dispatchers x264 | Tech x939, Platinum x264) and the job page's Details
+ * tab (job_b_01_details_scroll1): Extra Info, Dispatchers and Platinum down
+ * the left, Other Contact and Tech down the right. Pinned by name: a catalog
+ * without one of them (dev has no "Other Contact") must not slide the rest
+ * over, which is how Dispatchers landed right and Tech left (app_audit #7).
+ */
+export const WORKIZ_GROUP_COLUMN: Readonly<Record<string, 0 | 1>> = {
+  "Extra Info": 0,
+  "Other Contact": 1,
+  Dispatchers: 0,
+  Tech: 1,
+  Platinum: 0,
+};
+
+/**
+ * The groups split into Workiz's two columns, `[left, right]`, in their
+ * given order: a known group at its side; one Workiz has no place for fills
+ * whichever column holds fewer groups at that point (the left on a tie).
+ */
+export function workizGroupColumns<T extends { group: string }>(groups: readonly T[]): [T[], T[]] {
+  const columns: [T[], T[]] = [[], []];
+  for (const g of groups) {
+    const known = WORKIZ_GROUP_COLUMN[g.group];
+    const side = known ?? (columns[1].length < columns[0].length ? 1 : 0);
+    columns[side].push(g);
+  }
+  return columns;
+}
+
+/**
  * Whether a stored answer counts as "unfilled". Blank/whitespace strings, empty
  * arrays and an unchecked checkbox (`false`) are empty; `0` and `true` are real
  * answers. Used to enforce `required` fields before a job can be created.

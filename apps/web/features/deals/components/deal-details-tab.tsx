@@ -24,7 +24,7 @@ import { fetchAllCompanies } from "@/features/clients/api";
 import { useCompany, useContact, useCreateCompany, useUpdateContact } from "@/features/clients/hooks";
 import type { UpdateContactValues } from "@/features/clients/schemas";
 import { useCustomFields } from "@/features/custom-fields/hooks";
-import { applicableFields, workizOrderedGroups } from "@/features/custom-fields/lib";
+import { applicableFields, workizGroupColumns, workizOrderedGroups } from "@/features/custom-fields/lib";
 import { WzCustomFields } from "@/features/custom-fields/components/wz-custom-fields";
 import { useResolvedServiceArea } from "@/features/service-areas/hooks";
 import { DEFAULT_TZ } from "@/lib/timezone";
@@ -151,10 +151,12 @@ export function DetailsTab({
   const { data: jobArea } = useResolvedServiceArea(dealDraft.address.lat, dealDraft.address.lng);
   const jobTz = jobArea?.timezone ?? DEFAULT_TZ;
 
-  // Workiz's group order, then alternately into the two columns: Extra Info,
-  // Dispatchers, Platinum on the left; Other Contact, Tech on the right.
-  const groups = workizOrderedGroups(applicableFields(customFieldDefs, dealDraft.jobTypeId)).map((g) => g.group);
-  const columns = [groups.filter((_, i) => i % 2 === 0), groups.filter((_, i) => i % 2 === 1)];
+  // Workiz's group order, each group at its Workiz side (job_b_01_details_scroll1:
+  // Extra Info, Dispatchers, Platinum down the left; Other Contact, Tech down
+  // the right) — by name, so a catalog without one of them keeps the rest
+  // where Workiz has them (app_audit #7).
+  const groups = workizOrderedGroups(applicableFields(customFieldDefs, dealDraft.jobTypeId));
+  const columns = workizGroupColumns(groups).map((col) => col.map((g) => g.group));
 
   const [savingCompany, setSavingCompany] = useState(false);
   const pending = update.isPending || updateContact.isPending || savingCompany;
@@ -348,7 +350,7 @@ export function DetailsTab({
           <div className="grid w-full grid-cols-1 items-start gap-y-10 pb-10 md:grid-cols-2">
             {columns.map((col, c) =>
               col.length ? (
-                <div key={c} className="flex min-w-0 flex-col gap-y-10">
+                <div key={c} data-cf-column={c === 0 ? "left" : "right"} className="flex min-w-0 flex-col gap-y-10">
                   {col.map((group) => (
                     <WzCustomFields
                       key={group}
