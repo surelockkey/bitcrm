@@ -1158,16 +1158,20 @@ Where the two disagreed, the Workiz captures were measured again:
   (the jobs list under a "status: Done" chip) the first tab keeps the row in
   the Tab order.
 - **`WzActionsMenu`**: the chevron is Workiz's `wfi-down`, 18px and thin
-  (audit J3); the caret is a 14×7 notch under the middle of the pill (the
-  zoomed job_b_02_actions_open — audit J5's "x≈1360" was a guess); a ruled
-  row is 51px, as Workiz's `li` 50 + its 1px rule.
+  (audit J3); the caret is a notch under the middle of the pill (the zoomed
+  job_b_02_actions_open — audit J5's "x≈1360" was a guess), 10px wide and 5px
+  tall above the panel's edge (Workiz's 14×7 caret overlaps the panel by 2px,
+  white on white), the panel 10px under the pill — Popper counts the arrow's
+  height into `sideOffset`, so it is 5 + 5; a ruled row is 51px, as Workiz's
+  `li` 50 + its 1px rule.
 - **`WzPager`**: ‹ "Page 1 of 5" › is a 238px block centred on the bar, the
   words centred between the discs — the discs sit at the same x for "of 5"
-  and "of 881" (list_07_bottom, uikit_wz_est_scroll1). › rests on an exact
-  count's last page even with a cursor in hand (**`wzPagerCanNext`**; the jobs
-  list's audit L8 "Page 2 of 1") — exact being `totalPagesIsFloor: false`, as
-  `usePager` says for a counted list; a floor, a count without the flag (the
-  Payments report numbers its pages as it walks) or no count follows the cursor.
+  and "of 881" (list_07_bottom, uikit_wz_est_scroll1). **`wzPagerCanNext(pager)`**
+  — for a list whose count knows its last page (the jobs list, My jobs): ›
+  rests there even with a cursor in hand (audit L8 "Page 2 of 1"), a floor or
+  no count follows the cursor; such a list passes `{ ...pager, canNext:
+  wzPagerCanNext(pager) }`. The footer itself follows `canNext` as given —
+  calls, invoices and transfers page past counts that understate their pages.
 - **`WzSearchBox`**: an 18px magnifier 15px in, a 13px bold clear × (audit
   L14). **`WzPageSizeSelect`**: an 18px thin chevron 8px from the edge (L18).
 - **`WzDrawer`**: the footer is Workiz's 65px band with the 32px pills 21px

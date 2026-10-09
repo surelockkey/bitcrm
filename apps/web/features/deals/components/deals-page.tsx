@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { Plus, TriangleAlert } from "lucide-react";
 import type { Contact, Deal, PersonName } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
-import { WzListToolbar, WzPageSizeSelect, WzPager, WzSearchBox, WzTabBar } from "@/components/workiz";
+import { WzListToolbar, WzPageSizeSelect, WzPager, WzSearchBox, WzTabBar, wzPagerCanNext } from "@/components/workiz";
 import { cn } from "@/lib/utils";
 import { usePermissions, useDenied } from "@/features/auth/use-permissions";
 import { NoAccess } from "@/features/clients/components/contacts-page";
@@ -319,7 +319,7 @@ export function DealsPage() {
         {held ? (
           <div aria-busy>
             <DealsTable deals={held.rows} contactMap={held.contacts} clientNames={held.clientNames} {...tableProps} />
-            <WzPager pager={held.pager} className="sticky left-0 w-full" />
+            <WzPager pager={{ ...held.pager, canNext: wzPagerCanNext(held.pager) }} className="sticky left-0 w-full" />
           </div>
         ) : firstPaintPending ? (
           <DealsTableSkeleton visibleFields={visibleFields} order={fieldOrder} />
@@ -328,7 +328,7 @@ export function DealsPage() {
         ) : (
           <>
             <DealsTable deals={visible} contactMap={contactMap} clientNames={names.clients} {...tableProps} />
-            <WzPager pager={pager} className="sticky left-0 w-full" />
+            <WzPager pager={{ ...pager, canNext: wzPagerCanNext(pager) }} className="sticky left-0 w-full" />
           </>
         )}
       </div>

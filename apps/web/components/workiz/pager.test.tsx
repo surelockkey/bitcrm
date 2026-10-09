@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import { WzPager, wzPagerPages, wzPagerSummary } from "./pager";
+import { WzPager, wzPagerCanNext, wzPagerPages, wzPagerSummary } from "./pager";
 
 describe("wzPagerSummary — Workiz's footer words", () => {
   it("reads like list_07_bottom", () => {
@@ -42,6 +42,31 @@ describe("wzPagerPages — the words between ‹ and ›", () => {
   });
 });
 
+/**
+ * Audit L8/L15 on the jobs list: with a filter chip the pager said "Page 1 of
+ * 1" and still offered Next, which then read "Page 2 of 1". The count knows
+ * the last page; a floor, or no count, leaves it to the cursor.
+ */
+describe("wzPagerCanNext — › for a list whose count knows its last page", () => {
+  const p = { page: 1, canNext: true, isFetching: false, totalPages: 1 as number | undefined, totalPagesIsFloor: false };
+
+  it("stops on the counted last page, even with a cursor in hand", () => {
+    expect(wzPagerCanNext(p)).toBe(false);
+    expect(wzPagerCanNext({ ...p, page: 1, totalPages: 2 })).toBe(true);
+    expect(wzPagerCanNext({ ...p, page: 2, totalPages: 2 })).toBe(false);
+  });
+
+  it("follows the cursor when nothing was counted, or the count is a floor", () => {
+    expect(wzPagerCanNext({ ...p, totalPages: undefined })).toBe(true);
+    expect(wzPagerCanNext({ ...p, totalPages: 1, totalPagesIsFloor: true })).toBe(true);
+    expect(wzPagerCanNext({ ...p, totalPages: undefined, canNext: false })).toBe(false);
+  });
+
+  it("waits while the next page is on its way", () => {
+    expect(wzPagerCanNext({ ...p, totalPages: 5, isFetching: true })).toBe(false);
+  });
+});
+
 describe("WzPager", () => {
   const base = {
     page: 1,
@@ -77,21 +102,10 @@ describe("WzPager", () => {
     expect(screen.getByRole("button", { name: "Next page" })).toBeDisabled();
   });
 
-  // Audit L8/L15 on the jobs list: a filtered page comes back short with a
-  // cursor past the counted last page, and "Page 1 of 1" then offered a page
-  // 2 ("Page 2 of 1"). The count knows the last page; a floor does not.
-  it("rests › on an exact count's last page, even with a cursor in hand", () => {
-    render(<WzPager pager={{ ...base, page: 1, totalPages: 1, totalPagesIsFloor: false, canNext: true }} />);
-    expect(screen.getByRole("button", { name: "Next page" })).toBeDisabled();
-  });
-
-  it("follows the cursor when the count is a floor, says nothing about itself, or nobody counted", () => {
-    const { rerender } = render(<WzPager pager={{ ...base, page: 1, totalPages: 1, totalPagesIsFloor: true, canNext: true }} />);
-    expect(screen.getByRole("button", { name: "Next page" })).toBeEnabled();
-    // A list that numbers its pages as it walks (the Payments report) gives no flag.
-    rerender(<WzPager pager={{ ...base, page: 1, totalPages: 1, canNext: true }} />);
-    expect(screen.getByRole("button", { name: "Next page" })).toBeEnabled();
-    rerender(<WzPager pager={{ ...base, page: 3, total: undefined, totalPages: undefined, canNext: true }} />);
+  // Other lists (calls, invoices, transfers) page past counts that understate
+  // their pages: the footer follows `canNext` as the list gives it.
+  it("follows canNext as given", () => {
+    render(<WzPager pager={{ ...base, page: 1, totalPages: 1, canNext: true }} />);
     expect(screen.getByRole("button", { name: "Next page" })).toBeEnabled();
   });
 

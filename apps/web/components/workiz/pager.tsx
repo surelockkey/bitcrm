@@ -14,12 +14,7 @@ export interface WzPagerState {
   total?: number | null;
   totalIsFloor?: boolean;
   totalPages?: number;
-  /**
-   * `false`: the page count is exact, so the last page is known and › rests
-   * there (lib/paging/use-pager says so for a counted list). `true`: at
-   * least that many ("of 200+"). Left out: a count the caller numbers as it
-   * walks — the cursor alone says whether there is more.
-   */
+  /** The page count is at least this many ("of 200+"). */
   totalPagesIsFloor?: boolean;
   canPrev: boolean;
   canNext: boolean;
@@ -59,11 +54,14 @@ export function wzPagerPages(
 }
 
 /**
- * Whether › goes anywhere. An exact count (`totalPagesIsFloor: false`) knows
- * the last page: on it, Next rests even when the list still hands back a
- * cursor (the jobs list, audit L8 — "Page 2 of 1": a filtered page came back
- * short with a cursor past the counted end). A floor, or a count that does
- * not say it is exact, leaves it to the cursor.
+ * Whether › goes anywhere, for a list whose count knows its last page (the
+ * jobs list, My jobs): on the counted last page Next rests even when the
+ * server still hands back a cursor (audit L8 — "Page 2 of 1": a filtered
+ * page came back short with a cursor past the counted end); without a
+ * count, or with only a floor, the cursor decides. Such a list passes
+ * `{ ...pager, canNext: wzPagerCanNext(pager) }`; `WzPager` itself follows
+ * `canNext` as given, because other lists (calls, invoices, transfers) page
+ * past counts that understate their pages.
  */
 export function wzPagerCanNext({
   page,
@@ -73,7 +71,7 @@ export function wzPagerCanNext({
   totalPagesIsFloor,
 }: Pick<WzPagerState, "page" | "canNext" | "isFetching" | "totalPages" | "totalPagesIsFloor">): boolean {
   if (!canNext || isFetching) return false;
-  if (typeof totalPages === "number" && totalPagesIsFloor === false) return page < totalPages;
+  if (typeof totalPages === "number" && !totalPagesIsFloor) return page < totalPages;
   return true;
 }
 
@@ -136,7 +134,7 @@ export function WzPager({
             <button
               type="button"
               aria-label="Next page"
-              disabled={!wzPagerCanNext(pager)}
+              disabled={!pager.canNext || pager.isFetching}
               onClick={() => void pager.next()}
               className={DISC}
             >
