@@ -81,12 +81,16 @@ export interface CallTrackingSeries {
 
 /**
  * Calls per flow over the period — always by flow, whichever grouping the
- * table uses (as in Workiz). The busiest flows get a line each and the rest
- * are summed into one "Other flows" line.
+ * table uses (as in Workiz). The hundred busiest flows get a line each, busiest
+ * first; the quieter ones are not drawn (Workiz's graph had 100 of 103 flows,
+ * rep_calltracking 2026-10-09).
  */
 export interface CallTrackingGraph {
   graphBy: CallTrackingGraphBy;
-  /** `00`..`23` (hour of day), `YYYY-MM-DD` (day; a week's first day), or `YYYY-MM`. */
+  /**
+   * `00`..`23` (hour of day), `YYYY-MM-DD` (a day; for `week` the first day of
+   * Workiz's week of the month — the 1st, 8th, 15th, 22nd or 29th), or `YYYY-MM`.
+   */
   buckets: string[];
   series: CallTrackingSeries[];
 }
@@ -107,6 +111,16 @@ export interface CallTrackingReport {
   computedAt: string;
 }
 
-/** Lines the graph draws one by one; the rest become "Other flows". */
-export const CALL_TRACKING_GRAPH_SERIES = 7;
-export const CALL_TRACKING_OTHER_SERIES = 'Other flows';
+/** Lines the graph draws, busiest flows first — Workiz's limit; the rest are left out. */
+export const CALL_TRACKING_GRAPH_SERIES = 100;
+
+/**
+ * Workiz's graph week, by the day of the month — "week 1  In Oct" is the
+ * 1st–7th, "week 2" the 8th–14th … "week 5" the 29th to the month's end,
+ * whatever weekday the month starts on (rep_calltracking_wz_04_graph_week:
+ * every flow's Oct 1–7 / Oct 8–9 counts). Named by its first day.
+ */
+export function callTrackingWeekStart(day: string): string {
+  const first = Math.floor((Number(day.slice(8, 10)) - 1) / 7) * 7 + 1;
+  return `${day.slice(0, 8)}${String(first).padStart(2, '0')}`;
+}

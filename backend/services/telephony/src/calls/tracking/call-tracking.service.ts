@@ -23,7 +23,7 @@ import {
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 /** Bumped when the snapshot's shape or arithmetic changes, so old ones are not served. */
-const CACHE_VERSION = 'v1';
+const CACHE_VERSION = 'v2';
 /** A window that includes today keeps moving: a short life. */
 const LIVE_TTL_SECONDS = 5 * 60;
 /** A closed window lives until the next nightly run, with slack. */
