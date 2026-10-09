@@ -27,7 +27,9 @@ export function WzListToolbar({ className, ...props }: ComponentProps<"div">) {
 /**
  * Workiz's table Search (Input-module, list_01: 348×40, 1px #9ea6aa, 4px
  * corner, 13px ink between 44px sides, a magnifier at the left; the edge
- * turns #6aa8ee while focused; a round × on #f3f6f7 once there is text).
+ * turns ink under the cursor (pg_invoices_wz_05b_search_hover,
+ * rep_activity_wz_07c_search_hover) and #6aa8ee while focused; a round × on
+ * #f3f6f7 once there is text).
  */
 export function WzSearchBox({
   value,
@@ -49,7 +51,7 @@ export function WzSearchBox({
         placeholder={placeholder}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="h-10 w-full rounded-[4px] border border-wz-outline bg-background px-11 text-[13px] leading-4 text-foreground outline-none placeholder:text-wz-outline focus:border-wz-link"
+        className="h-10 w-full rounded-[4px] border border-wz-outline bg-background px-11 text-[13px] leading-4 text-foreground outline-none placeholder:text-wz-outline hover:border-foreground focus:border-wz-link"
       />
       {value ? (
         <button

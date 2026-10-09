@@ -155,6 +155,56 @@ describe("WzReportGrid", () => {
     expect(screen.getByRole("button", { name: "Sort by Time" })).toHaveClass("text-center", "font-normal");
     expect(screen.getByRole("button", { name: "Sort by Time" })).not.toHaveClass("text-left");
   });
+
+  // pg_invoices_wz_01_default: the Invoices list's `rt-tr-group pointer` — the
+  // whole record opens the invoice; the blank filler rows open nothing.
+  it("opens a record from anywhere on its row — click, middle click or Enter — and only records", async () => {
+    const onRowClick = vi.fn();
+    render(<WzReportGrid aria-label="Activity" columns={columns} rows={rows} rowKey={(r) => r.id} onRowClick={onRowClick} />);
+    const [first, second] = bodyRows();
+    expect(first).toHaveClass("cursor-pointer");
+    await userEvent.click(within(second).getByText("Tom"));
+    expect(onRowClick).toHaveBeenLastCalledWith(rows[1], expect.objectContaining({ type: "click" }));
+    first.focus();
+    await userEvent.keyboard("{Enter}");
+    expect(onRowClick).toHaveBeenLastCalledWith(rows[0], expect.objectContaining({ key: "Enter" }));
+    await userEvent.pointer({ keys: "[MouseMiddle]", target: second });
+    expect(onRowClick).toHaveBeenLastCalledWith(rows[1], expect.objectContaining({ button: 1 }));
+    onRowClick.mockClear();
+    await userEvent.click(document.querySelector("tbody tr[aria-hidden]")!);
+    expect(onRowClick).not.toHaveBeenCalled();
+  });
+
+  it("leaves rows inert without onRowClick", () => {
+    render(<WzReportGrid aria-label="Activity" columns={columns} rows={rows} rowKey={(r) => r.id} />);
+    expect(bodyRows()[0]).not.toHaveClass("cursor-pointer");
+    expect(bodyRows()[0]).not.toHaveAttribute("tabindex");
+  });
+
+  // Workiz's headers are react-table's `rt-resizable-header`: an edge to drag.
+  it("puts a drag handle on every header and lays the columns out at the widths it is given", async () => {
+    const setWidth = vi.fn();
+    const widths: Record<string, number> = { time: 180, who: 120 };
+    render(
+      <WzReportGrid
+        aria-label="Activity"
+        columns={columns}
+        rows={rows}
+        rowKey={(r) => r.id}
+        sort={{ column: "time", dir: "desc" }}
+        resize={{ widthOf: (id) => widths[id], setWidth, reset: () => {} }}
+      />,
+    );
+    const cols = [...document.querySelectorAll("colgroup col")] as HTMLElement[];
+    expect(cols.map((c) => c.style.width)).toEqual(["180px", "120px"]);
+    expect(screen.getByTestId("resize-time")).toHaveAttribute("aria-valuenow", "180");
+    expect(screen.getByTestId("resize-who")).toBeInTheDocument();
+    // The sorted column keeps its bar and its name.
+    expect(screen.getByRole("columnheader", { name: "Time" })).toHaveAttribute("aria-sort", "descending");
+    screen.getByTestId("resize-who").focus();
+    await userEvent.keyboard("{ArrowRight}");
+    expect(setWidth).toHaveBeenCalledWith("who", 136);
+  });
 });
 
 describe("wzNextSort", () => {

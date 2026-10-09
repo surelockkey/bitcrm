@@ -682,6 +682,29 @@ props are optional; every existing card is untouched.
   (pg_estimates_wz_06_card_won). A second click there keeps the pick — the
   card sets the status filter, it does not toggle it.
 
+## List grids that open records (2026-10-09, agent `pg_invoices`, Invoices list)
+
+Measured off `pg_invoices_wz_*` (notes:
+`workiz-data-parser/docs/import/app-parity-2026-10-08/pg_invoices.md`). All
+additive; callers without the new props are untouched.
+
+- **`WzReportGrid` `onRowClick={(row, event) => …}`** — react-table's
+  `rt-tr-group pointer`: the whole record opens something (the Invoices list's
+  row → the invoice). Records get `cursor-pointer` and a tab stop; a click, a
+  middle click (`event.button === 1`) or Enter on the focused row calls it —
+  check `metaKey` / `ctrlKey` / `button` for a new tab. Blank filler rows stay
+  inert; links inside a row stop their own clicks.
+- **`WzReportGrid` `resize={{ widthOf, setWidth, reset }}`** — Workiz's headers
+  are `rt-resizable-header`s: every header gets `ResizableHead`'s drag handle
+  (`resize-<id>`, arrow keys, Home / double-click resets) and the `<col>`s take
+  `widthOf(id)`. Pair it with `useColumnWidths(table, defaults)`; the sort bar
+  and `aria-sort` stay.
+- **`WzSearchBox`** now turns its edge ink under the cursor (Input-module
+  hover, pg_invoices_wz_05b_search_hover / rep_activity_wz_07c_search_hover);
+  focus still wins with #6aa8ee.
+- The Invoices cards are the Estimates ones: `WzKpiCard selectedTone="orange"`
+  (Workiz's `left-orange` on the last card clicked, pg_invoices_wz_10_card_overdue).
+
 ## Known differences from Workiz (deliberate or unmeasurable)
 - Sub-pixel: Workiz's own fractional layout makes some glyphs land ±1px
   differently from ours in screenshots (e.g. two Workiz selects with identical
