@@ -1269,6 +1269,19 @@ without it is untouched.
   loads must equal the ones once the rows are in (`["80px"]` both times).
 - The Payments report's own table (`payments-report-table.tsx`) declares its
   `ROW_HEIGHT` (80) the same way on its shell, records and filler.
+- The grid's blank filler rows are keyed by the slot they fill, not their
+  index (`pad-<records before it + i>`): once the records are in, the blanks
+  under them are the very rows they were while loading, in the same places,
+  and Chrome reports no shift. Keyed by index they slid down a record row
+  each (probe_shift 2026-10-09: 0.02–0.13 left after the heights matched).
+  Same DOM for every grid; only the keys changed.
+- A grid whose **column set** is not known at the first paint (money columns
+  behind `financials.view`, custom-field columns from a catalog) must not
+  reflow under the loader: guess the fuller set while the permissions load
+  (`permsLoading || can(…)`, as the Inventory Items strip does) and `key` the
+  grid by the set (`columns.map((c) => c.id).join("|")`, or `money ? "money"
+  : "plain"`), so a wrong guess is drawn anew rather than squeezed — Aging,
+  the Payments and Items reports, Inventory Items do this.
 
 ## Team member type (2026-10-09, agent `subcontractor`)
 
