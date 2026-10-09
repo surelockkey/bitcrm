@@ -227,6 +227,13 @@ CONTACT#<id>       / ATTACH#<id>     the client's own file (client card "Upload 
                                      same GSI10 key — `GET /deals/attachments/by-contact/:id` lists both kinds newest first;
                                      a row with `dealId` downloads through its job, one without through `/deals/contacts/…`
 JOB_TAG#<id>       / METADATA        GSI1 CATALOG#JOB_TAG, GSI1SK <priority>#<name>
+JOB_TYPE#<id>      / METADATA        GSI1 CATALOG#JOB_TYPE; `durationMinutes` — Workiz's Duration (days/hours/minutes), what New
+                                     Job / the job page add to the start when the type is picked; absent or 0 = an hour. The
+                                     importer writes it; rows loaded before it get it from the parser's
+                                     `bitcrm-patch-job-type-duration` (dry run first)
+CONFIG#JOB_FIELDS  / METADATA        Settings → Field Validation: `requiredFields` (ids of `JOB_REQUIRABLE_FIELDS`); gates POST /deals only
+CONFIG#JOB_RULES   / METADATA        the account's job rules (Workiz Account → Preferences): `updateJobEndTimeOnClose` (default true) —
+                                     see §10 "A closed job ends when it was closed"
 TECH_ELIGIBILITY#<id> / …            read model rebuilt from user-events
 CALL#<sid>         / METADATA        GSI2 CALL#ALL for the global time-ordered log; optional `tagIds` (call tags);
                                      `partyNames` — both sides' names folded, what the log's Search box (`GET
@@ -624,6 +631,23 @@ tests, and — if it emits events — the types in `@bitcrm/types` plus a row in
   `npm run backfill:user-type -w backend/services/user -- --apply` (dry run without `--apply`;
   needs `COGNITO_USER_POOL_ID`): it moves card-only types onto the user, fixes the cards and switches
   every sub's Cognito account off. Workiz has no sub badge on jobs, the schedule or reports — neither do we.
+- **A closed job ends when it was closed (Workiz "Update Job End Time", `CONFIG#JOB_RULES`,
+  ON by default).** `DealsService.moveStatus` to Done / Canceled writes `scheduledEndDate`
+  (the close day on the job's clock — `jobTimezone`, else its area's, else New York),
+  the slot's end (held at the start only when a same-day close came before it),
+  `jobEndDateUtc` and, if the job had none, `jobTimezone`; the repository restamps the
+  EndIndex from them, so "By: Job end date" lists the job on the day it was closed, as
+  Workiz does (its export: the end is the second the status changed, even weeks after or
+  before the visit). The start never moves and a reopen does not put the old end back.
+  Jobs closed in BitCRM before the rule need `npm run backfill:close-end-time -w
+  backend/services/deal -- --apply` (dry run without `--apply`); it leaves imported jobs
+  on the end Workiz gave them unless `--since <ISO of the import>` says they closed here.
+  Switch: `PUT /deals/job-rules { updateJobEndTimeOnClose }` (`settings.edit`).
+- **Field Validation gates creation only** (Workiz: "applies for job creation only").
+  `POST /deals` 422s on the admin-required rows of `JOB_REQUIRABLE_FIELDS`
+  (`CONFIG#JOB_FIELDS`); the client-owned rows (names, numbers, email, company, the
+  client's address) are judged against crm's contact, read only when one of them is on,
+  and a crm that cannot be read leaves them to the form. `PUT /deals/:id` is not gated.
 - **Redis DB 0 is dev, DB 15 is tests.** Don't flush the wrong one.
 - **Taxes live on service areas.** There is no tax-rate catalog: `ServiceArea.tax`
   (`{name, ratePercent}`) is the rate, exposed read-only as a `TaxRate` whose id is
