@@ -169,6 +169,7 @@ const WORDS: Record<string, Record<string, Words>> = {
   calls: {
     view: { title: "Voice", description: "Can view the call log, recordings and call reports" },
     join: { title: "Listen & Join Calls", description: "Listen in on and join live calls" },
+    block: { title: "Block Callers", description: "See the blocked callers list, block a number and unblock one" },
   },
   messages: {
     view: { title: "Messaging", description: "View the messages inbox" },

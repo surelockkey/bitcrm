@@ -75,8 +75,9 @@ export const ACTION_LABELS: Record<string, string> = {
   // payments: take money (portal sends + offline records) / give it back.
   collect: "Take payments",
   refund: "Refund",
-  // calls: listen in on and join a live call.
+  // calls: listen in on and join a live call; block a number (Blocked callers).
   join: "Listen & join",
+  block: "Block callers",
   // messages: archive, flag, recategorise, mark unread.
   manage: "Manage",
   manage_groups: "Manage groups",

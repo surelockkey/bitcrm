@@ -26,6 +26,7 @@ import {
   newJobHref,
   type CallRecord,
 } from "../lib";
+import { BlockCallerButton } from "./block-caller-button";
 import { CallAssociations } from "./call-associations";
 import { CallPartyCell } from "./call-party-cell";
 import { CallStatusBadge } from "./call-status-badge";
@@ -200,6 +201,9 @@ function QuickViewBody({ callSid, seed }: { callSid: string; seed?: CallRecord }
             Open full call <ExternalLink className="size-4" />
           </Link>
         </Button>
+        {/* Workiz Phone → Blocked callers, from the call itself: the other
+            side's number goes into the "Block a Number" form. */}
+        <BlockCallerButton call={call} className="w-full" />
       </div>
     </>
   );

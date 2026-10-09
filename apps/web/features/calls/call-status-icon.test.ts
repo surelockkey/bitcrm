@@ -43,6 +43,13 @@ describe("callStatusIcon", () => {
     expect(callStatusIcon(call({ direction: "outbound", status }))).toEqual({ kind: "out-unanswered", tooltip: "No answer" });
   });
 
+  it("an incoming call from a blocked number is a Blocked caller, not a Missed call", () => {
+    expect(callStatusIcon(call({ direction: "inbound", status: "blocked" }))).toEqual({
+      kind: "in-blocked",
+      tooltip: "Blocked caller",
+    });
+  });
+
   it("a call with no direction on record is drawn as outgoing", () => {
     expect(callStatusIcon(call({ status: "completed" })).kind).toBe("out-answered");
   });

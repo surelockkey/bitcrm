@@ -1138,6 +1138,19 @@ Import from `@/components/workiz/phone-tab-parts`.
   (Workiz's numbers and flows grids).
 - **`WzSearchBox`** — no longer shows the browser's own × beside Workiz's
   round one when it is `type="search"` (WzLocalGrid's).
+- **`WzLocalGrid` `search`** (new, optional, agent `feat_blocked_callers`) —
+  `false` leaves the Search box and the page size out and draws Workiz's
+  empty 31px strip (#f7f7f7, 1px #ddd over it) in their place: the Blocked
+  callers tab (`settings_audit_wz_blocked_callers_v4`) has neither, the other
+  Phone tabs have both. The pager still pages. Blocked callers itself
+  (`features/telephony/components/blocked-callers-page.tsx`): `WzTabIntro` +
+  "Block a Number" (`PhoneOff`), the grid Number | Comment | Created (New
+  York day, `blockedDay`) | Actions (a `WzRowIconButton` bin in
+  `text-wz-danger` = unblock, after a confirmation), oldest first,
+  `pagerInside`; the "Block a Number" form (`block-number-dialog.tsx`) is a
+  528px `WzFormModal` with two plain-placeholder `OUTLINE` boxes, "Block" as
+  its Save; "Block this number" on a call (`features/calls/components/
+  block-caller-button.tsx`) opens the same form on the other side's number.
 
 ## The jobs pages on the kit (2026-10-09, agent `jobs_kit_switch`)
 

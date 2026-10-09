@@ -11,7 +11,9 @@ export type CallStatus =
   | "busy"
   | "no-answer"
   | "failed"
-  | "canceled";
+  | "canceled"
+  /** An inbound call from a blocked number: rejected before anything rang (Blocked callers). */
+  | "blocked";
 
 export type ParticipantRole = "caller" | "answered" | "listened" | "joined";
 
@@ -160,6 +162,7 @@ export const STATUS_LABEL: Record<CallStatus, string> = {
   "no-answer": "No answer",
   failed: "Failed",
   canceled: "Canceled",
+  blocked: "Blocked",
 };
 
 /** Badge tint per status: live = emerald, clean end = neutral, misses = amber/red. */
@@ -170,6 +173,8 @@ export function statusTone(
   if (LIVE_STATUSES.includes(status)) return "live";
   if (status === "completed") return "neutral";
   if (status === "failed") return "error";
+  // Turned away on purpose — not a miss worth amber.
+  if (status === "blocked") return "neutral";
   return "warn"; // busy / no-answer / canceled
 }
 
