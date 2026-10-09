@@ -37,6 +37,8 @@ export function WzFormModal({
   saveDisabled = false,
   error,
   variant = "modal",
+  readOnly = false,
+  aside,
   className,
   children,
 }: {
@@ -52,21 +54,28 @@ export function WzFormModal({
   /** A refusal over the buttons (#e35a36). */
   error?: string | null;
   variant?: "modal" | "full" | "drawer";
+  /** The reader may look, not change: no Save, Cancel reads "Close", Enter saves nothing. */
+  readOnly?: boolean;
+  /**
+   * Beside the fields, 48px to their right (`full` only): the Account page's
+   * column with the logo (pg_settings_general_wz_account).
+   */
+  aside?: ReactNode;
   className?: string;
   children: ReactNode;
 }) {
   const formId = useId();
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!saveDisabled && !saving) onSave();
+    if (!readOnly && !saveDisabled && !saving) onSave();
   };
 
   const cancel = (
     <WzButton variant="secondary" size="big" onClick={() => onOpenChange(false)} className={variant === "drawer" ? "flex-1" : undefined}>
-      Cancel
+      {readOnly ? "Close" : "Cancel"}
     </WzButton>
   );
-  const save = (
+  const save = readOnly ? null : (
     <WzButton
       type="submit"
       form={formId}
@@ -138,10 +147,20 @@ export function WzFormModal({
         <div className={cn("flex min-h-0 flex-1 flex-col", full && "overflow-y-auto px-[24px] pt-[24px]")}>
           <DialogTitle className="pr-10">{title}</DialogTitle>
           {description ? <p className="mt-2 text-sm leading-[21px] text-foreground">{description}</p> : null}
-          <form id={formId} onSubmit={submit} className={cn("mt-6 flex flex-col gap-6", full && "max-w-[755px] pl-1.5")}>
-            {children}
-            {refusal}
-          </form>
+          {full && aside ? (
+            <div className="mt-6 flex items-start gap-12">
+              <form id={formId} onSubmit={submit} className="flex min-w-0 flex-col gap-6">
+                {children}
+                {refusal}
+              </form>
+              <div className="shrink-0">{aside}</div>
+            </div>
+          ) : (
+            <form id={formId} onSubmit={submit} className={cn("mt-6 flex flex-col gap-6", full && "max-w-[755px] pl-1.5")}>
+              {children}
+              {refusal}
+            </form>
+          )}
         </div>
         <div
           className={cn(

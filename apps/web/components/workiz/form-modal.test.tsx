@@ -69,4 +69,30 @@ describe("WzFormModal — Workiz's Add New / Edit modal", () => {
     );
     expect(screen.getByRole("dialog", { name: "Add New Field" })).toHaveAttribute("data-slot", "wz-drawer");
   });
+
+  it("read-only: no Save, Cancel reads Close, Enter saves nothing", async () => {
+    const onSave = vi.fn();
+    const onOpenChange = vi.fn();
+    render(
+      <WzFormModal open onOpenChange={onOpenChange} title="SureLock" onSave={onSave} variant="full" readOnly>
+        <input aria-label="Name" />
+      </WzFormModal>,
+    );
+    expect(screen.queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
+    await userEvent.type(screen.getByRole("textbox", { name: "Name" }), "x{Enter}");
+    expect(onSave).not.toHaveBeenCalled();
+    // The footer's pill (the corner × is "Close" too).
+    const close = screen.getAllByRole("button", { name: "Close" }).find((b) => b.dataset.slot === "wz-button");
+    await userEvent.click(close!);
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("the whole-window form can put content beside the form (the Account page's logo column)", () => {
+    render(
+      <WzFormModal open onOpenChange={() => {}} title="t" onSave={() => {}} variant="full" aside={<p>Logo here</p>}>
+        <span />
+      </WzFormModal>,
+    );
+    expect(screen.getByText("Logo here")).toBeInTheDocument();
+  });
 });

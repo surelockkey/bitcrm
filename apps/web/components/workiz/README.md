@@ -964,6 +964,36 @@ rebuild adds its href there.
   open (Workiz's labels rest in their boxes).
 - **`WzDataTable` `search.label`** (new, optional) — the search box's name.
 
+## Settings forms (2026-10-09, agent `pg_settings_general`)
+
+Measured off `pg_settings_general_wz_account*` (Workiz's Account page,
+`/root/account`), `_workizpay_myaccount*` (Workiz Pay → My account) and
+`_doc_settings_open` (the template editor's Document settings drawer); notes
+`workiz-data-parser/docs/import/app-parity-2026-10-08/pg_settings_general.md`.
+Import from `@/components/workiz/settings-form`.
+
+- **`WzAccountTitle`** — the Account page's h3 ("Account", "Account
+  Preferences"): 20px/24px 600 ink. The fields under it are
+  `WzOutlinedTextField` / `WzOutlinedSelect` in a 652px column, 24px apart
+  (City | Zip: two 318px boxes 16px apart); the Save is `WzActionBar`.
+- **`WzAccountToggle`** `label` `hint` `checked` `onCheckedChange` `disabled` —
+  an Account Preferences row ("Allow Multiple Techs"): 13px/19px ink words,
+  the 12px/18px #768287 hint under them (the switch's description), the
+  32×16 `WzMiniToggle` at the right edge.
+- **`WzPaySection`** `title` `subtitle` — a My account section
+  (MyAccount-module): a 1px #dfe2e3 rule over it but the first, 40px above
+  and below; h3 20px/24px 600 ink, the 18px/27px #768287 line under it, rows
+  24px under that and 24px apart. A region named by its title.
+- **`WzPayRow`** `label` `htmlFor` `hint` — a My account row: 14px/21px 500
+  ink words at the left (a `<label>` with `htmlFor`), the control at the right.
+- **`WzDocSettingsField`** `label` `helper` `error` `multiline` + textarea /
+  input props — the Document settings "Subject" / "Message": a 16px/24px 600
+  label 6px over a #f7f7f7 box (1px #e1e1e1, r2, 10px in, 13.33px #666), the
+  11px #999 helper under it.
+- **`WzFormModal` `readOnly`** (new, optional) — no Save, Cancel reads "Close",
+  Enter saves nothing; **`aside`** (new, optional, `full` only) — a column 48px
+  right of the fields (the Account page's logo). Defaults unchanged.
+
 ## Known differences from Workiz (deliberate or unmeasurable)
 - Sub-pixel: Workiz's own fractional layout makes some glyphs land ±1px
   differently from ours in screenshots (e.g. two Workiz selects with identical

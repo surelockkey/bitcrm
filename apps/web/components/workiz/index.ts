@@ -146,3 +146,4 @@ export { WzColorDots, type WzColorDotOption } from "./color-dots";
 export { WzFormModal } from "./form-modal";
 export { WzSettingsCatalog } from "./settings-catalog";
 export { WzModalTextField } from "./modal-text-field";
+export { WzAccountTitle, WzAccountToggle, WzPaySection, WzPayRow, WzDocSettingsField } from "./settings-form";
