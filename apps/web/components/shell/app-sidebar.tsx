@@ -3,6 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import icon from "@/app/icon.png";
+import wordmark from "@/components/brand/wordmark.png";
 import { usePathname } from "next/navigation";
 import {
   Sidebar,
@@ -61,26 +62,35 @@ export function AppSidebar() {
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader>
-        {/* Constant padding keeps the icon's x-position identical in both
-            sidebar states, so nothing jumps while the width animates; the
-            wordmark clips (overflow-hidden) and fades instead of popping. */}
+        {/* The SHMORKIZ pill, at Workiz's logo size (80×26). It is too wide
+            for the collapsed rail, so there it clips (overflow-hidden) and
+            fades while the round S mark fades in over the same left edge.
+            Constant padding keeps that edge identical in both sidebar states,
+            so nothing jumps while the width animates. */}
         <Link
           href="/"
           // h-12 + the sidebar header's p-2 puts the rule below on the same
           // line as the app header's bottom border (h-14 = 56px).
-          className="flex h-12 items-center gap-2 overflow-hidden px-0.5"
-          aria-label="BitCRM home"
+          className="relative flex h-12 items-center overflow-hidden px-0.5"
+          aria-label="Shmorkiz home"
         >
           <Image
+            data-slot="brand-wordmark"
+            src={wordmark}
+            alt=""
+            width={84}
+            height={26}
+            priority
+            className="h-[26px] w-auto max-w-none shrink-0 transition-opacity duration-200 ease-linear group-data-[collapsible=icon]:opacity-0"
+          />
+          <Image
+            data-slot="brand-mark"
             src={icon}
             alt=""
             width={28}
             height={28}
-            className="size-7 shrink-0"
+            className="absolute left-0.5 size-7 opacity-0 transition-opacity duration-200 ease-linear group-data-[collapsible=icon]:opacity-100"
           />
-          <span className="whitespace-nowrap text-base font-bold tracking-tight transition-opacity duration-200 ease-linear group-data-[collapsible=icon]:opacity-0">
-            BitCRM
-          </span>
         </Link>
         {/* Workiz rules a line under its logo, so the brand reads as a header
             and not as the first row of the menu. Full width in both states:

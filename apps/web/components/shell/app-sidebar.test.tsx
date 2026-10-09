@@ -36,23 +36,45 @@ describe("AppSidebar", () => {
     permissionsMock.mockReturnValue({ can: () => true, isTechnician: false });
     renderSidebar();
 
-    const homeLink = screen.getByRole("link", { name: "BitCRM home" });
+    const homeLink = screen.getByRole("link", { name: "Shmorkiz home" });
     expect(homeLink.querySelector("img")).not.toBeNull();
+  });
+
+  /**
+   * The logo is the SHMORKIZ pill, drawn the way Workiz draws its own: the
+   * wordmark alone, 26px tall (Workiz's is 80×26), with no name typed beside
+   * it — the pill already says it.
+   */
+  it("shows the Shmorkiz pill at Workiz's logo height and no typed name", () => {
+    permissionsMock.mockReturnValue({ can: () => true, isTechnician: false });
+    renderSidebar();
+
+    const homeLink = screen.getByRole("link", { name: "Shmorkiz home" });
+    const wordmark = homeLink.querySelector('[data-slot="brand-wordmark"]');
+    expect(wordmark?.tagName).toBe("IMG");
+    expect(wordmark?.className).toContain("h-[26px]");
+    expect(screen.queryByText("BitCRM")).toBeNull();
   });
 
   it("keeps the logo pinned during collapse instead of re-centering it", () => {
     permissionsMock.mockReturnValue({ can: () => true, isTechnician: false });
     renderSidebar();
 
-    const homeLink = screen.getByRole("link", { name: "BitCRM home" });
+    const homeLink = screen.getByRole("link", { name: "Shmorkiz home" });
     // No per-state alignment switch — a justify/padding swap is what made the
     // icon jump while the sidebar width animated.
     expect(homeLink.className).not.toContain("justify-center");
     expect(homeLink.className).toContain("overflow-hidden");
-    // The wordmark clips/fades out instead of popping from the layout.
-    expect(screen.getByText("BitCRM").className).toContain(
-      "group-data-[collapsible=icon]:opacity-0",
-    );
+    // The pill is too wide for the collapsed rail, so it clips/fades out
+    // instead of popping from the layout…
+    const wordmark = homeLink.querySelector('[data-slot="brand-wordmark"]');
+    expect(wordmark?.className).toContain("group-data-[collapsible=icon]:opacity-0");
+    // …while the round S mark fades in over the same left edge.
+    const mark = homeLink.querySelector('[data-slot="brand-mark"]');
+    expect(mark?.tagName).toBe("IMG");
+    expect(mark?.className).toContain("opacity-0");
+    expect(mark?.className).toContain("group-data-[collapsible=icon]:opacity-100");
+    expect(mark?.className).toContain("absolute");
   });
 
   it("renders a compact New Job button that collapses smoothly with the sidebar", () => {
@@ -289,7 +311,7 @@ describe("AppSidebar", () => {
   it("puts the rule exactly where the header's border is", () => {
     renderSidebar();
 
-    const brand = screen.getByLabelText("BitCRM home");
+    const brand = screen.getByLabelText("Shmorkiz home");
     expect(brand.className).toContain("h-12"); // 48px + the header's p-2 = 56px
   });
 });
