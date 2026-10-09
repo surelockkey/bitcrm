@@ -18,11 +18,14 @@ const GROUP_LABEL: Record<ShortCodeGroup, string> = {
   client: "Client",
   job: "Job",
   technician: "Technician",
+  // The call-alert codes ({{caller_number}}, {{call_status}}, {{call_flow}}) of
+  // a "When a call comes in" notification; empty on a job's message.
+  call: "Call",
   business: "Business",
   links: "Links",
   custom: "Custom fields",
 };
-const GROUP_ORDER: ShortCodeGroup[] = ["client", "job", "technician", "business", "links", "custom"];
+const GROUP_ORDER: ShortCodeGroup[] = ["client", "job", "technician", "call", "business", "links", "custom"];
 
 /**
  * `{{first_name}}`, `{{job_date}}`, `{{confirm_link}}`… — the Workiz short

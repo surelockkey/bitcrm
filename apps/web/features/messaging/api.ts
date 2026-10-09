@@ -115,7 +115,7 @@ export interface PresignedAttachmentUpload {
   maxBytes: number;
 }
 
-export type ShortCodeGroup = "client" | "job" | "technician" | "business" | "links" | "custom";
+export type ShortCodeGroup = "client" | "job" | "technician" | "call" | "business" | "links" | "custom";
 export interface ShortCode {
   code: string;
   group: ShortCodeGroup;
