@@ -112,6 +112,12 @@ const CONTROL = cn(
   "group-data-[focused=true]/wzgf:min-h-9 group-data-[focused=true]/wzgf:border-0 group-data-[focused=true]/wzgf:shadow-[0_0_0_1px_var(--wz-focus)]",
 );
 
+/**
+ * `size="tall"`: the Items report's box (rep_items_wz_01_loaded) —
+ * react-select at 3.04rem (48.64px), the height kept under the focus ring.
+ */
+const TALL = "min-h-[48.64px] group-data-[focused=true]/wzgf:min-h-[48.64px]";
+
 const INDICATOR = cn(
   "flex items-center p-2 text-input transition-colors duration-150 hover:text-wz-caption",
   "group-data-[focused=true]/wzgf:text-wz-text group-data-[focused=true]/wzgf:hover:text-wz-value",
@@ -133,6 +139,7 @@ export function WzGroupedFilter<K extends string = string>({
   onChange,
   chipOrder,
   placeholder = "Select...",
+  size = "regular",
   "aria-label": ariaLabel = "Filter results",
   className,
 }: {
@@ -142,6 +149,8 @@ export function WzGroupedFilter<K extends string = string>({
   /** Group keys in the order their chips are listed (default: the menu's). */
   chipOrder?: readonly K[];
   placeholder?: string;
+  /** `"tall"`: the Items report's 48.64px box; `"regular"` (default): the Jobs report's 38px. */
+  size?: "regular" | "tall";
   "aria-label"?: string;
   className?: string;
 }) {
@@ -217,7 +226,7 @@ export function WzGroupedFilter<K extends string = string>({
         optionOf={optionOf}
         labelId={labelId}
         anchor={
-          <div data-slot="wz-grouped-filter-control" className={CONTROL}>
+          <div data-slot="wz-grouped-filter-control" className={cn(CONTROL, size === "tall" && TALL)}>
             {/* react-select's value box: 2px 8px, wrapping. */}
             <div className="relative flex min-h-7 min-w-0 flex-1 flex-wrap items-center px-2 py-0.5">
               {showPlaceholder ? (

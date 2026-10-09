@@ -82,6 +82,54 @@ describe("WzReportGrid", () => {
     expect(screen.queryByText("No Records Found")).toBeNull();
     expect(document.querySelectorAll("tbody tr[aria-hidden]")).toHaveLength(10);
   });
+
+  // The Items report's ▸ (rep_items_wz_12c_drill): the item's jobs open in a
+  // box under its row, across the whole grid; the zebra goes on counting
+  // records, as react-table's rt-tr-group does.
+  it("opens a record's box under its row, across every column, and keeps the zebra counting records", () => {
+    render(
+      <WzReportGrid
+        aria-label="Activity"
+        columns={columns}
+        rows={rows}
+        rowKey={(r) => r.id}
+        renderExpanded={(r) => (r.id === "1" ? <p>Jobs of Ann</p> : null)}
+      />,
+    );
+    const body = document.querySelector("tbody")!;
+    const box = screen.getByText("Jobs of Ann").closest("td")!;
+    expect(box).toHaveAttribute("colspan", "2");
+    const annRow = screen.getByText("Ann").closest("tr")!;
+    const tomRow = screen.getByText("Tom").closest("tr")!;
+    expect(annRow.nextElementSibling).toBe(box.closest("tr"));
+    // Ann is the first record (odd, grey), Tom the second (even) — the box does not shift him.
+    const nth = (tr: Element) => [...body.children].indexOf(tr) + 1;
+    expect(nth(annRow) % 2).toBe(1);
+    expect(nth(tomRow) % 2).toBe(0);
+    // Still ten records' worth of rows: two records, eight blanks.
+    expect(body.querySelectorAll("tr[aria-hidden]:not([hidden])")).toHaveLength(8);
+  });
+
+  it("takes a row minimum of its own (the drill-down's five) and can leave its header unpinned", () => {
+    render(<WzReportGrid aria-label="Activity" columns={columns} rows={rows} rowKey={(r) => r.id} minRows={5} stickyHeader={false} />);
+    expect(document.querySelectorAll("tbody tr[aria-hidden]")).toHaveLength(3);
+    expect(screen.getByRole("columnheader", { name: /Time/ }).className).not.toMatch(/\bsticky\b/);
+  });
+
+  // react-table's plain header (the Items report's "Item"): centred, regular weight.
+  it("lets a column dress its header", () => {
+    render(
+      <WzReportGrid
+        aria-label="Activity"
+        columns={[{ ...columns[0], headerClassName: "text-center font-normal" }, columns[1]]}
+        rows={rows}
+        rowKey={(r) => r.id}
+        onSort={() => {}}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Sort by Time" })).toHaveClass("text-center", "font-normal");
+    expect(screen.getByRole("button", { name: "Sort by Time" })).not.toHaveClass("text-left");
+  });
 });
 
 describe("wzNextSort", () => {
