@@ -1,4 +1,5 @@
 import { ServiceUnavailableException } from '@nestjs/common';
+import type { SendEmailCommandInput } from '@aws-sdk/client-sesv2';
 import { EmailCodeSender } from '../../../src/security/email-code.sender';
 
 /**
@@ -8,7 +9,7 @@ import { EmailCodeSender } from '../../../src/security/email-code.sender';
  * sign-in gate ask before offering it.
  */
 function make(from = 'office@slk.example', configurationSet?: string) {
-  const ses = { send: jest.fn(async () => ({ MessageId: 'm-1' })) };
+  const ses = { send: jest.fn(async (_command: { input: SendEmailCommandInput }) => ({ MessageId: 'm-1' })) };
   const sender = new EmailCodeSender({ from, configurationSet }, ses as never);
   return { sender, ses };
 }
@@ -32,8 +33,8 @@ describe('EmailCodeSender', () => {
     expect(input.FromEmailAddress).toBe('office@slk.example');
     expect(input.Destination).toEqual({ ToAddresses: ['bob@x.com'] });
     expect(input.ConfigurationSetName).toBe('bitcrm-events');
-    expect(input.Content.Simple.Subject.Data).toMatch(/sign-in code/i);
-    expect(input.Content.Simple.Body.Text.Data).toContain('123456');
+    expect(input.Content?.Simple?.Subject?.Data).toMatch(/sign-in code/i);
+    expect(input.Content?.Simple?.Body?.Text?.Data).toContain('123456');
   });
 
   it('leaves the configuration set out when there is none', async () => {

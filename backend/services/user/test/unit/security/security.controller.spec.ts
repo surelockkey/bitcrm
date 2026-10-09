@@ -5,7 +5,7 @@ function make() {
   const security = {
     getSettings: jest.fn(async () => ({ requireMfa: true, loginCodeByEmail: false, otpByEmail: false })),
     updateSettings: jest.fn(async (dto: unknown, actorId: string) => ({ requireMfa: false, loginCodeByEmail: false, otpByEmail: false, updatedBy: actorId })),
-    listAudit: jest.fn(async () => [{ actorId: 'u-1' }]),
+    listAudit: jest.fn(async (_limit: number) => [{ actorId: 'u-1' }]),
   };
   return { controller: new SecurityController(security as never), security };
 }
