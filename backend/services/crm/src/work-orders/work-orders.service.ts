@@ -118,4 +118,16 @@ export class WorkOrdersService {
     await this.repository.put({ ...existing, s3Key, updatedAt: new Date().toISOString() });
     return { uploadUrl, s3Key, headers };
   }
+
+  /**
+   * A five-minute presigned GET for the uploaded WO document — the web's
+   * "View Work Order" frames it, as Workiz's work order page frames its PDF.
+   * 404 when nothing was ever uploaded.
+   */
+  async getDocumentUrl(id: string): Promise<{ downloadUrl: string }> {
+    const existing = await this.findById(id);
+    if (!existing.s3Key) throw new NotFoundException(`Work order ${id} has no document`);
+    const downloadUrl = await this.s3.getPresignedDownloadUrl(existing.s3Key, 300);
+    return { downloadUrl };
+  }
 }
