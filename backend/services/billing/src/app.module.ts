@@ -19,6 +19,7 @@ import { DealEventsModule } from './deal-events/deal-events.module';
 import { EstimatesModule } from './estimates/estimates.module';
 import { IntegrationsModule } from './integrations/integrations.module';
 import { InvoicesModule } from './invoices/invoices.module';
+import { NumberingModule } from './numbering/numbering.module';
 import { PaymentsModule } from './payments/payments.module';
 import { PaymentScheduleModule } from './payment-schedule/payment-schedule.module';
 import { StripeModule } from './payments/stripe/stripe.module';
@@ -86,6 +87,8 @@ const DEAL_EVENTS_QUEUE_URL = process.env.BILLING_DEAL_EVENTS_QUEUE_URL;
     // `POST /templates/render` is registered ahead of the `/templates/:id` routes.
     TemplateRenderModule,
     TemplatesModule,
+    // Settings → Numbering (`GET/PUT /numbering`); the client-document counters the two below draw on.
+    NumberingModule,
     InvoicesModule,
     EstimatesModule,
     ProposalsModule,

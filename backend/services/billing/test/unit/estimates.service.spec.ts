@@ -856,6 +856,32 @@ describe('EstimatesService', () => {
       await expect(noJob()).rejects.toBeInstanceOf(NotFoundException);
     });
 
+    it('takes its number from Settings → Numbering (the estimate counter) when the numbering service is wired', async () => {
+      const numbering = { nextNumber: jest.fn(async (kind: string): Promise<string> => (kind === 'estimate' ? '1142' : '85427')) };
+      const withNumbering = new EstimatesService(
+        repo as never,
+        deal as never,
+        documents as never,
+        events as never,
+        undefined,
+        crm as never,
+        undefined,
+        undefined,
+        undefined,
+        numbering as never,
+      );
+      const e = await withNumbering.create({ contactId: 'contact-1' }, caller());
+      expect(e.number).toBe('1142');
+      expect(numbering.nextNumber).toHaveBeenCalledWith('estimate');
+      expect(repo.nextAccountSeq).not.toHaveBeenCalled();
+      // A duplicate of a client estimate is numbered the same way; a job's stays `<job>-<n>`.
+      numbering.nextNumber.mockResolvedValueOnce('1143');
+      expect((await withNumbering.duplicate(e.id, caller())).number).toBe('1143');
+      const job = await withNumbering.create({ dealId: 'deal-1' }, caller());
+      expect(job.number).toBe('K4T9ZW-1');
+      expect(numbering.nextNumber).toHaveBeenCalledTimes(2);
+    });
+
     it('is office-only: a technician scoped to their jobs cannot see, list or count it', async () => {
       const e = await noJob();
       await service.create({ dealId: 'deal-1' }, caller());

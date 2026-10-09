@@ -597,6 +597,32 @@ describe('InvoicesService', () => {
   describe('client invoices (no job)', () => {
     const noJob = () => service.createForClient('contact-1', caller());
 
+    it('takes its number from Settings → Numbering (the invoice counter) when the numbering service is wired', async () => {
+      const numbering = { nextNumber: jest.fn(async (kind: string) => (kind === 'invoice' ? '85427' : '1142')) };
+      const withNumbering = new InvoicesService(
+        repo as never,
+        deal as never,
+        crm as never,
+        profiles as never,
+        documents as never,
+        events as never,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        numbering as never,
+      );
+      const inv = await withNumbering.createForClient('contact-1', caller());
+      expect(inv.number).toBe('85427');
+      expect(numbering.nextNumber).toHaveBeenCalledWith('invoice');
+      expect(repo.nextAccountSeq).not.toHaveBeenCalled();
+      // A job's invoice keeps the job's number.
+      const job = await withNumbering.create('deal-1', caller());
+      expect(job.number).toBe('K4T9ZW');
+      expect(numbering.nextNumber).toHaveBeenCalledTimes(1);
+    });
+
     it('creates for the client: fresh id, stub number, client terms, no job, no items', async () => {
       crm.getContact.mockResolvedValueOnce({
         id: 'contact-1',

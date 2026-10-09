@@ -495,6 +495,10 @@ export {
   DOCUMENT_NOTES_MAX_LENGTH,
   PORTAL_LINK_SHORT_CODE,
 } from './entities/document-settings.entity';
+export type { NumberingSettings } from './entities/numbering-settings.entity';
+export { DOCUMENT_NUMBER_MAX } from './entities/numbering-settings.entity';
+export type { EstimateSettings, DocumentEmailAttachment, DocumentEmailAttachments } from './entities/estimate-settings.entity';
+export { DEFAULT_ESTIMATE_SETTINGS } from './entities/estimate-settings.entity';
 export {
   DOCUMENT_TEMPLATE_KINDS,
   DOCUMENT_BLOCK_TYPES,

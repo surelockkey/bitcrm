@@ -35,6 +35,7 @@ import { DocumentsService } from '../documents/documents.service';
 import { BillingEventsPublisher } from '../integrations/billing-events.publisher';
 import { CrmClient } from '../integrations/crm.client';
 import { DealClient, type DealBillingView, type ReplaceAllRequest } from '../integrations/deal.client';
+import { NumberingService } from '../numbering/numbering.service';
 import {
   assertSyncable,
   estimateNumber,
@@ -135,7 +136,18 @@ export class EstimatesService {
     @Optional() private readonly documentSettings?: DocumentSettingsService,
     @Optional() private readonly signatures?: SignaturesService,
     @Optional() private readonly assets?: AssetsService,
+    @Optional() private readonly numbering?: NumberingService,
   ) {}
+
+  /**
+   * A client estimate's number: Settings → Numbering's estimate counter. The
+   * legacy shared counter only when the numbering service is not wired (a
+   * unit test built with `new`); the module always provides it.
+   */
+  private async standaloneNumber(): Promise<string> {
+    if (this.numbering) return this.numbering.nextNumber('estimate');
+    return standaloneDocumentNumber(await this.repo.nextAccountSeq());
+  }
 
   /** The cover image's short-lived URL, when one is set and assets are wired. */
   private async coverOf(estimate: Pick<Estimate, 'coverAssetId'>): Promise<Pick<EstimateWithItems, 'coverUrl'>> {
@@ -187,12 +199,12 @@ export class EstimatesService {
     }
     const contact = await this.requireCrm().getContact(contactId);
     if (!contact) throw new NotFoundException('Client not found');
-    const seq = await this.repo.nextAccountSeq();
+    const number = await this.standaloneNumber();
     const now = new Date().toISOString();
     const id = randomUUID();
     const estimate: Estimate = {
       id,
-      number: standaloneDocumentNumber(seq),
+      number,
       contactId: contact.id,
       ...(contact.companyId && { companyId: contact.companyId }),
       ...(input.name?.trim() && { name: input.name.trim() }),
@@ -428,9 +440,7 @@ export class EstimatesService {
     const src = await this.load(id, caller);
     const { dealId, dealNumber } = src.estimate;
     const number =
-      dealId && dealNumber
-        ? estimateNumber(dealNumber, await this.repo.nextSeq(dealId))
-        : standaloneDocumentNumber(await this.repo.nextAccountSeq());
+      dealId && dealNumber ? estimateNumber(dealNumber, await this.repo.nextSeq(dealId)) : await this.standaloneNumber();
     const now = new Date().toISOString();
     const newId = randomUUID();
     const {

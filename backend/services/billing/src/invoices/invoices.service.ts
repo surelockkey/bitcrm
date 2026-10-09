@@ -43,6 +43,7 @@ import { displayOverrides, reorderPositions, sortItems } from '../estimates/esti
 import { BillingEventsPublisher } from '../integrations/billing-events.publisher';
 import { CrmClient } from '../integrations/crm.client';
 import { DealClient, type DealBillingView } from '../integrations/deal.client';
+import { NumberingService } from '../numbering/numbering.service';
 import {
   computeClientInvoiceTotals,
   computeDueDate,
@@ -225,7 +226,18 @@ export class InvoicesService {
     @Optional() private readonly unpaid?: UnpaidInvoicesRepository,
     @Optional() private readonly documentSettings?: DocumentSettingsService,
     @Optional() private readonly signatures?: SignaturesService,
+    @Optional() private readonly numbering?: NumberingService,
   ) {}
+
+  /**
+   * A client invoice's number: Settings → Numbering's invoice counter. The
+   * legacy shared counter only when the numbering service is not wired (a
+   * unit test built with `new`); the module always provides it.
+   */
+  private async standaloneNumber(): Promise<string> {
+    if (this.numbering) return this.numbering.nextNumber('invoice');
+    return standaloneDocumentNumber(await this.repo.nextAccountSeq());
+  }
 
   // ---------------------------------------------------------------- create
 
@@ -325,10 +337,10 @@ export class InvoicesService {
     }
     const contact = await this.crm.getContact(contactId);
     if (!contact) throw new NotFoundException('Client not found');
-    const [company, profile, seq] = await Promise.all([
+    const [company, profile, number] = await Promise.all([
       contact.companyId ? this.crm.getCompany(contact.companyId).catch(() => null) : Promise.resolve(null),
       this.profiles.get(undefined),
-      this.repo.nextAccountSeq(),
+      this.standaloneNumber(),
     ]);
 
     const now = new Date().toISOString();
@@ -340,7 +352,7 @@ export class InvoicesService {
 
     const base: Invoice = {
       id: randomUUID(),
-      number: standaloneDocumentNumber(seq),
+      number,
       contactId: contact.id,
       ...(contact.companyId && { companyId: contact.companyId }),
       ...(contact.taxExempt && { taxRatePercent: 0, taxSource: 'exempt' as const }),
