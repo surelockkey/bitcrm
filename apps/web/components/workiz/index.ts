@@ -158,3 +158,7 @@ export { WzJobBackLink } from "./job-back-link";
 
 // Workiz Phone settings tabs (agent pg_settings_phone: Phone numbers, Call flows, Call groups, Texting).
 export { WzTabIntro, WzRowIconButton, WzTag, WzShortCodeChips, WzSectionRule, shortCodeLabel } from "./phone-tab-parts";
+
+// Permission editors (agent pg_admin_users): the full-window modal a page draws, the switch row.
+export { WzWindowFrame } from "./window-frame";
+export { WzSwitchRow } from "./switch-row";

@@ -118,7 +118,8 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
   const jobsCount = countSoFar(jobPages, hasNextPage);
   const paymentsCount = countSoFar(paymentPages, morePayments);
   const addressesCount = countSoFar(jobPages, hasNextPage, (rows) => clientAddressRows(contact, rows).length);
-  const canPay = can("invoices") && can("payments", "create");
+  // Taking money is `payments.collect` (POST /invoices/:id/payments); the registry has no `payments.create`.
+  const canPay = can("invoices") && can("payments", "collect");
 
   const tabs: WzTab[] = [
     { value: "jobs", label: "Jobs", count: jobsCount },

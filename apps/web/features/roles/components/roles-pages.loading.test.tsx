@@ -88,12 +88,12 @@ describe("RolesPage — loading", () => {
       () => ({
         skeletons: skeletonCount(),
         counts: ["1", "3", "2"].every((n) => screen.queryAllByText(n).length > 0),
-        total: !!screen.queryByText("3 roles"),
-        zero: !!screen.queryByText("0 roles"),
-        newRole: !!screen.queryByRole("button", { name: /new role/i }),
+        total: !!screen.queryByText("Showing 1 to 3 of 3 results"),
+        zero: !!screen.queryByText("Showing 1 to 0 of 0 results"),
+        newRole: !!screen.queryByRole("button", { name: "Add New Role" }),
       }),
     );
-    const zero = watchFirstFrame(() => !!screen.queryByText("0 roles"), () => true);
+    const zero = watchFirstFrame(() => !!screen.queryByText("Showing 1 to 0 of 0 results"), () => true);
 
     renderWithClient(<RolesPage />);
     await screen.findByText("Night Desk");
@@ -115,7 +115,7 @@ describe("RoleEditorPage — loading", () => {
     server = installFakeServer(routes());
     const refused = watchFirstFrame(() => !!screen.queryByText("No access"), () => true);
     const first = watchFirstFrame(
-      () => !!screen.queryByRole("heading", { name: "Dispatcher" }),
+      () => !!screen.queryByRole("heading", { name: "Edit permissions for role Dispatcher" }),
       () => ({
         skeletons: skeletonCount(),
         members: screen.queryByRole("tab", { name: /members/i })?.textContent ?? null,
@@ -124,13 +124,13 @@ describe("RoleEditorPage — loading", () => {
     );
 
     renderWithClient(<RoleEditorPage roleId="role-dispatcher" />);
-    await screen.findByRole("heading", { name: "Dispatcher" });
+    await screen.findByRole("heading", { name: "Edit permissions for role Dispatcher" });
     await settle();
     first.stop();
     refused.stop();
 
     expect(refused.frame()).toBeNull();
-    expect(first.frame()).toEqual(expect.objectContaining({ skeletons: 0, members: "Members · 3" }));
+    expect(first.frame()).toEqual(expect.objectContaining({ skeletons: 0, members: "Members 3" }));
     // Everything the editor shows was asked for before it appeared.
     expect(server.requests.length).toBe(first.frame()?.requestsSoFar);
     expect(duplicates(server.requests)).toEqual([]);

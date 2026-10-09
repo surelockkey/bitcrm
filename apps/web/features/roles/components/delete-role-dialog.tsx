@@ -47,8 +47,8 @@ export function DeleteRoleDialog({
         </AlertDialogHeader>
 
         {blocked ? (
-          <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-sm text-amber-700 dark:text-amber-500">
-            <TriangleAlert className="mt-0.5 size-4 flex-none" />
+          <div className="flex items-start gap-2 text-sm leading-[21px] text-wz-strong">
+            <TriangleAlert className="mt-0.5 size-4 flex-none text-wz-toast-warning" />
             <span>Resolve the blocker above, then try again.</span>
           </div>
         ) : null}

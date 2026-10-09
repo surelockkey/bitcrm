@@ -5,9 +5,9 @@ import { Loader2 } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import type { User } from "@bitcrm/types";
-import { Button } from "@/components/ui/button";
 import { PhoneInput } from "@/components/ui/phone-input";
-import { Switch } from "@/components/ui/switch";
+import { WzButton } from "@/components/workiz/button";
+import { WzSwitch } from "@/components/workiz/toggles";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { isValidPhone } from "@/lib/phone";
 import { queryKeys } from "@/lib/query-keys";
@@ -64,24 +64,24 @@ export function UserTwoStepSwitch({ user, canEdit }: { user: User; canEdit: bool
   };
 
   return (
-    <div className="space-y-3 rounded-lg border p-3">
-      <div className="flex items-center justify-between gap-3">
-        <div className="space-y-0.5">
+    <div className="space-y-3 border-t border-wz-frame pt-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="space-y-1">
           <div className="flex items-center gap-2">
-            <label htmlFor={`two-step-${user.id}`} className="text-sm font-medium">
+            <label htmlFor={`two-step-${user.id}`} className="text-sm leading-[21px] font-semibold tracking-[0.4px] text-foreground">
               Two-step sign-in
             </label>
             <TwoStepStatus enabled={enabled} />
           </div>
-          <p className="text-xs text-muted-foreground">
+          <p className="text-xs leading-[18px] text-wz-outline-label">
             {enabled
               ? "After the password, a code is texted to their phone."
               : "Off: password only. Turn on to also text them a code."}
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {busy ? <Loader2 className="size-4 animate-spin text-muted-foreground" /> : null}
-          <Switch
+          {busy ? <Loader2 className="size-4 animate-spin text-wz-outline-label" /> : null}
+          <WzSwitch
             id={`two-step-${user.id}`}
             aria-label="Two-step sign-in"
             checked={enabled || askPhone}
@@ -92,24 +92,18 @@ export function UserTwoStepSwitch({ user, canEdit }: { user: User; canEdit: bool
       </div>
 
       {askPhone ? (
-        <div data-testid="two-step-phone" className="space-y-2 border-t pt-3">
-          <p className="text-xs text-muted-foreground">
+        <div data-testid="two-step-phone" className="space-y-2">
+          <p className="text-xs leading-[18px] text-wz-outline-label">
             {user.firstName} has no phone on their profile. Add the number their codes should go to:
           </p>
           <div className="flex flex-wrap items-center gap-2">
-            <PhoneInput className="h-9 w-64" value={phone} onChange={setPhone} autoFocus />
-            <Button
-              type="button"
-              variant="brand"
-              size="sm"
-              disabled={!isValidPhone(phone) || busy}
-              onClick={() => phoneThenOn.mutate()}
-            >
+            <PhoneInput className="h-10 w-64" value={phone} onChange={setPhone} autoFocus />
+            <WzButton variant="primary" size="regular" disabled={!isValidPhone(phone) || busy} onClick={() => phoneThenOn.mutate()}>
               Save & turn on
-            </Button>
-            <Button type="button" variant="ghost" size="sm" onClick={() => setAskPhone(false)}>
+            </WzButton>
+            <WzButton variant="tertiary" size="regular" onClick={() => setAskPhone(false)}>
               Cancel
-            </Button>
+            </WzButton>
           </div>
         </div>
       ) : null}

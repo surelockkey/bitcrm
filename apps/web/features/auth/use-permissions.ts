@@ -23,7 +23,9 @@ export function usePermissions() {
     resolved,
     roleName: resolved?.roleName ?? "",
     isTechnician: resolved?.isTechnician ?? false,
-    can: (resource: Resource, action: Action = "view") =>
+    // Typed per resource: an action the registry lacks for it (the old
+    // `can("payments", "create")`) is a compile error, not a silent "no".
+    can: <R extends Resource>(resource: R, action: Action<R> = "view" as Action<R>) =>
       canFn(resolved, resource, action),
     scopeOf: (resource: Resource) => scopeOfFn(resolved, resource),
   };
@@ -45,5 +47,5 @@ export function usePermissions() {
  */
 export function useDenied() {
   const { can, isLoading } = usePermissions();
-  return (resource: Resource, action: Action = "view") => !isLoading && !can(resource, action);
+  return <R extends Resource>(resource: R, action: Action<R> = "view" as Action<R>) => !isLoading && !can(resource, action);
 }
