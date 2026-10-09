@@ -115,3 +115,5 @@ export {
 export { WzOnOffSwitch, type WzOnOffSwitchProps } from "./on-off-switch";
 export { WzColorDots, type WzColorDotOption } from "./color-dots";
 export { WzFormModal } from "./form-modal";
+export { WzSettingsCatalog } from "./settings-catalog";
+export { WzOutlinedTextField } from "./outlined-text-field";
