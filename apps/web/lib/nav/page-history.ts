@@ -143,6 +143,8 @@ const STATIC_LABELS: Record<string, string> = {
   // Workiz's builder breadcrumb: "CALL FLOW BUILDER (128781)".
   "/calls/flows/new": "Call Flow Builder",
   "/profile": "My Profile",
+  // Workiz's crumb for its Settings → Estimates page ("… # NUMBERING # SETTINGS # ESTIMATES SETTINGS").
+  "/settings/estimates": "Estimates settings",
   ...Object.fromEntries(TECHNICIAN_NAV.map((i) => [i.href, i.label])),
 };
 

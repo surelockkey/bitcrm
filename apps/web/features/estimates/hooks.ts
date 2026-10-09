@@ -15,6 +15,31 @@ import * as api from "./api";
 import { estimateStatusLabel, type EstimateListParams } from "./lib";
 import type { EstimateItemBody } from "./schemas";
 
+/* ------------------------------------------------ Settings → Estimates */
+
+/** The account's estimate switches (attach PDF, auto-decline). Readable by anyone signed in. */
+export function useEstimateSettings(enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.estimateSettings(),
+    queryFn: api.getEstimateSettings,
+    enabled,
+    staleTime: 5 * 60_000,
+  });
+}
+
+/** One switch at a time, as Workiz's page saves on the click. */
+export function useUpdateEstimateSettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: api.EstimateSettingsBody) => api.updateEstimateSettings(body),
+    onSuccess: (settings) => {
+      qc.setQueryData(queryKeys.estimateSettings(), settings);
+      toast.success("Estimates settings saved");
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+}
+
 /* ------------------------------------------------------------- queries */
 
 export function useDealEstimates(dealId: string, enabled = true) {

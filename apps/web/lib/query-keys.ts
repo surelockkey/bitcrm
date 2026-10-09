@@ -411,6 +411,10 @@ export const queryKeys = {
 
   /** Settings → Documents defaults (notes, deposit, request signature, send messages). */
   documentSettings: () => ["document-settings"] as const,
+  /** Settings → Numbering: the next client invoice / estimate numbers. */
+  numbering: () => ["numbering"] as const,
+  /** Settings → Estimates: attach PDF, auto-decline — the Send panel reads them too. */
+  estimateSettings: () => ["estimate-settings"] as const,
 
   proposals: {
     all: () => ["proposals"] as const,

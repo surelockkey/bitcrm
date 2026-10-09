@@ -1,4 +1,4 @@
-import type { Invoice, InvoiceView, ListCount } from "@bitcrm/types";
+import type { DocumentEmailAttachments, Invoice, InvoiceView, ListCount } from "@bitcrm/types";
 import { http } from "@/lib/api/http";
 import type { EstimateItemBody } from "@/features/estimates/schemas";
 import type { SignatureBody } from "@/features/estimates/api";
@@ -97,6 +97,10 @@ export const updateInvoice = (id: string, body: InvoicePatch): Promise<InvoiceVi
 
 export const markInvoiceSent = (id: string, sent: boolean): Promise<Invoice> =>
   http.post<Invoice>(`${BASE}/${id}/mark-sent`, { sent });
+
+/** Workiz "Attach PDF files": what the Send panel adds to this invoice's email (see the estimates twin). */
+export const getInvoiceEmailAttachments = (id: string): Promise<DocumentEmailAttachments> =>
+  http.post<DocumentEmailAttachments>(`${BASE}/${id}/email-attachments`);
 
 export const deleteInvoice = (id: string): Promise<unknown> => http.delete<unknown>(`${BASE}/${id}`);
 

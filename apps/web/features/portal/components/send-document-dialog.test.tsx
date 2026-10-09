@@ -53,9 +53,18 @@ function handlers(
     settings?: object | null;
     allowedStatus?: number;
     documentSettings?: object;
+    /** What billing answers for the email's PDF (Workiz "Attach PDF files"); none attached by default. */
+    attachments?: { attachments: object[]; warning?: string };
+    attachmentsStatus?: number;
   } = {},
 ) {
   server.use(
+    http.post("*/billing/invoices/d1/email-attachments", () => {
+      calls.push("attachments");
+      return over.attachmentsStatus && over.attachmentsStatus >= 400
+        ? HttpResponse.json({ success: false, message: "PDF rendering unavailable" }, { status: over.attachmentsStatus })
+        : HttpResponse.json({ success: true, data: over.attachments ?? { attachments: [] } });
+    }),
     http.get("*/billing/payment-settings", () =>
       HttpResponse.json({
         success: true,
@@ -306,6 +315,70 @@ describe("SendDocumentDialog — by email", () => {
       body: expect.stringContaining(URL_),
     });
     expect(toast.success).toHaveBeenCalledWith("Email sent to Jane");
+  });
+
+  describe("Workiz 'Attach PDF files' (Settings → Estimates)", () => {
+    const pdf = { id: "7b3e1c2a-1111-4222-8333-444455556666", fileName: "Invoice-1042.pdf", contentType: "application/pdf", size: 4 };
+
+    it("asks billing for the PDF after marking sent, and the email carries it", async () => {
+      handlers({ contact: withEmail, attachments: { attachments: [pdf] } });
+      const order: string[] = [];
+      const { onOpenChange } = open({ channel: "email", markSent: vi.fn(async () => { order.push("mark-sent"); }) });
+      await ready();
+      server.events.on("request:start", ({ request }) => {
+        if (request.url.endsWith("/email-attachments")) order.push("attachments");
+        if (request.url.endsWith("/messaging/messages")) order.push("email");
+      });
+      await user().click(screen.getByRole("button", { name: /^send email$/i }));
+      await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+      expect(order).toEqual(["mark-sent", "attachments", "email"]);
+      expect(sms).toMatchObject({ channel: "email", attachments: [pdf] });
+      expect(toast.success).toHaveBeenCalledWith("Email sent to Jane with the PDF");
+    });
+
+    it("emails with the portal link alone when the account attaches no PDF", async () => {
+      handlers({ contact: withEmail });
+      const { onOpenChange } = open({ channel: "email" });
+      await ready();
+      await user().click(screen.getByRole("button", { name: /^send email$/i }));
+      await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+      expect(calls).toContain("attachments");
+      expect(sms).not.toHaveProperty("attachments");
+      expect(toast.success).toHaveBeenCalledWith("Email sent to Jane");
+    });
+
+    it("still emails when the PDF could not be made, and shows billing's warning", async () => {
+      handlers({
+        contact: withEmail,
+        attachments: { attachments: [], warning: "The PDF could not be made (no Chrome) — the email goes out with the portal link only." },
+      });
+      const { onOpenChange } = open({ channel: "email" });
+      await ready();
+      await user().click(screen.getByRole("button", { name: /^send email$/i }));
+      await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+      expect(sms).not.toHaveProperty("attachments");
+      expect(toast.message).toHaveBeenCalledWith("The PDF could not be made (no Chrome) — the email goes out with the portal link only.");
+    });
+
+    it("still emails when billing itself cannot answer for the PDF", async () => {
+      handlers({ contact: withEmail, attachmentsStatus: 503 });
+      const { onOpenChange } = open({ channel: "email" });
+      await ready();
+      await user().click(screen.getByRole("button", { name: /^send email$/i }));
+      await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+      expect(sms).toMatchObject({ channel: "email" });
+      expect(toast.message).toHaveBeenCalledWith(expect.stringMatching(/PDF rendering unavailable/));
+    });
+
+    it("never asks for a PDF for a text", async () => {
+      handlers({ attachments: { attachments: [pdf] } });
+      const { onOpenChange } = open();
+      await ready();
+      await user().click(screen.getByRole("button", { name: /^send text$/i }));
+      await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+      expect(calls).not.toContain("attachments");
+      expect(sms).not.toHaveProperty("attachments");
+    });
   });
 
   it("needs a subject and a To address", async () => {

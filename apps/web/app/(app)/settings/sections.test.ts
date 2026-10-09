@@ -30,6 +30,8 @@ describe("settingsFrame", () => {
       "/settings/security",
       "/settings/notifications",
       "/settings/preferences",
+      "/settings/numbering",
+      "/settings/estimates",
     ]) {
       expect(settingsFrame(href), href).toBe("workiz");
     }
@@ -76,9 +78,19 @@ describe("SETTINGS_GROUPS", () => {
     // Roles & Permissions, Ad Groups (job sources), Field Validation (required
     // job fields), Sub-Status (job statuses) — the routes stay ours.
     // Notifications sits between Automation Center and Documents, as on Workiz's settings home;
-    // Security Center is Workiz's own tile too (after Numbering there; after Documents here);
-    // Account Preferences: Workiz's Account → Preferences toggles (Update Job End Time), reached from here.
-    expect(labelsOf("General Settings")).toEqual(["Companies", "Automation Center", "Notifications", "Documents", "Security Center", "Account Preferences"]);
+    // after Documents Workiz's own tiles in its order (settings_audit_wz_home: … Documents ·
+    // Schedule Settings · Lead Status · Numbering · Security Center · Estimates); then Account
+    // Preferences — Workiz's Account → Preferences toggles (Update Job End Time), reached from here.
+    expect(labelsOf("General Settings")).toEqual([
+      "Companies",
+      "Automation Center",
+      "Notifications",
+      "Documents",
+      "Numbering",
+      "Security Center",
+      "Estimates",
+      "Account Preferences",
+    ]);
     // Team is reached from here only, as in Workiz (no sidebar row since the
     // sidebar copied Workiz's menu): the field team first, then the logins.
     expect(labelsOf("Users & Roles")).toEqual(["Technicians", "Team Management", "Roles & Permissions"]);

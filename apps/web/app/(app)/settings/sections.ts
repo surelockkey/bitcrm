@@ -22,6 +22,8 @@ import {
   LockKeyhole,
 
   Bell,
+  Hash,
+  FileSignature,
 } from "lucide-react";
 import type { Resource } from "@bitcrm/types";
 
@@ -94,12 +96,27 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
         icon: FileStack,
         resource: "document_templates",
       },
+      // Workiz's own tiles, in its order after Documents (settings_audit_wz_home).
+      {
+        label: "Numbering",
+        href: "/settings/numbering",
+        description: "Set the serial numbers for your next invoice/estimate.",
+        icon: Hash,
+        resource: "settings",
+      },
       {
         // Workiz's Security Center (General Settings, after Numbering).
         label: "Security Center",
         href: "/settings/security",
         description: "Two-factor authentication for everyone who signs in, and whether sign-in codes may go by email.",
         icon: LockKeyhole,
+        resource: "settings",
+      },
+      {
+        label: "Estimates",
+        href: "/settings/estimates",
+        description: "Attach PDF files to estimate emails; auto-decline a job's other estimates when one is approved.",
+        icon: FileSignature,
         resource: "settings",
       },
       {
@@ -306,6 +323,8 @@ export const WORKIZ_FRAMED_SETTINGS: ReadonlySet<string> = new Set([
 
   "/settings/notifications",
   "/settings/preferences",
+  "/settings/numbering",
+  "/settings/estimates",
 ]);
 
 /**
