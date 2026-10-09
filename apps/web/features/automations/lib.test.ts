@@ -5,7 +5,9 @@ import {
   actionOutcomeLabel,
   anchorAllowsBefore,
   canEnable,
+  categoryCounts,
   categoryLabel,
+  conditionCount,
   filterRules,
   firingCount,
   formatEditedAt,
@@ -16,12 +18,15 @@ import {
   outcomeTone,
   ruleCategories,
   ruleCategory,
+  ruleDateLine,
   ruleSentence,
   ruleState,
   runSummary,
   segmentsToBody,
   sortRules,
   splitOffset,
+  stateCounts,
+  totalFirings,
   triggerHasJob,
 } from "./lib";
 import { AUTOMATION_TEMPLATES } from "./templates";
@@ -511,5 +516,87 @@ describe("isFiltered", () => {
     expect(isFiltered({ states: ["on"] })).toBe(true);
     expect(isFiltered({ trigger: "deal.created" })).toBe(true);
     expect(isFiltered({ category: "phone" })).toBe(true);
+  });
+});
+
+describe("ruleDateLine", () => {
+  it("says Workiz's own 'Modified on' for an imported rule it re-dated, and 'Created on' otherwise", () => {
+    expect(
+      ruleDateLine(rule({ validFrom: "2024-09-30T13:47:38.903Z", createdAt: "2021-11-17T22:44:29.419Z" })),
+    ).toEqual({ verb: "Modified on", at: "2024-09-30T13:47:38.903Z" });
+    expect(
+      ruleDateLine(rule({ createdAt: "2021-11-17T22:46:13.950Z", updatedAt: "2024-10-09T14:36:03.702Z" })),
+    ).toEqual({ verb: "Created on", at: "2021-11-17T22:46:13.950Z" });
+  });
+
+  it("dates a rule written or edited here by its own last change", () => {
+    expect(
+      ruleDateLine(
+        rule({
+          specSource: "user",
+          validFrom: "2024-09-30T13:47:38.903Z",
+          createdAt: "2026-09-15T10:00:00.000Z",
+          updatedAt: "2026-10-01T08:00:00.000Z",
+        }),
+      ),
+    ).toEqual({ verb: "Modified on", at: "2026-10-01T08:00:00.000Z" });
+    expect(
+      ruleDateLine(
+        rule({ specSource: "user", createdAt: "2026-09-15T10:00:00.000Z", updatedAt: "2026-09-15T10:00:00.000Z" }),
+      ),
+    ).toEqual({ verb: "Created on", at: "2026-09-15T10:00:00.000Z" });
+  });
+});
+
+describe("conditionCount", () => {
+  it("counts what the rule checks, an OR group as one, and never the lead flag nobody sees", () => {
+    expect(conditionCount(rule())).toBe(0);
+    expect(
+      conditionCount(
+        withSpec({
+          spec: {
+            version: 1,
+            trigger: { kind: "deal.created" },
+            conditions: [
+              { field: "isLead", op: "eq", values: ["false"] },
+              { field: "tag", op: "in", values: ["t1"] },
+              {
+                any: [
+                  { field: "source", op: "eq", values: ["s1"] },
+                  { field: "source", op: "eq", values: ["s2"] },
+                ],
+              },
+            ],
+            actions: [{ type: "send_sms", to: "client", body: "Hi" }],
+          },
+        }),
+      ),
+    ).toBe(2);
+  });
+});
+
+describe("the left column's figures", () => {
+  const list = [
+    rule({ id: "a", enabled: true, firedCount: 4, category: "phone", builtin: true }),
+    withSpec({ id: "b", firedCount: 2 }),
+    rule({ id: "c", runnable: false, category: "followUps" }),
+    rule({ id: "d", runnable: false, category: "followUps" }),
+  ];
+
+  it("counts the rules in each state, All first", () => {
+    expect(stateCounts(list)).toEqual({ all: 4, on: 1, off: 1, blocked: 2 });
+  });
+
+  it("counts the rules in each category, in label order", () => {
+    expect(categoryCounts(list)).toEqual([
+      { category: "custom", count: 1 },
+      { category: "followUps", count: 2 },
+      { category: "phone", count: 1 },
+    ]);
+  });
+
+  it("adds up how often the rules fired here", () => {
+    expect(totalFirings(list)).toBe(6);
+    expect(totalFirings([])).toBe(0);
   });
 });
