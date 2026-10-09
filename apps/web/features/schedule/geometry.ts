@@ -20,7 +20,8 @@ export const MIN_SPLIT_PX = 10;
 export const CASCADE_PX = 2;
 
 /* Month (05_month). */
-export const MONTH_HEADER_PX = 30;
+/** "Sun" … "Sat": 30px, and the grid starts 2px under it (05_month: header 152, first head 184). */
+export const MONTH_HEADER_PX = 32;
 export const MONTH_ROW_PX = 166;
 export const MONTH_HEAD_PX = 21;
 export const MONTH_LINE_PX = 20;
