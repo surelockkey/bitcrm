@@ -36,6 +36,11 @@ describe('AutomationPeersClient', () => {
     expect(await withEmail.user('u1')).toMatchObject({ email: 'ann@example.com', phone: '+14045550001' });
   });
 
+  it("carries Workiz's user type: a subcontractor has no app to post to", async () => {
+    const client = new AutomationPeersClient(fakeFetch(async () => response(200, { id: 'u1', userType: 'subcontractor' })));
+    expect(await client.user('u1')).toMatchObject({ userType: 'subcontractor' });
+  });
+
   it('answers null on 404, on a 5xx and on a network failure', async () => {
     const client404 = new AutomationPeersClient(fakeFetch(async () => response(404)));
     expect(await client404.deal('nope')).toBeNull();

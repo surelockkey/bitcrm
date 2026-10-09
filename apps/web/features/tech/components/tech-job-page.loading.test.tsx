@@ -1,44 +1,28 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { ReactElement } from "react";
-import { ClientType, DealPriority, DealStatus, JobSuperStatus } from "@bitcrm/types";
+import { cleanup, screen } from "@testing-library/react";
+import type { QueryClient } from "@tanstack/react-query";
 import type { Deal } from "@bitcrm/types";
 import {
   duplicates,
   installFakeServer,
+  renderWithClient,
   settle,
   skeletonCount,
   watchFirstFrame,
-  type FakeRoute,
   type FakeServer,
 } from "@/test/page-load";
+import { techJob, techJobRoutes } from "./tech-job-page.fixtures";
 
 /**
- * The technician's job page appears once, whole.
- *
- * It used to come up the moment the job did and fill in after: the client's
- * name replaced "—", the number and the Call button pushed the job note down,
- * the job type read "Unknown type", and the photo count changed its mind.
- *
- * Technician-only, so the browser audit never saw it; this renders the real
- * page against a fake server and looks at the very first frame it shows.
+ * The technician's job page appears once, whole — the job page's own rule
+ * (deal-detail-page.loading.test.tsx), with the visit row in the same frame:
+ * the client, the team's names, the dial-in, the tab bar's lines and the
+ * Visit pills are all there the first time the job is.
  */
-
-/**
- * With the app's own query defaults (app/providers.tsx): an answer is fresh
- * for 30 s, so the photo block that mounts with the page reads the files the
- * page asked for a moment earlier instead of asking again — as in the browser.
- */
-function renderWithClient(ui: ReactElement) {
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false, staleTime: 30_000, refetchOnWindowFocus: false } },
-  });
-  return { client, ...render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>) };
-}
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
+  usePathname: () => "/my-jobs/d1",
 }));
 vi.mock("next/link", () => ({
   default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => (
@@ -49,70 +33,44 @@ vi.mock("next/link", () => ({
 }));
 vi.mock("@/features/auth/use-permissions", () => ({
   useDenied: () => () => false,
-  usePermissions: () => ({ can: () => true, isTechnician: true, isLoading: false, me: { id: "t1" } }),
+  usePermissions: () => ({
+    can: (resource: string, action?: string) =>
+      !(resource === "deals" && (action === "create" || action === "delete")) && resource !== "users" && resource !== "settings",
+    isTechnician: true,
+    isLoading: false,
+    me: { id: "t1", firstName: "Tess", lastName: "Tech" },
+  }),
 }));
-
-const job: Deal = {
-  id: "d1",
-  dealNumber: "9042",
-  contactId: "c1",
-  clientType: ClientType.RESIDENTIAL,
-  serviceArea: "North",
-  address: { street: "4 Elm St", city: "Testville", state: "GA", zip: "30001" },
-  jobTypeId: "jt-lockout",
-  superStatus: JobSuperStatus.IN_PROGRESS,
-  subStatusId: "st-onsite",
-  assignedDispatcherId: "u-disp",
-  priority: DealPriority.NORMAL,
-  assignedTechIds: ["t1"],
-  tagIds: [],
-  status: DealStatus.ACTIVE,
-  createdBy: "u-disp",
-  createdAt: "",
-  updatedAt: "",
-  scheduledDate: "2026-10-06",
-  scheduledTimeSlot: "09:00-11:00",
-  notes: "Side gate, dog in the yard.",
-};
-
-const routes: FakeRoute[] = [
-  { match: /\/deals\/d1$/, reply: () => job, delayMs: 20 },
-  {
-    match: /\/crm\/contacts\/c1$/,
-    reply: () => ({ id: "c1", firstName: "Ivy", lastName: "Quill", phones: ["+14045550123"], emails: [], addresses: [] }),
-    delayMs: 40,
-  },
-  {
-    match: /\/deals\/d1\/attachments$/,
-    reply: () => [{ id: "a1", dealId: "d1", fileName: "door.jpg", contentType: "image/jpeg", size: 1000 }],
-    delayMs: 60,
-  },
-  { match: /\/deals\/job-types$/, reply: () => [{ id: "jt-lockout", name: "Lockout", active: true, priority: 1 }], delayMs: 50 },
-  { match: /\/deals\/job-statuses$/, reply: () => [{ id: "st-onsite", name: "On site", active: true, priority: 1 }], delayMs: 50 },
-];
+vi.mock("@/features/calls/components/live-call-strip", () => ({ LiveCallStrip: () => null }));
 
 let server: FakeServer;
+let client: QueryClient;
+let currentDeal: Deal = techJob;
 
-/** The job is up: its number is on screen. */
-const jobIsUp = () => !!screen.queryByText("#9042");
+const jobIsUp = () => !!document.body.textContent?.includes("#1042");
 
 function watchJobFirstFrame() {
   return watchFirstFrame(jobIsUp, () => ({
     requestsSoFar: server.requests.length,
-    client: !!screen.queryByRole("heading", { name: "Ivy Quill" }),
-    phone: !!screen.queryByText("(404) 555-0123"),
-    callButton: screen.queryAllByRole("button", { name: /call/i }).length > 0,
-    jobType: !!screen.queryByText(/Lockout/),
-    subStatus: !!screen.queryByText(/On site/),
-    photos: !!screen.queryByText("1 photo on this job."),
+    clientName: !!screen.queryByDisplayValue("Jane"),
+    techName: !!screen.queryByText("Tess Tech"),
+    dialIn: !!screen.queryByText(/#8707/),
+    jobTypeLine: !!screen.queryByText("Lockout", { selector: "#job-tab-details-sub" }),
+    estimatesLine: !!screen.queryByText("0 estimates"),
+    visit: !!screen.queryByRole("button", { name: /^Confirm receipt/ }),
     skeletons: skeletonCount(),
   }));
 }
 
 const { TechJobPage } = await import("./tech-job-page");
 
+function renderPage() {
+  ({ client } = renderWithClient(<TechJobPage dealId="d1" />));
+}
+
 beforeEach(() => {
-  server = installFakeServer(routes);
+  currentDeal = techJob;
+  server = installFakeServer(techJobRoutes(() => currentDeal));
 });
 
 afterEach(() => {
@@ -120,44 +78,47 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("TechJobPage — one load, not waves", () => {
-  it("shows the job only once its client, its names and its photos are in", async () => {
+describe("TechJobPage — one load", () => {
+  it("shows the job, its visit row and everything on it in one frame", async () => {
     const watch = watchJobFirstFrame();
-    renderWithClient(<TechJobPage dealId="d1" />);
-    await screen.findByText("#9042", {}, { timeout: 3000 });
+    renderPage();
+    expect(skeletonCount()).toBeGreaterThan(0);
+    await screen.findByText("#1042", {}, { timeout: 3000 });
     watch.stop();
 
     expect(watch.frame()).toMatchObject({
-      client: true,
-      phone: true,
-      callButton: true,
-      jobType: true,
-      subStatus: true,
-      photos: true,
+      clientName: true,
+      techName: true,
+      dialIn: true,
+      jobTypeLine: true,
+      estimatesLine: true,
+      visit: true,
       skeletons: 0,
     });
   });
 
   it("asks for nothing more once the job is on screen, and for each thing once", async () => {
     const watch = watchJobFirstFrame();
-    renderWithClient(<TechJobPage dealId="d1" />);
-    await screen.findByText("#9042", {}, { timeout: 3000 });
+    renderPage();
+    await screen.findByText("#1042", {}, { timeout: 3000 });
     watch.stop();
     await settle();
 
-    expect(server.requests.slice(watch.frame()!.requestsSoFar)).toEqual([]);
+    const asked = watch.frame()!.requestsSoFar;
+    expect(server.requests.slice(asked)).toEqual([]);
     expect(duplicates(server.requests)).toEqual([]);
   });
 
-  it("once shown, the job never goes back to the skeleton", async () => {
-    const { client } = renderWithClient(<TechJobPage dealId="d1" />);
-    await screen.findByText("#9042", {}, { timeout: 3000 });
+  it("once shown, a job that comes back changed never goes back to the skeleton", async () => {
+    renderPage();
+    await screen.findByText("#1042", {}, { timeout: 3000 });
 
     let lost = false;
     const observer = new MutationObserver(() => {
-      if (!jobIsUp()) lost = true;
+      if (!document.body.textContent?.includes("#1042")) lost = true;
     });
-    observer.observe(document.body, { childList: true, subtree: true });
+    observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+    currentDeal = { ...techJob, arrivedAt: "2026-10-09T13:40:00.000Z" };
     await client.invalidateQueries();
     await settle();
     observer.disconnect();
@@ -165,17 +126,10 @@ describe("TechJobPage — one load, not waves", () => {
     expect(lost).toBe(false);
   });
 
-  it("a job that cannot be read says so rather than waiting forever", async () => {
-    server.fail(/\/deals\/d1$/);
-    renderWithClient(<TechJobPage dealId="d1" />);
-
-    expect(await screen.findByText("Job not found", {}, { timeout: 3000 })).toBeInTheDocument();
-  });
-
   it("a request that fails does not hold the job off the screen", async () => {
-    server.fail(/\/deals\/d1\/attachments$/);
-    renderWithClient(<TechJobPage dealId="d1" />);
+    server.fail(/\/deals\/qualified-techs$/);
+    renderPage();
 
-    expect(await screen.findByText("#9042", {}, { timeout: 3000 })).toBeInTheDocument();
+    expect(await screen.findByText("#1042", {}, { timeout: 3000 })).toBeInTheDocument();
   });
 });

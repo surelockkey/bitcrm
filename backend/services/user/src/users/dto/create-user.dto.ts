@@ -1,4 +1,5 @@
-import { IsEmail, IsOptional, IsString, MinLength } from 'class-validator';
+import { IsEmail, IsIn, IsOptional, IsString, MinLength, ValidateIf } from 'class-validator';
+import { USER_TYPES, type UserType } from '@bitcrm/types';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateUserDto {
@@ -16,10 +17,25 @@ export class CreateUserDto {
   @MinLength(1)
   lastName!: string;
 
+  @ApiPropertyOptional({
+    enum: USER_TYPES,
+    default: 'regular',
+    description:
+      'Workiz "User type". A `subcontractor` cannot sign in: the account is made ' +
+      'without an invitation and switched off, the role is always the technician ' +
+      'role (any `roleId` is ignored), and they join the field team.',
+  })
+  @IsOptional()
+  @IsIn(USER_TYPES)
+  userType?: UserType;
+
   @ApiProperty({
     example: 'role-technician',
-    description: 'ID of the role to assign. Must reference an existing role.',
+    description:
+      'ID of the role to assign. Must reference an existing role. Not needed — ' +
+      'and ignored — for a subcontractor.',
   })
+  @ValidateIf((o: CreateUserDto) => o.userType !== 'subcontractor')
   @IsString()
   roleId!: string;
 

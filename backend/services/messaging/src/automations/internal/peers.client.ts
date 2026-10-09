@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import type { UserType } from '@bitcrm/types';
 import { INTERNAL_FETCH, defaultFetch, type FetchLike } from '../../outbound/internal/internal-fetch';
 
 const DEAL_SERVICE_URL = process.env.DEAL_SERVICE_URL || 'http://localhost:4003';
@@ -45,6 +46,11 @@ export interface AutomationUser {
   /** Work email (`User.email`) — where the `email` channel of "Send to tech" goes. */
   email?: string;
   status?: string;
+  /**
+   * Workiz's "User type" (`User.userType`). A subcontractor cannot sign in, so
+   * nothing is posted to them in the app; texts and mail go as to anyone.
+   */
+  userType?: UserType;
 }
 
 /**
@@ -154,6 +160,7 @@ export class AutomationPeersClient {
       phone: raw.phone || undefined,
       email: raw.email || undefined,
       status: raw.status,
+      ...(raw.userType ? { userType: raw.userType } : {}),
     };
   }
 

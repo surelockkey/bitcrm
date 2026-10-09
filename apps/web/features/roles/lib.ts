@@ -14,30 +14,52 @@ export type Schema = Record<string, readonly string[]>;
  * Presentation
  * ------------------------------------------------------------------ */
 
+/**
+ * What each resource is called on the permission editors and the data-scope
+ * list. Every key of `RESOURCE_REGISTRY` has one (permission-catalog.test.ts
+ * holds it to that): an unnamed resource used to print as its key
+ * (`team_chat`) in an "Other" pile.
+ */
 export const RESOURCE_LABELS: Record<string, string> = {
   deals: "Jobs",
   contacts: "Contacts",
   companies: "Companies",
-  products: "Products",
-  warehouses: "Warehouses",
-  containers: "Containers",
-  transfers: "Transfers",
-  users: "Users",
-  roles: "Roles",
-  reports: "Reports",
-  settings: "Settings",
-  technicians: "Technicians",
+  client_tags: "Client Tags",
+  work_orders: "Work Orders",
   job_types: "Job Types",
   job_sources: "Job Sources",
   external_companies: "External Companies",
   job_tags: "Job Tags",
   job_statuses: "Job Statuses",
+  custom_fields: "Custom Fields",
   service_areas: "Service Areas",
+  estimates: "Estimates",
+  invoices: "Invoices",
+  payments: "Payments",
+  tax_rates: "Tax Rates",
+  document_templates: "Document Templates",
+  financials: "Financial Data",
   commission: "Commission",
-  financials: "Financial data",
+  calls: "Calls",
+  messages: "Messages",
+  team_chat: "Team Chat",
+  message_templates: "Message Templates",
+  products: "Products",
+  product_categories: "Product Categories",
+  brands: "Brands",
+  warehouses: "Warehouses",
+  containers: "Containers",
+  transfers: "Transfers",
+  users: "Users",
+  roles: "Roles",
+  technicians: "Technicians",
   documents: "Documents",
+  dashboard: "Dashboard",
+  reports: "Reports",
+  settings: "Settings",
 };
 
+/** The words beside each switch. Every action of the registry has some. */
 export const ACTION_LABELS: Record<string, string> = {
   view: "View",
   create: "Create",
@@ -47,24 +69,68 @@ export const ACTION_LABELS: Record<string, string> = {
   approve: "Approve",
   revoke: "Revoke",
   upload: "Upload",
+  send: "Send",
+  // estimates: overwrite a job's items with the estimate's.
+  sync: "Copy to job",
+  // payments: take money (portal sends + offline records) / give it back.
+  collect: "Take payments",
+  refund: "Refund",
+  // calls: listen in on and join a live call.
+  join: "Listen & join",
+  // messages: archive, flag, recategorise, mark unread.
+  manage: "Manage",
+  manage_groups: "Manage groups",
+  // deals: move a job to another status.
+  move_status: "Change status",
   // Governs client phone numbers on contacts AND companies — turning it off is
   // what switches call masking on for that role or user.
   view_numbers: "See client numbers",
   // Job Statistics — Workiz's "Statistics Report" sub-grants and View Profit.
-  view_ad_statistics: "Statistics: Sources",
-  view_tech_statistics: "Statistics: Tech",
-  view_area_statistics: "Statistics: Area",
-  view_dispatch_statistics: "Statistics: Dispatcher",
-  view_profit: "Statistics: Profit",
+  view_ad_statistics: "Ad Statistics",
+  view_tech_statistics: "Tech Statistics",
+  view_area_statistics: "Area Statistics",
+  view_dispatch_statistics: "Dispatch Statistics",
+  view_profit: "View Profit",
+  // Dashboard widgets — each named as its card is (features/dashboard).
+  view_jobs_by_status: "Jobs By Status",
+  view_sales: "Sales",
+  view_top_sources: "Top Sources",
+  view_top_job_types: "Top Job Types",
+  view_service_areas: "Service Areas",
+  view_top_call_flows: "Top Call Flows",
+  view_dispatch_scoreboard: "Dispatch Scoreboard",
+  view_tech_scoreboard: "Tech Scoreboard",
+  view_recent_calls: "Recent Calls",
+  view_jobs: "Jobs",
+  view_today: "Today",
+  view_invoices: "Invoices",
+  view_estimates: "Estimates",
+  view_coming_up: "Coming up",
+  view_recent_activity: "Recent Activity",
 };
 
-/** Domain grouping for the matrix — keeps 15 resources scannable. */
+/**
+ * The editors' sections, in order. Every resource sits in one (the audit's
+ * grouping, 2026-10-06): jobs and clients first, as Workiz opens its list.
+ */
 export const RESOURCE_GROUPS: { label: string; resources: string[] }[] = [
-  { label: "Sales & CRM", resources: ["deals", "job_sources", "external_companies", "job_tags", "job_statuses", "contacts", "companies"] },
-  { label: "Inventory", resources: ["products", "warehouses", "containers", "transfers"] },
-  { label: "People", resources: ["users", "roles", "technicians"] },
-  { label: "Field & billing", resources: ["job_types", "service_areas", "commission", "financials", "documents"] },
-  { label: "Platform", resources: ["reports", "settings"] },
+  { label: "Jobs & clients", resources: ["deals", "contacts", "companies", "client_tags", "work_orders"] },
+  {
+    label: "Job settings",
+    resources: ["job_types", "job_sources", "external_companies", "job_tags", "job_statuses", "custom_fields", "service_areas"],
+  },
+  {
+    label: "Billing",
+    resources: ["estimates", "invoices", "payments", "tax_rates", "document_templates", "financials", "commission"],
+  },
+  { label: "Communications", resources: ["calls", "messages", "team_chat", "message_templates"] },
+  {
+    label: "Inventory & price book",
+    resources: ["products", "product_categories", "brands", "warehouses", "containers", "transfers"],
+  },
+  { label: "Team", resources: ["users", "roles", "technicians", "documents"] },
+  { label: "Insights", resources: ["dashboard", "reports"] },
+  { label: "Platform", resources: ["settings"] },
 ];
 
 /** The four standard CRUD actions most resources share (drives aligned columns). */
@@ -74,7 +140,12 @@ export function resourceLabel(resource: string): string {
   return RESOURCE_LABELS[resource] ?? resource;
 }
 
-export function actionLabel(action: string): string {
+/**
+ * The words for one switch. `resource` is for a word that differs by
+ * resource; none does yet, so an action reads the same wherever it sits.
+ */
+export function actionLabel(action: string, resource?: string): string {
+  void resource;
   return ACTION_LABELS[action] ?? action;
 }
 

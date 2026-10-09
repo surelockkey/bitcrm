@@ -5,14 +5,17 @@
  * Sensitive documents (DL, SSN, bank account) are NOT part of this entity —
  * they live in encrypted storage and are added in a later phase.
  */
+import type { UserType } from './user.entity';
+
 export type TechnicianProfileStatus = 'pending' | 'active' | 'inactive';
 
 /**
- * Workiz's "User type" on the user card. A subcontractor is paid and insured
- * differently from an employee, and more will hang off this flag as those
- * differences are built — so it is stored, not derived from the role.
+ * Workiz's "User type", as the technician card shows it. The type belongs to
+ * the person (`User.userType`) — whether they can sign in at all — and this is
+ * user-service's copy of it on the card, kept in step on every change and
+ * filled from the user on every read. Write it either way; it lands on the user.
  */
-export type TechnicianType = 'regular' | 'subcontractor';
+export type TechnicianType = UserType;
 
 export interface TechnicianHomeAddress {
   line1: string;

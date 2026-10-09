@@ -224,4 +224,11 @@ describe('MfaService.setByAdmin', () => {
     await expect(svc.setByAdmin('u-1', true)).rejects.toBeInstanceOf(BadRequestException);
     expect(repository.update).not.toHaveBeenCalled();
   });
+
+  it('cannot switch on a subcontractor — they have no sign-in to protect (Workiz greys it)', async () => {
+    const { svc, repository } = make(user({ userType: 'subcontractor' }));
+
+    await expect(svc.setByAdmin('u-1', true)).rejects.toBeInstanceOf(BadRequestException);
+    expect(repository.update).not.toHaveBeenCalled();
+  });
 });

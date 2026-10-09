@@ -4,30 +4,9 @@ import { useEffect, useState } from "react";
 import type { Dispatch, ReactNode, SetStateAction } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import {
-  CopyPlus,
-  Eraser,
-  Info,
-  Loader2,
-  Lock,
-  Trash2,
-  TriangleAlert,
-} from "lucide-react";
+import { Info, Lock } from "lucide-react";
 import { DataScope } from "@bitcrm/types";
 import type { Role, PermissionMatrix, DataScopeRules } from "@bitcrm/types";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -38,27 +17,23 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { WzButton } from "@/components/workiz/button";
+import { WzFormSectionTitle } from "@/components/workiz/form-section-title";
+import { WzOutlinedSelect } from "@/components/workiz/outlined-select";
+import { WzOutlinedTextField } from "@/components/workiz/outlined-text-field";
+import { WzTabBar } from "@/components/workiz/tab-bar";
+import { WzTextarea } from "@/components/workiz/textarea";
+import { WzWindowFrame } from "@/components/workiz/window-frame";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { settled, usePageReady } from "@/lib/use-page-ready";
 import { useRole, useRoles, useRoleSchema, useRoleMembers, useUpdateRole } from "../hooks";
 import { useRoleAccess, type RoleEditability } from "../use-role-access";
 import { roleDetailsSchema } from "../schemas";
-import {
-  clearMatrix,
-  countGrants,
-  diffCells,
-  isSuperAdmin,
-  normalizeMatrix,
-  roleSwatch,
-  sortRolesByPriority,
-  type Schema,
-} from "../lib";
-import { RoleTypeBadge } from "./role-type-badge";
-import { PermissionMatrixEditor } from "./permission-matrix";
+import { clearMatrix, countGrants, diffCells, isSuperAdmin, normalizeMatrix, sortRolesByPriority, type Schema } from "../lib";
 import { DataScopeEditor } from "./data-scope-editor";
+import { EditorSkeleton, PermissionTab, RulesSection, RulesTab } from "./permission-tab";
 import { StageTransitionsEditor } from "./stage-transitions-editor";
 import { RoleMembers } from "./role-members";
-import { DeleteRoleDialog } from "./delete-role-dialog";
 
 interface RoleDraft {
   name: string;
@@ -96,10 +71,14 @@ function isDirty(draft: RoleDraft, role: Role, schema: Schema): boolean {
   return false;
 }
 
+const LIST = "/admin/roles";
+
 /**
- * Loader + access gate. Renders the editor keyed by the role's identity +
- * `updatedAt` so a fresh copy (after save) cleanly re-seeds the draft — no
- * syncing effect required.
+ * A role's permissions as Workiz's "Edit permissions for role …" — the
+ * full-window modal Roles & Permissions opens on a role
+ * (pg_admin_users_wz_10_role_dispatch), here a page of its own so a role has
+ * an address. Loader + access gate: the editor is keyed by the role's
+ * identity + `updatedAt`, so a fresh copy (after save) re-seeds the draft.
  */
 export function RoleEditorPage({ roleId }: { roleId: string }) {
   const router = useRouter();
@@ -110,61 +89,43 @@ export function RoleEditorPage({ roleId }: { roleId: string }) {
   const { canViewRoles } = useRoleAccess();
   // What the editor shows besides the role, asked for with it: who holds the
   // role (the Members tab's count, the save warning) and every role (whether
-  // this one ranks below yours — read-only or not). The members used to be
-  // asked for only once the editor was up, and the tab grew " · 3" after.
+  // this one ranks below yours — read-only or not — and "Copy from").
   const allRoles = useRoles();
   const members = useRoleMembers(roleId);
-  const ready = usePageReady(
-    !permsLoading && [roleQuery, schemaQuery, allRoles, members].every(settled),
-  );
+  const ready = usePageReady(!permsLoading && [roleQuery, schemaQuery, allRoles, members].every(settled));
+  const close = () => router.push(LIST);
 
   if (!permsLoading && !canViewRoles) {
     return <CenterMessage title="No access" body="You don't have permission to view roles." />;
   }
-  if (!ready || !schema) return <EditorSkeleton />;
+  if (!ready || !schema) return <EditorSkeleton onClose={close} />;
   if (roleQuery.isError || !roleQuery.data) {
     return (
       <CenterMessage
         title="Role not found"
         body="It may have been deleted."
         action={
-          <Button variant="outline" onClick={() => router.push("/admin/roles")}>
+          <WzButton variant="secondary" size="regular" onClick={close}>
             Back to roles
-          </Button>
+          </WzButton>
         }
       />
     );
   }
 
   const role = roleQuery.data;
-  return (
-    <RoleEditor
-      key={`${role.id}:${role.updatedAt}`}
-      role={role}
-      schema={schema}
-      roleId={roleId}
-    />
-  );
+  return <RoleEditor key={`${role.id}:${role.updatedAt}`} role={role} schema={schema} roleId={roleId} onClose={close} />;
 }
 
-function RoleEditor({
-  role,
-  schema,
-  roleId,
-}: {
-  role: Role;
-  schema: Schema;
-  roleId: string;
-}) {
+function RoleEditor({ role, schema, roleId, onClose }: { role: Role; schema: Schema; roleId: string; onClose: () => void }) {
   const { data: allRoles } = useRoles();
   const { data: members } = useRoleMembers(roleId);
   const updateRole = useUpdateRole();
   const { editabilityOf } = useRoleAccess();
 
   const [draft, setDraft] = useState<RoleDraft>(() => toDraft(role, schema));
-  const [tab, setTab] = useState("permissions");
+  const [tab, setTab] = useState("actions");
   const [confirmSave, setConfirmSave] = useState(false);
-  const [deleteOpen, setDeleteOpen] = useState(false);
 
   const memberCount = members?.length;
   const editability = editabilityOf(role, memberCount);
@@ -214,168 +175,134 @@ function RoleEditor({
   };
 
   const otherRoles = sortRolesByPriority((allRoles ?? []).filter((r) => r.id !== role.id));
+  const setPermissions = (permissions: PermissionMatrix) => setDraft((d) => ({ ...d, permissions }));
+
+  // Ours, on Search's line: start from another role's switches, or from none.
+  const tools = readOnly ? null : (
+    <>
+      <WzOutlinedSelect
+        label="Copy permissions from"
+        placeholder="Choose a role"
+        options={otherRoles.map((r) => ({ value: r.id, label: r.name }))}
+        value=""
+        onChange={(id) => {
+          const source = otherRoles.find((r) => r.id === id);
+          if (source) setPermissions(normalizeMatrix(source.permissions, schema));
+        }}
+        className="w-[240px]"
+      />
+      <WzButton variant="secondary" size="regular" onClick={() => setPermissions(clearMatrix(schema))}>
+        Clear all
+      </WzButton>
+    </>
+  );
 
   return (
-    <div className="flex flex-1 flex-col">
-      {/* Header */}
-      <div className="flex items-center gap-3 border-b px-6 py-4">
-        <span
-          className="size-2.5 flex-none rounded-[3px]"
-          style={{ background: roleSwatch(role.id) }}
-        />
-        <h1 className="truncate text-lg font-semibold tracking-tight">{role.name}</h1>
-        <RoleTypeBadge role={role} />
-        <span className="ml-auto font-mono text-xs text-muted-foreground">
-          priority {role.priority}
-        </span>
-        {!isSuperAdmin(role) ? (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="text-muted-foreground hover:text-destructive"
-            aria-label="Delete role"
-            onClick={() => setDeleteOpen(true)}
-          >
-            <Trash2 className="size-4" />
-          </Button>
-        ) : null}
-      </div>
-
-      <AccessBanner role={role} editability={editability} />
-
-      <Tabs value={tab} onValueChange={setTab} className="flex flex-1 flex-col">
-        <div className="border-b px-6">
-          <TabsList variant="line" className="h-11">
-            <TabsTrigger value="permissions" className="px-2">Permissions</TabsTrigger>
-            <TabsTrigger value="scope" className="px-2">Data scope</TabsTrigger>
-            <TabsTrigger value="stages" className="px-2">Job stages</TabsTrigger>
-            <TabsTrigger value="members" className="px-2">
-              Members{memberCount !== undefined ? ` · ${memberCount}` : ""}
-            </TabsTrigger>
-            <TabsTrigger value="details" className="px-2">Details</TabsTrigger>
-          </TabsList>
-        </div>
-
-        {!readOnly && dirty ? (
-          <div className="flex items-center gap-3 border-y border-amber-500/30 bg-amber-500/10 px-6 py-2 text-sm text-amber-700 dark:text-amber-500">
-            <TriangleAlert className="size-4 flex-none" />
-            <span>
-              Unsaved changes
-              {(memberCount ?? 0) > 0 ? (
-                <>
-                  {" "}
-                  · saving affects <b>{memberCount}</b>{" "}
-                  {memberCount === 1 ? "member" : "members"}
-                </>
-              ) : null}
-            </span>
-            <div className="ml-auto flex items-center gap-2">
-              <Button variant="ghost" size="sm" onClick={() => setDraft(toDraft(role, schema))}>
+    <WzWindowFrame
+      title={`Edit permissions for role ${role.name}`}
+      titleAfter={<RoleChips role={role} />}
+      onClose={onClose}
+      closeLabel="Close the role"
+      footer={
+        <>
+          {!readOnly && dirty ? (
+            <div className="mr-auto flex items-center gap-3 text-[13px] leading-[19px] text-wz-strong">
+              <span role="status">
+                Unsaved changes
+                {(memberCount ?? 0) > 0 ? (
+                  <>
+                    {" "}
+                    · saving affects <b>{memberCount}</b> {memberCount === 1 ? "member" : "members"}
+                  </>
+                ) : null}
+              </span>
+              <WzButton variant="tertiary" size="regular" onClick={() => setDraft(toDraft(role, schema))}>
                 Discard
-              </Button>
-              <Button
-                variant="brand"
-                size="sm"
-                className="gap-1.5"
-                disabled={updateRole.isPending}
-                onClick={requestSave}
-              >
-                {updateRole.isPending ? <Loader2 className="size-4 animate-spin" /> : null}
-                Save changes
-              </Button>
+              </WzButton>
             </div>
-          </div>
-        ) : null}
+          ) : null}
+          <WzButton variant="secondary" size="big" className="min-w-[98px]" onClick={onClose}>
+            {readOnly ? "Close" : "Cancel"}
+          </WzButton>
+          {!readOnly ? (
+            <WzButton
+              variant="primary"
+              size="big"
+              loading={updateRole.isPending}
+              disabled={!dirty}
+              className="disabled:bg-wz-disabled-fill disabled:hover:bg-wz-disabled-fill [&:disabled>span]:text-wz-outline"
+              onClick={requestSave}
+            >
+              Save
+            </WzButton>
+          ) : null}
+        </>
+      }
+    >
+      <WzTabBar
+        aria-label="Role"
+        className="pt-1"
+        value={tab}
+        onValueChange={setTab}
+        tabs={[
+          { value: "actions", label: "Actions" },
+          { value: "reports", label: "Reports" },
+          { value: "advanced", label: "Advanced" },
+          { value: "members", label: "Members", count: memberCount },
+          { value: "details", label: "Details" },
+        ]}
+      />
+      <AccessNote role={role} editability={editability} />
 
-        <div className="flex-1 overflow-y-auto px-6 py-5">
-          <TabsContent value="permissions" className="mt-0">
-            {!readOnly ? (
-              <div className="mb-3 flex flex-wrap items-center gap-2">
-                <span className="text-xs text-muted-foreground">{grants} permissions granted</span>
-                <span className="ml-auto flex items-center gap-2">
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="outline" size="sm" className="gap-1.5">
-                        <CopyPlus className="size-3.5" />
-                        Start from…
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-52">
-                      <DropdownMenuLabel>Copy permissions from</DropdownMenuLabel>
-                      {otherRoles.map((r) => (
-                        <DropdownMenuItem
-                          key={r.id}
-                          onClick={() =>
-                            setDraft((d) => ({
-                              ...d,
-                              permissions: normalizeMatrix(r.permissions, schema),
-                            }))
-                          }
-                        >
-                          {r.name}
-                        </DropdownMenuItem>
-                      ))}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="gap-1.5"
-                    onClick={() => setDraft((d) => ({ ...d, permissions: clearMatrix(schema) }))}
-                  >
-                    <Eraser className="size-3.5" />
-                    Clear all
-                  </Button>
-                </span>
-              </div>
-            ) : null}
-            <div className="rounded-lg border">
-              <PermissionMatrixEditor
-                schema={schema}
-                permissions={draft.permissions}
-                baseline={role.permissions}
-                readOnly={readOnly}
-                onChange={(permissions) => setDraft((d) => ({ ...d, permissions }))}
-              />
-            </div>
-          </TabsContent>
+      {tab === "actions" || tab === "reports" ? (
+        <PermissionTab
+          key={tab}
+          section={tab}
+          schema={schema}
+          permissions={draft.permissions}
+          baseline={role.permissions}
+          readOnly={readOnly}
+          onChange={setPermissions}
+          tools={tools}
+          summary={`${grants} permissions granted`}
+        />
+      ) : null}
 
-          <TabsContent value="scope" className="mt-0">
+      {tab === "advanced" ? (
+        <RulesTab>
+          <RulesSection title="Data scope" helper="Choose which records this role reaches in each area">
             <DataScopeEditor
               schema={schema}
               dataScope={draft.dataScope}
               readOnly={readOnly}
               onChange={(dataScope) => setDraft((d) => ({ ...d, dataScope }))}
             />
-          </TabsContent>
-
-          <TabsContent value="stages" className="mt-0">
+          </RulesSection>
+          <RulesSection title="Job stages" helper="Choose which stage moves this role may make">
             <StageTransitionsEditor
               transitions={draft.dealStageTransitions}
               readOnly={readOnly}
-              onChange={(dealStageTransitions) =>
-                setDraft((d) => ({ ...d, dealStageTransitions }))
-              }
+              onChange={(dealStageTransitions) => setDraft((d) => ({ ...d, dealStageTransitions }))}
             />
-          </TabsContent>
+          </RulesSection>
+        </RulesTab>
+      ) : null}
 
-          <TabsContent value="members" className="mt-0">
-            <RoleMembers roleId={roleId} />
-          </TabsContent>
-
-          <TabsContent value="details" className="mt-0">
-            <DetailsForm draft={draft} readOnly={readOnly} onChange={setDraft} />
-          </TabsContent>
+      {tab === "members" ? (
+        <div className="px-5 pt-5">
+          <RoleMembers roleId={roleId} />
         </div>
-      </Tabs>
+      ) : null}
+
+      {tab === "details" ? <DetailsForm draft={draft} readOnly={readOnly} onChange={setDraft} /> : null}
 
       <AlertDialog open={confirmSave} onOpenChange={setConfirmSave}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Apply changes to {memberCount} members?</AlertDialogTitle>
             <AlertDialogDescription>
-              Everyone with the <b>{role.name}</b> role will get the updated permissions
-              immediately. Their cached access is refreshed.
+              Everyone with the <b>{role.name}</b> role will get the updated permissions immediately. Their cached
+              access is refreshed.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -384,67 +311,43 @@ function RoleEditor({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
-      <DeleteRoleDialog
-        role={role}
-        editability={editability}
-        open={deleteOpen}
-        onOpenChange={setDeleteOpen}
-      />
-    </div>
+    </WzWindowFrame>
   );
 }
 
-function AccessBanner({
-  role,
-  editability,
-}: {
-  role: Role;
-  editability: RoleEditability;
-}) {
-  let node: { icon: ReactNode; text: string; tone: "info" | "warn" } | null = null;
+/** System / Custom (+ Locked on Super Admin), in the Team grid's `tag small` shape. */
+function RoleChips({ role }: { role: Role }) {
+  const chip = "rounded-[3px] px-1 py-px text-[11px] leading-[13px] font-medium tracking-[0.4px] text-white";
+  return (
+    <span className="flex shrink-0 gap-1">
+      <span className={`${chip} ${role.isSystem ? "bg-wz-link" : "bg-wz-slate"}`}>{role.isSystem ? "System" : "Custom"}</span>
+      {isSuperAdmin(role) ? <span className={`${chip} bg-wz-outline`}>Locked</span> : null}
+    </span>
+  );
+}
 
+/** Ours: why the switches are greyed, or what saving touches — a quiet line under the tabs. */
+function AccessNote({ role, editability }: { role: Role; editability: RoleEditability }) {
+  let node: { icon: ReactNode; text: string } | null = null;
   if (editability.locked) {
-    node = {
-      icon: <Lock className="size-4" />,
-      text: "This is the Super Admin role — it can't be changed.",
-      tone: "warn",
-    };
+    node = { icon: <Lock className="size-4" />, text: "This is the Super Admin role — it can't be changed." };
   } else if (editability.aboveMe) {
-    node = {
-      icon: <Lock className="size-4" />,
-      text: "This role ranks at or above yours, so it's read-only.",
-      tone: "warn",
-    };
+    node = { icon: <Lock className="size-4" />, text: "This role ranks at or above yours, so it's read-only." };
   } else if (!editability.editable) {
-    node = {
-      icon: <Info className="size-4" />,
-      text: "You have view-only access to roles.",
-      tone: "info",
-    };
+    node = { icon: <Info className="size-4" />, text: "You have view-only access to roles." };
   } else if (role.isSystem) {
-    node = {
-      icon: <Info className="size-4" />,
-      text: "Built-in role — changes apply to everyone who has it.",
-      tone: "info",
-    };
+    node = { icon: <Info className="size-4" />, text: "Built-in role — changes apply to everyone who has it." };
   }
-
   if (!node) return null;
   return (
-    <div
-      className={
-        node.tone === "warn"
-          ? "flex items-center gap-2 border-b border-amber-500/30 bg-amber-500/10 px-6 py-2 text-sm text-amber-700 dark:text-amber-500"
-          : "flex items-center gap-2 border-b bg-muted/40 px-6 py-2 text-sm text-muted-foreground"
-      }
-    >
+    <p role="note" className="mt-4 flex items-center gap-2 px-5 text-[13px] leading-[19px] tracking-[0.4px] text-wz-outline-label">
       {node.icon}
       {node.text}
-    </div>
+    </p>
   );
 }
 
+/** Ours: the role's name, what it is for and its rank — the user page's 480px column of Workiz boxes. */
 function DetailsForm({
   draft,
   readOnly,
@@ -455,41 +358,36 @@ function DetailsForm({
   onChange: Dispatch<SetStateAction<RoleDraft>>;
 }) {
   return (
-    <div className="max-w-md space-y-4">
-      <div className="space-y-1.5">
-        <Label htmlFor="d-name">Name</Label>
-        <Input
-          id="d-name"
-          className="h-10"
-          value={draft.name}
-          disabled={readOnly}
-          onChange={(e) => onChange((d) => ({ ...d, name: e.target.value }))}
-        />
-      </div>
-      <div className="space-y-1.5">
-        <Label htmlFor="d-desc">Description</Label>
-        <Textarea
-          id="d-desc"
-          rows={2}
+    <div className="flex w-[480px] max-w-full flex-col gap-6 px-5 pt-6">
+      <WzOutlinedTextField
+        label="Name"
+        value={draft.name}
+        disabled={readOnly}
+        onChange={(e) => onChange((d) => ({ ...d, name: e.target.value }))}
+      />
+      <div>
+        <WzFormSectionTitle className="mb-2">Description</WzFormSectionTitle>
+        <WzTextarea
+          aria-label="Description"
+          rows={3}
           value={draft.description}
           disabled={readOnly}
           placeholder="What is this role for?"
           onChange={(e) => onChange((d) => ({ ...d, description: e.target.value }))}
         />
       </div>
-      <div className="space-y-1.5">
-        <Label htmlFor="d-priority">Priority</Label>
-        <Input
-          id="d-priority"
+      <div>
+        <WzOutlinedTextField
+          label="Priority"
           type="number"
           min={1}
           max={99}
-          className="h-10 w-32"
+          className="w-40"
           value={draft.priority}
           disabled={readOnly}
           onChange={(e) => onChange((d) => ({ ...d, priority: Number(e.target.value) }))}
         />
-        <p className="text-xs text-muted-foreground">
+        <p className="mt-2 text-xs leading-[18px] text-wz-outline-label">
           Higher = more powerful. Must stay below 100 and below your own role.
         </p>
       </div>
@@ -497,35 +395,12 @@ function DetailsForm({
   );
 }
 
-function CenterMessage({
-  title,
-  body,
-  action,
-}: {
-  title: string;
-  body: string;
-  action?: ReactNode;
-}) {
+function CenterMessage({ title, body, action }: { title: string; body: string; action?: ReactNode }) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
       <h2 className="text-lg font-medium">{title}</h2>
       <p className="text-sm text-muted-foreground">{body}</p>
       {action}
-    </div>
-  );
-}
-
-function EditorSkeleton() {
-  return (
-    <div className="flex flex-1 flex-col">
-      <div className="flex items-center gap-3 border-b px-6 py-4">
-        <Skeleton className="h-8 w-20" />
-        <Skeleton className="h-5 w-40" />
-      </div>
-      <div className="space-y-3 p-6">
-        <Skeleton className="h-8 w-72" />
-        <Skeleton className="h-64 w-full" />
-      </div>
     </div>
   );
 }

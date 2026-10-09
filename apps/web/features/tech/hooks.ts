@@ -1,65 +1,14 @@
 "use client";
 
-import { useMemo } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import type { Deal } from "@bitcrm/types";
 import { queryKeys } from "@/lib/query-keys";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { useMe } from "@/features/auth/use-me";
-import { useDealsWindow } from "@/features/deals/hooks";
 import * as dealsApi from "@/features/deals/api";
 import * as messagingApi from "@/features/messaging/api";
 import { newClientMessageId } from "@/features/messaging/lib";
-import { groupJobsByDay, localDateIso } from "./lib";
-
-/**
- * The signed-in technician's jobs, grouped into the day list they work
- * from. Polls like the dispatch board so a job assigned while the phone is
- * in a pocket shows up without a reload; the list also refetches on the
- * pull-to-refresh gesture (`refetch`).
- */
-export function useMyJobs(todayIso: string = localDateIso()) {
-  const { data: me } = useMe();
-  const techId = me?.id;
-  // `techId` is what makes this page "mine": the server only DEFAULTS it to
-  // the caller under the assigned_only scope (`DealsService.list`), and a
-  // dispatcher opening this page has no scope narrowing them at all, so the
-  // id has to be sent — and waited for, rather than asking for the whole
-  // board in the meantime.
-  // Two bounded reads instead of the technician's whole history: everything
-  // still open (overdue, undated, today, later), plus today's closed work,
-  // which the day list keeps as "done this morning".
-  const enabled = Boolean(techId);
-  const open = useDealsWindow({ techId }, { poll: true, enabled });
-  const today = useDealsWindow({ techId, from: todayIso, to: todayIso }, { poll: true, enabled });
-  const deals = useMemo(() => {
-    const seen = new Set<string>();
-    const out: Deal[] = [];
-    for (const d of [...(open.data ?? []), ...(today.data ?? [])]) {
-      if (seen.has(d.id)) continue;
-      seen.add(d.id);
-      out.push(d);
-    }
-    return out;
-  }, [open.data, today.data]);
-  const groups = useMemo(() => groupJobsByDay(deals, todayIso, techId), [deals, todayIso, techId]);
-  return {
-    data: deals,
-    isLoading: open.isLoading || today.isLoading,
-    isError: open.isError || today.isError,
-    isFetching: open.isFetching || today.isFetching,
-    isRefetching: open.isRefetching || today.isRefetching,
-    error: open.error ?? today.error,
-    refetch: async () => {
-      await Promise.all([open.refetch(), today.refetch()]);
-    },
-    groups,
-    techId,
-    /** False until `me` resolves — the list is "still loading", not "empty". */
-    ready: Boolean(techId),
-  };
-}
 
 /* -------------------------------------------------------------- actions */
 

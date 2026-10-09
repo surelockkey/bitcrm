@@ -29,9 +29,16 @@ export class CognitoAdminService {
     });
   }
 
+  /**
+   * Create the sign-in account. Cognito emails the invitation (a temporary
+   * password) unless `suppressInvite` is set — a Workiz subcontractor gets an
+   * account, so the address stays theirs and they can be made a User later,
+   * but nothing to sign in with.
+   */
   async createUser(
     email: string,
     attributes: Record<string, string>,
+    options: { suppressInvite?: boolean } = {},
   ): Promise<AdminCreateUserCommandOutput> {
     const userAttributes: AttributeType[] = [
       { Name: 'email', Value: email },
@@ -47,7 +54,9 @@ export class CognitoAdminService {
         UserPoolId: this.userPoolId,
         Username: email,
         UserAttributes: userAttributes,
-        DesiredDeliveryMediums: ['EMAIL'],
+        ...(options.suppressInvite
+          ? { MessageAction: 'SUPPRESS' as const }
+          : { DesiredDeliveryMediums: ['EMAIL' as const] }),
       }),
     );
   }

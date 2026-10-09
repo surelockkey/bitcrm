@@ -1,87 +1,65 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowUpRight, UsersRound } from "lucide-react";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Button } from "@/components/ui/button";
-import { initials } from "@/features/users/lib";
-import { UserStatusBadge } from "@/features/users/components/status-badge";
+import { useRouter } from "next/navigation";
+import type { User } from "@bitcrm/types";
+import { WzReportGrid, type WzReportColumn } from "@/components/workiz/report-grid";
+import { personName } from "@/features/deals/person-name";
 import { useRoleMembers } from "../hooks";
 
-export function RoleMembers({ roleId }: { roleId: string }) {
-  const { data: members, isLoading, isError } = useRoleMembers(roleId);
+const COLUMNS: WzReportColumn<User>[] = [
+  {
+    id: "name",
+    label: "Name",
+    cell: (u) => (
+      <>
+        <span className="block truncate">{personName(u) ?? u.email}</span>
+        <span className="mt-[5px] block overflow-hidden text-xs leading-4 text-ellipsis text-wz-caption">{u.email}</span>
+      </>
+    ),
+  },
+  { id: "department", label: "Department", cell: (u) => <span className="block truncate">{u.department}</span> },
+  { id: "status", label: "Status", cell: (u) => (u.status === "active" ? "Active" : "Inactive") },
+];
 
-  if (isLoading) {
-    return (
-      <div className="space-y-2 rounded-lg border p-4">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="flex items-center gap-3">
-            <Skeleton className="size-8 rounded-full" />
-            <Skeleton className="h-4 w-48" />
-          </div>
-        ))}
-      </div>
-    );
-  }
+/**
+ * Ours (Workiz's role modal has no such tab): who holds the role, in the Team
+ * grid's look — name over email, department, status — a row opening the
+ * person on the Users page, where a role is changed.
+ */
+export function RoleMembers({ roleId }: { roleId: string }) {
+  const router = useRouter();
+  const { data: members, isLoading, isError } = useRoleMembers(roleId);
+  const list = members ?? [];
 
   if (isError) {
-    return (
-      <p className="rounded-lg border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
-        Couldn&apos;t load members.
-      </p>
-    );
-  }
-
-  const list = members ?? [];
-  if (list.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed py-12 text-center">
-        <UsersRound className="size-6 text-muted-foreground" />
-        <div className="text-sm font-medium">No one has this role</div>
-        <p className="max-w-xs text-xs text-muted-foreground">
-          Assign it to a user from the Users page.
-        </p>
-      </div>
-    );
+    return <p className="py-8 text-center text-sm text-wz-strong">Couldn&apos;t load members.</p>;
   }
 
   return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <span className="text-sm text-muted-foreground">
-          {list.length} {list.length === 1 ? "user holds" : "users hold"} this role
+    <div>
+      <p className="mb-4 flex items-center gap-4 text-[13px] leading-[19px] text-wz-strong">
+        <span>
+          {list.length === 0
+            ? "No one has this role — assign it to a user from the Users page."
+            : `${list.length} ${list.length === 1 ? "user holds" : "users hold"} this role`}
         </span>
-        <Button asChild variant="outline" size="sm" className="gap-1.5">
-          <Link href="/admin/users">
-            Manage in Users
-            <ArrowUpRight className="size-3.5" />
-          </Link>
-        </Button>
-      </div>
-      <div className="divide-y rounded-lg border">
-        {list.map((u) => (
-          <div key={u.id} className="flex items-center gap-3 px-4 py-3">
-            <Avatar className="size-8">
-              <AvatarFallback className="text-xs">
-                {initials(u.firstName, u.lastName)}
-              </AvatarFallback>
-            </Avatar>
-            <div className="min-w-0">
-              <div className="truncate text-sm font-medium">
-                {u.firstName} {u.lastName}
-              </div>
-              <div className="truncate text-xs text-muted-foreground">
-                {u.email}
-                {u.department ? ` · ${u.department}` : ""}
-              </div>
-            </div>
-            <div className="ml-auto">
-              <UserStatusBadge status={u.status} />
-            </div>
-          </div>
-        ))}
-      </div>
+        <Link href="/admin/users" className="font-semibold text-wz-link hover:underline">
+          Manage in Users
+        </Link>
+      </p>
+      <WzReportGrid
+        aria-label="Members"
+        columns={COLUMNS}
+        rows={list}
+        rowKey={(u) => u.id}
+        loading={isLoading}
+        stickyHeader={false}
+        minRows={5}
+        plainFiller
+        emptyText={null}
+        onRowClick={(u) => router.push(`/admin/users?user=${u.id}`)}
+      />
     </div>
   );
 }

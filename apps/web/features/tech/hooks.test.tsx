@@ -17,7 +17,6 @@ import {
   MAX_REPORTED_ACCURACY_M,
   useConfirmReceipt,
   useMarkArrived,
-  useMyJobs,
   useOnMyWay,
   useRunningLate,
 } from "./hooks";
@@ -64,48 +63,6 @@ beforeEach(() => {
   toast.error.mockClear();
   toast.success.mockClear();
   me.value = { data: { id: "t1" } };
-});
-
-describe("useMyJobs", () => {
-  it("asks only for the signed-in technician's jobs, and groups them by day", async () => {
-    const seen: string[] = [];
-    server.use(
-      http.get("*/deals", ({ request }) => {
-        seen.push(new URL(request.url).searchParams.get("techId") ?? "");
-        return HttpResponse.json({
-          success: true,
-          data: [deal({ id: "a", scheduledDate: "2026-09-16", scheduledTimeSlot: "09:00-10:00" })],
-          pagination: { nextCursor: undefined, count: 1 },
-        });
-      }),
-    );
-
-    const { result } = renderHook(() => useMyJobs("2026-09-16"), { wrapper: wrapper(newClient()) });
-
-    await waitFor(() => expect(result.current.groups[0]?.deals).toHaveLength(1));
-    // Every bounded read — the open statuses and the day — is the technician's own.
-    expect(seen.length).toBeGreaterThan(0);
-    expect(new Set(seen)).toEqual(new Set(["t1"]));
-    expect(result.current.groups[0].key).toBe("today");
-    expect(result.current.ready).toBe(true);
-  });
-
-  it("asks for nothing at all until the signed-in id resolves", async () => {
-    let called = false;
-    server.use(
-      http.get("*/deals", () => {
-        called = true;
-        return HttpResponse.json({ success: true, data: [], pagination: { count: 0 } });
-      }),
-    );
-    me.value = { data: undefined };
-
-    const { result } = renderHook(() => useMyJobs("2026-09-16"), { wrapper: wrapper(newClient()) });
-
-    await new Promise((r) => setTimeout(r, 30));
-    expect(called).toBe(false);
-    expect(result.current.ready).toBe(false);
-  });
 });
 
 describe("technician actions", () => {

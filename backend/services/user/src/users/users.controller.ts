@@ -34,11 +34,16 @@ export class UsersController {
   @Get("me")
   @ApiOperation({
     summary: "Get current user profile",
-    description: "**Guard:** Authenticated (any role). Returns the profile of the currently logged-in user.",
+    description:
+      "**Guard:** Authenticated (any role). Returns the profile of the currently logged-in user, with " +
+      "`resolvedPermissions` — the role's matrix plus the user's overrides, exactly what the permission " +
+      "guards enforce (same resolver, same cache) — so the web gates its screens by the role editor's " +
+      "matrix rather than a copy of the seeds. Left out when it cannot be resolved; the profile still answers.",
   })
   async getMe(@CurrentUser() user: JwtUser) {
     const data = await this.usersService.findCurrentUser(user);
-    return { success: true, data };
+    const resolvedPermissions = await this.usersService.getResolvedPermissions(data.id).catch(() => undefined);
+    return { success: true, data: resolvedPermissions ? { ...data, resolvedPermissions } : data };
   }
 
   // Declared before `:id` — otherwise Nest matches "me" as a user id.

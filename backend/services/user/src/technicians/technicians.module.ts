@@ -53,6 +53,7 @@ import { UsersModule } from '../users/users.module';
   exports: [
     TechniciansService,
     TechniciansRepository,
+    TechniciansCacheService,
     TechnicianAssignmentsRepository,
     TechnicianAssignmentsService,
     CommissionRepository,

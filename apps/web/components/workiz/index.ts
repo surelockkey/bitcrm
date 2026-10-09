@@ -161,3 +161,10 @@ export { WzTabIntro, WzRowIconButton, WzTag, WzShortCodeChips, WzSectionRule, sh
 
 // The jobs pages on the kit (agent jobs_kit_switch): whether › goes anywhere, as WzPager decides it.
 export { wzPagerCanNext } from "./pager";
+
+// Permission editors (agent pg_admin_users): the full-window modal a page draws, the switch row.
+export { WzWindowFrame } from "./window-frame";
+export { WzSwitchRow } from "./switch-row";
+
+// Team member type: Workiz's "_btnRadio" User | Subcontractor (agent subcontractor).
+export { WzRadioButtons, type WzRadioButtonsOption } from "./radio-buttons";

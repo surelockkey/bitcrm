@@ -25,6 +25,47 @@ describe("resolvePermissions", () => {
     expect(resolvePermissions(null)).toBeNull();
   });
 
+  /**
+   * `/users/me` now carries the matrix the server enforces (role + the
+   * person's overrides). The web used a copy of the seeds instead, so an edit
+   * in the role editor never reached the screens and a custom role was shown
+   * the Read Only UI (permissions audit 2026-10-06, N1).
+   */
+  describe("with the server's resolved matrix on /me", () => {
+    const withServer = (roleId: string, permissions: Record<string, Record<string, boolean>>, dataScope = {}) =>
+      ({
+        ...user(roleId),
+        resolvedPermissions: {
+          roleId,
+          roleName: roleId === "role-night-desk" ? "Night Desk" : "Dispatcher",
+          isSystemRole: roleId !== "role-night-desk",
+          permissions,
+          dataScope,
+          dealStageTransitions: [],
+          hasOverrides: false,
+        },
+      }) as User;
+
+    it("a custom role gets its own permissions, not Read Only's", () => {
+      const r = resolvePermissions(withServer("role-night-desk", { deals: { view: true, create: true } }, { deals: "all" }));
+      expect(r?.roleName).toBe("Night Desk");
+      expect(can(r, "deals", "create")).toBe(true);
+      expect(can(r, "users", "view")).toBe(false);
+      expect(scopeOf(r, "deals")).toBe(DataScope.ALL);
+    });
+
+    it("an edited system role follows the editor, not the seed", () => {
+      const seed = resolvePermissions(user("role-dispatcher"));
+      expect(can(seed, "deals", "create")).toBe(true);
+      const edited = resolvePermissions(withServer("role-dispatcher", { deals: { view: true, create: false } }));
+      expect(can(edited, "deals", "create")).toBe(false);
+    });
+
+    it("still knows a technician by the role", () => {
+      expect(resolvePermissions(withServer("role-technician", { deals: { view: true } }))?.isTechnician).toBe(true);
+    });
+  });
+
   it("resolves a dispatcher's capabilities", () => {
     const r = resolvePermissions(user("role-dispatcher"));
     expect(r?.roleName).toBe("Dispatcher");

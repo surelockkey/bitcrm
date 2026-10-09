@@ -1,4 +1,4 @@
-import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { type JwtUser } from '@bitcrm/types';
 import { TechniciansService } from '../../../src/technicians/technicians.service';
 import {
@@ -21,7 +21,7 @@ describe('TechniciansService (unit)', () => {
   let roles: ReturnType<typeof createMockRolesServiceByPriority>;
   let sns: ReturnType<typeof createMockSnsPublisher>;
   let geocoding: { geocode: jest.Mock };
-  let users: { findById: jest.Mock; setPhone: jest.Mock };
+  let users: { findById: jest.Mock; setPhone: jest.Mock; changeUserType: jest.Mock };
   let service: TechniciansService;
 
   beforeEach(() => {
@@ -35,6 +35,7 @@ describe('TechniciansService (unit)', () => {
     users = {
       findById: jest.fn().mockResolvedValue({ id: 'tech-1' }),
       setPhone: jest.fn().mockResolvedValue({ id: 'tech-1' }),
+      changeUserType: jest.fn().mockResolvedValue({ id: 'tech-1' }),
     };
     service = new TechniciansService(
       repo as never,
@@ -116,19 +117,91 @@ describe('TechniciansService (unit)', () => {
       ).rejects.toBeInstanceOf(ForbiddenException);
       expect(repo.updateProfile).not.toHaveBeenCalled();
 
-      repo.updateProfile.mockResolvedValue(
-        createMockTechnicianProfile({ userId: 'tech-1', technicianType: 'subcontractor' }),
-      );
+      repo.updateProfile.mockResolvedValue(createMockTechnicianProfile({ userId: 'tech-1' }));
+      users.findById.mockResolvedValue({ id: 'tech-1', userType: 'subcontractor' });
       const result = await service.updateProfile(
         'tech-1',
         { technicianType: 'subcontractor' },
         caller('role-admin'),
       );
-      expect(repo.updateProfile).toHaveBeenCalledWith(
-        'tech-1',
-        expect.objectContaining({ technicianType: 'subcontractor' }),
-      );
+      // The type is the person's (whether they can sign in at all): it is
+      // written on the user record, with its rules, and read back from there.
+      expect(users.changeUserType).toHaveBeenCalledWith('tech-1', 'subcontractor', caller('role-admin'));
       expect(result.technicianType).toBe('subcontractor');
+    });
+
+    describe('user type (Workiz subcontractor)', () => {
+      const admin = caller('role-admin');
+
+      it('lands on the user record, and the rest of the card is saved without it', async () => {
+        repo.getProfile.mockResolvedValue(createMockTechnicianProfile({ userId: 'tech-1' }));
+        repo.updateProfile.mockResolvedValue(createMockTechnicianProfile({ userId: 'tech-1', laborCostPerHour: 30 }));
+
+        await service.updateProfile('tech-1', { technicianType: 'subcontractor', laborCostPerHour: 30 }, admin);
+
+        expect(users.changeUserType).toHaveBeenCalledWith('tech-1', 'subcontractor', admin);
+        expect(repo.updateProfile).toHaveBeenCalledWith('tech-1', { laborCostPerHour: 30 });
+      });
+
+      it('a card made by the same save starts with the type the person now has', async () => {
+        repo.getProfile.mockResolvedValue(null);
+        await service.updateProfile('tech-1', { technicianType: 'subcontractor' }, admin);
+        expect(repo.upsertProfile).toHaveBeenCalledWith(
+          expect.objectContaining({ userId: 'tech-1', technicianType: 'subcontractor' }),
+        );
+      });
+
+      it('refused on the user record, nothing on the card is written either', async () => {
+        repo.getProfile.mockResolvedValue(createMockTechnicianProfile({ userId: 'tech-1' }));
+        users.changeUserType.mockRejectedValue(new ForbiddenException());
+        await expect(
+          service.updateProfile('tech-1', { technicianType: 'subcontractor', laborCostPerHour: 1 }, admin),
+        ).rejects.toBeInstanceOf(ForbiddenException);
+        expect(repo.updateProfile).not.toHaveBeenCalled();
+      });
+
+      it('a read says what the user record says, even from a stale cached card', async () => {
+        cache.getProfile.mockResolvedValue(
+          createMockTechnicianProfile({ userId: 'tech-1', technicianType: 'regular' }),
+        );
+        users.findById.mockResolvedValue({ id: 'tech-1', userType: 'subcontractor' });
+        const result = await service.getProfile('tech-1', admin);
+        expect(result.technicianType).toBe('subcontractor');
+      });
+
+      it('a card from before the type moved to the user keeps its own answer', async () => {
+        cache.getProfile.mockResolvedValue(
+          createMockTechnicianProfile({ userId: 'tech-1', technicianType: 'subcontractor' }),
+        );
+        users.findById.mockResolvedValue({ id: 'tech-1' });
+        const result = await service.getProfile('tech-1', admin);
+        expect(result.technicianType).toBe('subcontractor');
+      });
+
+      it("will not track a subcontractor's location (Workiz: only paid users)", async () => {
+        repo.getProfile.mockResolvedValue(createMockTechnicianProfile({ userId: 'tech-1' }));
+        users.findById.mockResolvedValue({ id: 'tech-1', userType: 'subcontractor' });
+        await expect(
+          service.updateProfile('tech-1', { gpsTrackingEnabled: true }, admin),
+        ).rejects.toBeInstanceOf(BadRequestException);
+        expect(repo.updateProfile).not.toHaveBeenCalled();
+      });
+
+      it('…unless the same save makes them a User', async () => {
+        repo.getProfile.mockResolvedValue(createMockTechnicianProfile({ userId: 'tech-1' }));
+        repo.updateProfile.mockResolvedValue(createMockTechnicianProfile({ userId: 'tech-1' }));
+        users.findById.mockResolvedValue({ id: 'tech-1', userType: 'subcontractor' });
+        await service.updateProfile('tech-1', { technicianType: 'regular', gpsTrackingEnabled: true }, admin);
+        expect(repo.updateProfile).toHaveBeenCalledWith('tech-1', { gpsTrackingEnabled: true });
+      });
+
+      it('switching tracking off is always allowed', async () => {
+        repo.getProfile.mockResolvedValue(createMockTechnicianProfile({ userId: 'tech-1' }));
+        repo.updateProfile.mockResolvedValue(createMockTechnicianProfile({ userId: 'tech-1' }));
+        users.findById.mockResolvedValue({ id: 'tech-1', userType: 'subcontractor' });
+        await service.updateProfile('tech-1', { gpsTrackingEnabled: false }, admin);
+        expect(repo.updateProfile).toHaveBeenCalledWith('tech-1', { gpsTrackingEnabled: false });
+      });
     });
 
     it('lets a technician keep their additional numbers on their own card', async () => {

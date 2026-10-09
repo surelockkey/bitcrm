@@ -60,20 +60,22 @@ afterEach(() => {
 });
 
 describe("MyStockPage — no jumping", () => {
-  it("draws the van and its parts in one frame, after one skeleton", async () => {
+  it("draws the van, its totals and its parts in one frame, after one skeleton", async () => {
     const watch = watchFirstFrame(
-      () => !!screen.queryByText("My Stock"),
+      () => !!screen.queryByRole("heading", { name: "Van Alpha" }),
       () => ({
-        parts: screen.queryAllByTestId("my-stock-row").length,
-        counts: !!screen.queryByText("2 items"),
+        parts: !!screen.queryByText("Test blank") && !!screen.queryByText("Test cylinder"),
+        onHand: !!screen.queryByRole("heading", { name: "Total Items On Hand: 41" }),
+        lowTag: !!screen.queryByText("Low stock"),
         skeletons: skeletonCount(),
       }),
     );
     renderPage(<MyStockPage />);
+    expect(skeletonCount()).toBeGreaterThan(0);
     await screen.findByText("Test cylinder", {}, { timeout: 3000 });
     watch.stop();
 
-    expect(watch.frame()).toEqual({ parts: 2, counts: true, skeletons: 0 });
+    expect(watch.frame()).toEqual({ parts: true, onHand: true, lowTag: true, skeletons: 0 });
   });
 
   it("asks for each thing once", async () => {
