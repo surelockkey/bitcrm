@@ -81,7 +81,7 @@ const CATALOGS: Catalog[] = [
     list: /\/deals\/job-sources$/,
     rows: [{ id: "js-1", name: "Flyer Drop", priority: 1, active: true, ...stamp }],
     row: "Flyer Drop",
-    button: /new job source/i,
+    button: /^add new$/i,
   },
   {
     name: "Job tags",
