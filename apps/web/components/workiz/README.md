@@ -1332,7 +1332,7 @@ open menus `feat_job_rules_wz_jobtype_{days,hours,minutes}_open`; notes
   `disabled` `helper` — Workiz's Days / Hours / Minutes row on a job type:
   three `WzSelect geometry="bare"` boxes 137×49 (Days 0–31, Hours 0–23,
   Minutes 0–59) 10px apart, each under its 12px/16px bold #666 word 3px
-  above, and the 11px #999 "How long does this type of job usually take?"
-  under them. The boxes name themselves ("Days"); the words over them are
+  above, and the 11px/16px #999 "How long does this type of job usually take?"
+  right under them. The boxes name themselves ("Days"); the words over them are
   decoration. Reports the whole length in minutes
   (`features/job-types/lib.ts` `splitDuration` / `joinDuration` do the sums).

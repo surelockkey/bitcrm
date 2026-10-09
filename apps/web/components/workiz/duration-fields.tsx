@@ -76,7 +76,7 @@ export function WzDurationFields({
           </div>
         ))}
       </div>
-      {helper ? <small className="block text-[11px] leading-[13px] text-wz-caption">{helper}</small> : null}
+      {helper ? <small className="block text-[11px] leading-4 text-wz-caption">{helper}</small> : null}
     </div>
   );
 }
