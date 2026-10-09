@@ -147,3 +147,6 @@ export { WzFormModal } from "./form-modal";
 export { WzSettingsCatalog } from "./settings-catalog";
 export { WzModalTextField } from "./modal-text-field";
 export { WzAccountTitle, WzAccountToggle, WzPaySection, WzPayRow, WzDocSettingsField } from "./settings-form";
+
+// Workiz Phone settings tabs (agent pg_settings_phone: Phone numbers, Call flows, Call groups, Texting).
+export { WzTabIntro, WzRowIconButton, WzTag, WzShortCodeChips, WzSectionRule, shortCodeLabel } from "./phone-tab-parts";

@@ -1022,6 +1022,34 @@ Import from `@/components/workiz/settings-form`.
   Enter saves nothing; **`aside`** (new, optional, `full` only) — a column 48px
   right of the fields (the Account page's logo). Defaults unchanged.
 
+## Workiz Phone settings tabs (2026-10-09, agent `pg_settings_phone`)
+
+Measured off `pg_settings_phone_wz_*` (Workiz `/root/callsReport/numbers`,
+`/flows`, `/groups`, `/texting`, `/root/flowBuilder/<id>`); notes
+`workiz-data-parser/docs/import/app-parity-2026-10-08/pg_settings_phone.md`.
+Import from `@/components/workiz/phone-tab-parts`.
+
+- **`WzTabIntro`** `action` — the row under a Phone tab strip: the words
+  (14px/20px ink, 40px in, ≤620px) 32px under the rule and over the strip, the
+  tab's big yellow pill 20px from the right edge, level with the first line
+  ("Add number", "+ Create Call Flow", "Create a group" — give it `px-8`).
+- **`WzRowIconButton`** `label` `href?` `onClick` `disabled` — a grid row's
+  24px icon (Workiz's edit / trash / copy): a Link with `href`, a button
+  otherwise; its click never reaches the row.
+- **`WzTag`** — Workiz's dark `tag` (14px/16px 500 white on #61747d, r3,
+  1px 4px): "Workiz Number" under the account number; ours "Technician line",
+  "Paused", "In order", "Default".
+- **`WzShortCodeChips`** `label` `codes` `onInsert` `disabled` +
+  **`shortCodeLabel`** — the Texting tab's short-code chips ("Job Id"), 4px
+  apart; a click hands `{{code}}` to the caller (insert at the caret).
+- **`WzSectionRule`** — the Texting tab's 1px #e8e8e8 rule, 24px above and below.
+- **`WzLocalGrid` `emptyText`** (new, optional) — words for the empty grid's
+  band (default "No Records Found"), a block of your own centred over the rows
+  (Call groups' "No call groups created"), or `null` for the blank rows alone
+  (Workiz's numbers and flows grids).
+- **`WzSearchBox`** — no longer shows the browser's own × beside Workiz's
+  round one when it is `type="search"` (WzLocalGrid's).
+
 ## Known differences from Workiz (deliberate or unmeasurable)
 - Sub-pixel: Workiz's own fractional layout makes some glyphs land ±1px
   differently from ours in screenshots (e.g. two Workiz selects with identical
