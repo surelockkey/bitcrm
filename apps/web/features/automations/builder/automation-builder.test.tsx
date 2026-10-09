@@ -242,7 +242,7 @@ describe("saving", () => {
     };
     renderBuilder({ spec: narrow });
 
-    await user.click(await screen.findByRole("button", { name: "Save" }));
+    await user.click(await screen.findByRole("button", { name: "Update automation" }));
 
     await waitFor(() => expect(patched).toHaveLength(1));
     expect(patched[0]).toEqual({ id: "scheduled", body: { name: "Scheduled jobs", spec: narrow } });
@@ -254,7 +254,7 @@ describe("saving", () => {
 
     await user.click(await screen.findByRole("button", { name: "Actions for step 3" }));
     await user.click(await screen.findByRole("menuitem", { name: "Delete" }));
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(screen.getByRole("button", { name: "Update automation" }));
 
     await waitFor(() => expect(patched).toHaveLength(1));
     expect(patched[0].body.spec?.conditions).toEqual([
@@ -272,7 +272,7 @@ describe("saving", () => {
     await user.click(await screen.findByRole("menuitem", { name: "Duplicate" }));
     expect(chain()).toHaveLength(5);
 
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(screen.getByRole("button", { name: "Update automation" }));
     await waitFor(() => expect(patched).toHaveLength(1));
     expect(patched[0].body.spec?.actions).toEqual([rule.spec!.actions[0], rule.spec!.actions[0]]);
   });
@@ -282,7 +282,7 @@ describe("saving", () => {
     renderBuilder();
 
     await addStep(user, "Add a step at the end", "Post a webhook");
-    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Update automation" })).toBeDisabled();
     // Said beside Save, and on the card that can answer it (§3).
     expect(screen.getByText("Step 5, Post a webhook: A webhook needs a URL")).toBeInTheDocument();
     const card = within(screen.getAllByRole("listitem")[4]);
@@ -295,7 +295,7 @@ describe("saving", () => {
     renderBuilder();
 
     await user.clear(await screen.findByLabelText("Name"));
-    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Update automation" })).toBeDisabled();
     expect(screen.getByText("Name is required")).toBeInTheDocument();
   });
 });
@@ -372,14 +372,14 @@ describe("the + between steps", () => {
 
     await screen.findByDisplayValue("Scheduled jobs");
     await addStep(user, "Add a step after step 1, Trigger", "Wait");
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(screen.getByRole("button", { name: "Update automation" }));
 
     await waitFor(() => expect(patched).toHaveLength(1));
     expect(patched[0].body.spec?.timing).toMatchObject({ delayMinutes: 60 });
 
     await user.click(screen.getByRole("button", { name: "Actions for step 2" }));
     await user.click(await screen.findByRole("menuitem", { name: "Delete" }));
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(screen.getByRole("button", { name: "Update automation" }));
 
     await waitFor(() => expect(patched).toHaveLength(2));
     expect(patched[1].body.spec?.timing?.delayMinutes).toBeUndefined();
@@ -399,7 +399,7 @@ describe("the + between steps", () => {
       screen.getByText("A rule has one delay and it counts from the trigger, so this holds the steps above it too."),
     ).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(screen.getByRole("button", { name: "Update automation" }));
     await waitFor(() => expect(patched).toHaveLength(1));
     expect(patched[0].body.spec?.timing).toMatchObject({ delayMinutes: 60 });
   });
@@ -438,7 +438,7 @@ describe("the delivery window", () => {
     expect(screen.getByLabelText("From")).toHaveValue("08:00");
     await user.click(screen.getByLabelText("Automation will be sent"));
     await user.click(await screen.findByRole("option", { name: "24/7" }));
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(screen.getByRole("button", { name: "Update automation" }));
 
     await waitFor(() => expect(patched).toHaveLength(1));
     expect(patched[0].body.spec?.timing).toBeUndefined();
@@ -453,10 +453,10 @@ describe("the delivery window", () => {
 
     await user.click(window);
     await user.click(screen.getByLabelText("Automation will be sent"));
-    await user.click(await screen.findByRole("option", { name: "Only between set hours" }));
+    await user.click(await screen.findByRole("option", { name: "Custom window" }));
     await user.clear(screen.getByLabelText("To"));
     await user.type(screen.getByLabelText("To"), "20:00");
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(screen.getByRole("button", { name: "Update automation" }));
 
     await waitFor(() => expect(patched).toHaveLength(1));
     expect(patched[0].body.spec?.timing).toEqual({
@@ -473,7 +473,7 @@ describe("the delivery window", () => {
     expect(screen.getByLabelText("Outside those hours")).toHaveTextContent("Send anyway");
 
     await user.click(screen.getByLabelText("Automation will be sent"));
-    await user.click(await screen.findByRole("option", { name: "Only between set hours" }));
+    await user.click(await screen.findByRole("option", { name: "Custom window" }));
     // Asking for a window means asking for it to be kept — `placement` answers
     // "now" on `ignore` before it ever reads `workingHours`.
     expect(screen.getByLabelText("Outside those hours")).toHaveTextContent("Hold until the window opens");
@@ -486,7 +486,7 @@ describe("the delivery window", () => {
     await user.click(await screen.findByRole("button", { name: /Automation will be sent/ }));
     await user.click(screen.getByLabelText("Outside those hours"));
     await user.click(await screen.findByRole("option", { name: "Skip the message" }));
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(screen.getByRole("button", { name: "Update automation" }));
 
     await waitFor(() => expect(patched).toHaveLength(1));
     expect(patched[0].body.spec?.timing).toMatchObject({ quietHours: "skip" });
@@ -569,7 +569,7 @@ describe("creating", () => {
     renderCreate(draft, (open) => closed.push(open));
 
     await screen.findByDisplayValue("Missed call / text the client");
-    await user.click(screen.getByRole("button", { name: "Create automation" }));
+    await user.click(screen.getByRole("button", { name: "Add automation" }));
 
     await waitFor(() => expect(created).toHaveLength(1));
     expect(created[0]).toEqual({
@@ -589,7 +589,7 @@ describe("creating", () => {
       "Step 1, Trigger: When a job's status changes",
       "Step 2, Send: Send the client a text message",
     ]);
-    expect(screen.getByRole("button", { name: "Create automation" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Add automation" })).toBeDisabled();
     expect(screen.getByText("Name is required")).toBeInTheDocument();
     expect(created).toEqual([]);
   });

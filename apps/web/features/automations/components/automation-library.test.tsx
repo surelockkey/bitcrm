@@ -27,10 +27,8 @@ describe("AutomationLibrary", () => {
     renderLibrary();
     const card = cardOf("job-canceled-notify-techs");
 
-    expect(card).toHaveTextContent(
-      "When a job has a status of Canceled, send the assigned techs a text message immediately",
-    );
-    expect(within(card).getByText("Canceled")).toHaveAttribute("data-template-slot");
+    expect(card).toHaveTextContent("When a job is canceled, send a text to the assigned techs");
+    expect(within(card).getByText("canceled")).toHaveAttribute("data-template-slot");
     expect(within(card).getByText("the assigned techs")).toHaveAttribute("data-template-slot");
     expect(within(card).getByText(/hears it before they get there/)).toBeInTheDocument();
     expect(within(card).getByText("Most used here")).toBeInTheDocument();
@@ -66,7 +64,7 @@ describe("AutomationLibrary", () => {
     expect(screen.queryByTestId("automation-template-missed-call-text-client")).not.toBeInTheDocument();
 
     // A word only the sentence has…
-    rerender(<AutomationLibrary canEdit search="before a job starts" onUse={vi.fn()} />);
+    rerender(<AutomationLibrary canEdit search="ahead of the job" onUse={vi.fn()} />);
     expect(screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent)).toEqual(["Reminders"]);
 
     // …and one only a blurb has.
@@ -75,11 +73,20 @@ describe("AutomationLibrary", () => {
     expect(screen.getAllByTestId(/^automation-template-/)).toHaveLength(1);
   });
 
-  it("says so when nothing matches", () => {
+  it("says so when nothing matches, in Workiz's words", () => {
     renderLibrary({ search: "quickbooks" });
 
-    expect(screen.getByText(/No recipe matches/)).toHaveTextContent("quickbooks");
+    expect(screen.getByRole("heading", { name: "No results found" })).toBeInTheDocument();
+    expect(screen.getByText("Try using different phrase or keywords.")).toBeInTheDocument();
     expect(screen.queryAllByTestId(/^automation-template-/)).toHaveLength(0);
+  });
+
+  it("takes the template on a click anywhere on its card, as Workiz does", async () => {
+    const user = userEvent.setup();
+    const { onUse } = renderLibrary();
+
+    await user.click(within(cardOf("collect-reviews-1-day-after")).getByText("Collect reviews / 1 day after"));
+    expect(onUse).toHaveBeenCalledWith(AUTOMATION_TEMPLATES.find((t) => t.id === "collect-reviews-1-day-after"));
   });
 
   it("without the permission to edit, offers no Use and says why", () => {

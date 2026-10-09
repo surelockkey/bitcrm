@@ -84,17 +84,25 @@ export function DeliveryWindowControl({
         aria-haspopup="dialog"
         disabled={disabled}
         onClick={() => setOpen((o) => !o)}
+        // Workiz's footer field on the slate canvas (pg_automations_wz_31_edit):
+        // "Automation will be sent" 13px/30px 500 #9ea6aa over "24/7 ⌄" —
+        // 14px/23px 500 white and a #6aa8ee chevron.
         className={cn(
-          "flex items-center gap-1.5 rounded-lg px-2 py-1 text-sm text-muted-foreground",
-          "hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
+          "flex cursor-pointer flex-col items-start text-left outline-none focus-visible:ring-2 focus-visible:ring-wz-focus",
+          "disabled:cursor-not-allowed",
         )}
       >
-        Automation will be sent <span className="font-medium text-foreground">{deliveryWindowLabel(value)}</span>
-        <ChevronDown className="size-4" />
+        <span className="text-[13px] leading-[30px] font-medium tracking-[0.4px] text-wz-outline">Automation will be sent</span>
+        <span className="flex items-center gap-2 text-sm leading-[23px] font-medium tracking-[0.4px] text-white">
+          {deliveryWindowLabel(value)}
+          <ChevronDown className="size-5 text-wz-link" strokeWidth={1.5} />
+        </span>
       </button>
 
       {open ? (
-        <div className="absolute bottom-full left-0 z-30 mb-2 w-80 space-y-3 rounded-lg border bg-popover p-3 shadow-md">
+        // Workiz's MenuPopup, white with 8px corners and its soft two-part shadow,
+        // opening above the field — here holding the window and what happens outside it.
+        <div className="absolute bottom-full left-0 z-30 mb-2 w-80 space-y-3 rounded-[8px] bg-white p-4 text-foreground shadow-[0_0_4px_rgba(59,75,82,0.05),0_8px_16px_rgba(59,75,82,0.15)]">
           <div className="space-y-1.5">
             <Label>Automation will be sent</Label>
             <Select
@@ -115,7 +123,7 @@ export function DeliveryWindowControl({
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="always">24/7</SelectItem>
-                <SelectItem value="between">Only between set hours</SelectItem>
+                <SelectItem value="between">Custom window</SelectItem>
               </SelectContent>
             </Select>
           </div>

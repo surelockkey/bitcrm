@@ -2,6 +2,8 @@ import {
   JobSuperStatus,
   automationSentence,
   automationSpecLabels,
+  isAutomationConditionGroup,
+  isOwnAutomationSpec,
   type AutomationLabelMap,
   type AutomationRule,
   type AutomationRun,
@@ -325,6 +327,53 @@ export function runSummary(run: AutomationRun): string {
   return [...counts.entries()]
     .map(([outcome, n]) => `${n} ${actionOutcomeLabel(outcome).toLowerCase()}`)
     .join(", ");
+}
+
+/**
+ * The first fact on a Workiz rule card: "Modified on Sep 30, 2024" or
+ * "Created on Nov 18, 2021" (pg_automations_wz_10_mine). Workiz prints the
+ * rule's `validFrom` — the day its conditions last changed — when it has one,
+ * and its creation day otherwise; an imported rule carries both from Workiz.
+ * A rule written or edited here is dated by its own last change instead.
+ */
+export function ruleDateLine(rule: AutomationRule): { verb: "Modified on" | "Created on"; at: string } {
+  if (isOwnAutomationSpec(rule.specSource)) {
+    return rule.updatedAt && rule.updatedAt !== rule.createdAt
+      ? { verb: "Modified on", at: rule.updatedAt }
+      : { verb: "Created on", at: rule.createdAt };
+  }
+  if (rule.validFrom) return { verb: "Modified on", at: rule.validFrom };
+  return { verb: "Created on", at: rule.createdAt };
+}
+
+/**
+ * "This rule contains N conditions": what the rule checks — an OR group is
+ * one condition with alternatives, and the lead flag (always true here, never
+ * said in the sentence) is not something anybody wrote.
+ */
+export function conditionCount(rule: AutomationRule): number {
+  return (rule.spec?.conditions ?? []).filter(
+    (c) => isAutomationConditionGroup(c) || c.field !== "isLead",
+  ).length;
+}
+
+/** How many rules sit in each of the left column's rows: All, Active, Inactive, Cannot run. */
+export function stateCounts(rules: AutomationRule[]): Record<"all" | AutomationState, number> {
+  const out = { all: rules.length, on: 0, off: 0, blocked: 0 };
+  for (const rule of rules) out[ruleState(rule)] += 1;
+  return out;
+}
+
+/** The categories in use with how many rules each holds, in the order their names sort. */
+export function categoryCounts(rules: AutomationRule[]): Array<{ category: string; count: number }> {
+  const counts = new Map<string, number>();
+  for (const rule of rules) counts.set(ruleCategory(rule), (counts.get(ruleCategory(rule)) ?? 0) + 1);
+  return ruleCategories(rules).map((category) => ({ category, count: counts.get(category) ?? 0 }));
+}
+
+/** Workiz's "AUTOMATIONS TRIGGERED": every firing of every rule, here. */
+export function totalFirings(rules: AutomationRule[]): number {
+  return rules.reduce((sum, rule) => sum + (firingCount(rule) ?? 0), 0);
 }
 
 /** `2026-09-16T15:04:05.000Z` → `Sep 16, 3:04 PM` in the reader's own zone. */

@@ -92,15 +92,16 @@ describe("automation template catalog", () => {
   });
 
   it("ships the eight recipes the research backs and this engine can run", () => {
+    // In Workiz's section order: Reminders, Marketing, Phone — then our Job status.
     expect(AUTOMATION_TEMPLATES.map((t) => t.id)).toEqual([
-      "job-canceled-notify-techs",
-      "job-scheduled-notify-techs",
-      "missed-call-text-client",
-      "missed-call-notify-office",
-      "completed-call-text-client",
       "one-hour-notice-client-reminder",
       "one-hour-notice-tech-reminder",
       "collect-reviews-1-day-after",
+      "missed-call-text-client",
+      "missed-call-notify-office",
+      "completed-call-text-client",
+      "job-canceled-notify-techs",
+      "job-scheduled-notify-techs",
     ]);
   });
 

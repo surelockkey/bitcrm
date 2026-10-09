@@ -1022,6 +1022,30 @@ Import from `@/components/workiz/settings-form`.
   Enter saves nothing; **`aside`** (new, optional, `full` only) — a column 48px
   right of the fields (the Account page's logo). Defaults unchanged.
 
+## Card menus (2026-10-09, agent `pg_automations`, the Automation Center)
+
+Measured off `pg_automations_wz_12_dots_open` / `_12_dots_hover` (Workiz
+`/root/automationCenter`, notes:
+`workiz-data-parser/docs/import/app-parity-2026-10-08/pg_automations.md`).
+Import from `@/components/workiz/dots-menu`.
+
+- **`WzDotsMenu`** `items={key,label,icon,onSelect,destructive,disabled,aria-label,note}[]`
+  `aria-label` `tone="ink"|"light"` `disabled` — Workiz's `dotsPopMenu` on a
+  card: three 4px dots 4px apart in a 40×20 box (#3b4b52, #6aa8ee under the
+  cursor and while open; `tone="light"` is #9ea6aa turning white, for a dark
+  surface) opening the legacy `_popMenu` — 175px, 16px corners, `0 3px 6px
+  rgba(0,0,0,.18), 0 4px 15px rgba(0,0,0,.15)`, 10px top and bottom, hung 15px
+  under the dots with the right edges level; 37px rows of 16px/22px ink with a
+  20px glyph 10px in and 10px before the words, no rules; `destructive` rows
+  #f45e44 (Workiz's Delete). `note` prints a line under a row — why it is
+  disabled, where a keyboard reader will meet it. (Not `WzPopMenu`, the
+  "Actions ⌄" pill with 50px rows, nor `WzActionsMenu`, the job page's.)
+
+The Center's other pieces (the 214px left column, its rows and figure, the
+`_tabs` strip with a link tab, the empty state with Workiz's pictures, the
+rule card's info row) are specific to it and live in
+`features/automations/components/automation-center.tsx`.
+
 ## Known differences from Workiz (deliberate or unmeasurable)
 - Sub-pixel: Workiz's own fractional layout makes some glyphs land ±1px
   differently from ours in screenshots (e.g. two Workiz selects with identical

@@ -102,7 +102,7 @@ export function NodePanel({ node, labels, chain, onChange, disabled }: NodePanel
 
   return (
     <div key={node.id} className="space-y-4">
-      <header className="space-y-1">
+      <header className="space-y-1 pr-8">
         <h3 className="text-sm font-semibold">{PANEL_TITLE[node.kind]}</h3>
         <p className="text-xs text-muted-foreground">{chainNodeSummary(node, labels)}</p>
       </header>

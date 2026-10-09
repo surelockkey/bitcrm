@@ -1,7 +1,7 @@
 import { JobSuperStatus, type AutomationCondition, type AutomationSpec } from "@bitcrm/types";
 
 /**
- * The recipe library (Workiz "Automation Center" → LIBRARY tab). Each card is
+ * The recipe library (Workiz "Automation Center" → Discover tab). Each card is
  * a rule somebody can start from in two clicks: a sentence with the parts they
  * edit marked, and a draft the editor opens pre-filled.
  *
@@ -20,8 +20,11 @@ import { JobSuperStatus, type AutomationCondition, type AutomationSpec } from "@
  * translated to the event that actually happens, and the reminders ask what
  * they really mean ("the job is still on") instead of naming a status.
  *
- * Section order is what carries traffic here, not what Workiz listed first:
- * four job-status / phone rules are 79.7% of the 2026 automated messages.
+ * Sections and sentences follow Workiz's Discover tab (2026-10-09 rule: the
+ * whole app looks like Workiz, pg_automations_wz_03_discover): its order —
+ * Reminders, Marketing, Phone — with our Job status (which Workiz has no
+ * section for) last, and its short card sentences ("Send a text to a client
+ * 1 hour ahead of the job"), so a card's three lines hold the whole of it.
  * Invoice, estimate, payment, lead and service-plan recipes are deliberately
  * absent — money and leads are out of scope until BitCRM has invoices. So is
  * Workiz's `Voicemail / Immediate text`: nothing publishes a voicemail flag on
@@ -29,7 +32,7 @@ import { JobSuperStatus, type AutomationCondition, type AutomationSpec } from "@
  * answers missed / answered), and a caller who leaves one after a failed dial
  * is already reported as a missed call — the missed-call recipe texts them.
  */
-export const AUTOMATION_TEMPLATE_SECTIONS = ["Job status", "Phone", "Reminders", "Marketing"] as const;
+export const AUTOMATION_TEMPLATE_SECTIONS = ["Reminders", "Marketing", "Phone", "Job status"] as const;
 export type AutomationTemplateSection = (typeof AUTOMATION_TEMPLATE_SECTIONS)[number];
 
 export interface AutomationTemplate {
@@ -60,124 +63,12 @@ const stillOn = (): AutomationCondition[] => [
 ];
 
 export const AUTOMATION_TEMPLATES: AutomationTemplate[] = [
-  // ------------------------------------------------------------- Job status
-  {
-    id: "job-canceled-notify-techs",
-    section: "Job status",
-    title: "Job canceled / Notify techs",
-    sentence: "When a job has a status of <Canceled>, send <the assigned techs> <a text message> immediately",
-    blurb: "So a tech already driving to a job that just died hears it before they get there.",
-    popular: true,
-    draft: {
-      name: "Job canceled / Notify techs",
-      category: "job",
-      spec: {
-        version: 1,
-        trigger: { kind: "deal.status_changed", to: [JobSuperStatus.CANCELED] },
-        conditions: [{ field: "hasTechs", op: "exists" }],
-        actions: sms(
-          "CLIENT CANCELED\nJob {{job_id}}\n{{first_name}} {{last_name}} at {{full_address}}\n{{description}}",
-          "assigned_techs",
-        ),
-      },
-    },
-  },
-  {
-    id: "job-scheduled-notify-techs",
-    section: "Job status",
-    title: "Job scheduled / Notify techs",
-    sentence: "When a technician is put on a job, send <the assigned techs> <a text message> immediately",
-    // Workiz fired this on "status = submitted"; here that is the status of a
-    // job with an empty roster, so the Workiz shape would text nobody, ever.
-    blurb: "Every tech put on a job gets the address, the window and the work — in your own words.",
-    popular: true,
-    draft: {
-      name: "Job scheduled / Notify techs",
-      category: "job",
-      spec: {
-        version: 1,
-        trigger: { kind: "deal.tech_assigned" },
-        conditions: [],
-        actions: sms(
-          "New scheduled job at {{full_address}}\nTime: {{job_date}} from {{appointment_time}} to {{job_end_time}}\nService: {{description}}\nJob {{job_id}}\nPlease let us know if anything has to change.",
-          "assigned_techs",
-        ),
-      },
-    },
-  },
-
-  // ------------------------------------------------------------------ Phone
-  {
-    id: "missed-call-text-client",
-    section: "Phone",
-    title: "Missed call / Immediate text client",
-    sentence: "When a call is missed, send the client <a text message> <immediately>",
-    blurb: "A caller nobody picked up hears back in seconds, before they try the next locksmith.",
-    popular: true,
-    draft: {
-      name: "Missed call / Immediate text client",
-      category: "phone",
-      spec: {
-        version: 1,
-        trigger: { kind: "call.completed", callOutcome: "missed", callDirection: "inbound" },
-        conditions: [],
-        actions: sms(
-          "Hi, sorry we missed your call! Call or text us back at {{biz_number}} and we will help right away. — {{biz_name}}",
-        ),
-      },
-    },
-  },
-  {
-    id: "missed-call-notify-office",
-    section: "Phone",
-    title: "Missed call / Notify office",
-    sentence: "When a call is missed, send <the office number> <a text message> immediately",
-    blurb: "Whoever covers the phones is told at once — the caller's number is in the call log.",
-    draft: {
-      name: "Missed call / Notify office",
-      category: "phone",
-      spec: {
-        version: 1,
-        trigger: { kind: "call.completed", callOutcome: "missed", callDirection: "inbound" },
-        conditions: [],
-        // Workiz sent this to a named user, and a recipe cannot name one: it
-        // ships with no ids from this workspace, and a `users` action with
-        // nobody on it resolves to no recipient and sends nothing for ever.
-        // A number is a slot the editor shows and the form refuses to save
-        // empty — and whoever starts from this recipe can point it at a
-        // person or a role in the editor's own pickers instead.
-        actions: sms("We missed a call — nobody picked up. Please call the client back from the call log.", "number"),
-      },
-    },
-  },
-  {
-    id: "completed-call-text-client",
-    section: "Phone",
-    title: "Completed call / Text client",
-    sentence: "When a call is answered, send the client <a text message> <immediately>",
-    blurb: "After the call ends the caller has your phone, site and email in writing.",
-    popular: true,
-    draft: {
-      name: "Completed call / Text client",
-      category: "phone",
-      spec: {
-        version: 1,
-        trigger: { kind: "call.completed", callOutcome: "answered", callDirection: "inbound" },
-        conditions: [],
-        actions: sms(
-          "Thank you for calling {{biz_name}}! We are here 24/7.\nPhone: {{biz_number}}\nEmail: {{biz_email}}",
-        ),
-      },
-    },
-  },
-
   // -------------------------------------------------------------- Reminders
   {
     id: "one-hour-notice-client-reminder",
     section: "Reminders",
     title: "1 hour notice / Client reminder",
-    sentence:
-      "When it is <1 hour> before a job starts and the job is not canceled or done, send the client <a text message>",
+    sentence: "Send <a text> to <a client> <1 hour ahead> of the job",
     blurb: "Cuts no-shows: the client gets the time, the address and a confirm link an hour out.",
     draft: {
       name: "1 hour notice / Client reminder",
@@ -196,8 +87,7 @@ export const AUTOMATION_TEMPLATES: AutomationTemplate[] = [
     id: "one-hour-notice-tech-reminder",
     section: "Reminders",
     title: "1 hour notice / Tech reminder",
-    sentence:
-      "When it is <1 hour> before a job starts and a tech is on it, send <the assigned techs> <a text message>",
+    sentence: "Send <a text> to <a technician> <1 hour ahead> of the job",
     blurb: "The tech is reminded of the next job an hour out — address, time and the work.",
     draft: {
       name: "1 hour notice / Tech reminder",
@@ -221,8 +111,7 @@ export const AUTOMATION_TEMPLATES: AutomationTemplate[] = [
     id: "collect-reviews-1-day-after",
     section: "Marketing",
     title: "Collect reviews / 1 day after",
-    sentence:
-      "When a job has a status of <Done>, send the client <a text message> with <your review link> <1 day> after",
+    sentence: "<1 day> after the job is done, send <a text> with a review request to the <client>",
     blurb: "Ask while the job is still fresh — paste your own review link into the message.",
     draft: {
       name: "Collect reviews / 1 day after",
@@ -235,6 +124,117 @@ export const AUTOMATION_TEMPLATES: AutomationTemplate[] = [
           "Hi {{first_name}}! Thank you for choosing {{biz_name}}. Would you mind leaving us a review? Here's the link: [paste your review link]\nThanks, we really appreciate it!",
         ),
         timing: { delayMinutes: 1440, quietHours: "hold" },
+      },
+    },
+  },
+
+  // ------------------------------------------------------------------ Phone
+  {
+    id: "missed-call-text-client",
+    section: "Phone",
+    title: "Missed call / Immediate text client",
+    sentence: "if a call is missed, instantly send <a text> to the <client>",
+    blurb: "A caller nobody picked up hears back in seconds, before they try the next locksmith.",
+    popular: true,
+    draft: {
+      name: "Missed call / Immediate text client",
+      category: "phone",
+      spec: {
+        version: 1,
+        trigger: { kind: "call.completed", callOutcome: "missed", callDirection: "inbound" },
+        conditions: [],
+        actions: sms(
+          "Hi, sorry we missed your call! Call or text us back at {{biz_number}} and we will help right away. — {{biz_name}}",
+        ),
+      },
+    },
+  },
+  {
+    id: "missed-call-notify-office",
+    section: "Phone",
+    title: "Missed call / Notify office",
+    sentence: "if a call is missed, instantly send <a text> to <the office number>",
+    blurb: "Whoever covers the phones is told at once — the caller's number is in the call log.",
+    draft: {
+      name: "Missed call / Notify office",
+      category: "phone",
+      spec: {
+        version: 1,
+        trigger: { kind: "call.completed", callOutcome: "missed", callDirection: "inbound" },
+        conditions: [],
+        // Workiz sent this to a named user, and a recipe cannot name one: it
+        // ships with no ids from this workspace, and a `users` action with
+        // nobody on it resolves to no recipient and sends nothing for ever.
+        // A number is a slot the editor shows and the form refuses to save
+        // empty — and whoever starts from this recipe can point it at a
+        // person or a role in the editor's own pickers instead.
+        actions: sms("We missed a call — nobody picked up. Please call the client back from the call log.", "number"),
+      },
+    },
+  },
+  {
+    id: "completed-call-text-client",
+    section: "Phone",
+    title: "Completed call / Text client",
+    sentence: "after an answered call, instantly send <a text> to the <client>",
+    blurb: "After the call ends the caller has your phone, site and email in writing.",
+    popular: true,
+    draft: {
+      name: "Completed call / Text client",
+      category: "phone",
+      spec: {
+        version: 1,
+        trigger: { kind: "call.completed", callOutcome: "answered", callDirection: "inbound" },
+        conditions: [],
+        actions: sms(
+          "Thank you for calling {{biz_name}}! We are here 24/7.\nPhone: {{biz_number}}\nEmail: {{biz_email}}",
+        ),
+      },
+    },
+  },
+
+  // ------------------------------------------------------------- Job status
+  {
+    id: "job-canceled-notify-techs",
+    section: "Job status",
+    title: "Job canceled / Notify techs",
+    sentence: "When a job is <canceled>, send <a text> to <the assigned techs>",
+    blurb: "So a tech already driving to a job that just died hears it before they get there.",
+    popular: true,
+    draft: {
+      name: "Job canceled / Notify techs",
+      category: "job",
+      spec: {
+        version: 1,
+        trigger: { kind: "deal.status_changed", to: [JobSuperStatus.CANCELED] },
+        conditions: [{ field: "hasTechs", op: "exists" }],
+        actions: sms(
+          "CLIENT CANCELED\nJob {{job_id}}\n{{first_name}} {{last_name}} at {{full_address}}\n{{description}}",
+          "assigned_techs",
+        ),
+      },
+    },
+  },
+  {
+    id: "job-scheduled-notify-techs",
+    section: "Job status",
+    title: "Job scheduled / Notify techs",
+    sentence: "When a tech is put on a job, send <a text> to <the assigned techs>",
+    // Workiz fired this on "status = submitted"; here that is the status of a
+    // job with an empty roster, so the Workiz shape would text nobody, ever.
+    blurb: "Every tech put on a job gets the address, the window and the work — in your own words.",
+    popular: true,
+    draft: {
+      name: "Job scheduled / Notify techs",
+      category: "job",
+      spec: {
+        version: 1,
+        trigger: { kind: "deal.tech_assigned" },
+        conditions: [],
+        actions: sms(
+          "New scheduled job at {{full_address}}\nTime: {{job_date}} from {{appointment_time}} to {{job_end_time}}\nService: {{description}}\nJob {{job_id}}\nPlease let us know if anything has to change.",
+          "assigned_techs",
+        ),
       },
     },
   },
