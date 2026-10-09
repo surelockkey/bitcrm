@@ -223,7 +223,8 @@ export function NotificationEditor({
             )
           }
         />
-        <small className="mt-px block text-[11px] leading-4 text-wz-caption">{HINT}</small>
+        {/* Workiz's small: 11px/13px #999, 1px under the box (notif_audit_wz_04: y156). */}
+        <small className="mt-px block text-[11px] leading-[13px] text-wz-caption">{HINT}</small>
       </div>
 
       {form?.kind === "client_reminder" || form?.kind === "tech_reminder" ? (

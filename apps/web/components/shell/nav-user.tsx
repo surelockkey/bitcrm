@@ -54,7 +54,8 @@ export function NavUser() {
         </Button>
       </DropdownMenuTrigger>
 
-      <DropdownMenuContent align="end" className="w-64">
+      {/* Workiz's `_popMenu` is 290px (uikit_wz_avatar_menu): "On-screen notifications" and its switch share one line. */}
+      <DropdownMenuContent align="end" className="w-[290px]">
         <div className="px-2 py-1.5">
           <div className="truncate text-sm font-medium">{name}</div>
           <div className="truncate text-xs text-muted-foreground">{me.email}</div>
