@@ -14,6 +14,7 @@ import { ItemCategoriesRepository } from './item-categories.repository';
 import { ProductCategoryMover } from '../products/product-category-mover';
 import { type CreateItemCategoryDto } from './dto/create-item-category.dto';
 import { type UpdateItemCategoryDto } from './dto/update-item-category.dto';
+import { type WithDescription } from '../common/decorators/catalog-description.decorator';
 
 /**
  * The id a name-seeded category gets. It must be **deterministic**: the
@@ -76,14 +77,15 @@ export class ItemCategoriesService {
     }
   }
 
-  async create(dto: CreateItemCategoryDto, caller: { id: string }): Promise<ProductCategory> {
+  async create(dto: CreateItemCategoryDto, caller: { id: string }): Promise<WithDescription<ProductCategory>> {
     await this.assertNameAvailable(dto.name);
 
     const now = new Date().toISOString();
-    const category: ProductCategory = {
+    const category: WithDescription<ProductCategory> = {
       id: randomUUID(),
       name: dto.name,
       active: dto.active ?? true,
+      ...(dto.description && { description: dto.description }),
       createdBy: caller.id,
       createdAt: now,
       updatedAt: now,
@@ -171,8 +173,8 @@ export class ItemCategoriesService {
     id: string,
     dto: UpdateItemCategoryDto,
     _caller: { id: string },
-  ): Promise<ProductCategory & { movedItems: number }> {
-    const existing = await this.findById(id);
+  ): Promise<WithDescription<ProductCategory> & { movedItems: number }> {
+    const existing: WithDescription<ProductCategory> = await this.findById(id);
     const renamed = dto.name !== undefined && dto.name !== existing.name;
     if (renamed && isUncategorized(existing.name)) {
       throw new BadRequestException(
@@ -186,10 +188,12 @@ export class ItemCategoriesService {
 
     const movedItems = renamed ? await this.productMover.move(existing.name, dto.name!) : 0;
 
-    const updated: ProductCategory = {
+    const updated: WithDescription<ProductCategory> = {
       ...existing,
       name: dto.name ?? existing.name,
       active: dto.active ?? existing.active,
+      // '' clears it; left out, the stored one (an imported Workiz description) stays.
+      ...(dto.description !== undefined && { description: dto.description }),
       updatedAt: new Date().toISOString(),
     };
 

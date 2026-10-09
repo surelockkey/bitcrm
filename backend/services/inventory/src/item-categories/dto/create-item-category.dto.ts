@@ -1,6 +1,7 @@
 import { IsString, IsOptional, IsBoolean, MinLength, MaxLength } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { CatalogDescription } from '../../common/decorators/catalog-description.decorator';
 
 export class CreateItemCategoryDto {
   @ApiProperty({ example: 'Locks' })
@@ -14,4 +15,7 @@ export class CreateItemCategoryDto {
   @IsOptional()
   @IsBoolean()
   active?: boolean;
+
+  @CatalogDescription()
+  description?: string;
 }

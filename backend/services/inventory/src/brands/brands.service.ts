@@ -12,6 +12,7 @@ import { publishInventoryEvent } from '../common/events/publish-inventory-event'
 import { BrandsRepository } from './brands.repository';
 import { type CreateBrandDto } from './dto/create-brand.dto';
 import { type UpdateBrandDto } from './dto/update-brand.dto';
+import { type WithDescription } from '../common/decorators/catalog-description.decorator';
 
 @Injectable()
 export class BrandsService {
@@ -32,14 +33,15 @@ export class BrandsService {
     }
   }
 
-  async create(dto: CreateBrandDto, caller: { id: string }): Promise<Brand> {
+  async create(dto: CreateBrandDto, caller: { id: string }): Promise<WithDescription<Brand>> {
     await this.assertNameAvailable(dto.name);
 
     const now = new Date().toISOString();
-    const brand: Brand = {
+    const brand: WithDescription<Brand> = {
       id: randomUUID(),
       name: dto.name,
       active: dto.active ?? true,
+      ...(dto.description && { description: dto.description }),
       createdBy: caller.id,
       createdAt: now,
       updatedAt: now,
@@ -64,14 +66,16 @@ export class BrandsService {
     return brand;
   }
 
-  async update(id: string, dto: UpdateBrandDto, _caller: { id: string }): Promise<Brand> {
-    const existing = await this.findById(id);
+  /** Name, active and description — whatever is sent; '' clears the description. */
+  async update(id: string, dto: UpdateBrandDto, _caller: { id: string }): Promise<WithDescription<Brand>> {
+    const existing: WithDescription<Brand> = await this.findById(id);
     if (dto.name !== undefined) await this.assertNameAvailable(dto.name, id);
 
-    const updated: Brand = {
+    const updated: WithDescription<Brand> = {
       ...existing,
       name: dto.name ?? existing.name,
       active: dto.active ?? existing.active,
+      ...(dto.description !== undefined && { description: dto.description }),
       updatedAt: new Date().toISOString(),
     };
 

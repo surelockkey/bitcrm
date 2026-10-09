@@ -1,6 +1,7 @@
 import { IsString, IsOptional, IsBoolean, MinLength, MaxLength } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
+import { CatalogDescription } from '../../common/decorators/catalog-description.decorator';
 
 export class UpdateBrandDto {
   @ApiPropertyOptional({ example: 'Schlage' })
@@ -18,4 +19,7 @@ export class UpdateBrandDto {
   @IsOptional()
   @IsBoolean()
   active?: boolean;
+
+  @CatalogDescription()
+  description?: string;
 }
