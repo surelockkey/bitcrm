@@ -5,13 +5,14 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
 import type { User } from "@bitcrm/types";
 import { server } from "@/test/msw/server";
-import { TwoStepCard } from "./two-step-card";
+import { SelfTwoFactor } from "./self-two-factor";
 
 /**
- * Two-step sign-in on your own profile: a code texted to your phone after
- * the password. One switch, an On / Off you can read at a glance, and —
- * when there is no phone yet — the phone is added right here rather than
- * leaving a greyed-out control that explains itself in small print.
+ * Two-step sign-in on your own profile, as the user page's "Two-factor
+ * authentication ⓘ" row (pg_technicians_wz_10_user_profile): Workiz's 32×16
+ * switch at the column's edge. Switching it on is proved — a code goes to the
+ * phone and has to come back; with no phone yet, the phone is asked for right
+ * under the row rather than leaving a greyed-out switch.
  */
 const me = (extra: Partial<User> = {}): User => ({
   id: "u-1",
@@ -57,80 +58,80 @@ beforeEach(() => {
   );
 });
 
-function renderCard(user: User) {
+function renderRow(user: User) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <TwoStepCard me={user} />
+      <SelfTwoFactor me={user} />
     </QueryClientProvider>,
   );
 }
 
-const toggle = () => screen.getByRole("switch", { name: /two-step sign-in/i });
-const status = () => screen.getByTestId("two-step-status");
+const toggle = () => screen.getByRole("switch", { name: "Two-factor authentication" });
 
-describe("TwoStepCard", () => {
-  it("reads Off, with a switch that is not greyed out", () => {
-    renderCard(me());
+describe("SelfTwoFactor", () => {
+  it("is the user page's row: the words, an ⓘ, and a switch that is off and not greyed out", () => {
+    renderRow(me());
 
-    expect(status()).toHaveTextContent(/^off$/i);
-    expect(toggle()).not.toBeChecked();
+    expect(screen.getByText("Two-factor authentication")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "About Two-factor authentication" })).toBeInTheDocument();
+    expect(toggle()).toHaveAttribute("aria-checked", "false");
     expect(toggle()).toBeEnabled();
   });
 
-  it("reads On, naming the phone the codes go to", () => {
-    renderCard(me({ smsMfaEnabled: true }));
+  it("is on, its ⓘ naming the phone the codes go to", () => {
+    renderRow(me({ smsMfaEnabled: true }));
 
-    expect(status()).toHaveTextContent(/^on$/i);
-    expect(toggle()).toBeChecked();
-    expect(screen.getByText(/1234/)).toBeInTheDocument();
+    expect(toggle()).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByText(/\(404\) 555-1234/)).toBeInTheDocument();
   });
 
   it("switches on once the texted code comes back", async () => {
-    renderCard(me());
+    renderRow(me());
 
     await userEvent.click(toggle());
-    await userEvent.type(await screen.findByLabelText(/code/i), "123456");
-    await userEvent.click(screen.getByRole("button", { name: /confirm/i }));
+    await userEvent.type(await screen.findByLabelText(/code sent to/i), "123456");
+    await userEvent.click(screen.getByRole("button", { name: "Confirm" }));
 
-    await waitFor(() => expect(status()).toHaveTextContent(/^on$/i));
+    await waitFor(() => expect(toggle()).toHaveAttribute("aria-checked", "true"));
+    expect(screen.queryByLabelText(/code sent to/i)).not.toBeInTheDocument();
     expect(calls.map((c) => c.path)).toEqual(["start", "confirm"]);
   });
 
   it("stays off for a wrong code, and says why", async () => {
-    renderCard(me());
+    renderRow(me());
 
     await userEvent.click(toggle());
-    await userEvent.type(await screen.findByLabelText(/code/i), "000000");
-    await userEvent.click(screen.getByRole("button", { name: /confirm/i }));
+    await userEvent.type(await screen.findByLabelText(/code sent to/i), "000000");
+    await userEvent.click(screen.getByRole("button", { name: "Confirm" }));
 
     expect(await screen.findByText(/not right/i)).toBeInTheDocument();
-    expect(status()).toHaveTextContent(/^off$/i);
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(toggle()).toHaveAttribute("aria-checked", "false");
   });
 
-  // No phone yet: the switch still works — it asks for the phone right here.
-  it("asks for the phone in the card when there is none, then texts it", async () => {
-    renderCard(me({ phone: undefined }));
+  it("asks for the phone under the row when there is none, then texts it", async () => {
+    renderRow(me({ phone: undefined }));
     expect(toggle()).toBeEnabled();
 
     await userEvent.click(toggle());
     const form = await screen.findByTestId("two-step-phone");
     // On its way on: the switch says so while the phone is asked for.
-    expect(toggle()).toBeChecked();
+    expect(toggle()).toHaveAttribute("aria-checked", "true");
     await userEvent.type(within(form).getByRole("textbox"), "5412830739");
-    await userEvent.click(within(form).getByRole("button", { name: /send code/i }));
+    await userEvent.click(within(form).getByRole("button", { name: "Send code" }));
 
-    expect(await screen.findByLabelText(/code/i)).toBeInTheDocument();
+    expect(await screen.findByLabelText(/code sent to/i)).toBeInTheDocument();
     expect(calls.map((c) => c.path)).toEqual(["phone", "start"]);
     expect(calls[0].body).toEqual({ phone: expect.stringContaining("5412830739") });
   });
 
   it("switches off in one click", async () => {
-    renderCard(me({ smsMfaEnabled: true }));
+    renderRow(me({ smsMfaEnabled: true }));
 
     await userEvent.click(toggle());
 
-    await waitFor(() => expect(status()).toHaveTextContent(/^off$/i));
+    await waitFor(() => expect(toggle()).toHaveAttribute("aria-checked", "false"));
     expect(calls.map((c) => c.path)).toEqual(["off"]);
   });
 });
