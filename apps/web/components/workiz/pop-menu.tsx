@@ -53,7 +53,7 @@ export function WzPopMenu({
             className,
           )}
         >
-          {label}
+          <span className="px-1">{label}</span>
           <ChevronDown className="size-[19px]" strokeWidth={1.5} />
         </button>
       </DropdownMenuTrigger>

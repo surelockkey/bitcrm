@@ -705,6 +705,46 @@ additive; callers without the new props are untouched.
 - The Invoices cards are the Estimates ones: `WzKpiCard selectedTone="orange"`
   (Workiz's `left-orange` on the last card clicked, pg_invoices_wz_10_card_overdue).
 
+## Team list and the user page (2026-10-09, agent `pg_technicians`)
+
+Measured off `pg_technicians_wz_*` (Workiz `/root/team` and `/root/editUser/<id>`,
+plus `pg_technicians_wz_measure_{team,user}.json`); notes:
+`workiz-data-parser/docs/import/app-parity-2026-10-08/pg_technicians.md`.
+
+- **`WzSettingsExplain`** (`settings-explain.tsx`) `icon` `title` `links?` — the
+  legacy `react_components_explain` band over Workiz's settings lists (Team,
+  Job Types, Service Areas, Taxes): `#fafcfc`, 30px 10px; a 28px ink glyph 30px
+  in, the h2 30px after it (22.4px/26.88px 600 `#404040`), 40px short of a 1px
+  `#ddd` rule; the words 30px past it (14px/22.4px); `links` 8px under them in
+  `#3da6e1`, nothing drawn without. Not the Price book's newer `Explain-module`
+  (31px h1, no icon).
+- **`WzPopMenu`** (`pop-menu.tsx`) `items={key,label,onSelect,disabled}[]` `label` —
+  the user page's "Actions ⌄": a 40px outline pill (13px/600, the chevron after
+  the words) opening the legacy `_popMenu`: 245px, 16px corners, Workiz's two
+  shadows, 15px under the pill with right edges level, 50px rows of 13px ink
+  16px in, no rules. (`WzActionsMenu` is the job page's.)
+- **`WzOutlinedTextField`** (`outlined-text-field.tsx`) `label?` `error`
+  `endAdornment` `inputClassName` + input props — the user page's text box
+  (FloatingLabel-module + Input-module): 40px, 1px `#9ea6aa` (ink hovered,
+  `#6aa8ee` focused), 4px corners, 13px ink 12px in; the label in the notch
+  (11px ink on white, 8px in, 8px up) once there is a value or focus — CSS on
+  the input's own `:placeholder-shown`, so `register()`/`reset()` move it —
+  resting inside (13px `#768287`) while empty. A `placeholder` keeps it in
+  the notch; without `label` it is the bare box (Labor cost's "00.00").
+- **`WzFormSectionTitle`** `info?` `level` + **`WzInfoTip`** `text` `label` `id`
+  (`form-section-title.tsx`) — the block titles ("User Details", "Labor cost per
+  hour ⓘ": 14px/21px 600 ink) and Workiz's ⓘ (a thin 24px circled i, 4px after
+  the words, the MUI tooltip on hover/focus). The tip's words also sit in the
+  page, hidden, under `id`, so a control can name them in `aria-describedby`.
+- Additions, every existing caller untouched: **`WzFilterSelect`** — a group
+  with `title: ""` draws no heading (the Team filter's status column, named by
+  its `chipPrefix` for screen readers) and `chipTone: "white"` prints its picks
+  white with 400 `#333` words ("status: Active", `WzFilterChip tone="white"`);
+  **`WzReportGrid` `emptyText={null}`** — an empty grid is only its blank rows
+  (Team's no-match search, pg_technicians_wz_07_search_empty); Team uses
+  `minRows={5}` + `plainFiller`; **`WzMiniToggle` / `WzOutlinedSelect`
+  `aria-describedby`**.
+
 ## Known differences from Workiz (deliberate or unmeasurable)
 - Sub-pixel: Workiz's own fractional layout makes some glyphs land ±1px
   differently from ours in screenshots (e.g. two Workiz selects with identical

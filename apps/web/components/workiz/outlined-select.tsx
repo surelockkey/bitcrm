@@ -29,6 +29,8 @@ export interface WzOutlinedSelectProps {
   error?: string;
   className?: string;
   ref?: Ref<HTMLInputElement>;
+  /** Words that explain the box (a reason it is locked); joined with the error's. */
+  "aria-describedby"?: string;
 }
 
 /**
@@ -51,6 +53,7 @@ export function WzOutlinedSelect({
   error,
   className,
   ref,
+  "aria-describedby": describedBy,
 }: WzOutlinedSelectProps) {
   const autoId = useId();
   const inputId = id ?? `wz-${autoId}`;
@@ -124,7 +127,7 @@ export function WzOutlinedSelect({
         ref={mergeRefs(combo.inputRef, ref)}
         onFocus={() => setFocused(true)}
         aria-invalid={error ? true : undefined}
-        aria-describedby={error ? errorId : undefined}
+        aria-describedby={cn(error && errorId, describedBy) || undefined}
         className="absolute top-0 right-10 left-3 h-[42px] min-w-0 bg-transparent p-0 text-[13px] leading-4 text-wz-value outline-none"
       />
       {name ? <input type="hidden" name={name} value={value} /> : null}
