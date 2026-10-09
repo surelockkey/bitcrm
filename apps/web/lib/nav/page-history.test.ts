@@ -3,6 +3,7 @@ import {
   HISTORY_LIMIT,
   applyLabel,
   applyVisit,
+  isRedirectHop,
   labelForPath,
   pushVisit,
   type PageVisit,
@@ -171,6 +172,68 @@ describe("labelForPath", () => {
   it("never renders a raw id, even for unknown detail routes", () => {
     expect(labelForPath(`/widgets/${UUID}`)).toBe("Widgets");
     expect(labelForPath("/widgets/123456789")).toBe("Widgets");
+  });
+});
+
+/**
+ * Workiz's strip holds one crumb per page. A route that only hands the reader
+ * on — `/payments` → `/reports/payments`, `/price-book` → `/price-book/items`,
+ * `/inventory` → `/inventory/items`, `/settings/general` → `/settings` — used
+ * to leave its own crumb behind ("PAYMENTS # PAYMENTS", "SETTINGS # GENERAL #
+ * SETTINGS"); now it leaves none.
+ */
+describe("redirect hops leave no crumb", () => {
+  const empty: TrailState = { visits: [], labels: {} };
+
+  it.each([
+    "/payments",
+    "/price-book",
+    "/inventory",
+    "/inventory/items/new",
+    "/settings/general",
+    "/settings/automations",
+    "/settings/call-flows",
+    "/settings/call-groups",
+    "/settings/messaging",
+    "/settings/message-templates",
+    "/settings/phone-numbers",
+    "/inventory/warehouses/0199c4d2-7b1e-4f7a-9c3d-abcdef123456",
+    "/inventory/containers/0199c4d2-7b1e-4f7a-9c3d-abcdef123456",
+    "/inventory/products/0199c4d2-7b1e-4f7a-9c3d-abcdef123456",
+    "/inventory/items/0199c4d2-7b1e-4f7a-9c3d-abcdef123456",
+  ])("knows %s only redirects", (path) => {
+    expect(isRedirectHop(path)).toBe(true);
+    expect(isRedirectHop(path + "/")).toBe(true);
+  });
+
+  it.each(["/", "/deals", "/reports/payments", "/price-book/items", "/inventory/items", "/settings", "/inventory/warehouses"])(
+    "treats %s as a page of its own",
+    (path) => {
+      expect(isRedirectHop(path)).toBe(false);
+    },
+  );
+
+  it("records the page a hop lands on, never the hop", () => {
+    let s = applyVisit(empty, "/deals");
+    s = applyVisit(s, "/payments");
+    s = applyVisit(s, "/reports/payments");
+    expect(s.visits.map((v) => v.label)).toEqual(["Jobs", "Payments"]);
+
+    s = applyVisit(s, "/settings");
+    s = applyVisit(s, "/settings/general");
+    s = applyVisit(s, "/settings");
+    expect(s.visits.map((v) => v.label)).toEqual(["Jobs", "Payments", "Settings"]);
+  });
+
+  it("keeps one crumb when a page re-lands under the same name", () => {
+    // "/calls" then "/calls/": one page, one crumb, at its newest path.
+    let s = applyVisit(empty, "/deals");
+    s = applyVisit(s, "/calls");
+    s = applyVisit(s, "/calls/");
+    expect(s.visits).toEqual([
+      { path: "/deals", label: "Jobs" },
+      { path: "/calls/", label: "Calls" },
+    ]);
   });
 });
 
