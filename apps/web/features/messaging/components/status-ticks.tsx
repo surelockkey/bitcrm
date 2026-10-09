@@ -1,10 +1,11 @@
 "use client";
 
-import { AlertCircle, Check, CheckCheck, Loader2 } from "lucide-react";
+import { AlertCircle, Check, Loader2 } from "lucide-react";
 import type { MessageStatus } from "@bitcrm/types";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { STATUS_LABEL, statusTick } from "../lib";
+import { WzMessageReceivedIcon } from "./inbox-icons";
 
 /**
  * The delivery tick under an outbound bubble — one grey tick for sent, two
@@ -30,17 +31,19 @@ export function StatusTicks({
           .join(" · ")
       : STATUS_LABEL[status];
 
+  // Delivered is Workiz's own double tick (`msg_received.svg`, 16px #768287);
+  // read is the same in the link blue; the rest are ours.
   const icon =
     tick === "pending" ? (
       <Loader2 className="size-3 animate-spin" />
     ) : tick === "sent" ? (
-      <Check className="size-3" />
+      <Check className="size-3.5 text-wz-outline-label" strokeWidth={1.5} />
     ) : tick === "delivered" ? (
-      <CheckCheck className="size-3" />
+      <WzMessageReceivedIcon className="text-wz-outline-label" />
     ) : tick === "read" ? (
-      <CheckCheck className="size-3 text-brand" />
+      <WzMessageReceivedIcon className="text-brand" />
     ) : (
-      <AlertCircle className="size-3 text-destructive" />
+      <AlertCircle className="size-3.5 text-wz-danger" strokeWidth={1.5} />
     );
 
   return (
@@ -50,7 +53,7 @@ export function StatusTicks({
           role="img"
           aria-label={label}
           data-tick={tick}
-          className={cn("inline-flex items-center text-muted-foreground", className)}
+          className={cn("inline-flex items-center text-wz-text", className)}
         >
           {icon}
         </span>

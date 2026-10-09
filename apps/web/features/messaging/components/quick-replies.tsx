@@ -6,9 +6,12 @@ import { useTemplates } from "../hooks";
 import { TemplatePicker } from "./template-picker";
 
 /**
- * The row above the Workiz composer: the templates as outlined chips that
- * scroll sideways, and the "More replies" pill that opens the searchable
- * list. Picking either renders the template into the composer.
+ * The row above the Workiz composer (`messaging-module__replies`,
+ * pg_messages_wz_07_thread_client): a 48px white strip; the templates as
+ * 32px chips — 13px/16px 500 #6aa8ee in a 1px #6aa8ee outline, r4, 8px apart,
+ * scrolling sideways from 16px in — and the "More replies" secondary pill 16px
+ * from the right, which opens the searchable list. Picking either renders
+ * the template into the composer.
  */
 export function QuickReplies({
   channel,
@@ -28,9 +31,9 @@ export function QuickReplies({
   if (list.length === 0) return null;
 
   return (
-    <div className={cn("flex items-center gap-2 border-t bg-background px-4 py-2", className)} data-testid="quick-replies">
+    <div className={cn("relative flex h-12 shrink-0 items-center bg-background", className)} data-testid="quick-replies">
       <div
-        className="flex min-w-0 flex-1 gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        className="mx-4 my-2 flex min-w-0 flex-1 flex-nowrap gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         aria-label="Quick replies"
       >
         {list.map((t) => (
@@ -40,7 +43,7 @@ export function QuickReplies({
             disabled={disabled || pending}
             onClick={() => onPick(t)}
             title={t.messageTemplateTitle}
-            className="shrink-0 rounded-md border border-brand/25 bg-accent px-2.5 py-1 text-xs font-medium text-info-text transition-colors hover:border-brand/40 hover:bg-accent/70 disabled:opacity-50"
+            className="flex h-8 flex-none items-center rounded-[4px] border border-wz-link px-3 py-2 text-[13px] leading-4 font-medium whitespace-nowrap text-wz-link transition-colors hover:bg-wz-secondary-hover disabled:opacity-50"
           >
             {t.messageTemplateTitle}
           </button>

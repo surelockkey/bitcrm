@@ -224,7 +224,8 @@ describe("MessageFeed", () => {
 
     const img = screen.getByRole("img", { name: "door.jpg" });
     expect(img).toHaveAttribute("src", "https://x/door.jpg");
-    expect(img.className).toContain("size-24");
+    // Workiz's gallery tile (`ImageGallery__image_row_container`): 100×85 inside a #ddd frame.
+    expect(screen.getByRole("button", { name: "door.jpg" }).className).toContain("h-[87px] w-[102px]");
     // Файл відкривається вікном перегляду, тож це кнопка, а не посилання.
     fireEvent.click(screen.getByRole("button", { name: /invoice\.pdf/ }));
     expect(useFilePreviewStore.getState().file?.name).toBe("invoice.pdf");
@@ -240,7 +241,18 @@ describe("MessageFeed", () => {
     const btn = screen.getByRole("link", { name: "Edit Job" });
     expect(btn).toHaveAttribute("href", "/deals/d42");
     expect(bubbleOf("New job #J977US")).toContainElement(btn);
-    expect(screen.getByText("Automation")).toBeInTheDocument();
+    // Workiz (pg_messages_wz_07_thread_client): an automated line carries no
+    // sender over the text; its stamp says what it was instead.
+    expect(screen.queryByText("Automation")).toBeNull();
+    expect(bubbleOf("New job #J977US")).toHaveTextContent(/Text \| AUTOMATED NOTIFICATION$/);
+  });
+
+  it("names the sender over a person's line and leaves the stamp plain", () => {
+    renderFeed({
+      messages: [msg("u", today(9), { direction: "outbound", origin: "user", status: "delivered", sentByName: "(Mary) Platinum CSR" })],
+    });
+    expect(screen.getByText("(Mary) Platinum CSR")).toBeInTheDocument();
+    expect(bubbleOf("body u")).not.toHaveTextContent("AUTOMATED NOTIFICATION");
   });
 
   it("hides Edit Job inside a job's own tab", () => {
@@ -273,10 +285,9 @@ describe("MessageFeed", () => {
     expect(screen.getByRole("button", { name: "Copy message" })).toBeInTheDocument();
   });
 
-  it("shows the recap chip at the top of an inbox thread only", () => {
-    const { unmount } = renderFeed({ messages: [msg("m1", today(9))], recap: true });
-    expect(screen.getByRole("button", { name: "Recap conversation" })).toBeDisabled();
-    unmount();
+  // Workiz's "Recap conversation" is its AI (CoPilot). BitCRM has none, and a
+  // disabled stand-in is a dead control the parity brief rules out.
+  it("draws no recap chip — there is no AI behind it", () => {
     renderFeed({ messages: [msg("m1", today(9))] });
     expect(screen.queryByRole("button", { name: "Recap conversation" })).toBeNull();
   });

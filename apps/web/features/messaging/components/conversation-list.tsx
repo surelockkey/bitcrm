@@ -1,17 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Filter, Loader2, MessageSquareText, Search, X } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { X } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
@@ -38,11 +35,23 @@ import {
 } from "../lib";
 import { ConversationRow } from "./conversation-row";
 import { GroupMenu, toolbarButton } from "./group-menu";
+import { WzBounceDots } from "./bounce-dots";
+import { NoConversationsArt } from "./inbox-art";
+import { WzFilterIcon, WzNewMessageIcon, WzSearchIcon } from "./inbox-icons";
 
 export type { ListState };
 
-/** The funnel's choices (Workiz "Filter by"): everything, or one of the secondary views. */
+/**
+ * The funnel's choices (Workiz "Filter by": All / Read / Unread / Starred).
+ * "Mine" is ours (assignment); Workiz's "Read" has no server view here.
+ */
 const FILTER_VIEWS: InboxView[] = ["all", "unread", "flagged", "mine"];
+
+/** pg_messages_wz_05_filter_open: 125px, r8, react-select's ring-and-drop shadow. */
+const filterMenu =
+  "min-w-[125px] w-auto rounded-[8px] px-0 py-1 shadow-[0_0_0_1px_rgba(0,0,0,0.1),0_4px_11px_rgba(0,0,0,0.1)]";
+const filterItem =
+  "h-9 gap-3 py-0 pl-5 pr-10 text-[14px] leading-4 text-foreground focus:bg-[#deebff] data-[state=checked]:bg-[rgba(80,213,140,0.2)] data-[state=checked]:font-semibold [&_[data-slot=dropdown-menu-radio-item-indicator]]:right-4 [&_[data-slot=dropdown-menu-radio-item-indicator]]:text-wz-switch-on";
 
 /**
  * The middle column of the Workiz Inbox. A toolbar — new message, team
@@ -135,109 +144,135 @@ export function ConversationList({
 
   return (
     <div className={cn("flex min-h-0 flex-col", className)}>
-      {/* Out of sight until the permissions say whether "New message" is
-          one of its buttons: drawn without it, the group button stood in its
-          place and slid over when it arrived. */}
+      {/* Workiz's list bar (`ms_topbar`, pg_messages_wz_01_list): 58px, white,
+          16px in, ruled #ccc underneath; New message + group at the left,
+          Filter by + Search at the right, 9px apart. Out of sight until the
+          permissions say whether "New message" is one of its buttons: drawn
+          without it, the group button stood in its place and slid over when
+          it arrived. */}
       <div
-        className={cn("flex h-14 shrink-0 items-center gap-1 border-b px-2", accessLoading && "invisible")}
+        className={cn(
+          "flex h-[58px] shrink-0 items-center border-b border-input bg-background px-4",
+          accessLoading && "invisible",
+        )}
         data-testid="list-toolbar"
       >
-        {searching ? (
-          <div className="flex flex-1 items-center gap-1">
-            <Search className="ml-1 size-4 shrink-0 text-muted-foreground" />
-            <Input
-              autoFocus
-              value={state.search}
-              onChange={(e) => set({ search: e.target.value })}
-              onKeyDown={(e) => {
-                if (e.key === "Escape") closeSearch();
-              }}
-              placeholder="Search by name, number or text"
-              aria-label="Search conversations"
-              className="h-9 flex-1 border-0 bg-transparent px-1 shadow-none focus-visible:ring-0"
-            />
-            <button type="button" aria-label="Close search" onClick={closeSearch} className={toolbarButton}>
-              <X className="size-4" />
-            </button>
-          </div>
-        ) : (
-          <>
-            {canSend && onNewConversation ? (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button type="button" aria-label="New message" onClick={onNewConversation} className={toolbarButton}>
-                    <MessageSquareText className="size-5" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>New message</TooltipContent>
-              </Tooltip>
-            ) : null}
-            <GroupMenu onSelect={onSelect} />
+        {canSend && onNewConversation ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button type="button" aria-label="New message" onClick={onNewConversation} className={toolbarButton}>
+                <WzNewMessageIcon />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>New message</TooltipContent>
+          </Tooltip>
+        ) : null}
+        <GroupMenu onSelect={onSelect} />
 
-            <span className="flex-1" />
+        <span className="flex-1" />
 
-            <DropdownMenu>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <DropdownMenuTrigger asChild>
-                    <button
-                      type="button"
-                      aria-label={filterActive ? `Filter: ${VIEW_LABEL[filterView]}` : "Filter"}
-                      className={cn(toolbarButton, filterActive && "text-brand")}
-                    >
-                      <Filter className="size-5" />
-                      {filterActive ? (
-                        <span aria-hidden className="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-brand" />
-                      ) : null}
-                    </button>
-                  </DropdownMenuTrigger>
-                </TooltipTrigger>
-                <TooltipContent>Filter by</TooltipContent>
-              </Tooltip>
-              <DropdownMenuContent align="end" className="w-48">
-                <DropdownMenuLabel>Filter by</DropdownMenuLabel>
-                <DropdownMenuRadioGroup value={filterView} onValueChange={pickFilter}>
-                  {FILTER_VIEWS.map((v) => {
-                    const count = filterCount(v);
-                    return (
-                      <DropdownMenuRadioItem key={v} value={v}>
-                        <span className="flex-1">{v === "all" ? "All messages" : VIEW_LABEL[v]}</span>
-                        {count ? (
-                          <span className="text-xs text-muted-foreground tabular-nums">{count > 99 ? "99+" : count}</span>
-                        ) : null}
-                      </DropdownMenuRadioItem>
-                    );
-                  })}
-                </DropdownMenuRadioGroup>
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button type="button" aria-label="Search" onClick={() => setSearching(true)} className={toolbarButton}>
-                  <Search className="size-5" />
+        <DropdownMenu>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  aria-label={filterActive ? `Filter: ${VIEW_LABEL[filterView]}` : "Filter"}
+                  className={cn(toolbarButton, filterActive && "bg-wz-secondary-hover")}
+                >
+                  <WzFilterIcon />
+                  {filterActive ? (
+                    <span aria-hidden className="absolute right-1.5 top-1.5 size-2 rounded-full bg-wz-switch-on" />
+                  ) : null}
                 </button>
-              </TooltipTrigger>
-              <TooltipContent>Search</TooltipContent>
-            </Tooltip>
-          </>
-        )}
+              </DropdownMenuTrigger>
+            </TooltipTrigger>
+            <TooltipContent>Filter by</TooltipContent>
+          </Tooltip>
+          {/* Workiz's Filter by: a react-select menu, 125px, r8, 36px rows,
+              the chosen one semibold on a pale green with a green tick. */}
+          <DropdownMenuContent align="end" sideOffset={-14} alignOffset={0} className={filterMenu}>
+            <DropdownMenuRadioGroup value={filterView} onValueChange={pickFilter}>
+              {FILTER_VIEWS.map((v) => {
+                const count = filterCount(v);
+                return (
+                  <DropdownMenuRadioItem key={v} value={v} className={filterItem}>
+                    <span className="flex-1">{VIEW_LABEL[v]}</span>
+                    {count ? (
+                      <span className="text-[12px] text-wz-caption">{count > 99 ? "99+" : count}</span>
+                    ) : null}
+                  </DropdownMenuRadioItem>
+                );
+              })}
+            </DropdownMenuRadioGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              aria-label="Search"
+              aria-expanded={searching}
+              onClick={() => (searching ? closeSearch() : setSearching(true))}
+              className={cn(toolbarButton, "ml-[9px]", searching && "bg-wz-secondary-hover")}
+            >
+              <WzSearchIcon />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Search</TooltipContent>
+        </Tooltip>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto" data-testid="conversation-list">
+      {/* Workiz's search (`ms_search`, pg_messages_wz_06*): a strip under the
+          bar, 8px 12px round a 46px box edged #50d58c, r8, 14px #666, with a
+          round × once something is typed. */}
+      {searching ? (
+        <div className="relative flex shrink-0 bg-background px-3 py-2">
+          <input
+            autoFocus
+            value={state.search}
+            onChange={(e) => set({ search: e.target.value })}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") closeSearch();
+            }}
+            placeholder="Search..."
+            aria-label="Search conversations"
+            className="h-[46px] w-full rounded-[8px] border border-wz-switch-on bg-background px-3 py-[14px] text-[14px] leading-4 text-wz-text outline-none placeholder:text-wz-placeholder"
+          />
+          {state.search ? (
+            <button
+              type="button"
+              aria-label="Close search"
+              onClick={closeSearch}
+              className="absolute right-[22px] top-[22px] grid size-[18px] place-items-center rounded-full bg-wz-caption text-white"
+            >
+              <X className="size-3" strokeWidth={2.5} />
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
+      <div className="min-h-0 flex-1 overflow-y-auto bg-background" data-testid="conversation-list">
         {!(rowsShown ?? !query.isLoading) ? (
-          <div className="space-y-3 p-3">
-            <Skeleton className="h-12 w-full" />
-            <Skeleton className="h-12 w-full" />
-            <Skeleton className="h-12 w-full" />
+          <div aria-hidden>
+            {[0, 1, 2, 3, 4].map((i) => (
+              <div key={i} className="flex h-[74px] items-center pb-[14px] pl-4 pr-3 pt-3">
+                <Skeleton className="mr-2.5 size-[35px] rounded-full" />
+                <span className="flex flex-1 flex-col gap-2">
+                  <Skeleton className="h-3.5 w-3/5" />
+                  <Skeleton className="h-3 w-4/5" />
+                </span>
+              </div>
+            ))}
           </div>
         ) : rows.length === 0 ? (
-          <div className="flex flex-col items-center gap-1 px-6 pt-32 text-center">
-            <NoConversationsIllustration />
-            <p className="mt-6 text-[15px] font-semibold">
+          <div className="flex flex-col items-center px-6 pt-32 text-center">
+            <NoConversationsArt />
+            <p className="mt-6 text-[14px] leading-[21px] font-semibold text-foreground">
               {debounced ? "No conversations found" : "No conversations yet"}
             </p>
-            <p className="text-[15px] text-muted-foreground">
+            <p className="text-[14px] leading-[21px] text-wz-outline-label">
               {debounced
                 ? "Try a name, a number, or a few words from the message"
                 : filterActive
@@ -246,7 +281,7 @@ export function ConversationList({
             </p>
           </div>
         ) : (
-          <ul className="divide-y">
+          <ul>
             {rows.map((c) => (
               <li key={c.id}>
                 <ConversationRow
@@ -260,37 +295,22 @@ export function ConversationList({
           </ul>
         )}
         {query.hasNextPage && !debounced ? (
-          <div className="p-3">
+          <div className="flex h-12 items-center justify-center">
             <div ref={sentinel} aria-hidden className="h-px" />
-            <Button
-              variant="ghost"
-              size="sm"
-              className="w-full text-muted-foreground"
-              disabled={query.isFetchingNextPage}
-              onClick={() => query.fetchNextPage()}
-            >
-              {query.isFetchingNextPage ? <Loader2 className="size-4 animate-spin" /> : "Load more"}
-            </Button>
+            {query.isFetchingNextPage ? (
+              <WzBounceDots />
+            ) : (
+              <button
+                type="button"
+                onClick={() => query.fetchNextPage()}
+                className="text-[13px] leading-[19px] font-semibold text-wz-link hover:underline"
+              >
+                Load more
+              </button>
+            )}
           </div>
         ) : null}
       </div>
     </div>
-  );
-}
-
-/** Workiz's empty list: an envelope with a "0" badge on a pale disc. */
-function NoConversationsIllustration() {
-  return (
-    <svg width="120" height="120" viewBox="0 0 120 120" aria-hidden className="text-foreground/70">
-      <circle cx="60" cy="60" r="60" className="fill-muted" />
-      <rect x="22" y="40" width="72" height="50" rx="4" className="fill-background stroke-current" strokeWidth="2" />
-      <path d="M24 44 L58 70 L92 44" fill="none" className="stroke-current" strokeWidth="2" strokeLinejoin="round" />
-      <path d="M24 88 L50 64 M92 88 L66 64" fill="none" className="stroke-current" strokeWidth="2" />
-      <circle cx="93" cy="41" r="10" className="fill-sky-200 stroke-background" strokeWidth="3" />
-      <text x="93" y="45" textAnchor="middle" fontSize="11" fontWeight="600" className="fill-sky-900">
-        0
-      </text>
-      <path d="M40 100 H80" className="stroke-current" strokeWidth="2" strokeLinecap="round" opacity="0.4" />
-    </svg>
   );
 }

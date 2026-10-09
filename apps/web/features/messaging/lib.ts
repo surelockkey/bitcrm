@@ -20,7 +20,7 @@ import type {
 export const VIEW_LABEL: Record<InboxView, string> = {
   all: "All",
   unread: "Unread",
-  flagged: "Flagged",
+  flagged: "Starred",
   archived: "Archived",
   mine: "Mine",
 };
@@ -89,7 +89,7 @@ export function categoryOf(s: { view: InboxView; kind?: ConversationKind }): Inb
   }
 }
 
-/** The list state a category selects; an Unread / Flagged / Mine filter survives the switch. */
+/** The list state a category selects; an Unread / Starred / Mine filter survives the switch. */
 export function categoryState(
   cat: InboxCategory,
   current: { view: InboxView },

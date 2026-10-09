@@ -9,9 +9,7 @@ import {
   ExternalLink,
   FilePlus2,
   MailOpen,
-  Phone,
   Star,
-  UserRound,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -30,6 +28,7 @@ import type { InboxConversation } from "../api";
 import { useUpdateConversation } from "../hooks";
 import { KIND_TAG, partyHref } from "../lib";
 import { AssignSubmenu } from "./assign-menu";
+import { WzPersonIcon, WzPhoneIcon, WzStarIcon } from "./inbox-icons";
 
 /** Where "Create job" goes: the New Job page, seeded with the party. */
 export function createJobHref(c: InboxConversation): string | undefined {
@@ -39,15 +38,18 @@ export function createJobHref(c: InboxConversation): string | undefined {
   return undefined;
 }
 
+/** Workiz's tertiary icon buttons in the thread bar: 40×40, r8, a 24px ink glyph, #f3f6f7 under the pointer. */
 const headerIcon =
-  "grid size-9 place-items-center rounded-md text-foreground/80 transition-colors hover:bg-muted hover:text-foreground";
+  "grid size-10 place-items-center rounded-[8px] text-foreground transition-colors hover:bg-wz-secondary-hover data-[state=open]:bg-wz-secondary-hover";
 
 /**
- * The thread's title bar, as in Workiz: the name (a link to the record)
- * with the type under it, a thin divider, then two icon buttons — the
- * person (the client's card) and the phone (a call). Everything else the
- * inbox can do to a thread — assign, star, mark unread, archive, open the
- * record, create a job — sits behind "⋮" at the far right.
+ * The thread's title bar, as Workiz draws it (pg_messages_wz_07_thread_client):
+ * 58px, white, ruled #ccc underneath, 16px in; the name 14px/21px 600 (a link
+ * to the record) over the type 12px/18px #768287; 16px on, a 1×30 #bfc4c7
+ * divider; then "Client info" (the person) and the call handset, 16px apart.
+ * Workiz stops there. Ours adds "⋮" at the far right for what the inbox can
+ * also do to a thread — assign, star, mark unread, archive, open the record,
+ * create a job.
  */
 export function ThreadHeader({
   conversation: c,
@@ -72,12 +74,18 @@ export function ThreadHeader({
   const phone = c.addresses?.phones?.[0];
   const archived = c.state === "archived";
   const jobHref = can("deals", "create") ? createJobHref(c) : undefined;
+  const infoLabel = c.partyKind === "user" ? "Profile" : "Client info";
 
   const patch = (p: Parameters<typeof update.mutate>[0]["patch"], label: string) =>
     update.mutate({ id: c.id, patch: p, label });
 
   return (
-    <div className={cn("flex h-14 shrink-0 items-center gap-2 border-b bg-background px-4", className)}>
+    <div
+      className={cn(
+        "flex h-[58px] shrink-0 items-center gap-4 border-b border-input bg-background px-4",
+        className,
+      )}
+    >
       {onBack ? (
         <Button variant="ghost" size="icon-sm" onClick={onBack} aria-label="Back to conversations" className="-ml-2 md:hidden">
           <ChevronLeft className="size-4" />
@@ -85,7 +93,7 @@ export function ThreadHeader({
       ) : null}
 
       <div className="min-w-0">
-        <h2 className="truncate text-[15px] font-semibold leading-5">
+        <h2 className="truncate text-[14px] leading-[21px] font-semibold text-foreground">
           {href ? (
             <Link href={href} className="hover:underline">
               {title}
@@ -94,51 +102,48 @@ export function ThreadHeader({
             title
           )}
           {c.flagged ? (
-            <Star className="ml-1.5 inline size-3.5 fill-current text-amber-500 align-[-2px]" aria-label="Starred" />
+            <span role="img" aria-label="Starred" className="ml-1.5 inline-block align-[-1px]">
+              <WzStarIcon tone="incoming" starred size={12} />
+            </span>
           ) : null}
         </h2>
-        <div className="truncate text-xs text-muted-foreground">
+        <div className="truncate text-[12px] leading-[18px] text-wz-outline-label">
           {KIND_TAG[c.kind]}
           {archived ? " · Archived" : ""}
         </div>
       </div>
 
-      <span aria-hidden className="mx-2 h-8 w-px shrink-0 bg-border" />
+      <span aria-hidden className="h-[30px] w-px shrink-0 bg-wz-outline-disabled" />
 
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-4">
         {/* The person icon: the party's card as a side sheet in the inbox, their record elsewhere. */}
         {onToggleInfo || href ? (
           <Tooltip>
             <TooltipTrigger asChild>
               {onToggleInfo ? (
                 <button type="button" onClick={onToggleInfo} aria-label="Contact card" className={headerIcon}>
-                  <UserRound className="size-5" />
+                  <WzPersonIcon />
                 </button>
               ) : (
                 <Link href={href as string} aria-label="Contact card" className={headerIcon}>
-                  <UserRound className="size-5" />
+                  <WzPersonIcon />
                 </Link>
               )}
             </TooltipTrigger>
-            <TooltipContent>{c.partyKind === "user" ? "Profile" : "Client card"}</TooltipContent>
+            <TooltipContent>{infoLabel}</TooltipContent>
           </Tooltip>
         ) : null}
         {phone && (c.partyKind === "contact" || c.partyKind === "company") ? (
           // BitCRM's own telephony: the caller-id picker, then the softphone.
-          <CallClientButton
-            to={phone}
-            partyId={c.partyId}
-            kind={c.partyKind}
-            className="[&>button]:size-9 [&>button]:text-foreground/80 [&_svg]:size-5"
-          />
+          <CallClientButton to={phone} partyId={c.partyId} kind={c.partyKind} variant="workiz" />
         ) : phone ? (
           <Tooltip>
             <TooltipTrigger asChild>
               <a href={`tel:${phone}`} aria-label={`Call ${formatPhone(phone)}`} className={headerIcon}>
-                <Phone className="size-5" />
+                <WzPhoneIcon />
               </a>
             </TooltipTrigger>
-            <TooltipContent>Call {formatPhone(phone)}</TooltipContent>
+            <TooltipContent>Call {title || formatPhone(phone)}</TooltipContent>
           </Tooltip>
         ) : null}
       </div>
@@ -149,7 +154,7 @@ export function ThreadHeader({
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button type="button" aria-label="More actions" className={headerIcon}>
-              <EllipsisVertical className="size-5" />
+              <EllipsisVertical className="size-6" strokeWidth={1.5} />
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-60">
@@ -175,7 +180,7 @@ export function ThreadHeader({
                   disabled={update.isPending}
                   onSelect={() => patch({ flagged: !c.flagged }, c.flagged ? "Star removed" : "Conversation starred")}
                 >
-                  <Star className={cn("size-4", c.flagged && "fill-current text-amber-500")} />
+                  <Star className={cn("size-4", c.flagged && "fill-current text-primary")} />
                   {c.flagged ? "Unstar" : "Star"}
                 </DropdownMenuItem>
                 <DropdownMenuItem

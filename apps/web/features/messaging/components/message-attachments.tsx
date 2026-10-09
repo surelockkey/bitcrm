@@ -33,7 +33,7 @@ export function MessageAttachments({
 
   if (!attachments.length) return null;
   return (
-    <div className={cn("flex flex-wrap gap-2", align === "end" && "justify-end")}>
+    <div className={cn("flex flex-wrap", thumbnails ? "gap-x-2 gap-y-2" : "gap-2", align === "end" && "justify-end")}>
       {attachments.map((a) => {
         const url = attachmentUrl(a);
         if (isImageAttachment(a) && url) {
@@ -42,7 +42,11 @@ export function MessageAttachments({
               key={a.id}
               type="button"
               onClick={() => open(a, url)}
-              className="block overflow-hidden rounded-md border bg-background"
+              className={cn(
+                "relative block shrink-0 overflow-hidden bg-background",
+                // Workiz's `ImageGallery__image_row_container`: 100×85 inside a 1px #ddd frame, r10.
+                thumbnails ? "h-[87px] w-[102px] rounded-[10px] border border-wz-frame" : "rounded-[8px] border border-wz-frame",
+              )}
               title={a.fileName}
             >
               {/* External / presigned URLs — next/image cannot optimise them. */}
@@ -51,7 +55,9 @@ export function MessageAttachments({
                 src={url}
                 alt={a.fileName}
                 loading="lazy"
-                className={thumbnails ? "size-24 object-cover" : "max-h-64 max-w-[16rem] object-cover"}
+                className={
+                  thumbnails ? "absolute inset-0 size-full rounded-[8px] object-cover" : "max-h-64 max-w-[16rem] object-cover"
+                }
               />
             </button>
           );
@@ -59,14 +65,12 @@ export function MessageAttachments({
         const chip = (
           <>
             {isImageAttachment(a) ? (
-              <Paperclip className="size-3.5 shrink-0" />
+              <Paperclip className="size-3.5 shrink-0" strokeWidth={1.5} />
             ) : (
-              <FileText className="size-3.5 shrink-0" />
+              <FileText className="size-3.5 shrink-0" strokeWidth={1.5} />
             )}
             <span className="truncate">{a.fileName}</span>
-            {a.size ? (
-              <span className="shrink-0 text-[11px] opacity-70">{formatBytes(a.size)}</span>
-            ) : null}
+            {a.size ? <span className="shrink-0 text-[11px] opacity-70">{formatBytes(a.size)}</span> : null}
           </>
         );
         return url ? (
@@ -74,7 +78,7 @@ export function MessageAttachments({
             key={a.id}
             type="button"
             onClick={() => open(a, url)}
-            className="inline-flex max-w-64 items-center gap-1.5 rounded-md border bg-background px-2 py-1 text-xs hover:bg-muted"
+            className="inline-flex max-w-64 items-center gap-1.5 rounded-[4px] border border-wz-frame bg-background px-2 py-1 text-[12px] leading-4 text-foreground hover:bg-wz-secondary-hover"
           >
             {chip}
           </button>
@@ -88,7 +92,7 @@ export function MessageAttachments({
                   ? "Media could not be stored"
                   : "Stored — a download link arrives with the media route"
             }
-            className="inline-flex max-w-64 items-center gap-1.5 rounded-md border border-dashed px-2 py-1 text-xs text-muted-foreground"
+            className="inline-flex max-w-64 items-center gap-1.5 rounded-[4px] border border-dashed border-wz-frame bg-background px-2 py-1 text-[12px] leading-4 text-wz-text"
           >
             {chip}
           </span>

@@ -1,23 +1,25 @@
 "use client";
 
 import { useLayoutEffect, useRef, type ReactNode } from "react";
-import { Loader2, MessageSquareDashed, Sparkles } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import type { FeedMessage } from "../api";
 import { groupByDay } from "../lib";
+import { WzBounceDots } from "./bounce-dots";
 import { MessageBubble } from "./message-bubble";
 
 const NEAR_BOTTOM_PX = 120;
 
 /**
- * The thread, newest at the bottom, on Workiz's faintly tinted ground: the
- * "✦ Recap conversation" chip top-left, a centred day chip per day
- * ("Tuesday,September 15 2026"), then the bubbles. Sticks to the bottom
- * while the reader is there — a new line scrolls into view — and holds its
- * place when older history is loaded above.
+ * The thread, newest at the bottom, as Workiz lays it out
+ * (`ms_scrollable-content` + `messages_container`, pg_messages_wz_07_*): the
+ * pane's #f7f8f8 under a rgba(62,75,81,.04) wash, 25px of air on top and 40px
+ * under the last line; a sticky day chip per day ("Tuesday,September 15
+ * 2026": 12px/16px #404040 on white, 1px #e3e3e3, r70, 4px 11px), then the
+ * bubbles. Workiz's AI "Recap conversation" chip is left out: there is no AI
+ * behind it here. Sticks to the bottom while the reader is there — a new
+ * line scrolls into view — and holds its place when older history is loaded
+ * above.
  */
 export function MessageFeed({
   messages,
@@ -34,7 +36,6 @@ export function MessageFeed({
   partyName,
   emptyState,
   showJob = true,
-  recap = false,
   className,
 }: {
   /** Newest first, as the API delivers them. */
@@ -55,8 +56,6 @@ export function MessageFeed({
   partyName?: string;
   emptyState?: ReactNode;
   showJob?: boolean;
-  /** The Workiz recap chip at the top of the thread (inbox only). */
-  recap?: boolean;
   className?: string;
 }) {
   const scroller = useRef<HTMLDivElement>(null);
@@ -91,22 +90,21 @@ export function MessageFeed({
 
   if (isLoading) {
     return (
-      <div className={cn("flex-1 space-y-3 overflow-hidden bg-muted/30 p-4", className)}>
-        <Skeleton className="ml-auto h-10 w-2/5" />
-        <Skeleton className="h-12 w-1/2" />
-        <Skeleton className="ml-auto h-8 w-1/3" />
+      <div className={cn("flex-1 space-y-6 overflow-hidden bg-[rgba(62,75,81,0.04)] px-5 pt-[25px]", className)}>
+        <Skeleton className="ml-auto h-24 w-3/5 rounded-[25px] rounded-br-none" />
+        <Skeleton className="h-20 w-3/5 rounded-[25px] rounded-bl-none" />
+        <Skeleton className="ml-auto h-16 w-3/5 rounded-[25px] rounded-br-none" />
       </div>
     );
   }
 
   if (messages.length === 0) {
     return (
-      <div className={cn("flex flex-1 items-center justify-center bg-muted/30 p-6", className)}>
+      <div className={cn("flex flex-1 items-center justify-center bg-[rgba(62,75,81,0.04)] p-6", className)}>
         {emptyState ?? (
-          <div className="flex flex-col items-center gap-1.5 text-center">
-            <MessageSquareDashed className="size-6 text-muted-foreground" />
-            <p className="text-sm font-medium">No messages yet</p>
-            <p className="text-xs text-muted-foreground">Write the first one below.</p>
+          <div className="flex flex-col items-center text-center">
+            <p className="text-[14px] leading-[21px] font-semibold text-foreground">No messages yet</p>
+            <p className="text-[14px] leading-[21px] text-wz-outline-label">Write the first one below.</p>
           </div>
         )}
       </div>
@@ -118,75 +116,54 @@ export function MessageFeed({
   return (
     <div
       ref={scroller}
-      className={cn("flex-1 overflow-y-auto bg-muted/30 px-5 pb-10 pt-6", className)}
+      className={cn("flex-1 overflow-y-auto bg-[rgba(62,75,81,0.04)] pb-10", className)}
       data-testid="message-feed"
     >
+      <div aria-hidden className="h-[25px]" />
       {hasOlder ? (
-        <div className="mb-4 flex justify-center">
-          <Button
-            variant="outline"
-            size="sm"
-            className="rounded-full"
-            disabled={isFetchingOlder}
-            onClick={() => {
-              if (scroller.current) prevHeight.current = scroller.current.scrollHeight;
-              onLoadOlder?.();
-            }}
-          >
-            {isFetchingOlder ? <Loader2 className="size-3.5 animate-spin" /> : "Load older"}
-          </Button>
+        <div className="flex h-8 items-center justify-center">
+          {isFetchingOlder ? (
+            <WzBounceDots />
+          ) : (
+            <button
+              type="button"
+              className="text-[13px] leading-[19px] font-semibold text-wz-link hover:underline"
+              onClick={() => {
+                if (scroller.current) prevHeight.current = scroller.current.scrollHeight;
+                onLoadOlder?.();
+              }}
+            >
+              Load older
+            </button>
+          )}
         </div>
       ) : null}
 
-      {groups.map((group, i) => (
-        <section key={group.key} className="mb-5 space-y-5">
-          <div className="relative flex justify-center">
-            {recap && i === 0 ? (
-              <div className="absolute left-0 top-0">
-                <RecapChip />
-              </div>
-            ) : null}
-            <span className="rounded-chip border bg-background px-3.5 py-1 text-xs font-medium text-foreground/80 shadow-xs">
-              {group.label}
-            </span>
-          </div>
-          {group.messages.map((m) => (
-            <MessageBubble
-              key={m.id}
-              message={m}
-              authorName={m.sentByUserId ? authorNames?.get(m.sentByUserId) : undefined}
-              partyName={partyName}
-              canManage={canManage}
-              onToggleFlag={onToggleFlag}
-              onForward={onForward}
-              onResend={onResend}
-              resending={!!resendingMessageIds?.has(m.id)}
-              showJob={showJob}
-            />
-          ))}
-        </section>
-      ))}
+      <div className="flex flex-col">
+        {groups.map((group) => (
+          <section key={group.key} className="contents">
+            <div className="sticky top-0 z-20 flex w-fit self-center p-1">
+              <span className="rounded-[70px] border border-[#e3e3e3] bg-background px-[11px] py-1 text-[12px] leading-4 text-wz-strong">
+                {group.label}
+              </span>
+            </div>
+            {group.messages.map((m) => (
+              <MessageBubble
+                key={m.id}
+                message={m}
+                authorName={m.sentByUserId ? authorNames?.get(m.sentByUserId) : undefined}
+                partyName={partyName}
+                canManage={canManage}
+                onToggleFlag={onToggleFlag}
+                onForward={onForward}
+                onResend={onResend}
+                resending={!!resendingMessageIds?.has(m.id)}
+                showJob={showJob}
+              />
+            ))}
+          </section>
+        ))}
+      </div>
     </div>
-  );
-}
-
-/** "✦ Recap conversation" — Workiz's AI summary chip; a placeholder until BitCRM has an assistant. */
-function RecapChip() {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <span tabIndex={0} className="inline-flex">
-          <button
-            type="button"
-            disabled
-            aria-label="Recap conversation"
-            className="inline-flex cursor-default items-center gap-1.5 rounded-chip border bg-background px-3 py-1 text-xs font-semibold text-brand shadow-xs"
-          >
-            <Sparkles className="size-3.5" /> Recap conversation
-          </button>
-        </span>
-      </TooltipTrigger>
-      <TooltipContent>AI recaps arrive with a later milestone</TooltipContent>
-    </Tooltip>
   );
 }

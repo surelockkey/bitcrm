@@ -207,7 +207,8 @@ describe("InboxPage — no jumping", () => {
     await screen.findByText("Alice Adams", {}, { timeout: 3000 });
     watch.stop();
 
-    expect(watch.frame()).toEqual({ all: "1,234", clients: "1,200", dot: true, newMessage: true, skeletons: 0 });
+    // The column prints its numbers bare, as Workiz does ("44717").
+    expect(watch.frame()).toEqual({ all: "1234", clients: "1200", dot: true, newMessage: true, skeletons: 0 });
   });
 
   it("never shows a category number before the rows", async () => {
@@ -271,7 +272,8 @@ describe("InboxPage — an open thread, no jumping", () => {
     renderPage();
     await settle(5);
 
+    // The skeleton is the header's own 58px box (Workiz's bar), so nothing slides.
     const header = thread()?.firstElementChild;
-    expect(header?.className).toMatch(/\bh-14\b/);
+    expect(header?.className).toMatch(/h-\[58px\]/);
   });
 });

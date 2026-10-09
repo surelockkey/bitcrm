@@ -124,9 +124,9 @@ export function WzSearchIcon({ size = 24, ...props }: IconProps) {
 export function WzMessageReceivedIcon({ size = 16, ...props }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden focusable="false" {...props}>
-      <path d="M22.8159 5L12.164 19.2025C12.044 19.3626 11.891 19.4951 11.7153 19.5909C11.5396 19.6868 11.3454 19.7437 11.1458 19.7579C10.9462 19.7721 10.7459 19.7433 10.5584 19.6733C10.3709 19.6034 10.2006 19.4939 10.0591 19.3524L7.28772 16.581" stroke="#768287" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-      <path d="M6.75714 19.4399C6.62801 19.572 6.47398 19.6771 6.30396 19.7492C6.13393 19.8213 5.95129 19.859 5.76661 19.86C5.58194 19.861 5.39889 19.8254 5.22806 19.7552C5.05724 19.6851 4.90203 19.5817 4.77143 19.4511L2 16.6843" stroke="#768287" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-      <path d="M17.3979 5.09863L9.81995 15.2031" stroke="#768287" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+      <path d="M22.8159 5L12.164 19.2025C12.044 19.3626 11.891 19.4951 11.7153 19.5909C11.5396 19.6868 11.3454 19.7437 11.1458 19.7579C10.9462 19.7721 10.7459 19.7433 10.5584 19.6733C10.3709 19.6034 10.2006 19.4939 10.0591 19.3524L7.28772 16.581" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+      <path d="M6.75714 19.4399C6.62801 19.572 6.47398 19.6771 6.30396 19.7492C6.13393 19.8213 5.95129 19.859 5.76661 19.86C5.58194 19.861 5.39889 19.8254 5.22806 19.7552C5.05724 19.6851 4.90203 19.5817 4.77143 19.4511L2 16.6843" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+      <path d="M17.3979 5.09863L9.81995 15.2031" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
     </svg>
   );
 }

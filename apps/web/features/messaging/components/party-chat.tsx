@@ -104,8 +104,8 @@ export function PartyChat({
         </p>
       </div>
       {optedOut ? (
-        <Alert className="mx-3 mb-2 border-amber-500/40 bg-amber-500/5">
-          <Ban className="size-4 text-amber-600" />
+        <Alert className="mx-4 mb-2 rounded-[4px] border-wz-toast-warning/50 bg-wz-toast-warning/10">
+          <Ban className="size-4 text-wz-toast-warning" />
           <AlertTitle>This number opted out of texts</AlertTitle>
           <AlertDescription>They replied STOP. Sending is blocked until they text START.</AlertDescription>
         </Alert>

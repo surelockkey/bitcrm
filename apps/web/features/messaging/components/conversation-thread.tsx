@@ -120,8 +120,8 @@ export function ConversationThread({
     return (
       <div className={cn("flex flex-1 items-center justify-center p-6 text-center", className)}>
         <div>
-          <p className="text-sm font-medium">This conversation is not available</p>
-          <p className="text-xs text-muted-foreground">It may be outside your data scope, or it was removed.</p>
+          <p className="text-[14px] leading-[21px] font-semibold text-foreground">This conversation is not available</p>
+          <p className="text-[14px] leading-[21px] text-wz-outline-label">It may be outside your data scope, or it was removed.</p>
         </div>
       </div>
     );
@@ -140,9 +140,11 @@ export function ConversationThread({
       ) : (
         // The header's own box: a shorter stand-in let the feed below it
         // slide down when the header came.
-        <div className="flex h-14 shrink-0 items-center gap-2 border-b px-4">
-          <Skeleton className="size-6 rounded-full" />
-          <Skeleton className="h-4 w-40" />
+        <div className="flex h-[58px] shrink-0 items-center gap-4 border-b border-input bg-background px-4">
+          <span className="flex flex-col gap-1.5">
+            <Skeleton className="h-3.5 w-36" />
+            <Skeleton className="h-3 w-12" />
+          </span>
         </div>
       )}
 
@@ -162,12 +164,11 @@ export function ConversationThread({
         resendingMessageIds={resending}
         authorNames={authorNames}
         partyName={title || undefined}
-        recap={!embedded}
       />
 
       {shown && optedOut ? (
-        <Alert className="mx-3 mb-2 border-amber-500/40 bg-amber-500/5">
-          <Ban className="size-4 text-amber-600" />
+        <Alert className="mx-4 mb-2 rounded-[4px] border-wz-toast-warning/50 bg-wz-toast-warning/10">
+          <Ban className="size-4 text-wz-toast-warning" />
           <AlertTitle>This number opted out of texts</AlertTitle>
           <AlertDescription>
             They replied STOP. Sending is blocked until they text START — a call still works.

@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { Users } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -13,10 +12,11 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { useConversations, usePartyNames } from "../hooks";
 import { conversationTitle, flattenConversations } from "../lib";
 import { avatarInitial } from "../lib";
+import { WzGroupChatIcon } from "./inbox-icons";
 
-/** The list-toolbar icon buttons share one look: a 36px square, 20px glyph. */
+/** The list bar's icon buttons — Workiz's IconButton large/white: 40×40, r8, a 24px ink glyph, #f3f6f7 under the pointer. */
 export const toolbarButton =
-  "relative grid size-9 shrink-0 place-items-center rounded-md text-foreground/80 transition-colors hover:bg-muted hover:text-foreground data-[state=open]:bg-muted";
+  "relative grid size-10 shrink-0 place-items-center rounded-[8px] text-foreground transition-colors hover:bg-wz-secondary-hover data-[state=open]:bg-wz-secondary-hover";
 
 /**
  * The group icon in the list toolbar (Workiz "New group"): lists the team's
@@ -35,7 +35,7 @@ export function GroupMenu({ onSelect }: { onSelect: (conversationId: string) => 
         <TooltipTrigger asChild>
           <DropdownMenuTrigger asChild>
             <button type="button" aria-label="Groups" className={toolbarButton}>
-              <Users className="size-5" />
+              <WzGroupChatIcon />
             </button>
           </DropdownMenuTrigger>
         </TooltipTrigger>
@@ -52,13 +52,13 @@ export function GroupMenu({ onSelect }: { onSelect: (conversationId: string) => 
             const title = conversationTitle(g, names);
             return (
               <DropdownMenuItem key={g.id} onSelect={() => onSelect(g.id)}>
-                <span className="grid size-6 shrink-0 place-items-center rounded-full bg-muted text-[11px] font-medium text-muted-foreground">
+                <span className="grid size-6 shrink-0 place-items-center rounded-full bg-wz-tab-bar text-[13px] text-white">
                   {avatarInitial(title)}
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm">{title}</span>
+                  <span className="block truncate text-[14px] leading-4 font-medium text-wz-strong">{title}</span>
                   {g.lastMessagePreview ? (
-                    <span className="block truncate text-[11px] text-muted-foreground">{g.lastMessagePreview}</span>
+                    <span className="mt-1 block truncate text-[12px] leading-4 text-[#3b4c53]">{g.lastMessagePreview}</span>
                   ) : null}
                 </span>
               </DropdownMenuItem>

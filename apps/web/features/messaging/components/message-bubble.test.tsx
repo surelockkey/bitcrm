@@ -26,7 +26,7 @@ function renderBubble(direction: "inbound" | "outbound") {
 }
 
 function bubbleOf(text: string): HTMLElement {
-  const node = screen.getByText(text).closest("[class*='rounded-2xl']");
+  const node = screen.getByText(text).closest("[class*='rounded-[25px]']");
   if (!node) throw new Error("bubble wrapper not found");
   return node as HTMLElement;
 }
@@ -36,14 +36,17 @@ describe("the outbound bubble", () => {
     renderBubble("outbound");
     const bubble = bubbleOf(base.body);
     expect(bubble.className).toContain("bg-foreground");
-    expect(bubble.className).toContain("text-background");
+    expect(bubble.className).toContain("text-white");
     expect(bubble.className).not.toContain("bg-primary");
+    // Workiz squares the speaker's corner: bottom-right on ours.
+    expect(bubble.className).toContain("rounded-br-none");
   });
 
-  it("leaves an inbound bubble on the card surface", () => {
+  it("leaves an inbound bubble white, its bottom-left corner square", () => {
     renderBubble("inbound");
     const bubble = bubbleOf(base.body);
-    expect(bubble.className).toContain("bg-card");
+    expect(bubble.className).toContain("bg-background");
+    expect(bubble.className).toContain("rounded-bl-none");
     expect(bubble.className).not.toContain("bg-primary");
   });
 });
