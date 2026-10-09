@@ -1,6 +1,6 @@
 "use client";
 
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, type QueryClient } from "@tanstack/react-query";
 import type { CommissionReport } from "@bitcrm/types";
 import { http } from "@/lib/api/http";
 import { queryKeys } from "@/lib/query-keys";
@@ -24,6 +24,19 @@ export function useCommissionReport(filters: CommissionReportFilters | null) {
     placeholderData: keepPreviousData,
     staleTime: 30_000,
   });
+}
+
+/**
+ * Workiz's round "Reload Results": the server keeps a period's rows a minute
+ * (paging and switching technicians re-use one read), so a reload asks it to
+ * read the period again (`fresh=1`) and puts the answer under the page's own
+ * key — the grid redraws without a skeleton.
+ */
+export async function reloadCommissionReport(client: QueryClient, filters: CommissionReportFilters): Promise<void> {
+  const params = commissionReportParams(filters);
+  const fresh = commissionReportParams({ ...filters, fresh: "1" });
+  const data = await http.get<CommissionReport>(`${BASE}?${new URLSearchParams(fresh)}`);
+  client.setQueryData(queryKeys.reports.commissions(params), data);
 }
 
 /**

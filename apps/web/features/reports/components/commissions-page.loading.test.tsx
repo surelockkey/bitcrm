@@ -93,31 +93,46 @@ const report = (total: number): CommissionReport => ({
   warnings: [],
 });
 
+/** Paths answered so far — what the first frame may rely on. */
+const answered = new Set<string>();
+const answer = <T,>(path: string, value: T) => {
+  answered.add(path);
+  return value;
+};
+
 const routes: FakeRoute[] = [
   // "Created" is a different period on the server — and a different total.
   {
     match: /\/deals\/reports\/commissions$/,
-    reply: (url) => report(url.searchParams.get("by") === "created" ? 222 : 111),
+    reply: (url) => answer("report", report(url.searchParams.get("by") === "created" ? 222 : 111)),
     delayMs: 60,
   },
   // The order dev answers in: the companies and areas first, the job types
   // next, the ad groups last of all — after the report.
-  { match: /\/deals\/external-companies$/, reply: () => [{ id: "ext-1", name: "Partner LLC" }], delayMs: 20 },
-  { match: /\/deals\/service-areas$/, reply: () => [{ id: "sa-1", name: "North" }], delayMs: 30 },
-  { match: /\/deals\/job-types$/, reply: () => [{ id: "jt-1", name: "Lockout" }], delayMs: 40 },
-  { match: /\/deals\/job-sources$/, reply: () => [{ id: "src-1", name: "Google" }], delayMs: 150 },
+  { match: /\/deals\/external-companies$/, reply: () => answer("companies", [{ id: "ext-1", name: "Partner LLC" }]), delayMs: 20 },
+  { match: /\/deals\/service-areas$/, reply: () => answer("areas", [{ id: "sa-1", name: "North" }]), delayMs: 30 },
+  { match: /\/deals\/job-types$/, reply: () => answer("types", [{ id: "jt-1", name: "Lockout" }]), delayMs: 40 },
+  { match: /\/deals\/job-sources$/, reply: () => answer("sources", [{ id: "src-1", name: "Google" }]), delayMs: 150 },
+  // The technician list is the account's users.
+  {
+    match: /\/users$/,
+    raw: true,
+    reply: () =>
+      answer("users", { success: true, data: [{ id: "t1", firstName: "Ann", lastName: "Lee" }], pagination: { nextCursor: undefined } }),
+    delayMs: 90,
+  },
 ];
 
 let server: FakeServer;
 
 const { CommissionsPage } = await import("./commissions-page");
 
-const select = (label: string) => document.querySelector<HTMLSelectElement>(`select[aria-label="${label}"]`);
-const options = (label: string) => [...(select(label)?.options ?? [])].map((o) => o.textContent ?? "");
 const FILTERS = ["Job type", "Technician", "Service area", "External company", "Ad group"];
+const combobox = (label: string) => document.querySelector(`[role="combobox"][aria-label="${label}"]`);
 const tableUp = () => !!document.querySelector('table[aria-label="Commissions"]');
 
 beforeEach(() => {
+  answered.clear();
   server = installFakeServer(routes);
 });
 
@@ -127,16 +142,13 @@ afterEach(() => {
 });
 
 describe("CommissionsPage — no jumping", () => {
-  it("draws the filters, their options and the report in one frame", async () => {
+  it("draws the filters and the report in one frame, every catalog already in", async () => {
     const watch = watchFirstFrame(
-      () => FILTERS.some((f) => select(f)) || tableUp(),
+      () => FILTERS.some((f) => combobox(f)) || tableUp(),
       () => ({
         table: tableUp(),
-        jobType: options("Job type").includes("Lockout"),
-        tech: options("Technician").includes("Ann Lee  [3]"),
-        area: options("Service area").includes("North"),
-        company: options("External company").includes("Partner LLC"),
-        adGroup: options("Ad group").includes("Google"),
+        filters: FILTERS.every((f) => combobox(f)),
+        answered: [...answered].sort(),
         skeletons: skeletonCount(),
       }),
     );
@@ -145,21 +157,21 @@ describe("CommissionsPage — no jumping", () => {
     await settle();
     watch.stop();
 
-    expect(watch.frame()).toEqual({ table: true, jobType: true, tech: true, area: true, company: true, adGroup: true, skeletons: 0 });
+    expect(watch.frame()).toEqual({
+      table: true,
+      filters: true,
+      answered: ["areas", "companies", "report", "sources", "types", "users"],
+      skeletons: 0,
+    });
   });
 
-  it("never draws a filter before its options are in", async () => {
-    const narrow = new Set<string>();
-    const observer = new MutationObserver(() => {
-      for (const f of FILTERS) if (select(f) && select(f)!.options.length < 2) narrow.add(f);
-    });
-    observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true });
+  it("each select holds its options when drawn — the technicians with their “[N]”", async () => {
     renderWithClient(<CommissionsPage today="2026-10-06" />);
     await screen.findByRole("table", { name: "Commissions" }, { timeout: 3000 });
-    await settle();
-    observer.disconnect();
-
-    expect([...narrow]).toEqual([]);
+    fireEvent.click(screen.getByRole("combobox", { name: "Technician" }));
+    expect(screen.getByRole("option", { name: "Ann Lee [3]" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("combobox", { name: "Ad group" }));
+    expect(screen.getByRole("option", { name: "Google" })).toBeInTheDocument();
   });
 
   it("keeps the figures on screen while another period loads", async () => {
@@ -169,11 +181,11 @@ describe("CommissionsPage — no jumping", () => {
 
     let blanked = false;
     const observer = new MutationObserver(() => {
-      if (skeletonCount() > 0 || !tableUp() || FILTERS.some((f) => !select(f))) blanked = true;
+      if (skeletonCount() > 0 || !tableUp() || FILTERS.some((f) => !combobox(f))) blanked = true;
     });
     observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true });
     fireEvent.click(screen.getByRole("radio", { name: "Created" }));
-    await screen.findAllByText("222.00", {}, { timeout: 3000 });
+    await screen.findAllByText("222", {}, { timeout: 3000 });
     observer.disconnect();
 
     expect(blanked).toBe(false);

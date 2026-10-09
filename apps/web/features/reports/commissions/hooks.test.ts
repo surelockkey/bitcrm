@@ -39,3 +39,22 @@ describe("downloadCommissionCsv", () => {
     vi.unstubAllGlobals();
   });
 });
+
+describe("reloadCommissionReport — Workiz's “Reload Results”", () => {
+  it("re-reads the period on the server (fresh=1) and puts the answer where the page reads it", async () => {
+    const { QueryClient } = await import("@tanstack/react-query");
+    const { reloadCommissionReport } = await import("./hooks");
+    const { commissionReportParams } = await import("./lib");
+    const { queryKeys } = await import("@/lib/query-keys");
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ success: true, data: { count: 7 } }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new QueryClient();
+    const filters = { from: "2026-09-28", to: "2026-10-04", by: "closed" as const, mode: "standard" as const, limit: 50 };
+    await reloadCommissionReport(client, filters);
+
+    const [url] = fetchMock.mock.calls[0] as unknown as [string];
+    expect(url).toContain("fresh=1");
+    expect(client.getQueryData(queryKeys.reports.commissions(commissionReportParams(filters)))).toEqual({ count: 7 });
+    vi.unstubAllGlobals();
+  });
+});
