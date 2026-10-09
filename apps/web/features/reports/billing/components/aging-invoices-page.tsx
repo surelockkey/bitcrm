@@ -13,6 +13,7 @@ import { getApiErrorMessage } from "@/lib/api/errors";
 import { settled, usePageReady } from "@/lib/use-page-ready";
 import { useDenied, usePermissions } from "@/features/auth/use-permissions";
 import { NoAccess } from "@/features/billing/components/list-bits";
+import { invoiceHref } from "@/features/invoices/lib";
 import { DEFAULT_REPORT_PAGE_SIZE, REPORT_PAGE_SIZES } from "@/features/payments/report";
 import { exportAging } from "../api";
 import {
@@ -41,7 +42,7 @@ const COLUMNS: Record<AgingSort, WzReportColumn<AgingRow>> = {
     // invoice opens in place, as Workiz's /root/invoice/<no> does.
     cell: (r) => (
       <Link
-        href={r.dealId ? `/deals/${r.dealId}?tab=invoice` : `/invoices/${r.invoiceId}`}
+        href={invoiceHref({ id: r.invoiceId })}
         className="text-foreground no-underline"
       >
         {r.number}

@@ -9,12 +9,12 @@ import { WzLocalGrid, type WzGridColumn } from "@/components/workiz/local-grid";
 import { DEFAULT_TZ } from "@/lib/timezone";
 import { workizDateTime } from "@/features/deals/schedule-cell";
 import { estimateStatusLabel } from "@/features/estimates/lib";
+// Where an invoice lives: its own page — a job's too ("← Job ID" back to the job).
+import { invoiceHref } from "@/features/invoices/lib";
 import { paymentMethodLabel, paymentStatusLabel } from "@/features/payments/lib";
 import { wzDayStart, wzMoney } from "../client-page";
 import { openRow, PLAIN_LINK } from "./client-jobs-tab";
 
-/** Where an invoice lives: its job's Invoice tab, or — with no job — its own page. */
-const invoiceHref = (inv: Pick<Invoice, "id" | "dealId">) => (inv.dealId ? `/deals/${inv.dealId}?tab=invoice` : `/invoices/${inv.id}`);
 
 /** "534 Newfield St, Middletown, Connecticut 06457" — one line, as Workiz's Address column. */
 function oneLine(a: Address | undefined): string {

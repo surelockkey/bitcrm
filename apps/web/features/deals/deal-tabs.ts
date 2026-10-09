@@ -1,9 +1,11 @@
+import { invoiceHref } from "@/features/invoices/lib";
+
 /**
  * Tabs of the job page, in display order; `?tab=` deep-links to one.
- * Workiz's order, Attachments always 5th; our Invoice tab (Workiz has none)
- * comes after it, where Workiz's own extra tabs sit.
+ * Workiz's order, Attachments always 5th. Workiz has no Invoice tab: a job's
+ * invoice opens on its own page (`/invoices/[id]`, "← Job ID" back here).
  */
-export const DEAL_TABS = ["details", "items", "payments", "estimates", "attachments", "invoice"] as const;
+export const DEAL_TABS = ["details", "items", "payments", "estimates", "attachments"] as const;
 export type DealTab = (typeof DEAL_TABS)[number];
 
 export function parseDealTab(raw: string | string[] | undefined | null): DealTab | null {
@@ -13,15 +15,11 @@ export function parseDealTab(raw: string | string[] | undefined | null): DealTab
 
 export function visibleDealTabs(perms: {
   estimates: boolean;
-  invoices: boolean;
   /** `payments.view` — the job's Payments tab (Workiz). Hidden unless granted. */
   payments?: boolean;
 }): DealTab[] {
   return DEAL_TABS.filter(
-    (t) =>
-      (t !== "payments" || perms.payments === true) &&
-      (t !== "estimates" || perms.estimates) &&
-      (t !== "invoice" || perms.invoices),
+    (t) => (t !== "payments" || perms.payments === true) && (t !== "estimates" || perms.estimates),
   );
 }
 
@@ -37,4 +35,20 @@ export function dealTabHref(current: string, tab: DealTab, estimateId: string | 
   else url.searchParams.delete("estimate");
   const qs = url.searchParams.toString();
   return `${url.pathname}${qs ? `?${qs}` : ""}${url.hash}`;
+}
+
+/* ------------------------------------------------- the old Invoice tab */
+
+/** `?tab=invoice` — a link to the Invoice tab the job page used to have. */
+export function isLegacyInvoiceTab(raw: string | string[] | undefined | null): boolean {
+  return (Array.isArray(raw) ? raw[0] : raw) === "invoice";
+}
+
+/**
+ * Where such a link lands now: the job's invoice on its own page, or — while
+ * the job has none (or the viewer may not see it) — the job itself, where
+ * "Create Invoice" sits.
+ */
+export function legacyInvoiceTabTarget(dealId: string, invoice: { id: string } | null | undefined): string {
+  return invoice ? invoiceHref(invoice) : `/deals/${encodeURIComponent(dealId)}`;
 }

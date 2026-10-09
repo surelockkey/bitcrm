@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { usePermissions } from "@/features/auth/use-permissions";
@@ -11,16 +12,16 @@ import { useActiveJobTypes } from "@/features/job-types/active-hooks";
 import { useJobType } from "@/features/job-types/hooks";
 import { useDealEstimates } from "@/features/estimates/hooks";
 import { DealEstimatesTab } from "@/features/estimates/components/deal-estimates-tab";
-import { DealInvoiceTab } from "@/features/invoices/components/deal-invoice-tab";
 import { DealPaymentsTab } from "@/features/payments/components/deal-payments-tab";
 import { useDealPayments } from "@/features/payments/hooks";
-import { useInvoiceByDeal } from "@/features/invoices/hooks";
+import { useCreateInvoice, useInvoiceByDeal } from "@/features/invoices/hooks";
+import { invoiceHref } from "@/features/invoices/lib";
 import { usePageHistoryLabel } from "@/components/shell/page-history";
 import { useDeal, useMarkSeenOnOpen } from "../hooks";
 import { useJobPageData } from "../job-page-data";
 import { useAttachments } from "../attachments-hooks";
 import { dealTabHref, visibleDealTabs, type DealTab } from "../deal-tabs";
-import { dealBalance, dealTabSublabel, jobChatPhone, jobClientName, jobDueDate } from "../job-shell";
+import { dealBalance, dealTabSublabel, jobChatPhone, jobClientName, jobDueDate, jobInvoicePill } from "../job-shell";
 import { DealProductsTab } from "./deal-products-tab";
 import { DealTimelinePanel } from "./deal-timeline-panel";
 import { DealAttachmentsTab } from "./deal-attachments-tab";
@@ -48,6 +49,7 @@ export function DealDetailPage({
   /** From `?estimate=` — the estimate to open on the Estimates tab. */
   initialEstimateId?: string | null;
 }) {
+  const router = useRouter();
   const { can, me } = usePermissions();
   const { data: deal, isLoading } = useDeal(dealId);
   const [selectedTab, setSelectedTab] = useState<Tab>(initialTab ?? "details");
@@ -58,6 +60,7 @@ export function DealDetailPage({
   const canInvoices = can("invoices");
   const canEstimates = can("estimates");
   const { data: invoice } = useInvoiceByDeal(dealId, canInvoices);
+  const createInvoice = useCreateInvoice();
   const canPayments = can("payments");
   // The Payments tab's "$0.00 balance" and the Items tab's Balance box — the
   // same query the tab itself reads, so opening it costs nothing more.
@@ -70,11 +73,7 @@ export function DealDetailPage({
   const { data: activeTypes } = useActiveJobTypes();
   const activeType = activeTypes?.find((t) => t.id === deal?.jobTypeId);
   const { data: archivedType } = useJobType(deal?.jobTypeId ?? "", !!deal?.jobTypeId && !!activeTypes && !activeType);
-  const tabs = visibleDealTabs({
-    estimates: canEstimates,
-    invoices: canInvoices,
-    payments: canPayments,
-  });
+  const tabs = visibleDealTabs({ estimates: canEstimates, payments: canPayments });
   // A deep link to a tab the viewer can't see lands on Details.
   const tab: Tab = tabs.includes(selectedTab) ? selectedTab : "details";
 
@@ -116,14 +115,21 @@ export function DealDetailPage({
     itemsTotal: deal.totals?.total,
     balanceDue: balance,
     estimateCount: estimates?.length ?? 0,
-    invoiceStatus: invoice?.status,
     attachmentCount: attachments?.length ?? 0,
   };
   const sublabels = Object.fromEntries(tabs.map((t) => [t, dealTabSublabel(t, sublabelContext)])) as Record<Tab, string>;
-  // The yellow pill opens the Invoice tab — where the invoice is made, or
-  // shown once it exists.
-  const invoicePill =
-    canInvoices && (invoice || can("invoices", "create")) ? { exists: Boolean(invoice) } : undefined;
+  // The yellow pill, as Workiz's: the job's invoice opens on its own page
+  // ("View Invoice"), and "Create Invoice" makes it and then opens it there.
+  const invoicePill = jobInvoicePill({
+    invoice,
+    canView: canInvoices,
+    canCreate: can("invoices", "create"),
+    itemCount: deal.itemCount ?? 0,
+  });
+  const onInvoice = () => {
+    if (invoice) router.push(invoiceHref(invoice));
+    else createInvoice.mutate(deal.id, { onSuccess: (created) => router.push(invoiceHref(created)) });
+  };
   // "Message Client" texts the job's own number first (J1: MS9277's is on the
   // job, not on the client record).
   const chatPhone = jobChatPhone(deal.phones, contact?.phones);
@@ -158,7 +164,8 @@ export function DealDetailPage({
               canDelete={canDelete}
               canViewWorkOrders={can("work_orders", "view")}
               invoice={invoicePill}
-              onOpenInvoice={() => setTab("invoice")}
+              invoicePending={createInvoice.isPending}
+              onInvoice={onInvoice}
             />
             <JobTabBar tabs={tabs} active={tab} onSelect={setTab} sublabels={sublabels} />
           </div>
@@ -190,11 +197,6 @@ export function DealDetailPage({
             {tab === "estimates" ? (
               <TabPanel tab="estimates" className="px-4 pt-10 pb-12 md:px-10">
                 <DealEstimatesTab deal={deal} estimateId={estimateId} onEstimateChange={openEstimate} startCreating={startCreatingEstimate} />
-              </TabPanel>
-            ) : null}
-            {tab === "invoice" ? (
-              <TabPanel tab="invoice" className="px-4 pt-10 pb-12 md:px-10">
-                <DealInvoiceTab deal={deal} canEditItems={canEdit} />
               </TabPanel>
             ) : null}
             {tab === "attachments" ? (

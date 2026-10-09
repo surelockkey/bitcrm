@@ -174,7 +174,7 @@ describe("InvoicesPage — Workiz's /root/invoices/", () => {
     expect(card(/4 invoices Unsent/)).toHaveAttribute("aria-pressed", "true");
 
     await u.click(within(row(/1042/)).getByText("Jane Smith"));
-    expect(mocks.push).toHaveBeenCalledWith("/deals/d1?tab=invoice");
+    expect(mocks.push).toHaveBeenCalledWith("/invoices/d1");
   });
 
   it("sends Filter results picks, Days due included, as Workiz's chips", async () => {

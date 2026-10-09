@@ -93,7 +93,7 @@ describe("AgingInvoicesPage — Workiz's Aging invoices", () => {
     expect(calls[0].get("pageSize")).toBe("10");
 
     const row = screen.getByRole("row", { name: /1MHIJW/ });
-    expect(within(row).getByRole("link", { name: "1MHIJW" })).toHaveAttribute("href", "/deals/d1?tab=invoice");
+    expect(within(row).getByRole("link", { name: "1MHIJW" })).toHaveAttribute("href", "/invoices/d1");
     expect(within(row).getByRole("link", { name: "Bryan Creevy" })).toHaveAttribute("href", "/contacts/c1");
     // The email under the name; the phone only when there is no email.
     expect(within(row).getByText("245110@carmax.com")).toBeInTheDocument();

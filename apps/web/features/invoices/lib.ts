@@ -92,6 +92,15 @@ export function buildInvoiceListQuery(p: InvoiceListParams): string {
   return s ? `?${s}` : "";
 }
 
+/**
+ * Where an invoice opens: its own page, a job's as well as a client's — as
+ * Workiz opens `/root/invoice/<serial>/` from the job's "View Invoice" (a
+ * job's page carries "← Job ID" back to the job).
+ */
+export function invoiceHref(invoice: Pick<Invoice, "id"> & Partial<Pick<Invoice, "dealId">>): string {
+  return `/invoices/${encodeURIComponent(invoice.id)}`;
+}
+
 export const INVOICE_CREATE_BLOCKED = "Add at least one item to the job first";
 
 export function canCreateInvoice(itemCount: number): { allowed: true } | { allowed: false; reason: string } {

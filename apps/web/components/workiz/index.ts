@@ -146,3 +146,6 @@ export { WzColorDots, type WzColorDotOption } from "./color-dots";
 export { WzFormModal } from "./form-modal";
 export { WzSettingsCatalog } from "./settings-catalog";
 export { WzModalTextField } from "./modal-text-field";
+
+// A job document's "← Job ID" line (agent job_invoice_route: the estimate's, reused on the invoice page).
+export { WzJobBackLink } from "./job-back-link";
