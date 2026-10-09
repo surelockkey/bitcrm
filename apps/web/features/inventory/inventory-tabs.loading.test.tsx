@@ -296,6 +296,37 @@ describe("Inventory — what the rows print comes with them", () => {
   });
 });
 
+describe("Inventory — Items, when the custom fields answer", () => {
+  // probe_shift 2026-10-09 (CLS 0.09): the item custom fields came after
+  // the loader's first frame and their columns pushed in after Brand,
+  // narrowing every column to their left. A grid whose columns changed is
+  // drawn anew — new cells in their places — never the old ones squeezed.
+  it("draws the grid anew when the custom-field columns come, instead of squeezing the old one", async () => {
+    server = installFakeServer([
+      ...routes(),
+      {
+        match: /\/inventory\/item-attributes$/,
+        reply: () => [{ id: "a1", name: "Color", type: "text", visible: true, resource: "items" }],
+        delayMs: 150,
+      },
+    ]);
+    const headersOf = (root: ParentNode) => [...root.querySelectorAll("thead th")].map((th) => th.textContent?.trim());
+    const grid = () => document.querySelector<HTMLElement>('[data-slot="wz-report-grid"]');
+    const watch = watchFirstFrame(
+      () => !!grid(),
+      () => ({ root: grid()!, headers: headersOf(grid()!) }),
+    );
+    inTabs(<ProductsPage />);
+    await screen.findByText("Test item 1", {}, { timeout: 3000 });
+    watch.stop();
+
+    const first = watch.frame()!;
+    expect(first.headers).not.toContain("Color");
+    expect(headersOf(grid()!)).toContain("Color");
+    expect(first.root.isConnected).toBe(false);
+  });
+});
+
 describe("Inventory — Items, when the permissions answer", () => {
   it.each([
     ["an admin, who gets every control", "role-admin"],

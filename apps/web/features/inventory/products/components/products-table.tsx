@@ -155,6 +155,12 @@ export function ProductsTable({
   return (
     <>
       <WzReportGrid
+        // The columns are not all known at the first paint — the custom
+        // fields come from the catalog, Cost from the permissions. A grid
+        // whose columns changed is drawn anew, not reshuffled: the custom
+        // fields arriving narrowed every column to their left (probe_shift
+        // 2026-10-09: CLS 0.09). Widths and the open photo live above it.
+        key={columns.map((c) => c.id).join("|")}
         aria-label="Inventory"
         className="shrink-0"
         rowHeight={INVENTORY_ROW_HEIGHTS.items}
