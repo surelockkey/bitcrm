@@ -1,100 +1,85 @@
 "use client";
 
-import { Boxes, Pencil } from "lucide-react";
-import { TableCell, TableRow } from "@/components/ui/table";
+import { useMemo, type ReactNode } from "react";
 import { InventoryStatus } from "@bitcrm/types";
 import type { Warehouse } from "@bitcrm/types";
-import { cn } from "@/lib/utils";
-import { RowIconAction } from "@/features/inventory/components/row-icon-action";
-import {
-  INVENTORY_ROW,
-  InventoryTable,
-  type InventoryColumn,
-} from "@/features/inventory/components/inventory-table";
+import { WzReportGrid, type WzReportColumn } from "@/components/workiz/report-grid";
+import { useColumnWidths } from "@/lib/table/use-column-widths";
+import { LocationActions, LocationName } from "@/features/inventory/components/locations-grid";
 import { formatTotal, type LocationTotals } from "@/features/inventory/stock/lib";
 
 /**
- * The columns, with the width each one starts at — read by both the
- * `<colgroup>` and the headers, so there is one number to change. All
- * left-aligned, counts included, as Workiz lays its grids out.
+ * Workiz's Locations grid for warehouses (pg_inventory_wz_02_locations):
+ * Name 200 · Description · Items · (BitCRM's SKUs) · Actions 150 — Workiz's
+ * flexible columns share what is left alike.
  */
-export const WAREHOUSE_COLUMNS: InventoryColumn[] = [
-  { id: "name", label: "Name", width: 260 },
-  { id: "description", label: "Description", width: 340 },
-  { id: "items", label: "Items", width: 120 },
-  { id: "skus", label: "SKUs", width: 90 },
-  { id: "actions", label: "Actions", width: 100 },
+export const WAREHOUSE_COLUMNS: { id: string; label: string; width?: number }[] = [
+  { id: "name", label: "Name", width: 200 },
+  { id: "description", label: "Description" },
+  { id: "items", label: "Items" },
+  { id: "skus", label: "SKUs" },
+  { id: "actions", label: "Actions", width: 150 },
 ];
 
-/** Its own key: warehouses keep their widths apart from vans and items. */
+/** Its own key: warehouses keep their page size and widths apart from vans and items. */
 export const WAREHOUSES_TABLE_KEY = "inventory-warehouses";
+
+/** react-table's flexible column, when the reader drags one: its share of a 1400px frame. */
+const FLEX = 350;
+const WIDTHS = Object.fromEntries(WAREHOUSE_COLUMNS.map((c) => [c.id, c.width ?? FLEX]));
+const NO_ROWS: Warehouse[] = [];
 
 export function WarehousesTable({
   warehouses,
   onEdit,
   onStock,
   loading = false,
-  skeletonRows = 0,
   stale = false,
+  footer,
 }: {
   warehouses: Warehouse[];
   onEdit: (warehouse: Warehouse) => void;
   onStock: (warehouse: Warehouse) => void;
-  /** First load: the same table, a page of skeleton rows. */
+  /** First load: the header and Workiz's loader. */
   loading?: boolean;
-  skeletonRows?: number;
-  /** The previous filter's rows, held while the new ones load. */
+  /** The previous filter's rows, dimmed, while the new ones load. */
   stale?: boolean;
+  footer?: ReactNode;
 }) {
+  const { widthOf, setWidth, reset } = useColumnWidths(`${WAREHOUSES_TABLE_KEY}-wz`, WIDTHS);
+  const columns = useMemo<WzReportColumn<Warehouse & LocationTotals>[]>(() => {
+    const cell: Record<string, (w: Warehouse & LocationTotals) => ReactNode> = {
+      name: (w) => <LocationName name={w.name} archived={w.status === InventoryStatus.ARCHIVED} />,
+      description: (w) => (
+        <span className="block truncate" title={w.description || w.address || undefined}>
+          {w.description || w.address || ""}
+        </span>
+      ),
+      // The server keeps both on the row; there is nothing to wait for.
+      items: (w) => formatTotal(w.totalUnits),
+      skus: (w) => formatTotal(w.uniqueItems),
+      actions: (w) => <LocationActions name={w.name} onEdit={() => onEdit(w)} onStock={() => onStock(w)} />,
+    };
+    return WAREHOUSE_COLUMNS.map((c) => ({ id: c.id, label: c.label, cell: cell[c.id] }));
+  }, [onEdit, onStock]);
+
   return (
-    <InventoryTable
-      tableKey={WAREHOUSES_TABLE_KEY}
-      columns={WAREHOUSE_COLUMNS}
+    <WzReportGrid
+      aria-label="Warehouses"
+      className="shrink-0"
+      columns={columns}
+      rows={loading ? NO_ROWS : warehouses}
+      rowKey={(w) => w.id}
+      sort={null}
+      resize={{ widthOf, setWidth, reset }}
+      // A row opens its stock, as the box does.
+      onRowClick={(w) => onStock(w)}
       loading={loading}
-      skeletonRows={skeletonRows}
-      stale={stale}
-    >
-      {warehouses.map((w) => (
-        <WarehouseRow key={w.id} warehouse={w} onEdit={onEdit} onStock={onStock} />
-      ))}
-    </InventoryTable>
-  );
-}
-
-function WarehouseRow({
-  warehouse: w,
-  onEdit,
-  onStock,
-}: {
-  warehouse: Warehouse & LocationTotals;
-  onEdit: (warehouse: Warehouse) => void;
-  onStock: (warehouse: Warehouse) => void;
-}) {
-  const archived = w.status === InventoryStatus.ARCHIVED;
-  const description = w.description || w.address;
-
-  return (
-    <TableRow className={cn(INVENTORY_ROW, "cursor-pointer", archived && "opacity-55")} onClick={() => onStock(w)}>
-      {/* Every cell clips: under fixed layout one that doesn't spills over
-          the next column instead of widening its own. */}
-      <TableCell className="truncate font-medium">{w.name}</TableCell>
-      <TableCell className="truncate text-sm text-muted-foreground" title={description || undefined}>
-        {description || "—"}
-      </TableCell>
-      {/* The server keeps both on the row; there is nothing to wait for. */}
-      <TableCell className="truncate tabular-nums">{formatTotal(w.totalUnits)}</TableCell>
-      <TableCell className="truncate tabular-nums">{formatTotal(w.uniqueItems)}</TableCell>
-      {/* The popups these open sit over the row; their clicks must not reach it. */}
-      <TableCell className="overflow-hidden" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center gap-0.5">
-          <RowIconAction label={`Edit ${w.name}`} tip="Edit" onClick={() => onEdit(w)}>
-            <Pencil />
-          </RowIconAction>
-          <RowIconAction label={`Stock in ${w.name}`} tip="Stock" onClick={() => onStock(w)}>
-            <Boxes />
-          </RowIconAction>
-        </div>
-      </TableCell>
-    </TableRow>
+      busy={stale}
+      plainFiller
+      // Workiz's Locations: an empty search leaves the blank rows, nothing written over them.
+      emptyText={null}
+      footer={footer}
+    />
   );
 }

@@ -5,7 +5,6 @@ import { InventoryStatus } from "@bitcrm/types";
 import type { Warehouse } from "@bitcrm/types";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { LocationTotals } from "@/features/inventory/stock/lib";
-import { INVENTORY_ROW } from "@/features/inventory/components/inventory-table";
 import { WarehousesTable } from "./warehouses-table";
 
 const onEdit = vi.fn();
@@ -117,13 +116,6 @@ describe("WarehousesTable", () => {
 describe("WarehousesTable — a stable first frame", () => {
   const table = () => renderTable().container;
 
-  it("scrolls sideways instead of clipping when the columns outgrow the screen", () => {
-    const frame = table().querySelector("[data-slot=table-frame]") as HTMLElement;
-    expect(frame).not.toBeNull();
-    expect(frame.className).toMatch(/overflow-x-auto/);
-    expect(frame.className).not.toMatch(/overflow-hidden/);
-  });
-
   it("lays the columns out at declared widths, not by content", () => {
     expect(table().querySelector("table")?.className).toContain("table-fixed");
   });
@@ -169,15 +161,11 @@ describe("WarehousesTable — loading", () => {
 
     render(
       <TooltipProvider>
-        <WarehousesTable warehouses={[]} onEdit={onEdit} onStock={onStock} loading skeletonRows={25} />
+        <WarehousesTable warehouses={[]} onEdit={onEdit} onStock={onStock} loading />
       </TooltipProvider>,
     );
     expect(shape()).toEqual(loaded);
-    expect(screen.getAllByTestId("skeleton-row")).toHaveLength(25);
-  });
-
-  it("gives real rows the skeleton's height", () => {
-    renderTable();
-    expect(document.querySelector("tbody tr")?.className).toContain(INVENTORY_ROW);
+    // Workiz's loader over the blank rows, not placeholders that change height.
+    expect(screen.getByRole("status", { name: "Loading" })).toBeInTheDocument();
   });
 });

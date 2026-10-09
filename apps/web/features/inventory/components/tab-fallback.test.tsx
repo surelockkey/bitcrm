@@ -12,11 +12,11 @@ import { TabFallback, type InventoryTab } from "./tab-fallback";
  */
 const WZ_HEADERS: Partial<Record<InventoryTab, string>> = {
   items: "Product ID",
+  warehouses: "SKUs",
+  containers: "Department",
 };
 
 const TABLE_HEADERS: Partial<Record<InventoryTab, string>> = {
-  warehouses: "SKUs",
-  containers: "Department",
   "user-containers": "Access",
   templates: "Used by",
   transfers: "Route",

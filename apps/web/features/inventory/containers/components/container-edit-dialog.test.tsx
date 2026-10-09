@@ -107,13 +107,13 @@ const save = () => userEvent.click(screen.getByRole("button", { name: "Save" }))
 describe("ContainerEditDialog — the van's settings in a popup", () => {
   it("is a dialog titled Edit container, reading the van it was opened for", () => {
     open();
-    expect(screen.getByRole("dialog", { name: "Edit container" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Edit Location" })).toBeInTheDocument();
     expect(mocks.queried).toContain("c1");
   });
 
   it("shows the current name, description, department, template and status", () => {
     open();
-    expect(screen.getByLabelText("Name")).toHaveValue("Van 1");
+    expect(screen.getByLabelText("Location Name")).toHaveValue("Van 1");
     expect(screen.getByLabelText("Description")).toHaveValue("North route");
     expect(screen.getByLabelText("Department")).toHaveValue("Locksmith");
     expect(screen.getByRole("combobox", { name: "Template" })).toHaveTextContent("Standard van");
@@ -122,7 +122,7 @@ describe("ContainerEditDialog — the van's settings in a popup", () => {
 
   it("saves the edited fields and closes", async () => {
     const { onOpenChange } = open();
-    const name = screen.getByLabelText("Name");
+    const name = screen.getByLabelText("Location Name");
     await userEvent.clear(name);
     await userEvent.type(name, "Van 2");
     const desc = screen.getByLabelText("Description");
@@ -181,7 +181,7 @@ describe("ContainerEditDialog — the van's settings in a popup", () => {
     open();
     expect(screen.queryByText(/technician/i)).toBeNull();
     expect(screen.getByText("Pavlo Bondar, Taras Koval")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Manage in User containers" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Manage in User locations" })).toHaveAttribute(
       "href",
       "/inventory/user-containers",
     );
@@ -189,7 +189,7 @@ describe("ContainerEditDialog — the van's settings in a popup", () => {
 
   it("no longer sends a technician", async () => {
     open();
-    await userEvent.type(screen.getByLabelText("Name"), " X");
+    await userEvent.type(screen.getByLabelText("Location Name"), " X");
     await save();
     const body = mocks.update.mock.calls[0][0].body;
     expect(body).not.toHaveProperty("technicianId");
@@ -208,7 +208,7 @@ describe("ContainerEditDialog — the van's settings in a popup", () => {
 
   it("won't save a van without a name", async () => {
     open();
-    await userEvent.clear(screen.getByLabelText("Name"));
+    await userEvent.clear(screen.getByLabelText("Location Name"));
     await save();
     expect(mocks.update).not.toHaveBeenCalled();
     expect(screen.getByText("Name is required")).toBeInTheDocument();
@@ -223,7 +223,7 @@ describe("ContainerEditDialog — the van's settings in a popup", () => {
 
   it("Cancel closes without saving", async () => {
     const { onOpenChange } = open();
-    await userEvent.type(screen.getByLabelText("Name"), " X");
+    await userEvent.type(screen.getByLabelText("Location Name"), " X");
     await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(mocks.update).not.toHaveBeenCalled();
     expect(onOpenChange).toHaveBeenCalledWith(false);
@@ -234,8 +234,8 @@ describe("ContainerEditDialog — without containers.edit", () => {
   it("is view-only: every field locked, Close instead of Save", async () => {
     mocks.denied.add("containers.edit");
     const { onOpenChange } = open();
-    expect(screen.getByRole("dialog", { name: "Container" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Name")).toBeDisabled();
+    expect(screen.getByRole("dialog", { name: "Location" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Location Name")).toBeDisabled();
     expect(screen.getByLabelText("Description")).toBeDisabled();
     expect(screen.getByLabelText("Department")).toBeDisabled();
     expect(screen.getByRole("combobox", { name: "Template" })).toBeDisabled();
@@ -265,6 +265,6 @@ describe("ContainerEditDialog — loading and missing", () => {
   it("says the van is gone when it can't be read", () => {
     mocks.query = { isLoading: false, isError: true, data: undefined };
     open();
-    expect(screen.getByRole("dialog", { name: "Container not found" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Location not found" })).toBeInTheDocument();
   });
 });

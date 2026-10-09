@@ -319,13 +319,13 @@ describe("ContainersPage — popups are state, not the URL", () => {
  * users — and then the whole page swapped for the fleet.
  */
 describe("ContainersPage — a stable first frame", () => {
-  // A new search holds the area the rows are drawn in, so the pager under it
-  // does not jump up into view (see ListBody).
-  it("draws its rows in the list's held area, with the pager under it", () => {
+  // Workiz's grid is never shorter than ten rows and holds its pager: a
+  // short page does not pull the pager up the screen.
+  it("draws its rows in Workiz's grid, the pager inside it under them", () => {
     renderWithClient(<ContainersPage />);
-    const area = document.querySelector("[data-slot=list-area]");
-    expect(area).toContainElement(screen.getByRole("table"));
-    expect(area).not.toContainElement(screen.getByTestId("list-pagination"));
+    const grid = document.querySelector("[data-slot=wz-report-grid]");
+    expect(grid).toContainElement(screen.getByRole("table"));
+    expect(grid).toContainElement(screen.getByTestId("list-pagination"));
   });
 
   it("while permissions load, draws the fleet's frame and asks for nothing", () => {
@@ -334,7 +334,7 @@ describe("ContainersPage — a stable first frame", () => {
 
     expect(screen.queryByTestId("my-van")).toBeNull();
     expect(mocks.listFilters).toEqual([]);
-    expect(screen.getAllByTestId("skeleton-row").length).toBeGreaterThan(0);
+    expect(screen.getByRole("status", { name: "Loading" })).toBeInTheDocument();
     expect([...document.querySelectorAll("thead th")].map((th) => th.textContent)).toContain("Users");
     // No pager under the skeleton: the rows would move it when they land.
     expect(screen.queryByTestId("list-pagination")).toBeNull();
@@ -344,7 +344,7 @@ describe("ContainersPage — a stable first frame", () => {
     mocks.list = { isLoading: true, isPlaceholderData: false, noData: true };
     renderWithClient(<ContainersPage />);
 
-    expect(screen.getAllByTestId("skeleton-row").length).toBeGreaterThan(0);
+    expect(screen.getByRole("status", { name: "Loading" })).toBeInTheDocument();
     expect(screen.queryByTestId("list-pagination")).toBeNull();
   });
 
@@ -353,7 +353,7 @@ describe("ContainersPage — a stable first frame", () => {
     renderWithClient(<ContainersPage />);
 
     expect(screen.getByText("Van Alpha")).toBeInTheDocument();
-    expect(screen.getByRole("table")).toHaveAttribute("aria-busy", "true");
+    expect(document.querySelector("[data-slot=wz-report-grid]")).toHaveAttribute("aria-busy", "true");
   });
 
   it("has the Department select from the first frame, disabled until the departments arrive", () => {

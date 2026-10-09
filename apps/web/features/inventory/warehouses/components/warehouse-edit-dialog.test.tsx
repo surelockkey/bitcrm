@@ -77,22 +77,22 @@ function open() {
 const save = () => userEvent.click(screen.getByRole("button", { name: "Save" }));
 
 describe("WarehouseEditDialog — the warehouse's settings in a popup", () => {
-  it("is a dialog titled Edit warehouse, reading the one it was opened for", () => {
+  it("is Workiz's \"Edit Location\", reading the one it was opened for", () => {
     open();
-    expect(screen.getByRole("dialog", { name: "Edit warehouse" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Edit Location" })).toBeInTheDocument();
     expect(mocks.queried).toContain("w1");
   });
 
   it("shows the current name, address and description", () => {
     open();
-    expect(screen.getByLabelText("Name")).toHaveValue("WAREHOUSE TX");
+    expect(screen.getByLabelText("Location Name")).toHaveValue("WAREHOUSE TX");
     expect(screen.getByLabelText("Address")).toHaveValue("800 W Campbell Rd");
     expect(screen.getByLabelText("Description")).toHaveValue("RICHARDSON SHOP");
   });
 
   it("saves the edited fields and closes", async () => {
     const { onOpenChange } = open();
-    const name = screen.getByLabelText("Name");
+    const name = screen.getByLabelText("Location Name");
     await userEvent.clear(name);
     await userEvent.type(name, "Dallas");
     await save();
@@ -105,7 +105,7 @@ describe("WarehouseEditDialog — the warehouse's settings in a popup", () => {
 
   it("won't save a warehouse without a name", async () => {
     open();
-    await userEvent.clear(screen.getByLabelText("Name"));
+    await userEvent.clear(screen.getByLabelText("Location Name"));
     await save();
     expect(mocks.update).not.toHaveBeenCalled();
     expect(screen.getByText("Name is required")).toBeInTheDocument();
@@ -147,8 +147,8 @@ describe("WarehouseEditDialog — without warehouses.edit", () => {
   it("is view-only: fields locked, Close instead of Save", () => {
     mocks.denied.add("warehouses.edit");
     open();
-    expect(screen.getByRole("dialog", { name: "Warehouse" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Name")).toBeDisabled();
+    expect(screen.getByRole("dialog", { name: "Location" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Location Name")).toBeDisabled();
     expect(screen.getByLabelText("Address")).toBeDisabled();
     expect(screen.getByLabelText("Description")).toBeDisabled();
     expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
@@ -172,7 +172,7 @@ describe("WarehouseEditDialog — loading and missing", () => {
   it("says the warehouse is gone when it can't be read", () => {
     mocks.query = { isLoading: false, isError: true, data: undefined };
     open();
-    expect(screen.getByRole("dialog", { name: "Warehouse not found" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Location not found" })).toBeInTheDocument();
   });
 });
 
