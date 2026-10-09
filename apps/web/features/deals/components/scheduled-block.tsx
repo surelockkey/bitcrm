@@ -97,6 +97,35 @@ export function withScheduled(
   return { date: d.date, endDate: d.date, slot: `${d.start}-${d.end}`, allDay: false };
 }
 
+const DAY_MINUTES = 24 * 60;
+
+/** `YYYY-MM-DD` moved by `days`. */
+function shiftDay(day: string, days: number): string {
+  return new Date(Date.parse(`${day}T00:00:00.000Z`) + days * 86_400_000).toISOString().slice(0, 10);
+}
+
+/**
+ * Workiz's job type carries a Duration ("How long does this type of job
+ * usually take?"): picking the type ends the visit that long after its
+ * start — on a later day when it runs past midnight. An all-day, unscheduled
+ * or timeless visit has no times to move and is left as it is.
+ */
+export function withDuration(v: ScheduledValue, minutes: number): ScheduledValue {
+  if (!v.date || v.allDay) return v;
+  const [start] = slotTimes(v.slot);
+  if (!start) return v;
+  const [h, m] = start.split(":").map(Number);
+  const end = h * 60 + m + Math.max(0, Math.round(minutes));
+  const days = Math.floor(end / DAY_MINUTES);
+  const rest = end % DAY_MINUTES;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return {
+    ...v,
+    endDate: days ? shiftDay(v.date, days) : v.date,
+    slot: `${start}-${pad(Math.floor(rest / 60))}:${pad(rest % 60)}`,
+  };
+}
+
 /**
  * Workiz-style Scheduled block: Starts (date + time) and Ends (date + time),
  * an all-day toggle that drops the times, a live area clock in the job's

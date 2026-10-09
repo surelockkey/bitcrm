@@ -10,6 +10,7 @@
  */
 
 import { useState, type ReactNode, type Ref } from "react";
+import type { JobType } from "@bitcrm/types";
 import { WzButton, WzMultiSelect, WzNotice, WzSelect, WzTextField, type WzOption } from "@/components/workiz";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
@@ -133,7 +134,19 @@ function useAddNew(
  * archived type the job still has keeps its name. `canCreate` adds Workiz's
  * "+ Add new" first row (pass `can("job_types", "create")`).
  */
-export function WzJobTypeSelect({ canCreate = false, ...p }: WzBoundSelectProps & { canCreate?: boolean }) {
+export function WzJobTypeSelect({
+  canCreate = false,
+  onChange,
+  ...p
+}: Omit<WzBoundSelectProps, "onChange"> & {
+  canCreate?: boolean;
+  /**
+   * The new id, "" when cleared — and the type itself when it is in the
+   * catalog, so the form can take its duration (Workiz: picking the type
+   * ends the visit that long after its start).
+   */
+  onChange: (id: string, type?: JobType) => void;
+}) {
   const { data } = useActiveJobTypes();
   const active = activeJobTypes(data);
   const needsArchived = Boolean(p.value) && !active.some((t) => t.id === p.value);
@@ -143,16 +156,17 @@ export function WzJobTypeSelect({ canCreate = false, ...p }: WzBoundSelectProps 
     "job type",
     (name, done) =>
       create.mutate({ name, priority: 0, active: true }, { onSuccess: (t: { id: string }) => done(t.id) }),
-    p.onChange,
+    onChange,
   );
+  const bound = { ...p, onChange } as WzBoundSelectProps;
   return (
     <>
       <WzSelect
-        {...passThrough(p)}
+        {...passThrough(bound)}
         label={p.label ?? "Job type"}
         options={catalogOptions(active, needsArchived ? archived : null)}
         value={p.value ?? ""}
-        onChange={p.onChange}
+        onChange={(id) => onChange(id, active.find((t) => t.id === id) ?? (archived?.id === id ? archived : undefined))}
         createOption={canCreate ? { onCreate: add.onCreate } : undefined}
       />
       {canCreate ? add.dialog : null}

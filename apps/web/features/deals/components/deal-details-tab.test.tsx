@@ -94,6 +94,7 @@ vi.mock("@/features/job-types/active-hooks", () => ({
     data: [
       { id: "jt-lockout", name: "Lockout", active: true },
       { id: "jt-rekey", name: "Rekey", active: true },
+      { id: "jt-safe", name: "Safe", active: true, durationMinutes: 240 },
     ],
   }),
 }));
@@ -382,6 +383,18 @@ describe("DetailsTab — one Save", () => {
       businessProfileId: "bp-2",
       priority: DealPriority.URGENT,
     });
+  });
+
+  // Workiz's job type carries a Duration: picking the type ends the visit
+  // that long after its start (a 4 h type: 08:00 → 12:00); the start stays.
+  it("picking a job type with a duration moves the visit's end that far from its start", async () => {
+    const u = user();
+    renderTab({ ...deal, scheduledDate: "2026-10-08", scheduledEndDate: "2026-10-08", scheduledTimeSlot: "08:00-09:00" });
+
+    await pick(u, "Job type", "Safe");
+    await u.click(saveButton());
+
+    expect(mocks.updateDeal.mock.calls[0][0]).toEqual({ jobTypeId: "jt-safe", scheduledTimeSlot: "08:00-12:00" });
   });
 
   it("unschedules with the Schedule switch: the job goes back to Unscheduled on Save", async () => {

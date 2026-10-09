@@ -16,7 +16,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
-import { ClientType, DealPriority, type Contact, type Deal } from "@bitcrm/types";
+import { ClientType, DealPriority, type Contact, type Deal, type JobType } from "@bitcrm/types";
 import { WzActionBar, WzButton, WzSectionHeader, WzSelect } from "@/components/workiz";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { getApiErrorMessage } from "@/lib/api/errors";
@@ -25,6 +25,7 @@ import { useCompany, useContact, useCreateCompany, useUpdateContact } from "@/fe
 import type { UpdateContactValues } from "@/features/clients/schemas";
 import { useCustomFields } from "@/features/custom-fields/hooks";
 import { applicableFields, workizGroupColumns, workizOrderedGroups } from "@/features/custom-fields/lib";
+import { jobTypeDurationMinutes } from "@/features/job-types/lib";
 import { WzCustomFields } from "@/features/custom-fields/components/wz-custom-fields";
 import { useResolvedServiceArea } from "@/features/service-areas/hooks";
 import { DEFAULT_TZ } from "@/lib/timezone";
@@ -36,6 +37,7 @@ import { DetailsRow, JobClientSection } from "./job-client-section";
 import { JobNoteEditor } from "./job-note-editor";
 import { JobTeamSection } from "./job-team-section";
 import { useUnsavedChanges } from "./use-unsaved-changes";
+import { withDuration } from "./scheduled-block";
 import {
   WzBusinessProfileSelect,
   WzExternalCompanySelect,
@@ -146,6 +148,16 @@ export function DetailsTab({
   }, [contact?.id, contact?.updatedAt]);
 
   const setDeal = (patch: Partial<DealDraft>) => setDealDraft((d) => ({ ...d, ...patch }));
+  // Workiz: picking a job type ends the visit its Duration after the start
+  // (an hour for a type without one); an unscheduled or all-day job keeps its dates.
+  const pickJobType = (jobTypeId: string, type?: JobType) =>
+    setDealDraft((d) => {
+      const s = withDuration(
+        { date: d.scheduledDate, endDate: d.scheduledEndDate, slot: d.scheduledTimeSlot, allDay: Boolean(d.allDay) },
+        jobTypeDurationMinutes(type),
+      );
+      return { ...d, jobTypeId, scheduledEndDate: s.endDate, scheduledTimeSlot: s.slot };
+    });
 
   // The job's timezone: its resolved service area's, else Connecticut.
   const { data: jobArea } = useResolvedServiceArea(dealDraft.address.lat, dealDraft.address.lng);
@@ -274,7 +286,7 @@ export function DetailsTab({
                 <WzJobTypeSelect
                   shape="square"
                   value={dealDraft.jobTypeId}
-                  onChange={(jobTypeId) => setDeal({ jobTypeId })}
+                  onChange={pickJobType}
                   disabled={!canEdit}
                   canCreate={can("job_types", "create")}
                 />

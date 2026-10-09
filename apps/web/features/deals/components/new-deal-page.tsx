@@ -59,6 +59,8 @@ import { missingRequiredJobFields } from "@/features/job-field-settings/lib";
 import { useJobTags } from "@/features/job-tags/hooks";
 import { useCreateDeal } from "../hooks";
 import { useNewJobPageData } from "../new-job-page-data";
+import { jobTypeDurationMinutes } from "@/features/job-types/lib";
+import { withDuration } from "./scheduled-block";
 import { updateDeal as updateDealApi, assignTechs as assignTechsApi } from "../api";
 import { requestAttachmentUpload, uploadAttachmentBytes } from "../attachments-api";
 import { dealJobSchema, type DealJobValues } from "../schemas";
@@ -71,6 +73,7 @@ import {
   matchCompany,
   newContactBody,
   pickedClientChanges,
+  splitClientName,
   type ClientForm,
   type ClientPhoneRow,
 } from "../new-job-client";
@@ -235,7 +238,14 @@ function DealForm({
   const [initialClient] = useState(() => JSON.stringify(clientForm));
   const setClient = (patch: Partial<ClientForm>) => setClientForm((f) => ({ ...f, ...patch }));
   const setPhone = (i: number, patch: Partial<ClientPhoneRow>) =>
-    setClientForm((f) => ({ ...f, phones: f.phones.map((r, j) => (j === i ? { ...r, ...patch } : r)) }));
+    setClientForm((f) => ({
+      ...f,
+      // A row the card brought up on its own (a required Secondary Phone) is made real when typed into.
+      phones:
+        i < f.phones.length
+          ? f.phones.map((r, j) => (j === i ? { ...r, ...patch } : r))
+          : [...f.phones, { phone: "", ext: "", ...patch }],
+    }));
 
   // An unknown number that already belongs to a client: offer them, and adopt
   // them on Create rather than making a twin.
@@ -295,15 +305,34 @@ function DealForm({
   // the default follows the job's timezone as the address settles it.
   const [scheduleTouched, setScheduleTouched] = useState(false);
   const [defaultTz, setDefaultTz] = useState(DEFAULT_TZ);
+  // Workiz's job type carries a Duration: once picked, the visit is that
+  // long — the default too, should the zone still move it.
+  const [typeDuration, setTypeDuration] = useState(jobTypeDurationMinutes(undefined));
   useEffect(() => {
     if (scheduleTouched || jobTz === defaultTz) return;
     const d = nowScheduleDefault(jobTz);
-    form.setValue("scheduledDate", d.date);
-    form.setValue("scheduledEndDate", d.date);
-    form.setValue("scheduledTimeSlot", `${d.start}-${d.end}`);
+    const s = withDuration({ date: d.date, endDate: d.date, slot: `${d.start}-${d.end}`, allDay: false }, typeDuration);
+    form.setValue("scheduledDate", s.date);
+    form.setValue("scheduledEndDate", s.endDate);
+    form.setValue("scheduledTimeSlot", s.slot);
     // eslint-disable-next-line react-hooks/set-state-in-effect -- remembers which zone the default was made in
     setDefaultTz(jobTz);
-  }, [jobTz, scheduleTouched, defaultTz, form]);
+  }, [jobTz, scheduleTouched, defaultTz, typeDuration, form]);
+  const applyTypeDuration = (minutes: number) => {
+    setTypeDuration(minutes);
+    const current = form.getValues();
+    const s = withDuration(
+      {
+        date: current.scheduledDate || "",
+        endDate: current.scheduledEndDate || "",
+        slot: current.scheduledTimeSlot || "",
+        allDay: Boolean(current.allDay),
+      },
+      minutes,
+    );
+    form.setValue("scheduledEndDate", s.endDate);
+    form.setValue("scheduledTimeSlot", s.slot, { shouldValidate: true });
+  };
   const verified = address.lat !== undefined && address.lng !== undefined;
 
   // Company: a hand pick sticks; until then it follows ?companyId= → the
@@ -367,10 +396,20 @@ function DealForm({
       ...customFields,
       ...Object.fromEntries(Object.keys(pendingFiles).map((id) => [id, "pending"])),
     };
+    // The client as the card has them: typed in (the name split as the record
+    // will be), or the picked record where the card is blank.
+    const typedName = clientForm.name.trim() ? splitClientName(clientForm.name) : null;
     const builtin = missingRequiredJobFields(fieldSettings, {
       values: { ...values, tagIds, serviceArea: effectiveArea.area?.name ?? "" },
-      clientPhone: clientForm.phones[0]?.phone || contact?.phones[0],
-      clientEmail: clientForm.email.trim() || contact?.emails[0],
+      client: {
+        firstName: typedName ? typedName.firstName : contact?.firstName ?? "",
+        lastName: typedName ? typedName.lastName : contact?.lastName ?? "",
+        company: clientForm.company.trim() || contactCompanyTitle,
+        phone: clientForm.phones[0]?.phone || contact?.phones[0] || "",
+        secondaryPhone: clientForm.phones[1]?.phone || contact?.phones[1] || "",
+        email: clientForm.email.trim() || contact?.emails[0] || "",
+        hasAddress: Boolean(contact?.addresses?.length) || Boolean(values.address?.street?.trim()),
+      },
     });
     for (const f of builtin) mark(f.id, f.label);
     const custom = missingRequiredCustomFields(customFieldDefs, values.jobTypeId, answered);
@@ -681,12 +720,13 @@ function DealForm({
                 value={clientForm.name}
                 onChange={(name) => setClient({ name })}
                 onPick={pick}
-                error={errorFor("client")}
+                error={errorFor("client") ?? errorFor("firstName") ?? errorFor("lastName")}
               />
               <WzTextField
                 label="Company name"
                 autoComplete="off"
                 value={clientForm.company}
+                error={errorFor("companyName")}
                 onChange={(e) => setClient({ company: e.target.value })}
               />
               <ClientPhones
@@ -698,6 +738,7 @@ function DealForm({
                 phoneError={
                   errorFor("phone") ?? (missingNow?.ids.includes("phoneInvalid") ? "Invalid phone number" : undefined)
                 }
+                secondaryPhoneError={errorFor("secondaryPhone")}
                 emailError={errorFor("email") ?? (missingNow?.ids.includes("emailInvalid") ? "Invalid email" : undefined)}
                 owner={phoneOwner}
                 onUseOwner={pick}
@@ -725,7 +766,7 @@ function DealForm({
                   }
                   saved={contact?.addresses}
                   country={country}
-                  error={errorFor("address")}
+                  error={errorFor("address") ?? errorFor("clientAddress")}
                 />
                 <WzTextField
                   label="Unit"
@@ -770,12 +811,16 @@ function DealForm({
                 value={v.jobTypeId}
                 canCreate={can("job_types", "create")}
                 error={errorFor("jobType")}
-                onChange={(id) => form.setValue("jobTypeId", id, { shouldValidate: true, shouldDirty: true })}
+                onChange={(id, type) => {
+                  form.setValue("jobTypeId", id, { shouldValidate: true, shouldDirty: true });
+                  // Workiz: the type's Duration ends the visit that long after its start.
+                  applyTypeDuration(jobTypeDurationMinutes(type));
+                }}
               />
               <WzJobSourceSelect
                 value={v.sourceId}
                 canCreate={can("job_sources", "create")}
-                error={errorFor("source")}
+                error={errorFor("source") ?? errorFor("externalCompanyOrSource")}
                 onChange={(id) => form.setValue("sourceId", id, { shouldDirty: true })}
               />
               <div data-missing={missingNow?.ids.includes("description") || undefined}>
@@ -789,7 +834,7 @@ function DealForm({
               </div>
               <WzExternalCompanySelect
                 value={v.externalCompanyId}
-                error={errorFor("externalCompany")}
+                error={errorFor("externalCompany") ?? errorFor("externalCompanyOrSource")}
                 onChange={(id) => form.setValue("externalCompanyId", id, { shouldDirty: true })}
               />
               {/* Ours: the company the job is issued under. Workiz picks it at
@@ -940,6 +985,7 @@ function ClientPhones({
   onEmail,
   onAddPhone,
   phoneError,
+  secondaryPhoneError,
   emailError,
   owner,
   onUseOwner,
@@ -950,19 +996,22 @@ function ClientPhones({
   onEmail: (email: string) => void;
   onAddPhone: () => void;
   phoneError?: string;
+  /** "Required field" for a Secondary Phone an admin made required: the second box comes up with it. */
+  secondaryPhoneError?: string;
   emailError?: string;
   /** A client the typed number already belongs to. */
   owner: Contact | null;
   onUseOwner: (c: Contact) => void;
 }) {
+  const EMPTY_ROW: ClientPhoneRow = { phone: "", ext: "" };
   const phone = (i: number) => (
     <div className="relative min-w-0">
       <WzFieldGroup join="seamless">
         <WzPhoneField
           aria-label={i === 0 ? "Phone" : `Phone ${i + 1}`}
-          value={rows[i].phone}
+          value={(rows[i] ?? EMPTY_ROW).phone}
           onChange={(p) => onPhone(i, { phone: p })}
-          error={i === 0 ? phoneError : undefined}
+          error={i === 0 ? phoneError : secondaryPhoneError}
         />
         <WzTextField
           label="Ext"
@@ -970,7 +1019,7 @@ function ClientPhones({
           inputMode="tel"
           maxLength={MAX_EXTENSION_LENGTH}
           className="w-[100px] flex-none"
-          value={rows[i].ext}
+          value={(rows[i] ?? EMPTY_ROW).ext}
           onChange={(e) => onPhone(i, { ext: normalizeExtension(e.target.value) })}
         />
       </WzFieldGroup>
@@ -997,7 +1046,9 @@ function ClientPhones({
     />
   );
 
-  if (rows.length >= MAX_CLIENT_PHONES) {
+  // The second box shows once "Add phone" was used — or on its own when a
+  // Secondary Phone is required and missing, so the number can be typed.
+  if (rows.length >= MAX_CLIENT_PHONES || secondaryPhoneError) {
     return (
       <>
         <div className="grid grid-cols-2 gap-x-5">

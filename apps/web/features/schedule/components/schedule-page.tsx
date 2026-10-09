@@ -46,6 +46,7 @@ const NO_BOARD: ScheduleBoard = {
   profiles: [],
   users: new Map(),
   jobTypes: new Map(),
+  jobTypeDurations: new Map(),
   activeJobTypes: [],
   areas: [],
   areaColors: new Map(),
@@ -155,7 +156,8 @@ export function SchedulePage() {
     const scheduling = source.kind === "card";
     setPending({
       deal: source.deal,
-      body: scheduling ? scheduleBody(drop.date, drop.startMin) : moveBody(source.deal, drop),
+      // A job dropped from Unscheduled is as long as its type's Duration (Workiz).
+      body: scheduling ? scheduleBody(drop.date, drop.startMin, b.jobTypeDurations.get(source.deal.jobTypeId)) : moveBody(source.deal, drop),
       fromTechId: "fromTechId" in source ? source.fromTechId : scheduling && drop.techId !== undefined ? null : undefined,
       toTechId: drop.techId,
       scheduling,

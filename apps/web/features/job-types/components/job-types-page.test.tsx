@@ -52,10 +52,13 @@ describe("JobTypesPage — Workiz's Job Types", () => {
     expect(within(table).getAllByRole("columnheader").map((h) => h.textContent)).toEqual([
       "Type Name",
       "Priority",
+      "Duration",
       "Status",
       "Actions",
     ]);
     expect(within(table).getByText("Lockout")).toBeInTheDocument();
+    // Workiz's Duration column: "1 hours" for a type without one of its own.
+    expect(within(table).getByText("1 hours")).toBeInTheDocument();
     expect(within(table).queryByText("Old Rekey")).toBeNull();
   });
 

@@ -95,6 +95,10 @@ describe("scheduleBody — an unscheduled job dropped on the calendar", () => {
   it("gets the day only when dropped on a day (month, timeline week): 9 to 10", () => {
     expect(scheduleBody("2026-10-09")).toEqual({ scheduledDate: "2026-10-09", scheduledTimeSlot: "09:00-10:00" });
   });
+  it("is as long as its job type's duration says (Workiz), still inside the day", () => {
+    expect(scheduleBody("2026-10-09", 870, 120)).toEqual({ scheduledDate: "2026-10-09", scheduledTimeSlot: "14:30-16:30" });
+    expect(scheduleBody("2026-10-09", 9 * 60, 3000)).toEqual({ scheduledDate: "2026-10-09", scheduledTimeSlot: "09:00-23:59" });
+  });
 });
 
 describe("resolveDrop — where a dragged job lands", () => {

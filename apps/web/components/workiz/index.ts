@@ -171,3 +171,6 @@ export { WzRadioButtons, type WzRadioButtonsOption } from "./radio-buttons";
 
 // Add team member (agent audit_fix): Workiz's "+1 | Phone" pair.
 export { WzCountryPhoneField } from "./country-phone-field";
+
+// Job type Duration (agent feat_job_rules): Workiz's Days / Hours / Minutes boxes.
+export { WzDurationFields, type WzDurationFieldsProps } from "./duration-fields";

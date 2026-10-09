@@ -6,6 +6,7 @@ import {
   withAllDay,
   withEndTime,
   withScheduled,
+  withDuration,
   withStartTime,
 } from "./scheduled-block";
 
@@ -117,5 +118,26 @@ describe("schedule value rules", () => {
     });
     // Already scheduled: on is a no-op.
     expect(withScheduled(v, true, "America/Chicago")).toBe(v);
+  });
+
+  /**
+   * Workiz's job type carries a Duration: picking the type ends the visit
+   * that long after its start (2 h → 08:00–10:00). A long one runs into the
+   * next days (50 h), an all-day or unscheduled visit has no times to move.
+   */
+  it("a job type's duration sets the end that long after the start", () => {
+    expect(withDuration(v, 120)).toEqual({ ...v, endDate: "2026-08-19", slot: "08:00-10:00" });
+    expect(withDuration(v, 90)).toEqual({ ...v, endDate: "2026-08-19", slot: "08:00-09:30" });
+    expect(withDuration({ ...v, slot: "23:30-23:45" }, 60)).toEqual({ ...v, endDate: "2026-08-20", slot: "23:30-00:30" });
+    expect(withDuration(v, 3000)).toEqual({ ...v, endDate: "2026-08-21", slot: "08:00-10:00" });
+  });
+
+  it("…and leaves an all-day, unscheduled or timeless visit alone", () => {
+    const allDay = { ...v, allDay: true, slot: "" };
+    expect(withDuration(allDay, 120)).toBe(allDay);
+    const off = { date: "", endDate: "", slot: "", allDay: false };
+    expect(withDuration(off, 120)).toBe(off);
+    const noTimes = { ...v, slot: "" };
+    expect(withDuration(noTimes, 120)).toBe(noTimes);
   });
 });
