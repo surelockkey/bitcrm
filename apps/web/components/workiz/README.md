@@ -665,6 +665,39 @@ from the kit as it stood — `WzTabBar` small (Accrual / Paid),
   records over blanks shows the 56px kind, so the coordinator may flip it
   kit-wide.
 
+## Finance Reporting pieces (2026-10-09, agent `rep_commission`, Commissions)
+
+Workiz's "Commissions (Legacy)" is another legacy PHP page in an iframe
+(`/finance_report/?iframe=true`) — white, with Developr controls and a
+server-side DataTables grid. Measured off `rep_commission_wz_*` (notes:
+`workiz-data-parser/docs/import/app-parity-2026-10-08/rep_commission.md`).
+Import each from its file; nothing new in `index.ts` (the legacy kit is not
+exported there either).
+
+- **`WzLegacySelect` `size="compact"`** (new, optional) — Finance Reporting's
+  26px `span.select.compact`: value 13px/500 #666 at 4px 8px, a 36px chevron
+  box (13×7 chevron), the list 11px under it with
+  `0 3px 6px rgba(0,0,0,.18), 0 4px 15px rgba(0,0,0,.15)`, the chosen row
+  #ededed. **`disabled`** (new, optional) — keeps the look, never opens
+  (External Company while an Ad Group is chosen). Defaults unchanged.
+- **`WzLegacyGrid`** (`legacy-grid.tsx`) `columns={id,label,sortable}` `rows`
+  `totals` `sort` `onSort` `pageSize` `pageSizes` `onPageSize` `search`
+  `onSearch` `onRefresh` `info` `onPrevious` `onNext` `busy` — the server-side
+  DataTables grid: the #f7f7f7 band ("Show [50▾] entries", the round "Reload
+  Results" button, the 200×32 "search" box), names 14px/500 capitalised and
+  never wrapped (the grid scrolls sideways), **the Totals row inside the
+  head**, 11px/12px rows at 9px 5px, #f0f0f0 hover, #f1f1f1 sorted column,
+  "No Records Found", and the info line with ◂◂ Previous | Next ▸▸.
+  (`WzDataTable` stays Job Statistics' client-side grid: 13px rows, Totals in
+  the foot.)
+- **`WzLegacyFieldsPanel`** (`legacy-fields-panel.tsx`) `fields={id,label,on}`
+  `onToggle` `onClose` — the grey (#e3e5ea) "Fields" box: 165×28 tiles of
+  "Name:" + Developr's 35×15 "switch tiny" (#eac300 on), seven to a row, ✕.
+- **`WzLegacyPillButton`** `pressed` and **`WzLegacySummary`** `title`
+  `columns` `rows` (`legacy-report-parts.tsx`) — the yellow #ffd400 32px pill
+  (#eac300 hovered or pressed) and the titled summary table under a legacy
+  report (h3 20px #3e4b51 over a #ddd rule, 14px/500 names, 11px rows).
+
 ## Known differences from Workiz (deliberate or unmeasurable)
 - Sub-pixel: Workiz's own fractional layout makes some glyphs land ±1px
   differently from ours in screenshots (e.g. two Workiz selects with identical

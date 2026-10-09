@@ -21,6 +21,13 @@ export interface WzLegacyOption {
  * white, 1px #ccc, a soft shadow; rows 14px/500 #666, 10px 15px (36px); the
  * chosen row rgba(0,0,0,.75), its words still #666, as Workiz has them.
  *
+ * `size="compact"` is Finance Reporting's (Commissions, rep_commission_wz_06_*):
+ * a 26px box, the value 13px/500 #666 at 4px 8px (cut 22px from the right, so a
+ * long one runs under the 36px chevron box, as Workiz's does); the
+ * list 11px under it with a two-part shadow (`0 3px 6px rgba(0,0,0,.18), 0 4px
+ * 15px rgba(0,0,0,.15)`) and the chosen row #ededed. `disabled` keeps the look
+ * and never opens (Workiz's External Company while an Ad Group is chosen).
+ *
  * A combobox + listbox: the arrow keys move, Enter picks, Escape closes.
  */
 export function WzLegacySelect({
@@ -28,6 +35,8 @@ export function WzLegacySelect({
   value,
   onChange,
   searchable = false,
+  size = "default",
+  disabled = false,
   className,
   "aria-label": ariaLabel,
 }: {
@@ -36,10 +45,15 @@ export function WzLegacySelect({
   onChange: (value: string) => void;
   /** Workiz gives the long lists (service areas) a search box. */
   searchable?: boolean;
+  /** `compact`: Finance Reporting's 26px box. Default: Job Statistics' 32px one. */
+  size?: "default" | "compact";
+  /** Shown as it is, never opens. */
+  disabled?: boolean;
   /** Width of the closed box (`w-[244px]`). */
   className?: string;
   "aria-label": string;
 }) {
+  const compact = size === "compact";
   const id = useId();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -118,7 +132,7 @@ export function WzLegacySelect({
   return (
     <div
       ref={rootRef}
-      className={cn("relative inline-block h-8 align-top", className)}
+      className={cn("relative inline-block align-top", compact ? "h-[26px]" : "h-8", className)}
       onKeyDown={keys}
     >
       <button
@@ -132,16 +146,19 @@ export function WzLegacySelect({
         aria-activedescendant={
           open && !searchable && shown.length ? optionId(active) : undefined
         }
+        disabled={disabled}
         onClick={() => (open ? close() : show())}
         className={cn(
-          "flex h-8 w-full cursor-pointer items-center rounded-[2px] border border-input pr-[26px] text-left text-[13px] leading-4 font-medium tracking-[0.5px] text-wz-text outline-none",
+          "flex w-full cursor-pointer items-center rounded-[2px] border border-input text-left text-[13px] leading-4 font-medium tracking-[0.5px] text-wz-text outline-none disabled:cursor-default",
+          compact ? "h-[26px] pr-[22px]" : "h-8 pr-[26px]",
           "focus-visible:border-wz-focus",
           open ? "bg-background" : "bg-muted",
         )}
       >
         <span
           className={cn(
-            "min-w-0 flex-1 truncate px-2.5 py-[7px]",
+            "min-w-0 flex-1 truncate",
+            compact ? "px-2 py-1" : "px-2.5 py-[7px]",
             open && searchable && "invisible",
           )}
         >
@@ -149,9 +166,13 @@ export function WzLegacySelect({
         </span>
         <span
           aria-hidden
-          className="absolute inset-y-0 right-0 flex w-[26px] items-center justify-center border-l border-input"
+          className={cn(
+            "absolute inset-y-0 right-0 flex items-center justify-center border-l border-input",
+            compact ? "w-9" : "w-[26px]",
+          )}
         >
-          <ChevronDown className="size-4 text-wz-text" strokeWidth={1.25} />
+          {/* Finance Reporting's chevron is 13×7 (rep_commission_wz_06_mode_open). */}
+          <ChevronDown className={cn("text-wz-text", compact ? "size-[26px]" : "size-4")} strokeWidth={compact ? 1 : 1.25} />
         </span>
       </button>
       {open && searchable ? (
@@ -168,7 +189,12 @@ export function WzLegacySelect({
             setQuery(e.target.value);
             setActive(0);
           }}
-          className="absolute top-px left-px h-[30px] w-[calc(100%-28px)] bg-transparent px-2.5 text-[15px] tracking-[0.5px] text-wz-text outline-none placeholder:text-[#cccccc] [&::-webkit-search-cancel-button]:hidden"
+          className={cn(
+            "absolute top-px left-px bg-transparent tracking-[0.5px] text-wz-text outline-none placeholder:text-[#cccccc] [&::-webkit-search-cancel-button]:hidden",
+            compact
+              ? "h-6 w-[calc(100%-24px)] px-2 text-base"
+              : "h-[30px] w-[calc(100%-28px)] px-2.5 text-[15px]",
+          )}
         />
       ) : null}
       {open ? (
@@ -176,7 +202,10 @@ export function WzLegacySelect({
           {/* The caret the list hangs from: the top half of a turned square, over the list's edge. */}
           <span
             aria-hidden
-            className="absolute top-[33px] left-[21px] z-50 h-2 w-[18px] overflow-hidden"
+            className={cn(
+              "absolute left-[21px] z-50 h-2 w-[18px] overflow-hidden",
+              compact ? "top-[30px]" : "top-[33px]",
+            )}
           >
             <span className="absolute top-0.5 left-[3px] size-3 rotate-45 border-t border-l border-input bg-background" />
           </span>
@@ -184,7 +213,12 @@ export function WzLegacySelect({
             id={listId}
             role="listbox"
             aria-label={ariaLabel}
-            className="absolute top-10 left-0 z-40 max-h-[calc(100vh-200px)] min-w-full overflow-y-auto border border-input bg-background shadow-[0_1px_5px_rgba(0,0,0,0.25)]"
+            className={cn(
+              "absolute left-0 z-40 max-h-[calc(100vh-200px)] min-w-full overflow-y-auto border border-input bg-background",
+              compact
+                ? "top-[37px] rounded-[2px] shadow-[0_3px_6px_rgba(0,0,0,0.18),0_4px_15px_rgba(0,0,0,0.15)]"
+                : "top-10 shadow-[0_1px_5px_rgba(0,0,0,0.25)]",
+            )}
           >
             {shown.map((o, i) => {
               const on = o.value === value;
@@ -200,7 +234,9 @@ export function WzLegacySelect({
                   className={cn(
                     "cursor-pointer px-[15px] py-2.5 text-sm leading-4 font-medium tracking-[0.5px] whitespace-nowrap text-wz-text",
                     on
-                      ? "bg-black/75"
+                      ? compact
+                        ? "bg-[#ededed]"
+                        : "bg-black/75"
                       : i === active
                         ? "bg-muted"
                         : "bg-background",

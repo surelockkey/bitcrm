@@ -91,4 +91,41 @@ describe("WzLegacySelect", () => {
     expect(screen.queryByRole("listbox")).toBeNull();
     expect(onChange).not.toHaveBeenCalled();
   });
+
+  it("disabled: stays shut and picks nothing (Workiz's External Company while an Ad Group is chosen)", async () => {
+    const onChange = vi.fn();
+    render(
+      <WzLegacySelect
+        aria-label="External company"
+        options={AREAS}
+        value=""
+        onChange={onChange}
+        disabled
+      />,
+    );
+    const box = screen.getByRole("combobox", { name: "External company" });
+    expect(box).toBeDisabled();
+    await userEvent.click(box);
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("compact: the Finance Reporting box — 26px, the chosen row #ededed (rep_commission_wz_06_*)", async () => {
+    render(
+      <WzLegacySelect
+        aria-label="Report mode"
+        size="compact"
+        options={AREAS}
+        value="a1"
+        onChange={() => {}}
+      />,
+    );
+    const box = screen.getByRole("combobox", { name: "Report mode" });
+    expect(box.className).toContain("h-[26px]");
+    await userEvent.click(box);
+    const chosen = screen.getByRole("option", { name: "Platinum_AL" });
+    expect(chosen).toHaveAttribute("aria-selected", "true");
+    expect(chosen.className).toContain("bg-[#ededed]");
+    expect(chosen.className).not.toContain("bg-black/75");
+  });
 });
