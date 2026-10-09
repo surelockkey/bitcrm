@@ -19,17 +19,21 @@ import { WzLocalGrid, type WzGridColumn } from "@/components/workiz/local-grid";
 import { WzRowIconButton, WzTabIntro, WzTag } from "@/components/workiz/phone-tab-parts";
 import { settled, usePageReady } from "@/lib/use-page-ready";
 import { useDenied, usePermissions } from "@/features/auth/use-permissions";
-import type { CallFlow, CallFlowNode } from "@bitcrm/types";
-import { useCallGroups } from "../call-groups-hooks";
+import type { CallFlow, CallFlowNode, RingNode } from "@bitcrm/types";
+import { useCallGroups, useTeammates } from "../call-groups-hooks";
+import { useCallDevices } from "../call-devices-hooks";
 import { useCallFlows, useDeleteCallFlow, useDuplicateCallFlow } from "../call-flows-hooks";
+import { useTelephonyConfig } from "../config-hooks";
+import { ringTargetLabel } from "../flow-graph";
 import { flowNumbersText } from "../phone-settings";
+import { FallbackNumberRow } from "./fallback-number-row";
 
 /**
  * A one-line summary, following the main line of the flow — the path a caller
  * takes when nothing branches. Branches are visible in the editor; this is
  * meant to be scannable.
  */
-function describe(flow: CallFlow, groupName: (id: string) => string): string {
+function describe(flow: CallFlow, targetLabel: (node: RingNode) => string): string {
   const parts: string[] = [];
   const seen = new Set<string>();
   let cursor: string | undefined = flow.entryNodeId;
@@ -49,7 +53,7 @@ function describe(flow: CallFlow, groupName: (id: string) => string): string {
         parts.push(`menu (${node.options.length} option${node.options.length === 1 ? "" : "s"})`);
         break;
       case "ring":
-        parts.push(`ring ${groupName(node.groupId)}`);
+        parts.push(`ring ${targetLabel(node)}`);
         break;
       case "voicemail":
         parts.push("voicemail");
@@ -71,9 +75,10 @@ const FLOWS_INTRO =
  * here as Workiz's /root/flows does): its words and "+ Create Call Flow",
  * the strip, the grid Name | Numbers | Actions — the edit icon opens the
  * builder (`/calls/flows/<id>`, Workiz's /root/flowBuilder/<id>), the bin,
- * the copy (pg_settings_phone_wz_flows). Ours: the Steps column (the path a
- * caller takes, in order) and a Paused tag beside the name. Workiz's
- * "Use smart callback" and its Fallback Number row have no counterpart here.
+ * the copy (pg_settings_phone_wz_flows), and its "Fallback Number" row
+ * first. Ours: the Steps column (the path a caller takes, in order) and a
+ * Paused tag beside the name. Workiz's "Use smart callback" has no
+ * counterpart here.
  *
  * A flow is what happens between a customer dialling and somebody's phone
  * ringing. Without one a number rings every softphone that happens to be
@@ -84,11 +89,19 @@ export function CallFlowsPage() {
   const denied = useDenied();
   const flowsQuery = useCallFlows(can("settings"));
   const groupsQuery = useCallGroups(can("settings"));
+  const teammatesQuery = useTeammates(can("settings"));
+  const devicesQuery = useCallDevices(can("settings"));
+  const configQuery = useTelephonyConfig();
   const { data: flows } = flowsQuery;
   const { data: groups } = groupsQuery;
-  // The flows wait for the groups they ring: drawn first, every summary said
-  // "ring a deleted group" until the names came and rewrote it.
-  const ready = usePageReady(!permissionsLoading && settled(flowsQuery) && settled(groupsQuery));
+  const { data: teammates } = teammatesQuery;
+  const { data: devices } = devicesQuery;
+  // The flows wait for whatever they forward to: drawn first, every summary
+  // said "ring a deleted group" until the names came and rewrote it. The
+  // Fallback Number row waits for the account's config the same way.
+  const ready = usePageReady(
+    !permissionsLoading && [flowsQuery, groupsQuery, teammatesQuery, devicesQuery, configQuery].every(settled),
+  );
   const remove = useDeleteCallFlow();
   const duplicate = useDuplicateCallFlow();
 
@@ -97,7 +110,12 @@ export function CallFlowsPage() {
   const canManage = can("settings", "edit");
 
   const columns = useMemo<WzGridColumn<CallFlow>[]>(() => {
-    const groupName = (id: string) => (groups ?? []).find((g) => g.id === id)?.name ?? "a deleted group";
+    const targetLabel = (node: RingNode) =>
+      ringTargetLabel(node, {
+        group: (id) => (groups ?? []).find((g) => g.id === id)?.name,
+        user: (id) => (teammates ?? []).find((u) => u.id === id)?.name,
+        device: (id) => (devices ?? []).find((d) => d.id === id)?.name,
+      });
     return [
       {
         id: "name",
@@ -126,8 +144,8 @@ export function CallFlowsPage() {
         // Ours: the path a caller takes when nothing branches.
         id: "steps",
         label: "Steps",
-        searchText: (f) => describe(f, groupName),
-        render: (f) => <span className="block truncate">{describe(f, groupName)}</span>,
+        searchText: (f) => describe(f, targetLabel),
+        render: (f) => <span className="block truncate">{describe(f, targetLabel)}</span>,
       },
       {
         id: "actions",
@@ -149,7 +167,7 @@ export function CallFlowsPage() {
           ) : null,
       },
     ];
-  }, [groups, canManage, duplicate]);
+  }, [groups, teammates, devices, canManage, duplicate]);
 
   // Refused only once the permissions say so — not while they are coming.
   if (denied("settings")) {
@@ -185,7 +203,17 @@ export function CallFlowsPage() {
           <Skeleton className="h-[480px] w-full rounded-none" />
         </div>
       ) : (
-        <WzLocalGrid<CallFlow> label="Call flows" columns={columns} rows={flows ?? []} rowKey={(f) => f.id} pagerInside emptyText={null} />
+        <WzLocalGrid<CallFlow>
+          label="Call flows"
+          columns={columns}
+          rows={flows ?? []}
+          rowKey={(f) => f.id}
+          pagerInside
+          emptyText={null}
+          leadingRow={
+            <FallbackNumberRow number={configQuery.data?.fallbackNumber} canManage={canManage} columns={columns.length} />
+          }
+        />
       )}
 
       <AlertDialog open={!!deleting} onOpenChange={(o) => !o && setDeleting(undefined)}>

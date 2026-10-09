@@ -142,4 +142,12 @@ export const rotateJobCode = (dealId: string): Promise<{ code: string }> =>
 export const fetchTelephonyConfig = (): Promise<{
   technicianLine: string | null;
   mainNumber?: string | null;
+  /** Workiz's Fallback Number (the Call flows tab): absent on an API from before it. */
+  fallbackNumber?: string | null;
 }> => http.get("/telephony/config");
+
+/** Set (any format) or clear (null) the account's fallback number. */
+export const setFallbackNumber = (
+  phoneNumber: string | null,
+): Promise<{ technicianLine: string | null; fallbackNumber: string | null }> =>
+  http.put("/telephony/config/fallback-number", { phoneNumber });
