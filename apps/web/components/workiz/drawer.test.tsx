@@ -67,6 +67,12 @@ describe("WzDrawer", () => {
     expect(cls(footer)).toEqual(expect.arrayContaining(["bg-popover", "shrink-0"]));
   });
 
+  it("is a 65px footer with the pills 21px down (list_02 / pg_contacts_wz_08: rows end at 935, pills at 956)", () => {
+    drawer();
+    const footer = screen.getByRole("button", { name: "Save fields" }).parentElement!;
+    expect(cls(footer)).toEqual(expect.arrayContaining(["h-[65px]", "items-start", "pt-[21px]"]));
+  });
+
   it("closes from its ×", async () => {
     const onOpenChange = drawer();
     await userEvent.click(screen.getByRole("button", { name: "Close" }));

@@ -24,13 +24,15 @@ export interface WzMenuAction {
 }
 
 /**
- * Workiz's "Actions ▾" (job_b_02_actions_open): the outline pill (chevron,
- * then the word) opening a 216px white panel 10px below — 2px corners,
- * `0 3px 6px 2px rgba(0,0,0,.18), 0 4px 15px 2px rgba(0,0,0,.15)`, a small
- * white caret pointing at the pill (audit_pixels J5) — one 50px row per
- * action: its 20px icon, then 14px #566d76 words, ruled apart by #cad3d6.
- * The panel itself is `DropdownMenuContent`'s default look; this adds the
- * pill, the caret and the rows.
+ * Workiz's "Actions ▾" (job_b_02_actions_open): the outline pill (Workiz's
+ * `wfi-down`, an 18px thin chevron, then the word — audit_pixels J3) opening
+ * a 216px white panel 10px below — 2px corners,
+ * `0 3px 6px 2px rgba(0,0,0,.18), 0 4px 15px 2px rgba(0,0,0,.15)`, a 14×7
+ * white notch under the middle of the pill (the zoomed capture; audit J5
+ * only noted it was missing) — one row per action: its 20px icon, then 14px
+ * #566d76 words, 50px tall, each next one ruled by #cad3d6 and so 51. The
+ * panel and rows are `DropdownMenuContent` / `DropdownMenuItem`'s default
+ * look; this adds the pill, the caret and the glyphs.
  */
 export function WzActionsMenu({
   items,
@@ -47,7 +49,7 @@ export function WzActionsMenu({
     <DropdownMenu modal={false}>
       <DropdownMenuTrigger asChild>
         <button type="button" className={cn(wzPill("outline"), className)}>
-          <ChevronDown strokeWidth={1.5} />
+          <ChevronDown className="size-[18px]!" strokeWidth={1.25} />
           {label}
         </button>
       </DropdownMenuTrigger>
@@ -60,7 +62,6 @@ export function WzActionsMenu({
               variant={a.destructive ? "destructive" : "default"}
               disabled={a.disabled}
               onSelect={a.onSelect}
-              className="h-[50px]"
             >
               {Icon ? <Icon className="size-5" strokeWidth={1.25} /> : null}
               {a.label}
@@ -69,8 +70,8 @@ export function WzActionsMenu({
         })}
         <DropdownMenuPrimitive.Arrow
           data-slot="wz-menu-caret"
-          width={16}
-          height={8}
+          width={14}
+          height={7}
           className="fill-popover drop-shadow-[0_-1px_1px_rgba(0,0,0,0.08)]"
         />
       </DropdownMenuContent>

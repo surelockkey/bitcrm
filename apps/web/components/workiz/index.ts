@@ -158,3 +158,6 @@ export { WzJobBackLink } from "./job-back-link";
 
 // Workiz Phone settings tabs (agent pg_settings_phone: Phone numbers, Call flows, Call groups, Texting).
 export { WzTabIntro, WzRowIconButton, WzTag, WzShortCodeChips, WzSectionRule, shortCodeLabel } from "./phone-tab-parts";
+
+// The jobs pages on the kit (agent jobs_kit_switch): whether › goes anywhere, as WzPager decides it.
+export { wzPagerCanNext } from "./pager";

@@ -26,10 +26,11 @@ export function WzListToolbar({ className, ...props }: ComponentProps<"div">) {
 
 /**
  * Workiz's table Search (Input-module, list_01: 348×40, 1px #9ea6aa, 4px
- * corner, 13px ink between 44px sides, a magnifier at the left; the edge
+ * corner, 13px ink between 44px sides, an 18px magnifier glyph 15px in at
+ * the left (audit_pixels L14: Workiz's is an 18px font glyph); the edge
  * turns ink under the cursor (pg_invoices_wz_05b_search_hover,
- * rep_activity_wz_07c_search_hover) and #6aa8ee while focused; a round × on
- * #f3f6f7 once there is text).
+ * rep_activity_wz_07c_search_hover) and #6aa8ee while focused; once there is
+ * text, a 26px #f3f6f7 disc at the right with a 13px bold × on it).
  */
 export function WzSearchBox({
   value,
@@ -44,7 +45,7 @@ export function WzSearchBox({
 }) {
   return (
     <div data-slot="wz-search-box" className={cn("relative w-[348px] max-w-full", className)}>
-      <Search className="pointer-events-none absolute top-1/2 left-4 size-4 -translate-y-1/2 text-foreground" />
+      <Search className="pointer-events-none absolute top-1/2 left-[15px] size-[18px] -translate-y-1/2 text-foreground" strokeWidth={1.75} />
       <input
         {...rest}
         aria-label={ariaLabel}
@@ -62,7 +63,7 @@ export function WzSearchBox({
           onClick={() => onChange("")}
           className="absolute top-1/2 right-[5px] grid size-[26px] -translate-y-1/2 place-items-center rounded-full bg-wz-secondary-hover text-wz-outline-label hover:text-foreground"
         >
-          <X className="size-4" />
+          <X className="size-[13px]" strokeWidth={2.75} />
         </button>
       ) : null}
     </div>
@@ -71,7 +72,9 @@ export function WzSearchBox({
 
 /**
  * Workiz's page-size select (`_sajSelectWrap`): a native select in a 75×34
- * box on the grey strip — 1px #ccc, 2px corner, "50 ⌄" at 13.86px/500 #444.
+ * box on the grey strip — 1px #ccc, 2px corner, "50" at 13.86px/500 #444 and
+ * Workiz's `wfi-down`, an 18px thin chevron 8px from the right edge
+ * (audit_pixels L18).
  */
 export function WzPageSizeSelect({
   value,
@@ -100,7 +103,7 @@ export function WzPageSizeSelect({
           </option>
         ))}
       </select>
-      <ChevronDown className="pointer-events-none absolute top-1/2 right-2.5 size-4 -translate-y-1/2 text-[#444444]" />
+      <ChevronDown className="pointer-events-none absolute top-1/2 right-2 size-[18px] -translate-y-1/2 text-[#444444]" strokeWidth={1.5} />
     </div>
   );
 }

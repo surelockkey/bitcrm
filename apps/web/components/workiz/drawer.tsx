@@ -12,9 +12,10 @@ import { cn } from "@/lib/utils";
  * the right (422px), the page dimmed by #666 at 60% (`.right-pane-container`)
  * with no blur. A 47px head:
  * 18px/600 ink title 24px in, a #607890 × at the right. The body scrolls,
- * 24px in. The footer (Cancel / a yellow "Save fields") sits bottom-right on
- * opaque white, so the list scrolls under it and never shows through
- * (audit_pixels L16).
+ * 24px in. The footer (Cancel / a yellow "Save fields") is a 65px white
+ * band with the 32px pills 21px down (list_02 / pg_contacts_wz_08: the
+ * rows end at y≈935, the pills sit at 956), opaque, so the list scrolls
+ * under it and never shows through (audit_pixels L16).
  *
  * Controlled (`open` / `onOpenChange`); `trigger` is optional and rendered
  * as the Dialog trigger (`asChild`).
@@ -88,7 +89,7 @@ export function WzDrawer({
           </div>
           <div className={cn("min-h-0 flex-1 overflow-y-auto px-6 pt-6 pb-4", bodyClassName)}>{children}</div>
           {footer ? (
-            <div className="flex shrink-0 items-center justify-end gap-[9px] bg-popover px-6 py-3">{footer}</div>
+            <div className="flex h-[65px] shrink-0 items-start justify-end gap-[9px] bg-popover px-6 pt-[21px]">{footer}</div>
           ) : null}
         </Dialog.Content>
       </Dialog.Portal>

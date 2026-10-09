@@ -1138,6 +1138,56 @@ Import from `@/components/workiz/phone-tab-parts`.
 - **`WzSearchBox`** — no longer shows the browser's own × beside Workiz's
   round one when it is `type="search"` (WzLocalGrid's).
 
+## The jobs pages on the kit (2026-10-09, agent `jobs_kit_switch`)
+
+The jobs pages (`/deals`, `/deals/new`, `/deals/[id]`) drew their Workiz look
+locally, before the kit existed; they now use it, and the kit took the 10-08
+audit fixes that landed after `uikit` lifted its pieces (notes:
+`workiz-data-parser/docs/import/jobs-parity-2026-10-08/jobs_kit_switch.md`).
+Where the two disagreed, the Workiz captures were measured again:
+
+- **`WzTabBar variant="job"`** is the job page's bar as audited: each tab a
+  ninth of the bar (`w-[calc(100%/9)] min-w-max px-[18px]`, the grey line
+  never cut to "…"), 89px with the `#cad3d6` rule drawn inside so the open
+  tab's 4px bar covers it (audit_pixels J7). **`variant="small"`**: the
+  `#c4c4c4` rule is the row's own last pixel row (an inset shadow — 43px from
+  the row's top to the strip under it with the 20px counters, list_01 and
+  uikit_wz_client_page alike) and the open tab's 2px bar covers it (audit
+  L19); the row was a border and 1px taller. **`WzTab.id`** (new, optional) —
+  the tab element's id for a tabpanel's `aria-labelledby`. With no tab open
+  (the jobs list under a "status: Done" chip) the first tab keeps the row in
+  the Tab order.
+- **`WzActionsMenu`**: the chevron is Workiz's `wfi-down`, 18px and thin
+  (audit J3); the caret is a 14×7 notch under the middle of the pill (the
+  zoomed job_b_02_actions_open — audit J5's "x≈1360" was a guess); a ruled
+  row is 51px, as Workiz's `li` 50 + its 1px rule.
+- **`WzPager`**: ‹ "Page 1 of 5" › is a 238px block centred on the bar, the
+  words centred between the discs — the discs sit at the same x for "of 5"
+  and "of 881" (list_07_bottom, uikit_wz_est_scroll1). › rests on the counted
+  last page even with a cursor in hand (**`wzPagerCanNext`**; the jobs list's
+  audit L8 "Page 2 of 1"); a floor or no count follows the cursor.
+- **`WzSearchBox`**: an 18px magnifier 15px in, a 13px bold clear × (audit
+  L14). **`WzPageSizeSelect`**: an 18px thin chevron 8px from the edge (L18).
+- **`WzDrawer`**: the footer is Workiz's 65px band with the 32px pills 21px
+  down (list_02 / pg_contacts_wz_08: pills at y=956 of 1000).
+- **`WzFilterChip`**: the coloured block sits 4px in from the frame's sides
+  and 1px from its top and bottom (`px-1 py-px`; jobslist_wz_filter_three:
+  a 22px block in the 26px frame, the label 11px in); **`color`** (new,
+  optional) — a CSS colour for a value no class carries (a service area's
+  `#rrggbb`).
+- **`WzFieldsPanel locked`** (new, optional) — columns the grid always draws
+  (the jobs list's Job ID): first under USED FIELDS, ticked and fixed, no
+  handle (its room kept, so the ticks line up), hidden only by the search,
+  never part of what is saved; Save stays enabled with them alone.
+- **`WzRailButton`**: the glyph is 20px (Workiz's `lnr-*` font icons, audit
+  R5; it was 22); **`tip`** (new, optional) names it in the dark `Tooltip`
+  and drops the native title (audit_dispatcher J7). **`WzRailPanel
+  closeLabel`** (new, optional) — the job page's "Close timeline".
+- **`WzTableEmpty`**: the words sit 44px under the picture (Workiz's h3 lands
+  294px under the grid's top; the jobs' picture is 106px); **`viewWidth`**
+  (new, optional) centres the block on the part of a wide grid on screen.
+- `features/deals/components/job-pills.ts` is gone: every pill is `wzPill(…)`.
+
 ## Known differences from Workiz (deliberate or unmeasurable)
 - Sub-pixel: Workiz's own fractional layout makes some glyphs land ±1px
   differently from ours in screenshots (e.g. two Workiz selects with identical

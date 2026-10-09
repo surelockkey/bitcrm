@@ -3,6 +3,7 @@
 import type { ComponentProps, ComponentType, ReactNode } from "react";
 import { ArrowLeft, ArrowRight, X } from "lucide-react";
 
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 /*
@@ -50,15 +51,19 @@ export function WzRail({
 
 /**
  * One rail icon: a 32px IconButton (8px corners, #f3f6f7 hovered), the glyph
- * 22px at a 1.25 stroke; a count rides its top right on a 20px #f45e44 disc
- * (11px/500 white). `caption` puts the label under the icon in 11px ink, as
- * the client page's rail does (IconButton-module largeWithTitle, 54px).
- * `active` marks the button whose panel is open — the client page's #f3f6f7
- * tile, 6px corners — and says so (`aria-pressed`).
+ * 20px at a 1.25 stroke (Workiz's `lnr-*` font icons, audit_pixels R5); a
+ * count rides its top right on a 20px #f45e44 disc (11px/500 white).
+ * `caption` puts the label under the icon in 11px ink, as the client page's
+ * rail does (IconButton-module largeWithTitle, 54px). `active` marks the
+ * button whose panel is open — the client page's #f3f6f7 tile, 6px corners —
+ * and says so (`aria-pressed`). `tip` names it in Workiz's instant dark
+ * tooltip instead of a browser title (the job page's "Actions" on the
+ * history icon, audit_dispatcher J7).
  */
 export function WzRailButton({
   icon: Icon,
   label,
+  tip,
   badge,
   caption = false,
   expanded,
@@ -68,6 +73,7 @@ export function WzRailButton({
 }: {
   icon: ComponentType<{ className?: string; strokeWidth?: number }>;
   label: string;
+  tip?: ReactNode;
   badge?: ReactNode;
   caption?: boolean;
   expanded?: boolean;
@@ -75,13 +81,13 @@ export function WzRailButton({
   className?: string;
   onClick: () => void;
 }) {
-  return (
+  const button = (
     <button
       type="button"
       aria-label={badge ? `${label} (${badge})` : label}
       aria-expanded={expanded}
       aria-pressed={active ? true : undefined}
-      title={label}
+      title={tip ? undefined : label}
       onClick={onClick}
       className={cn(
         "relative grid place-items-center rounded-[8px] text-foreground outline-none hover:bg-wz-secondary-hover focus-visible:ring-2 focus-visible:ring-ring/50",
@@ -90,7 +96,7 @@ export function WzRailButton({
         className,
       )}
     >
-      <Icon className="size-[22px]" strokeWidth={1.25} />
+      <Icon className="size-5" strokeWidth={1.25} />
       {caption ? <span className="text-[11px] leading-none tracking-[0.5px] text-foreground">{label}</span> : null}
       {badge ? (
         // A disc at one digit, a lozenge at "99+" (rounded-pill). Under a
@@ -106,13 +112,22 @@ export function WzRailButton({
       ) : null}
     </button>
   );
+  if (!tip) return button;
+  return (
+    <TooltipProvider delayDuration={0}>
+      <Tooltip>
+        <TooltipTrigger asChild>{button}</TooltipTrigger>
+        <TooltipContent side="top">{tip}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
 }
 
 /**
  * The open panel: 350px in the page's flow (it narrows the content, as
  * Workiz's does; on a phone it floats over the page), a 62px #f7f7f7 head
  * with "→" to close and the 18px/600 title centred, then the body, which
- * scrolls.
+ * scrolls. `closeLabel` names the → for the panel it closes.
  *
  * `variant="plain"` is the client page's panel (pg_contact_wz_269669_11):
  * white throughout, the title (h4 18px/27px 600 ink) 16px in and 15px down,
@@ -121,6 +136,7 @@ export function WzRailButton({
 export function WzRailPanel({
   title,
   onClose,
+  closeLabel = "Close panel",
   className,
   bodyClassName,
   variant = "job",
@@ -130,6 +146,7 @@ export function WzRailPanel({
   "aria-label": string;
   title: ReactNode;
   onClose: () => void;
+  closeLabel?: string;
   bodyClassName?: string;
   variant?: "job" | "plain";
 }) {
@@ -140,7 +157,7 @@ export function WzRailPanel({
           <h2 className="text-[18px] leading-[27px] font-semibold tracking-[0.4px] text-foreground">{title}</h2>
           <button
             type="button"
-            aria-label="Close panel"
+            aria-label={closeLabel}
             onClick={onClose}
             className="-mt-0.5 grid size-8 place-items-center rounded-[8px] text-foreground hover:bg-wz-secondary-hover"
           >
@@ -163,7 +180,7 @@ export function WzRailPanel({
       <div className="relative flex h-[62px] shrink-0 items-start bg-muted px-5 pt-2.5">
         <button
           type="button"
-          aria-label="Close panel"
+          aria-label={closeLabel}
           onClick={onClose}
           className="relative z-10 grid size-8 place-items-center rounded-[8px] text-foreground hover:bg-white"
         >

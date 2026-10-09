@@ -77,6 +77,33 @@ describe("WzPager", () => {
     expect(screen.getByRole("button", { name: "Next page" })).toBeDisabled();
   });
 
+  // Audit L8/L15 on the jobs list: a filtered page comes back short with a
+  // cursor past the counted last page, and "Page 1 of 1" then offered a page
+  // 2 ("Page 2 of 1"). The count knows the last page; a floor does not.
+  it("rests › on the counted last page, even with a cursor in hand", () => {
+    render(<WzPager pager={{ ...base, page: 1, totalPages: 1, canNext: true }} />);
+    expect(screen.getByRole("button", { name: "Next page" })).toBeDisabled();
+  });
+
+  it("follows the cursor when the count is only a floor, or nobody counted", () => {
+    const { rerender } = render(<WzPager pager={{ ...base, page: 1, totalPages: 1, totalPagesIsFloor: true, canNext: true }} />);
+    expect(screen.getByRole("button", { name: "Next page" })).toBeEnabled();
+    rerender(<WzPager pager={{ ...base, page: 3, total: undefined, totalPages: undefined, canNext: true }} />);
+    expect(screen.getByRole("button", { name: "Next page" })).toBeEnabled();
+  });
+
+  // list_07_bottom / uikit_wz_est_scroll1: the discs sit at 781 and 989 on
+  // the 200–1600 column for "Page 1 of 5" and "Page 1 of 881" alike — a
+  // 238px block centred on the bar, the words centred between the discs.
+  it("centres ‹ Page › in Workiz's fixed 238px block, so the discs stay put whatever the count", () => {
+    render(<WzPager pager={base} />);
+    const block = screen.getByText("Page 1 of 5").parentElement!;
+    expect(block.className).toContain("w-[238px]");
+    expect(block.className).toContain("justify-between");
+    expect(block.className).not.toContain("gap-[50px]");
+    expect(screen.getByText("Page 1 of 5").className).not.toContain("min-w-[6.5rem]");
+  });
+
   it("puts whatever it is given at the right end (the page size)", () => {
     render(<WzPager pager={base} end={<span>Rows</span>} />);
     expect(screen.getByText("Rows")).toBeInTheDocument();
