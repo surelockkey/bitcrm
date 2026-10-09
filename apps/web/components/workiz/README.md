@@ -1046,6 +1046,33 @@ The Center's other pieces (the 214px left column, its rows and figure, the
 rule card's info row) are specific to it and live in
 `features/automations/components/automation-center.tsx`.
 
+## Permission editors (2026-10-09, agent `pg_admin_users`, Roles & Permissions)
+
+Measured off `pg_admin_users_wz_*` (Workiz `/root/roles` and the "Edit
+permissions for role …" modal a role opens; notes:
+`workiz-data-parser/docs/import/app-parity-2026-10-08/pg_admin_users.md`).
+
+- **`WzWindowFrame`** (`window-frame.tsx`) `title` `titleAfter` `onClose`
+  `closeLabel` `footer` — Workiz's full-window modal (`_full modal rModal`)
+  drawn by a PAGE with its own address (the role editor, a user's
+  permissions): fixed over everything at z-40 (under the app's dialogs and
+  menus), 16px corners, #f7f7f7 shell with the Dialog shadow over black 30%;
+  the white body 24px in and scrolling, the h4 18px/27px 600 ink at 24/24 with
+  `titleAfter` (chips) beside it and a thin × at the top right; `footer` an
+  80px white bar, `0 0 5px rgba(50,50,50,.2)`, buttons 16px apart, 80px from
+  the right. A region named by its title, no focus trap — Back leaves it.
+  For a real modal over a list use `WzFormModal variant="full"`.
+- **`WzSwitchRow`** (`switch-row.tsx`) `title` `description` + children — a
+  row of Workiz's permission list: h5 14px/16px 600 ink, the sentence 14px
+  #404040 10px under it, the controls (a `WzSwitch`, or several with their
+  words) at the right level with the title, a 1px #ddd rule 56px down, 81px
+  between rows. Any "switch a feature on" list can use it.
+- The page pieces (`features/roles/components/permission-tab.tsx`):
+  `PermissionTab` — "Enable permissions by switching them on" with Workiz's
+  tip, the legacy 483×48 Search (`WzTextField overhang={false}`), the rows;
+  `RulesTab` / `RulesSection` — the Advanced tab's "Please choose rules" and
+  its 20px thin section titles; `EditorSkeleton` — the window while it loads.
+
 ## Known differences from Workiz (deliberate or unmeasurable)
 - Sub-pixel: Workiz's own fractional layout makes some glyphs land ±1px
   differently from ours in screenshots (e.g. two Workiz selects with identical

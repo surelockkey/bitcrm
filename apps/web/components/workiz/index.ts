@@ -147,3 +147,7 @@ export { WzFormModal } from "./form-modal";
 export { WzSettingsCatalog } from "./settings-catalog";
 export { WzModalTextField } from "./modal-text-field";
 export { WzAccountTitle, WzAccountToggle, WzPaySection, WzPayRow, WzDocSettingsField } from "./settings-form";
+
+// Permission editors (agent pg_admin_users): the full-window modal a page draws, the switch row.
+export { WzWindowFrame } from "./window-frame";
+export { WzSwitchRow } from "./switch-row";
