@@ -21,6 +21,13 @@ describe("WzTabBar", () => {
     expect(tabs.map((t) => t.tabIndex)).toEqual([-1, 0, -1]);
   });
 
+  // The jobs list with a "status: Done" chip underlines no tab (Workiz has no
+  // Done tab); the row must still be reachable from the keyboard.
+  it("keeps the first tab in the Tab order when none is open", () => {
+    render(<WzTabBar aria-label="Job status" tabs={TABS} value="done" onValueChange={() => {}} />);
+    expect(screen.getAllByRole("tab").map((t) => t.tabIndex)).toEqual([0, -1, -1]);
+  });
+
   it("moves with the arrow keys, Home and End, wrapping round, and picks as it goes", async () => {
     const onValueChange = vi.fn();
     render(<WzTabBar aria-label="Client" tabs={TABS} value="jobs" onValueChange={onValueChange} />);
@@ -65,13 +72,13 @@ describe("WzTabBar", () => {
     expect(cls(open.querySelector("[data-slot=wz-tab-bar-line]")!)).toEqual(expect.arrayContaining(["h-1", "bottom-0"]));
   });
 
-  it("draws the job page's two-line tabs: a 12px line under each name, equal widths, a 4px bar", () => {
+  it("draws the job page's two-line tabs: a 12px line under each name, a ninth of the bar each, a 4px bar over the rule", () => {
     render(
       <WzTabBar
         variant="job"
         aria-label="Job sections"
         tabs={[
-          { value: "details", label: "Details", sublabel: "Lockout" },
+          { value: "details", label: "Details", sublabel: "Lockout", id: "job-tab-details" },
           { value: "payments", label: "Payments", sublabel: "$0.00 balance" },
         ]}
         value="details"
@@ -80,7 +87,35 @@ describe("WzTabBar", () => {
     );
     const open = screen.getByRole("tab", { name: "Details" });
     expect(open).toHaveAccessibleDescription("Lockout");
-    expect(cls(open)).toContain("flex-1");
-    expect(cls(open.querySelector("[data-slot=wz-tab-bar-line]")!)).toContain("h-1");
+    // A tabpanel names its tab by id (aria-labelledby); the grey line's id follows it.
+    expect(open).toHaveAttribute("id", "job-tab-details");
+    expect(screen.getByText("Lockout")).toHaveAttribute("id", "job-tab-details-sub");
+    // Workiz's nine tabs share the bar (149px each on 1345, job_b_01); ours
+    // keep that width so each name lands where Workiz's does, and with the
+    // Timeline open a tab grows to its text plus 18px a side (rail_chat) —
+    // the grey line is never cut to "…" (features/deals job-tab-bar.test).
+    expect(cls(open)).toEqual(expect.arrayContaining(["w-[calc(100%/9)]", "min-w-max", "px-[18px]"]));
+    expect(cls(open)).not.toContain("flex-1");
+    const sub = screen.getByText("$0.00 balance");
+    expect(cls(sub)).toContain("whitespace-nowrap");
+    expect(cls(sub)).not.toContain("truncate");
+    expect(cls(open.querySelector("[data-slot=wz-tab-bar-line]")!)).toEqual(expect.arrayContaining(["h-1", "bottom-0"]));
+    // 89px: the 88px bar plus the #cad3d6 rule drawn inside it, so the open
+    // tab's bar covers the rule (audit_pixels J7: Workiz 389–392 over 392).
+    expect(cls(screen.getByRole("tablist"))).toEqual(
+      expect.arrayContaining(["h-[89px]", "shadow-[inset_0_-1px_0_var(--wz-rule)]"]),
+    );
+  });
+
+  // list_01_submitted / uikit_wz_client_page: the row is 43px from its top to
+  // the strip under it — the #c4c4c4 rule is the row's own last pixel row and
+  // the open tab's 2px bar covers it (audit_pixels L19), not a border below.
+  it("small tabs: the rule inside the row, the open tab's 2px bar over it", () => {
+    render(<WzTabBar aria-label="Client" tabs={TABS} value="jobs" onValueChange={() => {}} />);
+    const list = screen.getByRole("tablist");
+    expect(cls(list)).toContain("shadow-[inset_0_-1px_0_var(--wz-tab-rule)]");
+    expect(cls(list)).not.toContain("border-b");
+    const line = screen.getByRole("tab", { name: /Jobs/ }).querySelector("[data-slot=wz-tab-bar-line]")!;
+    expect(cls(line)).toEqual(expect.arrayContaining(["bottom-0", "h-0.5"]));
   });
 });

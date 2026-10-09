@@ -329,7 +329,8 @@ describe("DealsPage — Search, on the server", () => {
     await type("Dustin");
     expect(mocks.countsParams[mocks.countsParams.length - 1]).toEqual({});
     expect(mocks.searchedCountsParams[mocks.searchedCountsParams.length - 1]).toEqual({ q: "Dustin" });
-    expect(screen.getByRole("tab", { name: /^Submitted/ }).textContent).toBe("Submitted1");
+    // The kit's tab names itself "Submitted 1" (a space before the counter).
+    expect(screen.getByRole("tab", { name: /^Submitted/ }).textContent).toBe("Submitted 1");
     // The other tabs keep their unsearched numbers.
     expect(screen.getByRole("tab", { name: /^Pending/ }).textContent).toContain("264");
     // The pager counts against the searched number.
@@ -559,7 +560,8 @@ describe("DealsPage — Filter results with Workiz's names and area colours", ()
     expect(painted.className).toContain("text-white");
     const plain = screen.getByText("metro: Tucson").parentElement!;
     expect(plain.getAttribute("style")).toBeNull();
-    expect(plain.className).toContain("bg-[#e6e6e6]");
+    // The kit's uncoloured chip: #e6e6e6 by its token.
+    expect(plain.className).toContain("bg-wz-disabled-border");
   });
 });
 

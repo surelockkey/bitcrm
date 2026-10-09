@@ -24,6 +24,29 @@ describe("WzRail", () => {
     expect(screen.getByText("6").className).toContain("bg-wz-danger");
   });
 
+  // The job page's rail (audit_dispatcher J7): Workiz names each icon in its
+  // instant dark tooltip — "Actions" on the history icon — not a browser title.
+  it("names a button in Workiz's dark tooltip when given a tip, and then carries no native title", async () => {
+    render(
+      <WzRail aria-label="Job rail">
+        <WzRailButton icon={History} label="Timeline" tip="Actions" onClick={() => {}} />
+      </WzRail>,
+    );
+    const button = screen.getByRole("button", { name: "Timeline" });
+    expect(button).not.toHaveAttribute("title");
+    await userEvent.hover(button);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Actions");
+  });
+
+  it("draws the glyph at Workiz's 20px (lnr-* font icons, audit_pixels R5)", () => {
+    render(
+      <WzRail aria-label="Job rail">
+        <WzRailButton icon={History} label="Timeline" onClick={() => {}} />
+      </WzRail>,
+    );
+    expect(screen.getByRole("button", { name: "Timeline" }).querySelector("svg")!.getAttribute("class")).toContain("size-5");
+  });
+
   it("can carry Workiz's client-page captions under the icons", () => {
     render(
       <WzRail aria-label="Client rail">
@@ -59,6 +82,16 @@ describe("WzRailPanel", () => {
     expect(screen.getByRole("heading", { name: "Timeline" }).className).toContain("font-semibold");
     await userEvent.click(screen.getByRole("button", { name: "Close panel" }));
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it("can name its close button for the panel it is (the job page's 'Close timeline')", () => {
+    render(
+      <WzRailPanel aria-label="Job timeline" title="Timeline" onClose={() => {}} closeLabel="Close timeline">
+        body
+      </WzRailPanel>,
+    );
+    expect(screen.getByRole("button", { name: "Close timeline" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Close panel" })).toBeNull();
   });
 
   it("plain: the client page's white panel — the title at the left, × at the right", async () => {

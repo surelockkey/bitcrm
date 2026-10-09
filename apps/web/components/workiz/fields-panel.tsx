@@ -76,16 +76,21 @@ export function moveField(used: readonly string[], id: string, overId: string): 
  * "Save fields"; Cancel, × or Escape drop the draft. A grid with no columns is
  * not offered: Save waits for at least one tick.
  *
- * `used` is the saved column order; `onSave` gets the new one.
+ * `used` is the saved column order; `onSave` gets the new one. `locked` are
+ * columns the grid always draws first (the jobs list's Job ID): listed first
+ * under USED FIELDS, ticked and fixed, with no handle, hidden only by the
+ * search, never part of what is saved — and enough on their own for Save.
  */
 export function WzFieldsPanel({
   options,
   used,
+  locked = [],
   onSave,
   trigger,
 }: {
   options: readonly WzFieldOption[];
   used: readonly string[];
+  locked?: readonly WzFieldOption[];
   onSave: (used: string[]) => void;
   /** Defaults to the strip's "Fields" button (82×34, Workiz's 3×3 grid glyph). */
   trigger?: ReactNode;
@@ -103,6 +108,7 @@ export function WzFieldsPanel({
   };
 
   const lists = fieldsPanelLists(options, draft, query);
+  const lockedShown = fieldsPanelLists(locked, locked.map((o) => o.id), query).used;
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
@@ -136,7 +142,7 @@ export function WzFieldsPanel({
           </button>
           <button
             type="button"
-            disabled={!draft.length}
+            disabled={!draft.length && !locked.length}
             onClick={() => {
               onSave([...draft]);
               setOpen(false);
@@ -163,6 +169,9 @@ export function WzFieldsPanel({
 
       <section aria-label="Used fields" className="mt-4">
         <p className="mb-4 text-xs leading-[21px] font-medium tracking-[0.4px] text-wz-outline uppercase">Used fields</p>
+        {lockedShown.map((o) => (
+          <FieldRow key={o.id} option={o} checked locked />
+        ))}
         <DndContext
           sensors={sensors}
           collisionDetection={closestCenter}
@@ -187,7 +196,7 @@ export function WzFieldsPanel({
           <FieldRow key={o.id} option={o} checked={false} onToggle={() => setDraft((d) => toggleField(d, o.id))} />
         ))}
       </section>
-      {!lists.used.length && !lists.unselected.length ? (
+      {!lockedShown.length && !lists.used.length && !lists.unselected.length ? (
         <p className="text-sm text-wz-caption">No fields match your search.</p>
       ) : null}
     </WzDrawer>
@@ -226,24 +235,34 @@ function SortableRow({ option, onToggle }: { option: WzFieldOption; onToggle: ()
 /**
  * One field: a 354×42 box, 1px #dfe2e3, 8px corners, 8px apart; the handle
  * 11px in, the tick at 35px (11px without a handle), the name 14px/500 13px
- * after it, the glyph at the right.
+ * after it, the glyph at the right. A locked row keeps the handle's room, so
+ * its tick lines up with the draggable rows under it, and is not faded — it
+ * is a column, not a choice.
  */
 function FieldRow({
   option,
   checked,
   onToggle,
+  locked = false,
   handle,
 }: {
   option: WzFieldOption;
   checked: boolean;
-  onToggle: () => void;
+  onToggle?: () => void;
+  locked?: boolean;
   handle?: ReactNode;
 }) {
   return (
     <div className="mb-2 flex h-[42px] w-full max-w-[354px] items-center gap-2 rounded-[8px] border border-border bg-background pr-2 pl-[10px]">
-      {handle}
+      {handle ?? (locked ? <span className="w-4" aria-hidden /> : null)}
       <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-[13px]">
-        <Checkbox checked={checked} aria-label={option.label} onCheckedChange={onToggle} />
+        <Checkbox
+          checked={checked}
+          disabled={locked}
+          aria-label={option.label}
+          onCheckedChange={() => onToggle?.()}
+          className={cn(locked && "disabled:opacity-100")}
+        />
         <span className="truncate text-sm leading-[21px] font-medium tracking-[0.4px] text-foreground">{option.label}</span>
       </label>
       {option.icon ? (

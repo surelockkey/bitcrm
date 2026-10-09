@@ -7,7 +7,7 @@ import { Loader2, Plus, TriangleAlert } from "lucide-react";
 import { JobSuperStatus, type Contact, type Deal, type PersonName } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { WzPager } from "@/components/workiz/pager";
+import { WzPager, wzPagerCanNext } from "@/components/workiz/pager";
 import { WzTabBar } from "@/components/workiz/tab-bar";
 import { WzListToolbar, WzPageSizeSelect, WzSearchBox } from "@/components/workiz/toolbar";
 import { cn } from "@/lib/utils";
@@ -31,7 +31,7 @@ import type { DealCounts } from "@/features/deals/api";
 import { DEALS_POLL_MS, useDealCounts, useDealsPage, useUserMap, type DirectoryUser } from "@/features/deals/hooks";
 import { mergeIncluded } from "@/features/deals/included";
 import { jobTabLabel, tabCount, type JobTab } from "@/features/deals/lib";
-import { canGoNext, withSearchedTab } from "@/features/deals/list-numbers";
+import { withSearchedTab } from "@/features/deals/list-numbers";
 import { filterAreas, type FilterCatalogs } from "@/features/deals/job-filters";
 import {
   EMPTY_JOBS_LIST_STATE,
@@ -373,7 +373,7 @@ export function MyJobsPage() {
 
 /** Workiz's pager (list_07_bottom); "›" rests on the last counted page, as on `/deals`. */
 function MyJobsPager({ pager }: { pager: Pager<Deal> }) {
-  return <WzPager className="sticky left-0" pager={{ ...pager, canNext: canGoNext(pager) }} />;
+  return <WzPager className="sticky left-0" pager={{ ...pager, canNext: wzPagerCanNext(pager) }} />;
 }
 
 /** The jobs list's own failure block, in its words. */

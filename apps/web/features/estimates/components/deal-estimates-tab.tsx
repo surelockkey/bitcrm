@@ -25,7 +25,7 @@ import { formatMoney } from "@/features/billing/lib";
 import { useDealEstimates, useDeleteEstimate, useDuplicateEstimate } from "../hooks";
 import { ESTIMATE_STATUS_COLORS } from "@/features/reports/billing/lib";
 import { EstimatesArt } from "@/features/deals/components/job-empty-art";
-import { PILL_OUTLINE_TALL } from "@/features/deals/components/job-pills";
+import { wzPill } from "@/components/workiz";
 import { estimateStatusLabel, formatEstimateCreated, proposalSend } from "../lib";
 import { byCreated, optionLabel } from "./estimate-tabs";
 import { NewEstimateDialog } from "./new-estimate-dialog";
@@ -107,7 +107,7 @@ export function DealEstimatesTab({
           <EstimatesArt />
           <h3 className="mt-[25px] text-[16px] leading-[25px] font-bold text-[#3e4b51]">You don&apos;t have any estimates yet</h3>
           {canCreate ? (
-            <button type="button" className={cn(PILL_OUTLINE_TALL, "mt-5 w-[340px]")} onClick={() => setCreating(true)}>
+            <button type="button" className={cn(wzPill("outline", "tall"), "mt-5 w-[340px]")} onClick={() => setCreating(true)}>
               <Plus strokeWidth={1.5} /> Add Estimate
             </button>
           ) : null}
@@ -193,12 +193,12 @@ export function DealEstimatesTab({
             // proposal from the same row — Workiz has no such button.
             <div className="mt-[25px] flex flex-wrap gap-[15px] pl-[11px]">
               {canCreate ? (
-                <button type="button" className={PILL_OUTLINE_TALL} onClick={() => setCreating(true)}>
+                <button type="button" className={wzPill("outline", "tall")} onClick={() => setCreating(true)}>
                   <Plus strokeWidth={1.5} /> <span className="px-1">Add Estimate</span>
                 </button>
               ) : null}
               {canSendAll && sendAll.mode ? (
-                <button type="button" className={PILL_OUTLINE_TALL} onClick={() => setSendingAll(true)}>
+                <button type="button" className={wzPill("outline", "tall")} onClick={() => setSendingAll(true)}>
                   <Send strokeWidth={1.5} /> <span className="px-1">Send all (Proposal)</span>
                 </button>
               ) : null}

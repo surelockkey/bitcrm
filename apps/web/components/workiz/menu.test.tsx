@@ -28,6 +28,33 @@ describe("WzActionsMenu", () => {
     expect(done).not.toHaveBeenCalled();
   });
 
+  // job_b_02_actions_open: Workiz's wfi-down is an 18px thin chevron before
+  // the word (audit_pixels J3); the caret is a notch under the middle of the
+  // pill (the zoomed capture, apex at x≈1312 under the 1254–1362 pill — not
+  // at the panel's right end as audit J5 guessed), 10px wide and 5px tall
+  // above the panel's edge, the panel itself 10px under the pill (Popper
+  // counts the arrow's height into the gap: 5 + 5). Rows are 50px, and the
+  // ruled ones 51 — the rule adds to the row.
+  it("draws Workiz's 18px thin chevron before the word, a 10×5 caret under the pill's middle, rows ruled 51px", async () => {
+    render(
+      <WzActionsMenu
+        items={[
+          { key: "a", label: "A", onSelect: () => {} },
+          { key: "b", label: "B", onSelect: () => {} },
+        ]}
+      />,
+    );
+    const trigger = screen.getByRole("button", { name: "Actions" });
+    const chevron = trigger.querySelector("svg")!;
+    expect(chevron.getAttribute("class")).toContain("size-[18px]");
+    expect(chevron.getAttribute("stroke-width")).toBe("1.25");
+    await userEvent.click(trigger);
+    const caret = document.querySelector("[data-slot=wz-menu-caret]")!;
+    expect(caret.getAttribute("width")).toBe("10");
+    expect(caret.getAttribute("height")).toBe("5");
+    expect(screen.getAllByRole("menuitem")[1].className).not.toMatch(/(^|\s)h-\[50px\]/);
+  });
+
   it("names its trigger as told", () => {
     render(<WzActionsMenu label="More" items={[{ key: "a", label: "A", onSelect: () => {} }]} />);
     expect(screen.getByRole("button", { name: "More" })).toBeInTheDocument();

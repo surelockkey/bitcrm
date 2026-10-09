@@ -14,6 +14,7 @@ export interface WzPagerState {
   total?: number | null;
   totalIsFloor?: boolean;
   totalPages?: number;
+  /** The page count is at least this many ("of 200+"). */
   totalPagesIsFloor?: boolean;
   canPrev: boolean;
   canNext: boolean;
@@ -52,6 +53,28 @@ export function wzPagerPages(
   return `Page ${n(page)} of ${n(Math.max(totalPages, 1))}${totalPagesIsFloor ? "+" : ""}`;
 }
 
+/**
+ * Whether › goes anywhere, for a list whose count knows its last page (the
+ * jobs list, My jobs): on the counted last page Next rests even when the
+ * server still hands back a cursor (audit L8 — "Page 2 of 1": a filtered
+ * page came back short with a cursor past the counted end); without a
+ * count, or with only a floor, the cursor decides. Such a list passes
+ * `{ ...pager, canNext: wzPagerCanNext(pager) }`; `WzPager` itself follows
+ * `canNext` as given, because other lists (calls, invoices, transfers) page
+ * past counts that understate their pages.
+ */
+export function wzPagerCanNext({
+  page,
+  canNext,
+  isFetching,
+  totalPages,
+  totalPagesIsFloor,
+}: Pick<WzPagerState, "page" | "canNext" | "isFetching" | "totalPages" | "totalPagesIsFloor">): boolean {
+  if (!canNext || isFetching) return false;
+  if (typeof totalPages === "number" && !totalPagesIsFloor) return page < totalPages;
+  return true;
+}
+
 /** Workiz's round ‹ › : a 30px #fafafa disc, never faded on the first page. */
 const DISC =
   "grid size-[30px] place-items-center rounded-full bg-wz-disc text-wz-strong outline-none hover:bg-wz-disc-hover focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-default disabled:hover:bg-wz-disc";
@@ -59,8 +82,12 @@ const DISC =
 /**
  * Workiz's list footer (react-table `.pagination-bottom`): a 64px bar with a
  * 2px rgba(0,0,0,.1) top edge and a soft 15px glow; the summary 10px in at
- * the left, ‹ "Page 1 of 5" › centred 50px apart. Cursor-paged lists cannot
- * jump to page 7, and neither can Workiz's footer — no page numbers.
+ * the left; in the middle a 238px block centred on the bar — ‹ at its left
+ * end, › at its right, "Page 1 of 5" centred between them, so the discs
+ * stay put whatever the count says (list_07_bottom and uikit_wz_est_scroll1:
+ * discs at 781 and 989 on the 200–1600 column for "of 5" and "of 881"
+ * alike). Cursor-paged lists cannot jump to page 7, and neither can
+ * Workiz's footer — no page numbers.
  *
  * `end` sits at the right (our page-size select; Workiz keeps that in the
  * toolbar above the grid). `loading` keeps the bar at its height with a
@@ -96,13 +123,13 @@ export function WzPager({
       {/* Reserved width and fixed digits: " of 312" arrives with the count. */}
       <span className="min-w-[14rem] tabular-nums">{loading ? <Skeleton className="h-3.5 w-48" /> : wzPagerSummary(pager, { plainNumbers })}</span>
       {!loading ? (
-        <div className="flex items-center gap-[50px] md:absolute md:left-1/2 md:-translate-x-1/2">
+        <div className="flex w-[238px] items-center justify-between md:absolute md:left-1/2 md:-translate-x-1/2">
           {nav ? (
             <button type="button" aria-label="Previous page" disabled={!pager.canPrev} onClick={() => pager.prev()} className={DISC}>
               <ChevronLeft className="size-[18px]" strokeWidth={1.5} />
             </button>
           ) : null}
-          <span className="min-w-[6.5rem] text-center whitespace-nowrap tabular-nums">{wzPagerPages(pager, { plainNumbers })}</span>
+          <span className="flex-1 text-center whitespace-nowrap tabular-nums">{wzPagerPages(pager, { plainNumbers })}</span>
           {nav ? (
             <button
               type="button"

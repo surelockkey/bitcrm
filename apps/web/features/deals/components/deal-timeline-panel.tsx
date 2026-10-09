@@ -3,7 +3,6 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import {
-  ArrowLeft,
   ArrowRight,
   BadgeDollarSign,
   CheckCheck,
@@ -79,7 +78,7 @@ import { useContactsByIds } from "@/features/clients/hooks";
 import { ClientChatSheet } from "@/features/clients/components/client-chat-sheet";
 import { useMessagesByJob } from "@/features/messaging/hooks";
 import type { FeedMessage } from "@/features/messaging/api";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { WzRail, WzRailButton, WzRailPanel } from "@/components/workiz";
 import {
   JOB_TIMELINE_FILTERS,
   filterOptionLabel,
@@ -616,11 +615,14 @@ export function DealTimelinePanel({
   return (
     <>
       {open ? (
-        <aside
+        <WzRailPanel
           aria-label="Job timeline"
+          title="Timeline"
+          closeLabel="Close timeline"
+          onClose={() => setOpen(false)}
           // In the page's flow, narrowing it, as Workiz does; on a phone it
           // floats over the page instead of squeezing it to nothing.
-          className="flex w-[350px] max-w-[85vw] shrink-0 flex-col overflow-hidden bg-white shadow-[-3px_0_8px_rgba(0,0,0,0.12)] max-md:fixed max-md:inset-y-0 max-md:right-0 max-md:z-40 md:relative md:z-10 md:-mt-9"
+          className="md:relative md:z-10 md:-mt-9"
         >
           <PanelBody
             dealId={dealId}
@@ -640,43 +642,26 @@ export function DealTimelinePanel({
             filters={JOB_TIMELINE_FILTERS.filter((f) => f.key !== "messages" || canViewMessages)}
             onFilterChange={setFilter}
             client={client}
-            onClose={() => setOpen(false)}
             onMessageClient={chat ? () => setChatOpen(true) : undefined}
           />
-        </aside>
+        </WzRailPanel>
       ) : (
-        <TooltipProvider delayDuration={0}>
-          <div
-            role="toolbar"
-            aria-label="Job rail"
-            aria-orientation="vertical"
-            className="relative z-10 -mt-9 flex w-[55px] shrink-0 flex-col items-center bg-white shadow-[-3px_0_8px_rgba(0,0,0,0.12)]"
-          >
-            {/* The 62px #f7f7f7 cap with Workiz's "←". */}
-            <div className="flex h-[62px] w-full justify-center bg-[#f7f7f7] pt-2.5">
-              <button
-                type="button"
-                aria-label="Expand panel"
-                onClick={() => openWith(null)}
-                className="grid h-8 w-[21px] place-items-center rounded-[8px] text-foreground hover:bg-white"
-              >
-                <ArrowLeft className="size-5" strokeWidth={1.25} />
-              </button>
-            </div>
-            {icons.map((i, n) => (
-              <RailIcon
-                key={i.filter}
-                icon={i.icon}
-                label={i.label}
-                tip={i.tip}
-                badge={i.filter === "notes" ? badge : null}
-                expanded={i.filter === "activities" ? false : undefined}
-                className={n === 0 ? "mt-[30px]" : "mt-[50px]"}
-                onClick={() => openWith(i.filter)}
-              />
-            ))}
-          </div>
-        </TooltipProvider>
+        // The 55px strip with Workiz's "←" cap; every icon opens the panel on
+        // its own filter, named in Workiz's dark tooltip.
+        <WzRail aria-label="Job rail" onExpand={() => openWith(null)} className="relative z-10 -mt-9">
+          {icons.map((i, n) => (
+            <WzRailButton
+              key={i.filter}
+              icon={i.icon}
+              label={i.label}
+              tip={i.tip}
+              badge={i.filter === "notes" ? badge : null}
+              expanded={i.filter === "activities" ? false : undefined}
+              className={n === 0 ? "mt-[30px]" : "mt-[50px]"}
+              onClick={() => openWith(i.filter)}
+            />
+          ))}
+        </WzRail>
       )}
       {chat ? (
         <ClientChatSheet
@@ -690,52 +675,6 @@ export function DealTimelinePanel({
         />
       ) : null}
     </>
-  );
-}
-
-function RailIcon({
-  icon: Icon,
-  label,
-  tip,
-  badge,
-  expanded,
-  className,
-  onClick,
-}: {
-  icon: typeof Sparkles;
-  label: string;
-  /** Workiz's own word, in its dark tooltip ("Actions" on the history icon). */
-  tip: string;
-  badge?: string | null;
-  expanded?: boolean;
-  className?: string;
-  onClick: () => void;
-}) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          aria-label={badge ? `${label} (${badge})` : label}
-          aria-expanded={expanded}
-          onClick={onClick}
-          className={cn("relative grid size-8 place-items-center rounded-[8px] text-foreground hover:bg-[#f3f6f7]", className)}
-        >
-          <Icon className="size-5" strokeWidth={1.25} />
-          {badge ? (
-            // Workiz: a 20px #f45e44 disc, 11px/500 white, riding the icon's top right.
-            // (rounded-pill: a disc at one digit, a lozenge at "99+".)
-            <span className="absolute -top-3.5 left-[13px] grid h-5 min-w-5 place-items-center rounded-pill bg-[#f45e44] px-1 text-[11px] leading-5 font-medium text-white tabular-nums">
-              {badge}
-            </span>
-          ) : null}
-        </button>
-      </TooltipTrigger>
-      {/* Workiz's instant dark tooltip above the icon: 12px/500 white. */}
-      <TooltipContent side="top" sideOffset={6} className="rounded-[4px] bg-[#3b4b52] px-2 py-1 text-[12px] leading-[18px] font-medium text-white">
-        {tip}
-      </TooltipContent>
-    </Tooltip>
   );
 }
 
@@ -764,7 +703,6 @@ function PanelBody({
   filters,
   onFilterChange,
   client,
-  onClose,
   onMessageClient,
 }: {
   dealId: string;
@@ -781,7 +719,6 @@ function PanelBody({
   filters: { key: TimelineFilter; label: string }[];
   onFilterChange: (f: TimelineFilter) => void;
   client?: RailClient;
-  onClose: () => void;
   onMessageClient?: () => void;
 }) {
   const addNote = useAddNote(dealId);
@@ -848,219 +785,202 @@ function PanelBody({
 
   return (
     <>
-      {/* Head: 62px #f7f7f7, "→" closes, "Timeline" 18px/600 in the middle. */}
-      <div className="relative flex h-[62px] shrink-0 items-start bg-[#f7f7f7] px-5 pt-2.5">
-        <button
-          type="button"
-          aria-label="Close timeline"
-          onClick={onClose}
-          className="relative z-10 grid size-8 place-items-center rounded-[8px] text-foreground hover:bg-white"
-        >
-          <ArrowRight className="size-5" strokeWidth={1.25} />
-        </button>
-        <h2 className="pointer-events-none absolute inset-x-0 top-[15px] pl-4 text-center text-[18px] leading-[25px] font-semibold text-foreground">
-          Timeline
-        </h2>
-      </div>
-
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        {/* The filter (or, after the magnifier, the search box): Workiz's
-            block runs 20px above and below the 44px select. */}
-        <div className="relative flex h-[84px] items-start px-5 pt-5">
-          {searching ? (
-            <div className="relative w-[310px]">
-              <input
-                autoFocus
-                placeholder="Search activities"
-                aria-label="Search activities"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Escape") {
-                    setSearch("");
-                    setSearching(false);
-                  }
-                }}
-                className="h-[38px] w-full rounded-[2px] border border-[#cad3d6] bg-white pr-10 pl-2.5 text-[14px] text-[#666666] outline-none placeholder:text-[#9ea6aa] focus:border-[#6aa8ee]"
-              />
-              <button
-                type="button"
-                aria-label="Clear search"
-                onClick={() => {
+      {/* The filter (or, after the magnifier, the search box): Workiz's
+          block runs 20px above and below the 44px select. */}
+      <div className="relative flex h-[84px] items-start px-5 pt-5">
+        {searching ? (
+          <div className="relative w-[310px]">
+            <input
+              autoFocus
+              placeholder="Search activities"
+              aria-label="Search activities"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
                   setSearch("");
                   setSearching(false);
-                }}
-                className="absolute top-[7px] right-2 grid size-6 place-items-center rounded-[4px] text-foreground hover:bg-[#f3f6f7]"
-              >
-                <X className="size-4" strokeWidth={1.5} />
-              </button>
-            </div>
-          ) : (
-            <>
-              <SelectPrimitive.Root value={filter} onValueChange={(v) => onFilterChange(v as TimelineFilter)}>
-                <SelectPrimitive.Trigger
-                  aria-label="Timeline filter"
-                  // 220×44 with Workiz's 3px ink underline; 16px #333 value.
-                  className="flex h-11 w-[220px] items-start justify-between border-b-[3px] border-foreground px-2.5 pt-2.5 text-left text-[16px] leading-4 text-[#333333] outline-none"
-                >
-                  <SelectPrimitive.Value>{filterOptionLabel(filter, counts[filter], hasMoreFor(filter))}</SelectPrimitive.Value>
-                  <SelectPrimitive.Icon asChild>
-                    <ChevronDown className="size-5 text-[#cccccc]" strokeWidth={1.5} />
-                  </SelectPrimitive.Icon>
-                </SelectPrimitive.Trigger>
-                <SelectPrimitive.Portal>
-                  <SelectPrimitive.Content
-                    position="popper"
-                    align="start"
-                    sideOffset={8}
-                    className="z-50 w-[250px] overflow-hidden rounded-[4px] bg-white py-1 shadow-[0_0_0_1px_rgba(0,0,0,0.1),0_4px_11px_rgba(0,0,0,0.1)]"
-                  >
-                    <SelectPrimitive.Viewport>
-                      {filters.map((f) => (
-                        <SelectPrimitive.Item
-                          key={f.key}
-                          value={f.key}
-                          className="flex h-8 cursor-default items-center px-3 text-[14px] leading-4 text-[#404040] outline-none select-none data-highlighted:bg-[#deebff] data-[state=checked]:bg-[#2684ff] data-[state=checked]:text-white"
-                        >
-                          <SelectPrimitive.ItemText>{filterOptionLabel(f.key, counts[f.key], hasMoreFor(f.key))}</SelectPrimitive.ItemText>
-                        </SelectPrimitive.Item>
-                      ))}
-                    </SelectPrimitive.Viewport>
-                  </SelectPrimitive.Content>
-                </SelectPrimitive.Portal>
-              </SelectPrimitive.Root>
-              {/* Workiz's bare 21px magnifier (lnr-magnifier), 34px right of the select. */}
-              <button
-                type="button"
-                aria-label="Search the timeline"
-                onClick={() => setSearching(true)}
-                className="absolute top-[30px] left-[274px] grid size-6 place-items-center text-[#404040] outline-none focus-visible:ring-1 focus-visible:ring-[#6aa8ee]"
-              >
-                <Search className="size-[21px]" strokeWidth={1.25} />
-              </button>
-            </>
-          )}
-        </div>
-
-        {/* "Add note / Message Client" — or the note being written. */}
-        {composing ? (
-          <div className="px-[25px] pt-[76px] pb-[15px]">
-            <div className="relative">
-              <Textarea
-                autoFocus
-                aria-label="New note"
-                maxLength={NOTE_MAX_LENGTH}
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                className="h-24 min-h-24 resize-y rounded-[4px] border-[#cccccc] px-2.5 py-[7px] text-[14px] text-[#666666] shadow-none"
-              />
-              {/* Workiz's counter ("0 / 1000"), shown once there is something to count. */}
-              <span
-                aria-live="polite"
-                className={cn(
-                  "pointer-events-none absolute right-2.5 bottom-1.5 text-[12px] leading-4 text-[#9ea6aa] tabular-nums",
-                  !note && "invisible",
-                )}
-              >
-                {note.length} / {NOTE_MAX_LENGTH}
-              </span>
-            </div>
-            <div className="mt-4 flex items-center justify-end gap-6">
-              <button
-                type="button"
-                onClick={() => {
-                  setComposing(false);
-                  setNote("");
-                }}
-                className="text-[13px] leading-4 font-semibold text-foreground hover:underline"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                disabled={!note.trim() || addNote.isPending}
-                onClick={submit}
-                className="inline-flex h-8 items-center gap-1.5 rounded-pill bg-primary px-4 text-[13px] leading-[19px] font-semibold tracking-[0.2px] text-foreground hover:bg-[#eac300] disabled:bg-[#dfe2e3] disabled:hover:bg-[#dfe2e3]"
-              >
-                {addNote.isPending ? <Loader2 className="size-4 animate-spin" /> : null} Save
-              </button>
-            </div>
-          </div>
-        ) : canEdit || onMessageClient ? (
-          // Workiz's block: padding 60 / 25 / 25, 14px/500 underlined links.
-          <div className="px-[30px] pt-[58px] pb-[25px] text-[14px] leading-5 font-medium text-[#404040]">
-            {canEdit ? (
-              <button type="button" onClick={() => setComposing(true)} className="underline underline-offset-2 hover:text-foreground">
-                Add note
-              </button>
-            ) : null}
-            {canEdit && onMessageClient ? <span className="px-[9px]">/</span> : null}
-            {onMessageClient ? (
-              <button type="button" onClick={onMessageClient} className="underline underline-offset-2 hover:text-foreground">
-                Message Client
-              </button>
-            ) : null}
-          </div>
-        ) : (
-          <div className="h-6" />
-        )}
-
-        {loading ? (
-          <div className="px-5">
-            <Skeleton className="h-48 w-full" />
-          </div>
-        ) : rows.length === 0 ? (
-          <p className="px-5 py-6 text-center text-[13px] text-[#404040]">
-            {search.trim() ? "Nothing matches your search." : filter === "messages" ? "No messages yet." : "No activity yet."}
-          </p>
-        ) : (
-          <ol className="pt-2 pr-5 pl-[23px]">
-            {rows.map((row, i) =>
-              row.kind === "message" ? (
-                <TimelineRow
-                  key={row.id}
-                  icon="message"
-                  {...messageRowText(row.message, messageCtx)}
-                  timestamp={row.at}
-                  last={i === rows.length - 1}
-                />
-              ) : (
-                <JobEntryRow
-                  key={row.id}
-                  entry={row.entry}
-                  view={textOf(row.entry)}
-                  actor={actorLabel(row.entry, userMap)}
-                  last={i === rows.length - 1}
-                  canEdit={canEdit}
-                  isEditing={editingId === row.id}
-                  onStartEdit={() => setEditingId(row.id)}
-                  onCancelEdit={() => setEditingId(null)}
-                  onSaveEdit={(text) =>
-                    updateNote.mutate(
-                      { entryId: row.id, timestamp: row.entry.timestamp, note: text },
-                      { onSuccess: () => setEditingId(null) },
-                    )
-                  }
-                  onDelete={() => setDeleting(row.entry)}
-                />
-              ),
-            )}
-          </ol>
-        )}
-
-        {more.entries || more.messages ? (
-          <div className="px-5 pb-5">
+                }
+              }}
+              className="h-[38px] w-full rounded-[2px] border border-[#cad3d6] bg-white pr-10 pl-2.5 text-[14px] text-[#666666] outline-none placeholder:text-[#9ea6aa] focus:border-[#6aa8ee]"
+            />
             <button
               type="button"
-              onClick={onLoadMore}
-              disabled={loadingMore}
-              className="w-full py-2 text-center text-[14px] text-[#6aa8ee] hover:underline disabled:opacity-50"
+              aria-label="Clear search"
+              onClick={() => {
+                setSearch("");
+                setSearching(false);
+              }}
+              className="absolute top-[7px] right-2 grid size-6 place-items-center rounded-[4px] text-foreground hover:bg-[#f3f6f7]"
             >
-              {loadingMore ? <Loader2 className="mx-auto size-4 animate-spin" /> : "Load more"}
+              <X className="size-4" strokeWidth={1.5} />
             </button>
           </div>
-        ) : null}
+        ) : (
+          <>
+            <SelectPrimitive.Root value={filter} onValueChange={(v) => onFilterChange(v as TimelineFilter)}>
+              <SelectPrimitive.Trigger
+                aria-label="Timeline filter"
+                // 220×44 with Workiz's 3px ink underline; 16px #333 value.
+                className="flex h-11 w-[220px] items-start justify-between border-b-[3px] border-foreground px-2.5 pt-2.5 text-left text-[16px] leading-4 text-[#333333] outline-none"
+              >
+                <SelectPrimitive.Value>{filterOptionLabel(filter, counts[filter], hasMoreFor(filter))}</SelectPrimitive.Value>
+                <SelectPrimitive.Icon asChild>
+                  <ChevronDown className="size-5 text-[#cccccc]" strokeWidth={1.5} />
+                </SelectPrimitive.Icon>
+              </SelectPrimitive.Trigger>
+              <SelectPrimitive.Portal>
+                <SelectPrimitive.Content
+                  position="popper"
+                  align="start"
+                  sideOffset={8}
+                  className="z-50 w-[250px] overflow-hidden rounded-[4px] bg-white py-1 shadow-[0_0_0_1px_rgba(0,0,0,0.1),0_4px_11px_rgba(0,0,0,0.1)]"
+                >
+                  <SelectPrimitive.Viewport>
+                    {filters.map((f) => (
+                      <SelectPrimitive.Item
+                        key={f.key}
+                        value={f.key}
+                        className="flex h-8 cursor-default items-center px-3 text-[14px] leading-4 text-[#404040] outline-none select-none data-highlighted:bg-[#deebff] data-[state=checked]:bg-[#2684ff] data-[state=checked]:text-white"
+                      >
+                        <SelectPrimitive.ItemText>{filterOptionLabel(f.key, counts[f.key], hasMoreFor(f.key))}</SelectPrimitive.ItemText>
+                      </SelectPrimitive.Item>
+                    ))}
+                  </SelectPrimitive.Viewport>
+                </SelectPrimitive.Content>
+              </SelectPrimitive.Portal>
+            </SelectPrimitive.Root>
+            {/* Workiz's bare 21px magnifier (lnr-magnifier), 34px right of the select. */}
+            <button
+              type="button"
+              aria-label="Search the timeline"
+              onClick={() => setSearching(true)}
+              className="absolute top-[30px] left-[274px] grid size-6 place-items-center text-[#404040] outline-none focus-visible:ring-1 focus-visible:ring-[#6aa8ee]"
+            >
+              <Search className="size-[21px]" strokeWidth={1.25} />
+            </button>
+          </>
+        )}
       </div>
+
+      {/* "Add note / Message Client" — or the note being written. */}
+      {composing ? (
+        <div className="px-[25px] pt-[76px] pb-[15px]">
+          <div className="relative">
+            <Textarea
+              autoFocus
+              aria-label="New note"
+              maxLength={NOTE_MAX_LENGTH}
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              className="h-24 min-h-24 resize-y rounded-[4px] border-[#cccccc] px-2.5 py-[7px] text-[14px] text-[#666666] shadow-none"
+            />
+            {/* Workiz's counter ("0 / 1000"), shown once there is something to count. */}
+            <span
+              aria-live="polite"
+              className={cn(
+                "pointer-events-none absolute right-2.5 bottom-1.5 text-[12px] leading-4 text-[#9ea6aa] tabular-nums",
+                !note && "invisible",
+              )}
+            >
+              {note.length} / {NOTE_MAX_LENGTH}
+            </span>
+          </div>
+          <div className="mt-4 flex items-center justify-end gap-6">
+            <button
+              type="button"
+              onClick={() => {
+                setComposing(false);
+                setNote("");
+              }}
+              className="text-[13px] leading-4 font-semibold text-foreground hover:underline"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={!note.trim() || addNote.isPending}
+              onClick={submit}
+              className="inline-flex h-8 items-center gap-1.5 rounded-pill bg-primary px-4 text-[13px] leading-[19px] font-semibold tracking-[0.2px] text-foreground hover:bg-[#eac300] disabled:bg-[#dfe2e3] disabled:hover:bg-[#dfe2e3]"
+            >
+              {addNote.isPending ? <Loader2 className="size-4 animate-spin" /> : null} Save
+            </button>
+          </div>
+        </div>
+      ) : canEdit || onMessageClient ? (
+        // Workiz's block: padding 60 / 25 / 25, 14px/500 underlined links.
+        <div className="px-[30px] pt-[58px] pb-[25px] text-[14px] leading-5 font-medium text-[#404040]">
+          {canEdit ? (
+            <button type="button" onClick={() => setComposing(true)} className="underline underline-offset-2 hover:text-foreground">
+              Add note
+            </button>
+          ) : null}
+          {canEdit && onMessageClient ? <span className="px-[9px]">/</span> : null}
+          {onMessageClient ? (
+            <button type="button" onClick={onMessageClient} className="underline underline-offset-2 hover:text-foreground">
+              Message Client
+            </button>
+          ) : null}
+        </div>
+      ) : (
+        <div className="h-6" />
+      )}
+
+      {loading ? (
+        <div className="px-5">
+          <Skeleton className="h-48 w-full" />
+        </div>
+      ) : rows.length === 0 ? (
+        <p className="px-5 py-6 text-center text-[13px] text-[#404040]">
+          {search.trim() ? "Nothing matches your search." : filter === "messages" ? "No messages yet." : "No activity yet."}
+        </p>
+      ) : (
+        <ol className="pt-2 pr-5 pl-[23px]">
+          {rows.map((row, i) =>
+            row.kind === "message" ? (
+              <TimelineRow
+                key={row.id}
+                icon="message"
+                {...messageRowText(row.message, messageCtx)}
+                timestamp={row.at}
+                last={i === rows.length - 1}
+              />
+            ) : (
+              <JobEntryRow
+                key={row.id}
+                entry={row.entry}
+                view={textOf(row.entry)}
+                actor={actorLabel(row.entry, userMap)}
+                last={i === rows.length - 1}
+                canEdit={canEdit}
+                isEditing={editingId === row.id}
+                onStartEdit={() => setEditingId(row.id)}
+                onCancelEdit={() => setEditingId(null)}
+                onSaveEdit={(text) =>
+                  updateNote.mutate(
+                    { entryId: row.id, timestamp: row.entry.timestamp, note: text },
+                    { onSuccess: () => setEditingId(null) },
+                  )
+                }
+                onDelete={() => setDeleting(row.entry)}
+              />
+            ),
+          )}
+        </ol>
+      )}
+
+      {more.entries || more.messages ? (
+        <div className="px-5 pb-5">
+          <button
+            type="button"
+            onClick={onLoadMore}
+            disabled={loadingMore}
+            className="w-full py-2 text-center text-[14px] text-[#6aa8ee] hover:underline disabled:opacity-50"
+          >
+            {loadingMore ? <Loader2 className="mx-auto size-4 animate-spin" /> : "Load more"}
+          </button>
+        </div>
+      ) : null}
 
       <AlertDialog open={Boolean(deleting)} onOpenChange={(v) => !v && setDeleting(null)}>
         <AlertDialogContent>

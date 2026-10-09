@@ -96,4 +96,31 @@ describe("WzFieldsPanel — Workiz's Visible fields", () => {
     await userEvent.click(screen.getByRole("checkbox", { name: "Name" }));
     expect(screen.getByRole("button", { name: "Save fields" })).toBeDisabled();
   });
+
+  // The jobs list's Job ID column is always first and never hidden
+  // (list_02_fields_menu lists it first, draggable in Workiz; ours is fixed).
+  it("draws locked fields first under USED FIELDS: always on, not draggable, hidden only by the search, never saved", async () => {
+    const onSave = vi.fn();
+    render(<WzFieldsPanel options={OPTIONS} used={["name"]} locked={[{ id: "__id", label: "Job ID" }]} onSave={onSave} />);
+    await userEvent.click(screen.getByRole("button", { name: "Fields" }));
+    const used = within(screen.getByRole("region", { name: "Used fields" }));
+    expect(used.getAllByRole("checkbox").map((c) => c.getAttribute("aria-label"))).toEqual(["Job ID", "Name"]);
+    const jobId = screen.getByRole("checkbox", { name: "Job ID" });
+    expect(jobId).toBeDisabled();
+    expect(jobId).toHaveAttribute("aria-checked", "true");
+    // Not faded: it is a column, not a disabled choice.
+    expect(jobId.className).toContain("disabled:opacity-100");
+    expect(screen.queryByRole("button", { name: "Move Job ID" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Move Name" })).toBeInTheDocument();
+
+    await userEvent.type(screen.getByRole("textbox", { name: "Search fields" }), "nam");
+    expect(screen.getAllByRole("checkbox").map((c) => c.getAttribute("aria-label"))).toEqual(["Name"]);
+    await userEvent.clear(screen.getByRole("textbox", { name: "Search fields" }));
+
+    // A locked column keeps the grid, so an otherwise empty draft may be saved — without the locked id.
+    await userEvent.click(screen.getByRole("checkbox", { name: "Name" }));
+    expect(screen.getByRole("button", { name: "Save fields" })).toBeEnabled();
+    await userEvent.click(screen.getByRole("button", { name: "Save fields" }));
+    expect(onSave).toHaveBeenCalledWith([]);
+  });
 });

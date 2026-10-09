@@ -1,8 +1,9 @@
 "use client";
 
-import { useId, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
+import { useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Popover } from "radix-ui";
 import { ChevronDown, X } from "lucide-react";
+import { WzFilterChip } from "@/components/workiz";
 import { cn } from "@/lib/utils";
 import { tagSolidClasses } from "@/features/job-tags/lib";
 import { techColor } from "../tech-color";
@@ -13,7 +14,6 @@ import {
   filterGroups,
   removeFilterChip,
   type FilterCatalogs,
-  type FilterChip,
   type FilterGroup,
   type FilterGroupId,
   type FilterOption,
@@ -32,7 +32,7 @@ const COLUMNS: FilterGroupId[][] = [["tech"], ["tag"], ["type"], ["status", "com
 const PLAIN: FilterGroupId[] = ["type", "status", "company"];
 
 /** A chip's colour: a palette class (techs, tags) or an exact `#rrggbb` (areas). */
-type Paint = { className?: string; style?: CSSProperties };
+type Paint = { className?: string; color?: string };
 
 /**
  * Workiz's "Filter results" (list_03_filter_open, jobslist_wz_filter_*): a
@@ -84,7 +84,7 @@ export function JobsFilterControl({
     if (kind === "tech") return { className: techColor(value) };
     if (kind === "area") {
       const hex = areaColor.get(value);
-      return hex ? { style: { backgroundColor: hex } } : null;
+      return hex ? { color: hex } : null;
     }
     if (kind === "tag") {
       const c = tagColor.get(value);
@@ -145,7 +145,7 @@ export function JobsFilterControl({
             className={cn("block h-8 w-full truncate px-3 text-left leading-8", i === active && "bg-[#deebff]")}
           >
             {c ? (
-              <span className={cn("rounded-[3px] px-1 py-px text-sm leading-4 font-medium text-white", c.className)} style={c.style}>
+              <span className={cn("rounded-[3px] px-1 py-px text-sm leading-4 font-medium text-white", c.className)} style={c.color ? { backgroundColor: c.color } : undefined}>
                 {o.label}
               </span>
             ) : (
@@ -182,14 +182,20 @@ export function JobsFilterControl({
           )}
         >
           <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1 px-2.5 py-1">
-            {chips.map((c) => (
-              <Chip
-                key={c.key}
-                chip={c}
-                colour={colour(c.kind, c.value)}
-                onRemove={() => onChange(removeFilterChip(state, c))}
-              />
-            ))}
+            {chips.map((c) => {
+              // Workiz's chip (the kit's): the pick in the option's own colour
+              // — a class for techs and tags, the area's own hex — with its × segment.
+              const paint = colour(c.kind, c.value);
+              return (
+                <WzFilterChip
+                  key={c.key}
+                  label={c.label}
+                  colorClassName={paint?.className}
+                  color={paint?.color}
+                  onRemove={() => onChange(removeFilterChip(state, c))}
+                />
+              );
+            })}
             <div className="relative min-w-[2px] flex-1">
               {!chips.length && !query ? (
                 <span className="pointer-events-none absolute inset-y-0 left-0 flex items-center text-base text-[#808080]">
@@ -264,38 +270,6 @@ export function JobsFilterControl({
         </Popover.Content>
       </Popover.Portal>
     </Popover.Root>
-  );
-}
-
-/**
- * One picked value: Workiz's chip — a 26px white frame (1px #ccc, radius 2)
- * round a 24px block in the option's colour (radius 3, 4px sides), the label
- * (6px in) and its own × segment behind a #ccc rule (jobslist_wz_filter_three).
- */
-function Chip({ chip, colour, onRemove }: { chip: FilterChip; colour: Paint | null; onRemove: () => void }) {
-  return (
-    <span
-      className="inline-flex h-[26px] max-w-[22rem] items-stretch rounded-chip border border-input bg-background"
-      onMouseDown={(e) => e.stopPropagation()}
-    >
-      <span
-        className={cn(
-          "flex min-w-0 items-stretch overflow-hidden rounded-[3px] pl-1",
-          colour ? cn(colour.className, "text-white") : "bg-[#e6e6e6] text-[#333333]",
-        )}
-        style={colour?.style}
-      >
-        <span className="truncate py-[3px] pr-[3px] pl-1.5 text-[11.9px] leading-4 font-medium">{chip.label}</span>
-        <button
-          type="button"
-          aria-label={`Remove ${chip.label}`}
-          onClick={onRemove}
-          className="grid w-[23px] shrink-0 place-items-center border-l border-input hover:brightness-90"
-        >
-          <X className="size-2.5" strokeWidth={3.5} />
-        </button>
-      </span>
-    </span>
   );
 }
 

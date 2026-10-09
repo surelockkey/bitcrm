@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import { WzPager, wzPagerPages, wzPagerSummary } from "./pager";
+import { WzPager, wzPagerCanNext, wzPagerPages, wzPagerSummary } from "./pager";
 
 describe("wzPagerSummary — Workiz's footer words", () => {
   it("reads like list_07_bottom", () => {
@@ -42,6 +42,31 @@ describe("wzPagerPages — the words between ‹ and ›", () => {
   });
 });
 
+/**
+ * Audit L8/L15 on the jobs list: with a filter chip the pager said "Page 1 of
+ * 1" and still offered Next, which then read "Page 2 of 1". The count knows
+ * the last page; a floor, or no count, leaves it to the cursor.
+ */
+describe("wzPagerCanNext — › for a list whose count knows its last page", () => {
+  const p = { page: 1, canNext: true, isFetching: false, totalPages: 1 as number | undefined, totalPagesIsFloor: false };
+
+  it("stops on the counted last page, even with a cursor in hand", () => {
+    expect(wzPagerCanNext(p)).toBe(false);
+    expect(wzPagerCanNext({ ...p, page: 1, totalPages: 2 })).toBe(true);
+    expect(wzPagerCanNext({ ...p, page: 2, totalPages: 2 })).toBe(false);
+  });
+
+  it("follows the cursor when nothing was counted, or the count is a floor", () => {
+    expect(wzPagerCanNext({ ...p, totalPages: undefined })).toBe(true);
+    expect(wzPagerCanNext({ ...p, totalPages: 1, totalPagesIsFloor: true })).toBe(true);
+    expect(wzPagerCanNext({ ...p, totalPages: undefined, canNext: false })).toBe(false);
+  });
+
+  it("waits while the next page is on its way", () => {
+    expect(wzPagerCanNext({ ...p, totalPages: 5, isFetching: true })).toBe(false);
+  });
+});
+
 describe("WzPager", () => {
   const base = {
     page: 1,
@@ -75,6 +100,25 @@ describe("WzPager", () => {
   it("holds › while the next page is on its way", () => {
     render(<WzPager pager={{ ...base, isFetching: true }} />);
     expect(screen.getByRole("button", { name: "Next page" })).toBeDisabled();
+  });
+
+  // Other lists (calls, invoices, transfers) page past counts that understate
+  // their pages: the footer follows `canNext` as the list gives it.
+  it("follows canNext as given", () => {
+    render(<WzPager pager={{ ...base, page: 1, totalPages: 1, canNext: true }} />);
+    expect(screen.getByRole("button", { name: "Next page" })).toBeEnabled();
+  });
+
+  // list_07_bottom / uikit_wz_est_scroll1: the discs sit at 781 and 989 on
+  // the 200–1600 column for "Page 1 of 5" and "Page 1 of 881" alike — a
+  // 238px block centred on the bar, the words centred between the discs.
+  it("centres ‹ Page › in Workiz's fixed 238px block, so the discs stay put whatever the count", () => {
+    render(<WzPager pager={base} />);
+    const block = screen.getByText("Page 1 of 5").parentElement!;
+    expect(block.className).toContain("w-[238px]");
+    expect(block.className).toContain("justify-between");
+    expect(block.className).not.toContain("gap-[50px]");
+    expect(screen.getByText("Page 1 of 5").className).not.toContain("min-w-[6.5rem]");
   });
 
   it("puts whatever it is given at the right end (the page size)", () => {
