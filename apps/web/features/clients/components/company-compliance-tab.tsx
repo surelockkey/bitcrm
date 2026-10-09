@@ -3,17 +3,15 @@
 import { useRef } from "react";
 import { FileText, Loader2, Trash2, Upload } from "lucide-react";
 import { CompanyDocumentType, type Company } from "@bitcrm/types";
-import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import { WzFormSectionTitle } from "@/components/workiz/form-section-title";
+import { DEFAULT_TZ } from "@/lib/timezone";
 import { cn } from "@/lib/utils";
 import { usePermissions } from "@/features/auth/use-permissions";
-import {
-  useCompanyDocuments,
-  useUploadCompanyDocument,
-  useDeleteCompanyDocument,
-} from "../hooks";
+import { workizDateTime, workizScheduleCell } from "@/features/deals/schedule-cell";
+import { useCompanyDocuments, useUploadCompanyDocument, useDeleteCompanyDocument } from "../hooks";
 import * as api from "../api";
-import { coiStatus, paymentTermsLabel } from "../lib";
-import { CoiStatusBadge } from "./client-badges";
+import { coiStatus, paymentTermsLabel, type CoiStatus } from "../lib";
 import { useFilePreviewStore } from "@/features/files/preview-store";
 
 const DOC_LABELS: Record<CompanyDocumentType, string> = {
@@ -22,64 +20,109 @@ const DOC_LABELS: Record<CompanyDocumentType, string> = {
 };
 const DOC_TYPES = [CompanyDocumentType.W9, CompanyDocumentType.COI];
 
+/** The COI's state in words, in Workiz's colours (toastr's warning, the danger red). */
+const COI_WORDS: Record<Exclude<CoiStatus, "none">, { label: string; className: string }> = {
+  valid: { label: "Valid", className: "text-foreground" },
+  expiring: { label: "Expiring", className: "text-wz-toast-warning" },
+  expired: { label: "Expired", className: "text-wz-danger" },
+};
+
+/** Workiz's blue words-button (the client page's "Pay unpaid invoices"): 14px/21px 500 #6aa8ee. */
+const BLUE = "inline-flex items-center gap-1.5 text-sm leading-[21px] font-medium tracking-[0.4px] text-wz-link outline-none hover:underline focus-visible:underline disabled:opacity-60";
+/** Workiz's 32px IconButton: 8px corners, #f3f6f7 under the pointer. */
+const ICON_BUTTON = "grid size-8 shrink-0 place-items-center rounded-[8px] outline-none hover:bg-wz-secondary-hover focus-visible:ring-2 focus-visible:ring-ring/50";
+
+/** "2026-12-31" → "Thu Dec 31, 2026", Workiz's day. */
+const wzDay = (ymd: string) => workizScheduleCell({ scheduledDate: ymd }, "UTC").when;
+
+/**
+ * The company's terms and compliance papers (ours — Workiz keeps a client's
+ * payment terms and tax status inside Edit client info), laid out as the
+ * client page's left column and cards: "Payment" — Workiz's 10px capital
+ * captions over 14px values (Payment terms, Tax exempt, PO required, COI
+ * expiration with its state); "Compliance documents" — the W-9 and the COI
+ * as Workiz's bordered cards (1px #dfe2e3, r5, 16px in), View for anyone,
+ * Upload file / the bin for someone who may edit the company.
+ *
+ * The documents are asked for when the tab opens: the page does not open on it.
+ */
 export function CompanyComplianceTab({ company }: { company: Company }) {
   const { can } = usePermissions();
   const canEdit = can("companies", "edit");
-  const { data: docs } = useCompanyDocuments(company.id);
+  const docs = useCompanyDocuments(company.id);
   const del = useDeleteCompanyDocument(company.id);
-
   const coi = coiStatus(company.coiExpiration);
 
   return (
-    <div className="max-w-2xl space-y-6">
-      {/* Financial terms summary */}
-      <section className="grid grid-cols-2 gap-4 rounded-lg border p-4 sm:grid-cols-3">
-        <Summary label="Payment terms" value={paymentTermsLabel(company.paymentTerms, company.customTermsDays)} />
-        <Summary label="Tax exempt" value={company.taxExempt ? "Yes" : "No"} />
-        <Summary label="PO required" value={company.poRequired ? "Yes" : "No"} />
-        <Summary
-          label="COI expiration"
-          value={company.coiExpiration || "—"}
-          extra={<CoiStatusBadge status={coi} />}
-        />
-      </section>
+    <div className="px-[21px] pt-6 pb-10 text-sm leading-[21px] tracking-[0.4px] text-foreground">
+      <WzFormSectionTitle>Payment</WzFormSectionTitle>
+      <ul aria-label="Payment" className="mt-4 grid max-w-[760px] grid-cols-2 gap-x-10 gap-y-5 sm:grid-cols-4">
+        <Term label="Payment terms">{paymentTermsLabel(company.paymentTerms, company.customTermsDays)}</Term>
+        <Term label="Tax exempt">{company.taxExempt ? "Yes" : "No"}</Term>
+        <Term label="PO required">{company.poRequired ? "Yes" : "No"}</Term>
+        <Term label="COI expiration">
+          {company.coiExpiration ? wzDay(company.coiExpiration) : "—"}
+          {coi !== "none" ? <span className={COI_WORDS[coi].className}>{` · ${COI_WORDS[coi].label}`}</span> : null}
+        </Term>
+      </ul>
 
-      {/* Compliance documents */}
-      <section>
-        <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Compliance documents
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          {DOC_TYPES.map((t) => {
-            const present = docs?.find((d) => d.docType === t);
-            return (
-              <div key={t} className={cn("flex flex-col gap-2 rounded-lg border p-3", !present && "border-dashed")}>
-                <div className="grid h-14 place-items-center rounded-md bg-muted text-muted-foreground">
-                  <FileText className="size-5" />
+      <WzFormSectionTitle className="mt-10">Compliance documents</WzFormSectionTitle>
+      <div className="mt-4 grid max-w-[760px] gap-4 sm:grid-cols-2">
+        {DOC_TYPES.map((t) => {
+          const present = docs.data?.find((d) => d.docType === t);
+          const label = DOC_LABELS[t];
+          return (
+            <div key={t} role="group" aria-label={label} className="min-h-[130px] rounded-[5px] border border-border px-4 pt-[5px] pb-4">
+              <div className="flex min-h-[42px] items-center justify-between">
+                <div className="flex items-center gap-2 text-xs leading-[18px] font-semibold tracking-[0.4px]">
+                  <FileText className="size-[18px]" strokeWidth={1.25} aria-hidden />
+                  {label}
                 </div>
-                <div className="text-xs font-medium">{DOC_LABELS[t]}</div>
-                {present ? (
-                  <div className="flex items-center gap-1">
-                    <Button variant="outline" size="sm" className="h-7 flex-1 text-xs" onClick={() => view(company.id, t, DOC_LABELS[t])}>
-                      View
-                    </Button>
-                    {canEdit ? (
-                      <Button variant="ghost" size="icon" className="size-7 text-muted-foreground hover:text-destructive" onClick={() => del.mutate(t)}>
-                        <Trash2 className="size-3.5" />
-                      </Button>
-                    ) : null}
-                  </div>
-                ) : canEdit ? (
-                  <UploadButton companyId={company.id} docType={t} />
-                ) : (
-                  <span className="text-[11px] text-muted-foreground">Not uploaded</span>
-                )}
+                {present && canEdit ? (
+                  <button
+                    type="button"
+                    aria-label={`Delete ${label}`}
+                    title={`Delete ${label}`}
+                    disabled={del.isPending}
+                    onClick={() => del.mutate(t)}
+                    className={cn(ICON_BUTTON, "-mr-[5px] text-wz-danger")}
+                  >
+                    <Trash2 className="size-[18px]" strokeWidth={1.25} />
+                  </button>
+                ) : null}
               </div>
-            );
-          })}
-        </div>
-      </section>
+              {docs.isLoading ? (
+                <Skeleton className="mt-2.5 h-4 w-40" />
+              ) : (
+                <>
+                  <p className={cn("mt-2.5 leading-4", present ? "text-wz-strong" : "text-wz-outline-label")}>
+                    {present ? `Uploaded ${workizDateTime(present.uploadedAt, DEFAULT_TZ)}` : "Not uploaded"}
+                  </p>
+                  <div className="mt-4 flex items-center gap-5">
+                    {present ? (
+                      <button type="button" className={BLUE} onClick={() => view(company.id, t, label)}>
+                        View
+                      </button>
+                    ) : null}
+                    {!present && canEdit ? <UploadButton companyId={company.id} docType={t} /> : null}
+                  </div>
+                </>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
+  );
+}
+
+/** One term: Workiz's 10px/14px 500 #9ea6aa capital caption over the 14px/21px value. */
+function Term({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <li className="flex flex-col">
+      <small className="text-[10px] leading-[14px] font-medium tracking-[0.4px] text-wz-outline uppercase">{label}</small>
+      <span className="mt-2">{children}</span>
+    </li>
   );
 }
 
@@ -87,11 +130,11 @@ export function CompanyComplianceTab({ company }: { company: Company }) {
 function view(companyId: string, docType: CompanyDocumentType, name: string) {
   useFilePreviewStore.getState().preview({
     name,
-    load: async () =>
-      (await api.getCompanyDocumentDownloadUrl(companyId, docType)).downloadUrl,
+    load: async () => (await api.getCompanyDocumentDownloadUrl(companyId, docType)).downloadUrl,
   });
 }
 
+/** Workiz's "Upload file" (the Files panel's words) over a hidden file input. */
 function UploadButton({ companyId, docType }: { companyId: string; docType: CompanyDocumentType }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const upload = useUploadCompanyDocument(companyId);
@@ -108,22 +151,10 @@ function UploadButton({ companyId, docType }: { companyId: string; docType: Comp
           e.target.value = "";
         }}
       />
-      <Button variant="outline" size="sm" className="h-7 gap-1 text-xs" disabled={upload.isPending} onClick={() => inputRef.current?.click()}>
-        {upload.isPending ? <Loader2 className="size-3.5 animate-spin" /> : <Upload className="size-3.5" />}
-        Upload
-      </Button>
+      <button type="button" className={BLUE} disabled={upload.isPending} onClick={() => inputRef.current?.click()}>
+        {upload.isPending ? <Loader2 className="size-[18px] animate-spin" /> : <Upload className="size-[18px]" strokeWidth={1.25} />}
+        Upload file
+      </button>
     </>
-  );
-}
-
-function Summary({ label, value, extra }: { label: string; value: string; extra?: React.ReactNode }) {
-  return (
-    <div>
-      <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</div>
-      <div className="flex items-center gap-2 text-sm">
-        {value}
-        {extra}
-      </div>
-    </div>
   );
 }

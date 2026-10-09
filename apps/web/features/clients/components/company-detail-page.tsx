@@ -1,182 +1,195 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Building2, Mail, Pencil, Phone, Plus, Trash2 } from "lucide-react";
+import { ChevronDown, MessageSquareText, Plus, UserPlus } from "lucide-react";
+import type { Deal } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { settled, usePageReady } from "@/lib/use-page-ready";
+import { WzLeftBorderBox, WzTotalsBar } from "@/components/workiz/record-parts";
+import { WzTabBar, type WzTab } from "@/components/workiz/tab-bar";
 import { usePermissions } from "@/features/auth/use-permissions";
-import { useJobSources } from "@/features/job-sources/hooks";
-import { useCompany, useCompanyContacts, useDeleteCompany } from "../hooks";
-import { extensionOf, formatPhoneWithExtension } from "../lib";
-import { ClientTypeBadge, PlatinumBadge } from "./client-badges";
-import { CompanyForm } from "./company-form";
+import { formatMoney } from "@/features/deals/lib";
+import { accountToday } from "@/features/reports/report-dates";
+import { clientKpis } from "../client-page";
+import { useCompanyPageData } from "../company-page-data";
+import { useDeleteCompany } from "../hooks";
+import { ClientEstimatesTab, ClientInvoicesTab } from "./client-billing-tabs";
 import { CompanyComplianceTab } from "./company-compliance-tab";
+import { CompanyForm } from "./company-form";
+import { CompanyRail, type CompanyRailPanel } from "./company-rail";
+import { CompanySummaryPanel } from "./company-summary-panel";
 import { ContactForm } from "./contact-form";
 import { ContactsTable } from "./contacts-table";
 import { DeleteClientDialog } from "./delete-client-dialog";
-import { FieldList } from "./field-list";
-import { CallClientButton } from "@/features/telephony/components/call-client-button";
-import { PartyChat } from "@/features/messaging/components/party-chat";
-import { TextButton } from "@/features/messaging/components/text-button";
-import { EmptyState } from "./contacts-page";
-import { ClientEstimatesList, ClientInvoicesList } from "@/features/billing/components/client-documents";
 
+type TabId = "contacts" | "estimates" | "invoices" | "compliance";
+
+/** Workiz's Create new rows (`MenuPopup`): 35px, 8px 12px, 13px/19px ink, an 18px glyph. */
+const MENU_ROW = "min-h-[35px] gap-2 border-t-0! px-3 py-2 text-[13px] leading-[19px] text-foreground focus:text-foreground [&_svg]:size-[18px]";
+
+/** The estimates' jobs are not on this page; their Address / Job cells stay as the documents carry them. */
+const NO_DEALS = new Map<string, Deal>();
+
+/**
+ * The company page. Workiz has no companies — its client's "Company name" is
+ * a field — so the page is drawn as Workiz's client page
+ * (`/root/client/<id>/`, pg_contact_wz_269669_* — the sibling of our
+ * `/contacts/[id]`): the 300px column on the left (name, ⋮, type, CONTACT,
+ * PLATINUM, Addresses); the totals of the company's people's documents and
+ * "Create new" over small tabs — Contacts (the people linked to it, the
+ * company's representatives), Estimates, Invoices (everyone's), Compliance
+ * (ours: terms and W-9 / COI) — each a Workiz grid; the rail on the right
+ * (Notes, Messages), its panels laid over the page.
+ *
+ * Workiz's Jobs / Payments / Addresses / Calls tabs, AI insights and Custom
+ * fields have no company behind them in BitCRM and are left out.
+ */
 export function CompanyDetailPage({ companyId }: { companyId: string }) {
   const router = useRouter();
-  const { can, isLoading: permsLoading } = usePermissions();
-  const companyQuery = useCompany(companyId);
-  const company = companyQuery.data;
-  const contacts = useCompanyContacts(companyId);
-  // The Contacts tab names its people's ad sources: asked for with the page,
-  // so the tab opens whole rather than with raw ids that turn into names.
-  const jobSources = useJobSources();
+  const { can } = usePermissions();
+  // Everything on the page, asked for at once; the page goes up whole.
+  const { ready, company, people, invoices, estimates } = useCompanyPageData(companyId);
   const del = useDeleteCompany();
+  const [tab, setTab] = useState<TabId>("contacts");
   const [editing, setEditing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [addingContact, setAddingContact] = useState(false);
+  const [panel, setPanel] = useState<CompanyRailPanel | null>(null);
 
-  // One skeleton, then the page whole: the "Contacts · N" number, and the
-  // buttons and tabs the permissions decide, came in after the company and
-  // squeezed the header across. Once up it stays up — the edit form lives
-  // here — and another company starts over.
-  const ready = usePageReady(
-    !permsLoading && settled(companyQuery) && settled(contacts) && settled(jobSources),
-    companyId,
-  );
+  const today = accountToday();
+  // TOTAL REVENUE here is what the invoices say was paid: the payments are
+  // read per client, and a company's people are many.
+  const kpis = useMemo(() => clientKpis(invoices, estimates, today), [invoices, estimates, today]);
 
   if (!ready || !company) {
-    return <div className="p-6"><Skeleton className="h-64 w-full" /></div>;
+    return (
+      <div className="p-6">
+        <Skeleton className="h-64 w-full" />
+      </div>
+    );
   }
 
-  const roster = contacts.data ?? [];
-  const companyMap = new Map([[company.id, company]]);
+  const money = can("financials", "view") && can("invoices");
+  const canAddContact = can("contacts", "create");
+  const canMessage = can("messages", "send");
   const remove = () => del.mutate(company.id, { onSuccess: () => router.push("/companies") });
 
+  const tabs: WzTab[] = [
+    { value: "contacts", label: "Contacts", count: String(people.length) },
+    ...(can("estimates") ? [{ value: "estimates", label: "Estimates", count: String(estimates.length) }] : []),
+    ...(can("invoices") ? [{ value: "invoices", label: "Invoices", count: String(invoices.length) }] : []),
+    { value: "compliance", label: "Compliance" },
+  ];
+  const shown = tabs.some((t) => t.value === tab) ? tab : "contacts";
+
   return (
-    <div className="flex flex-1 flex-col">
-      <div className="flex items-center gap-3 border-b px-5 py-4">
-        <span className="flex size-9 flex-none items-center justify-center rounded-lg border bg-muted text-muted-foreground">
-          <Building2 className="size-4" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="truncate font-semibold">{company.title}</div>
-          <div className="truncate text-xs text-muted-foreground">
-            {company.address || "No address"}
-            {company.website ? <> · <span className="text-wz-link">{company.website}</span></> : null}
-          </div>
-        </div>
-        {company.isPlatinum ? <PlatinumBadge /> : null}
-        <ClientTypeBadge type={company.clientType} />
-        {!editing ? <TextButton partyKind="company" partyId={company.id} name={company.title} /> : null}
-        {!editing && can("companies", "edit") ? (
-          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setEditing(true)}>
-            <Pencil className="size-3.5" /> Edit
-          </Button>
-        ) : null}
-        {!editing && can("companies", "delete") ? (
-          <Button variant="outline" size="sm" className="gap-1.5 text-destructive" onClick={() => setConfirmDelete(true)}>
-            <Trash2 className="size-3.5" /> Delete
-          </Button>
-        ) : null}
+    <div className="relative flex min-h-0 flex-1 flex-col overflow-y-auto md:mt-3.5 md:flex-row md:overflow-hidden">
+      <div className="border-border md:w-[300px] md:shrink-0 md:overflow-y-auto md:border-t md:border-r">
+        <CompanySummaryPanel
+          company={company}
+          canEdit={can("companies", "edit")}
+          canDelete={can("companies", "delete")}
+          canMessage={canMessage}
+          onEdit={() => setEditing(true)}
+          onDelete={() => setConfirmDelete(true)}
+          onMessage={() => setPanel("messages")}
+        />
       </div>
 
-      <div className="relative flex-1 overflow-y-auto">
-        {editing ? (
-          <div className="mx-auto max-w-2xl p-6">
-            <CompanyForm company={company} onCancel={() => setEditing(false)} onDone={() => setEditing(false)} />
-          </div>
-        ) : (
-          <Tabs defaultValue="overview" className="flex flex-col">
-            <div className="border-b px-5">
-              <TabsList variant="line" className="h-11">
-                <TabsTrigger value="overview" className="px-2">Overview</TabsTrigger>
-                <TabsTrigger value="contacts" className="px-2">Contacts · {roster.length}</TabsTrigger>
-                <TabsTrigger value="compliance" className="px-2">Compliance</TabsTrigger>
-                {can("estimates") ? <TabsTrigger value="estimates" className="px-2">Estimates</TabsTrigger> : null}
-                {can("invoices") ? <TabsTrigger value="invoices" className="px-2">Invoices</TabsTrigger> : null}
-                {can("messages") ? <TabsTrigger value="messages" className="px-2">Messages</TabsTrigger> : null}
-              </TabsList>
-            </div>
-
-            <TabsContent value="overview" className="mt-0 p-6">
-              <div className="grid max-w-2xl gap-5">
-                <FieldList
-                  label="Phones"
-                  icon={Phone}
-                  values={company.phones}
-                  maskedCount={company.phoneCount}
-                  format={(p) => formatPhoneWithExtension(p, extensionOf(company, p))}
-                  primaryFirst
-                  action={(phone) => (
-                    <CallClientButton to={phone} partyId={company.id} kind="company" />
-                  )}
-                />
-                <FieldList label="Emails" icon={Mail} values={company.emails} />
-                <div className="grid grid-cols-2 gap-4">
-                  <Detail label="Address" value={company.address || "—"} />
-                  <Detail label="Website" value={company.website || "—"} />
-                </div>
-                {company.notes ? <Detail label="Notes" value={company.notes} /> : null}
-              </div>
-            </TabsContent>
-
-            <TabsContent value="contacts" className="mt-0 p-6">
-              <div className="mb-3 flex items-center justify-between">
-                <div className="text-sm text-muted-foreground">People at {company.title}</div>
-                {can("contacts", "create") ? (
-                  <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setAddingContact(true)}>
-                    <Plus className="size-3.5" /> Add contact
-                  </Button>
+      <div className="flex min-w-0 flex-1 flex-col border-t border-border pt-6 md:overflow-y-auto">
+        <div className="mb-5 flex min-h-10 shrink-0 flex-wrap items-start justify-between gap-3 pr-[26px]">
+          {/* Workiz's totals (`client-module__totals`), over the company's people's documents. */}
+          <WzTotalsBar aria-label="Company totals" className="pt-0.5 max-md:gap-x-10 max-md:pl-5">
+            {money ? (
+              <>
+                <WzLeftBorderBox label="Past due" value={formatMoney(kpis.pastDue)} tone="danger" />
+                <WzLeftBorderBox label="Due" value={formatMoney(kpis.due)} />
+                <WzLeftBorderBox label="Total revenue" value={formatMoney(kpis.totalRevenue)} />
+              </>
+            ) : null}
+            {can("estimates") ? <WzLeftBorderBox label="Estimates" value={String(kpis.estimates)} /> : null}
+          </WzTotalsBar>
+          {canAddContact || canMessage ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                {/* pg_contact_wz_269669_01: a 40px yellow pill, the chevron before the words. */}
+                <Button variant="brand" size="lg" className="min-w-[133px] gap-1.5 px-3 max-md:ml-5">
+                  <ChevronDown className="size-[18px]" strokeWidth={1.75} /> Create new
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                sideOffset={5}
+                alignOffset={-8}
+                className="w-[236px] min-w-[236px] rounded-[8px] p-2 shadow-[0_0_4px_rgba(59,75,82,0.05),0_8px_16px_rgba(59,75,82,0.15)]"
+              >
+                {/* What a company can have made from its page: a person linked to it, a text to it. */}
+                {canAddContact ? (
+                  <DropdownMenuItem className={MENU_ROW} onSelect={() => setAddingContact(true)}>
+                    <UserPlus strokeWidth={1.25} /> Contact
+                  </DropdownMenuItem>
                 ) : null}
-              </div>
-              {contacts.isLoading ? (
-                <Skeleton className="h-40 w-full" />
-              ) : roster.length === 0 ? (
-                <EmptyState
-                  icon={<Building2 className="size-6" />}
-                  title="No contacts yet"
-                  hint="Add the people you work with at this company."
-                />
-              ) : (
-                <ContactsTable contacts={roster} companyMap={companyMap} />
-              )}
-            </TabsContent>
+                {canMessage ? (
+                  <DropdownMenuItem className={MENU_ROW} onSelect={() => setPanel("messages")}>
+                    <MessageSquareText strokeWidth={1.25} /> Message
+                  </DropdownMenuItem>
+                ) : null}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
+        </div>
 
-            <TabsContent value="compliance" className="mt-0 p-6">
-              <CompanyComplianceTab company={company} />
-            </TabsContent>
+        <WzTabBar aria-label="Company tabs" variant="small" tabs={tabs} value={shown} onValueChange={(v) => setTab(v as TabId)} className="mt-1 -ml-px shrink-0" />
 
-            {can("estimates") ? (
-              <TabsContent value="estimates" className="mt-0 max-w-3xl p-6">
-                <p className="mb-3 text-sm text-muted-foreground">Estimates for everyone at {company.title}</p>
-                {contacts.isLoading ? <Skeleton className="h-20 w-full" /> : <ClientEstimatesList contactIds={roster.map((c) => c.id)} />}
-              </TabsContent>
-            ) : null}
-
-            {can("invoices") ? (
-              <TabsContent value="invoices" className="mt-0 max-w-3xl p-6">
-                <p className="mb-3 text-sm text-muted-foreground">Invoices for everyone at {company.title}</p>
-                {contacts.isLoading ? <Skeleton className="h-20 w-full" /> : <ClientInvoicesList contactIds={roster.map((c) => c.id)} />}
-              </TabsContent>
-            ) : null}
-
-            {can("messages") ? (
-              <TabsContent value="messages" className="mt-0 p-6">
-                <PartyChat partyKind="company" partyId={company.id} className="h-[32rem] max-w-3xl" />
-              </TabsContent>
-            ) : null}
-          </Tabs>
-        )}
+        <div role="tabpanel" aria-label={tabs.find((t) => t.value === shown)?.label} className="min-w-0 shrink-0">
+          {shown === "contacts" ? (
+            <ContactsTable
+              contacts={people}
+              toolbar={
+                canAddContact ? (
+                  // Where the client page's Invoices tab puts "Pay unpaid invoices": a glyph and 14px #6aa8ee words after the Search.
+                  <button
+                    type="button"
+                    onClick={() => setAddingContact(true)}
+                    className="ml-[15px] inline-flex items-center gap-2 text-sm leading-[21px] font-medium tracking-[0.4px] text-wz-link outline-none hover:underline focus-visible:underline"
+                  >
+                    <Plus className="size-[18px]" strokeWidth={1.5} /> Add contact
+                  </button>
+                ) : null
+              }
+            />
+          ) : shown === "estimates" ? (
+            <ClientEstimatesTab estimates={estimates} dealsById={NO_DEALS} />
+          ) : shown === "invoices" ? (
+            <ClientInvoicesTab invoices={invoices} today={today} money={money} />
+          ) : (
+            <CompanyComplianceTab company={company} />
+          )}
+        </div>
       </div>
+
+      {/* Workiz's right rail: Notes, and ours — the company's Messages — their panels laid over the page. */}
+      <CompanyRail
+        company={company}
+        canEdit={can("companies", "edit")}
+        canMessages={can("messages")}
+        panel={panel}
+        onPanelChange={setPanel}
+        onEditNotes={() => setEditing(true)}
+      />
+
+      {/* Workiz's "Edit client info" is a modal over the card; the company's form lives in one too. */}
+      <Dialog open={editing} onOpenChange={setEditing}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Edit company info</DialogTitle>
+          </DialogHeader>
+          <CompanyForm company={company} onCancel={() => setEditing(false)} onDone={() => setEditing(false)} />
+        </DialogContent>
+      </Dialog>
 
       <DeleteClientDialog
         open={confirmDelete}
@@ -189,23 +202,12 @@ export function CompanyDetailPage({ companyId }: { companyId: string }) {
 
       <Dialog open={addingContact} onOpenChange={setAddingContact}>
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
-          <DialogHeader><DialogTitle>New contact · {company.title}</DialogTitle></DialogHeader>
-          <ContactForm
-            defaultCompanyId={company.id}
-            onCancel={() => setAddingContact(false)}
-            onDone={() => setAddingContact(false)}
-          />
+          <DialogHeader>
+            <DialogTitle>New contact · {company.title}</DialogTitle>
+          </DialogHeader>
+          <ContactForm defaultCompanyId={company.id} onCancel={() => setAddingContact(false)} onDone={() => setAddingContact(false)} />
         </DialogContent>
       </Dialog>
-    </div>
-  );
-}
-
-function Detail({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</div>
-      <div className="text-sm">{value}</div>
     </div>
   );
 }

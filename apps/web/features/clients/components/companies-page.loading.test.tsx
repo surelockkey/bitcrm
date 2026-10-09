@@ -17,8 +17,8 @@ import {
  *
  * The toolbar said "0 companies" until the rows came and then "284
  * companies" — the number grew leftwards under the reader's eye — and the
- * "New company" button turned up on its own beat. Now the rows, the number
- * and the button come in one frame.
+ * "New company" button turned up on its own beat. Now the rows, the cards'
+ * numbers, the footer and "+ Add Company" come in one frame.
  */
 
 vi.mock("next/navigation", () => ({
@@ -74,21 +74,22 @@ afterEach(() => {
 describe("CompaniesPage — no jumping", () => {
   it("draws the rows, their number and the button in one frame", async () => {
     const watch = watchFirstFrame(rowsUp, () => ({
-      count: text().includes("3 companies"),
-      newCompany: !!screen.queryByRole("button", { name: /new company/i }),
+      count: screen.queryByRole("button", { name: "Companies" })?.textContent?.includes("3") ?? false,
+      footer: text().includes("Showing 1 to 3 of 3 results"),
+      newCompany: !!screen.queryByRole("button", { name: "Add Company" }),
       skeletons: skeletonCount(),
     }));
     renderWithClient(<CompaniesPage />);
     await screen.findByText("Acme Storage", {}, { timeout: 3000 });
     watch.stop();
 
-    expect(watch.frame()).toEqual({ count: true, newCompany: true, skeletons: 0 });
+    expect(watch.frame()).toEqual({ count: true, footer: true, newCompany: true, skeletons: 0 });
   });
 
-  it("never says '0 companies' while the rows are on their way", async () => {
+  it("never says '0' companies while the rows are on their way", async () => {
     let zero = false;
     const observer = new MutationObserver(() => {
-      if (text().includes("0 companies")) zero = true;
+      if (text().includes("of 0 results") || screen.queryByText("No Records Found")) zero = true;
     });
     observer.observe(document.body, { childList: true, subtree: true, characterData: true });
     renderWithClient(<CompaniesPage />);
@@ -103,7 +104,7 @@ describe("CompaniesPage — no jumping", () => {
     renderWithClient(<CompaniesPage />);
     await settle(100);
 
-    expect(screen.queryByRole("button", { name: /new company/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Add Company" })).toBeNull();
     expect(screen.queryByText("Acme Storage")).toBeNull();
   });
 
