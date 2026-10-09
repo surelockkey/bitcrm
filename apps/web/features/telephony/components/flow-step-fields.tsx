@@ -6,8 +6,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import type { CallFlowNode, CallGroupWithMembers } from "@bitcrm/types";
+import type { CallDevice, CallFlowNode, CallGroupWithMembers } from "@bitcrm/types";
 import { useUploadFlowAudio } from "../call-flows-hooks";
+import type { TransferTarget } from "../api";
+import { ForwardStepFields } from "./forward-step-fields";
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -18,10 +20,15 @@ const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 export function FlowStepFields({
   node,
   groups,
+  teammates = [],
+  devices = [],
   onChange,
 }: {
   node: CallFlowNode;
   groups: CallGroupWithMembers[];
+  /** Who the Forward step's User and Device tabs offer. */
+  teammates?: TransferTarget[];
+  devices?: CallDevice[];
   onChange: (node: CallFlowNode) => void;
 }) {
   const upload = useUploadFlowAudio();
@@ -90,42 +97,8 @@ export function FlowStepFields({
   }
 
   if (node.type === "ring") {
-    return (
-      <div className="space-y-2">
-        <div className="space-y-1">
-          <Label className="text-xs">Call group</Label>
-          <select
-            aria-label="Call group"
-            className="h-8 w-full rounded-md border bg-transparent px-2 text-xs"
-            value={node.groupId}
-            onChange={(e) => onChange({ ...node, groupId: e.target.value })}
-          >
-            <option value="">Pick a call group…</option>
-            {groups.map((group) => (
-              <option key={group.id} value={group.id}>
-                {group.name} — {group.members.length} member
-                {group.members.length === 1 ? "" : "s"}
-              </option>
-            ))}
-          </select>
-        </div>
-        <label className="flex items-start gap-2 text-xs">
-          <input
-            type="checkbox"
-            className="mt-0.5"
-            checked={!!node.whisper}
-            onChange={(e) => onChange({ ...node, whisper: e.target.checked })}
-          />
-          <span>
-            Make personal phones press a key first
-            <span className="block text-muted-foreground">
-              Stops a mobile&apos;s voicemail answering and taking the call from
-              everyone else still ringing.
-            </span>
-          </span>
-        </label>
-      </div>
-    );
+    // Workiz's Forward Calls pane: Group | User | External Number (+ Device).
+    return <ForwardStepFields node={node} groups={groups} teammates={teammates} devices={devices} onChange={onChange} />;
   }
 
   if (node.type === "hours") {

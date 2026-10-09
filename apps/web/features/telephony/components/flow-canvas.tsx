@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatPhone } from "@/lib/phone";
-import type { CallFlowNode, CallFlowNodeType, CallGroupWithMembers } from "@bitcrm/types";
+import type { CallFlowNode, CallFlowNodeType, RingNode } from "@bitcrm/types";
 import type { FlowStep } from "../flow-tree";
 import { STEP_LABEL } from "../flow-graph";
 import {
@@ -42,7 +42,7 @@ const MAX_ZOOM = 1.4;
 const ZOOM_STEP = 0.1;
 
 /** The one-line detail under a card's title. */
-function summarise(node: CallFlowNode, groupName: (id: string) => string): string {
+function summarise(node: CallFlowNode, targetLabel: (node: RingNode) => string): string {
   switch (node.type) {
     case "say":
       return node.audioId ? "Plays a recording" : node.text || "Says nothing yet";
@@ -53,7 +53,8 @@ function summarise(node: CallFlowNode, groupName: (id: string) => string): strin
     case "menu":
       return `${node.options.length} option${node.options.length === 1 ? "" : "s"}`;
     case "ring":
-      return node.groupId ? groupName(node.groupId) : "No group picked yet";
+      // Workiz's Forward card: the number, or the name of what it rings.
+      return targetLabel(node);
     case "voicemail":
       return `Records up to ${node.maxSeconds}s`;
     case "hangup":
@@ -77,7 +78,7 @@ function summarise(node: CallFlowNode, groupName: (id: string) => string): strin
  */
 export function FlowCanvas({
   steps,
-  groups,
+  targetLabel,
   numbers,
   selectedId,
   onSelect,
@@ -85,7 +86,8 @@ export function FlowCanvas({
   onAdd,
 }: {
   steps: FlowStep[];
-  groups: CallGroupWithMembers[];
+  /** What a Forward card says it rings — a name or a number (`ringTargetLabel`). */
+  targetLabel: (node: RingNode) => string;
   /** Shown on the incoming-call card — the numbers that enter this flow. */
   numbers: string[];
   selectedId?: string;
@@ -99,9 +101,6 @@ export function FlowCanvas({
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [panning, setPanning] = useState(false);
   const centred = useRef(false);
-
-  const groupName = (id: string) =>
-    groups.find((g) => g.id === id)?.name ?? "a deleted group";
 
   /** Sit the flow under the top of the viewport, centred on its trunk. */
   const centre = useCallback(
@@ -234,11 +233,11 @@ export function FlowCanvas({
               node={node}
               icon={ICONS[node.step!.node.type]}
               title={STEP_LABEL[node.step!.node.type]}
-              detail={summarise(node.step!.node, groupName)}
+              detail={summarise(node.step!.node, targetLabel)}
               // The detail rides along because a flow can hold three
               // greetings, and "Edit Say something" three times tells a screen
               // reader nothing about which one is which.
-              ariaLabel={`Edit ${STEP_LABEL[node.step!.node.type]} — ${summarise(node.step!.node, groupName)}`}
+              ariaLabel={`Edit ${STEP_LABEL[node.step!.node.type]} — ${summarise(node.step!.node, targetLabel)}`}
               selected={selectedId === node.id}
               onSelect={() => onSelect(node)}
             />
