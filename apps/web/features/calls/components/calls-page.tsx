@@ -139,10 +139,11 @@ export function CallsPage() {
   }
 
   return (
-    // The page scrolls itself, as Workiz's main container does: the grid's
-    // header sticks to its top, and a wide grid scrolls sideways under
-    // controls that hold still (`sticky left-0`).
-    <div className="flex min-h-0 flex-1 flex-col overflow-auto text-wz-strong" data-slot="calls-scroller">
+    // The page scrolls itself, up and down only, as Workiz's does (the
+    // 2026-10-09 probes: its document never scrolls sideways): the grid's
+    // header sticks to its top, and a grid wider than the page scrolls
+    // sideways in its own box (`WzScrollGrid`), the controls above it still.
+    <div className="flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto text-wz-strong" data-slot="calls-scroller">
       <PhoneHeader number={pageShown ? data.mainNumber : undefined} />
       <PhoneTabs />
 
@@ -161,7 +162,7 @@ export function CallsPage() {
             each from a real number or not drawn. Each keeps Workiz's size —
             a fifth of the row, 16px apart — so fewer cards leave the room
             empty rather than stretch. 25px under the filters. */}
-        <div className="sticky left-0 flex h-[113px] gap-4 px-5 pt-[25px]">
+        <div className="flex h-[113px] gap-4 px-5 pt-[25px]">
           {kpis.map((k) => (
             <WzStatCard
               key={k.id}
@@ -174,7 +175,7 @@ export function CallsPage() {
           ))}
         </div>
 
-        <WzListToolbar className="sticky left-0 mt-[25px] gap-x-2.5 px-[21px]">
+        <WzListToolbar className="mt-[25px] gap-x-2.5 px-[21px]">
           <WzSearchBox value={searchText} onChange={setSearchText} inputMode="search" />
           <CallMonitoring />
           <div className="ml-auto flex items-center gap-4">
@@ -193,7 +194,7 @@ export function CallsPage() {
           over a long window an uncommon tag can read a long way back for one
           page. Today's window keeps it quick; a wide one says so. */}
       {pageShown && filter.tagId && range.preset !== "today" && range.preset !== "yesterday" ? (
-        <p className="sticky left-0 px-5 py-2 text-xs text-wz-caption">
+        <p className="px-5 py-2 text-xs text-wz-caption">
           Tag search reads the log newest-first — a shorter date range keeps it quick.
         </p>
       ) : null}
@@ -212,7 +213,7 @@ export function CallsPage() {
               empty={query.hasNextPage ? "No calls yet in the stretch searched" : "No Calls Found"}
             />
             {calls.length === 0 && query.hasNextPage ? (
-              <div className="sticky left-0 flex flex-col items-center gap-2 py-6 text-center">
+              <div className="flex flex-col items-center gap-2 py-6 text-center">
                 <p className="text-sm text-wz-caption">
                   The log is searched newest-first, a stretch at a time. Keep searching to read further back, or narrow
                   the date range.
@@ -228,7 +229,7 @@ export function CallsPage() {
                 </Button>
               </div>
             ) : null}
-            <WzPager pager={pager} className="sticky left-0" />
+            <WzPager pager={pager} />
           </>
         )}
       </div>

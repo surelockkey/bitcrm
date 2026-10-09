@@ -103,6 +103,20 @@ describe("CallsPage — the history section", () => {
     expect(screen.getByRole("combobox", { name: /rows per page/i })).toBeInTheDocument();
   });
 
+  // Workiz's page scrolls only up and down (the 2026-10-09 probes); the grid
+  // scrolls sideways on its own. A page that scrolled sideways itself slid
+  // the cards and the strip away with it — `sticky left-0` holds nothing
+  // that is as wide as its parent.
+  it("scrolls only up and down; the controls above the grid are not pinned sideways", () => {
+    mocks.list.data = { pages: [{ data: [{ callSid: "CA1" }] }] };
+    const { container } = renderWithClient(<CallsPage />);
+    const scroller = container.querySelector("[data-slot=calls-scroller]") as HTMLElement;
+    expect(scroller.className).toMatch(/\boverflow-y-auto\b/);
+    expect(scroller.className).toMatch(/\boverflow-x-hidden\b/);
+    expect(scroller.className).not.toMatch(/\boverflow-auto\b/);
+    expect(scroller.querySelectorAll("[data-testid=calls-controls] .sticky")).toHaveLength(0);
+  });
+
   it("asks the server for as many calls as the reader chose — ten until then, as Workiz opens", () => {
     mocks.list.data = { pages: [{ data: [{ callSid: "CA1" }] }] };
     renderWithClient(<CallsPage />);

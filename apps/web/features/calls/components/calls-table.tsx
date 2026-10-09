@@ -5,8 +5,9 @@ import Link from "next/link";
 import { Pause, Play } from "lucide-react";
 import type { Deal } from "@bitcrm/types";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { TableBody, TableCell, TableHead, TableRow } from "@/components/ui/table";
 import { ResizableHead } from "@/components/ui/resizable-head";
+import { WzScrollGrid, type WzScrollColumn } from "@/components/workiz/scroll-grid";
 import { WzTableEmpty } from "@/components/workiz/table-empty";
 import { useColumnWidths } from "@/lib/table/use-column-widths";
 import { cn } from "@/lib/utils";
@@ -25,17 +26,16 @@ import { NewClientFromCallDialog } from "./new-client-from-call-dialog";
 import { RecordingPreview } from "./recording-preview";
 
 /**
- * Workiz's call grid (callspage_wz_01 / _02): the app's Workiz `Table` in a
- * 1px #ddd frame, the header pinned to the page scroller's top, 80px rows of
+ * Workiz's call grid (callspage_wz_01 / _02): the kit's scroll grid in a
+ * 1px #ddd frame — the header pinned to the page's top, the rows scrolling
+ * sideways in their own box when the columns are wider than the page, and
+ * growing to fill it when they are not (`WzScrollGrid`) — 80px rows of
  * 20px cells (14px/16px #404040, dotted #cfcfcf rules), the Time column
  * marked as the one the rows are ordered by (newest first: the bar at the
  * foot). `table-fixed`, every column at a declared width, so a value that
  * lands late never shoves its neighbours — and a long one is clipped.
  */
-const FRAME = "relative border border-wz-frame";
-/** Separate borders: the pinned header keeps its rules while the rows scroll under it. */
-const TABLE = "table-fixed w-full border-separate border-spacing-0";
-const HEAD = "sticky top-0 z-10 bg-muted border-b border-input";
+const HEAD = "bg-muted border-b border-input";
 /** Workiz's 20px all round (the Table's fixed layout would give 10px sides), top-aligned. */
 const CELL = "overflow-hidden whitespace-nowrap p-5 align-top";
 
@@ -57,14 +57,21 @@ function useColumns(): CallColumn[] {
   return visibleCallColumns(visible, order, can("financials", "view"));
 }
 
-function useWidths(columns: CallColumn[]) {
+/**
+ * The grid's columns: each at its Workiz minimum, or the width the reader
+ * dragged it to — which it then keeps while the others grow to the page.
+ */
+function useScrollColumns(columns: CallColumn[]) {
   const defaults = useMemo(() => Object.fromEntries(columns.map((c) => [c.id, c.width])), [columns]);
-  return useColumnWidths(TABLE_KEY, defaults);
+  const widths = useColumnWidths(TABLE_KEY, defaults);
+  const scrollColumns: WzScrollColumn[] = columns.map((c) => ({
+    id: c.id,
+    label: c.label,
+    width: widths.widthOf(c.id),
+    fixed: c.fixed || widths.isSet(c.id),
+  }));
+  return { ...widths, scrollColumns };
 }
-
-/** The grid's own width: its columns', or the page's when that is wider. */
-const gridWidth = (columns: CallColumn[], widthOf: (id: string) => number) =>
-  `max(100%, ${columns.reduce((sum, c) => sum + widthOf(c.id), 0)}px)`;
 
 /**
  * The grid's shell while the log is in flight: the same frame, header and
@@ -73,37 +80,33 @@ const gridWidth = (columns: CallColumn[], widthOf: (id: string) => number) =>
  */
 export function CallsTableSkeleton({ rows = MIN_ROWS }: { rows?: number }) {
   const columns = useColumns();
-  const { widthOf } = useWidths(columns);
+  const { scrollColumns } = useScrollColumns(columns);
   return (
-    <div className={FRAME} style={{ width: gridWidth(columns, widthOf) }} aria-busy role="status" aria-label="Loading calls">
-      <Table className={TABLE} contained={false}>
-        <colgroup>
-          {columns.map((c) => (
-            <col key={c.id} style={{ width: widthOf(c.id) }} />
-          ))}
-        </colgroup>
-        <TableHeader>
-          <TableRow>
+    <WzScrollGrid
+      columns={scrollColumns}
+      busy
+      role="status"
+      aria-label="Loading calls"
+      header={() =>
+        columns.map((c) => (
+          <TableHead key={c.id} className={cn(HEAD, "truncate")} sort={c.id === "time" ? "desc" : undefined}>
+            {c.label}
+          </TableHead>
+        ))
+      }
+    >
+      <TableBody>
+        {Array.from({ length: rows }, (_, i) => (
+          <TableRow key={i} aria-hidden className="h-20">
             {columns.map((c) => (
-              <TableHead key={c.id} className={cn(HEAD, "truncate")} sort={c.id === "time" ? "desc" : undefined}>
-                {c.label}
-              </TableHead>
+              <TableCell key={c.id} className={CELL}>
+                <Skeleton className="h-4 w-full" />
+              </TableCell>
             ))}
           </TableRow>
-        </TableHeader>
-        <TableBody>
-          {Array.from({ length: rows }, (_, i) => (
-            <TableRow key={i} aria-hidden className="h-20">
-              {columns.map((c) => (
-                <TableCell key={c.id} className={CELL}>
-                  <Skeleton className="h-4 w-full" />
-                </TableCell>
-              ))}
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </div>
+        ))}
+      </TableBody>
+    </WzScrollGrid>
   );
 }
 
@@ -118,7 +121,7 @@ export function CallsTable({
   const sourceName = useJobSourceName();
   const columns = useColumns();
   // The reader's own widths for this table; the registry only sets the start.
-  const { widthOf, setWidth, reset } = useWidths(columns);
+  const { scrollColumns, setWidth, reset } = useScrollColumns(columns);
   // One request for every job on the page, not one per row — and the page
   // brings these with its rows (`useCallsList`), so here they are read.
   const dealIds = useMemo(() => linkedDealIds(calls), [calls]);
@@ -206,82 +209,79 @@ export function CallsTable({
   };
 
   return (
-    <div className={FRAME} style={{ width: gridWidth(columns, widthOf) }}>
-      <Table className={TABLE} contained={false}>
-        <colgroup>
-          {columns.map((c) => (
-            <col key={c.id} style={{ width: widthOf(c.id) }} />
-          ))}
-        </colgroup>
-        <TableHeader>
-          <TableRow>
-            {columns.map((c) => (
-              <ResizableHead
-                key={c.id}
-                columnId={c.id}
-                label={c.label}
-                width={widthOf(c.id)}
-                onResize={(px) => setWidth(c.id, px)}
-                onReset={reset}
-                sort={c.id === "time" ? "desc" : undefined}
-                className={HEAD}
-              >
-                {c.label}
-              </ResizableHead>
-            ))}
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {calls.map((call) => (
-            <Fragment key={call.callSid}>
-              <TableRow
-                className="group/row h-20 cursor-pointer"
-                // Left click opens the side preview; right click opens the
-                // call's own page in a new tab, like the job list.
-                onClick={() => setQuickViewSid(call.callSid)}
-                onContextMenu={(e) => {
-                  e.preventDefault();
-                  window.open(`/calls/${call.callSid}`, "_blank", "noopener,noreferrer");
-                }}
-              >
-                {columns.map((c) => (
-                  <TableCell key={c.id} className={CELL}>
-                    {cell(call, c)}
-                  </TableCell>
-                ))}
-              </TableRow>
-              {previewSid === call.callSid ? (
-                <TableRow className="hover:bg-transparent">
-                  <TableCell colSpan={columns.length} className="bg-muted/30 px-5 py-2">
-                    <RecordingPreview callSid={call.callSid} />
-                  </TableCell>
-                </TableRow>
-              ) : null}
-            </Fragment>
-          ))}
-          {/* Workiz's grid never runs shorter than ten rows: blank striped
-              rows keep the rules going. */}
-          {Array.from({ length: Math.max(0, MIN_ROWS - calls.length) }, (_, i) => (
-            <TableRow key={`pad-${i}`} aria-hidden className="h-20">
+    <WzScrollGrid
+      columns={scrollColumns}
+      header={(widthOf) =>
+        columns.map((c) => (
+          <ResizableHead
+            key={c.id}
+            columnId={c.id}
+            label={c.label}
+            width={widthOf(c.id)}
+            onResize={(px) => setWidth(c.id, px)}
+            onReset={reset}
+            sort={c.id === "time" ? "desc" : undefined}
+            className={HEAD}
+          >
+            {c.label}
+          </ResizableHead>
+        ))
+      }
+      after={
+        <>
+          {calls.length === 0 && empty ? <WzTableEmpty title={empty} /> : null}
+
+          <CallQuickView
+            callSid={quickViewSid}
+            // The row is already in hand — the panel draws it at once instead of
+            // waiting for the detail request to say the same thing.
+            call={quickViewSid ? calls.find((c) => c.callSid === quickViewSid) : undefined}
+            open={!!quickViewSid}
+            onOpenChange={(open) => !open && setQuickViewSid(null)}
+          />
+
+          <NewClientFromCallDialog phone={addingFor} onClose={() => setAddingFor(null)} />
+        </>
+      }
+    >
+      <TableBody>
+        {calls.map((call) => (
+          <Fragment key={call.callSid}>
+            <TableRow
+              className="group/row h-20 cursor-pointer"
+              // Left click opens the side preview; right click opens the
+              // call's own page in a new tab, like the job list.
+              onClick={() => setQuickViewSid(call.callSid)}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                window.open(`/calls/${call.callSid}`, "_blank", "noopener,noreferrer");
+              }}
+            >
               {columns.map((c) => (
-                <TableCell key={c.id} className={CELL} />
+                <TableCell key={c.id} className={CELL}>
+                  {cell(call, c)}
+                </TableCell>
               ))}
             </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-      {calls.length === 0 && empty ? <WzTableEmpty title={empty} /> : null}
-
-      <CallQuickView
-        callSid={quickViewSid}
-        // The row is already in hand — the panel draws it at once instead of
-        // waiting for the detail request to say the same thing.
-        call={quickViewSid ? calls.find((c) => c.callSid === quickViewSid) : undefined}
-        open={!!quickViewSid}
-        onOpenChange={(open) => !open && setQuickViewSid(null)}
-      />
-
-      <NewClientFromCallDialog phone={addingFor} onClose={() => setAddingFor(null)} />
-    </div>
+            {previewSid === call.callSid ? (
+              <TableRow className="hover:bg-transparent">
+                <TableCell colSpan={columns.length} className="bg-muted/30 px-5 py-2">
+                  <RecordingPreview callSid={call.callSid} />
+                </TableCell>
+              </TableRow>
+            ) : null}
+          </Fragment>
+        ))}
+        {/* Workiz's grid never runs shorter than ten rows: blank striped
+            rows keep the rules going. */}
+        {Array.from({ length: Math.max(0, MIN_ROWS - calls.length) }, (_, i) => (
+          <TableRow key={`pad-${i}`} aria-hidden className="h-20">
+            {columns.map((c) => (
+              <TableCell key={c.id} className={CELL} />
+            ))}
+          </TableRow>
+        ))}
+      </TableBody>
+    </WzScrollGrid>
   );
 }

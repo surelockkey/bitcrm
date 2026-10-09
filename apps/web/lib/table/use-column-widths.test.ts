@@ -37,6 +37,20 @@ describe("useColumnWidths", () => {
     expect(result.current.widthOf("tech")).toBe(170);
   });
 
+  // Сітка, що росте на ширину сторінки, лишає розсунуту читачем колонку як є,
+  // а решту ділить — тож їй треба знати, яку з них чіпали.
+  it("tells a column the reader sized from one at its default", () => {
+    const { result } = renderHook(() => useColumnWidths("jobs", DEFAULTS));
+    expect(result.current.isSet("client")).toBe(false);
+
+    act(() => result.current.setWidth("client", 320));
+    expect(result.current.isSet("client")).toBe(true);
+    expect(result.current.isSet("tech")).toBe(false);
+
+    act(() => result.current.reset());
+    expect(result.current.isSet("client")).toBe(false);
+  });
+
   it("survives a reload", () => {
     const first = renderHook(() => useColumnWidths("jobs", DEFAULTS));
     act(() => first.result.current.setWidth("client", 320));

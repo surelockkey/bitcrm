@@ -97,7 +97,7 @@ export function CallsFilterRow({
   return (
     // Above the cards, the strip and the grid's pinned header: the date
     // list hangs down over them.
-    <div className="sticky left-0 z-20 flex items-start gap-4 px-5 pt-6">
+    <div className="relative z-20 flex items-start gap-4 px-5 pt-6">
       <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2.5 pt-px">
         {chips.map((chip) => {
           const def = FILTER_KINDS.find((k) => k.kind === chip.kind)!;

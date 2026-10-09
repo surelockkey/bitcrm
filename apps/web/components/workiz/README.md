@@ -1271,6 +1271,44 @@ boxes (`WzTextField`), react-selects (`WzSelect`) and 11px/13px #999 helpers
   box); the value and placeholder now sit on the box's middle (13px down in
   the 42px box, as before) and the input fills its height.
 
+## Grids that scroll sideways inside their own box (2026-10-09, the coordinator, after the owner's "скрол зїхав" on /calls)
+
+Workiz's page scrolls only up and down; its react-table grid scrolls sideways
+inside its own box when the columns are wider than the page, with the header
+pinned to the page's top and moving sideways with the rows (probes of
+`/root/callsReport/` at 1280 / 1440 / 1600 on 2026-10-09: `html` never scrolls
+sideways, the rows' box does; callspage_wz_02_scroll1). Our pages used to
+scroll sideways themselves with `sticky left-0` controls — which cannot hold a
+row as wide as its parent, so the cards and the toolbar slid away with the
+grid on any screen narrower than the columns (1440: the calls grid at 1398px
+in a 1240px page).
+
+- **`WzScrollGrid`** (`scroll-grid.tsx`) — the frame (1px #ddd) with the
+  header as one table in a `sticky top-0 overflow-hidden` box and the rows as
+  another in an `overflow-x-auto` box, both on the same `<colgroup>`;
+  scrolling the rows scrolls the header the same amount. The rows' table
+  carries the column names once more, `sr-only`, for a screen reader.
+  `columns: { id, label, width, fixed? }[]`, `header={(widthOf) => <th>…}`
+  (hand `ResizableHead` the drawn width), the `<TableBody>` as children,
+  `after` for what sits over the rows (an empty wash, a quick view).
+- **`fitColumnWidths(columns, available)`** — Workiz's react-table rule:
+  each column has a minimum (`width`); on a wider page the ones without
+  `fixed` share the rest in proportion to their minimum (`flex: <min> 0
+  auto`); on a narrower page every column keeps its minimum and the grid
+  scrolls. Fractions kept (sub-pixel columns, exact total). The grid measures
+  its own inner width before the first paint (`useLayoutEffect` +
+  `ResizeObserver`), so the first frame already has the final columns.
+- A column the reader drags is `fixed` at that width (`useColumnWidths`'s
+  new `isSet(id)`); the others still grow.
+- The page around it scrolls **`overflow-y-auto overflow-x-hidden`**, and its
+  controls drop `sticky left-0`. Done on `/calls` (its columns at Workiz's
+  minimums 70 / 160 / 100 / 120 / 180 / 100 / 135 / 180 / 100 / 100, Status /
+  From / Call Flow / Answered By fixed — at 1600 that is callspage_wz_01's
+  1398px grid to the pixel). Still on the old pattern, to move over the same
+  way: the jobs list (`deals-table.tsx`, 1791px wide), `/my-jobs`, the Jobs
+  report table, and `WzReportGrid`'s `minTableWidth` wrapper (which traps
+  its sticky header).
+
 ## The one-load rule on the grids (2026-10-09, agent `jumps_fix`)
 
 The whole-app audit (`workiz-data-parser/docs/import/app-parity-2026-10-08/app_audit.md`,

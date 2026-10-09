@@ -88,6 +88,7 @@ export {
 
 // Report grid (Activity report).
 export { WzReportGrid, wzNextSort, type WzReportColumn, type WzSortDir } from "./report-grid";
+export { WzScrollGrid, fitColumnWidths, type WzScrollColumn } from "./scroll-grid";
 
 // Record-page pieces (Workiz's client page, pg_contact_wz_*).
 export {

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { fitColumnWidths } from "@/components/workiz/scroll-grid";
 import { callColumnOptions, DEFAULT_CALL_FIELDS, sanitizeCallFields, visibleCallColumns } from "./fields";
 
 /**
@@ -22,10 +23,19 @@ describe("call log columns", () => {
     ]);
   });
 
-  it("take Workiz's widths, which fill its 1398px grid", () => {
-    const widths = visibleCallColumns(DEFAULT_CALL_FIELDS, [], true).map((c) => c.width);
-    expect(widths).toEqual([70, 160, 123, 148, 180, 124, 167, 180, 123, 123]);
-    expect(widths.reduce((a, b) => a + b, 0)).toBe(1398);
+  // Workiz's grid is react-table: each column has a minimum (what the 1440×800
+  // probe of 2026-10-09 measured, the page too narrow for them to grow) and
+  // the ones without a set width share the rest of the page in proportion.
+  it("take Workiz's minimum widths, and name the columns that keep theirs", () => {
+    const cols = visibleCallColumns(DEFAULT_CALL_FIELDS, [], true);
+    expect(cols.map((c) => c.width)).toEqual([70, 160, 100, 120, 180, 100, 135, 180, 100, 100]);
+    expect(cols.filter((c) => c.fixed).map((c) => c.id)).toEqual(["status", "from", "flow", "answeredBy"]);
+  });
+
+  it("grow to Workiz's widths on its 1398px grid at 1600 (callspage_wz_01)", () => {
+    const cols = visibleCallColumns(DEFAULT_CALL_FIELDS, [], true);
+    const fit = fitColumnWidths(cols, 1398);
+    expect(cols.map((c) => Math.round(fit[c.id]))).toEqual([70, 160, 123, 148, 180, 123, 167, 180, 123, 123]);
   });
 
   it("keep Revenue — and its place in the Fields drawer — from a viewer who may not see money", () => {

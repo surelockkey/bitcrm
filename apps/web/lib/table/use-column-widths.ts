@@ -86,5 +86,9 @@ export function useColumnWidths(table: string, defaults: Record<string, number>)
     }
   }, [table]);
 
-  return { widthOf, setWidth, reset };
+  // Whether the reader sized this column: a grid that grows its columns to
+  // the page (`WzScrollGrid`) leaves such a column at the width it was given.
+  const isSet = useCallback((id: string) => saved[id] !== undefined, [saved]);
+
+  return { widthOf, setWidth, reset, isSet };
 }

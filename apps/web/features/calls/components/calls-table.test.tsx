@@ -199,8 +199,10 @@ describe("CallsTable recording preview", () => {
       />,
     );
 
-    // Workiz's ten columns, by Workiz's names (callspage_wz_01).
-    expect(screen.getAllByRole("columnheader").map((h) => h.textContent)).toEqual([
+    // Workiz's ten columns, by Workiz's names (callspage_wz_01) — the pinned
+    // header's (the rows' table repeats them for a screen reader only).
+    const head = document.querySelector("[data-slot=wz-scroll-grid-head]") as HTMLElement;
+    expect(within(head).getAllByRole("columnheader").map((h) => h.textContent)).toEqual([
       "Status",
       "From",
       "To",
@@ -338,9 +340,37 @@ describe("CallsTable — a stable first frame", () => {
 
   it("declares a width for every column", () => {
     const { container } = render(<CallsTable calls={[call({ callSid: "CA1" })]} />);
-    const cols = [...container.querySelectorAll("colgroup col")];
-    expect(cols).toHaveLength(container.querySelectorAll("thead th").length);
+    const head = container.querySelector("[data-slot=wz-scroll-grid-head]") as HTMLElement;
+    const cols = [...head.querySelectorAll("colgroup col")];
+    expect(cols).toHaveLength(head.querySelectorAll("thead th").length);
     for (const col of cols) expect((col as HTMLElement).style.width).not.toBe("");
+  });
+});
+
+/**
+ * Скрол убік — у самій сітці, як у Workiz (проби 1280/1440 від 2026-10-09:
+ * документ скролить лише вгору-вниз, рядки — в своїй коробці; шапка пришпилена
+ * до верху сторінки й їде вбік разом із рядками). Раніше вбік скролила вся
+ * сторінка, і картки з тулбаром з'їжджали — `sticky left-0` не тримає рядок,
+ * що завширшки з батька.
+ */
+describe("CallsTable — scrolls sideways in its own box, the header pinned", () => {
+  it("is the kit's scroll grid, the rows and the skeleton alike", () => {
+    const { container: real } = render(<CallsTable calls={[call({ callSid: "CA1" })]} />);
+    const { container: shell } = render(<CallsTableSkeleton />);
+    for (const c of [real, shell]) {
+      expect(c.querySelector("[data-slot=wz-scroll-grid]")).not.toBeNull();
+      expect(c.querySelector("[data-slot=wz-scroll-grid-head]")?.className).toMatch(/\bsticky\b/);
+      // One sideways scroller: the rows' box, nothing else.
+      expect(c.querySelectorAll(".overflow-x-auto, .overflow-auto")).toHaveLength(1);
+      expect(c.querySelector("[data-slot=wz-scroll-grid-body]")?.className).toContain("overflow-x-auto");
+    }
+  });
+
+  it("keeps the frame at the page's width — the columns fill it or scroll inside it", () => {
+    const { container } = render(<CallsTable calls={[call({ callSid: "CA1" })]} />);
+    const frame = container.querySelector("[data-slot=wz-scroll-grid]") as HTMLElement;
+    expect(frame.style.width).toBe("");
   });
 });
 

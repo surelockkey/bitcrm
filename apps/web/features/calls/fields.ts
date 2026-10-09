@@ -27,22 +27,32 @@ export type CallColumnId =
 export interface CallColumn {
   id: CallColumnId;
   label: string;
+  /** Workiz's minimum for the column (react-table `minWidth`); see `WzScrollGrid`. */
   width: number;
+  /** Keeps its width when the page is wider than the columns (Workiz sets these). */
+  fixed?: boolean;
   /** Money: shown only with `financials.view`. */
   money?: boolean;
 }
 
+/**
+ * Workiz's columns at the widths its grid holds them to (the 1440×800 probe
+ * of 2026-10-09, the page too narrow for any to grow: 1245px in all). On a
+ * wider page the ones without `fixed` share the rest in proportion — at
+ * 1600 that gives callspage_wz_01's 70 / 160 / 123 / 148 / 180 / 123 / 167 /
+ * 180 / 123 / 123 on the 1398px grid.
+ */
 export const CALL_COLUMNS: readonly CallColumn[] = [
-  { id: "status", label: "Status", width: 70 },
-  { id: "from", label: "From", width: 160 },
-  { id: "to", label: "To", width: 123 },
-  { id: "time", label: "Time", width: 148 },
-  { id: "flow", label: "Call Flow", width: 180 },
-  { id: "source", label: "Ad Source", width: 124 },
-  { id: "tags", label: "Tags", width: 167 },
-  { id: "answeredBy", label: "Answered By", width: 180 },
-  { id: "job", label: "Jobs & Leads", width: 123 },
-  { id: "revenue", label: "Revenue", width: 123, money: true },
+  { id: "status", label: "Status", width: 70, fixed: true },
+  { id: "from", label: "From", width: 160, fixed: true },
+  { id: "to", label: "To", width: 100 },
+  { id: "time", label: "Time", width: 120 },
+  { id: "flow", label: "Call Flow", width: 180, fixed: true },
+  { id: "source", label: "Ad Source", width: 100 },
+  { id: "tags", label: "Tags", width: 135 },
+  { id: "answeredBy", label: "Answered By", width: 180, fixed: true },
+  { id: "job", label: "Jobs & Leads", width: 100 },
+  { id: "revenue", label: "Revenue", width: 100, money: true },
   { id: "jobTags", label: "Job tags", width: 160 },
 ];
 
