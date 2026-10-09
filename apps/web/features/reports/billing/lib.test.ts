@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   ESTIMATE_DATE_PRESETS,
   INVOICE_DATE_PRESETS,
-  TAX_DATE_PRESETS,
   splitInvoiceFilters,
   toQuery,
   workizDate,
@@ -15,8 +14,6 @@ describe("billing report helpers", () => {
     expect(values(ESTIMATE_DATE_PRESETS)).toContain("all_time");
     expect(values(ESTIMATE_DATE_PRESETS)).not.toContain("last_3_months");
     expect(values(ESTIMATE_DATE_PRESETS)).not.toContain("recent");
-    expect(values(TAX_DATE_PRESETS)).not.toContain("all_time");
-    expect(values(TAX_DATE_PRESETS)).toContain("this_month");
   });
 
   it("builds the query with comma lists and without empty values", () => {

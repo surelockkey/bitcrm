@@ -15,11 +15,11 @@ import {
 /**
  * The tax report does not jump.
  *
- * Its KPI was drawn at once as "—" with its caption beside it, and the
- * caption slid right when the figure came; the "Tax to show" select widened
- * when the period's rates came. Now the figure, the select with its rates
- * and the table come in one frame, and Paid/Accrual or another period keeps
- * the figure on screen until the new one is in.
+ * Its figure was drawn at once as "—" with its caption beside it, and the
+ * caption slid right when the figure came. Now the sentence ("$123.45 total
+ * tax on sold items"), the rows and the pager come in one frame; and since a
+ * tab reopens on its defaults (Workiz), both tabs' opening reports come with
+ * the page — Paid opens whole, its sentence never blank.
  */
 
 vi.mock("@/features/auth/use-permissions", () => ({
@@ -30,7 +30,7 @@ vi.mock("@/features/auth/use-permissions", () => ({
 const report = (basis: TaxReportBasis): TaxReport => ({
   basis,
   from: "2026-10-01",
-  to: "2026-10-06",
+  to: "2026-10-09",
   rows: [
     {
       key: "State|6.35",
@@ -57,8 +57,6 @@ let server: FakeServer;
 const { TaxReportPage } = await import("./tax-report-page");
 
 const kpi = () => document.querySelector('[data-testid="tax-kpi"]');
-const taxOptions = () =>
-  [...(document.querySelector<HTMLSelectElement>('select[aria-label="Tax to show"]')?.options ?? [])].map((o) => o.textContent);
 
 beforeEach(() => {
   server = installFakeServer(routes);
@@ -70,32 +68,32 @@ afterEach(() => {
 });
 
 describe("TaxReportPage — no jumping", () => {
-  it("draws the figure, the rates and the table in one frame", async () => {
+  it("draws the sentence, the rows and the pager in one frame", async () => {
     const watch = watchFirstFrame(
-      () => !!kpi() || taxOptions().length > 0,
+      () => !!kpi(),
       () => ({
         kpi: kpi()?.textContent ?? null,
-        rates: taxOptions(),
         table: !!screen.queryByText("State sales tax"),
+        pager: !!screen.queryByText("Showing 1 to 1 of 1 results"),
         skeletons: skeletonCount(),
       }),
     );
-    renderWithClient(<TaxReportPage />);
+    renderWithClient(<TaxReportPage today="2026-10-09" />);
     await screen.findByText("State sales tax", {}, { timeout: 3000 });
     await settle();
     watch.stop();
 
-    expect(watch.frame()).toEqual({ kpi: "$123.45", rates: ["All taxes", "State (6.35%)"], table: true, skeletons: 0 });
+    expect(watch.frame()).toEqual({ kpi: "$123.45 total tax on sold items", table: true, pager: true, skeletons: 0 });
   });
 
-  it("keeps the figure on screen while the other basis loads", async () => {
-    renderWithClient(<TaxReportPage />);
+  it("opens Paid whole: its sentence never blank, no skeleton", async () => {
+    renderWithClient(<TaxReportPage today="2026-10-09" />);
     await screen.findByText("State sales tax", {}, { timeout: 3000 });
     await settle();
 
     let blanked = false;
     const observer = new MutationObserver(() => {
-      if (skeletonCount() > 0 || !kpi() || kpi()!.textContent === "—") blanked = true;
+      if (skeletonCount() > 0 || !kpi()) blanked = true;
     });
     observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true });
     fireEvent.click(screen.getByRole("tab", { name: "Paid" }));
@@ -103,10 +101,11 @@ describe("TaxReportPage — no jumping", () => {
     observer.disconnect();
 
     expect(blanked).toBe(false);
+    expect(kpi()?.textContent).toBe("$50.00 total tax from collected payments");
   });
 
   it("asks for each thing once", async () => {
-    renderWithClient(<TaxReportPage />);
+    renderWithClient(<TaxReportPage today="2026-10-09" />);
     await screen.findByText("State sales tax", {}, { timeout: 3000 });
     await settle();
 

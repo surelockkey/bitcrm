@@ -36,6 +36,23 @@ describe("WzReportGrid", () => {
     expect(document.querySelectorAll("tbody tr[aria-hidden]")).toHaveLength(8);
   });
 
+  it("plainFiller: under records the blank rows are 56px with no rule; with no records they keep the rule", () => {
+    // rep_tax_wz_01_default: five rows + five blanks, every row-group 56px, no
+    // border; rep_tax_wz_11b_search_empty: ten blanks of 56 + a .05 rule.
+    const { rerender } = render(<WzReportGrid aria-label="Activity" columns={columns} rows={rows} rowKey={(r) => r.id} plainFiller />);
+    const pad = () => document.querySelector("tbody tr[aria-hidden] td")!;
+    expect(pad().className).toContain("h-[56px]");
+    expect(pad().className).not.toContain("border-b-black/5");
+    rerender(<WzReportGrid aria-label="Activity" columns={columns} rows={[]} rowKey={(r) => r.id} plainFiller />);
+    expect(pad().className).toContain("h-[57px]");
+    expect(pad().className).toContain("border-b-black/5");
+  });
+
+  it("without plainFiller the blank rows keep their rule under records too (unchanged default)", () => {
+    render(<WzReportGrid aria-label="Activity" columns={columns} rows={rows} rowKey={(r) => r.id} />);
+    expect(document.querySelector("tbody tr[aria-hidden] td")!.className).toContain("h-[57px]");
+  });
+
   it("says No Records Found over the blank rows when there is nothing", () => {
     render(<WzReportGrid aria-label="Activity" columns={columns} rows={[]} rowKey={(r) => r.id} />);
     expect(screen.getByText("No Records Found")).toBeInTheDocument();
@@ -114,7 +131,7 @@ describe("WzReportGrid", () => {
   it("draws its blank rows without the faint rule when asked", () => {
     render(<WzReportGrid aria-label="Activity" columns={columns} rows={rows} rowKey={(r) => r.id} padRowRule={false} />);
     const blank = document.querySelector("tbody tr[aria-hidden] td")!;
-    expect(blank).toHaveClass("h-14");
+    expect(blank).toHaveClass("h-[56px]");
     expect(blank.className).not.toMatch(/border-b-black/);
   });
 

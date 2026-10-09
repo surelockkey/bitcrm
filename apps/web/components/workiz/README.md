@@ -648,6 +648,23 @@ its file.
   Toggle-module switch ("Show leads"): `wz-tag-success` (#3acf7d) on,
   #768287 off, a 12px knob, .4s. (`WzSwitch` is the 40×20 Scheduled toggle.)
 
+## Tax report (2026-10-09, agent `rep_tax`)
+
+Measured off `rep_tax_wz_*` (notes:
+`workiz-data-parser/docs/import/app-parity-2026-10-08/rep_tax.md`). Built
+from the kit as it stood — `WzTabBar` small (Accrual / Paid),
+`WzOutlinedSelect` ("Tax to show" is the same FloatingLabel select, 480×42),
+`WzDateRangePicker` + `WzPickerSelect` (the Jobs report's box), the strip,
+`WzReportGrid` + `WzPager plainNumbers` — with one addition:
+
+- **`WzReportGrid` `plainFiller`** (new, optional) — the blank rows under
+  records as Workiz draws them: 56px with no rule (rep_tax_wz_01_default:
+  five records + five blanks, every row-group 56px, `border-bottom: 0`). The
+  57px ruled blanks stay on an empty grid (rep_tax_wz_11b_search_empty). Off by
+  default so the grids before it keep their blanks; every Workiz capture with
+  records over blanks shows the 56px kind, so the coordinator may flip it
+  kit-wide.
+
 ## Known differences from Workiz (deliberate or unmeasurable)
 - Sub-pixel: Workiz's own fractional layout makes some glyphs land ±1px
   differently from ours in screenshots (e.g. two Workiz selects with identical

@@ -86,7 +86,7 @@ function PadRows({ count, columns, rule = true }: { count: number; columns: numb
           {Array.from({ length: columns }, (_, c) => (
             <TableCell
               key={c}
-              className={cn(CELL, rule ? "h-[57px] border-b border-b-black/5 py-0 [border-bottom-style:solid]" : "h-14 py-0")}
+              className={cn(CELL, rule ? "h-[57px] border-b border-b-black/5 py-0 [border-bottom-style:solid]" : "h-[56px] py-0")}
             />
           ))}
         </TableRow>
@@ -118,6 +118,7 @@ export function WzReportGrid<R>({
   minRows = MIN_ROWS,
   stickyHeader = true,
   padRowRule = true,
+  plainFiller = false,
   "aria-label": ariaLabel,
   className,
 }: {
@@ -149,6 +150,12 @@ export function WzReportGrid<R>({
    * (rep_items_wz_11_empty_search).
    */
   padRowRule?: boolean;
+  /**
+   * Blanks UNDER records as Workiz's Tax report draws them: 56px, no rule —
+   * while an empty grid keeps the rule (rep_tax_wz_01_default vs
+   * rep_tax_wz_11b_search_empty). Off by default.
+   */
+  plainFiller?: boolean;
   "aria-label"?: string;
   className?: string;
 }) {
@@ -201,7 +208,7 @@ export function WzReportGrid<R>({
               </Fragment>
             );
           })}
-          <PadRows count={minRows - shown.length} columns={columns.length} rule={padRowRule} />
+          <PadRows count={minRows - shown.length} columns={columns.length} rule={padRowRule && !(plainFiller && shown.length > 0)} />
         </TableBody>
       </Table>
       {loading ? (

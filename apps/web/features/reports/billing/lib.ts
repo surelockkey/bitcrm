@@ -33,10 +33,6 @@ export const ESTIMATE_DATE_PRESETS = pick(
 );
 export const DEFAULT_ESTIMATE_PRESET: DatePreset = "all_time";
 
-/** The Tax report opens on This month; it needs a bounded period (≤ 12 months), so no All time. */
-export const TAX_DATE_PRESETS = pick((v) => v !== "all_time");
-export const DEFAULT_TAX_PRESET: DatePreset = "this_month";
-
 /** `?a=1&list=x,y` — lists as comma lists, empty values left out. */
 export function toQuery(params: Record<string, string | number | string[] | undefined | null>): string {
   const q = new URLSearchParams();
