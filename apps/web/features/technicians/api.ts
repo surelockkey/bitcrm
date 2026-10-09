@@ -131,6 +131,11 @@ export function listPendingAssignments(): Promise<PendingAssignments> {
   return http.get<PendingAssignments>(`${BASE}/assignments/pending`);
 }
 
+/** Every technician's approved job types and areas — the Team list's Skills and Areas (manager only). */
+export function listApprovedAssignments(): Promise<TechnicianAssignments> {
+  return http.get<TechnicianAssignments>(`${BASE}/assignments/approved`);
+}
+
 export function proposeAssignments(id: string, kind: AssignmentKind, ids: string[]) {
   return http.post(`${BASE}/${id}/${seg(kind)}/propose`, { ids });
 }

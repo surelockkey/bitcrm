@@ -4,7 +4,7 @@ import { createElement, type ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
 import { server } from "@/test/msw/server";
-import { useUserMap } from "./hooks";
+import { useApprovedAssignments, useUserMap } from "./hooks";
 import { useUserMap as useDealsUserMap } from "@/features/deals/hooks";
 
 const USERS = [
@@ -67,5 +67,36 @@ describe("useUserMap cache-key sharing", () => {
     expect(deals.result.current.map).toBeInstanceOf(Map);
     expect(deals.result.current.map.get("u1")?.email).toBe("ada@bitcrm.test");
     expect(deals.result.current.users).toHaveLength(2);
+  });
+});
+
+/**
+ * The Team list's Skills and Areas: every technician's approved entries in
+ * one answer. An API from before the endpoint answers 404; the list still
+ * opens, with those two columns blank, rather than failing.
+ */
+describe("useApprovedAssignments", () => {
+  it("reads every technician's approved job types and areas", async () => {
+    const data = {
+      jobTypes: [{ userId: "u1", jobTypeId: "jt-1", status: "approved" }],
+      serviceAreas: [{ userId: "u1", serviceAreaId: "sa-1", status: "approved" }],
+    };
+    server.use(http.get("*/users/technicians/assignments/approved", () => HttpResponse.json({ success: true, data })));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { result } = renderHook(() => useApprovedAssignments(), { wrapper: wrapper(client) });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data).toEqual(data);
+  });
+
+  it("answers an API without the endpoint (404) with nothing approved, not an error", async () => {
+    server.use(
+      http.get("*/users/technicians/assignments/approved", () =>
+        HttpResponse.json({ success: false, error: { message: "Not Found" } }, { status: 404 }),
+      ),
+    );
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { result } = renderHook(() => useApprovedAssignments(), { wrapper: wrapper(client) });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data).toEqual({ jobTypes: [], serviceAreas: [] });
   });
 });

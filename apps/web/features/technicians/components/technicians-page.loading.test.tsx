@@ -39,6 +39,11 @@ const profile = {
   createdAt: "",
   updatedAt: "",
 };
+const approved = {
+  jobTypes: [{ userId: "u-tech", jobTypeId: "jt-1", status: "approved" }],
+  serviceAreas: [],
+};
+const roles = [{ id: "role-technician", name: "tech", priority: 20 }];
 const pending = {
   jobTypes: [{ technicianId: "u-tech", jobTypeId: "jt-1", status: "pending" }],
   serviceAreas: [],
@@ -87,6 +92,9 @@ describe("TechniciansPage — loading", () => {
       },
       { match: /\/users\/technicians\/count$/, reply: () => ({ total: 1 }), delayMs: 20 },
       { match: /\/users\/technicians\/assignments\/pending$/, reply: () => pending, delayMs: 60 },
+      // Skills and Areas: every technician's approved entries, in one answer.
+      { match: /\/users\/technicians\/assignments\/approved$/, reply: () => approved, delayMs: 70 },
+      { match: /\/roles$/, reply: () => roles, delayMs: 40 },
       // The directory comes last — the order that rewrote the rows.
       { match: /\/users$/, raw: true, reply: () => ({ success: true, data: people, pagination: {} }), delayMs: 90 },
       { match: /\/deals\/job-types$/, reply: () => [{ id: "jt-1", name: "Rekey Visit", priority: 1, active: true }] },
@@ -95,7 +103,8 @@ describe("TechniciansPage — loading", () => {
     const rec = recordFrames(() => ({
       noAccess: !!screen.queryByText("No access"),
       skeletons: skeletonCount(),
-      rows: document.querySelectorAll("tbody tr").length,
+      // The grid always draws its blank rows; a record is a row that is not one of them.
+      rows: document.querySelectorAll("tbody tr:not([aria-hidden])").length,
       named: !!screen.queryByText("Theo Tech"),
       unknown: !!screen.queryByText("Unknown technician"),
       review: !!screen.queryByRole("button", { name: /awaiting review/i }),

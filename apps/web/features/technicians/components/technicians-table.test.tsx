@@ -1,80 +1,106 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { TechnicianProfile, User } from "@bitcrm/types";
+import type { TeamRow } from "../team-list";
 import { TechniciansTable } from "./technicians-table";
 
-const push = vi.fn();
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
-
-function profile(over: Partial<TechnicianProfile>): TechnicianProfile {
+function row(over: Partial<TeamRow> = {}): TeamRow {
   return {
-    userId: "u1",
-    callMaskingEnabled: false,
-    gpsTrackingEnabled: false,
-    mobileAppInstalled: false,
+    id: "u1",
+    name: "Riley Santos",
+    email: "riley@slk.com",
+    phone: "+14045551234",
+    twoFactor: false,
+    callMasking: false,
+    roleId: "role-tech",
+    role: "tech",
+    fieldTeam: true,
+    type: "regular",
     status: "active",
-    laborCostPerHour: 45,
-    createdAt: "",
-    updatedAt: "",
+    createdAt: "2022-11-04T11:16:00.000Z",
+    skills: ["(A-1) Door Glass Job", "Rekey lock"],
+    areaIds: ["ct", "ny"],
+    areas: ["SURE LOCK CT", "SURE LOCK NY"],
     ...over,
   };
 }
 
-const userMap = new Map<string, User>([
-  ["u1", { id: "u1", firstName: "Riley", lastName: "Santos", email: "riley@slk", department: "Field" } as User],
-]);
+const draw = (rows: TeamRow[], onOpen = vi.fn()) =>
+  render(<TechniciansTable rows={rows} sort={{ column: "name", dir: "asc" }} onSort={vi.fn()} onOpen={onOpen} />);
 
-describe("TechniciansTable", () => {
-  it("joins the user name and shows status + labor", () => {
-    render(<TechniciansTable technicians={[profile({})]} userMap={userMap} />);
-    expect(screen.getByText("Riley Santos")).toBeInTheDocument();
-    expect(screen.getByText("riley@slk")).toBeInTheDocument();
-    expect(screen.getByText("Active")).toBeInTheDocument();
-    expect(screen.getByText("$45.00/hr")).toBeInTheDocument();
+const records = () => [...document.querySelectorAll("tbody tr:not([aria-hidden])")] as HTMLElement[];
+
+describe("TechniciansTable — Workiz's Team grid", () => {
+  it("has Workiz's columns, in Workiz's order", () => {
+    draw([row()]);
+    expect(screen.getAllByRole("columnheader").map((h) => h.textContent)).toEqual([
+      "Name",
+      "Phone",
+      "Role",
+      "Field team",
+      "Type",
+      "Created",
+      "Skills",
+      "Areas",
+    ]);
   });
 
-  it("falls back to the userId when the user isn't loaded", () => {
-    render(<TechniciansTable technicians={[profile({ userId: "u9" })]} userMap={userMap} />);
-    expect(screen.getByText("Unknown technician")).toBeInTheDocument();
+  it("prints a row as Workiz does", () => {
+    draw([row()]);
+    const [r] = records();
+    const cells = within(r).getAllByRole("cell");
+    expect(cells[0]).toHaveTextContent("Riley Santos");
+    expect(within(cells[0]).getByText("riley@slk.com").className).toContain("text-wz-caption");
+    expect(within(cells[1]).getByRole("link", { name: "(404) 555-1234" })).toHaveAttribute("href", "tel:+14045551234");
+    expect(cells[2]).toHaveTextContent("tech");
+    expect(cells[3]).toHaveTextContent("yes");
+    expect(cells[4]).toHaveTextContent("User");
+    expect(cells[5]).toHaveTextContent("Fri Nov 04, 2022 07:16 am");
+    expect(cells[6]).toHaveTextContent("(A-1) Door Glass Job ,Rekey lock");
+    expect(cells[7]).toHaveTextContent("SURE LOCK CT ,SURE LOCK NY");
   });
 
-  it("navigates to the detail on row click", async () => {
-    render(<TechniciansTable technicians={[profile({})]} userMap={userMap} />);
+  it("chips 2FA under the email and Call masking under the phone, and ours: Pending / Inactive", () => {
+    draw([
+      row({ id: "a", twoFactor: true, callMasking: true }),
+      row({ id: "b", status: "pending", fieldTeam: false, type: "subcontractor" }),
+      row({ id: "c", status: "inactive" }),
+    ]);
+    const [a, b, c] = records();
+    expect(within(a).getByText("2FA").className).toContain("bg-wz-link");
+    expect(within(a).getByText("Call masking").className).toContain("bg-brand");
+    expect(within(a).queryByText("Pending")).toBeNull();
+    expect(within(b).getByText("Pending")).toBeInTheDocument();
+    expect(b).toHaveTextContent("no");
+    expect(b).toHaveTextContent("Subcontractor");
+    expect(within(c).getByText("Inactive")).toBeInTheDocument();
+  });
+
+  it("has no avatar — Workiz's Team grid draws none", () => {
+    draw([row()]);
+    expect(document.querySelector("[data-slot=avatar]")).toBeNull();
+  });
+
+  it("opens the technician from the row, but a tap on the phone dials instead", async () => {
+    const onOpen = vi.fn();
+    draw([row()], onOpen);
     await userEvent.click(screen.getByText("Riley Santos"));
-    expect(push).toHaveBeenCalledWith("/technicians/u1");
-  });
-});
-
-/** Стабільний перший кадр: оголошені ширини, які можна тягнути. */
-describe("TechniciansTable — a stable first frame", () => {
-  const render1 = () => render(<TechniciansTable technicians={[profile({})]} userMap={userMap} />);
-
-  it("lays the columns out at declared widths, not by content", () => {
-    const { container } = render1();
-    expect(container.querySelector("table")?.className).toContain("table-fixed");
+    expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ id: "u1" }), expect.anything());
+    onOpen.mockClear();
+    await userEvent.click(screen.getByRole("link", { name: "(404) 555-1234" }));
+    expect(onOpen).not.toHaveBeenCalled();
   });
 
-  it("declares a width for every column", () => {
-    const { container } = render1();
-    const cols = [...container.querySelectorAll("colgroup col")];
-    expect(cols).toHaveLength(container.querySelectorAll("thead th").length);
-    for (const col of cols) expect((col as HTMLElement).style.width).not.toBe("");
+  it("is never shorter than five rows, and an empty grid is only its blank rows", () => {
+    draw([]);
+    expect(records()).toHaveLength(0);
+    expect(document.querySelectorAll("tbody tr[aria-hidden]")).toHaveLength(5);
+    expect(screen.queryByText("No Records Found")).toBeNull();
   });
 
-  it("lets no body cell set a width of its own", () => {
-    const { container } = render1();
-    for (const td of [...container.querySelectorAll("tbody td")]) {
-      for (const cls of td.className.split(/\s+/)) {
-        expect(cls).not.toMatch(/^(min-w-|max-w-|w-)/);
-      }
-      expect((td as HTMLElement).style.width).toBe("");
-    }
-  });
-
-  it("puts a resize handle on every header", () => {
-    render1();
-    for (const id of ["technician", "department", "status", "labor", "open"]) {
+  it("lets the reader drag every column", () => {
+    draw([row()]);
+    for (const id of ["name", "phone", "role", "fieldTeam", "type", "created", "skills", "areas"]) {
       expect(screen.getByTestId(`resize-${id}`)).toBeInTheDocument();
     }
   });
