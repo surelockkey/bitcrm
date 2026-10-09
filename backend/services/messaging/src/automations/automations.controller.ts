@@ -7,6 +7,7 @@ import { withHttpErrors } from '../api/common/http-errors';
 import { CreateAutomationDto } from './dto/create-automation.dto';
 import { DuplicateAutomationDto } from './dto/duplicate-automation.dto';
 import { ListAutomationRunsQueryDto } from './dto/list-automation-runs-query.dto';
+import { ListAutomationsQueryDto } from './dto/list-automations-query.dto';
 import { UpdateAutomationDto } from './dto/update-automation.dto';
 import { TestAutomationDto } from './dto/test-automation.dto';
 import { AutomationRunsRepository } from './engine/automation-runs.repository';
@@ -35,10 +36,11 @@ export class AutomationsController {
     description:
       '**Guard:** `settings.view`. The rules the service runs (`builtin: true` — New-job SMS to technicians, ' +
       'on-my-way, late) plus every imported Workiz rule kept as data (`enabled: false`, structure as exported). ' +
-      'Alphabetical by name.',
+      'Alphabetical by name. `?category=notification` answers only the rows the Notifications page owns ' +
+      '(each carries its `notificationKind`); without it every rule is listed, as the Automation Center needs.',
   })
-  async list() {
-    const data = await this.service.list();
+  async list(@Query() query?: ListAutomationsQueryDto) {
+    const data = await this.service.list({ category: query?.category });
     return { success: true, data };
   }
 

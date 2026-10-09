@@ -359,6 +359,8 @@ export type {
 } from './entities/send-options.entity';
 export { BUILTIN_AUTOMATION_RULE_IDS } from './entities/automation-rule.entity';
 export type { AutomationRule, BuiltinAutomationRuleId } from './entities/automation-rule.entity';
+export { AUTOMATION_NOTIFICATION_CATEGORY, AUTOMATION_NOTIFICATION_KINDS } from './entities/automation-rule.entity';
+export type { AutomationNotificationKind } from './entities/automation-rule.entity';
 export {
   AUTOMATION_ACTION_TYPES,
   AUTOMATION_CONDITION_FIELDS,

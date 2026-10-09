@@ -11,6 +11,29 @@ export const BUILTIN_AUTOMATION_RULE_IDS = ['new-job-sms', 'on-my-way', 'late'] 
 export type BuiltinAutomationRuleId = (typeof BUILTIN_AUTOMATION_RULE_IDS)[number];
 
 /**
+ * Workiz's Notification Center (`/root/notification_center`) is a flat list
+ * of "Auto Notifications" of four kinds — the options of its editor's "Who
+ * to notify" select. BitCRM keeps one engine and two doors: a row the
+ * Notifications page writes is an ordinary automation rule filed under
+ * `category: AUTOMATION_NOTIFICATION_CATEGORY` with its kind in
+ * `notificationKind`, which is what `GET /automations?category=notification`
+ * lists and what the page's editor reopens the row with. The Automation
+ * Center still lists them with everything else.
+ */
+export const AUTOMATION_NOTIFICATION_CATEGORY = 'notification' as const;
+export const AUTOMATION_NOTIFICATION_KINDS = [
+  /** "Assigned client" — a reminder to the job's client (N hours/days before the start, or on assignment). */
+  'client_reminder',
+  /** "Assigned tech" — the same reminder to the assigned technician(s). */
+  'tech_reminder',
+  /** "When a call comes in" — a call alert to one user (Completed / Voicemail / Missed). */
+  'call_alert',
+  /** "Custom notification to User" — a user is told when a job enters a status / sub-status. */
+  'user_status_alert',
+] as const;
+export type AutomationNotificationKind = (typeof AUTOMATION_NOTIFICATION_KINDS)[number];
+
+/**
  * One automation rule — `AUTOMATION#<id>` / `METADATA` in the messaging
  * table (design §3.2). Imported rows keep the Workiz structure as-is
  * (`trigger`, `conditions`, `actions`, `events`, `ruleSentence`,
@@ -25,8 +48,10 @@ export interface AutomationRule {
   /** One of `BUILTIN_AUTOMATION_RULE_IDS` — executed by messaging-service; absent for imported data. */
   builtin?: boolean;
   description?: string;
-  /** Workiz `category` (`job`, `phone`, `lead`, …). */
+  /** Workiz `category` (`job`, `phone`, `lead`, …); `notification` for a row the Notifications page owns. */
   category?: string;
+  /** Which of the Notifications page's four forms made the rule — on `category: 'notification'` rows only. */
+  notificationKind?: AutomationNotificationKind;
   /** Workiz `entities` (`job`, `incoming_call`, `lead`, …). */
   entities?: string[];
   /** Workiz `notifyMedium` (`sms`, `email`, `both`). */

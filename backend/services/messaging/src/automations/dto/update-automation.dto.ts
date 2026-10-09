@@ -1,6 +1,7 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsBoolean, IsOptional, IsString, Length, ValidateNested } from 'class-validator';
+import { IsBoolean, IsIn, IsOptional, IsString, Length, ValidateNested } from 'class-validator';
+import { AUTOMATION_NOTIFICATION_KINDS } from '@bitcrm/types';
 import { AUTOMATION_NAME_MAX_LENGTH } from '../automations.constants';
 import { AutomationSpecDto } from './automation-spec.dto';
 
@@ -37,4 +38,18 @@ export class UpdateAutomationDto {
   @ValidateNested()
   @Type(() => AutomationSpecDto)
   spec?: AutomationSpecDto;
+
+  @ApiPropertyOptional({ example: 'notification', description: 'Re-file the rule under a category (`notification` = the Notifications page).' })
+  @IsOptional()
+  @IsString()
+  @Length(1, 64)
+  category?: string;
+
+  @ApiPropertyOptional({
+    enum: AUTOMATION_NOTIFICATION_KINDS,
+    description: 'The Notifications-page form the rule belongs to — set when its editor saves the row in another form.',
+  })
+  @IsOptional()
+  @IsIn(AUTOMATION_NOTIFICATION_KINDS as unknown as string[])
+  notificationKind?: string;
 }

@@ -2,6 +2,7 @@ import { RedisService, cachedCount, countCacheKey } from '@bitcrm/shared';
 import { HttpException, HttpStatus, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import {
+  AUTOMATION_NOTIFICATION_CATEGORY,
   isOwnAutomationSpec,
   type AutomationRule,
   type BuiltinAutomationRuleId,
@@ -68,6 +69,12 @@ export interface AutomationMigrationRow {
 /** How long a list count stays good enough. Matches the deals tab counts. */
 const COUNT_TTL_SECONDS = 30;
 
+/** `GET /automations?category=` — the Notifications page reads its own rows through this. */
+export interface AutomationListFilter {
+  /** Only rules filed under this category; absent = every rule (the Automation Center). */
+  category?: string;
+}
+
 /**
  * Rules as data and as specs (M21): the stored rows, the built-in defaults
  * for any built-in rule nobody has edited yet, and — for every imported
@@ -109,14 +116,20 @@ export class AutomationsService {
     );
   }
 
-  /** Stored rules, with the built-ins filled in from code where unstored; by name. */
-  async list(): Promise<AutomationRule[]> {
+  /**
+   * Stored rules, with the built-ins filled in from code where unstored; by
+   * name. `category` narrows the answer server-side — the Notifications page
+   * lists `notification` rows only; the catalog is tens of rows, so this is a
+   * filter over the one Query, not a second index.
+   */
+  async list(filter: AutomationListFilter = {}): Promise<AutomationRule[]> {
     const stored = await this.repository.list();
     const seen = new Set(stored.map((r) => r.id));
     const builtins = Object.values(BUILTIN_RULES).filter((r) => !seen.has(r.id));
-    return [...stored.map((r) => this.overlay(r)), ...builtins].sort((a, b) =>
+    const rules = [...stored.map((r) => this.overlay(r)), ...builtins].sort((a, b) =>
       a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }) || a.id.localeCompare(b.id),
     );
+    return filter.category ? rules.filter((r) => r.category === filter.category) : rules;
   }
 
   /** Stored row over the built-in default; 404 for anything else. */
@@ -145,6 +158,10 @@ export class AutomationsService {
    * never touches it, and it is off unless the caller asks otherwise: a new
    * rule is read once before it texts anybody. Asking for it on with a spec
    * the engine cannot act on is the same 422 `PATCH` answers.
+   *
+   * A row the Notifications page writes names its form (`notificationKind`)
+   * and is filed under `notification` unless the caller says otherwise, so
+   * the page's own list (`?category=notification`) sees it at once.
    */
   async create(dto: CreateAutomationDto, caller: { id: string }): Promise<AutomationRule> {
     const at = new Date().toISOString();
@@ -153,12 +170,15 @@ export class AutomationsService {
     const id = randomUUID();
     if (dto.enabled === true && !runnable) throw new RuleNotRunnableException(id, NOTHING_EXECUTABLE_REASON);
 
+    const notificationKind = dto.notificationKind as AutomationRule['notificationKind'];
+    const category = dto.category ?? (notificationKind ? AUTOMATION_NOTIFICATION_CATEGORY : undefined);
     const saved = await this.repository.put({
       id,
       name: dto.name.trim(),
       enabled: dto.enabled === true,
       ...(dto.description ? { description: dto.description } : {}),
-      ...(dto.category ? { category: dto.category } : {}),
+      ...(category ? { category } : {}),
+      ...(notificationKind ? { notificationKind } : {}),
       spec,
       specSource: 'user',
       specVersion: TRANSLATOR_VERSION,
@@ -206,6 +226,10 @@ export class AutomationsService {
       ...next,
       ...(dto.enabled !== undefined ? { enabled: dto.enabled } : {}),
       ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
+      ...(dto.category !== undefined ? { category: dto.category } : {}),
+      ...(dto.notificationKind !== undefined
+        ? { notificationKind: dto.notificationKind as AutomationRule['notificationKind'] }
+        : {}),
       updatedAt: at,
       updatedBy: caller.id,
       createdBy: current.createdBy ?? caller.id,
@@ -237,6 +261,7 @@ export class AutomationsService {
       enabled: false,
       ...(source.description ? { description: source.description } : {}),
       ...(source.category ? { category: source.category } : {}),
+      ...(source.notificationKind ? { notificationKind: source.notificationKind } : {}),
       ...(source.notifyMedium ? { notifyMedium: source.notifyMedium } : {}),
       ...(source.spec ? { spec: source.spec } : {}),
       specSource: 'user',

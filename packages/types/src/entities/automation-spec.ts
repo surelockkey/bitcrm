@@ -623,6 +623,8 @@ export interface AutomationRunAction {
   error?: string;
   /** What was (or would be) sent, for the test run and the log. */
   body?: string;
+  /** The subject line of a `send_email` action, as rendered. */
+  subject?: string;
 }
 
 export interface AutomationRun {

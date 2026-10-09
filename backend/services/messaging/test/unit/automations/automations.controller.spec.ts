@@ -10,6 +10,7 @@ import {
   AUTOMATION_RUNS_PAGE_MAX,
   ListAutomationRunsQueryDto,
 } from '../../../src/automations/dto/list-automation-runs-query.dto';
+import { ListAutomationsQueryDto } from '../../../src/automations/dto/list-automations-query.dto';
 import { InvalidCursorError } from '../../../src/common/cursor';
 import { UpdateAutomationDto } from '../../../src/automations/dto/update-automation.dto';
 import { ADMIN } from '../api/api-mocks';
@@ -262,5 +263,42 @@ describe('AutomationsController', () => {
     ]) {
       expect(await validate(plainToInstance(UpdateAutomationDto, { spec: bad }))).not.toHaveLength(0);
     }
+  });
+
+  // --- the Notifications page (`category: notification` + `notificationKind`)
+
+  it('narrows the list by category for the Notifications page, and lists everything without one', async () => {
+    const { controller, service } = makeController();
+    const query = Object.assign(new ListAutomationsQueryDto(), { category: 'notification' });
+    expect(await controller.list(query)).toEqual({ success: true, data: [{ id: 'new-job-sms' }] });
+    expect(service.list).toHaveBeenLastCalledWith({ category: 'notification' });
+
+    await controller.list(new ListAutomationsQueryDto());
+    expect(service.list).toHaveBeenLastCalledWith({ category: undefined });
+  });
+
+  it('validates the list query: an optional, non-empty, short category', async () => {
+    const ok = (q: object) => validate(plainToInstance(ListAutomationsQueryDto, q));
+    expect(await ok({})).toHaveLength(0);
+    expect(await ok({ category: 'notification' })).toHaveLength(0);
+    expect(await ok({ category: '' })).not.toHaveLength(0);
+    expect(await ok({ category: 'x'.repeat(65) })).not.toHaveLength(0);
+  });
+
+  it('takes a notification kind on create and on patch, one of the four Workiz forms only', async () => {
+    const spec = {
+      version: 1,
+      trigger: { kind: 'call.completed', callOutcome: 'missed' },
+      actions: [{ type: 'send_sms', to: 'users', userIds: ['u1'], body: 'Missed call from {{caller_number}}' }],
+    };
+    for (const kind of ['client_reminder', 'tech_reminder', 'call_alert', 'user_status_alert']) {
+      expect(
+        await validate(plainToInstance(CreateAutomationDto, { name: 'Rule', spec, category: 'notification', notificationKind: kind })),
+      ).toHaveLength(0);
+      expect(await validate(plainToInstance(UpdateAutomationDto, { category: 'notification', notificationKind: kind }))).toHaveLength(0);
+    }
+    expect(await validate(plainToInstance(CreateAutomationDto, { name: 'Rule', spec, notificationKind: 'push_alert' }))).not.toHaveLength(0);
+    expect(await validate(plainToInstance(UpdateAutomationDto, { notificationKind: 'push_alert' }))).not.toHaveLength(0);
+    expect(await validate(plainToInstance(UpdateAutomationDto, { category: '' }))).not.toHaveLength(0);
   });
 });
