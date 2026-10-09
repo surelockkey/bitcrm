@@ -97,6 +97,13 @@ describe("EstimateSettingsPage", () => {
     );
   });
 
+  it("shows the account's defaults when the settings cannot be read (a backend without them yet)", async () => {
+    server.use(http.get("*/billing/estimate-settings", () => HttpResponse.json({ success: false, message: "Not found" }, { status: 404 })));
+    renderWithClient(<EstimateSettingsPage />);
+    expect(await screen.findByRole("switch", { name: "Attach PDF files" })).toBeChecked();
+    expect(screen.getByRole("switch", { name: "Auto-decline estimates related to the same job" })).toBeChecked();
+  });
+
   it("is read-only without settings.edit", async () => {
     mocks.perms = new Set(["settings.view"]);
     renderWithClient(<EstimateSettingsPage />);

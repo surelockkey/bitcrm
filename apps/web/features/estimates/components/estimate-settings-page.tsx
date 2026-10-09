@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { FileText } from "lucide-react";
-import type { EstimateSettings } from "@bitcrm/types";
+import { DEFAULT_ESTIMATE_SETTINGS, type EstimateSettings } from "@bitcrm/types";
 import { Skeleton } from "@/components/ui/skeleton";
 import { WzButtonLink } from "@/components/workiz/button";
 import { WzMiniToggle } from "@/components/workiz/switch-tabs";
@@ -53,7 +53,7 @@ export function EstimateSettingsPage() {
   };
 
   if (denied("settings")) return <NoAccess what="settings" />;
-  if (permsLoading || isLoading || !settings) {
+  if (permsLoading || isLoading) {
     return (
       <div className="flex min-w-0 flex-1 flex-col px-10 pt-[14px]">
         <Skeleton className="h-64 w-full" />
@@ -61,7 +61,10 @@ export function EstimateSettingsPage() {
     );
   }
 
-  const shown = { ...settings, ...pending };
+  // A backend without the settings yet (the dev API behind a web-only deploy)
+  // answers nothing: the rows show the account's defaults rather than a
+  // skeleton forever; a save then says what went wrong.
+  const shown: EstimateSettings = { ...DEFAULT_ESTIMATE_SETTINGS, ...settings, ...pending };
 
   return (
     <div className="flex min-w-0 flex-1 flex-col px-10 pt-[14px] pb-10">
