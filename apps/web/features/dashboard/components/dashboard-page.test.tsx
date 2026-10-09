@@ -160,6 +160,55 @@ describe("DashboardPage", () => {
     grantAll(false);
   });
 
+  // pg_dashboard_wz_home: Payouts sits after Sales and Leads after Coming up;
+  // without them every later card stood one slot left of where a Workiz user
+  // looks (app_audit #20). Their cells stay empty; Expenses is Workiz's last
+  // card, so nothing needs a cell for it.
+  it("keeps Workiz's slots: an empty cell where Payouts and Leads sit, none after Today", () => {
+    grantAll(true);
+    const { container } = renderWithClient(<DashboardPage />);
+    const cells = [...container.querySelector(".grid")!.children].map(
+      (n) => n.getAttribute("data-testid") ?? `slot:${n.getAttribute("data-widget")}`,
+    );
+    expect(cells).toEqual([
+      "top-sources",
+      "jobs-by-status",
+      "invoices",
+      "sales",
+      "slot:payouts",
+      "top-job-types",
+      "estimates",
+      "coming-up",
+      "slot:leads",
+      "service-areas",
+      "top-call-flows",
+      "recent-activity",
+      "dispatch-scoreboard",
+      "recent-calls",
+      "tech-scoreboard",
+      "jobs-now",
+      "today",
+    ]);
+    const slot = container.querySelector('[data-widget="payouts"]')!;
+    expect(slot.getAttribute("aria-hidden")).toBe("true");
+    expect(slot.textContent).toBe("");
+    grantAll(false);
+  });
+
+  it("draws no empty cell that nothing follows", () => {
+    grants["dashboard.view_top_sources"] = true;
+    grants["dashboard.view_sales"] = true;
+    grants["financials.view"] = true;
+    const { container } = renderWithClient(<DashboardPage />);
+    const cells = [...container.querySelector(".grid")!.children].map(
+      (n) => n.getAttribute("data-testid") ?? `slot:${n.getAttribute("data-widget")}`,
+    );
+    expect(cells).toEqual(["top-sources", "jobs-by-status", "sales"]);
+    grants["dashboard.view_top_sources"] = false;
+    grants["dashboard.view_sales"] = false;
+    grants["financials.view"] = false;
+  });
+
   it("asks the bundle only for the extra widgets on show", () => {
     grants["dashboard.view_invoices"] = true;
     grants["invoices.view"] = true;

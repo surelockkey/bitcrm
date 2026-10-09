@@ -41,8 +41,8 @@ interface Widget {
 /**
  * Workiz Home's widgets in its order — the order of its "Dashboard widgets"
  * panel and of the grid. Workiz's Payouts (Workiz Pay balance), Leads and
- * Expenses (Workiz Card) have no data here and are left out; the grid flows
- * on as Workiz's does when a widget is removed.
+ * Expenses (Workiz Card) have no data here and are not offered; their cells
+ * stay empty (`WORKIZ_ONLY`) so the rest sit where a Workiz user looks.
  */
 const WIDGETS: Widget[] = [
   { key: "top-sources", title: "Top Sources", wide: false, Card: TopSourcesCard },
@@ -63,6 +63,40 @@ const WIDGETS: Widget[] = [
 ];
 
 /**
+ * Workiz's cards we have no data for, where they sit in its grid
+ * (pg_dashboard_wz_home: Payouts after Sales, Leads after Coming up,
+ * Expenses last): each keeps an empty cell, so Top Job Types stays in the
+ * fourth column, Estimates on the third row and so on (app_audit #20). A
+ * cell nothing follows is not drawn — Expenses is last, so none is for it.
+ */
+const WORKIZ_ONLY: Record<string, { after: string; title: string }> = {
+  payouts: { after: "sales", title: "Payouts" },
+  leads: { after: "coming-up", title: "Leads" },
+  expenses: { after: "today", title: "Expenses" },
+};
+
+/** A grid cell: one of ours, or the empty cell of a Workiz-only widget. */
+type Cell = { kind: "widget"; widget: Widget } | { kind: "slot"; key: string };
+
+/**
+ * The cells to draw, in Workiz's order: the widgets on show, with an empty
+ * cell wherever a Workiz-only widget sits before a widget that is shown.
+ */
+export function dashboardCells(shown: readonly Widget[]): Cell[] {
+  const cells: Cell[] = [];
+  for (const widget of WIDGETS) {
+    if (shown.some((w) => w.key === widget.key)) cells.push({ kind: "widget", widget });
+    for (const [key, slot] of Object.entries(WORKIZ_ONLY)) {
+      if (slot.after === widget.key) cells.push({ kind: "slot", key });
+    }
+  }
+  // Cells are placed after the widget they follow; a slot with no widget
+  // shown after it only adds a blank row at the foot.
+  const last = cells.map((c) => c.kind).lastIndexOf("widget");
+  return cells.slice(0, last + 1);
+}
+
+/**
  * Workiz's grid (pg_dashboard_wz_home): four 316px columns 31px apart, rows
  * of 350px cards 25px apart, 20px in from either side, on #fafcfc. Two
  * columns on a tablet, one on a phone; a wide card spans two where there are.
@@ -71,6 +105,11 @@ const GRID = "grid grid-cols-1 gap-x-[31px] gap-y-[25px] md:grid-cols-2 xl:grid-
 const WIDE = "md:col-span-2";
 /** The cards start 85px under the breadcrumb strip; the gear tab sits in that band. */
 const PAGE = "relative min-h-full flex-1 bg-wz-band px-5 pt-[85px] pb-[25px]";
+
+/** The empty cell of a Workiz-only widget: it takes a slot and says nothing. */
+function WorkizOnlySlot({ widgetKey }: { widgetKey: string }) {
+  return <div aria-hidden data-slot="wz-widget-slot" data-widget={widgetKey} title={WORKIZ_ONLY[widgetKey]?.title} />;
+}
 
 /**
  * The dashboard while it loads: one grey card for each widget, in place. The
@@ -81,9 +120,13 @@ export function DashboardSkeleton() {
   return (
     <div className={PAGE} role="status" aria-label="Loading the dashboard">
       <div className={GRID}>
-        {WIDGETS.map((w) => (
-          <Skeleton key={w.key} className={cn("h-[350px] rounded-[8px]", w.wide && WIDE)} />
-        ))}
+        {dashboardCells(WIDGETS).map((cell) =>
+          cell.kind === "slot" ? (
+            <WorkizOnlySlot key={cell.key} widgetKey={cell.key} />
+          ) : (
+            <Skeleton key={cell.widget.key} className={cn("h-[350px] rounded-[8px]", cell.widget.wide && WIDE)} />
+          ),
+        )}
       </div>
     </div>
   );
@@ -225,9 +268,11 @@ export function DashboardPage() {
       {offered.length ? <SettingsTab onOpen={() => setPanel(true)} /> : null}
       {shown.length ? (
         <div className={GRID}>
-          {shown.map(({ key, wide, Card }) => (
-            <Card key={key} className={cn(wide && WIDE)} onRemove={() => setShown(key, false)} />
-          ))}
+          {dashboardCells(shown).map((cell) => {
+            if (cell.kind === "slot") return <WorkizOnlySlot key={cell.key} widgetKey={cell.key} />;
+            const { key, wide, Card } = cell.widget;
+            return <Card key={key} className={cn(wide && WIDE)} onRemove={() => setShown(key, false)} />;
+          })}
         </div>
       ) : (
         <p className="py-16 text-center text-sm text-wz-dash-label">
