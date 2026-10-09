@@ -33,6 +33,7 @@ const fx = vi.hoisted(() => ({
   rolesEnabled: [] as boolean[],
   assignments: { jobTypes: [] as unknown[], serviceAreas: [] as unknown[] },
   smsMfaEnabled: false,
+  userType: undefined as "subcontractor" | undefined,
   profile: {
     userId: "t1",
     phone: "+14045551234",
@@ -101,6 +102,7 @@ vi.mock("../hooks", () => ({
           email: "riley@slk",
           roleId: "role-technician",
           smsMfaEnabled: fx.smsMfaEnabled,
+          userType: fx.userType,
         },
       ],
     ]),
@@ -181,6 +183,7 @@ beforeEach(() => {
   fx.rolesEnabled.length = 0;
   fx.assignments = { jobTypes: [], serviceAreas: [] };
   fx.smsMfaEnabled = false;
+  fx.userType = undefined;
 });
 
 /** Index of a piece of text inside an element, for order assertions. */
@@ -300,6 +303,42 @@ describe("TechnicianDetailPage — the switches", () => {
     const twoFactor = screen.getByRole("switch", { name: "Two-factor authentication" });
     expect(twoFactor).toBeDisabled();
     expect(reason(twoFactor)).toMatch(/user record/);
+  });
+});
+
+// Workiz's user page for "(3) AZ - Tyler Smith Sub" (subcontractor_wz_05_user_profile):
+// User type "Subcontractor", Track location and Two-factor authentication greyed —
+// "Location tracking is only available for paid users"; a subcontractor cannot log in.
+describe("TechnicianDetailPage — a subcontractor", () => {
+  it("shows the person's type, and greys what a subcontractor cannot have", () => {
+    fx.userType = "subcontractor";
+    render(<TechnicianDetailPage technicianId="t1" />);
+    expect(screen.getByRole("combobox", { name: "User type" })).toBeInTheDocument();
+    expect(screen.getByText("Subcontractor")).toBeInTheDocument();
+
+    const track = screen.getByRole("checkbox", { name: "Track location" });
+    expect(track).toBeDisabled();
+    expect(reason(track)).toMatch(/only available for users, not for subcontractors/);
+
+    const twoFactor = screen.getByRole("switch", { name: "Two-factor authentication" });
+    expect(twoFactor).toBeDisabled();
+    expect(reason(twoFactor)).toMatch(/cannot sign in/);
+  });
+
+  it("choosing Subcontractor stops location tracking, and the save carries both", async () => {
+    render(<TechnicianDetailPage technicianId="t1" />);
+    expect(screen.getByRole("checkbox", { name: "Track location" })).toBeChecked();
+
+    await userEvent.click(screen.getByRole("combobox", { name: "User type" }));
+    await userEvent.click(screen.getByRole("option", { name: "Subcontractor" }));
+
+    const track = screen.getByRole("checkbox", { name: "Track location" });
+    expect(track).not.toBeChecked();
+    expect(track).toBeDisabled();
+
+    await save();
+    await waitFor(() => expect(fx.update).toHaveBeenCalled());
+    expect(fx.update.mock.calls[0][0].body).toMatchObject({ technicianType: "subcontractor", gpsTrackingEnabled: false });
   });
 });
 

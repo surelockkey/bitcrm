@@ -68,6 +68,6 @@ describe("UsersPage — the Team list's sibling", () => {
     await screen.findByText("Anna Smith");
     await userEvent.click(screen.getByRole("button", { name: "Add New" }));
     const sheet = await screen.findByRole("dialog");
-    expect(within(sheet).getByText("Invite a user")).toBeInTheDocument();
+    expect(within(sheet).getByText("Add team member")).toBeInTheDocument();
   });
 });

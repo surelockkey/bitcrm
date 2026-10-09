@@ -97,6 +97,15 @@ describe("teamRows — one row per technician, as the Team list reads them", () 
     });
   });
 
+  it("reads Workiz's User type off the person; the card's copy only for a record from before", () => {
+    const [sub] = teamRows([profile({ technicianType: "regular" })], ctx([user({ userType: "subcontractor" })]));
+    expect(sub.type).toBe("subcontractor");
+    const [made] = teamRows([profile({ technicianType: "subcontractor" })], ctx([user({ userType: "regular" })]));
+    expect(made.type).toBe("regular");
+    const [old] = teamRows([profile({ technicianType: "subcontractor" })], ctx([user()]));
+    expect(old.type).toBe("subcontractor");
+  });
+
   it("names an imported person the way Workiz does", () => {
     const [row] = teamRows([profile()], ctx([user({ workizName: "(2) TX - Daniel Munoz" })]));
     expect(row.name).toBe("(2) TX - Daniel Munoz");

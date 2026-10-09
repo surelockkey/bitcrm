@@ -90,7 +90,9 @@ export function teamRows(
       role: (u?.roleId && roleName.get(u.roleId)) || "",
       // Unknown person: a technician profile is on the field team until switched off.
       fieldTeam: u ? isFieldTeamMember(u) : true,
-      type: p.technicianType ?? "regular",
+      // Workiz's "User type" is the person's (whether they can sign in); the
+      // card keeps a copy that speaks only for a record from before.
+      type: u?.userType ?? p.technicianType ?? "regular",
       status: p.status,
       createdAt: u?.createdAt ?? p.createdAt,
       skills: (skillsOf.get(p.userId) ?? []).map(jobTypeName),

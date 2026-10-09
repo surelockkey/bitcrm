@@ -1187,3 +1187,15 @@ permissions for role …" modal a role opens; notes:
   labels it with its own hidden label (so a real visible `<label for>` is
   impossible), swallows Enter on a closed menu and reorders DOM while
   filtering.
+
+## Team member type (2026-10-09, agent `subcontractor`)
+
+Measured off `subcontractor_wz_04b_add_new_subcontractor` (Team → "+ Add New" →
+"Add team member"; notes: `workiz-data-parser/docs/import/app-parity-2026-10-08/subcontractor.md`).
+
+- **`WzRadioButtons`** (`radio-buttons.tsx`) `options` `value` `onChange`
+  `aria-label` — Workiz's `div._btnRadio`, the "User | Subcontractor" choice:
+  38px, 1px #ddd frame, 4px corners, equal parts 14px/16px #404040 with 10px
+  padding, the chosen part #ffd400 (`_selected`). A radio group with arrow
+  keys. (Not `WzButtonGroup` — the legacy reports' grey label buttons — nor
+  `WzSegmented`, the Files panel's tab list.)
