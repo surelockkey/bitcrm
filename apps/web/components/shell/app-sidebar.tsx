@@ -140,6 +140,9 @@ export function AppSidebar() {
           className="relative flex h-12 items-center overflow-hidden px-0.5"
           aria-label="Shmorkiz home"
         >
+          {/* Drawn at exactly the 84×26 it is declared at (the pill is
+              1548×481, 83.7 wide at 26 tall): next/image warns on every page
+              when the box it measures differs from one attribute only. */}
           <Image
             data-slot="brand-wordmark"
             src={wordmark}
@@ -147,7 +150,7 @@ export function AppSidebar() {
             width={84}
             height={26}
             priority
-            className="h-[26px] w-auto max-w-none shrink-0 transition-opacity duration-200 ease-linear group-data-[collapsible=icon]:opacity-0"
+            className="h-[26px] w-[84px] max-w-none shrink-0 object-contain object-left transition-opacity duration-200 ease-linear group-data-[collapsible=icon]:opacity-0"
           />
           <Image
             data-slot="brand-mark"
