@@ -22,12 +22,12 @@ import { useJobSources } from "@/features/job-sources/hooks";
 import { useJobTypes } from "@/features/job-types/hooks";
 import { useServiceAreas } from "@/features/service-areas/hooks";
 import { downloadCommissionCsv, reloadCommissionReport, useCommissionReport } from "../commissions/hooks";
+import { legacyPresetRange } from "../legacy-presets";
 import {
   COMMISSION_DATE_PRESETS,
   cellText,
   commissionColumns,
   commissionInfo,
-  commissionPresetRange,
   commissionTechOptions,
   loadColumnChoices,
   profitRows,
@@ -111,7 +111,7 @@ export function CommissionsPage({ today }: { today: string }) {
     return () => clearTimeout(t);
   }, [search]);
 
-  const range = preset === "custom" ? custom : commissionPresetRange(preset, today);
+  const range = legacyPresetRange(preset, today) ?? custom;
   const from = range.from ?? today;
   const to = range.to ?? from;
   const allColumns = commissionColumns(mode);
