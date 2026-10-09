@@ -1,90 +1,74 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { KeyRound, Loader2, TriangleAlert } from "lucide-react";
+import type { Deal } from "@bitcrm/types";
 import { MapsProvider } from "@/components/maps/maps-provider";
-import { Briefcase, KeyRound, Layers, Loader2, Map as MapIcon, RefreshCw, TriangleAlert, Wrench } from "lucide-react";
-import { JobSuperStatus } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Input } from "@/components/ui/input";
 import { env } from "@/lib/env";
 import { useDenied, usePermissions } from "@/features/auth/use-permissions";
 import { useReorderDeals } from "@/features/deals/hooks";
-import { useJobTypes } from "@/features/job-types/hooks";
-import { activeJobTypes } from "@/features/job-types/lib";
-import {
-  dealClientName,
-  filterDeals,
-  groupLabel,
-  GROUP_ORDER,
-  datePresetRange,
-  type DatePreset,
-} from "@/features/deals/lib";
-
+import { dealClientName, filterDeals } from "@/features/deals/lib";
+import { personName } from "@/features/deals/person-name";
 import { EditDealSheet } from "@/features/deals/components/edit-deal-sheet";
+import { AssignTechDialog } from "@/features/deals/components/assign-tech-dialog";
+import type { DealsWindow } from "@/features/deals/window";
+import { useJobTypes } from "@/features/job-types/hooks";
+import { activeJobTypes, useJobTypeName } from "@/features/job-types/lib";
 import { DispatchMap } from "./dispatch-map";
 import { ServiceAreaLegend } from "./service-area-overlay";
 import { JobList } from "./job-list";
-import { TechList } from "./tech-list";
-import { JobSidebar } from "./job-sidebar";
-import { TechSidebar } from "./tech-sidebar";
-import { LastUpdated } from "./last-updated";
-import { splitByLocation, techJobsToday, todayISO } from "../lib";
+import { TechList, techRows } from "./tech-list";
+import { JobPinCard } from "./job-pin-card";
+import { TechPinCard } from "./tech-pin-card";
+import { MapDateBox } from "./map-date-box";
+import { MapFiltersPanel } from "./map-filters-panel";
+import { MapSidebar, MapToggleRow, type MapTab } from "./map-sidebar";
+import { splitByLocation, techJobsToday, todayISO, type LocatedDeal } from "../lib";
 import { useDispatchBoard, type DispatchBoard } from "../use-dispatch-board";
+import { localToday, mapRangeWindow, shiftMapRange, type MapRange } from "../map-range";
+import { EMPTY_MAP_FILTERS, matchesMapFilters, sortByName, type MapFilters } from "../map-filters";
+import { jobCardTitle } from "../map-words";
 
-const ALL = "all";
+/**
+ * What the board reads: every open job, whatever its date — Workiz's
+ * `map/getJobs` — once. The date box and the Filters only choose among them.
+ */
+const BOARD_WINDOW: DealsWindow = {};
 
-const DATE_PRESETS: { value: DatePreset; label: string }[] = [
-  { value: "all", label: "Any date" },
-  { value: "today", label: "Today" },
-  { value: "week", label: "This week" },
-];
-
-/** Toolbar filter state, persisted across reloads (story 4.01). */
-interface DispatchFilters {
+/** What the dispatcher set, kept across reloads (story 4.01). */
+interface MapPrefs {
   search: string;
-  serviceArea: string;
-  datePreset: DatePreset;
-  jobTypeId: string;
-  statusGroups: JobSuperStatus[];
+  filters: MapFilters;
+  range: MapRange;
+  showTechs: boolean;
+  showAreas: boolean;
 }
 
-const DEFAULT_FILTERS: DispatchFilters = {
+const DEFAULT_PREFS: MapPrefs = {
   search: "",
-  serviceArea: ALL,
-  datePreset: "all",
-  jobTypeId: ALL,
-  statusGroups: [],
+  filters: EMPTY_MAP_FILTERS,
+  range: "week",
+  // Workiz's Jobs tab draws jobs only; the team is its own tab.
+  showTechs: false,
+  // Ours: dispatchers asked to see where jobs fall relative to their areas.
+  showAreas: true,
 };
 
-const FILTERS_KEY = "dispatch:filters";
+const PREFS_KEY = "dispatch:map";
 
-function loadFilters(): DispatchFilters {
-  if (typeof window === "undefined") return DEFAULT_FILTERS;
+function loadPrefs(): MapPrefs {
+  if (typeof window === "undefined") return DEFAULT_PREFS;
   try {
-    const raw = window.sessionStorage.getItem(FILTERS_KEY);
-    if (!raw) return DEFAULT_FILTERS;
-    return { ...DEFAULT_FILTERS, ...(JSON.parse(raw) as Partial<DispatchFilters>) };
+    const raw = window.sessionStorage.getItem(PREFS_KEY);
+    if (!raw) return DEFAULT_PREFS;
+    const saved = JSON.parse(raw) as Partial<MapPrefs>;
+    return { ...DEFAULT_PREFS, ...saved, filters: { ...EMPTY_MAP_FILTERS, ...saved.filters } };
   } catch {
-    return DEFAULT_FILTERS;
+    return DEFAULT_PREFS;
   }
 }
-
-const LAYER_OPTIONS = [
-  { value: "both", label: "Both", title: "Show jobs and technicians", icon: Layers },
-  { value: "jobs", label: "Jobs", title: "Show jobs only", icon: Briefcase },
-  { value: "techs", label: "Techs", title: "Show technicians only", icon: Wrench },
-] as const;
-
-type View = "split" | "map" | "list";
-/** Which marker layers the map draws. */
-type Layer = "both" | "jobs" | "techs";
 
 /** Before the first board is in: nothing to read yet. */
 const NO_BOARD: DispatchBoard = {
@@ -112,151 +96,116 @@ export function DispatchPage() {
   );
 }
 
+/**
+ * The dispatch map — Workiz's Map (`/root/map`, pg_dispatch_wz_*): a 386px
+ * sidebar (Search + Filter by, Jobs | Techs, the cards) beside Google's map,
+ * with the date box floating over it on the Jobs tab. Ours on top, in
+ * Workiz's places: assigning from a pin's card, live GPS on the tech pins,
+ * the service-area overlay, the day's re-sequencing on a tech's card.
+ */
 function DispatchBoardPage() {
+  const router = useRouter();
   const { can } = usePermissions();
   const denied = useDenied();
+  const jobTypeName = useJobTypeName();
+  const { data: jobTypes } = useJobTypes();
 
-  const [view, setView] = useState<View>("split");
-  const [layer, setLayer] = useState<Layer>("both");
-  // Coverage polygons are a background layer, orthogonal to the marker layer,
-  // so they get their own on/off toggle. On by default — dispatchers asked to
-  // see where jobs fall relative to their areas.
-  const [showAreas, setShowAreas] = useState(true);
-  const [filters, setFilters] = useState<DispatchFilters>(loadFilters);
+  const [tab, setTab] = useState<MapTab>("jobs");
+  const [prefs, setPrefs] = useState<MapPrefs>(loadPrefs);
+  const [anchor, setAnchor] = useState(() => localToday());
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // Bumped on every selection so the map re-centres even when the same item is
   // clicked again — panning off a coordinate change alone wouldn't re-fire.
   const [panNonce, setPanNonce] = useState(0);
   const [editing, setEditing] = useState(false);
+  const [assigning, setAssigning] = useState(false);
 
-  const { search, serviceArea, datePreset, jobTypeId, statusGroups } = filters;
-  const { data: jobTypes } = useJobTypes();
-  const patch = (p: Partial<DispatchFilters>) => setFilters((f) => ({ ...f, ...p }));
-  const toggleGroup = (g: JobSuperStatus) =>
-    patch({
-      statusGroups: statusGroups.includes(g)
-        ? statusGroups.filter((x) => x !== g)
-        : [...statusGroups, g],
-    });
+  const { search, filters, range, showTechs, showAreas } = prefs;
+  const patch = (p: Partial<MapPrefs>) => setPrefs((s) => ({ ...s, ...p }));
 
   useEffect(() => {
     try {
-      window.sessionStorage.setItem(FILTERS_KEY, JSON.stringify(filters));
+      window.sessionStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
     } catch {
-      /* private mode / quota — filters just won't persist */
+      /* private mode / quota — the choices just won't persist */
     }
-  }, [filters]);
+  }, [prefs]);
 
   const select = useCallback((id: string) => {
     setSelectedId(id);
     setPanNonce((n) => n + 1);
   }, []);
 
-  // A selection in one layer is meaningless in the other — a picked job has no
-  // marker in "Techs" and vice versa. Clear it when the layer changes.
-  const pickLayer = (next: Layer) => {
-    if (next === layer) return;
-    setLayer(next);
+  // A pick on one tab means nothing on the other — a job has no card among
+  // the techs and vice versa.
+  const pickTab = (next: MapTab) => {
+    if (next === tab) return;
+    setTab(next);
     setSelectedId(null);
+    setHoveredId(null);
+    setFiltersOpen(false);
   };
 
-  // The board holds the open jobs of every date, or every job of the chosen
-  // days — a closed job is only read inside a date window.
-  const boardWindow = useMemo(() => {
-    const { from, to } = datePresetRange(datePreset, todayISO());
-    return { from, to, statuses: statusGroups };
-  }, [datePreset, statusGroups]);
   // Technician profiles are manager+ only — firing the query regardless would
   // 403 on every load for a dispatcher who can see the map but not the roster.
   const canSeeTechs = can("technicians", "view");
-  // Only fetch the catalog when the viewer can read it — dispatchers without the
-  // permission would 403 on every load.
+  // Only fetch the catalog when the viewer can read it.
   const canSeeAreas = can("service_areas", "view");
+  const canEdit = can("deals", "edit");
   // Everything the board draws, held back until all of it is in — and from
-  // then on the last complete board while another window loads.
-  const { board, query } = useDispatchBoard(boardWindow, { techs: canSeeTechs, areas: canSeeAreas });
-  const {
-    window: shownWindow,
-    deals,
-    contacts,
-    users,
-    profiles,
-    technicians,
-    fixesAt,
-    addresses,
-    areas: serviceAreasData,
-  } = board ?? NO_BOARD;
+  // then on the last complete board while a poll brings the next.
+  const { board, query } = useDispatchBoard(BOARD_WINDOW, { techs: canSeeTechs, areas: canSeeAreas });
+  const { deals, contacts, users, profiles, technicians, fixesAt, addresses, areas: serviceAreasData } = board ?? NO_BOARD;
   const reorder = useReorderDeals();
 
-  // Per-deal display names: a job's own "Just here" rename wins over the
-  // contact record's name.
-  const dealClientNames = useMemo(() => {
-    const names = new Map<string, string>();
-    for (const d of deals) names.set(d.id, dealClientName(d, contacts.get(d.contactId)));
-    return names;
-  }, [deals, contacts]);
+  const nameOf = useCallback((id: string) => personName(users.get(id)) ?? "Technician", [users]);
+  const clientOf = useCallback((d: Deal) => dealClientName(d, contacts.get(d.contactId)), [contacts]);
+  const titleOf = useCallback((d: Deal) => jobCardTitle(jobTypeName(d.jobTypeId), d.dealNumber), [jobTypeName]);
 
-  // Service-area options come from the loaded set, so the dropdown only ever
-  // offers areas that actually have jobs.
-  const serviceAreas = useMemo(
-    () => Array.from(new Set(deals.map((d) => d.serviceArea))).sort(),
-    [deals],
-  );
-
-  // The days and statuses filter by the window the shown jobs were read for:
-  // a new pick keeps the board as it is until its own jobs are in, then turns
-  // it over once — rather than re-filtering the old jobs now and changing
-  // again when the new ones land. The rest filters on the spot.
+  // The chosen days, the search and the Filters — all on the jobs in hand.
+  const days = mapRangeWindow(range, anchor);
   const filtered = useMemo(
     () =>
-      filterDeals(
-        deals,
-        {
-          search,
-          serviceArea: serviceArea === ALL ? undefined : serviceArea,
-          jobTypeId: jobTypeId === ALL ? undefined : jobTypeId,
-          statusGroups: shownWindow.statuses,
-          dateFrom: shownWindow.from,
-          dateTo: shownWindow.to,
-        },
-        contacts,
+      filterDeals(deals, { search, dateFrom: days.from, dateTo: days.to }, contacts).filter((d) =>
+        matchesMapFilters(d, filters),
       ),
-    [deals, search, serviceArea, jobTypeId, shownWindow, contacts],
+    [deals, search, days.from, days.to, contacts, filters],
   );
-
   const { mapped, unmapped } = useMemo(() => splitByLocation(filtered), [filtered]);
 
-  // The layer toggle only hides markers; the job list stays as the work queue.
-  const showJobLayer = layer !== "techs";
-  const showTechLayer = layer !== "jobs" && canSeeTechs;
-  const mapJobs = showJobLayer ? mapped : [];
-  const mapTechs = showTechLayer ? technicians : [];
-  // Memoized so the overlay's polygons only rebuild when the set actually
-  // changes, not on every unrelated render (hover, selection, poll).
+  const people = useMemo(
+    () =>
+      techRows({
+        userIds: profiles.map((p) => p.userId),
+        positions: technicians,
+        userMap: users,
+        now: fixesAt,
+        query: tab === "techs" ? search : "",
+      }),
+    [profiles, technicians, users, fixesAt, tab, search],
+  );
+
+  // The map's layers: the Jobs tab draws jobs (and the team when asked), the
+  // Techs tab the team alone.
+  const mapJobs = tab === "jobs" ? mapped : [];
+  const drawTechs = canSeeTechs && (tab === "techs" || showTechs);
+  const shownTechIds = useMemo(() => new Set(people.map((p) => p.userId)), [people]);
+  const mapTechs = useMemo(
+    () => (drawTechs ? technicians.filter((t) => tab === "jobs" || shownTechIds.has(t.userId)) : []),
+    [drawTechs, technicians, tab, shownTechIds],
+  );
+  // Memoized so the overlay's polygons only rebuild when the set changes.
   const mapAreas = useMemo(
-    () => (showAreas ? serviceAreasData : []),
-    [showAreas, serviceAreasData],
+    () => (showAreas && canSeeAreas ? serviceAreasData : []),
+    [showAreas, canSeeAreas, serviceAreasData],
   );
 
-  const selected = useMemo(
-    () => filtered.find((d) => d.id === selectedId) ?? null,
-    [filtered, selectedId],
-  );
+  const selectedDeal = useMemo(() => filtered.find((d) => d.id === selectedId) ?? null, [filtered, selectedId]);
 
-  // A technician can be selected instead of a job — ids don't collide, so at
-  // most one of `selected`/`selectedTech` is ever set.
-  const selectedTech = useMemo(
-    () => (selectedId ? technicians.find((t) => t.userId === selectedId) ?? null : null),
-    [selectedId, technicians],
-  );
-  const selectedTechJobs = useMemo(
-    () => (selectedTech ? techJobsToday(deals, selectedTech.userId, todayISO()) : []),
-    [selectedTech, deals],
-  );
-
-  // Where to centre the map when something is selected — a job pin or a
-  // technician marker. Deal ids and technician userIds don't collide.
+  // Where to centre the map when something is picked — a job pin or a
+  // technician. Deal ids and technician userIds don't collide.
   const selectedPosition = useMemo(() => {
     if (!selectedId) return null;
     const deal = mapped.find((d) => d.id === selectedId);
@@ -266,10 +215,26 @@ function DispatchBoardPage() {
     return null;
   }, [selectedId, mapped, technicians]);
 
-  // Enter in the search box centres the map on the first matching job.
-  const zoomToFirstMatch = () => {
-    if (mapped.length > 0) select(mapped[0].id);
-  };
+  // The Filters' lists: everyone A→Z, every area, the live job types.
+  const techOptions = useMemo(
+    () =>
+      sortByName(
+        [...users.values()].flatMap((u) => {
+          const label = personName(u);
+          return label ? [{ value: u.id, label }] : [];
+        }),
+      ),
+    [users],
+  );
+  const areaOptions = useMemo(() => {
+    const names = new Set<string>(deals.map((d) => d.serviceArea).filter(Boolean));
+    for (const a of serviceAreasData) if (a.active) names.add(a.name);
+    return sortByName([...names].map((n) => ({ value: n, label: n })));
+  }, [deals, serviceAreasData]);
+  const jobTypeOptions = useMemo(
+    () => activeJobTypes(jobTypes).map((t) => ({ value: t.id, label: t.name })),
+    [jobTypes],
+  );
 
   // Refused only once the permissions say so — not on every refresh while
   // they are still on their way.
@@ -284,22 +249,7 @@ function DispatchBoardPage() {
     );
   }
 
-  const nameOf = (id?: string) => {
-    if (!id) return undefined;
-    const user = users.get(id);
-    if (!user) return undefined;
-    return `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim() || user.email;
-  };
-
-  /** A deal's roster as one label — the job list shows a single line per job. */
-  const techNamesOf = (techIds: string[]) => {
-    const names = techIds.map(nameOf).filter(Boolean) as string[];
-    return names.length ? names.join(", ") : undefined;
-  };
-
-  // One wait for the whole board, then the board in one frame: the toolbar's
-  // toggles hang on the permissions and its count on the jobs, so it comes
-  // with them rather than reflowing as they land.
+  // One wait for the whole board, then the board in one frame.
   if (!board) {
     return (
       <div className="flex flex-1 items-center justify-center">
@@ -308,265 +258,164 @@ function DispatchBoardPage() {
     );
   }
 
-  const showMap = view !== "list";
-  const showList = view !== "map";
+  // Enter in the search box centres the map on the first match.
+  const zoomToFirstMatch = () => {
+    if (tab === "jobs" && mapped.length > 0) select(mapped[0].id);
+    if (tab === "techs") {
+      const first = people.find((p) => p.locatable);
+      if (first) select(first.userId);
+    }
+  };
+
+  const jobCard = (deal: LocatedDeal) => (
+    <JobPinCard
+      deal={deal}
+      title={titleOf(deal)}
+      clientName={clientOf(deal)}
+      phone={deal.phones?.[0] ?? contacts.get(deal.contactId)?.phones?.[0]}
+      techNames={deal.assignedTechIds.length ? deal.assignedTechIds.map(nameOf).join(", ") : undefined}
+      canEdit={canEdit}
+      onEdit={() => setEditing(true)}
+      onView={() => router.push(`/deals/${deal.id}`)}
+      onAssign={() => setAssigning(true)}
+      onClose={() => setSelectedId(null)}
+    />
+  );
+
+  const techCard = (position: (typeof technicians)[number]) => (
+    <TechPinCard
+      position={position}
+      name={nameOf(position.userId)}
+      address={addresses.get(position.userId)}
+      jobs={techJobsToday(deals, position.userId, todayISO())}
+      title={titleOf}
+      clientName={clientOf}
+      canReorder={canEdit}
+      onReorder={(orderedDealIds) => reorder.mutate({ techId: position.userId, orderedDealIds })}
+      onSelectJob={(id) => {
+        setTab("jobs");
+        select(id);
+      }}
+      onClose={() => setSelectedId(null)}
+    />
+  );
+
+  const found =
+    tab === "jobs" ? `Found ${filtered.length} out of ${deals.length} open jobs` : `Found ${people.length} users`;
 
   return (
-    <div className="flex flex-1 flex-col overflow-hidden">
-      <div className="flex flex-wrap items-center gap-2 border-b px-6 py-3">
-        <div className="mr-auto">
-          <h1 className="text-lg font-semibold tracking-tight">Dispatch Map</h1>
-          <p className="text-sm text-muted-foreground">
-            Showing {filtered.length} of {deals.length} jobs
-            {unmapped.length > 0 ? ` · ${unmapped.length} without coordinates` : ""}
-            {" · "}
-            <LastUpdated at={board.updatedAt} />
-          </p>
-        </div>
-
-        <Button
-          size="icon"
-          variant="ghost"
-          className="h-9 w-9"
-          onClick={() => query.refetch()}
-          disabled={query.isFetching}
-          title="Refresh jobs"
-        >
-          <RefreshCw className={`size-4 ${query.isFetching ? "animate-spin" : ""}`} />
-        </Button>
-
-        <Input
-          placeholder="Search client, #, area"
-          value={search}
-          onChange={(e) => patch({ search: e.target.value })}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") zoomToFirstMatch();
-          }}
-          className="h-9 w-52"
-        />
-
-        <Select value={serviceArea} onValueChange={(v) => patch({ serviceArea: v })}>
-          <SelectTrigger className="h-9 w-40"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value={ALL}>All areas</SelectItem>
-            {serviceAreas.map((a) => (
-              <SelectItem key={a} value={a}>{a}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <Select value={datePreset} onValueChange={(v) => patch({ datePreset: v as DatePreset })}>
-          <SelectTrigger className="h-9 w-36"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            {DATE_PRESETS.map((p) => (
-              <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <Select value={jobTypeId} onValueChange={(v) => patch({ jobTypeId: v })}>
-          <SelectTrigger className="h-9 w-40"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value={ALL}>All job types</SelectItem>
-            {activeJobTypes(jobTypes).map((t) => (
-              <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        {/* Status = stage groups, multi-select (empty = all). */}
-        <div className="flex rounded-md border p-0.5">
-          {GROUP_ORDER.map((g) => (
-            <Button
-              key={g}
-              size="sm"
-              variant={statusGroups.includes(g) ? "secondary" : "ghost"}
-              className="h-7 px-2.5 text-xs"
-              onClick={() => toggleGroup(g)}
-              title={`Toggle ${groupLabel(g)}`}
-            >
-              {groupLabel(g)}
-            </Button>
-          ))}
-        </div>
-
-        {/* Layer toggle — what the map draws. Hidden in list view (no map) and
-            without technician access the "techs"/"both" split is meaningless. */}
-        {showMap && canSeeTechs ? (
-          <div className="flex rounded-md border p-0.5">
-            {LAYER_OPTIONS.map((opt) => (
-              <Button
-                key={opt.value}
-                size="sm"
-                variant={layer === opt.value ? "secondary" : "ghost"}
-                className="h-7 gap-1.5 px-3 text-xs"
-                onClick={() => pickLayer(opt.value)}
-                title={opt.title}
-              >
-                <opt.icon className="size-3.5" />
-                {opt.label}
-              </Button>
-            ))}
-          </div>
-        ) : null}
-
-        {/* Service-area boundaries — an independent background layer. */}
-        {showMap && canSeeAreas ? (
-          <div className="flex rounded-md border p-0.5">
-            <Button
-              size="sm"
-              variant={showAreas ? "secondary" : "ghost"}
-              className="h-7 gap-1.5 px-3 text-xs"
-              onClick={() => setShowAreas((s) => !s)}
-              title="Toggle service area boundaries"
-            >
-              <MapIcon className="size-3.5" />
-              Areas
+    <div data-testid="dispatch-board" className="flex min-h-0 flex-1 bg-white pt-[14px]">
+      <MapSidebar
+        tab={tab}
+        onTab={pickTab}
+        showTabs={canSeeTechs}
+        search={search}
+        onSearch={(v) => patch({ search: v })}
+        onSearchEnter={zoomToFirstMatch}
+        onFilters={() => setFiltersOpen(true)}
+        filtersPanel={
+          filtersOpen ? (
+            <MapFiltersPanel
+              value={filters}
+              techs={techOptions}
+              areas={areaOptions}
+              jobTypes={jobTypeOptions}
+              onApply={(next) => {
+                patch({ filters: next });
+                setFiltersOpen(false);
+              }}
+              onBack={() => setFiltersOpen(false)}
+            />
+          ) : undefined
+        }
+        found={found}
+        onRefresh={() => query.refetch()}
+        refreshing={query.isFetching}
+        refreshTitle={board.updatedAt ? `Last updated ${new Date(board.updatedAt).toLocaleTimeString()}` : undefined}
+        toggles={
+          <>
+            {canSeeTechs ? (
+              <MapToggleRow label="Show techs" checked={showTechs} onCheckedChange={(v) => patch({ showTechs: v })} />
+            ) : null}
+            {canSeeAreas ? (
+              <MapToggleRow
+                label="Show service areas"
+                checked={showAreas}
+                onCheckedChange={(v) => patch({ showAreas: v })}
+              />
+            ) : null}
+          </>
+        }
+      >
+        {board.failed ? (
+          <div className="flex flex-col items-center gap-3 px-4 py-8 text-center">
+            <TriangleAlert className="size-6 text-wz-danger" />
+            <p className="text-sm font-semibold text-foreground">Couldn&apos;t load jobs</p>
+            <Button variant="outline" onClick={() => query.refetch()}>
+              Retry
             </Button>
           </div>
-        ) : null}
+        ) : tab === "jobs" ? (
+          <JobList
+            mapped={mapped}
+            unmapped={unmapped}
+            title={titleOf}
+            hoveredId={hoveredId}
+            onHover={setHoveredId}
+            onSelect={select}
+          />
+        ) : (
+          <TechList rows={people} addresses={addresses} hoveredId={hoveredId} onHover={setHoveredId} onSelect={select} />
+        )}
+      </MapSidebar>
 
-        <div className="flex rounded-md border p-0.5">
-          {(["split", "map", "list"] as const).map((v) => (
-            <Button
-              key={v}
-              size="sm"
-              variant={view === v ? "secondary" : "ghost"}
-              className="h-7 px-3 text-xs capitalize"
-              onClick={() => setView(v)}
-            >
-              {v}
-            </Button>
-          ))}
-        </div>
+      <div className="relative min-w-0 flex-1">
+        {/* Both are required: without a vector Map ID the map loads but
+            draws no pins, which looks like a bug rather than a gap in setup. */}
+        {env.googleMapsApiKey && env.googleMapsMapId ? (
+          <>
+            <DispatchMap
+              deals={mapJobs}
+              allDeals={deals}
+              technicians={mapTechs}
+              serviceAreas={mapAreas}
+              fitTo={tab}
+              jobTechNames={(d) => d.assignedTechIds.map(nameOf)}
+              techName={nameOf}
+              hoveredId={hoveredId}
+              selectedId={selectedId}
+              panTo={selectedPosition}
+              panNonce={panNonce}
+              onHover={setHoveredId}
+              onSelect={select}
+              jobCard={jobCard}
+              techCard={techCard}
+            />
+            {tab === "jobs" ? (
+              <MapDateBox
+                range={range}
+                anchor={anchor}
+                onRange={(r) => patch({ range: r })}
+                onStep={(step) => setAnchor((a) => shiftMapRange(range, a, step))}
+                onReset={() => setAnchor(localToday())}
+              />
+            ) : null}
+            <ServiceAreaLegend areas={mapAreas} />
+          </>
+        ) : (
+          <MissingConfig missingKey={!env.googleMapsApiKey} missingMapId={!env.googleMapsMapId} />
+        )}
       </div>
 
-      {board.failed ? (
-        <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
-          <TriangleAlert className="size-6 text-destructive" />
-          <div className="font-medium">Couldn&apos;t load jobs</div>
-          <Button variant="outline" onClick={() => query.refetch()}>Retry</Button>
-        </div>
-      ) : (
-        <div className="flex flex-1 overflow-hidden">
-          {showList ? (
-            <aside
-              className={view === "list" ? "flex-1 overflow-hidden" : "w-88 shrink-0 border-r"}
-            >
-              {/* The list follows the layer: technicians in "Techs", jobs in
-                  "Jobs", and both stacked in "Both". */}
-              {(() => {
-                const techList = (
-                  <TechList
-                    userIds={profiles.map((p) => p.userId)}
-                    positions={technicians}
-                    addresses={addresses}
-                    now={fixesAt}
-                    userMap={users}
-                    hoveredId={hoveredId}
-                    selectedId={selectedId}
-                    onHover={setHoveredId}
-                    onSelect={select}
-                  />
-                );
-                const jobList = (
-                  <JobList
-                    mapped={mapped}
-                    unmapped={unmapped}
-                    clientName={(d) => dealClientNames.get(d.id) ?? "Unknown client"}
-                    techName={(d) => techNamesOf(d.assignedTechIds)}
-                    hoveredId={hoveredId}
-                    selectedId={selectedId}
-                    onHover={setHoveredId}
-                    onSelect={select}
-                  />
-                );
-                if (layer === "techs") return techList;
-                if (layer === "jobs") return jobList;
-                return (
-                  <div className="flex h-full flex-col">
-                    <ListHeading>Technicians</ListHeading>
-                    <div className="min-h-0 flex-1">{techList}</div>
-                    <ListHeading>Jobs</ListHeading>
-                    <div className="min-h-0 flex-1">{jobList}</div>
-                  </div>
-                );
-              })()}
-            </aside>
-          ) : null}
-
-          {showMap ? (
-            <div className="relative flex-1">
-              {/* Both are required: without a vector Map ID the map loads but
-                  draws no pins, which looks like a bug rather than a gap in setup. */}
-              {env.googleMapsApiKey && env.googleMapsMapId ? (
-                <>
-                  <DispatchMap
-                    deals={mapJobs}
-                    allDeals={deals}
-                    technicians={mapTechs}
-                    serviceAreas={mapAreas}
-                    userMap={users}
-                    hoveredId={hoveredId}
-                    selectedId={selectedId}
-                    panTo={selectedPosition}
-                    panNonce={panNonce}
-                    onHover={setHoveredId}
-                    onSelect={select}
-                    label={(d) =>
-                      `#${d.dealNumber} · ${dealClientNames.get(d.id) ?? "Unknown client"}`
-                    }
-                  />
-                  <ServiceAreaLegend areas={mapAreas} />
-                </>
-              ) : (
-                <MissingConfig
-                  missingKey={!env.googleMapsApiKey}
-                  missingMapId={!env.googleMapsMapId}
-                />
-              )}
-            </div>
-          ) : null}
-
-          {selected ? (
-            <JobSidebar
-              deal={selected}
-              clientName={dealClientNames.get(selected.id) ?? "Unknown client"}
-              techName={techNamesOf(selected.assignedTechIds)}
-              canEdit={can("deals", "edit")}
-              onEdit={() => setEditing(true)}
-              onClose={() => setSelectedId(null)}
-            />
-          ) : selectedTech ? (
-            <TechSidebar
-              position={selectedTech}
-              address={addresses.get(selectedTech.userId)}
-              name={nameOf(selectedTech.userId) ?? "Technician"}
-              jobs={selectedTechJobs}
-              clientName={(d) => dealClientNames.get(d.id) ?? "Unknown client"}
-              canReorder={can("deals", "edit")}
-              onReorder={(orderedDealIds) =>
-                reorder.mutate({ techId: selectedTech.userId, orderedDealIds })
-              }
-              onClose={() => setSelectedId(null)}
-              onSelectJob={select}
-            />
-          ) : null}
-        </div>
-      )}
-
-      {selected && editing ? (
-        <EditDealSheet deal={selected} open onOpenChange={setEditing} />
+      {selectedDeal && editing ? <EditDealSheet deal={selectedDeal} open onOpenChange={setEditing} /> : null}
+      {selectedDeal && assigning ? (
+        <AssignTechDialog
+          dealId={selectedDeal.id}
+          assignedTechIds={selectedDeal.assignedTechIds}
+          open
+          onOpenChange={setAssigning}
+        />
       ) : null}
-    </div>
-  );
-}
-
-/** Sticky section label for the combined "Both" list. */
-function ListHeading({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="sticky top-0 z-10 border-b bg-muted/50 px-4 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-      {children}
     </div>
   );
 }
@@ -583,28 +432,28 @@ function MissingConfig({
   missingMapId: boolean;
 }) {
   return (
-    <div className="flex size-full flex-col items-center justify-center gap-3 bg-muted/30 p-8 text-center">
-      <div className="flex size-12 items-center justify-center rounded-xl bg-muted text-muted-foreground">
+    <div className="flex size-full flex-col items-center justify-center gap-3 bg-muted p-8 text-center">
+      <div className="flex size-12 items-center justify-center rounded-[8px] bg-wz-secondary-hover text-wz-slate">
         <KeyRound className="size-6" />
       </div>
-      <div className="font-medium">The map needs Google Maps configuration</div>
-      <ul className="max-w-sm space-y-1.5 text-sm text-muted-foreground">
+      <div className="font-semibold text-foreground">The map needs Google Maps configuration</div>
+      <ul className="max-w-sm space-y-1.5 text-sm text-wz-slate">
         {missingKey ? (
           <li>
-            <code className="rounded bg-muted px-1">NEXT_PUBLIC_GOOGLE_MAPS_API_KEY</code> — a
+            <code className="rounded-[3px] bg-wz-secondary-hover px-1">NEXT_PUBLIC_GOOGLE_MAPS_API_KEY</code> — a
             browser key with the Maps JavaScript and Places APIs enabled.
           </li>
         ) : null}
         {missingMapId ? (
           <li>
-            <code className="rounded bg-muted px-1">NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID</code> — a{" "}
+            <code className="rounded-[3px] bg-wz-secondary-hover px-1">NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID</code> — a{" "}
             <b>vector</b> Map ID from Map management. Job pins use AdvancedMarker, which draws
             nothing without one.
           </li>
         ) : null}
       </ul>
-      <p className="text-xs text-muted-foreground">
-        Set them in <code className="rounded bg-muted px-1">apps/web/.env</code>. The job list
+      <p className="text-xs text-wz-slate">
+        Set them in <code className="rounded-[3px] bg-wz-secondary-hover px-1">apps/web/.env</code>. The job list
         works without either.
       </p>
     </div>

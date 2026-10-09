@@ -4,25 +4,15 @@ import { useEffect } from "react";
 import { useMap } from "@vis.gl/react-google-maps";
 import type { ServiceArea } from "@bitcrm/types";
 import { circleToPath } from "@/features/service-areas/lib";
+import { scheduleColor } from "@/features/schedule/calendar";
 
 /**
- * Distinct, map-legible colours, cycled by the area's position in the list.
- * Kept stable (sorted list → same colour) so the legend and the polygons agree.
+ * An area's colour: its own Workiz colour when it carries one (imported
+ * areas do), else the one the Schedule gives it — so the map, the legend and
+ * the Schedule's area chips agree.
  */
-const AREA_COLORS = [
-  "#2563eb", // blue
-  "#16a34a", // green
-  "#db2777", // pink
-  "#f59e0b", // amber
-  "#7c3aed", // violet
-  "#0891b2", // cyan
-  "#dc2626", // red
-  "#4d7c0f", // lime
-];
-
-/** The colour a given area index draws with — shared by overlay and legend. */
-export function areaColor(index: number): string {
-  return AREA_COLORS[index % AREA_COLORS.length];
+export function areaColor(area: Pick<ServiceArea, "name" | "color">): string {
+  return area.color ?? scheduleColor(area.name);
 }
 
 /** One area's coverage → a Google Maps path per shape (circles become 48-gons). */
@@ -41,15 +31,15 @@ function shapePaths(area: ServiceArea): google.maps.LatLngLiteral[][] {
  * Each coverage shape gets its own Polygon (not one Polygon with many paths) so
  * a multi-ZIP area's overlapping circles fill solidly instead of the even-odd
  * rule punching holes. Non-interactive (`clickable: false`) so it never steals
- * clicks from the job pins or technician markers layered on top.
+ * clicks from the pins layered on top.
  */
 export function ServiceAreaOverlay({ areas }: { areas: ServiceArea[] }) {
   const map = useMap();
 
   useEffect(() => {
     if (!map) return;
-    const polygons = areas.flatMap((area, i) => {
-      const color = areaColor(i);
+    const polygons = areas.flatMap((area) => {
+      const color = areaColor(area);
       const muted = !area.active; // inactive areas still show, just dimmed
       return shapePaths(area).map(
         (path) =>
@@ -72,25 +62,29 @@ export function ServiceAreaOverlay({ areas }: { areas: ServiceArea[] }) {
   return null;
 }
 
-/** Colour key for the drawn areas, overlaid in a corner of the map. */
+/**
+ * The areas' key — ours (Workiz's map has no area layer), drawn as Workiz
+ * draws an area wherever it lists one: a chip of white 14px/500 words on the
+ * area's colour, 22px tall, 3px corners, in a white 8px-cornered box like the
+ * date box, at the map's bottom-left above Google's mark.
+ */
 export function ServiceAreaLegend({ areas }: { areas: ServiceArea[] }) {
   if (areas.length === 0) return null;
   return (
-    <div className="absolute left-3 top-3 z-10 max-h-[45%] w-56 overflow-auto rounded-lg border bg-background/95 p-2.5 shadow-md backdrop-blur">
-      <p className="mb-1.5 px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-        Service areas
-      </p>
-      <ul className="space-y-0.5">
-        {areas.map((area, i) => (
-          <li key={area.id} className="flex items-center gap-2 rounded px-1 py-0.5 text-sm">
-            <span
-              className="size-3 shrink-0 rounded-sm"
-              style={{ backgroundColor: areaColor(i) }}
-            />
-            <span className="truncate">{area.name}</span>
-            {!area.active ? (
-              <span className="ml-auto text-[10px] uppercase text-muted-foreground">off</span>
-            ) : null}
+    <div
+      aria-label="Service areas"
+      className="absolute bottom-8 left-3 z-10 flex max-h-[40%] max-w-[320px] flex-col gap-2 overflow-auto rounded-[8px] bg-white p-3 shadow-[0_4px_16px_rgba(0,0,0,0.15)]"
+    >
+      <p className="text-[13px] leading-[19px] font-semibold tracking-[0.4px] text-foreground">Service areas</p>
+      <ul className="flex flex-wrap gap-1">
+        {areas.map((area) => (
+          <li
+            key={area.id}
+            title={area.active ? area.name : `${area.name} (off)`}
+            style={{ backgroundColor: areaColor(area) }}
+            className={`inline-flex h-[22px] items-center rounded-[3px] px-1.5 text-sm font-medium text-white ${area.active ? "" : "opacity-50"}`}
+          >
+            {area.name}
           </li>
         ))}
       </ul>

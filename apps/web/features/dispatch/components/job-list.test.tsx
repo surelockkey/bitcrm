@@ -8,12 +8,6 @@ import {
   type Deal,
 } from "@bitcrm/types";
 
-// Resolve job-type ids without a QueryClient/live catalog.
-vi.mock("@/features/job-types/lib", () => ({
-  useJobTypesLoading: () => false,
-  useJobTypeName: () => () => "Lockout",
-}));
-
 import { JobList } from "./job-list";
 
 function deal(over: Partial<Deal> = {}): Deal {
@@ -52,10 +46,8 @@ const renderList = (d: Deal) =>
     <JobList
       mapped={[d]}
       unmapped={[]}
-      clientName={() => "Jane Smith"}
-      techName={() => "Ann Lee"}
+      title={() => "Lockout - Job #1042"}
       hoveredId={null}
-      selectedId={null}
       onHover={vi.fn()}
       onSelect={vi.fn()}
     />,
@@ -65,6 +57,16 @@ const renderList = (d: Deal) =>
  * The board's job is to make the gap visible: which jobs are still sitting
  * with the dispatcher, and which the technician has actually opened.
  */
+describe("JobList — the Workiz job card", () => {
+  it("reads type - Job #, the address with the state spelled out, and the status", () => {
+    renderList(deal());
+    const card = screen.getByTestId("job-row-d1");
+    expect(card).toHaveTextContent("Lockout - Job #1042");
+    expect(card).toHaveTextContent("1 Main, Phoenix, Arizona, 85001");
+    expect(card).toHaveTextContent("Submitted");
+  });
+});
+
 describe("JobList — Sent / Seen chips", () => {
   it("says nothing on a job that has not been sent", () => {
     renderList(deal());

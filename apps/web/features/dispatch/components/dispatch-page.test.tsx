@@ -7,8 +7,9 @@ import { http, HttpResponse } from "msw";
 import { server } from "@/test/msw/server";
 import { DispatchPage } from "./dispatch-page";
 
+const router = vi.hoisted(() => ({ push: vi.fn() }));
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ replace: vi.fn(), push: vi.fn(), prefetch: vi.fn() }),
+  useRouter: () => ({ replace: vi.fn(), push: router.push, prefetch: vi.fn() }),
 }));
 
 /**
@@ -42,14 +43,6 @@ vi.mock("@vis.gl/react-google-maps", () => ({
   // load means no streets, and nothing for the board to wait on.
   useMapsLibrary: () => null,
   useApiLoadingStatus: () => "FAILED",
-}));
-
-// With a non-null map, the clusterer would build a real instance from our fake.
-vi.mock("@googlemaps/markerclusterer", () => ({
-  MarkerClusterer: class {
-    clearMarkers() {}
-    addMarkers() {}
-  },
 }));
 
 // FitToJobs builds a LatLngBounds; stub the tiny slice it touches.
@@ -86,6 +79,13 @@ vi.mock("@/features/auth/use-permissions", () => ({
   usePermissions: () => permissions.value,
 }));
 
+/** Today as the page reads it — the viewer's own calendar day. */
+function localDay(offset = 0): string {
+  const d = new Date();
+  d.setDate(d.getDate() + offset);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 const LOCATED = {
   id: "deal-1",
   dealNumber: "101",
@@ -95,6 +95,9 @@ const LOCATED = {
   address: { street: "1 Peachtree St", city: "Atlanta", state: "GA", zip: "30303", lat: 33.749, lng: -84.388 },
   jobTypeId: "jt-lockout",
   stage: "new_lead",
+  superStatus: "submitted",
+  scheduledDate: localDay(),
+  scheduledTimeSlot: "07:30-08:30",
   assignedDispatcherId: "d1",
   priority: "normal",
   assignedTechIds: [],
@@ -112,24 +115,43 @@ const UNLOCATED = {
   address: { street: "9 Unknown Way", city: "Atlanta", state: "GA", zip: "30303" },
 };
 
+/** On tech-1, three weeks out — outside the week the Map opens on. */
+const LATER = {
+  ...LOCATED,
+  id: "deal-3",
+  dealNumber: "103",
+  superStatus: "in_progress",
+  scheduledDate: localDay(21),
+  assignedTechIds: ["tech-1"],
+  address: { ...LOCATED.address, lat: 33.8, lng: -84.3 },
+};
+
 function mockApi() {
   server.use(
     http.get("*/deals", () =>
       HttpResponse.json({
         success: true,
-        data: [LOCATED, UNLOCATED],
-        pagination: { count: 2 },
+        data: [LOCATED, UNLOCATED, LATER],
+        pagination: { count: 3 },
       }),
     ),
     // The page names only the contacts of the rows it holds.
     http.post("*/contacts/by-ids", () =>
       HttpResponse.json({
         success: true,
-        data: [{ id: "contact-1", firstName: "Ada", lastName: "Lovelace", phones: [], emails: [] }],
+        data: [{ id: "contact-1", firstName: "Ada", lastName: "Lovelace", phones: ["+14045550101"], emails: [] }],
       }),
     ),
+    http.get("*/deals/job-types", () =>
+      HttpResponse.json({ success: true, data: [{ id: "jt-lockout", name: "Lockout", active: true, priority: 1 }] }),
+    ),
+    http.get("*/deals/service-areas", () => HttpResponse.json({ success: true, data: [] })),
     http.get("*/users", () =>
-      HttpResponse.json({ success: true, data: [], pagination: { count: 0 } }),
+      HttpResponse.json({
+        success: true,
+        data: [{ id: "tech-1", firstName: "Daniel", lastName: "Munoz", workizName: "(2) TX - Daniel Munoz" }],
+        pagination: { count: 1 },
+      }),
     ),
     http.get("*/users/technicians/locations", () =>
       HttpResponse.json({ success: true, data: [] }),
@@ -167,18 +189,23 @@ beforeEach(() => {
     me: undefined,
   };
   fakeMap.panTo.mockClear();
+  router.push.mockClear();
+  window.sessionStorage.clear();
   mockApi();
 });
 
-describe("DispatchPage", () => {
-  it("lists the day's jobs", async () => {
+describe("DispatchPage — Workiz's Map", () => {
+  it("lists the week's jobs as Workiz job cards: type - Job #, address, status", async () => {
     render(<DispatchPage />, { wrapper });
 
-    expect(await screen.findByTestId("job-row-deal-1")).toBeInTheDocument();
+    const card = await screen.findByTestId("job-row-deal-1");
+    expect(card).toHaveTextContent("Lockout - Job #101");
+    expect(card).toHaveTextContent("1 Peachtree St, Atlanta, Georgia, 30303");
+    expect(card).toHaveTextContent("Submitted");
     expect(screen.getByTestId("job-row-deal-2")).toBeInTheDocument();
   });
 
-  it("with no date picked, asks only for the open statuses — never the closed ones whole", async () => {
+  it("reads every open job once, whatever the date — never the closed ones", async () => {
     const urls: string[] = [];
     server.use(
       http.get("*/deals", ({ request }) => {
@@ -193,7 +220,29 @@ describe("DispatchPage", () => {
     for (const u of urls) expect(new URL(u).searchParams.has("scheduledFrom")).toBe(false);
   });
 
-  it("marks the matching pin when a list row is hovered", async () => {
+  it("shows the chosen week and says how many of the open jobs that is", async () => {
+    render(<DispatchPage />, { wrapper });
+
+    expect(await screen.findByText("Found 2 out of 3 open jobs")).toBeInTheDocument();
+    expect(screen.queryByTestId("job-row-deal-3")).not.toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: /range/i })).toHaveTextContent("Week");
+  });
+
+  it("› steps a week on; Reset date comes back to today", async () => {
+    const user = userEvent.setup();
+    render(<DispatchPage />, { wrapper });
+    await screen.findByTestId("job-row-deal-1");
+
+    for (let i = 0; i < 3; i++) await user.click(screen.getByRole("button", { name: "Next" }));
+    expect(await screen.findByTestId("job-row-deal-3")).toBeInTheDocument();
+    expect(screen.queryByTestId("job-row-deal-1")).not.toBeInTheDocument();
+    expect(screen.getByText("Found 1 out of 3 open jobs")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Reset date" }));
+    expect(await screen.findByTestId("job-row-deal-1")).toBeInTheDocument();
+  });
+
+  it("shows a pin's tech in a tooltip while its card in the list is hovered", async () => {
     const user = userEvent.setup();
     render(<DispatchPage />, { wrapper });
 
@@ -205,10 +254,11 @@ describe("DispatchPage", () => {
     await waitFor(() =>
       expect(screen.getByTestId("job-pin-deal-1")).toHaveAttribute("data-hovered", "true"),
     );
+    expect(screen.getByRole("tooltip")).toHaveTextContent("Unassigned");
   });
 
   // A deal with no coordinates must be visible as a gap, not silently dropped.
-  it("surfaces deals that cannot be placed on the map", async () => {
+  it("surfaces jobs that cannot be placed on the map", async () => {
     render(<DispatchPage />, { wrapper });
 
     expect(await screen.findByText(/not on the map \(1\)/i)).toBeInTheDocument();
@@ -217,14 +267,36 @@ describe("DispatchPage", () => {
     expect(screen.getByTestId("job-pin-deal-1")).toBeInTheDocument();
   });
 
-  it("opens the job details when a row is clicked", async () => {
+  it("opens the job's card over its pin when its row is clicked", async () => {
     const user = userEvent.setup();
     render(<DispatchPage />, { wrapper });
 
     await user.click(await screen.findByTestId("job-row-deal-1"));
 
-    expect(await screen.findByRole("button", { name: /close job details/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^edit$/i })).toBeInTheDocument();
+    const card = await screen.findByRole("dialog", { name: "Lockout - Job #101" });
+    expect(card).toHaveTextContent("Ada Lovelace");
+    expect(card).toHaveTextContent("(404) 555-0101");
+    expect(card).toHaveTextContent("1 Peachtree St, Atlanta, Georgia, 30303");
+    expect(card).toHaveTextContent("Unassigned");
+    expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Assign" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "View" }));
+    expect(router.push).toHaveBeenCalledWith("/deals/deal-1");
+
+    await user.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("dialog", { name: "Lockout - Job #101" })).not.toBeInTheDocument();
+  });
+
+  it("offers no Edit or Assign without deals.edit", async () => {
+    permissions.value = { ...permissions.value, can: (_r: string, a: string) => a !== "edit" };
+    const user = userEvent.setup();
+    render(<DispatchPage />, { wrapper });
+
+    await user.click(await screen.findByTestId("job-row-deal-1"));
+    await screen.findByRole("dialog", { name: "Lockout - Job #101" });
+    expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Assign" })).not.toBeInTheDocument();
   });
 
   it("refuses the page to someone without deals.view", async () => {
@@ -234,58 +306,95 @@ describe("DispatchPage", () => {
     expect(await screen.findByText(/no access/i)).toBeInTheDocument();
   });
 
-  describe("layer toggle", () => {
-    it("shows both jobs and technicians by default", async () => {
-      render(<DispatchPage />, { wrapper });
-
-      expect(await screen.findByTestId("job-pin-deal-1")).toBeInTheDocument();
-      expect(await screen.findByTestId("tech-marker-tech-1")).toBeInTheDocument();
-    });
-
-    it("hides technician markers when 'Jobs' is picked", async () => {
-      const user = userEvent.setup();
-      render(<DispatchPage />, { wrapper });
-      await screen.findByTestId("tech-marker-tech-1");
-
-      await user.click(screen.getByRole("button", { name: /^jobs$/i }));
-
-      expect(screen.getByTestId("job-pin-deal-1")).toBeInTheDocument();
-      expect(screen.queryByTestId("tech-marker-tech-1")).not.toBeInTheDocument();
-    });
-
-    it("hides job pins when 'Techs' is picked", async () => {
-      const user = userEvent.setup();
-      render(<DispatchPage />, { wrapper });
-      await screen.findByTestId("job-pin-deal-1");
-
-      await user.click(screen.getByRole("button", { name: /^techs$/i }));
-
-      expect(screen.getByTestId("tech-marker-tech-1")).toBeInTheDocument();
-      expect(screen.queryByTestId("job-pin-deal-1")).not.toBeInTheDocument();
-    });
-
-    it("swaps the job list for the technician roster in 'Techs'", async () => {
+  describe("Filters", () => {
+    it("narrows the jobs to the ticked statuses once applied", async () => {
       const user = userEvent.setup();
       render(<DispatchPage />, { wrapper });
       await screen.findByTestId("job-row-deal-1");
 
-      await user.click(screen.getByRole("button", { name: /^techs$/i }));
+      await user.click(screen.getByRole("button", { name: "Filter by" }));
+      expect(screen.getByText("Technician")).toBeInTheDocument();
+      expect(screen.getByText("Service Area")).toBeInTheDocument();
+      await user.click(screen.getByRole("checkbox", { name: "In progress" }));
+      await user.click(screen.getByRole("button", { name: "Apply" }));
 
-      // Job rows gone, technician rows in their place.
+      expect(await screen.findByText("Found 0 out of 3 open jobs")).toBeInTheDocument();
       expect(screen.queryByTestId("job-row-deal-1")).not.toBeInTheDocument();
-      expect(await screen.findByTestId("tech-row-tech-1")).toBeInTheDocument();
     });
 
-    // "Both" shows the two lists together, not just the jobs.
-    it("shows technicians and jobs together in 'Both'", async () => {
+    it("Technician 'Unassigned' keeps the jobs nobody is on", async () => {
+      const user = userEvent.setup();
+      render(<DispatchPage />, { wrapper });
+      await screen.findByTestId("job-row-deal-1");
+
+      await user.click(screen.getByRole("button", { name: "Filter by" }));
+      await user.click(screen.getByRole("checkbox", { name: "(2) TX - Daniel Munoz" }));
+      await user.click(screen.getByRole("button", { name: "Apply" }));
+      expect(await screen.findByText("Found 0 out of 3 open jobs")).toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: "Filter by" }));
+      await user.click(screen.getByRole("button", { name: "Clear" }));
+      await user.click(screen.getByRole("checkbox", { name: "Unassigned" }));
+      await user.click(screen.getByRole("button", { name: "Apply" }));
+      expect(await screen.findByText("Found 2 out of 3 open jobs")).toBeInTheDocument();
+    });
+
+    it("‹ leaves the panel without applying", async () => {
+      const user = userEvent.setup();
+      render(<DispatchPage />, { wrapper });
+      await screen.findByTestId("job-row-deal-1");
+
+      await user.click(screen.getByRole("button", { name: "Filter by" }));
+      await user.click(screen.getByRole("checkbox", { name: "Pending" }));
+      await user.click(screen.getByRole("button", { name: "Back" }));
+
+      expect(await screen.findByText("Found 2 out of 3 open jobs")).toBeInTheDocument();
+    });
+  });
+
+  describe("Jobs | Techs", () => {
+    it("the Jobs tab draws job pins only, unless 'Show techs' is on", async () => {
+      const user = userEvent.setup();
       render(<DispatchPage />, { wrapper });
 
-      expect(await screen.findByTestId("job-row-deal-1")).toBeInTheDocument();
-      expect(await screen.findByTestId("tech-row-tech-1")).toBeInTheDocument();
+      expect(await screen.findByTestId("job-pin-deal-1")).toBeInTheDocument();
+      expect(screen.queryByTestId("tech-marker-tech-1")).not.toBeInTheDocument();
+
+      await user.click(screen.getByRole("switch", { name: "Show techs" }));
+      expect(await screen.findByTestId("tech-marker-tech-1")).toBeInTheDocument();
     });
 
-    // No technician access → the toggle is meaningless and must not appear.
-    it("does not render the toggle without technicians.view", async () => {
+    it("the Techs tab lists the team, draws their pins and drops the jobs and the date box", async () => {
+      const user = userEvent.setup();
+      render(<DispatchPage />, { wrapper });
+      await screen.findByTestId("job-row-deal-1");
+
+      await user.click(screen.getByRole("tab", { name: "Techs" }));
+
+      expect(await screen.findByTestId("tech-row-tech-1")).toHaveTextContent("(2) TX - Daniel Munoz");
+      expect(screen.getByText("Found 1 users")).toBeInTheDocument();
+      expect(screen.getByTestId("tech-marker-tech-1")).toBeInTheDocument();
+      expect(screen.queryByTestId("job-row-deal-1")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("job-pin-deal-1")).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Next" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Filter by" })).not.toBeInTheDocument();
+    });
+
+    it("a tech's card shows where they are and their day", async () => {
+      const user = userEvent.setup();
+      render(<DispatchPage />, { wrapper });
+      await screen.findByTestId("job-row-deal-1");
+
+      await user.click(screen.getByRole("tab", { name: "Techs" }));
+      await user.click(await screen.findByTestId("tech-row-tech-1"));
+
+      const card = await screen.findByRole("dialog", { name: "(2) TX - Daniel Munoz" });
+      expect(card).toHaveTextContent(/home address/i);
+      expect(card).toHaveTextContent(/today's jobs/i);
+    });
+
+    // No technician access → neither the tabs nor the toggle mean anything.
+    it("shows no tabs and no 'Show techs' without technicians.view", async () => {
       permissions.value = {
         ...permissions.value,
         can: (resource: string) => resource !== "technicians",
@@ -293,7 +402,8 @@ describe("DispatchPage", () => {
       render(<DispatchPage />, { wrapper });
       await screen.findByTestId("job-pin-deal-1");
 
-      expect(screen.queryByRole("button", { name: /^techs$/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole("tab", { name: "Techs" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("switch", { name: "Show techs" })).not.toBeInTheDocument();
     });
   });
 
@@ -313,7 +423,7 @@ describe("DispatchPage", () => {
       const user = userEvent.setup();
       render(<DispatchPage />, { wrapper });
 
-      await user.click(await screen.findByRole("button", { name: /^techs$/i }));
+      await user.click(await screen.findByRole("tab", { name: "Techs" }));
       await user.click(await screen.findByTestId("tech-row-tech-1"));
 
       // The mocked technician's derived (home) position.
@@ -328,7 +438,7 @@ describe("DispatchPage", () => {
       const user = userEvent.setup();
       render(<DispatchPage />, { wrapper });
 
-      await user.click(await screen.findByRole("button", { name: /^techs$/i }));
+      await user.click(await screen.findByRole("tab", { name: "Techs" }));
       const row = await screen.findByTestId("tech-row-tech-1");
 
       await user.click(row);
@@ -338,20 +448,19 @@ describe("DispatchPage", () => {
       await waitFor(() => expect(fakeMap.panTo).toHaveBeenCalledTimes(2));
     });
 
-    // Bug: a technician stayed selected after switching to Jobs.
-    it("clears the selection when the layer changes", async () => {
+    // Bug: a technician stayed selected after switching back to Jobs.
+    it("clears the selection when the tab changes", async () => {
       const user = userEvent.setup();
       render(<DispatchPage />, { wrapper });
 
-      await user.click(await screen.findByRole("button", { name: /^techs$/i }));
+      await user.click(await screen.findByRole("tab", { name: "Techs" }));
       await user.click(await screen.findByTestId("tech-row-tech-1"));
-      await waitFor(() => expect(fakeMap.panTo).toHaveBeenCalled());
+      await screen.findByRole("dialog", { name: "(2) TX - Daniel Munoz" });
 
-      await user.click(screen.getByRole("button", { name: /^jobs$/i }));
+      await user.click(screen.getByRole("tab", { name: "Jobs" }));
 
-      // Back to jobs: the job row is not marked selected (no lingering pick).
-      const jobRow = await screen.findByTestId("job-row-deal-1");
-      expect(jobRow).toHaveAttribute("data-hovered", "false");
+      await screen.findByTestId("job-row-deal-1");
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     });
   });
 });
