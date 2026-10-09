@@ -1,3 +1,4 @@
+import { NotImplementedException } from '@nestjs/common';
 import { type AutomationAction } from '@bitcrm/types';
 import {
   AutomationActionExecutor,
@@ -32,7 +33,13 @@ const ctx = (over: Partial<ActionContext> = {}): ActionContext => ({
 function harness(over: Record<string, any> = {}) {
   const peers = {
     deal: jest.fn(),
-    user: jest.fn(async (id: string) => ({ id, firstName: `Tech ${id}`, phone: `+1404555000${id.slice(-1)}`, status: 'active' })),
+    user: jest.fn(async (id: string) => ({
+      id,
+      firstName: `Tech ${id}`,
+      phone: `+1404555000${id.slice(-1)}`,
+      email: `${id}@crew.test`,
+      status: 'active',
+    })),
     userIdsByRole: jest.fn(async () => ['t1']),
     ...(over.peers ?? {}),
   };
@@ -41,13 +48,21 @@ function harness(over: Record<string, any> = {}) {
     ...(over.threads ?? {}),
   };
   const renderer = {
-    render: jest.fn(async (input: { body?: string }) => ({ body: (input.body ?? '').replace('{{first_name}}', 'Jane'), missing: [] })),
+    render: jest.fn(async (input: { body?: string; subject?: string }) => ({
+      body: (input.body ?? '').replace('{{first_name}}', 'Jane'),
+      ...(input.subject !== undefined ? { subject: input.subject.replace('{{biz_name}}', 'Sure Lock') } : {}),
+      missing: [],
+    })),
     ...(over.renderer ?? {}),
   };
   const send = {
     sendSystem: jest.fn(async () => ({ message: createMockMessage({ id: 'm1', conversationId: 'c1', createdAt: T1 }), duplicate: false })),
     conversationForContact: jest.fn(async () => ({ conversation: createMockConversation(), created: false })),
     conversationForParty: jest.fn(async () => ({ conversation: createMockConversation({ id: 'c-num' }), created: true })),
+    conversationForEmail: jest.fn(async (address: string) => ({
+      conversation: createMockConversation({ id: 'c-mail', kind: 'unknown', partyKind: 'none', partyId: undefined, addresses: { phones: [], emails: [address] } }),
+      created: true,
+    })),
     ...(over.send ?? {}),
   };
   const fetchImpl = over.fetchImpl ?? jest.fn(async () => ({ ok: true, status: 200 }) as Response);
@@ -237,12 +252,234 @@ describe('AutomationActionExecutor', () => {
     expect(bad).toMatchObject({ outcome: 'failed', statusCode: 503 });
   });
 
-  it('reports email, in-app, tag and status actions as unsupported instead of pretending', async () => {
+  it('reports in-app, tag and status actions as unsupported instead of pretending', async () => {
     const { executor } = harness();
-    for (const type of ['send_email', 'send_in_app', 'add_tag', 'change_sub_status'] as const) {
+    for (const type of ['send_in_app', 'add_tag', 'change_sub_status'] as const) {
       const [result] = await executor.run({ type } as AutomationAction, ctx());
       expect(result.outcome).toBe('unsupported');
       expect(result.error).toBeTruthy();
     }
+  });
+});
+
+// --- send_email: Workiz "Notify by Email" / "Both" (A10). The 2 304 e-mails
+// the account's automations sent in 2026 (OOA jobs, Key Kiosk, the Facebook
+// campaigns) all go through here.
+
+const email = (over: Partial<AutomationAction> = {}): AutomationAction => ({
+  type: 'send_email',
+  to: 'client',
+  subject: 'Your appointment with {{biz_name}}',
+  body: 'Hi {{first_name}}\nSee you soon',
+  ...over,
+});
+
+/** A client thread that knows the contact's e-mail (copied from CRM when it was opened). */
+const clientWithEmail = () => ({
+  conversationForContact: jest.fn(async () => ({
+    conversation: createMockConversation({ addresses: { phones: ['+14045551234'], emails: ['jane@example.com'] } }),
+    created: false,
+  })),
+});
+
+describe('AutomationActionExecutor — send_email', () => {
+  it("e-mails the client at their thread's address, subject and body rendered, under the same replay-proof key", async () => {
+    const { executor, send, renderer } = harness({ send: clientWithEmail() });
+    const [result] = await executor.run(email(), ctx({ index: 1 }));
+
+    expect(result).toMatchObject({
+      type: 'send_email',
+      to: 'client',
+      outcome: 'sent',
+      messageId: 'm1',
+      subject: 'Your appointment with Sure Lock',
+      body: 'Hi Jane\nSee you soon',
+    });
+    expect(send.sendSystem).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: 'email',
+        to: 'jane@example.com',
+        subject: 'Your appointment with Sure Lock',
+        body: 'Hi Jane\nSee you soon',
+        origin: 'automation',
+        automationRuleId: 'r1',
+        dealId: 'd1',
+        actorId: 'system:automations',
+        clientMessageId: expect.stringMatching(/^automation:r1:deal:d1:[0-9a-f]{16}:1:contact:ct1$/),
+      }),
+    );
+    // A plain text renders as text: `sendSystem` escapes it and turns the
+    // line breaks into <br> exactly once. Escaping it here too would mail
+    // "Sure Lock &amp;amp; Key".
+    expect(renderer.render).toHaveBeenCalledWith(
+      expect.objectContaining({ format: 'text', subject: 'Your appointment with {{biz_name}}', body: 'Hi {{first_name}}\nSee you soon' }),
+      expect.objectContaining({ contactId: 'ct1', dealId: 'd1' }),
+    );
+  });
+
+  it('an imported HTML body keeps its markup: rendered as html, so the values are escaped and the tags are not', async () => {
+    const { executor, renderer } = harness({ send: clientWithEmail() });
+    await executor.run(email({ body: '<p>Hi {{first_name}}</p>' }), ctx());
+    expect(renderer.render).toHaveBeenCalledWith(expect.objectContaining({ format: 'html' }), expect.anything());
+  });
+
+  it('e-mails every assigned technician at their work address in their team thread; one without an address is skipped as "no email"', async () => {
+    const { executor, send } = harness({
+      peers: {
+        user: jest.fn(async (id: string) => ({
+          id,
+          firstName: `Tech ${id}`,
+          ...(id === 't1' ? { email: 't1@crew.test' } : {}),
+          status: 'active',
+        })),
+      },
+    });
+    const results = await executor.run(email({ to: 'assigned_techs' }), ctx());
+
+    expect(results).toEqual([
+      expect.objectContaining({ type: 'send_email', to: 'tech Tech t1', outcome: 'sent' }),
+      expect.objectContaining({ type: 'send_email', to: 'tech Tech t2', outcome: 'skipped', error: 'no email' }),
+    ]);
+    expect(send.sendSystem).toHaveBeenCalledTimes(1);
+    expect(send.sendSystem).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: 'email',
+        to: 't1@crew.test',
+        conversation: expect.objectContaining({ id: 'conv-t1', kind: 'team' }),
+        clientMessageId: expect.stringMatching(/:0:user:t1$/),
+      }),
+    );
+  });
+
+  it('a client whose thread has no e-mail address is skipped as "no email", never failed', async () => {
+    const { executor, send } = harness();
+    const [result] = await executor.run(email(), ctx());
+    expect(result).toEqual({ type: 'send_email', to: 'client', outcome: 'skipped', error: 'no email' });
+    expect(send.sendSystem).not.toHaveBeenCalled();
+  });
+
+  it("uses the rule's name as the subject when the action has none", async () => {
+    const { executor, send } = harness({ send: clientWithEmail() });
+    const [result] = await executor.run(email({ subject: undefined }), ctx({ ruleName: 'OOA jobs' }));
+    expect(result).toMatchObject({ outcome: 'sent', subject: 'OOA jobs' });
+    expect(send.sendSystem).toHaveBeenCalledWith(expect.objectContaining({ subject: 'OOA jobs' }));
+
+    const { executor: nameless } = harness({ send: clientWithEmail() });
+    const [skipped] = await nameless.run(email({ subject: '  ' }), ctx());
+    expect(skipped).toMatchObject({ outcome: 'skipped', error: 'no subject' });
+  });
+
+  it('says so when e-mail is not configured, and records opt-outs and failures like a text', async () => {
+    const cases: Array<[Error, Record<string, string>]> = [
+      [
+        new NotImplementedException('Email sending is not configured (MESSAGING_EMAIL_FROM)'),
+        { outcome: 'skipped', error: 'email is not configured (MESSAGING_EMAIL_FROM)' },
+      ],
+      [new RecipientOptedOutException('jane@example.com', 'email'), { outcome: 'skipped', error: 'opted out' }],
+      [new Error('ses down'), { outcome: 'failed', error: 'ses down' }],
+    ];
+    for (const [thrown, expected] of cases) {
+      const { executor } = harness({
+        send: {
+          ...clientWithEmail(),
+          sendSystem: jest.fn(async () => {
+            throw thrown;
+          }),
+        },
+      });
+      const [result] = await executor.run(email(), ctx());
+      expect(result).toMatchObject(expected);
+    }
+  });
+
+  it('a test run renders and resolves the address but sends nothing and opens nothing', async () => {
+    const { executor, send, threads, conversations } = harness({
+      conversations: {
+        getByParty: jest.fn(async () => createMockConversation({ id: 'c-existing', addresses: { phones: [], emails: ['jane@example.com'] } })),
+      },
+    });
+    const [client] = await executor.run(email(), ctx({ dryRun: true }));
+    expect(client).toMatchObject({
+      outcome: 'dry_run',
+      to: 'client',
+      subject: 'Your appointment with Sure Lock',
+      body: 'Hi Jane\nSee you soon',
+      conversationId: 'c-existing',
+    });
+
+    const techs = await executor.run(email({ to: 'assigned_techs' }), ctx({ dryRun: true }));
+    expect(techs.every((r) => r.outcome === 'dry_run')).toBe(true);
+
+    expect(send.sendSystem).not.toHaveBeenCalled();
+    expect(send.conversationForContact).not.toHaveBeenCalled();
+    expect(send.conversationForEmail).not.toHaveBeenCalled();
+    expect(threads.forTechnician).not.toHaveBeenCalled();
+    expect(conversations.getByParty).toHaveBeenCalledWith('contact', 'ct1');
+  });
+
+  it('"Both" is one rule with a text and an e-mail: each action sends on its own channel under its own key', async () => {
+    const { executor, send } = harness({ send: clientWithEmail() });
+    const [text] = await executor.run(sms(), ctx({ index: 0 }));
+    const [mail] = await executor.run(email(), ctx({ index: 1 }));
+
+    expect(text.outcome).toBe('sent');
+    expect(mail.outcome).toBe('sent');
+    const calls: Array<{ channel?: string; clientMessageId: string }> = send.sendSystem.mock.calls.map(
+      (c: [{ channel?: string; clientMessageId: string }]) => c[0],
+    );
+    expect(calls.map((c) => c.channel ?? 'sms')).toEqual(['sms', 'email']);
+    expect(calls[0].clientMessageId).not.toBe(calls[1].clientMessageId);
+  });
+
+  it('e-mails a bare address through the thread an inbound mail from it would open', async () => {
+    const { executor, send } = harness();
+    const [result] = await executor.run(email({ to: 'number', email: ' Office@Partner.test ' }), ctx());
+
+    expect(send.conversationForEmail).toHaveBeenCalledWith('office@partner.test');
+    expect(result).toMatchObject({ to: 'office@partner.test', outcome: 'sent' });
+    expect(send.sendSystem).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: 'email',
+        to: 'office@partner.test',
+        conversation: expect.objectContaining({ id: 'c-mail' }),
+        clientMessageId: expect.stringMatching(/:0:email:office@partner\.test$/),
+      }),
+    );
+
+    // The same recipient on a text action has no number to text.
+    const { executor: texting, send: notTexting } = harness();
+    const [noPhone] = await texting.run(sms({ to: 'number', number: undefined, email: 'office@partner.test' }), ctx());
+    expect(noPhone).toMatchObject({ outcome: 'skipped', error: 'no phone' });
+    expect(notTexting.sendSystem).not.toHaveBeenCalled();
+  });
+});
+
+// --- call alerts (Workiz "When a call comes in" has no editable text; ours
+// sends a default one, so the renderer must be told about the call).
+
+describe('AutomationActionExecutor — the call behind a call alert', () => {
+  it('hands the renderer the call, so the text can say who called, how it ended and on which line', async () => {
+    const { executor, renderer } = harness();
+    const callCtx = ctx({
+      event: { kind: 'call.completed', at: NOW, call: { sid: 'CA1', outcome: 'missed', direction: 'inbound' } },
+      facts: {
+        call: { callSid: 'CA1', direction: 'inbound', status: 'no-answer', from: '+14045551234', to: '+14045550000', flowName: 'Main line' },
+      },
+      entity: 'call:CA1',
+      occurrence: 'call:CA1',
+    });
+    await executor.run(sms({ to: 'users', userIds: ['u1'], body: 'Missed call from {{caller_number}}' }), callCtx);
+    await executor.run(email({ to: 'users', userIds: ['u1'], body: 'Missed call from {{caller_number}}' }), callCtx);
+
+    const refs = (renderer.render.mock.calls as Array<[unknown, { call?: unknown }]>).map((c) => c[1]);
+    expect(refs).toHaveLength(2);
+    for (const ref of refs) {
+      expect(ref.call).toEqual({ from: '+14045551234', to: '+14045550000', direction: 'inbound', outcome: 'missed', flowName: 'Main line' });
+    }
+
+    // A job rule carries no call.
+    const { executor: jobExecutor, renderer: jobRenderer } = harness();
+    await jobExecutor.run(sms(), ctx());
+    expect((jobRenderer.render.mock.calls as Array<[unknown, { call?: unknown }]>)[0][1].call).toBeUndefined();
   });
 });

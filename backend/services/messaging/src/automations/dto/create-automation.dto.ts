@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsBoolean, IsDefined, IsOptional, IsString, Length, ValidateNested } from 'class-validator';
+import { IsBoolean, IsDefined, IsIn, IsOptional, IsString, Length, ValidateNested } from 'class-validator';
+import { AUTOMATION_NOTIFICATION_KINDS } from '@bitcrm/types';
 import { AUTOMATION_NAME_MAX_LENGTH } from '../automations.constants';
 import { AutomationSpecDto } from './automation-spec.dto';
 
@@ -33,11 +34,26 @@ export class CreateAutomationDto {
   @IsBoolean()
   enabled?: boolean;
 
-  @ApiPropertyOptional({ example: 'job', description: 'Library section the rule came from (`job`, `phone`, …).' })
+  @ApiPropertyOptional({
+    example: 'job',
+    description:
+      'Library section the rule came from (`job`, `phone`, …); `notification` for a row the Notifications page ' +
+      'owns — the default when `notificationKind` is given.',
+  })
   @IsOptional()
   @IsString()
   @Length(1, 64)
   category?: string;
+
+  @ApiPropertyOptional({
+    enum: AUTOMATION_NOTIFICATION_KINDS,
+    description:
+      'Which of the Notifications page\'s four "Who to notify" forms wrote the rule: `client_reminder`, ' +
+      '`tech_reminder`, `call_alert` or `user_status_alert`. The page lists by it and reopens the row in that form.',
+  })
+  @IsOptional()
+  @IsIn(AUTOMATION_NOTIFICATION_KINDS as unknown as string[])
+  notificationKind?: string;
 
   @ApiPropertyOptional({ description: 'One line about what the rule is for — shown on its card.' })
   @IsOptional()

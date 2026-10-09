@@ -1,6 +1,30 @@
 import { RecipientOptedOutException, SendService, type SystemSendInput } from '../../../src/outbound/send.service';
 import { createMockConversation, createMockMessage, T1 } from '../mocks';
 
+describe("SendService.conversationForEmail — a bare address's thread (what an automation e-mails a number-less recipient through)", () => {
+  it('routes a known address to its thread, and otherwise opens the unknown thread an inbound mail from it would', async () => {
+    const { service, conversations } = makeService();
+    (conversations.getByAddress as jest.Mock).mockResolvedValueOnce({ conversationId: 'c-known' });
+    (conversations.get as jest.Mock).mockResolvedValueOnce(createMockConversation({ id: 'c-known' }));
+    const known = await service.conversationForEmail(' Jane@Example.com ');
+    expect(known).toMatchObject({ created: false, conversation: { id: 'c-known' } });
+    expect(conversations.getByAddress).toHaveBeenCalledWith('jane@example.com');
+    expect(conversations.findOrCreate).not.toHaveBeenCalled();
+
+    const opened = await service.conversationForEmail('stranger@example.com');
+    expect(opened.created).toBe(true);
+    expect(opened.conversation).toMatchObject({
+      kind: 'unknown',
+      partyKind: 'none',
+      addresses: { phones: [], emails: ['stranger@example.com'] },
+      state: 'open',
+    });
+    expect(conversations.findOrCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ pointer: { kind: 'address', id: 'stranger@example.com' } }),
+    );
+  });
+});
+
 function makeService(opts: {
   optedOut?: boolean;
   append?: { duplicate: boolean; existing?: { conversationId: string; messageSk: string } };

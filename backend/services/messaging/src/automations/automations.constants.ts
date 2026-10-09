@@ -31,15 +31,16 @@ export const AUTOMATIONS_ACTOR = 'system:automations';
 
 /**
  * The action types the engine actually performs today
- * (`AutomationActionExecutor.run`). `send_email` / `send_in_app` /
- * `add_tag` / `change_sub_status` are typed, translated and editable but
+ * (`AutomationActionExecutor.run`): a text, an e-mail (Workiz "Notify by
+ * Email" — its "Both" is one rule carrying both) and a webhook. `send_in_app`
+ * / `add_tag` / `change_sub_status` are typed, translated and editable but
  * answer `unsupported`, so a rule made only of those would fire and do
  * nothing — it is not runnable, whether it came from the translator or from
  * a spec somebody wrote in the Automation Center.
  */
-export const EXECUTABLE_ACTION_TYPES = ['send_sms', 'webhook'] as const;
+export const EXECUTABLE_ACTION_TYPES = ['send_sms', 'send_email', 'webhook'] as const;
 
-export const NOTHING_EXECUTABLE_REASON = 'only email / in-app actions, which the engine cannot send yet';
+export const NOTHING_EXECUTABLE_REASON = 'only in-app, tag or status actions, which the engine cannot perform yet';
 
 export const hasExecutableAction = (actions: ReadonlyArray<{ type?: string }> | undefined): boolean =>
   (actions ?? []).some((a) => (EXECUTABLE_ACTION_TYPES as readonly string[]).includes(a?.type ?? ''));

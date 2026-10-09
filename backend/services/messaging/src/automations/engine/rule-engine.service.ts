@@ -136,7 +136,17 @@ export class AutomationRuleEngine {
     return this.execute(rule, event, facts, decision.entity, decision.occurrence, now);
   }
 
-  /** Where a firing goes: now, later, or nowhere. */
+  /**
+   * Where a firing goes: now, later, or nowhere.
+   *
+   * The account's quiet hours exist so nobody is texted at night; an e-mail
+   * at 2 am wakes nobody, and Workiz mails at any hour. So a rule whose
+   * every action is an e-mail is placed as if there were no quiet hours.
+   * A rule that also texts (Workiz's "Both") is one firing and waits as a
+   * whole — its e-mail goes out with its text in the morning rather than
+   * alone at night. The rule's own working-hours window is its author's
+   * explicit choice and holds every channel.
+   */
   private placement(
     spec: AutomationSpec,
     settings: MessagingSettings,
@@ -149,7 +159,8 @@ export class AutomationRuleEngine {
     if (mode === 'ignore') return { kind: 'now' };
 
     const timezone = this.timezone(settings);
-    const quiet = isWithinQuietHours(settings.quietHours, dueAt);
+    const mailOnly = spec.actions.length > 0 && spec.actions.every((a) => a.type === 'send_email');
+    const quiet = !mailOnly && isWithinQuietHours(settings.quietHours, dueAt);
     const shut = isOutsideWorkingHours(spec.timing?.workingHours, timezone, dueAt);
     if (!quiet && !shut) return { kind: 'now' };
     if (mode === 'skip') {
@@ -400,7 +411,7 @@ export class AutomationRuleEngine {
   ): Promise<AutomationRun> {
     const actions: AutomationRunAction[] = [];
     for (const [index, action] of (rule.spec?.actions ?? []).entries()) {
-      const ctx: ActionContext = { ruleId: rule.id, event, facts, entity, occurrence, index, dryRun };
+      const ctx: ActionContext = { ruleId: rule.id, ruleName: rule.name, event, facts, entity, occurrence, index, dryRun };
       actions.push(...(await this.executor.run(action, ctx)));
     }
     return this.log(rule, event, entity, occurrence, this.outcomeOf(actions, dryRun), actions, {

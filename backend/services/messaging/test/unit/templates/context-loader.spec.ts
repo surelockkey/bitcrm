@@ -151,6 +151,13 @@ describe('ContextLoader', () => {
     expect((await loader.listCustomFields()).map((f) => f.name)).toEqual(['Manager Note', 'Choose Company ']);
   });
 
+  it('passes the call of a phone-trigger automation through untouched', async () => {
+    const { loader } = makeLoader();
+    const call = { from: '+14045551234', to: '+12034036303', direction: 'inbound' as const, outcome: 'missed' as const };
+    expect((await loader.load({ call })).call).toEqual(call);
+    expect((await loader.load({ dealId: 'd1' })).call).toBeUndefined();
+  });
+
   it('passes explicit values through', async () => {
     const { loader } = makeLoader();
     expect((await loader.load({ values: { late_value: '15' } })).values).toEqual({ late_value: '15' });

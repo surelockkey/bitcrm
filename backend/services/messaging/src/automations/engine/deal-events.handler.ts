@@ -109,7 +109,9 @@ export class AutomationDealEventsHandler {
 
   /** `call.completed` from telephony (`call-events-to-messaging`). */
   async onCallCompleted(payload: unknown): Promise<void> {
-    const call = payload as Partial<CallCompletedEvent> & { voicemail?: boolean };
+    // `flowName` / `lineName` are not on the event contract yet; carried
+    // through when telephony starts publishing them (`{{call_flow}}`).
+    const call = payload as Partial<CallCompletedEvent> & { voicemail?: boolean; flowName?: string; lineName?: string };
     if (!call?.callSid) return this.drop('call.completed', payload);
     const outcome = callOutcome(call.status, call.voicemail);
     const facts: AutomationFacts = {
@@ -121,6 +123,8 @@ export class AutomationDealEventsHandler {
         agentId: call.agentId,
         from: call.from,
         to: call.to,
+        ...(call.flowName ? { flowName: call.flowName } : {}),
+        ...(call.lineName ? { lineName: call.lineName } : {}),
       },
     };
     await this.engine.handle(

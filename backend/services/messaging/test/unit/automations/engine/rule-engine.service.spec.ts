@@ -1,4 +1,4 @@
-import { type AutomationRule, type AutomationSpec } from '@bitcrm/types';
+import { type AutomationAction, type AutomationRule, type AutomationSpec } from '@bitcrm/types';
 import { AutomationRuleEngine } from '../../../../src/automations/engine/rule-engine.service';
 import { type ScheduledFiring } from '../../../../src/automations/engine/schedule.repository';
 import { type AutomationEvent } from '../../../../src/automations/engine/trigger-event';
@@ -139,6 +139,50 @@ describe('AutomationRuleEngine.handle', () => {
     const { engine: ignoring, executor: sent } = harness({ rules: { list: jest.fn(async () => [ignore]) } });
     await ignoring.handle({ ...statusEvent, at: NIGHT.toISOString() }, undefined, NIGHT);
     expect(sent.run).toHaveBeenCalled();
+  });
+
+  it('an e-mail-only rule is not held by the account quiet hours (Workiz mails any time); a rule with a text waits as a whole', async () => {
+    const mail: AutomationAction = { type: 'send_email', to: 'users', userIds: ['u1'], subject: 'OOA job', body: 'Job {{job_id}}' };
+    const mailOnly = rule({ spec: spec({ actions: [mail] }) });
+    const { engine, executor, schedule } = harness({ rules: { list: jest.fn(async () => [mailOnly]) } });
+    const [run] = await engine.handle({ ...statusEvent, at: NIGHT.toISOString() }, undefined, NIGHT);
+    expect(run).toMatchObject({ outcome: 'sent' });
+    expect(executor.run).toHaveBeenCalledTimes(1);
+    expect(schedule.arm).not.toHaveBeenCalled();
+
+    // Workiz's "Both": one rule, a text and an e-mail. One firing, one placement —
+    // the e-mail goes out with its text in the morning rather than alone at night.
+    const both = rule({ spec: spec({ actions: [{ type: 'send_sms', to: 'client', body: 'Hi' }, { ...mail, to: 'client' }] }) });
+    const { engine: holding, executor: held, schedule: armed } = harness({ rules: { list: jest.fn(async () => [both]) } });
+    const [heldRun] = await holding.handle({ ...statusEvent, at: NIGHT.toISOString() }, undefined, NIGHT);
+    expect(heldRun).toMatchObject({ outcome: 'scheduled' });
+    expect(held.run).not.toHaveBeenCalled();
+    expect(armed.arm).toHaveBeenCalledWith(expect.objectContaining({ reason: 'quiet_hours' }));
+  });
+
+  it("the rule's own working hours still hold an e-mail-only rule", async () => {
+    const mailOnly = rule({
+      spec: spec({
+        actions: [{ type: 'send_email', to: 'client', subject: 'Hi', body: 'Hi' }],
+        timing: { workingHours: { from: '08:00', to: '18:00' } },
+      }),
+    });
+    const { engine, executor, schedule } = harness({ rules: { list: jest.fn(async () => [mailOnly]) } });
+    const [run] = await engine.handle({ ...statusEvent, at: NIGHT.toISOString() }, undefined, NIGHT);
+    expect(run).toMatchObject({ outcome: 'scheduled' });
+    expect(executor.run).not.toHaveBeenCalled();
+    expect(schedule.arm).toHaveBeenCalledWith(
+      expect.objectContaining({ reason: 'working_hours', dueAt: '2026-09-17T12:00:00.000Z' }),
+    );
+  });
+
+  it("hands the executor the rule's name, the subject of an e-mail that has none", async () => {
+    const { engine, executor } = harness();
+    await engine.handle(statusEvent, undefined, NOW);
+    expect(executor.run).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'send_sms' }),
+      expect.objectContaining({ ruleId: 'r1', ruleName: 'Job done text', index: 0 }),
+    );
   });
 
   it('arms a delayed rule for its minute instead of sending now', async () => {

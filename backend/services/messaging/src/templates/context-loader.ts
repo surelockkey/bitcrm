@@ -113,6 +113,7 @@ export class ContextLoader {
       settings: settings as MessagingSettings | undefined,
       values: refs.values,
       timezone,
+      call: refs.call,
     };
   }
 

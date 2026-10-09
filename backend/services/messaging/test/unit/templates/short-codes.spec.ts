@@ -49,6 +49,9 @@ const EXPECTED: Record<string, string> = {
   billing_location_key: '12 Main St Apt 3, Atlanta, GA 30301',
   late_value: '15',
   tech_phone: '(404) 555-9876',
+  caller_number: '(404) 555-1234',
+  call_status: 'Missed',
+  call_flow: 'Main line',
 };
 
 describe('short-code registry', () => {
@@ -64,13 +67,39 @@ describe('short-code registry', () => {
     for (const d of SHORT_CODES) {
       expect(d.description.length).toBeGreaterThan(5);
       expect(d.example).toBeDefined();
-      expect(['client', 'job', 'technician', 'business', 'links']).toContain(d.group);
+      expect(['client', 'job', 'technician', 'business', 'links', 'call']).toContain(d.group);
       if (d.aliasOf) expect(codes.has(d.aliasOf)).toBe(true);
     }
   });
 
   it.each(Object.entries(EXPECTED))('resolves {{%s}} from a full context', (code, expected) => {
     expect(resolveShortCode(code, fullContext())).toBe(expected);
+  });
+
+  // A call alert (Workiz "When a call comes in") has no editable text there;
+  // ours sends a default one, so the call itself has to be sayable.
+  it('names the call for a call alert: who called, how it ended, the line it came through', () => {
+    const ctx = fullContext();
+    expect(resolveShortCode('caller_number', ctx)).toBe('(404) 555-1234');
+    expect(resolveShortCode('call_status', ctx)).toBe('Missed');
+    expect(resolveShortCode('call_flow', ctx)).toBe('Main line');
+
+    // Outbound: the caller is the number we dialled; the line is our own number.
+    ctx.call = { from: '+12034036303', to: '+14045557777', direction: 'outbound', outcome: 'answered' };
+    expect(resolveShortCode('caller_number', ctx)).toBe('(404) 555-7777');
+    expect(resolveShortCode('call_status', ctx)).toBe('Completed');
+    expect(resolveShortCode('call_flow', ctx)).toBe('(203) 403-6303');
+
+    // telephony's call.completed names no flow yet: the dialled line's number stands in.
+    ctx.call = { from: '+14045551234', to: '+12034036303', direction: 'inbound', outcome: 'voicemail' };
+    expect(resolveShortCode('call_status', ctx)).toBe('Voicemail');
+    expect(resolveShortCode('call_flow', ctx)).toBe('(203) 403-6303');
+    ctx.call = { ...ctx.call, lineName: 'Chicago line' };
+    expect(resolveShortCode('call_flow', ctx)).toBe('Chicago line');
+
+    // A job rule has no call: every call code is simply missing.
+    delete ctx.call;
+    for (const code of ['caller_number', 'call_status', 'call_flow']) expect(resolveShortCode(code, ctx)).toBeUndefined();
   });
 
   it.each(SHORT_CODES.map((d) => d.code))('reports {{%s}} as missing on an empty context', (code) => {
