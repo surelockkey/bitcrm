@@ -101,7 +101,19 @@ describe("UserPermissionsPage access gating", () => {
 
     await userEvent.click(screen.getByRole("switch", { name: "Jobs Delete" }));
     expect(screen.getByText(/Unsaved changes/)).toBeInTheDocument();
-    expect(screen.getByText(/1 cell overridden \(1 granted, 0 revoked\)/)).toBeInTheDocument();
+    expect(screen.getByText(/1 switch overridden \(1 granted, 0 revoked\)/)).toBeInTheDocument();
+  });
+
+  it("is Workiz's permission window: its title, Actions / Reports / Advanced, Save held until a change", async () => {
+    render(<UserPermissionsPage userId="u1" />);
+    expect(screen.getByRole("heading", { level: 4, name: "Edit permissions for Alex Bell" })).toBeInTheDocument();
+    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["Actions", "Reports", "Advanced"]);
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    await userEvent.click(screen.getByRole("switch", { name: "Jobs Delete" }));
+    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+    // × goes back to the user, on the Users page.
+    await userEvent.click(screen.getByRole("button", { name: "Close the permissions" }));
+    expect(push).toHaveBeenCalledWith("/admin/users?user=u1");
   });
 
   it("is read-only with an explanatory banner when the target is yourself", () => {

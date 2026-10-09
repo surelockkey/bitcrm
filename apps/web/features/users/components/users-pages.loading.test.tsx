@@ -127,12 +127,12 @@ describe("UserPermissionsPage — loading", () => {
     ]);
     const refused = watchFirstFrame(() => !!screen.queryByText("No access"), () => true);
     const first = watchFirstFrame(
-      () => !!screen.queryByRole("heading", { name: "Pat Rivers" }),
+      () => !!screen.queryByRole("heading", { name: "Edit permissions for Pat Rivers" }),
       () => ({ skeletons: skeletonCount(), requestsSoFar: server.requests.length }),
     );
 
     renderWithClient(<UserPermissionsPage userId="u-pat" />);
-    await screen.findByRole("heading", { name: "Pat Rivers" });
+    await screen.findByRole("heading", { name: "Edit permissions for Pat Rivers" });
     await settle();
     first.stop();
     refused.stop();

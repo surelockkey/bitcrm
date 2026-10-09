@@ -1,25 +1,23 @@
 "use client";
 
+import { Fragment } from "react";
 import { DataScope } from "@bitcrm/types";
 import type { DataScopeRules } from "@bitcrm/types";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  groupedResources,
-  resourceLabel,
-  scopeLabel,
-  setAllScopes,
-  setScope,
-  type Schema,
-} from "../lib";
+import { WzOutlinedSelect } from "@/components/workiz/outlined-select";
+import { groupedResources, resourceLabel, scopeLabel, setAllScopes, setScope, type Schema } from "../lib";
 
 const SCOPES = [DataScope.ALL, DataScope.DEPARTMENT, DataScope.ASSIGNED_ONLY];
+const SCOPE_OPTIONS = SCOPES.map((s) => ({ value: s, label: scopeLabel(s) }));
 
+/**
+ * Which records each permission reaches — the role's data scope, drawn in
+ * the shape of Workiz's Advanced rules (pg_admin_users_wz_13_tab_advanced):
+ * Workiz's boxes are 714×48 react-selects; ours a "Set every area to" box,
+ * then per section (the permission list's captions) a row per resource — its
+ * name and a 220px outlined select of All data / Department / Assigned-only,
+ * ruled #ddd, two columns. A blue dot marks a scope that differs from the
+ * saved one.
+ */
 export function DataScopeEditor({
   schema,
   dataScope,
@@ -29,7 +27,7 @@ export function DataScopeEditor({
 }: {
   schema: Schema;
   dataScope: DataScopeRules;
-  /** The saved rules — resources that differ get a "modified" marker. */
+  /** The saved rules — resources that differ get a "changed" dot. */
   baseline?: DataScopeRules;
   readOnly?: boolean;
   onChange: (next: DataScopeRules) => void;
@@ -38,82 +36,46 @@ export function DataScopeEditor({
   const allResources = Object.keys(schema);
 
   const modified = (resource: string) =>
-    baseline !== undefined &&
-    (dataScope[resource] ?? DataScope.ALL) !== (baseline[resource] ?? DataScope.ALL);
+    baseline !== undefined && (dataScope[resource] ?? DataScope.ALL) !== (baseline[resource] ?? DataScope.ALL);
 
   return (
-    <div className="space-y-5">
-      <div className="flex flex-wrap items-center gap-3 rounded-lg border bg-muted/30 px-4 py-3">
-        <div className="text-sm">
-          <div className="font-medium">Data visibility</div>
-          <div className="text-xs text-muted-foreground">
-            Which records each permission applies to.
-          </div>
-        </div>
-        <div className="ml-auto flex items-center gap-2">
-          <span className="text-xs text-muted-foreground">Set all to</span>
-          <Select
-            value=""
-            disabled={readOnly}
-            onValueChange={(v) => onChange({ ...dataScope, ...setAllScopes(allResources, v as DataScope) })}
-          >
-            <SelectTrigger className="h-8 w-40">
-              <SelectValue placeholder="Choose…" />
-            </SelectTrigger>
-            <SelectContent>
-              {SCOPES.map((s) => (
-                <SelectItem key={s} value={s}>
-                  {scopeLabel(s)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
-
-      <div className="grid gap-x-8 gap-y-6 sm:grid-cols-2">
+    <div>
+      {!readOnly ? (
+        <WzOutlinedSelect
+          label="Set every area to"
+          placeholder="Choose…"
+          options={SCOPE_OPTIONS}
+          value=""
+          onChange={(v) => onChange({ ...dataScope, ...setAllScopes(allResources, v as DataScope) })}
+          className="mb-6 w-[350px] max-w-full"
+        />
+      ) : null}
+      <div className="grid max-w-[1462px] gap-x-12 sm:grid-cols-2">
         {groups.map((group) => (
-          <div key={group.label}>
-            <div className="mb-1.5 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
+          <Fragment key={group.label}>
+            <h6 className="col-span-full mt-4 mb-1 text-[11px] leading-4 font-medium tracking-[0.6px] text-wz-caption uppercase">
               {group.label}
-            </div>
-            <div className="divide-y rounded-lg border">
-              {group.resources.map((resource) => (
-                <div
-                  key={resource}
-                  className="flex items-center justify-between gap-3 px-3 py-2"
-                >
-                  <span className="text-sm">{resourceLabel(resource)}</span>
-                  <span className="relative inline-flex">
-                    <Select
-                      value={dataScope[resource] ?? DataScope.ALL}
-                      disabled={readOnly}
-                      onValueChange={(v) =>
-                        onChange(setScope(dataScope, resource, v as DataScope))
-                      }
-                    >
-                      <SelectTrigger className="h-8 w-36">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {SCOPES.map((s) => (
-                          <SelectItem key={s} value={s}>
-                            {scopeLabel(s)}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    {modified(resource) ? (
-                      <span
-                        className="absolute -top-1 -right-1 size-1.5 rounded-full bg-brand"
-                        title="Changed"
-                      />
-                    ) : null}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
+            </h6>
+            {group.resources.map((resource) => (
+              <div key={resource} className="flex min-h-[57px] items-center justify-between gap-3 border-b border-wz-frame py-2">
+                <span className="text-sm leading-4 tracking-[0.4px] text-foreground">{resourceLabel(resource)}</span>
+                <span className="relative inline-flex">
+                  <WzOutlinedSelect
+                    label={`${resourceLabel(resource)} scope`}
+                    labelHidden
+                    options={SCOPE_OPTIONS}
+                    value={dataScope[resource] ?? DataScope.ALL}
+                    disabled={readOnly}
+                    onChange={(v) => onChange(setScope(dataScope, resource, v as DataScope))}
+                    className="w-[220px]"
+                  />
+                  {modified(resource) ? (
+                    <span aria-hidden title="Changed" className="absolute -top-1 -right-1 size-1.5 rounded-full bg-wz-link" />
+                  ) : null}
+                </span>
+              </div>
+            ))}
+          </Fragment>
         ))}
       </div>
     </div>

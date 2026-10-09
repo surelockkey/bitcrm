@@ -115,7 +115,7 @@ describe("RoleEditorPage — loading", () => {
     server = installFakeServer(routes());
     const refused = watchFirstFrame(() => !!screen.queryByText("No access"), () => true);
     const first = watchFirstFrame(
-      () => !!screen.queryByRole("heading", { name: "Dispatcher" }),
+      () => !!screen.queryByRole("heading", { name: "Edit permissions for role Dispatcher" }),
       () => ({
         skeletons: skeletonCount(),
         members: screen.queryByRole("tab", { name: /members/i })?.textContent ?? null,
@@ -124,13 +124,13 @@ describe("RoleEditorPage — loading", () => {
     );
 
     renderWithClient(<RoleEditorPage roleId="role-dispatcher" />);
-    await screen.findByRole("heading", { name: "Dispatcher" });
+    await screen.findByRole("heading", { name: "Edit permissions for role Dispatcher" });
     await settle();
     first.stop();
     refused.stop();
 
     expect(refused.frame()).toBeNull();
-    expect(first.frame()).toEqual(expect.objectContaining({ skeletons: 0, members: "Members · 3" }));
+    expect(first.frame()).toEqual(expect.objectContaining({ skeletons: 0, members: "Members 3" }));
     // Everything the editor shows was asked for before it appeared.
     expect(server.requests.length).toBe(first.frame()?.requestsSoFar);
     expect(duplicates(server.requests)).toEqual([]);
