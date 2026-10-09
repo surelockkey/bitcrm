@@ -26,6 +26,20 @@ describe("WzSearchBox", () => {
     );
   });
 
+  // audit_pixels L14 / jobslist round 3: Workiz's magnifier is an 18px font
+  // glyph 15px in; its clear × a 13px bold glyph on the 26px disc.
+  it("draws the 18px magnifier 15px in and the 13px bold × on the disc", () => {
+    render(<WzSearchBox value="Dust" onChange={() => {}} />);
+    const box = screen.getByRole("textbox", { name: "Search" }).parentElement!;
+    const magnifier = box.querySelector("svg")!;
+    expect(magnifier.getAttribute("class")).toContain("size-[18px]");
+    expect(magnifier.getAttribute("class")).toContain("left-[15px]");
+    expect(magnifier.getAttribute("stroke-width")).toBe("1.75");
+    const x = screen.getByRole("button", { name: "Clear search" }).querySelector("svg")!;
+    expect(x.getAttribute("class")).toContain("size-[13px]");
+    expect(x.getAttribute("stroke-width")).toBe("2.75");
+  });
+
   it("types through and clears with the round ×, which only shows with text", async () => {
     const onChange = vi.fn();
     const { rerender } = render(<WzSearchBox value="" onChange={onChange} />);
@@ -46,6 +60,11 @@ describe("WzPageSizeSelect", () => {
     fireEvent.change(select, { target: { value: "100" } });
     expect(onChange).toHaveBeenCalledWith(100);
     expect(cls(select.parentElement!)).toEqual(expect.arrayContaining(["h-[34px]", "w-[75px]", "rounded-chip", "bg-muted"]));
+    // audit_pixels L18: Workiz's wfi-down is an 18px thin chevron 8px from the edge.
+    const chevron = select.parentElement!.querySelector("svg")!;
+    expect(chevron.getAttribute("class")).toContain("size-[18px]");
+    expect(chevron.getAttribute("class")).toContain("right-2");
+    expect(chevron.getAttribute("stroke-width")).toBe("1.5");
   });
 });
 

@@ -165,10 +165,12 @@ describe("ListPagination", () => {
 
     const showing = screen.getByText(/^Showing/);
     const page = screen.getByText(/^Page 1/);
-    for (const el of [showing, page]) {
-      expect(el.className).toMatch(/tabular-nums/);
-      expect(el.className).toMatch(/min-w-/);
-    }
+    expect(showing.className).toMatch(/tabular-nums/);
+    expect(showing.className).toMatch(/min-w-/);
+    // The page words sit in Workiz's fixed 238px block (list_07_bottom): the
+    // discs beside them never move, however many digits arrive.
+    expect(page.className).toMatch(/tabular-nums/);
+    expect(page.parentElement!.className).toMatch(/w-\[238px\]/);
   });
 
   it("stands aside entirely while the first page is still loading", () => {

@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ResizableHead } from "@/components/ui/resizable-head";
+import { WzTableEmpty } from "@/components/workiz";
 import { useColumnWidths } from "@/lib/table/use-column-widths";
 import { JobSuperStatus, type Contact, type Deal, type PersonName } from "@bitcrm/types";
 import {
@@ -420,12 +421,10 @@ export function DealsTable({
     onRowClick?.(d);
   };
 
-  const sortedBar =
-    sort === "day_desc"
-      ? "shadow-[inset_0_-3px_0_0_rgba(0,0,0,0.6)]"
-      : sort === "none" || sort === "day_asc"
-        ? "shadow-[inset_0_3px_0_0_rgba(0,0,0,0.6)]"
-        : "";
+  // The Scheduled header's bar is react-table's sorted-column bar (TableHead
+  // `sort`): on top for the soonest-first order the list opens in, at the
+  // foot for latest first — and `aria-sort` with it.
+  const scheduledSort = sort === "day_desc" ? "desc" : sort === "none" || sort === "day_asc" ? "asc" : undefined;
 
   return (
     // No scroller of its own: the page scrolls both ways, so the header can
@@ -465,7 +464,8 @@ export function DealsTable({
                 width={widthOf(c.id)}
                 onResize={(px) => setWidth(c.id, px)}
                 onReset={reset}
-                className={cn(HEAD, c.id === "scheduled" && [sortedBar, onSortScheduled && "cursor-pointer"])}
+                sort={c.id === "scheduled" ? scheduledSort : undefined}
+                className={cn(HEAD, c.id === "scheduled" && onSortScheduled && "cursor-pointer")}
               >
                 {c.id === "scheduled" && onSortScheduled ? (
                   <button
@@ -539,26 +539,10 @@ export function DealsTable({
           ))}
         </TableBody>
       </Table>
-      {deals.length === 0 ? <EmptyWash text={emptyText} viewWidth={viewWidth} /> : null}
-    </div>
-  );
-}
-
-/**
- * Workiz's empty grid (audit_pixels_list_search_empty): a white 60% wash over
- * the whole table — header, zebra rows and rules alike — and on it a laptop
- * with a checklist in a pale disc, "No Jobs Found" (20px #3e4b51) under it.
- */
-function EmptyWash({ text, viewWidth }: { text: string; viewWidth?: number }) {
-  return (
-    // Over the sticky header too (z-20 > its z-10): Workiz washes it all.
-    <div className="pointer-events-none absolute inset-0 z-20 bg-white/60">
-      {/* Centred in the part of the grid on screen, not across columns
-          scrolled out of view to the right. */}
-      <div className="sticky left-0 flex flex-col items-center pt-[145px]" style={{ width: viewWidth || "100%" }}>
-        <EmptyJobsPicture />
-        <h3 className="mt-[44px] text-xl leading-[25px] font-normal text-[#3e4b51]">{text}</h3>
-      </div>
+      {deals.length === 0 ? (
+        // Over the sticky header too (z-20 > its z-10): Workiz washes it all.
+        <WzTableEmpty title={emptyText} art={<EmptyJobsPicture />} viewWidth={viewWidth || undefined} className="z-20" />
+      ) : null}
     </div>
   );
 }

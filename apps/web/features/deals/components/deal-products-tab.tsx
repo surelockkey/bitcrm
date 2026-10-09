@@ -35,7 +35,7 @@ import { formatMoney } from "../lib";
 import { AddProductDialog } from "./add-product-dialog";
 import { ItemsArt } from "./job-empty-art";
 import { JobItemsTotals } from "./job-items-totals";
-import { PILL_OUTLINE, PILL_YELLOW } from "./job-pills";
+import { wzPill } from "@/components/workiz";
 
 function FulfillmentBadge({ product }: { product: DealProduct }) {
   const f = product.fulfillment ?? "sourced";
@@ -356,10 +356,10 @@ export function DealProductsTab({
 
         {canEdit ? (
           <div className="mt-5 flex flex-wrap items-center gap-2.5">
-            <button type="button" className={PILL_YELLOW} onClick={() => setAdding(true)}>
+            <button type="button" className={wzPill("yellow")} onClick={() => setAdding(true)}>
               <Plus /> Add item
             </button>
-            <Link href="/inventory/items" className={PILL_OUTLINE}>
+            <Link href="/inventory/items" className={wzPill("outline")}>
               <BookOpen strokeWidth={1.5} /> Price book
             </Link>
           </div>
