@@ -1,7 +1,6 @@
 import {
   MAIN_NAV,
   SETTINGS_ITEM,
-  TEAM_NAV,
   TECHNICIAN_NAV,
 } from "@/lib/nav/nav-config";
 
@@ -120,8 +119,6 @@ const STATIC_LABELS: Record<string, string> = {
   ...Object.fromEntries(
     MAIN_NAV.flatMap((g) => g.items.map((i) => [i.href, i.label])),
   ),
-  // Team is reached from Settings (as in Workiz) but each page keeps its crumb.
-  ...Object.fromEntries(TEAM_NAV.map((i) => [i.href, i.label])),
   // Where Workiz's crumb and its menu disagree, the crumb copies the crumb:
   // its Home page reads "… # DASHBOARD", its Workiz Phone page "… # CALLS".
   "/": "Dashboard",

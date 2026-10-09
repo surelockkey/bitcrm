@@ -91,8 +91,8 @@ describe("SETTINGS_GROUPS", () => {
       "Estimates",
       "Account Preferences",
     ]);
-    // Team is reached from here only, as in Workiz (no sidebar row since the
-    // sidebar copied Workiz's menu): the field team first, then the logins.
+    // Team as Workiz files it (ours is in the sidebar too): the field team
+    // first, then the logins.
     expect(labelsOf("Users & Roles")).toEqual(["Technicians", "Team Management", "Roles & Permissions"]);
     expect(labelsOf("Job Settings")).toEqual([
       "Service Areas",

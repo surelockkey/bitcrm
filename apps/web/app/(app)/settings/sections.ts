@@ -131,9 +131,9 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
     ],
   },
   {
-    // Workiz keeps its Team under Settings only (Team Management, Roles &
-    // Permissions tiles) and so do we since the sidebar copied Workiz's menu:
-    // the field team, the users and the roles are reached from here.
+    // Workiz keeps its Team under Settings (Team Management, Roles &
+    // Permissions tiles); ours is in the sidebar too, and here as well:
+    // the field team, the users and the roles.
     label: "Users & Roles",
     sections: [
       {

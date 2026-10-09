@@ -11,10 +11,11 @@ function widthOf(constant: string): string {
 }
 
 describe("the sidebar rail", () => {
-  it("is Workiz's 200px (app_audit_wz_home: sideMenu 200 + its 1px rule)", () => {
-    // The stock shadcn 16rem eats a column of the jobs grid; and every page
-    // was measured against Workiz from x=200.
-    expect(widthOf("SIDEBAR_WIDTH")).toBe("12.5rem");
+  it("is narrower than the stock shadcn 16rem", () => {
+    // Workiz runs a tight rail; 16rem eats a column of the jobs grid.
+    const rem = parseFloat(widthOf("SIDEBAR_WIDTH"));
+    expect(rem).toBeLessThan(16);
+    expect(rem).toBeGreaterThanOrEqual(11);
   });
 
   it("keeps the collapsed icon rail as it was", () => {

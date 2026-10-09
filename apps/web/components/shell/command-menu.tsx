@@ -15,7 +15,6 @@ import {
   MAIN_NAV,
   OVERVIEW_ITEM,
   SETTINGS_ITEM,
-  TEAM_NAV,
   TECHNICIAN_NAV,
   visibleNavItems,
   type NavItem,
@@ -61,9 +60,6 @@ export function CommandMenu() {
     : [
         OVERVIEW_ITEM,
         ...MAIN_NAV.flatMap((g) => visibleNavItems(g.items, (r) => can(r))),
-        // Team and Settings are not sidebar rows (Workiz keeps them under
-        // Settings and the avatar menu); the palette still jumps to them.
-        ...visibleNavItems(TEAM_NAV, (r) => can(r)),
         ...(can("settings") ? [SETTINGS_ITEM] : []),
       ];
 

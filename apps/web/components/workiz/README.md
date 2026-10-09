@@ -1396,18 +1396,15 @@ Measured off `app_audit_wz_home` and the live sidebar (`shell_fix_wz_*`; notes:
 components — the shell lives in `components/shell/` — but the numbers every page
 sits beside:
 
-- **Rail** 200px + its 1px `#dfe2e3` rule (`SIDEBAR_WIDTH` 12.5rem), so content
-  starts at x=200 like Workiz's. Workiz's words and order; thin rules between
-  blocks, no captions; nothing pinned under the menu (Settings is in the
-  avatar menu, Team under Settings), so a short window scrolls the list.
-- **Rows** `SidebarMenuButton size="wz"`: 184×35 at x=8, 8px in, 4px corners,
-  16px glyph, 10px, 13px/19px words; 8px between rows (43px pitch, 52 across a
-  rule); hover `sidebar-accent` #f3f6f7, the open page `accent` #e5f1ff, weight
-  unchanged. The badge sits at `top-[11.5px]` on that size.
-- **"Create new"** (`create-new-menu.tsx`): 184×40 white row, 24px yellow
-  disc, 13px/19px 600 words 0.4px; its menu 200px, r8,
-  `0 4px 20px rgba(0,0,0,.25)`, 10px air, 32px rows 25px in, rules between
-  groups — Job · Client | Estimate, each gated on `create`.
+- **Sidebar: ours, not Workiz's** (owner, 2026-10-10: "бічну менюху верни нашу").
+  The Workiz rail this agent built (200px, Workiz's words/order, no footer,
+  Team only under Settings, a "Create new" menu) was reverted to the sidebar
+  as it stood on main e6b65003: 208px (`SIDEBAR_WIDTH` 13rem), our groups and
+  words, Team rows in the sidebar, Settings pinned in the footer, the yellow
+  "Create New Job" button in the header. Kept from this work: the crumbs
+  below, the inputs' tracking, the logo drawn at its declared size, the
+  Technicians tile in Settings. Pages measured against Workiz's x=200 now sit
+  8px further right — the sidebar's width, not the page's.
 - **Crumbs** (`lib/nav/page-history.ts`): one per page; redirect-only routes
   never leave one (`isRedirectHop`, guarded by `redirect-hops.test.ts`); a
   document page upgrades its own ("Estimate (1)", "Invoice (0G4397)").

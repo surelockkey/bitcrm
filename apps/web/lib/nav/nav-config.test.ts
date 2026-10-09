@@ -1,19 +1,9 @@
 import { describe, it, expect } from "vitest";
-import {
-  MAIN_NAV,
-  OVERVIEW_ITEM,
-  SETTINGS_ITEM,
-  TEAM_NAV,
-  TECHNICIAN_HOME,
-  TECHNICIAN_NAV,
-  visibleNavItems,
-  type NavItem,
-} from "./nav-config";
+import { MAIN_NAV, TECHNICIAN_HOME, TECHNICIAN_NAV, visibleNavItems } from "./nav-config";
 import type { Resource } from "@bitcrm/types";
 
-const group = (label: string) => MAIN_NAV.find((g) => g.label === label)!;
-const labels = (items: NavItem[]) => items.map((i) => i.label);
-const only = (...resources: Resource[]) => (r: Resource) => resources.includes(r);
+const work = MAIN_NAV.find((g) => g.label === "Work")!;
+const communications = MAIN_NAV.find((g) => g.label === "Communications")!;
 
 describe("TECHNICIAN_NAV", () => {
   it("leads with the phone-first day list, which is also the technician's home", () => {
@@ -31,119 +21,106 @@ describe("TECHNICIAN_NAV", () => {
   });
 });
 
-/**
- * The office moving over from Workiz must find every page under the word
- * and in the place Workiz keeps it (app_audit_wz_home): Home · Workiz Phone
- * … | Schedule · Map · Jobs · Clients … | Estimates · Invoices · Price book |
- * Reports | Features ▸ Automations … Inventory. What Workiz lacks stays, in
- * the block Workiz would file it under.
- */
-describe("the sidebar's words and order are Workiz's", () => {
-  it("opens with Home, as Workiz's menu does", () => {
-    expect(OVERVIEW_ITEM).toMatchObject({ label: "Home", href: "/" });
-  });
+describe("MAIN_NAV structure", () => {
+  it("has a single Inventory entry in Work instead of an Inventory group", () => {
+    expect(MAIN_NAV.find((g) => g.label === "Inventory")).toBeUndefined();
 
-  it("runs the blocks in Workiz's order: the phone, the work, the documents, reports, features", () => {
-    expect(MAIN_NAV.map((g) => g.label)).toEqual([
-      "Communications",
-      "Work",
-      "Documents",
-      "Insights",
-      "Features",
+    const inventory = work.items.find((i) => i.label === "Inventory")!;
+    expect(inventory).toBeDefined();
+    expect(inventory.href).toBe("/inventory");
+    // Visible if the user can view any of the inventory resources.
+    expect(inventory.resources).toEqual([
+      "products",
+      "warehouses",
+      "containers",
+      "transfers",
     ]);
   });
 
-  it("names the pages a Workiz user visits most with Workiz's words", () => {
-    expect(labels(group("Communications").items)).toEqual(["BitCRM Phone", "Messages"]);
-    expect(labels(group("Work").items)).toEqual(["Schedule", "Map", "Jobs", "Clients", "Companies"]);
-    expect(labels(group("Documents").items)).toEqual(["Estimates", "Invoices", "Work Orders", "Price book"]);
-    expect(labels(group("Insights").items)).toEqual(["Reports"]);
+  it("puts Price Book right after Inventory in Work, on products.view", () => {
+    const labels = work.items.map((i) => i.label);
+    expect(labels.indexOf("Price Book")).toBe(labels.indexOf("Inventory") + 1);
+    const priceBook = work.items.find((i) => i.label === "Price Book")!;
+    expect(priceBook).toMatchObject({ href: "/price-book", resource: "products" });
+    expect(priceBook.icon).toBeDefined();
   });
 
-  it("keeps every row on its route, gated on the page's own resource", () => {
-    const byLabel = Object.fromEntries(MAIN_NAV.flatMap((g) => g.items).map((i) => [i.label, i]));
-    expect(byLabel["BitCRM Phone"]).toMatchObject({ href: "/calls", resource: "calls" });
-    expect(byLabel["Messages"]).toMatchObject({ href: "/messages", resource: "messages" });
-    expect(byLabel["Schedule"]).toMatchObject({ href: "/schedule", resource: "deals" });
-    expect(byLabel["Map"]).toMatchObject({ href: "/dispatch", resource: "deals" });
-    expect(byLabel["Jobs"]).toMatchObject({ href: "/deals", resource: "deals" });
-    expect(byLabel["Clients"]).toMatchObject({ href: "/contacts", resource: "contacts" });
-    expect(byLabel["Companies"]).toMatchObject({ href: "/companies", resource: "companies" });
-    expect(byLabel["Estimates"]).toMatchObject({ href: "/estimates", resource: "estimates" });
-    expect(byLabel["Invoices"]).toMatchObject({ href: "/invoices", resource: "invoices" });
-    expect(byLabel["Work Orders"]).toMatchObject({ href: "/work-orders", resource: "work_orders" });
-    expect(byLabel["Price book"]).toMatchObject({ href: "/price-book", resource: "products" });
-    expect(byLabel["Reports"]).toMatchObject({ href: "/reports", resource: "reports" });
-    for (const item of MAIN_NAV.flatMap((g) => g.items)) expect(item.icon, item.label).toBeDefined();
-  });
-
-  it("files Automations and Inventory under Features, where Workiz keeps them", () => {
-    const features = group("Features");
-    expect(features.kind).toBe("features");
-    expect(features.items).toEqual([
-      expect.objectContaining({ label: "Automations", href: "/automations", resource: "settings" }),
-      expect.objectContaining({
-        label: "Inventory",
-        href: "/inventory",
-        resources: ["products", "warehouses", "containers", "transfers"],
-      }),
+  it("shows Price Book to someone who can view products, hides it otherwise", () => {
+    expect(visibleNavItems(work.items, (r: Resource) => r === "products").map((i) => i.label)).toEqual([
+      "Inventory",
+      "Price Book",
     ]);
-    expect(MAIN_NAV.filter((g) => g.kind === "features")).toHaveLength(1);
+    expect(visibleNavItems(work.items, (r: Resource) => r === "warehouses").map((i) => i.label)).toEqual([
+      "Inventory",
+    ]);
   });
 
-  it("keeps Team under Settings only, as Workiz does: no Technicians, Users, Roles or Settings rows", () => {
-    const hrefs = MAIN_NAV.flatMap((g) => g.items).map((i) => i.href);
-    for (const href of ["/technicians", "/admin/users", "/admin/roles", "/settings"]) {
-      expect(hrefs, href).not.toContain(href);
-    }
-    // Reached from the settings home's tiles and the command palette instead.
-    expect(TEAM_NAV.map((i) => [i.label, i.href, i.resource])).toEqual([
-      ["Technicians", "/technicians", "technicians"],
-      ["Users", "/admin/users", "users"],
-      ["Roles", "/admin/roles", "roles"],
+  it("puts Automations in Communications as a first-level item gated on settings", () => {
+    const automations = communications.items.find((i) => i.label === "Automations")!;
+    expect(automations).toMatchObject({ href: "/automations", resource: "settings" });
+    // It sits after the inbox: a rule that texts a client belongs next to it.
+    expect(communications.items.map((i) => i.label)).toEqual([
+      "Calls",
+      "Messages",
+      "Automations",
     ]);
-    expect(SETTINGS_ITEM).toMatchObject({ label: "Settings", href: "/settings", resource: "settings" });
   });
+
+  it("hides Automations from a user without settings.view", () => {
+    const items = visibleNavItems(communications.items, (r: Resource) => r === "messages");
+    expect(items.map((i) => i.label)).toEqual(["Messages"]);
+  });
+});
+
+describe("MAIN_NAV billing", () => {
+  const billing = MAIN_NAV.find((g) => g.label === "Billing")!;
 
   it("has no Payments entry: Workiz keeps the Payments report under Reports, so do we", () => {
+    expect(billing.items.map((i) => i.label)).toEqual(["Estimates", "Invoices", "Work Orders"]);
     expect(MAIN_NAV.flatMap((g) => g.items).find((i) => i.href === "/payments")).toBeUndefined();
   });
 
-  it("lists no route twice", () => {
-    const hrefs = [OVERVIEW_ITEM, ...MAIN_NAV.flatMap((g) => g.items), ...TEAM_NAV, SETTINGS_ITEM].map((i) => i.href);
-    expect(new Set(hrefs).size).toBe(hrefs.length);
+  it("shows a user only the billing pages they may view", () => {
+    const items = visibleNavItems(billing.items, (r: Resource) => r === "invoices");
+    expect(items.map((i) => i.label)).toEqual(["Invoices"]);
+  });
+});
+
+describe("MAIN_NAV insights", () => {
+  it("is just the Reports hub: the reports themselves are its tiles, as in Workiz", () => {
+    const insights = MAIN_NAV.find((g) => g.label === "Insights")!;
+    expect(insights.items.map((i) => i.href)).toEqual(["/reports"]);
   });
 });
 
 describe("visibleNavItems", () => {
   it("keeps available, permitted items and hides coming-soon ones by default", () => {
-    expect(labels(visibleNavItems(group("Work").items, () => true))).toEqual([
-      "Schedule",
-      "Map",
+    const items = visibleNavItems(work.items, () => true);
+    expect(items.map((i) => i.label)).toEqual([
       "Jobs",
-      "Clients",
-      "Companies",
+      "Dispatch Map",
+      "Schedule",
+      "Inventory",
+      "Price Book",
     ]);
   });
 
   it("hides items the user cannot view", () => {
-    expect(visibleNavItems(group("Work").items, () => false)).toEqual([]);
-  });
-
-  it("shows a user only the pages they may view", () => {
-    expect(labels(visibleNavItems(group("Work").items, only("deals")))).toEqual(["Schedule", "Map", "Jobs"]);
-    expect(labels(visibleNavItems(group("Documents").items, only("invoices")))).toEqual(["Invoices"]);
-    expect(labels(visibleNavItems(group("Communications").items, only("messages")))).toEqual(["Messages"]);
-    expect(labels(visibleNavItems(group("Features").items, only("messages")))).toEqual([]);
+    const items = visibleNavItems(work.items, () => false);
+    expect(items).toEqual([]);
   });
 
   it("shows a multi-resource item when any one resource is viewable", () => {
-    expect(labels(visibleNavItems(group("Features").items, only("warehouses")))).toEqual(["Inventory"]);
-    expect(labels(visibleNavItems(group("Features").items, only("settings")))).toEqual(["Automations"]);
+    const items = visibleNavItems(work.items, (r: Resource) => r === "warehouses");
+    expect(items.map((i) => i.label)).toEqual(["Inventory"]);
   });
 
-  it("shows Price book to someone who can view products, hides it otherwise", () => {
-    expect(labels(visibleNavItems(group("Documents").items, only("products")))).toEqual(["Price book"]);
-    expect(labels(visibleNavItems(group("Documents").items, only("warehouses")))).toEqual([]);
+  it("hides a multi-resource item when none of its resources are viewable", () => {
+    const items = visibleNavItems(work.items, (r: Resource) => r === "deals");
+    expect(items.map((i) => i.label)).toEqual([
+      "Jobs",
+      "Dispatch Map",
+      "Schedule",
+    ]);
   });
 });
