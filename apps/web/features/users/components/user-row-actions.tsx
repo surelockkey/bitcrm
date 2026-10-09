@@ -1,23 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import {
-  Ban,
-  Eye,
-  Loader2,
-  MailPlus,
-  MoreHorizontal,
-  Pencil,
-  RotateCcw,
-  ShieldCheck,
-} from "lucide-react";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { Ban, Eye, MailPlus, Pencil, RotateCcw, ShieldCheck } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -28,23 +12,30 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import { Button } from "@/components/ui/button";
+import { WzDotsMenu, type WzDotsMenuItem } from "@/components/workiz/dots-menu";
 import type { User } from "@bitcrm/types";
 import { UserStatus } from "@bitcrm/types";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { useHierarchy } from "../use-can-manage";
 import { useDeactivateUser, useReactivateUser, useResendInvite } from "../hooks";
 
+/**
+ * A row's own actions, behind Workiz's ••• (`dotsPopMenu`, the card menu of
+ * the Automation Center): View, Edit profile, Change role, Resend invite,
+ * then Deactivate (red) or Reactivate. Workiz's Team grid has no such column;
+ * ours keeps these one click from the row, in Workiz's menu.
+ *
+ * Its clicks stay here: a click on the dots or a row of the menu (a portal,
+ * but React bubbles through it) must not open the user as a row click would.
+ */
 export function UserRowActions({
   user,
+  name,
   onOpen,
 }: {
   user: User;
+  /** The name the row prints, for the button's accessible name. */
+  name: string;
   onOpen: (u: User, tab?: string) => void;
 }) {
   const { can } = usePermissions();
@@ -59,101 +50,30 @@ export function UserRowActions({
   const canEdit = can("users", "edit") && manageable;
   const canDelete = can("users", "delete") && manageable;
   const canReactivate = can("users", "edit") && manageable;
-  // An invite is only worth resending while the user hasn't come online yet
-  // (i.e. still inactive). Surfaced as a dedicated row icon, not a menu item.
-  const canResend = !isActive && can("users", "create");
-  // "View" is always present above, so a separator is enough whenever a
-  // destructive/reactivate action follows it.
-  const showDangerSep = isActive ? canDelete : canReactivate;
+
+  const items: WzDotsMenuItem[] = [
+    { key: "view", label: "View", icon: <Eye />, onSelect: () => onOpen(user, "profile") },
+    ...(canEdit
+      ? [
+          { key: "edit", label: "Edit profile", icon: <Pencil />, onSelect: () => onOpen(user, "profile") },
+          { key: "role", label: "Change role", icon: <ShieldCheck />, onSelect: () => onOpen(user, "role") },
+        ]
+      : []),
+    ...(can("users", "create")
+      ? [{ key: "resend", label: "Resend invite", icon: <MailPlus />, onSelect: () => resend.mutate(user.id) }]
+      : []),
+    ...(isActive
+      ? canDelete
+        ? [{ key: "deactivate", label: "Deactivate", icon: <Ban />, destructive: true, onSelect: () => setConfirm(true) }]
+        : []
+      : canReactivate
+        ? [{ key: "reactivate", label: "Reactivate", icon: <RotateCcw />, onSelect: () => reactivate.mutate(user.id) }]
+        : []),
+  ];
 
   return (
-    <div className="flex items-center justify-end gap-0.5">
-      {canResend ? (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-8 text-muted-foreground"
-              aria-label="Resend invite"
-              disabled={resend.isPending}
-              onClick={(e) => {
-                e.stopPropagation();
-                resend.mutate(user.id);
-              }}
-            >
-              {resend.isPending ? (
-                <Loader2 className="animate-spin" />
-              ) : (
-                <MailPlus />
-              )}
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>Resend invite</TooltipContent>
-        </Tooltip>
-      ) : null}
-
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-8"
-            aria-label="Row actions"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <MoreHorizontal />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent
-          align="end"
-          className="w-44"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <DropdownMenuItem onClick={() => onOpen(user, "profile")}>
-            <Eye />
-            View
-          </DropdownMenuItem>
-          {canEdit ? (
-            <DropdownMenuItem onClick={() => onOpen(user, "profile")}>
-              <Pencil />
-              Edit profile
-            </DropdownMenuItem>
-          ) : null}
-          {canEdit ? (
-            <DropdownMenuItem onClick={() => onOpen(user, "role")}>
-              <ShieldCheck />
-              Change role
-            </DropdownMenuItem>
-          ) : null}
-          {can("users", "create") ? (
-            <DropdownMenuItem
-              onClick={() => resend.mutate(user.id)}
-              disabled={resend.isPending}
-            >
-              <MailPlus />
-              Resend invite
-            </DropdownMenuItem>
-          ) : null}
-          {showDangerSep ? <DropdownMenuSeparator /> : null}
-          {isActive
-            ? canDelete && (
-                <DropdownMenuItem
-                  variant="destructive"
-                  onClick={() => setConfirm(true)}
-                >
-                  <Ban />
-                  Deactivate
-                </DropdownMenuItem>
-              )
-            : canReactivate && (
-                <DropdownMenuItem onClick={() => reactivate.mutate(user.id)}>
-                  <RotateCcw />
-                  Reactivate
-                </DropdownMenuItem>
-              )}
-        </DropdownMenuContent>
-      </DropdownMenu>
+    <div className="flex justify-start" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+      <WzDotsMenu items={items} aria-label={`Actions for ${name}`} />
 
       <AlertDialog open={confirm} onOpenChange={setConfirm}>
         <AlertDialogContent>
@@ -166,9 +86,7 @@ export function UserRowActions({
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={() => deactivate.mutate(user.id)}>
-              Deactivate
-            </AlertDialogAction>
+            <AlertDialogAction onClick={() => deactivate.mutate(user.id)}>Deactivate</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { screen, waitFor } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { UserStatus, type User } from "@bitcrm/types";
@@ -20,36 +20,54 @@ vi.mock("../use-can-manage", () => ({
 
 import { UsersPage } from "./users-page";
 
-const user = (id: string, firstName: string, lastName: string): User =>
+const user = (id: string, firstName: string, lastName: string, over: Partial<User> = {}): User =>
   ({
     id, cognitoSub: id, email: `${id}@b.com`, firstName, lastName, roleId: "role-csr", department: "Office",
-    status: UserStatus.ACTIVE, createdAt: "2026-04-03T00:00:00Z", updatedAt: "2026-04-03T00:00:00Z",
+    status: UserStatus.ACTIVE, createdAt: "2026-04-03T00:00:00Z", updatedAt: "2026-04-03T00:00:00Z", ...over,
   }) as User;
 
-describe("UsersPage — search", () => {
-  it("asks the server, so a user from the second page is found too", async () => {
-    const searched: string[] = [];
-    server.use(
-      http.get("*/users/roles", () => HttpResponse.json({ success: true, data: [{ id: "role-csr", name: "CSR", priority: 50 }] })),
-      http.get("*/users/count", ({ request }) => {
-        const search = new URL(request.url).searchParams.get("search");
-        return HttpResponse.json({ success: true, data: { total: search ? 1 : 60, atLeast: false } });
-      }),
-      http.get("*/users", ({ request }) => {
-        const search = new URL(request.url).searchParams.get("search");
-        if (search) searched.push(search);
-        const data = search ? [user("u60", "Eve", "Brown")] : [user("u1", "Anna", "Smith"), user("u2", "Bob", "Jones")];
-        return HttpResponse.json({ success: true, data, pagination: { count: data.length, nextCursor: search ? undefined : "p2" } });
-      }),
-    );
+/** The directory in two pages, as `GET /users` hands it out 100 at a time. */
+function directory() {
+  server.use(
+    http.get("*/users/roles", () => HttpResponse.json({ success: true, data: [{ id: "role-csr", name: "CSR", priority: 50 }] })),
+    http.get("*/users", ({ request }) => {
+      const cursor = new URL(request.url).searchParams.get("cursor");
+      const data = cursor
+        ? [user("u60", "Eve", "Brown"), user("u61", "Old", "Timer", { status: UserStatus.INACTIVE })]
+        : [user("u1", "Anna", "Smith"), user("u2", "Bob", "Jones")];
+      return HttpResponse.json({ success: true, data, pagination: { count: data.length, nextCursor: cursor ? undefined : "p2" } });
+    }),
+  );
+}
+
+describe("UsersPage — the Team list's sibling", () => {
+  it("reads the whole directory, so Search finds someone from the second page", async () => {
+    directory();
     renderWithClient(<UsersPage />);
     expect(await screen.findByText("Anna Smith")).toBeInTheDocument();
+    expect(screen.getByText("Eve Brown")).toBeInTheDocument();
 
-    await userEvent.type(screen.getByPlaceholderText("Search name, email, department"), "brown");
-    expect(await screen.findByText("Eve Brown")).toBeInTheDocument();
+    await userEvent.type(screen.getByRole("searchbox", { name: "Search" }), "brown");
+    expect(screen.getByText("Eve Brown")).toBeInTheDocument();
     expect(screen.queryByText("Anna Smith")).not.toBeInTheDocument();
-    // Debounced: one request for the word, not one per keystroke.
-    await waitFor(() => expect(searched).toEqual(["brown"]));
-    expect(screen.getByText("1 user")).toBeInTheDocument();
+    expect(screen.getByText("Showing 1 to 1 of 1 results")).toBeInTheDocument();
+  });
+
+  it("opens on status: Active, as Workiz's Team does — the switched-off wait for All", async () => {
+    directory();
+    renderWithClient(<UsersPage />);
+    expect(await screen.findByText("Anna Smith")).toBeInTheDocument();
+    expect(screen.getByText("status: Active")).toBeInTheDocument();
+    expect(screen.queryByText("Old Timer")).not.toBeInTheDocument();
+    expect(screen.getByText("Showing 1 to 3 of 3 results")).toBeInTheDocument();
+  });
+
+  it("“+ Add New” opens the invite form", async () => {
+    directory();
+    renderWithClient(<UsersPage />);
+    await screen.findByText("Anna Smith");
+    await userEvent.click(screen.getByRole("button", { name: "Add New" }));
+    const sheet = await screen.findByRole("dialog");
+    expect(within(sheet).getByText("Invite a user")).toBeInTheDocument();
   });
 });

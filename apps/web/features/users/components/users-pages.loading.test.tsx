@@ -71,8 +71,13 @@ describe("UsersPage — loading", () => {
   it("goes from one skeleton to rows with their role names and the total, in one frame", async () => {
     server = installFakeServer([
       { match: /\/users\/me$/, reply: () => me, delayMs: 40 },
-      { match: /\/users$/, raw: true, reply: () => ({ success: true, data: [me, pat], pagination: {} }), delayMs: 20 },
-      { match: /\/users\/count$/, reply: () => ({ total: 131 }), delayMs: 60 },
+      // The whole directory, a page at a time (the Team list's read).
+      {
+        match: /\/users$/,
+        raw: true,
+        reply: () => ({ success: true, data: [{ ...me, status: "active" }, pat], pagination: {} }),
+        delayMs: 20,
+      },
       // The roles last — the order that printed the role's id.
       { match: /\/users\/roles$/, reply: () => [nightDesk], delayMs: 90 },
     ]);
@@ -83,8 +88,8 @@ describe("UsersPage — loading", () => {
       () => ({
         skeletons: skeletonCount(),
         role: !!screen.queryByText("Night Desk"),
-        total: !!screen.queryByText("131 users"),
-        newUser: !!screen.queryByRole("button", { name: /new user/i }),
+        total: !!screen.queryByText("Showing 1 to 2 of 2 results"),
+        newUser: !!screen.queryByRole("button", { name: "Add New" }),
       }),
     );
 
