@@ -2,17 +2,22 @@
 
 import { useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
+import { Popover } from "radix-ui";
 import {
   ArrowLeftRight,
   BookOpen,
   Briefcase,
   ChevronDown,
   Copy,
+  CopyPlus,
   Download,
   Eye,
   Link2,
   Loader2,
+  Pencil,
+  RefreshCw,
   Send,
+  SquarePen,
   Trash2,
   Undo2,
   Wrench,
@@ -21,13 +26,20 @@ import { toast } from "sonner";
 import type { Deal } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
 import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   AlertDialog,
@@ -39,23 +51,27 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { WzButton, WzButtonLink } from "@/components/workiz/button";
+import { WzDayPicker } from "@/components/workiz/day-picker";
+import { WzDocSectionHead, WzTotalsBoxRow } from "@/components/workiz/document-parts";
+import { WZ_MENU_POPUP, WZ_MENU_POPUP_ITEM } from "@/components/workiz/menu-popup";
 import { queryKeys } from "@/lib/query-keys";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { formatPhone } from "@/lib/phone";
 import { cn } from "@/lib/utils";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { SyncToJobDialog } from "./sync-to-job-dialog";
-import { formatMoney } from "@/features/billing/lib";
+import { formatWzDocDate, todayYmd } from "@/features/billing/dates";
+import { formatBoxAmount } from "@/features/billing/lib";
 import { useOpenPdf } from "@/features/billing/open-pdf";
-import { CommitInput, CommitTextarea, DocField } from "@/features/billing/components/document-field";
+import { CommitInput, CommitTextarea } from "@/features/billing/components/document-field";
 import { DocumentPreviewDialog } from "@/features/billing/components/document-preview-dialog";
-import { DocumentSummaryPanel, Row } from "@/features/billing/components/document-summary-panel";
+import { DocumentSummaryPanel } from "@/features/billing/components/document-summary-panel";
 import { DocumentTemplateSelect } from "@/features/billing/components/document-template-select";
 import { SignaturesSection } from "@/features/billing/components/signatures-section";
 import { useContact } from "@/features/clients/hooks";
-import { contactName, formatAddress } from "@/features/clients/lib";
+import { contactName } from "@/features/clients/lib";
 import { useDocumentSettings, useUpdateDocumentSettings } from "@/features/documents/hooks";
-import { SentBadge } from "@/features/invoices/components/sent-badge";
 import { CopyPortalLinkButton, useCopyPortalLink } from "@/features/portal/components/copy-portal-link-button";
 import { SendDocumentDialog } from "@/features/portal/components/send-document-dialog";
 import { getEstimateHtml, getEstimatePdfUrl } from "../api";
@@ -75,19 +91,22 @@ import { EstimateCoverField } from "./estimate-cover-field";
 import { EstimateItemsTable } from "./estimate-items-table";
 import { EstimateStatusBadge } from "./estimate-status-badge";
 import { EstimateStatusSelect } from "./estimate-status-select";
-import { SetDepositDialog, depositLabel } from "./set-deposit-dialog";
+import { SetDepositDialog, depositBoxText } from "./set-deposit-dialog";
 
-/**
- * The page's buttons speak the top band's language: the same near-square
- * corner, hairline border and white-on-grey as its fields. Yellow is kept for
- * the next step (Send, Add item); everything else is a quiet white button.
+/*
+ * 2026-10-09: back to Workiz (pg_estimate_wz_01_job / _02_client). The
+ * 2026-10-05 look the owner had asked for ("зроби інакшими по дизайну":
+ * square buttons, a segmented strip, Notes · Signatures as one card) gave way
+ * to the 2026-10-08 rule that the whole app is Workiz. Only the dress changed;
+ * every hook, permission and handler below is as it was — to go back, restore
+ * this file's JSX from 38c370bd/5ec9daa0 and drop the `variant="workiz"`s.
  */
-const primaryButton = "h-9 rounded-md px-4 font-semibold shadow-xs";
-const secondaryButton = "h-9 rounded-md border-border bg-card px-3.5 font-medium shadow-xs [&_svg]:text-muted-foreground";
-/** Price book · Sync to job · Create new job: one strip, divided like the band's columns. */
-const segment =
-  "h-full rounded-none border-0 border-r border-r-border px-3.5 font-medium last:border-r-0 focus-visible:ring-inset [&_svg]:text-muted-foreground";
-const segmentOff = "cursor-not-allowed opacity-50 hover:bg-transparent";
+
+/** The band's grey columns (headerJob-module): titles #3b4c53, words rgba(59,76,83,.6), 13px/24px 500. */
+const BAND_TITLE = "text-[13px] leading-6 font-medium text-[#3b4c53]";
+const BAND_TEXT = "truncate text-[13px] leading-6 font-medium text-[rgba(59,76,83,0.6)]";
+/** The client header's labels (headerStub-module h4): 16px/35px 600 #404040. */
+const STUB_LABEL = "shrink-0 text-[16px] leading-[35px] font-semibold text-wz-strong";
 
 /**
  * One estimate, laid out as Workiz lays its estimate page out. Two layouts,
@@ -95,12 +114,12 @@ const segmentOff = "cursor-not-allowed opacity-50 hover:bg-transparent";
  * - a JOB's estimate (`deal` given): the job's estimates as tabs with
  *   Actions ▾ and the yellow Send; a band with the cover image, the
  *   description, the client's details, the service address, the status and
- *   the estimate's number; Items with Add item / Price book / Sync to job /
- *   Create new job;
- * - a CLIENT's estimate (no job): "Client: …" with Actions ▾ and Send on a
- *   grey band, "Bill to:" on the left and Estimate / Estimate name / Date /
- *   Status on the right; Items with Add item / Price book, and Actions → Copy
- *   to job.
+ *   the estimate's number (and ours: its date and template); Items with
+ *   Add item / Price book / Sync to job / Create new job;
+ * - a CLIENT's estimate (no job): a grey header with "Client: …", Actions ▾
+ *   and Send, "Bill to:" on the left and Estimate / Estimate name / Date /
+ *   Status (and ours: Template) on the right; Items with Add item / Price
+ *   book, and Actions → Copy to job.
  * Then the totals, Notes and Signatures, the same for both.
  */
 export function EstimateEditor({
@@ -120,8 +139,12 @@ export function EstimateEditor({
    * in when it is not given.
    */
   jobItemCount?: number;
-  /** The job's estimate tabs, rendered left of Actions / Send (Workiz). Absent on a page of its own. */
-  tabs?: ReactNode;
+  /**
+   * The job's estimate tabs, rendered left of Actions / Send (Workiz). Absent
+   * on a page of its own. A function is handed the rename (Workiz renames an
+   * estimate in its tab) when the reader may edit.
+   */
+  tabs?: ReactNode | ((rename: ((name: string) => void) | undefined) => ReactNode);
   onOpenEstimate: (id: string) => void;
   /** Where to go once the estimate is deleted. */
   onDeleted?: () => void;
@@ -147,6 +170,7 @@ export function EstimateEditor({
   const [depositOpen, setDepositOpen] = useState(false);
   const [sending, setSending] = useState(false);
   const [editingDescription, setEditingDescription] = useState(false);
+  const [editingNotes, setEditingNotes] = useState(false);
   const client = useContact(estimate?.contactId ?? "");
   // Loaded once for the Send panel's defaults; the deposit dialog writes it.
   useDocumentSettings();
@@ -156,7 +180,7 @@ export function EstimateEditor({
 
   if (isLoading) {
     return (
-      <div className="space-y-3">
+      <div className="space-y-3 px-5">
         <Skeleton className="h-12 w-full" />
         <Skeleton className="h-48 w-full" />
       </div>
@@ -164,7 +188,7 @@ export function EstimateEditor({
   }
   if (isError || !estimate || !localTotals) {
     return (
-      <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
+      <div className="mx-5 rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
         {getApiErrorMessage(error, "This estimate couldn't be loaded — it may have been deleted.")}
       </div>
     );
@@ -176,6 +200,7 @@ export function EstimateEditor({
   const canText = canSend && can("messages", "send");
   const canDelete = can("estimates", "delete");
   const canSync = can("estimates", "sync");
+  const canSeeCost = can("financials", "view");
   const syncBlocked = syncBlockReason(estimate, items.length, canSync, !!deal);
   const jobItemCount = jobItems ?? deal?.itemCount ?? 0;
   // Workiz asks Replace / Add only when the job already has items; an empty job takes them at once.
@@ -186,7 +211,6 @@ export function EstimateEditor({
   const clientFullName = c ? contactName(c) : "";
   const itemCost = items.reduce((sum, i) => sum + i.costCompany * i.quantity, 0);
   const margin = totals.subtotal > 0 ? Math.round(((totals.subtotal - itemCost) / totals.subtotal) * 1000) / 10 : null;
-  const deposit = depositLabel({ ...estimate, totals });
 
   const saveHeader = (patch: Partial<EstimateHeaderValues>) => {
     const parsed = estimateHeaderSchema.partial().safeParse(patch);
@@ -196,135 +220,141 @@ export function EstimateEditor({
     }
     update.mutate(parsed.data);
   };
+  const rename = canEdit ? (name: string) => saveHeader({ name: name.trim() }) : undefined;
 
   // Workiz "Copy to job": the New job page, with this client and this estimate to copy onto it.
   const createJobHref = `/deals/new?contactId=${encodeURIComponent(estimate.contactId)}&then=${encodeURIComponent(`copy-estimate:${estimate.id}`)}`;
 
+  // A button that cannot act yet says why on hover (Workiz has these always on).
+  const blocked = "cursor-not-allowed opacity-50 hover:bg-transparent";
   const createJobButton =
     items.length === 0 ? (
       <Tooltip>
         <TooltipTrigger asChild>
-          <Button
-            variant="ghost"
-            size="lg"
+          <WzButton
+            variant="secondary"
+            size="regular"
+            icon={<Briefcase strokeWidth={1.5} />}
             aria-disabled="true"
-            className={cn(segment, segmentOff)}
+            className={blocked}
             onClick={(e) => e.preventDefault()}
           >
-            <Briefcase /> Create new job
-          </Button>
+            Create new job
+          </WzButton>
         </TooltipTrigger>
         <TooltipContent>Add at least one item first</TooltipContent>
       </Tooltip>
     ) : (
-      <Button asChild variant="ghost" size="lg" className={segment}>
-        <Link href={createJobHref}>
-          <Briefcase /> Create new job
-        </Link>
-      </Button>
+      <WzButtonLink href={createJobHref} variant="secondary" size="regular" icon={<Briefcase strokeWidth={1.5} />}>
+        Create new job
+      </WzButtonLink>
     );
 
-  // Workiz's job-estimate toolbar: Price book · Sync to job · Create new job. A client's: Price book.
+  // Workiz's job-estimate buttons under the items: Price book · Sync to job · Create new job. A client's: Price book.
   const toolbar = (
-    <div
-      role="group"
-      aria-label="Estimate tools"
-      className="flex h-9 max-w-full overflow-x-auto overflow-y-hidden rounded-md border bg-card shadow-xs"
-    >
-      <Button asChild variant="ghost" size="lg" className={segment}>
-        <Link href="/inventory/items">
-          <BookOpen /> Price book
-        </Link>
-      </Button>
+    <>
+      <WzButtonLink href="/inventory/items" variant="secondary" size="regular" icon={<BookOpen strokeWidth={1.5} />}>
+        Price book
+      </WzButtonLink>
       {deal ? (
         <>
           {syncBlocked ? (
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="lg"
+                <WzButton
+                  variant="secondary"
+                  size="regular"
+                  icon={<RefreshCw strokeWidth={1.5} />}
                   aria-disabled="true"
-                  className={cn(segment, segmentOff)}
+                  className={blocked}
                   onClick={(e) => e.preventDefault()}
                 >
-                  <ArrowLeftRight /> Sync to job
-                </Button>
+                  Sync to job
+                </WzButton>
               </TooltipTrigger>
               <TooltipContent>{syncBlocked}</TooltipContent>
             </Tooltip>
           ) : (
-            <Button variant="ghost" size="lg" className={segment} onClick={startSync} disabled={sync.isPending}>
-              {sync.isPending ? <Loader2 className="animate-spin" /> : <ArrowLeftRight />} Sync to job
-            </Button>
+            <WzButton
+              variant="secondary"
+              size="regular"
+              icon={sync.isPending ? <Loader2 className="animate-spin" /> : <RefreshCw strokeWidth={1.5} />}
+              onClick={startSync}
+              disabled={sync.isPending}
+            >
+              Sync to job
+            </WzButton>
           )}
           {canSync ? createJobButton : null}
         </>
       ) : null}
-    </div>
+    </>
   );
 
+  // Workiz's MenuPopup: its rows in its order, ours (sent, duplicate, portal link, sync) before Delete.
   const actionsMenu = (
-    <DropdownMenu>
+    <DropdownMenu modal={false}>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="lg" className={secondaryButton}>
-          Actions <ChevronDown />
-        </Button>
+        <WzButton variant="secondary" size="regular" icon={<ChevronDown strokeWidth={1.5} />} className="aria-expanded:bg-wz-secondary-hover">
+          Actions
+        </WzButton>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="min-w-56">
+      <DropdownMenuContent align="end" sideOffset={8} alignOffset={-4} className={WZ_MENU_POPUP}>
         {estimate.dealId ? (
-          <DropdownMenuItem asChild>
+          <DropdownMenuItem asChild className={WZ_MENU_POPUP_ITEM}>
             <Link href={`/deals/${estimate.dealId}`}>
-              <Wrench /> View job
+              <Wrench strokeWidth={1.25} /> View job
             </Link>
           </DropdownMenuItem>
         ) : null}
-        <DropdownMenuItem onSelect={() => setPreviewing(true)}>
-          <Eye /> Preview
+        <DropdownMenuItem className={WZ_MENU_POPUP_ITEM} onSelect={() => setPreviewing(true)}>
+          <Eye strokeWidth={1.25} /> Preview
         </DropdownMenuItem>
-        <DropdownMenuItem onSelect={() => pdf.open()} disabled={pdf.pending}>
-          <Download /> Download PDF
+        <DropdownMenuItem className={WZ_MENU_POPUP_ITEM} onSelect={() => pdf.open()} disabled={pdf.pending}>
+          <Download strokeWidth={1.25} /> Download
         </DropdownMenuItem>
         {canSend ? (
-          <DropdownMenuItem disabled={markSent.isPending} onSelect={() => markSent.mutate(!estimate.sentAt)}>
-            {estimate.sentAt ? <Undo2 /> : <Send />} {estimate.sentAt ? "Mark as unsent" : "Mark as sent"}
+          <DropdownMenuItem className={WZ_MENU_POPUP_ITEM} disabled={markSent.isPending} onSelect={() => markSent.mutate(!estimate.sentAt)}>
+            {estimate.sentAt ? <Undo2 strokeWidth={1.25} /> : <Send strokeWidth={1.25} />}{" "}
+            {estimate.sentAt ? "Mark as unsent" : "Mark as sent"}
           </DropdownMenuItem>
         ) : null}
         {canCreate ? (
-          <DropdownMenuItem disabled={duplicate.isPending} onSelect={() => duplicate.mutate(estimate.id, { onSuccess: (e) => onOpenEstimate(e.id) })}>
-            <Copy /> Duplicate
+          <DropdownMenuItem
+            className={WZ_MENU_POPUP_ITEM}
+            disabled={duplicate.isPending}
+            onSelect={() => duplicate.mutate(estimate.id, { onSuccess: (e) => onOpenEstimate(e.id) })}
+          >
+            <CopyPlus strokeWidth={1.25} /> Duplicate
           </DropdownMenuItem>
         ) : null}
         {canSend ? (
-          <DropdownMenuItem disabled={portalLink.disabled} onSelect={() => void portalLink.copy()}>
-            {portalLink.pending ? <Loader2 className="animate-spin" /> : <Link2 />} Copy client portal link
+          <DropdownMenuItem className={WZ_MENU_POPUP_ITEM} disabled={portalLink.disabled} onSelect={() => void portalLink.copy()}>
+            {portalLink.pending ? <Loader2 className="animate-spin" /> : <Link2 strokeWidth={1.25} />} Copy client portal link
           </DropdownMenuItem>
         ) : null}
         {deal && canSync ? (
-          <DropdownMenuItem disabled={!!syncBlocked || sync.isPending} onSelect={startSync}>
-            <ArrowLeftRight /> Sync to job
+          <DropdownMenuItem className={WZ_MENU_POPUP_ITEM} disabled={!!syncBlocked || sync.isPending} onSelect={startSync}>
+            <ArrowLeftRight strokeWidth={1.25} /> Sync to job
           </DropdownMenuItem>
         ) : null}
         {!deal && canSync ? (
           items.length > 0 ? (
-            <DropdownMenuItem asChild>
+            <DropdownMenuItem asChild className={WZ_MENU_POPUP_ITEM}>
               <Link href={createJobHref}>
-                <Briefcase /> Copy to job
+                <Copy strokeWidth={1.25} /> Copy to job
               </Link>
             </DropdownMenuItem>
           ) : (
-            <DropdownMenuItem disabled>
-              <Briefcase /> Copy to job
+            <DropdownMenuItem className={WZ_MENU_POPUP_ITEM} disabled>
+              <Copy strokeWidth={1.25} /> Copy to job
             </DropdownMenuItem>
           )
         ) : null}
         {canDelete ? (
-          <>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem variant="destructive" onSelect={() => setDeleting(true)}>
-              <Trash2 /> Delete
-            </DropdownMenuItem>
-          </>
+          <DropdownMenuItem variant="destructive" className={WZ_MENU_POPUP_ITEM} onSelect={() => setDeleting(true)}>
+            <Trash2 strokeWidth={1.25} /> Delete
+          </DropdownMenuItem>
         ) : null}
       </DropdownMenuContent>
     </DropdownMenu>
@@ -332,333 +362,376 @@ export function EstimateEditor({
 
   const sendButton = canText ? (
     onSendAll ? (
-      <DropdownMenu>
+      <DropdownMenu modal={false}>
         <DropdownMenuTrigger asChild>
-          <Button variant="default" size="lg" className={primaryButton}>
-            <Send /> Send <ChevronDown className="-mr-1 opacity-70" />
-          </Button>
+          <WzButton size="regular" icon={<Send strokeWidth={1.5} />}>
+            Send
+          </WzButton>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="min-w-52">
-          <DropdownMenuItem onSelect={() => setSending(true)}>
-            <Send /> Send estimate
+        <DropdownMenuContent align="end" sideOffset={8} alignOffset={-4} className={WZ_MENU_POPUP}>
+          <DropdownMenuItem className={WZ_MENU_POPUP_ITEM} onSelect={() => setSending(true)}>
+            <Send strokeWidth={1.25} /> Send estimate
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={onSendAll}>
-            <Send /> Send all (proposal)
+          <DropdownMenuItem className={WZ_MENU_POPUP_ITEM} onSelect={onSendAll}>
+            <Send strokeWidth={1.25} /> Send all (proposal)
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
     ) : (
-      <Button variant="default" size="lg" className={primaryButton} onClick={() => setSending(true)}>
-        <Send /> Send
-      </Button>
+      <WzButton size="regular" icon={<Send strokeWidth={1.5} />} onClick={() => setSending(true)}>
+        Send
+      </WzButton>
     )
   ) : canSend ? (
-    <CopyPortalLinkButton contactId={estimate.contactId} />
+    <CopyPortalLinkButton contactId={estimate.contactId} className="h-8" />
   ) : null;
 
   const billTo = c?.billingAddress ?? c?.addresses?.[0];
+  const dateField = (
+    <EstimateDateField
+      id="estimate-date"
+      value={estimate.estimateDate}
+      disabled={!canEdit}
+      onChange={(estimateDate) => estimateDate !== estimate.estimateDate && saveHeader({ estimateDate })}
+      className={deal ? "text-[13px] leading-6 font-medium text-[rgba(59,76,83,0.6)]" : "h-[34px] px-2.5 text-[16px] leading-[30px] text-wz-text"}
+    />
+  );
+  const templateSelect = (
+    <DocumentTemplateSelect
+      id="estimate-template"
+      kind="estimate"
+      value={estimate.templateId}
+      disabled={!canEdit}
+      onChange={(templateId) => update.mutate({ templateId })}
+      className={cn(
+        "w-auto max-w-[180px] gap-1.5 rounded-none border-0 bg-transparent p-0 shadow-none hover:border-0 disabled:bg-transparent data-[size=sm]:pl-0 data-[state=open]:shadow-none [&>svg]:size-3.5! [&>svg]:text-wz-caption!",
+        deal
+          ? "h-6 text-[13px] font-medium text-[rgba(59,76,83,0.6)] data-[size=sm]:h-6 disabled:text-[rgba(59,76,83,0.6)]"
+          : "h-[35px] text-[16px] text-wz-text data-[size=sm]:h-[35px] disabled:text-wz-text",
+      )}
+    />
+  );
+
+  const tabsNode = typeof tabs === "function" ? tabs(rename) : tabs;
 
   return (
-    <div className="space-y-4">
+    <div className="pb-10 text-wz-strong">
       {deal ? (
         <>
-          {/* The job's estimates (or the title), Actions ▾, Send — one row (Workiz). */}
-          <div className="flex flex-wrap items-center gap-2 border-b">
-            {tabs ?? (
-              <div className="flex flex-wrap items-center gap-2 py-2">
-                <h2 className="text-lg font-semibold">{estimateTitle(estimate)}</h2>
+          {/* The job's estimates (or the title), Actions ▾, Send — one row, bottoms level (estimatesHeader rowWrap). */}
+          <div className="flex items-end justify-between gap-3 pr-5">
+            {tabsNode ?? (
+              <div className="flex flex-wrap items-center gap-2 pb-1 pl-5">
+                <h2 className="text-[16px] leading-[25px] font-medium">{estimateTitle(estimate)}</h2>
                 <EstimateStatusBadge status={estimate.status} />
-                <SentBadge sentAt={estimate.sentAt} />
               </div>
             )}
-            <div className="ml-auto flex items-center gap-2 pb-2">
+            <div className="flex shrink-0 items-center gap-3 pb-[15px]">
               {actionsMenu}
               {sendButton}
             </div>
           </div>
 
-          {/* Cover · Description · the grey band: client, service address, status and number. */}
-          <section className="grid overflow-hidden rounded-lg border bg-card lg:grid-cols-[auto_minmax(14rem,1fr)_2fr]">
-            <div className="flex items-start justify-center p-4 lg:border-r">
-              <EstimateCoverField
-                coverUrl={estimate.coverUrl}
-                disabled={!canEdit}
-                saving={update.isPending && update.variables?.coverAssetId !== undefined}
-                onChange={(coverAssetId) => update.mutate({ coverAssetId })}
-              />
-            </div>
-            <div className="min-w-0 space-y-1.5 p-4">
-              <p className="text-sm font-semibold">Description</p>
-              {editingDescription || !estimate.description ? (
-                canEdit ? (
-                  editingDescription ? (
-                    <CommitTextarea
-                      rows={3}
-                      maxLength={2000}
-                      autoFocus
-                      aria-label="Description"
-                      placeholder="What this option includes — the client sees it on their portal"
-                      value={estimate.description ?? ""}
-                      onCommit={(description) => {
-                        update.mutate({ description: description || null });
-                        setEditingDescription(false);
-                      }}
-                    />
-                  ) : (
-                    <button type="button" onClick={() => setEditingDescription(true)} className="text-sm font-medium text-brand hover:underline">
-                      (+Add)
-                    </button>
-                  )
-                ) : (
-                  <p className="text-sm text-muted-foreground">—</p>
-                )
-              ) : (
-                <button
-                  type="button"
+          {/* The band (headerJob-module): cover · description on white, then client, service address, status and number on grey. */}
+          <section
+            aria-label="Estimate details"
+            className="flex min-h-[155px] overflow-x-auto border border-[#dfe2e3] bg-wz-tile"
+          >
+            <div className="flex min-h-[153px] w-[459px] shrink-0 items-center bg-white">
+              <div className="mx-12 shrink-0">
+                <EstimateCoverField
+                  coverUrl={estimate.coverUrl}
                   disabled={!canEdit}
-                  onClick={() => setEditingDescription(true)}
-                  className="block w-full text-left text-sm whitespace-pre-line hover:underline disabled:no-underline"
-                >
-                  {estimate.description}
-                </button>
-              )}
-            </div>
-            <div className="grid gap-4 bg-muted/60 p-4 sm:grid-cols-3">
-              <div className="space-y-0.5 text-sm">
-                <p className="font-semibold">Client details</p>
-                <p className="text-muted-foreground">{clientFullName || "—"}</p>
-                {c?.emails?.[0] ? <p className="truncate text-muted-foreground">{c.emails[0]}</p> : null}
-                {c?.phones?.[0] ? <p className="text-muted-foreground">{formatPhone(c.phones[0])}</p> : null}
+                  saving={update.isPending && update.variables?.coverAssetId !== undefined}
+                  onChange={(coverAssetId) => update.mutate({ coverAssetId })}
+                />
               </div>
-              <div className="space-y-0.5 text-sm sm:border-l sm:pl-4">
-                <p className="font-semibold">Service address</p>
-                {deal.address?.street ? (
+              <div className="relative mr-10 ml-[34px] h-[104px] w-[188px] shrink-0">
+                <p className={BAND_TITLE}>Description</p>
+                {estimate.description ? (
                   <>
-                    <p className="text-muted-foreground">{[deal.address.street, deal.address.unit].filter(Boolean).join(", ")}</p>
-                    <p className="text-muted-foreground">
-                      {[deal.address.city, [deal.address.state, deal.address.zip].filter(Boolean).join(" ")].filter(Boolean).join(", ")}
+                    <p className="line-clamp-2 text-[13px] leading-5 font-medium break-words whitespace-pre-wrap text-[rgba(59,76,83,0.6)]">
+                      {estimate.description}
                     </p>
+                    {canEdit ? (
+                      <button
+                        type="button"
+                        aria-label="Edit description"
+                        onClick={() => setEditingDescription(true)}
+                        className="mt-2.5 text-[13px] leading-4 font-medium text-wz-link hover:underline"
+                      >
+                        Edit
+                      </button>
+                    ) : null}
                   </>
-                ) : billTo ? (
-                  <p className="text-muted-foreground">{formatAddress(billTo)}</p>
                 ) : (
-                  <p className="text-muted-foreground">—</p>
+                  <>
+                    {/* Workiz's empty description: three pale bars. */}
+                    <span aria-hidden className="mt-4 mr-2 block h-2 rounded-[8px] bg-[#ecedee]" />
+                    <span aria-hidden className="mt-4 mr-2 block h-2 rounded-[8px] bg-[#ecedee]" />
+                    <span aria-hidden className="mt-4 mr-2 block h-2 w-[65%] rounded-[8px] bg-[#ecedee]" />
+                    {canEdit ? (
+                      <button
+                        type="button"
+                        aria-label="Add description"
+                        onClick={() => setEditingDescription(true)}
+                        className="absolute right-[5%] bottom-0 text-[13px] leading-4 font-medium text-wz-link hover:underline"
+                      >
+                        (+Add)
+                      </button>
+                    ) : null}
+                  </>
                 )}
               </div>
-              <div className="space-y-2 text-sm sm:border-l sm:pl-4">
-                <div className="flex items-center gap-2">
-                  <label htmlFor="estimate-status" className="font-semibold">
-                    Status
-                  </label>
+            </div>
+            <div className="mx-10 my-[22px] w-[186px] shrink-0">
+              <p className={BAND_TITLE}>Client details</p>
+              <p className={BAND_TEXT}>{clientFullName || "—"}</p>
+              {c?.emails?.[0] ? <p className={BAND_TEXT}>{c.emails[0]}</p> : null}
+              {c?.phones?.[0] ? <p className={BAND_TEXT}>{formatPhone(c.phones[0])}</p> : null}
+            </div>
+            <span aria-hidden className="h-[110px] w-px shrink-0 self-center bg-wz-rule" />
+            <div className="mx-[29px] my-[22px] w-[186px] shrink-0">
+              <p className={BAND_TITLE}>Service address</p>
+              {deal.address?.street ? (
+                <>
+                  <p className={BAND_TEXT}>{[deal.address.street, deal.address.unit].filter(Boolean).join(", ")}</p>
+                  <p className="line-clamp-2 text-[13px] leading-6 font-medium text-[rgba(59,76,83,0.6)]">
+                    {[deal.address.city, [deal.address.state, deal.address.zip].filter(Boolean).join(" ")].filter(Boolean).join(", ")}
+                  </p>
+                </>
+              ) : billTo ? (
+                <p className="line-clamp-3 text-[13px] leading-6 font-medium text-[rgba(59,76,83,0.6)]">
+                  {[billTo.street, billTo.unit].filter(Boolean).join(", ")}
+                  <br />
+                  {[billTo.city, [billTo.state, billTo.zip].filter(Boolean).join(" ")].filter(Boolean).join(", ")}
+                </p>
+              ) : (
+                <p className={BAND_TEXT}>—</p>
+              )}
+            </div>
+            <span aria-hidden className="h-[110px] w-px shrink-0 self-center bg-wz-rule" />
+            {/* 22px in from the top like Workiz's; our Date and Template rows take the room it leaves under the number. */}
+            <div className="shrink-0 px-10 pt-[22px] pb-1">
+              <div className="mb-2.5 flex h-11 w-[186px] items-start gap-2.5 border-b border-[#ecedee]">
+                <label htmlFor="estimate-status" className="pt-[7px] text-[14px] leading-6 font-medium">
+                  Status
+                </label>
+                <div className="pt-1.5">
                   <EstimateStatusSelect
                     id="estimate-status"
-                    className="h-8 min-w-0 flex-1"
+                    className="w-[150px]"
                     value={estimate.status}
                     disabled={!canEdit || setStatus.isPending}
                     onChange={(st) => st !== estimate.status && setStatus.mutate(st)}
                   />
                 </div>
-                <p>
-                  <span className="font-semibold">Estimate no.</span> <span className="text-muted-foreground">{estimate.number}</span>
-                </p>
+              </div>
+              <p className="flex text-[13px] leading-6 font-medium">
+                <span>Estimate no.</span>
+                <span className="text-[rgba(59,76,83,0.6)]">{estimate.number}</span>
+              </p>
+              {/* Ours, where Workiz keeps the estimate's facts: its day and its print template. */}
+              <div className="flex items-center gap-1 text-[13px] leading-6 font-medium">
+                <label htmlFor="estimate-date">Date</label>
+                {dateField}
+              </div>
+              <div className="flex items-center gap-1 text-[13px] leading-6 font-medium">
+                <label htmlFor="estimate-template">Template</label>
+                {templateSelect}
               </div>
             </div>
           </section>
-
-          {/* The document's own fields — kept, in a quiet row. */}
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <DocField label="Name" htmlFor="estimate-name-edit">
-              <CommitInput
-                id="estimate-name-edit"
-                value={estimate.name ?? ""}
-                placeholder="e.g. Good"
-                maxLength={120}
-                disabled={!canEdit}
-                onCommit={(name) => saveHeader({ name: name.trim() })}
-              />
-            </DocField>
-            <DocField label="Estimate date" htmlFor="estimate-date">
-              <CommitInput
-                id="estimate-date"
-                type="date"
-                value={estimate.estimateDate}
-                disabled={!canEdit}
-                onCommit={(estimateDate) => estimateDate && saveHeader({ estimateDate })}
-              />
-            </DocField>
-            <DocField label="Template" htmlFor="estimate-template">
-              <DocumentTemplateSelect
-                id="estimate-template"
-                kind="estimate"
-                value={estimate.templateId}
-                disabled={!canEdit}
-                onChange={(templateId) => update.mutate({ templateId })}
-              />
-            </DocField>
-          </div>
         </>
       ) : (
-        /* A client's estimate (Workiz): Client · Actions ▾ · Send; Bill to | Estimate, name, date, status. */
-        <section aria-label="Estimate details" className="space-y-5 rounded-lg border bg-muted/60 p-5">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-base">
-              <span>Client:</span>{" "}
-              <Link href={`/contacts/${estimate.contactId}`} className="font-medium hover:underline">
-                {clientFullName || "the client"}
-              </Link>
-            </p>
-            <div className="flex items-center gap-2">
-              {actionsMenu}
-              {sendButton}
-            </div>
+        /* A client's estimate (headerStub-module): Client · Actions ▾ · Send; Bill to | Estimate, name, date, status. */
+        <section aria-label="Estimate details" className="relative bg-wz-tile px-5 pt-[53px] pb-7">
+          <div className="absolute top-[30px] right-5 flex items-center gap-3">
+            {actionsMenu}
+            {sendButton}
           </div>
-          <div className="flex flex-col gap-6 md:flex-row md:justify-between">
-            <div className="space-y-1 text-sm">
-              <p className="text-base font-semibold">Bill to:</p>
-              {billTo ? <p>{formatAddress(billTo)}</p> : null}
-              {c?.phones?.[0] ? <p>{formatPhone(c.phones[0])}</p> : null}
-              {c?.emails?.[0] ? <p>{c.emails[0]}</p> : null}
-              {!billTo && !c?.phones?.[0] && !c?.emails?.[0] ? <p className="text-muted-foreground">—</p> : null}
+          <p className="truncate text-[16px] leading-[19px]">
+            <span>Client:</span>{" "}
+            <Link href={`/contacts/${estimate.contactId}`} className="text-foreground hover:underline">
+              {clientFullName || "the client"}
+            </Link>
+          </p>
+          <div className="mt-[22px] flex flex-col gap-6 md:flex-row md:justify-between">
+            <div className="md:w-1/3">
+              <p className="my-2 text-[18px] leading-[19px] font-semibold text-[#3b4c53]">Bill to:</p>
+              <div className="text-[14px] leading-[22px]">
+                {billTo ? (
+                  <>
+                    <p>{[billTo.street, billTo.unit].filter(Boolean).join(", ")}</p>
+                    <p>{[billTo.city, [billTo.state, billTo.zip].filter(Boolean).join(" ")].filter(Boolean).join(", ")}</p>
+                  </>
+                ) : null}
+                {c?.phones?.[0] ? <p>{formatPhone(c.phones[0])}</p> : null}
+                {c?.emails?.[0] ? <p>{c.emails[0]}</p> : null}
+                {!billTo && !c?.phones?.[0] && !c?.emails?.[0] ? <p>—</p> : null}
+              </div>
             </div>
-            <dl className="grid grid-cols-[auto_minmax(12rem,17rem)] items-center gap-x-4 gap-y-2.5 text-sm">
-              <dt className="font-semibold">Estimate:</dt>
-              <dd className="font-mono">{estimate.number}</dd>
-              <dt className="font-semibold">
-                <label htmlFor="estimate-name-edit">Estimate name</label>:
-              </dt>
-              <dd>
-                <CommitInput
-                  id="estimate-name-edit"
-                  value={estimate.name ?? ""}
-                  placeholder="e.g. Front door"
-                  maxLength={120}
-                  disabled={!canEdit}
-                  onCommit={(name) => saveHeader({ name: name.trim() })}
-                />
-              </dd>
-              <dt className="font-semibold">
-                <label htmlFor="estimate-date">Date</label>:
-              </dt>
-              <dd>
-                <CommitInput
-                  id="estimate-date"
-                  type="date"
-                  value={estimate.estimateDate}
-                  disabled={!canEdit}
-                  onCommit={(estimateDate) => estimateDate && saveHeader({ estimateDate })}
-                />
-              </dd>
-              <dt className="font-semibold">
-                <label htmlFor="estimate-status">Status</label>:
-              </dt>
-              <dd>
-                <EstimateStatusSelect
-                  id="estimate-status"
-                  value={estimate.status}
-                  disabled={!canEdit || setStatus.isPending}
-                  onChange={(st) => st !== estimate.status && setStatus.mutate(st)}
-                />
-              </dd>
-              <dt className="font-semibold">
-                <label htmlFor="estimate-template">Template</label>:
-              </dt>
-              <dd>
-                <DocumentTemplateSelect
-                  id="estimate-template"
-                  kind="estimate"
-                  value={estimate.templateId}
-                  disabled={!canEdit}
-                  onChange={(templateId) => update.mutate({ templateId })}
-                />
-              </dd>
+            <dl className="md:w-1/3">
+              <div className="flex items-center gap-2.5">
+                <dt className={STUB_LABEL}>Estimate:</dt>
+                <dd className="text-[15px] leading-4">{estimate.number}</dd>
+              </div>
+              <div className="flex items-center gap-1">
+                <dt className={STUB_LABEL}>
+                  <label htmlFor="estimate-name-edit">Estimate name</label>:
+                </dt>
+                <dd className="relative ml-1.5 flex items-center">
+                  <CommitInput
+                    id="estimate-name-edit"
+                    value={estimate.name ?? ""}
+                    maxLength={120}
+                    disabled={!canEdit}
+                    onCommit={(name) => saveHeader({ name: name.trim() })}
+                    className="h-[35px] w-[140px] rounded-[4px] border-transparent bg-transparent px-1.5 pr-7 text-[15px] text-wz-strong shadow-none hover:border-transparent hover:bg-wz-secondary-hover focus-visible:border-wz-focus focus-visible:bg-white disabled:pointer-events-auto disabled:cursor-default disabled:border-transparent disabled:bg-transparent disabled:text-wz-strong md:text-[15px]"
+                  />
+                  {canEdit ? <Pencil aria-hidden className="pointer-events-none absolute right-2 size-3.5 text-foreground" strokeWidth={1.5} /> : null}
+                </dd>
+              </div>
+              <div className="flex items-center gap-2.5">
+                <dt className={STUB_LABEL}>
+                  <label htmlFor="estimate-date">Date</label>:
+                </dt>
+                <dd>{dateField}</dd>
+              </div>
+              <div className="flex items-center gap-2.5">
+                <dt className={STUB_LABEL}>
+                  <label htmlFor="estimate-status">Status</label>:
+                </dt>
+                {/* react-select's value sits 11px into its box (pg_estimate_wz_02_client: the dot at x=1211). */}
+                <dd className="ml-[11px] w-[150px]">
+                  <EstimateStatusSelect
+                    id="estimate-status"
+                    size="header"
+                    value={estimate.status}
+                    disabled={!canEdit || setStatus.isPending}
+                    onChange={(st) => st !== estimate.status && setStatus.mutate(st)}
+                  />
+                </dd>
+              </div>
+              <div className="flex items-center gap-2.5">
+                <dt className={STUB_LABEL}>
+                  <label htmlFor="estimate-template">Template</label>:
+                </dt>
+                <dd>{templateSelect}</dd>
+              </div>
             </dl>
           </div>
         </section>
       )}
 
-      {/* Items */}
-      <section className="space-y-4 rounded-lg border bg-card p-4">
-        <h3 className="border-b pb-2 text-lg font-semibold">Items</h3>
-        <EstimateItemsTable
-          estimateId={estimate.id}
-          dealId={dealId}
-          items={items}
-          canEdit={canEdit}
-          toolbar={toolbar}
-          addClassName={primaryButton}
-        />
-
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-          <div className="flex items-baseline gap-3 text-sm lg:pl-1">
-            <span className="text-muted-foreground">Total :</span>
-            <span className="font-mono text-2xl font-semibold tabular-nums">{formatMoney(totals.total)}</span>
-            <span className="text-muted-foreground">·</span>
-            <span className="text-muted-foreground">
-              {items.length} item{items.length === 1 ? "" : "s"}
-            </span>
+      <div className="px-5">
+        {/* Items (items-module): the 62px title over a #ccc rule, the grid, the buttons. */}
+        <section aria-labelledby="estimate-items-heading" className="pt-5">
+          <div className="h-[62px] border-b border-input pt-[17px]">
+            <h3 id="estimate-items-heading" className="text-[16px] leading-[19px] font-semibold">
+              Items
+            </h3>
           </div>
-          <DocumentSummaryPanel
-            totals={totals}
-            taxRateId={estimate.taxRateId}
-            taxRateName={estimate.taxRateName}
-            taxSource={estimate.taxSource}
-            discount={estimate.discount}
+          <EstimateItemsTable
+            variant="workiz"
+            estimateId={estimate.id}
+            dealId={dealId}
+            items={items}
             canEdit={canEdit}
-            pending={update.isPending && (update.variables?.taxRateId !== undefined || update.variables?.discount !== undefined)}
-            onTaxChange={(taxRateId) => update.mutate({ taxRateId })}
-            onDiscountChange={(discount) => update.mutate({ discount })}
-            extraRows={
-              <>
-                {itemCost > 0 ? (
-                  <Row label="Item cost" value={formatMoney(itemCost)} hint={margin !== null ? `${margin}% margin` : undefined} />
-                ) : null}
-                <Row
-                  label="Deposit"
-                  value={deposit ?? "—"}
-                  action={
-                    canEdit ? (
-                      <button type="button" onClick={() => setDepositOpen(true)} className="text-xs font-medium text-brand hover:underline">
-                        {deposit ? "Change" : "Set deposit"}
-                      </button>
-                    ) : undefined
-                  }
-                />
-              </>
-            }
-          />
-        </div>
-      </section>
-
-      {/* Notes · Signatures — one card like the top band: white column, then the grey one. */}
-      <div className="grid overflow-hidden rounded-lg border bg-card lg:grid-cols-2">
-        <section className="min-w-0 space-y-1.5 p-4">
-          <h3 className="text-sm font-semibold">
-            <label htmlFor="estimate-notes">Notes</label>
-          </h3>
-          {/* Reads as text, like the Description above; the frame shows on hover and while typing. */}
-          <CommitTextarea
-            id="estimate-notes"
-            aria-label="Estimate notes"
-            rows={3}
-            maxLength={5000}
-            placeholder="Shown on the estimate (scope, warranty, validity…)"
-            value={estimate.notes ?? ""}
-            disabled={!canEdit}
-            onCommit={(notes) => saveHeader({ notes })}
-            className="-mx-2.5 w-[calc(100%+1.25rem)] resize-none border-transparent bg-transparent text-muted-foreground shadow-none hover:border-input focus-visible:border-ring focus-visible:text-foreground disabled:cursor-default disabled:bg-transparent disabled:opacity-100 disabled:hover:border-transparent dark:bg-transparent dark:disabled:bg-transparent"
+            toolbar={toolbar}
           />
         </section>
-        <div id="estimate-signatures" className="border-t lg:border-t-0 lg:border-l">
-          <SignaturesSection
-            variant="band"
-            signatures={estimate.signatures ?? []}
-            signerName={clientFullName}
-            canSign={canEdit}
-            saving={sign.isPending}
-            onSign={(input) => sign.mutateAsync(input)}
-          />
+
+        {/* Totals (totals-module): Total on the left; Subtotal … Tax, Item cost, Deposit on the right. */}
+        <DocumentSummaryPanel
+          variant="workiz"
+          className="mt-[62px]"
+          totals={totals}
+          taxRateId={estimate.taxRateId}
+          taxRateName={estimate.taxRateName}
+          taxSource={estimate.taxSource}
+          discount={estimate.discount}
+          canEdit={canEdit}
+          pending={update.isPending && (update.variables?.taxRateId !== undefined || update.variables?.discount !== undefined)}
+          onTaxChange={(taxRateId) => update.mutate({ taxRateId })}
+          onDiscountChange={(discount) => update.mutate({ discount })}
+          extraRows={
+            <>
+              {canSeeCost ? (
+                <WzTotalsBoxRow label="Item cost" title={margin !== null ? `${margin}% margin` : undefined}>
+                  {formatBoxAmount(itemCost)}
+                </WzTotalsBoxRow>
+              ) : null}
+              <WzTotalsBoxRow
+                label="Deposit"
+                underline
+                onClick={canEdit ? () => setDepositOpen(true) : undefined}
+                title={canEdit ? "Set deposit" : undefined}
+              >
+                {depositBoxText({ ...estimate, totals })}
+              </WzTotalsBoxRow>
+            </>
+          }
+        />
+
+        {/* Notes | Signatures — Workiz's two columns, 40px apart. */}
+        <div className="mt-10 grid grid-cols-1 gap-10 lg:grid-cols-2">
+          <section aria-label="Notes" className="min-w-0">
+            <WzDocSectionHead title="Notes" icon={<SquarePen strokeWidth={1.25} />} className="border-input pb-[15px]" />
+            <div className="mt-5">
+              {editingNotes ? (
+                <CommitTextarea
+                  id="estimate-notes"
+                  aria-label="Estimate notes"
+                  autoFocus
+                  rows={4}
+                  maxLength={5000}
+                  placeholder="Shown on the estimate (scope, warranty, validity…)"
+                  value={estimate.notes ?? ""}
+                  onBlurCapture={() => setEditingNotes(false)}
+                  onCommit={(notes) => saveHeader({ notes })}
+                  className="text-[14px] leading-4"
+                />
+              ) : (
+                <>
+                  {estimate.notes ? <p className="text-[14px] leading-4 break-words whitespace-pre-line">{estimate.notes}</p> : null}
+                  {canEdit ? (
+                    <button
+                      type="button"
+                      onClick={() => setEditingNotes(true)}
+                      className={cn("text-[13px] leading-4 font-medium text-wz-link hover:underline", estimate.notes && "mt-2.5")}
+                    >
+                      {estimate.notes ? "(Edit)" : "(+Add)"}
+                    </button>
+                  ) : null}
+                </>
+              )}
+            </div>
+          </section>
+          <div id="estimate-signatures" className="min-w-0">
+            <SignaturesSection
+              variant="workiz"
+              signatures={estimate.signatures ?? []}
+              signerName={clientFullName}
+              canSign={canEdit}
+              saving={sign.isPending}
+              onSign={(input) => sign.mutateAsync(input)}
+            />
+          </div>
         </div>
       </div>
+
+      {/* Workiz edits the description in a small window (headerJob-module__descriptionModal). */}
+      {editingDescription ? (
+        <DescriptionDialog
+          value={estimate.description ?? ""}
+          saving={update.isPending}
+          onCancel={() => setEditingDescription(false)}
+          onSave={(description) =>
+            update.mutate({ description: description || null }, { onSuccess: () => setEditingDescription(false) })
+          }
+        />
+      ) : null}
 
       {/* Keyed per opening: each opening starts from the estimate's current deposit. */}
       <SetDepositDialog
@@ -737,5 +810,99 @@ export function EstimateEditor({
         </AlertDialogContent>
       </AlertDialog>
     </div>
+  );
+}
+
+/**
+ * The estimate's day as Workiz prints it ("Thu Jun 18 2026", underlined),
+ * opening react-datepicker's month under it; a pick saves at once.
+ */
+function EstimateDateField({
+  id,
+  value,
+  disabled,
+  onChange,
+  className,
+}: {
+  id: string;
+  value: string;
+  disabled?: boolean;
+  onChange: (day: string) => void;
+  className?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const text = formatWzDocDate(value) || "—";
+  if (disabled) {
+    return (
+      <span id={id} className={cn("underline", className)}>
+        {text}
+      </span>
+    );
+  }
+  return (
+    <Popover.Root open={open} onOpenChange={setOpen}>
+      <Popover.Trigger asChild>
+        <button
+          id={id}
+          type="button"
+          className={cn("rounded-[2px] text-left underline outline-none hover:bg-wz-secondary-hover focus-visible:ring-2 focus-visible:ring-wz-focus", className)}
+        >
+          {text}
+        </button>
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Content align="start" sideOffset={10} className="z-50 outline-none">
+          <WzDayPicker
+            value={value}
+            today={todayYmd()}
+            onSelect={(day) => {
+              setOpen(false);
+              onChange(day);
+            }}
+          />
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
+  );
+}
+
+/** Workiz's description window: a 150px box and Save. */
+function DescriptionDialog({
+  value,
+  saving,
+  onCancel,
+  onSave,
+}: {
+  value: string;
+  saving: boolean;
+  onCancel: () => void;
+  onSave: (description: string) => void;
+}) {
+  const [draft, setDraft] = useState(value);
+  return (
+    <Dialog open onOpenChange={(o) => !o && onCancel()}>
+      <DialogContent className="sm:max-w-[400px]">
+        <DialogHeader>
+          <DialogTitle>Description</DialogTitle>
+        </DialogHeader>
+        <Textarea
+          aria-label="Description"
+          autoFocus
+          maxLength={2000}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          placeholder="What this option includes — the client sees it on their portal"
+          className="h-[150px] resize-none"
+        />
+        <DialogFooter>
+          <Button variant="outline" onClick={onCancel} disabled={saving}>
+            Cancel
+          </Button>
+          <Button variant="brand" onClick={() => onSave(draft.trim())} disabled={saving}>
+            {saving ? <Loader2 className="animate-spin" /> : null} Save
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

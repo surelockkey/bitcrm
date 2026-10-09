@@ -62,15 +62,14 @@ export function StandaloneEstimatePage({ estimateId }: { estimateId: string }) {
     );
   }
 
+  // pg_estimate_wz_02_client: the grey header starts right under the breadcrumb, edge to edge.
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-      <div className="p-6">
-        <EstimateEditor
-          estimateId={estimateId}
-          onOpenEstimate={(id) => router.push(`/estimates/${id}`)}
-          onDeleted={() => router.push(`/contacts/${estimate.contactId}`)}
-        />
-      </div>
+      <EstimateEditor
+        estimateId={estimateId}
+        onOpenEstimate={(id) => router.push(`/estimates/${id}`)}
+        onDeleted={() => router.push(`/contacts/${estimate.contactId}`)}
+      />
     </div>
   );
 }
@@ -100,21 +99,23 @@ function JobEstimatePage({
   const sendAll = proposalSend(list);
   const back = `/deals/${dealId}?tab=estimates`;
 
+  // pg_estimate_wz_01_job (estimatesHeader-module): "← Job ID:JTX319" 14px ink 20px in and 26px down
+  // (y=118), the tabs row 19px under it — the tabs from the column's edge, the band edge to edge.
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-      <div className="px-6 pt-5">
-        <Link href={back} className="inline-flex items-center gap-2 text-[15px] hover:underline">
-          <ArrowLeft className="size-4" aria-hidden /> Job ID: {estimate.dealNumber ?? deal?.dealNumber ?? ""}
+      <div className="pt-[26px]">
+        <Link href={back} className="ml-5 flex w-fit items-center gap-2.5 text-[14px] leading-4 text-foreground hover:underline">
+          <ArrowLeft className="size-4" strokeWidth={1.5} aria-hidden /> Job ID:{estimate.dealNumber ?? deal?.dealNumber ?? ""}
         </Link>
       </div>
-      <div className="p-6 pt-3">
+      <div className="mt-[19px]">
         {deal ? (
           <EstimateEditor
             key={estimate.id}
             estimateId={estimate.id}
             deal={deal}
             jobItemCount={jobItemCount}
-            tabs={
+            tabs={(rename) => (
               <EstimateTabs
                 estimates={list}
                 currentId={estimate.id}
@@ -122,15 +123,16 @@ function JobEstimatePage({
                 onNew={() => setCreating(true)}
                 onCopy={() => duplicate.mutate(estimate.id, { onSuccess: (e) => router.push(`/estimates/${e.id}`) })}
                 copying={duplicate.isPending}
+                onRename={rename}
               />
-            }
+            )}
             onOpenEstimate={(id) => router.push(`/estimates/${id}`)}
             onDeleted={() => router.push(back)}
             onSendAll={canSendAll && sendAll.mode && sendAll.count > 1 ? () => setSendingAll(true) : undefined}
           />
         ) : (
           // The job itself could not be loaded.
-          <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
+          <div className="mx-5 rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
             This estimate&apos;s job couldn&apos;t be loaded.
           </div>
         )}

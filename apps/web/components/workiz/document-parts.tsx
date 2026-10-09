@@ -37,9 +37,12 @@ export function WzDocSectionHead({
   );
 }
 
-/** Workiz's totals box: 132×28, #f7f7f7 on a 1px #ccc line, r2, 14px #666 (pg_estimate_wz_01_job, job_b_tab_items). */
+/**
+ * Workiz's totals box: 132×28, #f7f7f7 on a 1px #ccc line, r2, 14px #666 with
+ * the input's normal tracking (pg_estimate_wz_01_job, job_b_tab_items).
+ */
 export const WZ_TOTALS_BOX =
-  "h-7 w-[132px] shrink-0 truncate rounded-[2px] border border-input bg-[#f7f7f7] px-2.5 text-left text-[14px] leading-[26px] text-wz-text tabular-nums";
+  "h-7 w-[132px] shrink-0 truncate rounded-[2px] border border-input bg-[#f7f7f7] px-2.5 text-left text-[14px] leading-[26px] tracking-normal text-wz-text tabular-nums";
 
 /**
  * One line of a document's totals: "Subtotal :" (14px #404040), 10px, then

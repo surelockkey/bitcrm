@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import type { EstimateWithItems } from "@bitcrm/types";
@@ -91,16 +91,55 @@ describe("StandaloneEstimatePage — a client estimate", () => {
     expect(screen.getByText("Estimate:")).toBeInTheDocument();
     expect(screen.getByText("1141")).toBeInTheDocument();
     expect(screen.getByLabelText("Estimate name")).toBeInTheDocument();
-    expect(screen.getByLabelText("Date")).toHaveValue("2026-09-16");
+    // Workiz prints the day as "Thu Jun 18 2026", underlined, and opens a calendar on it.
+    expect(screen.getByLabelText("Date")).toHaveTextContent("Wed Sep 16 2026");
     expect(screen.getByLabelText("Status")).toBeInTheDocument();
     // No job yet: nothing to sync to, and no job tabs or cover/description (those are a job's proposal).
     expect(screen.queryByRole("tablist", { name: "Estimates" })).not.toBeInTheDocument();
     expect(screen.queryByText("Description")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /add item/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add item" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /price book/i })).toHaveAttribute("href", "/inventory/items");
     expect(screen.queryByRole("button", { name: /sync to job/i })).not.toBeInTheDocument();
-    expect(screen.getByText("No items on this estimate yet.")).toBeInTheDocument();
+    // Workiz's empty grid: its art and "Add items".
+    expect(screen.getByRole("button", { name: "Add items" })).toBeInTheDocument();
     expect(mocks.replace).not.toHaveBeenCalled();
+  });
+
+  it("changes the day from the calendar under it", async () => {
+    let body: unknown;
+    server.use(
+      http.get("*/billing/estimates/e9", () => HttpResponse.json({ success: true, data: estimate() })),
+      http.patch("*/billing/estimates/e9", async ({ request }) => {
+        body = await request.json();
+        return HttpResponse.json({ success: true, data: estimate({ estimateDate: "2026-09-20" }) });
+      }),
+    );
+    renderWithClient(<StandaloneEstimatePage estimateId="e9" />);
+    await user().click(await screen.findByLabelText("Date"));
+    await user().click(await screen.findByRole("button", { name: "Choose Sunday, September 20th, 2026" }));
+    await waitFor(() => expect(body).toEqual({ estimateDate: "2026-09-20" }));
+  });
+
+  it("shows the notes with Workiz's (Edit), which opens them to change; leaving saves", async () => {
+    let body: unknown;
+    server.use(
+      http.get("*/billing/estimates/e9", () => HttpResponse.json({ success: true, data: estimate({ notes: "Thank you!" }) })),
+      http.patch("*/billing/estimates/e9", async ({ request }) => {
+        body = await request.json();
+        return HttpResponse.json({ success: true, data: estimate({ notes: "Thanks, Jane" }) });
+      }),
+    );
+    renderWithClient(<StandaloneEstimatePage estimateId="e9" />);
+    expect(await screen.findByText("Thank you!")).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "Estimate notes" })).not.toBeInTheDocument();
+    const u = user();
+    await u.click(screen.getByRole("button", { name: "(Edit)" }));
+    const box = screen.getByRole("textbox", { name: "Estimate notes" });
+    expect(box).toHaveFocus();
+    await u.clear(box);
+    await u.type(box, "Thanks, Jane");
+    await u.tab();
+    await waitFor(() => expect(body).toEqual({ notes: "Thanks, Jane" }));
   });
 
   it("goes to a job through Actions → Copy to job, once it has items", async () => {
@@ -144,6 +183,43 @@ describe("StandaloneEstimatePage — a job's estimate", () => {
       "/deals/new?contactId=c1&then=copy-estimate%3Ae1",
     );
     expect(mocks.replace).not.toHaveBeenCalled();
+  });
+
+  it("renames the estimate in its tab and keeps its date and template in the band", async () => {
+    let body: unknown;
+    server.use(
+      http.patch("*/billing/estimates/e1", async ({ request }) => {
+        body = await request.json();
+        return HttpResponse.json({ success: true, data: { ...e1, name: "Best" } });
+      }),
+    );
+    renderWithClient(<StandaloneEstimatePage estimateId="e1" />);
+    expect(await screen.findByLabelText("Date")).toHaveTextContent("Wed Sep 16 2026");
+    expect(screen.getByLabelText("Template")).toBeInTheDocument();
+    expect(screen.getByText("Estimate no.")).toBeInTheDocument();
+    const u = user();
+    await u.click(screen.getByRole("button", { name: "Rename estimate" }));
+    const box = screen.getByRole("textbox", { name: "Estimate name" });
+    await u.clear(box);
+    await u.type(box, "Best{Enter}");
+    await waitFor(() => expect(body).toEqual({ name: "Best" }));
+  });
+
+  it("writes the description in Workiz's small window, opened from (+Add)", async () => {
+    let body: unknown;
+    server.use(
+      http.patch("*/billing/estimates/e1", async ({ request }) => {
+        body = await request.json();
+        return HttpResponse.json({ success: true, data: { ...e1, description: "Grade 1 hardware" } });
+      }),
+    );
+    renderWithClient(<StandaloneEstimatePage estimateId="e1" />);
+    const u = user();
+    await u.click(await screen.findByRole("button", { name: "Add description" }));
+    const dialog = await screen.findByRole("dialog", { name: "Description" });
+    await u.type(within(dialog).getByRole("textbox", { name: "Description" }), "Grade 1 hardware");
+    await u.click(within(dialog).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(body).toEqual({ description: "Grade 1 hardware" }));
   });
 
   it("Send offers this estimate or all of the job's open ones as a proposal", async () => {
