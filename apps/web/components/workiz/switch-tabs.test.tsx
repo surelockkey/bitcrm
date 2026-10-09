@@ -39,7 +39,7 @@ describe("WzMiniToggle", () => {
   it("can point at the words that explain it (the user page's Call masking ⓘ)", () => {
     render(
       <>
-        <span id="why">They see the client's name, never the number.</span>
+        <span id="why">{"They see the client's name, never the number."}</span>
         <WzMiniToggle label="Call masking" checked onCheckedChange={vi.fn()} aria-describedby="why" />
       </>,
     );
