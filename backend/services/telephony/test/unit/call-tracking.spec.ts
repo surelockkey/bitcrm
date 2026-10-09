@@ -251,19 +251,36 @@ describe('Call Tracking — the cards', () => {
 });
 
 describe('Call Tracking — the graph', () => {
-  it('buckets by the account’s hour, day, Sunday-week and month', () => {
+  it('buckets by the account’s hour, day, week of the month and month', () => {
     expect(bucketsOf('hour', '2026-09-01', '2026-09-27')).toHaveLength(24);
     expect(bucketsOf('day', '2026-09-01', '2026-09-27')).toHaveLength(27);
-    // Sep 1 2026 is a Tuesday: its week is clamped to the window's first day.
+    // Workiz's "week 1  In Sep" is the 1st–7th, "week 2" the 8th–14th… —
+    // weeks of the month, whatever weekday the month starts on
+    // (rep_calltracking_wz_04_graph_week: Oct 1–7 and Oct 8–9 of 2026).
     expect(bucketsOf('week', '2026-09-01', '2026-09-27')).toEqual([
-      '2026-09-01', '2026-09-06', '2026-09-13', '2026-09-20', '2026-09-27',
+      '2026-09-01', '2026-09-08', '2026-09-15', '2026-09-22',
+    ]);
+    // A window across two months: the 29th–30th is a week of its own.
+    expect(bucketsOf('week', '2026-09-10', '2026-10-09')).toEqual([
+      '2026-09-08', '2026-09-15', '2026-09-22', '2026-09-29', '2026-10-01', '2026-10-08',
     ]);
     expect(bucketsOf('month', '2026-08-15', '2026-09-27')).toEqual(['2026-08', '2026-09']);
   });
 
-  it('draws the busiest flows by name and sums the rest into one line', () => {
+  it('counts a call into its week of the month', () => {
+    // Sep 7, 8 and 14 at noon in New York (16:00 UTC): weeks 1, 2 and 2.
+    const snap = tally([
+      call({ startedAt: '2026-09-07T16:00:00.000Z' }),
+      call({ startedAt: '2026-09-08T16:00:00.000Z' }),
+      call({ startedAt: '2026-09-14T16:00:00.000Z' }),
+    ]).snapshot({ totals: new Map() });
+    expect(snap.graphs.week.buckets).toEqual(['2026-09-01', '2026-09-08', '2026-09-15', '2026-09-22']);
+    expect(snap.graphs.week.series[0].counts).toEqual([1, 2, 0, 0]);
+  });
+
+  it('draws the hundred busiest flows, one line each, and leaves the rest out — as Workiz does', () => {
     const calls: TrackedCall[] = [];
-    for (let f = 0; f < 9; f += 1) {
+    for (let f = 0; f < 103; f += 1) {
       for (let i = 0; i <= f; i += 1) {
         // 10:30 Eastern (14:30 UTC in September).
         calls.push(call({ flowId: `f${f}`, flowName: `Flow ${f}`, startedAt: '2026-09-02T14:30:00.000Z' }));
@@ -271,12 +288,13 @@ describe('Call Tracking — the graph', () => {
     }
     const snap = tally(calls).snapshot({ totals: new Map() });
     const hour = snap.graphs.hour;
-    expect(hour.series.map((s) => s.name)).toEqual([
-      'Flow 8', 'Flow 7', 'Flow 6', 'Flow 5', 'Flow 4', 'Flow 3', 'Flow 2', 'Other flows',
-    ]);
-    // Flows 0 and 1 — 1 + 2 calls — are the "Other" line, at 10 AM.
-    expect(hour.series[7].counts[10]).toBe(3);
-    expect(hour.series[0].counts[10]).toBe(9);
-    expect(snap.graphs.day.series[0].counts[1]).toBe(9);
+    expect(hour.series).toHaveLength(100);
+    // Busiest first; Flows 0–2, the three quietest, are not drawn, and no
+    // "Other flows" line sums them (Workiz's graph had 100 of 103 flows).
+    expect(hour.series[0].name).toBe('Flow 102');
+    expect(hour.series.at(-1)?.name).toBe('Flow 3');
+    expect(hour.series.map((s) => s.name)).not.toContain('Other flows');
+    expect(hour.series[0].counts[10]).toBe(103);
+    expect(snap.graphs.day.series[0].counts[1]).toBe(103);
   });
 });

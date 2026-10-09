@@ -3,8 +3,7 @@ import {
   accountDaysBetween,
   CALL_TRACKING_GRAPH_BY,
   CALL_TRACKING_GRAPH_SERIES,
-  CALL_TRACKING_OTHER_SERIES,
-  weekStartSunday,
+  callTrackingWeekStart,
   type CallTrackingCards,
   type CallTrackingGraph,
   type CallTrackingGraphBy,
@@ -301,11 +300,10 @@ export class CallTrackingTally {
     n.add(call);
 
     const local = this.clock.local(call.startedAt);
-    const week = weekStartSunday(local.day);
     const buckets: Record<CallTrackingGraphBy, string> = {
       hour: String(local.hour).padStart(2, '0'),
       day: local.day,
-      week: week < this.window.from ? this.window.from : week,
+      week: callTrackingWeekStart(local.day),
       month: local.month,
     };
     for (const step of CALL_TRACKING_GRAPH_BY) {
@@ -393,14 +391,9 @@ export class CallTrackingTally {
       }
       return out;
     };
+    // Workiz draws its hundred busiest flows and leaves the rest out.
     const top = flowsBusiest.slice(0, CALL_TRACKING_GRAPH_SERIES);
     const series = top.map((row) => ({ name: nameOf(row.key) || row.name, counts: counts(row.key) }));
-    const rest = flowsBusiest.slice(CALL_TRACKING_GRAPH_SERIES);
-    if (rest.length) {
-      const other = buckets.map(() => 0);
-      for (const row of rest) counts(row.key).forEach((n, i) => (other[i] += n));
-      series.push({ name: CALL_TRACKING_OTHER_SERIES, counts: other });
-    }
     return { graphBy: step, buckets, series };
   }
 }
@@ -415,10 +408,7 @@ export function bucketsOf(step: CallTrackingGraphBy, from: string, to: string): 
   const days = accountDaysBetween(from, to);
   if (step === 'day') return days;
   if (step === 'month') return [...new Set(days.map((d) => d.slice(0, 7)))];
-  return [...new Set(days.map((d) => {
-    const w = weekStartSunday(d);
-    return w < from ? from : w;
-  }))];
+  return [...new Set(days.map(callTrackingWeekStart))];
 }
 
 /** The seven cards, from the rows the way Workiz's page computes them. */

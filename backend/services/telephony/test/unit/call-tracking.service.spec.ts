@@ -141,8 +141,10 @@ describe('CallTrackingService', () => {
     await svc.report({ from: '2026-09-01', to: '2026-09-27', groupBy: 'numbers' }, { withRevenue: true, now: NOW });
 
     expect(repo.walk).toHaveBeenCalledTimes(1);
+    // v2: the graph's weeks of the month and its hundred lines (2026-10-09) —
+    // a v1 snapshot (Sunday weeks, "Other flows") must never be served.
     expect(redis.client.set).toHaveBeenCalledWith(
-      'calls:tracking:v1:2026-09-01:2026-09-27',
+      'calls:tracking:v2:2026-09-01:2026-09-27',
       expect.any(String),
       'EX',
       26 * 3600,
