@@ -107,7 +107,12 @@ const seen = (el: Element | null): boolean => {
 };
 const cardsUp = () => !!screen.queryByText("Scheduled jobs");
 const numbersShown = () =>
-  seen(screen.queryByText(/rules are on\./)) || seen(screen.queryByRole("tab", { name: /My automations/ }));
+  seen(screen.queryByRole("button", { name: /^All \d+$/ })) ||
+  seen(screen.queryByText("Automations triggered")) ||
+  seen(screen.queryByRole("tab", { name: "My Automations" }));
+/** A sentence is drawn in parts (its slots underlined): found by the whole text of its paragraph. */
+const sentenceShown = (pattern: RegExp) =>
+  !!screen.queryByText((_, el) => el?.tagName === "P" && pattern.test(el.textContent ?? ""));
 
 beforeEach(() => {
   perms.isLoading = false;
@@ -122,9 +127,9 @@ afterEach(() => {
 describe("AutomationsPage — no jumping", () => {
   it("draws the numbers, the tabs and the named sentences in one frame", async () => {
     const watch = watchFirstFrame(cardsUp, () => ({
-      sentence: !!screen.queryByText(/its job tag is SCHEDULED/),
-      summary: seen(screen.queryByText(/1 of 2 rules are on\./)),
-      tab: seen(screen.queryByRole("tab", { name: "My automations · 2" })),
+      sentence: sentenceShown(/its job tag is SCHEDULED/),
+      summary: seen(screen.queryByRole("button", { name: "Active 1" })),
+      tab: seen(screen.queryByRole("tab", { name: "My Automations" })),
       skeletons: skeletonCount(),
     }));
     const t0 = Date.now();

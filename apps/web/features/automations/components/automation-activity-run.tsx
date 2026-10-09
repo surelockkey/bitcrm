@@ -7,17 +7,22 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { OUTCOME_LABEL, actionOutcomeLabel, formatFiredAt, outcomeTone, runSummary } from "../lib";
 
+/**
+ * Workiz's status chips in their own colours (Tag-module): success #3acf7d,
+ * the warning orange #f7a336 and the danger red #f45e44, white words; what
+ * neither happened nor failed stays the outline chip.
+ */
 const TONE_CLASS: Record<string, string> = {
-  ok: "border-transparent bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200",
-  warn: "border-transparent bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200",
-  bad: "border-transparent bg-red-100 text-red-900 dark:bg-red-950 dark:text-red-200",
+  ok: "border-transparent bg-wz-tag-success text-white",
+  warn: "border-transparent bg-wz-toast-warning text-white",
+  bad: "border-transparent bg-wz-danger text-white",
   muted: "",
 };
 
-/** How the firing ended — the same badge in the rule's log and in the feed. */
+/** How the firing ended — the same chip in the rule's log and in the feed. */
 export function RunOutcomeBadge({ outcome }: { outcome: AutomationRunOutcome }) {
   return (
-    <Badge variant="outline" className={TONE_CLASS[outcomeTone(outcome)]}>
+    <Badge variant="outline" className={cn("shrink-0", TONE_CLASS[outcomeTone(outcome)])}>
       {OUTCOME_LABEL[outcome] ?? outcome}
     </Badge>
   );
@@ -137,13 +142,15 @@ export function RunEntity({ run }: { run: AutomationRun }) {
  * reason in full right below, so the line stops at the entity instead of
  * saying the same sentence twice.
  */
-export function RunLine({ run }: { run: AutomationRun }) {
-  return (
-    <p className="mt-0.5 text-xs text-muted-foreground">
+export function RunLine({ run, bare = false }: { run: AutomationRun; /** Inline, for a card's info row. */ bare?: boolean }) {
+  const content = (
+    <>
       <RunEntity run={run} />
       {run.actions?.length ? ` · ${runSummary(run)}` : null}
-    </p>
+    </>
   );
+  if (bare) return <span>{content}</span>;
+  return <p className="mt-0.5 text-[13px] leading-[19px] tracking-[0.4px] text-wz-outline-label">{content}</p>;
 }
 
 /** A body long enough that showing it whole would bury the rest of the row. */
@@ -156,11 +163,16 @@ function RunActionRow({ action }: { action: AutomationRunAction }) {
   const to = action.to ? recipientWord(action.to) : undefined;
 
   return (
-    <li className="rounded-md border bg-muted/30 p-2 text-xs">
+    // A message as Workiz previews one (pg_automations_wz_30_preview): the kind
+    // in the green TEMPLATE chip (12px/18px #3acf7d on #ebfaf2, 4px corners),
+    // who it went to beside it, the words under it 14px/22px #404040.
+    <li className="text-[13px] leading-[19px] tracking-[0.4px]">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <span>
-          <span className="font-medium">{actionLabel(action)}</span>
-          {to ? <span className="text-muted-foreground"> to {to}</span> : null}
+        <span className="flex flex-wrap items-center gap-2">
+          <span className="rounded-[4px] bg-[#ebfaf2] px-[5px] text-xs leading-[18px] text-wz-tag-success uppercase">
+            {actionLabel(action)}
+          </span>
+          {to ? <span className="text-wz-outline-label"> to {to}</span> : null}
         </span>
         <Badge variant="outline" className="shrink-0">
           {actionOutcomeLabel(action.outcome)}
@@ -174,7 +186,7 @@ function RunActionRow({ action }: { action: AutomationRunAction }) {
               wider than the dialog. */}
           <p
             className={cn(
-              "mt-1 whitespace-pre-wrap break-words text-muted-foreground",
+              "mt-2 whitespace-pre-wrap break-words text-sm leading-[22px] text-wz-strong",
               long && !open && "line-clamp-2",
             )}
           >
@@ -184,7 +196,7 @@ function RunActionRow({ action }: { action: AutomationRunAction }) {
             <button
               type="button"
               aria-expanded={open}
-              className="mt-1 text-wz-link hover:underline"
+              className="mt-1 cursor-pointer font-semibold text-wz-link hover:underline"
               onClick={() => setOpen((v) => !v)}
             >
               {open ? "Show less" : "Show the whole message"}
@@ -193,7 +205,7 @@ function RunActionRow({ action }: { action: AutomationRunAction }) {
         </>
       ) : null}
 
-      {action.error ? <p className="mt-1 break-words text-muted-foreground">{action.error}</p> : null}
+      {action.error ? <p className="mt-1 break-words text-wz-danger">{action.error}</p> : null}
 
       {action.conversationId ? (
         <p className="mt-1">
@@ -218,7 +230,7 @@ export function RunActions({ run }: { run: AutomationRun }) {
   if (!run.actions?.length) {
     const waiting = run.outcome === "scheduled" && run.dueAt;
     return (
-      <p className="mt-1 text-xs text-muted-foreground" data-testid="run-nothing">
+      <p className="text-sm leading-[22px] tracking-[0.4px] text-wz-outline" data-testid="run-nothing">
         {waiting ? `Held until ${formatFiredAt(run.dueAt as string)}` : "Nothing was sent"}
         {run.reason ? ` — ${run.reason}` : "."}
       </p>
@@ -226,12 +238,12 @@ export function RunActions({ run }: { run: AutomationRun }) {
   }
 
   return (
-    <ul className="mt-1.5 space-y-1.5" data-testid="run-actions">
+    <ul className="flex flex-col gap-4" data-testid="run-actions">
       {run.actions.map((action, i) => (
         <RunActionRow key={`${action.type}-${i}`} action={action} />
       ))}
       {/* A firing can both send and record why the rest of it did not. */}
-      {run.reason ? <li className="text-xs text-muted-foreground">{run.reason}</li> : null}
+      {run.reason ? <li className="text-[13px] leading-[19px] tracking-[0.4px] text-wz-outline">{run.reason}</li> : null}
     </ul>
   );
 }

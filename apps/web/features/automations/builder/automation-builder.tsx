@@ -1,23 +1,11 @@
 "use client";
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { ChevronLeft, History, Info, Loader2, MoreVertical, Pencil, X } from "lucide-react";
+import { ChevronLeft, History, Info, Pencil, Plus, X } from "lucide-react";
 import type { AutomationLabelMap, AutomationRule, AutomationSpec } from "@bitcrm/types";
-import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { WzButton } from "@/components/workiz/button";
+import { WzDotsMenu } from "@/components/workiz/dots-menu";
 import { cn } from "@/lib/utils";
 import { useCreateAutomation, useUpdateAutomation } from "../hooks";
 import { specSentence } from "../lib";
@@ -26,7 +14,7 @@ import { AutomationRunsDialog } from "../components/automation-runs-dialog";
 import { AutomationTestDialog } from "../components/automation-test-dialog";
 import { AddStepButton } from "./add-step-menu";
 import { DeliveryWindowControl, type DeliveryWindowValue } from "./delivery-window";
-import { AutomationNodeCard } from "./node-card";
+import { AutomationNodeCard, isBigLine, type StepPosition } from "./node-card";
 import { NodePanel } from "./node-panel";
 import { KIND_LABEL, nodeIssue } from "./node-summary";
 import { chainToSpec, isActionNode, newChainNode, nextNodeId, specToChain, type ChainNode } from "./types";
@@ -76,9 +64,14 @@ const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 
 /**
  * The rule builder (`docs/import/WORKIZ_AUTOMATION_BUILDER_UI.md`): the rule
- * as a chain of nodes with a "+" between them, and the settings of whichever
- * node is selected beside it. The owner asked for Zapier's chain and Workiz's
- * words, and for our own components under both.
+ * as a chain of steps with a "+" between them, drawn as Workiz draws its
+ * builder (pg_automations_wz_20_builder_blank / _31_edit — 2026-10-09 rule:
+ * the whole app looks like Workiz): the white Center modal with "‹ Back to
+ * automations", the slate canvas, the "Rule title" box, every step a line of
+ * the 32px sentence with its bullet on a dashed connector, the checks as
+ * "Only if …" lines, and the foot with "Automation will be sent" and the
+ * yellow Add / Update automation. The chosen step's settings open under its
+ * line, as a Workiz slot opens its menu under the word.
  *
  * It replaces the seven stacked sections of `automation-form-dialog`, and
  * saves through exactly what that saved through (`chainToSpec` → `toSpec`), so
@@ -190,65 +183,136 @@ export function AutomationBuilderDialog({
     else create.mutate({ ...body, enabled: false, category: draft?.category }, close);
   };
 
+  // Workiz's "Preview/edit message" opens the message; here the message is
+  // written in its send step's settings, so the button opens the first one.
+  const firstSend = nodes.find((n) => n.kind === "send");
+
+  /** Where a step sits, for its share of the dashed connector. */
+  const positionOf = (i: number): StepPosition =>
+    nodes.length === 1 ? "only" : i === 0 ? "first" : i === nodes.length - 1 ? "last" : "middle";
+
+  // The settings of the chosen step hang under its line, the way a Workiz slot
+  // opens its menu under the word; with no step chosen the region is still
+  // there — every line names it in `aria-controls` — and says what to do.
+  const panel = selected ? (
+    <aside
+      id={panelId}
+      aria-label="Step settings"
+      className="relative z-20 mt-3 mb-1 ml-[52px] max-w-[600px] rounded-[8px] bg-white p-4 text-left text-foreground shadow-[0_0_4px_rgba(59,75,82,0.05),0_8px_16px_rgba(59,75,82,0.15)]"
+    >
+      {/* Which step this is, and the way out of it. */}
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <p className="text-xs leading-4 font-semibold tracking-[0.4px] text-wz-outline-label uppercase">
+          Step {nodes.indexOf(selected) + 1} · {KIND_LABEL[selected.kind]}
+        </p>
+        <button
+          type="button"
+          aria-label="Close step settings"
+          onClick={() => setSelectedId(undefined)}
+          className="grid size-6 cursor-pointer place-items-center text-foreground outline-none focus-visible:ring-2 focus-visible:ring-wz-focus"
+        >
+          <X className="size-4" strokeWidth={1.75} />
+        </button>
+      </div>
+      <NodePanel
+        // Keyed by the step, so choosing another line builds the panel again
+        // rather than reusing this one: a panel that survives the switch keeps
+        // its own state, and the half-typed message of step 2 would appear
+        // under step 3 — and be saved onto it.
+        key={selected.id}
+        node={selected}
+        labels={named}
+        chain={nodes}
+        disabled={saving}
+        onChange={(next) => setNodes((current) => current.map((n) => (n.id === next.id ? next : n)))}
+      />
+    </aside>
+  ) : null;
+
+  /** Workiz's outline pill on the slate canvas ("Preview/edit message"): 40px, #dfe2e3 edge and words. */
+  const OUTLINE_ON_SLATE =
+    "inline-flex h-10 cursor-pointer items-center justify-center rounded-pill border border-border px-5 text-[13px] leading-[19px] font-semibold tracking-[0.2px] text-border outline-none hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-wz-focus";
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex h-[90vh] w-[92vw] max-w-[92vw] flex-col gap-0 overflow-hidden p-0 sm:max-w-[min(1200px,92vw)]">
-        <DialogHeader className="flex-row items-center gap-2 border-b p-3 pr-12">
-          <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
-            <ChevronLeft />
-            Back to automations
-          </Button>
+      <DialogContent
+        showCloseButton={false}
+        // Workiz's Center with the builder open (pg_automations_wz_20 / _31): the
+        // 1344px white modal, 90% of the window tall, 16px corners.
+        className="flex h-[90vh] w-[min(1344px,calc(100vw-32px))] max-w-none flex-col gap-0 overflow-hidden rounded-[16px] bg-white p-0 sm:max-w-none"
+      >
+        {/* The dialog's own name, for the accessibility tree: the visible title
+            is the rule's name, which is a field, not a heading. */}
+        <DialogTitle className="sr-only">{rule ? "Edit automation" : "Create automation"}</DialogTitle>
 
-          {/* Workiz puts the rule's name at the top with a pencil on it; the
-              pencil is the affordance, the field is the thing. */}
-          <div className="flex min-w-0 flex-1 items-center gap-1">
-            <Input
-              aria-label="Name"
-              value={name}
-              placeholder="Name this rule"
-              onChange={(e) => setName(e.target.value)}
-              className="h-8 max-w-xs border-transparent bg-transparent font-medium shadow-none hover:border-input focus-visible:border-input"
-            />
-            <Pencil className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-          </div>
+        {/* Workiz's way back to the list, 24px in from the corner — the one back
+            link this module keeps (an in-page state, not a page header). */}
+        <button
+          type="button"
+          onClick={() => onOpenChange(false)}
+          className="absolute top-6 left-6 flex cursor-pointer items-center gap-1 text-[13px] leading-[19px] font-semibold tracking-[0.2px] text-wz-link outline-none hover:underline focus-visible:ring-2 focus-visible:ring-wz-focus"
+        >
+          <ChevronLeft className="size-4" strokeWidth={1.75} aria-hidden="true" />
+          Back to automations
+        </button>
 
-          {/* The dialog's own name, for the accessibility tree: the visible
-              title is the rule's name, which is a field, not a heading. */}
-          <DialogTitle className="sr-only">{rule ? "Edit automation" : "Create automation"}</DialogTitle>
-
+        <div className="absolute top-[19px] right-[19px] flex items-center gap-2">
           {rule ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon-sm" aria-label="Rule actions">
-                  <MoreVertical />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-44">
-                <DropdownMenuItem onClick={() => setShowingRuns(true)}>
-                  <History />
-                  Firing log
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <WzDotsMenu
+              aria-label="Rule actions"
+              items={[
+                {
+                  key: "runs",
+                  label: "Firing log",
+                  icon: <History strokeWidth={1.5} />,
+                  onSelect: () => setShowingRuns(true),
+                },
+              ]}
+            />
           ) : null}
-        </DialogHeader>
+          <button
+            type="button"
+            aria-label="Close"
+            onClick={() => onOpenChange(false)}
+            className="grid size-6 cursor-pointer place-items-center text-foreground outline-none focus-visible:ring-2 focus-visible:ring-wz-focus"
+          >
+            <X className="size-[18px]" strokeWidth={1.5} />
+          </button>
+        </div>
 
-        <div className="grid min-h-0 flex-1 grid-cols-1 min-[1100px]:grid-cols-[minmax(0,1fr)_380px]">
-          {/* ------------------------------------------------------ the chain */}
-          <div className="min-h-0 overflow-y-auto p-4 sm:p-6">
-            <div className="mx-auto w-full max-w-md space-y-3">
-              <DialogDescription className="text-sm text-muted-foreground">{sentence}</DialogDescription>
+        {/* The slate canvas: #3b4b52, 16px corners, 72px under the modal's top,
+            16px from its other edges, 40px in. */}
+        <div className="mx-4 mt-[72px] mb-4 flex min-h-0 flex-1 flex-col rounded-[16px] bg-[#3b4b52] p-10">
+          <div className="-mr-4 min-h-0 flex-1 overflow-y-auto pr-4">
+            <div className="mx-auto w-full max-w-[926px] pt-[84px] pb-6">
+              {/* AutomationNameInput: 926×50, 1px #768287, 8px corners, the
+                  words 16px/24px white 12px 16px in, a blue pencil; #6aa8ee focused. */}
+              <div className="flex h-[50px] items-center rounded-[8px] border border-wz-outline-label focus-within:border-wz-link">
+                <input
+                  aria-label="Name"
+                  value={name}
+                  placeholder="Rule title"
+                  onChange={(e) => setName(e.target.value)}
+                  className="h-12 min-w-0 flex-1 bg-transparent px-4 py-3 text-base leading-6 tracking-[0.4px] text-white outline-none placeholder:text-white"
+                />
+                <Pencil className="mr-4 size-[18px] shrink-0 text-wz-link" strokeWidth={1.5} aria-hidden="true" />
+              </div>
+
+              {/* Ours: the rule as one sentence, the same one its card shows. */}
+              <DialogDescription className="mt-3 text-sm leading-[22px] tracking-[0.4px] text-wz-outline">
+                {sentence}
+              </DialogDescription>
 
               {rule && rule.runnable === false ? (
-                <p className="flex items-start gap-1.5 rounded-lg border border-dashed p-2 text-xs text-muted-foreground">
-                  <Info className="mt-px size-3.5 shrink-0" />
+                <p className="mt-3 flex items-start gap-1.5 text-[13px] leading-[19px] tracking-[0.4px] text-[#f5ba45]">
+                  <Info className="mt-0.5 size-3.5 shrink-0" />
                   {rule.notRunnableReason ?? "This rule has nothing the engine can run."}
                 </p>
               ) : null}
 
-              <ol className="flex flex-col" ref={chainRef}>
+              <ol className="mt-[42px] flex flex-col" ref={chainRef}>
                 {nodes.map((node, i) => (
-                  <li key={node.id}>
+                  <li key={node.id} className="relative">
                     <AutomationNodeCard
                       node={node}
                       index={i + 1}
@@ -257,103 +321,77 @@ export function AutomationBuilderDialog({
                       selected={node.id === selectedId}
                       panelId={panelId}
                       disabled={saving}
+                      position={positionOf(i)}
                       onSelect={() => setSelectedId(node.id)}
                       onDuplicate={() => duplicate(node.id)}
                       onDelete={() => remove(node.id)}
-                    />
-                    <div className="flex flex-col items-center gap-1 py-1">
-                      <span className="h-3 w-px bg-border" aria-hidden="true" />
+                    >
+                      {node.id === selectedId ? panel : null}
+                    </AutomationNodeCard>
+                    {i === nodes.length - 1 ? null : (
+                      // On the dashed line, halfway down the gap to the next line.
                       <AddStepButton
-                        label={
-                          i === nodes.length - 1
-                            ? "Add a step at the end"
-                            : `Add a step after step ${i + 1}, ${KIND_LABEL[node.kind]}`
-                        }
+                        label={`Add a step after step ${i + 1}, ${KIND_LABEL[node.kind]}`}
                         hasWait={hasWait}
                         disabled={saving}
                         onAdd={(kind) => insertAt(i + 1, kind)}
+                        className={cn(
+                          "absolute -left-[8.5px] z-10",
+                          isBigLine(node) ? "bottom-[15px]" : "bottom-0.5",
+                        )}
                       />
-                      {i === nodes.length - 1 ? null : <span className="h-3 w-px bg-border" aria-hidden="true" />}
-                    </div>
+                    )}
                   </li>
                 ))}
               </ol>
+
+              <AddStepButton
+                variant="end"
+                label="Add a step at the end"
+                hasWait={hasWait}
+                disabled={saving}
+                onAdd={(kind) => insertAt(nodes.length, kind)}
+                className="ml-[25px] w-fit"
+              />
+
+              {selected ? null : (
+                <aside id={panelId} aria-label="Step settings" className="sr-only">
+                  Pick a step to set it up, or add one with the + between them.
+                </aside>
+              )}
             </div>
           </div>
 
-          {/* ------------------------------------------------- the node panel */}
-          <aside
-            id={panelId}
-            aria-label="Step settings"
-            className={cn(
-              "min-h-0 overflow-y-auto border-border bg-background p-4",
-              // Under ~1100px the chain keeps the whole width and the settings
-              // come up from the bottom, as a sheet over it.
-              "max-[1099px]:fixed max-[1099px]:inset-x-0 max-[1099px]:bottom-0 max-[1099px]:z-20 max-[1099px]:max-h-[60vh] max-[1099px]:rounded-t-xl max-[1099px]:border-t max-[1099px]:shadow-lg",
-              "min-[1100px]:static min-[1100px]:border-l",
-              selected ? null : "max-[1099px]:hidden",
-            )}
-          >
-            {selected ? (
-              <>
-                {/* Which step this is, and the way out of it — below 1100px
-                    the panel is a sheet over the chain, and a sheet with no
-                    way back is a trap. */}
-                <div className="mb-3 flex items-center justify-between gap-2">
-                  <p className="text-xs text-muted-foreground">
-                    Step {nodes.indexOf(selected) + 1} · {KIND_LABEL[selected.kind]}
-                  </p>
-                  <Button
-                    variant="ghost"
-                    size="icon-xs"
-                    aria-label="Close step settings"
-                    onClick={() => setSelectedId(undefined)}
-                  >
-                    <X />
-                  </Button>
-                </div>
-                <NodePanel
-                  // Keyed by the step, so choosing another card builds the
-                  // panel again rather than reusing this one: a panel that
-                  // survives the switch keeps its own state, and the half-typed
-                  // message of step 2 would appear under step 3 — and be saved
-                  // onto it.
-                  key={selected.id}
-                  node={selected}
-                  labels={named}
-                  chain={nodes}
-                  disabled={saving}
-                  onChange={(next) =>
-                    setNodes((current) => current.map((n) => (n.id === next.id ? next : n)))
-                  }
-                />
-              </>
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                Pick a step to set it up, or add one with the + between them.
-              </p>
-            )}
-          </aside>
-        </div>
+          {/* The canvas foot: the delivery window left, the buttons right. */}
+          <div className="flex flex-wrap items-end justify-between gap-4 pt-4">
+            <DeliveryWindowControl value={delivery} disabled={saving} onChange={setDelivery} />
 
-        {/* ----------------------------------------------------------- footer */}
-        <div className="flex flex-wrap items-center justify-between gap-2 border-t p-3">
-          <DeliveryWindowControl value={delivery} disabled={saving} onChange={setDelivery} />
-
-          <div className="flex items-center gap-2">
-            {problem ? (
-              <span className="max-w-xs text-right text-xs text-muted-foreground">{problem}</span>
-            ) : null}
-            {/* A dry run needs a saved rule to run — offer it once there is one. */}
-            {rule ? (
-              <Button variant="outline" aria-label="Test against a job" onClick={() => setTesting(true)}>
-                Test
-              </Button>
-            ) : null}
-            <Button variant="brand" onClick={submit} disabled={!!problem || saving}>
-              {saving ? <Loader2 className="size-4 animate-spin" /> : null}
-              {rule ? "Save" : "Create automation"}
-            </Button>
+            <div className="flex flex-wrap items-center justify-end gap-4">
+              {problem ? (
+                <span className="max-w-xs text-right text-xs leading-4 tracking-[0.4px] text-wz-outline">{problem}</span>
+              ) : null}
+              {firstSend ? (
+                <button type="button" className={cn(OUTLINE_ON_SLATE, "w-[220px]")} onClick={() => setSelectedId(firstSend.id)}>
+                  Preview/edit message
+                </button>
+              ) : null}
+              {/* A dry run needs a saved rule to run — offered once there is one. */}
+              {rule ? (
+                <button type="button" aria-label="Test against a job" className={OUTLINE_ON_SLATE} onClick={() => setTesting(true)}>
+                  Test
+                </button>
+              ) : null}
+              <WzButton
+                size="big"
+                className="w-[220px]"
+                onClick={submit}
+                disabled={!!problem}
+                loading={saving}
+                icon={rule ? undefined : <Plus className="size-6" strokeWidth={1.5} />}
+              >
+                {rule ? "Update automation" : "Add automation"}
+              </WzButton>
+            </div>
           </div>
         </div>
 

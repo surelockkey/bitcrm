@@ -2,10 +2,9 @@
 
 import { useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { History, Loader2 } from "lucide-react";
 import { AUTOMATION_RUN_OUTCOMES, type AutomationRule, type AutomationRun } from "@bitcrm/types";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { ListPagination } from "@/components/ui/list-pagination";
 import {
   Select,
   SelectContent,
@@ -14,16 +13,28 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { WzButton } from "@/components/workiz/button";
 import { getApiErrorMessage } from "@/lib/api/errors";
+import { pagedSource } from "@/lib/paging/paged-source";
+import { usePageSize } from "@/lib/paging/use-page-size";
+import { usePager } from "@/lib/paging/use-pager";
 import { settled, usePageReady } from "@/lib/use-page-ready";
 import { cn } from "@/lib/utils";
 import { useAutomations, useAutomationsAccess, useAutomationRunsFeed, useAutomationRunsFeedCount } from "../hooks";
 import { OUTCOME_LABEL, formatFiredAt } from "../lib";
 import { RunActions, RunLine, RunOutcomeBadge } from "./automation-activity-run";
-import { ListPagination } from "@/components/ui/list-pagination";
-import { pagedSource } from "@/lib/paging/paged-source";
-import { usePageSize } from "@/lib/paging/use-page-size";
-import { usePager } from "@/lib/paging/use-pager";
+import {
+  CENTER_CARD_SHADOW,
+  CenterCardBar,
+  CenterEmptyState,
+  CenterFact,
+  CenterFacts,
+  CenterFrame,
+  CenterSideTitle,
+  CenterStat,
+  CenterTabs,
+} from "./automation-center";
+import { EmptyAutomationsArt, NoResultsArt } from "./automation-center-art";
 
 const ALL = "all";
 const PAGE = 50;
@@ -55,6 +66,7 @@ const shortId = (id: string) => (id.length > 10 ? id.slice(0, 8) : id);
  * for the last 30 days, newest first: our answer to the "AUTOMATED
  * NOTIFICATION" label in the Workiz Message Center, with structured
  * outcomes, the message as it went out, and filters by rule, outcome and date.
+ * Drawn in the Automation Center's frame as its third tab (pg_automations).
  */
 export function AutomationActivityPage() {
   const params = useSearchParams();
@@ -151,110 +163,123 @@ export function AutomationActivityPage() {
   if (!loadingAccess && !canView) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
-        <h2 className="text-lg font-medium">No access</h2>
+        <h2 className="text-lg font-semibold">No access</h2>
         <p className="text-sm text-muted-foreground">You don&apos;t have permission to view automations.</p>
       </div>
     );
   }
 
+  const side = (
+    <div>
+      <CenterSideTitle>Activity</CenterSideTitle>
+      <p className="mt-4 text-[13px] leading-[19px] tracking-[0.4px] text-wz-outline-label">
+        Every firing of every rule, newest first. The log is kept for 30 days.
+      </p>
+      {count.data ? (
+        <CenterStat label={narrowed ? "Firings found" : "Firings, 30 days"} value={count.data.total} />
+      ) : null}
+    </div>
+  );
+
+  const actions = (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2.5">
+      <Select value={ruleId} onValueChange={setRuleId}>
+        <SelectTrigger className="h-10 w-[376px]" aria-label="Rule">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={ALL}>All rules</SelectItem>
+          {ruleOptions.map(([id, name]) => (
+            <SelectItem key={id} value={id}>
+              {name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <Select value={outcome} onValueChange={setOutcome}>
+        <SelectTrigger className="h-10 w-[200px]" aria-label="Outcome">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={ALL}>Any outcome</SelectItem>
+          {/* `dry_run` is a test run, and a test run is never logged — an
+              option for it could only ever come back empty. */}
+          {AUTOMATION_RUN_OUTCOMES.filter((value) => value !== "dry_run").map((value) => (
+            <SelectItem key={value} value={value}>
+              {OUTCOME_LABEL[value]}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <Select value={sinceKey} onValueChange={setSinceKey}>
+        <SelectTrigger className="h-10 w-[200px]" aria-label="Date">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {SINCE_OPTIONS.map(({ value, label }) => (
+            <SelectItem key={value} value={value}>
+              {label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      {narrowed ? (
+        <button
+          type="button"
+          onClick={clearFilters}
+          className="cursor-pointer text-[13px] leading-[19px] font-semibold tracking-[0.4px] text-wz-link outline-none hover:underline focus-visible:ring-2 focus-visible:ring-wz-focus"
+        >
+          Clear filters
+        </button>
+      ) : null}
+    </div>
+  );
+
   return (
-    <div className="flex flex-1 flex-col gap-4 p-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-lg font-semibold tracking-tight">Activity</h1>
-          <p className="text-sm text-muted-foreground">
-            Every firing of every rule, newest first. The log is kept for 30 days.
-          </p>
-        </div>
-      </div>
-
-      <div className={cn("flex flex-wrap items-center gap-2", !pageShown && "invisible")}>
-        <Select value={ruleId} onValueChange={setRuleId}>
-          <SelectTrigger className="h-9 w-64" aria-label="Rule">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={ALL}>All rules</SelectItem>
-            {ruleOptions.map(([id, name]) => (
-              <SelectItem key={id} value={id}>
-                {name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select value={outcome} onValueChange={setOutcome}>
-          <SelectTrigger className="h-9 w-44" aria-label="Outcome">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={ALL}>Any outcome</SelectItem>
-            {/* `dry_run` is a test run, and a test run is never logged — an
-                option for it could only ever come back empty. */}
-            {AUTOMATION_RUN_OUTCOMES.filter((value) => value !== "dry_run").map((value) => (
-              <SelectItem key={value} value={value}>
-                {OUTCOME_LABEL[value]}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select value={sinceKey} onValueChange={setSinceKey}>
-          <SelectTrigger className="h-9 w-48" aria-label="Date">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {SINCE_OPTIONS.map(({ value, label }) => (
-              <SelectItem key={value} value={value}>
-                {label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        {narrowed ? (
-          <Button variant="link" size="sm" className="h-auto p-0" onClick={clearFilters}>
-            Clear filters
-          </Button>
-        ) : null}
-      </div>
-
+    // The Automation Center's frame, on its third tab. Workiz keeps no log of
+    // its own (what its automations sent shows in the Message Center under an
+    // AUTOMATED NOTIFICATION label); this page is ours, drawn the Center's way.
+    <CenterFrame waiting={!pageShown} side={side} tabs={<CenterTabs active="activity" />} actions={actions}>
       {/* The feed is held back until the permission is known, so waiting on
           it must read as the wait it is and not as an empty workspace. */}
       {!feedShown ? (
-        <div className="space-y-2">
-          <Skeleton className="h-20 w-full" />
-          <Skeleton className="h-20 w-full" />
-          <Skeleton className="h-20 w-full" />
+        <div className="flex flex-col gap-6" aria-busy="true" aria-label="Loading the activity">
+          {[0, 1, 2].map((i) => (
+            <Skeleton key={i} className="h-[159px] w-full rounded-[16px]" />
+          ))}
         </div>
       ) : feed.isError ? (
         // A request that failed is not a workspace whose rules never fired.
-        <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed py-14 text-center">
-          <p className="text-sm font-medium">The activity could not be loaded</p>
-          <p className="text-sm text-muted-foreground">{getApiErrorMessage(feed.error)}</p>
-          <Button variant="outline" size="sm" className="mt-2" onClick={() => feed.refetch()}>
-            Try again
-          </Button>
-        </div>
+        <CenterEmptyState
+          art={<NoResultsArt />}
+          title="The activity could not be loaded"
+          action={
+            <WzButton size="regular" variant="secondary" onClick={() => feed.refetch()}>
+              Try again
+            </WzButton>
+          }
+        >
+          {getApiErrorMessage(feed.error)}
+        </CenterEmptyState>
       ) : runs.length === 0 ? (
-        <EmptyFeed
-          narrowed={narrowed}
-          feed={feed}
-          onMore={() => void pager.next()}
-          onClear={clearFilters}
-        />
+        <EmptyFeed narrowed={narrowed} feed={feed} onMore={() => void pager.next()} onClear={clearFilters} />
       ) : (
         <>
-          <ul className="space-y-2" data-testid="automation-activity">
+          <ul className="flex flex-col gap-6 pt-1" data-testid="automation-activity">
             {runs.map((run) => (
               <ActivityRow key={run.id} run={run} name={byId.get(run.ruleId)?.name} namesKnown={namesKnown} />
             ))}
           </ul>
-          <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} />
+          <div className="mt-6">
+            <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} />
+          </div>
         </>
       )}
-    </div>
+    </CenterFrame>
   );
 }
 
-/** Nothing to show — and which kind of nothing it is. */
+/** Nothing to show — and which kind of nothing it is, in the Center's empty state. */
 function EmptyFeed({
   narrowed,
   feed,
@@ -272,49 +297,47 @@ function EmptyFeed({
   // not "nothing happened". Offer to read on instead of claiming an answer.
   if (feed.hasNextPage) {
     return (
-      <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed py-14 text-center">
-        <p className="text-sm font-medium">Nothing yet in the stretch read so far</p>
-        <p className="text-sm text-muted-foreground">
-          The log is read newest-first, a stretch at a time. Keep looking to read further back.
-        </p>
-        <Button
-          variant="outline"
-          size="sm"
-          className="mt-2"
-          disabled={feed.isFetchingNextPage}
-          onClick={onMore}
-        >
-          {feed.isFetchingNextPage ? <Loader2 className="size-4 animate-spin" /> : "Keep looking"}
-        </Button>
-      </div>
+      <CenterEmptyState
+        art={<NoResultsArt />}
+        title="Nothing yet in the stretch read so far"
+        action={
+          <WzButton size="regular" variant="secondary" loading={feed.isFetchingNextPage} onClick={onMore}>
+            Keep looking
+          </WzButton>
+        }
+      >
+        The log is read newest-first, a stretch at a time. Keep looking to read further back.
+      </CenterEmptyState>
     );
   }
 
   if (narrowed) {
     return (
-      <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed py-14 text-center">
-        <p className="text-sm font-medium">No firing matches these filters</p>
-        <Button variant="outline" size="sm" onClick={onClear}>
-          Clear filters
-        </Button>
-      </div>
+      <CenterEmptyState
+        art={<NoResultsArt />}
+        title="No firing matches these filters"
+        action={
+          <WzButton size="regular" variant="secondary" onClick={onClear}>
+            Clear filters
+          </WzButton>
+        }
+      />
     );
   }
 
   return (
-    <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed py-14 text-center">
-      <History className="size-6 text-muted-foreground" />
-      <p className="text-sm font-medium">No automation has fired yet</p>
-      <p className="max-w-md text-sm text-muted-foreground">
-        A rule appears here the moment its trigger happens. This feed is written as firings are
-        logged — a single rule&apos;s own log, from its card on the Automations page, reaches
-        further back.
-      </p>
-    </div>
+    <CenterEmptyState art={<EmptyAutomationsArt />} title="No automation has fired yet">
+      A rule appears here the moment its trigger happens. This feed is written as firings are logged — a single
+      rule&apos;s own log, from its card on the Automations page, reaches further back.
+    </CenterEmptyState>
   );
 }
 
-/** One firing: when, which rule, which entity, what happened, what was sent. */
+/**
+ * One firing, drawn as the Center draws a rule (`ruleCard`): the rule's name
+ * with how the firing ended at the right, the green bar, what it sent, and the
+ * info row — when it fired and what it was about.
+ */
 function ActivityRow({
   run,
   name,
@@ -326,33 +349,39 @@ function ActivityRow({
   namesKnown: boolean;
 }) {
   return (
-    <li className="rounded-lg border p-3 text-sm" data-testid={`activity-${run.id}`}>
-      <div className="flex flex-wrap items-center justify-between gap-2">
+    <li
+      className={cn("flex flex-col rounded-[16px] bg-white px-6 pt-6 pb-5", CENTER_CARD_SHADOW)}
+      data-testid={`activity-${run.id}`}
+    >
+      <div className="flex w-full items-center justify-between gap-4">
         {name ? (
-          <span className="font-medium">{name}</span>
+          <h4 className="min-w-0 truncate text-sm leading-[22px] font-semibold tracking-[0.4px] text-foreground">{name}</h4>
         ) : namesKnown ? (
           // The rule is gone; the firing is not. Say so rather than showing a
           // blank name or an id nobody can look up.
-          <span className="flex items-center gap-2">
-            <span className="font-medium text-muted-foreground italic">
-              A rule that has since been deleted
-            </span>
-            <Badge variant="outline" className="text-muted-foreground">
+          <h4 className="flex min-w-0 items-center gap-2 text-sm leading-[22px] font-semibold tracking-[0.4px] text-wz-outline-label">
+            <span className="truncate italic">A rule that has since been deleted</span>
+            <Badge variant="outline" className="text-wz-outline-label">
               {shortId(run.ruleId)}
             </Badge>
-          </span>
+          </h4>
         ) : (
-          <span className="font-medium text-muted-foreground">Rule {shortId(run.ruleId)}</span>
+          <h4 className="min-w-0 truncate text-sm leading-[22px] font-semibold tracking-[0.4px] text-wz-outline-label">
+            Rule {shortId(run.ruleId)}
+          </h4>
         )}
-        <span className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground tabular-nums">
-            {formatFiredAt(run.firedAt)}
-          </span>
-          <RunOutcomeBadge outcome={run.outcome} />
-        </span>
+        <RunOutcomeBadge outcome={run.outcome} />
       </div>
-      <RunLine run={run} />
-      <RunActions run={run} />
+      <CenterCardBar />
+      <div className="mb-3">
+        <RunActions run={run} />
+      </div>
+      <CenterFacts>
+        <CenterFact first>Fired on {formatFiredAt(run.firedAt)}</CenterFact>
+        <CenterFact>
+          <RunLine run={run} bare />
+        </CenterFact>
+      </CenterFacts>
     </li>
   );
 }

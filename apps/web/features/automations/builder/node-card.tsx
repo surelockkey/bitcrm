@@ -1,60 +1,99 @@
 "use client";
 
-import {
-  Clock,
-  Copy,
-  Filter,
-  MessageSquare,
-  MoreVertical,
-  Repeat,
-  Tag,
-  ToggleRight,
-  Trash2,
-  TriangleAlert,
-  Webhook,
-  Zap,
-} from "lucide-react";
+import type { ReactNode } from "react";
+import { Copy, Repeat, Trash2, TriangleAlert } from "lucide-react";
 import type { AutomationLabelMap } from "@bitcrm/types";
-import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { WzDotsMenu, type WzDotsMenuItem } from "@/components/workiz/dots-menu";
 import { cn } from "@/lib/utils";
+import { conditionLineParts, sentenceParts } from "../sentence-slots";
+import { SentenceParts } from "../components/automation-sentence";
 import { nodeSummary } from "./node-panel";
 import { KIND_LABEL, nodeIssue } from "./node-summary";
-import type { ChainNode, ChainNodeKind } from "./types";
+import type { ChainNode } from "./types";
+
+/** Where a step sits in the chain — what its share of the dashed connector looks like. */
+export type StepPosition = "only" | "first" | "middle" | "last";
 
 /**
- * The tile beside each card (spec §3). Our own colours, and ours are one
- * accent plus greys (`globals.css`) — no Workiz yellow, no Zapier orange, and
- * no five hues invented for five kinds. So the icon tells the kinds apart and
- * the tint only marks what a reader is actually scanning for: what starts the
- * rule, what it checks, what it does, and where it pauses.
+ * A step "says" a line of the rule in one of Workiz's two sizes
+ * (pg_automations_wz_31_edit): the trigger and what the rule does are the big
+ * sentence — 32px/48px, a 28px bullet, 48px between lines; a check ("Only
+ * if …") and our wait are the small line under it — 16px/30px white, a 10px
+ * white dot, 22px between lines.
  */
-const KIND_STYLE: Record<ChainNodeKind, { Icon: typeof Zap; tile: string }> = {
-  trigger: { Icon: Zap, tile: "bg-brand/10 text-brand" },
-  condition: { Icon: Filter, tile: "bg-secondary text-secondary-foreground" },
-  send: { Icon: MessageSquare, tile: "bg-accent text-wz-link" },
-  add_tag: { Icon: Tag, tile: "bg-accent text-wz-link" },
-  change_sub_status: { Icon: ToggleRight, tile: "bg-accent text-wz-link" },
-  webhook: { Icon: Webhook, tile: "bg-accent text-wz-link" },
-  wait: { Icon: Clock, tile: "bg-muted text-muted-foreground" },
-};
+export const isBigLine = (node: ChainNode) => node.kind !== "condition" && node.kind !== "wait";
 
-const CIRCLED = ["①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧", "⑨", "⑩"];
+/** The bullet's centre, down from the top of its line: half of 48px, or half of 30px. */
+const centreOf = (node: ChainNode) => (isBigLine(node) ? 24 : 15);
 
-/** Workiz numbers its steps; past ten the digit is plainer than a glyph nobody has. */
-const step = (index: number): string => CIRCLED[index - 1] ?? `${index}.`;
+/** Workiz's `ruleBullet`: a 28px #566d76 tile, 8px corners, with a 14px ring in it. */
+function Bullet({ state }: { state: "open" | "done" | "start" | "empty" }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={cn(
+        "mt-2.5 flex size-7 shrink-0 items-center justify-center rounded-[8px]",
+        state === "open" ? "bg-wz-tag-success" : "bg-wz-slate",
+      )}
+    >
+      <span
+        className={cn(
+          "size-3.5 rounded-full border-2",
+          state === "open" && "border-white bg-white",
+          state === "done" && "border-wz-tag-success bg-wz-tag-success",
+          state === "start" && "border-wz-tag-success",
+          state === "empty" && "border-wz-outline",
+        )}
+      />
+    </span>
+  );
+}
 
 /**
- * One step of the chain (spec §3): the tile, the number and kind, the Workiz
- * sentence, and whatever is wrong with it. The whole card is one control that
- * opens the step's settings — a card that could only be reached by clicking a
- * word inside it would leave the chain unusable from a keyboard — with the `⋮`
- * sitting above it as the one other thing a card can do.
+ * The dashed connector (Workiz's `sentenceSection` link): one #9ea6aa dashed
+ * line down the left from the first bullet to the last, a stub into every
+ * bullet ending in a 5×6 arrowhead, the corners at either end rounded 4px.
+ */
+function Connector({ position, centre }: { position: StepPosition; centre: number }) {
+  if (position === "only") return null;
+  return (
+    <>
+      <span
+        aria-hidden="true"
+        className={cn(
+          "absolute left-0 w-[19px] border-l border-dashed border-wz-outline",
+          position === "first" && "bottom-0 rounded-tl-[4px] border-t",
+          position === "middle" && "inset-y-0",
+          position === "last" && "top-0 rounded-bl-[4px] border-b",
+        )}
+        style={
+          position === "first"
+            ? { top: centre }
+            : position === "last"
+              ? { height: centre + 1 }
+              : undefined
+        }
+      />
+      {position === "middle" ? (
+        <span aria-hidden="true" className="absolute left-0 w-[19px] border-t border-dashed border-wz-outline" style={{ top: centre }} />
+      ) : null}
+      {/* The arrowhead at the stub's end, pointing into the bullet. */}
+      <span
+        aria-hidden="true"
+        className="absolute left-[15px] size-0 border-y-[3px] border-l-[5px] border-y-transparent border-l-wz-outline"
+        style={{ top: centre - 3 }}
+      />
+    </>
+  );
+}
+
+/**
+ * One step of the chain, drawn as a line of Workiz's builder: the bullet, the
+ * sentence (its picked parts white and underlined, the glue #9ea6aa), and our
+ * ••• at the right where Workiz keeps its trash can. The sentence is the
+ * step's own control — it opens the step's settings under the line, the way a
+ * Workiz slot opens its menu under the word — and `children` is where those
+ * settings go. A step that cannot be saved yet says why under its line.
  */
 export function AutomationNodeCard({
   node,
@@ -64,9 +103,11 @@ export function AutomationNodeCard({
   selected,
   panelId,
   disabled,
+  position,
   onSelect,
   onDuplicate,
   onDelete,
+  children,
 }: {
   node: ChainNode;
   /** 1-based, as the reader counts them. */
@@ -74,111 +115,100 @@ export function AutomationNodeCard({
   chain: ChainNode[];
   labels: AutomationLabelMap;
   selected: boolean;
-  /** The settings panel this card opens — the same region for every card. */
+  /** The settings region this line opens — the same id whichever line is open. */
   panelId: string;
   disabled?: boolean;
+  position: StepPosition;
   onSelect: () => void;
   onDuplicate: () => void;
   onDelete: () => void;
+  children?: ReactNode;
 }) {
-  const { Icon, tile } = KIND_STYLE[node.kind];
   const summary = nodeSummary(node, labels);
   const issue = nodeIssue(node, chain);
   const kind = KIND_LABEL[node.kind];
   const unfinished = issue?.level === "blocks";
+  const big = isBigLine(node);
+
+  const items: WzDotsMenuItem[] =
+    node.kind === "trigger"
+      ? // A rule is its trigger: there is no rule without one and no second
+        // one to duplicate it into — the only thing to offer is another one.
+        [{ key: "replace", label: "Replace", icon: <Repeat strokeWidth={1.5} />, onSelect }]
+      : [
+          ...(node.kind === "wait"
+            ? []
+            : [{ key: "duplicate", label: "Duplicate", icon: <Copy strokeWidth={1.5} />, onSelect: onDuplicate }]),
+          { key: "delete", label: "Delete", icon: <Trash2 strokeWidth={1.5} />, onSelect: onDelete, destructive: true },
+        ];
 
   return (
     <div
       data-testid={`chain-node-${node.id}`}
       data-selected={selected || undefined}
-      className={cn(
-        "relative flex items-start gap-3 rounded-xl border bg-background p-3 text-left transition-colors",
-        "has-[:focus-visible]:border-ring has-[:focus-visible]:ring-3 has-[:focus-visible]:ring-ring/50",
-        selected ? "border-brand ring-1 ring-brand/40" : "hover:bg-muted/40",
-        // The reason `Save` is grey, on the card that can answer it (§3).
-        unfinished ? "border-dashed border-amber-500/70" : null,
-      )}
+      className={cn("relative pl-[23px]", big ? "pb-12" : "pb-[22px]")}
     >
-      <span className={cn("flex size-8 shrink-0 items-center justify-center rounded-lg", tile)} aria-hidden="true">
-        <Icon className="size-4" />
-      </span>
-
-      <div className="min-w-0 flex-1">
-        <p className="text-xs text-muted-foreground">
-          <span aria-hidden="true">{step(index)} </span>
-          {kind}
-        </p>
-        {/* The card's own control. `after:absolute inset-0` makes the whole
-            card its hit area without nesting a button inside a button. */}
-        <button
-          type="button"
-          // How the chain finds this card again after the list has changed
-          // under it — see the focus handling in `automation-builder`.
-          data-step-card={node.id}
-          aria-label={`Step ${index}, ${kind}: ${summary}`}
-          aria-expanded={selected}
-          aria-controls={panelId}
-          onClick={onSelect}
-          className="text-left text-sm font-medium outline-none after:absolute after:inset-0 after:rounded-xl"
-        >
-          {summary}
-        </button>
-        {node.kind === "condition" ? (
-          // Conditions are checked before anything is sent, wherever the card
-          // was dropped in the chain (§1). Said plainly, or the order of the
-          // cards is read as the order of events.
-          <p className="mt-0.5 text-xs text-muted-foreground">checked before anything is sent</p>
-        ) : null}
-        {issue ? (
-          <p
+      <Connector position={position} centre={centreOf(node)} />
+      <div className="flex items-start gap-6">
+        {big ? (
+          <Bullet state={selected ? "open" : unfinished ? (node.kind === "trigger" ? "start" : "empty") : "done"} />
+        ) : (
+          <span aria-hidden="true" className="flex w-7 shrink-0 justify-center pt-[10px]">
+            <span className="size-2.5 rounded-full bg-white" />
+          </span>
+        )}
+        <div className="min-w-0 flex-1">
+          <button
+            type="button"
+            // How the chain finds this line again after the list has changed
+            // under it — see the focus handling in `automation-builder`.
+            data-step-card={node.id}
+            aria-label={`Step ${index}, ${kind}: ${summary}`}
+            aria-expanded={selected}
+            aria-controls={panelId}
+            onClick={onSelect}
             className={cn(
-              "mt-1 flex items-start gap-1.5 text-xs",
-              issue.level === "blocks" ? "text-destructive" : "text-amber-600 dark:text-amber-500",
+              "group/line cursor-pointer text-left outline-none focus-visible:ring-2 focus-visible:ring-wz-focus",
+              "[&:hover_[data-sentence-slot]]:text-[#a6e9c4]",
+              selected && "[&_[data-sentence-slot]]:text-[#a6e9c4]",
+              big
+                ? "text-[32px] leading-[48px] tracking-[0.2px] text-wz-outline"
+                : "text-base leading-[30px] tracking-[0.4px] text-white",
             )}
           >
-            <TriangleAlert className="mt-px size-3.5 shrink-0" />
-            {issue.text}
-          </p>
-        ) : null}
-      </div>
-
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            disabled={disabled}
-            aria-label={`Actions for step ${index}`}
-            className="relative z-10"
-          >
-            <MoreVertical />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-44">
-          {node.kind === "trigger" ? (
-            // A rule is its trigger: there is no rule without one and no
-            // second one to duplicate it into. So the only thing to offer is
-            // choosing a different one, which is what the panel is for.
-            <DropdownMenuItem onClick={onSelect}>
-              <Repeat />
-              Replace
-            </DropdownMenuItem>
-          ) : (
-            <>
-              {node.kind === "wait" ? null : (
-                <DropdownMenuItem onClick={onDuplicate}>
-                  <Copy />
-                  Duplicate
-                </DropdownMenuItem>
+            {node.kind === "condition" ? (
+              <SentenceParts parts={conditionLineParts(summary)} tone="condition" />
+            ) : (
+              <SentenceParts parts={sentenceParts(summary)} tone={big ? "builder" : "condition"} />
+            )}
+          </button>
+          {node.kind === "condition" ? (
+            // Conditions are checked before anything is sent, wherever the line
+            // was dropped in the chain. Said plainly, or the order of the lines
+            // is read as the order of events.
+            <p className="text-xs leading-4 tracking-[0.4px] text-wz-outline">checked before anything is sent</p>
+          ) : null}
+          {issue ? (
+            <p
+              className={cn(
+                "mt-1 flex items-start gap-1.5 text-[13px] leading-[19px] tracking-[0.4px]",
+                issue.level === "blocks" ? "text-[#ff8a75]" : "text-[#f5ba45]",
               )}
-              <DropdownMenuItem variant="destructive" onClick={onDelete}>
-                <Trash2 />
-                Delete
-              </DropdownMenuItem>
-            </>
-          )}
-        </DropdownMenuContent>
-      </DropdownMenu>
+            >
+              <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
+              {issue.text}
+            </p>
+          ) : null}
+        </div>
+        <WzDotsMenu
+          tone="light"
+          aria-label={`Actions for step ${index}`}
+          items={items}
+          disabled={disabled}
+          className={big ? "mt-3.5" : "mt-[5px]"}
+        />
+      </div>
+      {children}
     </div>
   );
 }

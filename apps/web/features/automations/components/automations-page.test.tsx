@@ -131,6 +131,12 @@ function renderPage() {
   );
 }
 
+/** A rule's sentence, drawn in parts (its slots underlined), found by its whole text. */
+const sentence = (text: string | RegExp) =>
+  screen.findByText((_, el) =>
+    el?.tagName === "P" && (typeof text === "string" ? el.textContent === text : text.test(el.textContent ?? "")),
+  );
+
 /** The names on the cards, in the order the list shows them. */
 function listed() {
   return screen
@@ -146,20 +152,25 @@ describe("AutomationsPage", () => {
     // The status reads as the editor writes it — "Canceled", not the
     // `canceled` the trigger stores — on the card as well as in the editor.
     expect(
-      screen.getByText(
+      await sentence(
         "When a job has a status of Canceled and it has a technician, send the assigned tech a text message immediately",
       ),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Firing log of Canceled job & techs" })).toHaveTextContent(
-      "12 firings",
+      "Triggered 12 times",
     );
-    expect(screen.getByText("5,411 in Workiz")).toBeInTheDocument();
-    expect(screen.getByText(/1 of 3 rules are on\./)).toBeInTheDocument();
+    expect(screen.getByText("5411 in Workiz")).toBeInTheDocument();
+    // Workiz's left column: the rows count the rules, and the total says how often they fired.
+    expect(screen.getByRole("button", { name: "All 3" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Active 1" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Inactive 1" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Cannot run 1" })).toBeInTheDocument();
+    expect(screen.getByText("Automations triggered").nextElementSibling).toHaveTextContent("12");
   });
 
   it("names the job tag from the catalog instead of its id", async () => {
     renderPage();
-    expect(await screen.findByText(/its job tag is SCHEDULED/)).toBeInTheDocument();
+    expect(await sentence(/its job tag is SCHEDULED/)).toBeInTheDocument();
   });
 
   it("switches a rule on", async () => {
@@ -223,14 +234,12 @@ describe("AutomationsPage", () => {
 });
 
 describe("AutomationsPage tabs", () => {
-  it("opens on the rules the workspace already has, and counts them on the tab", async () => {
+  it("opens on the rules the workspace already has, and counts them in the left column", async () => {
     renderPage();
 
-    expect(await screen.findByRole("tab", { name: "My automations · 3" })).toHaveAttribute(
-      "aria-selected",
-      "true",
-    );
-    expect(screen.getByRole("tab", { name: "Library" })).toHaveAttribute("aria-selected", "false");
+    expect(await screen.findByRole("tab", { name: "My Automations" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Discover" })).toHaveAttribute("aria-selected", "false");
+    expect(await screen.findByRole("button", { name: "All 3" })).toBeInTheDocument();
   });
 
   it("opens on the library when there is nothing to list yet", async () => {
@@ -243,17 +252,11 @@ describe("AutomationsPage tabs", () => {
     renderPage();
 
     // Not while it loads: an empty workspace is a fact about the answer.
-    expect(screen.getByRole("tab", { name: /My automations/ })).toHaveAttribute(
-      "aria-selected",
-      "true",
-    );
+    expect(screen.getByRole("tab", { name: "My Automations" })).toHaveAttribute("aria-selected", "true");
 
-    expect(await screen.findByRole("tab", { name: "Library", selected: true })).toBeInTheDocument();
+    expect(await screen.findByRole("tab", { name: "Discover", selected: true })).toBeInTheDocument();
     expect(screen.getByTestId("automation-library")).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "My automations · 0" })).toHaveAttribute(
-      "aria-selected",
-      "false",
-    );
+    expect(screen.getByRole("tab", { name: "My Automations" })).toHaveAttribute("aria-selected", "false");
   });
 
   it("waits on the rules with their skeleton, not with the library", async () => {
@@ -265,10 +268,7 @@ describe("AutomationsPage tabs", () => {
     );
     renderPage();
 
-    expect(screen.getByRole("tab", { name: /My automations/ })).toHaveAttribute(
-      "aria-selected",
-      "true",
-    );
+    expect(screen.getByRole("tab", { name: "My Automations" })).toHaveAttribute("aria-selected", "true");
     expect(document.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(0);
     expect(screen.queryByTestId("automation-library")).not.toBeInTheDocument();
 
@@ -279,10 +279,11 @@ describe("AutomationsPage tabs", () => {
     const user = userEvent.setup();
     renderPage();
 
-    await user.click(await screen.findByRole("tab", { name: "Library" }));
+    await user.click(await screen.findByRole("tab", { name: "Discover" }));
     expect(await screen.findByTestId("automation-library")).toBeInTheDocument();
+    expect(screen.getByLabelText("Search automations")).toHaveAttribute("placeholder", "Search the template");
 
-    await user.click(screen.getByRole("tab", { name: "My automations · 3" }));
+    await user.click(screen.getByRole("tab", { name: "My Automations" }));
     expect(await screen.findByText("Canceled job & techs")).toBeInTheDocument();
   });
 });
@@ -296,16 +297,22 @@ describe("AutomationsPage filters", () => {
     await user.type(screen.getByLabelText("Search automations"), "scheduled");
     // "SCHEDULED" is the job tag inside the second rule's sentence.
     await waitFor(() => expect(listed()).toEqual(["Scheduled jobs"]));
-    expect(screen.getByText("1 of 3 rules")).toBeInTheDocument();
   });
 
-  it("narrows to one state with the chips", async () => {
+  it("narrows to one state with the left column's rows, one row at a time", async () => {
     const user = userEvent.setup();
     renderPage();
     await screen.findByText("Canceled job & techs");
 
-    await user.click(screen.getByRole("button", { name: "Cannot run" }));
+    await user.click(screen.getByRole("button", { name: "Cannot run 1" }));
     await waitFor(() => expect(listed()).toEqual(["Invoice due 7 days"]));
+    expect(screen.getByRole("button", { name: "Cannot run 1" })).toHaveAttribute("aria-pressed", "true");
+
+    await user.click(screen.getByRole("button", { name: "Inactive 1" }));
+    await waitFor(() => expect(listed()).toEqual(["Scheduled jobs"]));
+
+    await user.click(screen.getByRole("button", { name: "All 3" }));
+    await waitFor(() => expect(listed()).toHaveLength(3));
   });
 
   it("clears every filter at once", async () => {
@@ -313,12 +320,12 @@ describe("AutomationsPage filters", () => {
     renderPage();
     await screen.findByText("Canceled job & techs");
 
-    await user.click(screen.getByRole("button", { name: "On" }));
+    await user.click(screen.getByRole("button", { name: "Active 1" }));
     await waitFor(() => expect(listed()).toEqual(["Canceled job & techs"]));
 
     await user.click(screen.getByRole("button", { name: "Clear filters" }));
     await waitFor(() => expect(listed()).toHaveLength(3));
-    expect(screen.getByText("3 rules")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Clear filters" })).not.toBeInTheDocument();
   });
 
   it("says when nothing matches instead of showing an empty list", async () => {
@@ -327,8 +334,9 @@ describe("AutomationsPage filters", () => {
     await screen.findByText("Canceled job & techs");
 
     await user.type(screen.getByLabelText("Search automations"), "nothing like this");
-    expect(await screen.findByText("No rule matches these filters")).toBeInTheDocument();
-    expect(screen.getByText("0 of 3 rules")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "No automations found" })).toBeInTheDocument();
+    expect(screen.getByText(/couldn't find any automations based on your search/)).toBeInTheDocument();
+    expect(screen.queryAllByTestId(/^automation-/)).toHaveLength(0);
   });
 
   it("sorts by name", async () => {
@@ -343,18 +351,33 @@ describe("AutomationsPage filters", () => {
     );
   });
 
-  it("offers only the categories the rules actually use", async () => {
+  it("offers only the categories the rules actually use, and lets one go on a second press", async () => {
     const user = userEvent.setup();
     renderPage();
     await screen.findByText("Canceled job & techs");
 
-    await user.click(screen.getByLabelText("Category"));
-    expect(await screen.findByRole("option", { name: "Follow-ups" })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "Custom" })).toBeInTheDocument();
-    expect(screen.queryByRole("option", { name: "Marketing" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Follow-ups 1" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Custom 2" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Marketing/ })).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("option", { name: "Follow-ups" }));
+    await user.click(screen.getByRole("button", { name: "Follow-ups 1" }));
     await waitFor(() => expect(listed()).toEqual(["Invoice due 7 days"]));
+
+    await user.click(screen.getByRole("button", { name: "Follow-ups 1" }));
+    await waitFor(() => expect(listed()).toHaveLength(3));
+  });
+
+  it("renames a rule in place from its menu", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("Canceled job & techs");
+
+    await user.click(screen.getByRole("button", { name: "Actions for Canceled job & techs" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Rename" }));
+    const field = await screen.findByRole("textbox", { name: "Rule name" });
+    await user.clear(field);
+    await user.type(field, "Canceled jobs{Enter}");
+    await waitFor(() => expect(patched).toEqual([{ id: "canceled", body: { name: "Canceled jobs" } }]));
   });
 });
 
@@ -364,7 +387,7 @@ describe("AutomationsPage rule actions", () => {
     renderPage();
     await screen.findByText("Canceled job & techs");
 
-    await user.click(screen.getByRole("button", { name: "Create automation" }));
+    await user.click(screen.getByRole("button", { name: "Add automation" }));
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByRole("heading", { name: "Create automation" })).toBeInTheDocument();
     // Nothing to dry-run until the rule exists.
@@ -377,7 +400,7 @@ describe("AutomationsPage rule actions", () => {
     // with nothing to send is not created from it.
     expect(within(dialog).getByRole("button", { name: /^Step 1, Trigger/ })).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: /^Step 2, Send/ })).toBeInTheDocument();
-    expect(within(dialog).getByRole("button", { name: "Create automation" })).toBeDisabled();
+    expect(within(dialog).getByRole("button", { name: "Add automation" })).toBeDisabled();
     expect(created).toEqual([]);
   });
 
@@ -386,12 +409,12 @@ describe("AutomationsPage rule actions", () => {
     renderPage();
     await screen.findByText("Canceled job & techs");
 
-    await user.click(screen.getByRole("tab", { name: "Library" }));
+    await user.click(screen.getByRole("tab", { name: "Discover" }));
     const missed = await screen.findByTestId("automation-template-missed-call-text-client");
     await user.click(within(missed).getByLabelText("Use Missed call / Immediate text client"));
 
     const dialog = await screen.findByRole("dialog");
-    await user.click(within(dialog).getByRole("button", { name: "Create automation" }));
+    await user.click(within(dialog).getByRole("button", { name: "Add automation" }));
 
     await waitFor(() => expect(created).toHaveLength(1));
     expect(created[0]).toMatchObject({
@@ -464,7 +487,7 @@ describe("AutomationsPage rule actions", () => {
     renderPage();
     await screen.findByText("Canceled job & techs");
 
-    await user.click(screen.getByRole("tab", { name: "Library" }));
+    await user.click(screen.getByRole("tab", { name: "Discover" }));
     const missed = await screen.findByTestId("automation-template-missed-call-text-client");
     await user.click(within(missed).getByLabelText("Use Missed call / Immediate text client"));
     expect(await screen.findByLabelText("Name")).toHaveValue("Missed call / Immediate text client");

@@ -58,15 +58,18 @@ export function AutomationRunsDialog({
             It has not fired here yet.
           </p>
         ) : (
-          <ul className="space-y-2" data-testid="automation-runs">
+          <ul className="space-y-3" data-testid="automation-runs">
             {runs.map((run) => (
-              <li key={run.id} data-testid={`firing-${run.id}`} className="rounded-md border p-3 text-sm">
+              // Each firing in the Center's info-row words: when, what, then what it sent.
+              <li key={run.id} data-testid={`firing-${run.id}`} className="rounded-[8px] border border-border p-3 text-sm">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="font-medium">{formatFiredAt(run.firedAt)}</span>
+                  <span className="text-sm leading-[22px] font-semibold tracking-[0.4px]">{formatFiredAt(run.firedAt)}</span>
                   <RunOutcomeBadge outcome={run.outcome} />
                 </div>
                 <RunLine run={run} />
-                <RunActions run={run} />
+                <div className="mt-3">
+                  <RunActions run={run} />
+                </div>
               </li>
             ))}
           </ul>
