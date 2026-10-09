@@ -6,6 +6,7 @@ import {
   formatNumberCreated,
   groupMembersText,
   numberFlowMoves,
+  duplicateFlowValues,
 } from "./phone-settings";
 
 const flow = (id: string, numbers: string[], over: Partial<CallFlow> = {}): CallFlow =>
@@ -74,6 +75,38 @@ describe("numberFlowMoves", () => {
 
   it("does nothing for a flow that is not there", () => {
     expect(numberFlowMoves(flows, "+12035550122", "gone")).toEqual([]);
+  });
+});
+
+describe("duplicateFlowValues — Workiz's copy icon on the flows list", () => {
+  const original = flow("a", ["+12035550100"], {
+    name: "Main line",
+    entryNodeId: "hello",
+    nodes: { hello: { id: "hello", type: "hangup" } } as CallFlow["nodes"],
+    businessProfileId: "bp-1",
+  });
+
+  it("copies the steps and the company under a new name", () => {
+    expect(duplicateFlowValues(original)).toEqual({
+      name: "Main line (copy)",
+      entryNodeId: "hello",
+      nodes: { hello: { id: "hello", type: "hangup" } },
+      businessProfileId: "bp-1",
+      numbers: [],
+      active: false,
+    });
+  });
+
+  it("answers no number and starts paused — a number has one flow, and two live copies would fight over it", () => {
+    const copy = duplicateFlowValues(original);
+    expect(copy.numbers).toEqual([]);
+    expect(copy.active).toBe(false);
+  });
+
+  it("keeps the name within the limit", () => {
+    const long = flow("b", [], { name: "x".repeat(80) });
+    expect(duplicateFlowValues(long, 60).name.length).toBeLessThanOrEqual(60);
+    expect(duplicateFlowValues(long, 60).name.endsWith(" (copy)")).toBe(true);
   });
 });
 

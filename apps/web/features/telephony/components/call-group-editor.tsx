@@ -1,20 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Loader2, Plus, Search, X } from "lucide-react";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
-import { Textarea } from "@/components/ui/textarea";
+import { Phone, Search } from "lucide-react";
+import { WzFormModal } from "@/components/workiz/form-modal";
+import { WzOutlinedTextField } from "@/components/workiz/outlined-text-field";
+import { WzSwitchTabs } from "@/components/workiz/switch-tabs";
+import { WzCheckbox } from "@/components/workiz/toggles";
 import { cn } from "@/lib/utils";
 import { formatPhone } from "@/lib/phone";
 import { queryKeys } from "@/lib/query-keys";
@@ -25,11 +17,7 @@ import {
   type CallGroupWithMembers,
 } from "@bitcrm/types";
 import { listTransferTargets } from "../api";
-import {
-  useCreateCallGroup,
-  useSetCallGroupMembers,
-  useUpdateCallGroup,
-} from "../call-groups-hooks";
+import { useCreateCallGroup, useSetCallGroupMembers, useUpdateCallGroup } from "../call-groups-hooks";
 
 /** A member as the editor holds it, before anything is saved. */
 interface Draft {
@@ -41,18 +29,69 @@ interface Draft {
   softphoneOnline: boolean;
 }
 
+/** A teammate the grid offers — from the directory, or a member who has left it. */
+interface Candidate {
+  id: string;
+  name: string;
+  email?: string;
+  phone?: string;
+  softphoneOnline: boolean;
+}
+
 const CHANNELS: CallGroupChannel[] = ["softphone", "personal", "both"];
 const CHANNEL_LABEL: Record<CallGroupChannel, string> = {
   softphone: "Softphone",
   personal: "Personal",
   both: "Both",
 };
+const RING_TABS = [
+  { value: "ring_all", label: "All at once" },
+  { value: "in_order", label: "In order" },
+] as const;
 
 /**
- * Create or edit one group.
- *
- * Everything is held in a draft and saved on one click: the group's own fields
- * and its membership are two writes on the server, but one decision here.
+ * How a ticked member is rung (ours): Softphone | Personal | Both, a small
+ * switch in Workiz's SwitchTabs look. A channel nobody can be reached on is
+ * refused by the server, so it is held here, with the reason in its title.
+ */
+function ChannelSwitch({ member, onChange }: { member: Draft; onChange: (c: CallGroupChannel) => void }) {
+  return (
+    <div role="tablist" aria-label={`How ${member.name} is rung`} className="inline-flex gap-1 rounded-[4px] bg-wz-secondary-hover p-0.5">
+      {CHANNELS.map((c) => {
+        const blocked = c !== "softphone" && !member.phone;
+        const on = member.channel === c;
+        return (
+          <button
+            key={c}
+            type="button"
+            role="tab"
+            aria-selected={on}
+            disabled={blocked}
+            title={blocked ? `${member.name} has no personal number on file` : undefined}
+            onClick={() => onChange(c)}
+            className={cn(
+              "cursor-pointer rounded-[2px] px-2.5 py-1 text-xs leading-4 tracking-[0.4px] outline-none focus-visible:ring-2 focus-visible:ring-wz-focus disabled:cursor-not-allowed disabled:text-wz-outline-disabled",
+              on ? "bg-white font-semibold text-wz-link shadow-[0_2px_4px_rgba(59,75,82,0.1)]" : "text-foreground",
+            )}
+          >
+            {CHANNEL_LABEL[c]}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * Create or edit one group — Workiz's "create group" / "Edit group" modal
+ * (pg_settings_phone_wz_groups_create_open, _edit_open): 938px, Group name,
+ * "Members in group" with its line about who rings, and every teammate as a
+ * 60px card in two columns (phone glyph, name and number over a second line,
+ * a tick box at the right). Ours kept in it: All at once | In order (ticked
+ * order is ring order), the description, how each ticked member is rung,
+ * whether anybody would ring right now, Active. Everything is held in a
+ * draft and saved on one click: the group's own fields and its membership
+ * are two writes on the server, but one decision here.
  */
 export function CallGroupEditor({
   group,
@@ -71,21 +110,60 @@ export function CallGroupEditor({
   const [type, setType] = useState<CallGroupType>(group?.type ?? "ring_all");
   const [active, setActive] = useState(group?.active ?? true);
   const [members, setMembers] = useState<Draft[]>(
-    (group?.members ?? []).map((m) => ({
-      userId: m.userId,
-      channel: m.channel,
-      enabled: m.enabled,
-      name: m.name ?? "Former teammate",
-      phone: m.phone,
-      softphoneOnline: m.softphoneOnline,
-    })),
+    [...(group?.members ?? [])]
+      .sort((a, b) => a.order - b.order)
+      .map((m) => ({
+        userId: m.userId,
+        channel: m.channel,
+        enabled: m.enabled,
+        name: m.name ?? "Former teammate",
+        phone: m.phone,
+        softphoneOnline: m.softphoneOnline,
+      })),
   );
-  const [picking, setPicking] = useState(false);
+  const [query, setQuery] = useState("");
+
+  const { data: directory } = useQuery({
+    queryKey: [...queryKeys.telephony.transferTargets(), "with-self"],
+    // Including yourself: adding yourself to a group is the common case, and
+    // leaving yourself out is how somebody ends up adding the wrong account.
+    queryFn: () => listTransferTargets(true),
+    staleTime: 60_000,
+    enabled: open,
+  });
 
   const create = useCreateCallGroup();
   const update = useUpdateCallGroup(group?.id ?? "");
   const setServerMembers = useSetCallGroupMembers(group?.id ?? "");
   const pending = create.isPending || update.isPending || setServerMembers.isPending;
+
+  // Every teammate once; a member the directory no longer lists stays offered
+  // (ticked), so saving never drops them by accident.
+  const candidates = useMemo<Candidate[]>(() => {
+    const list: Candidate[] = (directory ?? []).map((u) => ({
+      id: u.id,
+      name: u.name,
+      email: u.email ?? undefined,
+      phone: u.phone ?? undefined,
+      softphoneOnline: u.softphoneOnline,
+    }));
+    // The group's own members too (unticked ones stay offered for the session).
+    const known = [
+      ...(group?.members ?? []).map((m) => ({ ...m, name: m.name ?? "Former teammate" })),
+      ...members,
+    ];
+    for (const m of known) {
+      if (!list.some((c) => c.id === m.userId)) {
+        list.push({ id: m.userId, name: m.name, phone: m.phone, softphoneOnline: m.softphoneOnline });
+      }
+    }
+    return list;
+  }, [directory, members, group?.members]);
+
+  const q = query.trim().toLowerCase();
+  const shown = q
+    ? candidates.filter((c) => c.name.toLowerCase().includes(q) || (c.email ?? "").toLowerCase().includes(q))
+    : candidates;
 
   /**
    * How this member would be reached if a call arrived now, or null if they
@@ -99,26 +177,38 @@ export function CallGroupEditor({
     return ways.length ? ways.join(" + ") : null;
   };
   const reachable = members.filter((m) => m.enabled && reachOf(m)).length;
+  const full = members.length >= CALL_GROUP_LIMITS.maxMembers;
 
-  const payload = () =>
-    members.map((m, i) => ({
-      userId: m.userId,
-      channel: m.channel,
-      order: i,
-      enabled: m.enabled,
-    }));
+  const toggle = (c: Candidate) =>
+    setMembers((list) =>
+      list.some((m) => m.userId === c.id)
+        ? list.filter((m) => m.userId !== c.id)
+        : [
+            ...list,
+            {
+              userId: c.id,
+              // Softphone by default: it's free, and a personal number is a
+              // billed leg that should be an explicit choice.
+              channel: "softphone",
+              enabled: true,
+              name: c.name,
+              phone: c.phone,
+              softphoneOnline: c.softphoneOnline,
+            },
+          ],
+    );
+
+  const setChannel = (userId: string, channel: CallGroupChannel) =>
+    setMembers((list) => list.map((m) => (m.userId === userId ? { ...m, channel } : m)));
+
+  const payload = () => members.map((m, i) => ({ userId: m.userId, channel: m.channel, order: i, enabled: m.enabled }));
 
   const save = async () => {
     if (!name.trim()) return;
     if (editing) {
       // Fields first, then membership: a rejected membership leaves the group's
       // own edits saved rather than losing both.
-      await update.mutateAsync({
-        name: name.trim(),
-        description: description.trim(),
-        type,
-        active,
-      });
+      await update.mutateAsync({ name: name.trim(), description: description.trim(), type, active });
       await setServerMembers.mutateAsync(payload());
     } else {
       await create.mutateAsync({
@@ -132,349 +222,129 @@ export function CallGroupEditor({
     onClose();
   };
 
-  const setChannel = (userId: string, channel: CallGroupChannel) =>
-    setMembers((list) =>
-      list.map((m) => (m.userId === userId ? { ...m, channel } : m)),
-    );
-
   return (
-    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-xl">
-        <DialogHeader>
-          <DialogTitle>{editing ? `Edit ${group.name}` : "New call group"}</DialogTitle>
-          <DialogDescription>
-            The people an inbound call should reach, and which of their phones to
-            ring.
-          </DialogDescription>
-        </DialogHeader>
+    <WzFormModal
+      open={open}
+      onOpenChange={(o) => !o && onClose()}
+      title={editing ? "Edit group" : "Create group"}
+      onSave={() => void save()}
+      saving={pending}
+      saveDisabled={!name.trim()}
+      className="max-h-[92vh] w-[938px] overflow-y-auto sm:max-w-[938px]"
+    >
+      <div className="flex flex-wrap items-start gap-4">
+        <WzOutlinedTextField
+          label="Group name"
+          value={name}
+          maxLength={CALL_GROUP_LIMITS.nameMaxLength}
+          onChange={(e) => setName(e.target.value)}
+          className="w-[445px] max-w-full"
+        />
+        <WzSwitchTabs
+          aria-label="Rings"
+          tabs={RING_TABS}
+          value={type}
+          onChange={(v) => setType(v as CallGroupType)}
+          className="w-[300px]"
+        />
+      </div>
+      <WzOutlinedTextField
+        label="Description"
+        placeholder="What this group is for"
+        value={description}
+        onChange={(e) => setDescription(e.target.value)}
+      />
 
-        <div className="space-y-4">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="cg-name">Name</Label>
-              <Input
-                id="cg-name"
-                className="h-9"
-                value={name}
-                maxLength={CALL_GROUP_LIMITS.nameMaxLength}
-                placeholder="Dispatch"
-                onChange={(e) => setName(e.target.value)}
-                autoFocus
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Rings</Label>
-              <div className="flex h-9 items-center gap-1 rounded-md border p-0.5">
-                {(["ring_all", "in_order"] as CallGroupType[]).map((t) => (
-                  <button
-                    key={t}
-                    type="button"
-                    onClick={() => setType(t)}
-                    aria-pressed={type === t}
-                    className={cn(
-                      "flex-1 rounded px-2 py-1 text-xs",
-                      type === t
-                        ? "bg-brand text-white"
-                        : "text-muted-foreground hover:bg-accent",
-                    )}
-                  >
-                    {t === "ring_all" ? "All at once" : "In order"}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          <div className="space-y-1.5">
-            <Label htmlFor="cg-desc">Description</Label>
-            <Textarea
-              id="cg-desc"
-              rows={2}
-              value={description}
-              placeholder="What this group is for."
-              onChange={(e) => setDescription(e.target.value)}
-            />
-          </div>
-
-          {/* members */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Label>
-                Members{" "}
-                <span className="font-normal text-muted-foreground">
-                  ({members.length}/{CALL_GROUP_LIMITS.maxMembers})
-                </span>
-              </Label>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-7 gap-1 text-xs"
-                disabled={members.length >= CALL_GROUP_LIMITS.maxMembers}
-                onClick={() => setPicking(true)}
-              >
-                <Plus className="size-3.5" /> Add member
-              </Button>
-            </div>
-
-            {members.length > 0 ? (
-              <p
-                className={
-                  reachable === 0
-                    ? "rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-xs text-amber-700 dark:text-amber-400"
-                    : "text-xs text-muted-foreground"
-                }
-              >
-                {reachable === 0
-                  ? "Nobody here can be reached right now — a call to this group would go unanswered."
-                  : `${reachable} of ${members.length} reachable right now.`}
-              </p>
-            ) : null}
-
-            {members.length === 0 ? (
-              <p className="rounded-lg border border-dashed p-4 text-center text-xs text-muted-foreground">
-                Nobody yet. A group with no members can be saved, but not switched
-                on.
-              </p>
-            ) : (
-              <ul className="space-y-1.5">
-                {members.map((m) => (
-                  <li
-                    key={m.userId}
-                    className="flex flex-wrap items-center gap-2 rounded-lg border p-2"
-                  >
-                    <span
-                      aria-hidden
-                      className={cn(
-                        "size-2 shrink-0 rounded-full",
-                        m.softphoneOnline ? "bg-emerald-500" : "bg-muted-foreground/40",
-                      )}
-                    />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-medium">
-                        {m.name}
-                      </span>
-                      <span className="block truncate text-xs text-muted-foreground">
-                        {reachOf(m) ?? (
-                          <span className="text-amber-600 dark:text-amber-500">
-                            Won&apos;t ring — softphone offline and no personal
-                            number
-                          </span>
-                        )}
-                      </span>
-                    </span>
-
-                    <span className="flex items-center rounded-md border text-[11px]">
-                      {CHANNELS.map((c) => {
-                        // A channel nobody can be reached on is refused by the
-                        // server; say why here instead of failing on save.
-                        const blocked = c !== "softphone" && !m.phone;
-                        return (
-                          <button
-                            key={c}
-                            type="button"
-                            disabled={blocked}
-                            title={
-                              blocked
-                                ? `${m.name} has no personal number on file`
-                                : undefined
-                            }
-                            onClick={() => setChannel(m.userId, c)}
-                            className={cn(
-                              "px-2 py-1 first:rounded-l-md last:rounded-r-md",
-                              m.channel === c
-                                ? "bg-brand text-white"
-                                : blocked
-                                  ? "text-muted-foreground/40"
-                                  : "text-muted-foreground hover:bg-accent",
-                            )}
-                          >
-                            {CHANNEL_LABEL[c]}
-                          </button>
-                        );
-                      })}
-                    </span>
-
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="size-7"
-                      aria-label={`Remove ${m.name}`}
-                      onClick={() =>
-                        setMembers((list) =>
-                          list.filter((x) => x.userId !== m.userId),
-                        )
-                      }
-                    >
-                      <X className="size-3.5" />
-                    </Button>
-                  </li>
-                ))}
-              </ul>
+      <div>
+        <h3 className="text-base leading-6 font-semibold tracking-[0.4px] text-foreground">Members in group</h3>
+        <p className="mt-2 text-[13px] leading-[19px] tracking-[0.4px] text-wz-slate">
+          {type === "ring_all"
+            ? "Calls forwarded to this group will simultaneously ring all selected users."
+            : "Calls forwarded to this group will ring the selected users one after another, in the order they were ticked."}
+          {" "}*Softphones will ring if open and available for logged in users; a personal phone rings its own number.
+        </p>
+        {members.length > 0 ? (
+          <p
+            className={cn(
+              "mt-2 text-[13px] leading-[19px] tracking-[0.4px]",
+              reachable === 0 ? "font-semibold text-wz-danger" : "text-wz-slate",
             )}
-          </div>
-
-          <div className="flex items-center justify-between rounded-lg border p-3">
-            <div>
-              <p className="text-sm font-medium">Active</p>
-              <p className="text-xs text-muted-foreground">
-                A paused group keeps its members but takes no calls.
-              </p>
-            </div>
-            <Switch
-              checked={active}
-              onCheckedChange={setActive}
-              aria-label="Active"
-            />
-          </div>
-        </div>
-
-        <div className="flex items-center justify-between border-t pt-3">
-          <span className="text-xs text-muted-foreground">
-            Numbers are read from each person&apos;s profile when the call comes in.
-          </span>
-          <div className="flex gap-2">
-            <Button variant="ghost" size="sm" disabled={pending} onClick={onClose}>
-              Cancel
-            </Button>
-            <Button
-              variant="brand"
-              size="sm"
-              className="gap-1.5"
-              disabled={pending || !name.trim()}
-              onClick={save}
-            >
-              {pending ? <Loader2 className="size-3.5 animate-spin" /> : null}
-              {editing ? "Save group" : "Create group"}
-            </Button>
-          </div>
-        </div>
-
-        {picking ? (
-          <MemberPicker
-            exclude={members.map((m) => m.userId)}
-            onClose={() => setPicking(false)}
-            onPick={(user) => {
-              setMembers((list) => [
-                ...list,
-                {
-                  userId: user.id,
-                  // Softphone by default: it's free, and a personal number is a
-                  // billed leg that should be an explicit choice.
-                  channel: "softphone",
-                  enabled: true,
-                  name: user.name,
-                  phone: user.phone,
-                  softphoneOnline: user.softphoneOnline,
-                },
-              ]);
-              setPicking(false);
-            }}
-          />
+          >
+            {reachable === 0
+              ? "Nobody here can be reached right now — a call to this group would go unanswered."
+              : `${reachable} of ${members.length} reachable right now.`}
+          </p>
         ) : null}
-      </DialogContent>
-    </Dialog>
-  );
-}
 
-/** The same roster the transfer picker uses — name, own number, softphone state. */
-function MemberPicker({
-  exclude,
-  onPick,
-  onClose,
-}: {
-  exclude: string[];
-  onPick: (user: {
-    id: string;
-    name: string;
-    phone?: string;
-    softphoneOnline: boolean;
-  }) => void;
-  onClose: () => void;
-}) {
-  const [query, setQuery] = useState("");
-  const { data, isLoading } = useQuery({
-    queryKey: [...queryKeys.telephony.transferTargets(), "with-self"],
-    // Including yourself: adding yourself to a group is the common case, and
-    // leaving yourself out is how somebody ends up adding the wrong account.
-    queryFn: () => listTransferTargets(true),
-    staleTime: 60_000,
-  });
-
-  const q = query.trim().toLowerCase();
-  const hits = (data ?? [])
-    .filter((u) => !exclude.includes(u.id))
-    .filter(
-      (u) =>
-        !q ||
-        u.name.toLowerCase().includes(q) ||
-        (u.email ?? "").toLowerCase().includes(q),
-    );
-
-  return (
-    <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-sm">
-        <DialogHeader>
-          <DialogTitle>Add member</DialogTitle>
-          <DialogDescription>
-            Anyone on the team. Their softphone and their own number both come
-            from their profile.
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="relative">
-          <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            autoFocus
+        <div className="relative mt-4 w-[445px] max-w-full">
+          <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-wz-outline-label" aria-hidden />
+          <input
+            type="search"
+            aria-label="Search teammates"
+            placeholder="Search teammates…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search teammates…"
-            className="h-9 pl-8"
+            className="h-10 w-full rounded-[4px] border border-wz-outline bg-white pr-3 pl-9 text-[13px] tracking-[0.4px] text-foreground outline-none placeholder:text-wz-outline-label hover:border-foreground focus:border-wz-link"
           />
         </div>
 
-        <ul className="max-h-72 divide-y overflow-y-auto">
-          {isLoading ? (
-            <li className="py-6 text-center text-sm text-muted-foreground">
-              <Loader2 className="mx-auto size-4 animate-spin" />
-            </li>
-          ) : hits.length === 0 ? (
-            <li className="py-6 text-center text-sm text-muted-foreground">
-              {exclude.length && !q ? "Everyone is already a member." : "Nobody matches."}
-            </li>
-          ) : (
-            hits.map((u) => (
-              <li key={u.id}>
-                <button
-                  type="button"
-                  className="flex w-full items-center gap-2 px-1 py-2 text-left hover:bg-accent"
-                  onClick={() => onPick(u)}
-                >
-                  <span
-                    aria-hidden
-                    className={cn(
-                      "size-2 shrink-0 rounded-full",
-                      u.softphoneOnline ? "bg-emerald-500" : "bg-muted-foreground/40",
-                    )}
-                  />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm">{u.name}</span>
-                    {/* Two accounts can carry the same name; the email is what
-                        tells them apart, and picking the wrong one is a group
-                        that quietly never rings. */}
-                    <span className="block truncate text-xs text-muted-foreground">
-                      {u.email ?? "no email"}
-                      {" · "}
-                      {u.phone ? formatPhone(u.phone) : "no personal number"}
-                    </span>
-                  </span>
-                </button>
+        <ul aria-label="Members in group" className="mt-4 grid max-h-[360px] grid-cols-1 gap-3 overflow-y-auto pr-1 sm:grid-cols-2">
+          {shown.map((c) => {
+            const member = members.find((m) => m.userId === c.id);
+            const position = member ? members.indexOf(member) + 1 : 0;
+            return (
+              <li
+                key={c.id}
+                className={cn(
+                  "flex min-h-[60px] items-start gap-3 rounded-[4px] border border-wz-frame px-4 py-2.5",
+                  member && "border-foreground/40",
+                )}
+              >
+                <Phone className="mt-0.5 size-[18px] shrink-0 text-foreground" strokeWidth={1.5} aria-hidden />
+                <div className="min-w-0 flex-1 text-sm leading-[21px] tracking-[0.4px] text-foreground">
+                  <div className="flex min-w-0 items-baseline gap-2">
+                    {member && type === "in_order" ? (
+                      <span className="shrink-0 text-xs font-semibold text-wz-slate">{position}.</span>
+                    ) : null}
+                    <span className="truncate">{c.name}</span>
+                    {c.phone ? <span className="shrink-0">{formatPhone(c.phone)}</span> : null}
+                  </div>
+                  <div className="truncate text-wz-slate">{c.email ?? "Not in the team directory"}</div>
+                  {member ? (
+                    <div className="mt-2 flex flex-col items-start gap-1">
+                      <ChannelSwitch member={member} onChange={(ch) => setChannel(member.userId, ch)} />
+                      <span className={cn("text-xs leading-4", reachOf(member) ? "text-wz-slate" : "text-wz-danger")}>
+                        {reachOf(member) ? `Rings on ${reachOf(member)}` : "Won't ring — softphone offline and no personal number"}
+                      </span>
+                    </div>
+                  ) : null}
+                </div>
+                <input
+                  type="checkbox"
+                  className="mt-1 size-[13px] shrink-0 cursor-pointer disabled:cursor-not-allowed"
+                  aria-label={[c.name, c.email].filter(Boolean).join(" ")}
+                  checked={!!member}
+                  disabled={!member && full}
+                  onChange={() => toggle(c)}
+                />
               </li>
-            ))
-          )}
+            );
+          })}
+          {shown.length === 0 ? (
+            <li className="col-span-full py-6 text-center text-sm text-wz-slate">{q ? "Nobody matches." : "Loading the team…"}</li>
+          ) : null}
         </ul>
-      </DialogContent>
-    </Dialog>
+        <p className="mt-2 text-xs leading-4 text-wz-caption">
+          {members.length}/{CALL_GROUP_LIMITS.maxMembers} members · numbers are read from each person&apos;s profile when the call comes in.
+        </p>
+      </div>
+
+      <div>
+        <WzCheckbox label="Active" checked={active} onCheckedChange={setActive} />
+        <p className="mt-1 pl-[28px] text-[13px] leading-[19px] tracking-[0.4px] text-wz-slate">
+          A paused group keeps its members but takes no calls.
+        </p>
+      </div>
+    </WzFormModal>
   );
 }

@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { queryKeys } from "@/lib/query-keys";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import * as api from "./call-flows-api";
-import { numberFlowMoves } from "./phone-settings";
+import { duplicateFlowValues, numberFlowMoves } from "./phone-settings";
 
 export function useCallFlows(enabled = true) {
   return useQuery({
@@ -64,6 +64,19 @@ export function useAssignNumberFlow() {
       invalidate();
       toast.error(getApiErrorMessage(e));
     },
+  });
+}
+
+/** Workiz's copy icon on the flows list: the flow again, paused and answering no number (`duplicateFlowValues`). */
+export function useDuplicateCallFlow() {
+  const invalidate = useInvalidateCallFlows();
+  return useMutation({
+    mutationFn: (flow: api.CallFlow) => api.createCallFlow(duplicateFlowValues(flow)),
+    onSuccess: (copy) => {
+      invalidate();
+      toast.success(`Created ${copy.name}`);
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
   });
 }
 

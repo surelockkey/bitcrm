@@ -205,6 +205,11 @@ export function MessagingSettingsPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">Not set</SelectItem>
+                  {/* A sender that is not one of the numbers (released, or set
+                      before they came over) still shows, rather than a blank. */}
+                  {form.defaultSenderNumber && !numbers.some((n) => n.phoneNumber === form.defaultSenderNumber) ? (
+                    <SelectItem value={form.defaultSenderNumber}>{formatPhone(form.defaultSenderNumber) || form.defaultSenderNumber}</SelectItem>
+                  ) : null}
                   {numbers.map((n) => (
                     <SelectItem key={n.sid} value={n.phoneNumber}>
                       {formatPhone(n.phoneNumber)}

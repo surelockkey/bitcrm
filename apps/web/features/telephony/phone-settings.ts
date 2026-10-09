@@ -1,4 +1,4 @@
-import type { CallFlow, ResolvedCallGroupMember } from "@bitcrm/types";
+import { CALL_FLOW_LIMITS, type CallFlow, type ResolvedCallGroupMember } from "@bitcrm/types";
 import { formatPhone, normalizePhone } from "@/lib/phone";
 import { DEFAULT_TZ } from "@/lib/timezone";
 
@@ -67,6 +67,35 @@ export function numberFlowMoves(
   if (current) writes.push({ id: current.id, numbers: current.numbers.filter((n) => !samePhone(n, number)) });
   if (target) writes.push({ id: target.id, numbers: [...target.numbers, number] });
   return writes;
+}
+
+/** What a duplicated flow is created with (`POST /call-flows`). */
+export interface DuplicateFlowValues {
+  name: string;
+  entryNodeId: string;
+  nodes: CallFlow["nodes"];
+  businessProfileId?: string;
+  numbers: string[];
+  active: boolean;
+}
+
+/**
+ * Workiz's copy icon on the flows list: the same steps and company under
+ * "<name> (copy)", answering no number — a number has one flow — and paused,
+ * so the copy never competes with its original (two live flows that collect
+ * job codes are refused).
+ */
+export function duplicateFlowValues(flow: CallFlow, maxName: number = CALL_FLOW_LIMITS.nameMaxLength): DuplicateFlowValues {
+  const suffix = " (copy)";
+  const name = `${flow.name.slice(0, Math.max(0, maxName - suffix.length)).trimEnd()}${suffix}`;
+  return {
+    name,
+    entryNodeId: flow.entryNodeId,
+    nodes: flow.nodes,
+    ...(flow.businessProfileId ? { businessProfileId: flow.businessProfileId } : {}),
+    numbers: [],
+    active: false,
+  };
 }
 
 /** "(469) 848-3641,(803) 219-2657" — Workiz's Numbers cell on the flows list. */
