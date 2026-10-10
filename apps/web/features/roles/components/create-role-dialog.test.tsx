@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { DataScope, type Role } from "@bitcrm/types";
+import { DataScope, RESOURCE_REGISTRY, type Role } from "@bitcrm/types";
 import { CreateRoleDialog } from "./create-role-dialog";
 
 const push = vi.hoisted(() => vi.fn());
@@ -40,6 +40,10 @@ describe("CreateRoleDialog — Add New Role", () => {
     expect(screen.getByRole("combobox", { name: "Copy permissions from" })).toBeInTheDocument();
     expect(screen.getByText("Dispatcher")).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "Rank" })).toBeInTheDocument();
+    // No Advanced tab any more: no data scope or stage moves to promise.
+    expect(
+      screen.getByText("Copies its permissions, “Sees only jobs assigned to them” included, as a starting point."),
+    ).toBeInTheDocument();
   });
 
   it("will not save without a name", async () => {
@@ -59,12 +63,18 @@ describe("CreateRoleDialog — Add New Role", () => {
       expect.objectContaining({
         name: "Night Desk",
         permissions: roles[1].permissions,
-        dataScope: roles[1].dataScope,
         dealStageTransitions: roles[1].dealStageTransitions,
         priority: expect.any(Number),
       }),
       expect.anything(),
     );
+    // The template's scope with every resource it lacks set to all — never a
+    // gap the server would read as assigned-only.
+    const dataScope = mutate.mock.calls[0][0].dataScope as Record<string, DataScope>;
+    expect(Object.keys(dataScope).sort()).toEqual(Object.keys(RESOURCE_REGISTRY).sort());
+    expect(dataScope.deals).toBe(DataScope.DEPARTMENT);
+    expect(dataScope.invoices).toBe(DataScope.ALL);
+    expect(dataScope.messages).toBe(DataScope.ALL);
     const priority = mutate.mock.calls[0][0].priority as number;
     expect(priority).toBeLessThan(80);
     expect(onOpenChange).toHaveBeenCalledWith(false);
