@@ -174,6 +174,43 @@ describe("CommissionsPage — Workiz's Finance Reporting", () => {
     expect(within(screen.getByRole("table", { name: "Total Profits" })).getAllByRole("row")[1]).toHaveTextContent("tech profit48.63");
   });
 
+  it("the Tech Report without a technician: the weekly settlement — every tech's jobs, total, profit and balance; a name opens that tech's report", async () => {
+    useCommissionReport.mockImplementation(() => ({
+      data: report({
+        techs: [
+          { techId: "ann", techName: "Ann Office", jobs: 3, total: 1200.5, techProfit: 400, parts: 0, companyParts: 0, tip: 0, tax: 0, balance: -55.25 },
+          { techId: "moshe", techName: "Moshe Szender", jobs: 14, total: 26354.78, techProfit: 7903.24, parts: 8344.57, companyParts: 0, tip: 0, tax: 1543.53, balance: 15026.35 },
+        ],
+      }),
+      error: null,
+    }));
+    render(<CommissionsPage today="2026-09-29" />);
+    // Not in the Standard report.
+    expect(screen.queryByRole("table", { name: "Total by tech" })).toBeNull();
+    await pick("Report mode", "Tech Report");
+    const techs = screen.getByRole("table", { name: "Total by tech" });
+    expect(within(techs).getAllByRole("row").map((r) => r.textContent)).toEqual([
+      "TechJobsTotalTech ProfitBalance",
+      "Ann Office31200.5400-55.25",
+      "Moshe Szender1426354.787903.2415026.35",
+    ]);
+    await userEvent.click(within(techs).getByRole("button", { name: "Moshe Szender" }));
+    expect(lastFilters()).toMatchObject({ mode: "tech", techId: "moshe", offset: 0 });
+    // A technician's own report has no list of technicians.
+    expect(screen.queryByRole("table", { name: "Total by tech" })).toBeNull();
+  });
+
+  it("the settlement list without financials.view: who worked and how many jobs, no amounts", async () => {
+    perms.granted = new Set(["commission.view"]);
+    useCommissionReport.mockImplementation(() => ({ data: report({ money: false }), error: null }));
+    render(<CommissionsPage today="2026-09-29" />);
+    await pick("Report mode", "Tech Report");
+    expect(within(screen.getByRole("table", { name: "Total by tech" })).getAllByRole("row").map((r) => r.textContent)).toEqual([
+      "TechJobs",
+      "Moshe Szender14",
+    ]);
+  });
+
   it("the technician list is every user, with “[N]” after those with jobs in the period", async () => {
     render(<CommissionsPage today="2026-09-29" />);
     await userEvent.click(screen.getByRole("combobox", { name: "Technician" }));

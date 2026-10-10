@@ -44,11 +44,12 @@ describe("commissionReportParams", () => {
 describe("columns — Workiz's Fields lists, in its order, with its defaults (live 2026-10-09)", () => {
   const ids = (cols: { id: string }[]) => cols.map((c) => c.id);
 
-  it("Standard: every field Workiz lists, none of the four “by external” ones", () => {
+  it("Standard: every field Workiz lists, plus our four “by external” ones (off)", () => {
     expect(commissionColumns("standard").map((c) => c.label)).toEqual([
       "Job Id", "Tech", "Created", "Scheduled", "Closed", "Job Type", "Address", "Total", "Cash", "Credit", "Billing",
       "Check", "Tech Share", "Tip Amount", "Parts", "Company Parts", "Tech Profit", "External Company Profit",
-      "Company Profit", "Tax", "Company Name", "Ad Group", "Client",
+      "Company Profit", "Tax", "Cash By External", "Credit By External", "Billing By External", "Check By External",
+      "Company Name", "Ad Group", "Client",
     ]);
     expect(ids(visibleColumns("standard", {}))).toEqual([
       "dealNumber", "techName", "scheduledDate", "closedDate", "jobTypeName", "address", "total", "cash", "credit",
@@ -56,10 +57,12 @@ describe("columns — Workiz's Fields lists, in its order, with its defaults (li
     ]);
   });
 
-  it("Tech: Created and Balance Tech, no company profit; Scheduled and Client off", () => {
+  it("Tech: Created and Balance Tech, no company profit; Scheduled, Client and our extras off", () => {
     expect(commissionColumns("tech").map((c) => c.label)).toEqual([
       "Job Id", "Tech", "Created", "Scheduled", "Closed", "Job Type", "Address", "Total", "Cash", "Credit", "Billing",
-      "Check", "Tech Share", "Tip Amount", "Parts", "Company Parts", "Tech Profit", "Balance Tech", "Tax", "Client",
+      "Check", "Tech Share", "Tip Amount", "Parts", "Company Parts", "Tech Profit", "Balance Tech",
+      "External Company Profit", "Tax", "Cash By External", "Credit By External", "Billing By External",
+      "Check By External", "Company Name", "Ad Group", "Client",
     ]);
     expect(ids(visibleColumns("tech", {}))).toEqual([
       "dealNumber", "techName", "createdAt", "closedDate", "jobTypeName", "address", "total", "cash", "credit", "billing",
@@ -70,9 +73,31 @@ describe("columns — Workiz's Fields lists, in its order, with its defaults (li
   it("External: no technician columns; the company's profit, its balance and its name", () => {
     expect(commissionColumns("external").map((c) => c.label)).toEqual([
       "Job Id", "Created", "Scheduled", "Closed", "Job Type", "Address", "Total", "Cash", "Credit", "Billing", "Check",
-      "Parts", "Company Parts", "External Company Profit", "Balance", "Tax", "Company Name", "Client",
+      "Parts", "Company Parts", "External Company Profit", "Balance", "Tax", "Company Name", "Tech", "Ad Group", "Client",
     ]);
     expect(ids(visibleColumns("external", {}))).not.toContain("clientName");
+    expect(ids(visibleColumns("external", {}))).not.toContain("techName");
+    expect(ids(visibleColumns("external", {}))).not.toContain("sourceName");
+  });
+
+  it("our extras (Workiz has no such fields) are off until switched on, and the four “by external” sum in Totals but never sort", () => {
+    const extras = ["cashByExternal", "creditByExternal", "billingByExternal", "checkByExternal"];
+    for (const mode of ["standard", "tech"] as const) {
+      const cols = commissionColumns(mode);
+      for (const id of [...extras, "externalCompanyProfit", "externalCompanyName", "sourceName"]) {
+        expect(cols.find((c) => c.id === id)?.default, `${mode}.${id}`).toBe(false);
+      }
+      for (const id of extras) {
+        const c = cols.find((x) => x.id === id)!;
+        expect(c.sort).toBeUndefined();
+        expect(c.total).toBe(id);
+        expect(c.money).toBe(true);
+      }
+    }
+    expect(ids(visibleColumns("tech", { creditByExternal: true, sourceName: true }))).toEqual(
+      expect.arrayContaining(["creditByExternal", "sourceName"]),
+    );
+    expect(ids(commissionColumns("tech", false))).not.toContain("creditByExternal");
   });
 
   it("the viewer's Fields choice wins over the default", () => {
@@ -87,7 +112,8 @@ describe("columns — Workiz's Fields lists, in its order, with its defaults (li
       "dealNumber", "techName", "scheduledDate", "closedDate", "jobTypeName", "address", "clientName",
     ]);
     expect(ids(commissionColumns("tech", false))).toEqual([
-      "dealNumber", "techName", "createdAt", "scheduledDate", "closedDate", "jobTypeName", "address", "clientName",
+      "dealNumber", "techName", "createdAt", "scheduledDate", "closedDate", "jobTypeName", "address",
+      "externalCompanyName", "sourceName", "clientName",
     ]);
     expect(ids(visibleColumns("external", { total: true }, false))).not.toContain("total");
   });
