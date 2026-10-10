@@ -301,6 +301,48 @@ describe("SchedulePage — Workiz's Schedule", () => {
     expect(screen.getByRole("button", { name: "Job ID: AB12CD" })).toBeInTheDocument();
   });
 
+  // Ours, kept from the old job blocks: whose job it is.
+  it("names the job's client on its block, under the job id", async () => {
+    server.use(
+      http.post("*/contacts/by-ids", () =>
+        HttpResponse.json({
+          success: true,
+          data: [
+            { id: "contact-1", firstName: "Ivy", lastName: "Quill", phones: [], emails: [] },
+            { id: "contact-2", firstName: "Ada", lastName: "Lovelace", phones: [], emails: [] },
+          ],
+        }),
+      ),
+    );
+    render(<SchedulePage />, { wrapper });
+    const box = await job();
+    expect(box).toHaveTextContent("AB12CD Ivy Quill Car lockout, Austin , 1 Main, Austin, TX 78701 Sam Ochoa");
+  });
+
+  // Ours, kept from before the Workiz pass: the techs who are not active, and their time off.
+  it("TEAM → Include inactive brings the inactive technicians onto the Timeline and into Add time off", async () => {
+    render(<SchedulePage />, { wrapper });
+    await job();
+    await userEvent.click(screen.getByRole("tab", { name: "Timeline" }));
+    expect(await screen.findByText("Sam Ochoa")).toBeInTheDocument();
+    expect(screen.queryByText("Dana Reeves")).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Filter results" }));
+    await userEvent.click(screen.getByRole("combobox", { name: "Filter results" }));
+    const team = screen.getByRole("listbox", { name: "Team" });
+    expect(within(team).getAllByRole("option")[0]).toHaveTextContent("Include inactive");
+    await userEvent.click(within(team).getByText("Include inactive"));
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("listbox", { name: "Team" })).not.toBeInTheDocument());
+    // The Timeline has a row for them, marked; picking it narrows nothing.
+    expect(await screen.findByText("Dana Reeves (inactive)")).toBeInTheDocument();
+    expect(screen.getByText("Nia Holt")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Add time off" }));
+    await userEvent.click(await screen.findByRole("combobox", { name: "Select user" }));
+    expect(screen.getByRole("option", { name: "Dana Reeves" })).toBeInTheDocument();
+  });
+
   it("leaves canceled jobs off the calendar", async () => {
     mockApi({ deals: [DEAL, { ...DEAL, id: "deal-4", dealNumber: "CANC3L", superStatus: "canceled" }] });
     render(<SchedulePage />, { wrapper });

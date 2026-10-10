@@ -10,7 +10,9 @@ import { FILTER_GROUP, SCHEDULE_STATUS_OPTIONS, type SchedulePick } from "../fil
  * "Filter results" over the calendar (pg_schedule_wz_14c_filter_menu): the
  * bar the toolbar's filter button opens above it, with Workiz's groups side
  * by side — TEAM, TAGS, STATUS, JOB TYPE, SERVICE AREAS (each in its
- * colour). Workiz's TYPE (Jobs / Leads / Tasks / Events / Visit) is left out:
+ * colour). Ours, first under TEAM: "Include inactive" (`INCLUDE_INACTIVE`),
+ * which brings the pending / inactive technicians in as rows and picks.
+ * Workiz's TYPE (Jobs / Leads / Tasks / Events / Visit) is left out:
  * the calendar holds jobs only. Tags are read when the bar opens; the areas
  * come with the calendar (their colours paint the jobs).
  */

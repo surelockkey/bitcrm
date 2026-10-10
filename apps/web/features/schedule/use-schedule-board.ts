@@ -96,7 +96,8 @@ export function useScheduleBoard({ view, date }: { view: ScheduleView; date: str
   const areasQuery = useServiceAreas();
   const deals = dealsQuery.data ?? NO_DEALS;
   const unscheduled = unscheduledQuery.data ?? NO_DEALS;
-  const contactIds = useMemo(() => unscheduled.map((d) => d.contactId), [unscheduled]);
+  // The clients of the calendar's jobs (named on their blocks) and of the pane's.
+  const contactIds = useMemo(() => [...deals, ...unscheduled].map((d) => d.contactId), [deals, unscheduled]);
   const contacts = useContactsByIds(contactIds);
 
   // Events for the whole roster, so the filters never ask again — and only

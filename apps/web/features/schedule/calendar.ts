@@ -244,14 +244,20 @@ export function layoutLanes(
  * The words on a job — this account's Workiz schedule template,
  * `{{job_id}}\n{{job_type}},\n{{city}} , {{job_address}} \n{{tech_assigned}} `
  * (schedule_settings), with "N/A" for a job without a type and "Unassigned"
- * for one without a technician, as Workiz prints them.
+ * for one without a technician, as Workiz prints them. Ours on top (kept
+ * from the old job blocks): the client's name on its own line under the job
+ * id, as a `{{client_name}}` token would sit in a Workiz template.
  */
-export function scheduleText(deal: Deal, { jobType, techs }: { jobType: string; techs: string[] }): string {
+export function scheduleText(
+  deal: Deal,
+  { jobType, techs, client }: { jobType: string; techs: string[]; client?: string },
+): string {
   const a = deal.address;
   const stateZip = [a?.state, a?.zip].filter(Boolean).join(" ");
   const address = [a?.street, a?.city, stateZip].filter(Boolean).join(", ");
   const crew = techs.length ? techs.join(",") : "Unassigned";
-  return `${deal.dealNumber}\n${jobType || "N/A"},\n${a?.city ?? ""} , ${address} \n${crew} `;
+  const who = client?.trim() ? `${client.trim()}\n` : "";
+  return `${deal.dealNumber}\n${who}${jobType || "N/A"},\n${a?.city ?? ""} , ${address} \n${crew} `;
 }
 
 /* ------------------------------------------------------------ the colours */

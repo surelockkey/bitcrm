@@ -74,7 +74,10 @@ const deal = (n: number, day: string): Deal => ({
 const byDay: Record<string, Deal[]> = { [today]: [deal(1, today)], [tomorrow]: [deal(2, tomorrow)] };
 // One job with no visit date: the toolbar counts it, the pane names its client.
 const undated: Deal = { ...deal(3, today), scheduledDate: undefined, scheduledTimeSlot: undefined, assignedTechIds: [] };
+// The calendar's jobs name their clients too (ours), so theirs come in the same frame.
 const contacts: Record<string, { id: string; firstName: string; lastName: string }> = {
+  c1: { id: "c1", firstName: "Ada", lastName: "Lovelace" },
+  c2: { id: "c2", firstName: "Otto", lastName: "Brisk" },
   c3: { id: "c3", firstName: "Ivy", lastName: "Quill" },
 };
 
@@ -142,8 +145,8 @@ const jobText = (n: string) => screen.queryByRole("button", { name: `Job ID: ${n
 function watchGridFirstFrame() {
   return watchFirstFrame(gridIsUp, () => ({
     requestsSoFar: server.requests.length,
-    // The template's job type and technician, already named.
-    jobBlock: /801\s+Car lockout,[\s\S]*Sam Reyes/.test(jobText("801")),
+    // The client (ours), the template's job type and technician, already named.
+    jobBlock: /801\s+Ada Lovelace\s+Car lockout,[\s\S]*Sam Reyes/.test(jobText("801")),
     timeOff: !!screen.queryByText(/Dentist - Nia Holt/),
     unscheduledCount: screen.queryByRole("button", { name: "Unscheduled jobs" })?.textContent === "1",
     areaColour:

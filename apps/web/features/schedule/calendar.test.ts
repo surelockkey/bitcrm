@@ -249,6 +249,13 @@ describe("scheduleText — this account's Workiz template", () => {
   it("says N/A for a job without a type", () => {
     expect(scheduleText(deal(), { jobType: "", techs: [] })).toMatch(/^1Z226I\nN\/A,\n/);
   });
+  // Ours, kept from the old job blocks: whose job it is, on the line under the job id.
+  it("names the client under the job id, when known", () => {
+    expect(scheduleText(deal(), { jobType: "Call Back", techs: ["A"], client: "Ada Lovelace" })).toBe(
+      "1Z226I\nAda Lovelace\nCall Back,\nLewisville , 1526 Barbara Dr, Lewisville, TX 75067 \nA ",
+    );
+    expect(scheduleText(deal(), { jobType: "Call Back", techs: ["A"], client: "  " })).toMatch(/^1Z226I\nCall Back,/);
+  });
 });
 
 describe("scheduleColor — jobs coloured by service area (Workiz 'Color Job By: Service Area')", () => {

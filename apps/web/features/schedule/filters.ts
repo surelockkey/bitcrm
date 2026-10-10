@@ -25,8 +25,21 @@ export const SCHEDULE_STATUS_OPTIONS: { value: JobSuperStatus; label: string }[]
   { value: JobSuperStatus.DONE_PENDING_APPROVAL, label: "Done pending approval" },
 ];
 
+/**
+ * Ours, first under TEAM (kept from the old "Active only / All statuses"):
+ * the technicians who are not active — pending onboarding or inactive — as
+ * Timeline rows, TEAM picks and Add time off choices. Not a technician: it
+ * narrows nothing by itself.
+ */
+export const INCLUDE_INACTIVE = "__include_inactive";
+
 const picked = (picks: readonly SchedulePick[], group: string) =>
-  picks.filter((p) => p.group === group).map((p) => p.value);
+  picks.filter((p) => p.group === group && p.value !== INCLUDE_INACTIVE).map((p) => p.value);
+
+/** Whether TEAM → Include inactive is picked. */
+export function includesInactive(picks: readonly SchedulePick[]): boolean {
+  return picks.some((p) => p.group === FILTER_GROUP.team && p.value === INCLUDE_INACTIVE);
+}
 
 /**
  * The jobs the calendar draws under the picks: any of the picked values

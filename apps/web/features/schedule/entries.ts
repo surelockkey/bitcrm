@@ -32,6 +32,8 @@ export interface EntryContext {
   profiles: Map<string, WorkingHours>;
   /** A service area's stored `#rrggbb` by its name (the name is what a job carries). */
   areaColor?: (name: string) => string | undefined;
+  /** The job's client, named under the job id (ours); "" leaves the line out. */
+  clientName?: (deal: Deal) => string;
 }
 
 /**
@@ -65,6 +67,7 @@ export function buildEntries(deals: Deal[], events: CalendarEvent[], ctx: EntryC
       text: scheduleText(deal, {
         jobType: ctx.jobTypeName(deal.jobTypeId),
         techs: deal.assignedTechIds.map(ctx.techName).filter(Boolean),
+        client: ctx.clientName?.(deal),
       }),
       color: scheduleColor(deal.serviceArea, ctx.areaColor?.(deal.serviceArea)),
       done: deal.superStatus === JobSuperStatus.DONE,
