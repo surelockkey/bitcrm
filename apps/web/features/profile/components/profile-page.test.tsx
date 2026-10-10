@@ -83,6 +83,19 @@ describe("ProfilePage — a technician's own user page", () => {
     expect(screen.getByRole("textbox", { name: "First name" })).toBeDisabled();
   });
 
+  // Ours, kept from the old account card: who they are in the company, read-only.
+  it("shows their Role, Department and Member since under Roles and permissions, read-only", async () => {
+    serve(profileRoutes(techMe));
+    renderWithClient(<ProfilePage />);
+    await screen.findByText("Lakeside", {}, { timeout: 3000 });
+
+    const work = screen.getByTestId("work-column");
+    expect(within(work).getByRole("textbox", { name: "Role" })).toBeDisabled();
+    expect(within(work).getByRole("textbox", { name: "Department" })).toHaveValue("Field");
+    expect(within(work).getByRole("textbox", { name: "Department" })).toBeDisabled();
+    expect(within(work).getByText("Member since Jan 2, 2026")).toBeInTheDocument();
+  });
+
   it("makes Two-factor authentication their own switch — not the admin's greyed one", async () => {
     serve(profileRoutes(techMe));
     renderWithClient(<ProfilePage />);
