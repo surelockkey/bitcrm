@@ -181,6 +181,7 @@ export function DealsTable({
   zoneOf,
   accountZone = DEFAULT_TZ,
   emptyText = "No Jobs Found",
+  stopOf,
 }: {
   deals: Deal[];
   /**
@@ -224,6 +225,12 @@ export function DealsTable({
   /** The account's clock — the first line of every Scheduled cell. */
   accountZone?: string;
   emptyText?: string;
+  /**
+   * Ours (`/my-jobs`): the viewer's stop in the dispatcher's route for the
+   * day, drawn as Workiz's appointmentIndexBadge at the start of the
+   * Scheduled cell. Absent on `/deals`.
+   */
+  stopOf?: (deal: Deal) => number | undefined;
 }) {
   const jobTypeName = useJobTypeName();
   const sourceName = useJobSourceName();
@@ -332,7 +339,7 @@ export function DealsTable({
       case "serviceArea":
         return <span>{d.serviceArea || ""}</span>;
       case "scheduled":
-        return <ScheduledCell deal={d} zone={zoneOf?.(d)} accountZone={accountZone} now={now} />;
+        return <ScheduledCell deal={d} zone={zoneOf?.(d)} accountZone={accountZone} now={now} stop={stopOf?.(d)} />;
       case "end": {
         // Workiz's End: the visit's last day and its closing time, on the account's clock.
         const slotEnd = d.scheduledTimeSlot?.split("-")[1]?.trim();
@@ -571,7 +578,19 @@ const MIN_ROWS = 10;
  * how far off it is (12px/500, grey ahead, red once passed). A closed job's
  * passed visit is history, not late — it keeps quiet.
  */
-function ScheduledCell({ deal, zone, accountZone, now }: { deal: Deal; zone?: string; accountZone: string; now: Date }) {
+function ScheduledCell({
+  deal,
+  zone,
+  accountZone,
+  now,
+  stop,
+}: {
+  deal: Deal;
+  zone?: string;
+  accountZone: string;
+  now: Date;
+  stop?: number;
+}) {
   const c = workizScheduleCell(
     { scheduledDate: deal.scheduledDate, scheduledTimeSlot: deal.allDay ? undefined : deal.scheduledTimeSlot, city: deal.address?.city, zone },
     accountZone,
@@ -580,7 +599,18 @@ function ScheduledCell({ deal, zone, accountZone, now }: { deal: Deal; zone?: st
   const quiet = isTerminalStatus(deal.superStatus) || deal.superStatus === JobSuperStatus.DONE_PENDING_APPROVAL;
   return (
     <>
-      <div className="leading-4 whitespace-nowrap">{c.when}</div>
+      <div className="leading-4 whitespace-nowrap">
+        {stop !== undefined ? (
+          // Workiz's appointmentIndexBadge (the Map's), as on the dispatcher's pin card.
+          <span
+            title={`Stop ${stop} of your day`}
+            className="mr-1.5 inline-flex items-center justify-center rounded-[999px] bg-wz-secondary-hover px-2 py-0.5 align-[1px] text-xs leading-[1.2] font-semibold text-wz-outline-label"
+          >
+            {stop}
+          </span>
+        ) : null}
+        {c.when}
+      </div>
       {c.area ? (
         <div className="mt-[3px] text-[11px] leading-[13px] whitespace-nowrap text-[#3b4b52]">
           <div>{c.area.place}:</div>

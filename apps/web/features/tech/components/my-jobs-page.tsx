@@ -48,7 +48,7 @@ import { DealsTable, DealsTableSkeleton } from "@/features/deals/components/deal
 import { DealQuickView } from "@/features/deals/components/deal-quick-view";
 import { FieldsMenu } from "@/features/deals/components/fields-menu";
 import { JobsFilterControl } from "@/features/deals/components/jobs-filter-control";
-import { myJobHref, myJobsCatalogs, myJobsListState } from "../my-jobs-list";
+import { inRouteOrder, myJobHref, myJobsCatalogs, myJobsListState, routeStop } from "../my-jobs-list";
 import { PULL_THRESHOLD_PX, usePullToRefresh } from "../use-pull-to-refresh";
 import { InstallHint } from "./install-hint";
 import { TeamChatBadge } from "./team-chat-badge";
@@ -98,7 +98,8 @@ interface Frame {
  * is asked for the viewer's id (a dispatcher opening this page has no scope
  * that narrows it), it refreshes itself every 30s while the live stream is
  * down (a job assigned while the phone was in a pocket shows up), a pull at
- * the top refreshes it on a phone, and the install hint for the home screen.
+ * the top refreshes it on a phone, the install hint for the home screen, and
+ * each day in the dispatcher's route order with the stop number in Scheduled.
  */
 export function MyJobsPage() {
   const { can, me } = usePermissions();
@@ -195,6 +196,9 @@ export function MyJobsPage() {
   const areaZone = useMemo(() => new Map((serviceAreas ?? []).map((a) => [a.id, a.timezone])), [serviceAreas]);
   const zoneOf = (d: Deal) => d.jobTimezone || (d.serviceAreaId ? areaZone.get(d.serviceAreaId) : undefined);
 
+  // Ours: each day in the order the dispatcher routed it, the stop on the Scheduled cell.
+  const routed = useMemo(() => inRouteOrder(pager.items, meId, state.sort), [pager.items, meId, state.sort]);
+
   // A pull at the top of the list, on a phone, asks again.
   const { pull, refreshing } = usePullToRefresh(scrollerRef, () => Promise.all([refetchRows(), refetchCounts()]));
 
@@ -214,7 +218,7 @@ export function MyJobsPage() {
   const [shown, setShown] = useState<Frame | null>(null);
   if (painted !== paintKey && rowsIn && countsIn && searchedIn && jobTypesIn && contactsIn && namesIn && chatIn && !areasLoading) {
     setPainted(paintKey);
-    setShown({ base: baseKey, rows: pager.items, contacts: contactMap, clientNames: names.clients, pager, counts });
+    setShown({ base: baseKey, rows: routed, contacts: contactMap, clientNames: names.clients, pager, counts });
   }
   const firstPaintPending = painted !== paintKey;
   const held = firstPaintPending && shown?.base === baseKey ? shown : null;
@@ -235,6 +239,7 @@ export function MyJobsPage() {
     onSortScheduled: () => setState((s) => ({ ...s, sort: s.sort === "day_desc" ? "none" : "day_desc" })),
     zoneOf,
     accountZone: DEFAULT_TZ,
+    stopOf: (d: Deal) => routeStop(d, meId),
   } as const;
 
   return (
@@ -351,7 +356,7 @@ export function MyJobsPage() {
           <ListError onRetry={() => void refetchRows()} retrying={dealsQuery.isFetching} />
         ) : (
           <>
-            <DealsTable deals={pager.items} contactMap={contactMap} clientNames={names.clients} {...tableProps} />
+            <DealsTable deals={routed} contactMap={contactMap} clientNames={names.clients} {...tableProps} />
             <MyJobsPager pager={pager} />
           </>
         )}

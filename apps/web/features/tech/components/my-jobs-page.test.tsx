@@ -143,6 +143,33 @@ describe("MyJobsPage — the jobs list, only mine", () => {
     expect(push).toHaveBeenCalledWith("/my-jobs/d1");
   });
 
+  // Ours, kept from the old day cards: the day in the order the dispatcher routed it.
+  it("orders each day by the dispatcher's route and numbers the stops in Scheduled", async () => {
+    const routed = routes.map((r) =>
+      String(r.match) === String(/\/deals$/)
+        ? {
+            ...r,
+            reply: () => ({
+              success: true,
+              data: [
+                { ...row(1), scheduledTimeSlot: "09:00-10:00", sequences: { t1: 2 } },
+                { ...row(2), scheduledTimeSlot: "13:00-14:00", sequences: { t1: 1 } },
+              ],
+              pagination: {},
+              included: { technicians: [], clients: [] },
+            }),
+          }
+        : r,
+    );
+    server = installFakeServer(routed, { delayMs: 5 });
+    renderWithClient(<MyJobsPage />);
+    await screen.findByText("901", {}, { timeout: 3000 });
+
+    expect(screen.getAllByText(/^90\d$/).map((e) => e.textContent)).toEqual(["902", "901"]);
+    expect(screen.getByTitle("Stop 1 of your day")).toHaveTextContent(/^1$/);
+    expect(screen.getByTitle("Stop 2 of your day")).toHaveTextContent(/^2$/);
+  });
+
   it("offers no TECHS column in Filter results — the list is always yours", async () => {
     renderWithClient(<MyJobsPage />);
     await screen.findByText("901", {}, { timeout: 3000 });

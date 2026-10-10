@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { JobSuperStatus } from "@bitcrm/types";
+import { JobSuperStatus, type Deal } from "@bitcrm/types";
 import { EMPTY_JOBS_LIST_STATE, toCountsParams, toListParams } from "@/features/deals/query-params";
 import type { FilterCatalogs } from "@/features/deals/job-filters";
-import { myJobHref, myJobsCatalogs, myJobsListState } from "./my-jobs-list";
+import { compareVisitOrder, inRouteOrder, myJobHref, myJobsCatalogs, myJobsListState, routeStop } from "./my-jobs-list";
 
 describe("myJobsListState — the jobs list, only the viewer's jobs", () => {
   it("asks for the viewer's jobs whatever the controls hold", () => {
@@ -41,6 +41,52 @@ describe("myJobsCatalogs — Filter results without a TECHS column", () => {
       companies: [{ id: "bp-1", name: "SureLock" }],
     };
     expect(myJobsCatalogs(catalogs)).toEqual({ ...catalogs, techs: [] });
+  });
+});
+
+describe("the dispatcher's route order (ours, kept from the day cards)", () => {
+  const job = (id: string, day: string | undefined, slot: string | undefined, stop?: number) =>
+    ({
+      id,
+      dealNumber: id.toUpperCase(),
+      scheduledDate: day,
+      scheduledTimeSlot: slot,
+      sequences: stop === undefined ? undefined : { t1: stop, t9: 99 - stop },
+    }) as unknown as Deal;
+  const ids = (deals: Deal[]) => deals.map((d) => d.id);
+
+  it("orders a day by the stop the dispatcher set, then the slot, then the job number", () => {
+    const a = job("a", "2026-10-09", "09:00-10:00", 2);
+    const b = job("b", "2026-10-09", "13:00-14:00", 1);
+    const c = job("c", "2026-10-09", "08:00-09:00");
+    const d = job("d", "2026-10-09", "08:00-09:00");
+    expect([a, b, c, d].sort((x, y) => compareVisitOrder(x, y, "t1")).map((x) => x.id)).toEqual(["b", "a", "c", "d"]);
+    // Somebody else's route order is not the viewer's.
+    expect([b, a].sort((x, y) => compareVisitOrder(x, y, "t2")).map((x) => x.id)).toEqual(["a", "b"]);
+  });
+
+  it("reorders the rows within each day only, the days staying where the server put them", () => {
+    const rows = [
+      job("a", "2026-10-09", "09:00-10:00", 2),
+      job("b", "2026-10-09", "13:00-14:00", 1),
+      job("c", "2026-10-10", "08:00-09:00", 2),
+      job("d", "2026-10-10", "10:00-11:00", 1),
+    ];
+    expect(ids(inRouteOrder(rows, "t1", "none"))).toEqual(["b", "a", "d", "c"]);
+    // Latest first: the days come latest first, and so does each day's route.
+    const desc = [rows[3], rows[2], rows[1], rows[0]];
+    expect(ids(inRouteOrder(desc, "t1", "day_desc"))).toEqual(["c", "d", "a", "b"]);
+  });
+
+  it("leaves unscheduled jobs as they came", () => {
+    const rows = [job("a", undefined, undefined, 2), job("b", undefined, undefined, 1)];
+    expect(ids(inRouteOrder(rows, "t1", "none"))).toEqual(["a", "b"]);
+  });
+
+  it("the stop number is the viewer's own place in the day, only on a scheduled job", () => {
+    expect(routeStop(job("a", "2026-10-09", "09:00-10:00", 3), "t1")).toBe(3);
+    expect(routeStop(job("a", "2026-10-09", "09:00-10:00", 3), "t2")).toBeUndefined();
+    expect(routeStop(job("a", undefined, undefined, 3), "t1")).toBeUndefined();
   });
 });
 
