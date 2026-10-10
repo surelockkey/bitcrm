@@ -180,7 +180,8 @@ describe("Edit Inventory item (Workiz layout)", () => {
       "Re-order at",
       "Minimum at location",
     ]);
-    expect(columnFields(right())).toEqual(["Price", "Cost", "Description", "Taxable item"]);
+    // "Enable item" is ours (the Price Book's), so the Disabled items come back from here.
+    expect(columnFields(right())).toEqual(["Price", "Cost", "Description", "Taxable item", "Enable item"]);
 
     expect(screen.getByLabelText("Product name")).toHaveValue(
       "Don-Jo - Chain Guard - Silver (1607-625) (SLK-3551)",
@@ -332,7 +333,7 @@ describe("Edit Inventory item (Workiz layout)", () => {
     open("p1");
     await screen.findByDisplayValue("125.00");
     expect(screen.queryByLabelText("Cost")).not.toBeInTheDocument();
-    expect(columnFields(right())).toEqual(["Price", "Description", "Taxable item"]);
+    expect(columnFields(right())).toEqual(["Price", "Description", "Taxable item", "Enable item"]);
   });
 
   it("view-only: every field is locked, no Save, no custom field management", async () => {
@@ -458,6 +459,28 @@ describe("Edit Item (Price Book layout)", () => {
     await user.click(screen.getByRole("switch", { name: "Enable item" }));
     await user.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(mocks.reactivate).toHaveBeenCalledWith("p2"));
+  });
+
+  // Ours on the Inventory page too (restored 2026-10-10): its "Disabled items"
+  // box listed archived stock with no way back from there.
+  it("Edit Inventory item: an archived item is switched back on with Enable item", async () => {
+    const user = userEvent.setup();
+    mocks.product = chainGuard({ status: InventoryStatus.ARCHIVED });
+    open("p1", { variant: "inventory" });
+    await screen.findByDisplayValue("125.00");
+    expect(screen.queryByRole("button", { name: "Delete Item" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("switch", { name: "Enable item" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(mocks.reactivate).toHaveBeenCalledWith("p1"));
+  });
+
+  it("Edit Inventory item: Delete Item asks first, then archives the item", async () => {
+    const user = userEvent.setup();
+    mocks.product = chainGuard();
+    open("p1", { variant: "inventory" });
+    await user.click(await screen.findByRole("button", { name: "Delete Item" }));
+    await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Yes, delete" }));
+    await waitFor(() => expect(mocks.archive).toHaveBeenCalledWith("p1"));
   });
 
   it("without products.delete there is no Delete Item and an item can't be switched off", async () => {

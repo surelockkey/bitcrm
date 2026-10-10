@@ -331,8 +331,8 @@ function ItemEditor({
       return;
     }
     const body = toUpdateBody(snapshot!, values, options);
-    const active =
-      variant === "price-book" && values.active !== original!.active ? values.active : undefined;
+    // Both popups switch an item on and off (Enable item): archive / reactivate on Save.
+    const active = values.active !== original!.active ? values.active : undefined;
     if (Object.keys(body).length === 0 && !photo.file && !photo.remove && active === undefined) {
       onClose();
       return;
@@ -545,6 +545,21 @@ function ItemEditor({
                   onChange={set("taxable")}
                   disabled={readOnly}
                 />
+                {/* Ours, as the Price Book's: the Inventory page's "Disabled items" come back from here. */}
+                {mode === "edit" ? (
+                  <>
+                    <ToggleRow
+                      className="mt-4"
+                      label="Enable item"
+                      checked={values.active}
+                      onChange={set("active")}
+                      disabled={readOnly || !(canDelete || !original?.active)}
+                    />
+                    {canDelete && product?.status !== InventoryStatus.ARCHIVED ? (
+                      <DeleteItemButton onClick={() => setConfirmDelete(true)} />
+                    ) : null}
+                  </>
+                ) : null}
               </>
             ) : (
               <PriceBookSwitches
@@ -700,16 +715,21 @@ function PriceBookSwitches({
           disabled={readOnly}
         />
       ) : null}
-      {editing && canDelete && product?.status !== InventoryStatus.ARCHIVED ? (
-        <button
-          type="button"
-          onClick={onDelete}
-          className="flex w-fit items-center gap-2 pt-5 text-[#f45e44] hover:opacity-80 focus-visible:underline focus-visible:outline-none"
-        >
-          <Trash2 className="size-6" strokeWidth={1.4} />
-          <span className="text-[13px] leading-[19px] tracking-[0.4px]">Delete Item</span>
-        </button>
-      ) : null}
+      {editing && canDelete && product?.status !== InventoryStatus.ARCHIVED ? <DeleteItemButton onClick={onDelete} /> : null}
     </>
+  );
+}
+
+/** The red "Delete Item" under the switches (Workiz's Price Book popup); it archives, after asking. */
+function DeleteItemButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex w-fit items-center gap-2 pt-5 text-[#f45e44] hover:opacity-80 focus-visible:underline focus-visible:outline-none"
+    >
+      <Trash2 className="size-6" strokeWidth={1.4} />
+      <span className="text-[13px] leading-[19px] tracking-[0.4px]">Delete Item</span>
+    </button>
   );
 }
