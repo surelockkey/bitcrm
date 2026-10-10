@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
 import { server } from "@/test/msw/server";
 import { DispatchPage } from "./dispatch-page";
+import { mapRangeWindow } from "../map-range";
 
 const router = vi.hoisted(() => ({ push: vi.fn() }));
 vi.mock("next/navigation", () => ({
@@ -228,6 +229,30 @@ describe("DispatchPage — Workiz's Map", () => {
     expect(screen.getByRole("combobox", { name: /range/i })).toHaveTextContent("Week");
   });
 
+  // Ours, kept from before the Workiz pass: every open job at once, whatever its date.
+  it("Any date shows every open job — unscheduled and weeks-away ones too — and has nothing to step", async () => {
+    const UNSCHEDULED = { ...LOCATED, id: "deal-4", dealNumber: "104", scheduledDate: undefined, scheduledTimeSlot: undefined };
+    server.use(
+      http.get("*/deals", () =>
+        HttpResponse.json({ success: true, data: [LOCATED, UNLOCATED, LATER, UNSCHEDULED], pagination: { count: 4 } }),
+      ),
+    );
+    const user = userEvent.setup();
+    render(<DispatchPage />, { wrapper });
+    await screen.findByTestId("job-row-deal-1");
+    expect(screen.queryByTestId("job-row-deal-4")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("combobox", { name: /range/i }));
+    await user.click(await screen.findByRole("option", { name: "Any date" }));
+
+    expect(await screen.findByTestId("job-row-deal-4")).toBeInTheDocument();
+    expect(screen.getByTestId("job-row-deal-3")).toBeInTheDocument();
+    expect(screen.getByText("Found 4 out of 4 open jobs")).toBeInTheDocument();
+    expect(screen.getByText("All open jobs, any date")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Next" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Previous" })).not.toBeInTheDocument();
+  });
+
   it("› steps a week on; Reset date comes back to today", async () => {
     const user = userEvent.setup();
     render(<DispatchPage />, { wrapper });
@@ -357,6 +382,37 @@ describe("DispatchPage — Workiz's Map", () => {
       await user.click(screen.getByRole("checkbox", { name: "Unassigned" }));
       await user.click(screen.getByRole("button", { name: "Apply" }));
       expect(await screen.findByText("Found 2 out of 3 open jobs")).toBeInTheDocument();
+    });
+
+    // Ours, kept from before the Workiz pass: the day's or week's finished jobs.
+    it("Done / Canceled, once ticked, are read for the date box's days and shown", async () => {
+      const DONE = { ...LOCATED, id: "deal-9", dealNumber: "109", superStatus: "done", stage: "done" };
+      const urls: string[] = [];
+      server.use(
+        http.get("*/deals", ({ request }) => {
+          urls.push(request.url);
+          const status = new URL(request.url).searchParams.get("superStatus");
+          const data = status === "done" ? [DONE] : status === "canceled" ? [] : [LOCATED, UNLOCATED, LATER];
+          return HttpResponse.json({ success: true, data, pagination: { count: data.length } });
+        }),
+      );
+      const user = userEvent.setup();
+      render(<DispatchPage />, { wrapper });
+      await screen.findByTestId("job-row-deal-1");
+      expect(urls.some((u) => new URL(u).searchParams.get("superStatus") === "done")).toBe(false);
+
+      await user.click(screen.getByRole("button", { name: "Filter by" }));
+      expect(screen.getByRole("checkbox", { name: "Canceled" })).toBeInTheDocument();
+      await user.click(screen.getByRole("checkbox", { name: "Done" }));
+      await user.click(screen.getByRole("button", { name: "Apply" }));
+
+      expect(await screen.findByTestId("job-row-deal-9")).toHaveTextContent("Done");
+      expect(screen.queryByTestId("job-row-deal-1")).not.toBeInTheDocument();
+      expect(screen.getByText("Found 1 out of 4 jobs")).toBeInTheDocument();
+      const week = mapRangeWindow("week", localDay());
+      const done = urls.map((u) => new URL(u).searchParams).find((p) => p.get("superStatus") === "done");
+      expect(done?.get("scheduledFrom")).toBe(week.from);
+      expect(done?.get("scheduledTo")).toBe(week.to);
     });
 
     it("‹ leaves the panel without applying", async () => {

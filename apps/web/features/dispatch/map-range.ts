@@ -3,14 +3,19 @@
  * and "Reset date". Workiz reads every open job once and shows the ones
  * scheduled inside the chosen days — Week is Sunday to Saturday, Month the
  * calendar month, and ‹ › step one of those at a time.
+ *
+ * "Any date" is ours (kept from before the Workiz pass): no days at all, so
+ * every open job shows together — the unscheduled ones and the overdue ones
+ * that no week would reach.
  */
 
-export type MapRange = "day" | "week" | "month";
+export type MapRange = "day" | "week" | "month" | "all";
 
 export const MAP_RANGES: readonly { value: MapRange; label: string }[] = [
   { value: "day", label: "Day" },
   { value: "week", label: "Week" },
   { value: "month", label: "Month" },
+  { value: "all", label: "Any date" },
 ];
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -39,8 +44,9 @@ function addDays(isoDay: string, n: number): string {
   return iso(d);
 }
 
-/** The inclusive days a range covers around `anchor`. */
-export function mapRangeWindow(range: MapRange, anchor: string): { from: string; to: string } {
+/** The inclusive days a range covers around `anchor`; none for Any date. */
+export function mapRangeWindow(range: MapRange, anchor: string): { from?: string; to?: string } {
+  if (range === "all") return {};
   if (range === "day") return { from: anchor, to: anchor };
   const d = parse(anchor);
   if (range === "week") {
@@ -54,6 +60,7 @@ export function mapRangeWindow(range: MapRange, anchor: string): { from: string;
 
 /** ‹ / ›: the anchor one range earlier or later (months from their 1st). */
 export function shiftMapRange(range: MapRange, anchor: string, step: 1 | -1): string {
+  if (range === "all") return anchor;
   if (range === "day") return addDays(anchor, step);
   if (range === "week") return addDays(anchor, 7 * step);
   const d = parse(anchor);
@@ -72,6 +79,7 @@ function dayWords(isoDay: string): string {
  */
 export function mapRangeLabel(range: MapRange, anchor: string): string[] {
   const { from, to } = mapRangeWindow(range, anchor);
+  if (!from || !to) return ["All open jobs, any date"];
   if (range === "day") return [dayWords(from)];
   return [`${dayWords(from)} - `, dayWords(to)];
 }

@@ -3,9 +3,12 @@ import { ClientType, DealPriority, DealStatus, JobSuperStatus, type Deal } from 
 
 import {
   EMPTY_MAP_FILTERS,
+  MAP_CLOSED_STATUSES,
   MAP_STATUSES,
   UNASSIGNED,
+  closedMapWindow,
   countMapFilters,
+  mapFoundText,
   matchesMapFilters,
   sortByName,
   toggleValue,
@@ -79,6 +82,48 @@ describe("MAP_STATUSES", () => {
       JobSuperStatus.PENDING,
       JobSuperStatus.DONE_PENDING_APPROVAL,
     ]);
+  });
+});
+
+describe("Done / Canceled on the map (ours — Workiz's Map shows open jobs only)", () => {
+  const ticked = (...statuses: JobSuperStatus[]) => ({ ...EMPTY_MAP_FILTERS, statuses });
+  const week = { from: "2026-10-04", to: "2026-10-10" };
+
+  it("are offered after Workiz's four", () => {
+    expect(MAP_CLOSED_STATUSES).toEqual([JobSuperStatus.DONE, JobSuperStatus.CANCELED]);
+  });
+
+  it("are read only when ticked, and only for the date box's days", () => {
+    expect(closedMapWindow(EMPTY_MAP_FILTERS, week)).toBeNull();
+    expect(closedMapWindow(ticked(JobSuperStatus.SUBMITTED), week)).toBeNull();
+    expect(closedMapWindow(ticked(JobSuperStatus.SUBMITTED, JobSuperStatus.DONE), week)).toEqual({
+      ...week,
+      statuses: [JobSuperStatus.DONE],
+    });
+    expect(closedMapWindow(ticked(JobSuperStatus.CANCELED, JobSuperStatus.DONE), week)).toEqual({
+      ...week,
+      statuses: [JobSuperStatus.DONE, JobSuperStatus.CANCELED],
+    });
+  });
+
+  it("are never read for Any date — closed jobs of every date are far too many", () => {
+    expect(closedMapWindow(ticked(JobSuperStatus.DONE), {})).toBeNull();
+  });
+});
+
+describe("mapFoundText", () => {
+  it("counts among the open jobs, as Workiz does", () => {
+    expect(mapFoundText({ shown: 2, open: 3 })).toBe("Found 2 out of 3 open jobs");
+  });
+
+  it("with Done / Canceled read in, counts among every job held", () => {
+    expect(mapFoundText({ shown: 5, open: 3, closed: 4 })).toBe("Found 5 out of 7 jobs");
+  });
+
+  it("says why no Done / Canceled show for Any date", () => {
+    expect(mapFoundText({ shown: 0, open: 3, closedNeedDays: true })).toBe(
+      "Found 0 out of 3 open jobs · pick Day, Week or Month for Done / Canceled",
+    );
   });
 });
 

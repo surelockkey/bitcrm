@@ -73,16 +73,21 @@ export function MapDateBox({
             <span key={part}>{part}</span>
           ))}
         </div>
+        {/* Any date (ours) has no days to step through or reset. */}
         <div className="flex justify-end gap-3">
-          <BoxButton label="Previous" onClick={() => onStep(-1)}>
-            <ChevronLeft strokeWidth={1.6} />
-          </BoxButton>
-          <BoxButton label="Next" onClick={() => onStep(1)}>
-            <ChevronRight strokeWidth={1.6} />
-          </BoxButton>
-          <BoxButton label="Reset date" onClick={onReset}>
-            <CalendarDotIcon />
-          </BoxButton>
+          {range === "all" ? null : (
+            <>
+              <BoxButton label="Previous" onClick={() => onStep(-1)}>
+                <ChevronLeft strokeWidth={1.6} />
+              </BoxButton>
+              <BoxButton label="Next" onClick={() => onStep(1)}>
+                <ChevronRight strokeWidth={1.6} />
+              </BoxButton>
+              <BoxButton label="Reset date" onClick={onReset}>
+                <CalendarDotIcon />
+              </BoxButton>
+            </>
+          )}
         </div>
       </div>
     </TooltipProvider>

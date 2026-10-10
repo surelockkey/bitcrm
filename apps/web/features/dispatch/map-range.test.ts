@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { localToday, mapRangeLabel, mapRangeWindow, shiftMapRange } from "./map-range";
+import { MAP_RANGES, localToday, mapRangeLabel, mapRangeWindow, shiftMapRange } from "./map-range";
 
 // Friday 9 October 2026 — the day the Workiz captures were taken.
 const FRI = "2026-10-09";
@@ -54,6 +54,21 @@ describe("mapRangeLabel", () => {
     expect(mapRangeLabel("day", FRI)).toEqual(["Fri, Oct 9, 2026"]);
     expect(mapRangeLabel("week", FRI)).toEqual(["Sun, Oct 4, 2026 - ", "Sat, Oct 10, 2026"]);
     expect(mapRangeLabel("month", FRI)).toEqual(["Thu, Oct 1, 2026 - ", "Sat, Oct 31, 2026"]);
+  });
+});
+
+describe("Any date (ours — Workiz's box has Day / Week / Month only)", () => {
+  it("is offered last in the range select", () => {
+    expect(MAP_RANGES.map((r) => r.label)).toEqual(["Day", "Week", "Month", "Any date"]);
+  });
+
+  it("has no days, so every open job shows — unscheduled and overdue ones too", () => {
+    expect(mapRangeWindow("all", FRI)).toEqual({});
+  });
+
+  it("does not step, and says what it shows", () => {
+    expect(shiftMapRange("all", FRI, 1)).toBe(FRI);
+    expect(mapRangeLabel("all", FRI)).toEqual(["All open jobs, any date"]);
   });
 });
 
