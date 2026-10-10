@@ -7,13 +7,13 @@ import {
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { DynamoDbService } from '@bitcrm/shared';
-import { AccountClock, type TimelineEntry } from '@bitcrm/types';
+import { AccountClock, TimelineEventType, type TimelineEntry } from '@bitcrm/types';
 import {
   CLIENT_ACTIVITY_PK_PREFIX,
   CLIENT_ACTIVITY_SK_PREFIX,
   DEALS_TABLE,
 } from '../common/constants/dynamo.constants';
-import { activityIndexFields } from '../activity/activity-index';
+import { activityIndexFields, activitySearchOf } from '../activity/activity-index';
 import { currentActivitySource } from '../activity/activity-source';
 import { ActivityCountsRepository } from '../activity/activity-counts.repository';
 import {
@@ -97,13 +97,17 @@ export class TimelineRepository {
     id: string,
     note: string,
   ): Promise<void> {
+    // A note is an Activity event: Search finds it by the words it has now.
+    // (On a row the indexes do not hold yet the text waits harmlessly for the
+    // backfill, which stamps the rest.)
+    const search = activitySearchOf({ SK: 'TIMELINE#', eventType: TimelineEventType.NOTE_ADDED, note, details: {} });
     await this.dynamoDb.client.send(
       new UpdateCommand({
         TableName: this.tableName,
         Key: this.key(dealId, timestamp, id),
-        UpdateExpression: 'SET #note = :note',
-        ExpressionAttributeNames: { '#note': 'note' },
-        ExpressionAttributeValues: { ':note': note },
+        UpdateExpression: 'SET #note = :note, #search = :search',
+        ExpressionAttributeNames: { '#note': 'note', '#search': 'activitySearch' },
+        ExpressionAttributeValues: { ':note': note, ':search': search },
       }),
     );
   }

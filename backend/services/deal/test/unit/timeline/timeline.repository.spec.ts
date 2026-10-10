@@ -41,6 +41,22 @@ describe('TimelineRepository', () => {
     });
   });
 
+  // Our notes are Activity events (restored 2026-10-10): an edited note is
+  // found by its new words, not the ones it was written with.
+  describe('updateNote', () => {
+    it('saves the words and the Activity search text with them', async () => {
+      dynamoDb.client.send.mockResolvedValue({});
+
+      await repository.updateNote('deal-1', '2026-09-30T10:00:00.000Z', 'n1', 'Client wants Monday');
+
+      const input = dynamoDb.client.send.mock.calls[0][0].input;
+      expect(input.Key).toEqual({ PK: 'DEAL#deal-1', SK: 'TIMELINE#2026-09-30T10:00:00.000Z#n1' });
+      expect(input.UpdateExpression).toBe('SET #note = :note, #search = :search');
+      expect(input.ExpressionAttributeNames).toEqual({ '#note': 'note', '#search': 'activitySearch' });
+      expect(input.ExpressionAttributeValues).toEqual({ ':note': 'Client wants Monday', ':search': 'added note: client wants monday' });
+    });
+  });
+
   describe('findByDeal', () => {
     it('should query with correct key condition and sort order', async () => {
       dynamoDb.client.send.mockResolvedValue({ Items: [], Count: 0 });
