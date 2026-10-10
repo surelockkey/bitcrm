@@ -30,8 +30,9 @@ import {
   toListParams,
   toSearchCountsParams,
   type JobsListState,
+  type JobsSort,
 } from "../query-params";
-import { jobTabLabel, tabCount, type JobTab } from "../lib";
+import { jobTabLabel, sortJobs, tabCount, type JobTab } from "../lib";
 import { JobSuperStatus } from "@bitcrm/types";
 import { useBusinessProfiles } from "@/features/business-profiles/hooks";
 import { useJobTypes } from "@/features/job-types/hooks";
@@ -182,8 +183,15 @@ export function DealsPage() {
     [areaZone],
   );
 
-  // The server orders the rows (by visit, either way — the Scheduled header).
-  const visible = pager.items;
+  // The server orders the rows (by visit, either way — the Scheduled header);
+  // the hour sorts (ours, the header's menu) are settled on the rows in hand.
+  const visible = useMemo(
+    () =>
+      state.sort === "hour_asc" || state.sort === "hour_desc"
+        ? sortJobs(pager.items, { key: "hour", dir: state.sort === "hour_asc" ? "asc" : "desc" })
+        : pager.items,
+    [pager.items, state.sort],
+  );
 
   // Hold the first paint for everything the frame prints, and nothing else:
   // the rows, the tab numbers (the searched one too), the job types, the
@@ -230,6 +238,7 @@ export function DealsPage() {
     order: fieldOrder,
     sort: state.sort,
     onSortScheduled: () => setState((s) => ({ ...s, sort: s.sort === "day_desc" ? "none" : "day_desc" })),
+    onSortChange: (sort: JobsSort) => setState((s) => ({ ...s, sort })),
     zoneOf,
     accountZone: DEFAULT_TZ,
   } as const;

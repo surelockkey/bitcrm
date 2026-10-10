@@ -24,6 +24,7 @@ import { useCustomFields } from "@/features/custom-fields/hooks";
 import { JobTagChips } from "@/features/job-tags/components/job-tag-chips";
 import { DEFAULT_TZ } from "@/lib/timezone";
 import { cn } from "@/lib/utils";
+import { ScheduledSortMenu } from "./scheduled-sort-menu";
 import {
   DEFAULT_VISIBLE,
   customFieldIdFromColumn,
@@ -182,6 +183,7 @@ export function DealsTable({
   accountZone = DEFAULT_TZ,
   emptyText = "No Jobs Found",
   stopOf,
+  onSortChange,
 }: {
   deals: Deal[];
   /**
@@ -231,6 +233,11 @@ export function DealsTable({
    * Scheduled cell. Absent on `/deals`.
    */
   stopOf?: (deal: Deal) => number | undefined;
+  /**
+   * Ours: the chevron beside the Scheduled header with the old sort list
+   * (Day ↑ / Day ↓ / Hour ↑ / Hour ↓). Absent = Workiz's header alone.
+   */
+  onSortChange?: (sort: JobsSort) => void;
 }) {
   const jobTypeName = useJobTypeName();
   const sourceName = useJobSourceName();
@@ -459,14 +466,17 @@ export function DealsTable({
               className={cn(HEAD, c.id === "scheduled" && onSortScheduled && "cursor-pointer")}
             >
               {c.id === "scheduled" && onSortScheduled ? (
-                <button
-                  type="button"
-                  aria-label={`Sort by Scheduled, ${sort === "day_desc" ? "latest first" : "soonest first"}`}
-                  onClick={onSortScheduled}
-                  className="w-full truncate text-left font-medium"
-                >
-                  {c.label}
-                </button>
+                <span className="flex w-full min-w-0 items-center gap-1">
+                  <button
+                    type="button"
+                    aria-label={`Sort by Scheduled, ${sort === "day_desc" ? "latest first" : "soonest first"}`}
+                    onClick={onSortScheduled}
+                    className={cn("truncate text-left font-medium", onSortChange ? "min-w-0" : "w-full")}
+                  >
+                    {c.label}
+                  </button>
+                  {onSortChange ? <ScheduledSortMenu value={sort} onChange={onSortChange} /> : null}
+                </span>
               ) : (
                 c.label
               )}
