@@ -122,12 +122,13 @@ describe("LocationStockDialog — a van's stock", () => {
     expect(screen.getByRole("heading", { level: 3, name: "Taras's van" })).toBeInTheDocument();
   });
 
-  it("lists what the van holds — name, quantity, price, cost — left-aligned", async () => {
+  // The SKU column is ours (kept from before the Workiz pass): Search already matched it.
+  it("lists what the van holds — name, SKU, quantity, price, cost — left-aligned", async () => {
     vanRows = [row("p1", "Deadbolt", 6, { sku: "LOCK-001", priceClient: 45, costCompany: 20.16 })];
     open();
     await screen.findByText("Deadbolt");
-    expect(headers()).toEqual(["Product Name", "Quantity", "Price", "Cost", "Actions"]);
-    expect(bodyRows().map((r) => r.slice(0, 4))).toEqual([["Deadbolt", "6", "45.00", "20.16"]]);
+    expect(headers()).toEqual(["Product Name", "SKU", "Quantity", "Price", "Cost", "Actions"]);
+    expect(bodyRows().map((r) => r.slice(0, 5))).toEqual([["Deadbolt", "LOCK-001", "6", "45.00", "20.16"]]);
     for (const cell of document.querySelectorAll('[role="dialog"] th, [role="dialog"] td')) {
       expect(cell.className).not.toMatch(/text-right/);
     }
@@ -137,7 +138,7 @@ describe("LocationStockDialog — a van's stock", () => {
     mocks.denied.add("financials.view");
     open();
     await screen.findByText("Deadbolt");
-    expect(headers()).toEqual(["Product Name", "Quantity", "Price", "Actions"]);
+    expect(headers()).toEqual(["Product Name", "SKU", "Quantity", "Price", "Actions"]);
     expect(screen.queryByText(/Total Items cost/)).toBeNull();
   });
 
@@ -246,7 +247,7 @@ describe("LocationStockDialog — move and return, never add", () => {
     mocks.denied.add("transfers.create");
     open();
     await screen.findByText("Deadbolt");
-    expect(headers()).toEqual(["Product Name", "Quantity", "Price", "Cost"]);
+    expect(headers()).toEqual(["Product Name", "SKU", "Quantity", "Price", "Cost"]);
     expect(screen.queryByRole("button", { name: /Deadbolt/ })).toBeNull();
   });
 });
