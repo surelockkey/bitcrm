@@ -38,6 +38,10 @@ export interface TeamRow {
   skills: string[];
   areaIds: string[];
   areas: string[];
+  /** Ours, after Workiz's columns (kept from the old list): the person's department. */
+  department: string;
+  /** Ours: the card's labor cost per hour, unset = blank. */
+  laborCostPerHour?: number;
 }
 
 /** Every technician's approved entries (`GET /users/technicians/assignments/approved`). */
@@ -98,6 +102,8 @@ export function teamRows(
       skills: (skillsOf.get(p.userId) ?? []).map(jobTypeName),
       areaIds,
       areas: areaIds.map(areaName),
+      department: u?.department ?? "",
+      ...(typeof p.laborCostPerHour === "number" ? { laborCostPerHour: p.laborCostPerHour } : {}),
     };
   });
 }

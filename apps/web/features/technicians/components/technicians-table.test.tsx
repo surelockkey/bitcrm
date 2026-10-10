@@ -21,6 +21,7 @@ function row(over: Partial<TeamRow> = {}): TeamRow {
     skills: ["(A-1) Door Glass Job", "Rekey lock"],
     areaIds: ["ct", "ny"],
     areas: ["SURE LOCK CT", "SURE LOCK NY"],
+    department: "",
     ...over,
   };
 }
@@ -31,7 +32,7 @@ const draw = (rows: TeamRow[], onOpen = vi.fn()) =>
 const records = () => [...document.querySelectorAll("tbody tr:not([aria-hidden])")] as HTMLElement[];
 
 describe("TechniciansTable — Workiz's Team grid", () => {
-  it("has Workiz's columns, in Workiz's order", () => {
+  it("has Workiz's columns, in Workiz's order, then ours: Department and Labor", () => {
     draw([row()]);
     expect(screen.getAllByRole("columnheader").map((h) => h.textContent)).toEqual([
       "Name",
@@ -42,7 +43,20 @@ describe("TechniciansTable — Workiz's Team grid", () => {
       "Created",
       "Skills",
       "Areas",
+      "Department",
+      "Labor",
     ]);
+  });
+
+  it("prints the department and the hourly labor cost — '$45.00/hr', blank when unset", () => {
+    draw([row({ id: "a", department: "Field", laborCostPerHour: 45 }), row({ id: "b", department: "", laborCostPerHour: undefined })]);
+    const [a, b] = records();
+    const ca = within(a).getAllByRole("cell");
+    expect(ca[8]).toHaveTextContent(/^Field$/);
+    expect(ca[9]).toHaveTextContent(/^\$45\.00\/hr$/);
+    const cb = within(b).getAllByRole("cell");
+    expect(cb[8]).toHaveTextContent(/^$/);
+    expect(cb[9]).toHaveTextContent(/^$/);
   });
 
   it("prints a row as Workiz does", () => {

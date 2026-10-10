@@ -7,6 +7,7 @@ import { WzReportGrid, type WzReportColumn, type WzRowOpenEvent, type WzSortDir 
 import { formatPhone } from "@/lib/phone";
 import { useColumnWidths } from "@/lib/table/use-column-widths";
 import { cn } from "@/lib/utils";
+import { formatMoney } from "@/features/deals/lib";
 import { formatTeamCreated, TEAM_TYPE_LABEL, type TeamRow } from "../team-list";
 
 /** Workiz splits a list cell's names with " ," ("SURE LOCK CT ,SURE LOCK NY", pg_technicians_wz_06_search_bohdan). */
@@ -110,6 +111,22 @@ export const TEAM_COLUMNS: (WzReportColumn<TeamRow> & Pick<WzGridColumn<TeamRow>
     sortable: true,
     sortValue: (r) => joinNames(r.areas),
     cell: (r) => <span className="block truncate">{joinNames(r.areas)}</span>,
+  },
+  // Ours, after Workiz's (kept from the old list): where they sit and what an hour of theirs costs.
+  {
+    id: "department",
+    label: "Department",
+    sortable: true,
+    sortValue: (r) => r.department,
+    searchText: (r) => r.department,
+    cell: (r) => <span className="block truncate">{r.department}</span>,
+  },
+  {
+    id: "labor",
+    label: "Labor",
+    sortable: true,
+    sortValue: (r) => r.laborCostPerHour,
+    cell: (r) => (r.laborCostPerHour === undefined ? "" : `${formatMoney(r.laborCostPerHour)}/hr`),
   },
 ];
 

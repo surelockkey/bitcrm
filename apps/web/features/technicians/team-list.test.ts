@@ -97,6 +97,15 @@ describe("teamRows — one row per technician, as the Team list reads them", () 
     });
   });
 
+  // Ours, kept from the old list: Department and the hourly labor cost.
+  it("carries the person's department and the card's labor cost per hour", () => {
+    const [row] = teamRows([profile({ laborCostPerHour: 45 })], ctx([user({ department: "Field" })]));
+    expect(row).toMatchObject({ department: "Field", laborCostPerHour: 45 });
+    const [bare] = teamRows([profile()], ctx([user({ department: "" })]));
+    expect(bare.department).toBe("");
+    expect(bare.laborCostPerHour).toBeUndefined();
+  });
+
   it("reads Workiz's User type off the person; the card's copy only for a record from before", () => {
     const [sub] = teamRows([profile({ technicianType: "regular" })], ctx([user({ userType: "subcontractor" })]));
     expect(sub.type).toBe("subcontractor");
@@ -171,6 +180,7 @@ describe("filterTeam", () => {
     skills: [],
     areaIds: [],
     areas: [],
+    department: "",
     ...over,
   });
   const rows = [
