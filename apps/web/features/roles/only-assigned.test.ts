@@ -3,7 +3,14 @@ import { DataScope, RESOURCE_REGISTRY } from "@bitcrm/types";
 import type { DataScopeRules } from "@bitcrm/types";
 import { DEFAULT_ROLES } from "../../../../backend/services/user/src/roles/constants/default-roles";
 import { SYSTEM_ROLES } from "@/lib/permissions/system-roles";
-import { ONLY_ASSIGNED_RESOURCES, newRoleScope, onlyAssignedOf, onlyAssignedState, withOnlyAssigned } from "./only-assigned";
+import {
+  ONLY_ASSIGNED_RESOURCES,
+  newRoleScope,
+  onlyAssignedOf,
+  onlyAssignedState,
+  sameOnlyAssigned,
+  withOnlyAssigned,
+} from "./only-assigned";
 
 const { ALL, DEPARTMENT, ASSIGNED_ONLY } = DataScope;
 
@@ -58,6 +65,20 @@ describe("onlyAssignedOf / onlyAssignedState", () => {
     const { deals: _dropped, ...rest } = every(ASSIGNED_ONLY);
     void _dropped;
     expect(onlyAssignedOf(rest)).toBe(false);
+  });
+});
+
+describe("sameOnlyAssigned — whether two scopes put the switch in the same place", () => {
+  it("is true for on/on and off/off, department and all alike", () => {
+    expect(sameOnlyAssigned(every(ASSIGNED_ONLY), every(ASSIGNED_ONLY, { contacts: ALL }))).toBe(true);
+    expect(sameOnlyAssigned(every(ALL), every(DEPARTMENT))).toBe(true);
+  });
+
+  it("is false for on/off, and for two different partial states", () => {
+    expect(sameOnlyAssigned(every(ASSIGNED_ONLY), every(ALL))).toBe(false);
+    expect(sameOnlyAssigned(every(ALL, { deals: ASSIGNED_ONLY }), every(ALL))).toBe(false);
+    expect(sameOnlyAssigned(every(ALL, { deals: ASSIGNED_ONLY }), every(ALL, { messages: ASSIGNED_ONLY }))).toBe(false);
+    expect(sameOnlyAssigned(every(ALL, { deals: ASSIGNED_ONLY }), every(ALL, { deals: ASSIGNED_ONLY }))).toBe(true);
   });
 });
 

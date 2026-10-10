@@ -51,6 +51,13 @@ export function onlyAssignedOf(dataScope: DataScopeRules): boolean {
   return onlyAssignedState(dataScope).on;
 }
 
+/** Whether two scopes put the switch in the same place (on, off, or the same partial set). */
+export function sameOnlyAssigned(a: DataScopeRules, b: DataScopeRules): boolean {
+  const x = onlyAssignedState(a);
+  const y = onlyAssignedState(b);
+  return x.on === y.on && x.partly.join() === y.partly.join();
+}
+
 /**
  * The data scope with the switch turned on or off; every other resource
  * keeps its stored value. Off opens each assigned-only one to what

@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment } from "react";
+import { Fragment, type ReactNode } from "react";
 import { Ban, Eye, ShieldCheck } from "lucide-react";
 import { WzDotsMenu } from "@/components/workiz/dots-menu";
 import { WzPopMenu } from "@/components/workiz/pop-menu";
@@ -23,6 +23,17 @@ import { actionSections, isShownPermission, permissionMatches, permissionWords, 
 export type PermissionSection = "actions" | "reports";
 
 /**
+ * A row of ours drawn first in one resource's block of the Actions tab — the
+ * jobs block's "Sees only jobs assigned to them". Search keeps it when one of
+ * its `words` holds the query, and keeps its block for it.
+ */
+export interface PermissionLeadRow {
+  resource: string;
+  words: readonly string[];
+  node: ReactNode;
+}
+
+/**
  * The permission list of the role editor and a user's overrides, as Workiz's
  * "Edit permissions for role …" lists its (pg_admin_users_wz_10_role_dispatch):
  * ONE green 40×20 switch per row (Workiz's toggleSwitch-module, `WzSwitch` —
@@ -42,6 +53,7 @@ export function PermissionMatrixEditor({
   onChange,
   section = "actions",
   query = "",
+  lead,
 }: {
   schema: Schema;
   permissions: PermissionMatrix;
@@ -52,6 +64,8 @@ export function PermissionMatrixEditor({
   section?: PermissionSection;
   /** Search's words. */
   query?: string;
+  /** Actions tab: a row of ours at the top of one resource's block. */
+  lead?: PermissionLeadRow;
 }) {
   const toggle = (resource: string, action: string) =>
     onChange(setAllowed(permissions, resource, action, !isAllowed(permissions, resource, action)));
@@ -84,12 +98,15 @@ export function PermissionMatrixEditor({
     );
   }
 
+  const q = query.trim().toLowerCase();
+  const shownLead = lead && (!q || lead.words.some((w) => w.toLowerCase().includes(q))) ? lead : undefined;
+
   const sections = actionSections(schema)
     .map((s) => ({
       ...s,
       resources: s.resources
         .map((r) => ({ ...r, actions: r.actions.filter((a) => permissionMatches(r.resource, query, a)) }))
-        .filter((r) => r.actions.length > 0),
+        .filter((r) => r.actions.length > 0 || r.resource === shownLead?.resource),
     }))
     .filter((s) => s.resources.length > 0);
 
@@ -113,6 +130,7 @@ export function PermissionMatrixEditor({
                   />
                 ) : null}
               </div>
+              {shownLead?.resource === resource ? shownLead.node : null}
               {actions.map((action) => row(resource, action))}
             </Fragment>
           ))}

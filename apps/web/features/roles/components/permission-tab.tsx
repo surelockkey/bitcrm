@@ -8,7 +8,7 @@ import { WzTextField } from "@/components/workiz/text-field";
 import { WzWindowFrame } from "@/components/workiz/window-frame";
 import { cn } from "@/lib/utils";
 import type { Schema } from "../lib";
-import { PermissionMatrixEditor, SwitchAllMenu, type PermissionSection } from "./permission-matrix";
+import { PermissionMatrixEditor, SwitchAllMenu, type PermissionLeadRow, type PermissionSection } from "./permission-matrix";
 
 /**
  * The Actions / Reports tab of a permission editor, as Workiz's
@@ -16,7 +16,8 @@ import { PermissionMatrixEditor, SwitchAllMenu, type PermissionSection } from ".
  * switching them on" (16px/19px 600 #404040) with its "?" — "Permissions are
  * enabled when the toggle switch is green" — then the legacy 483×48 Search
  * 15px under it, and the rows 25px under that. `tools` sit on Search's line
- * (ours: copy from a role, clear all).
+ * (ours: copy from a role, clear all); `lead` is our row at the top of the
+ * jobs block ("Sees only jobs assigned to them").
  */
 export function PermissionTab({
   section,
@@ -27,6 +28,7 @@ export function PermissionTab({
   onChange,
   tools,
   summary,
+  lead,
 }: {
   section: PermissionSection;
   schema: Schema;
@@ -38,6 +40,8 @@ export function PermissionTab({
   tools?: ReactNode;
   /** Ours, under the heading: "12 permissions granted", "1 switch overridden …". */
   summary?: ReactNode;
+  /** Actions tab: our row at the top of one resource's block. */
+  lead?: PermissionLeadRow;
 }) {
   const [query, setQuery] = useState("");
   return (
@@ -77,21 +81,8 @@ export function PermissionTab({
         onChange={onChange}
         section={section}
         query={query}
+        lead={section === "actions" ? lead : undefined}
       />
-    </div>
-  );
-}
-
-/**
- * Workiz's Advanced tab (pg_admin_users_wz_13_tab_advanced): 40px in, "Please
- * choose rules" (16px/19px 600), then a section per rule — a 20px/25px
- * thin title in #3e4b51 and a 14px line saying what it chooses.
- */
-export function RulesTab({ children }: { children: ReactNode }) {
-  return (
-    <div className="px-10 pt-5 pb-6">
-      <h4 className="text-base leading-[19px] font-semibold tracking-[0.4px] text-wz-strong">Please choose rules</h4>
-      {children}
     </div>
   );
 }
@@ -109,15 +100,5 @@ export function EditorSkeleton({ onClose }: { onClose: () => void }) {
         ))}
       </div>
     </WzWindowFrame>
-  );
-}
-
-export function RulesSection({ title, helper, children }: { title: string; helper: ReactNode; children: ReactNode }) {
-  return (
-    <section aria-label={title} className="mt-[19px]">
-      <h3 className="text-xl leading-[25px] font-normal tracking-[0.4px] text-wz-tab-bar">{title}</h3>
-      <p className="mt-3 mb-[17px] pl-1 text-sm leading-4 tracking-[0.4px] text-wz-strong">{helper}</p>
-      {children}
-    </section>
   );
 }

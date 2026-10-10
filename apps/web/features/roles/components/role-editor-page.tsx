@@ -30,17 +30,21 @@ import { useRole, useRoles, useRoleSchema, useRoleMembers, useUpdateRole } from 
 import { useRoleAccess, type RoleEditability } from "../use-role-access";
 import { roleDetailsSchema } from "../schemas";
 import { clearMatrix, countGrants, diffCells, isSuperAdmin, normalizeMatrix, sortRolesByPriority, type Schema } from "../lib";
-import { DataScopeEditor } from "./data-scope-editor";
-import { EditorSkeleton, PermissionTab, RulesSection, RulesTab } from "./permission-tab";
-import { StageTransitionsEditor } from "./stage-transitions-editor";
+import { EditorSkeleton, PermissionTab } from "./permission-tab";
+import { OnlyAssignedRow, ONLY_ASSIGNED_ROW_WORDS } from "./only-assigned-row";
 import { RoleMembers } from "./role-members";
 
+/**
+ * What the editor changes. The role's stage moves (`dealStageTransitions`)
+ * are not here: nothing reads them any more (status moves are gated by
+ * `deals.move_status`), so the editor neither shows nor sends them and the
+ * stored list stays as it is.
+ */
 interface RoleDraft {
   name: string;
   description: string;
   permissions: PermissionMatrix;
   dataScope: DataScopeRules;
-  dealStageTransitions: string[];
   priority: number;
 }
 
@@ -50,7 +54,6 @@ function toDraft(role: Role, schema: Schema): RoleDraft {
     description: role.description ?? "",
     permissions: normalizeMatrix(role.permissions, schema),
     dataScope: { ...role.dataScope },
-    dealStageTransitions: [...role.dealStageTransitions],
     priority: role.priority,
   };
 }
@@ -65,9 +68,6 @@ function isDirty(draft: RoleDraft, role: Role, schema: Schema): boolean {
     const b = role.dataScope[resource] ?? DataScope.ALL;
     if (a !== b) return true;
   }
-  const a = new Set(draft.dealStageTransitions);
-  const b = new Set(role.dealStageTransitions);
-  if (a.size !== b.size || [...a].some((x) => !b.has(x))) return true;
   return false;
 }
 
@@ -163,7 +163,6 @@ function RoleEditor({ role, schema, roleId, onClose }: { role: Role; schema: Sch
         description: draft.description.trim() || undefined,
         permissions: draft.permissions,
         dataScope: draft.dataScope,
-        dealStageTransitions: draft.dealStageTransitions,
         priority: draft.priority,
       },
     });
@@ -247,7 +246,6 @@ function RoleEditor({ role, schema, roleId, onClose }: { role: Role; schema: Sch
         tabs={[
           { value: "actions", label: "Actions" },
           { value: "reports", label: "Reports" },
-          { value: "advanced", label: "Advanced" },
           { value: "members", label: "Members", count: memberCount },
           { value: "details", label: "Details" },
         ]}
@@ -265,27 +263,21 @@ function RoleEditor({ role, schema, roleId, onClose }: { role: Role; schema: Sch
           onChange={setPermissions}
           tools={tools}
           summary={`${grants} permissions granted`}
+          lead={{
+            resource: "deals",
+            words: ONLY_ASSIGNED_ROW_WORDS,
+            node: (
+              <OnlyAssignedRow
+                key="only-assigned"
+                dataScope={draft.dataScope}
+                baseline={role.dataScope}
+                fallback={role.dataScope}
+                readOnly={readOnly}
+                onChange={(dataScope) => setDraft((d) => ({ ...d, dataScope }))}
+              />
+            ),
+          }}
         />
-      ) : null}
-
-      {tab === "advanced" ? (
-        <RulesTab>
-          <RulesSection title="Data scope" helper="Choose which records this role reaches in each area">
-            <DataScopeEditor
-              schema={schema}
-              dataScope={draft.dataScope}
-              readOnly={readOnly}
-              onChange={(dataScope) => setDraft((d) => ({ ...d, dataScope }))}
-            />
-          </RulesSection>
-          <RulesSection title="Job stages" helper="Choose which stage moves this role may make">
-            <StageTransitionsEditor
-              transitions={draft.dealStageTransitions}
-              readOnly={readOnly}
-              onChange={(dealStageTransitions) => setDraft((d) => ({ ...d, dealStageTransitions }))}
-            />
-          </RulesSection>
-        </RulesTab>
       ) : null}
 
       {tab === "members" ? (
