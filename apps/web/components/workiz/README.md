@@ -1243,8 +1243,11 @@ permissions for role …" modal a role opens; notes:
 - The page pieces (`features/roles/components/permission-tab.tsx`):
   `PermissionTab` — "Enable permissions by switching them on" with Workiz's
   tip, the legacy 483×48 Search (`WzTextField overhang={false}`), the rows;
-  `RulesTab` / `RulesSection` — the Advanced tab's "Please choose rules" and
-  its 20px thin section titles; `EditorSkeleton` — the window while it loads.
+  `EditorSkeleton` — the window while it loads. No Advanced tab (owner,
+  2026-10-10): its Data scope selects and Job stages did nothing useful; the
+  one rule that matters is `OnlyAssignedRow` ("Sees only jobs assigned to
+  them") at the top of the Actions tab's Jobs block, on the role and as a
+  per-person exception (`features/roles/only-assigned.ts`).
 - Workiz's permission control, measured (pg_admin_users_wz_10_role_dispatch):
   ONE `toggleSwitch-module` small switch per row — 40×20, #50d58c on,
   #bbbbbb off, a 16px white knob 2px in — which is `WzSwitch`. Its Advanced
