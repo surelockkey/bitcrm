@@ -18,16 +18,13 @@ import {
 } from "@/components/ui/alert-dialog";
 import { WzButton } from "@/components/workiz/button";
 import { WzTabBar } from "@/components/workiz/tab-bar";
-import { WzSwitchRow } from "@/components/workiz/switch-row";
-import { WzSwitch } from "@/components/workiz/toggles";
 import { WzWindowFrame } from "@/components/workiz/window-frame";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { personName } from "@/features/deals/person-name";
 import { useRole, useRoleSchema } from "@/features/roles/hooks";
 import { diffCells, isSuperAdmin, normalizeMatrix, type Schema } from "@/features/roles/lib";
-import { DataScopeEditor } from "@/features/roles/components/data-scope-editor";
-import { EditorSkeleton, PermissionTab, RulesSection, RulesTab } from "@/features/roles/components/permission-tab";
-import { StageTransitionsEditor } from "@/features/roles/components/stage-transitions-editor";
+import { EditorSkeleton, PermissionTab } from "@/features/roles/components/permission-tab";
+import { OnlyAssignedRow, ONLY_ASSIGNED_ROW_WORDS } from "@/features/roles/components/only-assigned-row";
 import { settled, usePageReady } from "@/lib/use-page-ready";
 import { useClearUserPermissions, useRoles, useSetUserPermissions, useUser, useUserPermissions } from "../hooks";
 import { useHierarchy } from "../use-can-manage";
@@ -165,7 +162,7 @@ function draftsEqual(a: OverridesDraft, b: OverridesDraft, schema: Schema): bool
  * One person's permissions over their role's — ours (Workiz keeps
  * permissions on the role only), drawn as Workiz's role window
  * (pg_admin_users_wz_10_role_dispatch): "Edit permissions for <name>", the
- * Actions / Reports / Advanced tabs, the switch rows, Cancel / Save. Every
+ * Actions / Reports tabs, the switch rows, Cancel / Save. Every
  * switch shows the person's effective permission; a blue dot marks one that
  * differs from the role. Saving stores only the differences.
  */
@@ -288,7 +285,6 @@ function OverridesEditor({
         tabs={[
           { value: "actions", label: "Actions" },
           { value: "reports", label: "Reports" },
-          { value: "advanced", label: "Advanced" },
         ]}
       />
       <OverridesNote user={user} role={role} readOnly={readOnly} canEditUsers={can("users", "edit")} isSelf={isSelf(user)} />
@@ -303,49 +299,21 @@ function OverridesEditor({
           readOnly={readOnly}
           onChange={(permissions) => setDraft((d) => ({ ...d, permissions }))}
           summary={summary}
-        />
-      ) : null}
-
-      {tab === "advanced" ? (
-        <RulesTab>
-          <RulesSection title="Data scope" helper={`Choose which records ${user.firstName} reaches in each area`}>
-            <DataScopeEditor
-              schema={schema}
-              dataScope={draft.dataScope}
-              baseline={baseScopes}
-              readOnly={readOnly}
-              onChange={(dataScope) => setDraft((d) => ({ ...d, dataScope }))}
-            />
-          </RulesSection>
-          <RulesSection title="Job stages" helper={`Choose which stage moves ${user.firstName} may make`}>
-            <WzSwitchRow
-              title="Override the role's stage transitions"
-              description={
-                draft.transitionsOverridden
-                  ? "This list fully replaces the role's transitions for this user."
-                  : `Inherited from “${role.name}”.`
-              }
-            >
-              <WzSwitch
-                aria-label="Override the role's stage transitions"
-                checked={draft.transitionsOverridden}
-                disabled={readOnly}
-                onCheckedChange={(on) =>
-                  setDraft((d) => ({
-                    ...d,
-                    transitionsOverridden: on,
-                    dealStageTransitions: on ? d.dealStageTransitions : [...role.dealStageTransitions],
-                  }))
-                }
+          lead={{
+            resource: "deals",
+            words: ONLY_ASSIGNED_ROW_WORDS,
+            node: (
+              <OnlyAssignedRow
+                key="only-assigned"
+                dataScope={draft.dataScope}
+                baseline={baseScopes}
+                fallback={baseScopes}
+                readOnly={readOnly}
+                onChange={(dataScope) => setDraft((d) => ({ ...d, dataScope }))}
               />
-            </WzSwitchRow>
-            <StageTransitionsEditor
-              transitions={draft.dealStageTransitions}
-              readOnly={readOnly || !draft.transitionsOverridden}
-              onChange={(dealStageTransitions) => setDraft((d) => ({ ...d, dealStageTransitions }))}
-            />
-          </RulesSection>
-        </RulesTab>
+            ),
+          }}
+        />
       ) : null}
 
       {/* Confirm: save */}

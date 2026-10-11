@@ -12,6 +12,7 @@ const state = vi.hoisted(() => ({
 }));
 
 const push = vi.hoisted(() => vi.fn());
+const setPermissions = vi.hoisted(() => ({ mutate: vi.fn(), isPending: false }));
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
 vi.mock("@/features/auth/use-permissions", () => ({
@@ -27,7 +28,16 @@ vi.mock("../use-can-manage", () => ({
   }),
 }));
 
-const schema = { deals: ["view", "create", "edit", "delete"] };
+const schema = {
+  deals: ["view", "create", "edit", "delete"],
+  // The job-bound resources the "Sees only jobs assigned to them" switch stands for.
+  invoices: ["view"],
+  estimates: ["view"],
+  payments: ["view"],
+  commission: ["view"],
+  messages: ["view"],
+  team_chat: ["view"],
+};
 
 const role = {
   id: "role-dispatcher",
@@ -72,7 +82,7 @@ vi.mock("../hooks", () => ({
     isError: false,
     dataUpdatedAt: 1,
   }),
-  useSetUserPermissions: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetUserPermissions: () => setPermissions,
   useClearUserPermissions: () => ({ mutate: vi.fn(), isPending: false }),
   // The page asks for every role up front (whether you outrank this user).
   useRoles: () => ({ data: [role] }),
@@ -104,10 +114,10 @@ describe("UserPermissionsPage access gating", () => {
     expect(screen.getByText(/1 switch overridden \(1 granted, 0 revoked\)/)).toBeInTheDocument();
   });
 
-  it("is Workiz's permission window: its title, Actions / Reports / Advanced, Save held until a change", async () => {
+  it("is Workiz's permission window: its title, Actions / Reports (no Advanced), Save held until a change", async () => {
     render(<UserPermissionsPage userId="u1" />);
     expect(screen.getByRole("heading", { level: 4, name: "Edit permissions for Alex Bell" })).toBeInTheDocument();
-    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["Actions", "Reports", "Advanced"]);
+    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["Actions", "Reports"]);
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
     await userEvent.click(screen.getByRole("switch", { name: "Jobs Delete" }));
     expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
@@ -133,5 +143,42 @@ describe("UserPermissionsPage access gating", () => {
     expect(screen.getByText("You have view-only access to users.")).toBeInTheDocument();
     const switches = screen.getAllByRole("switch");
     expect(switches.every((s) => (s as HTMLButtonElement).disabled)).toBe(true);
+  });
+});
+
+/**
+ * The owner's call of 2026-10-10: the Advanced tab (Data scope, Job stages)
+ * is gone; what it did that mattered is one switch at the top of the Jobs
+ * block — here an exception over the role, saved as the difference only.
+ */
+describe("UserPermissionsPage — Sees only jobs assigned to them", () => {
+  const NAME = "Sees only jobs assigned to them";
+  const JOB_RESOURCES = ["deals", "invoices", "estimates", "payments", "commission", "messages", "team_chat"];
+
+  beforeEach(() => {
+    state.canEditUsers = true;
+    state.canManage = true;
+    state.isSelf = false;
+    role.dataScope = Object.fromEntries(JOB_RESOURCES.map((r) => [r, DataScope.ASSIGNED_ONLY]));
+    resolved.dataScope = { ...role.dataScope };
+    setPermissions.mutate.mockClear();
+  });
+
+  it("shows the person's effective rule on the Actions tab, on for an assigned-only role", () => {
+    render(<UserPermissionsPage userId="u1" />);
+    expect(screen.getByRole("switch", { name: NAME })).toBeChecked();
+    expect(screen.queryByText("Data scope")).not.toBeInTheDocument();
+    expect(screen.queryByText("Job stages")).not.toBeInTheDocument();
+  });
+
+  it("turned off for this person, saves just that difference over the role", async () => {
+    render(<UserPermissionsPage userId="u1" />);
+    await userEvent.click(screen.getByRole("switch", { name: NAME }));
+    expect(screen.getByRole("switch", { name: NAME })).not.toBeChecked();
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Save changes" }));
+    const body = setPermissions.mutate.mock.calls.at(-1)?.[0]?.body;
+    expect(body?.dataScope).toEqual(Object.fromEntries(JOB_RESOURCES.map((r) => [r, DataScope.ALL])));
+    expect(body?.dealStageTransitions).toBeUndefined();
   });
 });

@@ -12,6 +12,7 @@ import { useRoleAccess } from "../use-role-access";
 import { useCreateRole } from "../hooks";
 import { createRoleSchema, type CreateRoleValues } from "../schemas";
 import { priorityBetween, sortRolesByPriority } from "../lib";
+import { newRoleScope } from "../only-assigned";
 
 interface Slot {
   label: string;
@@ -38,8 +39,11 @@ function buildSlots(roles: Role[], cap: number): Slot[] {
  * "Add New Role" as one of Workiz's settings modals (`WzFormModal`, the
  * "Add New Job Type" one: 500px, the 18px/600 title, outlined 40px boxes 24px
  * apart, Cancel / Save): the name, what the role is for, the role whose
- * permissions, data scope and stage moves it starts as a copy of, and where it
- * ranks (only below your own). Save makes it and opens its permissions.
+ * permissions (“Sees only jobs assigned to them” included) it starts as a copy
+ * of, and where it ranks (only below your own). Save makes it and opens its
+ * permissions. Its data scope is the template's with every resource filled
+ * (`newRoleScope`): the server reads a missing one as assigned-only. The
+ * template's stage moves ride along unread — nothing checks them any more.
  */
 export function CreateRoleDialog({
   open,
@@ -88,7 +92,7 @@ export function CreateRoleDialog({
         name: values.name,
         description: values.description || undefined,
         permissions: source.permissions,
-        dataScope: source.dataScope,
+        dataScope: newRoleScope(source.dataScope),
         dealStageTransitions: source.dealStageTransitions,
         priority: values.priority,
       },
@@ -133,7 +137,7 @@ export function CreateRoleDialog({
           error={errors.startFromRoleId?.message}
         />
         <p className="mt-1 pl-[12.5px] text-xs leading-[18px] text-foreground">
-          Copies its permissions, data scope and stage moves as a starting point.
+          Copies its permissions, “Sees only jobs assigned to them” included, as a starting point.
         </p>
       </div>
       <div>
