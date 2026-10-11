@@ -115,7 +115,8 @@ export function ProductsTable({
       ),
       name: (p) =>
         isDisabledItem(p) ? (
-          <span className="flex min-w-0 items-center gap-1.5">
+          // Under the name, as the stock popup's "Low stock": the name keeps the column's width.
+          <span className="flex min-w-0 flex-col gap-2">
             <Cut title={p.name}>{p.name}</Cut>
             <DisabledItemTag />
           </span>
