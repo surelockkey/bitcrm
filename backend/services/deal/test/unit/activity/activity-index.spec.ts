@@ -186,12 +186,21 @@ describe('Activity — what a row prints', () => {
     expect(nativeActivityText(type, details)).toBe(text);
   });
 
-  // Workiz keeps job comments out of its Activity log (the import leaves out its
-  // 397,017 `workiz:note` rows for that reason); our own notes stay out too.
-  it('leaves our own job notes out of the report', () => {
+  // Workiz keeps job comments out of its Activity log, and the import leaves out
+  // its 397,017 `workiz:note` rows for that reason (above). Our own notes are
+  // ours: the report listed them ("Added note: …", searchable) before the
+  // Workiz pass, and lists them again (restored 2026-10-10).
+  it('lists our own job notes, worded and searchable', () => {
     const note = { PK: 'DEAL#d1', SK: 'TIMELINE#2026-09-30T10:00:00.000Z#n2', id: 'n2', timestamp: '2026-09-30T10:00:00.000Z', eventType: TimelineEventType.NOTE_ADDED, note: 'Client asked for Friday', details: {} };
-    expect(isActivityItem(note)).toBe(false);
-    expect(activityIndexFields(note, clock, 'web')).toBeNull();
+    expect(isActivityItem(note)).toBe(true);
+    expect(activityIndexFields(note, clock, 'web')).not.toBeNull();
+    expect(activitySearchOf(note)).toBe('added note: client asked for friday');
+  });
+
+  it('still leaves the imported Workiz job comments out', () => {
+    const comment = { PK: 'DEAL#d1', SK: 'TIMELINE#2026-09-30T10:00:00.000Z#n3', id: 'n3', timestamp: '2026-09-30T10:00:00.000Z', eventType: TimelineEventType.NOTE_ADDED, note: 'Called the client', source: 'workiz', externalId: 'workiz:note:57914906', details: { source: 'workiz' } };
+    expect(isActivityItem(comment)).toBe(false);
+    expect(activityIndexFields(comment, clock, 'web')).toBeNull();
   });
 
   it('searches an action by its words', () => {

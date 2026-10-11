@@ -563,9 +563,10 @@ tests, and — if it emits events — the types in `@bitcrm/types` plus a row in
   ActorIndex — and again after every Workiz timeline import — run in
   `backend/services/deal`: `backfill:activity-index -- --apply` (idempotent,
   conditional, never overwrites a live write) and then `recount:activity --
-  --apply` (sets each day's counter from the index). Only Workiz's own
-  activity log is an Activity event (`workiz:activity:*`), not its job
-  comments. Call Tracking (`GET /telephony/calls/stats/tracking`) needs no
+  --apply` (sets each day's counter from the index). Of the imported rows
+  only Workiz's own activity log is an Activity event (`workiz:activity:*`),
+  not its job comments; every native event is, our own job notes included
+  ("Added note: …", re-searchable after an edit). Call Tracking (`GET /telephony/calls/stats/tracking`) needs no
   backfill: it walks the month partitions of the call log.
 - **The search index is derived.** Never treat it as a source of truth; fix data
   in the owning service and let the indexer or backfill catch up.

@@ -39,10 +39,12 @@ export function isImported(item: Item): boolean {
 }
 
 /**
- * An Activity event: every native timeline event, and of the imported rows
- * only Workiz's own activity log — not its job comments (`workiz:note:*`,
- * Workiz lists those elsewhere) nor the synthetic "created" rows the import
- * adds (`workiz:timeline:*`). This is what makes 1–27 Sep 2026 count exactly
+ * An Activity event: every native timeline event — our own job notes
+ * included ("Added note: …", searchable; BitCRM's report listed them before
+ * the Workiz pass and does again) — and of the imported rows only Workiz's
+ * own activity log: not its job comments (`workiz:note:*`, Workiz lists those
+ * elsewhere) nor the synthetic "created" rows the import adds
+ * (`workiz:timeline:*`). This is what makes 1–27 Sep 2026 count exactly
  * Workiz's 130,964.
  */
 export function isActivityItem(item: Item): boolean {
@@ -52,8 +54,7 @@ export function isActivityItem(item: Item): boolean {
   if (isImported(item)) {
     return typeof item.externalId === 'string' && item.externalId.startsWith('workiz:activity:');
   }
-  // Job notes are comments, not actions: Workiz keeps them out of its log, and so do we.
-  return item.eventType !== TimelineEventType.NOTE_ADDED;
+  return true;
 }
 
 /** The job code an event is about, as the Job Id column prints it. */
