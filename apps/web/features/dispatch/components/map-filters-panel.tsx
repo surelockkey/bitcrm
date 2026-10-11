@@ -4,7 +4,7 @@ import { useState } from "react";
 import { ChevronLeft } from "lucide-react";
 import type { JobSuperStatus } from "@bitcrm/types";
 import { WzButton, WzCheckbox } from "@/components/workiz";
-import { EMPTY_MAP_FILTERS, MAP_STATUSES, UNASSIGNED, toggleValue, type MapFilters } from "../map-filters";
+import { EMPTY_MAP_FILTERS, MAP_CLOSED_STATUSES, MAP_STATUSES, UNASSIGNED, toggleValue, type MapFilters } from "../map-filters";
 import { mapStatusWord } from "../map-words";
 
 interface Option {
@@ -51,7 +51,9 @@ function Section({
  * sidebar: "‹ Filters" and "Clear" over a #dfe2e3 rule, then Technician,
  * Service Area and Status — each a 13px semibold heading over browser
  * checkboxes 37px apart — and the yellow "Apply" pinned at the bottom. Ticks
- * wait for Apply; ‹ leaves them unapplied. Job Type is ours, last.
+ * wait for Apply; ‹ leaves them unapplied. Ours: Done / Canceled after
+ * Workiz's four statuses (read for the date box's days once applied), and
+ * Job Type, last.
  */
 export function MapFiltersPanel({
   value,
@@ -105,7 +107,7 @@ export function MapFiltersPanel({
         <Section title="Service Area" options={areas} picked={draft.areas} onToggle={(v) => toggle("areas", v)} />
         <Section
           title="Status"
-          options={MAP_STATUSES.map((s) => ({ value: s, label: mapStatusWord(s) }))}
+          options={[...MAP_STATUSES, ...MAP_CLOSED_STATUSES].map((s) => ({ value: s, label: mapStatusWord(s) }))}
           picked={draft.statuses}
           onToggle={(v) => toggle("statuses", v as JobSuperStatus)}
         />

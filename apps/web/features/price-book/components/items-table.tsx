@@ -9,6 +9,7 @@ import { formatMoney, type ProductWithMedia } from "@/features/inventory/product
 import { ProductThumb } from "@/features/inventory/products/components/product-thumb";
 import { ProductPhotoDialog } from "@/features/inventory/products/components/product-photo-dialog";
 import { displaySku } from "@/features/inventory/item-edit/item-form";
+import { DisabledItemTag, isDisabledItem } from "@/features/inventory/components/disabled-item-tag";
 import { bookingLabel, categoryLeaf, inventoryLabel, itemTypeLabel, taxableLabel } from "../lib";
 
 type ColumnId =
@@ -95,7 +96,18 @@ export function ItemsTable({
           <span className="block h-10 leading-4">{p.number ?? ""}</span>
         </div>
       ),
-      name: (p) => <span title={p.name}>{p.name}</span>,
+      name: (p) =>
+        isDisabledItem(p) ? (
+          // Under the name, as the stock popup's "Low stock": the name keeps the column's width.
+          <span className="flex min-w-0 flex-col gap-2">
+            <span className="truncate" title={p.name}>
+              {p.name}
+            </span>
+            <DisabledItemTag />
+          </span>
+        ) : (
+          <span title={p.name}>{p.name}</span>
+        ),
       description: (p) => p.description?.split("\n")[0] ?? "",
       price: (p) => formatMoney(p.priceClient),
       cost: (p) => formatMoney(p.costCompany ?? 0),

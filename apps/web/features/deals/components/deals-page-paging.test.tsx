@@ -5,6 +5,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { ClientType, DealPriority, DealStatus, JobSuperStatus } from "@bitcrm/types";
 import type { Deal } from "@bitcrm/types";
 import { DEFAULT_VISIBLE } from "../fields";
@@ -226,6 +227,38 @@ describe("DealsPage — what it asks the server for", () => {
     expect(lastPageParams()).toMatchObject({ dir: "desc" });
     fireEvent.click(screen.getByRole("button", { name: /Sort by Scheduled/ }));
     expect(lastPageParams()).toMatchObject({ dir: "asc" });
+  });
+
+  // Ours, kept from the old "Sort jobs" select: time of day across several days.
+  it("the Scheduled header's menu sorts by the hour across days, on the rows in hand", async () => {
+    mocks.pages = [
+      {
+        data: [
+          { ...deal, id: "d1", dealNumber: "A11111", scheduledDate: "2026-10-09", scheduledTimeSlot: "16:00-17:00" },
+          { ...deal, id: "d2", dealNumber: "B22222", contactId: "c2", scheduledDate: "2026-10-10", scheduledTimeSlot: "08:00-09:00" },
+        ],
+        pagination: { count: 2 },
+      },
+    ];
+    const order = () => screen.getAllByText(/^[AB]\d{5}$/).map((e) => e.textContent);
+    const user = userEvent.setup();
+    render(<DealsPage />);
+    expect(order()).toEqual(["A11111", "B22222"]);
+
+    await user.click(screen.getByRole("button", { name: "Scheduled sort options" }));
+    await user.click(await screen.findByRole("menuitemradio", { name: "Hour ↑" }));
+    expect(order()).toEqual(["B22222", "A11111"]);
+    // The server still reads the visit order; the hour is settled on the page.
+    expect(lastPageParams()).toMatchObject({ sort: "schedule", dir: "asc" });
+
+    await user.click(screen.getByRole("button", { name: "Scheduled sort options" }));
+    expect(screen.getByRole("menuitemradio", { name: "Hour ↑" })).toHaveAttribute("aria-checked", "true");
+    await user.click(screen.getByRole("menuitemradio", { name: "Hour ↓" }));
+    expect(order()).toEqual(["A11111", "B22222"]);
+
+    await user.click(screen.getByRole("button", { name: "Scheduled sort options" }));
+    await user.click(screen.getByRole("menuitemradio", { name: "Day ↓" }));
+    expect(lastPageParams()).toMatchObject({ dir: "desc" });
   });
 
   /** Workiz closes its menu on a pick (react-select closeMenuOnSelect) — audit L12. */

@@ -29,7 +29,7 @@ vi.mock("@/features/auth/use-permissions", () => ({
 
 const summaries = [
   { id: "inv-default", name: "Standard invoice", kind: "invoice", isDefault: true, version: 1, updatedAt: "x" },
-  { id: "inv-2", name: "Commercial invoice", kind: "invoice", isDefault: false, version: 1, updatedAt: "x", autoApply: { jobTypeIds: ["jt1"] } },
+  { id: "inv-2", name: "Commercial invoice", kind: "invoice", isDefault: false, version: 1, updatedAt: "2026-10-09T15:00:00.000Z", autoApply: { jobTypeIds: ["jt1"] } },
   { id: "est-1", name: "Standard estimate", kind: "estimate", isDefault: true, version: 1, updatedAt: "x" },
   { id: "cus-1", name: "Service agreement", kind: "custom", isDefault: false, version: 1, updatedAt: "x" },
 ];
@@ -92,6 +92,7 @@ describe("DocumentsSettingsPage — templates, as Workiz's Document templates gr
       "Type",
       "Default",
       "Auto-applies to",
+      "Updated",
       "",
     ]);
     const names = within(table)
@@ -104,6 +105,14 @@ describe("DocumentsSettingsPage — templates, as Workiz's Document templates gr
     const standard = within(table).getByRole("link", { name: "Standard invoice" }).closest("tr")!;
     expect(within(standard).getByText("Default")).toBeInTheDocument();
     expect(within(table).getByText("Custom document")).toBeInTheDocument();
+  });
+
+  // Ours, kept from the old template cards: when each template last changed.
+  it("says when each template was last updated", async () => {
+    renderPage();
+    const table = await screen.findByRole("table", { name: "Document templates" });
+    const commercial = within(table).getByRole("link", { name: "Commercial invoice" }).closest("tr")!;
+    expect(within(commercial).getByText("Oct 9, 2026")).toBeInTheDocument();
   });
 
   it("opens the editor from a row", async () => {

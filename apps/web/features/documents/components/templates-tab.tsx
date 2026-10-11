@@ -25,6 +25,7 @@ import { useJobTypes } from "@/features/job-types/hooks";
 import { useServiceAreas } from "@/features/service-areas/hooks";
 import { settled, usePageReady } from "@/lib/use-page-ready";
 import { useBusinessProfiles } from "@/features/business-profiles/hooks";
+import { formatDate } from "@/features/users/lib";
 import { useDeleteTemplate, useDocumentTemplates, useDuplicateTemplate, useSetDefaultTemplate } from "../hooks";
 import { KIND_LABELS, autoApplySummary, groupTemplatesByKind, kindHasDefault } from "../lib";
 import { NewTemplateDialog } from "./new-template-dialog";
@@ -35,6 +36,12 @@ const editorHref = (t: DocumentTemplateSummary) => `/settings/documents/${t.id}`
  * Workiz's row icons (IconButton-module small: 24×24, r4) — its trash and its
  * copy, and our star for "Set as default" beside them.
  */
+/** "Oct 9, 2026" — the Updated cell; blank for a date that cannot be read. */
+function updatedText(iso: string | undefined): string {
+  const shown = formatDate(iso);
+  return shown === "—" ? "" : shown;
+}
+
 function RowIcon({ label, onClick, children }: { label: string; onClick: () => void; children: ReactNode }) {
   return (
     <button
@@ -130,6 +137,14 @@ export function TemplatesTab({ canEdit, permsLoading = false }: { canEdit: boole
         render: (t) => (t.isDefault ? <span className="font-semibold">Default</span> : ""),
       },
       { id: "applies", label: "Auto-applies to", render: applies, searchText: applies },
+      // Ours, kept from the old template cards: when it last changed.
+      {
+        id: "updated",
+        label: "Updated",
+        width: 150,
+        render: (t) => updatedText(t.updatedAt),
+        sortValue: (t) => t.updatedAt,
+      },
     ];
     if (canEdit) {
       cols.push({

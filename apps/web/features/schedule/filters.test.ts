@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { JobSuperStatus, type Deal } from "@bitcrm/types";
-import { applyScheduleFilter, pickedTechIds, SCHEDULE_STATUS_OPTIONS } from "./filters";
+import { applyScheduleFilter, INCLUDE_INACTIVE, includesInactive, pickedTechIds, SCHEDULE_STATUS_OPTIONS } from "./filters";
 
 function deal(id: string, over: Partial<Deal> = {}): Deal {
   return {
@@ -64,6 +64,21 @@ describe("pickedTechIds", () => {
   });
   it("lists the picked technicians", () => {
     expect(pickedTechIds([{ group: "team", value: "t1" }, { group: "team", value: "t2" }])).toEqual(["t1", "t2"]);
+  });
+});
+
+describe("TEAM → Include inactive (ours — Workiz's team rows are the active field team only)", () => {
+  const inactive = { group: "team", value: INCLUDE_INACTIVE };
+  it("is not a technician: it neither narrows the jobs nor picks a row", () => {
+    expect(applyScheduleFilter([a, b], [inactive]).map((d) => d.id)).toEqual(["a", "b"]);
+    expect(pickedTechIds([inactive])).toBeNull();
+    expect(pickedTechIds([inactive, { group: "team", value: "t1" }])).toEqual(["t1"]);
+    expect(applyScheduleFilter([a, b], [inactive, { group: "team", value: "t2" }]).map((d) => d.id)).toEqual(["b"]);
+  });
+  it("says whether the inactive and pending technicians are wanted", () => {
+    expect(includesInactive([])).toBe(false);
+    expect(includesInactive([{ group: "tags", value: INCLUDE_INACTIVE }])).toBe(false);
+    expect(includesInactive([inactive])).toBe(true);
   });
 });
 

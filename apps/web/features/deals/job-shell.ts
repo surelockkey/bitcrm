@@ -1,5 +1,5 @@
 import { JobSuperStatus } from "@bitcrm/types";
-import type { Contact, Deal } from "@bitcrm/types";
+import type { Contact, Deal, InvoiceStatus } from "@bitcrm/types";
 import { DEFAULT_TZ } from "@/lib/timezone";
 import { canCreateInvoice, invoiceHref } from "@/features/invoices/lib";
 import type { DealTab } from "./deal-tabs";
@@ -88,7 +88,10 @@ export function jobActions({
  * createJobInvoice → history.push("invoice/<uuid>")). Ours asks for an item
  * first — billing will not invoice an empty job — and says so on the pill.
  */
-export type JobInvoicePill = { action: "view"; href: string } | { action: "create"; blockedReason?: string };
+export type JobInvoicePill =
+  /** `status` (ours, kept from the old header): the pill says it — "View Invoice · Overdue". */
+  | { action: "view"; href: string; status?: InvoiceStatus }
+  | { action: "create"; blockedReason?: string };
 
 export function jobInvoicePill({
   invoice,
@@ -97,7 +100,7 @@ export function jobInvoicePill({
   itemCount,
 }: {
   /** The job's invoice; `null` while it has none, `undefined` until that is known. */
-  invoice: { id: string } | null | undefined;
+  invoice: { id: string; status?: InvoiceStatus } | null | undefined;
   /** `invoices.view`. */
   canView: boolean;
   /** `invoices.create`. */
@@ -105,7 +108,7 @@ export function jobInvoicePill({
   itemCount: number;
 }): JobInvoicePill | null {
   if (!canView || invoice === undefined) return null;
-  if (invoice) return { action: "view", href: invoiceHref(invoice) };
+  if (invoice) return { action: "view", href: invoiceHref(invoice), ...(invoice.status ? { status: invoice.status } : {}) };
   if (!canCreate) return null;
   const check = canCreateInvoice(itemCount);
   return check.allowed ? { action: "create" } : { action: "create", blockedReason: check.reason };

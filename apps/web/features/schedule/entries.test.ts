@@ -47,6 +47,13 @@ const ctx = {
   profiles: new Map(),
 };
 
+describe("buildEntries — the client's name (ours)", () => {
+  it("puts the job's client under the job id", () => {
+    const [e] = buildEntries([deal("ab12cd")], [], { ...ctx, clientName: (d: Deal) => (d.id === "ab12cd" ? "Ada Lovelace" : "") });
+    expect(e.text).toBe("AB12CD\nAda Lovelace\n(A-1) Door Service,\nTown , 1 Elm St, Town, CT 06001 \nSam Reyes ");
+  });
+});
+
 describe("buildEntries — what the calendar draws", () => {
   it("words and colours a job the Workiz way", () => {
     const [e] = buildEntries([deal("ab12cd")], [], ctx);

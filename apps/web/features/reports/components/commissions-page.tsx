@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import type { CommissionReport, CommissionReportBy, CommissionReportMode } from "@bitcrm/types";
@@ -66,7 +66,9 @@ const BY: { value: CommissionReportBy; label: string }[] = [
  * Every Done job of the period with what was collected and how, the
  * technician's rate and profit, the company's and the balance. Amounts need
  * `financials.view` (the server leaves them out too). The office settles
- * technicians weekly from the Tech Report (Last week, Mon – Sun).
+ * technicians weekly from the Tech Report (Last week, Mon – Sun): with no
+ * technician picked, "Total by tech" under the grid (ours, Workiz lacks it)
+ * lists each one's jobs, total, profit and balance, and a name opens theirs.
  *
  * Not here, Workiz has them: Export By Mail, Send Bulk and Report History
  * (BitCRM sends no mail), the Settlement filter and the settle checkboxes
@@ -97,6 +99,7 @@ export function CommissionsPage({ today }: { today: string }) {
   const [choices, setChoices] = useState<ColumnChoices>(() => loadColumnChoices());
   const [fieldsOpen, setFieldsOpen] = useState(false);
   const [reloading, setReloading] = useState(false);
+  const scrollerRef = useRef<HTMLDivElement>(null);
   const choice = choices[mode] ?? {};
 
   // DataTables searches from the third character; a cleared box searches nothing.
@@ -199,7 +202,7 @@ export function CommissionsPage({ today }: { today: string }) {
 
   return (
     // Workiz's report is a white page iframed 14px under the breadcrumb strip.
-    <div className="flex min-w-0 flex-1 flex-col overflow-y-auto bg-background pt-3.5 text-wz-strong print:overflow-visible">
+    <div ref={scrollerRef} className="flex min-w-0 flex-1 flex-col overflow-y-auto bg-background pt-3.5 text-wz-strong print:overflow-visible">
       <h1 className="sr-only">Commissions</h1>
       {!ready ? (
         <div role="status" aria-label="Loading report" className="space-y-3 px-5 pt-[19px]">
@@ -378,11 +381,63 @@ export function CommissionsPage({ today }: { today: string }) {
                 onNext={page < pages ? () => setPage(page + 1) : undefined}
                 busy={reloading || report.isFetching === true}
               />
+              {everyTech ? (
+                <TechSummary
+                  report={data}
+                  money={money}
+                  onPick={(id) => {
+                    setTechId(id);
+                    setPage(1);
+                    scrollerRef.current?.scrollTo?.({ top: 0 });
+                  }}
+                />
+              ) : null}
               {money ? <Summaries report={data} mode={mode} /> : null}
             </>
           )}
         </>
       )}
+    </div>
+  );
+}
+
+/**
+ * BitCRM's weekly settlement, which Workiz lacks: the Tech Report with no
+ * technician picked lists each technician of the period — jobs, total, tech
+ * profit and balance (`report.techs`) — as one more summary under the grid,
+ * drawn like Total Profits. A name opens that technician's report. Without
+ * `financials.view` only who worked and how many jobs.
+ */
+function TechSummary({
+  report,
+  money,
+  onPick,
+}: {
+  report: CommissionReport;
+  money: boolean;
+  onPick: (techId: string) => void;
+}) {
+  return (
+    <div className="pt-[52px] pr-5 pl-[21px] print:break-inside-avoid">
+      <WzLegacySummary
+        title="Total by tech"
+        columns={money ? ["Tech", "Jobs", "Total", "Tech Profit", "Balance"] : ["Tech", "Jobs"]}
+        rows={report.techs.map((t) => ({
+          key: t.techId,
+          cells: [
+            <button
+              key="name"
+              type="button"
+              onClick={() => onPick(t.techId)}
+              className="cursor-pointer text-left text-foreground underline outline-none focus-visible:ring-1 focus-visible:ring-wz-strong"
+            >
+              {t.techName ?? t.techId}
+            </button>,
+            String(t.jobs),
+            ...(money ? [wzRawNumber(t.total), wzRawNumber(t.techProfit), wzRawNumber(t.balance)] : []),
+          ],
+        }))}
+      />
     </div>
   );
 }

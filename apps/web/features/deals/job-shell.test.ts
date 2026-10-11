@@ -234,6 +234,15 @@ describe("the invoice pill", () => {
     });
   });
 
+  // Ours, kept from the old header's "Invoice <status>" button.
+  it("carries the invoice's status, for the pill to say it", () => {
+    expect(jobInvoicePill({ ...base, invoice: { id: "d1", status: "overdue" } })).toEqual({
+      action: "view",
+      href: "/invoices/d1",
+      status: "overdue",
+    });
+  });
+
   it("reads Create Invoice while there is none", () => {
     expect(jobInvoicePill({ ...base, invoice: null })).toEqual({ action: "create" });
   });

@@ -25,6 +25,7 @@ import { useDeleteDeal, useMoveStatus, useSetDealTags, useUpdateDeal } from "../
 import { isUrgent } from "../lib";
 import { dealJobName, jobActions, jobNamePatch, storedTagOrder, type JobAction, type JobInvoicePill } from "../job-shell";
 import { workOrderHref } from "@/features/work-orders/lib";
+import { invoiceStatusLabel } from "@/features/invoices/lib";
 import { PriorityFlag } from "./deal-badges";
 
 /** Workiz's header ink: 18px/600 title, 13px row labels (rgb 59,76,83 ≈ the ink token). */
@@ -183,10 +184,13 @@ function InvoicePill({ pill, pending, onClick }: { pill: JobInvoicePill; pending
       </TooltipProvider>
     );
   }
+  // Ours, kept from the old header's "Invoice <status>": the status, in the pill's own words.
+  const status = pill.action === "view" && pill.status ? ` · ${invoiceStatusLabel(pill.status)}` : "";
   return (
     <button type="button" className={wzPill("yellow")} onClick={onClick} disabled={pending} aria-busy={pending || undefined}>
       {pending ? <Loader2 className="animate-spin" aria-hidden /> : null}
       {label}
+      {status}
     </button>
   );
 }

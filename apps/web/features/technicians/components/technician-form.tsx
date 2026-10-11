@@ -96,6 +96,7 @@ export function TechnicianForm({
   rights,
   tab = "profile",
   twoFactor,
+  roleSummary,
 }: {
   technicianId: string;
   user?: User;
@@ -107,6 +108,12 @@ export function TechnicianForm({
    * switch a manager flips for someone else would be greyed out.
    */
   twoFactor?: ReactNode;
+  /**
+   * My Profile only (ours): the person's Role, Department and Member since,
+   * read-only, at the head of "Roles and permissions". The card a manager
+   * opens has none (the owner took the role off it, 2026-09-17).
+   */
+  roleSummary?: ReactNode;
 }) {
   const { data: profile, isLoading } = useProfile(technicianId);
   if (isLoading || !profile) {
@@ -118,7 +125,16 @@ export function TechnicianForm({
     );
   }
   return (
-    <Form key={profile.updatedAt} technicianId={technicianId} profile={profile} user={user} rights={rights} tab={tab} twoFactor={twoFactor} />
+    <Form
+      key={profile.updatedAt}
+      technicianId={technicianId}
+      profile={profile}
+      user={user}
+      rights={rights}
+      tab={tab}
+      twoFactor={twoFactor}
+      roleSummary={roleSummary}
+    />
   );
 }
 
@@ -129,6 +145,7 @@ function Form({
   rights,
   tab,
   twoFactor,
+  roleSummary,
 }: {
   technicianId: string;
   profile: TechnicianProfile;
@@ -136,6 +153,7 @@ function Form({
   rights: TechnicianEditRights;
   tab: TechnicianFormTab;
   twoFactor?: ReactNode;
+  roleSummary?: ReactNode;
 }) {
   const { can } = usePermissions();
   const update = useUpdateProfile();
@@ -473,6 +491,7 @@ function Form({
             {/* ---------------- The work ---------------- */}
             <div data-testid="work-column">
               <WzFormSectionTitle className="mb-6">Roles and permissions</WzFormSectionTitle>
+              {roleSummary ? <div className="mb-6">{roleSummary}</div> : null}
               {/* The one switch that decides who may be put on a job, whatever
                   the role. The role itself is not on this card: it is
                   assigned on the user record, where the change is confirmed. */}

@@ -105,8 +105,10 @@ const money = (id: CommissionReportTotalKey, label: string, dflt = true): Commis
  * order — and which are on by default (rep_commission_wz_07_fields_open,
  * _13_tech_fields, _15_external_fields). Not here: Invoice / Invoice Number,
  * Company Share, Fees By Company and Settled (BitCRM keeps no invoice number
- * on the row, no external-company rates and no settling). Without `withMoney`
- * the amounts and the rate are left out.
+ * on the row, no external-company rates and no settling). Ours on top, off by
+ * default (restored 2026-10-10): the four "by external" amounts, and the
+ * Tech / External Company Profit / Company Name / Ad Group a mode's Workiz
+ * list lacks. Without `withMoney` the amounts and the rate are left out.
  */
 export function commissionColumns(mode: CommissionReportMode, withMoney = true): CommissionColumn[] {
   const all = modeColumns(mode);
@@ -118,6 +120,21 @@ function modeColumns(mode: CommissionReportMode): CommissionColumn[] {
   const paid = [money("total", "Total"), money("cash", "Cash"), money("credit", "Credit"), money("billing", "Billing"), money("check", "Check")];
   const where = [col("jobTypeName", "Job Type", { sort: "jobTypeName" }), col("address", "Address", { sort: "address" })];
   const client = (dflt: boolean) => col("clientName", "Client", { sort: "clientName", default: dflt });
+  /*
+   * BitCRM's own fields, which Workiz's lists lack (it shows the four "by
+   * external" only as Total by type) — kept from our report, off until the
+   * viewer switches them on. The server does not order by them.
+   */
+  const byExternal = (
+    [
+      ["cashByExternal", "Cash By External"],
+      ["creditByExternal", "Credit By External"],
+      ["billingByExternal", "Billing By External"],
+      ["checkByExternal", "Check By External"],
+    ] as const
+  ).map(([id, label]) => col(id, label, { total: id, money: true, default: false }));
+  const companyName = (dflt: boolean) => col("externalCompanyName", "Company Name", { default: dflt });
+  const adGroup = col("sourceName", "Ad Group", { default: false });
   if (mode === "external") {
     return [
       head,
@@ -131,7 +148,9 @@ function modeColumns(mode: CommissionReportMode): CommissionColumn[] {
       money("externalCompanyProfit", "External Company Profit"),
       col("externalBalance", "Balance", { money: true }),
       money("tax", "Tax"),
-      col("externalCompanyName", "Company Name"),
+      companyName(true),
+      col("techName", "Tech", { sort: "techName", default: false }),
+      adGroup,
       client(false),
     ];
   }
@@ -151,15 +170,12 @@ function modeColumns(mode: CommissionReportMode): CommissionColumn[] {
     money("companyParts", "Company Parts"),
     money("techProfit", "Tech Profit"),
     ...(tech
-      ? [money("balance", "Balance Tech"), money("tax", "Tax"), client(false)]
-      : [
-          money("externalCompanyProfit", "External Company Profit", false),
-          money("companyProfit", "Company Profit"),
-          money("tax", "Tax"),
-          col("externalCompanyName", "Company Name", { default: false }),
-          col("sourceName", "Ad Group", { default: false }),
-          client(true),
-        ]),
+      ? [money("balance", "Balance Tech"), money("externalCompanyProfit", "External Company Profit", false), money("tax", "Tax")]
+      : [money("externalCompanyProfit", "External Company Profit", false), money("companyProfit", "Company Profit"), money("tax", "Tax")]),
+    ...byExternal,
+    companyName(false),
+    adGroup,
+    client(!tech),
   ];
 }
 

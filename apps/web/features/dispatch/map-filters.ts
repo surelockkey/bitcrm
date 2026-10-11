@@ -18,6 +18,49 @@ export const MAP_STATUSES: readonly JobSuperStatus[] = [
   JobSuperStatus.DONE_PENDING_APPROVAL,
 ];
 
+/**
+ * Ours, after Workiz's four (kept from before the Workiz pass): the finished
+ * and the canceled jobs — today's or this week's Done ones on the map. Read
+ * only once ticked, and only for the date box's days.
+ */
+export const MAP_CLOSED_STATUSES: readonly JobSuperStatus[] = [JobSuperStatus.DONE, JobSuperStatus.CANCELED];
+
+/**
+ * What to read besides the open jobs: the ticked closed statuses over the
+ * date box's days — nothing when none is ticked, or for Any date (closed jobs
+ * of every date are hundreds of thousands of rows).
+ */
+export function closedMapWindow(
+  f: MapFilters,
+  days: { from?: string; to?: string },
+): { from: string; to: string; statuses: JobSuperStatus[] } | null {
+  const statuses = MAP_CLOSED_STATUSES.filter((s) => f.statuses.includes(s));
+  if (!statuses.length || !days.from || !days.to) return null;
+  return { from: days.from, to: days.to, statuses };
+}
+
+/**
+ * The sidebar's count: among the open jobs, as Workiz says it; among every
+ * job held once Done / Canceled are read in; and why none of those show for
+ * Any date.
+ */
+export function mapFoundText({
+  shown,
+  open,
+  closed,
+  closedNeedDays = false,
+}: {
+  shown: number;
+  open: number;
+  /** Done / Canceled jobs read in for the date box's days, when ticked. */
+  closed?: number;
+  closedNeedDays?: boolean;
+}): string {
+  if (closed !== undefined) return `Found ${shown} out of ${open + closed} jobs`;
+  const text = `Found ${shown} out of ${open} open jobs`;
+  return closedNeedDays ? `${text} · pick Day, Week or Month for Done / Canceled` : text;
+}
+
 export interface MapFilters {
   techIds: string[];
   /** Service-area names (a job carries its area by name). */

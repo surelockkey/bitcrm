@@ -13,7 +13,9 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
+import { WzOutlinedTextField } from "@/components/workiz/outlined-text-field";
 import { WzPageHeader } from "@/components/workiz/page-parts";
+import { formatDate } from "@/features/users/lib";
 import { WzPopMenu, type WzPopMenuItem } from "@/components/workiz/pop-menu";
 import { WzTabBar, type WzTab } from "@/components/workiz/tab-bar";
 import { settled, usePageReady } from "@/lib/use-page-ready";
@@ -127,7 +129,7 @@ function AccountProfile({ me, mfaRequired }: { me: User; mfaRequired: boolean })
  * name them, the onboarding checklist.
  */
 function TechnicianProfile({ me, mfaRequired }: { me: User; mfaRequired: boolean }) {
-  const { can, isTechnician } = usePermissions();
+  const { can, isTechnician, roleName } = usePermissions();
   const [tab, setTab] = useState<ProfileTab>("profile");
   const profile = useProfile(me.id);
   const assignments = useAssignments(me.id);
@@ -160,6 +162,7 @@ function TechnicianProfile({ me, mfaRequired }: { me: User; mfaRequired: boolean
           rights={rights}
           tab={tab === "availability" ? "availability" : "profile"}
           twoFactor={<SelfTwoFactor me={me} required={mfaRequired} />}
+          roleSummary={<RoleSummary me={me} roleName={roleName} />}
         />
       </div>
       {tab === "commissions" ? (
@@ -172,6 +175,24 @@ function TechnicianProfile({ me, mfaRequired }: { me: User; mfaRequired: boolean
           <DocumentsTab technicianId={me.id} />
         </div>
       ) : null}
+    </>
+  );
+}
+
+/**
+ * Ours, kept from the old account card (a technician's My Profile lost it in
+ * the Workiz pass): who they are in the company — Role, Department, Member
+ * since — read-only, in the account page's own look.
+ */
+function RoleSummary({ me, roleName }: { me: User; roleName: string }) {
+  return (
+    <>
+      <WzOutlinedTextField label="Role" value={roleName} readOnly disabled aria-describedby="my-role-why" />
+      <span id="my-role-why" className="sr-only">
+        Your role and department are set on the Users page.
+      </span>
+      <WzOutlinedTextField className="mt-6" label="Department" value={me.department ?? ""} readOnly disabled aria-describedby="my-role-why" />
+      <p className="mt-4 text-[13px] leading-[19px] tracking-[0.4px] text-wz-outline-label">Member since {formatDate(me.createdAt)}</p>
     </>
   );
 }

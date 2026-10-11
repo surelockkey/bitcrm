@@ -19,6 +19,13 @@ export interface DispatchBoard {
   /** The days and statuses these jobs were read for. */
   window: DealsWindow;
   deals: Deal[];
+  /**
+   * Done / Canceled jobs read for `closedWindow` (ours: the Filters' Done /
+   * Canceled ticks) — never among `deals`, which stays the open set.
+   */
+  closedDeals: Deal[];
+  /** What `closedDeals` were read for; null when nothing closed was asked. */
+  closedWindow: DealsWindow | null;
   /** The jobs could not be read. */
   failed: boolean;
   /** When the jobs on the board were read — what "Updated N ago" counts from. */
@@ -38,6 +45,8 @@ export interface DispatchBoard {
 const NO_DEALS: Deal[] = [];
 const NO_FIXES: TechnicianLocation[] = [];
 const NO_AREAS: ServiceArea[] = [];
+/** The key a closed read sits under while none is asked — never fetched. */
+const NO_CLOSED_WINDOW: DealsWindow = { statuses: [] };
 
 /**
  * The dispatch board, asked for at once and shown whole.
@@ -59,12 +68,19 @@ const NO_AREAS: ServiceArea[] = [];
  */
 export function useDispatchBoard(
   window: DealsWindow,
-  { techs, areas: withAreas }: { techs: boolean; areas: boolean },
+  {
+    techs,
+    areas: withAreas,
+    closed = null,
+  }: { techs: boolean; areas: boolean; closed?: DealsWindow | null },
 ) {
   const { isLoading: permsLoading } = usePermissions();
   const query = useDealsWindow(window, { poll: true });
   const deals = query.data ?? NO_DEALS;
-  const contactIds = useMemo(() => deals.map((d) => d.contactId), [deals]);
+  // Closed jobs only when asked, for their days — part of the same whole board.
+  const closedQuery = useDealsWindow(closed ?? NO_CLOSED_WINDOW, { poll: true, enabled: closed !== null });
+  const closedDeals = (closed && closedQuery.data) || NO_DEALS;
+  const contactIds = useMemo(() => [...deals, ...closedDeals].map((d) => d.contactId), [deals, closedDeals]);
   const contacts = useContactsByIds(contactIds);
   const users = useUserMap();
   const roster = useAllTechnicians(techs);
@@ -91,6 +107,7 @@ export function useDispatchBoard(
   const whole =
     !permsLoading &&
     settled(query) &&
+    settled(closedQuery) &&
     !contacts.isLoading &&
     !users.isLoading &&
     !roster.isLoading &&
@@ -103,6 +120,8 @@ export function useDispatchBoard(
     () => ({
       window,
       deals,
+      closedDeals,
+      closedWindow: closed,
       failed: query.isError,
       updatedAt: query.dataUpdatedAt,
       contacts: contacts.map,
@@ -116,6 +135,8 @@ export function useDispatchBoard(
     [
       window,
       deals,
+      closedDeals,
+      closed,
       query.isError,
       query.dataUpdatedAt,
       contacts.map,

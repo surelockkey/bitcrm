@@ -29,12 +29,21 @@ import { MapSidebar, MapToggleRow, type MapTab } from "./map-sidebar";
 import { splitByLocation, techJobsToday, todayISO, type LocatedDeal } from "../lib";
 import { useDispatchBoard, type DispatchBoard } from "../use-dispatch-board";
 import { localToday, mapRangeWindow, shiftMapRange, type MapRange } from "../map-range";
-import { EMPTY_MAP_FILTERS, matchesMapFilters, sortByName, type MapFilters } from "../map-filters";
+import {
+  EMPTY_MAP_FILTERS,
+  MAP_CLOSED_STATUSES,
+  closedMapWindow,
+  mapFoundText,
+  matchesMapFilters,
+  sortByName,
+  type MapFilters,
+} from "../map-filters";
 import { jobCardTitle } from "../map-words";
 
 /**
  * What the board reads: every open job, whatever its date — Workiz's
  * `map/getJobs` — once. The date box and the Filters only choose among them.
+ * Ours on top: Done / Canceled, read for the date box's days once ticked.
  */
 const BOARD_WINDOW: DealsWindow = {};
 
@@ -75,6 +84,8 @@ function loadPrefs(): MapPrefs {
 const NO_BOARD: DispatchBoard = {
   window: {},
   deals: [],
+  closedDeals: [],
+  closedWindow: null,
   failed: false,
   updatedAt: 0,
   contacts: new Map(),
@@ -157,22 +168,37 @@ function DispatchBoardPage() {
   const canEdit = can("deals", "edit");
   // Everything the board draws, held back until all of it is in — and from
   // then on the last complete board while a poll brings the next.
-  const { board, query } = useDispatchBoard(BOARD_WINDOW, { techs: canSeeTechs, areas: canSeeAreas });
-  const { deals, contacts, users, profiles, technicians, fixesAt, addresses, areas: serviceAreasData } = board ?? NO_BOARD;
+  // The chosen days. Done / Canceled (ours) are read only once ticked, for those days.
+  const days = mapRangeWindow(range, anchor);
+  // Kept by value: a new object every render would read as a new board every render.
+  const closedKey = JSON.stringify(closedMapWindow(filters, days));
+  const closedWindow = useMemo(() => JSON.parse(closedKey) as DealsWindow | null, [closedKey]);
+  const { board, query } = useDispatchBoard(BOARD_WINDOW, { techs: canSeeTechs, areas: canSeeAreas, closed: closedWindow });
+  const {
+    deals,
+    closedDeals,
+    contacts,
+    users,
+    profiles,
+    technicians,
+    fixesAt,
+    addresses,
+    areas: serviceAreasData,
+  } = board ?? NO_BOARD;
   const reorder = useReorderDeals();
 
   const nameOf = useCallback((id: string) => personName(users.get(id)) ?? "Technician", [users]);
   const clientOf = useCallback((d: Deal) => dealClientName(d, contacts.get(d.contactId)), [contacts]);
   const titleOf = useCallback((d: Deal) => jobCardTitle(jobTypeName(d.jobTypeId), d.dealNumber), [jobTypeName]);
 
-  // The chosen days, the search and the Filters — all on the jobs in hand.
-  const days = mapRangeWindow(range, anchor);
+  // The search and the Filters over the chosen days — all on the jobs in hand.
+  const held = useMemo(() => (closedDeals.length ? [...deals, ...closedDeals] : deals), [deals, closedDeals]);
   const filtered = useMemo(
     () =>
-      filterDeals(deals, { search, dateFrom: days.from, dateTo: days.to }, contacts).filter((d) =>
+      filterDeals(held, { search, dateFrom: days.from, dateTo: days.to }, contacts).filter((d) =>
         matchesMapFilters(d, filters),
       ),
-    [deals, search, days.from, days.to, contacts, filters],
+    [held, search, days.from, days.to, contacts, filters],
   );
   const { mapped, unmapped } = useMemo(() => splitByLocation(filtered), [filtered]);
 
@@ -298,8 +324,16 @@ function DispatchBoardPage() {
     />
   );
 
+  const closedTicked = filters.statuses.some((s) => MAP_CLOSED_STATUSES.includes(s));
   const found =
-    tab === "jobs" ? `Found ${filtered.length} out of ${deals.length} open jobs` : `Found ${people.length} users`;
+    tab === "jobs"
+      ? mapFoundText({
+          shown: filtered.length,
+          open: deals.length,
+          closed: board.closedWindow ? closedDeals.length : undefined,
+          closedNeedDays: closedTicked && !days.from,
+        })
+      : `Found ${people.length} users`;
 
   return (
     <div data-testid="dispatch-board" className="flex min-h-0 flex-1 bg-white pt-[14px]">

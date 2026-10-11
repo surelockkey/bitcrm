@@ -549,12 +549,21 @@ describe("DealDetailPage — the header, as Workiz lays it out", () => {
   });
 
   // job_invoice_route_wz_XYB3JT_view_invoice_opened: same tab, /root/invoice/XYB3JT.
+  // Ours, kept from the old header: the invoice's status without opening it.
+  it("says the invoice's status in the yellow pill — 'View Invoice · Overdue'", () => {
+    mocks.perms.deals = true;
+    mocks.invoice = { id: "d1", status: "overdue" };
+    render(<DealDetailPage dealId="d1" />);
+
+    expect(screen.getByRole("button", { name: /^View Invoice/ })).toHaveTextContent(/^View Invoice · Overdue$/);
+  });
+
   it("View Invoice opens the job's invoice on its own page", async () => {
     mocks.perms.deals = true;
     mocks.invoice = { id: "d1", status: "due" };
     render(<DealDetailPage dealId="d1" />);
 
-    await user().click(screen.getByRole("button", { name: "View Invoice" }));
+    await user().click(screen.getByRole("button", { name: /^View Invoice/ }));
     expect(mocks.push).toHaveBeenCalledWith("/invoices/d1");
     expect(mocks.createInvoice).not.toHaveBeenCalled();
   });
@@ -568,12 +577,12 @@ describe("DealDetailPage — the header, as Workiz lays it out", () => {
     const u = user();
 
     await u.click(screen.getByRole("button", { name: "edit a field" }));
-    await u.click(screen.getByRole("button", { name: "View Invoice" }));
+    await u.click(screen.getByRole("button", { name: /^View Invoice/ }));
     expect(await screen.findByText("Leave without saving?")).toBeInTheDocument();
     await u.click(screen.getByRole("button", { name: "Stay" }));
     expect(mocks.push).not.toHaveBeenCalled();
 
-    await u.click(screen.getByRole("button", { name: "View Invoice" }));
+    await u.click(screen.getByRole("button", { name: /^View Invoice/ }));
     await u.click(await screen.findByRole("button", { name: "Leave" }));
     expect(mocks.push).toHaveBeenCalledWith("/invoices/d1");
   });

@@ -12,6 +12,7 @@ import { getApiErrorMessage } from "@/lib/api/errors";
 import { useDenied, usePermissions } from "@/features/auth/use-permissions";
 import * as dealApi from "@/features/deals/api";
 import { personName } from "@/features/deals/person-name";
+import { dealClientName } from "@/features/deals/lib";
 import {
   localMinutes,
   localTodayISO,
@@ -22,7 +23,7 @@ import {
   type ScheduleView,
 } from "../calendar";
 import { buildEntries } from "../entries";
-import { applyScheduleFilter, pickedTechIds, type SchedulePick } from "../filters";
+import { applyScheduleFilter, INCLUDE_INACTIVE, includesInactive, pickedTechIds, type SchedulePick } from "../filters";
 import { dealConflicts, eventOnDate, filterTechnicians, type ConflictReason } from "../lib";
 import { moveBody, nextTechIds, resolveDrop, scheduleBody, type DragSource, type DropZone } from "../reschedule";
 import { useScheduleBoard, type ScheduleBoard } from "../use-schedule-board";
@@ -96,9 +97,28 @@ export function SchedulePage() {
   const techName = useCallback((id: string) => personName(b.users.get(id)) ?? "", [b.users]);
   const jobTypeName = useCallback((id: string) => b.jobTypes.get(id) ?? "", [b.jobTypes]);
 
-  // The field team, active, as the Timeline's rows and the TEAM filter.
-  const roster = useMemo(() => filterTechnicians(b.profiles, b.users, { activeOnly: true }), [b.profiles, b.users]);
-  const team = useMemo(() => roster.map((p) => ({ id: p.userId, name: techName(p.userId) })).filter((t) => t.name), [roster, techName]);
+  // The field team, active — or everyone on it with TEAM → Include inactive
+  // (ours) — as the Timeline's rows, the TEAM filter and Add time off's list.
+  const withInactive = includesInactive(picks);
+  const roster = useMemo(
+    () => filterTechnicians(b.profiles, b.users, { activeOnly: !withInactive }),
+    [b.profiles, b.users, withInactive],
+  );
+  // "Dana Reeves (inactive)": a row or a pick that is not an active technician says so.
+  const rosterName = useCallback(
+    (p: (typeof roster)[number]) => {
+      const name = techName(p.userId);
+      return name && p.status !== "active" ? `${name} (${p.status})` : name;
+    },
+    [techName],
+  );
+  const team = useMemo(
+    () => [
+      { id: INCLUDE_INACTIVE, name: "Include inactive" },
+      ...roster.map((p) => ({ id: p.userId, name: rosterName(p) })).filter((t) => t.name),
+    ],
+    [roster, rosterName],
+  );
   const picked = useMemo(() => pickedTechIds(picks), [picks]);
   const profileMap = useMemo(() => new Map(b.profiles.map((p) => [p.userId, p])), [b.profiles]);
 
@@ -110,15 +130,20 @@ export function SchedulePage() {
       techName,
       profiles: profileMap,
       areaColor: (name) => b.areaColors.get(name),
+      // Ours: whose job it is, under the job id — the contact's name, or the job's own.
+      clientName: (d) => {
+        const contact = b.contacts.get(d.contactId);
+        return d.clientName || contact ? dealClientName(d, contact) : "";
+      },
     });
-  }, [b.deals, b.events, b.areaColors, picks, picked, jobTypeName, techName, profileMap]);
+  }, [b.deals, b.events, b.areaColors, b.contacts, picks, picked, jobTypeName, techName, profileMap]);
 
   const rows = useMemo<TimelineRow[]>(() => {
-    const row = (id: string, p?: (typeof roster)[number]): TimelineRow => {
+    const row = (id: string, p?: (typeof roster)[number], name = techName(id)): TimelineRow => {
       const user = b.users.get(id) as ({ roleId?: string } & object) | undefined;
       return {
         id,
-        name: techName(id) || "—",
+        name: name || "—",
         role: user?.roleId ? b.roles.get(user.roleId) : undefined,
         color: scheduleColor(id),
         photoUrl: p?.profilePhotoUrl,
@@ -126,7 +151,7 @@ export function SchedulePage() {
       };
     };
     const shown = (id: string) => !picked || picked.includes(id);
-    const techRows = roster.filter((p) => shown(p.userId)).map((p) => row(p.userId, p));
+    const techRows = roster.filter((p) => shown(p.userId)).map((p) => row(p.userId, p, rosterName(p)));
     // Someone off the roster (inactive, off the field team) who still has a job on
     // these days keeps a row, so the job does not drop off the Timeline.
     const onRoster = new Set(roster.map((p) => p.userId));
@@ -135,7 +160,7 @@ export function SchedulePage() {
       .map((id) => row(id, profileMap.get(id)));
     const all = [...techRows, ...extra];
     return picked ? all : [{ id: null, name: "Unassigned", color: "" }, ...all];
-  }, [roster, picked, entries, profileMap, b.users, b.roles, techName]);
+  }, [roster, picked, entries, profileMap, b.users, b.roles, techName, rosterName]);
 
   const openJob = useCallback((deal: Deal) => router.push(`/deals/${deal.id}`), [router]);
   const pickDay = useCallback((d: string) => {

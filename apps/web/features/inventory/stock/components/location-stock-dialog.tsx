@@ -179,6 +179,8 @@ function StockGrid({
           </span>
         ),
       },
+      // Ours (kept from before the Workiz pass): the SKU the Search box already matches.
+      { id: "sku", label: "SKU", cell: (r) => (r.sku ? cut(r.sku) : "") },
       { id: "quantity", label: "Quantity", cell: (r) => Math.round(r.quantity) },
       { id: "price", label: "Price", cell: (r) => (r.unitPrice != null ? wzAmount(r.unitPrice) : "") },
       ...(money

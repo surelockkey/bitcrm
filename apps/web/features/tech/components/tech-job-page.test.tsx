@@ -71,7 +71,10 @@ describe("TechJobPage — the invoice lives on its own page, as on /deals/[id]",
     const tabs = await screen.findByRole("tablist", { name: "Job sections" }, { timeout: 3000 });
     expect(tabs).not.toHaveTextContent("Invoice");
 
-    fireEvent.click(await screen.findByRole("button", { name: "View Invoice" }));
+    // The pill says the invoice's status, as on /deals/[id] (restored 2026-10-10).
+    const pill = await screen.findByRole("button", { name: /^View Invoice/ });
+    expect(pill).toHaveTextContent("View Invoice · Due");
+    fireEvent.click(pill);
     expect(nav.push).toHaveBeenCalledWith("/invoices/inv1");
   });
 });

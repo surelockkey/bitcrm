@@ -5,6 +5,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 import { MAP_RANGES, mapRangeLabel, type MapRange } from "../map-range";
 
 /** Workiz's `wfi-marked`: a calendar with a dot on today. */
@@ -57,7 +58,8 @@ export function MapDateBox({
     <TooltipProvider>
       <div className="absolute inset-x-0 top-[15px] z-10 mx-auto grid max-w-[584px] grid-cols-[1fr_3fr_1fr] items-center rounded-[8px] bg-white p-3 tracking-[0.4px]">
         <Select value={range} onValueChange={(v) => onRange(v as MapRange)}>
-          <SelectTrigger aria-label="Range" className="h-[38px] w-[110px] text-wz-value">
+          {/* Workiz's 110px fits Day / Week / Month; ours, "Any date", needs a little more. */}
+          <SelectTrigger aria-label="Range" className={cn("h-[38px] text-wz-value", range === "all" ? "w-[124px]" : "w-[110px]")}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -73,16 +75,21 @@ export function MapDateBox({
             <span key={part}>{part}</span>
           ))}
         </div>
+        {/* Any date (ours) has no days to step through or reset. */}
         <div className="flex justify-end gap-3">
-          <BoxButton label="Previous" onClick={() => onStep(-1)}>
-            <ChevronLeft strokeWidth={1.6} />
-          </BoxButton>
-          <BoxButton label="Next" onClick={() => onStep(1)}>
-            <ChevronRight strokeWidth={1.6} />
-          </BoxButton>
-          <BoxButton label="Reset date" onClick={onReset}>
-            <CalendarDotIcon />
-          </BoxButton>
+          {range === "all" ? null : (
+            <>
+              <BoxButton label="Previous" onClick={() => onStep(-1)}>
+                <ChevronLeft strokeWidth={1.6} />
+              </BoxButton>
+              <BoxButton label="Next" onClick={() => onStep(1)}>
+                <ChevronRight strokeWidth={1.6} />
+              </BoxButton>
+              <BoxButton label="Reset date" onClick={onReset}>
+                <CalendarDotIcon />
+              </BoxButton>
+            </>
+          )}
         </div>
       </div>
     </TooltipProvider>
