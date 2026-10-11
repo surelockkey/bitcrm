@@ -15,6 +15,7 @@ import type { ProductWithMedia } from "../lib";
 import { wzAmount } from "../items-view";
 import { ProductThumb } from "./product-thumb";
 import { ProductPhotoDialog } from "./product-photo-dialog";
+import { DisabledItemTag, isDisabledItem } from "../../components/disabled-item-tag";
 
 /** The list's own key: its page size (and, with `-wz`, its column widths) are saved under it. */
 export const PRODUCTS_TABLE_KEY = "inventory-items";
@@ -112,7 +113,15 @@ export function ProductsTable({
           <span className="block h-10 leading-4 tabular-nums">{p.number ?? ""}</span>
         </div>
       ),
-      name: (p) => <Cut title={p.name}>{p.name}</Cut>,
+      name: (p) =>
+        isDisabledItem(p) ? (
+          <span className="flex min-w-0 items-center gap-1.5">
+            <Cut title={p.name}>{p.name}</Cut>
+            <DisabledItemTag />
+          </span>
+        ) : (
+          <Cut title={p.name}>{p.name}</Cut>
+        ),
       description: (p) => <Cut title={p.description || undefined}>{p.description ?? ""}</Cut>,
       price: (p) => <Cut>{wzAmount(p.priceClient)}</Cut>,
       cost: (p) => (showCost === "pending" ? <Skeleton className="h-4 w-12" /> : <Cut>{wzAmount(p.costCompany)}</Cut>),

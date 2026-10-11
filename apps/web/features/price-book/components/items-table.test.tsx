@@ -42,6 +42,17 @@ function table(items: Product[] = [product()], over: Partial<Parameters<typeof I
   return { ...utils, onOpen, firstRow };
 }
 
+describe("ItemsTable — a switched-off item is marked (ours)", () => {
+  // With the status chip removed the grid holds both kinds; the old Status
+  // column said which was which, so a Disabled tag beside the name does now.
+  it("tags an archived item Disabled beside its name, and an active one not", () => {
+    const { container } = table([product({ id: "a", name: "Live key" }), product({ id: "b", name: "Old key", status: InventoryStatus.ARCHIVED })]);
+    const rows = [...container.querySelectorAll("tbody tr")] as HTMLElement[];
+    expect(rows[0].textContent).not.toContain("Disabled");
+    expect(rows[1].querySelector("[data-slot=disabled-item-tag]")).toHaveTextContent("Disabled");
+  });
+});
+
 describe("ItemsTable — Workiz's grid (pg_pricebook_wz_01_default_scroll1)", () => {
   it("centres every word on the 80px row, as Workiz's flex cells do", () => {
     const { firstRow } = table();

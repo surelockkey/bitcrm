@@ -37,6 +37,15 @@ function product(over: Partial<Product> = {}): Product {
   };
 }
 
+describe("ProductsTable — a switched-off item is marked (ours)", () => {
+  it("tags an archived item Disabled beside its name, and an active one not", () => {
+    const { container } = table([product({ id: "a", name: "Live lock" }), product({ id: "b", name: "Old lock", status: InventoryStatus.ARCHIVED })]);
+    const rows = [...container.querySelectorAll("tbody tr")] as HTMLElement[];
+    expect(rows[0].textContent).not.toContain("Disabled");
+    expect(rows[1].querySelector("[data-slot=disabled-item-tag]")).toHaveTextContent("Disabled");
+  });
+});
+
 function table(products: Product[] = [product()], over: Partial<Parameters<typeof ProductsTable>[0]> = {}) {
   const onEdit = vi.fn();
   const onStock = vi.fn();
