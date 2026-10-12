@@ -61,6 +61,7 @@
     "typescript": "^5.7.0"
   },
   "jest": {
+    "maxWorkers": "50%",
     "moduleFileExtensions": [
       "js",
       "json",
