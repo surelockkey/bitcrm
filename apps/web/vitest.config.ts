@@ -22,6 +22,13 @@ export default defineConfig({
      */
     testTimeout: 20_000,
     hookTimeout: 20_000,
+    /**
+     * Half the cores, not all of them: on the 18 GB laptop a full run on every
+     * core froze the machine and timed tests out that pass alone (2026-10-10:
+     * 13–15 "failures" per full run, all green when rerun). Leaves room for
+     * the dev server, the editor and other agents' runs.
+     */
+    maxWorkers: "50%",
   },
   resolve: {
     alias: {
