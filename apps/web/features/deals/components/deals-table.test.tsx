@@ -436,6 +436,54 @@ describe("DealsTable", () => {
     });
   });
 
+  /** B12: the client confirmed the visit through {{confirm_link}} — opt-in, like Sent / Seen. */
+  describe("Confirmed column", () => {
+    const at = (h: number, m: number) => {
+      const d = new Date();
+      d.setHours(h, m, 0, 0);
+      return d.toISOString();
+    };
+    const withConfirmed: VisibleFields = { ...DEFAULT_VISIBLE, clientConfirmed: true };
+    const scheduled = { scheduledDate: "2026-10-14", scheduledTimeSlot: "09:00-11:00" };
+
+    it("is off by default", () => {
+      expect(DEFAULT_VISIBLE.clientConfirmed).toBe(false);
+      render(<DealsTable deals={[deal()]} contactMap={contactMap} userMap={userMap} onOpen={vi.fn()} />);
+      expect(within(gridHead()).queryByRole("columnheader", { name: "Confirmed" })).toBeNull();
+    });
+
+    it("shows when the client confirmed the visit the job has now, and a dash otherwise", () => {
+      render(
+        <DealsTable
+          deals={[
+            deal({ ...scheduled, clientConfirmedAt: at(15, 5), clientConfirmedFor: "2026-10-14 09:00-11:00" }),
+            // Rescheduled since: that confirmation was for another time.
+            deal({
+              id: "d2",
+              dealNumber: "1043",
+              scheduledDate: "2026-10-15",
+              scheduledTimeSlot: "09:00-11:00",
+              clientConfirmedAt: at(15, 6),
+              clientConfirmedFor: "2026-10-14 09:00-11:00",
+            }),
+          ]}
+          contactMap={contactMap}
+          userMap={userMap}
+          onOpen={vi.fn()}
+          visibleFields={withConfirmed}
+        />,
+      );
+      const headers = gridHeaders().map((h) => h.textContent);
+      const col = headers.indexOf("Confirmed");
+      expect(col).toBeGreaterThan(-1);
+      const rows = screen.getAllByText("Jane Smith").map((n) => n.closest("tr")!);
+      const cell = (row: HTMLElement) => [...row.querySelectorAll("td")][col];
+      expect(cell(rows[0]).textContent).toBe("3:05 PM");
+      expect(within(cell(rows[0])).getByLabelText("Confirmed by client")).toBeInTheDocument();
+      expect(cell(rows[1]).textContent).toBe("—");
+    });
+  });
+
   it("shows the client's extension beside their number", () => {
     render(
       <DealsTable deals={[deal()]} contactMap={withExtension} userMap={userMap} onOpen={vi.fn()} />,

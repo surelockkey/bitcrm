@@ -28,6 +28,7 @@ import { workOrderHref } from "@/features/work-orders/lib";
 import { duplicateJobHref } from "../duplicate-job";
 import { invoiceStatusLabel } from "@/features/invoices/lib";
 import { PriorityFlag } from "./deal-badges";
+import { ClientConfirmedBadge } from "./client-confirmed-badge";
 
 /** Workiz's header ink: 18px/600 title, 13px row labels (rgb 59,76,83 ≈ the ink token). */
 const LABEL = "w-auto shrink-0 text-[13px] leading-[19.5px] text-foreground";
@@ -136,6 +137,8 @@ export function JobHeader({
           onChange={(v) => moveStatus.mutate(v, { onSuccess: () => toast.success("Status updated") })}
           disabled={!canEdit}
         />
+        {/* B12: the client confirmed this visit through {{confirm_link}} (absent until they do). */}
+        <ClientConfirmedBadge deal={deal} />
       </HeaderRow>
 
       <HeaderRow label="Tags:" className="mt-[17px] min-h-6">

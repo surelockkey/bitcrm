@@ -45,6 +45,7 @@ import { personName } from "../person-name";
 import { workizFromNow, workizScheduleCell } from "../schedule-cell";
 import type { JobsSort } from "../query-params";
 import { TechCell } from "./tech-cell";
+import { ClientConfirmedCell } from "./client-confirmed-badge";
 import { noteToText } from "../note-html";
 import { PriorityFlag, StageBadge } from "./deal-badges";
 import type { DirectoryUser } from "@/features/deals/hooks";
@@ -390,6 +391,9 @@ export function DealsTable({
         ) : (
           <span className="text-muted-foreground">—</span>
         );
+      case "clientConfirmed":
+        // B12: the client confirmed the visit through {{confirm_link}} (for the time the job has now).
+        return <ClientConfirmedCell deal={d} />;
       case "jobType":
         return <span>{d.jobTypeId && jobTypesLoading ? pendingLine : jobTypeName(d.jobTypeId)}</span>;
       case "source":
