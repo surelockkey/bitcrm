@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PublicApiError } from "@bitcrm/portal-ui";
-import { getDocumentHtml, getDocumentPdfUrl, getPaymentOptions, getPaymentStatus, getPortal, getPortalInbox, publicGet, startPayment } from "./api";
+import { confirmAppointment, getConfirm, getDocumentHtml, getDocumentPdfUrl, getPaymentOptions, getPaymentStatus, getPortal, getPortalInbox, publicGet, startPayment } from "./api";
 
 function stubFetch(status: number, body: unknown) {
   const fetchMock = vi.fn(async () => new Response(JSON.stringify(body), { status }));
@@ -99,5 +99,19 @@ describe("payment endpoints", () => {
     expect((f.mock.calls[0] as unknown as [string])[0]).toBe(
       "https://api.bitcrm.tech-slk.com/api/billing/public/portal/tok/payment/pay%201",
     );
+  });
+});
+
+describe("confirm endpoints (B12, {{confirm_link}})", () => {
+  it("reads the page and posts the confirmation on the job's token path, with no credentials and no body to speak of", async () => {
+    const f = stubFetch(200, { success: true, data: { state: "open" } });
+    await expect(getConfirm("to/k")).resolves.toEqual({ state: "open" });
+    await confirmAppointment("to/k");
+    const [getUrl, getInit] = f.mock.calls[0] as unknown as [string, RequestInit];
+    const [postUrl, postInit] = f.mock.calls[1] as unknown as [string, RequestInit];
+    expect(getUrl).toBe("https://api.bitcrm.tech-slk.com/api/billing/public/confirm/to%2Fk");
+    expect(getInit.method).toBe("GET");
+    expect(postUrl).toBe("https://api.bitcrm.tech-slk.com/api/billing/public/confirm/to%2Fk");
+    expect(postInit).toMatchObject({ method: "POST", credentials: "omit", body: "{}" });
   });
 });
