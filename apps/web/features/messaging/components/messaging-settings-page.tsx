@@ -294,10 +294,10 @@ export function MessagingSettingsPage() {
 
           <Setting
             title="Links"
-            hint="Bases of {{confirm_link}} and {{info_link}}; {{deal_id}} inside the URL is substituted, otherwise /<id> is appended."
+            hint="Bases of {{confirm_link}} and {{info_link}}; {{deal_id}} inside the URL is substituted, otherwise /<id> is appended. Leave Confirm link empty to send clients to BitCRM’s confirm page: they tap Confirm and the job shows “Confirmed by client”."
           >
             <div className="flex flex-col gap-6">
-              <WzOutlinedTextField label="Confirm link" placeholder="https://book.example.com/confirm" {...text("confirmLinkBaseUrl")} />
+              <WzOutlinedTextField label="Confirm link" placeholder="Empty — BitCRM’s confirm page" {...text("confirmLinkBaseUrl")} />
               <WzOutlinedTextField label="Job info link" placeholder="https://book.example.com/job/{{deal_id}}" {...text("infoLinkBaseUrl")} />
             </div>
           </Setting>

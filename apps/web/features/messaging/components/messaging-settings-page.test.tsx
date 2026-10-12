@@ -91,6 +91,14 @@ describe("MessagingSettingsPage — Workiz's Texting tab", () => {
     expect(screen.getByRole("checkbox", { name: "Enable Job Closing" })).toBeInTheDocument();
   });
 
+  it("says an empty Confirm link sends the client to our own confirm page (B12)", async () => {
+    renderPage();
+    expect(
+      await screen.findByText(/Leave Confirm link empty to send clients to BitCRM’s confirm page/, {}, { timeout: 3000 }),
+    ).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Empty — BitCRM’s confirm page")).toBeInTheDocument();
+  });
+
   it("keeps the templates under Text templates", async () => {
     renderPage();
     expect(await screen.findByRole("list", { name: "Quick replies" }, { timeout: 3000 })).toHaveTextContent("On our way");

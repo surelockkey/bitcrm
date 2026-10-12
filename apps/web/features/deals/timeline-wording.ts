@@ -90,6 +90,8 @@ const PLAIN: Partial<Record<string, string>> = {
   [TimelineEventType.PAYMENT_PENDING]: "Payment pending",
   [TimelineEventType.PAYMENT_FAILED]: "Payment failed",
   [TimelineEventType.PAYMENT_REVERSED]: "Payment reversed",
+  // B12: Workiz's line for the client's {{confirm_link}} tap (written with no user).
+  [TimelineEventType.CLIENT_CONFIRMED]: "Client Confirmed job",
 };
 
 const humanize = (v: unknown): string => {

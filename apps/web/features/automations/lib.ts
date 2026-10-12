@@ -37,6 +37,7 @@ export const TRIGGER_LABEL: Record<AutomationTriggerKind, string> = {
   "call.completed": "Call ends",
   "message.received": "Message received",
   "schedule.relative": "Before / after the job",
+  "deal.client_confirmed": "Client confirmed",
 };
 
 /**

@@ -149,6 +149,8 @@ const META: Record<TimelineEventType, { icon: typeof Sparkles; label: string }> 
   [TimelineEventType.PAYMENT_REFUNDED]: { icon: Undo2, label: "Payment refunded" },
   // Settled money pulled back afterwards (ACH return, dispute lost).
   [TimelineEventType.PAYMENT_REVERSED]: { icon: Undo2, label: "Payment reversed" },
+  // B12: the client tapped Confirm on their {{confirm_link}} page (Workiz "Client Confirmed job").
+  [TimelineEventType.CLIENT_CONFIRMED]: { icon: CheckCheck, label: "Client Confirmed job" },
 };
 
 const FIELD_LABEL: Record<string, string> = {

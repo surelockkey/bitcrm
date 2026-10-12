@@ -18,6 +18,7 @@ The token is the whole authorisation. The app only calls billing's public, rate-
 | `GET  ${API}/billing/public/portal/:token` | the portal view |
 | `GET  ${API}/billing/public/portal/:token/:kind/:id/html` | a document as a page |
 | `GET  ${API}/billing/public/portal/:token/:kind/:id/pdf[?download=1]` | a short-lived signed PDF URL |
+| `GET|POST ${API}/billing/public/confirm/:token` | `/confirm/<token>`: the client confirms the visit — what a reminder's `{{confirm_link}}` opens (the token is the JOB's signed link, not a portal token) |
 
 ## Run
 

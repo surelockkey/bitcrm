@@ -350,6 +350,28 @@ describe("DealDetailPage (read only)", () => {
     expect(screen.getByTitle("Company")).toHaveTextContent("KeyPro");
   });
 
+  it("says on the Status row that the client confirmed the visit (B12) — and nothing before they do", () => {
+    // A past day, so the stamp carries its date (`formatStamp` drops it for today).
+    const confirmedAt = new Date("2026-09-12T15:05:00").toISOString();
+    dealState = {
+      ...deal,
+      scheduledDate: "2026-10-14",
+      scheduledTimeSlot: "09:00-11:00",
+      clientConfirmedAt: confirmedAt,
+      clientConfirmedFor: "2026-10-14 09:00-11:00",
+    };
+    const { unmount } = render(<DealDetailPage dealId="d1" />);
+    const badge = screen.getByTitle("The client confirmed this visit through the confirm link");
+    expect(badge).toHaveTextContent(/Confirmed by client · Sep 12, 3:05 PM/);
+    // On the Status row, beside the status.
+    expect(badge.parentElement).toHaveTextContent("Status:");
+    unmount();
+
+    dealState = deal;
+    render(<DealDetailPage dealId="d1" />);
+    expect(screen.queryByText(/Confirmed by client/)).toBeNull();
+  });
+
   it("upgrades the visit-history label to the job number", () => {
     usePageHistoryStore.setState({
       visits: [{ path: "/deals/d1", label: "Job" }],

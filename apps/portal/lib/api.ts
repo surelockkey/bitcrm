@@ -1,4 +1,5 @@
 import type {
+  ClientConfirmView,
   EstimateWithItems,
   InvoiceView,
   OnlinePaymentMethod,
@@ -131,3 +132,17 @@ export const getDepositOptions = async (token: string, estimateId: string): Prom
 /** Signature first: the server refuses a deposit on an estimate the client has not approved. */
 export const startDeposit = (token: string, estimateId: string, body: { amount: number; method: OnlinePaymentMethod }) =>
   publicPost<PortalPaymentSession>(`${docBase(token, "estimate", estimateId)}/deposit/pay`, body);
+
+/* ------------------------------------------ the client confirms the visit */
+
+/**
+ * `/confirm/<token>` (B12, Workiz `{{confirm_link}}`): the token is the JOB's
+ * own signed link from the reminder text, not a portal token — its own path.
+ */
+const confirmBase = (token: string) => `/billing/public/confirm/${encodeURIComponent(token)}`;
+
+/** The visit, its place, the company, and whether it can still be confirmed. */
+export const getConfirm = (token: string) => publicGet<ClientConfirmView>(confirmBase(token));
+
+/** The tap. Idempotent server-side: a second one changes nothing and answers the same thank-you. */
+export const confirmAppointment = (token: string) => publicPost<ClientConfirmView>(confirmBase(token), {});

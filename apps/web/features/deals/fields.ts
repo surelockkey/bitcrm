@@ -70,6 +70,8 @@ export const JOB_FIELDS = [
   { id: "priority", label: "Priority", width: 110, icon: "job" },
   { id: "sent", label: "Sent", width: 150, icon: "calendar" },
   { id: "seen", label: "Seen", width: 150, icon: "calendar" },
+  // B12: when the client confirmed the visit through {{confirm_link}} (Workiz `client_confirmed`).
+  { id: "clientConfirmed", label: "Confirmed", width: 150, icon: "calendar" },
   { id: "poNumber", label: "PO number", width: 130, icon: "job" },
   { id: "paymentStatus", label: "Payment status", width: 150, icon: "money" },
   { id: "notes", label: "Notes", width: 240, icon: "job" },

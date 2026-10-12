@@ -76,6 +76,12 @@ describe("JOB_FIELDS registry", () => {
     }
   });
 
+  it("offers the client's confirmation (B12) as an opt-in column after Seen", () => {
+    expect(JOB_FIELDS.find((f) => f.id === "clientConfirmed")).toMatchObject({ label: "Confirmed", icon: "calendar" });
+    expect(ids.indexOf("clientConfirmed")).toBe(ids.indexOf("seen") + 1);
+    expect(DEFAULT_VISIBLE.clientConfirmed).toBe(false);
+  });
+
   it("appends active custom fields (by priority) as cf: options", () => {
     const defs = [
       { id: "cf-a", name: "Gate Code", priority: 1, active: true },

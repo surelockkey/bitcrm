@@ -62,6 +62,17 @@ describe("the trigger sentence", () => {
     ]);
   });
 
+  it("offers the client's confirmation as a job event (B12: client confirmed → notify the dispatcher)", async () => {
+    const user = userEvent.setup();
+    const panel = renderNodePanel(triggerNode({ kind: "deal.created" }));
+    await settle();
+
+    await user.click(eventSlot());
+    await user.click(screen.getByRole("option", { name: /is confirmed by the client/ }));
+    expect(panel.node().trigger).toEqual({ kind: "deal.client_confirmed" });
+    expect(eventSlot()).toHaveTextContent("is confirmed by the client");
+  });
+
   it("drops what no longer applies when the event changes kind", async () => {
     const user = userEvent.setup();
     const panel = renderNodePanel(

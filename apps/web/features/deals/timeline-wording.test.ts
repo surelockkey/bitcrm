@@ -134,6 +134,16 @@ describe("timeline rows in Workiz's words (rail_history)", () => {
     ]);
   });
 
+  it("the client's {{confirm_link}} tap reads as Workiz wrote it: Client Confirmed job (B12)", () => {
+    const e = entry({
+      eventType: TimelineEventType.CLIENT_CONFIRMED,
+      actorId: "client",
+      actorName: "Client",
+      details: { via: "link", visit: "2026-10-14 09:00-11:00" },
+    });
+    expect(text(e)).toEqual({ lines: ["Client Confirmed job"], icon: "web" });
+  });
+
   it("Added payment 231.36 in Credit charge", () => {
     const e = entry({ eventType: TimelineEventType.PAYMENT_RECEIVED, details: { amount: 231.36, method: "credit_charge" } });
     expect(text(e).lines).toEqual(["Added payment 231.36 in Credit charge"]);
