@@ -6,6 +6,7 @@ import type { CustomFieldDefinition } from "@bitcrm/types";
 const m = vi.hoisted(() => ({
   defs: [] as unknown[],
   requestUpload: vi.fn(),
+  requestContactUpload: vi.fn(),
   uploadBytes: vi.fn(),
   urls: new Map<string, string>(),
 }));
@@ -15,6 +16,12 @@ vi.mock("@/features/deals/attachments-api", () => ({
   requestAttachmentUpload: (...a: unknown[]) => m.requestUpload(...a),
   uploadAttachmentBytes: (...a: unknown[]) => m.uploadBytes(...a),
   getAttachmentDownloadUrl: vi.fn(),
+  requestContactAttachmentUpload: (...a: unknown[]) => m.requestContactUpload(...a),
+  getContactAttachmentDownloadUrl: vi.fn(),
+}));
+vi.mock("../contact-file-urls", () => ({
+  useContactFileUrls: (_contact: string, ids: string[]) =>
+    ids.map((id) => ({ data: m.urls.has(id) ? { downloadUrl: m.urls.get(id) } : undefined })),
 }));
 vi.mock("@/features/deals/attachments-hooks", () => ({
   useAttachmentUrls: (_deal: string, ids: string[]) =>
@@ -22,7 +29,7 @@ vi.mock("@/features/deals/attachments-hooks", () => ({
 }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
-import { WzCustomFields } from "./wz-custom-fields";
+import { WzCustomFieldControl, WzCustomFields } from "./wz-custom-fields";
 
 function def(over: Partial<CustomFieldDefinition>): CustomFieldDefinition {
   return {
@@ -60,6 +67,7 @@ beforeEach(() => {
   m.defs = ALL;
   m.requestUpload.mockReset();
   m.uploadBytes.mockReset();
+  m.requestContactUpload.mockReset();
   m.urls.clear();
 });
 
@@ -204,6 +212,58 @@ describe("WzCustomFields — card layout (New Job)", () => {
     render(<WzCustomFields layout="card" jobTypeId="jt-1" value={{}} onChange={vi.fn()} disabled dealId="d1" />);
     expect(screen.getByRole("textbox", { name: "Additional number" })).toBeDisabled();
     expect(screen.queryByRole("button", { name: "Add files to Check Image Front" })).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * One field's control on its own — what the client card's Custom fields tab
+ * draws. A client's file field uploads to the CLIENT's files (the card's
+ * Files rail) and keeps the attachment ids as its answer.
+ */
+describe("WzCustomFieldControl", () => {
+  const file = def({ id: "cf-wo", name: "Work Order", type: "file", group: "Work Order", entityType: "client" });
+
+  it("uploads a client's file to the client's files and stores its id", async () => {
+    m.requestContactUpload.mockResolvedValue({ id: "att-9", uploadUrl: "u", headers: {} });
+    m.uploadBytes.mockResolvedValue(undefined);
+    m.urls.set("att-1", "https://s3/c-att-1.jpg");
+    const onChange = vi.fn();
+    render(<WzCustomFieldControl field={file} value={["att-1"]} onChange={onChange} contactId="c1" />);
+
+    const upload = screen.getByRole("group", { name: "Work Order" });
+    expect(within(upload).getByRole("img")).toHaveAttribute("src", "https://s3/c-att-1.jpg");
+    fireEvent.change(within(upload).getByLabelText("Add files to Work Order", { selector: "input" }), {
+      target: { files: [new File(["y"], "wo.pdf", { type: "application/pdf" })] },
+    });
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith(["att-1", "att-9"]));
+    expect(m.requestContactUpload).toHaveBeenCalledWith("c1", expect.objectContaining({ fileName: "wo.pdf" }));
+    expect(m.requestUpload).not.toHaveBeenCalled();
+  });
+
+  it("draws a text field as Workiz's floating-label box", () => {
+    render(<WzCustomFieldControl field={def({ name: "Vendor Number 1" })} value="707748" onChange={vi.fn()} />);
+    expect(screen.getByRole("textbox", { name: "Vendor Number 1" })).toHaveValue("707748");
+  });
+
+  // pg_contact_wz_269669_tab_custom-fields: the client page draws its fields
+  // in Workiz's newer outlined boxes — 40px text, 42px select, 13px labels.
+  it("draws the client page's outlined boxes with look=outlined", async () => {
+    const onChange = vi.fn();
+    const { container } = render(
+      <>
+        <WzCustomFieldControl look="outlined" field={def({ id: "v", name: "Vendor Number 1" })} value="" onChange={onChange} />
+        <WzCustomFieldControl
+          look="outlined"
+          field={def({ id: "p", name: "Platinum Company name", type: "dropdown", options: ["Sure Lock & Key", "DBA"] })}
+          value="DBA"
+          onChange={vi.fn()}
+        />
+      </>,
+    );
+    expect(container.querySelectorAll("[data-slot=wz-outlined-text-field]")).toHaveLength(1);
+    await userEvent.type(screen.getByLabelText("Vendor Number 1"), "7");
+    expect(onChange).toHaveBeenLastCalledWith("7");
+    expect(screen.getByRole("combobox", { name: "Platinum Company name" })).toBeInTheDocument();
   });
 });
 

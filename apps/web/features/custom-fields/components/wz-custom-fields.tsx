@@ -20,6 +20,8 @@ import {
   WzDateField,
   WzFieldError,
   WzMultiSelect,
+  WzOutlinedSelect,
+  WzOutlinedTextField,
   WzSectionHeader,
   WzSelect,
   WzTextField,
@@ -31,10 +33,13 @@ import { cn } from "@/lib/utils";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import {
   getAttachmentDownloadUrl,
+  getContactAttachmentDownloadUrl,
   requestAttachmentUpload,
+  requestContactAttachmentUpload,
   uploadAttachmentBytes,
 } from "@/features/deals/attachments-api";
 import { useAttachmentUrls } from "@/features/deals/attachments-hooks";
+import { useContactFileUrls } from "../contact-file-urls";
 import { useFilePreviewStore } from "@/features/files/preview-store";
 import { useCustomFields } from "../hooks";
 import { applicableFields, customFieldControl, workizGroupColumns, workizOrderedGroups } from "../lib";
@@ -148,8 +153,25 @@ export function WzCustomFields({
 /**
  * A custom-field group on the job page (`styles__jobCard` with an h5 header:
  * 18px semibold #404040, padded 10px, ruled 1px #cad3d6 — 43px), its fields
- * 10px apart starting 10px under the rule.
+ * 10px apart starting 10px under the rule. The client page's Custom fields
+ * tab draws its groups the same way (pg_contact_wz_269669_tab_custom-fields).
  */
+export function WzCustomFieldSection({
+  title,
+  className,
+  children,
+}: {
+  title: string;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <GroupSection title={title} className={className}>
+      {children}
+    </GroupSection>
+  );
+}
+
 function GroupSection({ title, className, children }: { title: string; className?: string; children: React.ReactNode }) {
   const id = useId();
   return (
@@ -170,15 +192,84 @@ interface ControlProps {
   onChange: (next: CustomFieldValue | undefined) => void;
   disabled?: boolean;
   dealId?: string;
+  /** A client's field (the client card): files upload to the client's own files. */
+  contactId?: string;
   pendingFiles?: File[];
   onPendingFiles?: (files: File[]) => void;
   missing: boolean;
   shape: "rounded" | "square";
+  /**
+   * "form" (default): the job forms' boxes. "outlined": Workiz's newer
+   * notched boxes, as on the client page's Custom fields tab — 40px text,
+   * 42px select, 13px labels (pg_contact_wz_269669_tab_custom-fields).
+   */
+  look?: "form" | "outlined";
+}
+
+/**
+ * One custom field drawn with its Workiz kit control, on its own — the client
+ * card's Custom fields tab lays its groups out itself. `contactId` makes a
+ * file field upload to that client's files; `dealId` to that job's.
+ */
+export function WzCustomFieldControl({
+  missing = false,
+  shape = "rounded",
+  ...props
+}: Omit<ControlProps, "missing" | "shape"> & { missing?: boolean; shape?: "rounded" | "square" }) {
+  return <FieldControl {...props} missing={missing} shape={shape} />;
+}
+
+/** A text / number / drop-down field in the outlined look; anything else falls back to the form control. */
+function OutlinedControl({ field, value, onChange, disabled, missing }: ControlProps) {
+  const error = missing ? REQUIRED : undefined;
+  const text = typeof value === "string" ? value : "";
+  switch (customFieldControl(field.type)) {
+    case "select":
+      return (
+        <WzOutlinedSelect
+          label={field.name}
+          options={(field.options ?? []).map((o) => ({ value: o, label: o }))}
+          value={text}
+          disabled={disabled}
+          error={error}
+          onChange={(v) => onChange(v || undefined)}
+        />
+      );
+    case "number":
+      return (
+        <WzOutlinedTextField
+          label={field.name}
+          type="number"
+          inputMode="decimal"
+          value={value === undefined || value === null ? "" : String(value)}
+          disabled={disabled}
+          error={error}
+          onChange={(e) => onChange(e.target.value === "" ? undefined : Number(e.target.value))}
+        />
+      );
+    default:
+      return (
+        <WzOutlinedTextField
+          label={field.name}
+          value={text}
+          disabled={disabled}
+          error={error}
+          onChange={(e) => onChange(e.target.value)}
+        />
+      );
+  }
 }
 
 /** The kit control `customFieldControl` names for this field's type. */
 function FieldControl(props: ControlProps) {
   const { field, value, onChange, disabled, missing, shape } = props;
+  if (props.look === "outlined" && ["text", "number", "select"].includes(customFieldControl(field.type))) {
+    return (
+      <div data-missing={missing || undefined}>
+        <OutlinedControl {...props} />
+      </div>
+    );
+  }
   const error = missing ? REQUIRED : undefined;
   const text = typeof value === "string" ? value : "";
   const wrap = (node: React.ReactNode) => <div data-missing={missing || undefined}>{node}</div>;
@@ -275,20 +366,54 @@ function FieldControl(props: ControlProps) {
  * presigned flow and the answer keeps the attachment ids; on a new one the
  * files are held via `onPendingFiles` until the job exists.
  */
-function FileControl({ field, value, onChange, disabled, dealId, pendingFiles, onPendingFiles, missing }: ControlProps) {
-  // A stored answer may be one legacy id or a list.
-  const ids = useMemo(
-    () => (Array.isArray(value) ? value.map(String) : typeof value === "string" && value ? [value] : []),
-    [value],
-  );
+/** A stored answer may be one legacy id or a list. */
+function answerIds(value: CustomFieldValue | undefined): string[] {
+  return Array.isArray(value) ? value.map(String) : typeof value === "string" && value ? [value] : [];
+}
+
+/**
+ * A file field's thumbnails come from the job's files, or — a client's field
+ * on the client card (`contactId`, no job) — from the client's own files.
+ * Two components, so each asks only its own side.
+ */
+function FileControl(props: ControlProps) {
+  const client = !props.dealId && !props.onPendingFiles && Boolean(props.contactId);
+  return client ? <ClientFileControl {...props} /> : <JobFileControl {...props} />;
+}
+
+function JobFileControl(props: ControlProps) {
+  const ids = useMemo(() => answerIds(props.value), [props.value]);
+  const deferred = !props.dealId && Boolean(props.onPendingFiles);
+  const urls = useAttachmentUrls(props.dealId ?? "", deferred || !props.dealId ? [] : ids);
+  return <FileControlBody {...props} ids={ids} urls={urls} client={false} />;
+}
+
+function ClientFileControl(props: ControlProps) {
+  const ids = useMemo(() => answerIds(props.value), [props.value]);
+  const urls = useContactFileUrls(props.contactId ?? "", ids);
+  return <FileControlBody {...props} ids={ids} urls={urls} client />;
+}
+
+function FileControlBody({
+  field,
+  onChange,
+  disabled,
+  dealId,
+  contactId,
+  pendingFiles,
+  onPendingFiles,
+  missing,
+  ids,
+  urls,
+  client,
+}: ControlProps & { ids: string[]; urls: { data?: { downloadUrl: string } }[]; client: boolean }) {
   const held = pendingFiles ?? [];
   const deferred = !dealId && Boolean(onPendingFiles);
   const [uploading, setUploading] = useState(false);
   const preview = useFilePreviewStore((s) => s.preview);
-  const urls = useAttachmentUrls(dealId ?? "", deferred || !dealId ? [] : ids);
   const heldUrls = useObjectUrls(held);
 
-  if (!dealId && !onPendingFiles) {
+  if (!dealId && !onPendingFiles && !client) {
     return (
       <div className="my-4">
         <span className="text-[14px] leading-4 font-medium text-wz-strong">{field.name}</span>
@@ -306,16 +431,19 @@ function FileControl({ field, value, onChange, disabled, dealId, pendingFiles, o
       onPendingFiles!([...held, ...picked].slice(0, MAX_FILES));
       return;
     }
-    if (!dealId) return;
+    if (!dealId && !client) return;
     setUploading(true);
     try {
       const added: string[] = [];
       for (const file of picked) {
-        const ticket = await requestAttachmentUpload(dealId, {
+        const body = {
           fileName: file.name,
           contentType: file.type || "application/octet-stream",
           size: file.size,
-        });
+        };
+        const ticket = client
+          ? await requestContactAttachmentUpload(contactId!, body)
+          : await requestAttachmentUpload(dealId!, body);
         await uploadAttachmentBytes(ticket.uploadUrl, file, ticket.headers);
         added.push(ticket.id);
       }
@@ -339,11 +467,13 @@ function FileControl({ field, value, onChange, disabled, dealId, pendingFiles, o
   };
 
   const open = (id: string) => {
-    if (deferred || !dealId) return;
+    if (deferred || (!dealId && !client)) return;
     const i = ids.indexOf(id);
     preview({
       name: `File ${i + 1}`,
-      load: async () => (await getAttachmentDownloadUrl(dealId, id)).downloadUrl,
+      load: async () =>
+        (client ? await getContactAttachmentDownloadUrl(contactId!, id) : await getAttachmentDownloadUrl(dealId!, id))
+          .downloadUrl,
     });
   };
 

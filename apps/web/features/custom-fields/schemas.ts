@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { CUSTOM_FIELD_TYPES, isOptionCustomFieldType } from "@bitcrm/types";
+import { CUSTOM_FIELD_ENTITY_TYPES, CUSTOM_FIELD_TYPES, isOptionCustomFieldType } from "@bitcrm/types";
 
 /**
  * One form for every field kind. `type` drives whether an `options` list is
@@ -20,6 +20,8 @@ export const customFieldFormSchema = z
     searchable: z.boolean().default(false),
     priority: z.coerce.number().int().min(0).default(0),
     active: z.boolean().default(true),
+    /** Workiz's tab: a Job/Lead field or a Client field. */
+    entityType: z.enum(CUSTOM_FIELD_ENTITY_TYPES).default("job"),
   })
   .superRefine((val, ctx) => {
     if (
@@ -41,8 +43,13 @@ export const customFieldFormSchema = z
 export type CustomFieldFormValues = z.input<typeof customFieldFormSchema>;
 export type CustomFieldFormOutput = z.output<typeof customFieldFormSchema>;
 
-/** Map validated form output to the create/update request body. */
-export function toCustomFieldBody(v: CustomFieldFormOutput) {
+/**
+ * Map validated form output to the create/update request body. No priority:
+ * a field's place is set by dragging its row (Workiz), so an edit never moves
+ * it, and a new one lands last. The tab (`entityType`) goes on create only —
+ * it is fixed once the field exists.
+ */
+export function toCustomFieldBody(v: CustomFieldFormOutput, { editing = false }: { editing?: boolean } = {}) {
   return {
     name: v.name,
     type: v.type,
@@ -52,7 +59,7 @@ export function toCustomFieldBody(v: CustomFieldFormOutput) {
     required: v.required,
     requiredToClose: v.requiredToClose,
     searchable: v.searchable,
-    priority: v.priority,
     active: v.active,
+    ...(editing ? {} : { entityType: v.entityType }),
   };
 }

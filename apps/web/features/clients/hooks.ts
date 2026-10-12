@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import type { Address, ClientType, Company, Contact, CompanyDocumentType } from "@bitcrm/types";
+import type { Address, ClientType, Company, Contact, CompanyDocumentType, CustomFieldValue } from "@bitcrm/types";
 import { queryKeys } from "@/lib/query-keys";
 import { useGlobalSearch } from "@/features/search/use-global-search";
 import { globalSearch } from "@/features/search/api";
@@ -253,6 +253,23 @@ export function useSetContactTags(contactId: string) {
         prev ? { ...prev, tagIds: contact.tagIds ?? [] } : prev,
       );
       qc.invalidateQueries({ queryKey: queryKeys.contacts.detail(contactId) });
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+}
+
+/** Save the card's Custom fields tab; the card takes the stored answers back at once. */
+export function useSaveClientCustomFields(contactId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (customFields: Record<string, CustomFieldValue | null>) =>
+      api.setContactCustomFields(contactId, customFields),
+    onSuccess: (contact) => {
+      qc.setQueryData(queryKeys.contacts.detail(contactId), (prev: Contact | undefined) =>
+        prev ? { ...prev, customFields: contact.customFields } : prev,
+      );
+      qc.invalidateQueries({ queryKey: queryKeys.contacts.detail(contactId) });
+      toast.success("Custom fields saved");
     },
     onError: (e) => toast.error(getApiErrorMessage(e)),
   });

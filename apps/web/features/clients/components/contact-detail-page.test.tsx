@@ -194,6 +194,16 @@ describe("ContactDetailPage — the client card, laid out as Workiz's", () => {
         }),
       ),
       http.get("*/deals/service-areas", () => HttpResponse.json({ success: true, data: [] })),
+      // The client custom fields (Workiz's Custom fields tab) and a job field the tab leaves out.
+      http.get("*/deals/custom-fields", () =>
+        HttpResponse.json({
+          success: true,
+          data: [
+            { id: "cf-v1", name: "Vendor Number 1", type: "text", group: "Work Order", options: [], jobTypeIds: [], required: false, requiredToClose: false, searchable: true, priority: 1, active: true, entityType: "client" },
+            { id: "cf-job", name: "Gate Code", type: "text", group: "Extra Info", options: [], jobTypeIds: [], required: false, requiredToClose: false, searchable: false, priority: 0, active: true },
+          ],
+        }),
+      ),
       http.get("*/deals/job-statuses", () => HttpResponse.json({ success: true, data: [] })),
       http.get("*/deals/job-sources", () =>
         HttpResponse.json({ success: true, data: [{ id: "src-tx-platinum", name: "SURE TX PLATINUM", priority: 1, active: true }] }),
@@ -283,7 +293,10 @@ describe("ContactDetailPage — the client card, laid out as Workiz's", () => {
     mocks.payments = [{ id: "p1", dealId: "d1", amount: 481, method: "cash", status: "settled", takenAt: "2026-09-30T03:10:33.000Z", tipAmount: 0 } as Payment];
     await renderPage();
     // Every tab says how many it holds, as Workiz's badges do: 3 estimates and 2 invoices from the mocks, 1 payment.
-    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["Jobs 3", "Estimates 3", "Invoices 2", "Payments 1", "Addresses 5", "Calls"]);
+    // Workiz's "Custom fields" sits between Jobs and Estimates, with no count.
+    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual([
+      "Jobs 3", "Custom fields", "Estimates 3", "Invoices 2", "Payments 1", "Addresses 5", "Calls",
+    ]);
     expect(screen.getByRole("tab", { name: /^Jobs/ })).toHaveAttribute("aria-selected", "true");
 
     const table = screen.getByRole("table", { name: "Jobs" });
@@ -305,6 +318,22 @@ describe("ContactDetailPage — the client card, laid out as Workiz's", () => {
     expect(within(rows[0]).getAllByRole("cell").slice(-3).map((c) => c.textContent)).toEqual(["100.00", "100.00", "100.00"]);
     expect(within(rows[1]).getAllByRole("cell").slice(-3).map((c) => c.textContent)).toEqual(["0.00", "50.00", "0.00"]);
     expect(rows[2]).toHaveTextContent("Unscheduled");
+  });
+
+  it("the Custom fields tab shows the client's custom fields as a form with Save", async () => {
+    await renderPage();
+    await userEvent.click(screen.getByRole("tab", { name: "Custom fields" }));
+    const panel = screen.getByRole("tabpanel", { name: "Custom fields" });
+    expect(within(panel).getByRole("region", { name: "Work Order" })).toBeInTheDocument();
+    expect(within(panel).getByLabelText("Vendor Number 1")).toBeInTheDocument();
+    expect(within(panel).queryByText("Gate Code")).not.toBeInTheDocument();
+    expect(within(panel).getByRole("button", { name: "Save" })).toBeDisabled();
+  });
+
+  it("no Custom fields tab for a role that cannot read the custom-field catalog", async () => {
+    mocks.perms.allowed = new Set(["contacts", "contacts.edit", "deals", "estimates", "invoices", "payments", "calls"]);
+    await renderPage();
+    expect(screen.queryByRole("tab", { name: "Custom fields" })).not.toBeInTheDocument();
   });
 
   it("asks the API for the client's jobs only — no schedule sort, which the API answered with the whole account", async () => {

@@ -21,6 +21,7 @@ import { ClientAddressesTab } from "./client-addresses-tab";
 import { ClientAddressSheet, type AddressSheetMode } from "./client-address-sheet";
 import { ClientEstimatesTab, ClientInvoicesTab, ClientPaymentsTab } from "./client-billing-tabs";
 import { ClientCallsTab } from "./client-calls-tab";
+import { ClientCustomFieldsTab } from "./client-custom-fields-tab";
 import { EditClientDialog } from "./edit-client-dialog";
 import { PayInvoicesDialog } from "./pay-invoices-dialog";
 import { ServiceLocationDialog } from "./service-location-dialog";
@@ -31,7 +32,7 @@ import { ClientRail } from "./client-rail";
 import { ClientSummaryPanel } from "./client-summary-panel";
 import { DeleteClientDialog } from "./delete-client-dialog";
 
-type TabId = "jobs" | "estimates" | "invoices" | "payments" | "addresses" | "calls";
+type TabId = "jobs" | "custom-fields" | "estimates" | "invoices" | "payments" | "addresses" | "calls";
 
 /** Workiz's Create new rows (`MenuPopup`): 35px, 8px 12px, 13px/19px ink, an 18px glyph. */
 const MENU_ROW = "min-h-[35px] gap-2 border-t-0! px-3 py-2 text-[13px] leading-[19px] text-foreground focus:text-foreground [&_svg]:size-[18px]";
@@ -39,12 +40,13 @@ const MENU_ROW = "min-h-[35px] gap-2 border-t-0! px-3 py-2 text-[13px] leading-[
 /**
  * The client page, laid out as Workiz's (/root/client/<id>,
  * pg_contact_wz_269669_*): the 300px column on the left (name, contact, tags,
- * folds); the totals and "Create new" over the tabs — Jobs, Estimates,
- * Invoices, Payments, Addresses, Calls — each a Workiz grid; the Notes /
- * History / Files rail on the right, its panels laid over the page.
+ * folds); the totals and "Create new" over the tabs — Jobs, Custom fields
+ * (the client custom fields as a form), Estimates, Invoices, Payments,
+ * Addresses, Calls — each a Workiz grid; the Notes / History / Files rail on
+ * the right, its panels laid over the page.
  *
- * Workiz's Custom fields tab and More (Service plans, Visits, Leads,
- * Equipment) have nothing behind them in BitCRM and are left out.
+ * Workiz's More (Service plans, Visits, Leads, Equipment) has nothing behind
+ * it in BitCRM and is left out.
  */
 export function ContactDetailPage({ contactId }: { contactId: string }) {
   const router = useRouter();
@@ -123,6 +125,8 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
 
   const tabs: WzTab[] = [
     { value: "jobs", label: "Jobs", count: jobsCount },
+    // Reading the client fields needs the catalog's view grant.
+    ...(can("custom_fields") ? [{ value: "custom-fields", label: "Custom fields" }] : []),
     ...(can("estimates") ? [{ value: "estimates", label: "Estimates", count: String(estimates.data?.length ?? 0) }] : []),
     ...(can("invoices") ? [{ value: "invoices", label: "Invoices", count: String(invoices.data?.length ?? 0) }] : []),
     ...(canPayments ? [{ value: "payments", label: "Payments", count: paymentsCount }] : []),
@@ -212,6 +216,12 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
         <div role="tabpanel" aria-label={tabs.find((t) => t.value === tab)?.label} className="min-w-0 shrink-0">
           {tab === "jobs" ? (
             <ClientJobsTab deals={deals} amountDue={amountDue} pastDue={pastDue} money={money} zoneOf={zoneOf} complete={!hasNextPage} />
+          ) : tab === "custom-fields" ? (
+            <ClientCustomFieldsTab
+              contact={contact}
+              canEdit={can("contacts", "edit")}
+              canCreateField={can("custom_fields", "create")}
+            />
           ) : tab === "estimates" ? (
             <ClientEstimatesTab estimates={estimates.data ?? []} dealsById={dealsById} serviceAddress={contact.addresses[0]} />
           ) : tab === "invoices" ? (

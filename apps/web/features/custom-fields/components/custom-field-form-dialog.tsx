@@ -2,8 +2,8 @@
 
 import { useMemo, useState } from "react";
 import { Check, Plus, X } from "lucide-react";
-import type { CustomFieldDefinition, CustomFieldType } from "@bitcrm/types";
-import { CUSTOM_FIELD_TYPES, isOptionCustomFieldType } from "@bitcrm/types";
+import type { CustomFieldDefinition, CustomFieldEntityType, CustomFieldType } from "@bitcrm/types";
+import { CUSTOM_FIELD_TYPES, customFieldEntityType, isOptionCustomFieldType } from "@bitcrm/types";
 import {
   Command,
   CommandEmpty,
@@ -199,20 +199,29 @@ function OptionsEditor({
  * Group in the outlined boxes, the job types it applies to ("All Job Types"
  * when none), then "Required?", "Required To Close?" and "searchable?" on
  * Workiz's small dark toggles; Cancel / Save sharing the foot. The options
- * of a Drop Down / Multi Select and the Priority (Workiz drags the rows
- * instead) are ours, in the same boxes. On / off is the table's Status
- * switch; an edit keeps the state.
+ * of a Drop Down / Multi Select are ours, in the same boxes. The order is
+ * the table's — its rows are dragged (Workiz), so there is no Priority box.
+ * On / off is the table's Status switch; an edit keeps the state.
+ *
+ * On the Client tab (`entityType="client"`, or editing a client field) the
+ * job-only rows go: a client field has no job types and is never required —
+ * Workiz leaves all three unset on its client fields.
  */
 export function CustomFieldFormDialog({
   customField,
+  entityType: newEntityType = "job",
   open,
   onOpenChange,
 }: {
   customField?: CustomFieldDefinition;
+  /** The tab a NEW field is added on; an existing field keeps its own. */
+  entityType?: CustomFieldEntityType;
   open: boolean;
   onOpenChange: (v: boolean) => void;
 }) {
   const editing = Boolean(customField);
+  const entityType = customField ? customFieldEntityType(customField) : newEntityType;
+  const clientField = entityType === "client";
   const create = useCreateCustomField();
   const update = useUpdateCustomField(customField?.id ?? "");
   const pending = create.isPending || update.isPending;
@@ -225,7 +234,6 @@ export function CustomFieldFormDialog({
   const [required, setRequired] = useState(customField?.required ?? false);
   const [requiredToClose, setRequiredToClose] = useState(customField?.requiredToClose ?? false);
   const [searchable, setSearchable] = useState(customField?.searchable ?? false);
-  const [priority, setPriority] = useState(String(customField?.priority ?? 0));
   const [error, setError] = useState<string | null>(null);
 
   const optionType = isOptionCustomFieldType(type);
@@ -237,14 +245,14 @@ export function CustomFieldFormDialog({
         type,
         group,
         options,
-        jobTypeIds,
-        required,
-        requiredToClose,
+        jobTypeIds: clientField ? [] : jobTypeIds,
+        required: clientField ? false : required,
+        requiredToClose: clientField ? false : requiredToClose,
         searchable,
-        priority,
         active: customField?.active ?? true,
+        entityType,
       }),
-    [name, type, group, options, jobTypeIds, required, requiredToClose, searchable, priority, customField],
+    [name, type, group, options, jobTypeIds, required, requiredToClose, searchable, customField, clientField, entityType],
   );
 
   const submit = () => {
@@ -253,14 +261,18 @@ export function CustomFieldFormDialog({
       setError(parsed.error.issues[0]?.message ?? "Check the form");
       return;
     }
-    const body = toCustomFieldBody(parsed.data);
+    const body = toCustomFieldBody(parsed.data, { editing });
     const mutation = editing ? update : create;
     mutation.mutate(body, { onSuccess: () => onOpenChange(false) });
   };
 
   const toggles: { label: string; checked: boolean; set: (v: boolean) => void }[] = [
-    { label: "Required?", checked: required, set: setRequired },
-    { label: "Required To Close?", checked: requiredToClose, set: setRequiredToClose },
+    ...(clientField
+      ? []
+      : [
+          { label: "Required?", checked: required, set: setRequired },
+          { label: "Required To Close?", checked: requiredToClose, set: setRequiredToClose },
+        ]),
     { label: "searchable?", checked: searchable, set: setSearchable },
   ];
 
@@ -291,12 +303,12 @@ export function CustomFieldFormDialog({
         </div>
       ) : null}
 
-      <div className="flex flex-col gap-2">
-        <JobTypesPicker value={jobTypeIds} onChange={setJobTypeIds} />
-        <p className="text-xs leading-[18px] text-wz-caption">Leave empty to apply to all job types.</p>
-      </div>
-
-      <WzModalTextField label="Priority" type="number" min={0} value={priority} onChange={setPriority} />
+      {clientField ? null : (
+        <div className="flex flex-col gap-2">
+          <JobTypesPicker value={jobTypeIds} onChange={setJobTypeIds} />
+          <p className="text-xs leading-[18px] text-wz-caption">Leave empty to apply to all job types.</p>
+        </div>
+      )}
 
       <div className="flex flex-col gap-[29px]">
         {toggles.map((t) => (
