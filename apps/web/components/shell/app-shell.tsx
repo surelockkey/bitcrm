@@ -7,6 +7,7 @@ import { PageHistoryBar } from "./page-history";
 import { FilePreviewHost } from "@/features/files/components/file-preview-host";
 import { CommandMenu } from "./command-menu";
 import { LocationBroadcaster } from "@/features/technicians/components/location-broadcaster";
+import { PresenceHeartbeat } from "@/features/users/components/presence-heartbeat";
 import { SoftphoneProvider } from "@/features/telephony/components/softphone-provider";
 import { MessagingStreamProvider } from "@/features/messaging/components/messaging-stream-provider";
 import { DealsStreamProvider } from "@/features/deals/components/deals-stream-provider";
@@ -37,6 +38,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <FilePreviewHost />
       {/* Streams a technician's live location while they're online (renders nothing). */}
       <LocationBroadcaster />
+      {/* Keeps the signed-in user "Online" on Admin → Users while a tab is in view (renders nothing). */}
+      <PresenceHeartbeat />
       {/* Twilio softphone: drives the Device from the phone on/off toggle and
           renders the floating dialer overlay. */}
       <SoftphoneProvider />

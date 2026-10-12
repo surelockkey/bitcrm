@@ -56,7 +56,7 @@ describe("UsersTable — Workiz's Team grid", () => {
   it("has the Team page's columns, then ours", () => {
     renderTable([alex]);
     const heads = screen.getAllByRole("columnheader").map((h) => h.textContent?.trim());
-    expect(heads).toEqual(["Name", "Phone", "Role", "Field team", "Department", "Created", "Actions"]);
+    expect(heads).toEqual(["Name", "Phone", "Role", "Field team", "Department", "Created", "Last seen", "Actions"]);
   });
 
   it("prints a row as Workiz does: name over email, blue phone, yes/no, the Created stamp", () => {
@@ -121,5 +121,30 @@ describe("UsersTable — Workiz's Team grid", () => {
     const menu = await screen.findByRole("menu");
     await userEvent.click(within(menu).getByRole("menuitem", { name: "Reactivate" }));
     expect(mutations.reactivate).toHaveBeenCalledWith("u1");
+  });
+});
+
+describe("UsersTable — who is online", () => {
+  const bo: User = { ...alex, id: "u2", cognitoSub: "s2", email: "bo@b.com", firstName: "Bo", lastName: "Diaz" };
+  const presence = new Map([
+    ["u1", { userId: "u1", lastSeenAt: new Date(Date.now() - 60_000).toISOString(), online: true }],
+    ["u2", { userId: "u2", lastSeenAt: new Date(Date.now() - 3 * 3600_000).toISOString(), online: false }],
+  ]);
+  const renderOnline = () =>
+    render(
+      <UsersTable rows={userRows([alex, bo], roles, presence)} sort={null} onSort={vi.fn()} onOpen={vi.fn()} />,
+    );
+  const rowOf = (name: string) => screen.getByText(name).closest("tr")!;
+
+  it("flags a user who is using the platform now with a green Online chip by the name", () => {
+    renderOnline();
+    const chip = within(rowOf("Alex Bell")).getByText("Online", { selector: "span[data-slot=online-chip]" });
+    expect(chip.className).toMatch(/bg-wz-tag-success/);
+    expect(within(rowOf("Bo Diaz")).queryByText("Online", { selector: "span[data-slot=online-chip]" })).toBeNull();
+  });
+
+  it("says when everyone else was last seen", () => {
+    renderOnline();
+    expect(within(rowOf("Bo Diaz")).getByText("3 h ago")).toBeInTheDocument();
   });
 });

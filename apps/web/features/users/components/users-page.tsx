@@ -16,7 +16,7 @@ import { useUserMap } from "@/features/technicians/hooks";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { usePageSize } from "@/lib/paging/use-page-size";
 import { settled, usePageReady } from "@/lib/use-page-ready";
-import { useRoles, useUser } from "../hooks";
+import { useRoles, useUser, useUsersPresence } from "../hooks";
 import { DEFAULT_USER_FILTER, filterUsers, searchUsers, userFilterGroups, userRows, type UserRow } from "../users-list";
 import { CreateUserSheet } from "./create-user-sheet";
 import { UserDetailSheet } from "./user-detail-sheet";
@@ -42,7 +42,10 @@ export function UsersPage() {
 
   const directory = useUserMap();
   const rolesQuery = useRoles();
-  const ready = usePageReady(!permsLoading && [directory, rolesQuery].every(settled));
+  // Who is online now — part of the page, so the chips come with the rows;
+  // a refusal (an older user-service) just leaves everyone without one.
+  const presenceQuery = useUsersPresence(!permsLoading && can("users", "view"));
+  const ready = usePageReady(!permsLoading && [directory, rolesQuery, presenceQuery].every(settled));
 
   const [picks, setPicks] = useState<WzFilterPick[]>(DEFAULT_USER_FILTER);
   const [query, setQuery] = useState("");
@@ -54,7 +57,7 @@ export function UsersPage() {
 
   const roles = useMemo(() => rolesQuery.data ?? [], [rolesQuery.data]);
   const users = useMemo(() => [...(directory.data?.values() ?? [])], [directory.data]);
-  const rows = useMemo(() => userRows(users, roles), [users, roles]);
+  const rows = useMemo(() => userRows(users, roles, presenceQuery.data), [users, roles, presenceQuery.data]);
   const groups = useMemo(
     () => userFilterGroups({ roles, departments: users.map((u) => u.department ?? "") }),
     [roles, users],

@@ -8,18 +8,21 @@ import { formatTeamCreated } from "@/features/technicians/team-list";
 import { formatPhone } from "@/lib/phone";
 import { useColumnWidths } from "@/lib/table/use-column-widths";
 import { cn } from "@/lib/utils";
-import type { UserRow } from "../users-list";
+import { lastSeenLabel, type UserRow } from "../users-list";
 import { UserRowActions } from "./user-row-actions";
 
 /**
  * The Team grid's chips (pg_technicians_wz_measure_team.json): Workiz's
  * `tag small` — 11px/13px 500 white on its colour, 3px corners, 1px 4px —
- * 8px under the email. "2FA" is Workiz's (#6aa8ee); "Inactive" and "Custom
- * permissions" are ours, in the same shape.
+ * 8px under the email. "2FA" is Workiz's (#6aa8ee); "Online" (Workiz's
+ * green tag), "Inactive" and "Custom permissions" are ours, in the same shape.
  */
-function Chip({ children, className }: { children: ReactNode; className: string }) {
+function Chip({ children, className, slot }: { children: ReactNode; className: string; slot?: string }) {
   return (
-    <span className={cn("block w-fit rounded-[3px] px-1 py-px text-[11px] leading-[13px] font-medium tracking-[0.4px] whitespace-nowrap text-white", className)}>
+    <span
+      data-slot={slot}
+      className={cn("block w-fit rounded-[3px] px-1 py-px text-[11px] leading-[13px] font-medium tracking-[0.4px] whitespace-nowrap text-white", className)}
+    >
       {children}
     </span>
   );
@@ -44,8 +47,13 @@ function columns(onOpen: (u: User, tab?: string) => void): Column[] {
         <>
           <span className="block truncate">{r.name}</span>
           <span className="mt-[5px] block overflow-hidden text-xs leading-4 text-wz-caption">{r.email}</span>
-          {r.twoFactor || r.status !== "active" || r.custom ? (
+          {r.online || r.twoFactor || r.status !== "active" || r.custom ? (
             <span className="mt-2 flex flex-wrap gap-1">
+              {r.online ? (
+                <Chip slot="online-chip" className="bg-wz-tag-success">
+                  Online
+                </Chip>
+              ) : null}
               {r.twoFactor ? <Chip className="bg-wz-link">2FA</Chip> : null}
               {r.status !== "active" ? <Chip className="bg-wz-outline">Inactive</Chip> : null}
               {r.custom ? <Chip className="bg-wz-slate">Custom permissions</Chip> : null}
@@ -89,6 +97,19 @@ function columns(onOpen: (u: User, tab?: string) => void): Column[] {
       cell: (r) => <span className="block truncate">{formatTeamCreated(r.createdAt)}</span>,
     },
     {
+      // Ours: when the user last used the platform, web or app.
+      id: "lastSeen",
+      label: "Last seen",
+      sortable: true,
+      sortValue: (r) => (r.online ? "~" : (r.lastSeenAt ?? "")),
+      cell: (r) => (
+        <span className="flex items-center gap-1.5 truncate">
+          {r.online ? <span aria-hidden className="size-2 shrink-0 rounded-full bg-wz-tag-success" /> : null}
+          {lastSeenLabel(r)}
+        </span>
+      ),
+    },
+    {
       id: "actions",
       label: "Actions",
       cell: (r) => <UserRowActions user={r.user} name={r.name} onOpen={onOpen} />,
@@ -114,6 +135,7 @@ const COLUMN_DEFAULTS: Record<string, number> = {
   fieldTeam: 160,
   department: 160,
   created: 160,
+  lastSeen: 160,
   actions: 100,
 };
 
