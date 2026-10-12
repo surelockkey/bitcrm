@@ -51,6 +51,9 @@ import { ContactAttachmentsService } from '../contacts/contact-attachments.servi
 import { DispatchMapController } from './map/dispatch-map.controller';
 import { DispatchMapService } from './map/dispatch-map.service';
 
+import { ClientConfirmController } from './client-confirm/client-confirm.controller';
+import { ClientConfirmService } from './client-confirm/client-confirm.service';
+
 @Module({
   imports: [ServiceAreasModule, JobTypesModule, JobSourcesModule, ExternalCompaniesModule, JobTagsModule, JobStatusesModule, JobFieldSettingsModule, JobRulesModule, CustomFieldsModule, TechnicianEligibilityModule, TaxRatesModule, BusinessProfilesClientModule, CommissionReportModule],
   // Attachments and billing controllers before Deals so their `/:id/...` and
@@ -72,6 +75,9 @@ import { DispatchMapService } from './map/dispatch-map.service';
     JobStatisticsController,
     // `GET /map` (the dispatch map) ahead of `GET /:id`.
     DispatchMapController,
+
+    // The client's {{confirm_link}} (B12): `internal/:id/client-confirm`, for billing.
+    ClientConfirmController,
     DealsController,
   ],
   providers: [
@@ -101,6 +107,8 @@ import { DispatchMapService } from './map/dispatch-map.service';
     BillingReportsClient,
     JobStatisticsService,
     DispatchMapService,
+
+    ClientConfirmService,
   ],
   exports: [DealsService, DealsEventHandler],
 })

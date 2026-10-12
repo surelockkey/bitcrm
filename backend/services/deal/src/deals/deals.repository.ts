@@ -1407,6 +1407,55 @@ export class DealsRepository {
   }
 
   /**
+   * The client confirmed the visit (B12, Workiz `client_confirmed`): stamps
+   * `clientConfirmedAt` / `Via` / `By` and `clientConfirmedFor` — the visit
+   * confirmed (`clientConfirmScheduleKey`, empty for an undated job, then the
+   * attribute is removed). The write itself decides who was first: it lands
+   * only while this visit is not confirmed yet — never confirmed, or
+   * confirmed for a visit the job has since been moved away from — so two
+   * taps racing past the service's read still record one confirmation, one
+   * history line and one event. `false` = the condition failed (already
+   * confirmed for this visit, or no such job).
+   */
+  async recordClientConfirmation(
+    dealId: string,
+    rec: { at: string; via: string; by?: string; visit: string },
+  ): Promise<boolean> {
+    const sets = ['clientConfirmedAt = :at', 'clientConfirmedVia = :via'];
+    const values: Record<string, unknown> = { ':at': rec.at, ':via': rec.via };
+    if (rec.by) {
+      sets.push('clientConfirmedBy = :by');
+      values[':by'] = rec.by;
+    }
+    let update: string;
+    let stale: string;
+    if (rec.visit) {
+      sets.push('clientConfirmedFor = :visit');
+      values[':visit'] = rec.visit;
+      update = `SET ${sets.join(', ')}`;
+      stale = 'attribute_not_exists(clientConfirmedFor) OR clientConfirmedFor <> :visit';
+    } else {
+      update = `SET ${sets.join(', ')} REMOVE clientConfirmedFor`;
+      stale = 'attribute_exists(clientConfirmedFor)';
+    }
+    try {
+      await this.dynamoDb.client.send(
+        new UpdateCommand({
+          TableName: this.tableName,
+          Key: { PK: `DEAL#${dealId}`, SK: 'METADATA' },
+          UpdateExpression: update,
+          ConditionExpression: `attribute_exists(PK) AND (attribute_not_exists(clientConfirmedAt) OR ${stale})`,
+          ExpressionAttributeValues: values,
+        }),
+      );
+      return true;
+    } catch (error) {
+      if ((error as Error).name === 'ConditionalCheckFailedException') return false;
+      throw error;
+    }
+  }
+
+  /**
    * Stamp "Send to tech" on each named technician's row (Workiz `last_sent`
    * per tech). The previous send's per-channel `deliveries` are dropped —
    * they described the old click. Only existing rows are touched, and a
@@ -1883,6 +1932,11 @@ export class DealsRepository {
       arrivedAt: item.arrivedAt as string | undefined,
       arrivedBy: item.arrivedBy as string | undefined,
       arrivedLocation: item.arrivedLocation as Deal['arrivedLocation'],
+      // The client's confirmation (B12); absent until their first tap.
+      clientConfirmedAt: item.clientConfirmedAt as string | undefined,
+      clientConfirmedVia: item.clientConfirmedVia as Deal['clientConfirmedVia'],
+      clientConfirmedBy: item.clientConfirmedBy as string | undefined,
+      clientConfirmedFor: item.clientConfirmedFor as string | undefined,
       createdAt: item.createdAt as string,
       updatedAt: item.updatedAt as string,
     };

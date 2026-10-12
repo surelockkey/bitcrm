@@ -44,7 +44,7 @@ documented surface; keep it in sync when you add a variable.
 | search    | 4005 | `api/search`     | global search — OpenSearch read model + indexer (CQRS) |
 | telephony | 4006 | `api/telephony`  | Twilio softphone: tokens, TwiML, call records, presence, call groups/flows, numbers, job dial-in codes, blocked callers |
 | messaging | 4007 | `api/messaging`  | client inbox + team chat (Workiz Inbox model): conversations, messages (SMS/MMS, email, in-app), templates, opt-outs, settings — Twilio Messages API traffic; telephony stays the owner of the numbers |
-| billing   | 4008 | `api/billing`    | job invoices + estimates (Workiz model), **the payment ledger + Stripe** (offline payments, portal card/ACH, refunds, webhook), document templates + headless-Chromium PDF rendering (`@bitcrm/document-renderer`), companies (many business profiles, one default — jobs pick one), template images, client-portal API (`/public/portal/:token`, `@Public` + Redis rate limit; the pages are `apps/portal`, see §10) |
+| billing   | 4008 | `api/billing`    | job invoices + estimates (Workiz model), **the payment ledger + Stripe** (offline payments, portal card/ACH, refunds, webhook), document templates + headless-Chromium PDF rendering (`@bitcrm/document-renderer`), companies (many business profiles, one default — jobs pick one), template images, client-portal API (`/public/portal/:token`, `@Public` + Redis rate limit; the pages are `apps/portal`, see §10), the client's confirm-your-appointment page API (`/public/confirm/:token`, B12) |
 
 ---
 
@@ -714,6 +714,22 @@ tests, and — if it emits events — the types in `@bitcrm/types` plus a row in
   `POST /portal-links/:contactId` regenerates. Rotating the secret orphans links
   (the next `…/url` replaces them). `GET /portal/:token` (outside the `api/billing`
   prefix, ALB rule `portal_legacy`) 302s links sent before the split to the portal.
+- **The client confirms the visit through `{{confirm_link}}` (B12, Workiz `client_confirmed`).**
+  The link is `<portal>/confirm/<token>`, one per JOB and stateless: the job's uuid
+  (22 base64url chars) + the first 16 bytes of `HMAC(PORTAL_TOKEN_SECRET ||
+  INTERNAL_SERVICE_SECRET, "client-confirm:v1:<dealId>")` (`@bitcrm/shared`
+  `links/client-confirm-link.ts`) — no row anywhere. Messaging mints it when it renders a
+  text (`ContextLoader` → `ctx.confirmLink`; a base URL in the Text Messages settings still
+  wins), so it needs the portal origin too (`PORTAL_BASE_URL`, else `https://$APP_PORTAL_DOMAIN`).
+  Billing's `@Public` `GET|POST /public/confirm/:token` verifies it (portal limiter), brands
+  the answer with the job's company and calls deal's `@Internal`
+  `GET|POST /deals/internal/:id/client-confirm`, where the job rules live: state
+  open | confirmed | closed (done, canceled, done pending approval, deleted) | expired (the
+  visit's end passed on the job's clock), a conditional write of `clientConfirmedAt` / `Via` /
+  `By` / `For` (one confirmation per visit — `clientConfirmedFor` is the visit it was for, so
+  a reschedule makes it stale and the client may confirm the new time), "Client Confirmed job"
+  (`client_confirmed`) in the history and `deal.client_confirmed` (an automation trigger).
+  **No sub-status is set** — Workiz sets none; a rule can.
 - **Texting a document = messaging's `POST /messages`** (Twilio, the client's thread),
   driven by the web app's "Send by text" dialog: mark the document sent FIRST (the
   portal shows sent documents only), then send.

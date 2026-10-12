@@ -23,6 +23,8 @@ export const DealEventType = {
   DEAL_SCHEDULED_CHANGED: 'deal.scheduled_changed',
   /** A dispatcher pressed "Send to tech" — messaging delivers the job text per channel. */
   SENT_TO_TECH: 'deal.sent_to_tech',
+  /** The client confirmed the visit through `{{confirm_link}}` (Workiz "Client Confirmed job") — an automation trigger. */
+  DEAL_CLIENT_CONFIRMED: 'deal.client_confirmed',
 } as const;
 
 export type DealEventType = (typeof DealEventType)[keyof typeof DealEventType];
@@ -101,4 +103,21 @@ export interface DealSentToTechEvent {
   sentAt: string;
   /** The dispatcher who pressed the button. */
   sentBy: string;
+}
+
+/**
+ * `deal.client_confirmed` — the client tapped Confirm on the page their
+ * `{{confirm_link}}` opens. Published once per confirmed visit (a second tap
+ * publishes nothing; a confirmation of a NEW time after a reschedule does).
+ * `confirmedAt` is the idempotency key the automations use.
+ */
+export interface DealClientConfirmedEvent {
+  dealId: string;
+  dealNumber?: string;
+  contactId?: string;
+  /** ISO-8601; equals the deal's `clientConfirmedAt`. */
+  confirmedAt: string;
+  via: 'link';
+  /** The visit confirmed (`clientConfirmScheduleKey`); empty for an unscheduled job. */
+  visit?: string;
 }

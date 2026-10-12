@@ -104,6 +104,7 @@ describe('AutomationsModule wiring', () => {
       DEAL_TECH_ASSIGNED_EVENT,
       DEAL_SCHEDULED_CHANGED_EVENT,
       DealEventType.SENT_TO_TECH,
+      DealEventType.DEAL_CLIENT_CONFIRMED,
     ]) {
       expect(handlers.has(event)).toBe(true);
     }

@@ -179,8 +179,12 @@ EXTRA_ENV_JSON=$(jq -n \
       + (if $telephony_default_area_caller_id != "" then [{name: "TELEPHONY_DEFAULT_AREA_CALLER_ID", value: $telephony_default_area_caller_id}] else [] end)
     else [] end)
   # Outbound SMS goes through a Messaging Service (A2P 10DLC); messaging only.
+  # Messaging also builds the {{confirm_link}} a client taps (<portal>/confirm/<job token>), so
+  # it needs the portal origin billing has (else it falls back to APP_PORTAL_DOMAIN).
+  # (No apostrophes in these comments: this jq program sits inside single quotes.)
   + (if $service == "messaging" then
-      (if $twilio_messaging_service_sid != "" then [{name: "TWILIO_MESSAGING_SERVICE_SID", value: $twilio_messaging_service_sid}] else [] end)
+      (if $portal_base_url != "" then [{name: "PORTAL_BASE_URL", value: $portal_base_url}] else [] end)
+      + (if $twilio_messaging_service_sid != "" then [{name: "TWILIO_MESSAGING_SERVICE_SID", value: $twilio_messaging_service_sid}] else [] end)
       + (if $messaging_default_sender   != "" then [{name: "MESSAGING_DEFAULT_SENDER",     value: $messaging_default_sender}]     else [] end)
     else [] end)
   # Two-step sign-in texts its codes through Twilio Verify on the same

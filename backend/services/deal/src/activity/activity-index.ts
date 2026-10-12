@@ -235,6 +235,9 @@ export function nativeActivityText(eventType: string, details: Item = {}, note?:
       return 'Confirmed job receipt';
     case TimelineEventType.TECH_ARRIVED:
       return 'Arrived at location';
+    // Workiz's line for the client's {{confirm_link}} tap (written with no user).
+    case TimelineEventType.CLIENT_CONFIRMED:
+      return 'Client Confirmed job';
     case TimelineEventType.ATTACHMENT_ADDED:
       return 'Saved Attachment';
     case TimelineEventType.ATTACHMENT_RENAMED:

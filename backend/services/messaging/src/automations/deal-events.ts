@@ -1,4 +1,4 @@
-import { SEND_TO_TECH_CHANNELS, type DealSentToTechEvent } from '@bitcrm/types';
+import { SEND_TO_TECH_CHANNELS, type DealClientConfirmedEvent, type DealSentToTechEvent } from '@bitcrm/types';
 
 /**
  * What deal-service publishes on `deal-events` (EVENTS.md,
@@ -19,6 +19,8 @@ import { SEND_TO_TECH_CHANNELS, type DealSentToTechEvent } from '@bitcrm/types';
  *   deal.tech_assigned   { dealId, techId, assignedBy }  once per technician added to the roster
  *   deal.sent_to_tech    DealSentToTechEvent             a dispatcher pressed "Send to tech"; typed in
  *                                                        `@bitcrm/types` so publisher and consumer share it
+ *   deal.client_confirmed DealClientConfirmedEvent       the client confirmed the visit through
+ *                                                        `{{confirm_link}}` (B12) — a rule trigger
  *
  * `deal.scheduled_changed` is typed in `@bitcrm/types` but deal-service
  * does not publish it yet (verified 2026-09-16). The consumer accepts it if
@@ -126,3 +128,11 @@ export const isDealCreatedPayload = (p: unknown): p is DealCreatedPayload => has
 export const isDealStatusChangedPayload = (p: unknown): p is DealStatusChangedPayload => hasDealId(p);
 
 export const isDealScheduledChangedPayload = (p: unknown): p is DealScheduledChangedPayload => hasDealId(p);
+
+/**
+ * `deal.client_confirmed` (`DealClientConfirmedEvent`, B12): the client tapped
+ * Confirm on their `{{confirm_link}}` page. `confirmedAt` is required — it is
+ * the occurrence key, so a redelivery never texts the dispatcher twice.
+ */
+export const isDealClientConfirmedPayload = (p: unknown): p is DealClientConfirmedEvent =>
+  hasDealId(p) && nonEmptyString((p as { confirmedAt?: unknown }).confirmedAt);

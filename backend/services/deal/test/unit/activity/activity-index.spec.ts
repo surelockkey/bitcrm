@@ -220,6 +220,8 @@ describe('Activity — what a row prints', () => {
     [TimelineEventType.ESTIMATE_APPROVED, { number: '8HNU0Y-6' }, 'Client signed estimate'],
     [TimelineEventType.ESTIMATE_DECLINED, { number: '8HNU0Y-6' }, 'Client declined estimate'],
     [TimelineEventType.PROPOSAL_SENT, {}, 'Proposal Sent'],
+    // B12: Workiz's own line for the client's {{confirm_link}} tap (jobs S25H7C / COTPME, 2019, user "").
+    [TimelineEventType.CLIENT_CONFIRMED, { via: 'link' }, 'Client Confirmed job'],
   ])('%s %j reads "%s"', (type, details, text) => {
     expect(nativeActivityText(type, details)).toBe(text);
   });

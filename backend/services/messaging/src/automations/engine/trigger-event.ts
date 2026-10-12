@@ -108,6 +108,7 @@ function nodeMatch(node: AutomationConditionNode, facts: AutomationFacts): strin
  *   call.completed          `call:<sid>`
  *   message.received        `msg:<messageId>`
  *   schedule.relative       `timer:<anchorAt><offset>`
+ *   deal.client_confirmed   `client_confirmed:<confirmedAt>`
  */
 export function occurrenceOf(
   event: AutomationEvent,
@@ -134,6 +135,9 @@ export function occurrenceOf(
       return `msg:${event.message?.id ?? ''}`;
     case 'schedule.relative':
       return `timer:${event.timer?.anchorAt ?? ''}${event.timer?.offsetMinutes ?? 0}`;
+    case 'deal.client_confirmed':
+      // `at` is the confirmation's `confirmedAt`: one firing per confirmed visit.
+      return `client_confirmed:${event.at}`;
     default:
       return `${event.kind}:${event.at}`;
   }

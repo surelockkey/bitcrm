@@ -15,6 +15,9 @@ import { type DocumentDiscount, type DocumentTaxSource } from '../billing/totals
 export const SEND_TO_TECH_CHANNELS = ['sms', 'email', 'in_app'] as const;
 export type SendToTechChannel = (typeof SEND_TO_TECH_CHANNELS)[number];
 
+/** How the client confirmed the visit: the page `{{confirm_link}}` opens (the only way today). */
+export type ClientConfirmVia = 'link';
+
 /**
  * What the job is worth, kept on the job so a period can be summed without
  * reading every job's lines: the shared totals formula over its lines, tax
@@ -245,6 +248,18 @@ export interface Deal {
   arrivedAt?: string;
   arrivedBy?: string;
   arrivedLocation?: { lat: number; lng: number; accuracy?: number };
+  /**
+   * Workiz `client_confirmed` ("Client Confirmed job"): when the client tapped
+   * Confirm on the page their `{{confirm_link}}` opens, how (`link`), and
+   * which client (`contactId` at the time). `clientConfirmedFor` is the visit
+   * they confirmed (`clientConfirmScheduleKey`): once the job is rescheduled
+   * the confirmation no longer speaks for it — `isClientConfirmationCurrent`
+   * — and the client may confirm the new time. Absent until the first tap.
+   */
+  clientConfirmedAt?: string;
+  clientConfirmedVia?: ClientConfirmVia;
+  clientConfirmedBy?: string;
+  clientConfirmedFor?: string;
   createdAt: string;
   updatedAt: string;
 }

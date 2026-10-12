@@ -382,6 +382,16 @@ describe('automationSentence', () => {
     ).toBe('When a job is created, send the client a text message immediately');
   });
 
+  it('says the client-confirmation rule (B12: "client confirmed → notify the dispatcher")', () => {
+    expect(
+      automationSentence({
+        version: 1,
+        trigger: { kind: 'deal.client_confirmed' },
+        actions: [{ type: 'send_sms', to: 'dispatcher' }],
+      }),
+    ).toBe('When the client confirms the appointment, send the dispatcher a text message immediately');
+  });
+
   it('spells the delay in the largest whole unit', () => {
     expect(automationDelayText(undefined)).toBe('immediately');
     expect(automationDelayText(0)).toBe('immediately');

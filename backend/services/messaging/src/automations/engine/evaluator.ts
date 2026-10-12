@@ -86,6 +86,11 @@ export function matchesTrigger(trigger: AutomationTrigger, event: AutomationEven
     case 'deal.updated':
       return DEAL_EVENT_KINDS.includes(event.kind) ? HIT : miss(`trigger deal.updated does not take ${event.kind}`);
 
+    case 'deal.client_confirmed':
+      return event.kind === 'deal.client_confirmed'
+        ? HIT
+        : miss(`trigger deal.client_confirmed does not take ${event.kind}`);
+
     case 'call.completed': {
       if (event.kind !== 'call.completed') return miss(`trigger call.completed does not take ${event.kind}`);
       const wanted = trigger.callOutcome ?? 'any';

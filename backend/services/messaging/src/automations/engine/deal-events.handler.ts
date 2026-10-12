@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { type CallCompletedEvent } from '@bitcrm/types';
 import {
   hasDealId,
+  isDealClientConfirmedPayload,
   isDealScheduledChangedPayload,
   isDealStatusChangedPayload,
   isDealTechAssignedPayload,
@@ -105,6 +106,16 @@ export class AutomationDealEventsHandler {
         toTimeSlot: p.to?.scheduledTimeSlot,
       },
     });
+  }
+
+  /**
+   * `deal.client_confirmed` — the client confirmed the visit (B12). Only the
+   * rules hear it ("client confirmed → tell the dispatcher"); `at` is the
+   * confirmation's own moment, so a redelivery is the same occurrence.
+   */
+  async onClientConfirmed(payload: unknown): Promise<void> {
+    if (!isDealClientConfirmedPayload(payload)) return this.drop('deal.client_confirmed', payload);
+    await this.dispatch({ kind: 'deal.client_confirmed', at: payload.confirmedAt, dealId: payload.dealId });
   }
 
   /** `call.completed` from telephony (`call-events-to-messaging`). */

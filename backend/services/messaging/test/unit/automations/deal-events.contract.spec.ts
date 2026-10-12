@@ -1,7 +1,8 @@
-import { DealEventType, type DealSentToTechEvent } from '@bitcrm/types';
+import { DealEventType, type DealClientConfirmedEvent, type DealSentToTechEvent } from '@bitcrm/types';
 import {
   DEAL_TECH_ASSIGNED_EVENT,
   DEAL_UPDATED_EVENT,
+  isDealClientConfirmedPayload,
   isDealSentToTechPayload,
   isDealTechAssignedPayload,
   isDealUpdatedPayload,
@@ -46,6 +47,23 @@ describe('deal-events contract (as consumed by messaging)', () => {
     expect(isDealSentToTechPayload(published)).toBe(true);
     // dealNumber is the only optional field.
     expect(isDealSentToTechPayload({ ...published, dealNumber: undefined })).toBe(true);
+  });
+
+  it('accepts a deal.client_confirmed exactly as ClientConfirmService publishes it (B12)', () => {
+    const published: DealClientConfirmedEvent = {
+      dealId: 'd1',
+      dealNumber: 'K4T9ZW',
+      contactId: 'ct1',
+      confirmedAt: '2026-09-16T14:30:00.000Z',
+      via: 'link',
+      visit: '2026-09-20 09:00-11:00',
+    };
+    expect(DealEventType.DEAL_CLIENT_CONFIRMED).toBe('deal.client_confirmed');
+    expect(isDealClientConfirmedPayload(published)).toBe(true);
+    expect(isDealClientConfirmedPayload({ dealId: 'd1', confirmedAt: '2026-09-16T14:30:00.000Z' })).toBe(true);
+    expect(isDealClientConfirmedPayload({ dealId: 'd1' })).toBe(false);
+    expect(isDealClientConfirmedPayload({ confirmedAt: '2026-09-16T14:30:00.000Z' })).toBe(false);
+    expect(isDealClientConfirmedPayload(null)).toBe(false);
   });
 
   it('drops a sent_to_tech that would deliver the wrong thing', () => {
