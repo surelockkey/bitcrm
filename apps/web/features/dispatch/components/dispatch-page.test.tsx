@@ -46,6 +46,16 @@ vi.mock("@vis.gl/react-google-maps", () => ({
   useApiLoadingStatus: () => "FAILED",
 }));
 
+// The edit sheet's own form (catalog selects, custom fields) is not this page's
+// concern; what it is handed is — the whole job, not the map's cut-down row.
+vi.mock("@/features/deals/components/edit-deal-sheet", () => ({
+  EditDealSheet: ({ deal }: { deal: { dealNumber: string; notes?: string } }) => (
+    <div role="dialog" aria-label={`Edit Job #${deal.dealNumber}`}>
+      {deal.notes ?? "(no notes)"}
+    </div>
+  ),
+}));
+
 // FitToJobs builds a LatLngBounds; stub the tiny slice it touches.
 vi.stubGlobal("google", {
   maps: {
@@ -127,22 +137,20 @@ const LATER = {
   address: { ...LOCATED.address, lat: 33.8, lng: -84.3 },
 };
 
+/** The clients and techs `GET /deals/map` names beside its jobs. */
+const INCLUDED = {
+  technicians: [{ id: "tech-1", firstName: "Daniel", lastName: "Munoz", workizName: "(2) TX - Daniel Munoz" }],
+  clients: [{ id: "contact-1", firstName: "Ada", lastName: "Lovelace", phones: ["+14045550101"], emails: [] }],
+};
+
+/** `GET /deals/map`'s answer: the jobs, their count, who they name. */
+const mapReply = (data: unknown[]) =>
+  HttpResponse.json({ success: true, data, pagination: { count: data.length }, included: INCLUDED });
+
 function mockApi() {
   server.use(
-    http.get("*/deals", () =>
-      HttpResponse.json({
-        success: true,
-        data: [LOCATED, UNLOCATED, LATER],
-        pagination: { count: 3 },
-      }),
-    ),
-    // The page names only the contacts of the rows it holds.
-    http.post("*/contacts/by-ids", () =>
-      HttpResponse.json({
-        success: true,
-        data: [{ id: "contact-1", firstName: "Ada", lastName: "Lovelace", phones: ["+14045550101"], emails: [] }],
-      }),
-    ),
+    // The board's one read: every open job, with its clients and techs.
+    http.get("*/deals/map", () => mapReply([LOCATED, UNLOCATED, LATER])),
     http.get("*/deals/job-types", () =>
       HttpResponse.json({ success: true, data: [{ id: "jt-lockout", name: "Lockout", active: true, priority: 1 }] }),
     ),
@@ -209,16 +217,16 @@ describe("DispatchPage — Workiz's Map", () => {
   it("reads every open job once, whatever the date — never the closed ones", async () => {
     const urls: string[] = [];
     server.use(
-      http.get("*/deals", ({ request }) => {
+      http.get("*/deals/map", ({ request }) => {
         urls.push(request.url);
-        return HttpResponse.json({ success: true, data: [LOCATED, UNLOCATED], pagination: { count: 2 } });
+        return mapReply([LOCATED, UNLOCATED]);
       }),
     );
     render(<DispatchPage />, { wrapper });
     await screen.findByTestId("job-row-deal-1");
-    const statuses = urls.map((u) => new URL(u).searchParams.get("superStatus"));
-    expect(statuses).toEqual(["submitted", "in_progress", "pending", "done_pending_approval"]);
-    for (const u of urls) expect(new URL(u).searchParams.has("scheduledFrom")).toBe(false);
+    // One request; no statuses and no days — deal-service's default is every open job.
+    expect(urls).toHaveLength(1);
+    expect([...new URL(urls[0]).searchParams.keys()]).toEqual([]);
   });
 
   it("shows the chosen week and says how many of the open jobs that is", async () => {
@@ -232,11 +240,7 @@ describe("DispatchPage — Workiz's Map", () => {
   // Ours, kept from before the Workiz pass: every open job at once, whatever its date.
   it("Any date shows every open job — unscheduled and weeks-away ones too — and has nothing to step", async () => {
     const UNSCHEDULED = { ...LOCATED, id: "deal-4", dealNumber: "104", scheduledDate: undefined, scheduledTimeSlot: undefined };
-    server.use(
-      http.get("*/deals", () =>
-        HttpResponse.json({ success: true, data: [LOCATED, UNLOCATED, LATER, UNSCHEDULED], pagination: { count: 4 } }),
-      ),
-    );
+    server.use(http.get("*/deals/map", () => mapReply([LOCATED, UNLOCATED, LATER, UNSCHEDULED])));
     const user = userEvent.setup();
     render(<DispatchPage />, { wrapper });
     await screen.findByTestId("job-row-deal-1");
@@ -316,13 +320,7 @@ describe("DispatchPage — Workiz's Map", () => {
   // Ours: the job's place in its tech's day, as Workiz's appointment badge.
   it("shows the job's place in its tech's day on the card", async () => {
     server.use(
-      http.get("*/deals", () =>
-        HttpResponse.json({
-          success: true,
-          data: [{ ...LOCATED, assignedTechIds: ["tech-1"], sequences: { "tech-1": 2 } }],
-          pagination: { count: 1 },
-        }),
-      ),
+      http.get("*/deals/map", () => mapReply([{ ...LOCATED, assignedTechIds: ["tech-1"], sequences: { "tech-1": 2 } }])),
     );
     const user = userEvent.setup();
     render(<DispatchPage />, { wrapper });
@@ -331,6 +329,43 @@ describe("DispatchPage — Workiz's Map", () => {
     const card = await screen.findByRole("dialog", { name: "Lockout - Job #101" });
     expect(card).toHaveTextContent("(2) TX - Daniel Munoz");
     expect(screen.getByTitle("Stop 2 of the tech's day")).toHaveTextContent("2");
+  });
+
+  // The map's rows are cut to what the map draws (no notes, no money, no custom
+  // answers): editing one as it is would save those blank. Edit opens on the
+  // whole job, read by id.
+  it("Edit opens the sheet on the whole job, read by id — never on the map's cut-down row", async () => {
+    const urls: string[] = [];
+    server.use(
+      http.get("*/deals/deal-1", ({ request }) => {
+        urls.push(request.url);
+        return HttpResponse.json({ success: true, data: { ...LOCATED, notes: "Gate code 1234" } });
+      }),
+    );
+    const user = userEvent.setup();
+    render(<DispatchPage />, { wrapper });
+
+    await user.click(await screen.findByTestId("job-row-deal-1"));
+    await user.click(await screen.findByRole("button", { name: "Edit" }));
+
+    expect(await screen.findByRole("dialog", { name: "Edit Job #101" })).toHaveTextContent("Gate code 1234");
+    expect(urls).toHaveLength(1);
+  });
+
+  // A dispatcher who may not list users still reads the techs' names on the
+  // pins and cards: they come with the jobs (`included.technicians`).
+  it("names the techs from the map's own answer when the viewer cannot list users", async () => {
+    permissions.value = { ...permissions.value, can: (r: string) => r !== "users" };
+    server.use(
+      http.get("*/deals/map", () => mapReply([{ ...LOCATED, assignedTechIds: ["tech-1"] }])),
+      http.get("*/users", () => HttpResponse.json({ success: false }, { status: 403 })),
+    );
+    const user = userEvent.setup();
+    render(<DispatchPage />, { wrapper });
+
+    await user.click(await screen.findByTestId("job-row-deal-1"));
+    const card = await screen.findByRole("dialog", { name: "Lockout - Job #101" });
+    expect(card).toHaveTextContent("(2) TX - Daniel Munoz");
   });
 
   it("offers no Edit or Assign without deals.edit", async () => {
@@ -389,17 +424,16 @@ describe("DispatchPage — Workiz's Map", () => {
       const DONE = { ...LOCATED, id: "deal-9", dealNumber: "109", superStatus: "done", stage: "done" };
       const urls: string[] = [];
       server.use(
-        http.get("*/deals", ({ request }) => {
+        http.get("*/deals/map", ({ request }) => {
           urls.push(request.url);
-          const status = new URL(request.url).searchParams.get("superStatus");
-          const data = status === "done" ? [DONE] : status === "canceled" ? [] : [LOCATED, UNLOCATED, LATER];
-          return HttpResponse.json({ success: true, data, pagination: { count: data.length } });
+          const statuses = new URL(request.url).searchParams.get("statuses");
+          return mapReply(statuses === "done" ? [DONE] : [LOCATED, UNLOCATED, LATER]);
         }),
       );
       const user = userEvent.setup();
       render(<DispatchPage />, { wrapper });
       await screen.findByTestId("job-row-deal-1");
-      expect(urls.some((u) => new URL(u).searchParams.get("superStatus") === "done")).toBe(false);
+      expect(urls.some((u) => new URL(u).searchParams.has("statuses"))).toBe(false);
 
       await user.click(screen.getByRole("button", { name: "Filter by" }));
       expect(screen.getByRole("checkbox", { name: "Canceled" })).toBeInTheDocument();
@@ -410,9 +444,9 @@ describe("DispatchPage — Workiz's Map", () => {
       expect(screen.queryByTestId("job-row-deal-1")).not.toBeInTheDocument();
       expect(screen.getByText("Found 1 out of 4 jobs")).toBeInTheDocument();
       const week = mapRangeWindow("week", localDay());
-      const done = urls.map((u) => new URL(u).searchParams).find((p) => p.get("superStatus") === "done");
-      expect(done?.get("scheduledFrom")).toBe(week.from);
-      expect(done?.get("scheduledTo")).toBe(week.to);
+      const done = urls.map((u) => new URL(u).searchParams).find((p) => p.get("statuses") === "done");
+      expect(done?.get("from")).toBe(week.from);
+      expect(done?.get("to")).toBe(week.to);
     });
 
     it("‹ leaves the panel without applying", async () => {

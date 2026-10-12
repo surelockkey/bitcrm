@@ -512,7 +512,7 @@ export function clientDraftFromContact(
  */
 export function dealClientName(
   deal: Deal,
-  contact: Contact | undefined,
+  contact: Pick<Contact, "firstName" | "lastName"> | undefined,
   /**
    * The name that came with the row (`included.clients`), used when the
    * contact itself was never fetched — the jobs list only asks crm for
@@ -775,7 +775,8 @@ function phoneDigitsMatch(stored: string, qDigits: string): boolean {
 export function filterDeals(
   deals: Deal[],
   filter: DealFilter,
-  contacts: Map<string, Contact>,
+  /** Only what the search reads of a client — the dispatch map holds no more. */
+  contacts: ReadonlyMap<string, Pick<Contact, "firstName" | "lastName" | "phones" | "emails">>,
   customFieldDefs: CustomFieldDefinition[] = [],
 ): Deal[] {
   const q = (filter.search ?? "").trim().toLowerCase();
