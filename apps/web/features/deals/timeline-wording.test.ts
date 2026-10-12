@@ -113,6 +113,9 @@ describe("timeline rows in Workiz's words (rail_history)", () => {
     expect(text(entry({ eventType: TimelineEventType.PRODUCT_REMOVED, details: { productName: "Labor" } })).lines).toEqual([
       "Removed item Labor",
     ]);
+    expect(text(entry({ eventType: TimelineEventType.PRODUCT_REMOVED, details: { productName: "Labor", priceClient: 125 } })).lines).toEqual([
+      "Removed item Labor (125.00)",
+    ]);
   });
 
   it("documents carry their numbers", () => {
@@ -227,5 +230,133 @@ describe("collapseReschedules — one 'Rescheduled job from … to …' per save
     const entries = [field("a", "2026-10-08T15:00:00.000Z", "scheduledDate", null, "2026-10-08")];
     const out = collapseReschedules(entries, { date: "2026-10-08" });
     expect(out.text.get("a")).toBe("Rescheduled job from Unscheduled to Thu Oct 08 2026");
+  });
+});
+
+/**
+ * C8 (2026-10-12): the rest of Workiz's sentences, read off its activity log
+ * (data/raw/activity.jsonl, 2025–2026) and the job's Timeline (job_b_03_rail0),
+ * worded the same as Reports → Activity (`nativeActivityText`).
+ */
+describe("timeline rows — the rest of Workiz's sentences (C8)", () => {
+  it("Status Updated spells the status the way Workiz's log does, and says why a job was canceled", () => {
+    const status = (details: Record<string, unknown>) => text(entry({ eventType: TimelineEventType.STATUS_CHANGED, details })).lines;
+    expect(status({ toStatus: JobSuperStatus.IN_PROGRESS, subStatusName: "Job Accepted" })).toEqual([
+      "Status Updated - In progress - Job Accepted",
+    ]);
+    expect(status({ toStatus: JobSuperStatus.DONE_PENDING_APPROVAL, subStatusName: "CHEQUE" })).toEqual([
+      "Status Updated - done pending approval - CHEQUE",
+    ]);
+    expect(status({ toStatus: JobSuperStatus.CANCELED, subStatusName: "Cant Do", cancellationReason: "tech said cant do" })).toEqual([
+      "Status Updated - Canceled - Cant Do - tech said cant do",
+    ]);
+    // A Canceled sub-status is the reason when none was typed — said once.
+    expect(status({ toStatus: JobSuperStatus.CANCELED, subStatusName: "Out of area", cancellationReason: "Out of area" })).toEqual([
+      "Status Updated - Canceled - Out of area",
+    ]);
+    // The catalog's name when the entry was written without one.
+    expect(status({ toStatus: JobSuperStatus.PENDING, subStatusId: "ss-na" })).toEqual(["Status Updated - Pending - NO ANSWER"]);
+  });
+
+  it("names the technician as written with the event when the directory does not know them", () => {
+    const e = entry({ eventType: TimelineEventType.TECH_ASSIGNED, details: { techId: "t-gone", techName: "(3) IL - Elias Yamal SUB" } });
+    expect(text(e).lines).toEqual(["Tech Assigned - (3) IL - Elias Yamal SUB"]);
+  });
+
+  it("tags: 'Added tag(s)' for several at once, 'Updated tags' when some come and some go", () => {
+    const several = entry({ details: { field: "tagIds", oldValue: [], newValue: ["tag-vip", "tag-pl"] } });
+    expect(text(several).lines).toEqual(["Added tag(s) - VIP, PLATINUM"]);
+
+    const both = entry({ details: { field: "tagIds", oldValue: ["tag-vip"], newValue: ["tag-pl"] } });
+    expect(text(both).lines).toEqual(["Updated tags", "Added tag - PLATINUM", "Remove tag from job - VIP"]);
+  });
+
+  it("Job name changed, with the names on the next line", () => {
+    const e = entry({ details: { field: "jobName", oldValue: null, newValue: "Back gate" } });
+    expect(text(e, { fieldDetail: () => "Job name: — → Back gate" }).lines).toEqual(["Job name changed", "Job name: — → Back gate"]);
+  });
+
+  it("Payment status updated - Paid", () => {
+    const e = entry({ details: { field: "paymentStatus", newValue: "paid", amountPaid: 120 } });
+    expect(text(e).lines).toEqual(["Payment status updated - Paid"]);
+  });
+
+  it("a reschedule saved as one entry is Workiz's one sentence", () => {
+    const e = entry({
+      details: {
+        field: "schedule",
+        oldValue: { date: "2026-10-07", endDate: "2026-10-07", slot: "17:00-18:00", allDay: null },
+        newValue: { date: "2026-10-08", endDate: "2026-10-08", slot: "08:00-09:00", allDay: null },
+      },
+    });
+    expect(text(e).lines).toEqual([
+      "Rescheduled job from Wed Oct 07 2026 5:00 pm - 6:00 pm to Thu Oct 08 2026 8:00 am - 9:00 am",
+    ]);
+  });
+
+  it("an item's new price is 'Item price updated: <item> — 45.00 → 35.00'; any other item edit is 'Update job details'", () => {
+    const price = entry({
+      eventType: TimelineEventType.PRODUCT_UPDATED,
+      details: { productName: "Service Call", changes: { priceClient: { from: 45, to: 35 } } },
+    });
+    expect(text(price).lines).toEqual(["Item price updated: Service Call — 45.00 → 35.00"]);
+
+    const qty = entry({
+      eventType: TimelineEventType.PRODUCT_UPDATED,
+      details: { productName: "Parts", changes: { quantity: { from: 1, to: 2 }, costCompany: { from: 10, to: 12 } } },
+    });
+    expect(text(qty).lines).toEqual(["Update job details", "Parts — Qty: 1 → 2", "Parts — Cost (company): 10.00 → 12.00"]);
+
+    const renamed = entry({
+      eventType: TimelineEventType.PRODUCT_UPDATED,
+      details: { productName: "Deadbolt", previousProductName: "Lock", changes: {} },
+    });
+    expect(text(renamed).lines).toEqual(["Update job details", "Item: Lock → Deadbolt"]);
+  });
+
+  it("payments in Workiz's words: a card is a Credit charge; a refund is a charge refunded; a deleted one names its kind", () => {
+    const pay = (eventType: TimelineEventType, details: Record<string, unknown>) => text(entry({ eventType, details })).lines;
+    expect(pay(TimelineEventType.PAYMENT_RECEIVED, { amount: 295.48, method: "card" })).toEqual(["Added payment 295.48 in Credit charge"]);
+    expect(pay(TimelineEventType.PAYMENT_RECEIVED, { amount: 72, method: "cash" })).toEqual(["Added payment 72.00 in Cash"]);
+    expect(pay(TimelineEventType.PAYMENT_REFUNDED, { amount: 109.54, method: "card", refundId: "r1" })).toEqual(["Refunded payment 109.54 charge"]);
+    expect(pay(TimelineEventType.PAYMENT_REFUNDED, { amount: 433, method: "cash", deleted: true })).toEqual(["Deleted payment 433 cash"]);
+    expect(pay(TimelineEventType.PAYMENT_REFUNDED, { amount: 1600, method: "card", deleted: true })).toEqual(["Deleted payment 1600 credit"]);
+  });
+
+  it("an estimate signed is 'Client signed estimate'; a status without a number reads as Activity does", () => {
+    expect(
+      text(entry({ eventType: TimelineEventType.ESTIMATE_STATUS_CHANGED, details: { number: "8HNU0Y-6", signed: true } })).lines,
+    ).toEqual(["Client signed estimate"]);
+    expect(text(entry({ eventType: TimelineEventType.ESTIMATE_STATUS_CHANGED, details: { to: "declined" } })).lines).toEqual([
+      "Estimate status updated - Declined",
+    ]);
+  });
+
+  it("an invoice signature is the client's, whoever held the phone (Workiz: 'Client signed invoice')", () => {
+    const e = entry({ eventType: TimelineEventType.INVOICE_SIGNED, actorId: "u-tech", details: { number: "O8E9NQ" } });
+    expect(text(e).lines).toEqual(["Client signed invoice #O8E9NQ"]);
+  });
+});
+
+describe("collapseReschedules — with reschedules saved as one entry", () => {
+  it("words the one-entry save from its own values and reads the older per-field saves back from it", () => {
+    const entries = [
+      entry({
+        id: "a",
+        timestamp: "2026-10-08T15:00:00.000Z",
+        details: {
+          field: "schedule",
+          oldValue: { date: "2026-10-07", slot: "08:30-09:00" },
+          newValue: { date: "2026-10-08", slot: "18:00-19:00" },
+        },
+      }),
+      // Written before the one-entry saves: the time alone, per field.
+      entry({ id: "c", timestamp: "2026-10-07T12:00:00.000Z", details: { field: "scheduledTimeSlot", oldValue: "08:00-09:00", newValue: "08:30-09:00" } }),
+    ];
+    const out = collapseReschedules(entries, { date: "2026-10-08", slot: "18:00-19:00" });
+
+    expect(out.hidden.size).toBe(0);
+    expect(out.text.get("a")).toBe("Rescheduled job from Wed Oct 07 2026 8:30 am - 9:00 am to Thu Oct 08 2026 6:00 pm - 7:00 pm");
+    expect(out.text.get("c")).toBe("Rescheduled job from Wed Oct 07 2026 8:00 am - 9:00 am to Wed Oct 07 2026 8:30 am - 9:00 am");
   });
 });
