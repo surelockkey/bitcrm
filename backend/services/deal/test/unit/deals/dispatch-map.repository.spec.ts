@@ -82,7 +82,9 @@ describe('DealsRepository.readMapJobs', () => {
     // What the pins, the cards and the search read…
     for (const f of ['id', 'dealNumber', 'contactId', 'superStatus', 'address', 'jobTypeId', 'serviceArea',
       'scheduledDate', 'scheduledEndDate', 'scheduledTimeSlot', 'allDay', 'assignedTechIds', 'sequences',
-      'clientName', 'phones']) {
+      'clientName', 'phones',
+      // The job card's Sent / Seen stamps (ours, kept from the dispatch board).
+      'sentToTechAt', 'sentToTechVia', 'seenByTechAt']) {
       expect(DISPATCH_MAP_FIELDS).toContain(f);
     }
     // …and every field a `Deal` must have, so a row is an honest `Deal`.

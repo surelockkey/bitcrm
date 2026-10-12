@@ -217,6 +217,10 @@ export const DISPATCH_MAP_FIELDS = [
   'sequences',
   'clientName',
   'phones',
+  // The job card's Sent / Seen stamps.
+  'sentToTechAt',
+  'sentToTechVia',
+  'seenByTechAt',
 ] as const;
 
 /** One part of the dispatch map's read: a status, its Done / Canceled ones only for these visit days. */
