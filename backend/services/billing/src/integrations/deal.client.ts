@@ -1,6 +1,8 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { BusinessMetricsService } from '@bitcrm/shared';
 import type {
+  ClientConfirmJob,
+  ClientConfirmRequest,
   Deal,
   DealProduct,
   DocumentDiscount,
@@ -109,6 +111,8 @@ const CATALOG_TTL_MS = 60_000;
  *   POST  /api/deals/internal/:id/timeline
  *   GET   /api/deals/internal/tax-rates                (derived from service areas)
  *   GET   /api/deals/internal/by-contact/:contactId    (portal: each job's company)
+ *   GET   /api/deals/internal/:id/client-confirm       (the client's confirm page, B12)
+ *   POST  /api/deals/internal/:id/client-confirm       (the client tapped Confirm)
  *   GET   /api/deals/internal/by-tech/:techId        (existing — assigned_only scope)
  *   GET   /api/deals/service-areas/internal          (existing — name + timezone)
  *   GET   /api/deals/custom-fields/internal          (existing — id → name)
@@ -194,6 +198,26 @@ export class DealClient {
     return (
       (await this.http.request<TaxRate[]>('/api/deals/internal/tax-rates', { operation: 'listTaxRates' })) ?? []
     );
+  }
+
+  /** The job as the client's confirm page shows it (B12); null when deal-service has no such job. */
+  getClientConfirm(dealId: string): Promise<ClientConfirmJob | null> {
+    return this.http.request<ClientConfirmJob>(`/api/deals/internal/${encodeURIComponent(dealId)}/client-confirm`, {
+      operation: 'getClientConfirm',
+      nullOn404: true,
+      timeoutMs: 5_000,
+    });
+  }
+
+  /** The client tapped Confirm: deal-service decides, records once, logs and publishes. */
+  confirmByClient(dealId: string, body: ClientConfirmRequest): Promise<ClientConfirmJob | null> {
+    return this.http.request<ClientConfirmJob>(`/api/deals/internal/${encodeURIComponent(dealId)}/client-confirm`, {
+      method: 'POST',
+      body,
+      operation: 'confirmByClient',
+      nullOn404: true,
+      timeoutMs: 5_000,
+    });
   }
 
   /** A contact's jobs, light (id, number, company). */
