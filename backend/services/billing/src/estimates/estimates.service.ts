@@ -26,7 +26,7 @@ import {
   type DocumentVisibility,
 } from '@bitcrm/types';
 import { assertDealAccess, isAssignedOnly, type Caller } from '../common/access';
-import { isYmd, resolveTimezone, todayIn } from '../common/dates';
+import { isYmd, jobTimezoneOf, resolveTimezone, todayIn } from '../common/dates';
 import { standaloneDocumentNumber } from '../common/document-number';
 import { AssetsService } from '../assets/assets.service';
 import { DocumentSettingsService } from '../documents/document-settings.service';
@@ -288,7 +288,7 @@ export class EstimatesService {
     const d = view.deal;
     const seq = await this.repo.nextSeq(d.id);
     const now = new Date().toISOString();
-    const tz = await this.timezoneFor(d.serviceAreaId);
+    const tz = await this.timezoneFor(d);
     const id = randomUUID();
 
     const estimate: Estimate = {
@@ -1185,10 +1185,9 @@ export class EstimatesService {
     return view;
   }
 
-  private async timezoneFor(serviceAreaId?: string): Promise<string> {
-    if (!serviceAreaId) return resolveTimezone(undefined);
-    const areas = await this.deal.listServiceAreas().catch(() => []);
-    return resolveTimezone(areas.find((a) => a.id === serviceAreaId)?.timezone);
+  /** The job's clock — its `jobTimezone`, else its service area's, else Connecticut (owner, 2026-10-12). */
+  private timezoneFor(deal: { jobTimezone?: string; serviceAreaId?: string }): Promise<string> {
+    return jobTimezoneOf(deal, () => this.deal.listServiceAreas());
   }
 
   private requireDocuments(): DocumentsService {

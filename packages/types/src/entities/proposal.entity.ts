@@ -44,4 +44,6 @@ export interface PortalProposalSummary {
   options: PortalDocumentSummary[];
   /** The job's company, when it differs between documents. */
   companyName?: string;
+  /** The zone of the proposal's job (its `jobTimezone`, else its area's, else New York) — `sentAt`'s day is told in it. */
+  timezone?: string;
 }

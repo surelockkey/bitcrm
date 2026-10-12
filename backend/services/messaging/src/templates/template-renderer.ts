@@ -3,7 +3,7 @@ import type { CustomFieldValue } from '@bitcrm/types';
 import { MessageTemplatesRepository } from './message-templates.repository';
 import { ContextLoader } from './context-loader';
 import { htmlToText, looksLikeHtml } from './html-text';
-import { resolveShortCode } from './short-codes';
+import { resolveShortCode, resolveVisitWindow } from './short-codes';
 import type { RenderContext, RenderRefs } from './render-context';
 
 export type RenderFormat = 'text' | 'html';
@@ -29,6 +29,10 @@ export interface RenderResult {
 
 /** `{{ code }}` — whitespace inside the braces tolerated; custom-field names may contain spaces. */
 export const PLACEHOLDER = /\{\{\s*([^{}]+?)\s*\}\}/g;
+
+/** `{{appointment_time}}` joined to `{{job_end_time}}` by a dash, "to", "until", "till", "through" or "and". */
+const VISIT_WINDOW =
+  /\{\{\s*appointment_time\s*\}\}(\s*[-–—]\s*|\s+(?:to|until|till|through|and)\s+)\{\{\s*job_end_time\s*\}\}/gi;
 
 export function extractShortCodes(text: string): string[] {
   const out: string[] = [];
@@ -96,8 +100,13 @@ export class TemplateRenderer {
   ): RenderResult {
     const format = input.format ?? 'text';
     const missing: string[] = [];
+    // A visit window names its zone once, after the end ("10:00 AM – 12:00 PM CDT").
+    const window = resolveVisitWindow(ctx);
     const fill = (text: string, escape: (s: string) => string) =>
-      text.replace(PLACEHOLDER, (placeholder, raw: string) => {
+      (window
+        ? text.replace(VISIT_WINDOW, (_whole, joiner: string) => `${escape(window.start)}${joiner}${escape(window.end)}`)
+        : text
+      ).replace(PLACEHOLDER, (placeholder, raw: string) => {
         const code = raw.trim();
         const value = this.resolve(code, ctx);
         if (value !== undefined) return escape(value);

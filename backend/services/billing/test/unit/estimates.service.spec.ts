@@ -550,6 +550,12 @@ describe('EstimatesService', () => {
       expect(a.contactId).toBe('contact-1');
     });
 
+    it("dates the estimate on the job's own clock: its jobTimezone first, then its area's (owner, 2026-10-12)", async () => {
+      jest.setSystemTime(new Date('2026-09-17T04:30:00.000Z')); // 00:30 Sep 17 in New York, 23:30 Sep 16 in Chicago
+      deal.getBillingView.mockResolvedValue(billingView({ jobTimezone: 'America/Chicago', serviceAreaId: 'sa-1' }));
+      expect((await service.create({ dealId: 'deal-1' }, caller())).estimateDate).toBe('2026-09-16');
+    });
+
     it('pre-fills Notes and the default deposit from the document settings (Workiz)', async () => {
       const withSettings = new EstimatesService(
         repo as never,

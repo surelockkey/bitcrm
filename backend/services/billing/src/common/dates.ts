@@ -20,6 +20,30 @@ export function resolveTimezone(candidate?: string | null): string {
   return candidate && isValidTimezone(candidate) ? candidate : DEFAULT_TIMEZONE;
 }
 
+/**
+ * A job's clock — the zone its times and days are told in to clients and
+ * techs (owner, 2026-10-12): the job's own `jobTimezone`, else its service
+ * area's, else Connecticut. The area list is read only when the job carries
+ * no zone of its own, and a list that cannot be read is not fatal.
+ */
+export async function jobTimezoneOf(
+  job: { jobTimezone?: string | null; serviceAreaId?: string | null } | undefined,
+  areas: () => Promise<Array<{ id: string; timezone?: string }>>,
+): Promise<string> {
+  if (job?.jobTimezone && isValidTimezone(job.jobTimezone)) return job.jobTimezone;
+  if (!job?.serviceAreaId) return DEFAULT_TIMEZONE;
+  const rows = await Promise.resolve()
+    .then(areas)
+    .catch(() => []);
+  return jobZone(job.jobTimezone, rows.find((a) => a.id === job.serviceAreaId)?.timezone);
+}
+
+/** The same chain when the area's zone is already in hand: the first valid of the two, else Connecticut. */
+export function jobZone(jobTimezone?: string | null, areaTimezone?: string | null): string {
+  if (jobTimezone && isValidTimezone(jobTimezone)) return jobTimezone;
+  return resolveTimezone(areaTimezone);
+}
+
 /** `YYYY-MM-DD` of an instant in a zone. */
 export function dateIn(instant: string | Date, timezone: string): string {
   const d = typeof instant === 'string' ? new Date(instant) : instant;

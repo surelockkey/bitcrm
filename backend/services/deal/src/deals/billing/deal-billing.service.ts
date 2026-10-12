@@ -55,9 +55,15 @@ export interface ContactDealSummary {
   superStatus: Deal['superStatus'];
   businessProfileId?: string;
   businessProfileName?: string;
+  /** YYYY-MM-DD on the job's clock — never an instant. */
   scheduledDate?: string;
   scheduledEndDate?: string;
+  /** "HH:MM-HH:MM", wall clock on the job's clock; absent on an all-day job. */
+  scheduledTimeSlot?: string;
+  allDay?: boolean;
   jobTimezone?: string;
+  /** The job's area — its zone is the job's when the job carries none. */
+  serviceAreaId?: string;
   jobTypeName?: string;
   address?: Deal['address'];
   technicianNames?: string[];
@@ -433,7 +439,9 @@ export class DealBillingService {
           ...(d.businessProfileName && { businessProfileName: d.businessProfileName }),
           ...(d.scheduledDate && { scheduledDate: d.scheduledDate }),
           ...(d.scheduledEndDate && { scheduledEndDate: d.scheduledEndDate }),
+          ...(d.allDay ? { allDay: true } : d.scheduledTimeSlot ? { scheduledTimeSlot: d.scheduledTimeSlot } : {}),
           ...(d.jobTimezone && { jobTimezone: d.jobTimezone }),
+          ...(d.serviceAreaId && { serviceAreaId: d.serviceAreaId }),
           ...(typeName && { jobTypeName: typeName }),
           ...(d.address && { address: d.address }),
           ...(technicianNames.length && { technicianNames }),

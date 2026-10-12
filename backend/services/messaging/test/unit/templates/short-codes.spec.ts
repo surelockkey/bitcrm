@@ -27,8 +27,8 @@ const EXPECTED: Record<string, string> = {
   job_type: 'Lock change',
   client_email: 'jane@example.com',
   job_date: 'Sep 15, 2026',
-  appointment_time: '2:30 PM',
-  job_end_time: '4:00 PM',
+  appointment_time: '2:30 PM EDT',
+  job_end_time: '4:00 PM EDT',
   full_address: '12 Main St Apt 3, Atlanta, GA 30301',
   address: '12 Main St Apt 3',
   city: 'Atlanta',
@@ -135,15 +135,61 @@ describe('short-code registry', () => {
     expect(resolveShortCode('job_date', ctx)).toBe('Sep 15, 2026');
   });
 
-  it('formats dates in the job zone, then the company zone, then the default', () => {
+  it("formats a job's dates in the job zone, else Connecticut — never the company zone", () => {
     const ctx = fullContext();
-    ctx.deal!.scheduledDate = '2026-09-15T23:30:00.000Z';
+    ctx.deal!.scheduledDate = '2026-09-16T03:30:00.000Z';
     delete ctx.timezone;
     expect(resolveShortCode('job_date', ctx)).toBe('Sep 15, 2026'); // America/New_York default
     ctx.settings!.timezone = 'Europe/Kyiv';
+    expect(resolveShortCode('job_date', ctx)).toBe('Sep 15, 2026'); // a job is not on the company clock
+    ctx.deal!.jobTimezone = 'Asia/Tokyo';
     expect(resolveShortCode('job_date', ctx)).toBe('Sep 16, 2026');
-    ctx.deal!.jobTimezone = 'America/Los_Angeles';
-    expect(resolveShortCode('job_date', ctx)).toBe('Sep 15, 2026');
+  });
+
+  describe("a clock time says its zone; a date does not (owner, 2026-10-12)", () => {
+    const visit = (timezone: string, scheduledDate: string, scheduledTimeSlot = '10:00-12:00', scheduledEndDate?: string) => {
+      const ctx = fullContext();
+      ctx.timezone = timezone;
+      ctx.deal = { ...ctx.deal!, scheduledDate, scheduledTimeSlot, ...(scheduledEndDate && { scheduledEndDate }) };
+      return ctx;
+    };
+
+    it('a Texas job in summer: CDT', () => {
+      const ctx = visit('America/Chicago', '2026-07-14');
+      expect(resolveShortCode('appointment_time', ctx)).toBe('10:00 AM CDT');
+      expect(resolveShortCode('job_end_time', ctx)).toBe('12:00 PM CDT');
+      expect(resolveShortCode('job_date', ctx)).toBe('Jul 14, 2026');
+    });
+
+    it('a Texas job in winter: CST', () => {
+      const ctx = visit('America/Chicago', '2026-12-14');
+      expect(resolveShortCode('appointment_time', ctx)).toBe('10:00 AM CST');
+      expect(resolveShortCode('job_end_time', ctx)).toBe('12:00 PM CST');
+    });
+
+    it('Arizona keeps MST all year; Connecticut is EDT/EST', () => {
+      expect(resolveShortCode('appointment_time', visit('America/Phoenix', '2026-07-14'))).toBe('10:00 AM MST');
+      expect(resolveShortCode('appointment_time', visit('America/New_York', '2026-12-14'))).toBe('10:00 AM EST');
+    });
+
+    it('labels the end on its own day — a visit that runs over the clock change', () => {
+      const ctx = visit('America/Chicago', '2026-10-31', '09:00-17:00', '2026-11-02');
+      expect(resolveShortCode('appointment_time', ctx)).toBe('9:00 AM CDT');
+      expect(resolveShortCode('job_end_time', ctx)).toBe('5:00 PM CST');
+    });
+
+    it('an all-day job has no clock, so no label', () => {
+      const ctx = visit('America/Chicago', '2026-07-14');
+      ctx.deal!.allDay = true;
+      expect(resolveShortCode('appointment_time', ctx)).toBe('All day');
+      expect(resolveShortCode('job_end_time', ctx)).toBe('All day');
+    });
+
+    it('never shifts the stored wall clock or the date', () => {
+      const ctx = visit('America/Los_Angeles', '2026-07-14', '23:30-23:59');
+      expect(resolveShortCode('job_date', ctx)).toBe('Jul 14, 2026');
+      expect(resolveShortCode('appointment_time', ctx)).toBe('11:30 PM PDT');
+    });
   });
 
   it('uses the default sender for biz_number when no company phone is set', () => {

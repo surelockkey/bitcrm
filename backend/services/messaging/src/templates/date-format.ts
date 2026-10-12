@@ -28,6 +28,19 @@ export function resolveTimezone(candidate?: string, fallback: string = DEFAULT_T
   return candidate && isValidTimezone(candidate) ? candidate : fallback;
 }
 
+/**
+ * The zone a JOB's times are told in to clients and techs (owner, 2026-10-12):
+ * the job's own `jobTimezone`, else its service area's, else Connecticut —
+ * never the company setting, which is for messages that have no job. The
+ * first valid candidate wins.
+ */
+export function jobZone(jobTimezone?: string | null, areaTimezone?: string | null): string {
+  for (const candidate of [jobTimezone, areaTimezone]) {
+    if (candidate && isValidTimezone(candidate)) return candidate;
+  }
+  return DEFAULT_TIMEZONE;
+}
+
 export function formatDate(value: string | undefined, timezone: string): string | undefined {
   if (!value) return undefined;
   const dateOnly = DATE_ONLY.exec(value);

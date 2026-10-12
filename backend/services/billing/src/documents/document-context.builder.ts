@@ -13,7 +13,7 @@ import {
 } from '@bitcrm/types';
 import { AssetsService } from '../assets/assets.service';
 import { BusinessProfileService } from '../business-profile/business-profile.service';
-import { formatDisplayDate, resolveTimezone } from '../common/dates';
+import { formatDisplayDate, jobTimezoneOf } from '../common/dates';
 import { CrmClient, type BillingContact } from '../integrations/crm.client';
 import { DealClient, type DealBillingView } from '../integrations/deal.client';
 import { paymentTermsLabel, termDays } from '../invoices/invoice-rules';
@@ -96,7 +96,8 @@ export class DocumentContextBuilder {
       this.signatures ? this.safe(() => this.signatures!.forRender(kind, doc.id)) : Promise.resolve(undefined),
     ]);
     const area = areas.find((a) => a.id === deal?.serviceAreaId);
-    const tz = resolveTimezone(area?.timezone);
+    // The job's own clock: its jobTimezone, else its area's, else Connecticut.
+    const tz = await jobTimezoneOf(deal, async () => areas);
 
     const assetIds = templateAssetIds(template);
     const [logoUrl, ...assetUris] = await Promise.all([

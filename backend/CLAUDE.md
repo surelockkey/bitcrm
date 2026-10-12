@@ -655,6 +655,15 @@ tests, and — if it emits events — the types in `@bitcrm/types` plus a row in
   backend/services/deal -- --apply` (dry run without `--apply`); it leaves imported jobs
   on the end Workiz gave them unless `--since <ISO of the import>` says they closed here.
   Switch: `PUT /deals/job-rules { updateJobEndTimeOnClose }` (`settings.edit`).
+- **Outside the office app, a job's time is told on the JOB's clock (owner, 2026-10-12).**
+  Texts/emails (messaging's `ContextLoader`, the reminder anchors), receipts, documents,
+  the portal and the confirm page use `jobTimezone`, else the area's zone
+  (`GET /api/deals/service-areas/internal`, cached; a failed read is never fatal), else
+  New York — never the company setting, which only serves messages with no job.
+  messaging `jobZone`, billing `jobTimezoneOf` / `jobZone` (`common/dates.ts`). A clock
+  time carries its zone's abbreviation for that day (`zoneAbbr` + `wallClockInstant` from
+  `@bitcrm/types`: "10:00 AM CDT"; a `{{appointment_time}} - {{job_end_time}}` window
+  says it once, after the end); a date-only value carries none and is never shifted.
 - **Field Validation gates creation only** (Workiz: "applies for job creation only").
   `POST /deals` 422s on the admin-required rows of `JOB_REQUIRABLE_FIELDS`
   (`CONFIG#JOB_FIELDS`); the client-owned rows (names, numbers, email, company, the

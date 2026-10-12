@@ -44,11 +44,10 @@ export interface RenderDeal {
   clientName?: { firstName: string; lastName: string };
   /** Answers keyed by custom-field definition id, as stored on the deal. */
   customFields?: Record<string, CustomFieldValue>;
-  /**
-   * Not on the `Deal` entity today. Honoured when a deal carries it so the
-   * design's rule (job zone, else company default) holds without a types change.
-   */
+  /** The job's own IANA zone (`Deal.jobTimezone`) — its times are told in it. */
   jobTimezone?: string;
+  /** The job's service area — its zone is the job's when the job carries none. */
+  serviceAreaId?: string;
   jobTypeName?: string;
   jobSourceName?: string;
   externalCompanyName?: string;

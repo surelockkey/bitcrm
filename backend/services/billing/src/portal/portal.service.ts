@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { RedisService } from '@bitcrm/shared';
 import {
+  DEFAULT_TIMEZONE,
   TimelineEventType,
   estimateDepositDue,
   type BusinessProfile,
@@ -28,6 +29,7 @@ import { summarizePayments, round2 } from '../payments/payment-rules';
 import { PaymentsRepository } from '../payments/payments.repository';
 import { StripeService } from '../payments/stripe/stripe.service';
 import { portalBaseUrl } from '../common/constants/services.constants';
+import { dateIn, jobZone } from '../common/dates';
 import { EstimatesService, type SignEstimateInput } from '../estimates/estimates.service';
 import { CrmClient } from '../integrations/crm.client';
 import { DealClient, type ContactDealSummary } from '../integrations/deal.client';
@@ -68,6 +70,10 @@ interface PortalDocuments {
   proposals: Omit<PortalProposalSummary, 'options'>[];
   jobCompanies: Map<string, string>;
   companies: BusinessProfile[];
+  /** Each of the contact's jobs → its zone (its `jobTimezone`, else its area's, else New York). */
+  jobZones: Map<string, string>;
+  /** Service area → its zone, for a payment whose job is not among the contact's. */
+  areaZones: Map<string, string>;
 }
 
 function publicLink(link: StoredPortalLink): PortalLink {
@@ -388,8 +394,11 @@ export class PortalService {
         ...(contact?.emails?.[0] && { email: contact.emails[0] }),
         ...(contact?.phones?.[0] && { phone: contact.phones[0] }),
       },
-      jobs: portalJobs(jobs, new Date()),
-      payments,
+      jobs: portalJobs(jobs, new Date(), docs.areaZones),
+      // Each payment's day is told on its job's clock.
+      payments: payments.map((p) =>
+        paymentLine(p, docs.jobZones.get(p.dealId) ?? jobZone(undefined, p.serviceAreaId && docs.areaZones.get(p.serviceAreaId))),
+      ),
       invoices: inbox.invoices,
       estimates: inbox.estimates,
       proposals: inbox.proposals,
@@ -404,12 +413,13 @@ export class PortalService {
    * up here: that is the page's job, ten at a time.
    */
   private async documents(contactId: string, preview: boolean): Promise<PortalDocuments & { jobs: ContactDealSummary[] }> {
-    const [invoices, estimates, jobs, companies, proposals] = await Promise.all([
+    const [invoices, estimates, jobs, companies, proposals, areaZones] = await Promise.all([
       this.invoices.listForContact(contactId),
       this.estimates.listForContact(contactId),
       this.contactJobs(contactId),
       this.profiles.listAll(),
       this.proposals ? this.proposals.listForContact(contactId).catch(() => []) : Promise.resolve([]),
+      this.areaZones(),
     ]);
     const visible = <T extends { sentAt?: string }>(rows: T[]) => (preview ? rows : rows.filter((d) => !!d.sentAt));
     return {
@@ -419,6 +429,8 @@ export class PortalService {
       jobs,
       jobCompanies: new Map(jobs.filter((r) => r.businessProfileId).map((r) => [r.id, r.businessProfileId!])),
       companies,
+      jobZones: new Map(jobs.map((r) => [r.id, zoneOfJob(r, areaZones)])),
+      areaZones,
     };
   }
 
@@ -464,11 +476,17 @@ export class PortalService {
       .sort(byDateDesc);
     const byEstimateId = new Map(estimateSummaries.map((e) => [e.id, e]));
     const order = new Map(page.map((r, n) => [r.ref, n]));
+    const dealOfEstimate = new Map(pageEstimates.map((e) => [e.id, e.dealId]));
     const proposals: PortalProposalSummary[] = pageProposals
-      .map((p) => ({
-        ...p,
-        options: p.estimateIds.map((id) => byEstimateId.get(id)).filter((e): e is PortalDocumentSummary => !!e),
-      }))
+      .map((p) => {
+        const dealId = dealOfEstimate.get(p.estimateIds[0]);
+        return {
+          ...p,
+          options: p.estimateIds.map((id) => byEstimateId.get(id)).filter((e): e is PortalDocumentSummary => !!e),
+          // `sentAt`'s day is told on the job's clock.
+          timezone: (dealId && docs.jobZones.get(dealId)) || DEFAULT_TIMEZONE,
+        };
+      })
       .filter((p) => p.options.length > 0)
       .map((p) => ({ ...p, ...(p.options[0].companyName && { companyName: p.options[0].companyName }) }))
       .sort((a, b) => (order.get(`proposal:${a.id}`) ?? 0) - (order.get(`proposal:${b.id}`) ?? 0));
@@ -581,15 +599,29 @@ export class PortalService {
     }
   }
 
+  /**
+   * Service area → its IANA zone, from deal-service's cached list (empty when
+   * it cannot be read — every job then falls back to New York).
+   */
+  private async areaZones(): Promise<Map<string, string>> {
+    if (!this.deals) return new Map();
+    const rows = await Promise.resolve()
+      .then(() => this.deals!.listServiceAreas())
+      .catch((err: Error) => {
+        this.logger.warn(`portal: service areas unavailable: ${err.message}`);
+        return [];
+      });
+    return new Map(rows.filter((a) => !!a.timezone).map((a) => [a.id, a.timezone!]));
+  }
+
   /** The client's own payments, newest first, without failed attempts (empty when the ledger is not wired or down). */
-  private async paymentHistory(contactId: string): Promise<PortalPaymentLine[]> {
+  private async paymentHistory(contactId: string): Promise<Payment[]> {
     if (!this.ledger) return [];
     try {
       const { items } = await this.ledger.list({ contactId, limit: 200 });
       return items
         .filter((p) => p.status !== 'failed')
-        .sort((a, b) => b.takenAt.localeCompare(a.takenAt))
-        .map(paymentLine);
+        .sort((a, b) => b.takenAt.localeCompare(a.takenAt));
     } catch (err) {
       this.logger.warn(`portal: payment history unavailable for ${contactId}: ${(err as Error).message}`);
       return [];
@@ -597,23 +629,46 @@ export class PortalService {
   }
 }
 
-/** Workiz My Booking: Upcoming = submitted jobs scheduled from now on; Completed = done. The rest are not shown. */
-export function portalJobs(rows: ContactDealSummary[], now: Date): PortalJob[] {
-  const nowIso = now.toISOString();
+/** A job's clock (owner, 2026-10-12): its `jobTimezone`, else its service area's, else New York. */
+function zoneOfJob(r: ContactDealSummary, areaZones: ReadonlyMap<string, string>): string {
+  return jobZone(r.jobTimezone, r.serviceAreaId ? areaZones.get(r.serviceAreaId) : undefined);
+}
+
+/** The day part of a stored date (YYYY-MM-DD; an older row may hold an instant). */
+const dayOf = (value: string) => value.slice(0, 10);
+
+/**
+ * Workiz My Booking: Upcoming = submitted jobs scheduled from today on —
+ * today on the JOB's clock, so a job dated today stays upcoming all day;
+ * Completed = done. The rest are not shown. Each job carries its window as
+ * stored and its resolved zone; the portal tells it in that zone.
+ */
+export function portalJobs(
+  rows: ContactDealSummary[],
+  now: Date,
+  areaZones: ReadonlyMap<string, string> = new Map(),
+): PortalJob[] {
   const toJob = (r: ContactDealSummary, kind: PortalJob['kind']): PortalJob => ({
     id: r.id,
     number: r.dealNumber,
     kind,
     ...(r.scheduledDate && { scheduledDate: r.scheduledDate }),
     ...(r.scheduledEndDate && { scheduledEndDate: r.scheduledEndDate }),
-    ...(r.jobTimezone && { timezone: r.jobTimezone }),
+    ...(r.allDay ? { allDay: true } : r.scheduledTimeSlot ? { scheduledTimeSlot: r.scheduledTimeSlot } : {}),
+    timezone: zoneOfJob(r, areaZones),
     ...(r.jobTypeName && { jobType: r.jobTypeName }),
     ...(formatAddress(r.address) && { address: formatAddress(r.address)! }),
     technicians: r.technicianNames ?? [],
   });
+  const startOf = (r: ContactDealSummary) => `${dayOf(r.scheduledDate ?? '')} ${r.allDay ? '' : r.scheduledTimeSlot ?? ''}`;
   const upcoming = rows
-    .filter((r) => r.superStatus === 'submitted' && !!r.scheduledDate && r.scheduledDate >= nowIso)
-    .sort((a, b) => a.scheduledDate!.localeCompare(b.scheduledDate!))
+    .filter(
+      (r) =>
+        r.superStatus === 'submitted' &&
+        !!r.scheduledDate &&
+        dayOf(r.scheduledDate) >= dateIn(now, zoneOfJob(r, areaZones)),
+    )
+    .sort((a, b) => startOf(a).localeCompare(startOf(b)))
     .map((r) => toJob(r, 'upcoming'));
   const completed = rows
     .filter((r) => r.superStatus === 'done')
@@ -622,7 +677,7 @@ export function portalJobs(rows: ContactDealSummary[], now: Date): PortalJob[] {
   return [...upcoming, ...completed];
 }
 
-function paymentLine(p: Payment): PortalPaymentLine {
+function paymentLine(p: Payment, timezone: string): PortalPaymentLine {
   return {
     id: p.id,
     amount: p.amount,
@@ -633,6 +688,7 @@ function paymentLine(p: Payment): PortalPaymentLine {
     ...(p.estimateId && { estimateId: p.estimateId }),
     ...(p.cardBrand && { cardBrand: p.cardBrand }),
     ...(p.last4 && { last4: p.last4 }),
+    timezone,
   };
 }
 

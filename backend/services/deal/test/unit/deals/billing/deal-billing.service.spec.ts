@@ -517,6 +517,20 @@ describe('DealBillingService', () => {
       });
       expect(row.address).toEqual(expect.objectContaining({ city: expect.any(String) }));
     });
+
+    it('carries the visit window as stored and the job’s area, so the portal can tell it on the job’s clock', async () => {
+      repo.findByContact.mockResolvedValueOnce({
+        items: [
+          createMockDeal({ id: 'a', scheduledDate: '2026-10-12', scheduledTimeSlot: '10:00-12:00', serviceAreaId: 'sa-tx' }),
+          createMockDeal({ id: 'b', scheduledDate: '2026-10-13', allDay: true }),
+        ],
+      });
+      const [timed, allDay] = await service.listByContact('contact-1');
+      expect(timed).toMatchObject({ scheduledDate: '2026-10-12', scheduledTimeSlot: '10:00-12:00', serviceAreaId: 'sa-tx' });
+      expect(timed.allDay).toBeUndefined();
+      expect(allDay).toMatchObject({ scheduledDate: '2026-10-13', allDay: true });
+      expect(allDay.scheduledTimeSlot).toBeUndefined();
+    });
   });
 
   describe('keeps the stored job totals in step', () => {

@@ -10,6 +10,8 @@ const INTERNAL_SECRET = process.env.INTERNAL_SERVICE_SECRET || '';
 const ROLE_CACHE_TTL_MS = 60_000;
 const ROLE_PAGE_SIZE = 200;
 const ROLE_PAGE_LIMIT = 25;
+/** Service areas (and their zones) change rarely. */
+const AREA_CACHE_TTL_MS = 60_000;
 
 /** The slice of a deal the automations decide on. */
 export interface AutomationDeal {
@@ -29,6 +31,8 @@ export interface AutomationDeal {
   sourceId?: string;
   jobTypeId?: string;
   serviceAreaId?: string;
+  /** The job's own IANA zone — its wall clock is read in it (else its area's, else Connecticut). */
+  jobTimezone?: string;
   priority?: string;
   paymentStatus?: string;
   /** Re-stamped by deal-service on every real status move — the stable half of a status occurrence key. */
@@ -84,6 +88,7 @@ export interface SentToTechReport {
 export class AutomationPeersClient {
   private readonly logger = new Logger(AutomationPeersClient.name);
   private readonly roleCache = new Map<string, { ids: string[]; expiresAt: number }>();
+  private areaCache?: { zones: Map<string, string>; expiresAt: number };
 
   constructor(
     @Optional() @Inject(INTERNAL_FETCH) private readonly fetchImpl: FetchLike = defaultFetch,
@@ -110,11 +115,33 @@ export class AutomationPeersClient {
       sourceId: raw.sourceId,
       jobTypeId: raw.jobTypeId,
       serviceAreaId: raw.serviceAreaId,
+      ...(raw.jobTimezone ? { jobTimezone: raw.jobTimezone } : {}),
       priority: raw.priority,
       paymentStatus: raw.paymentStatus,
       statusChangedAt: raw.statusChangedAt,
       createdAt: raw.createdAt,
     };
+  }
+
+  /**
+   * A service area's IANA zone (`GET /api/deals/service-areas/internal`) —
+   * the clock of a job that carries no `jobTimezone`. Cached for a minute;
+   * `undefined` when the area is unknown or deal-service cannot be read.
+   */
+  async serviceAreaTimezone(serviceAreaId: string): Promise<string | undefined> {
+    if (!serviceAreaId) return undefined;
+    if (!this.areaCache || this.areaCache.expiresAt <= Date.now()) {
+      const rows = await this.getJson<Array<{ id: string; timezone?: string }>>(
+        `${DEAL_SERVICE_URL}/api/deals/service-areas/internal`,
+        'service areas',
+      );
+      if (!rows) return undefined; // not cached: the next job asks again
+      this.areaCache = {
+        zones: new Map(rows.filter((r) => r.timezone).map((r) => [r.id, r.timezone!])),
+        expiresAt: Date.now() + AREA_CACHE_TTL_MS,
+      };
+    }
+    return this.areaCache.zones.get(serviceAreaId);
   }
 
   /**

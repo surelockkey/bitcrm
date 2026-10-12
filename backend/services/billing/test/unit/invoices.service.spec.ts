@@ -195,6 +195,12 @@ describe('InvoicesService', () => {
       expect(inv.status).toBe('due');
     });
 
+    it("dates the invoice on the job's own clock: its jobTimezone first, then its area's (owner, 2026-10-12)", async () => {
+      jest.setSystemTime(new Date('2026-09-17T04:30:00.000Z')); // 00:30 Sep 17 in New York, 23:30 Sep 16 in Chicago
+      deal.getBillingView.mockResolvedValue(billingView({ jobTimezone: 'America/Chicago', serviceAreaId: 'sa-1' }));
+      expect((await service.create('deal-1', caller())).invoiceDate).toBe('2026-09-16');
+    });
+
     it('pre-fills Notes from the document settings on a job and a client invoice', async () => {
       const withSettings = new InvoicesService(
         repo as never,

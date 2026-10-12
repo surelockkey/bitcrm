@@ -235,6 +235,60 @@ describe('AutomationRuleEngine.handle', () => {
     await late.handle({ kind: 'deal.updated', at: past.toISOString(), dealId: 'd1' }, undefined, past);
     expect(none.arm).not.toHaveBeenCalled();
   });
+
+  describe("a reminder counts from the job's own clock (owner, 2026-10-12)", () => {
+    const reminder = rule({
+      id: 'rem',
+      spec: spec({ trigger: { kind: 'schedule.relative', anchor: 'scheduledStart', offsetMinutes: -60 } }),
+    });
+    const updated: AutomationEvent = { kind: 'deal.updated', at: NOW.toISOString(), dealId: 'd1' };
+
+    it("a Texas job's 9:00 is 14:00 UTC — its jobTimezone, not the company's zone", async () => {
+      const { engine, schedule } = harness({
+        rules: { list: jest.fn(async () => [reminder]) },
+        settings: { get: jest.fn(async () => ({ timezone: 'America/New_York' })) },
+        peers: { deal: jest.fn(async () => ({ ...DEAL, jobTimezone: 'America/Chicago' })) },
+      });
+      await engine.handle(updated, undefined, NOW);
+      expect(schedule.arm).toHaveBeenCalledWith(
+        expect.objectContaining({ dueAt: '2026-09-20T13:00:00.000Z', anchorAt: '2026-09-20T14:00:00.000Z' }),
+      );
+    });
+
+    it("takes the service area's zone when the job carries none", async () => {
+      const serviceAreaTimezone = jest.fn(async (id: string) => (id === 'sa-tx' ? 'America/Chicago' : undefined));
+      const { engine, schedule } = harness({
+        rules: { list: jest.fn(async () => [reminder]) },
+        peers: { deal: jest.fn(async () => ({ ...DEAL, serviceAreaId: 'sa-tx' })), serviceAreaTimezone },
+      });
+      await engine.handle(updated, undefined, NOW);
+      expect(serviceAreaTimezone).toHaveBeenCalledWith('sa-tx');
+      expect(schedule.arm).toHaveBeenCalledWith(expect.objectContaining({ anchorAt: '2026-09-20T14:00:00.000Z' }));
+    });
+
+    it('a job with no zone and no area is on Connecticut time, whatever the company setting says', async () => {
+      const { engine, schedule } = harness({
+        rules: { list: jest.fn(async () => [reminder]) },
+        settings: { get: jest.fn(async () => ({ timezone: 'America/Los_Angeles' })) },
+      });
+      await engine.handle(updated, undefined, NOW);
+      expect(schedule.arm).toHaveBeenCalledWith(expect.objectContaining({ anchorAt: '2026-09-20T13:00:00.000Z' }));
+    });
+
+    it('an unreadable area list falls back to Connecticut, never fails the arming', async () => {
+      const { engine, schedule } = harness({
+        rules: { list: jest.fn(async () => [reminder]) },
+        peers: {
+          deal: jest.fn(async () => ({ ...DEAL, serviceAreaId: 'sa-tx' })),
+          serviceAreaTimezone: jest.fn(async () => {
+            throw new Error('deal-service down');
+          }),
+        },
+      });
+      await engine.handle(updated, undefined, NOW);
+      expect(schedule.arm).toHaveBeenCalledWith(expect.objectContaining({ anchorAt: '2026-09-20T13:00:00.000Z' }));
+    });
+  });
 });
 
 describe('AutomationRuleEngine.tick', () => {
@@ -354,6 +408,21 @@ describe('AutomationRuleEngine.tick', () => {
     expect(schedule.claim).toHaveBeenCalledWith(item);
     // The job may be moved back to 20 Sep: the occurrence must be free to re-arm.
     expect(runs.release).toHaveBeenCalledWith('r1', 'deal:d1', 'status:in_progress>done');
+  });
+
+  it("keeps a Texas job's reminder: the job has not moved, its anchor is on the job's clock", async () => {
+    const item = armed({ reason: 'relative', anchorAt: '2026-09-20T14:00:00.000Z' });
+    const reminder = rule({ spec: spec({ trigger: { kind: 'schedule.relative', anchor: 'scheduledStart', offsetMinutes: -60 } }) });
+    const { engine, executor, runs } = harness({
+      rules: { find: jest.fn(async () => reminder) },
+      peers: { deal: jest.fn(async () => ({ ...DEAL, jobTimezone: 'America/Chicago' })) },
+      schedule: { dueIn: jest.fn(async (m: string) => (m === '2026-09-16T14:59' ? [item] : [])), arm: jest.fn() },
+    });
+    (engine as unknown as { lastMinuteMs: number }).lastMinuteMs = new Date('2026-09-16T14:59:00.000Z').getTime();
+
+    await engine.tick(NOW);
+    expect(executor.run).toHaveBeenCalled();
+    expect(runs.release).not.toHaveBeenCalled();
   });
 
   it('re-arms a firing that came due inside quiet hours', async () => {

@@ -86,7 +86,8 @@ describe('ContextLoader', () => {
     expect(ctx.technician).toEqual({ firstName: 'Mike', lastName: 'Smith', phone: '+14045559876', email: 'm@x.io' });
     expect(ctx.customFields).toEqual({ 'Manager Note': 'Bring shims', 'Choose Company ': ['A1'] });
     expect(ctx.settings).toEqual({ timezone: 'America/Chicago' });
-    expect(ctx.timezone).toBe('America/Chicago');
+    // A job is on its own clock: no jobTimezone and no area → Connecticut, never the company setting.
+    expect(ctx.timezone).toBe('America/New_York');
     expect(calls.map((c) => c.path)).toEqual(
       expect.arrayContaining(['/api/deals/internal/d1', '/api/crm/contacts/internal/ct1', '/api/crm/companies/internal/co1', '/api/users/internal/u7']),
     );
@@ -124,6 +125,63 @@ describe('ContextLoader', () => {
     expect((await loader.load({ dealId: 'd1' })).timezone).toBe('America/Denver');
     const fallback = makeLoader({}, null);
     expect((await fallback.loader.load({ dealId: 'd1' })).timezone).toBe('America/New_York');
+  });
+
+  describe("the job's own zone (owner, 2026-10-12): jobTimezone, else its service area's, else Connecticut", () => {
+    const areas = {
+      '/api/deals/service-areas/internal': {
+        data: [
+          { id: 'sa-ct', name: 'Hartford', timezone: 'America/New_York' },
+          { id: 'sa-tx', name: 'Dallas', timezone: 'America/Chicago' },
+          { id: 'sa-az', name: 'Phoenix', timezone: 'America/Phoenix' },
+        ],
+      },
+    };
+
+    it("takes the service area's zone when the job carries none", async () => {
+      const { loader } = makeLoader(
+        { ...areas, '/api/deals/internal/d1': { data: { ...deal, serviceAreaId: 'sa-tx' } } },
+        { timezone: 'America/Phoenix' },
+      );
+      expect((await loader.load({ dealId: 'd1' })).timezone).toBe('America/Chicago');
+    });
+
+    it("prefers the job's own jobTimezone and then does not ask for the areas", async () => {
+      const { loader, calls } = makeLoader({
+        ...areas,
+        '/api/deals/internal/d1': { data: { ...deal, serviceAreaId: 'sa-tx', jobTimezone: 'America/Phoenix' } },
+      });
+      expect((await loader.load({ dealId: 'd1' })).timezone).toBe('America/Phoenix');
+      expect(calls.some((c) => c.path === '/api/deals/service-areas/internal')).toBe(false);
+    });
+
+    it('falls back to Connecticut — not the company setting — when the areas cannot be read', async () => {
+      const { loader } = makeLoader(
+        {
+          '/api/deals/service-areas/internal': { status: 500 },
+          '/api/deals/internal/d1': { data: { ...deal, serviceAreaId: 'sa-tx' } },
+        },
+        { timezone: 'America/Denver' },
+      );
+      expect((await loader.load({ dealId: 'd1' })).timezone).toBe('America/New_York');
+    });
+
+    it('falls back to Connecticut for an area unknown to deal-service or without a zone', async () => {
+      const { loader } = makeLoader({ ...areas, '/api/deals/internal/d1': { data: { ...deal, serviceAreaId: 'sa-gone' } } });
+      expect((await loader.load({ dealId: 'd1' })).timezone).toBe('America/New_York');
+    });
+
+    it('keeps the company zone for a message with no job', async () => {
+      const { loader } = makeLoader(areas, { timezone: 'America/Chicago' });
+      expect((await loader.load({ contactId: 'ct1' })).timezone).toBe('America/Chicago');
+    });
+
+    it('reads the areas once a minute, not once a text', async () => {
+      const { loader, calls } = makeLoader({ ...areas, '/api/deals/internal/d1': { data: { ...deal, serviceAreaId: 'sa-tx' } } });
+      await loader.load({ dealId: 'd1' });
+      await loader.load({ dealId: 'd1' });
+      expect(calls.filter((c) => c.path === '/api/deals/service-areas/internal')).toHaveLength(1);
+    });
   });
 
   it('survives peers that are down or answer errors with a partial context', async () => {

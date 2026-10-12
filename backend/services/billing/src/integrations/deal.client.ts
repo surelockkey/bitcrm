@@ -62,9 +62,15 @@ export interface ContactDealSummary {
   businessProfileId?: string;
   businessProfileName?: string;
   /* ---- the client portal's My Booking tab */
+  /** YYYY-MM-DD on the job's clock. */
   scheduledDate?: string;
   scheduledEndDate?: string;
+  /** "HH:MM-HH:MM" on the job's clock; absent on an all-day job. */
+  scheduledTimeSlot?: string;
+  allDay?: boolean;
   jobTimezone?: string;
+  /** The job's area — its zone is the job's when the job carries none. */
+  serviceAreaId?: string;
   jobTypeName?: string;
   address?: Deal['address'];
   technicianNames?: string[];
