@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
@@ -88,6 +89,49 @@ describe("CustomFieldFormDialog", () => {
       { wrapper },
     );
     expect(screen.getByText("Options")).toBeInTheDocument();
+  });
+
+  // B10: the order is set by dragging the rows, not by typing a number.
+  it("has no Priority box", () => {
+    render(<CustomFieldFormDialog customField={field({})} open onOpenChange={() => {}} />, { wrapper });
+    expect(screen.queryByLabelText("Priority")).not.toBeInTheDocument();
+  });
+
+  // Workiz's client fields carry no job types and no required flags (the dump:
+  // `job_types`, `required`, `requiredClose` all null on the six client fields).
+  it("a Client field asks for name, type, group and searchable? only", () => {
+    render(<CustomFieldFormDialog entityType="client" open onOpenChange={() => {}} />, { wrapper });
+    expect(screen.getByLabelText("Field Name")).toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: "searchable?" })).toBeInTheDocument();
+    expect(screen.queryByText("All Job Types")).not.toBeInTheDocument();
+    expect(screen.queryByRole("switch", { name: "Required?" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("switch", { name: "Required To Close?" })).not.toBeInTheDocument();
+  });
+
+  it("an existing client field keeps the client form", () => {
+    render(
+      <CustomFieldFormDialog customField={field({ entityType: "client" })} open onOpenChange={() => {}} />,
+      { wrapper },
+    );
+    expect(screen.queryByText("All Job Types")).not.toBeInTheDocument();
+  });
+
+  it("creates a Client field on the Client tab", async () => {
+    let body: Record<string, unknown> | undefined;
+    server.use(
+      http.post("*/deals/custom-fields", async ({ request }) => {
+        body = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json({ success: true, data: field({ entityType: "client" }) });
+      }),
+    );
+    render(<CustomFieldFormDialog entityType="client" open onOpenChange={() => {}} />, { wrapper });
+
+    await userEvent.type(screen.getByLabelText("Field Name"), "Vendor Number 1");
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(body).toBeDefined());
+    expect(body).toMatchObject({ name: "Vendor Number 1", entityType: "client" });
+    expect(body).not.toHaveProperty("priority");
   });
 
   it("labels the Job Types picker as All Job Types when nothing is selected", () => {

@@ -53,6 +53,18 @@ describe("customFieldFormSchema", () => {
     expect(parsed.searchable).toBe(false);
     expect(parsed.priority).toBe(0);
     expect(parsed.active).toBe(true);
+    expect(parsed.entityType).toBe("job");
+  });
+
+  // The order is the drag's (B10): no body carries a priority, so an edit
+  // never puts a dragged row back. The tab is fixed once the field exists.
+  it("sends the tab on create only, and never a priority", () => {
+    const parsed = customFieldFormSchema.parse({ name: "Vendor Number 1", type: "text", entityType: "client" });
+    expect(toCustomFieldBody(parsed)).toMatchObject({ entityType: "client" });
+    expect(toCustomFieldBody(parsed)).not.toHaveProperty("priority");
+    const edit = toCustomFieldBody(parsed, { editing: true });
+    expect(edit).not.toHaveProperty("entityType");
+    expect(edit).not.toHaveProperty("priority");
   });
 
   it("maps a valid payload through toCustomFieldBody", () => {
@@ -77,8 +89,8 @@ describe("customFieldFormSchema", () => {
       required: true,
       requiredToClose: false,
       searchable: true,
-      priority: 2,
       active: true,
+      entityType: "job",
     });
   });
 });
