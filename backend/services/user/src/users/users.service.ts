@@ -370,32 +370,26 @@ export class UsersService implements OnModuleInit {
 
     const id = randomUUID();
 
-    let cognitoSub: string;
-    try {
-      const claims = {
+    // The phone is checked BEFORE the sign-in account is made. On 2026-10-12
+    // it was checked after: the account was made, the number turned out to be
+    // on somebody else's profile, the invite failed, the account stayed — and
+    // every retry for that email answered "already exists".
+    const phone = dto.phone ? await this.assertPhoneFree(dto.phone, id) : undefined;
+
+    const cognitoSub = await this.makeSignInAccount(
+      dto.email,
+      {
         'custom:role_id': roleId,
         'custom:department': dto.department,
         'custom:user_id': id,
-      };
-      const cognitoResult = subcontractor
-        ? await this.cognitoAdmin.createUser(dto.email, claims, { suppressInvite: true })
-        : await this.cognitoAdmin.createUser(dto.email, claims);
-      cognitoSub = cognitoResult.User?.Attributes?.find(
-        (a) => a.Name === 'sub',
-      )?.Value as string;
-    } catch (error: unknown) {
-      if (
-        error instanceof Error &&
-        error.name === 'UsernameExistsException'
-      ) {
-        throw new ConflictException('A user with this email already exists');
-      }
-      throw error;
-    }
-    if (subcontractor) await this.switchOffNewAccount(id, cognitoSub);
+      },
+      subcontractor,
+    );
 
-    const phone = dto.phone ? await this.claimPhone(dto.phone, id) : undefined;
-
+    // From here the account exists. Whatever fails before the row is written
+    // takes the account (and a claimed phone) down with it, or the next invite
+    // for this email is refused for nothing.
+    let phoneClaimed = false;
     const now = new Date().toISOString();
     const user: User = {
       id,
@@ -418,14 +412,15 @@ export class UsersService implements OnModuleInit {
       createdAt: now,
       updatedAt: now,
     };
-
     try {
+      if (subcontractor) await this.switchOffNewAccount(id, cognitoSub);
+      if (phone) {
+        await this.repository.putPhoneIndex(phone, id);
+        phoneClaimed = true;
+      }
       await this.repository.create(user);
     } catch (error) {
-      // Rollback Cognito user if DynamoDB write fails
-      await this.cognitoAdmin.deleteUser(dto.email).catch((rollbackErr) => {
-        this.logger.error(`Failed to rollback Cognito user ${dto.email}: ${rollbackErr.message}`);
-      });
+      await this.undoNewAccount(dto.email, phoneClaimed ? phone : undefined);
       throw error;
     }
 
@@ -620,6 +615,13 @@ export class UsersService implements OnModuleInit {
    * lookup item. Returns the stored E.164 form.
    */
   private async claimPhone(raw: string, userId: string): Promise<string> {
+    const phone = await this.assertPhoneFree(raw, userId);
+    await this.repository.putPhoneIndex(phone, userId);
+    return phone;
+  }
+
+  /** The number in E.164, or a conflict naming whose profile it is on. */
+  private async assertPhoneFree(raw: string, userId: string): Promise<string> {
     const phone = normalizePhone(raw);
     const owner = await this.repository.findByPhone(phone);
     if (owner && owner.id !== userId) {
@@ -627,8 +629,75 @@ export class UsersService implements OnModuleInit {
         `${phone} is already on ${owner.firstName} ${owner.lastName}'s profile`,
       );
     }
-    await this.repository.putPhoneIndex(phone, userId);
     return phone;
+  }
+
+  /**
+   * The Cognito account of a new user; its `sub`.
+   *
+   * An email that Cognito already knows is refused — unless the account it
+   * knows is one a failed invite left behind, which is removed and the invite
+   * goes through (once; a second refusal is a real one).
+   */
+  private async makeSignInAccount(
+    email: string,
+    claims: Record<string, string>,
+    subcontractor: boolean,
+    retried = false,
+  ): Promise<string> {
+    try {
+      const result = subcontractor
+        ? await this.cognitoAdmin.createUser(email, claims, { suppressInvite: true })
+        : await this.cognitoAdmin.createUser(email, claims);
+      return result.User?.Attributes?.find((a) => a.Name === 'sub')?.Value as string;
+    } catch (error: unknown) {
+      if (!(error instanceof Error && error.name === 'UsernameExistsException')) {
+        throw error;
+      }
+      if (!retried && (await this.removeOrphanSignInAccount(email))) {
+        return this.makeSignInAccount(email, claims, subcontractor, true);
+      }
+      throw new ConflictException('A user with this email already exists');
+    }
+  }
+
+  /**
+   * An account that names a user id with no row is what a failed invite leaves
+   * behind: the account was made, the row never was. Nobody can sign in with
+   * it and nothing refers to it, so it goes, and the email can be invited
+   * again. Anything else is left alone — the account of an existing user, or
+   * one made outside the app (the seed admin) that names no user of ours. A
+   * check that cannot be made leaves it alone too.
+   */
+  private async removeOrphanSignInAccount(email: string): Promise<boolean> {
+    try {
+      const account = await this.cognitoAdmin.getUser(email);
+      if (!account?.userId) return false;
+      if (await this.repository.findById(account.userId)) return false;
+      await this.cognitoAdmin.deleteUser(email);
+      this.logger.warn(
+        `Removed the sign-in account of ${email}: it named user ${account.userId}, ` +
+          'which does not exist — left behind by a failed invite',
+      );
+      return true;
+    } catch (err) {
+      this.logger.warn(
+        `Could not tell whether the sign-in account of ${email} is an orphan: ${(err as Error).message}`,
+      );
+      return false;
+    }
+  }
+
+  /** Take a new user's account (and the phone claimed for them) down again. */
+  private async undoNewAccount(email: string, phone?: string): Promise<void> {
+    await this.cognitoAdmin.deleteUser(email).catch((err: Error) => {
+      this.logger.error(`Failed to rollback Cognito user ${email}: ${err.message}`);
+    });
+    if (phone) {
+      await this.repository.deletePhoneIndex(phone).catch((err: Error) => {
+        this.logger.error(`Failed to release ${phone} after a failed invite: ${err.message}`);
+      });
+    }
   }
 
   /**

@@ -108,11 +108,12 @@ export class CognitoAdminService {
 
   /**
    * The account's sign-in state (`FORCE_CHANGE_PASSWORD` = invited, never
-   * signed in; `CONFIRMED` = has a password), or null when there is no account.
+   * signed in; `CONFIRMED` = has a password) and, when the app made it, the
+   * user it was made for (`custom:user_id`) — or null when there is no account.
    */
   async getUser(
     username: string,
-  ): Promise<{ status: string; enabled: boolean } | null> {
+  ): Promise<{ status: string; enabled: boolean; sub?: string; userId?: string } | null> {
     try {
       const out = await this.client.send(
         new AdminGetUserCommand({
@@ -120,7 +121,16 @@ export class CognitoAdminService {
           Username: username,
         }),
       );
-      return { status: out.UserStatus ?? '', enabled: out.Enabled === true };
+      const attr = (name: string) =>
+        out.UserAttributes?.find((a) => a.Name === name)?.Value;
+      const sub = attr('sub');
+      const userId = attr('custom:user_id');
+      return {
+        status: out.UserStatus ?? '',
+        enabled: out.Enabled === true,
+        ...(sub ? { sub } : {}),
+        ...(userId ? { userId } : {}),
+      };
     } catch (error: unknown) {
       if (error instanceof Error && error.name === 'UserNotFoundException') {
         return null;
