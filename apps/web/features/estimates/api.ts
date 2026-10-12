@@ -92,6 +92,25 @@ export const setEstimateStatus = (id: string, status: EstimateStatus): Promise<E
 export const addEstimateItem = (id: string, body: EstimateItemBody): Promise<EstimateItem> =>
   http.post<EstimateItem>(`${BASE}/${id}/items`, body);
 
+/**
+ * An item group's lines on an estimate: one request each, in the group's
+ * order (billing has no batch route). Stops at the first refusal, saying how
+ * many went on, so the reader knows what is there. Answers how many were added.
+ */
+export async function addEstimateItems(id: string, lines: EstimateItemBody[]): Promise<number> {
+  let added = 0;
+  for (const line of lines) {
+    try {
+      await addEstimateItem(id, line);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Couldn't add the item";
+      throw new Error(`${message} (${added} of ${lines.length} items were added)`);
+    }
+    added += 1;
+  }
+  return added;
+}
+
 export const updateEstimateItem = (id: string, lineId: string, body: EstimateItemBody): Promise<EstimateItem> =>
   http.put<EstimateItem>(`${BASE}/${id}/items/${lineId}`, body);
 

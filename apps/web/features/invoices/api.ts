@@ -80,6 +80,26 @@ export const createClientInvoice = (contactId: string): Promise<InvoiceView> =>
 export const addInvoiceItem = (id: string, body: EstimateItemBody): Promise<InvoiceView> =>
   http.post<InvoiceView>(`${BASE}/${id}/items`, body);
 
+/**
+ * An item group's lines on a client invoice: one request each, in the
+ * group's order (billing has no batch route). Stops at the first refusal,
+ * saying how many went on. Answers the invoice as the last line left it.
+ */
+export async function addInvoiceItems(id: string, lines: EstimateItemBody[]): Promise<InvoiceView | undefined> {
+  let view: InvoiceView | undefined;
+  let added = 0;
+  for (const line of lines) {
+    try {
+      view = await addInvoiceItem(id, line);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Couldn't add the item";
+      throw new Error(`${message} (${added} of ${lines.length} items were added)`);
+    }
+    added += 1;
+  }
+  return view;
+}
+
 export const updateInvoiceItem = (id: string, lineId: string, body: EstimateItemBody): Promise<InvoiceView> =>
   http.put<InvoiceView>(`${BASE}/${id}/items/${lineId}`, body);
 

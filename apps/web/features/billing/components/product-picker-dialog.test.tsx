@@ -9,6 +9,24 @@ vi.mock("@/features/inventory/warehouses/api", () => ({
   fetchAllProducts: () => Promise.resolve(catalog.products),
 }));
 
+vi.mock("@/features/price-book/item-groups/api", () => ({
+  listItemGroups: () =>
+    Promise.resolve([
+      {
+        id: "g1",
+        name: "Front door kit",
+        description: "",
+        groupType: "separate_items",
+        active: true,
+        total: 255,
+        members: [
+          { productId: "p1", name: "Deadbolt (group)", quantity: 2, priceClient: 90, taxable: true, description: "", customAttributes: {} },
+          { productId: "p2", name: "Install", quantity: 1, priceClient: 75, taxable: false, description: "Per door", customAttributes: {} },
+        ],
+      },
+    ]),
+}));
+
 import { ProductPickerDialog } from "./product-picker-dialog";
 
 const product = (over: Partial<Product>): Product =>
@@ -52,6 +70,34 @@ describe("ProductPickerDialog", () => {
         taxable: false,
       }),
     );
+  });
+
+  it("offers no item groups unless the page can take one", async () => {
+    renderWithClient(<ProductPickerDialog open onOpenChange={() => {}} onSubmit={() => {}} />);
+    expect(await screen.findByText("Deadbolt")).toBeInTheDocument();
+    expect(screen.queryByText("Front door kit")).not.toBeInTheDocument();
+  });
+
+  it("adds an item group's lines — the group's numbers, the price book's SKU and costs (Workiz: groups on estimates)", async () => {
+    const onAddGroup = vi.fn();
+    renderWithClient(
+      <ProductPickerDialog open onOpenChange={() => {}} onSubmit={() => {}} onAddGroup={onAddGroup} />,
+    );
+    const u = user();
+    await u.click(await screen.findByRole("button", { name: /Front door kit/ }));
+    expect(screen.getByText("2 × $90.00")).toBeInTheDocument();
+    await u.click(screen.getByRole("button", { name: "Add group" }));
+
+    expect(onAddGroup).toHaveBeenCalledWith([
+      {
+        productId: "p1", productType: ProductType.PRODUCT, name: "Deadbolt (group)", sku: "DB-1",
+        quantity: 2, priceClient: 90, costCompany: 20, costForTech: 25, taxable: true,
+      },
+      {
+        productId: "p2", productType: ProductType.SERVICE, name: "Install", sku: "SVC-1", description: "Per door",
+        quantity: 1, priceClient: 75, costCompany: 20, costForTech: 25, taxable: false,
+      },
+    ]);
   });
 
   it("blocks a price outside the ±15% band", async () => {

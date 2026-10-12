@@ -54,7 +54,7 @@ export interface DocumentItemsTableProps {
   canEdit: boolean;
   /** What the empty table says ("No items on this estimate yet."). */
   emptyText: string;
-  pending: { add: boolean; update: boolean; removingLineId?: string };
+  pending: { add: boolean; update: boolean; removingLineId?: string; addGroup?: boolean };
   onAdd: (body: EstimateItemBody, done: () => void) => void;
   onUpdate: (lineId: string, body: EstimateItemBody, done?: () => void) => void;
   onRemove: (lineId: string) => void;
@@ -88,6 +88,12 @@ export interface DocumentItemsTableProps {
   emptyAction?: string;
   /** Workiz variant: the "Add item" pill's height — 34px (estimate, default) or "h-8" (invoice's 32px). */
   addHeightClassName?: string;
+  /**
+   * Given, Add item offers the item groups too (Workiz: a group goes on an
+   * estimate in one click) and hands their lines here; `done` closes the
+   * picker. `pending.addGroup` holds its button while they go on.
+   */
+  onAddGroup?: (lines: EstimateItemBody[], done: () => void) => void;
 }
 
 const th = "px-3 py-2.5 text-left text-[13px] font-semibold";
@@ -116,6 +122,7 @@ function CardDocumentItems({
   toolbar,
   addClassName = "rounded-pill px-4 font-semibold",
   showCost = true,
+  onAddGroup,
 }: DocumentItemsTableProps) {
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<DocumentLineItem | null>(null);
@@ -207,11 +214,12 @@ function CardDocumentItems({
           if (!v) close();
         }}
         editing={editing ?? undefined}
-        pending={pending.add || pending.update}
+        pending={pending.add || pending.update || pending.addGroup}
         onSubmit={(body) => {
           if (editing) onUpdate(editing.lineId, body, close);
           else onAdd(body, close);
         }}
+        onAddGroup={onAddGroup ? (lines) => onAddGroup(lines, close) : undefined}
       />
     </div>
   );

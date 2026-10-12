@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Loader2, Package, PackageX, Search, TriangleAlert, Wrench } from "lucide-react";
 import { InventoryStatus, ProductType } from "@bitcrm/types";
-import type { DealProduct, Product } from "@bitcrm/types";
+import type { DealProduct, ItemGroup, Product } from "@bitcrm/types";
 import type { AddProductValues } from "../schemas";
 import {
   Dialog,
@@ -20,7 +20,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { queryKeys } from "@/lib/query-keys";
 import { fetchAllProducts } from "@/features/inventory/warehouses/api";
-import { useUserMap, useAddProduct, useReplaceProduct } from "../hooks";
+import { useUserMap, useAddProduct, useReplaceProduct, useAddItemGroup } from "../hooks";
+import { useItemGroups } from "@/features/price-book/item-groups/hooks";
+import { pickableGroups } from "@/features/price-book/item-groups/lib";
+import { ItemGroupChoices, ItemGroupConfirm } from "@/features/price-book/item-groups/item-group-picker";
 import { fetchTechStock } from "../tech-stock";
 import { formatMoney, isPriceInBand, priceBandApplies, priceRange } from "../lib";
 import { personName } from "../person-name";
@@ -65,6 +68,10 @@ export function AddProductDialog({
   });
   const { map: userMap } = useUserMap();
   const add = useAddProduct(dealId);
+  // Workiz: Add item offers the item groups too — a group adds all its items at once.
+  const groups = useItemGroups(open && !editing);
+  const addGroup = useAddItemGroup(dealId);
+  const [pickedGroup, setPickedGroup] = useState<ItemGroup | null>(null);
   const replace = useReplaceProduct(dealId);
   const [search, setSearch] = useState("");
   const [picked, setPicked] = useState<Product | null>(null);
@@ -72,7 +79,7 @@ export function AddProductDialog({
   // product; "Change item" clears this and drops back to the picker.
   const [changingItem, setChangingItem] = useState(false);
 
-  const reset = () => { setPicked(null); setSearch(""); setChangingItem(false); };
+  const reset = () => { setPicked(null); setPickedGroup(null); setSearch(""); setChangingItem(false); };
 
   // The catalog entry behind the line being edited (null while loading, or if
   // the product has since left the catalog — then the picker shows instead).
@@ -109,15 +116,27 @@ export function AddProductDialog({
       : 0;
 
   const close = () => { onOpenChange(false); reset(); };
+  const matchedGroups = useMemo(() => pickableGroups(groups.data, search), [groups.data, search]);
 
   return (
     <Dialog open={open} onOpenChange={(v) => { onOpenChange(v); if (!v) reset(); }}>
       <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>{isEdit ? "Edit item" : current ? "Add to job" : "Add a product"}</DialogTitle>
+          <DialogTitle>{isEdit ? "Edit item" : current || pickedGroup ? "Add to job" : "Add a product"}</DialogTitle>
         </DialogHeader>
 
-        {current ? (
+        {pickedGroup ? (
+          <ItemGroupConfirm
+            group={pickedGroup}
+            submitLabel="Add group"
+            pending={addGroup.isPending}
+            note={`Parts in ${techName}'s van come out of it; parts it doesn't hold are added to order; services are added directly.`}
+            onBack={() => setPickedGroup(null)}
+            onSubmit={() =>
+              addGroup.mutate({ groupId: pickedGroup.id, sourceTechId: techId }, { onSuccess: close })
+            }
+          />
+        ) : current ? (
           <Configure
             key={current.id}
             product={current}
@@ -189,6 +208,13 @@ export function AddProductDialog({
               <Input className="h-9 pl-8" placeholder="Search catalog by name or SKU" value={search} onChange={(e) => setSearch(e.target.value)} autoFocus />
             </div>
             <div className="max-h-72 space-y-1.5 overflow-y-auto">
+              {!isEdit ? (
+                <ItemGroupChoices
+                  groups={matchedGroups}
+                  limit={search.trim() ? undefined : 3}
+                  onPick={setPickedGroup}
+                />
+              ) : null}
               {catalog.isLoading ? (
                 <div className="flex items-center gap-2 py-3 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" /> Loading catalog…</div>
               ) : products.length === 0 ? (

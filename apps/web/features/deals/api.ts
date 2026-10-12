@@ -310,6 +310,21 @@ export const addDealProduct = (id: string, body: AddProductValues): Promise<{ ad
   http.post<{ added: true }>(`/deals/${id}/products`, body);
 
 /**
+ * Workiz "Add group": every item of an item group goes on the job as its own
+ * line, in one call. `sourceTechId` — whose van gives the parts (office
+ * callers; a technician always gives from his own).
+ */
+export const addDealItemGroup = (
+  id: string,
+  groupId: string,
+  body: { sourceTechId?: string },
+): Promise<{ added: number; lines: DealProduct[] }> =>
+  http.post<{ added: number; lines: DealProduct[] }>(
+    `/deals/${id}/item-groups/${encodeURIComponent(groupId)}`,
+    body,
+  );
+
+/**
  * Replace a line item — edit its quantity/price or swap it for a different
  * catalog product. `productId` keys the line being edited; the body is the
  * complete new line (same shape as add). Stock is reconciled server-side.

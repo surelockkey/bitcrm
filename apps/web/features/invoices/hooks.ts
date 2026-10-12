@@ -179,6 +179,21 @@ export function useAddInvoiceItem(invoiceId: string) {
   return useClientInvoiceLineMutation(invoiceId, (body: EstimateItemBody) => api.addInvoiceItem(invoiceId, body), "Item added");
 }
 
+/** An item group's lines on a client invoice, one after another; the invoice is asked for again either way. */
+export function useAddInvoiceItemGroup(invoiceId: string) {
+  const qc = useQueryClient();
+  const invalidate = useInvalidateInvoice();
+  return useMutation({
+    mutationFn: (lines: EstimateItemBody[]) => api.addInvoiceItems(invoiceId, lines),
+    onSuccess: (view, lines) => {
+      if (view) qc.setQueryData(queryKeys.invoices.detail(invoiceId), view);
+      toast.success(`Item group added — ${lines.length} ${lines.length === 1 ? "item" : "items"}`);
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+    onSettled: () => invalidate(),
+  });
+}
+
 export function useUpdateInvoiceItem(invoiceId: string) {
   return useClientInvoiceLineMutation(
     invoiceId,

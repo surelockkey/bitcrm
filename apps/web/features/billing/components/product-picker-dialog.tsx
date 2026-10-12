@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Loader2, Package, Search, Wrench } from "lucide-react";
-import { InventoryStatus, ProductType, type Product } from "@bitcrm/types";
+import { InventoryStatus, ProductType, type ItemGroup, type Product } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -21,6 +21,9 @@ import { queryKeys } from "@/lib/query-keys";
 import { fetchAllProducts } from "@/features/inventory/warehouses/api";
 import { formatMoney, isPriceInBand, priceRange } from "@/features/deals/lib";
 import { estimateItemSchema, type EstimateItemBody } from "@/features/estimates/schemas";
+import { useItemGroups } from "@/features/price-book/item-groups/hooks";
+import { groupEstimateLines, pickableGroups } from "@/features/price-book/item-groups/lib";
+import { ItemGroupChoices, ItemGroupConfirm } from "@/features/price-book/item-groups/item-group-picker";
 
 /** An existing document line being edited. */
 export interface PickerLine {
@@ -47,12 +50,19 @@ export function ProductPickerDialog({
   onSubmit,
   editing,
   pending,
+  onAddGroup,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSubmit: (body: EstimateItemBody) => void;
   editing?: PickerLine;
   pending?: boolean;
+  /**
+   * Given, the picker offers the item groups too (Workiz: groups go on
+   * estimates and invoices in one click) and hands back the group's lines,
+   * ready to add one by one.
+   */
+  onAddGroup?: (lines: EstimateItemBody[]) => void;
 }) {
   const catalog = useQuery({
     queryKey: queryKeys.inventory.products.map(),
@@ -62,10 +72,17 @@ export function ProductPickerDialog({
   const [search, setSearch] = useState("");
   const [picked, setPicked] = useState<Product | null>(null);
   const [changing, setChanging] = useState(false);
+  const groups = useItemGroups(open && !!onAddGroup && !editing);
+  const [pickedGroup, setPickedGroup] = useState<ItemGroup | null>(null);
+  const matchedGroups = useMemo(
+    () => (onAddGroup && !editing ? pickableGroups(groups.data, search) : []),
+    [onAddGroup, editing, groups.data, search],
+  );
 
   const reset = () => {
     setSearch("");
     setPicked(null);
+    setPickedGroup(null);
     setChanging(false);
   };
 
@@ -91,11 +108,21 @@ export function ProductPickerDialog({
     >
       <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>{editing ? "Edit item" : picked ? "Add to estimate" : "Add an item"}</DialogTitle>
+          <DialogTitle>{editing ? "Edit item" : picked || pickedGroup ? "Add to estimate" : "Add an item"}</DialogTitle>
           <DialogDescription className="sr-only">Pick a catalog product or service</DialogDescription>
         </DialogHeader>
 
-        {showConfigure ? (
+        {pickedGroup && onAddGroup ? (
+          <ItemGroupConfirm
+            group={pickedGroup}
+            submitLabel="Add group"
+            pending={pending}
+            onBack={() => setPickedGroup(null)}
+            onSubmit={() =>
+              onAddGroup(groupEstimateLines(pickedGroup, new Map((catalog.data ?? []).map((p) => [p.id, p]))))
+            }
+          />
+        ) : showConfigure ? (
           <Configure
             key={picked?.id ?? editing?.productId}
             product={picked ?? editingProduct}
@@ -125,6 +152,7 @@ export function ProductPickerDialog({
               />
             </div>
             <div className="max-h-80 space-y-1.5 overflow-y-auto">
+              <ItemGroupChoices groups={matchedGroups} limit={search.trim() ? undefined : 3} onPick={setPickedGroup} />
               {catalog.isLoading ? (
                 <div className="flex items-center gap-2 py-3 text-sm text-muted-foreground">
                   <Loader2 className="size-4 animate-spin" /> Loading catalog…
