@@ -61,6 +61,7 @@ import { useCreateDeal, useDeal } from "../hooks";
 import { duplicatePrefill } from "../duplicate-job";
 import { useNewJobPageData } from "../new-job-page-data";
 import { jobTypeDurationMinutes } from "@/features/job-types/lib";
+import { useActiveJobTypes } from "@/features/job-types/active-hooks";
 import { withDuration } from "./scheduled-block";
 import { updateDeal as updateDealApi, assignTechs as assignTechsApi } from "../api";
 import { requestAttachmentUpload, uploadAttachmentBytes } from "../attachments-api";
@@ -282,6 +283,15 @@ function DealForm({
 
   // Prefill the schedule with "now" in the business timezone (Connecticut).
   const scheduleNow = useMemo(() => nowScheduleDefault(), []);
+  // A copied job type lasts what its Duration says, as picking it would.
+  const { data: activeJobTypes } = useActiveJobTypes();
+  const [copyDuration] = useState(() =>
+    copy ? jobTypeDurationMinutes(activeJobTypes?.find((t) => t.id === copy.values.jobTypeId)) : null,
+  );
+  const firstVisit = withDuration(
+    { date: scheduleNow.date, endDate: scheduleNow.date, slot: `${scheduleNow.start}-${scheduleNow.end}`, allDay: false },
+    copyDuration ?? jobTypeDurationMinutes(undefined),
+  );
   const form = useForm<DealJobValues>({
     resolver: zodResolver(dealJobSchema),
     defaultValues: {
@@ -291,8 +301,8 @@ function DealForm({
       serviceArea: "",
       address: copy ? copy.values.address : jobAddress(prefilledAddress(initialContact, prefillAddress)),
       scheduledDate: scheduleNow.date,
-      scheduledEndDate: scheduleNow.date,
-      scheduledTimeSlot: `${scheduleNow.start}-${scheduleNow.end}`,
+      scheduledEndDate: copyDuration ? firstVisit.endDate : scheduleNow.date,
+      scheduledTimeSlot: copyDuration ? firstVisit.slot : `${scheduleNow.start}-${scheduleNow.end}`,
       allDay: false,
       priority: DealPriority.NORMAL,
       sourceId: prefillSourceId ?? "",
@@ -322,7 +332,7 @@ function DealForm({
   const [defaultTz, setDefaultTz] = useState(DEFAULT_TZ);
   // Workiz's job type carries a Duration: once picked, the visit is that
   // long — the default too, should the zone still move it.
-  const [typeDuration, setTypeDuration] = useState(jobTypeDurationMinutes(undefined));
+  const [typeDuration, setTypeDuration] = useState(copyDuration ?? jobTypeDurationMinutes(undefined));
   useEffect(() => {
     if (scheduleTouched || jobTz === defaultTz) return;
     const d = nowScheduleDefault(jobTz);

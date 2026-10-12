@@ -32,6 +32,7 @@ const mocks = vi.hoisted(() => ({
   perms: { custom_fields: true } as Record<string, boolean>,
   /** The job `?duplicate=` copies (Workiz's Duplicate Job). */
   sourceDeal: undefined as unknown,
+  activeJobTypes: [] as unknown[],
   companies: [
     { id: "bp-default", name: "SureLock", isDefault: true, active: true },
     { id: "bp-2", name: "KeyPro", isDefault: false, active: true },
@@ -172,6 +173,7 @@ vi.mock("./workiz/address-field", () => ({
 }));
 
 vi.mock("@/features/estimates/api", () => ({ copyEstimateToJob: mocks.copyEstimate }));
+vi.mock("@/features/job-types/active-hooks", () => ({ useActiveJobTypes: () => ({ data: mocks.activeJobTypes }) }));
 import { NewDealPage } from "./new-deal-page";
 
 const user = () => userEvent.setup();
@@ -200,6 +202,7 @@ const def = (id: string, name: string, group: string, over: Record<string, unkno
 beforeEach(() => {
   mocks.searchParams = "contactId=c1&callSid=CA1";
   mocks.sourceDeal = undefined;
+  mocks.activeJobTypes = [];
   mocks.customFieldDefs = [];
   mocks.requiredFields = {};
   mocks.effectiveArea = null;
@@ -983,5 +986,16 @@ describe("NewDealPage — Duplicate Job", () => {
     expect(lastDeal().scheduledDate).not.toBe("2020-01-02");
     expect(mocks.updateDealApi).not.toHaveBeenCalled();
     await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/deals/d-copy"));
+  });
+
+  it("the copied job type sets the visit's length, as picking it would", async () => {
+    mocks.activeJobTypes = [{ id: "jt-lockout", name: "Lockout", priority: 0, active: true, durationMinutes: 120 }];
+    const u = user();
+    render(<NewDealPage />);
+    await u.click(submit());
+
+    const [start, end] = (lastDeal().scheduledTimeSlot as string).split("-");
+    const minutes = (hhmm: string) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5));
+    expect((minutes(end) - minutes(start) + 24 * 60) % (24 * 60)).toBe(120);
   });
 });
