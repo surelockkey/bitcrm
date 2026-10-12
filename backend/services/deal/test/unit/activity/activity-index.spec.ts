@@ -213,6 +213,33 @@ describe('Activity — what a row prints', () => {
       { field: 'schedule', oldValue: { date: null }, newValue: { date: '2026-10-09', allDay: true } },
       'Rescheduled job from Unscheduled to Fri Oct 09 2026',
     ],
+    // 2026-10-12: an entry written with the job's zone reads on Connecticut's clock and says
+    // its zone (EDT / EST); a Chicago 08:00 is 9:00 am EDT. Rows written before carry no zone
+    // and read as they always did (above).
+    [
+      TimelineEventType.FIELD_UPDATED,
+      {
+        field: 'schedule',
+        oldValue: { date: '2026-10-07', endDate: '2026-10-07', slot: '17:00-18:00', allDay: null, timezone: 'America/New_York' },
+        newValue: { date: '2026-10-08', endDate: '2026-10-08', slot: '08:00-09:00', allDay: null, timezone: 'America/Chicago' },
+      },
+      'Rescheduled job from Wed Oct 07 2026 5:00 pm - 6:00 pm EDT to Thu Oct 08 2026 9:00 am - 10:00 am EDT',
+    ],
+    [
+      TimelineEventType.FIELD_UPDATED,
+      {
+        field: 'schedule',
+        oldValue: { date: '2026-01-15', slot: '10:00-11:00', timezone: 'America/Chicago' },
+        // 23:30 in Chicago on Oct 7 is 00:30 on Oct 8 in Connecticut.
+        newValue: { date: '2026-10-07', slot: '23:30-23:45', timezone: 'America/Chicago' },
+      },
+      'Rescheduled job from Thu Jan 15 2026 11:00 am - 12:00 pm EST to Thu Oct 08 2026 12:30 am - 12:45 am EDT',
+    ],
+    [
+      TimelineEventType.FIELD_UPDATED,
+      { field: 'schedule', oldValue: { date: null }, newValue: { date: '2026-10-09', allDay: true, timezone: 'America/Chicago' } },
+      'Rescheduled job from Unscheduled to Fri Oct 09 2026',
+    ],
     [TimelineEventType.FIELD_UPDATED, { field: 'jobName', oldValue: null, newValue: 'Front door' }, 'Job name changed'],
     [TimelineEventType.INVOICE_VIEWED, { number: 'SGHDLK' }, 'Client viewed invoice'],
     [TimelineEventType.ESTIMATE_VIEWED, {}, 'Client viewed estimate'],

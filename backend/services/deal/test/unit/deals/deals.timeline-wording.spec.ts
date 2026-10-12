@@ -29,6 +29,7 @@ function makeService() {
   const cache = createMockDealsCacheService();
   const timeline = createMockTimelineRepository();
   const eligibility = createMockTechnicianEligibilityRepository();
+  const serviceAreas = { resolvePoint: jest.fn().mockResolvedValue(null), findById: jest.fn() };
   const stub = {} as any;
   const service = new DealsService(
     repo as any,
@@ -37,7 +38,7 @@ function makeService() {
     stub,
     createMockInternalHttpService() as any,
     createMockGeocodingService() as any,
-    { resolvePoint: jest.fn().mockResolvedValue(null), findById: jest.fn() } as any,
+    serviceAreas as any,
     { findById: jest.fn().mockResolvedValue(createMockJobType()) } as any,
     stub,
     stub,
@@ -47,7 +48,7 @@ function makeService() {
     eligibility as any,
   );
   cache.get.mockResolvedValue(null);
-  return { service, repo, timeline, eligibility };
+  return { service, repo, timeline, eligibility, serviceAreas };
 }
 
 const caller = createMockJwtUser({ id: 'dispatcher-1' });
@@ -79,9 +80,28 @@ describe('a reschedule on the timeline', () => {
     expect(fields).toHaveLength(1);
     expect(fields[0].details).toEqual({
       field: 'schedule',
-      oldValue: { date: '2026-10-07', endDate: '2026-10-07', slot: '17:00-18:00', allDay: null },
-      newValue: { date: '2026-10-08', endDate: '2026-10-08', slot: '08:00-09:00', allDay: null },
+      // Each visit says the clock it is on — the Activity text reads it onto Connecticut's.
+      oldValue: { date: '2026-10-07', endDate: '2026-10-07', slot: '17:00-18:00', allDay: null, timezone: 'America/New_York' },
+      newValue: { date: '2026-10-08', endDate: '2026-10-08', slot: '08:00-09:00', allDay: null, timezone: 'America/New_York' },
     });
+  });
+
+  it('writes each visit with the clock it is on: the job’s own zone, else its area’s', async () => {
+    const { service, repo, timeline, serviceAreas } = makeService();
+    const existing = createMockDeal({ scheduledDate: '2026-10-07', scheduledTimeSlot: '17:00-18:00', serviceAreaId: 'area-tx' } as any);
+    repo.findById.mockResolvedValue(existing);
+    repo.update.mockResolvedValue(existing);
+    serviceAreas.findById.mockResolvedValue({ id: 'area-tx', timezone: 'America/Chicago' });
+
+    await service.update('deal-1', { scheduledTimeSlot: '18:00-19:00' } as any, caller);
+    const [entry] = fieldEntries(timeline);
+    expect(entry.details.oldValue.timezone).toBe('America/Chicago');
+    expect(entry.details.newValue.timezone).toBe('America/Chicago');
+
+    timeline.addEntry.mockClear();
+    repo.findById.mockResolvedValue({ ...existing, jobTimezone: 'America/Denver' });
+    await service.update('deal-1', { scheduledTimeSlot: '19:00-20:00' } as any, caller);
+    expect(fieldEntries(timeline)[0].details.oldValue.timezone).toBe('America/Denver');
   });
 
   it('keeps the parts that did not move in the visit it names', async () => {
@@ -100,8 +120,8 @@ describe('a reschedule on the timeline', () => {
     expect(fieldEntries(timeline).map((e) => e.details)).toEqual([
       {
         field: 'schedule',
-        oldValue: { date: '2026-10-07', endDate: '2026-10-07', slot: '17:00-18:00', allDay: null },
-        newValue: { date: '2026-10-07', endDate: '2026-10-07', slot: '18:00-19:00', allDay: null },
+        oldValue: { date: '2026-10-07', endDate: '2026-10-07', slot: '17:00-18:00', allDay: null, timezone: 'America/New_York' },
+        newValue: { date: '2026-10-07', endDate: '2026-10-07', slot: '18:00-19:00', allDay: null, timezone: 'America/New_York' },
       },
     ]);
   });
@@ -121,6 +141,7 @@ describe('a reschedule on the timeline', () => {
 
     const fields = fieldEntries(timeline);
     expect(fields.map((e) => e.details.field)).toEqual(['schedule']);
+    // No visit, no clock.
     expect(fields[0].details.newValue).toEqual({ date: null, endDate: null, slot: null, allDay: null });
   });
 

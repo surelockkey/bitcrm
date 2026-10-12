@@ -139,7 +139,7 @@ describe('unscheduling a job', () => {
     expect(fields).toEqual([
       {
         field: 'schedule',
-        oldValue: { date: '2026-10-08', endDate: null, slot: '08:00-09:00', allDay: null },
+        oldValue: { date: '2026-10-08', endDate: null, slot: '08:00-09:00', allDay: null, timezone: 'America/New_York' },
         newValue: { date: null, endDate: null, slot: null, allDay: null },
       },
     ]);
