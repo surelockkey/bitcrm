@@ -34,6 +34,7 @@ import {
   acceptIncoming,
   hangup,
   rejectIncoming,
+  selectInputDevice,
   sendDigit,
   startCall,
   toggleMute,
@@ -63,6 +64,9 @@ export function SoftphoneWidget() {
   const setPhoneOn = useSoftphoneStore((s) => s.setPhoneOn);
   const activeNumber = useSoftphoneStore((s) => s.activeNumber);
   const setActiveNumber = useSoftphoneStore((s) => s.setActiveNumber);
+  const inputDevices = useSoftphoneStore((s) => s.inputDevices);
+  const inputDeviceId = useSoftphoneStore((s) => s.inputDeviceId);
+  const micWarning = useSoftphoneStore((s) => s.micWarning);
 
   const [entry, setEntry] = useState("");
   const timer = useCallTimer(call?.startedAt);
@@ -155,6 +159,28 @@ export function SoftphoneWidget() {
   const otherParty = call
     ? call.contactName ?? formatPhone(call.number)
     : "";
+
+  // Which microphone the call uses. Out of the way with a single one — unless
+  // that one is sending silence, when switching is the only thing to offer.
+  const micPicker =
+    inputDevices.length > 1 || micWarning ? (
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <Mic className="size-3.5 shrink-0" aria-hidden />
+        <select
+          aria-label="Microphone"
+          value={inputDeviceId ?? ""}
+          onChange={(e) => void selectInputDevice(e.target.value || null)}
+          className="h-8 w-full rounded-md border bg-transparent px-2 text-xs text-foreground hover:bg-muted/50"
+        >
+          <option value="">Default microphone</option>
+          {inputDevices.map((d) => (
+            <option key={d.deviceId} value={d.deviceId}>
+              {d.label}
+            </option>
+          ))}
+        </select>
+      </div>
+    ) : null;
 
   const handleDigit = (d: string) => {
     if (callState === "active") sendDigit(d);
@@ -309,6 +335,10 @@ export function SoftphoneWidget() {
                   ? `${call.monitor === "listen" ? "Listening" : "Joined"} · ${timer}`
                   : timer)}
             </div>
+            {micWarning ? (
+              <p className="mt-1 text-xs font-medium text-amber-600">{micWarning}</p>
+            ) : null}
+            {micPicker ? <div className="mt-2">{micPicker}</div> : null}
           </div>
         ) : (
           <div className="space-y-2">
@@ -322,6 +352,7 @@ export function SoftphoneWidget() {
                 />
               </div>
             ) : null}
+            {micPicker}
             <Input
               value={entry}
               onChange={(e) => {

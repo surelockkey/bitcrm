@@ -39,8 +39,18 @@ interface SoftphoneState {
   /** The number used as caller id for outbound calls (E.164), or null = default. */
   activeNumber: string | null;
 
+  /** The microphones the browser offers, as the SDK sees them. */
+  inputDevices: { deviceId: string; label: string }[];
+  /** The one the user picked (persisted), or null = whatever the browser ranks first. */
+  inputDeviceId: string | null;
+  /** Set while the SDK reports only silence coming from the microphone. */
+  micWarning: string | null;
+
   setPhoneOn: (on: boolean) => void;
   setActiveNumber: (num: string | null) => void;
+  setInputDevices: (devices: { deviceId: string; label: string }[]) => void;
+  setInputDeviceId: (deviceId: string | null) => void;
+  setMicWarning: (warning: string | null) => void;
   setStatus: (status: SoftphoneStatus, error?: string | null) => void;
   setDialerOpen: (open: boolean) => void;
   setPosition: (position: { x: number; y: number }) => void;
@@ -61,9 +71,15 @@ export const useSoftphoneStore = create<SoftphoneState>()(
       call: null,
       muted: false,
       activeNumber: null,
+      inputDevices: [],
+      inputDeviceId: null,
+      micWarning: null,
 
       setPhoneOn: (phoneOn) => set({ phoneOn }),
       setActiveNumber: (activeNumber) => set({ activeNumber }),
+      setInputDevices: (inputDevices) => set({ inputDevices }),
+      setInputDeviceId: (inputDeviceId) => set({ inputDeviceId }),
+      setMicWarning: (micWarning) => set({ micWarning }),
       setStatus: (status, errorMessage = null) => set({ status, errorMessage }),
       setDialerOpen: (dialerOpen) => set({ dialerOpen }),
       setPosition: (position) => set({ position }),
@@ -79,6 +95,7 @@ export const useSoftphoneStore = create<SoftphoneState>()(
         phoneOn: s.phoneOn,
         position: s.position,
         activeNumber: s.activeNumber,
+        inputDeviceId: s.inputDeviceId,
       }),
     },
   ),

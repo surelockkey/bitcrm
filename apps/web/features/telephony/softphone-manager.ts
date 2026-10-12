@@ -43,6 +43,52 @@ function withIce<T extends object>(options: T): T & { rtcConfiguration?: RTCConf
   return iceServers?.length ? { ...options, rtcConfiguration: { iceServers } } : options;
 }
 
+const MIC_SILENT = "No sound from your microphone — pick another one.";
+
+/** The microphones the SDK sees → the store, for the picker. */
+function syncInputDevices() {
+  const inputs = device?.audio?.availableInputDevices;
+  store().setInputDevices(
+    inputs
+      ? [...inputs.values()].map((d) => ({
+          deviceId: d.deviceId,
+          label: d.label || "Microphone",
+        }))
+      : [],
+  );
+}
+
+/**
+ * Point the SDK at the microphone the user picked, before a call is placed or
+ * answered. Left alone, Chrome hands it whichever input it ranks first — on
+ * 2026-10-12 an iPhone's Continuity microphone, busy with the very call being
+ * placed, so the web side was silent and nothing said so. A pick that is no
+ * longer plugged in is left for the browser to decide.
+ */
+async function applyInputDevice() {
+  const id = store().inputDeviceId;
+  const audio = device?.audio;
+  if (!id || !audio || !audio.availableInputDevices.has(id)) return;
+  try {
+    await audio.setInputDevice(id);
+  } catch {
+    /* the browser's choice, then */
+  }
+}
+
+/** The user picked a microphone (null = let the browser choose). Remembered. */
+export async function selectInputDevice(deviceId: string | null): Promise<void> {
+  store().setInputDeviceId(deviceId);
+  const audio = device?.audio;
+  if (!audio) return;
+  try {
+    if (deviceId) await audio.setInputDevice(deviceId);
+    else await audio.unsetInputDevice();
+  } catch {
+    /* kept as the choice; applied again on the next call */
+  }
+}
+
 const HEARTBEAT_MS = 25_000;
 const store = () => useSoftphoneStore.getState();
 
@@ -105,8 +151,10 @@ export async function enableSoftphone(): Promise<void> {
     );
     d.on("tokenWillExpire", () => void refreshToken());
     d.on("incoming", (call: Call) => void handleIncoming(call));
+    d.audio?.on("deviceChange", syncInputDevices);
 
     device = d;
+    syncInputDevices();
     await d.register();
 
     if (mySession !== sessionId) {
@@ -162,6 +210,7 @@ export async function disableSoftphone(): Promise<void> {
 function endCall() {
   currentCall = null;
   store().setCall("idle", null);
+  store().setMicWarning(null);
   // The server's "call you're on" is what every other tab reads; tell them to
   // recheck now rather than letting them offer to rejoin a call that's over.
   broadcast({ type: "call-changed" });
@@ -178,6 +227,14 @@ function wireCall(call: Call) {
   call.on("cancel", endCall);
   call.on("reject", endCall);
   call.on("error", endCall);
+  // The SDK's only word on a microphone that captures nothing: the far side
+  // hears silence, no error is raised, and the recording has one voice.
+  call.on("warning", (name: string) => {
+    if (name === "constant-audio-input-level") store().setMicWarning(MIC_SILENT);
+  });
+  call.on("warning-cleared", (name: string) => {
+    if (name === "constant-audio-input-level") store().setMicWarning(null);
+  });
 }
 
 async function screenPop(e164: string) {
@@ -211,6 +268,7 @@ export async function startCall(rawNumber: string): Promise<void> {
     // CallerId lets the outbound webhook pick which of our numbers to dial from;
     // omitted/blank → the backend uses the default number.
     const activeNumber = store().activeNumber ?? "";
+    await applyInputDevice();
     const call = await device.connect(
       withIce({ params: { To: e164, CallerId: activeNumber } }),
     );
@@ -246,6 +304,7 @@ export async function startBridgedCall(
   });
   store().setDialerOpen(true);
   try {
+    await applyInputDevice();
     const call = await device.connect(withIce({ params: { Bridge: bridgeId } }));
     wireCall(call);
   } catch (e) {
@@ -274,6 +333,7 @@ export async function monitorCall(
   });
   store().setDialerOpen(true);
   try {
+    await applyInputDevice();
     const call = await device.connect(
       withIce({ params: { Monitor: conferenceName, MonitorMode: mode } }),
     );
@@ -317,6 +377,7 @@ export async function takeCallHere(
     });
     store().setDialerOpen(true);
 
+    await applyInputDevice();
     const call = await device.connect(
       withIce({ params: { Monitor: grant.conferenceName, MonitorMode: "join" } }),
     );
@@ -355,7 +416,8 @@ export async function takeCallHere(
 
 }
 
-export function acceptIncoming() {
+export async function acceptIncoming(): Promise<void> {
+  await applyInputDevice();
   currentCall?.accept(iceServers?.length ? { rtcConfiguration: { iceServers } } : undefined);
 }
 
