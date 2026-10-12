@@ -191,6 +191,8 @@ export function DealDetailPage({
                   canEdit={canEdit}
                   variant="job"
                   showCost={can("financials", "view")}
+                  // Workiz's save-as-group icon after "Job Items" (products.create).
+                  canSaveGroup={can("products", "create")}
                   balance={balance}
                   due={jobDueDate(deal, invoice?.dueDate) || undefined}
                   // Workiz's "Pay" and payment schedule under the totals (payments.view).

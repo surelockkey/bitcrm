@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { BookOpen, Check, Loader2, Plus, ShieldCheck, Trash2 } from "lucide-react";
+import { BookOpen, Check, Layers, Loader2, Plus, ShieldCheck, Trash2 } from "lucide-react";
 import { calculateDocumentTotals } from "@bitcrm/types";
 import type { Deal, DealProduct, PaymentSummary } from "@bitcrm/types";
 import { Badge } from "@/components/ui/badge";
@@ -36,6 +36,8 @@ import { AddProductDialog } from "./add-product-dialog";
 import { ItemsArt } from "./job-empty-art";
 import { JobItemsTotals } from "./job-items-totals";
 import { wzPill } from "@/components/workiz";
+import { ItemGroupDialog } from "@/features/price-book/item-groups/item-group-dialog";
+import { draftLinesFromJobLines } from "@/features/price-book/item-groups/lib";
 
 function FulfillmentBadge({ product }: { product: DealProduct }) {
   const f = product.fulfillment ?? "sourced";
@@ -118,6 +120,7 @@ export function DealProductsTab({
   balance,
   due,
   payments,
+  canSaveGroup = false,
 }: {
   deal: Deal;
   canEdit: boolean;
@@ -141,6 +144,11 @@ export function DealProductsTab({
   balance?: number;
   /** Job variant: the invoice's due date, already formatted. */
   due?: string;
+  /**
+   * Job variant: Workiz's save-as-group icon after "Job Items" — the job's
+   * lines as a new item group (products.create). Off by default.
+   */
+  canSaveGroup?: boolean;
   /**
    * Job variant, for someone with payments.view: Workiz's money under the
    * totals — "Pay" beside an owed balance and the job's payment schedule
@@ -171,6 +179,7 @@ export function DealProductsTab({
   const exempt = deal.taxSource === "exempt";
   const { data: contact } = useContact(exempt ? deal.contactId : "");
   const [adding, setAdding] = useState(false);
+  const [savingGroup, setSavingGroup] = useState(false);
   // Clicking a row edits that line in the same dialog (change qty/price or
   // swap the item for another catalog product).
   const [editing, setEditing] = useState<DealProduct | null>(null);
@@ -257,10 +266,31 @@ export function DealProductsTab({
     return (
       <section aria-labelledby="job-items-heading" className="text-[#404040]">
         <div className="flex items-end justify-between border-b border-[#cad3d6] pt-1 pb-[14px]">
-          <h2 id="job-items-heading" className="text-[18px] leading-[22px] font-semibold">
-            Job Items
-          </h2>
+          <div className="flex items-end gap-[18px]">
+            <h2 id="job-items-heading" className="text-[18px] leading-[22px] font-semibold">
+              Job Items
+            </h2>
+            {canSaveGroup && items.length > 0 ? (
+              // Workiz's `saveGroupIcon` (wfi-Item-group, 1.7em): the job's lines become an item group.
+              <button
+                type="button"
+                aria-label="Save items as an item group"
+                title="Save items as an item group"
+                onClick={() => setSavingGroup(true)}
+                className="-mb-0.5 text-[#3b4b52] outline-none hover:opacity-70 focus-visible:ring-2 focus-visible:ring-[#3b4b52]/40"
+              >
+                <Layers className="size-6" strokeWidth={1.5} />
+              </button>
+            ) : null}
+          </div>
         </div>
+        {savingGroup ? (
+          <ItemGroupDialog
+            mode="new"
+            initialLines={draftLinesFromJobLines(items, { canSeeCost: showCost })}
+            onClose={() => setSavingGroup(false)}
+          />
+        ) : null}
 
         <div className="mt-[15px] overflow-x-auto">
           <table className="w-full min-w-[52rem] table-fixed border-separate border-spacing-0">

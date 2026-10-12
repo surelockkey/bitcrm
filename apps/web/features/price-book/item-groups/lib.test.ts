@@ -3,6 +3,7 @@ import { InventoryStatus, ProductType, type ItemGroup, type Product, type Produc
 import {
   changedGroupBody,
   draftLineFromProduct,
+  draftLinesFromJobLines,
   draftLinesFromGroup,
   draftTotal,
   filterItemGroups,
@@ -158,6 +159,46 @@ describe("the editor's lines", () => {
 
     expect(draftTotal([{ ...door, quantity: "3", price: "0.1" }])).toBe(0.3);
     expect(draftTotal(draftLinesFromGroup(group()))).toBe(707.9);
+  });
+});
+
+describe("draftLinesFromJobLines — Workiz's save-as-group icon on a job's items", () => {
+  const jobLine = {
+    lineId: "l1",
+    productId: "p-door",
+    name: "Rear Door",
+    sku: "WZ-10897",
+    quantity: 1,
+    priceClient: 1700,
+    costCompany: 1000,
+    costForTech: 900,
+    taxable: false,
+    description: "Steel",
+    customAttributes: { "In Store Location": "1-A" },
+    fulfillment: "to_order" as const,
+    addedBy: "u",
+    addedAt: "",
+  };
+
+  it("takes each line's item, name, quantity, price, taxable flag, description and values; the cost only for money", () => {
+    expect(draftLinesFromJobLines([jobLine], { canSeeCost: true })).toEqual([
+      expect.objectContaining({
+        productId: "p-door",
+        name: "Rear Door",
+        quantity: "1",
+        price: "1700",
+        cost: "1000",
+        taxable: false,
+        description: "Steel",
+        customAttributes: { "In Store Location": "1-A" },
+      }),
+    ]);
+    expect(draftLinesFromJobLines([jobLine], { canSeeCost: false })[0].cost).toBe("");
+  });
+
+  it("reads a line without a taxable flag as taxable, as the job does", () => {
+    const { taxable: _t, ...bare } = jobLine;
+    expect(draftLinesFromJobLines([bare], { canSeeCost: true })[0].taxable).toBe(true);
   });
 });
 

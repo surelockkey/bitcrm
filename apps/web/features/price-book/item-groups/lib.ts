@@ -1,4 +1,4 @@
-import type { ItemGroup, ItemGroupMember, ItemGroupType, Product, ProductCategory, ProductType } from "@bitcrm/types";
+import type { DealProduct, ItemGroup, ItemGroupMember, ItemGroupType, Product, ProductCategory, ProductType } from "@bitcrm/types";
 import type { EstimateItemBody } from "@/features/estimates/schemas";
 import { leafCategoryName, type CatalogStatus } from "../lib";
 import type { ItemGroupBody, ItemGroupMemberBody, ItemGroupUpdateBody } from "./api";
@@ -114,6 +114,31 @@ export function draftLinesFromGroup(group: ItemGroup): GroupDraftLine[] {
     taxable: m.taxable,
     description: m.description,
     customAttributes: m.customAttributes,
+  }));
+}
+
+/**
+ * A job's lines as a new group's (Workiz's save-as-group icon after "Job
+ * Items"): each line's item, name, quantity, price, taxable flag, description
+ * and custom field values; its company cost only for a caller who may see it.
+ */
+export function draftLinesFromJobLines(
+  lines: readonly Pick<
+    DealProduct,
+    "productId" | "name" | "quantity" | "priceClient" | "costCompany" | "taxable" | "description" | "customAttributes"
+  >[],
+  { canSeeCost }: { canSeeCost: boolean },
+): GroupDraftLine[] {
+  return lines.map((l) => ({
+    key: nextKey(),
+    productId: l.productId,
+    name: l.name,
+    quantity: text(l.quantity),
+    price: text(l.priceClient),
+    cost: canSeeCost ? text(l.costCompany) : "",
+    taxable: l.taxable !== false,
+    description: l.description ?? "",
+    customAttributes: l.customAttributes ?? {},
   }));
 }
 
