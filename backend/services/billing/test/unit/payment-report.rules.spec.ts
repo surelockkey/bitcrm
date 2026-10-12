@@ -344,8 +344,10 @@ describe('payment report — CSV (Workiz’s own columns)', () => {
     );
     expect(line).toBe(
       '6563K8,Job 6563K8,Credit charge,Paid,1064.44,31.20,1033.24,134.80,Tom Tech,"Doe, Jane",Card reader,' +
-        'XXXX4242,09/01/2026,9:30 PM,Kate,Transaction was approved,Lockout,Done,0099',
+        'XXXX4242,09/01/2026,9:30 PM EDT,Kate,Transaction was approved,Lockout,Done,0099',
     );
+    // 2026-10-12: the time says its zone — EST in winter (03:30 UTC on Jan 16 is 10:30 PM on the 15th).
+    expect(csvLine({ type: 'charge', amount: 5, tip: 0, at: '2026-01-16T03:30:00.000Z' }, TZ)).toContain(',01/15/2026,10:30 PM EST,');
     expect(csvLine({ type: 'refund', amount: -40, tip: 0, at: '2026-09-25T15:00:00.000Z' }, TZ)).toContain(
       ',Refund,Refunded,-40.00,',
     );

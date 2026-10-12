@@ -104,9 +104,12 @@ describe('Days Late and the Aging buckets (Workiz, verified live 2026-09-29)', (
     expect(sortAging(rows, 'dueDate', 'asc').map((r) => r.dueDate)).toEqual(['2019-07-16', '2026-09-20', '2026-10-01']);
   });
 
-  it('writes Workiz’s CSV row: raw dates, "Days By"', () => {
+  it('writes Workiz’s CSV row: raw dates, "Days By" — Created At with its zone, the bare Due Date without', () => {
     const r = { ...agingRow(inv({ dueDate: '2026-09-13', createdAt: '2026-07-15T22:42:42.000Z', balance: 12.5, total: 20 }), TODAY), clientName: 'Doe, Jane' };
-    expect(agingCsvLine(r)).toBe(`${r.number},,"Doe, Jane",20.00,12.50,2026-09-13 00:00:00,2026-07-15 18:42:42,16`);
+    expect(agingCsvLine(r)).toBe(`${r.number},,"Doe, Jane",20.00,12.50,2026-09-13 00:00:00,2026-07-15 18:42:42 EDT,16`);
+    // Winter: 03:30 UTC on Jan 16 is 22:30 EST on the 15th.
+    const w = agingRow(inv({ dueDate: '2026-09-13', createdAt: '2026-01-16T03:30:00.000Z', balance: 1, total: 1 }), TODAY);
+    expect(agingCsvLine(w)).toContain(',2026-01-15 22:30:00 EST,');
   });
 });
 
