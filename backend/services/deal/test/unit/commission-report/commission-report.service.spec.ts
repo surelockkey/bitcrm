@@ -103,7 +103,7 @@ function build(items: CommissionDealItem[] = [IMPORTED_ANN, IMPORTED_BOB, MULTI_
     companies as never,
     fields as never,
   );
-  return { service, repository, client };
+  return { service, repository, client, fields };
 }
 
 const office = createMockJwtUser({ id: 'office-1' });
@@ -178,6 +178,16 @@ describe('CommissionReportService.report', () => {
     expect(native).toMatchObject({ source: 'computed', credit: 400, parts: 20, fees: 20, techProfit: 144, techName: 'Cat Moe' });
     expect(r.computedRows).toBe(1);
     expect(r.warnings).toEqual([]);
+  });
+
+  it('reads the parts from the JOB field "Tech Parts cost", never a client field of that name', async () => {
+    const { service, fields } = build();
+    fields.listAll.mockResolvedValue([
+      createMockCustomField({ id: 'cf-client-parts', name: 'Tech Parts cost', entityType: 'client' } as never),
+      createMockCustomField({ id: 'cf-parts', name: 'Tech Parts cost' } as never),
+    ]);
+    const r = await service.report(sept, office, 'all');
+    expect(r.rows.find((x) => x.dealNumber === 'N1')).toMatchObject({ parts: 20, techProfit: 144 });
   });
 
   it('Totals cover the whole filtered set, the page only its slice', async () => {

@@ -139,4 +139,104 @@ describe('CustomFieldsService', () => {
       await expect(service.findById('missing')).rejects.toThrow(NotFoundException);
     });
   });
+
+  // Workiz's Settings → Custom Fields has a Client tab beside Job/Lead: the
+  // same catalog, filed against the client (answers on the contact).
+  describe('client fields', () => {
+    let internalHttp: { isCustomFieldUsedByContacts: jest.Mock };
+
+    beforeEach(() => {
+      internalHttp = { isCustomFieldUsedByContacts: jest.fn().mockResolvedValue(false) };
+      service = new CustomFieldsService(repo as any, sns as any, undefined, internalHttp as any);
+    });
+
+    it('a field is a job field unless it says otherwise', async () => {
+      const field = await service.create({ name: 'Gate Code', type: 'text' } as any, caller);
+      expect(field.entityType).toBe('job');
+    });
+
+    it('creates a client field, with no job types and nothing required', async () => {
+      const field = await service.create(
+        { name: 'Vendor Number 1', type: 'text', group: 'Work Order', searchable: true, entityType: 'client' } as any,
+        caller,
+      );
+
+      expect(field).toMatchObject({
+        entityType: 'client',
+        jobTypeIds: [],
+        required: false,
+        requiredToClose: false,
+        searchable: true,
+      });
+      expect(repo.create).toHaveBeenCalledWith(expect.objectContaining({ entityType: 'client' }));
+    });
+
+    it.each([
+      ['job types', { jobTypeIds: ['jt-1'] }],
+      ['required', { required: true }],
+      ['required to close', { requiredToClose: true }],
+    ])('refuses a client field with %s (400)', async (_label, extra) => {
+      await expect(
+        service.create({ name: 'Platinum', type: 'text', entityType: 'client', ...extra } as any, caller),
+      ).rejects.toThrow(BadRequestException);
+      expect(repo.create).not.toHaveBeenCalled();
+    });
+
+    it('a name only has to be unique on its own tab', async () => {
+      repo.listAll.mockResolvedValue([createMockCustomField({ name: 'Notes' })]);
+      await expect(
+        service.create({ name: 'Notes', type: 'text', entityType: 'client' } as any, caller),
+      ).resolves.toMatchObject({ entityType: 'client' });
+
+      repo.listAll.mockResolvedValue([createMockCustomField({ name: 'Notes', entityType: 'client' })]);
+      await expect(
+        service.create({ name: 'notes', type: 'text', entityType: 'client' } as any, caller),
+      ).rejects.toThrow(ConflictException);
+    });
+
+    it('refuses an edit that would give a client field job types or a required flag', async () => {
+      repo.get.mockResolvedValue(createMockCustomField({ id: 'cf-c', entityType: 'client' }));
+      await expect(service.update('cf-c', { jobTypeIds: ['jt-1'] } as any, caller)).rejects.toThrow(
+        BadRequestException,
+      );
+      await expect(service.update('cf-c', { requiredToClose: true } as any, caller)).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(repo.put).not.toHaveBeenCalled();
+    });
+
+    it('moves a client field (priority) like any other', async () => {
+      repo.get.mockResolvedValue(createMockCustomField({ id: 'cf-c', entityType: 'client', priority: 1 }));
+      const updated = await service.update('cf-c', { priority: 4 } as any, caller);
+      expect(updated).toMatchObject({ entityType: 'client', priority: 4 });
+    });
+
+    it('archives a client field a contact still answers — asked of crm, not of the deals', async () => {
+      repo.get.mockResolvedValue(createMockCustomField({ id: 'cf-c', entityType: 'client', active: true }));
+      internalHttp.isCustomFieldUsedByContacts.mockResolvedValue(true);
+
+      const result = await service.remove('cf-c', caller);
+
+      expect(result).toEqual({ archived: true });
+      expect(internalHttp.isCustomFieldUsedByContacts).toHaveBeenCalledWith('cf-c');
+      expect(repo.isReferencedByDeal).not.toHaveBeenCalled();
+      expect(repo.remove).not.toHaveBeenCalled();
+      expect(repo.put).toHaveBeenCalledWith(expect.objectContaining({ active: false }));
+    });
+
+    it('deletes a client field no contact answers', async () => {
+      repo.get.mockResolvedValue(createMockCustomField({ id: 'cf-c', entityType: 'client' }));
+
+      expect(await service.remove('cf-c', caller)).toEqual({ archived: false });
+      expect(repo.remove).toHaveBeenCalledWith('cf-c');
+    });
+
+    it('archives rather than deletes when crm cannot say', async () => {
+      repo.get.mockResolvedValue(createMockCustomField({ id: 'cf-c', entityType: 'client', active: true }));
+      internalHttp.isCustomFieldUsedByContacts.mockRejectedValue(new Error('crm down'));
+
+      expect(await service.remove('cf-c', caller)).toEqual({ archived: true });
+      expect(repo.remove).not.toHaveBeenCalled();
+    });
+  });
 });

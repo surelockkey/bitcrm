@@ -9,11 +9,14 @@ import {
 import { SnsPublisherService, BusinessMetricsService } from '@bitcrm/shared';
 import {
   type CustomFieldDefinition,
+  type CustomFieldEntityType,
   type CustomFieldType,
+  customFieldEntityType,
   isOptionCustomFieldType,
 } from '@bitcrm/types';
 import { randomUUID } from 'crypto';
 import { CustomFieldsRepository } from './custom-fields.repository';
+import { InternalHttpService } from '../common/services/internal-http.service';
 import { type CreateCustomFieldDto } from './dto/create-custom-field.dto';
 import { type UpdateCustomFieldDto } from './dto/update-custom-field.dto';
 
@@ -25,16 +28,27 @@ export class CustomFieldsService {
     private readonly repository: CustomFieldsRepository,
     @Optional() private readonly snsPublisher?: SnsPublisherService,
     @Optional() private readonly businessMetrics?: BusinessMetricsService,
+    // Where a client field's answers live (crm's contacts): asked before one is deleted.
+    @Optional() private readonly internalHttp?: InternalHttpService,
   ) {}
 
   /**
    * Names are the form-facing identity, so two fields called "Gate Code" would
    * be indistinguishable in every picker. Mirrors the job-type name check.
+   * Unique per tab (job / client): a job's "Notes" and a client's "Notes" are
+   * never in the same form.
    */
-  private async assertNameAvailable(name: string, excludeId?: string): Promise<void> {
+  private async assertNameAvailable(
+    name: string,
+    entityType: CustomFieldEntityType,
+    excludeId?: string,
+  ): Promise<void> {
     const existing = await this.repository.listAll();
     const clash = existing.find(
-      (f) => f.id !== excludeId && f.name.trim().toLowerCase() === name.trim().toLowerCase(),
+      (f) =>
+        f.id !== excludeId &&
+        customFieldEntityType(f) === entityType &&
+        f.name.trim().toLowerCase() === name.trim().toLowerCase(),
     );
     if (clash) {
       throw new ConflictException(`A custom field named "${clash.name}" already exists`);
@@ -59,9 +73,30 @@ export class CustomFieldsService {
     return [];
   }
 
+  /**
+   * A client field is answered on the client card, which has no job type and
+   * no "close": job types and the required flags are job-field rules (Workiz
+   * leaves them unset on its client fields). Refused rather than dropped, so
+   * a caller never believes it set one.
+   */
+  private assertClientFieldRules(
+    entityType: CustomFieldEntityType,
+    rules: { jobTypeIds?: string[]; required?: boolean; requiredToClose?: boolean },
+  ): void {
+    if (entityType !== 'client') return;
+    if (rules.jobTypeIds && rules.jobTypeIds.length > 0) {
+      throw new BadRequestException('A client field does not apply to job types');
+    }
+    if (rules.required || rules.requiredToClose) {
+      throw new BadRequestException('A client field cannot be required');
+    }
+  }
+
   async create(dto: CreateCustomFieldDto, caller: { id: string }): Promise<CustomFieldDefinition> {
     this.logger.log(`Creating custom field "${dto.name}"`);
-    await this.assertNameAvailable(dto.name);
+    const entityType = customFieldEntityType(dto);
+    this.assertClientFieldRules(entityType, dto);
+    await this.assertNameAvailable(dto.name, entityType);
     const options = this.resolveOptions(dto.type, dto.options);
 
     const now = new Date().toISOString();
@@ -69,6 +104,7 @@ export class CustomFieldsService {
       id: randomUUID(),
       name: dto.name,
       type: dto.type,
+      entityType,
       group: dto.group ?? '',
       options,
       jobTypeIds: dto.jobTypeIds ?? [],
@@ -84,7 +120,11 @@ export class CustomFieldsService {
 
     await this.repository.create(field);
     this.businessMetrics?.entityCreated?.inc({ entity_type: 'custom_field' });
-    this.publishEvent('custom-field.created', { customFieldId: field.id, name: field.name });
+    this.publishEvent('custom-field.created', {
+      customFieldId: field.id,
+      name: field.name,
+      entityType,
+    });
     return field;
   }
 
@@ -105,7 +145,9 @@ export class CustomFieldsService {
     const existing = await this.findById(id);
     this.logger.log(`Updating custom field ${id}`);
 
-    if (dto.name !== undefined) await this.assertNameAvailable(dto.name, id);
+    const entityType = customFieldEntityType(existing);
+    this.assertClientFieldRules(entityType, dto);
+    if (dto.name !== undefined) await this.assertNameAvailable(dto.name, entityType, id);
 
     const type = dto.type ?? existing.type;
     const options = this.resolveOptions(type, dto.options ?? existing.options);
@@ -140,7 +182,7 @@ export class CustomFieldsService {
   async remove(id: string, caller: { id: string }): Promise<{ archived: boolean }> {
     const existing = await this.findById(id);
 
-    if (await this.repository.isReferencedByDeal(id)) {
+    if (await this.isInUse(existing)) {
       if (existing.active) {
         await this.repository.put({
           ...existing,
@@ -156,6 +198,26 @@ export class CustomFieldsService {
     await this.repository.remove(id);
     this.publishEvent('custom-field.deleted', { customFieldId: id, deletedBy: caller.id });
     return { archived: false };
+  }
+
+  /**
+   * Whether anything still holds an answer for the field: a job field's live
+   * on the deals, a client field's on crm's contacts. When crm cannot say,
+   * the field counts as used — archiving is reversible, deleting is not.
+   */
+  private async isInUse(field: CustomFieldDefinition): Promise<boolean> {
+    if (customFieldEntityType(field) === 'job') {
+      return this.repository.isReferencedByDeal(field.id);
+    }
+    if (!this.internalHttp) return true;
+    try {
+      return await this.internalHttp.isCustomFieldUsedByContacts(field.id);
+    } catch (error) {
+      this.logger.warn(
+        `Could not ask crm whether client field ${field.id} is answered (${(error as Error).message}); archiving it`,
+      );
+      return true;
+    }
   }
 
   private publishEvent(eventType: string, payload: Record<string, unknown>): void {

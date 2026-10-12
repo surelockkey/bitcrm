@@ -177,6 +177,25 @@ describe('DealsService — custom fields', () => {
       expect(repo.create).not.toHaveBeenCalled();
     });
 
+    it('rejects a client custom field on a job — its answers live on the contact', async () => {
+      customFields.list.mockResolvedValue([
+        createMockCustomField({ id: 'cf-vendor', name: 'Vendor Number 1', type: 'text', entityType: 'client' }),
+      ]);
+
+      await expect(
+        service.create({ ...baseDto, customFields: { 'cf-vendor': '707748' } } as any, caller),
+      ).rejects.toThrow(/Unknown or inactive custom field cf-vendor/);
+      expect(repo.create).not.toHaveBeenCalled();
+    });
+
+    it('does not ask a job for a required client field', async () => {
+      customFields.list.mockResolvedValue([
+        createMockCustomField({ id: 'cf-client', type: 'text', required: true, entityType: 'client' }),
+      ]);
+
+      await expect(service.create({ ...baseDto, customFields: {} } as any, caller)).resolves.toBeDefined();
+    });
+
     it('accepts valid values and passes them to repository.create', async () => {
       customFields.list.mockResolvedValue([
         createMockCustomField({ id: 'cf-text', type: 'text' }),

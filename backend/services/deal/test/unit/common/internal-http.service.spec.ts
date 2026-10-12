@@ -74,6 +74,27 @@ describe('InternalHttpService', () => {
     });
   });
 
+  /** Whether a client custom field still has an answer on some contact — archive or delete. */
+  describe('isCustomFieldUsedByContacts', () => {
+    it('asks crm over its internal route', async () => {
+      crmGet.mockResolvedValue({ data: { success: true, data: { inUse: true } } });
+      expect(await service.isCustomFieldUsedByContacts('cf-1')).toBe(true);
+      expect(crmGet).toHaveBeenCalledWith('/api/crm/contacts/internal/custom-fields/cf-1/in-use');
+    });
+
+    it('answers false only when crm says so', async () => {
+      crmGet.mockResolvedValue({ data: { success: true, data: { inUse: false } } });
+      expect(await service.isCustomFieldUsedByContacts('cf-1')).toBe(false);
+    });
+
+    it('throws when crm cannot answer, so the caller never guesses "unused"', async () => {
+      crmGet.mockRejectedValue(new Error('down'));
+      await expect(service.isCustomFieldUsedByContacts('cf-1')).rejects.toThrow();
+      crmGet.mockResolvedValue({ data: { success: true, data: {} } });
+      await expect(service.isCustomFieldUsedByContacts('cf-1')).rejects.toThrow();
+    });
+  });
+
   /**
    * The client names side-loaded with a page of jobs. Names only — crm masks a
    * contact's numbers for a caller without `contacts.view_numbers` and

@@ -3,6 +3,7 @@ import { ContactSource } from '../enums/contact-source.enum';
 import { CrmStatus } from '../enums/crm-status.enum';
 import { Address } from './address.entity';
 import { PaymentTerms } from '../enums/payment-terms.enum';
+import { CustomFieldValue } from './custom-field.entity';
 
 export interface Contact {
   id: string;
@@ -34,6 +35,12 @@ export interface Contact {
   lastJobAt?: string;
   /** Client tags (the ClientTag catalog), as Workiz's chips on the client card. */
   tagIds?: string[];
+  /**
+   * Answers to the client custom fields (definitions with
+   * `entityType: 'client'`), keyed by definition id — the client card's
+   * "Custom fields" tab. Blank answers are not stored.
+   */
+  customFields?: Record<string, CustomFieldValue>;
   /**
    * Workiz's "Ad source" on the client: a JobSource catalog id (the same
    * catalog jobs use). `source` is the closed enum the form always had.

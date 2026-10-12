@@ -135,6 +135,20 @@ describe('DealsService — required-to-close gate', () => {
     );
   });
 
+  it('never asks a job to fill a client custom field before closing', async () => {
+    const deal = mockFindById(
+      createMockDeal({ superStatus: JobSuperStatus.IN_PROGRESS, jobTypeId: 'jobtype-1', customFields: {} }),
+    );
+    repo.update.mockResolvedValue({ ...deal, superStatus: JobSuperStatus.DONE });
+    customFields.list.mockResolvedValue([
+      createMockCustomField({ id: 'cf-client', name: 'Vendor Number 1', type: 'text', requiredToClose: true, entityType: 'client' }),
+    ]);
+
+    await service.moveStatus('deal-1', { superStatus: JobSuperStatus.DONE }, caller);
+
+    expect(repo.update).toHaveBeenCalledWith('deal-1', expect.objectContaining({ superStatus: JobSuperStatus.DONE }));
+  });
+
   it('does not block on a requiredToClose field scoped to a different job type', async () => {
     const deal = mockFindById(
       createMockDeal({ superStatus: JobSuperStatus.IN_PROGRESS, jobTypeId: 'jobtype-1', customFields: {} }),
