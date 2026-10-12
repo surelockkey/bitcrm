@@ -179,6 +179,29 @@ const INCLUDED_ID_CAP = 100;
 const TAX_KEYS = new Set(['taxSource', 'taxRateId', 'taxRateName', 'taxRatePercent']);
 /** Company fields: one FIELD_UPDATED entry (with names) instead of two raw diffs. */
 const COMPANY_KEYS = new Set(['businessProfileId', 'businessProfileName']);
+/**
+ * The visit: one save that moves any part of it is ONE `schedule` entry with
+ * the whole visit before and after (Workiz's single "Rescheduled job from … to
+ * …"), not one entry per field. The Workiz instants an imported job carries go
+ * with the visit and are never logged on their own.
+ */
+const VISIT_KEYS = new Set(['scheduledDate', 'scheduledEndDate', 'scheduledTimeSlot', 'allDay']);
+const VISIT_INSTANT_KEYS = new Set(['jobDateUtc', 'jobEndDateUtc']);
+
+/** The visit as a `schedule` entry writes it; `null` where a part is absent. */
+interface VisitSnapshot {
+  date: string | null;
+  endDate: string | null;
+  slot: string | null;
+  allDay: boolean | null;
+}
+
+const visitOf = (d: Partial<Record<'scheduledDate' | 'scheduledEndDate' | 'scheduledTimeSlot' | 'allDay', unknown>>): VisitSnapshot => ({
+  date: (d.scheduledDate as string | undefined) ?? null,
+  endDate: (d.scheduledEndDate as string | undefined) ?? null,
+  slot: (d.scheduledTimeSlot as string | undefined) ?? null,
+  allDay: (d.allDay as boolean | undefined) ?? null,
+});
 
 interface CompanyRef {
   id: string;
@@ -1305,6 +1328,8 @@ export class DealsService {
     // Track field changes in timeline: one entry per field that actually
     // changed, carrying both the previous and the new value. Diffed against the
     // final write payload so auto-derived fields (service area) are covered too.
+    // The visit is the exception: one `schedule` entry for the whole of it.
+    let visitMoved = false;
     for (const [key, value] of Object.entries(updates as Record<string, unknown>)) {
       if (value === undefined) continue;
       // Custom fields are diffed per-answer below, labeled by their human name.
@@ -1313,14 +1338,32 @@ export class DealsService {
       if (TAX_KEYS.has(key)) continue;
       // The company gets one labeled entry below.
       if (COMPANY_KEYS.has(key)) continue;
+      if (VISIT_INSTANT_KEYS.has(key)) continue;
       const previous = (existing as unknown as Record<string, unknown>)[key];
       // Clearing what was already empty is no change (the REMOVE is harmless).
       if (value === null && (previous === undefined || previous === null)) continue;
       if (this.valuesEqual(previous, value)) continue;
+      if (VISIT_KEYS.has(key)) {
+        visitMoved = true;
+        continue;
+      }
       await this.addTimelineEntry(id, TimelineEventType.FIELD_UPDATED, caller, {
         field: key,
         oldValue: previous ?? null,
         newValue: value,
+      });
+    }
+
+    if (visitMoved) {
+      const after: Record<string, unknown> = {};
+      for (const key of VISIT_KEYS) {
+        const next = (updates as Record<string, unknown>)[key];
+        after[key] = next === undefined ? (existing as unknown as Record<string, unknown>)[key] : next;
+      }
+      await this.addTimelineEntry(id, TimelineEventType.FIELD_UPDATED, caller, {
+        field: 'schedule',
+        oldValue: visitOf(existing),
+        newValue: visitOf(after),
       });
     }
 
@@ -1786,17 +1829,46 @@ export class DealsService {
       await this.renumberTechSchedule(t, deal.scheduledDate);
     }
 
+    const names = await this.technicianNames([...toAdd, ...toRemove]);
     for (const t of toAdd) {
-      await this.addTimelineEntry(id, TimelineEventType.TECH_ASSIGNED, caller, { techId: t });
+      await this.addTimelineEntry(id, TimelineEventType.TECH_ASSIGNED, caller, {
+        techId: t,
+        ...(names.get(t) && { techName: names.get(t) }),
+      });
       this.publishEvent('deal.tech_assigned', { dealId: id, techId: t, assignedBy: caller.id });
     }
     for (const t of toRemove) {
-      await this.addTimelineEntry(id, TimelineEventType.TECH_UNASSIGNED, caller, { previousTechId: t });
+      await this.addTimelineEntry(id, TimelineEventType.TECH_UNASSIGNED, caller, {
+        previousTechId: t,
+        ...(names.get(t) && { techName: names.get(t) }),
+      });
       this.publishEvent('deal.tech_unassigned', { dealId: id, techId: t, unassignedBy: caller.id });
     }
 
     await this.cache.invalidate(id);
     return this.findById(id);
+  }
+
+  /**
+   * The technicians as Workiz names them on its Timeline ("Tech Assigned - (2)
+   * TX - Daniel Munoz"): the Workiz name the import kept, else first + last —
+   * read off the eligibility projection, written with the event so the
+   * Activity report can say it without a lookup. Names that cannot be read
+   * leave the event unnamed; they never stop the assignment.
+   */
+  private async technicianNames(ids: string[]): Promise<Map<string, string>> {
+    const names = new Map<string, string>();
+    if (!ids.length) return names;
+    try {
+      for (const row of await this.eligibility.getMany(ids)) {
+        const own = `${row.firstName ?? ''} ${row.lastName ?? ''}`.trim();
+        const name = row.workizName?.trim() || own;
+        if (name) names.set(row.technicianId, name);
+      }
+    } catch (error) {
+      this.logger.warn(`Timeline: technician names unavailable: ${(error as Error).message}`);
+    }
+    return names;
   }
 
   /** Remove a single technician from a deal's roster. */
@@ -1819,8 +1891,10 @@ export class DealsService {
     // Close the gap the removed job left in the technician's sequence.
     await this.renumberTechSchedule(techId, deal.scheduledDate);
 
+    const name = (await this.technicianNames([techId])).get(techId);
     await this.addTimelineEntry(id, TimelineEventType.TECH_UNASSIGNED, caller, {
       previousTechId: techId,
+      ...(name && { techName: name }),
     });
     this.publishEvent('deal.tech_unassigned', { dealId: id, techId, unassignedBy: caller.id });
 

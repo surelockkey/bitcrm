@@ -78,6 +78,10 @@ const WORKIZ_STATUS: Record<string, string> = {
 
 const CHANNEL_LABEL: Record<string, string> = { sms: 'SMS', email: 'Email', in_app: 'In App' };
 
+/** "SMS & Email" — Workiz joins the channels of one send with " & ". */
+const channelsText = (channels: unknown[]): string =>
+  channels.map((c) => CHANNEL_LABEL[String(c)] ?? humanize(c)).join(' & ');
+
 /** How a payment's method reads after "Added payment 349.89 in …" (Workiz: Cash, Check, Credit charge). */
 const PAYMENT_METHOD: Record<string, string> = {
   card: 'Credit charge',
@@ -117,6 +121,33 @@ const plain = (v: unknown): string => {
 const ids = (v: unknown): string[] => (Array.isArray(v) ? v.map(String) : []);
 
 const SCHEDULE_FIELDS = new Set(['scheduledDate', 'scheduledEndDate', 'scheduledTimeSlot', 'allDay']);
+
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** "18:00" → "6:00 pm". */
+function clock(hhmm: string): string | null {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(hhmm.trim());
+  if (!m) return null;
+  const h = Number(m[1]) % 24;
+  return `${h % 12 === 0 ? 12 : h % 12}:${m[2]} ${h < 12 ? 'am' : 'pm'}`;
+}
+
+/**
+ * A visit as Workiz's log writes it: "Thu Oct 08 2026 6:00 pm - 7:00 pm" (the
+ * day alone when it is all-day or has no slot), "Unscheduled" without a day.
+ * The web's `workizScheduleText` says the same.
+ */
+export function workizVisitText(v: unknown): string {
+  const visit = (v && typeof v === 'object' ? v : {}) as { date?: unknown; slot?: unknown; allDay?: unknown };
+  const m = typeof visit.date === 'string' ? /^(\d{4})-(\d{2})-(\d{2})/.exec(visit.date) : null;
+  if (!m) return 'Unscheduled';
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const day = `${WEEKDAYS[new Date(Date.UTC(y, mo - 1, d)).getUTCDay()]} ${MONTHS[mo - 1]} ${m[3]} ${y}`;
+  if (visit.allDay === true || typeof visit.slot !== 'string' || !visit.slot) return day;
+  const [from, to] = visit.slot.split('-').map((t) => clock(t));
+  return from && to ? `${day} ${from} - ${to}` : day;
+}
 
 /** "Status Updated - Canceled - Cant Do - tech said cant do"; no sub-status → "Status Updated - Done - ". */
 function statusText(d: Item): string {
@@ -166,7 +197,11 @@ export function nativeActivityText(eventType: string, details: Item = {}, note?:
       return d.toStage ? `Stage Updated - ${humanize(d.toStage)}` : 'Stage Updated';
     case TimelineEventType.FIELD_UPDATED: {
       const field = typeof d.field === 'string' ? d.field : '';
+      // One save's reschedule, written as one entry with the whole visit before and after.
+      if (field === 'schedule') return `Rescheduled job from ${workizVisitText(d.oldValue)} to ${workizVisitText(d.newValue)}`;
+      // Rows written before that: one per field of the visit, the visit itself unknown.
       if (SCHEDULE_FIELDS.has(field)) return 'Rescheduled job';
+      if (field === 'jobName') return 'Job name changed';
       if (field === 'tagIds') return tagsText(d);
       if (field === 'paymentStatus') return `Payment status updated - ${humanize(d.newValue)}`;
       if (field === 'assignedTechIds') return 'Team updated';
@@ -174,10 +209,11 @@ export function nativeActivityText(eventType: string, details: Item = {}, note?:
     }
     case TimelineEventType.NOTE_ADDED:
       return note ? `Added note: ${note}` : 'Added note';
+    // The technician as named when the event was written (`techName`, Workiz's whole name).
     case TimelineEventType.TECH_ASSIGNED:
-      return 'Tech Assigned';
+      return text(d.techName) ? `Tech Assigned - ${text(d.techName)}` : 'Tech Assigned';
     case TimelineEventType.TECH_UNASSIGNED:
-      return 'Tech Unassigned';
+      return text(d.techName) ? `Tech Unassigned - ${text(d.techName)}` : 'Tech Unassigned';
     case TimelineEventType.PRODUCT_ADDED:
       return itemText('Added', d);
     case TimelineEventType.PRODUCT_UPDATED: {
@@ -206,8 +242,8 @@ export function nativeActivityText(eventType: string, details: Item = {}, note?:
     case TimelineEventType.ATTACHMENT_REMOVED:
       return 'Deleted Attachment';
     case TimelineEventType.SENT_TO_TECH: {
-      const channels = Array.isArray(d.channels) ? d.channels.map((c) => CHANNEL_LABEL[String(c)] ?? humanize(c)) : [];
-      return channels.length ? `Sent to tech by ${channels.join(', ')}` : 'Sent to tech';
+      const channels = Array.isArray(d.channels) ? d.channels : [];
+      return channels.length ? `Sent to tech by ${channelsText(channels)}` : 'Sent to tech';
     }
     case TimelineEventType.SEEN_BY_TECH:
       return 'Viewed job in app';
@@ -233,6 +269,19 @@ export function nativeActivityText(eventType: string, details: Item = {}, note?:
     }
     case TimelineEventType.ESTIMATE_SENT:
       return 'Estimate Sent';
+    // What the client did on the portal (or signed on the tech's phone) — Workiz says "Client …".
+    case TimelineEventType.INVOICE_VIEWED:
+      return 'Client viewed invoice';
+    case TimelineEventType.ESTIMATE_VIEWED:
+      return 'Client viewed estimate';
+    case TimelineEventType.INVOICE_SIGNED:
+      return 'Client signed invoice';
+    case TimelineEventType.ESTIMATE_APPROVED:
+      return 'Client signed estimate';
+    case TimelineEventType.ESTIMATE_DECLINED:
+      return 'Client declined estimate';
+    case TimelineEventType.PROPOSAL_SENT:
+      return 'Proposal Sent';
     case TimelineEventType.ESTIMATE_SYNCED:
       return 'Estimate synced to job';
     case TimelineEventType.ESTIMATE_DELETED:
