@@ -4,6 +4,11 @@ export interface VoiceToken {
   token: string;
   identity: string;
   expiresAt: number;
+  /**
+   * Twilio STUN/TURN servers for every call's audio. Absent when the API could
+   * not get them, or predates them — calls then go out as they always did.
+   */
+  iceServers?: RTCIceServer[];
 }
 
 /** Mint a Twilio Voice access token for the browser device. */
