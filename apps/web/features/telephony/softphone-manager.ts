@@ -28,6 +28,20 @@ let starting = false;
  */
 let sessionId = 0;
 let onVisible: (() => void) | null = null;
+/**
+ * Twilio's STUN/TURN servers, from the latest voice token. Every call this
+ * browser places or answers gets them: without TURN, a browser that can't
+ * reach Twilio's media servers straight over UDP (a WebRTC-limiting extension,
+ * a VPN, a strict network) gathers no candidates and the call connects in
+ * silence both ways, while the SDK's ICE restarts flood the signaling socket
+ * until Twilio rate-limits it (31206) and drops it (31009).
+ */
+let iceServers: RTCIceServer[] | undefined;
+
+/** Adds the TURN servers to a connect/accept options object, when there are any. */
+function withIce<T extends object>(options: T): T & { rtcConfiguration?: RTCConfiguration } {
+  return iceServers?.length ? { ...options, rtcConfiguration: { iceServers } } : options;
+}
 
 const HEARTBEAT_MS = 25_000;
 const store = () => useSoftphoneStore.getState();
@@ -39,8 +53,9 @@ function pingPresence() {
 
 async function refreshToken() {
   try {
-    const { token } = await fetchVoiceToken();
-    device?.updateToken(token);
+    const fresh = await fetchVoiceToken();
+    iceServers = fresh.iceServers;
+    device?.updateToken(fresh.token);
   } catch {
     /* the next tokenWillExpire / re-register will retry */
   }
@@ -76,7 +91,9 @@ export async function enableSoftphone(): Promise<void> {
   store().setStatus("connecting");
 
   try {
-    const { token } = await fetchVoiceToken();
+    const voice = await fetchVoiceToken();
+    iceServers = voice.iceServers;
+    const { token } = voice;
     const { Device } = await import("@twilio/voice-sdk");
     if (mySession !== sessionId) return; // superseded while loading
 
@@ -194,9 +211,9 @@ export async function startCall(rawNumber: string): Promise<void> {
     // CallerId lets the outbound webhook pick which of our numbers to dial from;
     // omitted/blank → the backend uses the default number.
     const activeNumber = store().activeNumber ?? "";
-    const call = await device.connect({
-      params: { To: e164, CallerId: activeNumber },
-    });
+    const call = await device.connect(
+      withIce({ params: { To: e164, CallerId: activeNumber } }),
+    );
     wireCall(call);
   } catch (e) {
     const message = e instanceof Error ? e.message : "Call failed";
@@ -229,7 +246,7 @@ export async function startBridgedCall(
   });
   store().setDialerOpen(true);
   try {
-    const call = await device.connect({ params: { Bridge: bridgeId } });
+    const call = await device.connect(withIce({ params: { Bridge: bridgeId } }));
     wireCall(call);
   } catch (e) {
     const message = e instanceof Error ? e.message : "Call failed";
@@ -257,9 +274,9 @@ export async function monitorCall(
   });
   store().setDialerOpen(true);
   try {
-    const call = await device.connect({
-      params: { Monitor: conferenceName, MonitorMode: mode },
-    });
+    const call = await device.connect(
+      withIce({ params: { Monitor: conferenceName, MonitorMode: mode } }),
+    );
     wireCall(call);
   } catch (e) {
     const message = e instanceof Error ? e.message : "Could not join the call";
@@ -300,9 +317,9 @@ export async function takeCallHere(
     });
     store().setDialerOpen(true);
 
-    const call = await device.connect({
-      params: { Monitor: grant.conferenceName, MonitorMode: "join" },
-    });
+    const call = await device.connect(
+      withIce({ params: { Monitor: grant.conferenceName, MonitorMode: "join" } }),
+    );
     wireCall(call);
     // `connect()` resolving only means Twilio created a leg — the TwiML on the
     // other end may still refuse it. Wait for media before claiming the call
@@ -339,7 +356,7 @@ export async function takeCallHere(
 }
 
 export function acceptIncoming() {
-  currentCall?.accept();
+  currentCall?.accept(iceServers?.length ? { rtcConfiguration: { iceServers } } : undefined);
 }
 
 export function rejectIncoming() {
