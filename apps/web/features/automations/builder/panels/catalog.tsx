@@ -65,6 +65,13 @@ export const TRIGGER_EVENTS: Record<TriggerEntity, TriggerEvent[]> = {
       kind: "schedule.relative",
       hint: "a set time ahead of or after the job's date",
     },
+    // B12: the client tapped Confirm on the page their {{confirm_link}} opens.
+    {
+      id: "client-confirmed",
+      name: "is confirmed by the client",
+      kind: "deal.client_confirmed",
+      hint: "the client tapped Confirm in the reminder's confirm link",
+    },
   ],
   call: [
     { id: "missed", name: "is missed", kind: "call.completed", callOutcome: "missed" },
