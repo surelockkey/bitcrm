@@ -253,6 +253,24 @@ describe('search-mappers', () => {
       );
     });
 
+    // Workiz's Clients search finds a client by a searchable client custom
+    // field ("707748" → the client whose Vendor Number 1 it is).
+    it('indexes the answers of the SEARCHABLE client custom fields only', () => {
+      const doc = mapContact(
+        {
+          ...contact,
+          customFields: { 'cf-vendor': '707748', 'cf-drive': 'https://docs.google.com/x', 'cf-multi': ['DBA', 'SLK'] },
+        } as Contact,
+        [
+          { id: 'cf-vendor', searchable: true },
+          { id: 'cf-drive', searchable: false },
+          { id: 'cf-multi', searchable: true },
+        ],
+      );
+      expect(doc.keywords).toEqual(expect.arrayContaining(['707748', 'DBA SLK']));
+      expect(doc.keywords).not.toContain('https://docs.google.com/x');
+    });
+
     it('copes with a contact that has no addresses at all', () => {
       const doc = mapContact({ ...contact, addresses: undefined } as unknown as Contact);
       expect(doc.keywords).toContain('john@acme.com');

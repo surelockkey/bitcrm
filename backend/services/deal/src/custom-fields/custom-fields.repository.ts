@@ -7,7 +7,7 @@ import {
   ScanCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { DynamoDbService } from '@bitcrm/shared';
-import { type CustomFieldDefinition } from '@bitcrm/types';
+import { type CustomFieldDefinition, customFieldEntityType } from '@bitcrm/types';
 import { DEALS_TABLE, DEALS_GSI1_NAME } from '../common/constants/dynamo.constants';
 import { isReferencedByDeal, mapKeyExists } from '../common/utils/is-referenced';
 import {
@@ -17,7 +17,8 @@ import {
 } from './custom-fields.constants';
 
 /**
- * Custom-field catalog rows in the single BitCRM_Deals table:
+ * Custom-field catalog rows in the single BitCRM_Deals table — job AND client
+ * fields (`entityType`, absent = job), one partition:
  *   PK = CUSTOM_FIELD#<id>, SK = METADATA
  *   GSI1PK = CATALOG#CUSTOM_FIELD, GSI1SK = <priority>#<name>  (list index)
  *
@@ -106,6 +107,8 @@ export class CustomFieldsRepository {
       id: item.id as string,
       name: item.name as string,
       type: item.type as CustomFieldDefinition['type'],
+      // Rows written before client fields existed are job fields.
+      entityType: customFieldEntityType(item as { entityType?: string }),
       group: (item.group as string) ?? '',
       options: (item.options as string[]) ?? [],
       jobTypeIds: (item.jobTypeIds as string[]) ?? [],

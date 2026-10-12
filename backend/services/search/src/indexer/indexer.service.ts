@@ -60,8 +60,9 @@ export class SearchIndexerService {
         : undefined;
     const tagNames =
       type === 'deal' ? await this.resolveTagNames(entity?.tagIds) : [];
+    // Searchable custom fields: a deal's job fields, a contact's client fields.
     const customFieldDefs =
-      type === 'deal' ? await this.catalogNames.customFieldDefs() : [];
+      type === 'deal' || type === 'contact' ? await this.catalogNames.customFieldDefs() : [];
     const client =
       type === 'deal' ? await this.resolveDealClient(entity) : undefined;
     const externalCompanyName =

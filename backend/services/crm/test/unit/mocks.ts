@@ -46,6 +46,7 @@ export function createMockContactsRepository() {
     findAll: jest.fn(),
     update: jest.fn(),
     updatePhoneIndex: jest.fn(),
+    isCustomFieldAnswered: jest.fn().mockResolvedValue(false),
   };
 }
 

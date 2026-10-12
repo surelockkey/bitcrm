@@ -7,6 +7,7 @@ import { CompaniesRepository } from '../companies/companies.repository';
 import { ContactNotesController } from './notes/contact-notes.controller';
 import { ContactNotesService } from './notes/contact-notes.service';
 import { ContactNotesRepository } from './notes/contact-notes.repository';
+import { ClientCustomFieldsCatalog } from './client-custom-fields.catalog';
 
 @Module({
   // Notes controller before Contacts so nothing under `/contacts/:id/notes`
@@ -23,6 +24,8 @@ import { ContactNotesRepository } from './notes/contact-notes.repository';
     CompaniesRepository,
     ContactNotesService,
     ContactNotesRepository,
+    // The client custom fields (deal-service's catalog) answers are checked against.
+    ClientCustomFieldsCatalog,
   ],
   exports: [ContactsService],
 })

@@ -8,6 +8,7 @@ import {
   type CommissionReportMode,
   type CommissionReportRow,
   type JwtUser,
+  customFieldEntityType,
 } from '@bitcrm/types';
 import { JobTypesRepository } from '../job-types/job-types.repository';
 import { JobSourcesRepository } from '../job-sources/job-sources.repository';
@@ -268,7 +269,9 @@ export class CommissionReportService {
     if (!ledgers) warnings.push(`Payments could not be read for ${computed.length} job(s) done in BitCRM — their Cash, Credit and Check show 0.`);
     if (!configs) warnings.push(`Technician rates could not be read for ${computed.length} job(s) done in BitCRM — their Tech Profit shows the tip only.`);
 
-    const fieldId = (name: string) => fields.find((f) => f.name?.trim().toLowerCase() === name)?.id;
+    // A job's own field: a client field may carry the same name on its own tab.
+    const fieldId = (name: string) =>
+      fields.find((f) => customFieldEntityType(f) === 'job' && f.name?.trim().toLowerCase() === name)?.id;
     const ctx = {
       techNames,
       jobTypeNames: jobTypes,

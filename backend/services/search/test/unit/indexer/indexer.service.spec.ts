@@ -68,6 +68,29 @@ describe('SearchIndexerService', () => {
     updatedAt: '2026-01-02T00:00:00Z',
   };
 
+  it("folds a contact's searchable client custom fields into its document", async () => {
+    const client = makeClient();
+    const catalogNames = stubCatalogNames();
+    catalogNames.customFieldDefs.mockResolvedValue([{ id: 'cf-vendor', searchable: true }]);
+    const svc = new SearchIndexerService({ client } as any, catalogNames as any, stubFetcher() as any);
+
+    await svc.indexEntity('contact', {
+      id: 'c9',
+      firstName: 'Grata',
+      lastName: 'Smart Living',
+      phones: [],
+      emails: [],
+      customFields: { 'cf-vendor': '707748' },
+      status: 'active',
+      createdBy: 'u1',
+      createdAt: '2026-01-01T00:00:00Z',
+      updatedAt: '2026-01-02T00:00:00Z',
+    });
+
+    expect(catalogNames.customFieldDefs).toHaveBeenCalled();
+    expect(client.index.mock.calls[0][0].body.keywords).toContain('707748');
+  });
+
   it('enriches a deal with its contact and company so client data is searchable', async () => {
     const client = makeClient();
     const fetcher = stubFetcher({

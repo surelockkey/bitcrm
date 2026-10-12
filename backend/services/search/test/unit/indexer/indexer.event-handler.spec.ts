@@ -116,4 +116,19 @@ describe('IndexerEventHandler', () => {
     expect(catalogNames.invalidateCustomFields).toHaveBeenCalled();
     expect(backfill.run).toHaveBeenCalledWith(['deal']);
   });
+
+  it("a client field's change rebuilds the contact docs, not the deals", async () => {
+    const { handler, backfill } = makeDeps();
+    await handler.onCustomFieldsChanged({ customFieldId: 'cf-1', entityType: 'client' });
+    expect(backfill.run).toHaveBeenCalledWith(['contact']);
+  });
+
+  // Dragging a row in Settings → Custom Fields writes the priority of every
+  // moved row: none of that changes what is searchable, so no rebuild.
+  it('rebuilds nothing when the change cannot alter what is searchable', async () => {
+    const { handler, catalogNames, backfill } = makeDeps();
+    await handler.onCustomFieldsChanged({ customFieldId: 'cf-1', entityType: 'job', searchableChanged: false });
+    expect(catalogNames.invalidateCustomFields).toHaveBeenCalled();
+    expect(backfill.run).not.toHaveBeenCalled();
+  });
 });

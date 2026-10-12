@@ -69,6 +69,18 @@ describe('CustomFieldsRepository', () => {
     });
   });
 
+  it('reads a client field as one, and a row without an entityType as a job field', async () => {
+    dynamoDb.client.send.mockResolvedValueOnce({
+      Item: { ...createMockCustomField({ id: 'cf-c' }), entityType: 'client' },
+    });
+    expect((await repository.get('cf-c'))?.entityType).toBe('client');
+
+    const legacy: Record<string, unknown> = { ...createMockCustomField({ id: 'cf-j' }) };
+    delete legacy.entityType;
+    dynamoDb.client.send.mockResolvedValueOnce({ Item: legacy });
+    expect((await repository.get('cf-j'))?.entityType).toBe('job');
+  });
+
   it('defaults options and jobTypeIds to empty arrays when absent', async () => {
     dynamoDb.client.send.mockResolvedValue({
       Item: { id: 'cf-4', name: 'Notes', type: 'text', priority: 0 },

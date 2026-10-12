@@ -30,7 +30,9 @@ export class CustomFieldsController {
   @RequirePermission('custom_fields', 'view')
   @ApiOperation({
     summary: 'List all custom fields',
-    description: '**Guard:** `custom_fields.view`. Includes archived fields; filter on `active` for forms.',
+    description:
+      '**Guard:** `custom_fields.view`. Job AND client fields (`entityType`), archived ones included; ' +
+      'filter on `active` for forms.',
   })
   async list() {
     const data = await this.service.list();
@@ -41,7 +43,9 @@ export class CustomFieldsController {
   @Internal()
   @ApiOperation({
     summary: 'Internal: list custom fields for the search indexer',
-    description: '**Guard:** internal secret (`x-internal-secret`).',
+    description:
+      '**Guard:** internal secret (`x-internal-secret`). Read by search (searchable answers), ' +
+      'crm (validates a contact\'s client-field answers), billing and messaging.',
   })
   async listInternal() {
     const fields = await this.service.list();
@@ -51,6 +55,8 @@ export class CustomFieldsController {
         id: f.id,
         name: f.name,
         type: f.type,
+        // Job or client field: crm validates a contact's answers against the client ones.
+        entityType: f.entityType,
         searchable: f.searchable,
         options: f.options,
         jobTypeIds: f.jobTypeIds,
@@ -90,7 +96,8 @@ export class CustomFieldsController {
   @ApiOperation({
     summary: 'Delete or archive a custom field',
     description:
-      '**Guard:** `custom_fields.delete`. Fields still referenced by a deal are archived ' +
+      '**Guard:** `custom_fields.delete`. Fields still answered — a job field on a deal, a client ' +
+      'field on a contact (asked of crm; archived when crm cannot say) — are archived ' +
       '(`active: false`) instead of deleted, so historical deals keep resolving their answers. ' +
       'The response says which happened.',
   })

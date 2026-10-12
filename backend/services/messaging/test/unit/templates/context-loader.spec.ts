@@ -44,6 +44,8 @@ const routes: Record<string, Route> = {
       { id: 'cf1', name: 'Manager Note', type: 'text', active: true },
       { id: 'cf2', name: 'Choose Company ', type: 'multi_select', active: true },
       { id: 'cf3', name: 'Archived', type: 'text', active: false },
+      // A client custom field: answered on the contact, never a job's short code.
+      { id: 'cf4', name: 'Vendor Number 1', type: 'text', active: true, entityType: 'client' },
     ],
   },
   '/api/crm/contacts/internal/ct1': {
@@ -146,7 +148,7 @@ describe('ContextLoader', () => {
     expect(calls.filter((c) => c.path === '/api/deals/internal/d1')).toHaveLength(2);
   });
 
-  it('lists active custom fields for the short-code picker', async () => {
+  it('lists active JOB custom fields for the short-code picker', async () => {
     const { loader } = makeLoader();
     expect((await loader.listCustomFields()).map((f) => f.name)).toEqual(['Manager Note', 'Choose Company ']);
   });

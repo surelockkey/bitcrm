@@ -34,6 +34,13 @@ export {
   OPTION_CUSTOM_FIELD_TYPES,
   isOptionCustomFieldType,
 } from './enums/custom-field-type.enum';
+export {
+  CUSTOM_FIELD_ENTITY_TYPES,
+  CustomFieldEntityType,
+  customFieldEntityType,
+  isCustomFieldValueEmpty,
+  isCustomFieldValueValid,
+} from './enums/custom-field-entity.enum';
 
 // Entities
 export { User, UserType, USER_TYPES, isSubcontractor } from './entities/user.entity';

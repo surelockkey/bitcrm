@@ -108,6 +108,30 @@ export class InternalHttpService {
     }
   }
 
+  /**
+   * Whether any contact still holds an answer for this client custom field —
+   * what decides archive-vs-delete of a client field (its answers live on the
+   * contacts, in crm's table). Throws when crm cannot say, so the caller
+   * archives rather than guesses "unused" and orphans the answers.
+   */
+  async isCustomFieldUsedByContacts(fieldId: string): Promise<boolean> {
+    const operation = 'isCustomFieldUsedByContacts';
+    const timer = this.businessMetrics?.internalHttpDuration.startTimer({ target_service: 'crm', operation });
+    try {
+      const response = await this.crmClient.get(
+        `/api/crm/contacts/internal/custom-fields/${encodeURIComponent(fieldId)}/in-use`,
+      );
+      timer?.();
+      const inUse = response.data?.data?.inUse;
+      if (typeof inUse !== 'boolean') throw new Error('crm gave no answer');
+      return inUse;
+    } catch (error: any) {
+      timer?.();
+      this.businessMetrics?.internalHttpErrors.inc({ target_service: 'crm', operation });
+      throw this.toHttpError(error, `CRM ${operation}`);
+    }
+  }
+
   /** Full contact (tax exemption, names, addresses). Null when it doesn't exist. */
   async getContact(contactId: string): Promise<Contact | null> {
     return this.getCrmEntity<Contact>(`/api/crm/contacts/internal/${contactId}`, 'getContact');

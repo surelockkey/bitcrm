@@ -36,6 +36,7 @@ import {
   type CustomFieldDefinition,
   type CustomFieldValue,
   type CustomFieldType,
+  customFieldEntityType,
   type DealSentToTechEvent,
   DealEventType,
   type JobsByStatusSeries,
@@ -395,9 +396,10 @@ export class DealsService {
     jobTypeId: string,
     { forCreate }: { forCreate: boolean },
   ): Promise<Map<string, CustomFieldDefinition>> {
+    // Job fields only: a client field's answers belong on the contact.
     const defs = new Map(
       (await this.customFields.list())
-        .filter((d) => d.active)
+        .filter((d) => d.active && customFieldEntityType(d) === 'job')
         .map((d) => [d.id, d] as const),
     );
 
@@ -457,6 +459,7 @@ export class DealsService {
       .filter(
         (def) =>
           def.active &&
+          customFieldEntityType(def) === 'job' &&
           def.requiredToClose &&
           applies(def) &&
           this.isEmptyCustomFieldValue(deal.customFields?.[def.id]),

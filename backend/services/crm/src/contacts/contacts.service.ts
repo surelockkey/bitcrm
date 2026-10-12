@@ -3,6 +3,7 @@ import {
   Logger,
   NotFoundException,
   ConflictException,
+  BadGatewayException,
   BadRequestException,
   Optional,
 } from '@nestjs/common';
@@ -18,8 +19,11 @@ import {
   ContactSource,
   ContactType,
   CrmStatus,
+  isCustomFieldValueEmpty,
+  isCustomFieldValueValid,
   type Address,
   type Contact,
+  type CustomFieldValue,
   type JwtUser,
   type ListCount,
 } from '@bitcrm/types';
@@ -28,6 +32,7 @@ import { ContactsRepository } from './contacts.repository';
 import { CompaniesRepository } from '../companies/companies.repository';
 import { ContactsCacheService } from './contacts-cache.service';
 import { ContactNotesRepository } from './notes/contact-notes.repository';
+import { ClientCustomFieldsCatalog } from './client-custom-fields.catalog';
 import { type CreateContactDto } from './dto/create-contact.dto';
 import { type UpdateContactDto } from './dto/update-contact.dto';
 import { type FindOrCreateContactDto } from './dto/find-or-create-contact.dto';
@@ -87,7 +92,59 @@ export class ContactsService {
     @Optional() private readonly redis?: RedisService,
     // The client notes of a merged duplicate follow it to the survivor.
     @Optional() private readonly contactNotes?: ContactNotesRepository,
+    // The client custom fields a contact's answers are checked against (deal-service's catalog).
+    @Optional() private readonly clientFields?: ClientCustomFieldsCatalog,
   ) {}
+
+  /**
+   * A contact's client custom-field answers after `patch`: each key must name
+   * an active CLIENT field and its value match the field's type (the deal's
+   * rule for a job's answers); a blank or null answer clears its field.
+   * Merged onto `stored`, so a card that sends one answer keeps the others —
+   * and keeps keys this check never saw (an import's `workiz:f21`). The
+   * catalog is asked afresh before a key is called unknown: a field made in
+   * Settings a moment ago is not in the minute-old copy yet.
+   */
+  private async resolveCustomFields(
+    patch: unknown,
+    stored?: Record<string, CustomFieldValue>,
+  ): Promise<Record<string, CustomFieldValue>> {
+    if (!patch || typeof patch !== 'object' || Array.isArray(patch)) {
+      throw new BadRequestException('customFields must be an object keyed by custom field id');
+    }
+    const entries = Object.entries(patch as Record<string, unknown>);
+    const merged: Record<string, CustomFieldValue> = { ...(stored ?? {}) };
+    if (!entries.length) return merged;
+    if (!this.clientFields) {
+      throw new BadGatewayException('Client custom fields could not be read — try again');
+    }
+
+    const active = (list: Awaited<ReturnType<ClientCustomFieldsCatalog['list']>>) =>
+      new Map(list.filter((d) => d.active).map((d) => [d.id, d] as const));
+    let byId = active(await this.clientFields.list());
+    if (entries.some(([id]) => !byId.has(id))) {
+      byId = active(await this.clientFields.list({ fresh: true }));
+    }
+
+    for (const [id, value] of entries) {
+      const def = byId.get(id);
+      if (!def) throw new BadRequestException(`Unknown or inactive client custom field ${id}`);
+      if (isCustomFieldValueEmpty(value)) {
+        delete merged[id];
+        continue;
+      }
+      if (!isCustomFieldValueValid(def.type, value, def.options ?? [])) {
+        throw new BadRequestException(`Custom field "${def.name}" has an invalid value for type "${def.type}"`);
+      }
+      merged[id] = value as CustomFieldValue;
+    }
+    return merged;
+  }
+
+  /** Whether any contact still holds an answer for this client custom field (deal-service asks before a delete). */
+  async isCustomFieldAnswered(fieldId: string): Promise<boolean> {
+    return this.repository.isCustomFieldAnswered(fieldId);
+  }
 
   /**
    * Shape-check the billing tax-exemption fields. CRM registers no global
@@ -124,6 +181,10 @@ export class ContactsService {
 
   async create(dto: CreateContactDto, caller: JwtUser): Promise<Contact> {
     const taxExemption = this.normalizeTaxExemption(dto);
+    const customFields =
+      dto.customFields === undefined || dto.customFields === null
+        ? undefined
+        : await this.resolveCustomFields(dto.customFields);
     const addresses = (dto.addresses || []).map((a) => withCountryCode(a));
     const billingAddress = withCountryCode(dto.billingAddress);
 
@@ -159,6 +220,7 @@ export class ContactsService {
       addresses,
       ...(billingAddress && { billingAddress }),
       ...(dto.tagIds && { tagIds: dto.tagIds }),
+      ...(customFields && Object.keys(customFields).length > 0 && { customFields }),
       ...(dto.sourceId && { sourceId: dto.sourceId }),
       ...(dto.paymentTerms && { paymentTerms: dto.paymentTerms }),
       ...(dto.customTermsDays !== undefined && { customTermsDays: dto.customTermsDays }),
@@ -262,6 +324,17 @@ export class ContactsService {
   async update(id: string, dto: UpdateContactDto): Promise<Contact> {
     const existing = await this.findById(id);
     const taxExemption = this.normalizeTaxExemption(dto);
+    // Checked (and merged onto the stored answers) before anything is written.
+    // The answers are read from the table, not the cache: a cached copy can
+    // predate answers written elsewhere (an import patch), and the merged map
+    // replaces the stored one whole.
+    const customFields =
+      dto.customFields === undefined
+        ? undefined
+        : await this.resolveCustomFields(
+            dto.customFields ?? {},
+            (await this.repository.findById(id))?.customFields ?? existing.customFields,
+          );
     // Checked before anything is written (the phone index below writes).
     const addresses = dto.addresses?.map((a) => withCountryCode(a));
     const billingAddress = withCountryCode(dto.billingAddress);
@@ -287,7 +360,10 @@ export class ContactsService {
       await this.repository.updatePhoneIndex(id, existing.phones, normalizedPhones);
     }
 
-    const updateData: Partial<Contact> & UpdateContactDto = { ...dto, ...taxExemption };
+    // The answers go in merged (below), never as sent.
+    const { customFields: _sentAnswers, ...fields } = dto;
+    const updateData: Partial<Contact> & Omit<UpdateContactDto, 'customFields'> = { ...fields, ...taxExemption };
+    if (customFields) updateData.customFields = customFields;
     if (addresses) updateData.addresses = addresses;
     if (billingAddress) updateData.billingAddress = billingAddress;
     if (normalizedPhones) {
@@ -378,11 +454,21 @@ export class ContactsService {
       }
     }
 
+    // The primary's answer to a client custom field wins; a duplicate only
+    // answers the fields the primary left blank.
+    const customFields: Record<string, CustomFieldValue> = { ...primary.customFields };
+    for (const dup of duplicates) {
+      for (const [fieldId, value] of Object.entries(dup.customFields ?? {})) {
+        if (isCustomFieldValueEmpty(customFields[fieldId])) customFields[fieldId] = value;
+      }
+    }
+
     const updateAttrs: Partial<Contact> = {
       phones,
       phoneExtensions: normalizePhoneExtensions(phoneExtensions, phones),
       emails,
       addresses,
+      ...(Object.keys(customFields).length > 0 && { customFields }),
     };
     if (notes) updateAttrs.notes = notes;
     if (companyId !== undefined) updateAttrs.companyId = companyId;

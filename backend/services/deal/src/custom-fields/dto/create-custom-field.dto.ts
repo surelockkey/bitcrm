@@ -3,7 +3,12 @@ import {
 } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { CUSTOM_FIELD_TYPES, type CustomFieldType } from '@bitcrm/types';
+import {
+  CUSTOM_FIELD_ENTITY_TYPES,
+  CUSTOM_FIELD_TYPES,
+  type CustomFieldEntityType,
+  type CustomFieldType,
+} from '@bitcrm/types';
 
 export class CreateCustomFieldDto {
   @ApiProperty({ example: 'Gate Code' })
@@ -15,6 +20,18 @@ export class CreateCustomFieldDto {
   @ApiProperty({ example: 'text', enum: CUSTOM_FIELD_TYPES })
   @IsIn(CUSTOM_FIELD_TYPES)
   type!: CustomFieldType;
+
+  @ApiPropertyOptional({
+    example: 'job',
+    enum: CUSTOM_FIELD_ENTITY_TYPES,
+    description:
+      'Job field (answers on the deal) or client field (answers on the contact) — Workiz\'s ' +
+      'Job/Lead · Client tabs. Defaults to `job`; fixed at creation. A client field takes no ' +
+      '`jobTypeIds` and is never `required` / `requiredToClose` (400).',
+  })
+  @IsOptional()
+  @IsIn(CUSTOM_FIELD_ENTITY_TYPES)
+  entityType?: CustomFieldEntityType;
 
   @ApiPropertyOptional({ example: 'Access', description: 'Free-text heading; defaults to "".' })
   @IsOptional()

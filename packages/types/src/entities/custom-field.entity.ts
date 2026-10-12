@@ -1,9 +1,12 @@
 import { type CustomFieldType } from '../enums/custom-field-type.enum';
+import { type CustomFieldEntityType } from '../enums/custom-field-entity.enum';
 
 /**
- * A user-defined field attached to deals, managed as a catalog in Settings.
- * Definitions are grouped under free-text headings and scoped to job types;
- * a deal stores its answers in `Deal.customFields`, keyed by definition id.
+ * A user-defined field attached to deals or clients, managed as a catalog in
+ * Settings. Definitions are grouped under free-text headings; a job field is
+ * scoped to job types and a deal stores its answers in `Deal.customFields`, a
+ * client field's answers sit in `Contact.customFields` — both keyed by
+ * definition id.
  *
  * Mirrors the JobType / DealSubStatus catalog shape (priority/active plus
  * audit fields) so it shares the same repository and settings-UI conventions.
@@ -13,6 +16,13 @@ export interface CustomFieldDefinition {
   name: string;
   /** Input kind; drives both validation and the rendered control. */
   type: CustomFieldType;
+  /**
+   * Job or client field (Workiz's Job/Lead · Client tabs). Absent on rows
+   * written before client fields existed — those are job fields; read it
+   * through `customFieldEntityType()`. Set at creation, never changed. A
+   * client field has no job types and is never required (to save or close).
+   */
+  entityType?: CustomFieldEntityType;
   /** Free-text heading this field is filed under in the form/settings UI. */
   group: string;
   /** Predefined choices for `dropdown` / `multi_select`; unused otherwise. */

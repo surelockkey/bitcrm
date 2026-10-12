@@ -28,6 +28,8 @@ interface CatalogRow {
 }
 export interface CustomFieldRow extends CatalogRow {
   type?: string;
+  /** `client` = a client custom field (answered on the contact); absent = a job field. */
+  entityType?: string;
 }
 
 /**
@@ -117,10 +119,14 @@ export class ContextLoader {
     };
   }
 
-  /** Definitions for the short-code picker: active custom fields, by name. */
+  /**
+   * Definitions for the short-code picker: active JOB custom fields, by name —
+   * a code resolves from the job's answers, and a client field's answers are
+   * on the contact.
+   */
   async listCustomFields(): Promise<CustomFieldRow[]> {
     const rows = (await this.catalog('custom-fields')) as CustomFieldRow[];
-    return rows.filter((r) => r.active !== false);
+    return rows.filter((r) => r.active !== false && r.entityType !== 'client');
   }
 
   /** The sender when they are on the roster, else the first assigned tech; without a job, the sender. */

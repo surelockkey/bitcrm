@@ -24,6 +24,13 @@ export {
   OPTION_CUSTOM_FIELD_TYPES,
   isOptionCustomFieldType,
 } from './custom-field-type.enum';
+export {
+  CUSTOM_FIELD_ENTITY_TYPES,
+  CustomFieldEntityType,
+  customFieldEntityType,
+  isCustomFieldValueEmpty,
+  isCustomFieldValueValid,
+} from './custom-field-entity.enum';
 export { ReturnReason } from './return-reason.enum';
 export { InventoryLogAction } from './inventory-log-action.enum';
 export { UserContainerAccess } from './user-container-access.enum';
