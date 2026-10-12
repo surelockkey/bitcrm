@@ -159,6 +159,24 @@ describe('CognitoAdminService', () => {
       });
     });
 
+    it('names the user the app made the account for', async () => {
+      mockSend.mockResolvedValue({
+        UserStatus: 'FORCE_CHANGE_PASSWORD',
+        Enabled: true,
+        UserAttributes: [
+          { Name: 'sub', Value: 'sub-1' },
+          { Name: 'email', Value: 'user@test.com' },
+          { Name: 'custom:user_id', Value: 'u-1' },
+        ],
+      });
+      await expect(service.getUser('user@test.com')).resolves.toEqual({
+        status: 'FORCE_CHANGE_PASSWORD',
+        enabled: true,
+        sub: 'sub-1',
+        userId: 'u-1',
+      });
+    });
+
     it('answers null when there is no such account', async () => {
       mockSend.mockRejectedValue(
         Object.assign(new Error('User does not exist.'), { name: 'UserNotFoundException' }),
