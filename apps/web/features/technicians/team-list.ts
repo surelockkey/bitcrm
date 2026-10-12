@@ -9,7 +9,7 @@ import type {
 import { isFieldTeamMember } from "@bitcrm/types";
 import type { WzFilterGroup, WzFilterPick } from "@/components/workiz/filter-select";
 import { personName } from "@/features/deals/person-name";
-import { DEFAULT_TZ } from "@/lib/timezone";
+import { DEFAULT_TZ, withZone } from "@/lib/timezone";
 
 /**
  * The technicians list as Workiz's Team page reads it (`/root/team`,
@@ -111,9 +111,10 @@ export function teamRows(
 const CREATED = new Map<string, Intl.DateTimeFormat>();
 
 /**
- * Workiz's Created cell: "Fri Nov 04, 2022 07:16 am" — the weekday, a
+ * Workiz's Created cell: "Fri Nov 04, 2022 07:16 am EDT" — the weekday, a
  * two-digit day, a 12-hour clock with a lower-case am/pm — in the business's
- * zone, as Workiz prints it in the account's.
+ * zone, as Workiz prints it in the account's, and (2026-10-12 owner rule:
+ * an unlabelled "09:34 am" was read on the wrong clock) the zone's name.
  */
 export function formatTeamCreated(iso: string | undefined, tz: string = DEFAULT_TZ): string {
   if (!iso) return "";
@@ -135,7 +136,11 @@ export function formatTeamCreated(iso: string | undefined, tz: string = DEFAULT_
   }
   const part = (type: Intl.DateTimeFormatPartTypes) => fmt.formatToParts(d).find((p) => p.type === type)?.value ?? "";
   const hour = part("hour").padStart(2, "0");
-  return `${part("weekday")} ${part("month")} ${part("day")}, ${part("year")} ${hour}:${part("minute")} ${part("dayPeriod").toLowerCase()}`;
+  return withZone(
+    `${part("weekday")} ${part("month")} ${part("day")}, ${part("year")} ${hour}:${part("minute")} ${part("dayPeriod").toLowerCase()}`,
+    d,
+    tz,
+  );
 }
 
 /** The status column of the filter: ours, with Workiz's "All". */

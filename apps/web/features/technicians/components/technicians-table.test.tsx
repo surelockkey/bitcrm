@@ -69,7 +69,7 @@ describe("TechniciansTable — Workiz's Team grid", () => {
     expect(cells[2]).toHaveTextContent("tech");
     expect(cells[3]).toHaveTextContent("yes");
     expect(cells[4]).toHaveTextContent("User");
-    expect(cells[5]).toHaveTextContent("Fri Nov 04, 2022 07:16 am");
+    expect(cells[5]).toHaveTextContent("Fri Nov 04, 2022 07:16 am EDT");
     expect(cells[6]).toHaveTextContent("(A-1) Door Glass Job ,Rekey lock");
     expect(cells[7]).toHaveTextContent("SURE LOCK CT ,SURE LOCK NY");
   });
