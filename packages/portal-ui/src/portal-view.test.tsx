@@ -50,11 +50,12 @@ const view: PortalViewData = {
     },
   ],
   jobs: [
-    { id: "j1", number: "J1", kind: "upcoming", scheduledDate: "2026-10-05T14:00:00.000Z", scheduledEndDate: "2026-10-05T16:00:00.000Z", timezone: "America/New_York", jobType: "Lock change", address: "1 Main St, Hartford, CT 06103", technicians: ["Mike Smith"] },
-    { id: "j2", number: "J2", kind: "completed", scheduledDate: "2026-09-01T14:00:00.000Z", jobType: "Rekey", technicians: [] },
+    { id: "j1", number: "J1", kind: "upcoming", scheduledDate: "2026-10-05", scheduledTimeSlot: "10:00-12:00", timezone: "America/Chicago", jobType: "Lock change", address: "1 Main St, Hartford, CT 06103", technicians: ["Mike Smith"] },
+    { id: "j2", number: "J2", kind: "completed", scheduledDate: "2026-09-01", allDay: true, timezone: "America/New_York", jobType: "Rekey", technicians: [] },
   ],
   payments: [
-    { id: "p1", amount: 50.46, method: "card", status: "settled", takenAt: "2026-09-29T13:52:00.000Z", invoiceId: "d1", cardBrand: "visa", last4: "4061" },
+    // 23:30 on Sep 28 in Chicago — already the 29th in New York and UTC.
+    { id: "p1", amount: 50.46, method: "card", status: "settled", takenAt: "2026-09-29T04:30:00.000Z", invoiceId: "d1", cardBrand: "visa", last4: "4061", timezone: "America/Chicago" },
   ],
   preview: false,
 };
@@ -167,9 +168,12 @@ describe("PortalView — the Workiz layout", () => {
     expect(within(upcoming).getByText("Lock change")).toBeInTheDocument();
     expect(within(upcoming).getByText(/1 Main St, Hartford/)).toBeInTheDocument();
     expect(within(upcoming).getByText("Mike Smith")).toBeInTheDocument();
-    expect(within(upcoming).getByText(/Oct 5/)).toBeInTheDocument();
+    // The stored day and window on the job's clock, with its zone (owner, 2026-10-12).
+    expect(within(upcoming).getByText("Mon, Oct 5 · 10:00 AM – 12:00 PM CDT")).toBeInTheDocument();
     expect(within(upcoming).getByRole("link", { name: /add to calendar/i })).toHaveAttribute("href", expect.stringContaining("data:text/calendar"));
-    expect(within(screen.getByRole("region", { name: "Completed" })).getByText("Rekey")).toBeInTheDocument();
+    const completed = screen.getByRole("region", { name: "Completed" });
+    expect(within(completed).getByText("Rekey")).toBeInTheDocument();
+    expect(within(completed).getByText("Tue, Sep 1")).toBeInTheDocument();
   });
 
   it("the avatar opens the profile: contact details and the payment history, without card numbers", async () => {
@@ -180,6 +184,7 @@ describe("PortalView — the Workiz layout", () => {
     const history = screen.getByRole("region", { name: "Payment history" });
     expect(within(history).getByText("$50.46")).toBeInTheDocument();
     expect(within(history).getByText(/visa ···· 4061/)).toBeInTheDocument();
+    expect(within(history).getByText(/^Sep 28, 2026/)).toBeInTheDocument(); // the payment's day on its job's clock
     expect(within(history).getByText("Paid")).toBeInTheDocument();
     await user().click(screen.getByRole("button", { name: /^back$/i }));
     expect(screen.getByRole("tab", { name: "Inbox" })).toBeInTheDocument();

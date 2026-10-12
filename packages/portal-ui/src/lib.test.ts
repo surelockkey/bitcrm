@@ -8,7 +8,11 @@ import {
   mergeInboxPage,
   businessAddressLine,
   businessInitials,
+  calendarDataUrl,
+  formatJobWhen,
   formatMoney,
+  formatSentAt,
+  formatVisitTimes,
   formatYmd,
   isInvalidPortalError,
   outstanding,
@@ -135,5 +139,109 @@ describe("the paged inbox", () => {
     expect(inboxSelectedCount(["invoices", "estimates", "paid", "unpaid"])).toBe(5);
     expect(inboxSelectedCount(["invoices", "unpaid"])).toBe(2);
     expect(inboxSelectedCount([])).toBe(0);
+  });
+});
+
+/**
+ * Owner, 2026-10-12: outside the office app a time is told on the JOB's clock
+ * (its zone, else New York) and a clock time says which zone it is in; a day
+ * is a day — never shifted through the phone's zone.
+ */
+describe("the job's clock", () => {
+  describe("formatVisitTimes", () => {
+    it("names the zone once, after the end, for that day", () => {
+      expect(formatVisitTimes({ scheduledDate: "2026-07-14", scheduledTimeSlot: "10:00-12:00", timezone: "America/Chicago" })).toBe(
+        "10:00 AM – 12:00 PM CDT",
+      );
+      expect(formatVisitTimes({ scheduledDate: "2026-12-14", scheduledTimeSlot: "10:00-12:00", timezone: "America/Chicago" })).toBe(
+        "10:00 AM – 12:00 PM CST",
+      );
+      expect(formatVisitTimes({ scheduledDate: "2026-07-14", scheduledTimeSlot: "09:00-09:00", timezone: "America/Phoenix" })).toBe("9:00 AM MST");
+    });
+
+    it("labels both ends when the clock changes between them, and reads Connecticut without a zone", () => {
+      expect(
+        formatVisitTimes({ scheduledDate: "2026-10-31", scheduledEndDate: "2026-11-02", scheduledTimeSlot: "09:00-17:00", timezone: "America/Chicago" }),
+      ).toBe("9:00 AM CDT – 5:00 PM CST");
+      expect(formatVisitTimes({ scheduledDate: "2026-10-14", scheduledTimeSlot: "09:00-11:00" })).toBe("9:00 AM – 11:00 AM EDT");
+    });
+
+    it("has nothing to say for an all-day visit or a slot it cannot read", () => {
+      expect(formatVisitTimes({ scheduledDate: "2026-10-14", allDay: true, scheduledTimeSlot: "09:00-11:00" })).toBeNull();
+      expect(formatVisitTimes({ scheduledDate: "2026-10-14", scheduledTimeSlot: "soon" })).toBeNull();
+      expect(formatVisitTimes({ scheduledDate: "2026-10-14" })).toBeNull();
+    });
+  });
+
+  describe("formatJobWhen (My Booking)", () => {
+    it("prints the stored day and window, with the zone — a Texas visit", () => {
+      expect(formatJobWhen({ scheduledDate: "2026-07-14", scheduledTimeSlot: "10:00-12:00", timezone: "America/Chicago" })).toBe(
+        "Tue, Jul 14 · 10:00 AM – 12:00 PM CDT",
+      );
+      expect(formatJobWhen({ scheduledDate: "2026-12-14", scheduledTimeSlot: "10:00-12:00", timezone: "America/Chicago" })).toBe(
+        "Mon, Dec 14 · 10:00 AM – 12:00 PM CST",
+      );
+    });
+
+    it("never moves the day: a date-only value is that day on any phone", () => {
+      expect(formatJobWhen({ scheduledDate: "2026-10-12", scheduledTimeSlot: "08:00-09:00", timezone: "America/Los_Angeles" })).toBe(
+        "Mon, Oct 12 · 8:00 AM – 9:00 AM PDT",
+      );
+    });
+
+    it("an all-day visit or one without a time is the date alone; a visit over days spans them", () => {
+      expect(formatJobWhen({ scheduledDate: "2026-10-12", allDay: true, timezone: "America/Chicago" })).toBe("Mon, Oct 12");
+      expect(formatJobWhen({ scheduledDate: "2026-10-12" })).toBe("Mon, Oct 12");
+      expect(
+        formatJobWhen({ scheduledDate: "2026-10-31", scheduledEndDate: "2026-11-02", scheduledTimeSlot: "09:00-17:00", timezone: "America/Chicago" }),
+      ).toBe("Sat, Oct 31 – Mon, Nov 2 · 9:00 AM CDT – 5:00 PM CST");
+    });
+
+    it("says the date is still to be set", () => {
+      expect(formatJobWhen({})).toBe("Date to be confirmed");
+      expect(formatJobWhen({ scheduledDate: "soon" })).toBe("Date to be confirmed");
+    });
+  });
+
+  describe("calendarDataUrl (Add to calendar)", () => {
+    const lines = (url: string | null) => decodeURIComponent((url ?? "").replace(/^data:text\/calendar;charset=utf-8,/, "")).split("\r\n");
+
+    it("a timed visit is two UTC instants read on the job's clock", () => {
+      const ics = lines(calendarDataUrl({ number: "J1", scheduledDate: "2026-07-14", scheduledTimeSlot: "10:00-12:00", timezone: "America/Chicago" }, "Acme"));
+      expect(ics).toContain("DTSTART:20260714T150000Z");
+      expect(ics).toContain("DTEND:20260714T170000Z");
+    });
+
+    it("New York without a zone; an hour when the slot has no end", () => {
+      const ics = lines(calendarDataUrl({ number: "J1", scheduledDate: "2026-12-14", scheduledTimeSlot: "10:00" }, "Acme"));
+      expect(ics).toContain("DTSTART:20261214T150000Z");
+      expect(ics).toContain("DTEND:20261214T160000Z");
+    });
+
+    it("an all-day visit, or one with no time, is a date event (end exclusive)", () => {
+      const allDay = lines(calendarDataUrl({ number: "J1", scheduledDate: "2026-10-12", allDay: true, timezone: "America/Chicago" }, "Acme"));
+      expect(allDay).toContain("DTSTART;VALUE=DATE:20261012");
+      expect(allDay).toContain("DTEND;VALUE=DATE:20261013");
+      const span = lines(calendarDataUrl({ number: "J1", scheduledDate: "2026-10-12", scheduledEndDate: "2026-10-14" }, "Acme"));
+      expect(span).toContain("DTSTART;VALUE=DATE:20261012");
+      expect(span).toContain("DTEND;VALUE=DATE:20261015");
+    });
+
+    it("has nothing to add without a date", () => {
+      expect(calendarDataUrl({ number: "J1" }, "Acme")).toBeNull();
+    });
+  });
+
+  describe("formatSentAt", () => {
+    it("is the day on the job's clock, not the phone's", () => {
+      expect(formatSentAt("2026-09-23T04:30:00.000Z", "America/Chicago")).toBe("Sep 22, 2026");
+      expect(formatSentAt("2026-09-23T03:30:00.000Z", "America/New_York")).toBe("Sep 22, 2026");
+    });
+
+    it("reads New York when the zone is unknown or unreadable", () => {
+      expect(formatSentAt("2026-09-23T03:30:00.000Z")).toBe("Sep 22, 2026");
+      expect(formatSentAt("2026-09-23T03:30:00.000Z", "Mars/Olympus")).toBe("Sep 22, 2026");
+      expect(formatSentAt(undefined)).toBe("—");
+    });
   });
 });

@@ -36,7 +36,7 @@ describe("ConfirmApp — the client confirms their appointment (B12)", () => {
     expect(screen.getByText("Sure Lock & Key")).toBeInTheDocument();
     expect(screen.getByRole("img", { name: "Sure Lock & Key" })).toHaveAttribute("src", "https://cdn.example.com/logo.png");
     expect(screen.getByText("Wednesday, October 14, 2026")).toBeInTheDocument();
-    expect(screen.getByText("9:00 AM – 11:00 AM")).toBeInTheDocument();
+    expect(screen.getByText("9:00 AM – 11:00 AM EDT")).toBeInTheDocument();
     expect(screen.getByText("12 Main St, Apt 3, Stamford, CT 06901")).toBeInTheDocument();
     expect(screen.getByText("Lockout")).toBeInTheDocument();
     expect(screen.getByText("Job #K4T9ZW")).toBeInTheDocument();
@@ -69,7 +69,7 @@ describe("ConfirmApp — the client confirms their appointment (B12)", () => {
     vi.stubGlobal("fetch", vi.fn(async () => ok(view({ state: "confirmed", confirmedAt: "2026-10-12T19:05:00.000Z" }))));
     render(<ConfirmApp token="tok" />);
     expect(await screen.findByText("Your appointment is confirmed.")).toBeInTheDocument();
-    expect(screen.getByText(/Confirmed Oct 12, 3:05 PM/)).toBeInTheDocument();
+    expect(screen.getByText("Confirmed Oct 12, 3:05 PM EDT")).toBeInTheDocument();
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 
