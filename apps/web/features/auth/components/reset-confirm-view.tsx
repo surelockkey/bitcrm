@@ -62,6 +62,14 @@ export function ResetConfirmView() {
       footer={hasSession ? undefined : <BackToSignIn />}
     >
       <ResetConfirmForm email={email} onDone={() => setDone(true)} />
+      {hasSession ? null : (
+        // Cognito will not reset a password that was never set — the server
+        // re-sends the invitation instead, so no code is coming.
+        <p className="mt-4 text-center text-sm text-muted-foreground">
+          Never signed in yet? No code is coming — we&apos;ve emailed your
+          invitation again. Sign in with the temporary password in it.
+        </p>
+      )}
     </AuthShell>
   );
 }

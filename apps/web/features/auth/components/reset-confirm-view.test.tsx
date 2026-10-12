@@ -64,3 +64,20 @@ describe("ResetConfirmView success state", () => {
     );
   });
 });
+
+// Cognito will not reset a password that was never set: someone still on the
+// invitation's temporary password gets the invitation again, not a code.
+describe("ResetConfirmView for someone who never signed in", () => {
+  it("says the invitation was re-sent instead of a code", () => {
+    render(<ResetConfirmView />, { wrapper });
+    expect(screen.getByText(/never signed in/i)).toHaveTextContent(
+      /invitation.*temporary password/i,
+    );
+  });
+
+  it("does not say it to a signed-in user resetting from Profile", () => {
+    useAuthStore.setState({ session: SESSION });
+    render(<ResetConfirmView />, { wrapper });
+    expect(screen.queryByText(/never signed in/i)).not.toBeInTheDocument();
+  });
+});
