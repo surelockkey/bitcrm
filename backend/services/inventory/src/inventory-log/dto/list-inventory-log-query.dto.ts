@@ -15,7 +15,8 @@ export class ListInventoryLogQueryDto {
   @ApiPropertyOptional({
     example: '2026-09-01T00:00:00.000Z',
     description:
-      'Window start, inclusive. Defaults to the first day of the UTC month of `to`. ' +
+      'Window start, inclusive; a date alone starts at that Connecticut (America/New_York) midnight. ' +
+      'Defaults to the first day of the Connecticut month of `to`. ' +
       'At most 24 months before `to` (400 otherwise).',
   })
   @IsOptional()
@@ -25,7 +26,7 @@ export class ListInventoryLogQueryDto {
   @ApiPropertyOptional({
     example: '2026-09-29T12:00:00.000Z',
     description:
-      'Window end, inclusive. A date alone (`2026-09-10`) means the whole of that UTC day. Defaults to now.',
+      'Window end, inclusive. A date alone (`2026-09-10`) means the whole of that Connecticut day. Defaults to now.',
   })
   @IsOptional()
   @IsISO8601()
