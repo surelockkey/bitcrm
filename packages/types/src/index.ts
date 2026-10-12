@@ -806,3 +806,14 @@ export type {
   JobStatisticsTable,
   JobStatisticsTotals,
 } from './reports/job-statistics';
+// The client confirms the visit (Workiz {{confirm_link}} / "Client Confirmed job")
+export type { ClientConfirmVia } from './entities/deal.entity';
+export { clientConfirmScheduleKey, isClientConfirmationCurrent } from './entities/client-confirm.entity';
+export type {
+  ClientConfirmJob,
+  ClientConfirmRequest,
+  ClientConfirmState,
+  ClientConfirmView,
+  ClientConfirmVisit,
+} from './entities/client-confirm.entity';
+export type { DealClientConfirmedEvent } from './events/deal-events';

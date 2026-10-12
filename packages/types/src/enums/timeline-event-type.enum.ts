@@ -59,4 +59,6 @@ export enum TimelineEventType {
   PAYMENT_REFUNDED = 'payment_refunded',
   /** A settled payment was pulled back — ACH return or a lost dispute. */
   PAYMENT_REVERSED = 'payment_reversed',
+  /** The client confirmed the visit through `{{confirm_link}}` (Workiz "Client Confirmed job"). */
+  CLIENT_CONFIRMED = 'client_confirmed',
 }

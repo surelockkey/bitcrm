@@ -29,6 +29,8 @@ export const AUTOMATION_TRIGGER_KINDS = [
   'message.received',
   /** A point in time relative to a job date (`anchor` ± `offsetMinutes`), armed by job events. */
   'schedule.relative',
+  /** The client confirmed the visit through `{{confirm_link}}` (once per confirmed visit). */
+  'deal.client_confirmed',
 ] as const;
 export type AutomationTriggerKind = (typeof AUTOMATION_TRIGGER_KINDS)[number];
 
@@ -444,6 +446,8 @@ export function automationTriggerSentence(spec: AutomationSpec, labels?: Automat
       if (offset === 0) return `When it is ${anchor}`;
       return `When it is ${automationDelayText(offset)} ${anchor}`;
     }
+    case 'deal.client_confirmed':
+      return 'When the client confirms the appointment';
     default:
       return 'When a job changes';
   }

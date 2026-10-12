@@ -48,6 +48,8 @@ import { ContactHistoryController } from '../contacts/contact-history.controller
 import { ContactHistoryService } from '../contacts/contact-history.service';
 import { ContactAttachmentsController } from '../contacts/contact-attachments.controller';
 import { ContactAttachmentsService } from '../contacts/contact-attachments.service';
+import { ClientConfirmController } from './client-confirm/client-confirm.controller';
+import { ClientConfirmService } from './client-confirm/client-confirm.service';
 
 @Module({
   imports: [ServiceAreasModule, JobTypesModule, JobSourcesModule, ExternalCompaniesModule, JobTagsModule, JobStatusesModule, JobFieldSettingsModule, JobRulesModule, CustomFieldsModule, TechnicianEligibilityModule, TaxRatesModule, BusinessProfilesClientModule, CommissionReportModule],
@@ -68,6 +70,8 @@ import { ContactAttachmentsService } from '../contacts/contact-attachments.servi
     JobsReportController,
     ItemsReportController,
     JobStatisticsController,
+    // The client's {{confirm_link}} (B12): `internal/:id/client-confirm`, for billing.
+    ClientConfirmController,
     DealsController,
   ],
   providers: [
@@ -96,6 +100,7 @@ import { ContactAttachmentsService } from '../contacts/contact-attachments.servi
     TaxReportService,
     BillingReportsClient,
     JobStatisticsService,
+    ClientConfirmService,
   ],
   exports: [DealsService, DealsEventHandler],
 })
