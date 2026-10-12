@@ -231,7 +231,7 @@ describe("lastSeenLabel — the Last seen cell", () => {
   });
 
   it("past a week, the day and time as the Created column prints them", () => {
-    expect(lastSeenLabel({ online: false, lastSeenAt: "2026-09-01T15:16:00.000Z" }, now)).toBe("Tue Sep 01, 2026 11:16 am");
+    expect(lastSeenLabel({ online: false, lastSeenAt: "2026-09-01T15:16:00.000Z" }, now)).toBe("Tue Sep 01, 2026 11:16 am EDT");
   });
 
   it("Never for someone who has not used it", () => {
