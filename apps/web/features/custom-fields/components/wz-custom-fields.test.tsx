@@ -244,6 +244,27 @@ describe("WzCustomFieldControl", () => {
     render(<WzCustomFieldControl field={def({ name: "Vendor Number 1" })} value="707748" onChange={vi.fn()} />);
     expect(screen.getByRole("textbox", { name: "Vendor Number 1" })).toHaveValue("707748");
   });
+
+  // pg_contact_wz_269669_tab_custom-fields: the client page draws its fields
+  // in Workiz's newer outlined boxes — 40px text, 42px select, 13px labels.
+  it("draws the client page's outlined boxes with look=outlined", async () => {
+    const onChange = vi.fn();
+    const { container } = render(
+      <>
+        <WzCustomFieldControl look="outlined" field={def({ id: "v", name: "Vendor Number 1" })} value="" onChange={onChange} />
+        <WzCustomFieldControl
+          look="outlined"
+          field={def({ id: "p", name: "Platinum Company name", type: "dropdown", options: ["Sure Lock & Key", "DBA"] })}
+          value="DBA"
+          onChange={vi.fn()}
+        />
+      </>,
+    );
+    expect(container.querySelectorAll("[data-slot=wz-outlined-text-field]")).toHaveLength(1);
+    await userEvent.type(screen.getByLabelText("Vendor Number 1"), "7");
+    expect(onChange).toHaveBeenLastCalledWith("7");
+    expect(screen.getByRole("combobox", { name: "Platinum Company name" })).toBeInTheDocument();
+  });
 });
 
 describe("WzCustomFields — section layout (job page)", () => {

@@ -14,7 +14,7 @@ import { useSaveClientCustomFields } from "../hooks";
  * the client fields (Settings → Custom Fields → Client) as a form — the
  * groups as the job page draws its custom-field sections (18px/22px 600
  * heading over a 1px rule, 43px; fields 40px tall, 24px apart) in two 537px
- * columns, 58px apart, the groups taking them in turn (Work Order | Platinum
+ * columns, 58px apart, 50px from a group's last field to the next heading, the groups taking them in turn (Work Order | Platinum
  * Info, then Extra Info) — "Need to track more fields? Create a custom field"
  * under them, and a yellow 150×40 Save centred at the foot. Save sends only
  * the answers that changed; it waits until something has.
@@ -52,12 +52,19 @@ export function ClientCustomFieldsTab({
     });
 
   const column = (groups: typeof left) => (
-    <div data-testid="client-cf-column" className="flex min-w-0 flex-col gap-[30px]">
+    <div data-testid="client-cf-column" className="flex min-w-0 flex-col gap-[50px]">
       {groups.map(({ group, fields }) => (
-        <WzCustomFieldSection key={group} title={group} className="gap-6 [&>*:first-child]:mb-[-14px]">
+        // Workiz: the first field 10px under the heading's rule, the rest 24px apart
+        // (a file field's own 16px margins dropped to keep that rhythm).
+        <WzCustomFieldSection
+          key={group}
+          title={group}
+          className="gap-6 [&_.my-4]:my-0 [&>*:first-child]:mb-[-14px]"
+        >
           {fields.map((field) => (
             <WzCustomFieldControl
               key={field.id}
+              look="outlined"
               field={field}
               value={draft[field.id]}
               onChange={(next) => write(field.id, next)}
@@ -71,11 +78,11 @@ export function ClientCustomFieldsTab({
   );
 
   return (
-    <div className="flex min-w-0 flex-col pt-2.5 pr-[26px] pl-2.5">
+    <div className="flex min-w-0 flex-col pt-5 pr-[26px] pl-2.5">
       {none ? (
         <p className="py-6 text-sm leading-[21px] text-wz-caption">No client custom fields yet.</p>
       ) : (
-        <div className="grid grid-cols-1 gap-x-[58px] gap-y-[30px] md:grid-cols-2">
+        <div className="grid grid-cols-1 gap-x-[58px] gap-y-[50px] md:grid-cols-2">
           {column(left)}
           {column(right)}
         </div>

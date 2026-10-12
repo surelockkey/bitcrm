@@ -20,6 +20,8 @@ import {
   WzDateField,
   WzFieldError,
   WzMultiSelect,
+  WzOutlinedSelect,
+  WzOutlinedTextField,
   WzSectionHeader,
   WzSelect,
   WzTextField,
@@ -196,6 +198,12 @@ interface ControlProps {
   onPendingFiles?: (files: File[]) => void;
   missing: boolean;
   shape: "rounded" | "square";
+  /**
+   * "form" (default): the job forms' boxes. "outlined": Workiz's newer
+   * notched boxes, as on the client page's Custom fields tab — 40px text,
+   * 42px select, 13px labels (pg_contact_wz_269669_tab_custom-fields).
+   */
+  look?: "form" | "outlined";
 }
 
 /**
@@ -211,9 +219,57 @@ export function WzCustomFieldControl({
   return <FieldControl {...props} missing={missing} shape={shape} />;
 }
 
+/** A text / number / drop-down field in the outlined look; anything else falls back to the form control. */
+function OutlinedControl({ field, value, onChange, disabled, missing }: ControlProps) {
+  const error = missing ? REQUIRED : undefined;
+  const text = typeof value === "string" ? value : "";
+  switch (customFieldControl(field.type)) {
+    case "select":
+      return (
+        <WzOutlinedSelect
+          label={field.name}
+          options={(field.options ?? []).map((o) => ({ value: o, label: o }))}
+          value={text}
+          disabled={disabled}
+          error={error}
+          onChange={(v) => onChange(v || undefined)}
+        />
+      );
+    case "number":
+      return (
+        <WzOutlinedTextField
+          label={field.name}
+          type="number"
+          inputMode="decimal"
+          value={value === undefined || value === null ? "" : String(value)}
+          disabled={disabled}
+          error={error}
+          onChange={(e) => onChange(e.target.value === "" ? undefined : Number(e.target.value))}
+        />
+      );
+    default:
+      return (
+        <WzOutlinedTextField
+          label={field.name}
+          value={text}
+          disabled={disabled}
+          error={error}
+          onChange={(e) => onChange(e.target.value)}
+        />
+      );
+  }
+}
+
 /** The kit control `customFieldControl` names for this field's type. */
 function FieldControl(props: ControlProps) {
   const { field, value, onChange, disabled, missing, shape } = props;
+  if (props.look === "outlined" && ["text", "number", "select"].includes(customFieldControl(field.type))) {
+    return (
+      <div data-missing={missing || undefined}>
+        <OutlinedControl {...props} />
+      </div>
+    );
+  }
   const error = missing ? REQUIRED : undefined;
   const text = typeof value === "string" ? value : "";
   const wrap = (node: React.ReactNode) => <div data-missing={missing || undefined}>{node}</div>;
