@@ -102,6 +102,8 @@ describe("FieldsMenu — Workiz's Visible fields panel", () => {
       "Priority",
       "Sent",
       "Seen",
+      // B12: when the client confirmed the visit (opt-in, after Seen).
+      "Confirmed",
       "PO number",
       "Payment status",
       "Notes",
