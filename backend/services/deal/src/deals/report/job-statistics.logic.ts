@@ -69,9 +69,9 @@ export interface StatsDeal extends ReportDeal {
 
 const num = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
 
-/** A window row → the statistics' job. */
-export function toStatsDeal(item: Record<string, unknown>): StatsDeal {
-  const base = toReportDeal(item);
+/** A window row → the statistics' job (`areaZones`: each service area's zone, see `toReportDeal`). */
+export function toStatsDeal(item: Record<string, unknown>, areaZones?: ReadonlyMap<string, string>): StatsDeal {
+  const base = toReportDeal(item, areaZones);
   const snapshot = item.commissionSnapshot as { companyProfit?: unknown } | undefined;
   const done = base.superStatus === JobSuperStatus.DONE;
   const frozen = done && snapshot && typeof snapshot === 'object' ? num(Number(snapshot.companyProfit)) : undefined;

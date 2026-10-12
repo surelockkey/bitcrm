@@ -14,7 +14,7 @@ import { CommissionReportService } from '../../commission-report/commission-repo
 import type { CommissionDealItem } from '../../commission-report/commission-report.types';
 import { JobsReportService, windowReadError, type ReportCaller } from './jobs-report.service';
 import { parseJobsReportQuery, type JobsReportQueryDto } from './jobs-report.query';
-import { inWindow, isReportable, matchesFilters } from './jobs-report.logic';
+import { emptyLookups, inWindow, isReportable, matchesFilters } from './jobs-report.logic';
 import {
   STATS_PROJECTION,
   aggregateJobStatistics,
@@ -106,9 +106,12 @@ export class JobStatisticsService {
     const hit = this.windows.get(key);
     if (hit && now - hit.at < WINDOW_TTL_MS) return hit.read;
 
-    const read = this.repository
-      .readReportWindow(by, from, to, STATS_PROJECTION)
-      .then((items) => items.map(toStatsDeal).filter((d) => isReportable(d) && inWindow(d, by, from, to)))
+    // The areas' zones put a job booked here on the account's clock, as in the Jobs report.
+    const catalogs = this.jobsReport.catalogLookups().catch(() => emptyLookups());
+    const read = Promise.all([this.repository.readReportWindow(by, from, to, STATS_PROJECTION), catalogs])
+      .then(([items, lk]) =>
+        items.map((item) => toStatsDeal(item, lk.serviceAreaZones)).filter((d) => isReportable(d) && inWindow(d, by, from, to)),
+      )
       .then((deals) => this.withProfit(deals))
       .catch((err: unknown) => {
         this.windows.delete(key);

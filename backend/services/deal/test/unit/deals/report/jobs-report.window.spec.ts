@@ -47,6 +47,21 @@ const ROWS = [
     jobDateUtc: '2026-09-01T04:30:00.000Z',
     jobEndDateUtc: '2026-09-01T04:45:00.000Z',
   }),
+  // Booked here in a Central area (no jobTimezone, no instants): 23:30 on Aug 31 there is
+  // 00:30 Eastern on Sep 1 — in, though its schedule and end keys still say Aug 31…
+  row('nativeEdge', {
+    scheduledDate: '2026-08-31',
+    scheduledEndDate: '2026-08-31',
+    scheduledTimeSlot: '23:30-23:45',
+    serviceAreaId: 'area-tx',
+  }),
+  // …and 23:30 on Sep 27 there is Sep 28 in Connecticut — out.
+  row('nativeLate', {
+    scheduledDate: '2026-09-27',
+    scheduledEndDate: '2026-09-27',
+    scheduledTimeSlot: '23:30-23:45',
+    serviceAreaId: 'area-tx',
+  }),
   // Started in July, ends in the window: on the end date only.
   row('multiDay', { scheduledDate: '2026-07-01', scheduledEndDate: '2026-09-10', scheduledTimeSlot: '09:00-17:00' }),
   // No date at all: reports on its creation (Workiz's hidden slot).
@@ -63,6 +78,7 @@ describe('Jobs report windows through the repository', () => {
   beforeEach(() => {
     const indexes = new InMemoryReportIndexes(ROWS);
     const catalog = { list: async () => [] };
+    const areas = { list: async () => [{ id: 'area-tx', name: 'SURE LOCK TX', timezone: 'America/Chicago' }] };
     service = new JobsReportService(
       new DealsRepository(indexes.dynamoDb as never),
       { get: async () => JOBS_REPORT_DEFAULT_SETTINGS } as never,
@@ -71,7 +87,7 @@ describe('Jobs report windows through the repository', () => {
       catalog as never,
       catalog as never,
       catalog as never,
-      catalog as never,
+      areas as never,
       catalog as never,
     );
   });
@@ -89,10 +105,18 @@ describe('Jobs report windows through the repository', () => {
   });
 
   it('by job date: the visit start on the Eastern clock, undated jobs by creation', async () => {
-    expect(await ids('scheduled')).toEqual(['edgeCentral', 'plain', 'undated']);
+    expect(await ids('scheduled')).toEqual(['edgeCentral', 'nativeEdge', 'plain', 'undated']);
   });
 
   it('by job end date: the visit end — a July start ending in September is in', async () => {
-    expect(await ids('end')).toEqual(['edgeCentral', 'multiDay', 'plain', 'undated']);
+    expect(await ids('end')).toEqual(['edgeCentral', 'multiDay', 'nativeEdge', 'plain', 'undated']);
+  });
+
+  it('prints a job booked in a Central area on the Eastern clock', async () => {
+    const page = await service.page({ by: 'scheduled', from: '2026-09-01', to: '2026-09-01' } as JobsReportQueryDto, {
+      user: { id: 'u' } as never,
+      perms,
+    });
+    expect(page.rows.find((r) => r.id === 'nativeEdge')).toMatchObject({ scheduled: '2026-09-01T00:30', end: '2026-09-01T00:45' });
   });
 });

@@ -750,7 +750,9 @@ export class DealsRepository {
    *   Eastern day is at most one away from it, so a day either side is read
    *   and the caller windows exactly (`reportDay`). Undated jobs report on
    *   their creation (Workiz's hidden slot), read off the `UNSCHED` keys.
-   * - `end` — the EndIndex (`END#<YYYY-MM>` / `<jobEndAt>#…`), exact.
+   * - `end` — the EndIndex (`END#<YYYY-MM>` / `<jobEndAt>#…`), a day either
+   *   side: a job booked here in another zone is keyed on its own slot, and
+   *   the caller windows exactly.
    *
    * Deleted rows never come back. Throws `ReportWindowTooLargeError` past
    * `REPORT_WINDOW_MAX_ROWS`.
@@ -805,13 +807,17 @@ export class DealsRepository {
         ),
       ]);
     } else {
+      // A day either side: the key of a job booked here is its slot as written
+      // (the repository has no area zones), and an Eastern day is at most one
+      // away from it. The caller windows exactly (`reportDay`).
+      const [lo, hi] = [shiftDay(from, -1), shiftDay(to, 1)];
       await read.partitions(
         DEALS_GSI7_NAME,
         'GSI7PK',
         'GSI7SK',
-        monthsOf({ from, to }).map((m) => `END#${m}`),
+        monthsOf({ from: lo, to: hi }).map((m) => `END#${m}`),
         range,
-        { ':from': from, ':to': `${to}~` },
+        { ':from': lo, ':to': `${hi}~` },
       );
     }
     return read.items;

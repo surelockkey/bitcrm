@@ -71,10 +71,11 @@ describe('report dates — the account calendar (America/New_York)', () => {
       expect(reportDay(late, 'end')).toBe('2026-09-25');
     });
 
-    it('stops trusting the instants once the job is rescheduled here', () => {
+    it('stops trusting the instants once the job is rescheduled here — and reads the new slot on its own clock', () => {
+      // 10:00–11:00 Central is 11:00–12:00 Eastern (2026-10-12: one report, one clock).
       const moved = { ...dallas, scheduledDate: '2026-10-02', scheduledEndDate: '2026-10-02', scheduledTimeSlot: '10:00-11:00' };
-      expect(jobStartAt(moved)).toBe('2026-10-02T10:00');
-      expect(jobEndAt(moved)).toBe('2026-10-02T11:00');
+      expect(jobStartAt(moved)).toBe('2026-10-02T11:00');
+      expect(jobEndAt(moved)).toBe('2026-10-02T12:00');
     });
 
     it('uses the end instant alone when the row has no scheduled days', () => {
@@ -104,6 +105,30 @@ describe('report dates — the account calendar (America/New_York)', () => {
       const d = { createdAt: '2026-09-28T03:30:00.000Z' }; // 23:30 Eastern on the 27th
       expect(jobStartAt(d)).toBe('2026-09-27T23:30');
       expect(jobEndAt(d)).toBe('2026-09-28T00:30');
+    });
+
+    it('reads a slot booked in another zone on the Eastern clock — the job’s own zone, else its area’s', () => {
+      // A Chicago-area job at 10:00 local is 11:00 in Connecticut, summer (CDT→EDT) and winter (CST→EST).
+      const chicago = { scheduledDate: '2026-09-03', scheduledTimeSlot: '10:00-11:00', areaTimezone: 'America/Chicago' };
+      expect(jobStartAt(chicago)).toBe('2026-09-03T11:00');
+      expect(jobEndAt(chicago)).toBe('2026-09-03T12:00');
+      expect(jobStartAt({ ...chicago, scheduledDate: '2026-01-15' })).toBe('2026-01-15T11:00');
+      // Phoenix keeps MST all year: three hours behind New York in summer, two in winter.
+      expect(jobStartAt({ ...chicago, areaTimezone: 'America/Phoenix' })).toBe('2026-09-03T13:00');
+      expect(jobStartAt({ ...chicago, scheduledDate: '2026-01-15', areaTimezone: 'America/Phoenix' })).toBe('2026-01-15T12:00');
+      // The job's own zone wins over its area's.
+      expect(jobStartAt({ ...chicago, jobTimezone: 'America/New_York' })).toBe('2026-09-03T10:00');
+    });
+
+    it('moves a late Central slot onto the next Eastern day', () => {
+      const late = { scheduledDate: '2026-09-27', scheduledEndDate: '2026-09-27', scheduledTimeSlot: '23:30-23:45', areaTimezone: 'America/Chicago' };
+      expect(jobStartAt(late)).toBe('2026-09-28T00:30');
+      expect(reportDay(late, 'scheduled')).toBe('2026-09-28');
+      expect(reportDay(late, 'end')).toBe('2026-09-28');
+    });
+
+    it('keeps an all-day visit on its own day, whatever the zone', () => {
+      expect(jobStartAt({ scheduledDate: '2026-09-03', allDay: true, areaTimezone: 'America/Los_Angeles' })).toBe('2026-09-03');
     });
 
     it('has no dates at all without a creation stamp', () => {

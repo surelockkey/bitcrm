@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, Optional } from '@nestjs/common';
 import { hasPermission } from '@bitcrm/shared';
 import {
   JobSuperStatus,
@@ -10,6 +10,7 @@ import {
 } from '@bitcrm/types';
 import { DealsRepository, ReportWindowTooLargeError } from '../deals.repository';
 import { InternalHttpService } from '../../common/services/internal-http.service';
+import { ServiceAreasService } from '../../service-areas/service-areas.service';
 import { paginate } from './jobs-report.logic';
 import type { ReportCaller } from './jobs-report.service';
 import { ItemsReportRepository } from './items-report.repository';
@@ -82,6 +83,7 @@ export class ItemsReportService {
     private readonly repository: DealsRepository,
     private readonly lines: ItemsReportRepository,
     private readonly internalHttp: InternalHttpService,
+    @Optional() private readonly serviceAreas?: ServiceAreasService,
   ) {}
 
   /* ------------------------------------------------------------------- page */
@@ -213,12 +215,24 @@ export class ItemsReportService {
     return window;
   }
 
+  /** Each service area's zone; none (every slot read as Eastern) when the areas cannot be read. */
+  private async areaZones(): Promise<Map<string, string>> {
+    if (!this.serviceAreas) return new Map();
+    try {
+      return new Map((await this.serviceAreas.list()).filter((a) => a.timezone).map((a) => [a.id, a.timezone]));
+    } catch (err) {
+      this.logger.warn(`Items report: service areas unavailable (${(err as Error).message}) — slots read on the Eastern clock`);
+      return new Map();
+    }
+  }
+
   private async readWindow(from: string, to: string): Promise<Window> {
     const started = Date.now();
     const rows = await this.repository.readReportWindow('scheduled', from, to, ITEMS_DEAL_PROJECTION, {
       statuses: [JobSuperStatus.DONE],
     });
-    const deals = rows.map(toItemsDeal).filter((d) => isCounted(d, from, to));
+    const zones = await this.areaZones();
+    const deals = rows.map((row) => toItemsDeal(row, zones)).filter((d) => isCounted(d, from, to));
     if (deals.length > ITEMS_REPORT_MAX_JOBS) {
       throw new BadRequestException(`The period holds more than ${ITEMS_REPORT_MAX_JOBS} done jobs — choose a shorter period`);
     }

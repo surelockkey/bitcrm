@@ -42,6 +42,7 @@ export const ITEMS_DEAL_PROJECTION: readonly string[] = [
   'jobDateUtc',
   'jobEndDateUtc',
   'jobTimezone',
+  'serviceAreaId',
   'superStatus',
   'stage',
   'assignedTechIds',
@@ -151,8 +152,14 @@ export function round2(x: number): number {
   return x < 0 ? -r : r;
 }
 
-/** A window row (a deal METADATA item, projected) → the report's job. */
-export function toItemsDeal(item: Record<string, unknown>): ItemsDeal {
+/**
+ * A window row (a deal METADATA item, projected) → the report's job.
+ * `areaZones`: each service area's zone — a job booked here keeps its slot
+ * on its area's clock, and the job date reads it onto the account's.
+ */
+export function toItemsDeal(item: Record<string, unknown>, areaZones?: ReadonlyMap<string, string>): ItemsDeal {
+  const areaTimezone = areaZones && typeof item.serviceAreaId === 'string' ? areaZones.get(item.serviceAreaId) : undefined;
+  const dates: ReportDateSource = areaTimezone ? { ...(item as ReportDateSource), areaTimezone } : (item as ReportDateSource);
   const clientName = item.clientName as { firstName?: string; lastName?: string } | undefined;
   const override = clientName ? `${clientName.firstName ?? ''} ${clientName.lastName ?? ''}`.trim() : '';
   return {
@@ -163,7 +170,7 @@ export function toItemsDeal(item: Record<string, unknown>): ItemsDeal {
     clientName: override || undefined,
     clientCompany: str(item.clientCompanyName),
     jobTypeId: str(item.jobTypeId),
-    jobDate: jobStartAt(item as ReportDateSource),
+    jobDate: jobStartAt(dates),
     superStatus:
       (item.superStatus as JobSuperStatus | undefined) ??
       STAGE_TO_SUPER_STATUS[item.stage as DealStage] ??

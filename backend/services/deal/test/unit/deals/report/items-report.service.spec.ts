@@ -124,6 +124,18 @@ describe('ItemsReportService', () => {
     });
   });
 
+  it('counts a job booked in a Central area on its Eastern day', async () => {
+    repository.readReportWindow.mockResolvedValue([
+      // 23:30 on Sep 27 in Texas is Sep 28 in Connecticut — outside Sep 1–27.
+      deal('a', { scheduledDate: '2026-09-27', scheduledTimeSlot: '23:30-23:59', serviceAreaId: 'sa-tx' }),
+      deal('c', { scheduledDate: '2026-09-27', scheduledTimeSlot: '21:00-22:00', serviceAreaId: 'sa-tx' }),
+    ]);
+    const areas = { list: jest.fn(async () => [{ id: 'sa-tx', name: 'TX', timezone: 'America/Chicago' }]) };
+    const zoned = new ItemsReportService(repository as never, lines as never, http as never, areas as never);
+    await zoned.page(q(), caller());
+    expect(lines.linesOf.mock.calls[0][0]).toEqual(['c']);
+  });
+
   it('filters, searches and sorts in memory — the window is read once a minute', async () => {
     const sold = await service.page(q({ soldBy: 'u-kim' }), caller());
     expect(sold.rows.map((r) => [r.key, r.units])).toEqual([['p-key', 3]]);

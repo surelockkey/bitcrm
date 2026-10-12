@@ -113,6 +113,15 @@ describe('Jobs report logic', () => {
       expect(REPORT_PROJECTION).toContain('clientPhone');
     });
 
+    it('reads a job booked here on its area’s clock, converted to the Eastern one', () => {
+      const native = imported({ jobTimezone: undefined, jobDateUtc: undefined, jobEndDateUtc: undefined, scheduledTimeSlot: '10:00-11:00' });
+      // Without the area's zone the slot is taken as Eastern…
+      expect(toReportDeal(native)).toMatchObject({ scheduled: '2026-09-24T10:00', end: '2026-09-24T11:00' });
+      // …with it (Sherman TX is Central), 10:00 there is 11:00 in Connecticut.
+      const zones = new Map([['sa1', 'America/Chicago']]);
+      expect(toReportDeal(native, zones)).toMatchObject({ scheduled: '2026-09-24T11:00', end: '2026-09-24T12:00' });
+    });
+
     it('derives the super-status of a legacy row from its stage', () => {
       expect(toReportDeal(imported({ superStatus: undefined, stage: 'completed' })).superStatus).toBe(JobSuperStatus.DONE);
     });
@@ -210,9 +219,11 @@ describe('Jobs report logic', () => {
 
   describe('CSV', () => {
     it('prints dates the way Workiz does', () => {
-      expect(workizDate('2026-09-29T14:35')).toBe('Tue Sep 29, 2026 02:35 pm');
-      expect(workizDate('2026-09-29T00:05')).toBe('Tue Sep 29, 2026 12:05 am');
-      expect(workizDate('2026-09-29T12:00')).toBe('Tue Sep 29, 2026 12:00 pm');
+      // 2026-10-12: a clock time says its zone — EDT in summer, EST in winter; a bare day says none.
+      expect(workizDate('2026-09-29T14:35')).toBe('Tue Sep 29, 2026 02:35 pm EDT');
+      expect(workizDate('2026-09-29T00:05')).toBe('Tue Sep 29, 2026 12:05 am EDT');
+      expect(workizDate('2026-09-29T12:00')).toBe('Tue Sep 29, 2026 12:00 pm EDT');
+      expect(workizDate('2026-01-15T08:00')).toBe('Thu Jan 15, 2026 08:00 am EST');
       expect(workizDate('2026-09-29')).toBe('Tue Sep 29, 2026');
       expect(workizDate(undefined)).toBe('');
       expect(formatPhone('+14693386825')).toBe('(469) 338-6825');
@@ -225,8 +236,8 @@ describe('Jobs report logic', () => {
         'Job #,Client,Tags,Type,Job Created,Scheduled,End,Phone,Status,Tech,City,State,Zip code,Metro Area,Total,Source',
       );
       expect(csvLine(row, JOBS_REPORT_DEFAULT_COLUMNS)).toBe(
-        '0XJH37,Kayleigh Brown,"NEEDS A CALL, VIP",Car key,"Mon Aug 03, 2026 05:43 pm","Thu Sep 24, 2026 09:00 am",' +
-          '"Thu Sep 24, 2026 01:00 pm",(469) 338-6825,Done - Paid,(2) TX - Sam,Denison,Texas,75020,SURE LOCK SHERMAN TX,697.95,SURE TX SHERMAN GMB',
+        '0XJH37,Kayleigh Brown,"NEEDS A CALL, VIP",Car key,"Mon Aug 03, 2026 05:43 pm EDT","Thu Sep 24, 2026 09:00 am EDT",' +
+          '"Thu Sep 24, 2026 01:00 pm EDT",(469) 338-6825,Done - Paid,(2) TX - Sam,Denison,Texas,75020,SURE LOCK SHERMAN TX,697.95,SURE TX SHERMAN GMB',
       );
       expect(cellText(row, 'origin')).toBe('New');
     });

@@ -122,6 +122,27 @@ describe('JobStatisticsService', () => {
     expect(s.series).toHaveLength(27);
   });
 
+  it('windows a job booked in a Central area on the Eastern clock, as the Jobs report does', async () => {
+    // 23:30 on Sep 27 in Texas is 00:30 on Sep 28 in Connecticut — outside Sep 1–27.
+    repository.readReportWindow.mockResolvedValue([
+      item('late', { scheduledDate: '2026-09-27', scheduledEndDate: '2026-09-27', scheduledTimeSlot: '23:00-23:30', serviceAreaId: 'sa-cst' }),
+      item('kept', { scheduledDate: '2026-09-27', scheduledEndDate: '2026-09-27', scheduledTimeSlot: '21:00-22:00', serviceAreaId: 'sa-cst' }),
+    ]);
+    const jobsReport = new JobsReportService(
+      repository as never,
+      { get: jest.fn().mockResolvedValue(JOBS_REPORT_DEFAULT_SETTINGS), put: jest.fn() } as never,
+      http as never,
+      { list: jest.fn().mockResolvedValue([]) } as never,
+      { list: jest.fn().mockResolvedValue([]) } as never,
+      { list: jest.fn().mockResolvedValue([]) } as never,
+      { list: jest.fn().mockResolvedValue([]) } as never,
+      { list: jest.fn().mockResolvedValue([{ id: 'sa-cst', name: 'TX', timezone: 'America/Chicago' }]) } as never,
+      { list: jest.fn().mockResolvedValue([]) } as never,
+    );
+    const s = await new JobStatisticsService(repository as never, jobsReport, commissions as never).statistics(q(), caller());
+    expect(s.kpis.all).toBe(1);
+  });
+
   it('takes the profit of a job done here from its Commissions (Legacy) row', async () => {
     const s = await service.statistics(q(), caller());
     expect(commissions.build).toHaveBeenCalledTimes(1);

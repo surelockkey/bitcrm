@@ -30,6 +30,8 @@ export const TAX_REPORT_PROJECTION = [
   'jobDateUtc',
   'jobEndDateUtc',
   'jobTimezone',
+  // A job booked here keeps its slot on its area's clock.
+  'serviceAreaId',
   'assignedTechIds',
   'taxRateName',
   'taxRatePercent',

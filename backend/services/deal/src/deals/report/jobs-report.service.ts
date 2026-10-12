@@ -260,9 +260,10 @@ export class JobsReportService {
     const hit = this.windows.get(key);
     if (hit && now - hit.at < WINDOW_TTL_MS) return hit.deals;
 
-    const deals = this.repository
-      .readReportWindow(by, from, to, REPORT_PROJECTION)
-      .then((items) => items.map(toReportDeal))
+    // The areas' zones put a job booked here on the account's clock; without them its slot reads as Eastern.
+    const catalogs = this.catalogLookups().catch(() => emptyLookups());
+    const deals = Promise.all([this.repository.readReportWindow(by, from, to, REPORT_PROJECTION), catalogs])
+      .then(([items, catalogs]) => items.map((item) => toReportDeal(item, catalogs.serviceAreaZones)))
       .catch((err: unknown) => {
         this.windows.delete(key);
         throw windowReadError(err, by, this.logger, 'Jobs report');
@@ -320,7 +321,10 @@ export class JobsReportService {
       }
       for (const t of tags) lk.tags.set(t.id, { name: t.name, color: t.color });
       for (const s of statuses) lk.subStatuses.set(s.id, s.name);
-      for (const a of areas) lk.serviceAreas.set(a.id, a.name);
+      for (const a of areas) {
+        lk.serviceAreas.set(a.id, a.name);
+        if (a.timezone) lk.serviceAreaZones.set(a.id, a.timezone);
+      }
       for (const c of companies) lk.externalCompanies.set(c.id, c.name);
       return lk;
     })();

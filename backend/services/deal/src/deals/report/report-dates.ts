@@ -9,8 +9,14 @@ import { DASHBOARD_TIMEZONE } from '@bitcrm/types';
  * Jobs report and Job Statistics both window on these days.
  *
  * BitCRM keeps a visit as a wall-clock date and slot in the job's own zone
- * (`scheduledDate` + `scheduledTimeSlot`). A job imported from Workiz also
- * carries the instants Workiz held (`jobDateUtc`, `jobEndDateUtc`, with
+ * (`scheduledDate` + `scheduledTimeSlot`; `jobTimezone`, else the service
+ * area's — `areaTimezone`, which the caller resolves — else the account's).
+ * That slot is moved onto the account's clock here, so one report reads one
+ * clock: a Chicago job at 10:00 is 11:00 (2026-10-12, the office sees every
+ * time in Connecticut). A bare day — all-day, no slot — is not moved.
+ *
+ * A job imported from Workiz also carries the instants Workiz held
+ * (`jobDateUtc`, `jobEndDateUtc`, with
  * `jobTimezone`), and those are what the Workiz report used. They are
  * trusted only while they still describe the visit BitCRM has on the job —
  * their local day equals `scheduledDate` / `scheduledEndDate` — so a job
@@ -28,6 +34,12 @@ export interface ReportDateSource {
   jobDateUtc?: string;
   jobEndDateUtc?: string;
   jobTimezone?: string;
+  /**
+   * The zone of the job's service area, resolved by the caller (never
+   * stored): a job booked here carries no `jobTimezone` until it closes, and
+   * its slot is on its area's clock.
+   */
+  areaTimezone?: string;
 }
 
 export type ReportDateField = 'created' | 'scheduled' | 'end';
@@ -120,6 +132,26 @@ function slotPart(slot: string | undefined, part: 'start' | 'end'): string | und
   return HHMM.test(t) ? t : undefined;
 }
 
+/** The clock a job's `scheduledDate` + slot are written on: its own zone, else its area's, else the account's. */
+function visitZone(d: ReportDateSource): string {
+  return d.jobTimezone || d.areaTimezone || REPORT_TIMEZONE;
+}
+
+/**
+ * `date` + `HH:MM` on `timeZone`'s wall clock → the same moment on the
+ * account's (`YYYY-MM-DDTHH:MM`). Twice through the offset: the first guess
+ * can sit on the other side of a clock change.
+ */
+function accountWallOf(date: string, hhmm: string, timeZone: string): string {
+  const local = `${date}T${hhmm}`;
+  if (timeZone === REPORT_TIMEZONE) return local;
+  const naive = Date.parse(`${local}:00.000Z`);
+  if (Number.isNaN(naive)) return local;
+  const first = naive - offsetAt(naive, timeZone);
+  const instant = naive - offsetAt(first, timeZone);
+  return wallClock(new Date(instant).toISOString()) ?? local;
+}
+
 /** An imported instant still describes the visit when its own local day is the job's day. */
 function stillTheVisit(instant: string, jobTimezone: string | undefined, day: string | undefined): boolean {
   if (!day) return true;
@@ -144,7 +176,7 @@ export function jobStartAt(d: ReportDateSource): string | undefined {
   }
   if (d.scheduledDate) {
     const t = d.allDay ? undefined : slotPart(d.scheduledTimeSlot, 'start');
-    return t ? `${d.scheduledDate}T${t}` : d.scheduledDate;
+    return t ? accountWallOf(d.scheduledDate, t, visitZone(d)) : d.scheduledDate;
   }
   return createdAt(d);
 }
@@ -162,7 +194,7 @@ export function jobEndAt(d: ReportDateSource): string | undefined {
   }
   if (endDay) {
     const t = d.allDay ? undefined : slotPart(d.scheduledTimeSlot, 'end');
-    return t ? `${endDay}T${t}` : endDay;
+    return t ? accountWallOf(endDay, t, visitZone(d)) : endDay;
   }
   const created = d.createdAt ? Date.parse(d.createdAt) : NaN;
   return Number.isNaN(created) ? undefined : wallClock(new Date(created + 3_600_000).toISOString());
