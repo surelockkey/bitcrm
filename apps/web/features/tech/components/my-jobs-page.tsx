@@ -27,7 +27,7 @@ import { useJobTypes } from "@/features/job-types/hooks";
 import { activeJobTypes } from "@/features/job-types/lib";
 import { useJobTags } from "@/features/job-tags/hooks";
 import { activeJobTags } from "@/features/job-tags/lib";
-import { useServiceAreas } from "@/features/service-areas/hooks";
+import { useJobZoneOf, useServiceAreas } from "@/features/service-areas/hooks";
 import type { DealCounts } from "@/features/deals/api";
 import { DEALS_POLL_MS, useDealCounts, useDealsPage, useUserMap, type DirectoryUser } from "@/features/deals/hooks";
 import { mergeIncluded } from "@/features/deals/included";
@@ -194,8 +194,8 @@ export function MyJobsPage() {
     [jobTagsQuery.data, jobTypesQuery.data, serviceAreas, companies],
   );
 
-  const areaZone = useMemo(() => new Map((serviceAreas ?? []).map((a) => [a.id, a.timezone])), [serviceAreas]);
-  const zoneOf = (d: Deal) => d.jobTimezone || (d.serviceAreaId ? areaZone.get(d.serviceAreaId) : undefined);
+  // The zone a visit was booked in: the job's own (Workiz), else its area's, else Connecticut.
+  const zoneOf = useJobZoneOf();
 
   // Ours: each day in the order the dispatcher routed it, the stop on the Scheduled cell.
   const routed = useMemo(() => inRouteOrder(pager.items, meId, state.sort), [pager.items, meId, state.sort]);

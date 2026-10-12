@@ -145,6 +145,12 @@ describe("the Items tab's Due (job_amount_due_date)", () => {
     expect(jobDueDate({ createdAt: "2026-10-05T16:00:00.000Z" })).toBe("10/5/2026");
     expect(jobDueDate({})).toBe("");
   });
+
+  it("the creation day is Connecticut's, not the viewer's nor UTC's (a calendar day: no label)", () => {
+    // 02:30Z on Oct 6 is 10:30 PM EDT on Oct 5; 03:30Z on Dec 2 is 10:30 PM EST on Dec 1.
+    expect(jobDueDate({ createdAt: "2026-10-06T02:30:00.000Z" })).toBe("10/5/2026");
+    expect(jobDueDate({ createdAt: "2026-12-02T03:30:00.000Z" })).toBe("12/1/2026");
+  });
 });
 
 describe("the job's balance off the job row (before or without the ledger)", () => {
@@ -182,9 +188,11 @@ describe("dates as Workiz prints them on the job's tabs", () => {
     expect(workizDate(undefined)).toBe("");
   });
 
-  it("a moment, on business time: 5/4/2026 at 8:59 PM", () => {
+  it("a moment, on business time and labelled: 5/4/2026 at 8:59 PM EDT", () => {
     // 00:59 UTC on the 5th is 8:59 PM on the 4th in New York (EDT).
-    expect(workizDateTime("2026-05-05T00:59:00.000Z")).toBe("5/4/2026 at 8:59 PM");
+    expect(workizDateTime("2026-05-05T00:59:00.000Z")).toBe("5/4/2026 at 8:59 PM EDT");
+    // Winter: 01:15 UTC on Dec 2 is 8:15 PM EST on Dec 1.
+    expect(workizDateTime("2026-12-02T01:15:00.000Z")).toBe("12/1/2026 at 8:15 PM EST");
     expect(workizDateTime("not a date")).toBe("");
   });
 });

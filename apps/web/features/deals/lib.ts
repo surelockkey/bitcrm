@@ -23,6 +23,7 @@ import {
   extensionsFromRows,
 } from "@/features/clients/lib";
 import type { UpdateContactValues } from "@/features/clients/schemas";
+import { ctMinutesOfDay, ctToday, DEFAULT_TZ, withZone } from "@/lib/timezone";
 import type { DealCounts } from "./api";
 import { personName } from "./person-name";
 import type { UpdateDealValues } from "./schemas";
@@ -183,21 +184,23 @@ export type JobDateBasis = "scheduledDate" | "createdAt" | "closedAt";
 
 const pad = (n: number) => String(n).padStart(2, "0");
 
-/** Day (YYYY-MM-DD) for a job under the chosen basis. createdAt is localized. */
+/**
+ * Day (YYYY-MM-DD) for a job under the chosen basis. createdAt / closedAt are
+ * read on Connecticut's calendar — the web's clock (2026-10-12 owner rule),
+ * never the viewer's browser.
+ */
 export function jobDayKey(d: Deal, basis: JobDateBasis): string {
   if (basis === "scheduledDate") return (d.scheduledDate ?? "").slice(0, 10);
   const iso = basis === "closedAt" ? d.closedAt : d.createdAt;
   if (!iso) return "";
   const dt = new Date(iso);
-  return Number.isNaN(dt.getTime())
-    ? iso.slice(0, 10)
-    : `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}`;
+  return Number.isNaN(dt.getTime()) ? iso.slice(0, 10) : ctToday(dt);
 }
 
 /**
  * Time of day (HH:MM) for a job under the chosen basis. For the schedule it's
- * the slot start; for creation it's the LOCAL clock time (so it lines up with
- * what the table shows). Empty string when there's no time to read.
+ * the slot start; for creation it's Connecticut's clock time (so it lines up
+ * with what the table shows). Empty string when there's no time to read.
  */
 export function jobHourKey(d: Deal, basis: JobDateBasis): string {
   if (basis === "scheduledDate") {
@@ -207,7 +210,9 @@ export function jobHourKey(d: Deal, basis: JobDateBasis): string {
   const iso = basis === "closedAt" ? d.closedAt : d.createdAt;
   if (!iso) return "";
   const dt = new Date(iso);
-  return Number.isNaN(dt.getTime()) ? "" : `${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
+  if (Number.isNaN(dt.getTime())) return "";
+  const minutes = ctMinutesOfDay(dt);
+  return `${pad(Math.floor(minutes / 60))}:${pad(minutes % 60)}`;
 }
 
 /* ------------------------------------------------------------------- sort */
@@ -342,19 +347,33 @@ export const SEND_TO_TECH_CHANNEL_LABEL: Record<SendToTechChannel, string> = {
 };
 
 /**
- * A stamp as a dispatcher reads it: the clock alone while it happened today
- * ("12:10 PM"), the day in front of it once it did not ("Sep 14, 12:10 PM").
- * Invalid input is handed back untouched rather than rendered "Invalid Date".
+ * A stamp as a dispatcher reads it, on Connecticut's clock and labelled
+ * (2026-10-12 owner rule): the clock alone while it happened today there
+ * ("12:10 PM EDT"), the day in front of it once it did not ("Sep 14, 12:10 PM
+ * EDT"). Invalid input is handed back untouched rather than rendered
+ * "Invalid Date".
  */
 export function formatStamp(iso: string, now: Date = new Date()): string {
   const at = new Date(iso);
   if (Number.isNaN(at.getTime())) return iso;
-  const time = at.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
-  if (at.toDateString() === now.toDateString()) return time;
-  return `${at.toLocaleDateString("en-US", { month: "short", day: "numeric" })}, ${time}`;
+  const time = at.toLocaleTimeString("en-US", { timeZone: DEFAULT_TZ, hour: "numeric", minute: "2-digit" });
+  if (ctToday(at) === ctToday(now)) return withZone(time, at);
+  return withZone(`${at.toLocaleDateString("en-US", { timeZone: DEFAULT_TZ, month: "short", day: "numeric" })}, ${time}`, at);
 }
 
-/** "Sent · 12:10 PM via SMS & Email", or null for a job never sent. */
+/**
+ * The jobs list's Created: "Oct 8, 2026 EDT" — the day the job was made on
+ * Connecticut's calendar, labelled (the format `users/lib formatDate` gave
+ * it, which reads the browser's calendar); "—" when there is none.
+ */
+export function formatCreatedDay(iso?: string): string {
+  if (!iso) return "—";
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return "—";
+  return withZone(at.toLocaleDateString("en-US", { timeZone: DEFAULT_TZ, month: "short", day: "numeric", year: "numeric" }), at);
+}
+
+/** "Sent · 12:10 PM EDT via SMS & Email", or null for a job never sent. */
 export function sentToTechLabel(
   d: Pick<Deal, "sentToTechAt" | "sentToTechVia">,
   now?: Date,
@@ -367,7 +386,7 @@ export function sentToTechLabel(
   return `Sent · ${formatStamp(d.sentToTechAt, now)}${via ? ` via ${via}` : ""}`;
 }
 
-/** "Seen · 12:14 PM" — the first time any assigned technician opened it. */
+/** "Seen · 12:14 PM EDT" — the first time any assigned technician opened it. */
 export function seenByTechLabel(d: Pick<Deal, "seenByTechAt">, now?: Date): string | null {
   return d.seenByTechAt ? `Seen · ${formatStamp(d.seenByTechAt, now)}` : null;
 }

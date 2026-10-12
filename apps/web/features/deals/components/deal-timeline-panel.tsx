@@ -59,7 +59,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import { formatPhone } from "@/lib/phone";
-import { DEFAULT_TZ } from "@/lib/timezone";
+import { DEFAULT_TZ, withZone } from "@/lib/timezone";
 import { formatDuration } from "@/features/calls/lib";
 import { useJobStatuses } from "@/features/job-statuses/hooks";
 import { useJobTypes } from "@/features/job-types/hooks";
@@ -298,12 +298,15 @@ const fallbackMeta = (eventType: string) => ({
 
 const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?$/;
 
-/** A logged ISO timestamp (schedule change…) read on business time, e.g. "Sep 30, 2026, 10:00 AM". */
+/** A logged ISO timestamp (schedule change…) read on business time and labelled, e.g. "Sep 30, 2026, 10:00 AM EDT". */
 function fmtInstant(iso: string): string {
   const dt = new Date(iso);
   return Number.isNaN(dt.getTime())
     ? iso
-    : dt.toLocaleString("en-US", { timeZone: DEFAULT_TZ, year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+    : withZone(
+        dt.toLocaleString("en-US", { timeZone: DEFAULT_TZ, year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }),
+        dt,
+      );
 }
 
 /** Render a logged value: addresses/arrays flattened, dates on business time, empty as an em-dash. */
@@ -487,11 +490,12 @@ function detail(entry: TimelineEntry, lk: Lookups): string | null {
   return null;
 }
 
+/** "Aug 1, 6:00 AM EDT" — a row's moment on Connecticut's clock, labelled (2026-10-12 owner rule). */
 function when(ts: string): string {
   const dt = new Date(ts);
   return Number.isNaN(dt.getTime())
     ? ts
-    : dt.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+    : withZone(dt.toLocaleString("en-US", { timeZone: DEFAULT_TZ, month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }), dt);
 }
 
 /* -------------------------------------------------------------- filters */
@@ -574,6 +578,7 @@ export function DealTimelinePanel({
   client,
   chat,
   schedule,
+  zone,
 }: {
   dealId: string;
   canEdit: boolean;
@@ -584,6 +589,11 @@ export function DealTimelinePanel({
   chat?: RailChat;
   /** The visit as it stands, to word "Rescheduled job from … to …". */
   schedule?: ScheduleState;
+  /**
+   * The zone the job's visit is booked in (`useJobZoneOf`; absent =
+   * Connecticut): a reschedule's times are written on Connecticut's clock.
+   */
+  zone?: string;
 }) {
   const [open, setOpen] = useState(false);
   // Lives here, not in the panel, so it survives a close and reopen.
@@ -601,8 +611,8 @@ export function DealTimelinePanel({
   const known = !!schedule;
   const { date, slot, allDay } = schedule ?? {};
   const reschedules = useMemo(
-    () => collapseReschedules(rawEntries, known ? { date, slot, allDay } : null),
-    [rawEntries, known, date, slot, allDay],
+    () => collapseReschedules(rawEntries, known ? { date, slot, allDay } : null, zone),
+    [rawEntries, known, date, slot, allDay, zone],
   );
   const entries = useMemo(() => rawEntries.filter((e) => !reschedules.hidden.has(e.id)), [rawEntries, reschedules]);
   const counts = useMemo(() => timelineCounts(entries, messages.length), [entries, messages.length]);
@@ -636,6 +646,7 @@ export function DealTimelinePanel({
             entries={entries}
             messages={messages}
             reschedules={reschedules.text}
+            zone={zone}
             counts={counts}
             more={more}
             loading={query.isLoading || (canViewMessages && messagesQuery.isLoading)}
@@ -700,6 +711,7 @@ function PanelBody({
   entries,
   messages,
   reschedules,
+  zone,
   counts,
   more,
   loading,
@@ -716,6 +728,8 @@ function PanelBody({
   entries: TimelineEntry[];
   messages: FeedMessage[];
   reschedules: Map<string, string>;
+  /** The zone the job's visit is booked in — see `DealTimelinePanel`. */
+  zone?: string;
   counts: Record<TimelineFilter, number>;
   more: { entries: boolean; messages: boolean };
   loading: boolean;
@@ -745,10 +759,11 @@ function PanelBody({
     const extras = {
       fieldDetail: (e: TimelineEntry) => detail(e, lookups),
       clientName: client?.name,
+      zone,
     };
     // An item edit's numbers come with its own lines (`entryRowText`).
     return (e: TimelineEntry) => entryRowText(e, lookups, { ...extras, reschedule: reschedules.get(e.id) });
-  }, [lookups, client?.name, reschedules]);
+  }, [lookups, client?.name, reschedules, zone]);
   const phonesKey = client?.phones.join("|") ?? "";
   const messageCtx = useMemo(
     () => ({ userName: lookups.userName, clientName: client?.name, clientPhones: phonesKey ? phonesKey.split("|") : [] }),
@@ -1095,10 +1110,10 @@ function TimelineRow({
   );
 }
 
-/** "Thu Oct 08, 2026 08:43 am" — Workiz's tooltip on a row's time. */
+/** "Thu Oct 08, 2026 08:43 am EDT" — Workiz's tooltip on a row's time, its zone named. */
 function stampOf(iso: string): string {
   const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? iso : workizStamp(d, DEFAULT_TZ);
+  return Number.isNaN(d.getTime()) ? iso : withZone(workizStamp(d, DEFAULT_TZ), d);
 }
 
 /** A timeline entry's row; a note gets a ⋮ with Edit / Delete for an editor. */

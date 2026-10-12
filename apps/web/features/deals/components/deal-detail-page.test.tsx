@@ -125,6 +125,7 @@ vi.mock("@/features/service-areas/hooks", () => ({
   useServiceAreas: () => ({ data: [{ id: "sa-north", name: "North GA", active: true, priority: 1 }] }),
   useEffectiveServiceArea: () => ({ submitId: "sa-north", source: "auto", area: null, resolvedArea: null, isFetching: false }),
   useNearestServiceArea: () => ({ data: undefined }),
+  useJobZoneOf: () => (job: { jobTimezone?: string }) => job.jobTimezone || "America/New_York",
 }));
 vi.mock("./assigned-techs", () => ({ AssignedTechs: () => null, TechChips: () => null }));
 // The Team section assigns inline via TechSuggestions, which fetches eligible
@@ -352,7 +353,8 @@ describe("DealDetailPage (read only)", () => {
 
   it("says on the Status row that the client confirmed the visit (B12) — and nothing before they do", () => {
     // A past day, so the stamp carries its date (`formatStamp` drops it for today).
-    const confirmedAt = new Date("2026-09-12T15:05:00").toISOString();
+    // 3:05 PM in Connecticut (EDT), however the machine's clock reads it.
+    const confirmedAt = "2026-09-12T19:05:00.000Z";
     dealState = {
       ...deal,
       scheduledDate: "2026-10-14",
@@ -362,7 +364,7 @@ describe("DealDetailPage (read only)", () => {
     };
     const { unmount } = render(<DealDetailPage dealId="d1" />);
     const badge = screen.getByTitle("The client confirmed this visit through the confirm link");
-    expect(badge).toHaveTextContent(/Confirmed by client · Sep 12, 3:05 PM/);
+    expect(badge).toHaveTextContent(/Confirmed by client · Sep 12, 3:05 PM EDT/);
     // On the Status row, beside the status.
     expect(badge.parentElement).toHaveTextContent("Status:");
     unmount();

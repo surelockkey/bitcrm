@@ -5,7 +5,7 @@ import type { Deal } from "@bitcrm/types";
 import type { DirectoryUser } from "@/features/deals/hooks";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { DEFAULT_TZ } from "@/lib/timezone";
+import { DEFAULT_TZ, withZone } from "@/lib/timezone";
 import { personName } from "../person-name";
 import { techColor } from "../tech-color";
 import { workizDateTime } from "../schedule-cell";
@@ -103,7 +103,7 @@ function Mark({
   tone: string;
   children: React.ReactNode;
 }) {
-  const stamp = workizDateTime(at, DEFAULT_TZ);
+  const stamp = withZone(workizDateTime(at, DEFAULT_TZ), at);
   const says = stamp ? `${label} · ${stamp}` : label;
   // Its own provider: the cell is rendered from a table, a dialog and a test,
   // and none of them should have to know a tooltip lives in here. Nesting one

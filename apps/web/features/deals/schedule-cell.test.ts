@@ -54,7 +54,8 @@ describe("workizScheduleCell — Workiz's Scheduled cell", () => {
     );
     expect(cell).toEqual({
       when: "Thu Oct 08, 2026 09:00 am",
-      area: { place: "Princeton", when: "Thu Oct 08, 2026 08:00 am" },
+      abbr: "EDT",
+      area: { place: "Princeton", when: "Thu Oct 08, 2026 08:00 am", abbr: "CDT" },
       relative: "in 26 minutes",
       past: false,
     });
@@ -94,6 +95,47 @@ describe("workizScheduleCell — Workiz's Scheduled cell", () => {
       area: null,
       relative: null,
       past: false,
+      abbr: "",
     });
+  });
+});
+
+/**
+ * 2026-10-12 owner rule: every time on the web is on Connecticut's clock and
+ * says so. The cell carries each line's zone label beside its clock — the
+ * account line's (EDT/EST) and the area line's own (CDT…) — so the list can
+ * print "Thu Oct 08, 2026 09:00 am EDT" over "Princeton: … 08:00 am CDT".
+ */
+describe("workizScheduleCell — the zone of each line", () => {
+  const now = new Date("2026-10-08T12:34:00.000Z");
+
+  it("a Texas visit in summer: EDT on the account line, CDT on the area line", () => {
+    const cell = workizScheduleCell(
+      { scheduledDate: "2026-10-08", scheduledTimeSlot: "08:00-09:00", city: "Princeton", zone: "America/Chicago" },
+      ACCOUNT,
+      now,
+    );
+    expect(cell.abbr).toBe("EDT");
+    expect(cell.area).toEqual({ place: "Princeton", when: "Thu Oct 08, 2026 08:00 am", abbr: "CDT" });
+  });
+
+  it("a winter visit reads EST (and CST beside it)", () => {
+    const cell = workizScheduleCell(
+      { scheduledDate: "2026-12-01", scheduledTimeSlot: "09:00-10:00", city: "Austin", zone: "America/Chicago" },
+      ACCOUNT,
+      now,
+    );
+    expect(cell).toMatchObject({ when: "Tue Dec 01, 2026 10:00 am", abbr: "EST" });
+    expect(cell.area?.abbr).toBe("CST");
+  });
+
+  it("a Connecticut visit has its label and no second line", () => {
+    const cell = workizScheduleCell({ scheduledDate: "2026-10-08", scheduledTimeSlot: "10:00-12:00", zone: ACCOUNT }, ACCOUNT, now);
+    expect(cell).toMatchObject({ when: "Thu Oct 08, 2026 10:00 am", abbr: "EDT", area: null });
+  });
+
+  it("a day with no time is a calendar day — no label; Unscheduled has none either", () => {
+    expect(workizScheduleCell({ scheduledDate: "2026-10-10" }, ACCOUNT, now).abbr).toBe("");
+    expect(workizScheduleCell({}, ACCOUNT, now).abbr).toBe("");
   });
 });

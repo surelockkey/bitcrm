@@ -97,9 +97,13 @@ vi.mock("@/features/clients/hooks", () => ({
 vi.mock("@/features/technicians/hooks", () => ({
   useAllTechnicians: () => ({ profiles: [{ userId: "t1" }], isLoading: false }),
 }));
-vi.mock("@/features/service-areas/hooks", () => ({
-  useServiceAreas: () => ({ data: mocks.areas }),
-}));
+vi.mock("@/features/service-areas/hooks", async () => {
+  const { jobZoneResolver } = await import("@/features/service-areas/lib");
+  return {
+    useServiceAreas: () => ({ data: mocks.areas }),
+    useJobZoneOf: () => jobZoneResolver(mocks.areas as never),
+  };
+});
 vi.mock("@/features/job-types/hooks", () => ({ useJobTypes: () => ({ data: [] }) }));
 vi.mock("@/features/job-types/lib", () => ({ useJobTypesLoading: () => false, activeJobTypes: () => [], useJobTypeName: () => () => "Lockout" }));
 vi.mock("@/features/job-tags/hooks", () => ({

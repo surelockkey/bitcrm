@@ -161,7 +161,7 @@ const message = (over: Record<string, unknown>) => ({
   ...over,
 });
 
-import { DealTimelinePanel } from "./deal-timeline-panel";
+import { DealTimelinePanel, EntryRow, useTimelineLookups } from "./deal-timeline-panel";
 
 /** The rail's Timeline icon: Workiz opens the panel on Activities. */
 const openPanel = () => fireEvent.click(screen.getByRole("button", { name: /^timeline$/i }));
@@ -312,7 +312,7 @@ describe("DealTimelinePanel — history, filters, search", () => {
 
     expect(screen.getByRole("combobox", { name: /timeline filter/i })).toHaveTextContent("Activities (1)");
     expect(
-      screen.getByText("Rescheduled job from Wed Oct 07 2026 8:30 am - 9:00 am to Thu Oct 08 2026 6:00 pm - 7:00 pm"),
+      screen.getByText("Rescheduled job from Wed Oct 07 2026 8:30 am - 9:00 am EDT to Thu Oct 08 2026 6:00 pm - 7:00 pm EDT"),
     ).toBeInTheDocument();
   });
 
@@ -322,6 +322,62 @@ describe("DealTimelinePanel — history, filters, search", () => {
     openPanel();
 
     expect(screen.getByText("a day ago")).toHaveAttribute("title");
+  });
+});
+
+/**
+ * 2026-10-12 owner rule: every time on the web is on Connecticut's clock and
+ * names its zone — the staff read it from Ukraine, where the browser's own
+ * clock is the wrong one.
+ */
+describe("DealTimelinePanel — Connecticut time, labelled", () => {
+  it("the hover on a row's time is Connecticut's, with EDT / EST", () => {
+    timeline.entries = [
+      entry({ id: "s", eventType: TimelineEventType.FIELD_UPDATED, timestamp: "2026-08-01T10:00:00.000Z", details: { field: "priority", oldValue: "normal", newValue: "urgent" } }),
+      entry({ id: "w", eventType: TimelineEventType.FIELD_UPDATED, timestamp: "2026-12-01T15:00:00.000Z", details: { field: "priority", oldValue: "urgent", newValue: "normal" } }),
+    ];
+    render(<DealTimelinePanel dealId="d1" canEdit />);
+    openPanel();
+
+    expect(screen.getByTitle("Sat Aug 01, 2026 06:00 am EDT")).toBeInTheDocument();
+    expect(screen.getByTitle("Tue Dec 01, 2026 10:00 am EST")).toBeInTheDocument();
+  });
+
+  it("a logged moment in a change line is Connecticut's, labelled", () => {
+    timeline.entries = [
+      entry({ eventType: TimelineEventType.FIELD_UPDATED, details: { field: "followUpAt", oldValue: null, newValue: "2026-09-30T14:00:00.000Z" } }),
+    ];
+    render(<DealTimelinePanel dealId="d1" canEdit />);
+    openPanel();
+
+    expect(screen.getByText(/followUpAt: — → Sep 30, 2026, 10:00 AM EDT/)).toBeInTheDocument();
+  });
+
+  it("a Texas job's reschedule is written on Connecticut's clock", () => {
+    timeline.entries = [
+      entry({ id: "r1", eventType: TimelineEventType.FIELD_UPDATED, timestamp: "2026-10-08T15:00:01.000Z", details: { field: "scheduledTimeSlot", oldValue: "08:30-09:00", newValue: "17:00-18:00" } }),
+    ];
+    render(<DealTimelinePanel dealId="d1" canEdit schedule={{ date: "2026-10-08", slot: "17:00-18:00" }} zone="America/Chicago" />);
+    openPanel();
+
+    expect(
+      screen.getByText("Rescheduled job from Thu Oct 08 2026 9:30 am - 10:00 am EDT to Thu Oct 08 2026 6:00 pm - 7:00 pm EDT"),
+    ).toBeInTheDocument();
+  });
+
+  it("a history row (the client card's) says when on Connecticut's clock, labelled", () => {
+    function Row({ at }: { at: string }) {
+      const lookups = useTimelineLookups([]);
+      return (
+        <ol>
+          <EntryRow entry={entry({ timestamp: at, note: "Called" })} lookups={lookups} actor="Olha" />
+        </ol>
+      );
+    }
+    const { rerender } = render(<Row at="2026-08-01T10:00:00.000Z" />);
+    expect(screen.getByText("Aug 1, 6:00 AM EDT · Olha")).toBeInTheDocument();
+    rerender(<Row at="2026-12-02T03:30:00.000Z" />);
+    expect(screen.getByText("Dec 1, 10:30 PM EST · Olha")).toBeInTheDocument();
   });
 
   it("filters the timeline down to notes", async () => {
@@ -847,7 +903,7 @@ describe("DealTimelinePanel — what the client did on the portal reads like Wor
       }),
     );
     expect(
-      screen.getByText("Rescheduled job from Wed Oct 07 2026 5:00 pm - 6:00 pm to Thu Oct 08 2026 8:00 am - 9:00 am"),
+      screen.getByText("Rescheduled job from Wed Oct 07 2026 5:00 pm - 6:00 pm EDT to Thu Oct 08 2026 8:00 am - 9:00 am EDT"),
     ).toBeInTheDocument();
   });
 });

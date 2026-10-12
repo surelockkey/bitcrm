@@ -5,6 +5,7 @@ import { Popover } from "radix-ui";
 import { ChevronDown, X } from "lucide-react";
 import { WzFilterChip } from "@/components/workiz";
 import { cn } from "@/lib/utils";
+import { ctToday } from "@/lib/timezone";
 import { tagSolidClasses } from "@/features/job-tags/lib";
 import { techColor } from "../tech-color";
 import {
@@ -279,11 +280,8 @@ export function JobsFilterControl({
  * a second popover over itself.
  */
 function ScheduledStrip({ state, onChange }: { state: JobsListState; onChange: (next: JobsListState) => void }) {
-  const today = useMemo(() => {
-    const d = new Date();
-    const p = (n: number) => String(n).padStart(2, "0");
-    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-  }, []);
+  // Connecticut's today, not the browser's (2026-10-12 owner rule).
+  const today = useMemo(() => ctToday(), []);
   const field =
     "h-8 rounded-[4px] border border-[#9ea6aa] bg-background px-2 text-[13px] text-foreground outline-none focus:border-[#6aa8ee] disabled:opacity-50";
   const heading = "text-[10.5px] leading-4 font-medium tracking-[0.4px] text-[#999999] uppercase";

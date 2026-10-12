@@ -25,8 +25,26 @@ describe("WzScheduleBlock — card (New Job 'Scheduled')", () => {
     expect(screen.queryByText(/It's/)).not.toBeInTheDocument();
     rerender(<WzScheduleBlock layout="card" value={value} onChange={vi.fn()} tz="America/Chicago" place="Princeton" />);
     const clock = screen.getByTestId("wz-time-notice");
-    expect(clock).toHaveTextContent(/^It's \d{1,2}:\d{2} (AM|PM) in Princeton$/);
+    expect(clock).toHaveTextContent(/^It's \d{1,2}:\d{2} (AM|PM) C[DS]T in Princeton$/);
     expect(within(clock).getByText(/\d{1,2}:\d{2} (AM|PM)/).tagName).toBe("B");
+  });
+
+  /** 2026-10-12 owner rule: a clock always names its zone — "It's 7:53 AM CDT in Princeton". */
+  it("names the zone of the job's clock", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date("2026-10-08T12:53:00.000Z"));
+      const { unmount } = render(
+        <WzScheduleBlock layout="card" value={value} onChange={vi.fn()} tz="America/Chicago" place="Princeton" />,
+      );
+      expect(screen.getByTestId("wz-time-notice")).toHaveTextContent("It's 7:53 AM CDT in Princeton");
+      unmount();
+      vi.setSystemTime(new Date("2026-12-01T15:05:00.000Z"));
+      render(<WzScheduleBlock layout="card" value={value} onChange={vi.fn()} place="Norwich" />);
+      expect(screen.getByTestId("wz-time-notice")).toHaveTextContent("It's 10:05 AM EST in Norwich");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("changing a time goes through the shared schedule rules", async () => {
@@ -86,5 +104,23 @@ describe("WzScheduleBlock — section (job page 'Schedule')", () => {
     render(<WzScheduleBlock layout="section" value={value} onChange={vi.fn()} disabled />);
     expect(screen.getByRole("switch", { name: "Schedule" })).toBeDisabled();
     expect(screen.getByRole("checkbox", { name: "All-day event" })).toBeDisabled();
+  });
+
+  /**
+   * 2026-10-12: the inputs hold the visit as stored — on the clock of the zone
+   * it was booked in — while every other time on the web is Connecticut's. A
+   * job booked elsewhere says which clock its inputs are on.
+   */
+  it("says which zone the times are in when it is not Connecticut's", () => {
+    const { rerender } = render(<WzScheduleBlock layout="section" value={value} onChange={vi.fn()} tz="America/Chicago" />);
+    expect(screen.getByTestId("wz-zone-notice")).toHaveTextContent("Times in CDT");
+    rerender(
+      <WzScheduleBlock layout="section" value={{ ...value, date: "2026-12-01" }} onChange={vi.fn()} tz="America/Chicago" />,
+    );
+    expect(screen.getByTestId("wz-zone-notice")).toHaveTextContent("Times in CST");
+    rerender(<WzScheduleBlock layout="section" value={value} onChange={vi.fn()} tz="America/New_York" />);
+    expect(screen.queryByTestId("wz-zone-notice")).not.toBeInTheDocument();
+    rerender(<WzScheduleBlock layout="section" value={value} onChange={vi.fn()} />);
+    expect(screen.queryByTestId("wz-zone-notice")).not.toBeInTheDocument();
   });
 });

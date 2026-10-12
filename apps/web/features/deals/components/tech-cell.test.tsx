@@ -103,9 +103,15 @@ describe("TechCell", () => {
         userMap={map}
       />,
     );
-    expect(screen.getByLabelText("Tech confirmed")).toHaveAccessibleDescription("Tech confirmed · Tue Sep 29, 2026 09:36 am");
-    expect(screen.getByLabelText("Sent to tech")).toHaveAccessibleDescription("Sent to tech · Tue Sep 29, 2026 11:57 am");
+    // On Connecticut's clock, its zone named (2026-10-12 owner rule).
+    expect(screen.getByLabelText("Tech confirmed")).toHaveAccessibleDescription("Tech confirmed · Tue Sep 29, 2026 09:36 am EDT");
+    expect(screen.getByLabelText("Sent to tech")).toHaveAccessibleDescription("Sent to tech · Tue Sep 29, 2026 11:57 am EDT");
     expect(screen.getByLabelText("Has a call")).toHaveAccessibleDescription("Has a call");
+  });
+
+  it("a winter stamp reads EST", () => {
+    render(<TechCell deal={deal({ techConfirmedAt: "2026-12-01T15:00:00.000Z" })} userMap={map} />);
+    expect(screen.getByLabelText("Tech confirmed")).toHaveAccessibleDescription("Tech confirmed · Tue Dec 01, 2026 10:00 am EST");
   });
 
   it("shows the call mark on a job nobody is assigned to", () => {

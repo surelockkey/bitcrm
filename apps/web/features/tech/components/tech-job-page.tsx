@@ -24,6 +24,7 @@ import { useAttachments } from "@/features/deals/attachments-hooks";
 import { dealTabHref, visibleDealTabs, type DealTab } from "@/features/deals/deal-tabs";
 import { useDeal, useMarkSeenOnOpen } from "@/features/deals/hooks";
 import { useJobPageData } from "@/features/deals/job-page-data";
+import { useJobZoneOf } from "@/features/service-areas/hooks";
 import { dealBalance, dealTabSublabel, jobChatPhone, jobClientName, jobDueDate, jobInvoicePill } from "@/features/deals/job-shell";
 import { jobOwnNumbers } from "@/features/deals/lib";
 import { DealAttachmentsTab } from "@/features/deals/components/deal-attachments-tab";
@@ -111,6 +112,8 @@ export function TechJobPage({
   usePageHistoryLabel(deal ? `Job (${deal.dealNumber})` : undefined);
   // Workiz "Viewed job in app": the assigned technician opening it marks it seen.
   useMarkSeenOnOpen(deal, me?.id);
+  // The zone the visit is booked in: the rail writes a reschedule on Connecticut's clock.
+  const zoneOf = useJobZoneOf();
 
   if (denied("deals", "view")) return <NoAccess entity="jobs" />;
 
@@ -239,6 +242,7 @@ export function TechJobPage({
             : undefined
         }
         schedule={{ date: deal.scheduledDate, slot: deal.scheduledTimeSlot, allDay: deal.allDay }}
+        zone={zoneOf(deal)}
       />
     </div>
   );

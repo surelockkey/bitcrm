@@ -13,7 +13,7 @@ import { WZ_MENU_POPUP, WZ_MENU_POPUP_ITEM } from "@/components/workiz/menu-popu
 import { wzPill } from "@/components/workiz/pill";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { useMoveStatus } from "@/features/deals/hooks";
-import { clockInTz } from "@/lib/timezone";
+import { clockInTz, withZone } from "@/lib/timezone";
 import { techActionState } from "../lib";
 import {
   currentPosition,
@@ -193,14 +193,14 @@ export function TechActions({ deal }: { deal: Deal }) {
   if (!state.canConfirm && deal.techConfirmedAt) {
     stamps.push(
       <Stamp key="confirmed" icon={<CheckCheck />}>
-        Confirmed at {clockInTz(deal.techConfirmedAt)}
+        Confirmed at {withZone(clockInTz(deal.techConfirmedAt), deal.techConfirmedAt)}
       </Stamp>,
     );
   }
   if (!state.canArrive && deal.arrivedAt) {
     stamps.push(
       <Stamp key="arrived" icon={<MapPinCheck />}>
-        Arrived at {clockInTz(deal.arrivedAt)}
+        Arrived at {withZone(clockInTz(deal.arrivedAt), deal.arrivedAt)}
       </Stamp>,
     );
   }

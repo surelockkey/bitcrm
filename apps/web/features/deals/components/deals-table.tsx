@@ -14,7 +14,6 @@ import {
   formatPhoneWithExtension,
   primaryEmail,
 } from "@/features/clients/lib";
-import { formatDate } from "@/features/users/lib";
 import { useJobTypeName, useJobTypesLoading } from "@/features/job-types/lib";
 import { useJobSourceName } from "@/features/job-sources/lib";
 import { useExternalCompanyName } from "@/features/external-companies/lib";
@@ -36,13 +35,14 @@ import {
 import {
   SEND_TO_TECH_CHANNEL_LABEL,
   dealClientName,
+  formatCreatedDay,
   formatStamp,
   isTerminalStatus,
   isUrgent,
   jobFirstPhone,
 } from "../lib";
 import { personName } from "../person-name";
-import { workizFromNow, workizScheduleCell } from "../schedule-cell";
+import { labelled, workizFromNow, workizScheduleCell } from "../schedule-cell";
 import type { JobsSort } from "../query-params";
 import { TechCell } from "./tech-cell";
 import { ClientConfirmedCell } from "./client-confirmed-badge";
@@ -363,7 +363,7 @@ export function DealsTable({
           accountZone,
           now,
         );
-        return <span>{d.scheduledDate ? end.when : ""}</span>;
+        return <span>{d.scheduledDate ? labelled(end.when, end.abbr) : ""}</span>;
       }
       case "timeInStatus":
         // Workiz's Time in Status: how long since the job entered its status.
@@ -416,7 +416,7 @@ export function DealsTable({
       case "createdBy":
         return <span>{userName(d.createdBy)}</span>;
       case "createdAt":
-        return <span>{formatDate(d.createdAt)}</span>;
+        return <span>{formatCreatedDay(d.createdAt)}</span>;
       default: {
         const cfId = customFieldIdFromColumn(columnId);
         return <span>{formatCustomFieldValue(cfId ? d.customFields?.[cfId] : undefined)}</span>;
@@ -625,12 +625,12 @@ function ScheduledCell({
             {stop}
           </span>
         ) : null}
-        {c.when}
+        {labelled(c.when, c.abbr)}
       </div>
       {c.area ? (
         <div className="mt-[3px] text-[11px] leading-[13px] whitespace-nowrap text-[#3b4b52]">
           <div>{c.area.place}:</div>
-          <div>{c.area.when}</div>
+          <div>{labelled(c.area.when, c.area.abbr)}</div>
         </div>
       ) : null}
       {c.relative && !quiet ? (

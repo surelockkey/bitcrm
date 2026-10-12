@@ -10,9 +10,13 @@
  * booked in — the job's own (`jobTimezone`, from Workiz) or its service
  * area's — so the account line is a conversion and the area line is the
  * stored time as it is.
+ *
+ * 2026-10-12 (owner): each clock line names its zone — "… 09:00 am EDT",
+ * the area line "… 08:00 am CDT". The cell hands the labels beside the
+ * text (`abbr`, `area.abbr`) so a caller that only wants the clock keeps it.
  */
 
-import { offsetAt, zonedInstant } from "@/lib/timezone";
+import { offsetAt, zoneAbbr, zonedInstant } from "@/lib/timezone";
 
 const pad = (n: number) => String(n).padStart(2, "0");
 
@@ -90,9 +94,17 @@ export interface ScheduleCellInput {
 
 export interface ScheduleCell {
   when: string;
-  area: { place: string; when: string } | null;
+  /** `when`'s zone label ("EDT"/"EST"); "" for a calendar day or no visit. */
+  abbr: string;
+  /** `abbr`: the job's own zone label ("CDT"). */
+  area: { place: string; when: string; abbr: string } | null;
   relative: string | null;
   past: boolean;
+}
+
+/** "Thu Oct 08, 2026 09:00 am EDT" — a cell line with its zone label, when it has one. */
+export function labelled(when: string, abbr: string): string {
+  return abbr ? `${when} ${abbr}` : when;
 }
 
 export function workizScheduleCell(
@@ -101,17 +113,17 @@ export function workizScheduleCell(
   now: Date = new Date(),
 ): ScheduleCell {
   const date = input.scheduledDate;
-  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return { when: "Unscheduled", area: null, relative: null, past: false };
+  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return { when: "Unscheduled", abbr: "", area: null, relative: null, past: false };
   const zone = input.zone || accountZone;
   const start = input.scheduledTimeSlot?.split("-")[0]?.trim();
   const timed = !!start && /^\d{2}:\d{2}$/.test(start);
   const instant = zonedInstant(date, timed ? start! : "00:00", zone);
   const past = instant.getTime() < now.getTime();
   const relative = workizFromNow(instant, now);
-  if (!timed) return { when: workizDay(date), area: null, relative, past };
+  if (!timed) return { when: workizDay(date), abbr: "", area: null, relative, past };
 
   const when = workizStamp(instant, accountZone);
   const own = workizStamp(instant, zone);
-  const area = own !== when ? { place: input.city || "", when: own } : null;
-  return { when, area, relative, past };
+  const area = own !== when ? { place: input.city || "", when: own, abbr: zoneAbbr(instant, zone) } : null;
+  return { when, abbr: zoneAbbr(instant, accountZone), area, relative, past };
 }

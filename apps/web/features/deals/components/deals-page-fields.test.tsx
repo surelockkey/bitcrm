@@ -57,7 +57,10 @@ vi.mock("@/features/clients/hooks", () => ({
 vi.mock("@/features/technicians/hooks", () => ({
   useAllTechnicians: () => ({ profiles: [], isLoading: false }),
 }));
-vi.mock("@/features/service-areas/hooks", () => ({ useServiceAreas: () => ({ data: [] }) }));
+vi.mock("@/features/service-areas/hooks", () => ({
+  useServiceAreas: () => ({ data: [] }),
+  useJobZoneOf: () => (job: { jobTimezone?: string }) => job.jobTimezone || "America/New_York",
+}));
 vi.mock("@/features/job-types/hooks", () => ({ useJobTypes: () => ({ data: [] }) }));
 vi.mock("@/features/job-types/lib", () => ({
   useJobTypesLoading: () => false,
@@ -209,6 +212,16 @@ describe("DealsPage date filtering — schedule only", () => {
     for (const label of ["Yesterday", "Last 7 days", "Last 30 days", "This month", "Last month", "This year"]) {
       expect(screen.queryByRole("button", { name: label })).not.toBeInTheDocument();
     }
+  });
+
+  /** 2026-10-12 owner rule: "today" is Connecticut's, not the browser's (the staff sit in Ukraine). */
+  it("Today is Connecticut's day, even when the browser's has already turned", () => {
+    // 02:30Z on Aug 28 is 10:30 PM EDT on the 27th — already the 28th in Kyiv and in UTC.
+    vi.setSystemTime(new Date("2026-08-28T02:30:00.000Z"));
+    render(<DealsPage />);
+    openFilter();
+    fireEvent.click(screen.getByRole("button", { name: "Today" }));
+    expect(lastPageParams()).toMatchObject({ scheduledFrom: "2026-08-27", scheduledTo: "2026-08-27" });
   });
 });
 
