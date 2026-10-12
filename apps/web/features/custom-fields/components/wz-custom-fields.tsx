@@ -366,21 +366,51 @@ function FieldControl(props: ControlProps) {
  * presigned flow and the answer keeps the attachment ids; on a new one the
  * files are held via `onPendingFiles` until the job exists.
  */
-function FileControl({ field, value, onChange, disabled, dealId, contactId, pendingFiles, onPendingFiles, missing }: ControlProps) {
-  // A stored answer may be one legacy id or a list.
-  const ids = useMemo(
-    () => (Array.isArray(value) ? value.map(String) : typeof value === "string" && value ? [value] : []),
-    [value],
-  );
+/** A stored answer may be one legacy id or a list. */
+function answerIds(value: CustomFieldValue | undefined): string[] {
+  return Array.isArray(value) ? value.map(String) : typeof value === "string" && value ? [value] : [];
+}
+
+/**
+ * A file field's thumbnails come from the job's files, or — a client's field
+ * on the client card (`contactId`, no job) — from the client's own files.
+ * Two components, so each asks only its own side.
+ */
+function FileControl(props: ControlProps) {
+  const client = !props.dealId && !props.onPendingFiles && Boolean(props.contactId);
+  return client ? <ClientFileControl {...props} /> : <JobFileControl {...props} />;
+}
+
+function JobFileControl(props: ControlProps) {
+  const ids = useMemo(() => answerIds(props.value), [props.value]);
+  const deferred = !props.dealId && Boolean(props.onPendingFiles);
+  const urls = useAttachmentUrls(props.dealId ?? "", deferred || !props.dealId ? [] : ids);
+  return <FileControlBody {...props} ids={ids} urls={urls} client={false} />;
+}
+
+function ClientFileControl(props: ControlProps) {
+  const ids = useMemo(() => answerIds(props.value), [props.value]);
+  const urls = useContactFileUrls(props.contactId ?? "", ids);
+  return <FileControlBody {...props} ids={ids} urls={urls} client />;
+}
+
+function FileControlBody({
+  field,
+  onChange,
+  disabled,
+  dealId,
+  contactId,
+  pendingFiles,
+  onPendingFiles,
+  missing,
+  ids,
+  urls,
+  client,
+}: ControlProps & { ids: string[]; urls: { data?: { downloadUrl: string } }[]; client: boolean }) {
   const held = pendingFiles ?? [];
   const deferred = !dealId && Boolean(onPendingFiles);
-  // A client's field: no job to hang the file on — it is the client's own file.
-  const client = !dealId && !deferred && Boolean(contactId);
   const [uploading, setUploading] = useState(false);
   const preview = useFilePreviewStore((s) => s.preview);
-  const dealUrls = useAttachmentUrls(dealId ?? "", deferred || !dealId ? [] : ids);
-  const clientUrls = useContactFileUrls(contactId ?? "", client ? ids : []);
-  const urls = client ? clientUrls : dealUrls;
   const heldUrls = useObjectUrls(held);
 
   if (!dealId && !onPendingFiles && !client) {
