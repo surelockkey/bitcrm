@@ -166,7 +166,9 @@ describe('Activity — what a row prints', () => {
       'Item price updated: Service Call — 45.00 → 35.00',
     ],
     [TimelineEventType.PRODUCT_UPDATED, { productName: 'Parts', changes: { quantity: { from: 1, to: 2 } } }, 'Update job details'],
-    [TimelineEventType.SENT_TO_TECH, { channels: ['sms', 'in_app'] }, 'Sent to tech by SMS, In App'],
+    // Workiz joins two channels with " & " ("Sent to tech by SMS & Email", 1,683 rows).
+    [TimelineEventType.SENT_TO_TECH, { channels: ['sms', 'email'] }, 'Sent to tech by SMS & Email'],
+    [TimelineEventType.SENT_TO_TECH, { channels: ['in_app'] }, 'Sent to tech by In App'],
     [TimelineEventType.SEEN_BY_TECH, {}, 'Viewed job in app'],
     [TimelineEventType.ATTACHMENT_ADDED, {}, 'Saved Attachment'],
     [TimelineEventType.PAYMENT_RECEIVED, { amount: 349.89, method: 'cash' }, 'Added payment 349.89 in Cash'],
@@ -182,6 +184,42 @@ describe('Activity — what a row prints', () => {
     [TimelineEventType.ESTIMATE_STATUS_CHANGED, { number: '8HNU0Y-6', to: 'declined' }, 'Updated estimate 8HNU0Y-6 status to Declined'],
     [TimelineEventType.ESTIMATE_STATUS_CHANGED, { number: '8HNU0Y-6', signed: true }, 'Client signed estimate'],
     [TimelineEventType.TECH_ARRIVED, {}, 'Arrived at location'],
+    // C8 (2026-10-12): the rest of Workiz's sentences, off its log and the job's Timeline
+    // (job_b_03_rail0): "Tech Assigned - (2) TX - Daniel Munoz", "Tech Unassigned - (2) TX -
+    // Samer Alkofahi", "Rescheduled job from Wed Oct 07 2026 5:00 pm - 6:00 pm to Thu Oct 08 2026
+    // 8:00 am - 9:00 am", "Job name changed", "Client viewed invoice", "Client signed invoice",
+    // "Proposal Sent". The technician is named as written with the event (`techName`); a row
+    // written before that names nobody.
+    [TimelineEventType.TECH_ASSIGNED, { techId: 't1', techName: '(2) TX - Daniel Munoz' }, 'Tech Assigned - (2) TX - Daniel Munoz'],
+    [TimelineEventType.TECH_ASSIGNED, { techId: 't1' }, 'Tech Assigned'],
+    [TimelineEventType.TECH_UNASSIGNED, { previousTechId: 't2', techName: '(2) TX - Samer Alkofahi' }, 'Tech Unassigned - (2) TX - Samer Alkofahi'],
+    [TimelineEventType.TECH_UNASSIGNED, { previousTechId: 't2' }, 'Tech Unassigned'],
+    [
+      TimelineEventType.FIELD_UPDATED,
+      {
+        field: 'schedule',
+        oldValue: { date: '2026-10-07', endDate: '2026-10-07', slot: '17:00-18:00', allDay: null },
+        newValue: { date: '2026-10-08', endDate: '2026-10-08', slot: '08:00-09:00', allDay: null },
+      },
+      'Rescheduled job from Wed Oct 07 2026 5:00 pm - 6:00 pm to Thu Oct 08 2026 8:00 am - 9:00 am',
+    ],
+    [
+      TimelineEventType.FIELD_UPDATED,
+      { field: 'schedule', oldValue: { date: '2026-10-08', slot: '08:00-09:00' }, newValue: { date: null, slot: null } },
+      'Rescheduled job from Thu Oct 08 2026 8:00 am - 9:00 am to Unscheduled',
+    ],
+    [
+      TimelineEventType.FIELD_UPDATED,
+      { field: 'schedule', oldValue: { date: null }, newValue: { date: '2026-10-09', allDay: true } },
+      'Rescheduled job from Unscheduled to Fri Oct 09 2026',
+    ],
+    [TimelineEventType.FIELD_UPDATED, { field: 'jobName', oldValue: null, newValue: 'Front door' }, 'Job name changed'],
+    [TimelineEventType.INVOICE_VIEWED, { number: 'SGHDLK' }, 'Client viewed invoice'],
+    [TimelineEventType.ESTIMATE_VIEWED, {}, 'Client viewed estimate'],
+    [TimelineEventType.INVOICE_SIGNED, { number: 'SGHDLK' }, 'Client signed invoice'],
+    [TimelineEventType.ESTIMATE_APPROVED, { number: '8HNU0Y-6' }, 'Client signed estimate'],
+    [TimelineEventType.ESTIMATE_DECLINED, { number: '8HNU0Y-6' }, 'Client declined estimate'],
+    [TimelineEventType.PROPOSAL_SENT, {}, 'Proposal Sent'],
   ])('%s %j reads "%s"', (type, details, text) => {
     expect(nativeActivityText(type, details)).toBe(text);
   });

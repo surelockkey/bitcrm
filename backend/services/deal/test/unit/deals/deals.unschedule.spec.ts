@@ -121,7 +121,9 @@ describe('unscheduling a job', () => {
     expect(repo.update.mock.calls[0][1]).toMatchObject({ allDay: null });
   });
 
-  it('logs what was cleared and nothing that was already empty', async () => {
+  // One entry for the visit (Workiz's single "Rescheduled job from … to …", C8 2026-10-12):
+  // what it was — the parts that were already empty stay null — and that it is gone.
+  it('logs the visit that was cleared as one entry', async () => {
     const { service, repo, cache, timeline } = makeService();
     const existing = createMockDeal({ scheduledDate: '2026-10-08', scheduledTimeSlot: '08:00-09:00' });
     cache.get.mockResolvedValue(null);
@@ -131,11 +133,16 @@ describe('unscheduling a job', () => {
     await service.update('deal-1', { scheduledDate: null } as any, caller);
 
     const fields = timeline.addEntry.mock.calls
-      .map(([entry]: [{ eventType: string; details: { field: string } }]) => entry)
+      .map(([entry]: [{ eventType: string; details: Record<string, unknown> }]) => entry)
       .filter((e) => e.eventType === TimelineEventType.FIELD_UPDATED)
-      .map((e) => e.details.field)
-      .sort();
-    expect(fields).toEqual(['scheduledDate', 'scheduledTimeSlot']);
+      .map((e) => e.details);
+    expect(fields).toEqual([
+      {
+        field: 'schedule',
+        oldValue: { date: '2026-10-08', endDate: null, slot: '08:00-09:00', allDay: null },
+        newValue: { date: null, endDate: null, slot: null, allDay: null },
+      },
+    ]);
   });
 
   it("re-stamps the technicians' assignment rows as undated", async () => {
