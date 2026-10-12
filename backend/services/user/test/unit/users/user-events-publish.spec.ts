@@ -1,5 +1,6 @@
 import { Test } from '@nestjs/testing';
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+import { UserStatus } from '@bitcrm/types';
 import {
   CognitoAdminService,
   PermissionCacheReader,
@@ -100,6 +101,68 @@ describe('UsersService event publishing', () => {
       'user.invite-resent',
       expect.objectContaining({ userId: 'u1' }),
     );
+  });
+
+  describe('resendInvite when Cognito says no (each was a 500)', () => {
+    const cognitoError = (name: string) => Object.assign(new Error(name), { name });
+
+    it('makes the sign-in account of a user imported without one, which sends the first invitation', async () => {
+      repository.findById.mockResolvedValue(
+        createMockUser({
+          id: 'u1',
+          email: 'u1@test.com',
+          cognitoSub: undefined,
+          roleId: 'role-admin',
+          department: 'General',
+        }),
+      );
+      cognito.resendInvite.mockRejectedValue(cognitoError('UserNotFoundException'));
+      cognito.createUser.mockResolvedValue({
+        User: { Attributes: [{ Name: 'sub', Value: 'sub-new' }] },
+      });
+
+      await service.resendInvite('u1');
+
+      expect(cognito.createUser).toHaveBeenCalledWith('u1@test.com', {
+        'custom:role_id': 'role-admin',
+        'custom:department': 'General',
+        'custom:user_id': 'u1',
+      });
+      expect(repository.update).toHaveBeenCalledWith('u1', { cognitoSub: 'sub-new' });
+      expect(sns.publish).toHaveBeenCalledWith(
+        'user-events',
+        'user.invite-resent',
+        expect.objectContaining({ userId: 'u1' }),
+      );
+    });
+
+    it('says the invitation was already accepted, as a 409', async () => {
+      repository.findById.mockResolvedValue(createMockUser({ id: 'u1', email: 'u1@test.com' }));
+      cognito.resendInvite.mockRejectedValue(cognitoError('UnsupportedUserStateException'));
+
+      await expect(service.resendInvite('u1')).rejects.toThrow(ConflictException);
+      await expect(service.resendInvite('u1')).rejects.toThrow(/already accepted/i);
+      expect(cognito.createUser).not.toHaveBeenCalled();
+      expect(sns.publish).not.toHaveBeenCalledWith('user-events', 'user.invite-resent', expect.anything());
+    });
+
+    it('invites nobody to a deactivated account', async () => {
+      repository.findById.mockResolvedValue(
+        createMockUser({ id: 'u1', email: 'u1@test.com', status: UserStatus.INACTIVE }),
+      );
+
+      await expect(service.resendInvite('u1')).rejects.toThrow(BadRequestException);
+      expect(cognito.resendInvite).not.toHaveBeenCalled();
+      expect(cognito.createUser).not.toHaveBeenCalled();
+    });
+
+    it('lets any other failure through', async () => {
+      repository.findById.mockResolvedValue(createMockUser({ id: 'u1', email: 'u1@test.com' }));
+      cognito.resendInvite.mockRejectedValue(cognitoError('TooManyRequestsException'));
+
+      await expect(service.resendInvite('u1')).rejects.toThrow('TooManyRequestsException');
+      expect(cognito.createUser).not.toHaveBeenCalled();
+    });
   });
 
   it('createMockUser sanity (status active)', () => {

@@ -1,12 +1,13 @@
 import { Test } from '@nestjs/testing';
 import { UnauthorizedException } from '@nestjs/common';
-import { CognitoAuthService } from '@bitcrm/shared';
+import { CognitoAdminService, CognitoAuthService } from '@bitcrm/shared';
 import { AuthService } from '../../../src/auth/auth.service';
 import { MfaService } from '../../../src/mfa/mfa.service';
 
 describe('AuthService', () => {
   let service: AuthService;
   let cognitoAuth: Record<string, jest.Mock>;
+  let cognitoAdmin: Record<string, jest.Mock>;
   let mfa: Record<string, jest.Mock>;
 
   beforeEach(async () => {
@@ -27,10 +28,16 @@ describe('AuthService', () => {
       sendEmailCode: jest.fn(),
     };
 
+    cognitoAdmin = {
+      getUser: jest.fn(),
+      resendInvite: jest.fn().mockResolvedValue(undefined),
+    };
+
     const module = await Test.createTestingModule({
       providers: [
         AuthService,
         { provide: CognitoAuthService, useValue: cognitoAuth },
+        { provide: CognitoAdminService, useValue: cognitoAdmin },
         { provide: MfaService, useValue: mfa },
       ],
     }).compile();
@@ -212,6 +219,51 @@ describe('AuthService', () => {
       const result = await service.requestPasswordReset({ email: 'user@test.com' });
       expect(cognitoAuth.forgotPassword).toHaveBeenCalledWith('user@test.com');
       expect(result.message).toMatch(/if the account exists/i);
+    });
+
+    // Cognito will not reset the password of someone who never set one
+    // ("User password cannot be reset in the current state") — that was a 500.
+    const notResettable = () =>
+      Object.assign(new Error('User password cannot be reset in the current state.'), {
+        name: 'NotAuthorizedException',
+      });
+
+    it('re-sends the invitation to someone who never accepted it', async () => {
+      cognitoAuth.forgotPassword.mockRejectedValue(notResettable());
+      cognitoAdmin.getUser.mockResolvedValue({ status: 'FORCE_CHANGE_PASSWORD', enabled: true });
+
+      const result = await service.requestPasswordReset({ email: 'new@test.com' });
+
+      expect(cognitoAdmin.resendInvite).toHaveBeenCalledWith('new@test.com');
+      expect(result.message).toMatch(/if the account exists/i);
+    });
+
+    it('sends nothing to a switched-off account, and still answers the same', async () => {
+      cognitoAuth.forgotPassword.mockRejectedValue(notResettable());
+      cognitoAdmin.getUser.mockResolvedValue({ status: 'FORCE_CHANGE_PASSWORD', enabled: false });
+
+      const result = await service.requestPasswordReset({ email: 'sub@test.com' });
+
+      expect(cognitoAdmin.resendInvite).not.toHaveBeenCalled();
+      expect(result.message).toMatch(/if the account exists/i);
+    });
+
+    it('answers the same when the invitation cannot be re-sent either', async () => {
+      cognitoAuth.forgotPassword.mockRejectedValue(notResettable());
+      cognitoAdmin.getUser.mockResolvedValue({ status: 'FORCE_CHANGE_PASSWORD', enabled: true });
+      cognitoAdmin.resendInvite.mockRejectedValue(new Error('LimitExceededException'));
+
+      await expect(
+        service.requestPasswordReset({ email: 'new@test.com' }),
+      ).resolves.toEqual({ message: expect.stringMatching(/if the account exists/i) });
+    });
+
+    it('lets any other failure through', async () => {
+      cognitoAuth.forgotPassword.mockRejectedValue(new Error('Rate exceeded'));
+      await expect(service.requestPasswordReset({ email: 'user@test.com' })).rejects.toThrow(
+        'Rate exceeded',
+      );
+      expect(cognitoAdmin.resendInvite).not.toHaveBeenCalled();
     });
   });
 

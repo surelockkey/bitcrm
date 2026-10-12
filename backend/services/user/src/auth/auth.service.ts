@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { CognitoAuthService } from '@bitcrm/shared';
+import { CognitoAdminService, CognitoAuthService } from '@bitcrm/shared';
 import type {
   LoginResponse,
   LoginChallengeResponse,
@@ -24,6 +24,7 @@ export class AuthService {
   constructor(
     private readonly cognitoAuth: CognitoAuthService,
     private readonly mfa: MfaService,
+    private readonly cognitoAdmin: CognitoAdminService,
   ) {}
 
   async login(
@@ -74,9 +75,33 @@ export class AuthService {
     dto: PasswordResetRequestDto,
   ): Promise<{ message: string }> {
     this.logger.log(`Password reset requested for ${dto.email}`);
-    await this.cognitoAuth.forgotPassword(dto.email);
+    try {
+      await this.cognitoAuth.forgotPassword(dto.email);
+    } catch (error: unknown) {
+      if (!(error instanceof Error) || error.name !== 'NotAuthorizedException') {
+        throw error;
+      }
+      await this.inviteAgainIfNeverSignedIn(dto.email);
+    }
     // Always return the same response (no account enumeration).
     return { message: 'If the account exists, a reset code has been sent.' };
+  }
+
+  /**
+   * Cognito will not reset a password that was never set — the person is
+   * still on the invitation's temporary one. A fresh invitation (a new
+   * temporary password) is their way in. A switched-off account (deactivated,
+   * a subcontractor) gets nothing. Never throws: the answer stays the same.
+   */
+  private async inviteAgainIfNeverSignedIn(email: string): Promise<void> {
+    try {
+      const account = await this.cognitoAdmin.getUser(email);
+      if (account?.status !== 'FORCE_CHANGE_PASSWORD' || !account.enabled) return;
+      await this.cognitoAdmin.resendInvite(email);
+      this.logger.log(`Password reset for ${email}, who never signed in: invitation re-sent`);
+    } catch (err) {
+      this.logger.warn(`Could not re-send the invitation to ${email}: ${(err as Error).message}`);
+    }
   }
 
   async confirmPasswordReset(

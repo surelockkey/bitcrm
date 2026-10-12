@@ -846,9 +846,39 @@ export class UsersService implements OnModuleInit {
         'A subcontractor cannot sign in, so there is no invitation to send. Make them a User first.',
       );
     }
-    await this.cognitoAdmin.resendInvite(user.email);
+    if (user.status === UserStatus.INACTIVE) {
+      throw new BadRequestException(
+        'This user is deactivated, so there is no invitation to send. Reactivate them first.',
+      );
+    }
+    try {
+      await this.cognitoAdmin.resendInvite(user.email);
+    } catch (error: unknown) {
+      const name = error instanceof Error ? error.name : '';
+      if (name === 'UnsupportedUserStateException') {
+        throw new ConflictException(
+          `${user.email} has already accepted the invitation and set a password. ` +
+            'If it is forgotten, "Forgot password?" on the sign-in page emails a reset code.',
+        );
+      }
+      if (name !== 'UserNotFoundException') throw error;
+      // Imported from Workiz without a sign-in account: the first invitation makes one.
+      await this.createSignInAccount(user);
+    }
     this.logger.log(`Re-sent invitation email to ${user.email} (${id})`);
     this.publishUserEvent('user.invite-resent', user);
+  }
+
+  private async createSignInAccount(user: User): Promise<void> {
+    const result = await this.cognitoAdmin.createUser(user.email, {
+      'custom:role_id': user.roleId,
+      'custom:department': user.department,
+      'custom:user_id': user.id,
+    });
+    const cognitoSub = result.User?.Attributes?.find((a) => a.Name === 'sub')?.Value;
+    if (cognitoSub) await this.repository.update(user.id, { cognitoSub });
+    await this.cache.invalidateUser(user.id);
+    this.logger.log(`Made the sign-in account of ${user.id}, imported without one`);
   }
 
   // --- Role Assignment ---

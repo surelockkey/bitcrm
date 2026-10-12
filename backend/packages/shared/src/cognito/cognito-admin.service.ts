@@ -6,6 +6,7 @@ import {
   AdminDisableUserCommand,
   AdminEnableUserCommand,
   AdminDeleteUserCommand,
+  AdminGetUserCommand,
   type AdminCreateUserCommandOutput,
   type AttributeType,
 } from '@aws-sdk/client-cognito-identity-provider';
@@ -103,6 +104,29 @@ export class CognitoAdminService {
         Username: username,
       }),
     );
+  }
+
+  /**
+   * The account's sign-in state (`FORCE_CHANGE_PASSWORD` = invited, never
+   * signed in; `CONFIRMED` = has a password), or null when there is no account.
+   */
+  async getUser(
+    username: string,
+  ): Promise<{ status: string; enabled: boolean } | null> {
+    try {
+      const out = await this.client.send(
+        new AdminGetUserCommand({
+          UserPoolId: this.userPoolId,
+          Username: username,
+        }),
+      );
+      return { status: out.UserStatus ?? '', enabled: out.Enabled === true };
+    } catch (error: unknown) {
+      if (error instanceof Error && error.name === 'UserNotFoundException') {
+        return null;
+      }
+      throw error;
+    }
   }
 
   /**
