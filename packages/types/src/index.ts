@@ -43,7 +43,8 @@ export {
 } from './enums/custom-field-entity.enum';
 
 // Entities
-export { User, UserType, USER_TYPES, isSubcontractor } from './entities/user.entity';
+export { User, UserType, USER_TYPES, isSubcontractor, USER_ONLINE_WINDOW_SECONDS } from './entities/user.entity';
+export type { UserPresence } from './entities/user.entity';
 export {
   SecuritySettings,
   SecuritySettingsAuditEntry,

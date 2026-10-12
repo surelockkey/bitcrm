@@ -68,3 +68,19 @@ export interface User {
   createdAt: string;
   updatedAt: string;
 }
+
+/**
+ * Admin → Users "Online": a user counts as online while their last signed-in
+ * request — any page or call from the web (which also heart-beats once a
+ * minute while its tab is in view) or the app — is this recent.
+ */
+export const USER_ONLINE_WINDOW_SECONDS = 300;
+
+/** `GET /users/presence`: when one user last used the platform. */
+export interface UserPresence {
+  userId: string;
+  /** ISO time of their last signed-in request. */
+  lastSeenAt: string;
+  /** Within `USER_ONLINE_WINDOW_SECONDS` of the answer. */
+  online: boolean;
+}
