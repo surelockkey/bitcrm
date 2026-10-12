@@ -1,4 +1,4 @@
-import { DEFAULT_TIMEZONE } from '@bitcrm/types';
+import { DEFAULT_TIMEZONE, zoneAbbr } from '@bitcrm/types';
 import { type MaybeMaskedCall } from './call-masking';
 import { type CallPartyRef } from './party-resolver';
 import { formatTrackedNumber } from './tracking/call-tracking';
@@ -87,14 +87,19 @@ function ordinal(n: number): string {
   return `${n}${({ 1: 'st', 2: 'nd', 3: 'rd' } as Record<number, string>)[n % 10] ?? 'th'}`;
 }
 
-/** "Thu Oct 8th, 3:15PM" on the account clock — Workiz's `created`, the grid's Time. */
+/**
+ * "Thu Oct 8th, 3:15PM EDT" on the account clock — Workiz's `created`, the
+ * grid's Time — with the zone after the time (EDT / EST; 2026-10-12: the
+ * office reads every time in Connecticut, and says so).
+ */
 export function formatWzCallTime(iso: string | undefined, timeZone: string = DEFAULT_TIMEZONE): string {
   if (!iso) return '';
   const at = new Date(iso);
   if (Number.isNaN(at.getTime())) return '';
   const p: Record<string, string> = {};
   for (const part of formatter(timeZone).formatToParts(at)) p[part.type] = part.value;
-  return `${p.weekday} ${p.month} ${ordinal(Number(p.day))}, ${p.hour}:${p.minute}${p.dayPeriod}`;
+  const abbr = zoneAbbr(at, timeZone);
+  return `${p.weekday} ${p.month} ${ordinal(Number(p.day))}, ${p.hour}:${p.minute}${p.dayPeriod}${abbr ? ` ${abbr}` : ''}`;
 }
 
 /** A side as the grid draws it: the name, then the number (none when masked or a browser leg). */

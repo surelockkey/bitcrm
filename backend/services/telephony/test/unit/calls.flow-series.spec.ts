@@ -102,14 +102,40 @@ describe('CallsRepository.flowCallsByDay', () => {
     expect(input.FilterExpression).toContain('attribute_not_exists(internalLegOf)');
   });
 
-  it('walks each month of the window, bounded to its days', async () => {
+  it('walks each month of the window, bounded to its Connecticut days as instants', async () => {
     const { repo, sent } = makeRepo([{ Items: [] }]);
 
     await repo.flowCallsByDay({ from: '2026-08-25', to: '2026-09-05' });
 
     expect(sent.map((c) => c.input.ExpressionAttributeValues[':allPk'])).toEqual(['CALL#2026-09', 'CALL#2026-08']);
-    expect(sent[0].input.ExpressionAttributeValues[':skFrom']).toBe('2026-08-25');
-    expect(sent[0].input.ExpressionAttributeValues[':skTo'].startsWith('2026-09-05')).toBe(true);
+    // Aug 25 00:00 EDT .. the last millisecond of Sep 5 EDT — not the UTC days.
+    expect(sent[0].input.ExpressionAttributeValues[':skFrom']).toBe('2026-08-25T04:00:00.000Z');
+    expect(sent[0].input.ExpressionAttributeValues[':skTo'].startsWith('2026-09-06T03:59:59.999Z')).toBe(true);
+  });
+
+  it('a window ending on the last of a month reads the next UTC month too — its evening is there', async () => {
+    const { repo, sent } = makeRepo([{ Items: [] }]);
+
+    await repo.flowCallsByDay({ from: '2026-09-30', to: '2026-09-30' });
+
+    expect(sent.map((c) => c.input.ExpressionAttributeValues[':allPk'])).toEqual(['CALL#2026-10', 'CALL#2026-09']);
+  });
+
+  it('puts each call on its Connecticut day, never its UTC prefix', async () => {
+    const { repo } = makeRepo([
+      {
+        Items: [
+          // 22:30 EDT on Sep 14 is 02:30 UTC on Sep 15.
+          { flowName: 'SURE CT', startedAt: '2026-09-15T02:30:00.000Z' },
+          // Winter: 23:00 EST on Jan 15 is 04:00 UTC on Jan 16.
+          { flowName: 'SURE CT', startedAt: '2026-01-16T04:00:00.000Z' },
+        ],
+      },
+    ]);
+
+    const out = await repo.flowCallsByDay({ from: '2026-01-15', to: '2026-01-15' });
+
+    expect(out.byFlow).toEqual({ 'SURE CT': { '2026-09-14': 1, '2026-01-15': 1 } });
   });
 
   it('out of budget, the tally is a floor', async () => {
