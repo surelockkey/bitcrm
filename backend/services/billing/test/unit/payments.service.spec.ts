@@ -514,6 +514,53 @@ describe('PaymentsService — a receipt to the address typed on the phone (Worki
   });
 });
 
+describe("PaymentsService — a receipt's date is the day on the job's clock (owner, 2026-10-12)", () => {
+  const body = (messaging: { sendToContact: jest.Mock }) =>
+    (messaging.sendToContact.mock.calls[0] as unknown as [{ body: string }])[0].body;
+
+  it('a Connecticut payment at 9:30 pm EDT is still that day, not the next UTC one', async () => {
+    const ledger = fakeLedger([payment({ id: 'p1', amount: 40, method: 'cash', takenAt: '2026-09-23T01:30:00.000Z' })]);
+    const { service, messaging } = build({ ledger });
+    await service.sendReceipt('p1', caller(), 'Bearer abc');
+    expect(body(messaging)).toContain('received (cash) on 2026-09-22');
+  });
+
+  it("a Texas job's own jobTimezone decides the day", async () => {
+    const ledger = fakeLedger([payment({ id: 'p1', amount: 40, method: 'cash', takenAt: '2026-09-23T04:30:00.000Z' })]);
+    const { service, messaging, deal } = build({ ledger });
+    deal.getBillingView.mockResolvedValue(billingView({ jobTimezone: 'America/Chicago' }));
+    await service.sendReceipt('p1', caller(), 'Bearer abc');
+    expect(body(messaging)).toContain('on 2026-09-22'); // 23:30 CDT — already the 23rd in New York
+  });
+
+  it("else the service area's zone", async () => {
+    const ledger = fakeLedger([payment({ id: 'p1', amount: 40, method: 'cash', takenAt: '2026-09-23T04:30:00.000Z' })]);
+    const { service, messaging, deal } = build({ ledger });
+    deal.getBillingView.mockResolvedValue(billingView({ serviceAreaId: 'sa-tx' }));
+    deal.listServiceAreas.mockResolvedValue([{ id: 'sa-tx', name: 'Dallas', timezone: 'America/Chicago' }]);
+    await service.sendReceipt('p1', caller(), 'Bearer abc');
+    expect(body(messaging)).toContain('on 2026-09-22');
+  });
+
+  it('a declined card says the same day, and an unreadable area list falls back to Connecticut', async () => {
+    const ledger = fakeLedger([
+      payment({
+        id: 'p1',
+        status: 'failed',
+        channel: 'terminal',
+        amount: 60,
+        stripePaymentIntentId: 'pi_1',
+        takenAt: '2026-09-23T01:30:00.000Z',
+      }),
+    ]);
+    const { service, messaging, deal } = build({ ledger });
+    deal.getBillingView.mockResolvedValue(billingView({ serviceAreaId: 'sa-tx' }));
+    deal.listServiceAreas.mockRejectedValue(new Error('deal-service down'));
+    await service.sendReceipt('p1', caller(), 'Bearer abc');
+    expect(body(messaging)).toMatch(/^Payment declined: \$60\.00 for invoice K4T9ZW on 2026-09-22\./);
+  });
+});
+
 describe('PaymentsService — a declined card’s receipt (Tap to Pay on iPhone 5.5.8: a receipt whatever the outcome)', () => {
   const JOB = '6f1c2b8e-3d4a-4b5c-9e7f-0a1b2c3d4e5f';
   const tech = () => caller(DataScope.ASSIGNED_ONLY, { id: 'tech-1' });

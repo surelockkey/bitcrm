@@ -184,6 +184,17 @@ describe('DocumentContextBuilder', () => {
     expect(ctx.today).toBe('Sep 16, 2026');
   });
 
+  it("tells instants on the job's own clock: its jobTimezone wins over its area's (owner, 2026-10-12)", async () => {
+    jest.setSystemTime(new Date('2026-09-17T04:30:00.000Z')); // 00:30 Sep 17 in New York, 23:30 Sep 16 in Chicago
+    const texas = billingView({ jobTimezone: 'America/Chicago', serviceAreaId: 'sa-1', scheduledDate: '2026-09-20' });
+    const ctx = await builder.build('invoice', invoiceView(), texas, template());
+    expect(ctx.today).toBe('Sep 16, 2026');
+    expect(ctx.job?.scheduledDate).toBe('Sep 20, 2026'); // a date is never shifted
+
+    const hartford = await builder.build('invoice', invoiceView(), billingView({ serviceAreaId: 'sa-1' }), template());
+    expect(hartford.today).toBe('Sep 17, 2026');
+  });
+
   it('uses the deal client-name override and survives CRM being down', async () => {
     crm.getContact.mockRejectedValueOnce(new Error('crm down'));
     const view = billingView({ clientName: { firstName: 'Override', lastName: 'Name' } });

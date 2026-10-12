@@ -8,6 +8,7 @@ import { pdfCacheHash } from 'src/documents/pdf-cache';
 import { pdfS3Key } from 'src/common/constants/dynamo.constants';
 import { EstimateItemDto } from 'src/estimates/dto/estimate-item.dto';
 import { ProfileAddressDto } from 'src/business-profile/dto/update-business-profile.dto';
+import { jobTimezoneOf } from 'src/common/dates';
 
 const tpl = (over: Partial<DocumentTemplate>): DocumentTemplate =>
   ({
@@ -177,5 +178,35 @@ describe('EstimateItemDto', () => {
     expect(errorsFor(1)).toEqual([]);
     expect(errorsFor(2.5)).toEqual([]);
     expect(errorsFor(0.5)).toEqual(['quantity']);
+  });
+});
+
+describe("jobTimezoneOf — a job's clock (owner, 2026-10-12): jobTimezone, else its area's, else Connecticut", () => {
+  const areas = jest.fn(async () => [
+    { id: 'sa-tx', name: 'Dallas', timezone: 'America/Chicago' },
+    { id: 'sa-x', name: 'No zone' },
+  ]);
+  beforeEach(() => areas.mockClear());
+
+  it("takes the job's own zone without reading the areas", async () => {
+    expect(await jobTimezoneOf({ jobTimezone: 'America/Phoenix', serviceAreaId: 'sa-tx' }, areas)).toBe('America/Phoenix');
+    expect(areas).not.toHaveBeenCalled();
+  });
+
+  it("takes the area's zone when the job has none (or an unreadable one)", async () => {
+    expect(await jobTimezoneOf({ serviceAreaId: 'sa-tx' }, areas)).toBe('America/Chicago');
+    expect(await jobTimezoneOf({ jobTimezone: 'Mars/Olympus', serviceAreaId: 'sa-tx' }, areas)).toBe('America/Chicago');
+  });
+
+  it('falls back to Connecticut: no job, no area, an area without a zone, an area list that cannot be read', async () => {
+    expect(await jobTimezoneOf(undefined, areas)).toBe('America/New_York');
+    expect(await jobTimezoneOf({}, areas)).toBe('America/New_York');
+    expect(await jobTimezoneOf({ serviceAreaId: 'sa-x' }, areas)).toBe('America/New_York');
+    expect(
+      await jobTimezoneOf({ serviceAreaId: 'sa-tx' }, async () => {
+        throw new Error('down');
+      }),
+    ).toBe('America/New_York');
+    expect(areas).toHaveBeenCalledTimes(1);
   });
 });

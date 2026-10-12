@@ -29,6 +29,7 @@ import {
 import { isEmail } from 'class-validator';
 import { BusinessProfileService } from '../business-profile/business-profile.service';
 import { assertDealAccess, isAssignedOnly, type Caller } from '../common/access';
+import { dateIn, jobTimezoneOf } from '../common/dates';
 import { EstimatesService } from '../estimates/estimates.service';
 import { BillingEventsPublisher } from '../integrations/billing-events.publisher';
 import { CrmClient } from '../integrations/crm.client';
@@ -264,12 +265,21 @@ export class PaymentsService {
 
     // A job without an invoice (Workiz: payments belong to the job) is named by its number.
     const what = invoice ? `invoice ${invoice.number}` : `job ${view.deal.dealNumber}`;
+    // The day it was taken on the job's clock, not UTC's (owner, 2026-10-12).
+    const day = dateIn(
+      payment.takenAt,
+      await jobTimezoneOf(
+        { jobTimezone: view.deal.jobTimezone, serviceAreaId: view.deal.serviceAreaId ?? payment.serviceAreaId },
+        () => this.deal.listServiceAreas(),
+      ),
+    );
     const body = declined
-      ? declinedReceiptBody(payment, what)
+      ? declinedReceiptBody(payment, what, day)
       : receiptBody(
           payment,
           what,
           invoice ? invoice.totals?.balanceDue ?? 0 : await this.jobBalance(view, payment.invoiceId),
+          day,
         );
     const job = UUID.test(payment.dealId) ? { dealId: payment.dealId } : {};
 
@@ -793,8 +803,11 @@ function receiptTarget(request: PaymentReceiptRequest | undefined): PaymentRecei
   return { channel, to: value };
 }
 
-/** The receipt's text: what was received, what the card paid in all (tip, service fee), and what is still owed. */
-function receiptBody(payment: Payment, what: string, balanceDue: number): string {
+/**
+ * The receipt's text: what was received, what the card paid in all (tip, service fee), and what is still owed.
+ * `day` is the day it was taken on the job's clock (YYYY-MM-DD).
+ */
+function receiptBody(payment: Payment, what: string, balanceDue: number, day: string): string {
   const tip = payment.tipAmount ?? 0;
   const fee = payment.feeAmount ?? 0;
   const extras = [tip > 0 && `a $${tip.toFixed(2)} tip`, fee > 0 && `a $${fee.toFixed(2)} service fee`].filter(
@@ -806,7 +819,7 @@ function receiptBody(payment: Payment, what: string, balanceDue: number): string
   const refunded = (payment.refundedAmount ?? 0) > 0;
   return (
     `Receipt for ${what}: $${payment.amount.toFixed(2)} received ` +
-    `(${payment.method}) on ${payment.takenAt.slice(0, 10)}${inAll}` +
+    `(${payment.method}) on ${day}${inAll}` +
     (refunded ? ` $${(payment.refundedAmount ?? 0).toFixed(2)} of it has been refunded.` : '') +
     ` Balance due: $${balanceDue.toFixed(2)}.`
   );
@@ -841,12 +854,12 @@ function receiptKind(payment: Payment): 'paid' | 'declined' {
  * service fee included — the total the client saw), the card and Stripe's
  * reason when the row has them, and that nothing was taken.
  */
-function declinedReceiptBody(payment: Payment, what: string): string {
+function declinedReceiptBody(payment: Payment, what: string, day: string): string {
   const asked = round2(payment.amount + (payment.tipAmount ?? 0) + (payment.feeAmount ?? 0));
   const card = cardLabel(payment);
   const reason = asSentence(payment.failureReason);
   return (
-    `Payment declined: $${asked.toFixed(2)} for ${what} on ${payment.takenAt.slice(0, 10)}` +
+    `Payment declined: $${asked.toFixed(2)} for ${what} on ${day}` +
     (card ? ` (${card})` : '') +
     '. No money was taken.' +
     (reason ? ` Reason: ${reason}` : '')

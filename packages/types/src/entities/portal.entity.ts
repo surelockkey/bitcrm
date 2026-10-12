@@ -58,9 +58,17 @@ export interface PortalJob {
   id: string;
   number: string;
   kind: 'upcoming' | 'completed';
+  /** YYYY-MM-DD on the job's clock — a day, never an instant; shown as is. */
   scheduledDate?: string;
   scheduledEndDate?: string;
-  /** IANA zone of the job, for the "Add to calendar" link. */
+  /** "HH:MM-HH:MM", the visit window as stored (wall clock in `timezone`); absent on an all-day job. */
+  scheduledTimeSlot?: string;
+  allDay?: boolean;
+  /**
+   * The job's IANA zone — its `jobTimezone`, else its service area's, else
+   * America/New_York (owner, 2026-10-12). The window is told in it, with its
+   * abbreviation, and the "Add to calendar" file is built from it.
+   */
   timezone?: string;
   jobType?: string;
   /** One line. */
@@ -80,6 +88,8 @@ export interface PortalPaymentLine {
   estimateId?: string;
   cardBrand?: string;
   last4?: string;
+  /** The zone of the payment's job (its `jobTimezone`, else its area's, else New York) — `takenAt`'s day is told in it. */
+  timezone?: string;
 }
 
 /** GET /api/billing/public/portal/:token */

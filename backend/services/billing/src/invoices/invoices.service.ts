@@ -33,7 +33,7 @@ import {
   type DocumentVisibility,
 } from '@bitcrm/types';
 import { assertDealAccess, isAssignedOnly, type Caller } from '../common/access';
-import { isYmd, resolveTimezone, todayIn } from '../common/dates';
+import { isYmd, jobTimezoneOf, resolveTimezone, todayIn } from '../common/dates';
 import { standaloneDocumentNumber } from '../common/document-number';
 import { BusinessProfileService } from '../business-profile/business-profile.service';
 import { DocumentSettingsService } from '../documents/document-settings.service';
@@ -266,7 +266,7 @@ export class InvoicesService {
       this.profiles.get(deal.businessProfileId),
       this.crm.getContact(deal.contactId).catch(() => null),
       deal.companyId ? this.crm.getCompany(deal.companyId).catch(() => null) : Promise.resolve(null),
-      this.timezoneFor(deal.serviceAreaId),
+      this.timezoneFor(deal),
     ]);
 
     const now = new Date().toISOString();
@@ -686,7 +686,7 @@ export class InvoicesService {
     } else if (input.paymentTerms !== undefined || input.invoiceDate !== undefined) {
       const [profile, tz] = await Promise.all([
         this.profiles.get(view.deal.businessProfileId),
-        this.timezoneFor(view.deal.serviceAreaId),
+        this.timezoneFor(view.deal),
       ]);
       const terms = input.paymentTerms ?? invoice.paymentTerms;
       const days = this.termDaysFor(terms, invoice, profile.defaultCustomTermDays);
@@ -700,7 +700,7 @@ export class InvoicesService {
 
     const amountPaid = await this.ledgerAmountPaid(invoice.id);
     const totals = computeInvoiceTotals(view, { amountPaid });
-    const tz = await this.timezoneFor(view.deal.serviceAreaId);
+    const tz = await this.timezoneFor(view.deal);
     set.totals = totals;
     set.status = deriveInvoiceStatus({
       totals,
@@ -1189,7 +1189,7 @@ export class InvoicesService {
   ): Promise<Invoice> {
     const amountPaid = known ? known.amountPaid : await this.ledgerAmountPaid(invoice.id);
     const totals = computeInvoiceTotals(view, { amountPaid });
-    const tz = await this.timezoneFor(view.deal.serviceAreaId);
+    const tz = await this.timezoneFor(view.deal);
     const status: InvoiceStatus = deriveInvoiceStatus({
       totals,
       dueDate: invoice.dueDate,
@@ -1243,10 +1243,9 @@ export class InvoicesService {
     return view;
   }
 
-  private async timezoneFor(serviceAreaId?: string): Promise<string> {
-    if (!serviceAreaId) return resolveTimezone(undefined);
-    const areas = await this.deal.listServiceAreas().catch(() => []);
-    return resolveTimezone(areas.find((a) => a.id === serviceAreaId)?.timezone);
+  /** The job's clock — its `jobTimezone`, else its service area's, else Connecticut (owner, 2026-10-12). */
+  private timezoneFor(deal: { jobTimezone?: string; serviceAreaId?: string }): Promise<string> {
+    return jobTimezoneOf(deal, () => this.deal.listServiceAreas());
   }
 
   private daysFor(

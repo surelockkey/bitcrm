@@ -1,6 +1,6 @@
 import { NotFoundException, HttpException } from '@nestjs/common';
 import type { Estimate, Invoice } from '@bitcrm/types';
-import { PortalService } from 'src/portal/portal.service';
+import { PortalService, portalJobs } from 'src/portal/portal.service';
 import { PortalRateLimiter } from 'src/portal/portal-rate-limiter';
 import { LegacyPortalRedirectController } from 'src/portal/public-portal.controller';
 import { hashPortalToken } from 'src/portal/portal-token';
@@ -75,7 +75,7 @@ describe('PortalService', () => {
     declineByClient: jest.Mock;
   };
   let profiles: { getPublic: jest.Mock; listAll: jest.Mock };
-  let deals: { listByContact: jest.Mock };
+  let deals: { listByContact: jest.Mock; listServiceAreas?: jest.Mock };
   let service: PortalService;
 
   beforeEach(() => {
@@ -376,8 +376,112 @@ describe('PortalService', () => {
         invoiceId: 'deal-1',
         cardBrand: 'visa',
         last4: '4061',
+        timezone: 'America/New_York',
       });
       expect(view.payments[0]).toMatchObject({ estimateId: 'est-1', status: 'pending' });
+    });
+  });
+
+  describe("My Booking and the dates on the job's own clock (owner, 2026-10-12)", () => {
+    const row = (over: Record<string, unknown>) =>
+      ({ id: 'j', dealNumber: 'J', superStatus: 'submitted', scheduledDate: '2026-09-16', ...over }) as never;
+
+    it('a job dated today stays Upcoming all day', () => {
+      const jobs = portalJobs([row({ id: 'today', scheduledTimeSlot: '08:00-10:00' })], new Date(NOW));
+      expect(jobs.map((j) => [j.id, j.kind])).toEqual([['today', 'upcoming']]);
+    });
+
+    it("'today' is the job's own day: a Texas job is still today when New York has moved on", () => {
+      const lateNight = new Date('2026-09-17T04:30:00.000Z'); // 00:30 Sep 17 in New York, 23:30 Sep 16 in Chicago
+      const jobs = portalJobs(
+        [
+          row({ id: 'ct' }),
+          row({ id: 'tx', jobTimezone: 'America/Chicago' }),
+          row({ id: 'tx-area', serviceAreaId: 'sa-tx' }),
+        ],
+        lateNight,
+        new Map([['sa-tx', 'America/Chicago']]),
+      );
+      expect(jobs.map((j) => j.id)).toEqual(['tx', 'tx-area']);
+    });
+
+    it('sends the stored window, all-day flag and the resolved zone — jobTimezone, else area, else Connecticut', () => {
+      const jobs = portalJobs(
+        [
+          row({ id: 'a', scheduledTimeSlot: '10:00-12:00', jobTimezone: 'America/Phoenix', serviceAreaId: 'sa-tx' }),
+          row({ id: 'b', scheduledDate: '2026-09-17', scheduledTimeSlot: '09:00-11:00', serviceAreaId: 'sa-tx' }),
+          row({ id: 'c', scheduledDate: '2026-09-18', allDay: true }),
+        ],
+        new Date(NOW),
+        new Map([['sa-tx', 'America/Chicago']]),
+      );
+      expect(jobs).toEqual([
+        expect.objectContaining({ id: 'a', scheduledDate: '2026-09-16', scheduledTimeSlot: '10:00-12:00', timezone: 'America/Phoenix' }),
+        expect.objectContaining({ id: 'b', scheduledTimeSlot: '09:00-11:00', timezone: 'America/Chicago' }),
+        expect.objectContaining({ id: 'c', allDay: true, timezone: 'America/New_York' }),
+      ]);
+      expect(jobs[2].scheduledTimeSlot).toBeUndefined();
+    });
+
+    it('orders Upcoming by day, then by start time', () => {
+      const jobs = portalJobs(
+        [row({ id: 'late', scheduledTimeSlot: '14:00-15:00' }), row({ id: 'early', scheduledTimeSlot: '08:00-09:00' })],
+        new Date(NOW),
+      );
+      expect(jobs.map((j) => j.id)).toEqual(['early', 'late']);
+    });
+
+    it("the view resolves the areas' zones for the jobs, and each payment and proposal carries its job's zone", async () => {
+      deals.listByContact.mockResolvedValue([
+        { id: 'deal-1', dealNumber: 'K4T9ZW', superStatus: 'submitted', scheduledDate: '2026-09-20', serviceAreaId: 'sa-tx' },
+      ]);
+      deals.listServiceAreas = jest.fn(async () => [{ id: 'sa-tx', name: 'Dallas', timezone: 'America/Chicago' }]);
+      estimates.listForContact.mockResolvedValue([estimate({ id: 'opt-a', sentAt: NOW, proposalId: 'p1' })]);
+      const ledger = {
+        listByInvoice: jest.fn(async () => []),
+        list: jest.fn(async () => ({
+          items: [
+            { id: 'p1', invoiceId: 'deal-1', dealId: 'deal-1', amount: 10, method: 'cash', status: 'settled', takenAt: '2026-09-17T04:30:00.000Z' },
+            { id: 'p2', invoiceId: 'x', dealId: 'other', serviceAreaId: 'sa-tx', amount: 10, method: 'cash', status: 'settled', takenAt: NOW },
+            { id: 'p3', invoiceId: 'y', dealId: 'gone', amount: 10, method: 'cash', status: 'settled', takenAt: NOW },
+          ],
+        })),
+      };
+      const proposals = {
+        listForContact: jest.fn(async () => [{ id: 'p1', number: '256', status: 'pending', sentAt: NOW, estimateIds: ['opt-a'] }]),
+      };
+      const svc = new PortalService(
+        repo as never,
+        crm as never,
+        invoices as never,
+        estimates as never,
+        profiles as never,
+        deals as never,
+        ledger as never,
+        { get: jest.fn(async () => ({})), methodsFor: jest.fn(() => []) } as never,
+        undefined,
+        proposals as never,
+      );
+      const { token } = await svc.createLink('contact-1', user());
+      const view = await svc.publicView(token!);
+      expect(view.jobs[0]).toMatchObject({ id: 'deal-1', timezone: 'America/Chicago' });
+      expect(Object.fromEntries(view.payments.map((p) => [p.id, p.timezone]))).toEqual({
+        p1: 'America/Chicago',
+        p2: 'America/Chicago',
+        p3: 'America/New_York',
+      });
+      expect(view.proposals[0]).toMatchObject({ id: 'p1', timezone: 'America/Chicago' });
+    });
+
+    it('opens on Connecticut time when the areas cannot be read', async () => {
+      deals.listByContact.mockResolvedValue([
+        { id: 'deal-1', dealNumber: 'K4T9ZW', superStatus: 'submitted', scheduledDate: '2026-09-20', serviceAreaId: 'sa-tx' },
+      ]);
+      deals.listServiceAreas = jest.fn(async () => {
+        throw new Error('deal-service down');
+      });
+      const { token } = await service.createLink('contact-1', user());
+      expect((await service.publicView(token!)).jobs[0]).toMatchObject({ timezone: 'America/New_York' });
     });
   });
 
