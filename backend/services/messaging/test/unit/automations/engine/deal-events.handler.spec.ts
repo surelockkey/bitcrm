@@ -158,6 +158,34 @@ describe('AutomationDealEventsHandler', () => {
       expect.objectContaining({ call: expect.objectContaining({ flowName: 'Main line', lineName: 'Office' }) }),
     );
   });
+
+  it('hands the client’s confirmation to the rules, keyed by when it happened (B12)', async () => {
+    const { handler, engine, newJobSms } = harness();
+    await handler.onClientConfirmed({
+      dealId: 'd1',
+      dealNumber: 'K4T9ZW',
+      contactId: 'ct1',
+      confirmedAt: '2026-09-16T14:30:00.000Z',
+      via: 'link',
+      visit: '2026-09-20 09:00-11:00',
+    });
+    // `at` is the confirmation itself: a redelivered event is the same occurrence.
+    expect(engine.handle).toHaveBeenCalledWith(
+      { kind: 'deal.client_confirmed', at: '2026-09-16T14:30:00.000Z', dealId: 'd1' },
+      expect.objectContaining({ deal: expect.objectContaining({ id: 'd1' }) }),
+    );
+    // Not a job hand-off: the built-in New-job text is not involved.
+    expect(newJobSms.onTechAssigned).not.toHaveBeenCalled();
+    expect(newJobSms.onDealUpdated).not.toHaveBeenCalled();
+  });
+
+  it('drops a confirmation without the job or the moment', async () => {
+    const { handler, engine } = harness();
+    await handler.onClientConfirmed({ confirmedAt: '2026-09-16T14:30:00.000Z' });
+    await handler.onClientConfirmed({ dealId: 'd1' });
+    await handler.onClientConfirmed(null);
+    expect(engine.handle).not.toHaveBeenCalled();
+  });
 });
 
 describe('callOutcome', () => {

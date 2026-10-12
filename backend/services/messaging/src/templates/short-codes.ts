@@ -110,7 +110,8 @@ const RESOLVERS: Record<string, Resolver> = {
   biz_number: (ctx) => formatPhone(ctx.settings?.companyPhone || ctx.settings?.defaultSenderNumber),
   biz_email: (ctx) => ctx.settings?.companyEmail?.trim() || undefined,
   // --- links ---
-  confirm_link: (ctx) => buildLink(ctx.settings?.confirmLinkBaseUrl, ctx.deal),
+  // A base URL the office set wins; otherwise the job's own confirm page (B12).
+  confirm_link: (ctx) => buildLink(ctx.settings?.confirmLinkBaseUrl, ctx.deal) ?? ctx.confirmLink,
   info_link: (ctx) => buildLink(ctx.settings?.infoLinkBaseUrl, ctx.deal),
   // --- call (a call alert's `call.completed` firing) ---
   caller_number: (ctx) => callerNumber(ctx.call),
@@ -148,7 +149,12 @@ export const SHORT_CODES: readonly ShortCodeDefinition[] = [
   def('zip_code', 'job', 'ZIP of the job address', '30301'),
   def('tech_assigned', 'technician', "Assigned technician's name (the sender, when they are on the job)", 'Mike Smith'),
   def('description', 'job', 'Job notes / description', 'Rekey front and back doors'),
-  def('confirm_link', 'links', 'Appointment confirmation link (base URL in settings)', 'https://book.example.com/confirm/…'),
+  def(
+    'confirm_link',
+    'links',
+    "The client's link to confirm the appointment (BitCRM's confirm page; a base URL in settings overrides it)",
+    'https://portal.example.com/confirm/…',
+  ),
   def('info_link', 'links', 'Job info link (base URL in settings)', 'https://book.example.com/job/…'),
   def('ad_group', 'job', 'Job source / ad group name', 'Google Ads'),
   def('referral_company_name', 'job', 'Referring external company', 'Roadside Partner LLC'),

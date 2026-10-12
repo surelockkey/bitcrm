@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { clientConfirmUrl } from '@bitcrm/shared';
 import type { Address, CustomFieldValue, MessagingSettings } from '@bitcrm/types';
 import { ConversationsRepository } from '../conversations/conversations.repository';
 import { MessagingSettingsRepository } from '../settings/messaging-settings.repository';
@@ -100,6 +101,10 @@ export class ContextLoader {
 
     const timezone = resolveTimezone(deal?.jobTimezone ?? settings?.timezone ?? settings?.quietHours?.timezone);
 
+    // The job's signed confirm page (B12): computed here from the shared secret
+    // and the portal origin — billing verifies the same token; no call per text.
+    const confirmLink = deal?.id ? clientConfirmUrl(deal.id) : undefined;
+
     return {
       contact:
         contact ??
@@ -114,6 +119,7 @@ export class ContextLoader {
       values: refs.values,
       timezone,
       call: refs.call,
+      ...(confirmLink && { confirmLink }),
     };
   }
 

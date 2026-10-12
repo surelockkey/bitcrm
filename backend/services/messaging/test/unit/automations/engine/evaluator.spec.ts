@@ -143,6 +143,26 @@ describe('automation trigger matrix', () => {
     expect(matchesTrigger({ kind: 'schedule.relative' }, timer).matched).toBe(true);
     expect(matchesTrigger({ kind: 'schedule.relative' }, statusEvent('done')).matched).toBe(false);
   });
+
+  it('deal.client_confirmed takes only the client’s confirmation (B12)', () => {
+    const confirmed: AutomationEvent = { kind: 'deal.client_confirmed', at: '2026-09-16T14:30:00.000Z', dealId: 'd1' };
+    expect(matchesTrigger({ kind: 'deal.client_confirmed' }, confirmed).matched).toBe(true);
+    expect(matchesTrigger({ kind: 'deal.client_confirmed' }, statusEvent('done')).matched).toBe(false);
+    expect(
+      matchesTrigger({ kind: 'deal.client_confirmed' }, { kind: 'deal.updated', at: NOW.toISOString(), dealId: 'd1' })
+        .matched,
+    ).toBe(false);
+    // A "Job matches" rule is not woken by it: the confirmation is no condition field.
+    expect(matchesTrigger({ kind: 'deal.updated' }, confirmed).matched).toBe(false);
+  });
+
+  it('a client confirmation fires its rule once per confirmed visit — the key is the confirmation, not the clock', () => {
+    const rule = spec({ trigger: { kind: 'deal.client_confirmed' }, actions: [{ type: 'send_sms', to: 'dispatcher', body: 'x' }] });
+    const confirmed: AutomationEvent = { kind: 'deal.client_confirmed', at: '2026-09-16T14:30:00.000Z', dealId: 'd1' };
+    const decision = evaluateRule({ id: 'r1', spec: rule }, confirmed, facts(), NOW);
+    expect(decision).toMatchObject({ fired: true, occurrence: 'client_confirmed:2026-09-16T14:30:00.000Z' });
+    expect(occurrenceOf(confirmed, [], facts(), 'deal.client_confirmed')).toBe('client_confirmed:2026-09-16T14:30:00.000Z');
+  });
 });
 
 describe('automation condition matrix', () => {

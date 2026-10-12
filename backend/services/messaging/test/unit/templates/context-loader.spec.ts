@@ -162,4 +162,39 @@ describe('ContextLoader', () => {
     const { loader } = makeLoader();
     expect((await loader.load({ values: { late_value: '15' } })).values).toEqual({ late_value: '15' });
   });
+
+  describe('the client’s confirm link (B12, {{confirm_link}})', () => {
+    const DEAL = '3f2b8c1e-9d4a-4b7e-8f21-0c5d6e7f8a9b';
+    const keys = ['PORTAL_BASE_URL', 'APP_PORTAL_DOMAIN', 'PORTAL_TOKEN_SECRET', 'INTERNAL_SERVICE_SECRET'] as const;
+    const saved: Partial<Record<(typeof keys)[number], string | undefined>> = {};
+    beforeEach(() => keys.forEach((k) => (saved[k] = process.env[k])));
+    afterEach(() =>
+      keys.forEach((k) => (saved[k] === undefined ? delete process.env[k] : (process.env[k] = saved[k]))),
+    );
+
+    it('puts the job’s signed portal link on the context, computed here — no call to anyone', async () => {
+      process.env.PORTAL_BASE_URL = 'https://portal.example.com';
+      process.env.INTERNAL_SERVICE_SECRET = 'secret';
+      delete process.env.PORTAL_TOKEN_SECRET;
+      const { loader, calls } = makeLoader({ [`/api/deals/internal/${DEAL}`]: { data: { ...deal, id: DEAL } } });
+
+      const ctx = await loader.load({ dealId: DEAL });
+
+      expect(ctx.confirmLink).toMatch(/^https:\/\/portal\.example\.com\/confirm\/[A-Za-z0-9_-]{44}$/);
+      expect(calls.some((c) => c.path.includes('/billing/'))).toBe(false);
+    });
+
+    it('has none without a job, a portal origin or a secret', async () => {
+      process.env.INTERNAL_SERVICE_SECRET = 'secret';
+      delete process.env.PORTAL_TOKEN_SECRET;
+      delete process.env.PORTAL_BASE_URL;
+      delete process.env.APP_PORTAL_DOMAIN;
+      const { loader } = makeLoader({ [`/api/deals/internal/${DEAL}`]: { data: { ...deal, id: DEAL } } });
+      expect((await loader.load({ dealId: DEAL })).confirmLink).toBeUndefined();
+
+      process.env.APP_PORTAL_DOMAIN = 'portal.bitcrm.tech-slk.com';
+      expect((await loader.load({ dealId: DEAL })).confirmLink).toMatch(/^https:\/\/portal\.bitcrm\.tech-slk\.com\/confirm\//);
+      expect((await loader.load({ contactId: 'ct1' })).confirmLink).toBeUndefined();
+    });
+  });
 });

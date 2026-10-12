@@ -162,6 +162,19 @@ describe('short-code registry', () => {
     expect(resolveShortCode('confirm_link', ctx)).toBeUndefined();
   });
 
+  it('{{confirm_link}} is the job’s own confirm page when no base URL is set (B12)', () => {
+    const ctx = fullContext();
+    ctx.confirmLink = 'https://portal.example.com/confirm/TOKEN';
+    // A base URL the office typed in still wins — "never remove a feature".
+    expect(resolveShortCode('confirm_link', ctx)).toBe('https://book.example.com/confirm/d1');
+    delete ctx.settings!.confirmLinkBaseUrl;
+    expect(resolveShortCode('confirm_link', ctx)).toBe('https://portal.example.com/confirm/TOKEN');
+    ctx.settings!.confirmLinkBaseUrl = '';
+    expect(resolveShortCode('confirm_link', ctx)).toBe('https://portal.example.com/confirm/TOKEN');
+    delete ctx.confirmLink;
+    expect(resolveShortCode('confirm_link', ctx)).toBeUndefined();
+  });
+
   it('formats US numbers and leaves others alone', () => {
     expect(formatPhone('+14045551234')).toBe('(404) 555-1234');
     expect(formatPhone('+380958601427')).toBe('+380958601427');

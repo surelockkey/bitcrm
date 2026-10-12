@@ -97,6 +97,12 @@ export interface RenderContext {
   values?: Record<string, string>;
   /** IANA zone every date/time code is formatted in; the loader resolves it, a preview may pin it. */
   timezone?: string;
+  /**
+   * The job's own "confirm your appointment" page on the client portal
+   * (`<portal>/confirm/<signed token>`, B12) — `{{confirm_link}}` when the
+   * settings name no base URL of their own. Set by the loader for a job.
+   */
+  confirmLink?: string;
 }
 
 /** Ids the outbound path and the render routes hand to the loader (design §7.1 `render`). */

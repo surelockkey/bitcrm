@@ -136,6 +136,8 @@ export class AutomationsModule implements OnModuleInit, OnModuleDestroy {
       this.consumer.registerHandler(DEAL_TECH_ASSIGNED_EVENT, (p) => this.events.onTechAssigned(p));
       this.consumer.registerHandler(DEAL_UPDATED_EVENT, (p) => this.events.onDealUpdated(p));
       this.consumer.registerHandler(DEAL_SCHEDULED_CHANGED_EVENT, (p) => this.events.onScheduledChanged(p));
+      // The client confirmed the visit through {{confirm_link}} (B12): rules only.
+      this.consumer.registerHandler(DealEventType.DEAL_CLIENT_CONFIRMED, (p) => this.events.onClientConfirmed(p));
       // "Send to tech" is a delivery, not a rule: it goes straight to its
       // own service and resolves to void whatever the service reports.
       this.consumer.registerHandler(DealEventType.SENT_TO_TECH, async (p) => {
