@@ -68,6 +68,42 @@ describe('BackfillService', () => {
     expect(sum).toBe(SOURCE_COUNT);
   });
 
+  it("a contact's searchable client custom fields reach its document in the backfill too", async () => {
+    global.fetch = jest.fn().mockImplementation(async (url: string) => ({
+      ok: true,
+      json: async () => ({
+        success: true,
+        data: {
+          items: String(url).includes('/contacts/internal/all')
+            ? [
+                {
+                  id: 'c9',
+                  firstName: 'Grata',
+                  lastName: 'Smart Living',
+                  phones: [],
+                  emails: [],
+                  customFields: { 'cf-vendor': '707748' },
+                  status: 'active',
+                  createdBy: 'u1',
+                  createdAt: '2026-01-01T00:00:00Z',
+                  updatedAt: '2026-01-02T00:00:00Z',
+                },
+              ]
+            : [],
+          nextCursor: undefined,
+        },
+      }),
+    })) as any;
+    const catalogNames = stubCatalogNames();
+    catalogNames.customFieldDefs.mockResolvedValue([{ id: 'cf-vendor', searchable: true }]);
+    const indexer = fakeIndexer();
+
+    await new BackfillService(indexer as any, catalogNames as any).run(['contact']);
+
+    const docs = indexer.bulkIndex.mock.calls.flatMap((c: any[]) => c[0]);
+    expect(docs.find((d: any) => d.entityId === 'c9')?.keywords).toContain('707748');
+  });
+
   it('paginates while a nextCursor is returned', async () => {
     let call = 0;
     global.fetch = jest.fn().mockImplementation(async () => {

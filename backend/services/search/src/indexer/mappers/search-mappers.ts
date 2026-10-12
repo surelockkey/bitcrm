@@ -55,9 +55,10 @@ function stringifyCustomFieldValue(value: CustomFieldValue): string | undefined 
 }
 
 /**
- * Fold a deal's stored custom-field answers into search text. Only definitions
- * flagged `searchable` contribute; ids with no matching (or non-searchable) def
- * are dropped, so unindexed answers never leak into the document.
+ * Fold stored custom-field answers (a deal's job fields, a contact's client
+ * fields) into search text. Only definitions flagged `searchable` contribute;
+ * ids with no matching (or non-searchable) def are dropped, so unindexed
+ * answers never leak into the document.
  */
 function customFieldKeywords(
   customFields: Record<string, CustomFieldValue> | undefined,
@@ -143,7 +144,12 @@ export function mapDeal(
   };
 }
 
-export function mapContact(contact: Contact): SearchDocument {
+/**
+ * `customFieldDefs` lets the client's searchable custom fields (Workiz's
+ * "searchable?" on a Client field — vendor numbers, the Platinum name) find
+ * the client; the contact stores raw answers keyed by definition id.
+ */
+export function mapContact(contact: Contact, customFieldDefs: CustomFieldSearchDef[] = []): SearchDocument {
   const name = `${contact.firstName} ${contact.lastName}`.trim();
   return {
     docId: `contact#${contact.id}`,
@@ -162,6 +168,7 @@ export function mapContact(contact: Contact): SearchDocument {
       ...[...(contact.addresses ?? []), contact.billingAddress].flatMap((a) =>
         a ? [a.street, a.unit, a.city, a.state, a.zip] : [],
       ),
+      ...customFieldKeywords(contact.customFields, customFieldDefs),
     ]),
     body: contact.notes,
     url: `/contacts/${contact.id}`,

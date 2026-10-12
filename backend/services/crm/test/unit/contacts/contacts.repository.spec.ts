@@ -103,6 +103,17 @@ describe('ContactsRepository', () => {
       expect(result!.tagIds).toEqual(['tag-platinum', 'tag-tax-free']);
     });
 
+    it('keeps the client custom-field answers (Workiz Custom fields tab), and leaves them out when there are none', async () => {
+      const contact = createMockContact();
+      dynamoDb.client.send.mockResolvedValueOnce({
+        Item: { ...contact, customFields: { 'cf-vendor': '707748' }, PK: `CONTACT#${contact.id}`, SK: 'METADATA' },
+      });
+      expect((await repository.findById('contact-1'))!.customFields).toEqual({ 'cf-vendor': '707748' });
+
+      dynamoDb.client.send.mockResolvedValueOnce({ Item: { ...contact, PK: `CONTACT#${contact.id}`, SK: 'METADATA' } });
+      expect(await repository.findById('contact-1')).not.toHaveProperty('customFields');
+    });
+
     it("keeps the Workiz ad source (a JobSource catalog id) the import put on the row", async () => {
       const contact = createMockContact();
       dynamoDb.client.send.mockResolvedValue({
@@ -420,6 +431,32 @@ describe('ContactsRepository', () => {
       const sent = dynamoDb.client.send.mock.calls[0][0];
       expect(sent.input.IndexName).toBeDefined();
       expect(sent.input.FilterExpression).toContain('(contains(#tagIds, :tag0) OR contains(#tagIds, :tag1))');
+    });
+  });
+
+  /**
+   * Archive-or-delete of a client custom field: does any contact still hold
+   * an answer for it? Scan pages until a hit or the end — never `Limit: 1`,
+   * which reads one row and answers from that.
+   */
+  describe('isCustomFieldAnswered', () => {
+    it('finds a contact holding the answer under customFields.<id>', async () => {
+      dynamoDb.client.send.mockResolvedValue({ Items: [{ PK: 'CONTACT#c-1' }] });
+      expect(await repository.isCustomFieldAnswered('cf-1')).toBe(true);
+
+      const input = dynamoDb.client.send.mock.calls[0][0].input;
+      expect(input.FilterExpression).toContain('attribute_exists(#cf.#field)');
+      expect(input.ExpressionAttributeNames).toMatchObject({ '#cf': 'customFields', '#field': 'cf-1' });
+      expect(input.Limit).toBeGreaterThan(1);
+    });
+
+    it('walks every page before saying no', async () => {
+      dynamoDb.client.send
+        .mockResolvedValueOnce({ Items: [], LastEvaluatedKey: { PK: 'CONTACT#a', SK: 'METADATA' } })
+        .mockResolvedValueOnce({ Items: [] });
+      expect(await repository.isCustomFieldAnswered('cf-1')).toBe(false);
+      expect(dynamoDb.client.send).toHaveBeenCalledTimes(2);
+      expect(dynamoDb.client.send.mock.calls[1][0].input.ExclusiveStartKey).toEqual({ PK: 'CONTACT#a', SK: 'METADATA' });
     });
   });
 });

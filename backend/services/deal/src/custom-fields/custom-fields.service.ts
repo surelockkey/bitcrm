@@ -120,10 +120,12 @@ export class CustomFieldsService {
 
     await this.repository.create(field);
     this.businessMetrics?.entityCreated?.inc({ entity_type: 'custom_field' });
+    // Nobody has answered a new field yet: nothing for search to rebuild.
     this.publishEvent('custom-field.created', {
       customFieldId: field.id,
       name: field.name,
       entityType,
+      searchableChanged: false,
     });
     return field;
   }
@@ -168,7 +170,14 @@ export class CustomFieldsService {
     };
 
     await this.repository.put(updated);
-    this.publishEvent('custom-field.updated', { customFieldId: id, name: updated.name });
+    // Search rebuilds the answers' docs only when what is searchable changed —
+    // not for a rename or a drag in Settings (one event per moved row).
+    this.publishEvent('custom-field.updated', {
+      customFieldId: id,
+      name: updated.name,
+      entityType,
+      searchableChanged: updated.searchable !== existing.searchable,
+    });
     return updated;
   }
 
@@ -190,13 +199,21 @@ export class CustomFieldsService {
           updatedAt: new Date().toISOString(),
         });
       }
-      this.publishEvent('custom-field.archived', { customFieldId: id, archivedBy: caller.id });
+      this.publishEvent('custom-field.archived', {
+        customFieldId: id,
+        archivedBy: caller.id,
+        entityType: customFieldEntityType(existing),
+      });
       this.logger.log(`Archived custom field ${id} — still referenced by at least one deal`);
       return { archived: true };
     }
 
     await this.repository.remove(id);
-    this.publishEvent('custom-field.deleted', { customFieldId: id, deletedBy: caller.id });
+    this.publishEvent('custom-field.deleted', {
+      customFieldId: id,
+      deletedBy: caller.id,
+      entityType: customFieldEntityType(existing),
+    });
     return { archived: false };
   }
 

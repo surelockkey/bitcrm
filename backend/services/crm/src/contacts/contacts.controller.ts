@@ -273,6 +273,20 @@ export class ContactsController {
     return { success: true, data };
   }
 
+  @Get('internal/custom-fields/:fieldId/in-use')
+  @Internal()
+  @ApiOperation({
+    summary: 'Is a client custom field still answered on some contact? (internal)',
+    description:
+      '**Guard:** Internal service-to-service only (`x-internal-secret` header required). '
+      + 'deal-service asks before deleting a client custom field: one still answered is archived instead. '
+      + 'Returns `{ inUse }`.',
+  })
+  async customFieldInUseInternal(@Param('fieldId') fieldId: string) {
+    const inUse = await this.contactsService.isCustomFieldAnswered(fieldId);
+    return { success: true, data: { inUse } };
+  }
+
   @Get('internal/:id')
   @Internal()
   @ApiOperation({

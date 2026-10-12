@@ -85,6 +85,18 @@ export class CreateContactDto {
   @IsString({ each: true })
   tagIds?: string[];
 
+  @ApiPropertyOptional({
+    type: 'object',
+    additionalProperties: true,
+    example: { 'cf-vendor-1': '707748' },
+    description:
+      'Answers to the client custom fields (catalog `entityType: client`), keyed by definition id. ' +
+      'Checked by the service: an unknown or archived field, or a value of the wrong type, is a 400; ' +
+      'blank answers are not stored.',
+  })
+  @IsOptional()
+  customFields?: Record<string, unknown>;
+
   @ApiPropertyOptional({ description: "Workiz's Ad source: a JobSource catalog id" })
   @IsOptional()
   @IsString()

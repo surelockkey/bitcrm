@@ -24,7 +24,8 @@ import {
  * a single stored entity, so they are indexed directly via their mappers.
  *
  * `jobTypeName` / `tagNames` / `customFieldDefs` / `client` are pre-resolved by
- * the caller because mappers stay pure/sync — only deals need them;
+ * the caller because mappers stay pure/sync — only deals need them (and
+ * contacts `customFieldDefs`, for their searchable client fields);
  * `conversation` (party name, last messages, jobs) likewise only for conversations.
  */
 export function routeToDocument(
@@ -43,7 +44,7 @@ export function routeToDocument(
     case 'conversation':
       return mapConversation(entity, conversation);
     case 'contact':
-      return mapContact(entity);
+      return mapContact(entity, customFieldDefs);
     case 'company':
       return mapCompany(entity);
     case 'user':

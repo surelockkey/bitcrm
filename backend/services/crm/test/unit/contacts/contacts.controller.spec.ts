@@ -31,6 +31,7 @@ describe('ContactsController', () => {
       searchByPhone: jest.fn(),
       findOrCreate: jest.fn(),
       findAll: jest.fn(),
+      isCustomFieldAnswered: jest.fn(),
     };
 
     const module = await Test.createTestingModule({
@@ -95,6 +96,14 @@ describe('ContactsController', () => {
 
       expect(result).toEqual({ success: true, data: contact });
       expect(service.findById).toHaveBeenCalledWith('contact-1');
+    });
+  });
+
+  describe('customFieldInUseInternal', () => {
+    it("tells deal-service whether a client custom field is still answered on some contact", async () => {
+      service.isCustomFieldAnswered.mockResolvedValue(true);
+      expect(await controller.customFieldInUseInternal('cf-1')).toEqual({ success: true, data: { inUse: true } });
+      expect(service.isCustomFieldAnswered).toHaveBeenCalledWith('cf-1');
     });
   });
 

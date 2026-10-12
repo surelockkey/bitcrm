@@ -99,8 +99,8 @@ export class AppModule implements OnModuleInit {
     }
 
     for (const eventType of CUSTOM_FIELD_EVENTS) {
-      this.sqsConsumer.registerHandler(eventType, async () => {
-        await this.indexerHandler!.onCustomFieldsChanged();
+      this.sqsConsumer.registerHandler(eventType, async (payload: any) => {
+        await this.indexerHandler!.onCustomFieldsChanged(payload);
       });
     }
 

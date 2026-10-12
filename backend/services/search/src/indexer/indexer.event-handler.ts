@@ -115,12 +115,19 @@ export class IndexerEventHandler {
 
   /**
    * A custom-field definition changed (created/updated/archived/deleted). The
-   * `searchable` toggle lives there, so drop the cached defs and rebuild every
-   * deal doc — toggling a field on must make already-stored answers findable.
+   * `searchable` toggle lives there, so drop the cached defs and rebuild the
+   * docs that hold the field's answers — a job field's deals, a client
+   * field's contacts — so toggling a field on makes stored answers findable.
+   * An event that says the change cannot alter search (`searchableChanged:
+   * false` — a rename, a drag in Settings, a new field nobody answered yet)
+   * rebuilds nothing; one that says nothing rebuilds, as before.
    */
-  async onCustomFieldsChanged(): Promise<void> {
+  async onCustomFieldsChanged(
+    payload?: { customFieldId?: string; entityType?: string; searchableChanged?: boolean },
+  ): Promise<void> {
     this.catalogNames.invalidateCustomFields();
-    await this.backfill.run(['deal']);
+    if (payload?.searchableChanged === false) return;
+    await this.backfill.run([payload?.entityType === 'client' ? 'contact' : 'deal']);
   }
 
   /** Rebuild the deal docs that denormalized this contact/company. */

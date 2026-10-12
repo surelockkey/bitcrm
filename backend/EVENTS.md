@@ -91,9 +91,13 @@ only when that edit changed the job's company (`null` when it was cleared); `dea
 (`{dealId, deletedBy}`) fires on soft delete so the doc leaves the index.
 
 Custom-field catalog: `custom-field.created` / `.updated` / `.archived` / `.deleted`
-(`{customFieldId, …}`) — emitted by `CustomFieldsService`. The `searchable` toggle
-lives on the definition, so the search indexer invalidates its cached defs and
-rebuilds all deal docs on any of these.
+(`{customFieldId, entityType, …}`, `entityType` = `job` | `client`; `.created` / `.updated` also
+carry `searchableChanged`) — emitted by `CustomFieldsService`. The `searchable` toggle lives on the
+definition, so the search indexer invalidates its cached defs on any of these and rebuilds the docs
+that hold the field's answers — every deal for a job field, every contact for a client field
+(`Contact.customFields`, Workiz's client custom fields) — unless `searchableChanged: false` says the
+change cannot alter search (a new field, a rename, a drag in Settings → Custom Fields, which writes
+`priority` on each moved row). An event without the flag rebuilds, as before.
 
 `deal.scheduled_changed` is **typed** in `@bitcrm/types` but not published yet:
 `DealsService.update` emits only `deal.updated` for a date move. Until it does,

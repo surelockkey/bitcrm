@@ -284,6 +284,38 @@ export class ContactsRepository {
     return this.toContact(result.Attributes!);
   }
 
+  /**
+   * Whether any contact still holds an answer for a client custom field — a
+   * key of its `customFields` map. Reads a page at a time and says "no" only
+   * once the table has ended: DynamoDB applies `Limit` before the filter, so
+   * `Limit: 1` would answer from a single row. Past `MAX_PAGES` it assumes the
+   * field is answered — refusing a delete is the safe way to be wrong.
+   */
+  async isCustomFieldAnswered(fieldId: string): Promise<boolean> {
+    const PAGE = 500;
+    const MAX_PAGES = 200;
+    let cursor: Record<string, unknown> | undefined;
+    let pages = 0;
+    do {
+      const result = await this.dynamoDb.client.send(
+        new ScanCommand({
+          TableName: this.tableName,
+          FilterExpression: 'begins_with(PK, :pk) AND SK = :sk AND attribute_exists(#cf.#field)',
+          ExpressionAttributeNames: { '#cf': 'customFields', '#field': fieldId },
+          ExpressionAttributeValues: { ':pk': 'CONTACT#', ':sk': 'METADATA' },
+          ProjectionExpression: 'PK',
+          Limit: PAGE,
+          ...(cursor ? { ExclusiveStartKey: cursor } : {}),
+        }),
+      );
+      if ((result.Items?.length ?? 0) > 0) return true;
+      cursor = result.LastEvaluatedKey;
+      pages += 1;
+      if (cursor && pages >= MAX_PAGES) return true;
+    } while (cursor);
+    return false;
+  }
+
   async updatePhoneIndex(
     contactId: string,
     oldPhones: string[],
@@ -345,6 +377,9 @@ export class ContactsRepository {
       ...(item.billingAddress ? { billingAddress: item.billingAddress as Address } : {}),
       ...(item.lastJobAt ? { lastJobAt: item.lastJobAt as string } : {}),
       ...(Array.isArray(item.tagIds) ? { tagIds: item.tagIds as string[] } : {}),
+      ...(item.customFields && typeof item.customFields === 'object' && !Array.isArray(item.customFields)
+        ? { customFields: item.customFields as Contact['customFields'] }
+        : {}),
       ...(item.sourceId ? { sourceId: item.sourceId as string } : {}),
       ...(item.paymentTerms ? { paymentTerms: item.paymentTerms as Contact['paymentTerms'] } : {}),
       ...(typeof item.customTermsDays === 'number' ? { customTermsDays: item.customTermsDays } : {}),

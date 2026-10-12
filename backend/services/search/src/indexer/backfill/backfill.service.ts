@@ -168,6 +168,10 @@ export class BackfillService {
       const context = await this.indexer.resolveConversationContext(e, fetchCache);
       return routeToDocument(type, e, undefined, [], [], undefined, undefined, context);
     }
+    if (type === 'contact') {
+      // Its searchable client custom fields (the defs are cached by the catalog service).
+      return routeToDocument(type, e, undefined, [], await this.catalogNames.customFieldDefs());
+    }
     if (type !== 'deal') return routeToDocument(type, e);
 
     const [jobTypeName, ...tagNames] = await Promise.all([

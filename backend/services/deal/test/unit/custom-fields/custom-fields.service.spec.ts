@@ -81,6 +81,33 @@ describe('CustomFieldsService', () => {
       ).rejects.toThrow(ConflictException);
     });
 
+    it("says on the event whether the change can alter search (searchable) and whose field it is", async () => {
+      repo.get.mockResolvedValue(createMockCustomField({ id: 'cf-1', searchable: false }));
+      await service.update('cf-1', { priority: 3 } as any, caller);
+      expect(sns.publish).toHaveBeenLastCalledWith('deal-events', 'custom-field.updated', {
+        customFieldId: 'cf-1',
+        name: 'Gate Code',
+        entityType: 'job',
+        searchableChanged: false,
+      });
+
+      await service.update('cf-1', { searchable: true } as any, caller);
+      expect(sns.publish).toHaveBeenLastCalledWith(
+        'deal-events',
+        'custom-field.updated',
+        expect.objectContaining({ searchableChanged: true }),
+      );
+    });
+
+    it('a new field has no answers yet: its event asks for no search rebuild', async () => {
+      await service.create({ name: 'Gate Code 2', type: 'text', entityType: 'client' } as any, caller);
+      expect(sns.publish).toHaveBeenCalledWith(
+        'deal-events',
+        'custom-field.created',
+        expect.objectContaining({ entityType: 'client', searchableChanged: false }),
+      );
+    });
+
     it('allows keeping the same name', async () => {
       repo.get.mockResolvedValue(createMockCustomField({ id: 'cf-1', name: 'Gate Code' }));
       repo.listAll.mockResolvedValue([createMockCustomField({ id: 'cf-1', name: 'Gate Code' })]);

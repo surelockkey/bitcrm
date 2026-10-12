@@ -70,6 +70,17 @@ export class UpdateContactDto {
   @IsString({ each: true })
   tagIds?: string[];
 
+  @ApiPropertyOptional({
+    type: 'object',
+    additionalProperties: true,
+    example: { 'cf-vendor-1': '707748', 'cf-drive-link': null },
+    description:
+      'Client custom-field answers to change, keyed by definition id — merged onto the stored ones; ' +
+      'a blank or null answer clears its field. Same checks as on create (400).',
+  })
+  @IsOptional()
+  customFields?: Record<string, unknown>;
+
   @ApiPropertyOptional({ description: "Workiz's Ad source: a JobSource catalog id" })
   @IsOptional()
   @IsString()
