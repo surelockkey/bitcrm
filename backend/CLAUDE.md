@@ -284,6 +284,11 @@ USER_CONTAINER#<userId> / METADATA   a user's container assignment (Workiz "User
 CONTAINER_TEMPLATE#<id> / METADATA   a van's "ideal loadout" (`items` list on the row); GSI1 CATALOG#CONTAINER_TEMPLATE /
                                      <name lowercased> — the uniqueness check is a key condition on it, never Scan+Limit 1;
                                      archived, not deleted (`Container.templateId` points at it)
+ITEM_GROUP#<id>    / METADATA        a Workiz item group (Price book → Item groups): `members` inline (productId, name,
+                                     quantity, priceClient, taxable, description, customAttributes, the group's own `cost`
+                                     + the import's extras), `groupType`, `categoryId`, `active` (the import's `isEnabled`
+                                     reads as it until BitCRM writes one); GSI1 CATALOG#ITEM_GROUP / <name lowercased>.
+                                     Disabled, never deleted — job lines carry `itemGroupId`
 IDEMPOTENCY#TEMPLATE_FILL#<requestId> / METADATA   one "Fill from warehouse" request: claimed (conditional Put)
                                      before any stock moves, completed with the answer, released if the fill failed;
                                      `expiresAt` epoch seconds (+7 d) — the inventory table has no TTL configured yet

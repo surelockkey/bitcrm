@@ -48,6 +48,8 @@ describe('DealsService — adding an item group to a job', () => {
     id: 'group-1',
     name: '36 x 80 Fiberglass Front Door',
     description: '',
+    groupType: 'separate_items',
+    active: true,
     total: 3060,
     members: [
       {
@@ -243,6 +245,33 @@ describe('DealsService — adding an item group to a job', () => {
       await expect(ctx.service.addItemGroup('deal-1', 'group-1', {}, tech, TECH)).rejects.toThrow(
         new BadRequestException(`Item group "36 x 80 Fiberglass Front Door" has no items`),
       );
+    });
+
+    it('400 for a disabled group — the pickers no longer offer it', async () => {
+      ctx.http.getItemGroup.mockResolvedValue({ ...group, active: false });
+
+      await expect(ctx.service.addItemGroup('deal-1', 'group-1', {}, tech, TECH)).rejects.toThrow(
+        new BadRequestException('Item group "36 x 80 Fiberglass Front Door" is disabled'),
+      );
+      expect(ctx.products.addProduct).not.toHaveBeenCalled();
+    });
+
+    it('400 for a Flat rate group — BitCRM adds Individual items groups only', async () => {
+      ctx.http.getItemGroup.mockResolvedValue({ ...group, groupType: 'flat_rate' });
+
+      await expect(ctx.service.addItemGroup('deal-1', 'group-1', {}, tech, TECH)).rejects.toThrow(
+        new BadRequestException('Item group "36 x 80 Fiberglass Front Door" is a Flat rate group, which cannot be added yet'),
+      );
+      expect(ctx.products.addProduct).not.toHaveBeenCalled();
+    });
+
+    it('adds a group from an inventory older than the status (no active, no type) as before', async () => {
+      const { active: _a, groupType: _t, ...older } = group;
+      ctx.http.getItemGroup.mockResolvedValue(older);
+
+      await ctx.service.addItemGroup('deal-1', 'group-1', {}, tech, TECH);
+
+      expect(ctx.products.addProduct).toHaveBeenCalledTimes(4);
     });
 
     it('400 naming a member whose product is gone from the price book', async () => {

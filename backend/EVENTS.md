@@ -313,7 +313,10 @@ emit `message.received`. Fire-and-forget on billing's side.
 `product.created` / `product.updated` (archive/reactivate emit `product.updated`),
 `warehouse.created` / `warehouse.updated` (archive emits `warehouse.updated`),
 `container.created` / `container.updated`, `transfer.created`,
-`item-category.created/updated/archived/deleted`, `brand.created/updated/deleted`
+`item-category.created/updated/archived/deleted`, `brand.created/updated/deleted`,
+`item-attribute.created/updated/deleted` (`{attributeId, name}`),
+`item-group.created` (`{itemGroupId, name}`) / `item-group.updated` (`{itemGroupId, name, active}` —
+an edit, a disable or an enable)
 (settings catalogs; not consumed anywhere yet). Payloads carry the entity id
 (`{productId}` / `{warehouseId}` / `{containerId}` / `{transferId}`). Published
 fire-and-forget via `publishInventoryEvent` (never fails the write). Consumed by
