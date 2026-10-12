@@ -13,9 +13,10 @@ import { useDenied, usePermissions } from "@/features/auth/use-permissions";
 import * as dealApi from "@/features/deals/api";
 import { personName } from "@/features/deals/person-name";
 import { dealClientName } from "@/features/deals/lib";
+import { ctMinutesOfDay, ctToday } from "@/lib/timezone";
+import { jobZoneResolver } from "@/features/service-areas/lib";
 import {
-  localMinutes,
-  localTodayISO,
+  gridZoneAbbr,
   scheduleColor,
   stepDate,
   viewRange,
@@ -25,7 +26,7 @@ import {
 import { buildEntries } from "../entries";
 import { applyScheduleFilter, INCLUDE_INACTIVE, includesInactive, pickedTechIds, type SchedulePick } from "../filters";
 import { dealConflicts, eventOnDate, filterTechnicians, type ConflictReason } from "../lib";
-import { moveBody, nextTechIds, resolveDrop, scheduleBody, type DragSource, type DropZone } from "../reschedule";
+import { nextTechIds, pendingMove, resolveDrop, type DragSource, type DropZone } from "../reschedule";
 import { useScheduleBoard, type ScheduleBoard } from "../use-schedule-board";
 import { MonthGrid } from "./month-grid";
 import { RescheduleConfirmDialog, type RescheduleTarget } from "./reschedule-confirm-dialog";
@@ -52,13 +53,14 @@ const NO_BOARD: ScheduleBoard = {
   areas: [],
   areaColors: new Map(),
   roles: new Map(),
+  zoneOf: jobZoneResolver(undefined),
 };
 
-/** The browser's clock, in minutes since midnight, ticking each minute (the Timeline's red line). */
+/** Connecticut's clock, in minutes since midnight, ticking each minute (the Timeline's red line). */
 function useNowMinutes(): number {
-  const [now, setNow] = useState(() => localMinutes());
+  const [now, setNow] = useState(() => ctMinutesOfDay());
   useEffect(() => {
-    const id = setInterval(() => setNow(localMinutes()), 60_000);
+    const id = setInterval(() => setNow(ctMinutesOfDay()), 60_000);
     return () => clearInterval(id);
   }, []);
   return now;
@@ -70,6 +72,11 @@ function useNowMinutes(): number {
  * "Unscheduled jobs" pane, "Filter results", and Add time off. Ours on top:
  * a drop asks before it saves and warns of clashes; the calendar keeps itself
  * current (live stream, else polling) and appears whole, once.
+ *
+ * The calendar is Connecticut's (2026-10-12 owner rule): today, the red line,
+ * where each job sits (moved from the zone it was booked in) and the hour it
+ * opens on are on its clock, and the grid says so — whatever the browser's
+ * clock. A drop is saved back on the job's own clock.
  */
 export function SchedulePage() {
   const router = useRouter();
@@ -77,15 +84,15 @@ export function SchedulePage() {
   const denied = useDenied();
   const qc = useQueryClient();
   const [view, setView] = useState<ScheduleView>("day");
-  const [date, setDate] = useState(() => localTodayISO());
+  const [date, setDate] = useState(() => ctToday());
   const [filterOpen, setFilterOpen] = useState(false);
   const [picks, setPicks] = useState<SchedulePick[]>([]);
   const [paneOpen, setPaneOpen] = useState(false);
   const [timeOffOpen, setTimeOffOpen] = useState(false);
   const [pending, setPending] = useState<RescheduleTarget | null>(null);
-  const [scrollHour] = useState(() => new Date().getHours());
+  const [scrollHour] = useState(() => Math.floor(ctMinutesOfDay() / 60));
   const nowMin = useNowMinutes();
-  const today = localTodayISO();
+  const today = ctToday();
 
   const canView = can("deals", "view");
   const canManage = can("technicians", "edit");
@@ -135,8 +142,9 @@ export function SchedulePage() {
         const contact = b.contacts.get(d.contactId);
         return d.clientName || contact ? dealClientName(d, contact) : "";
       },
+      zoneOf: b.zoneOf,
     });
-  }, [b.deals, b.events, b.areaColors, b.contacts, picks, picked, jobTypeName, techName, profileMap]);
+  }, [b.deals, b.events, b.areaColors, b.contacts, b.zoneOf, picks, picked, jobTypeName, techName, profileMap]);
 
   const rows = useMemo<TimelineRow[]>(() => {
     const row = (id: string, p?: (typeof roster)[number], name = techName(id)): TimelineRow => {
@@ -178,15 +186,14 @@ export function SchedulePage() {
     const rect = e.over ? { top: e.over.rect.top, left: e.over.rect.left } : null;
     const drop = resolveDrop(source, zone, e.delta, pointer, rect);
     if (!drop) return;
-    const scheduling = source.kind === "card";
-    setPending({
-      deal: source.deal,
-      // A job dropped from Unscheduled is as long as its type's Duration (Workiz).
-      body: scheduling ? scheduleBody(drop.date, drop.startMin, b.jobTypeDurations.get(source.deal.jobTypeId)) : moveBody(source.deal, drop),
-      fromTechId: "fromTechId" in source ? source.fromTechId : scheduling && drop.techId !== undefined ? null : undefined,
-      toTechId: drop.techId,
-      scheduling,
-    });
+    // Read on Connecticut's grid, saved on the job's own clock.
+    setPending(
+      pendingMove(source, drop, {
+        zone: b.zoneOf(source.deal),
+        // A job dropped from Unscheduled is as long as its type's Duration (Workiz).
+        durationMinutes: b.jobTypeDurations.get(source.deal.jobTypeId),
+      }),
+    );
   };
 
   const reschedule = useMutation({
@@ -247,7 +254,7 @@ export function SchedulePage() {
         view={view}
         date={date}
         onView={setView}
-        onToday={() => setDate(localTodayISO())}
+        onToday={() => setDate(ctToday())}
         onStep={(dir) => setDate((d) => stepDate(view, d, dir))}
         unscheduledCount={board ? board.unscheduled.length : undefined}
         unscheduledOpen={paneOpen}
@@ -265,6 +272,7 @@ export function SchedulePage() {
               <TimeGrid
                 days={shownView === "day" ? [shownDate] : weekOf(shownDate)}
                 today={today}
+                zone={gridZoneAbbr(shownDate)}
                 entries={entries}
                 readOnly={readOnly}
                 scrollKey={scrollKey}
@@ -280,6 +288,7 @@ export function SchedulePage() {
                 date={shownDate}
                 days={weekOf(shownDate)}
                 today={today}
+                zone={gridZoneAbbr(shownDate)}
                 nowMin={nowMin}
                 rows={rows}
                 entries={entries}

@@ -1,4 +1,5 @@
 import type { Deal } from "@bitcrm/types";
+import { DEFAULT_TZ, wallToCt, zoneAbbr, zonedInstant } from "@/lib/timezone";
 import { parseSlot } from "./lib";
 
 /**
@@ -136,17 +137,15 @@ export function clockLabel(minutes: number): string {
   return `${h}:${String(minutes % 60).padStart(2, "0")} ${m}`;
 }
 
-/** Today by the browser's clock — the day Workiz's calendar circles. */
-export function localTodayISO(now = new Date()): string {
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, "0");
-  const d = String(now.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
-}
-
-/** Minutes since midnight by the browser's clock. */
-export function localMinutes(now = new Date()): number {
-  return now.getHours() * 60 + now.getMinutes();
+/**
+ * The zone a Connecticut day's hours are in — "EDT" or "EST" — for the
+ * corner over the gutter (2026-10-12 owner rule: the grid is Connecticut's,
+ * and says so). Read at noon, so the night the clocks change is named for
+ * the zone it spends its day in. Today and the red line are on the same
+ * clock: `ctToday` and `ctMinutesOfDay` from @/lib/timezone.
+ */
+export function gridZoneAbbr(iso: string): string {
+  return zoneAbbr(zonedInstant(iso, "12:00", DEFAULT_TZ));
 }
 
 /* ------------------------------------------------------------ placement */
@@ -165,16 +164,36 @@ export interface ScheduleItem {
    * times, or one that runs over more than one day.
    */
   bar: boolean;
+  /** Connecticut's zone at the start ("EDT" / "EST"); "" for a job with no time to label. */
+  abbr: string;
 }
 
-/** Where a job sits on the calendar; `null` for one with no visit date. */
-export function scheduleItem(deal: Deal): ScheduleItem | null {
+const minutesOf = (hhmm: string) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5));
+
+/**
+ * Where a job sits on the calendar; `null` for one with no visit date.
+ *
+ * The calendar is Connecticut's (2026-10-12 owner rule), and a visit is
+ * stored on the clock of `zone`, the one it was booked in (`useJobZoneOf`):
+ * a Texas 10:00 sits at 11:00, and a late Arizona visit on Connecticut's next
+ * day. A one-day visit that runs past Connecticut's midnight stays a box, to
+ * the bottom of its day. Days without times are dates, not moments: they stay.
+ */
+export function scheduleItem(deal: Deal, zone: string = DEFAULT_TZ): ScheduleItem | null {
   if (!deal.scheduledDate) return null;
   const startDate = deal.scheduledDate;
   const endDate = deal.scheduledEndDate && deal.scheduledEndDate > startDate ? deal.scheduledEndDate : startDate;
   const slot = deal.allDay ? null : parseSlot(deal.scheduledTimeSlot);
-  if (!slot) return { deal, startDate, endDate, startMin: 0, endMin: 1440, bar: true };
-  return { deal, startDate, endDate, startMin: slot.start, endMin: slot.end, bar: endDate !== startDate };
+  if (!slot) return { deal, startDate, endDate, startMin: 0, endMin: 1440, bar: true, abbr: "" };
+  const [from, to] = deal.scheduledTimeSlot!.split("-");
+  const start = wallToCt(startDate, from, zone);
+  const end = wallToCt(endDate, to, zone);
+  const startMin = minutesOf(start.time);
+  if (endDate === startDate) {
+    const endMin = end.date > start.date ? 1440 : minutesOf(end.time);
+    return { deal, startDate: start.date, endDate: start.date, startMin, endMin, bar: false, abbr: start.abbr };
+  }
+  return { deal, startDate: start.date, endDate: end.date, startMin, endMin: minutesOf(end.time), bar: true, abbr: start.abbr };
 }
 
 /**

@@ -9,6 +9,8 @@
  * that no week would reach.
  */
 
+import { ctToday } from "@/lib/timezone";
+
 export type MapRange = "day" | "week" | "month" | "all";
 
 export const MAP_RANGES: readonly { value: MapRange; label: string }[] = [
@@ -21,11 +23,13 @@ export const MAP_RANGES: readonly { value: MapRange; label: string }[] = [
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-/** The viewer's calendar day, YYYY-MM-DD — Workiz's date box follows the browser clock. */
-export function localToday(now = new Date()): string {
-  const m = String(now.getMonth() + 1).padStart(2, "0");
-  const d = String(now.getDate()).padStart(2, "0");
-  return `${now.getFullYear()}-${m}-${d}`;
+/**
+ * The day the date box opens on and Reset date comes back to, YYYY-MM-DD:
+ * Connecticut's (2026-10-12 owner rule). Workiz's follows the browser clock,
+ * which for staff in Ukraine is tomorrow before Connecticut's evening.
+ */
+export function mapToday(now = new Date()): string {
+  return ctToday(now);
 }
 
 /** YYYY-MM-DD → a UTC date (no time-zone drift in the arithmetic). */

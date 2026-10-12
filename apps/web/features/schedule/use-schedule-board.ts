@@ -15,10 +15,11 @@ import { useJobTypes } from "@/features/job-types/hooks";
 import { jobTypeDurationMinutes } from "@/features/job-types/lib";
 import { useRoles } from "@/features/roles/hooks";
 import { useServiceAreas } from "@/features/service-areas/hooks";
+import { jobZoneResolver } from "@/features/service-areas/lib";
 import { filterAreas } from "@/features/deals/job-filters";
 import { useAllTechnicians } from "@/features/technicians/hooks";
 import { useCalendarEvents } from "./hooks";
-import { viewRange, type ScheduleView } from "./calendar";
+import { addDays, viewRange, type ScheduleView } from "./calendar";
 
 export type { ScheduleView } from "./calendar";
 
@@ -49,6 +50,8 @@ export interface ScheduleBoard {
   areaColors: Map<string, string>;
   /** role id → name, when the viewer may read roles (the Timeline's second line). */
   roles: Map<string, string>;
+  /** The zone each job's visit was booked in (`jobZoneResolver`) — the grid moves it onto Connecticut's clock. */
+  zoneOf: (deal: Deal) => string;
 }
 
 const NO_DEALS: Deal[] = [];
@@ -86,7 +89,10 @@ export function useScheduleBoard({ view, date }: { view: ScheduleView; date: str
   const { isLoading: permsLoading, can } = usePermissions();
   const { from, to } = viewRange(view, date);
 
-  const dealsQuery = useDealsWindow({ from, to }, { poll: true });
+  // The grid is Connecticut's (2026-10-12 owner rule) and every area is on it
+  // or west of it, so a late visit there is stored on the day before the
+  // Connecticut day it sits on: the jobs are read from a day earlier.
+  const dealsQuery = useDealsWindow({ from: addDays(from, -1), to }, { poll: true });
   const unscheduledQuery = useUnscheduledDeals();
   const roster = useAllTechnicians(canView);
   const users = useUserMap();
@@ -134,6 +140,7 @@ export function useScheduleBoard({ view, date }: { view: ScheduleView; date: str
     () => new Map(areaList.filter((a) => a.color).map((a) => [a.name, a.color as string])),
     [areaList],
   );
+  const zoneOf = useMemo(() => jobZoneResolver(areaList), [areaList]);
   const roleList = rolesQuery.data ?? NO_ROLES;
   const roles = useMemo(() => new Map(roleList.map((r) => [r.id, r.name])), [roleList]);
 
@@ -153,8 +160,9 @@ export function useScheduleBoard({ view, date }: { view: ScheduleView; date: str
       areas,
       areaColors,
       roles,
+      zoneOf,
     }),
-    [view, date, deals, unscheduled, events.data, contacts.map, roster.profiles, users.map, jobTypes, jobTypeDurations, activeJobTypes, areas, areaColors, roles],
+    [view, date, deals, unscheduled, events.data, contacts.map, roster.profiles, users.map, jobTypes, jobTypeDurations, activeJobTypes, areas, areaColors, roles, zoneOf],
   );
 
   return { board: useLastWhole(current, whole) };

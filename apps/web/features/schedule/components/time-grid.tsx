@@ -33,10 +33,14 @@ const MIN_BOX_PX = 22;
  * with quarter-hour lines, beside a 50px gutter ("7 AM"). Overlapping jobs
  * split the column; one too crowded to split cascades 2px apart. No line marks
  * the current time — Workiz draws none here.
+ *
+ * The hours are Connecticut's (2026-10-12 owner rule) and the corner over the
+ * gutter says so ("EDT"); the jobs come already moved onto them.
  */
 export function TimeGrid({
   days,
   today,
+  zone,
   entries,
   readOnly,
   scrollKey,
@@ -46,6 +50,8 @@ export function TimeGrid({
 }: {
   days: string[];
   today: string;
+  /** The hours' zone, "EDT" / "EST" — Connecticut's. */
+  zone: string;
   entries: CalendarEntry[];
   readOnly: boolean;
   /** Scroll to `scrollHour` whenever this changes (a new view), as Workiz does on each render of a view. */
@@ -94,7 +100,8 @@ export function TimeGrid({
     <div ref={scrollRef} data-schedule-scroll className="relative min-h-0 flex-1 overflow-y-auto">
       <div className="sticky top-0 z-30 bg-white">
         {/* .dhx_cal_header: 14px/21px day name over the date, 2px down. */}
-        <div className="flex" style={{ height: DAY_HEADER_PX, paddingLeft: GUTTER_PX }}>
+        <div className="relative flex" style={{ height: DAY_HEADER_PX, paddingLeft: GUTTER_PX }}>
+          <ZoneCorner zone={zone} className="absolute bottom-[2px] left-0" style={{ width: GUTTER_PX }} />
           {days.map((date) => (
             <div key={date} className="min-w-0 flex-1 pt-[2px] text-center text-[14px] leading-[21px] text-black">
               <div>{weekdayName(date)}</div>
@@ -120,7 +127,7 @@ export function TimeGrid({
                   <Draggable
                     key={entry.id}
                     id={`strip:${entry.id}`}
-                    source={{ kind: "days", deal: entry.deal, dayPx: colPx || 1 }}
+                    source={{ kind: "days", deal: entry.deal, dayPx: colPx || 1, startDate: entry.startDate }}
                     // A one-day strip has no other day to move to.
                     disabled={readOnly || days.length === 1}
                     label={entry.title}
@@ -182,7 +189,7 @@ export function TimeGrid({
                     </div>
                   );
                 }
-                const source: DragSource = { kind: "time", deal: entry.deal, startMin: entry.startMin };
+                const source: DragSource = { kind: "time", deal: entry.deal, startMin: entry.startMin, startDate: entry.startDate };
                 return (
                   <Draggable
                     key={entry.id}
@@ -202,6 +209,15 @@ export function TimeGrid({
           ))}
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Ours (2026-10-12 owner rule): the grid's zone, "EDT", in the gutter's own small type. */
+export function ZoneCorner({ zone, className, style }: { zone: string; className?: string; style?: React.CSSProperties }) {
+  return (
+    <div title="Connecticut time" className={cn("text-center text-[11px] leading-[16px] text-[#404044]", className)} style={style}>
+      {zone}
     </div>
   );
 }

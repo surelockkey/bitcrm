@@ -5,6 +5,7 @@ import {
   type TechnicianProfile,
 } from "@bitcrm/types";
 import type { DirectoryUser } from "@/features/deals/hooks";
+import { ctMinutesOfDay } from "@/lib/timezone";
 
 /** The manager-controlled working-hours subset of a technician profile. */
 export interface WorkingHours {
@@ -30,6 +31,18 @@ export function parseSlot(slot?: string): { start: number; end: number } | null 
   const start = Number(m[1]) * 60 + Number(m[2]);
   const end = Number(m[3]) * 60 + Number(m[4]);
   return { start, end };
+}
+
+const hhmm = (m: number) => `${String(Math.floor(m / 60) % 24).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+
+/**
+ * Add time off's Starts / Ends, as Workiz fills them: the next half hour and
+ * an hour after it — on Connecticut's clock, the calendar's (2026-10-12 owner
+ * rule), not the browser's.
+ */
+export function timeOffDefaultTimes(now: Date = new Date()): { start: string; end: string } {
+  const next = Math.min(Math.ceil((ctMinutesOfDay(now) + 1) / 30) * 30, 23 * 60);
+  return { start: hhmm(next), end: hhmm(Math.min(next + 60, 23 * 60 + 45)) };
 }
 
 export function slotMinutes(slot: string): number {

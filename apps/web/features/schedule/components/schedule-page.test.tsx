@@ -5,7 +5,8 @@ import type { ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
 import { server } from "@/test/msw/server";
-import { localTodayISO } from "../calendar";
+import { ctToday } from "@/lib/timezone";
+import { addDays } from "../calendar";
 import { SchedulePage } from "./schedule-page";
 
 const push = vi.hoisted(() => vi.fn());
@@ -29,8 +30,8 @@ vi.mock("@/features/auth/use-permissions", () => ({
   usePermissions: () => permissions.value,
 }));
 
-// The calendar opens on the browser's today, as Workiz's does.
-const today = localTodayISO();
+// The calendar opens on Connecticut's today (2026-10-12 owner rule), not the browser's.
+const today = ctToday();
 
 const DEAL = {
   id: "deal-1",
@@ -164,9 +165,42 @@ describe("SchedulePage — Workiz's Schedule", () => {
     render(<SchedulePage />, { wrapper });
     await waitFor(() => expect(urls.some((u) => new URL(u).searchParams.get("scheduledFrom"))).toBe(true));
     const q = new URL(urls.find((u) => new URL(u).searchParams.get("scheduledFrom"))!).searchParams;
-    expect(q.get("scheduledFrom")).toBe(today);
+    // From the day before: a late visit in a zone west of Connecticut is
+    // stored on the day before the Connecticut day it sits on.
+    expect(q.get("scheduledFrom")).toBe(addDays(today, -1));
     expect(q.get("scheduledTo")).toBe(today);
     expect(q.get("sort")).toBe("schedule");
+  });
+
+  it("opens on Connecticut's today, whatever the browser's clock says", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    // 02:30Z on the 13th: still the 12th, 10:30 PM, in Connecticut (05:30 on the 13th in Kyiv, and in UTC).
+    vi.setSystemTime(new Date("2026-10-13T02:30:00Z"));
+    try {
+      const urls: string[] = [];
+      server.use(
+        http.get("*/deals", ({ request }) => {
+          urls.push(request.url);
+          return HttpResponse.json({ success: true, data: [], pagination: {} });
+        }),
+      );
+      render(<SchedulePage />, { wrapper });
+      await waitFor(() => expect(urls.some((u) => new URL(u).searchParams.get("scheduledTo"))).toBe(true));
+      const q = new URL(urls.find((u) => new URL(u).searchParams.get("scheduledTo"))!).searchParams;
+      expect(q.get("scheduledTo")).toBe("2026-10-12");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("puts a Texas job on Connecticut's clock and labels the time", async () => {
+    mockApi({ deals: [{ ...DEAL, jobTimezone: "America/Chicago", scheduledTimeSlot: "09:00-10:00" }] });
+    render(<SchedulePage />, { wrapper });
+    await job();
+    // Day: the hours are Connecticut's, and the corner says which.
+    expect(screen.getByTitle("Connecticut time")).toHaveTextContent(/^E[DS]T$/);
+    await userEvent.click(screen.getByRole("tab", { name: "Month" }));
+    expect(await job()).toHaveTextContent(/10:00 AM E[DS]T/);
   });
 
   it("has Workiz's five views", async () => {
@@ -201,7 +235,7 @@ describe("SchedulePage — Workiz's Schedule", () => {
     await job();
     await userEvent.click(screen.getByRole("tab", { name: "Month" }));
     const line = await job();
-    expect(line).toHaveTextContent("9:00 AM");
+    expect(line).toHaveTextContent(/9:00 AM E[DS]T/);
   });
 
   it("Timeline: Unassigned first, then a row per active field technician with their role", async () => {
@@ -368,7 +402,7 @@ describe("SchedulePage — Workiz's Schedule", () => {
     await screen.findByRole("button", { name: "Next" });
     await userEvent.click(screen.getByRole("button", { name: "Next" }));
     await waitFor(() =>
-      expect(urls.some((u) => new URL(u).searchParams.get("scheduledFrom") !== today && new URL(u).searchParams.get("scheduledFrom"))).toBe(true),
+      expect(urls.some((u) => new URL(u).searchParams.get("scheduledTo") === addDays(today, 1))).toBe(true),
     );
   });
 

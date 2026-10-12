@@ -5,7 +5,7 @@ import type { Deal } from "@bitcrm/types";
 import { WzMapPinCard, WzMapPinCardRow, type WzMapPinCardAction } from "@/components/workiz/map-pin";
 import { googleMapsLink } from "@/lib/geo/geo";
 import { formatPhone } from "@/lib/phone";
-import { mapAddress, mapStatusWord, pinCardWhen } from "../map-words";
+import { JOB_ZONE, mapAddress, mapStatusWord, pinCardWhen, type JobZoneOf } from "../map-words";
 import { MapTag } from "./map-tag";
 
 /**
@@ -23,6 +23,7 @@ export function JobPinCard({
   phone,
   techNames,
   sequence,
+  zoneOf = JOB_ZONE,
   canEdit,
   onEdit,
   onView,
@@ -37,6 +38,8 @@ export function JobPinCard({
   techNames?: string;
   /** Ours: where the job sits in its first tech's day (a manual re-sequence). */
   sequence?: number;
+  /** The zone the visit was booked in (`jobZoneResolver` over the areas); its own `jobTimezone` when left out. */
+  zoneOf?: JobZoneOf;
   canEdit: boolean;
   onEdit: () => void;
   onView: () => void;
@@ -47,7 +50,8 @@ export function JobPinCard({
     ...(canEdit ? [{ label: "Edit", icon: <PenLine strokeWidth={1.6} />, onClick: onEdit }] : []),
     { label: "View", icon: <Eye strokeWidth={1.6} />, onClick: onView },
   ];
-  const when = pinCardWhen(deal);
+  // On Connecticut's clock, labelled (2026-10-12 owner rule).
+  const when = pinCardWhen(deal, zoneOf(deal));
   return (
     <WzMapPinCard title={title} actions={actions} onClose={onClose}>
       <WzMapPinCardRow icon={<User strokeWidth={1.6} />} end={<MapTag>{mapStatusWord(deal.superStatus)}</MapTag>}>

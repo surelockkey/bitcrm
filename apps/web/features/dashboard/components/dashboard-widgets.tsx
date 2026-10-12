@@ -18,7 +18,7 @@ import { callParty, formatEndpoint, type CallRecord } from "@/features/calls/lib
 import { cn } from "@/lib/utils";
 import * as api from "../api";
 import { barPercent, scoreInitial } from "../charts";
-import { fromNow, visitStart, visitStreet } from "../coming-up";
+import { fromNow, visitStart, visitStreet, visitWhen } from "../coming-up";
 import {
   useCollectedToday,
   useComingUp,
@@ -250,14 +250,15 @@ export function ComingUpCard({ className, onRemove }: CardProps) {
       query={query}
       viewAll={{ href: "/schedule" }}
     >
-      {({ deals, clients }) =>
+      {({ deals, clients, zones }) =>
         !deals.length ? (
           <Empty>Nothing on your schedule</Empty>
         ) : (
           // Workiz's name block is 90px narrower than the row's *content*, so it overhangs the padding by 13px.
           <ul className="-mr-[13px] flex flex-col gap-4">
             {deals.map((d) => {
-              const at = visitStart(d);
+              // On the clock of the zone it was booked in; when, on Connecticut's (2026-10-12 owner rule).
+              const at = visitStart(d, zones?.[d.id]);
               const client = d.clientName
                 ? `${d.clientName.firstName} ${d.clientName.lastName}`.trim()
                 : clients[d.contactId] ?? "";
@@ -267,7 +268,10 @@ export function ComingUpCard({ className, onRemove }: CardProps) {
                     href={`/deals/${d.id}`}
                     className="flex h-[39px] items-stretch text-wz-text outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
-                    <span className="w-[90px] shrink-0 text-xs leading-[21px] tracking-[0.167857px]">
+                    <span
+                      className="w-[90px] shrink-0 text-xs leading-[21px] tracking-[0.167857px]"
+                      title={at === undefined ? undefined : visitWhen(at)}
+                    >
                       {at === undefined ? "" : fromNow(at - now.getTime())}
                     </span>
                     <span className="flex min-w-0 flex-1 flex-col border-l-2 border-wz-frame pl-[11px]">
