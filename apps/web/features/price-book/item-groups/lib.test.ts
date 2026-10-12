@@ -197,7 +197,7 @@ describe("draftLinesFromJobLines — Workiz's save-as-group icon on a job's item
   });
 
   it("reads a line without a taxable flag as taxable, as the job does", () => {
-    const { taxable: _t, ...bare } = jobLine;
+    const bare = { ...jobLine, taxable: undefined };
     expect(draftLinesFromJobLines([bare], { canSeeCost: true })[0].taxable).toBe(true);
   });
 });
