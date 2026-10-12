@@ -69,31 +69,46 @@ describe('HttpExceptionFilter', () => {
     });
   });
 
-  it('should default to 500 INTERNAL_SERVER_ERROR for unknown exceptions', () => {
-    const exception = new Error('Something broke');
-
-    filter.catch(exception, mockHost);
+  it('an unknown exception answers 500 with its real reason, never "Internal server error"', () => {
+    filter.catch(new Error('Something broke'), mockHost);
 
     expect(mockStatus).toHaveBeenCalledWith(500);
-    expect(mockJson).toHaveBeenCalledWith({
-      success: false,
-      error: {
-        code: 'INTERNAL_SERVER_ERROR',
-        message: 'Internal server error',
-      },
-    });
+    const body = mockJson.mock.calls[0][0];
+    expect(body.success).toBe(false);
+    expect(body.error.code).toBe('INTERNAL_SERVER_ERROR');
+    expect(body.error.message).toMatch(/Something broke/);
+    expect(body.error.message).not.toMatch(/Internal server error/);
+  });
+
+  it('a 5xx carries the trace id, so a report can be found in the logs', () => {
+    const withRequest = {
+      switchToHttp: () => ({
+        getResponse: () => ({ status: mockStatus }),
+        getRequest: () => ({ id: 'abc12345' }),
+      }),
+    } as unknown as ArgumentsHost;
+
+    filter.catch(new Error('Something broke'), withRequest);
+
+    const body = mockJson.mock.calls[0][0];
+    expect(body.error.ref).toBe('abc12345');
+    expect(body.error.message).toMatch(/ref abc12345/);
+  });
+
+  it('an AWS refusal gets its own status and reason', () => {
+    filter.catch(
+      Object.assign(new Error('User does not exist.'), { name: 'UserNotFoundException' }),
+      mockHost,
+    );
+
+    expect(mockStatus).toHaveBeenCalledWith(404);
+    expect(mockJson.mock.calls[0][0].error).toMatchObject({ code: 'NOT_FOUND' });
   });
 
   it('should handle non-Error exceptions', () => {
     filter.catch('string error', mockHost);
 
     expect(mockStatus).toHaveBeenCalledWith(500);
-    expect(mockJson).toHaveBeenCalledWith({
-      success: false,
-      error: {
-        code: 'INTERNAL_SERVER_ERROR',
-        message: 'Internal server error',
-      },
-    });
+    expect(mockJson.mock.calls[0][0].error.message).toMatch(/string error/);
   });
 });
