@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Put } from '@nestjs/common';
+import { Body, Controller, Get, Optional, Post, Put } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsOptional, IsString, ValidateIf } from 'class-validator';
 import { CurrentUser, RequirePermission } from '@bitcrm/shared';
@@ -6,6 +6,7 @@ import { type JwtUser } from '@bitcrm/types';
 import { TelephonyService } from './telephony.service';
 import { TelephonySettingsService } from './telephony-settings.service';
 import { MainNumberService } from './main-number.service';
+import { IceServersService } from './ice-servers.service';
 
 class FallbackNumberDto {
   @ApiPropertyOptional({
@@ -27,6 +28,7 @@ export class TelephonyController {
     private readonly telephonyService: TelephonyService,
     private readonly settings: TelephonySettingsService,
     private readonly main: MainNumberService,
+    @Optional() private readonly iceServers?: IceServersService,
   ) {}
 
   @Get('config')
@@ -70,10 +72,14 @@ export class TelephonyController {
     summary: 'Mint a Twilio Voice access token for the browser softphone',
     description:
       'Returns a short-lived Twilio AccessToken (VoiceGrant) scoped to the ' +
-      'current user as the client identity. Any authenticated user.',
+      'current user as the client identity, and `iceServers` — Twilio STUN/TURN ' +
+      'servers the browser hands to every call so audio gets through networks ' +
+      'that block direct UDP (absent when Twilio could not be asked). Any ' +
+      'authenticated user.',
   })
-  token(@CurrentUser() user: JwtUser) {
-    const data = this.telephonyService.generateAccessToken(user.id);
-    return { success: true, data };
+  async token(@CurrentUser() user: JwtUser) {
+    const token = this.telephonyService.generateAccessToken(user.id);
+    const iceServers = await this.iceServers?.get();
+    return { success: true, data: iceServers ? { ...token, iceServers } : token };
   }
 }
