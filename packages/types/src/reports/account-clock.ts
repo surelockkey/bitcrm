@@ -143,10 +143,17 @@ export function zoneAbbr(at: Date | string | number | undefined | null, timeZone
   if (at === undefined || at === null || at === '') return '';
   const d = at instanceof Date ? at : new Date(at);
   if (Number.isNaN(d.getTime())) return '';
-  return (
-    new Intl.DateTimeFormat('en-US', { timeZone, timeZoneName: 'short' })
-      .formatToParts(d)
-      .find((p) => p.type === 'timeZoneName')?.value ?? ''
-  );
+  return abbrFormatter(timeZone).formatToParts(d).find((p) => p.type === 'timeZoneName')?.value ?? '';
+}
+
+/** One abbreviation formatter per zone: a CSV of thousands of rows asks for it per cell. */
+const abbrFormatters = new Map<string, Intl.DateTimeFormat>();
+function abbrFormatter(timeZone: string): Intl.DateTimeFormat {
+  let f = abbrFormatters.get(timeZone);
+  if (!f) {
+    f = new Intl.DateTimeFormat('en-US', { timeZone, timeZoneName: 'short' });
+    abbrFormatters.set(timeZone, f);
+  }
+  return f;
 }
 
