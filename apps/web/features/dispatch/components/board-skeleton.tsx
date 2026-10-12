@@ -15,6 +15,35 @@ import { cn } from "@/lib/utils";
  * date box over its top. The board then draws over it at the same size, in
  * one frame — the house rule: one skeleton, then the page.
  */
+/** Six card places of three lines each — where the sidebar's cards will be. */
+function CardPlaces() {
+  return (
+    <>
+      {Array.from({ length: 6 }, (_, i) => (
+        <div key={i} className="flex flex-col gap-2 border-b border-border p-4">
+          <Skeleton className="h-4 w-[210px]" />
+          <Skeleton className="h-4 w-[270px]" />
+          <Skeleton className="h-5 w-[72px] rounded-[4px]" />
+        </div>
+      ))}
+    </>
+  );
+}
+
+/**
+ * The sidebar's list while ITS rows are not all in — the Techs tab opened
+ * before the team, its live fixes or its streets have answered (the Jobs tab
+ * does not wait for them). The same card places as the board's skeleton, so
+ * the rows land where the grey was.
+ */
+export function DispatchListSkeleton() {
+  return (
+    <div data-testid="map-list-skeleton" role="status" aria-label="Loading the team" aria-busy="true">
+      <CardPlaces />
+    </div>
+  );
+}
+
 export function DispatchBoardSkeleton({ showTabs = true }: { showTabs?: boolean }) {
   return (
     <div
@@ -49,13 +78,7 @@ export function DispatchBoardSkeleton({ showTabs = true }: { showTabs?: boolean 
                 <Skeleton className="h-4 w-8 rounded-[8px]" />
               </div>
             ))}
-            {Array.from({ length: 6 }, (_, i) => (
-              <div key={i} className="flex flex-col gap-2 border-b border-border p-4">
-                <Skeleton className="h-4 w-[210px]" />
-                <Skeleton className="h-4 w-[270px]" />
-                <Skeleton className="h-5 w-[72px] rounded-[4px]" />
-              </div>
-            ))}
+            <CardPlaces />
           </div>
         </div>
       </aside>

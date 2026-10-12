@@ -82,6 +82,8 @@ export const queryKeys = {
     page: (params?: unknown) => ["deals", "page", params] as const,
     /** A bounded window a board / schedule holds whole (dispatch, schedule). */
     window: (window?: unknown) => ["deals", "window", window] as const,
+    /** The dispatch map's one read (`GET /deals/map`); under `deals` so the live stream refreshes it. */
+    map: (query?: unknown) => ["deals", "map", query] as const,
     counts: (params?: unknown) => ["deals", "counts", params] as const,
     /** A period at a glance (dashboard); under `deals` so the live stream refreshes it. */
     stats: (params?: unknown) => ["deals", "stats", params] as const,

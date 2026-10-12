@@ -123,21 +123,51 @@ const users = [
   { id: "t-off", firstName: "Ola", lastName: "Off", email: "ola@example.test" },
 ];
 
+const inProgress = () =>
+  deal(3, { superStatus: JobSuperStatus.IN_PROGRESS, scheduledDate: localDay, assignedTechIds: ["t-home"] });
+
+/** `GET /deals/map`: every open job at once, with the names they refer to. */
+const mapRoute: FakeRoute = {
+  match: /\/deals\/map$/,
+  raw: true,
+  reply: () => ({
+    success: true,
+    data: [deal(1), deal(2), inProgress()],
+    pagination: { count: 3 },
+    included: {
+      technicians: [{ id: "t-home", firstName: "Hana", lastName: "Home" }],
+      clients: contacts.map(({ id, firstName, lastName }) => ({ id, firstName, lastName, phones: [], emails: [] })),
+    },
+  }),
+  delayMs: 40,
+};
+
 /** The deals list, per status — `submitted` drains over two pages, as a big board does. */
 function dealsReply(url: URL) {
   const status = url.searchParams.get("superStatus");
   const cursor = url.searchParams.get("cursor");
   const page = (data: Deal[], nextCursor?: string) => ({ success: true, data, pagination: { nextCursor } });
   if (status === "submitted") return cursor ? page([deal(2)]) : page([deal(1)], "next");
-  if (status === "in_progress")
-    return page([deal(3, { superStatus: JobSuperStatus.IN_PROGRESS, scheduledDate: localDay, assignedTechIds: ["t-home"] })]);
+  if (status === "in_progress") return page([inProgress()]);
   return page([]);
 }
 
-const routes: FakeRoute[] = [
+/** A deal-service from before `/deals/map`: `GET /deals/:id` answers it, and the board drains the list instead. */
+const oldApiRoutes: FakeRoute[] = [
+  {
+    match: /\/deals\/map$/,
+    raw: true,
+    status: 404,
+    reply: () => ({ success: false, error: { code: "NOT_FOUND", message: "Deal map not found" } }),
+    delayMs: 20,
+  },
   // The second page of a drain is slow — it is what kept the board waiting.
   { match: /\/deals$/, raw: true, reply: dealsReply, delayMs: 40 },
   { match: /\/crm\/contacts\/by-ids$/, method: "POST", reply: () => contacts, delayMs: 30 },
+];
+
+const routes: FakeRoute[] = [
+  mapRoute,
   {
     match: /\/users$/,
     raw: true,
@@ -252,7 +282,88 @@ describe("DispatchPage — one load, not waves", () => {
     watch.stop();
     await settle();
 
-    expect(server.requests.slice(watch.frame()!.requestsSoFar)).toEqual([]);
+    // Nothing new: only the rest of the team's directory, asked before the
+    // board and still paging behind it (the Jobs tab names its techs from the
+    // map's own answer, so it does not wait for that).
+    const after = server.requests.slice(watch.frame()!.requestsSoFar);
+    expect(after.filter((r) => !/^\/users\?(.*&)?cursor=/.test(r))).toEqual([]);
+  });
+
+  // 2026-10-12 (map_fast): 5–8 s on dev were the open jobs drained a hundred a
+  // page — four statuses, each page after the last — and only then the clients
+  // by id. Now one request answers both.
+  it("reads the board's jobs in one request — no list pages, no clients by id", async () => {
+    renderWithClient(<DispatchPage />);
+    await boardUp();
+    await settle();
+
+    const jobs = server.requests.filter((r) => /^\/deals(\/map)?(\?|$)/.test(r));
+    expect(jobs).toEqual(["/deals/map"]);
+    expect(server.requests.some((r) => r.startsWith("/crm/contacts/by-ids"))).toBe(false);
+  });
+
+  it("on a deal-service without /deals/map, drains the list the old way — still one whole board", async () => {
+    server = installFakeServer([...oldApiRoutes, ...routes.slice(1)]);
+    const watch = watchBoardFirstFrame();
+    renderWithClient(<DispatchPage />);
+    await boardUp();
+    watch.stop();
+
+    expect(watch.frame()).toMatchObject({ jobRows: 3, jobTitles: true, unknownClient: 0, jobCount: true, skeletons: 0 });
+    expect(server.requests).toContain("/deals/map");
+    expect(server.requests.some((r) => r.startsWith("/deals?") && r.includes("cursor=next"))).toBe(true);
+    expect(server.requests).toContain("/crm/contacts/by-ids");
+  });
+
+  it("the Jobs tab is not held for the team's streets — no street is drawn on it", async () => {
+    geocoder.delayMs = 1500;
+    renderWithClient(<DispatchPage />);
+
+    // Held, it would wait for Google's answer (or its 2 s cap).
+    expect(await boardUp(1000)).toBeInTheDocument();
+    expect(screen.getByTestId("job-row-d1")).toBeInTheDocument();
+  });
+
+  it("the Jobs tab is not held for the team when no tech is drawn on it", async () => {
+    server = installFakeServer(
+      routes.map((r) => (String(r.match) === String(/\/users\/technicians\/locations$/) ? { ...r, delayMs: 1500 } : r)),
+    );
+    renderWithClient(<DispatchPage />);
+
+    expect(await boardUp(1000)).toBeInTheDocument();
+  });
+
+  it("with 'Show techs' on, the team is on the first frame of the Jobs tab", async () => {
+    window.sessionStorage.setItem("dispatch:map", JSON.stringify({ showTechs: true }));
+    const watch = watchFirstFrame(boardIsUp, () => ({
+      techMarkers: document.querySelectorAll('[data-testid^="tech-marker-"]').length,
+      jobRows: document.querySelectorAll('[data-testid^="job-row-"]').length,
+    }));
+    renderWithClient(<DispatchPage />);
+    await boardUp();
+    watch.stop();
+
+    // t-home (its in-progress job today) and t-live (a fresh fix); t-off cannot be placed.
+    expect(watch.frame()).toEqual({ techMarkers: 2, jobRows: 3 });
+  });
+
+  it("the Techs tab, opened before the team is in, holds its rows — then draws them whole, streets and all", async () => {
+    geocoder.delayMs = 400;
+    renderWithClient(<DispatchPage />);
+    await boardUp();
+    const watch = watchFirstFrame(
+      () => document.querySelectorAll('[data-testid^="tech-row-"]').length > 0,
+      () => rosterFrame(),
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: "Techs" }));
+    expect(screen.getByTestId("map-list-skeleton")).toBeInTheDocument();
+    expect(techRowOrder()).toEqual([]);
+
+    await screen.findByTestId("tech-row-t-live", {}, { timeout: 3000 });
+    watch.stop();
+    expect(watch.frame()).toMatchObject({ techNames: true, liveStatus: true, techAddresses: 2 });
+    expect(screen.queryByTestId("map-list-skeleton")).toBeNull();
   });
 
   it("asks for each thing once", async () => {
@@ -279,8 +390,14 @@ describe("DispatchPage — one load, not waves", () => {
   it("does not reshuffle the technicians once they are on screen", async () => {
     renderWithClient(<DispatchPage />);
     await boardUp();
+    const watch = watchFirstFrame(
+      () => document.querySelectorAll('[data-testid^="tech-row-"]').length > 0,
+      () => techRowOrder(),
+    );
     fireEvent.click(screen.getByRole("tab", { name: "Techs" }));
-    const first = rosterFrame().techOrder;
+    await screen.findByTestId("tech-row-t-live");
+    watch.stop();
+    const first = watch.frame();
     await settle();
 
     // Online first, then by name — and that order is the first one drawn.

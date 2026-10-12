@@ -8,7 +8,7 @@ import { MapsProvider } from "@/components/maps/maps-provider";
 import { Button } from "@/components/ui/button";
 import { env } from "@/lib/env";
 import { useDenied, usePermissions } from "@/features/auth/use-permissions";
-import { useReorderDeals } from "@/features/deals/hooks";
+import { useDeal, useReorderDeals } from "@/features/deals/hooks";
 import { dealClientName, filterDeals } from "@/features/deals/lib";
 import { personName } from "@/features/deals/person-name";
 import { EditDealSheet } from "@/features/deals/components/edit-deal-sheet";
@@ -16,7 +16,7 @@ import { AssignTechDialog } from "@/features/deals/components/assign-tech-dialog
 import type { DealsWindow } from "@/features/deals/window";
 import { useJobTypes } from "@/features/job-types/hooks";
 import { activeJobTypes, useJobTypeName } from "@/features/job-types/lib";
-import { DispatchBoardSkeleton } from "./board-skeleton";
+import { DispatchBoardSkeleton, DispatchListSkeleton } from "./board-skeleton";
 import { DispatchMap } from "./dispatch-map";
 import { ServiceAreaLegend } from "./service-area-overlay";
 import { JobList } from "./job-list";
@@ -173,7 +173,18 @@ function DispatchBoardPage() {
   // Kept by value: a new object every render would read as a new board every render.
   const closedKey = JSON.stringify(closedMapWindow(filters, days));
   const closedWindow = useMemo(() => JSON.parse(closedKey) as DealsWindow | null, [closedKey]);
-  const { board, query } = useDispatchBoard(BOARD_WINDOW, { techs: canSeeTechs, areas: canSeeAreas, closed: closedWindow });
+  // The board waits only for what is drawn: the team when it is on the map
+  // or in the list, its streets when the Techs tab lists them.
+  const shows = useMemo(
+    () => ({ techs: canSeeTechs && (tab === "techs" || showTechs), streets: canSeeTechs && tab === "techs" }),
+    [canSeeTechs, tab, showTechs],
+  );
+  const { board, query, techsReady } = useDispatchBoard(BOARD_WINDOW, {
+    techs: canSeeTechs,
+    areas: canSeeAreas,
+    closed: closedWindow,
+    shows,
+  });
   const {
     deals,
     closedDeals,
@@ -277,8 +288,9 @@ function DispatchBoardPage() {
   }
 
   // One wait for the whole board, then the board in one frame — behind the
-  // page's own shape meanwhile, not a spinner: the open jobs drain a hundred
-  // a page and can take a few seconds.
+  // page's own shape meanwhile, not a spinner: every open job is one request
+  // (`GET /deals/map`), but against a deal-service without it they drain a
+  // hundred a page and take seconds.
   if (!board) return <DispatchBoardSkeleton showTabs={canSeeTechs} />;
 
   // Enter in the search box centres the map on the first match.
@@ -396,8 +408,11 @@ function DispatchBoardPage() {
             onHover={setHoveredId}
             onSelect={select}
           />
-        ) : (
+        ) : techsReady ? (
           <TechList rows={people} addresses={addresses} hoveredId={hoveredId} onHover={setHoveredId} onSelect={select} />
+        ) : (
+          // Opened before the team (or its streets) answered: its rows land whole.
+          <DispatchListSkeleton />
         )}
       </MapSidebar>
 
@@ -439,7 +454,7 @@ function DispatchBoardPage() {
         )}
       </div>
 
-      {selectedDeal && editing ? <EditDealSheet deal={selectedDeal} open onOpenChange={setEditing} /> : null}
+      {selectedDeal && editing ? <EditWholeJob dealId={selectedDeal.id} onOpenChange={setEditing} /> : null}
       {selectedDeal && assigning ? (
         <AssignTechDialog
           dealId={selectedDeal.id}
@@ -450,6 +465,18 @@ function DispatchBoardPage() {
       ) : null}
     </div>
   );
+}
+
+/**
+ * The edit sheet, on the WHOLE job. The map's rows are cut to what the map
+ * draws (`GET /deals/map` sends no notes, money or custom answers), and the
+ * sheet saves every field it shows — handed a map row it would save those
+ * blank. So it opens once the job itself is read (`GET /deals/:id`, the same
+ * cache the job page uses).
+ */
+function EditWholeJob({ dealId, onOpenChange }: { dealId: string; onOpenChange: (open: boolean) => void }) {
+  const { data: deal } = useDeal(dealId);
+  return deal ? <EditDealSheet deal={deal} open onOpenChange={onOpenChange} /> : null;
 }
 
 /**
