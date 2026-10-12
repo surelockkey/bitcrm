@@ -145,4 +145,58 @@ describe('CognitoAuthGuard', () => {
     const context = createMockContext({ authorization: 'Bearer valid-token' });
     expect(await guard.canActivate(context)).toBe(true);
   });
+
+  describe('marks the user active (Admin → Users "Online")', () => {
+    const claims = {
+      sub: 'cognito-sub-123',
+      email: 'test@example.com',
+      'custom:user_id': 'user-123',
+      'custom:role_id': 'role-admin',
+    };
+    const make = () => {
+      const activity = { touch: jest.fn() };
+      const tracked = new CognitoAuthGuard(
+        reflector,
+        { isUserDisabled: jest.fn().mockResolvedValue(false) } as any,
+        activity as any,
+      );
+      return { tracked, activity };
+    };
+
+    it('on every signed-in request', async () => {
+      const { tracked, activity } = make();
+      jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue(false);
+      mockVerify.mockResolvedValue(claims);
+
+      await tracked.canActivate(createMockContext({ authorization: 'Bearer valid-token' }));
+
+      expect(activity.touch).toHaveBeenCalledWith('user-123');
+    });
+
+    it('never for a refused token or a public route', async () => {
+      const { tracked, activity } = make();
+      jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue(false);
+      mockVerify.mockRejectedValue(new Error('bad token'));
+      await expect(tracked.canActivate(createMockContext({ authorization: 'Bearer bad' }))).rejects.toThrow();
+
+      jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue(true);
+      await tracked.canActivate(createMockContext());
+
+      expect(activity.touch).not.toHaveBeenCalled();
+    });
+
+    it('never for a deactivated account', async () => {
+      const activity = { touch: jest.fn() };
+      const tracked = new CognitoAuthGuard(
+        reflector,
+        { isUserDisabled: jest.fn().mockResolvedValue(true) } as any,
+        activity as any,
+      );
+      jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue(false);
+      mockVerify.mockResolvedValue(claims);
+
+      await expect(tracked.canActivate(createMockContext({ authorization: 'Bearer valid-token' }))).rejects.toThrow();
+      expect(activity.touch).not.toHaveBeenCalled();
+    });
+  });
 });

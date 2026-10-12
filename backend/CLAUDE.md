@@ -670,6 +670,13 @@ tests, and — if it emits events — the types in `@bitcrm/types` plus a row in
   report read it. It is a client's number, so `JobNumberInterceptor` strips it from
   `DealsController` / `DealBillingController` answers without `contacts.view_numbers`
   (the dispatch map strips it with `phones`); `@Internal` reads keep it.
+- **Who is online (Admin → Users) is a Redis sorted set, not a column.** `CognitoAuthGuard`
+  stamps every signed-in request's user into `users:last-seen` (score = epoch ms) through the
+  shared `UserActivityTracker` — at most once a minute per user per process, fire-and-forget —
+  so every service, the web and the app all count. The web also sends `POST /users/me/heartbeat`
+  once a minute while its tab is in view. `GET /users/presence` (`users.view`) answers every
+  user's `lastSeenAt` and `online` (within `USER_ONLINE_WINDOW_SECONDS`, 5 min); stamps older
+  than half a year are pruned on read. A Redis flush only forgets "Last seen".
 - **Redis DB 0 is dev, DB 15 is tests.** Don't flush the wrong one.
 - **Taxes live on service areas.** There is no tax-rate catalog: `ServiceArea.tax`
   (`{name, ratePercent}`) is the rate, exposed read-only as a `TaxRate` whose id is

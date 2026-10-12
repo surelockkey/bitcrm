@@ -3,12 +3,14 @@ import {
   ExecutionContext,
   Injectable,
   Logger,
+  Optional,
   UnauthorizedException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { CognitoJwtVerifier } from 'aws-jwt-verify';
 import { IS_PUBLIC_KEY } from './public.decorator';
 import { PermissionCacheReader } from './permission-cache-reader';
+import { UserActivityTracker } from './user-activity';
 
 function extractBearerToken(request: { headers: Record<string, string | undefined> }): string | null {
   const authorization = request.headers.authorization;
@@ -25,6 +27,8 @@ export class CognitoAuthGuard implements CanActivate {
   constructor(
     private reflector: Reflector,
     private cacheReader: PermissionCacheReader,
+    // Admin → Users "Online": every signed-in request marks its user active.
+    @Optional() private activity?: UserActivityTracker,
   ) {
     const userPoolId = process.env.COGNITO_USER_POOL_ID;
     const clientId = process.env.COGNITO_CLIENT_ID;
@@ -76,6 +80,7 @@ export class CognitoAuthGuard implements CanActivate {
         roleId: payload['custom:role_id'],
         department: payload['custom:department'],
       };
+      if (userId) this.activity?.touch(userId);
       return true;
     } catch (error) {
       if (error instanceof UnauthorizedException) throw error;

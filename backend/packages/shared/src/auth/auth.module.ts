@@ -3,11 +3,13 @@ import { APP_GUARD } from '@nestjs/core';
 import { CognitoAuthGuard } from './auth.guard';
 import { PermissionGuard } from './permission.guard';
 import { PermissionCacheReader } from './permission-cache-reader';
+import { UserActivityTracker } from './user-activity';
 
 @Global()
 @Module({
   providers: [
     PermissionCacheReader,
+    UserActivityTracker,
     {
       provide: APP_GUARD,
       useClass: CognitoAuthGuard,
@@ -17,6 +19,6 @@ import { PermissionCacheReader } from './permission-cache-reader';
       useClass: PermissionGuard,
     },
   ],
-  exports: [PermissionCacheReader],
+  exports: [PermissionCacheReader, UserActivityTracker],
 })
 export class AuthModule {}

@@ -49,6 +49,7 @@ export { CurrentUser } from './auth/user.decorator';
 export { PermissionGuard } from './auth/permission.guard';
 export { RequirePermission, PERMISSION_KEY } from './auth/permission.decorator';
 export { PermissionCacheReader } from './auth/permission-cache-reader';
+export { UserActivityTracker, USER_LAST_SEEN_KEY, USER_ACTIVITY_THROTTLE_MS } from './auth/user-activity';
 export { getDataScopeFilter } from './auth/data-scope.util';
 export { hasPermission } from './auth/has-permission.util';
 export { fetchResolvedPermissions } from './auth/fetch-resolved-permissions';
