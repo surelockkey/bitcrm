@@ -128,6 +128,7 @@ const STATIC_LABELS: Record<string, string> = {
   "/price-book/items": "Price book",
   "/price-book/categories": "Price book Categories",
   "/price-book/brands": "Price book Brands",
+  "/price-book/groups": "Price book Item groups",
   // Inventory's tabs, in Workiz's words ("… # INVENTORY # USER LOCATIONS").
   "/inventory/items": "Inventory",
   "/inventory/user-containers": "User locations",

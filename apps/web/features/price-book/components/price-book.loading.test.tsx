@@ -112,6 +112,7 @@ const { default: PriceBookTabsLayout } = await import("@/app/(app)/price-book/(t
 const { ItemsPage } = await import("./items-page");
 const { CategoriesPage } = await import("./categories-page");
 const { BrandsPage } = await import("./brands-page");
+const { ItemGroupsTab } = await import("../item-groups/item-groups-tab");
 
 const tabRow = () => screen.queryByRole("navigation", { name: "Price Book sections" });
 const toolbar = () => screen.queryByTestId("price-book-toolbar");
@@ -146,8 +147,8 @@ describe("Price Book — the tab row", () => {
     await screen.findByText("Test item 1", {}, { timeout: 3000 });
     watch.stop();
 
-    // Items, Categories, Brands — placeholders first, the same size as the links.
-    expect(watch.frame()).toBe(3);
+    // Items, Item groups, Categories, Brands — placeholders first, the same size as the links.
+    expect(watch.frame()).toBe(4);
   });
 
   // One skeleton, then the page (app_audit 2026-10-09, finding 18): the tab
@@ -168,7 +169,7 @@ describe("Price Book — the tab row", () => {
     observer.disconnect();
 
     expect(namesOverLoader).toBe(false);
-    expect(watch.frame()).toBe(3);
+    expect(watch.frame()).toBe(4);
   });
 });
 
@@ -299,7 +300,7 @@ describe("Price Book — Categories", () => {
     await screen.findByText("Keys", {}, { timeout: 3000 });
     watch.stop();
 
-    expect(watch.frame()).toEqual({ tabs: 3, create: true, counts: ["3", "3"], skeletons: 0 });
+    expect(watch.frame()).toEqual({ tabs: 4, create: true, counts: ["3", "3"], skeletons: 0 });
   });
 
   it("asks for the catalog beside the permissions, and each count once", async () => {
@@ -321,5 +322,77 @@ describe("Price Book — Categories", () => {
 
     expect(watch.frame()).toEqual(["80px"]);
     expect(declaredRowHeights()).toEqual(["80px"]);
+  });
+});
+
+describe("Price Book — Item groups", () => {
+  beforeEach(() => {
+    mocks.pathname = "/price-book/groups";
+    server = installFakeServer([
+      ...routes(),
+      pageRoute(
+        /\/inventory\/item-groups$/,
+        () => [
+          {
+            id: "g1",
+            name: "Commercial door",
+            description: "",
+            groupType: "separate_items",
+            categoryId: "c1",
+            active: true,
+            total: 45,
+            members: [{ productId: "p1", name: "Service Call Fee", quantity: 1, priceClient: 45, taxable: true, description: "", customAttributes: {} }],
+          },
+        ],
+        70,
+      ),
+    ]);
+  });
+
+  const renderGroups = () =>
+    renderPage(
+      <PriceBookTabsLayout>
+        <ItemGroupsTab />
+      </PriceBookTabsLayout>,
+    );
+
+  it("draws the rows with the tabs, Add New and each row's category, in one frame", async () => {
+    const watch = watchFirstFrame(
+      () => !!screen.queryByText("Commercial door"),
+      () => ({
+        tabs: tabRow()!.querySelectorAll("a").length,
+        create: !!screen.queryByRole("button", { name: "Add New" }),
+        category: !!screen.queryByText("Hardware"),
+        skeletons: skeletonCount(),
+      }),
+    );
+    renderGroups();
+    await screen.findByText("Commercial door", {}, { timeout: 3000 });
+    watch.stop();
+
+    expect(watch.frame()).toEqual({ tabs: 4, create: true, category: true, skeletons: 0 });
+  });
+
+  it("asks for the groups and the categories beside the permissions, each once", async () => {
+    renderGroups();
+    expect(server.requests.map((r) => r.split("?")[0])).toEqual(
+      expect.arrayContaining(["/api/inventory/item-groups", "/api/inventory/categories"]),
+    );
+
+    await screen.findByText("Commercial door", {}, { timeout: 3000 });
+    await settle();
+    expect(duplicates(server.requests)).toEqual([]);
+  });
+
+  // The 25px pencil and bin in 20px padding make a 65px row; the loader's
+  // blanks, the records and the filler all declare it, so nothing moves.
+  it("lands its rows on the loader's blank rows — the same declared row height before and after", async () => {
+    const watch = watchLoadingRowHeights();
+    renderGroups();
+    await screen.findByText("Commercial door", {}, { timeout: 3000 });
+    watch.stop();
+
+    expect(watch.frame()).toEqual(["65px"]);
+    expect(declaredRowHeights()).toEqual(["65px"]);
   });
 });

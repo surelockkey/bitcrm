@@ -35,7 +35,7 @@ describe("PriceBookFrame", () => {
     );
     expect(screen.queryAllByRole("link")).toHaveLength(0);
     expect(screen.getByRole("navigation", { name: "Price Book sections" })).toHaveAttribute("aria-busy", "true");
-    expect(document.querySelectorAll("[data-tab-placeholder]")).toHaveLength(3);
+    expect(document.querySelectorAll("[data-tab-placeholder]")).toHaveLength(4);
 
     rerender(
       <PriceBookFrame>

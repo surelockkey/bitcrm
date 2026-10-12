@@ -23,10 +23,11 @@ beforeEach(() => {
 });
 
 describe("PriceBookTabs", () => {
-  it("lists Workiz's tabs we have — Items & products · Item categories · Item brands — each with its route", () => {
+  it("lists Workiz's tabs we have — Items & products · Item groups · Item categories · Item brands — each with its route", () => {
     render(<PriceBookTabs />);
-    expect(labels()).toEqual(["Items & products", "Item categories", "Item brands"]);
+    expect(labels()).toEqual(["Items & products", "Item groups", "Item categories", "Item brands"]);
     expect(screen.getByRole("link", { name: "Items & products" })).toHaveAttribute("href", "/price-book/items");
+    expect(screen.getByRole("link", { name: "Item groups" })).toHaveAttribute("href", "/price-book/groups");
     expect(screen.getByRole("link", { name: "Item categories" })).toHaveAttribute("href", "/price-book/categories");
     expect(screen.getByRole("link", { name: "Item brands" })).toHaveAttribute("href", "/price-book/brands");
   });
@@ -36,26 +37,27 @@ describe("PriceBookTabs", () => {
     expect(screen.getByRole("link", { name: "Items & products" }).className).toContain("text-base");
   });
 
-  it("holds the three places while the permissions load", () => {
+  it("holds the four places while the permissions load", () => {
     mocks.loading = true;
     render(<PriceBookTabs />);
     expect(screen.queryAllByRole("link")).toHaveLength(0);
-    expect(document.querySelectorAll("[data-tab-placeholder]")).toHaveLength(3);
+    expect(document.querySelectorAll("[data-tab-placeholder]")).toHaveLength(4);
   });
 
   // The frame over the tabs holds them until the page under them is whole
   // (one skeleton, then the page), permissions in or not.
-  it("holds the three places while the frame says so", () => {
+  it("holds the four places while the frame says so", () => {
     render(<PriceBookTabs pending />);
     expect(screen.queryAllByRole("link")).toHaveLength(0);
-    expect(document.querySelectorAll("[data-tab-placeholder]")).toHaveLength(3);
+    expect(document.querySelectorAll("[data-tab-placeholder]")).toHaveLength(4);
     expect(screen.getByRole("navigation", { name: "Price Book sections" })).toHaveAttribute("aria-busy", "true");
   });
 
   it("gates each tab on its own resource", () => {
+    // Item groups sit in the price book: the items' permission.
     mocks.can = (r) => r === "products";
     const { unmount } = render(<PriceBookTabs />);
-    expect(labels()).toEqual(["Items & products"]);
+    expect(labels()).toEqual(["Items & products", "Item groups"]);
     unmount();
 
     mocks.can = (r) => r === "product_categories";
@@ -69,6 +71,10 @@ describe("PriceBookTabs", () => {
   });
 
   it("marks the tab of the current route", () => {
+    mocks.pathname = "/price-book/groups";
+    const { unmount } = render(<PriceBookTabs />);
+    expect(screen.getByRole("link", { name: "Item groups" })).toHaveAttribute("aria-current", "page");
+    unmount();
     mocks.pathname = "/price-book/brands";
     render(<PriceBookTabs />);
     expect(screen.getByRole("link", { name: "Item brands" })).toHaveAttribute("aria-current", "page");
