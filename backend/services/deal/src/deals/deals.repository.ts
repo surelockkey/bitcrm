@@ -12,6 +12,7 @@ import {
 import { DynamoDbService, scanPage } from '@bitcrm/shared';
 import {
   DealStatus,
+  DISPATCH_MAP_JOB_FIELDS,
   JobSuperStatus,
   SUPER_STATUS_ORDER,
   STAGE_TO_SUPER_STATUS,
@@ -183,6 +184,19 @@ export type ReportWindowBy = 'created' | 'scheduled' | 'end';
  * guard, a year of this business is about 45 000.
  */
 export const REPORT_WINDOW_MAX_ROWS = 150_000;
+
+/**
+ * What a dispatch-map row carries (`readMapJobs`) — `DISPATCH_MAP_JOB_FIELDS`,
+ * the contract the web's board is tested against. A METADATA row is ~4 KB
+ * (notes, money, custom answers, the search halves); this is a fraction of it.
+ */
+export const DISPATCH_MAP_FIELDS = DISPATCH_MAP_JOB_FIELDS;
+
+/** One part of the dispatch map's read: a status, its Done / Canceled ones only for these visit days. */
+export interface MapJobsRead {
+  status: JobSuperStatus;
+  window?: { from: string; to: string };
+}
 
 /** Secondary (non-index) filters applied on top of the primary query/scan. */
 export interface DealFilters {
@@ -801,6 +815,83 @@ export class DealsRepository {
       );
     }
     return read.items;
+  }
+
+  /**
+   * The dispatch map's jobs, in one go: each status's partition of the
+   * StatusScheduleIndex (`STATUS#<s>`, sorted by visit day) walked to its end,
+   * every partition at once — no page cap, no cursor handed back. A read with
+   * a `window` (Done / Canceled: hundreds of thousands of rows, only ever
+   * wanted for the date box's days) is one query per visit day, all at once,
+   * so a month of Canceled is thirty-odd small reads side by side rather than
+   * a dozen 1 MB pages one after another.
+   *
+   * Projected to `DISPATCH_MAP_FIELDS`; deleted rows never come back; `techId`
+   * (an `assigned_only` caller) narrows every partition to that technician's
+   * jobs. Rows come back in the order the reads were asked, each in visit
+   * order (days in order), once each.
+   */
+  async readMapJobs(reads: readonly MapJobsRead[], opts: { techId?: string } = {}): Promise<Deal[]> {
+    const names: Record<string, string> = { '#pk': 'GSI5PK', '#status': 'status' };
+    const projection = DISPATCH_MAP_FIELDS.map((attr, i) => {
+      names[`#p${i}`] = attr;
+      return `#p${i}`;
+    }).join(', ');
+    const values: Record<string, unknown> = { ':active': DealStatus.ACTIVE };
+    let filter = '#status = :active';
+    if (opts.techId) {
+      filter += ' AND contains(#assignedTechIds, :techId)';
+      names['#assignedTechIds'] = 'assignedTechIds';
+      values[':techId'] = opts.techId;
+    }
+
+    const walk = async (pk: string, day?: string): Promise<Record<string, unknown>[]> => {
+      const items: Record<string, unknown>[] = [];
+      let startKey: Record<string, unknown> | undefined;
+      do {
+        const res = await this.dynamoDb.client.send(
+          new QueryCommand({
+            TableName: this.tableName,
+            IndexName: DEALS_GSI5_NAME,
+            KeyConditionExpression: day ? '#pk = :pk AND #sk BETWEEN :from AND :to' : '#pk = :pk',
+            FilterExpression: filter,
+            ProjectionExpression: projection,
+            ExpressionAttributeNames: day ? { ...names, '#sk': 'GSI5SK' } : names,
+            ExpressionAttributeValues: {
+              ...values,
+              ':pk': pk,
+              // '#~~' sits above both a timed ('#09:00#…') and an all-day ('#~#…') row of the day.
+              ...(day && { ':from': `${day}#`, ':to': `${day}#~~` }),
+            },
+            ScanIndexForward: true,
+            ...(startKey && { ExclusiveStartKey: startKey }),
+          }),
+        );
+        items.push(...(res.Items ?? []));
+        startKey = res.LastEvaluatedKey;
+      } while (startKey);
+      return items;
+    };
+
+    const parts = await Promise.all(
+      reads.map(async (read) => {
+        const pk = `STATUS#${read.status}`;
+        if (!read.window) return walk(pk);
+        const days: string[] = [];
+        for (let d = read.window.from; d <= read.window.to && days.length < 366; d = shiftDay(d, 1)) days.push(d);
+        return (await Promise.all(days.map((d) => walk(pk, d)))).flat();
+      }),
+    );
+
+    const seen = new Set<string>();
+    const deals: Deal[] = [];
+    for (const item of parts.flat()) {
+      const deal = this.toDeal(item);
+      if (seen.has(deal.id)) continue;
+      seen.add(deal.id);
+      deals.push(deal);
+    }
+    return deals;
   }
 
   /** The key condition of a schedule window: a day span, the undated ones, or the whole partition. */
