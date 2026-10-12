@@ -5,6 +5,7 @@ import type { Address,
   CompanyDocumentType,
   PaginatedResponse,
   ListCount,
+  CustomFieldValue,
 } from "@bitcrm/types";
 import { http, apiFetchPaginated } from "@/lib/api/http";
 import type {
@@ -61,6 +62,15 @@ export const setContactBillingAddress = (id: string, billingAddress: Address): P
 /** Only the client's tags — the card's chips save without touching the rest of the form. */
 export const setContactTags = (id: string, tagIds: string[]): Promise<Contact> =>
   http.put<Contact>(`/crm/contacts/${id}`, { tagIds });
+
+/**
+ * Only the client's custom-field answers (the card's Custom fields tab): the
+ * ones that changed, a cleared one as `null` — crm merges them onto the rest.
+ */
+export const setContactCustomFields = (
+  id: string,
+  customFields: Record<string, CustomFieldValue | null>,
+): Promise<Contact> => http.put<Contact>(`/crm/contacts/${id}`, { customFields });
 
 export const updateContact = (id: string, body: UpdateContactValues): Promise<Contact> =>
   http.put<Contact>(`/crm/contacts/${id}`, body);

@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { settled, usePageReady, type QueryState } from "@/lib/use-page-ready";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { useClientTags } from "@/features/client-tags/hooks";
+import { useClientCustomFields } from "@/features/custom-fields/hooks";
 import { useDealsPage } from "@/features/deals/hooks";
 import { useEstimatesForContacts } from "@/features/estimates/hooks";
 import { useInvoicesForContacts } from "@/features/invoices/hooks";
@@ -100,6 +101,9 @@ export function useClientPageData(contactId: string): { ready: boolean } {
   const areas = useServiceAreas();
   // The sub-status names of the Jobs tab's Status column.
   const statuses = useJobStatuses();
+  // The Custom fields tab's client fields — asked with the card, so the tab
+  // opens on them (it is one catalog, cached, shared with the job pages).
+  const clientFields = useClientCustomFields(can("custom_fields"));
 
   // Every page, one after another: the Jobs tab pages them with an exact
   // "Page 1 of 76", the Addresses tab counts jobs per address, and the badges
@@ -115,7 +119,7 @@ export function useClientPageData(contactId: string): { ready: boolean } {
 
   const allIn =
     !permsLoading &&
-    [contact, company, tags, jobTypes, portal, notes, areas, statuses].every(settled) &&
+    [contact, company, tags, jobTypes, portal, notes, areas, statuses, clientFields].every(settled) &&
     pagesIn(jobs) &&
     pagesIn(payments) &&
     !invoices.isLoading &&

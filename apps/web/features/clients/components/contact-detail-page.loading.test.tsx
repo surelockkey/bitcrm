@@ -97,6 +97,8 @@ const routes: FakeRoute[] = [
   { match: /\/deals\/job-statuses$/, reply: () => [], delayMs: 150 },
   { match: /\/deals\/service-areas$/, reply: () => [{ id: "sa-1", name: "Atlanta", timezone: "America/New_York" }], delayMs: 110 },
   { match: /\/deals\/job-types$/, reply: () => [{ id: "jt-1", name: "Lockout", priority: 1, active: true }], delayMs: 60 },
+  // The Custom fields tab's client fields: asked with the card, so the tab opens on them.
+  { match: /\/deals\/custom-fields$/, reply: () => [{ id: "cf-v1", name: "Vendor Number 1", type: "text", group: "Work Order", options: [], jobTypeIds: [], required: false, requiredToClose: false, searchable: true, priority: 1, active: true, entityType: "client" }], delayMs: 130 },
   jobsRoute,
   {
     match: /\/billing\/invoices$/,
@@ -178,6 +180,16 @@ describe("ContactDetailPage — one load, not waves", () => {
       skeletons: 0,
       pulses: 0,
     });
+  });
+
+  it("the Custom fields tab opens on what is already in hand — no wait, no new request", async () => {
+    renderCard();
+    await screen.findByRole("heading", { name: "Jane Smith" }, { timeout: 3000 });
+    await settle();
+    const before = server.requests.length;
+    screen.getByRole("tab", { name: "Custom fields" }).click();
+    expect(await screen.findByLabelText("Vendor Number 1")).toBeInTheDocument();
+    expect(server.requests.length).toBe(before);
   });
 
   it("the folded client portal opens on what is already in hand — no wait, no new request", async () => {

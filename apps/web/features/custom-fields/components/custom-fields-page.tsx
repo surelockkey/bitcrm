@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useMemo, useState, type KeyboardEvent } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { restrictToVerticalAxis } from "@dnd-kit/modifiers";
@@ -229,7 +229,7 @@ function FieldsTable({
   const reorder = useReorderCustomFields();
   const [folded, setFolded] = useState<ReadonlySet<string>>(new Set());
   const [announcement, setAnnouncement] = useState("");
-  const [refocus, setRefocus] = useState<string | null>(null);
+  const refocus = useRef<string | null>(null);
   const hintId = useId();
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
   const groups = useMemo(() => groupFields(fields), [fields]);
@@ -239,12 +239,13 @@ function FieldsTable({
   // A row moved by the keys is re-placed in the DOM, which takes the focus
   // off its handle: hand it back.
   useEffect(() => {
-    if (!refocus) return;
+    const id = refocus.current;
+    if (!id) return;
+    refocus.current = null;
     [...document.querySelectorAll<HTMLButtonElement>("[data-move-handle]")]
-      .find((el) => el.dataset.moveHandle === refocus)
+      .find((el) => el.dataset.moveHandle === id)
       ?.focus();
-    setRefocus(null);
-  }, [refocus, fields]);
+  }, [fields]);
 
   const move = (list: CustomFieldDefinition[], group: string, activeId: string, overId: string) => {
     const changes = reorderPriorities(list, activeId, overId);
@@ -268,8 +269,8 @@ function FieldsTable({
     e.preventDefault();
     const target = stepTarget(list, id, e.key === "ArrowUp" ? -1 : 1);
     if (!target) return;
+    refocus.current = id;
     move(list, group, id, target);
-    setRefocus(id);
   };
 
   const toggleGroup = (group: string) =>
