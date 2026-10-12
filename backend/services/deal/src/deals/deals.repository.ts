@@ -11,6 +11,8 @@ import {
 } from '@aws-sdk/lib-dynamodb';
 import { DynamoDbService, scanPage } from '@bitcrm/shared';
 import {
+  AccountClock,
+  accountWindowUtc,
   DealStatus,
   DISPATCH_MAP_JOB_FIELDS,
   JobSuperStatus,
@@ -74,6 +76,23 @@ interface IndexRead {
   /** With `#pk` / `#sk` for the attribute names and `:pk` for the partition value. */
   keyCondition: string;
   keyValues: Record<string, unknown>;
+}
+
+/**
+ * A span of the office's days (Connecticut, America/New_York) as the instants
+ * it covers — its first, and its last millisecond — for a sort key that is an
+ * ISO instant (`createdAt`, `closedAt`). A day there is never the UTC one: an
+ * evening job's instant already carries tomorrow's UTC date.
+ */
+export function accountDayInstants(window: DayWindow): DayWindow {
+  const from = window.from ?? window.to;
+  const to = window.to ?? window.from;
+  if (!from || !to) return window;
+  const { start, end } = accountWindowUtc(from, to);
+  return {
+    ...(window.from && { from: start }),
+    ...(window.to && { to: new Date(Date.parse(end) - 1).toISOString() }),
+  };
 }
 
 /** The `YYYY-MM` months a span of days touches, first to last (at most twenty years). */
@@ -921,8 +940,10 @@ export class DealsRepository {
    *
    * The created index is already shaped like the question: partition
    * `STATUS#<status>`, sort key `<createdAt>#DEAL#<id>`. So one Query per
-   * status answers a whole window, and the day comes off the key's own
-   * prefix — six queries for the chart, not six per day.
+   * status answers a whole window — six queries for the chart, not six per
+   * day. The window's days are the office's (Connecticut): read as their
+   * instants, and each key's instant put on its Connecticut day — never the
+   * key's UTC prefix, which moved every evening job onto the next day.
    *
    * Only the sort key is projected: days are being tallied, not rows, and a
    * fortnight of deal bodies has no business crossing the wire. The walk is
@@ -933,7 +954,8 @@ export class DealsRepository {
     superStatus: JobSuperStatus,
     window: DayWindow,
   ): Promise<{ byDay: Record<string, number>; atLeast: boolean }> {
-    const values = this.dayRangeValues(window);
+    const values = this.dayRangeValues(accountDayInstants(window));
+    const clock = new AccountClock();
     const byDay: Record<string, number> = {};
     let startKey: Record<string, unknown> | undefined;
     let reads = 0;
@@ -955,9 +977,11 @@ export class DealsRepository {
       );
 
       for (const item of res.Items ?? []) {
-        // `<createdAt>#DEAL#<id>` — the day is the first ten characters.
-        const day = String((item as { GSI1SK?: unknown }).GSI1SK ?? '').slice(0, 10);
-        if (day) byDay[day] = (byDay[day] ?? 0) + 1;
+        // `<createdAt>#DEAL#<id>` — the instant before the first '#', on Connecticut's calendar.
+        const createdAt = String((item as { GSI1SK?: unknown }).GSI1SK ?? '').split('#')[0];
+        if (!createdAt || Number.isNaN(Date.parse(createdAt))) continue;
+        const day = clock.day(createdAt);
+        byDay[day] = (byDay[day] ?? 0) + 1;
       }
 
       if (!res.LastEvaluatedKey) return { byDay, atLeast: false };

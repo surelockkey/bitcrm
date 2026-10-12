@@ -107,6 +107,26 @@ describe('aggregateDealStats', () => {
     expect(scheduled.series).toEqual([{ date: '2026-09-05', jobs: 1, canceled: 0, revenue: 0, profit: 0 }]);
   });
 
+  it('puts a created or closed moment on its Connecticut day, never the UTC one', () => {
+    // 22:00 EDT on Sep 1 is 02:00 UTC on Sep 2.
+    const created = aggregateDealStats(
+      [createMockDeal({ createdAt: '2026-09-02T02:00:00.000Z', superStatus: JobSuperStatus.SUBMITTED })],
+      { by: 'created', from: '2026-09-01', to: '2026-09-02' },
+      { money: false },
+    );
+    expect(created.series).toEqual([
+      { date: '2026-09-01', jobs: 1, canceled: 0 },
+      { date: '2026-09-02', jobs: 0, canceled: 0 },
+    ]);
+    // Winter: 22:30 EST on Jan 15 is 03:30 UTC on Jan 16.
+    const closed = aggregateDealStats(
+      [createMockDeal({ superStatus: JobSuperStatus.DONE, closedAt: '2026-01-16T03:30:00.000Z', totals: money(10) })],
+      { by: 'closed', from: '2026-01-15', to: '2026-01-16' },
+      { money: false },
+    );
+    expect(closed.series.map((d) => d.jobs)).toEqual([1, 0]);
+  });
+
   it('leaves every amount out for a caller who may not see money', () => {
     const blind = aggregateDealStats(deals, window, { money: false });
     expect(blind.money).toBeUndefined();

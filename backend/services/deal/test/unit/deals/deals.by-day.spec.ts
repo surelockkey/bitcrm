@@ -53,7 +53,7 @@ describe('DealsRepository.countCreatedByDay', () => {
     expect(sent.input.KeyConditionExpression).toContain('BETWEEN');
   });
 
-  it('bounds the range to the window it was asked for', async () => {
+  it('bounds the range to the window’s Connecticut days, as instants', async () => {
     dynamoDb.client.send.mockResolvedValue({ Items: [] });
 
     await repository.countCreatedByDay(JobSuperStatus.DONE, {
@@ -62,10 +62,20 @@ describe('DealsRepository.countCreatedByDay', () => {
     });
 
     const v = dynamoDb.client.send.mock.calls[0][0].input.ExpressionAttributeValues;
-    expect(v[':from']).toBe('2026-09-14');
-    // Inclusive upper bound: '~' sorts after any time-of-day suffix.
-    expect(String(v[':to'])).toMatch(/^2026-09-15/);
-    expect(String(v[':to']) > '2026-09-15T23:59:59.999Z').toBe(true);
+    // Sep 14 00:00 EDT .. the last millisecond of Sep 15 EDT; '~' sorts after the key's '#DEAL#…'.
+    expect(v[':from']).toBe('2026-09-14T04:00:00.000Z');
+    expect(v[':to']).toBe('2026-09-16T03:59:59.999Z~');
+  });
+
+  it('buckets each creation on its Connecticut day, never its UTC prefix', async () => {
+    dynamoDb.client.send.mockResolvedValue({
+      // 22:30 EDT on Sep 14 is 02:30 UTC on Sep 15.
+      Items: [{ GSI1SK: '2026-09-15T02:30:00.000Z#DEAL#late' }, key('2026-09-15', 'b')],
+    });
+
+    const out = await repository.countCreatedByDay(JobSuperStatus.DONE, { from: '2026-09-14', to: '2026-09-15' });
+
+    expect(out.byDay).toEqual({ '2026-09-14': 1, '2026-09-15': 1 });
   });
 
   // Дні рахуються, рядки — ні, тож тіла робіт по дроту не їдуть.

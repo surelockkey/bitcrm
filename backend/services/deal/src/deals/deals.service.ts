@@ -52,6 +52,7 @@ import {
   type DealUpdate,
   type ScheduleWindow,
   type SortDir,
+  accountDayInstants,
   type DayWindow,
 } from './deals.repository';
 import {
@@ -1136,15 +1137,17 @@ export class DealsService {
    * The report's creation or closing window, or undefined when neither is
    * asked for. A quarter at most: the page cost does not grow with the span,
    * but the counts read every row in it. Two different dates at once is a
-   * contradiction and is refused.
+   * contradiction and is refused. The days are the office's (Connecticut):
+   * both indexes are keyed by an ISO instant, so the window goes to them as
+   * the instants those days cover, never as UTC days.
    */
   private parseReportWindows(query: ListDealsQueryDto): { created?: DayWindow; closed?: DayWindow } | undefined {
     const created = this.parseDayWindow(query.createdFrom, query.createdTo, 'created');
     const closed = this.parseDayWindow(query.closedFrom, query.closedTo, 'closed');
     const asked = [created && 'created', closed && 'closed', query.scheduledFrom && 'scheduled'].filter(Boolean);
     if (asked.length > 1) throw new BadRequestException(`One date window at a time: ${asked.join(', ')} were given`);
-    if (created) return { created };
-    if (closed) return { closed };
+    if (created) return { created: accountDayInstants(created) };
+    if (closed) return { closed: accountDayInstants(closed) };
     return undefined;
   }
 
