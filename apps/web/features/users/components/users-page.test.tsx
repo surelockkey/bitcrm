@@ -62,6 +62,19 @@ describe("UsersPage — the Team list's sibling", () => {
     expect(screen.getByText("Showing 1 to 3 of 3 results")).toBeInTheDocument();
   });
 
+  it("says why the list failed, under “Couldn't load users”", async () => {
+    server.use(
+      http.get("*/users/roles", () => HttpResponse.json({ success: true, data: [{ id: "role-csr", name: "CSR", priority: 50 }] })),
+      http.get("*/users", () =>
+        HttpResponse.json({ success: false, message: "The server is not responding right now (HTTP 503)." }, { status: 503 }),
+      ),
+    );
+    renderWithClient(<UsersPage />);
+    const alert = await screen.findByRole("alert");
+    expect(within(alert).getByText("Couldn't load users")).toBeInTheDocument();
+    expect(within(alert).getByText("The server is not responding right now (HTTP 503).")).toBeInTheDocument();
+  });
+
   it("“+ Add New” opens the invite form", async () => {
     directory();
     renderWithClient(<UsersPage />);

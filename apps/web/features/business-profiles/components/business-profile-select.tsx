@@ -7,6 +7,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { getApiErrorMessage } from "@/lib/api/errors";
 import { cn } from "@/lib/utils";
 import { useActiveBusinessProfiles } from "../hooks";
 
@@ -50,7 +51,7 @@ export function BusinessProfileSelect({
   size = "default",
   "aria-label": ariaLabel = "Company",
 }: BusinessProfileSelectProps) {
-  const { data, active, isLoading, isError } = useActiveBusinessProfiles();
+  const { data, active, isLoading, isError, error } = useActiveBusinessProfiles();
   const selectedMissing = value && !active.some((c) => c.id === value);
   const archivedName = selectedMissing
     ? ((data ?? []).find((c) => c.id === value)?.name ?? fallbackName)
@@ -77,7 +78,7 @@ export function BusinessProfileSelect({
           </SelectItem>
         ))}
         {isError ? (
-          <div className="px-2 py-1.5 text-xs text-destructive">Couldn&apos;t load companies</div>
+          <div className="px-2 py-1.5 text-xs text-destructive">Couldn&apos;t load companies: {getApiErrorMessage(error)}</div>
         ) : !isLoading && active.length === 0 ? (
           <div className="px-2 py-1.5 text-xs text-muted-foreground">No active companies</div>
         ) : null}

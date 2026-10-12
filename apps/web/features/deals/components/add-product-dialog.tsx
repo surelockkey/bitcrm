@@ -17,6 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { getApiErrorMessage } from "@/lib/api/errors";
 import { cn } from "@/lib/utils";
 import { queryKeys } from "@/lib/query-keys";
 import { fetchAllProducts } from "@/features/inventory/warehouses/api";
@@ -264,7 +265,7 @@ export function AddProductDialog({
             {stockQuery.isLoading ? (
               <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground"><Loader2 className="size-3 animate-spin" /> Checking {techName}&apos;s van…</p>
             ) : stockQuery.isError ? (
-              <p className="text-[11px] text-muted-foreground">Couldn&apos;t load the technician&apos;s stock — you can still try to add; the server will confirm availability.</p>
+              <p className="text-[11px] text-muted-foreground">Couldn&apos;t load the technician&apos;s stock: {getApiErrorMessage(stockQuery.error)} — you can still try to add; the server will confirm availability.</p>
             ) : null}
           </>
         )}

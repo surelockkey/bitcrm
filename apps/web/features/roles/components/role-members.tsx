@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import type { User } from "@bitcrm/types";
 import { WzReportGrid, type WzReportColumn } from "@/components/workiz/report-grid";
 import { personName } from "@/features/deals/person-name";
+import { getApiErrorMessage } from "@/lib/api/errors";
 import { useRoleMembers } from "../hooks";
 
 const COLUMNS: WzReportColumn<User>[] = [
@@ -29,11 +30,16 @@ const COLUMNS: WzReportColumn<User>[] = [
  */
 export function RoleMembers({ roleId }: { roleId: string }) {
   const router = useRouter();
-  const { data: members, isLoading, isError } = useRoleMembers(roleId);
+  const { data: members, isLoading, isError, error } = useRoleMembers(roleId);
   const list = members ?? [];
 
   if (isError) {
-    return <p className="py-8 text-center text-sm text-wz-strong">Couldn&apos;t load members.</p>;
+    return (
+      <div className="py-8 text-center text-sm text-wz-strong">
+        <p>Couldn&apos;t load members.</p>
+        <p className="text-xs text-muted-foreground">{getApiErrorMessage(error)}</p>
+      </div>
+    );
   }
 
   return (

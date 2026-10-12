@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { WZ_GRID_PAGE_SIZES } from "@/components/workiz/local-grid";
 import { WzPager } from "@/components/workiz/pager";
 import { WzListToolbar, WzPageSizeSelect, WzSearchBox } from "@/components/workiz/toolbar";
+import { getApiErrorMessage } from "@/lib/api/errors";
 import { queryKeys } from "@/lib/query-keys";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { settled } from "@/lib/use-page-ready";
@@ -157,7 +158,12 @@ function Assignments() {
 
       {failed ? (
         <div className="border border-wz-frame px-5 py-10 text-center text-sm">
-          <p role="alert">Couldn&apos;t load users</p>
+          <div role="alert">
+            <p>Couldn&apos;t load users</p>
+            <p className="text-xs text-muted-foreground">
+              {getApiErrorMessage(searching ? directory.error : usersQ.error)}
+            </p>
+          </div>
           <Button
             variant="outline"
             size="sm"

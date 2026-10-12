@@ -12,6 +12,7 @@ import { WzOutlinedSelect } from "@/components/workiz/outlined-select";
 import { WzPager } from "@/components/workiz/pager";
 import { WzReportGrid, type WzReportColumn } from "@/components/workiz/report-grid";
 import { WzListToolbar, WzPageSizeSelect, WzSearchBox, WzToolbarButton } from "@/components/workiz/toolbar";
+import { getApiErrorMessage } from "@/lib/api/errors";
 import { cn } from "@/lib/utils";
 import { useDenied, usePermissions } from "@/features/auth/use-permissions";
 import { usePopup } from "@/features/inventory/use-popup";
@@ -80,7 +81,7 @@ export function CatalogTab({
   query,
 }: {
   config: CatalogConfig;
-  query: { data?: CatalogEntry[]; isLoading: boolean; isError: boolean; refetch?: () => unknown };
+  query: { data?: CatalogEntry[]; isLoading: boolean; isError: boolean; error?: unknown; refetch?: () => unknown };
 }) {
   const { can, isLoading: permsLoading } = usePermissions();
   const denied = useDenied();
@@ -208,7 +209,10 @@ export function CatalogTab({
 
       {query.isError && !query.data ? (
         <div className="border border-wz-frame px-5 py-10 text-center text-sm">
-          <p role="alert">Couldn&apos;t load {categories ? "categories" : "brands"}</p>
+          <div role="alert">
+            <p>Couldn&apos;t load {categories ? "categories" : "brands"}</p>
+            <p className="text-xs text-muted-foreground">{getApiErrorMessage(query.error)}</p>
+          </div>
           {query.refetch ? (
             <Button variant="outline" size="sm" className="mt-3" onClick={() => query.refetch?.()}>
               Try again

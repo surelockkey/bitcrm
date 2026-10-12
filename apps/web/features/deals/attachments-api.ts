@@ -1,5 +1,6 @@
 import type { DealAttachmentMeta, PaginatedResponse } from "@bitcrm/types";
 import { apiFetchPaginated, http } from "@/lib/api/http";
+import { responseError } from "@/lib/api/errors";
 
 /** What the job's Files tab and the client's Files rail accept from the picker. */
 export const ATTACHMENT_ACCEPT = "image/png,image/jpeg,image/webp,image/heic,application/pdf";
@@ -61,7 +62,7 @@ export async function uploadAttachmentBytes(
     headers: headers ?? { "Content-Type": file.type || "application/octet-stream" },
     body: file,
   });
-  if (!res.ok) throw new Error("Attachment upload failed");
+  if (!res.ok) throw await responseError(res, "Attachment upload failed");
 }
 
 /** Request a ticket derived from the file, then push the bytes to S3. */

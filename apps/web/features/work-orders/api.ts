@@ -1,6 +1,7 @@
 import type { WorkOrder, WorkOrderStatus } from "@bitcrm/types";
 import { http } from "@/lib/api/http";
 import type { WorkOrderFormValues } from "./schemas";
+import { responseError } from "@/lib/api/errors";
 
 export function listWorkOrders(params: { companyId?: string; status?: WorkOrderStatus } = {}): Promise<WorkOrder[]> {
   const q = new URLSearchParams();
@@ -45,5 +46,5 @@ export async function uploadWorkOrderDocumentBytes(
     headers: headers ?? { "Content-Type": file.type || "application/octet-stream" },
     body: file,
   });
-  if (!res.ok) throw new Error("Document upload failed");
+  if (!res.ok) throw await responseError(res, "Document upload failed");
 }

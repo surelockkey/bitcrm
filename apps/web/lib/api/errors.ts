@@ -56,3 +56,24 @@ export function getApiErrorMessage(
   if (error instanceof Error && error.message) return error.message;
   return fallback;
 }
+
+/**
+ * Why a raw fetch failed — a presigned S3 upload / download or a file export,
+ * which never pass through the API client. The status plus the reason the body
+ * gives: our envelope's message, or S3's XML `<Message>`.
+ */
+export async function responseError(res: Response, what: string): Promise<Error> {
+  const text = await res.text().catch(() => "");
+  let reason: string | null = null;
+  try {
+    const body: unknown = JSON.parse(text);
+    if (isRecord(body)) {
+      const nested = isRecord(body.error) ? body.error.message : undefined;
+      if (typeof nested === "string" && nested) reason = nested;
+      else if (typeof body.message === "string" && body.message) reason = body.message;
+    }
+  } catch {
+    reason = /<Message>([^<]+)<\/Message>/.exec(text)?.[1] ?? null;
+  }
+  return new Error(`${what} (HTTP ${res.status}${reason ? `: ${reason}` : ""})`);
+}

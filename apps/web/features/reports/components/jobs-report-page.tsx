@@ -17,6 +17,7 @@ import { WzPickerSelect } from "@/components/workiz/picker-select";
 import { WzPager, type WzPagerState } from "@/components/workiz/pager";
 import { WzListToolbar, WzPageSizeSelect, WzSearchBox, WzToolbarButton } from "@/components/workiz/toolbar";
 import { usePageHistoryLabel } from "@/components/shell/page-history";
+import { getApiErrorMessage } from "@/lib/api/errors";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { settled, usePageReady } from "@/lib/use-page-ready";
 import { useDenied, usePermissions } from "@/features/auth/use-permissions";
@@ -244,7 +245,7 @@ export function JobsReportPage({ today: todayProp }: { today?: string } = {}) {
       <div className="flex-1">
         {report.error ? (
           <p role="alert" className="px-5 py-4 text-sm text-destructive">
-            {report.error instanceof Error ? report.error.message : "Could not load the report."}
+            {getApiErrorMessage(report.error, "Could not load the report.")}
           </p>
         ) : !shown || !data ? (
           <JobsReportTableShell columns={columns} />

@@ -13,6 +13,7 @@ import { WzLegacyPillButton, WzLegacySummary } from "@/components/workiz/legacy-
 import { WzLegacySelect } from "@/components/workiz/legacy-select";
 import { WzPeriodPicker } from "@/components/workiz/period-picker";
 import { usePageHistoryLabel } from "@/components/shell/page-history";
+import { getApiErrorMessage } from "@/lib/api/errors";
 import { settled, usePageReady } from "@/lib/use-page-ready";
 import { useDenied, usePermissions } from "@/features/auth/use-permissions";
 import { NoAccess } from "@/features/clients/components/contacts-page";
@@ -341,7 +342,7 @@ export function CommissionsPage({ today }: { today: string }) {
 
           {report.error ? (
             <p role="alert" className="p-5 text-sm text-destructive">
-              {report.error instanceof Error ? report.error.message : "Could not load the report."}
+              {getApiErrorMessage(report.error, "Could not load the report.")}
             </p>
           ) : !data ? (
             <div role="status" aria-label="Loading report" className="px-5">

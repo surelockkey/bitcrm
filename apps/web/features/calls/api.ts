@@ -4,6 +4,7 @@ import { env } from "@/lib/env";
 import { getIdToken } from "@/stores/auth-store";
 import { filterToParams, type CallRecord, type CallsFilter } from "./lib";
 import type { CallsSummary } from "./kpis";
+import { responseError } from "@/lib/api/errors";
 
 const BASE = "/telephony/calls";
 
@@ -155,6 +156,6 @@ export async function fetchRecordingBlob(sid: string): Promise<Blob> {
   const res = await fetch(`${env.apiBaseUrl}${BASE}/${sid}/recording`, {
     headers: { Authorization: `Bearer ${getIdToken() ?? ""}` },
   });
-  if (!res.ok) throw new Error(`Recording unavailable (${res.status})`);
+  if (!res.ok) throw await responseError(res, "Recording unavailable");
   return res.blob();
 }

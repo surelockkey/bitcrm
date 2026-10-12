@@ -12,6 +12,7 @@ import { useDenied, usePermissions } from "@/features/auth/use-permissions";
 import { NoAccess } from "@/features/inventory/components/no-access";
 import { LocationsBand } from "@/features/inventory/components/locations-grid";
 import { useInventoryPageReady } from "@/features/inventory/components/inventory-frame";
+import { getApiErrorMessage } from "@/lib/api/errors";
 import { pagedSource } from "@/lib/paging/paged-source";
 import { usePageSize } from "@/lib/paging/use-page-size";
 import { usePager } from "@/lib/paging/use-pager";
@@ -98,7 +99,10 @@ export function TransfersPage() {
 
       {failed ? (
         <div className="border border-wz-frame px-5 py-10 text-center text-sm">
-          <p role="alert">Couldn&apos;t load transfers</p>
+          <div role="alert">
+            <p>Couldn&apos;t load transfers</p>
+            <p className="text-xs text-muted-foreground">{getApiErrorMessage(query.error)}</p>
+          </div>
           <Button variant="outline" size="sm" className="mt-3" onClick={() => query.refetch()}>
             Retry
           </Button>

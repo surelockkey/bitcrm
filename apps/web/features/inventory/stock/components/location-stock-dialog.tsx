@@ -116,7 +116,7 @@ function LocationStock({
           {aside ? <div className="mt-6 shrink-0">{aside}</div> : null}
           {stock.isError ? (
             <div className="mt-[33px]">
-              <PanelError onRetry={() => stock.refetch()} />
+              <PanelError error={stock.error} onRetry={() => stock.refetch()} />
             </div>
           ) : (
             <StockGrid

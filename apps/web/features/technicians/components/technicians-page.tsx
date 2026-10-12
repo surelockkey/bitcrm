@@ -16,6 +16,7 @@ import { useJobTypeName, useJobTypesLoading } from "@/features/job-types/lib";
 import { useRoles } from "@/features/roles/hooks";
 import { useServiceAreas } from "@/features/service-areas/hooks";
 import { CreateUserSheet } from "@/features/users/components/create-user-sheet";
+import { getApiErrorMessage } from "@/lib/api/errors";
 import { usePageSize } from "@/lib/paging/use-page-size";
 import { settled, usePageReady } from "@/lib/use-page-ready";
 import { useApprovedAssignments, usePendingAssignments, useTechnicians, useUserMap } from "../hooks";
@@ -195,7 +196,10 @@ export function TechniciansPage() {
 
       {ready && techs.isError ? (
         <div className="border border-wz-frame px-5 py-10 text-center text-sm text-wz-strong">
-          <p role="alert">Couldn&apos;t load technicians</p>
+          <div role="alert">
+            <p>Couldn&apos;t load technicians</p>
+            <p className="text-xs text-muted-foreground">{getApiErrorMessage(techs.error)}</p>
+          </div>
           <WzButton variant="secondary" size="regular" className="mt-3" onClick={() => techs.refetch()}>
             Try again
           </WzButton>

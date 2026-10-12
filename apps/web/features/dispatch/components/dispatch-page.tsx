@@ -6,6 +6,7 @@ import { KeyRound, TriangleAlert } from "lucide-react";
 import type { Deal } from "@bitcrm/types";
 import { MapsProvider } from "@/components/maps/maps-provider";
 import { Button } from "@/components/ui/button";
+import { getApiErrorMessage } from "@/lib/api/errors";
 import { env } from "@/lib/env";
 import { useDenied, usePermissions } from "@/features/auth/use-permissions";
 import { useDeal, useReorderDeals } from "@/features/deals/hooks";
@@ -394,7 +395,10 @@ function DispatchBoardPage() {
         {board.failed ? (
           <div className="flex flex-col items-center gap-3 px-4 py-8 text-center">
             <TriangleAlert className="size-6 text-wz-danger" />
-            <p className="text-sm font-semibold text-foreground">Couldn&apos;t load jobs</p>
+            <div>
+              <p className="text-sm font-semibold text-foreground">Couldn&apos;t load jobs</p>
+              <p className="text-xs text-muted-foreground">{getApiErrorMessage(query.error)}</p>
+            </div>
             <Button variant="outline" onClick={() => query.refetch()}>
               Retry
             </Button>

@@ -10,6 +10,7 @@ import { WzKpiCard, WzKpiCardSkeleton } from "@/components/workiz/kpi-card";
 import { WzPager, type WzPagerState } from "@/components/workiz/pager";
 import { WzReportGrid, wzNextSort, type WzReportColumn, type WzSortDir } from "@/components/workiz/report-grid";
 import { WzSelect } from "@/components/workiz/select";
+import { getApiErrorMessage } from "@/lib/api/errors";
 import { settled, usePageReady } from "@/lib/use-page-ready";
 import { useDenied, usePermissions } from "@/features/auth/use-permissions";
 import { NoAccess } from "@/features/clients/components/contacts-page";
@@ -102,7 +103,7 @@ export function CallTrackingPage({ today }: { today: string }) {
 
       {tooLong ? null : report.error ? (
         <p role="alert" className="px-5 pt-5 text-sm text-destructive">
-          {report.error instanceof Error ? report.error.message : "Could not load the report."}
+          {getApiErrorMessage(report.error, "Could not load the report.")}
         </p>
       ) : !ready || !report.data ? (
         <div role="status" aria-label="Loading report" className="mx-5 mt-5 flex flex-col">

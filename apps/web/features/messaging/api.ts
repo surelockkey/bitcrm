@@ -18,7 +18,7 @@ import type {
   TeamChatCounters,
 } from "@bitcrm/types";
 import { apiFetchPaginated, http } from "@/lib/api/http";
-import { ApiError } from "@/lib/api/errors";
+import { ApiError, responseError } from "@/lib/api/errors";
 
 /** Every messaging route hangs off `${apiBaseUrl}/messaging`. */
 export const BASE = "/messaging";
@@ -418,7 +418,7 @@ export async function uploadAttachmentBytes(
   // The URL is signed with SSE-KMS, so the headers the backend returns are
   // part of the signature and must be replayed — a bare PUT is a 403.
   const res = await fetch(uploadUrl, { method: "PUT", headers, body: file });
-  if (!res.ok) throw new Error(`Upload failed (${res.status})`);
+  if (!res.ok) throw await responseError(res, "Upload failed");
 }
 
 /** Presign, PUT, and hand back what `attachments[]` of the send needs. */

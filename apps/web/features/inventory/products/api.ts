@@ -7,7 +7,7 @@ import type {
   ProductStock,
 } from "@bitcrm/types";
 import { http, apiFetchPaginated } from "@/lib/api/http";
-import { ApiError } from "@/lib/api/errors";
+import { ApiError, responseError } from "@/lib/api/errors";
 import { readAllPages } from "@/features/inventory/read-all";
 import type { CreateProductValues, PatchProductValues } from "./schemas";
 import type { ProductFilter } from "./lib";
@@ -160,5 +160,5 @@ export async function uploadPhotoBytes(uploadUrl: string, file: File): Promise<v
     headers: { "Content-Type": file.type || "image/jpeg" },
     body: file,
   });
-  if (!res.ok) throw new Error("Photo upload failed");
+  if (!res.ok) throw await responseError(res, "Photo upload failed");
 }

@@ -227,7 +227,7 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
           ) : tab === "invoices" ? (
             <ClientInvoicesTab invoices={invoices.data ?? []} today={today} money={money} onPay={canPay ? () => setPayOpen(true) : undefined} />
           ) : tab === "payments" ? (
-            <ClientPaymentsTab rows={paymentRows} dealsById={dealsById} isError={payments.isError} />
+            <ClientPaymentsTab rows={paymentRows} dealsById={dealsById} isError={payments.isError} error={payments.error} />
           ) : tab === "addresses" ? (
             <ClientAddressesTab rows={addressRows} money={money} complete={!hasNextPage} />
           ) : (

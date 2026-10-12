@@ -25,6 +25,7 @@ import { useRole, useRoleSchema } from "@/features/roles/hooks";
 import { diffCells, isSuperAdmin, normalizeMatrix, type Schema } from "@/features/roles/lib";
 import { EditorSkeleton, PermissionTab } from "@/features/roles/components/permission-tab";
 import { OnlyAssignedRow, ONLY_ASSIGNED_ROW_WORDS } from "@/features/roles/components/only-assigned-row";
+import { getApiErrorMessage } from "@/lib/api/errors";
 import { settled, usePageReady } from "@/lib/use-page-ready";
 import { useClearUserPermissions, useRoles, useSetUserPermissions, useUser, useUserPermissions } from "../hooks";
 import { useHierarchy } from "../use-can-manage";
@@ -114,7 +115,16 @@ function UserPermissionsLoader({
     );
   }
   if (resolvedQuery.isError || !resolvedQuery.data) {
-    return <CenterMessage title="Couldn't load permissions" body="Try again in a moment." />;
+    return (
+      <CenterMessage
+        title="Couldn't load permissions"
+        body={
+          resolvedQuery.isError
+            ? `${getApiErrorMessage(resolvedQuery.error)} — try again in a moment.`
+            : "Try again in a moment."
+        }
+      />
+    );
   }
 
   const role = roleQuery.data;

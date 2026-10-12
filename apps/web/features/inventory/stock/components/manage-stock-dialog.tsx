@@ -88,6 +88,7 @@ function ManageStock({
   if (product.isError || stock.isError) {
     body = (
       <PanelError
+        error={product.error ?? stock.error}
         onRetry={() => {
           if (product.isError) product.refetch();
           if (stock.isError) stock.refetch();

@@ -10,7 +10,7 @@ import { fetchRecordingBlob } from "./api";
  */
 export function useRecordingUrl(callSid: string, enabled: boolean) {
   const [url, setUrl] = useState<string | null>(null);
-  const [error, setError] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
 
   useEffect(() => {
     if (!enabled) return;
@@ -23,12 +23,12 @@ export function useRecordingUrl(callSid: string, enabled: boolean) {
         objectUrl = URL.createObjectURL(blob);
         setUrl(objectUrl);
       })
-      .catch(() => (cancelled ? undefined : setError(true)));
+      .catch((e: unknown) => (cancelled ? undefined : setError(e instanceof Error ? e : new Error("Recording unavailable"))));
 
     return () => {
       cancelled = true;
       setUrl(null);
-      setError(false);
+      setError(null);
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [callSid, enabled]);

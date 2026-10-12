@@ -13,6 +13,7 @@ import { WzListToolbar, WzPageSizeSelect, WzSearchBox } from "@/components/worki
 import type { User } from "@bitcrm/types";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { useUserMap } from "@/features/technicians/hooks";
+import { getApiErrorMessage } from "@/lib/api/errors";
 import { usePageSize } from "@/lib/paging/use-page-size";
 import { settled, usePageReady } from "@/lib/use-page-ready";
 import { useRoles, useUser } from "../hooks";
@@ -145,7 +146,10 @@ export function UsersPage() {
 
       {ready && directory.isError ? (
         <div className="border border-wz-frame px-5 py-10 text-center text-sm text-wz-strong">
-          <p role="alert">Couldn&apos;t load users</p>
+          <div role="alert">
+            <p>Couldn&apos;t load users</p>
+            <p className="text-xs text-muted-foreground">{getApiErrorMessage(directory.error)}</p>
+          </div>
           <WzButton variant="secondary" size="regular" className="mt-3" onClick={() => directory.refetch()}>
             Try again
           </WzButton>

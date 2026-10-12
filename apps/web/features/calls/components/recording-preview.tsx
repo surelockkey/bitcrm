@@ -1,6 +1,7 @@
 "use client";
 
 import { Loader2, Mic } from "lucide-react";
+import { getApiErrorMessage } from "@/lib/api/errors";
 import { useRecordingUrl } from "../use-recording-url";
 
 /**
@@ -14,7 +15,10 @@ export function RecordingPreview({ callSid }: { callSid: string }) {
 
   if (error)
     return (
-      <p className="text-sm text-red-500">Couldn&apos;t load the recording.</p>
+      <div className="text-sm text-red-500">
+        <p>Couldn&apos;t load the recording.</p>
+        <p className="text-xs text-muted-foreground">{getApiErrorMessage(error)}</p>
+      </div>
     );
   if (!url)
     return (

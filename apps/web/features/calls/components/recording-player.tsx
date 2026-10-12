@@ -1,6 +1,7 @@
 "use client";
 
 import { Loader2, Mic } from "lucide-react";
+import { getApiErrorMessage } from "@/lib/api/errors";
 import { useRecordingUrl } from "../use-recording-url";
 
 /** Plays the call recording on the call detail page. */
@@ -22,7 +23,12 @@ export function RecordingPlayer({
     );
   }
   if (error)
-    return <p className="text-sm text-red-500">Couldn&apos;t load the recording.</p>;
+    return (
+      <div className="text-sm text-red-500">
+        <p>Couldn&apos;t load the recording.</p>
+        <p className="text-xs text-muted-foreground">{getApiErrorMessage(error)}</p>
+      </div>
+    );
   if (!url) {
     return (
       <p className="flex items-center gap-2 text-sm text-muted-foreground">

@@ -15,6 +15,7 @@ import type {
   ListCount,
 } from "@bitcrm/types";
 import { http, apiFetchPaginated } from "@/lib/api/http";
+import { responseError } from "@/lib/api/errors";
 
 const BASE = "/users/technicians";
 
@@ -246,7 +247,7 @@ export async function uploadDocumentBytes(
     headers: headers ?? { "Content-Type": file.type || "application/octet-stream" },
     body: file,
   });
-  if (!res.ok) throw new Error("Document upload failed");
+  if (!res.ok) throw await responseError(res, "Document upload failed");
 }
 
 export function getSensitive(id: string): Promise<SensitiveView> {

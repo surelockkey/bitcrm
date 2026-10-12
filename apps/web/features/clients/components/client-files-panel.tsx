@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { WzRailPanel } from "@/components/workiz/rail";
 import { WzSegmented } from "@/components/workiz/record-parts";
-import { getApiErrorMessage } from "@/lib/api/errors";
+import { getApiErrorMessage, responseError } from "@/lib/api/errors";
 import { useFilePreviewStore } from "@/features/files/preview-store";
 import { formatBytes } from "@/features/messaging/lib";
 import { ATTACHMENT_ACCEPT, getFileDownloadUrl, isJobFile, type ContactFileRow } from "@/features/deals/attachments-api";
@@ -89,7 +89,7 @@ function FilesBody({ contactId, canEdit }: { contactId: string; canEdit: boolean
       try {
         const { downloadUrl } = await getFileDownloadUrl(row);
         const res = await fetch(downloadUrl);
-        if (!res.ok) throw new Error("Download failed");
+        if (!res.ok) throw await responseError(res, "Download failed");
         const url = URL.createObjectURL(await res.blob());
         const a = document.createElement("a");
         a.href = url;
