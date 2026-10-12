@@ -1,7 +1,8 @@
-import type { Role, User, UserStatus } from "@bitcrm/types";
+import type { Role, User, UserPresence, UserStatus } from "@bitcrm/types";
 import { isFieldTeamMember } from "@bitcrm/types";
 import type { WzFilterGroup, WzFilterPick } from "@/components/workiz/filter-select";
 import { personName } from "@/features/deals/person-name";
+import { formatTeamCreated } from "@/features/technicians/team-list";
 import { roleName } from "./lib";
 import { overridesDiffer } from "./overrides";
 
@@ -29,10 +30,18 @@ export interface UserRow {
   /** Ours: the account's permission overrides differ from its role's matrix. */
   custom: boolean;
   createdAt?: string;
+  /** Ours: using the platform now (`GET /users/presence`). */
+  online: boolean;
+  /** When they last did — absent for someone who never has. */
+  lastSeenAt?: string;
   user: User;
 }
 
-export function userRows(users: readonly User[], roles: readonly Role[] | undefined): UserRow[] {
+export function userRows(
+  users: readonly User[],
+  roles: readonly Role[] | undefined,
+  presence?: ReadonlyMap<string, Pick<UserPresence, "online" | "lastSeenAt">>,
+): UserRow[] {
   return users.map((u) => ({
     id: u.id,
     name: personName(u) ?? u.email,
@@ -49,8 +58,27 @@ export function userRows(users: readonly User[], roles: readonly Role[] | undefi
       roles?.find((r) => r.id === u.roleId),
     ),
     createdAt: u.createdAt,
+    online: !!presence?.get(u.id)?.online,
+    lastSeenAt: presence?.get(u.id)?.lastSeenAt,
     user: u,
   }));
+}
+
+/**
+ * The Last seen cell: "Online" while they are, then how long ago — minutes,
+ * hours, days — and past a week the day and time as Created prints them.
+ */
+export function lastSeenLabel(row: Pick<UserRow, "online" | "lastSeenAt">, now: number = Date.now()): string {
+  if (row.online) return "Online";
+  if (!row.lastSeenAt) return "Never";
+  const ago = Math.max(0, now - Date.parse(row.lastSeenAt));
+  const minutes = Math.floor(ago / 60_000);
+  if (minutes < 60) return `${Math.max(1, minutes)} min ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days} ${days === 1 ? "day" : "days"} ago`;
+  return formatTeamCreated(row.lastSeenAt);
 }
 
 /** The status column of the filter, with Workiz's "All". */
@@ -68,8 +96,8 @@ const FIELD_OPTIONS = [
 
 /**
  * Filter results, column by column: the status column unheaded (its pick
- * reads "status: Active"), then Role, Field team and ours, Department. A
- * column with nothing to offer is left out.
+ * reads "status: Active"), then Role, Field team and ours, Department and
+ * Online. A column with nothing to offer is left out.
  */
 export function userFilterGroups({
   roles,
@@ -86,6 +114,8 @@ export function userFilterGroups({
     { id: "role", title: "Role", chipPrefix: "role", chipTone: "white", options: roles.map((r) => ({ value: r.id, label: r.name })) },
     { id: "field", title: "Field team", chipPrefix: "field team", chipTone: "white", options: FIELD_OPTIONS },
     { id: "department", title: "Department", chipPrefix: "department", chipTone: "white", options: depts.map((d) => ({ value: d, label: d })) },
+    // Ours: who is using the platform now.
+    { id: "online", title: "Online", chipPrefix: "online", chipTone: "white", options: FIELD_OPTIONS },
   ];
   return groups.filter((g) => g.options.length > 0);
 }
@@ -100,12 +130,14 @@ export function filterUsers(rows: readonly UserRow[], picks: readonly WzFilterPi
   const role = by("role");
   const field = by("field");
   const dept = by("department");
+  const online = by("online");
   return rows.filter(
     (r) =>
       (!status.length || status.some((s) => s === "all" || s === r.status)) &&
       (!role.length || role.includes(r.roleId)) &&
       (!field.length || field.includes(r.fieldTeam ? "yes" : "no")) &&
-      (!dept.length || dept.includes(r.department)),
+      (!dept.length || dept.includes(r.department)) &&
+      (!online.length || online.includes(r.online ? "yes" : "no")),
   );
 }
 

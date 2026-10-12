@@ -60,6 +60,23 @@ export function useUser(id?: string) {
   });
 }
 
+/** Re-read this often while the Users page is open, so "Online" follows people coming and going. */
+export const PRESENCE_POLL_MS = 30_000;
+
+/**
+ * Who is using the platform now, by user id. Polls while mounted; without
+ * `users.view` it is never asked.
+ */
+export function useUsersPresence(enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.users.presence(),
+    queryFn: async () => new Map((await api.getUsersPresence()).map((p) => [p.userId, p])),
+    enabled,
+    refetchInterval: PRESENCE_POLL_MS,
+    staleTime: PRESENCE_POLL_MS / 2,
+  });
+}
+
 export function useRoles() {
   return useQuery({
     queryKey: queryKeys.roles.list(),

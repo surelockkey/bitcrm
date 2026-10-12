@@ -3,6 +3,7 @@ import { UserStatus, type Role, type User } from "@bitcrm/types";
 import {
   DEFAULT_USER_FILTER,
   filterUsers,
+  lastSeenLabel,
   searchUsers,
   userFilterGroups,
   userRows,
@@ -142,19 +143,20 @@ describe("Filter results", () => {
     expect(filterUsers(rows, [{ group: "field", value: "no" }]).map((r) => r.id)).toEqual(["a", "b"]);
   });
 
-  it("offers status, Role, Field team and Department — the last two only with something to offer", () => {
+  it("offers status, Role, Field team, Department and ours, Online — Role and Department only with something to offer", () => {
     const groups = userFilterGroups({ roles, departments: ["Office", "Dispatch", "Office", ""] });
     expect(groups.map((g) => [g.id, g.title])).toEqual([
       ["status", ""],
       ["role", "Role"],
       ["field", "Field team"],
       ["department", "Department"],
+      ["online", "Online"],
     ]);
     expect(groups[0].options.map((o) => o.label)).toEqual(["Active", "Inactive", "All"]);
     expect(groups[2].options.map((o) => o.label)).toEqual(["yes", "no"]);
     // Each department once, in order, blanks left out.
     expect(groups[3].options.map((o) => o.value)).toEqual(["Dispatch", "Office"]);
-    expect(userFilterGroups({ roles: [], departments: [] }).map((g) => g.id)).toEqual(["status", "field"]);
+    expect(userFilterGroups({ roles: [], departments: [] }).map((g) => g.id)).toEqual(["status", "field", "online"]);
   });
 });
 
@@ -180,5 +182,59 @@ describe("Search", () => {
 
   it("a blank search keeps everyone", () => {
     expect(searchUsers(rows, "  ")).toHaveLength(2);
+  });
+});
+
+describe("Online — who is using the platform now", () => {
+  const presence = new Map([
+    ["u1", { userId: "u1", lastSeenAt: "2026-10-12T14:59:00.000Z", online: true }],
+    ["u2", { userId: "u2", lastSeenAt: "2026-10-12T11:00:00.000Z", online: false }],
+  ]);
+  const rows = userRows([user({ id: "u1" }), user({ id: "u2" }), user({ id: "u3" })], roles, presence);
+
+  it("marks each row online or not, with when the user was last seen", () => {
+    expect(rows.map((r) => [r.id, r.online, r.lastSeenAt])).toEqual([
+      ["u1", true, "2026-10-12T14:59:00.000Z"],
+      ["u2", false, "2026-10-12T11:00:00.000Z"],
+      ["u3", false, undefined],
+    ]);
+  });
+
+  it("without the presence answer nobody is online", () => {
+    expect(userRows([user({ id: "u1" })], roles).every((r) => !r.online)).toBe(true);
+  });
+
+  it("Filter results has an Online column, yes / no", () => {
+    const online = userFilterGroups({ roles, departments: [] }).find((g) => g.id === "online")!;
+    expect(online).toMatchObject({ title: "Online", chipPrefix: "online" });
+    expect(online.options.map((o) => o.value)).toEqual(["yes", "no"]);
+  });
+
+  it("filters by it", () => {
+    expect(filterUsers(rows, [{ group: "online", value: "yes" }]).map((r) => r.id)).toEqual(["u1"]);
+    expect(filterUsers(rows, [{ group: "online", value: "no" }]).map((r) => r.id)).toEqual(["u2", "u3"]);
+  });
+});
+
+describe("lastSeenLabel — the Last seen cell", () => {
+  const now = Date.parse("2026-10-12T15:00:00.000Z");
+
+  it("Online while the user is", () => {
+    expect(lastSeenLabel({ online: true, lastSeenAt: "2026-10-12T14:59:00.000Z" }, now)).toBe("Online");
+  });
+
+  it("minutes, then hours, then days ago", () => {
+    expect(lastSeenLabel({ online: false, lastSeenAt: "2026-10-12T14:48:00.000Z" }, now)).toBe("12 min ago");
+    expect(lastSeenLabel({ online: false, lastSeenAt: "2026-10-12T12:00:00.000Z" }, now)).toBe("3 h ago");
+    expect(lastSeenLabel({ online: false, lastSeenAt: "2026-10-10T15:00:00.000Z" }, now)).toBe("2 days ago");
+    expect(lastSeenLabel({ online: false, lastSeenAt: "2026-10-11T14:00:00.000Z" }, now)).toBe("1 day ago");
+  });
+
+  it("past a week, the day and time as the Created column prints them", () => {
+    expect(lastSeenLabel({ online: false, lastSeenAt: "2026-09-01T15:16:00.000Z" }, now)).toBe("Tue Sep 01, 2026 11:16 am");
+  });
+
+  it("Never for someone who has not used it", () => {
+    expect(lastSeenLabel({ online: false }, now)).toBe("Never");
   });
 });

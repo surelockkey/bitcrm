@@ -6,6 +6,7 @@ import type {
   PaginatedResponse,
   ResolvedPermissions,
   UserPermissionOverrides,
+  UserPresence,
   ListCount,
 } from "@bitcrm/types";
 import { http, apiFetchPaginated } from "@/lib/api/http";
@@ -44,6 +45,16 @@ export function listUsers(
 /** Скільки користувачів під цим фільтром — число для «Page 2 of 7». */
 export function countUsers(filter: UserFilter): Promise<ListCount> {
   return http.get<ListCount>(`/users/count${toQuery({ ...filter })}`);
+}
+
+/** Admin → Users "Online": when everyone last used the platform. Guarded by users.view. */
+export function getUsersPresence(): Promise<UserPresence[]> {
+  return http.get<UserPresence[]>("/users/presence");
+}
+
+/** The open tab is still in use — the server stamps the caller on the way in. */
+export async function sendHeartbeat(): Promise<void> {
+  await http.post("/users/me/heartbeat", {});
 }
 
 export function getUser(id: string): Promise<User> {

@@ -13,6 +13,7 @@ vi.mock("./command-menu", () => ({ CommandMenu: () => null }));
 vi.mock("@/features/technicians/components/location-broadcaster", () => ({
   LocationBroadcaster: () => null,
 }));
+vi.mock("@/features/users/components/presence-heartbeat", () => ({ PresenceHeartbeat: () => null }));
 vi.mock("@/features/telephony/components/softphone-provider", () => ({
   SoftphoneProvider: () => null,
 }));

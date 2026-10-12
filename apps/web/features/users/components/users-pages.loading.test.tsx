@@ -78,8 +78,14 @@ describe("UsersPage — loading", () => {
         reply: () => ({ success: true, data: [{ ...me, status: "active" }, pat], pagination: {} }),
         delayMs: 20,
       },
-      // The roles last — the order that printed the role's id.
+      // The roles late — the order that printed the role's id.
       { match: /\/users\/roles$/, reply: () => [nightDesk], delayMs: 90 },
+      // Who is online last: the chip comes with the rows, not after them.
+      {
+        match: /\/users\/presence$/,
+        reply: () => [{ userId: "u-pat", lastSeenAt: new Date().toISOString(), online: true }],
+        delayMs: 120,
+      },
     ]);
     const refused = watchFirstFrame(() => !!screen.queryByText("No access"), () => true);
     const rawId = watchFirstFrame(() => !!screen.queryByText("role-night-desk"), () => true);
@@ -90,6 +96,7 @@ describe("UsersPage — loading", () => {
         role: !!screen.queryByText("Night Desk"),
         total: !!screen.queryByText("Showing 1 to 2 of 2 results"),
         newUser: !!screen.queryByRole("button", { name: "Add New" }),
+        online: !!screen.queryByText("Online", { selector: "span[data-slot=online-chip]" }),
       }),
     );
 
@@ -106,7 +113,7 @@ describe("UsersPage — loading", () => {
 
     expect(refused.frame()).toBeNull();
     expect(rawId.frame()).toBeNull();
-    expect(first.frame()).toEqual({ skeletons: 0, role: true, total: true, newUser: true });
+    expect(first.frame()).toEqual({ skeletons: 0, role: true, total: true, newUser: true, online: true });
     expect(duplicates(server.requests)).toEqual([]);
   });
 });
