@@ -103,3 +103,50 @@ describe("http — an expired session renews itself", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
+
+/**
+ * A reply with no JSON reason (the load balancer's own 502/503/504 page, a
+ * proxy timeout) used to surface as an EMPTY toast: over HTTP/2 there is no
+ * status text, and `"" ?? "Request failed"` is "".
+ */
+describe("http — an error always says what happened", () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    setAuthTokenProvider(() => "tok");
+  });
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  const html = (status: number) =>
+    new Response("<html><body>502 Bad Gateway</body></html>", { status, statusText: "" });
+
+  it.each([502, 503, 504])("a %i with no reason says the server is not responding", async (status) => {
+    fetchMock.mockResolvedValueOnce(html(status));
+    await expect(http.get("/deals")).rejects.toThrow(
+      new RegExp(`not responding.*HTTP ${status}`, "i"),
+    );
+  });
+
+  it("a 500 with no reason still names the status", async () => {
+    fetchMock.mockResolvedValueOnce(html(500));
+    await expect(http.get("/deals")).rejects.toThrow(/server error.*HTTP 500/i);
+  });
+
+  it("a 4xx with no reason names the status", async () => {
+    fetchMock.mockResolvedValueOnce(html(413));
+    await expect(http.get("/deals")).rejects.toThrow(/HTTP 413/);
+  });
+
+  it("the server's own reason wins", async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ success: false, error: { code: "CONFLICT", message: "Already accepted" } }),
+        { status: 409 },
+      ),
+    );
+    await expect(http.get("/deals")).rejects.toThrow("Already accepted");
+  });
+});

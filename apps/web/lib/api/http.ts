@@ -93,14 +93,23 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (res.status === 401) onUnauthorized?.();
 
   if (!res.ok || !isSuccess(body)) {
-    throw new ApiError(
-      res.status,
-      extractMessage(body) ?? res.statusText ?? "Request failed",
-      body,
-    );
+    throw new ApiError(res.status, extractMessage(body) ?? statusMessage(res), body);
   }
 
   return body as T;
+}
+
+/**
+ * A reply with no reason of its own (the load balancer's 502/503/504 page, a
+ * proxy timeout). Over HTTP/2 `statusText` is empty, so it never stands alone.
+ */
+function statusMessage(res: Response): string {
+  const status = `HTTP ${res.status}${res.statusText ? ` ${res.statusText}` : ""}`;
+  if (res.status === 502 || res.status === 503 || res.status === 504) {
+    return `The server is not responding right now (${status}). Try again in a minute.`;
+  }
+  if (res.status >= 500) return `Server error (${status}).`;
+  return `Request failed (${status}).`;
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {

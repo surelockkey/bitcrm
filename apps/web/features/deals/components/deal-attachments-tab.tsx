@@ -25,7 +25,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import { getApiErrorMessage } from "@/lib/api/errors";
+import { getApiErrorMessage, responseError } from "@/lib/api/errors";
 import { useFilePreviewStore } from "@/features/files/preview-store";
 import { fileTitle, workizDateTime } from "../job-shell";
 import { UploadArt } from "./job-empty-art";
@@ -52,7 +52,7 @@ export function DealAttachmentsTab({ dealId, canEdit }: { dealId: string; canEdi
       try {
         const { downloadUrl } = await getAttachmentDownloadUrl(dealId, att.id);
         const res = await fetch(downloadUrl);
-        if (!res.ok) throw new Error("Download failed");
+        if (!res.ok) throw await responseError(res, "Download failed");
         const url = URL.createObjectURL(await res.blob());
         const a = document.createElement("a");
         a.href = url;
