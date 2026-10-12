@@ -145,4 +145,32 @@ describe('CognitoAdminService', () => {
       });
     });
   });
+
+  describe('getUser', () => {
+    it('reads the sign-in state of an account by its username', async () => {
+      mockSend.mockResolvedValue({ UserStatus: 'FORCE_CHANGE_PASSWORD', Enabled: true });
+      await expect(service.getUser('user@test.com')).resolves.toEqual({
+        status: 'FORCE_CHANGE_PASSWORD',
+        enabled: true,
+      });
+      expect(mockSend.mock.calls[0][0].input).toEqual({
+        UserPoolId: 'test-pool-id',
+        Username: 'user@test.com',
+      });
+    });
+
+    it('answers null when there is no such account', async () => {
+      mockSend.mockRejectedValue(
+        Object.assign(new Error('User does not exist.'), { name: 'UserNotFoundException' }),
+      );
+      await expect(service.getUser('ghost@test.com')).resolves.toBeNull();
+    });
+
+    it('lets any other failure through', async () => {
+      mockSend.mockRejectedValue(
+        Object.assign(new Error('Rate exceeded'), { name: 'TooManyRequestsException' }),
+      );
+      await expect(service.getUser('user@test.com')).rejects.toThrow('Rate exceeded');
+    });
+  });
 });
