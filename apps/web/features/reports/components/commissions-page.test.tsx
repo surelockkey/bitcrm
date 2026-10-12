@@ -22,7 +22,14 @@ vi.mock("@tanstack/react-query", async (orig) => ({
   useQueryClient: () => ({}),
 }));
 vi.mock("@/features/job-types/hooks", () => ({ useJobTypes: () => ({ data: [{ id: "jt-1", name: "Lockout" }] }) }));
-vi.mock("@/features/service-areas/hooks", () => ({ useServiceAreas: () => ({ data: [{ id: "area-1", name: "SURE LOCK CT" }] }) }));
+vi.mock("@/features/service-areas/hooks", () => ({
+  useServiceAreas: () => ({
+    data: [
+      { id: "area-1", name: "SURE LOCK CT", timezone: "America/New_York" },
+      { id: "area-tx", name: "SURE LOCK TX", timezone: "America/Chicago" },
+    ],
+  }),
+}));
 vi.mock("@/features/job-sources/hooks", () => ({ useJobSources: () => ({ data: [{ id: "src-1", name: "Google" }] }) }));
 vi.mock("@/features/external-companies/hooks", () => ({
   useExternalCompanies: () => ({ data: [{ id: "ext-1", name: "Partner LLC" }] }),
@@ -132,10 +139,22 @@ describe("CommissionsPage — Workiz's Finance Reporting", () => {
     expect(rows[1]).toHaveTextContent(/^Totals:1/);
     expect(within(rows[1]).getAllByRole("cell")[6]).toHaveTextContent("197.17");
     expect(rows[2]).toHaveTextContent("TGQ6NS");
-    expect(rows[2]).toHaveTextContent("09/02/2026 07:00 PM");
+    expect(rows[2]).toHaveTextContent("09/02/2026 07:00 PM EDT");
     expect(rows[2]).toHaveTextContent("50%");
     expect(within(rows[2]).getByRole("link", { name: "TGQ6NS" })).toHaveAttribute("href", "/deals/deal-1");
     expect(screen.getByText("Showing 1 to 1 of 1 entries")).toBeInTheDocument();
+  });
+
+  // 2026-10-12 owner rule: a Texas visit is booked on Central time and shown on Connecticut's.
+  it("a job in a Central-time area shows its visit on Connecticut's clock, labelled", () => {
+    useCommissionReport.mockImplementation(() => ({
+      data: report({ rows: [row({ serviceAreaId: "area-tx", scheduledTimeSlot: "10:00-11:00", closedTime: "23:30" })] }),
+      error: null,
+    }));
+    render(<CommissionsPage today="2026-09-29" />);
+    const rows = within(grid()).getAllByRole("row");
+    expect(rows[2]).toHaveTextContent("09/02/2026 11:00 AM EDT");
+    expect(rows[2]).toHaveTextContent("09/03/2026 12:30 AM EDT");
   });
 
   it("Total Profits and Total by type under the grid, the numbers as they are", () => {

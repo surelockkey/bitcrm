@@ -1,4 +1,5 @@
-import { DASHBOARD_TIMEZONE, type ActivityRow, type ActivitySort } from "@bitcrm/types";
+import type { ActivityRow, ActivitySort } from "@bitcrm/types";
+import { DEFAULT_TZ, withZone } from "@/lib/timezone";
 
 /*
  * Activity, web side: the query the list, the count and the export share,
@@ -25,7 +26,7 @@ export function activityParams(filter: ActivityFilter, extra: { limit?: number; 
 }
 
 const TIME = new Intl.DateTimeFormat("en-US", {
-  timeZone: DASHBOARD_TIMEZONE,
+  timeZone: DEFAULT_TZ,
   weekday: "short",
   month: "short",
   day: "2-digit",
@@ -35,10 +36,19 @@ const TIME = new Intl.DateTimeFormat("en-US", {
   hour12: true,
 });
 
-/** "Tue Sep 29, 2026 05:54 pm" — Workiz's Time column, on the account's clock. */
+/**
+ * "Tue Sep 29, 2026 05:54 pm EDT" — Workiz's Time column on Connecticut's
+ * clock, and (2026-10-12 owner rule) saying so: EDT in summer, EST in winter.
+ * The CSV prints the same.
+ */
 export function activityTime(iso: string): string {
-  const parts = Object.fromEntries(TIME.formatToParts(new Date(iso)).map((p) => [p.type, p.value]));
-  return `${parts.weekday} ${parts.month} ${parts.day}, ${parts.year} ${parts.hour}:${parts.minute} ${String(parts.dayPeriod).toLowerCase()}`;
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return "";
+  const parts = Object.fromEntries(TIME.formatToParts(at).map((p) => [p.type, p.value]));
+  return withZone(
+    `${parts.weekday} ${parts.month} ${parts.day}, ${parts.year} ${parts.hour}:${parts.minute} ${String(parts.dayPeriod).toLowerCase()}`,
+    at,
+  );
 }
 
 /**

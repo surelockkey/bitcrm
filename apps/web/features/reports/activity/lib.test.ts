@@ -15,9 +15,14 @@ const row = (over: Partial<ActivityRow> = {}): ActivityRow => ({
 });
 
 describe("Activity cells", () => {
-  it("prints the time the way Workiz does, on the account's clock", () => {
-    expect(activityTime("2026-09-29T21:54:00.600Z")).toBe("Tue Sep 29, 2026 05:54 pm");
-    expect(activityTime("2026-09-01T04:00:00.200Z")).toBe("Tue Sep 01, 2026 12:00 am");
+  // 2026-10-12 owner rule: every time on the web is Connecticut's and says so.
+  it("prints the time the way Workiz does, on Connecticut's clock, with the zone", () => {
+    expect(activityTime("2026-09-29T21:54:00.600Z")).toBe("Tue Sep 29, 2026 05:54 pm EDT");
+    expect(activityTime("2026-09-01T04:00:00.200Z")).toBe("Tue Sep 01, 2026 12:00 am EDT");
+    // Winter: standard time.
+    expect(activityTime("2026-12-01T15:00:00.000Z")).toBe("Tue Dec 01, 2026 10:00 am EST");
+    // 03:30 UTC on Oct 13 is still Oct 12, 11:30 pm in Connecticut.
+    expect(activityTime("2026-10-13T03:30:00.000Z")).toBe("Mon Oct 12, 2026 11:30 pm EDT");
   });
 
   it("keeps Workiz's name on an imported event and names our own from the directory", () => {
@@ -36,12 +41,12 @@ describe("Activity cells", () => {
     );
   });
 
-  it("exports Workiz's four columns, quoting what needs it", () => {
+  it("exports Workiz's four columns, quoting what needs it — the time as the screen prints it", () => {
     const csv = activityCsv([row(), row({ text: 'Rescheduled job from "Tue", 4:00 pm', jobRef: undefined })], () => undefined);
     expect(csv.split("\n")).toEqual([
       "Time,User,Action,Job Id",
-      '"Tue Sep 29, 2026 05:54 pm",(1) (Taylor) 12 Dispatcher,Added payment 465.46 in Installments,EBKZ0I',
-      '"Tue Sep 29, 2026 05:54 pm",(1) (Taylor) 12 Dispatcher,"Rescheduled job from ""Tue"", 4:00 pm",',
+      '"Tue Sep 29, 2026 05:54 pm EDT",(1) (Taylor) 12 Dispatcher,Added payment 465.46 in Installments,EBKZ0I',
+      '"Tue Sep 29, 2026 05:54 pm EDT",(1) (Taylor) 12 Dispatcher,"Rescheduled job from ""Tue"", 4:00 pm",',
     ]);
   });
 });

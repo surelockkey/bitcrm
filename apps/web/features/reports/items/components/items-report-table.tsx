@@ -8,7 +8,7 @@ import { WzReportGrid, type WzReportColumn } from "@/components/workiz/report-gr
 import { personName } from "@/features/deals/person-name";
 import { useUserMap } from "@/features/deals/hooks";
 import { getApiErrorMessage } from "@/lib/api/errors";
-import { workizDate } from "../../jobs/lib";
+import { workizWall } from "../../jobs/lib";
 import { useItemsReportJobs } from "../hooks";
 import {
   itemJobsParams,
@@ -227,7 +227,8 @@ function ItemJobs({ item, state, money }: { item: ItemsReportRow; state: ItemsRe
           </div>
         ),
       },
-      { id: "date", label: "Date", cell: (r) => one(workizDate(r.jobDate)) },
+      // The visit's start, sent on Connecticut's wall clock; printed with its zone (2026-10-12 owner rule).
+      { id: "date", label: "Date", cell: (r) => one(workizWall(r.jobDate)) },
       { id: "units", label: "Units", cell: (r) => one(unitsText(r.units)) },
       { id: "price", label: "Price", money: true, cell: (r) => one(moneyText(r.price)) },
       { id: "cost", label: "Cost", money: true, cell: (r) => one(moneyText(r.cost)) },

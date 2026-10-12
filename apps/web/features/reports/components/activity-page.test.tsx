@@ -106,7 +106,7 @@ describe("ActivityPage", () => {
     const table = screen.getByRole("table", { name: "Activity" });
     expect(within(table).getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Time", "User", "Action", "Job Id"]);
     const [, first, second, third] = within(table).getAllByRole("row");
-    expect(first).toHaveTextContent("Tue Sep 29, 2026 05:54 pm");
+    expect(first).toHaveTextContent("Tue Sep 29, 2026 05:54 pm EDT");
     expect(first).toHaveTextContent("Client");
     expect(within(first).getByRole("img", { name: "Web App" })).toBeInTheDocument();
     // Workiz opens the job in the same tab.

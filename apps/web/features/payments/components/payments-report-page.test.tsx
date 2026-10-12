@@ -5,7 +5,7 @@ import { http, HttpResponse } from "msw";
 import type { PaymentReportRow } from "@bitcrm/types";
 import { server } from "@/test/msw/server";
 import { renderWithClient } from "@/test/render-with-client";
-import { viewerToday } from "@/features/reports/jobs/lib";
+import { ctToday } from "@/lib/timezone";
 
 const mocks = vi.hoisted(() => ({ canView: true, money: true, toast: { warning: vi.fn(), error: vi.fn() } }));
 vi.mock("sonner", () => ({ toast: mocks.toast }));
@@ -101,7 +101,8 @@ describe("PaymentsReportPage", () => {
   it("opens on This month to today, newest first, 10 a page — Workiz's defaults", async () => {
     renderWithClient(<PaymentsReportPage />);
     await screen.findByText("6563K8 (Job)");
-    const today = viewerToday();
+    // Connecticut's today, not the browser's (2026-10-12 owner rule).
+    const today = ctToday();
     const first = calls[0];
     expect(first.get("from")).toBe(`${today.slice(0, 7)}-01`);
     expect(first.get("to")).toBe(today);

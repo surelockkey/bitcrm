@@ -18,6 +18,7 @@ import { WzPager, type WzPagerState } from "@/components/workiz/pager";
 import { WzListToolbar, WzPageSizeSelect, WzSearchBox, WzToolbarButton } from "@/components/workiz/toolbar";
 import { usePageHistoryLabel } from "@/components/shell/page-history";
 import { getApiErrorMessage } from "@/lib/api/errors";
+import { ctToday } from "@/lib/timezone";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { settled, usePageReady } from "@/lib/use-page-ready";
 import { useDenied, usePermissions } from "@/features/auth/use-permissions";
@@ -44,7 +45,6 @@ import {
   presetRange,
   reportParams,
   statusFilterOptions,
-  viewerToday,
   type JobsReportPreset,
   type JobsReportState,
 } from "../jobs/lib";
@@ -93,8 +93,8 @@ export function JobsReportPage({ today: todayProp }: { today?: string } = {}) {
   const denied = useDenied();
   const { can } = usePermissions();
   usePageHistoryLabel("Jobs Report");
-  // Workiz counts its presets from the viewer's own clock (moment()).
-  const [today] = useState(() => todayProp ?? viewerToday());
+  // The presets count from Connecticut's today (2026-10-12 owner rule), not the browser's as Workiz does.
+  const [today] = useState(() => todayProp ?? ctToday());
 
   const settingsQuery = useJobsReportSettings();
   const saveSettings = useSaveJobsReportSettings();

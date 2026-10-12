@@ -22,6 +22,7 @@ import { useExternalCompanies } from "@/features/external-companies/hooks";
 import { useJobSources } from "@/features/job-sources/hooks";
 import { useJobTypes } from "@/features/job-types/hooks";
 import { useServiceAreas } from "@/features/service-areas/hooks";
+import { jobZoneResolver } from "@/features/service-areas/lib";
 import { downloadCommissionCsv, reloadCommissionReport, useCommissionReport } from "../commissions/hooks";
 import { legacyPresetRange } from "../legacy-presets";
 import {
@@ -142,6 +143,10 @@ export function CommissionsPage({ today }: { today: string }) {
 
   const jobTypesQuery = useJobTypes();
   const areasQuery = useServiceAreas();
+  // The zone a row's visit (Scheduled, Closed) is stored in — its area's — so
+  // the grid shows it on Connecticut's clock (2026-10-12 owner rule). The
+  // areas are in the page gate below, so no row is drawn before they are.
+  const visitZoneOf = jobZoneResolver(areasQuery.data);
   const companiesQuery = useExternalCompanies();
   const sourcesQuery = useJobSources();
   const people = useUserMap();
@@ -361,7 +366,7 @@ export function CommissionsPage({ today }: { today: string }) {
                         {r.dealNumber}
                       </Link>
                     ) : (
-                      cellText(r, c.id)
+                      cellText(r, c.id, visitZoneOf(r))
                     ),
                   ),
                 }))}

@@ -172,7 +172,7 @@ describe("ItemsReportPage", () => {
     expect(within(jobs).getByRole("link", { name: "Job #NII265" })).toHaveAttribute("href", "/deals/d1");
     expect(within(jobs).getByRole("link", { name: "Ronda Cook" })).toHaveAttribute("href", "/contacts/c1");
     expect(within(jobs).getByText("Austin State Supported Living Center")).toBeInTheDocument();
-    expect(within(jobs).getByText("Thu Sep 24, 2026 03:00 pm")).toBeInTheDocument();
+    expect(within(jobs).getByText("Thu Sep 24, 2026 03:00 pm EDT")).toBeInTheDocument();
     // Workiz prints the service plan as the boolean itself.
     expect(within(jobs).getByText("false")).toBeInTheDocument();
     expect(within(jobs).getByText("Showing 1 to 1 of 1 results")).toBeInTheDocument();
