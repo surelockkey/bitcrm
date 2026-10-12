@@ -71,6 +71,7 @@ export function createMockUsersRepository() {
     findAll: jest.fn(),
     findByStatus: jest.fn(),
     update: jest.fn(),
+    attachSignInAccount: jest.fn().mockResolvedValue(undefined),
   };
 }
 

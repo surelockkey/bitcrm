@@ -128,7 +128,8 @@ describe('UsersService event publishing', () => {
         'custom:department': 'General',
         'custom:user_id': 'u1',
       });
-      expect(repository.update).toHaveBeenCalledWith('u1', { cognitoSub: 'sub-new' });
+      // Not update(): it skips cognitoSub on purpose, so the id was silently lost.
+      expect(repository.attachSignInAccount).toHaveBeenCalledWith('u1', 'sub-new');
       expect(sns.publish).toHaveBeenCalledWith(
         'user-events',
         'user.invite-resent',

@@ -319,6 +319,26 @@ describe('UsersRepository', () => {
     });
   });
 
+  // update() never writes cognitoSub, by design. A user imported from Workiz
+  // without a sign-in account gets one on their first invitation, and the
+  // account's id has to land on the record — deactivating them and changing
+  // their role both address Cognito by it.
+  describe('attachSignInAccount', () => {
+    it('writes the account id onto a user who has none', async () => {
+      dbClient.send.mockResolvedValue({});
+
+      await repository.attachSignInAccount('user-1', 'sub-new');
+
+      const input = dbClient.send.mock.calls[0][0].input;
+      expect(input.Key).toEqual({ PK: 'USER#user-1', SK: 'METADATA' });
+      expect(input.UpdateExpression).toContain('#cognitoSub = :cognitoSub');
+      expect(input.ExpressionAttributeValues[':cognitoSub']).toBe('sub-new');
+      expect(input.ConditionExpression).toBe(
+        'attribute_exists(PK) AND attribute_not_exists(cognitoSub)',
+      );
+    });
+  });
+
   describe('update', () => {
     it('should build dynamic UpdateExpression and always include updatedAt', async () => {
       const updated = createMockUser({ firstName: 'Updated' });
