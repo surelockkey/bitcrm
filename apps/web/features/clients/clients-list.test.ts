@@ -65,12 +65,16 @@ describe("clientSubline — the line under the client's name", () => {
 });
 
 describe("formatClientCreated — Workiz's Created cell", () => {
-  it("prints the account's clock: 'Thu Oct 08, 2026 04:26 PM'", () => {
-    expect(formatClientCreated("2026-10-08T20:26:00.000Z", "America/New_York")).toBe("Thu Oct 08, 2026 04:26 PM");
+  it("prints Connecticut's clock and its zone: 'Thu Oct 08, 2026 04:26 PM EDT'", () => {
+    expect(formatClientCreated("2026-10-08T20:26:00.000Z")).toBe("Thu Oct 08, 2026 04:26 PM EDT");
   });
 
-  it("keeps two-digit hours in the morning", () => {
-    expect(formatClientCreated("2026-03-02T14:05:00.000Z", "America/New_York")).toBe("Mon Mar 02, 2026 09:05 AM");
+  it("keeps two-digit hours in the morning; winter reads EST", () => {
+    expect(formatClientCreated("2026-03-02T14:05:00.000Z")).toBe("Mon Mar 02, 2026 09:05 AM EST");
+  });
+
+  it("an 11:30 pm Connecticut moment stays on Connecticut's day, not UTC's", () => {
+    expect(formatClientCreated("2026-10-13T03:30:00.000Z")).toBe("Mon Oct 12, 2026 11:30 PM EDT");
   });
 
   it("is empty for a missing or broken date", () => {

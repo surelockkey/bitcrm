@@ -129,6 +129,17 @@ describe("documents api", () => {
     expect(res[0]).toMatchObject({ kind: "invoice", label: "Invoice #1042" });
   });
 
+  it("dates each option on Connecticut's calendar, not the browser's", async () => {
+    server.use(
+      http.get("*/billing/invoices", () =>
+        // 23:30 EDT on Oct 12 — UTC and Kyiv already read the 13th.
+        ok({ items: [{ id: "d1", number: "1042", totals: { total: 10 }, createdAt: "2026-10-13T03:30:00.000Z" }] }),
+      ),
+    );
+    const res = await api.searchPreviewSources("invoice", "1042");
+    expect(res[0].sublabel).toBe("$10.00 · 10/12/2026");
+  });
+
   it("includes an exact id match when nothing matches by number", async () => {
     server.use(
       http.get("*/billing/estimates", () => ok({ items: [] })),

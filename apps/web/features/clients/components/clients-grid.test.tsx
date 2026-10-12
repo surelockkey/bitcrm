@@ -77,7 +77,7 @@ describe("ClientsGrid — Workiz's Clients grid", () => {
     expect(within(cells[0]).getByRole("link", { name: "(602) 478-3345" })).toHaveAttribute("href", "tel:+16024783345");
     expect(cells[1]).toHaveTextContent("261 E 10th St Mesa, AZ 85203");
     expect(within(cells[2]).getByRole("link", { name: "(602) 478-3345" })).toBeInTheDocument();
-    expect(cells[3]).toHaveTextContent("Thu Oct 08, 2026 04:26 PM");
+    expect(cells[3]).toHaveTextContent("Thu Oct 08, 2026 04:26 PM EDT");
   });
 
   it("puts the email under the name when there is one, and the client's tags under that", () => {

@@ -112,6 +112,20 @@ describe("PaymentsReportPage", () => {
     expect(screen.getByRole("heading", { name: "Payments report" })).toBeInTheDocument();
   });
 
+  it("counts the presets from Connecticut's today, not the browser's", async () => {
+    // 23:30 EDT on Sep 30 — a Kyiv (or UTC) browser is already in October.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-01T03:30:00.000Z"));
+    try {
+      renderWithClient(<PaymentsReportPage />);
+      await screen.findByText("6563K8 (Job)");
+      expect(calls[0].get("from")).toBe("2026-09-01");
+      expect(calls[0].get("to")).toBe("2026-09-30");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("shows the two cards and the lines as Workiz prints them", async () => {
     renderWithClient(<PaymentsReportPage />);
     await screen.findByText("6563K8 (Job)");

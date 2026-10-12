@@ -32,6 +32,8 @@ describe("SignaturesSection (Workiz Signatures +)", () => {
     expect(screen.getByRole("heading", { name: /signatures/i })).toBeInTheDocument();
     expect(screen.getByText("Jane Client")).toBeInTheDocument();
     expect(screen.getByText(/client portal/i)).toBeInTheDocument();
+    // On Connecticut's clock, and it says so.
+    expect(screen.getByText(/Sep 29, 2026, 9:52 AM EDT/)).toBeInTheDocument();
     expect(screen.getByRole("img", { name: /signature by jane client/i })).toHaveAttribute("src", "https://s3/sig.png");
   });
 

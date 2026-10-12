@@ -5,10 +5,10 @@ import { FileText, Loader2, Trash2, Upload } from "lucide-react";
 import { CompanyDocumentType, type Company } from "@bitcrm/types";
 import { Skeleton } from "@/components/ui/skeleton";
 import { WzFormSectionTitle } from "@/components/workiz/form-section-title";
-import { DEFAULT_TZ } from "@/lib/timezone";
 import { cn } from "@/lib/utils";
 import { usePermissions } from "@/features/auth/use-permissions";
-import { workizDateTime, workizScheduleCell } from "@/features/deals/schedule-cell";
+import { workizDate } from "@/features/reports/billing/lib";
+import { wzWhen } from "../client-page";
 import { useCompanyDocuments, useUploadCompanyDocument, useDeleteCompanyDocument } from "../hooks";
 import * as api from "../api";
 import { coiStatus, paymentTermsLabel, type CoiStatus } from "../lib";
@@ -33,7 +33,7 @@ const BLUE = "inline-flex items-center gap-1.5 text-sm leading-[21px] font-mediu
 const ICON_BUTTON = "grid size-8 shrink-0 place-items-center rounded-[8px] outline-none hover:bg-wz-secondary-hover focus-visible:ring-2 focus-visible:ring-ring/50";
 
 /** "2026-12-31" → "Thu Dec 31, 2026", Workiz's day. */
-const wzDay = (ymd: string) => workizScheduleCell({ scheduledDate: ymd }, "UTC").when;
+const wzDay = (ymd: string) => workizDate(ymd);
 
 /**
  * The company's terms and compliance papers (ours — Workiz keeps a client's
@@ -96,7 +96,7 @@ export function CompanyComplianceTab({ company }: { company: Company }) {
               ) : (
                 <>
                   <p className={cn("mt-2.5 leading-4", present ? "text-wz-strong" : "text-wz-outline-label")}>
-                    {present ? `Uploaded ${workizDateTime(present.uploadedAt, DEFAULT_TZ)}` : "Not uploaded"}
+                    {present ? `Uploaded ${wzWhen(present.uploadedAt)}` : "Not uploaded"}
                   </p>
                   <div className="mt-4 flex items-center gap-5">
                     {present ? (

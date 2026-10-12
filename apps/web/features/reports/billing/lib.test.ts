@@ -5,6 +5,7 @@ import {
   splitInvoiceFilters,
   toQuery,
   workizDate,
+  workizDateTime,
 } from "./lib";
 
 describe("billing report helpers", () => {
@@ -36,5 +37,17 @@ describe("billing report helpers", () => {
     expect(workizDate("2019-07-16")).toBe("Tue Jul 16, 2019");
     expect(workizDate("2026-09-29T02:00:00.000Z")).toBe("Mon Sep 28, 2026");
     expect(workizDate(undefined)).toBe("");
+  });
+
+  /**
+   * 2026-10-12 owner: every time on the web is Connecticut's clock and says
+   * so — an unlabelled "09:34 am" was read as Kyiv time.
+   */
+  it("prints a moment on Connecticut's clock with its zone — EDT in summer, EST in winter", () => {
+    expect(workizDateTime("2026-09-11T07:39:00.000Z")).toBe("Fri Sep 11, 2026 03:39 am EDT");
+    expect(workizDateTime("2026-12-01T15:00:00.000Z")).toBe("Tue Dec 01, 2026 10:00 am EST");
+    // 03:30Z on Oct 13 is still Oct 12 in Connecticut.
+    expect(workizDateTime("2026-10-13T03:30:00.000Z")).toBe("Mon Oct 12, 2026 11:30 pm EDT");
+    expect(workizDateTime(undefined)).toBe("");
   });
 });

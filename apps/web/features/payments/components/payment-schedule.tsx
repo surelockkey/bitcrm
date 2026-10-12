@@ -18,7 +18,8 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { WzButton } from "@/components/workiz/button";
 import { WzDayPicker } from "@/components/workiz/day-picker";
 import { cn } from "@/lib/utils";
-import { formatYmd, todayYmd } from "@/features/billing/dates";
+import { formatYmd } from "@/features/billing/dates";
+import { ctToday } from "@/lib/timezone";
 import { formatMoney } from "@/features/billing/lib";
 import { useOpenPdf } from "@/features/billing/open-pdf";
 import {
@@ -256,7 +257,7 @@ export function PaymentScheduleDialog({
   total,
   amountPaid,
   view,
-  today = todayYmd(),
+  today = ctToday(),
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -499,8 +500,8 @@ function Row({
         <Popover.Portal>
           <Popover.Content align="start" sideOffset={6} className="z-[60] outline-none">
             <WzDayPicker
-              value={dueDate || todayYmd()}
-              today={todayYmd()}
+              value={dueDate || ctToday()}
+              today={ctToday()}
               onSelect={(day) => {
                 setPicking(false);
                 onDueDate(day);

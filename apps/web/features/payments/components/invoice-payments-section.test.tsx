@@ -182,7 +182,7 @@ describe("InvoicePaymentsSection — variant workiz", () => {
     expect(row).toHaveTextContent("Card");
     expect(row).toHaveTextContent("••••4242");
     expect(row).toHaveTextContent("$150.00");
-    expect(row).toHaveTextContent("9/20/2026 at");
+    expect(row).toHaveTextContent("9/20/2026 at 11:00 AM EDT");
     expect(row).toHaveTextContent("Paid");
     expect(screen.getByRole("button", { name: "Add payment" })).toBeInTheDocument();
     // Workiz says nothing of "collected · due" here: the balance is in the totals.

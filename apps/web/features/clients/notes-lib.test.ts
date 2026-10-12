@@ -38,9 +38,21 @@ describe("notes-lib — the order and the headings of the Notes rail", () => {
     ]);
   });
 
-  it("stamps a note the way Workiz does: 'Jul 24 2025 • 6:19 PM'", () => {
-    expect(noteStamp("2025-07-24T18:19:00")).toBe("Jul 24 2025 • 6:19 PM");
-    expect(monthLabel("2025-07-24T18:19:00")).toBe("July 2025");
+  it("stamps a note the way Workiz does, on Connecticut's clock with its zone: 'Jul 24 2025 • 6:19 PM EDT'", () => {
+    expect(noteStamp("2025-07-24T22:19:00.000Z")).toBe("Jul 24 2025 • 6:19 PM EDT");
+    expect(noteStamp("2025-12-01T15:00:00.000Z")).toBe("Dec 1 2025 • 10:00 AM EST");
+    // 23:30 in Connecticut — already Aug 1 in UTC and in Kyiv.
+    expect(noteStamp("2025-08-01T03:30:00.000Z")).toBe("Jul 31 2025 • 11:30 PM EDT");
+    expect(monthLabel("2025-07-24T22:19:00.000Z")).toBe("July 2025");
+  });
+
+  it("buckets by Connecticut's month, not the browser's", () => {
+    expect(monthLabel("2025-08-01T03:30:00.000Z")).toBe("July 2025");
+    const groups = groupNotesByMonth([note("late", "2025-08-01T03:30:00.000Z"), note("aug", "2025-08-01T12:00:00.000Z")]);
+    expect(groups.map((g) => [g.label, g.notes.map((n) => n.id)])).toEqual([
+      ["August 2025", ["aug"]],
+      ["July 2025", ["late"]],
+    ]);
   });
 
   it("asks for 'Show more' only on a note that would not fit four lines", () => {

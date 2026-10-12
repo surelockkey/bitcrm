@@ -41,7 +41,7 @@ import { WZ_MENU_POPUP, WZ_MENU_POPUP_ITEM } from "@/components/workiz/menu-popu
 import { queryKeys } from "@/lib/query-keys";
 import { cn } from "@/lib/utils";
 import { usePermissions } from "@/features/auth/use-permissions";
-import { todayYmd } from "@/features/billing/dates";
+import { ctToday } from "@/lib/timezone";
 import { formatBoxAmount } from "@/features/billing/lib";
 import { useOpenPdf } from "@/features/billing/open-pdf";
 import { CommitTextarea } from "@/features/billing/components/document-field";
@@ -586,7 +586,7 @@ function DateBox({
         <Popover.Content align="start" sideOffset={10} className="z-50 outline-none">
           <WzDayPicker
             value={value}
-            today={todayYmd()}
+            today={ctToday()}
             onSelect={(day) => {
               setOpen(false);
               onChange(day);
@@ -615,7 +615,7 @@ function DueRow({ value, editable, onChange }: { value: string; editable: boolea
             <Popover.Content align="start" sideOffset={10} className="z-50 outline-none">
               <WzDayPicker
                 value={value}
-                today={todayYmd()}
+                today={ctToday()}
                 onSelect={(day) => {
                   setOpen(false);
                   onChange(day);

@@ -5,7 +5,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { Deal } from "@bitcrm/types";
 import { WzLocalGrid, type WzGridColumn } from "@/components/workiz/local-grid";
-import { DEFAULT_TZ } from "@/lib/timezone";
 import { DealQuickView } from "@/features/deals/components/deal-quick-view";
 import { superStatusLabel } from "@/features/deals/lib";
 import { useJobStatusName } from "@/features/job-statuses/lib";
@@ -45,7 +44,7 @@ export function ClientJobsTab({
   /** dealId → the part of it past its due date. */
   pastDue: Map<string, number>;
   money: boolean;
-  /** The zone a visit was booked in (the job's own, else its area's). */
+  /** The zone a visit was booked in (the job's own, else its area's; absent = Connecticut) — `useJobZoneOf()`. */
   zoneOf: (deal: Deal) => string | undefined;
   /** All of the client's jobs are in hand, so the page count is final. */
   complete: boolean;
@@ -95,8 +94,8 @@ export function ClientJobsTab({
         id: "jobDate",
         label: "Job Date",
         sortValue: (d) => (d.scheduledDate ? `${d.scheduledDate} ${d.allDay ? "" : (d.scheduledTimeSlot ?? "")}` : undefined),
-        searchText: (d) => clientJobDate(d, zoneOf(d), DEFAULT_TZ),
-        render: (d) => clientJobDate(d, zoneOf(d), DEFAULT_TZ),
+        searchText: (d) => clientJobDate(d, zoneOf(d)),
+        render: (d) => clientJobDate(d, zoneOf(d)),
       },
       {
         id: "jobType",

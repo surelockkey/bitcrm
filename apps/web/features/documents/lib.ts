@@ -19,6 +19,7 @@ import {
   type MergeTagGroupId,
 } from "@bitcrm/document-renderer";
 import { ApiError } from "@/lib/api/errors";
+import { formatYmd } from "@/features/billing/dates";
 
 export const KIND_ORDER: DocumentTemplateKind[] = ["invoice", "estimate", "custom"];
 
@@ -53,6 +54,12 @@ function namesPart(ids: string[] | undefined, names: Map<string, string>, noun: 
   const rest = ids.length - known.length;
   const more = rest > 0 ? `${rest} more ${noun}${rest > 1 ? "s" : ""}` : null;
   return [...known, more].filter(Boolean).join(", ");
+}
+
+/** "Oct 9, 2026" — the templates grid's Updated cell, Connecticut's day; blank for a date that cannot be read. */
+export function templateUpdatedText(iso: string | undefined): string {
+  const shown = formatYmd(iso);
+  return shown === "—" ? "" : shown;
 }
 
 /** "Auto-applies to Rekey, 1 more job type · North · KeyPro" — or null when never auto-applied. */

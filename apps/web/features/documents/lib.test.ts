@@ -11,6 +11,7 @@ import {
   rendererCanvasCss,
   scopeCss,
   spansLabel,
+  templateUpdatedText,
 } from "./lib";
 
 const summary = (id: string, extra: Partial<DocumentTemplateSummary> = {}): DocumentTemplateSummary => ({
@@ -136,5 +137,18 @@ describe("collectAssetIds", () => {
     } as never;
     expect(collectAssetIds(content)).toEqual(["a1", "a2"]);
     expect(collectAssetIds(undefined)).toEqual([]);
+  });
+});
+
+describe("templateUpdatedText — the templates grid's Updated cell", () => {
+  it("is the day on Connecticut's calendar, not the browser's", () => {
+    expect(templateUpdatedText("2026-10-09T15:00:00.000Z")).toBe("Oct 9, 2026");
+    // 23:30 EDT on Oct 12 — UTC and Kyiv already read the 13th.
+    expect(templateUpdatedText("2026-10-13T03:30:00.000Z")).toBe("Oct 12, 2026");
+  });
+
+  it("is blank for a date it cannot read", () => {
+    expect(templateUpdatedText("x")).toBe("");
+    expect(templateUpdatedText(undefined)).toBe("");
   });
 });

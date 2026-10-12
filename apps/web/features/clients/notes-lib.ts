@@ -1,3 +1,4 @@
+import { DEFAULT_TZ, withZone } from "@/lib/timezone";
 import type { ContactNote } from "./notes-types";
 
 /** Pinned first, then the newest — whatever order the pages came in. */
@@ -8,19 +9,22 @@ export function sortNotes(notes: ContactNote[]): ContactNote[] {
   });
 }
 
-/** Workiz's month heading: "July 2025". */
+/**
+ * Workiz's month heading: "July 2025" — Connecticut's month, never the
+ * browser's (a note at 23:30 on Jul 31 in Connecticut is July's).
+ */
 export function monthLabel(iso: string): string {
   const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString("en-US", { timeZone: DEFAULT_TZ, month: "long", year: "numeric" });
 }
 
-/** Workiz's stamp under the author: "Jul 24 2025 • 6:19 PM". */
+/** Workiz's stamp under the author, on Connecticut's clock and saying so: "Jul 24 2025 • 6:19 PM EDT". */
 export function noteStamp(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  const date = d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }).replace(",", "");
-  const time = d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
-  return `${date} • ${time}`;
+  const date = d.toLocaleDateString("en-US", { timeZone: DEFAULT_TZ, month: "short", day: "numeric", year: "numeric" }).replace(",", "");
+  const time = d.toLocaleTimeString("en-US", { timeZone: DEFAULT_TZ, hour: "numeric", minute: "2-digit" });
+  return withZone(`${date} • ${time}`, d);
 }
 
 export interface NoteGroup {
