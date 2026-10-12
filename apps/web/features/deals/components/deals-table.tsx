@@ -12,7 +12,6 @@ import {
   extensionOf,
   formatAddress,
   formatPhoneWithExtension,
-  primaryPhone,
   primaryEmail,
 } from "@/features/clients/lib";
 import { formatDate } from "@/features/users/lib";
@@ -40,6 +39,7 @@ import {
   formatStamp,
   isTerminalStatus,
   isUrgent,
+  jobFirstPhone,
 } from "../lib";
 import { personName } from "../person-name";
 import { workizFromNow, workizScheduleCell } from "../schedule-cell";
@@ -277,7 +277,9 @@ export function DealsTable({
     // `contacts.view_numbers` (masking IS the absence of that grant); deal
     // service masks nothing, so reading the job's copy here would hand every
     // holder of `deals.view` the numbers the grant exists to withhold.
-    const phone = contact ? primaryPhone(contact) : undefined;
+    // The job's own first number ("This job only") — still only through a
+    // contact crm showed this viewer (`jobFirstPhone`).
+    const phone = jobFirstPhone(d, contact);
     const phoneExt = contact && phone ? extensionOf(contact, phone) : "";
     const email = contact ? primaryEmail(contact) : (d.emailAddress ?? undefined);
 

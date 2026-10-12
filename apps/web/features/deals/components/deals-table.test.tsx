@@ -736,6 +736,19 @@ describe("DealsTable — client numbers", () => {
     expect(container.querySelector("tbody")?.textContent).not.toContain("0199");
   });
 
+  it("shows the job's own first number ('This job only') over the client's", () => {
+    const { container } = render(
+      <DealsTable
+        deals={[{ ...deal(), clientPhone: "+12035550123" }]}
+        contactMap={contactMap}
+        userMap={userMap}
+        onOpen={() => {}}
+        visibleFields={{ phone: true }}
+      />,
+    );
+    expect(container.querySelector("tbody")?.textContent).toContain("(203) 555-0123");
+  });
+
   it("shows the number when the contact does carry it", () => {
     const { container } = render(
       <DealsTable

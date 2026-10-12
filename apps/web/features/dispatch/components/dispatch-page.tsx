@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { env } from "@/lib/env";
 import { useDenied, usePermissions } from "@/features/auth/use-permissions";
 import { useDeal, useReorderDeals } from "@/features/deals/hooks";
-import { dealClientName, filterDeals } from "@/features/deals/lib";
+import { dealClientName, filterDeals, jobOwnNumbers } from "@/features/deals/lib";
 import { personName } from "@/features/deals/person-name";
 import { EditDealSheet } from "@/features/deals/components/edit-deal-sheet";
 import { AssignTechDialog } from "@/features/deals/components/assign-tech-dialog";
@@ -307,7 +307,7 @@ function DispatchBoardPage() {
       deal={deal}
       title={titleOf(deal)}
       clientName={clientOf(deal)}
-      phone={deal.phones?.[0] ?? contacts.get(deal.contactId)?.phones?.[0]}
+      phone={jobOwnNumbers(deal)[0] ?? contacts.get(deal.contactId)?.phones?.[0]}
       techNames={deal.assignedTechIds.length ? deal.assignedTechIds.map(nameOf).join(", ") : undefined}
       sequence={deal.assignedTechIds[0] ? deal.sequences?.[deal.assignedTechIds[0]] : undefined}
       canEdit={canEdit}

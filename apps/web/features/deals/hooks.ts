@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import type {
+  ClientPhoneScope,
   Deal,
   DealProduct,
   DocumentDiscount,
@@ -301,6 +302,20 @@ export function useUpdateDeal(id: string) {
       invalidate();
       toast.success("Deal saved");
     },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+}
+
+/**
+ * A changed first number, the job side ("Apply these changes to…"). The
+ * caller awaits it and writes the contact after; the client's other jobs may
+ * have moved too, so every job list is refreshed.
+ */
+export function useChangeClientPhone(id: string) {
+  const invalidate = useInvalidateDeal(id);
+  return useMutation({
+    mutationFn: (body: { phone: string; scope: ClientPhoneScope }) => api.changeClientPhone(id, body),
+    onSuccess: invalidate,
     onError: (e) => toast.error(getApiErrorMessage(e)),
   });
 }

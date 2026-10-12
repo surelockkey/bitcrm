@@ -24,7 +24,6 @@ import {
   formatPhone,
   formatPhoneWithExtension,
   primaryEmail,
-  primaryPhone,
 } from "@/features/clients/lib";
 import { CallClientButton } from "@/features/telephony/components/call-client-button";
 import { useJobTypeName } from "@/features/job-types/lib";
@@ -36,7 +35,7 @@ import { useCustomFields } from "@/features/custom-fields/hooks";
 import { applicableFields } from "@/features/custom-fields/lib";
 import { useDeal, useDealProducts, useMoveStatus, useSetDealTags, useUserMap } from "../hooks";
 import { useContact } from "@/features/clients/hooks";
-import { dealClientName, dealTotal, formatMoney, isUrgent } from "../lib";
+import { dealClientName, dealTotal, formatMoney, isUrgent, jobFirstPhone } from "../lib";
 import { workizScheduleCell } from "../schedule-cell";
 import type { Deal } from "@bitcrm/types";
 import { DEFAULT_TZ } from "@/lib/timezone";
@@ -115,7 +114,7 @@ function QuickViewBody({ dealId }: { dealId: string }) {
     );
   }
 
-  const phone = contact ? primaryPhone(contact) : undefined;
+  const phone = jobFirstPhone(deal, contact);
   const email = contact ? primaryEmail(contact) : undefined;
   const productsTotal = products ? dealTotal(products) : undefined;
   const total = deal.actualTotal ?? deal.estimatedTotal ?? productsTotal;

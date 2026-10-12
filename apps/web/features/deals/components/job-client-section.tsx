@@ -11,7 +11,7 @@ import { ClientChatSheet } from "@/features/clients/components/client-chat-sheet
 import { contactName } from "@/features/clients/lib";
 import { CallClientButton } from "@/features/telephony/components/call-client-button";
 import { JobDialCard } from "@/features/telephony/components/job-dial-card";
-import type { ClientDraft } from "../lib";
+import { jobFirstPhone, jobPhones, type ClientDraft } from "../lib";
 import { addPhoneRow, addressSummary, phoneRows, removePhoneRow, type PhoneRow } from "../job-details-form";
 import { directionsHref, JobAddressPane } from "./job-address-pane";
 import { MaskedClientPhones } from "./masked-client-phones";
@@ -33,10 +33,11 @@ export function DetailsRow({ className, children }: { className?: string; childr
  * Name, Phone (call and SMS inside) | Ext with "Add Phone" under it, the
  * masked number, Email, the one-line address box and Service area.
  *
- * Our rules ride along unchanged: the number the job was created with is
- * locked for good, extra numbers save straight to the client, a rename asks
- * "Change client" on Save (the page does that), and nothing here can make a
- * new client.
+ * Our rules ride along: the first number is the job's — it can be changed,
+ * and Save asks where the change goes ("Apply these changes to…": this job,
+ * the profile, its open jobs), never removed; extra numbers save straight to
+ * the client; a rename asks "Change client" on Save (the page asks both); and
+ * nothing here can make a new client.
  */
 export function JobClientSection({
   deal,
@@ -111,7 +112,7 @@ export function JobClientSection({
           {contact.phonesMasked ? (
             <MaskedClientPhones phoneCount={contact.phoneCount ?? 0} dealId={deal.id} contactId={contact.id} />
           ) : (
-            phoneRows(contact.phones, draft).map((row) => (
+            phoneRows(jobPhones(deal, contact), draft).map((row) => (
               <PhoneLine
                 key={row.index}
                 row={row}
@@ -153,7 +154,7 @@ export function JobClientSection({
             <ClientChatSheet
               contactId={contact.id}
               name={contactName(contact)}
-              phone={contact.phones[0]}
+              phone={jobFirstPhone(deal, contact)}
               open={chatOpen}
               onOpenChange={setChatOpen}
             />
@@ -265,10 +266,9 @@ function PhoneLine({
       <WzFieldGroup join="soft">
         <WzPhoneField
           value={row.value}
-          // The number the job was created with is bound to it for good.
-          disabled={!canEdit || row.locked}
-          // A locked number is what is on file; it is not the one to judge.
-          error={!canEdit || row.locked ? "" : undefined}
+          disabled={!canEdit}
+          // A number already on file is not the one to judge; a typed one is.
+          error={!canEdit || onFile ? "" : undefined}
           onChange={onPhone}
           // Workiz lets the number run up to its icons (no padding kept for
           // them), so "(469) 396-8179" fits the 350px column too.
@@ -303,8 +303,8 @@ function PhoneLine({
             ) : undefined
           }
         />
-        {/* What to press once the line answers — editable even on the
-            locked number, since only the number itself is bound to the job. */}
+        {/* What to press once the line answers; the first line's is the
+            client's first number's. */}
         <WzTextField
           label="Ext"
           aria-label={`Extension for phone ${row.index + 1}`}

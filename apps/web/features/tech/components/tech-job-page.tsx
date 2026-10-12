@@ -25,6 +25,7 @@ import { dealTabHref, visibleDealTabs, type DealTab } from "@/features/deals/dea
 import { useDeal, useMarkSeenOnOpen } from "@/features/deals/hooks";
 import { useJobPageData } from "@/features/deals/job-page-data";
 import { dealBalance, dealTabSublabel, jobChatPhone, jobClientName, jobDueDate, jobInvoicePill } from "@/features/deals/job-shell";
+import { jobOwnNumbers } from "@/features/deals/lib";
 import { DealAttachmentsTab } from "@/features/deals/components/deal-attachments-tab";
 import { DetailsTab } from "@/features/deals/components/deal-details-tab";
 import { LeaveWithoutSavingDialog } from "@/features/deals/components/use-unsaved-changes";
@@ -151,7 +152,7 @@ export function TechJobPage({
     else createInvoice.mutate(deal.id, { onSuccess: (created) => router.push(invoiceHref(created)) });
   };
   const onInvoice = () => (detailsDirty ? setLeaving(() => toInvoice) : toInvoice());
-  const chatPhone = jobChatPhone(deal.phones, contact?.phones);
+  const chatPhone = jobChatPhone(jobOwnNumbers(deal), contact?.phones);
 
   return (
     // The job page's frame (deal-detail-page.tsx): clipped with 36px of grace
@@ -231,7 +232,7 @@ export function TechJobPage({
         dealId={dealId}
         canEdit={canEdit}
         canViewMessages={can("messages", "view")}
-        client={{ name: jobClientName(deal, contact), phones: [...(deal.phones ?? []), ...(contact?.phones ?? [])] }}
+        client={{ name: jobClientName(deal, contact), phones: [...jobOwnNumbers(deal), ...(contact?.phones ?? [])] }}
         chat={
           contact && can("messages", "send")
             ? { contactId: contact.id, name: contactName(contact), phone: chatPhone.phone, phoneOnContact: chatPhone.onContact }
