@@ -1,6 +1,7 @@
 import { JobSuperStatus } from "@bitcrm/types";
 import type { Deal, TechnicianProfile, TechnicianLocation } from "@bitcrm/types";
 import { hasCoords } from "@/lib/geo/geo";
+import { ctToday } from "@/lib/timezone";
 
 /** Super-status where the technician is actively working the job right now. */
 export const ACTIVE_STATUSES: ReadonlySet<JobSuperStatus> = new Set([
@@ -111,9 +112,13 @@ export function technicianPositions(
   return positions;
 }
 
-/** Today as the `YYYY-MM-DD` string deals are scheduled with. */
+/**
+ * Today as the `YYYY-MM-DD` string deals are scheduled with — Connecticut's
+ * day (2026-10-12 owner rule). It was UTC's, which after 8 PM EDT is already
+ * tomorrow: a tech's day went empty for the evening.
+ */
 export function todayISO(now = new Date()): string {
-  return now.toISOString().slice(0, 10);
+  return ctToday(now);
 }
 
 /**

@@ -1,4 +1,5 @@
 import { dashboardDay, type JobsByStatusDay } from "@bitcrm/types";
+import { clockInTz, withZone } from "@/lib/timezone";
 
 /**
  * `YYYY-MM-DD` on the account's calendar — Eastern, where the business is.
@@ -38,7 +39,10 @@ function ordinal(n: number): string {
   return ["th", "st", "nd", "rd"][n % 10] ?? "th";
 }
 
-/** `updated 3:08 AM` — when the card last had an answer from the server. */
+/**
+ * `updated 3:08 AM EDT` — when the card last had an answer from the server,
+ * on Connecticut's clock and labelled (2026-10-12 owner rule), not the browser's.
+ */
 export function updatedAtLabel(at: Date): string {
-  return new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit" }).format(at);
+  return withZone(clockInTz(at.toISOString()), at);
 }

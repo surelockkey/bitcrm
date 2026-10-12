@@ -1,4 +1,5 @@
 import { DASHBOARD_TIMEZONE, type Deal } from "@bitcrm/types";
+import { formatInstant, withZone, zonedInstant } from "@/lib/timezone";
 
 /**
  * Workiz Home's "Coming up": the next visits on the schedule, from today on,
@@ -8,38 +9,22 @@ import { DASHBOARD_TIMEZONE, type Deal } from "@bitcrm/types";
 /** How many visits the widget lists (Workiz shows four). */
 export const COMING_UP_COUNT = 4;
 
-/** How far `timeZone` is ahead of UTC at `instant`, in ms. */
-function offsetAt(instant: number, timeZone: string): number {
-  const parts = Object.fromEntries(
-    new Intl.DateTimeFormat("en-US", {
-      timeZone,
-      hourCycle: "h23",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    })
-      .formatToParts(new Date(instant))
-      .map((p) => [p.type, Number(p.value)]),
-  );
-  return Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second) - instant;
-}
-
 /**
- * When a visit starts: its day and the start of its time slot on the
- * account's clock (New York); an all-day or untimed visit at the start of its
- * day; none for a job with no date.
+ * When a visit starts: its day and the start of its time slot on the clock of
+ * `timeZone`, the zone it was booked in (`jobZoneResolver`; the account's
+ * New York when left out) — a Texas 10:00 is 11:00 in Connecticut; an
+ * all-day or untimed visit at the start of its day; none for a job with no
+ * date.
  */
 export function visitStart(deal: Pick<Deal, "scheduledDate" | "scheduledTimeSlot">, timeZone = DASHBOARD_TIMEZONE): number | undefined {
   if (!deal.scheduledDate) return undefined;
-  const [y, m, d] = deal.scheduledDate.split("-").map(Number);
-  const [hh, mm] = (deal.scheduledTimeSlot?.split("-")[0] ?? "00:00").split(":").map(Number);
-  const naive = Date.UTC(y, m - 1, d, hh || 0, mm || 0);
-  // Twice: the first guess can sit on the other side of a clock change.
-  const first = naive - offsetAt(naive, timeZone);
-  return naive - offsetAt(first, timeZone);
+  const start = deal.scheduledTimeSlot?.split("-")[0];
+  return zonedInstant(deal.scheduledDate, /^\d{1,2}:\d{2}$/.test(start ?? "") ? start! : "00:00", timeZone).getTime();
+}
+
+/** "Oct 8, 11:15 AM EDT" — when a visit starts, on Connecticut's clock (2026-10-12 owner rule). */
+export function visitWhen(at: number): string {
+  return withZone(formatInstant(new Date(at).toISOString()), at);
 }
 
 /** "271 Dunham St Southington Connecticut" — street, city, state, as Workiz prints the line. */
@@ -53,13 +38,14 @@ export function visitStreet(deal: Pick<Deal, "address">): string {
 
 /**
  * The open statuses' first pages, merged in visit order: dated visits only,
- * each job once, the first four.
+ * each job once, the first four. Each visit is read on the clock of the zone
+ * it was booked in (`zoneOf`, Connecticut when left out).
  */
-export function comingUp(pages: Deal[][]): Deal[] {
+export function comingUp(pages: Deal[][], zoneOf: (deal: Deal) => string = () => DASHBOARD_TIMEZONE): Deal[] {
   const seen = new Set<string>();
   const dated: { deal: Deal; at: number }[] = [];
   for (const deal of pages.flat()) {
-    const at = visitStart(deal);
+    const at = visitStart(deal, zoneOf(deal));
     if (at === undefined || seen.has(deal.id)) continue;
     seen.add(deal.id);
     dated.push({ deal, at });

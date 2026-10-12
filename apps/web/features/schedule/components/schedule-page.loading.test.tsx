@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { cleanup, fireEvent, screen } from "@testing-library/react";
 import { ClientType, DealPriority, DealStatus, JobSuperStatus } from "@bitcrm/types";
 import type { Deal } from "@bitcrm/types";
+import { ctToday } from "@/lib/timezone";
 import {
   duplicates,
   installFakeServer,
@@ -45,9 +46,8 @@ vi.mock("@/features/auth/use-permissions", () => ({
 }));
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
-// The calendar opens on the browser's today, as Workiz's does.
-const now = new Date();
-const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+// The calendar opens on Connecticut's today (2026-10-12 owner rule).
+const today = ctToday();
 const tomorrow = new Date(Date.parse(`${today}T00:00:00Z`) + MS_PER_DAY).toISOString().slice(0, 10);
 
 const deal = (n: number, day: string): Deal => ({
@@ -108,7 +108,11 @@ const routes: FakeRoute[] = [
     reply: (url) => ({
       success: true,
       data:
-        url.searchParams.get("unscheduled") === "true" ? [undated] : (byDay[url.searchParams.get("scheduledFrom") ?? ""] ?? []),
+        url.searchParams.get("unscheduled") === "true"
+          ? [undated]
+          : Object.entries(byDay)
+              .filter(([day]) => (url.searchParams.get("scheduledFrom") ?? "") <= day && day <= (url.searchParams.get("scheduledTo") ?? ""))
+              .flatMap(([, deals]) => deals),
       pagination: {},
     }),
     delayMs: 30,

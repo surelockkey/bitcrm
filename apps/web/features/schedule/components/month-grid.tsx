@@ -114,7 +114,8 @@ export function MonthGrid({
               <MonthLine
                 color={entry.color}
                 done={entry.done}
-                time={clockLabel(entry.startMin)}
+                // Connecticut's clock, and it says so (2026-10-12 owner rule): "9:00 AM EDT".
+                time={entry.abbr ? `${clockLabel(entry.startMin)} ${entry.abbr}` : clockLabel(entry.startMin)}
                 text={entry.text.replace(/\s*\n\s*/g, " ").trim()}
               />
             );
@@ -129,7 +130,7 @@ export function MonthGrid({
               <Draggable
                 key={entry.id}
                 id={`month:${entry.id}`}
-                source={{ kind: "month", deal: entry.deal }}
+                source={{ kind: "month", deal: entry.deal, startDate: entry.startDate }}
                 disabled={readOnly}
                 label={entry.title}
                 style={style}

@@ -245,6 +245,29 @@ describe("ComingUpCard", () => {
     expect(screen.getByRole("link", { name: "View All" })).toHaveAttribute("href", "/schedule");
   });
 
+  // 2026-10-12 owner rule: a visit is stored on its own zone's clock; the
+  // card counts from when it really starts and says when, in Connecticut.
+  it("counts a Texas visit from its own clock, and says when on Connecticut's", () => {
+    answers["coming-up"] = {
+      deals: [
+        {
+          id: "tx",
+          contactId: "c1",
+          scheduledDate: "2026-10-08",
+          scheduledTimeSlot: "19:00-20:00",
+          address: { street: "1 Main St", city: "Austin", state: "Texas", zip: "" },
+        },
+      ],
+      clients: { c1: "Kathy Miandino" },
+      zones: { tx: "America/Chicago" },
+    };
+    renderWithClient(<ComingUpCard />);
+    const link = screen.getByRole("link", { name: /Kathy Miandino/ });
+    // 7 PM CDT is 8 PM EDT — three hours after 5 PM, not two.
+    expect(link).toHaveTextContent("in 3 hours");
+    expect(within(link).getByText("in 3 hours")).toHaveAttribute("title", "Oct 8, 8:00 PM EDT");
+  });
+
   it("nothing scheduled says so", () => {
     answers["coming-up"] = { deals: [], clients: {} };
     renderWithClient(<ComingUpCard />);

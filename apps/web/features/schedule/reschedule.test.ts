@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { JobSuperStatus, type Deal } from "@bitcrm/types";
-import { formatSlot, moveBody, nextTechIds, resolveDrop, scheduleBody, snapMinutes } from "./reschedule";
+import { formatSlot, moveBody, nextTechIds, pendingMove, resolveDrop, scheduleBody, snapMinutes } from "./reschedule";
 
 function deal(over: Partial<Deal> = {}): Deal {
   return {
@@ -98,6 +98,81 @@ describe("scheduleBody — an unscheduled job dropped on the calendar", () => {
   it("is as long as its job type's duration says (Workiz), still inside the day", () => {
     expect(scheduleBody("2026-10-09", 870, 120)).toEqual({ scheduledDate: "2026-10-09", scheduledTimeSlot: "14:30-16:30" });
     expect(scheduleBody("2026-10-09", 9 * 60, 3000)).toEqual({ scheduledDate: "2026-10-09", scheduledTimeSlot: "09:00-23:59" });
+  });
+});
+
+/**
+ * The grid is Connecticut's; the API stores the visit on its own zone's clock
+ * (2026-10-12 owner rule). A drop is read in Connecticut and saved back in the
+ * job's zone — a Texas job dropped at 12:00 EDT is saved at 11:00.
+ */
+describe("a drop on Connecticut's grid is saved on the job's own clock", () => {
+  const TX = "America/Chicago";
+  const texas = deal({ scheduledDate: "2026-10-12", scheduledTimeSlot: "10:00-12:00" });
+
+  it("moveBody: Connecticut 12:00 is 11:00 for a Texas job, the same length", () => {
+    expect(moveBody(texas, { date: "2026-10-12", startMin: 12 * 60 }, TX)).toEqual({
+      scheduledDate: "2026-10-12",
+      scheduledTimeSlot: "11:00-13:00",
+    });
+  });
+  it("moveBody: in winter too (EST - CST is still an hour)", () => {
+    expect(moveBody(deal({ scheduledDate: "2026-12-01" }), { date: "2026-12-02", startMin: 10 * 60 }, TX)).toEqual({
+      scheduledDate: "2026-12-02",
+      scheduledTimeSlot: "09:00-11:00",
+    });
+  });
+  it("moveBody: just after Connecticut's midnight is the job's evening before", () => {
+    expect(moveBody(texas, { date: "2026-10-13", startMin: 30 }, TX)).toEqual({
+      scheduledDate: "2026-10-12",
+      scheduledTimeSlot: "23:30-23:59",
+    });
+  });
+  it("moveBody: a day-only move counts days on Connecticut's calendar and keeps the job's own times", () => {
+    // 22:30 MST on the 12th sits on Connecticut's 13th; dropped on the 15th it is the 14th in Arizona.
+    const arizona = deal({ scheduledDate: "2026-10-12", scheduledTimeSlot: "22:30-23:30" });
+    expect(moveBody(arizona, { date: "2026-10-15" }, "America/Phoenix")).toEqual({
+      scheduledDate: "2026-10-14",
+      scheduledTimeSlot: "22:30-23:30",
+    });
+  });
+  it("scheduleBody: an unscheduled Texas job dropped at 14:30 EDT is booked 13:30 CDT", () => {
+    expect(scheduleBody("2026-10-09", 870, 60, TX)).toEqual({ scheduledDate: "2026-10-09", scheduledTimeSlot: "13:30-14:30" });
+  });
+  it("scheduleBody: dropped on a day with no hour, it gets 9 AM on its own clock", () => {
+    expect(scheduleBody("2026-10-09", undefined, 60, TX)).toEqual({ scheduledDate: "2026-10-09", scheduledTimeSlot: "09:00-10:00" });
+  });
+
+  it("pendingMove — what the confirm dialog shows and the PUT sends: a Texas job dropped at CT 12:00 carries 11:00", () => {
+    const source = { kind: "time" as const, deal: texas, startMin: 11 * 60, startDate: "2026-10-12" };
+    const drop = resolveDrop(source, { kind: "day", date: "2026-10-12" }, { x: 0, y: 88 }, null, null);
+    expect(drop).toEqual({ date: "2026-10-12", startMin: 12 * 60 });
+    expect(pendingMove(source, drop!, { zone: TX })).toEqual({
+      deal: texas,
+      body: { scheduledDate: "2026-10-12", scheduledTimeSlot: "11:00-13:00" },
+      fromTechId: undefined,
+      toTechId: undefined,
+      scheduling: false,
+      zone: TX,
+    });
+  });
+  it("pendingMove — an unscheduled card is booked for its type's length on its own clock", () => {
+    const card = { kind: "card" as const, deal: deal({ scheduledDate: undefined, scheduledTimeSlot: undefined }) };
+    expect(pendingMove(card, { date: "2026-10-09", startMin: 870, techId: "t1" }, { zone: TX, durationMinutes: 120 })).toMatchObject({
+      body: { scheduledDate: "2026-10-09", scheduledTimeSlot: "13:30-15:30" },
+      fromTechId: null,
+      toTechId: "t1",
+      scheduling: true,
+    });
+  });
+  it("resolveDrop: a job put back where Connecticut shows it changes nothing, whatever day it is stored on", () => {
+    const arizona = deal({ scheduledDate: "2026-10-12", scheduledTimeSlot: "22:30-23:30" });
+    expect(
+      resolveDrop({ kind: "month", deal: arizona, startDate: "2026-10-13" }, { kind: "cell", date: "2026-10-13" }, { x: 1, y: 1 }, null, null),
+    ).toBeNull();
+    expect(
+      resolveDrop({ kind: "days", deal: arizona, dayPx: 190, startDate: "2026-10-13" }, null, { x: 200, y: 4 }, null, null),
+    ).toEqual({ date: "2026-10-14" });
   });
 });
 

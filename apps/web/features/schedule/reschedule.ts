@@ -1,4 +1,5 @@
 import type { Deal } from "@bitcrm/types";
+import { DEFAULT_TZ, ctToZoneWall, wallToCt } from "@/lib/timezone";
 import { addDays, daysBetween } from "./calendar";
 import { parseSlot } from "./lib";
 
@@ -37,30 +38,51 @@ export interface MoveBody {
   scheduledTimeSlot?: string;
 }
 
+const minutesOf = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+
 /**
  * The update a drop sends: the job's new first day (its last day moving with
  * it) and, when it was dropped on an hour, its new start — the same length as
  * before. An all-day job only moves by days.
+ *
+ * The drop is read on Connecticut's grid; the API keeps the visit on the
+ * clock of `zone`, the one it was booked in (2026-10-12 owner rule). So a
+ * start dropped on an hour goes back to that clock (a Texas job dropped at
+ * 12:00 EDT is saved at 11:00), and a move by days counts them on
+ * Connecticut's calendar, the job keeping its own times.
  */
-export function moveBody(deal: Deal, { date, startMin }: { date: string; startMin?: number }): MoveBody {
+export function moveBody(
+  deal: Deal,
+  { date, startMin }: { date: string; startMin?: number },
+  zone: string = DEFAULT_TZ,
+): MoveBody {
   const from = deal.scheduledDate ?? date;
   const span = deal.scheduledEndDate && deal.scheduledEndDate > from ? daysBetween(from, deal.scheduledEndDate) : 0;
-  const body: MoveBody = { scheduledDate: date };
-  if (span > 0) body.scheduledEndDate = addDays(date, span);
   const slot = deal.allDay ? null : parseSlot(deal.scheduledTimeSlot);
-  if (!slot) return body;
-  if (startMin === undefined || span > 0) {
-    body.scheduledTimeSlot = deal.scheduledTimeSlot;
+  const days = (to: string): MoveBody => {
+    const body: MoveBody = { scheduledDate: to };
+    if (span > 0) body.scheduledEndDate = addDays(to, span);
     return body;
+  };
+  // A day with no time is a date: it moves to the day it was dropped on.
+  if (!slot || !deal.scheduledDate) return days(date);
+  if (startMin === undefined || span > 0) {
+    const shownOn = wallToCt(deal.scheduledDate, deal.scheduledTimeSlot!.slice(0, 5), zone).date;
+    return { ...days(addDays(deal.scheduledDate, daysBetween(shownOn, date))), scheduledTimeSlot: deal.scheduledTimeSlot };
   }
-  body.scheduledTimeSlot = formatSlot(startMin, startMin + Math.max(slot.end - slot.start, 0));
-  return body;
+  const at = ctToZoneWall(date, hhmm(startMin), zone);
+  const start = minutesOf(at.time);
+  return { scheduledDate: at.date, scheduledTimeSlot: formatSlot(start, start + Math.max(slot.end - slot.start, 0)) };
 }
 
 /* ------------------------------------------------------------ the drop */
 
-/** What is being dragged, and how its move is read. */
-export type DragSource =
+/**
+ * What is being dragged, and how its move is read. `startDate` is the day it
+ * is drawn on — Connecticut's, which a late visit west of it may not be
+ * stored on; left out, the day it is stored on.
+ */
+export type DragSource = (
   /** A box in the Day/Week hours: moved by the minutes it was dragged, to the column it was dropped on. */
   | { kind: "time"; deal: Deal; startMin: number }
   /** A bar in the Week strip: moved by whole columns. */
@@ -72,7 +94,8 @@ export type DragSource =
   /** A Month line: to the day it is dropped on. */
   | { kind: "month"; deal: Deal }
   /** An "Unscheduled jobs" card: where the pointer lets go. */
-  | { kind: "card"; deal: Deal };
+  | { kind: "card"; deal: Deal }
+) & { startDate?: string };
 
 /** What it can be dropped on. */
 export type DropZone =
@@ -105,7 +128,7 @@ export function resolveDrop(
   zoneRect: { top: number; left: number } | null,
 ): DropResult | null {
   const deal = source.deal;
-  const was = { date: deal.scheduledDate, tech: "fromTechId" in source ? source.fromTechId : undefined };
+  const was = { date: source.startDate ?? deal.scheduledDate, tech: "fromTechId" in source ? source.fromTechId : undefined };
   const changed = (r: DropResult, startMin?: number) =>
     r.date !== was.date || r.startMin !== startMin || (r.techId !== undefined && r.techId !== was.tech) ? r : null;
 
@@ -117,8 +140,8 @@ export function resolveDrop(
     }
     case "days": {
       const shift = Math.round(delta.x / source.dayPx);
-      if (!shift || !deal.scheduledDate) return null;
-      return { date: addDays(deal.scheduledDate, shift) };
+      if (!shift || !was.date) return null;
+      return { date: addDays(was.date, shift) };
     }
     case "tl-time": {
       if (zone?.kind !== "row" || zone.axis !== "time") return null;
@@ -126,8 +149,8 @@ export function resolveDrop(
       return changed({ date: zone.date, startMin, techId: zone.techId }, source.startMin);
     }
     case "tl-days": {
-      if (zone?.kind !== "row" || zone.axis !== "days" || !deal.scheduledDate) return null;
-      const date = addDays(deal.scheduledDate, Math.round(delta.x / source.dayPx));
+      if (zone?.kind !== "row" || zone.axis !== "days" || !was.date) return null;
+      const date = addDays(was.date, Math.round(delta.x / source.dayPx));
       return changed({ date, techId: zone.techId });
     }
     case "month": {
@@ -152,7 +175,54 @@ export function resolveDrop(
  * An unscheduled job dropped on the calendar: that day, from where it landed
  * (9 AM on a day cell), as long as its job type's duration (Workiz; an hour
  * without one), held inside the day.
+ *
+ * Where it landed is on Connecticut's grid, saved on the clock of `zone`, the
+ * one the job is booked in (2026-10-12 owner rule); a day cell has no hour,
+ * so it gets 9 AM on the job's own clock.
  */
-export function scheduleBody(date: string, startMin = 9 * 60, durationMinutes = 60): { scheduledDate: string; scheduledTimeSlot: string } {
-  return { scheduledDate: date, scheduledTimeSlot: formatSlot(startMin, startMin + Math.max(durationMinutes, 1)) };
+export function scheduleBody(
+  date: string,
+  startMin?: number,
+  durationMinutes = 60,
+  zone: string = DEFAULT_TZ,
+): { scheduledDate: string; scheduledTimeSlot: string } {
+  const at = startMin === undefined ? { date, time: "09:00" } : ctToZoneWall(date, hhmm(startMin), zone);
+  const start = minutesOf(at.time);
+  return { scheduledDate: at.date, scheduledTimeSlot: formatSlot(start, start + Math.max(durationMinutes, 1)) };
+}
+
+/** A drop waiting for its yes: the job, its new schedule, and the row change if any. */
+export interface RescheduleTarget {
+  deal: Deal;
+  /** What the PUT sends — on the job's own clock. */
+  body: MoveBody;
+  /** The Timeline row it was dragged off (null = Unassigned); undefined when rows did not change. */
+  fromTechId?: string | null;
+  /** The Timeline row it was dropped on (null = Unassigned); undefined = the crew stays. */
+  toTechId?: string | null;
+  /** It was an unscheduled job, dragged in from the pane. */
+  scheduling: boolean;
+  /** The zone the job is booked in; Connecticut when left out. */
+  zone?: string;
+}
+
+/**
+ * A drop, read: the update it will send once confirmed. A job dropped from
+ * Unscheduled is as long as its type's Duration (Workiz); everything dropped
+ * on an hour goes back to the job's own clock (`moveBody`, `scheduleBody`).
+ */
+export function pendingMove(
+  source: DragSource,
+  drop: DropResult,
+  { zone, durationMinutes }: { zone?: string; durationMinutes?: number },
+): RescheduleTarget {
+  const scheduling = source.kind === "card";
+  return {
+    deal: source.deal,
+    body: scheduling ? scheduleBody(drop.date, drop.startMin, durationMinutes, zone) : moveBody(source.deal, drop, zone),
+    fromTechId: "fromTechId" in source ? source.fromTechId : scheduling && drop.techId !== undefined ? null : undefined,
+    toTechId: drop.techId,
+    scheduling,
+    zone,
+  };
 }

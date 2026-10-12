@@ -42,8 +42,31 @@ describe("RescheduleConfirmDialog — a drop asks before it saves", () => {
       />,
     );
     expect(screen.getByRole("alertdialog", { name: "Reschedule job #AB12CD?" })).toBeInTheDocument();
-    expect(screen.getByText(/Oct 9, 09:00 AM - 11:00 AM/)).toBeInTheDocument();
-    expect(screen.getByText("Oct 10, 10:00 AM - 12:00 PM")).toBeInTheDocument();
+    // Connecticut's clock, and it says so (2026-10-12 owner rule).
+    expect(screen.getByText(/Oct 9, 09:00 AM - 11:00 AM EDT →/)).toBeInTheDocument();
+    expect(screen.getByText("Oct 10, 10:00 AM - 12:00 PM EDT")).toBeInTheDocument();
+    // A Connecticut job has no other clock to show.
+    expect(screen.queryByText(/local time/)).not.toBeInTheDocument();
+  });
+
+  it("shows a Texas job on Connecticut's clock, with the job's own time under it", () => {
+    render(
+      <RescheduleConfirmDialog
+        target={{
+          deal: { ...deal, scheduledDate: "2026-10-12", scheduledTimeSlot: "10:00-12:00" },
+          body: { scheduledDate: "2026-10-12", scheduledTimeSlot: "11:00-13:00" },
+          scheduling: false,
+          zone: "America/Chicago",
+        }}
+        users={users}
+        conflicts={[]}
+        onConfirm={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+    expect(screen.getByText(/Oct 12, 11:00 AM - 01:00 PM EDT →/)).toBeInTheDocument();
+    expect(screen.getByText("Oct 12, 12:00 PM - 02:00 PM EDT")).toBeInTheDocument();
+    expect(screen.getByText("Job's local time: Oct 12, 11:00 AM - 01:00 PM CDT")).toBeInTheDocument();
   });
 
   it("names the technicians when a Timeline drop moves the job to another row", () => {

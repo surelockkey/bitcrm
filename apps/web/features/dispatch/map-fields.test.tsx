@@ -169,6 +169,42 @@ describe("a map row draws what the whole job draws", () => {
     expect(html(draw(ROW))).toBe(html(draw(WHOLE)));
   });
 
+  // 2026-10-12 owner rule: the web shows Connecticut's clock. The row carries
+  // the zone the visit was booked in (jobTimezone, serviceAreaId), so the
+  // pin's card can move a Texas 9:30 CDT to 10:30 EDT and say so.
+  it("puts the visit on Connecticut's clock from the zone the row carries", () => {
+    const pin = render(
+      <JobPinCard
+        deal={ROW as Parameters<typeof JobPinCard>[0]["deal"]}
+        title="Lockout"
+        clientName=""
+        canEdit={false}
+        onEdit={noop}
+        onView={noop}
+        onAssign={noop}
+        onClose={noop}
+      />,
+    );
+    expect(pin.container).toHaveTextContent(/10:30 am - 12:00 pm E[DS]T/);
+    pin.unmount();
+    // The area's zone counts for a job without one of its own.
+    const tech = render(
+      <TechPinCard
+        position={{ userId: "t1", lat: 32.7, lng: -96.8, source: "last_job" }}
+        name="Ana Tech"
+        jobs={[{ ...ROW, jobTimezone: undefined }]}
+        zoneOf={(d) => (d.serviceAreaId === "sa1" ? "America/Phoenix" : "America/New_York")}
+        title={() => "Lockout"}
+        clientName={() => "Bo"}
+        canReorder={false}
+        onReorder={noop}
+        onSelectJob={noop}
+        onClose={noop}
+      />,
+    );
+    expect(tech.container).toHaveTextContent(/(12:30 pm - 2:00 pm EDT|11:30 am - 1:00 pm EST)/);
+  });
+
   it("is found by the same searches and filters", () => {
     const contacts = new Map([["c1", { firstName: "Bo", lastName: "Client", phones: ["+12145550199"], emails: ["bo@x.test"] }]]);
     for (const search of ["K4T9ZW", "dallas north", "override", "bo client", "bo@x", "2145550199", "nothing"]) {

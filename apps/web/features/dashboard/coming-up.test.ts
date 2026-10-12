@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Deal } from "@bitcrm/types";
-import { comingUp, fromNow, visitStart, visitStreet } from "./coming-up";
+import { comingUp, fromNow, visitStart, visitStreet, visitWhen } from "./coming-up";
 
 const deal = (id: string, scheduledDate?: string, scheduledTimeSlot?: string, extra: Partial<Deal> = {}) =>
   ({
@@ -44,6 +44,22 @@ describe("visitStart", () => {
   it("has none for an undated job", () => {
     expect(visitStart(deal("a"))).toBeUndefined();
   });
+
+  // It read every job's wall clock as New York's: a Texas visit came out an
+  // hour early ("in 2 hours" for one three hours off).
+  it("reads a visit on the clock of the zone it was booked in", () => {
+    // 10:15 CDT on Oct 8 is 15:15 UTC; 09:00 CST on Dec 1 is 15:00 UTC.
+    expect(visitStart(deal("a", "2026-10-08", "10:15-11:00"), "America/Chicago")).toBe(Date.parse("2026-10-08T15:15:00Z"));
+    expect(visitStart(deal("a", "2026-12-01", "09:00-10:00"), "America/Chicago")).toBe(Date.parse("2026-12-01T15:00:00Z"));
+  });
+});
+
+describe("visitWhen", () => {
+  // Beside "in 2 hours": when that is, on Connecticut's clock, labelled (2026-10-12 owner rule).
+  it("is the moment on Connecticut's clock with its zone", () => {
+    expect(visitWhen(Date.parse("2026-10-08T15:15:00Z"))).toBe("Oct 8, 11:15 AM EDT");
+    expect(visitWhen(Date.parse("2026-12-01T15:00:00Z"))).toBe("Dec 1, 10:00 AM EST");
+  });
 });
 
 describe("visitStreet", () => {
@@ -66,6 +82,14 @@ describe("comingUp", () => {
       [deal("i1", "2026-10-08", "11:30-12:00")],
     ];
     expect(comingUp(pages).map((d) => d.id)).toEqual(["p1", "i1", "s1", "s2"]);
+  });
+
+  it("orders the visits by when they really start, each on its own zone's clock", () => {
+    // Texas 10:00 CDT = 11:00 EDT: after Connecticut's 10:30.
+    const tx = deal("tx", "2026-10-08", "10:00-11:00", { serviceAreaId: "sa-tx" });
+    const ct = deal("ct", "2026-10-08", "10:30-11:30");
+    const zoneOf = (d: Pick<Deal, "serviceAreaId">) => (d.serviceAreaId === "sa-tx" ? "America/Chicago" : "America/New_York");
+    expect(comingUp([[tx, ct]], zoneOf).map((d) => d.id)).toEqual(["ct", "tx"]);
   });
 
   it("drops undated jobs and the same job read twice", () => {
