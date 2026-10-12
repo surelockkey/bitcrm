@@ -122,6 +122,21 @@ describe('ContactsService — client custom fields', () => {
       );
     });
 
+    // The cache can hold a copy from before an answer was written elsewhere
+    // (an import patch, the minutes after a deploy): merging onto it would
+    // drop those answers.
+    it('merges onto the answers in the table, never a cached copy', async () => {
+      const cache = (service as unknown as { cache: { get: jest.Mock } }).cache;
+      cache.get.mockResolvedValue(createMockContact({ id: 'contact-1' }));
+      await service.update('contact-1', { customFields: { 'cf-vendor': '1' } } as never);
+      expect(repository.update).toHaveBeenCalledWith(
+        'contact-1',
+        expect.objectContaining({
+          customFields: { 'cf-vendor': '1', 'cf-platinum': 'Sure Lock & Key', 'workiz:f21': 'Jason' },
+        }),
+      );
+    });
+
     it('a null clears a field too', async () => {
       await service.update('contact-1', { customFields: { 'cf-platinum': null } } as never);
       expect(repository.update).toHaveBeenCalledWith(

@@ -325,10 +325,16 @@ export class ContactsService {
     const existing = await this.findById(id);
     const taxExemption = this.normalizeTaxExemption(dto);
     // Checked (and merged onto the stored answers) before anything is written.
+    // The answers are read from the table, not the cache: a cached copy can
+    // predate answers written elsewhere (an import patch), and the merged map
+    // replaces the stored one whole.
     const customFields =
       dto.customFields === undefined
         ? undefined
-        : await this.resolveCustomFields(dto.customFields ?? {}, existing.customFields);
+        : await this.resolveCustomFields(
+            dto.customFields ?? {},
+            (await this.repository.findById(id))?.customFields ?? existing.customFields,
+          );
     // Checked before anything is written (the phone index below writes).
     const addresses = dto.addresses?.map((a) => withCountryCode(a));
     const billingAddress = withCountryCode(dto.billingAddress);
