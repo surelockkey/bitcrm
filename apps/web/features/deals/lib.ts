@@ -495,15 +495,41 @@ export function dealDraftFromDeal(d: Deal): DealDraft {
 export function clientDraftFromContact(
   c: Contact,
   nameOverride?: { firstName: string; lastName: string },
+  /** The job's own first number ("This job only"), shown in place of the client's. */
+  phoneOverride?: string,
 ): ClientDraft {
-  const phones = c.phones.length ? [...c.phones] : [""];
+  const onFile = c.phones.length ? [...c.phones] : [""];
   return {
     firstName: nameOverride?.firstName ?? c.firstName,
     lastName: nameOverride?.lastName ?? c.lastName,
-    phones,
-    phoneExts: extensionRows(phones, c.phoneExtensions),
+    phones: phoneOverride ? [phoneOverride, ...onFile.slice(1)] : onFile,
+    // The first line's extension is the client's first number's.
+    phoneExts: extensionRows(onFile, c.phoneExtensions),
     email: c.emails[0] ?? "",
   };
+}
+
+type ShownContact = Pick<Contact, "phones" | "phonesMasked">;
+
+/**
+ * The numbers a job shows and dials: its own first number when it has one
+ * ("This job only"), else the client's first, then the client's others.
+ * Only through a client crm showed this viewer — numbers masked there (or a
+ * client not loaded) show none here either, whatever the job carries.
+ */
+export function jobPhones(deal: Pick<Deal, "clientPhone">, contact: ShownContact | undefined): string[] {
+  if (!contact || contact.phonesMasked) return [];
+  return deal.clientPhone ? [deal.clientPhone, ...contact.phones.slice(1)] : contact.phones;
+}
+
+/** The job's first number — its own, else the client's. */
+export function jobFirstPhone(deal: Pick<Deal, "clientPhone">, contact: ShownContact | undefined): string | undefined {
+  return jobPhones(deal, contact)[0] || undefined;
+}
+
+/** Every number the job itself carries: its own first number, then the ones Workiz gave it. */
+export function jobOwnNumbers(deal: Pick<Deal, "clientPhone" | "phones">): string[] {
+  return [deal.clientPhone, ...(deal.phones ?? [])].filter((p): p is string => !!p);
 }
 
 /**

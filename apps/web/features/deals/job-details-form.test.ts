@@ -9,7 +9,7 @@ import {
   JobSuperStatus,
 } from "@bitcrm/types";
 import type { Company, Contact, Deal } from "@bitcrm/types";
-import { clientDraftFromContact, dealDraftFromDeal } from "./lib";
+import { clientDraftFromContact, dealDraftFromDeal, jobFirstPhone, jobOwnNumbers, jobPhones } from "./lib";
 import {
   addPhoneRow,
   addressSummary,
@@ -106,20 +106,30 @@ describe("addressSummary — the job page's one-line address box", () => {
 /* -------------------------------------------------------------- phone rows */
 
 describe("phoneRows — the Phone | Ext rows of the Client section", () => {
-  it("locks the number the job was created with: no editing, no removing", () => {
+  it("the first number can be edited but not removed — it is the job's number", () => {
     const c = contact({ phones: ["+14045551234", "+12028398283"] });
     const rows = phoneRows(c.phones, clientDraftFromContact(c));
 
-    expect(rows[0]).toMatchObject({ value: "+14045551234", locked: true, removable: false, fileIndex: 0 });
-    expect(rows[1]).toMatchObject({ value: "+12028398283", locked: false, removable: true, fileIndex: 1 });
+    expect(rows[0]).toMatchObject({ value: "+14045551234", removable: false, fileIndex: 0 });
+    expect(rows[0]).not.toHaveProperty("locked");
+    expect(rows[1]).toMatchObject({ value: "+12028398283", removable: true, fileIndex: 1 });
   });
 
-  it("locks nothing on a client with no number yet (the first row is a fresh one)", () => {
+  it("a client with no number yet starts with one fresh row", () => {
     const c = contact({ phones: [] });
     const rows = phoneRows(c.phones, clientDraftFromContact(c));
 
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ value: "", locked: false, removable: false, fileIndex: -1 });
+    expect(rows[0]).toMatchObject({ value: "", removable: false, fileIndex: -1 });
+  });
+
+  it("a job with its own first number shows it first, dialled as the job's first", () => {
+    const d = deal({ clientPhone: "+12035550123" });
+    const c = contact({ phones: ["+14045551234", "+12028398283"] });
+    const rows = phoneRows(jobPhones(d, c), clientDraftFromContact(c, undefined, d.clientPhone));
+
+    expect(rows.map((r) => r.value)).toEqual(["+12035550123", "+12028398283"]);
+    expect(rows[0].fileIndex).toBe(0);
   });
 
   it("dials only what is on file — a half-typed draft row has no call button", () => {
@@ -215,6 +225,59 @@ describe("planDetailsSave — what the single Save would write", () => {
     const out = commitDetailsSave({ ...input, clientDraft }, { applyToClient: true, address: "job-only" });
     expect(out.dealPatch).toBeNull();
     expect(out.contactBody).toMatchObject({ phones: ["+14045551234", "+12028398283"], firstName: "Jane" });
+  });
+
+  it("a changed first number asks 'Apply these changes to…' (not 'Change client')", () => {
+    const input = base();
+    const clientDraft = { ...input.clientDraft!, phones: ["+14045559999"] };
+
+    const plan = planDetailsSave({ ...input, clientDraft });
+
+    expect(plan).toMatchObject({ dirty: true, ask: false, phoneChange: { from: "+14045551234", to: "+14045559999" } });
+  });
+
+  it("This job only: the number goes to the job, the profile keeps its own", () => {
+    const input = base();
+    const clientDraft = { ...input.clientDraft!, phones: ["+14045559999", "+12028398283"], phoneExts: ["", ""] };
+
+    const out = commitDetailsSave({ ...input, clientDraft }, { applyToClient: true, address: "job-only" }, "job");
+
+    expect(out.phoneChange).toEqual({ phone: "+14045559999", scope: "job" });
+    expect(out.contactBody).toMatchObject({ phones: ["+14045551234", "+12028398283"] });
+    expect(out.dealPatch).toBeNull();
+  });
+
+  it("This job and the profile (and open jobs): the profile takes the number", () => {
+    const input = base({ contact: { phoneExtensions: { "+14045551234": "7" } } });
+    const clientDraft = { ...input.clientDraft!, phones: ["+14045559999"] };
+
+    for (const scope of ["client", "open_jobs"] as const) {
+      const out = commitDetailsSave({ ...input, clientDraft }, { applyToClient: true, address: "job-only" }, scope);
+      expect(out.phoneChange).toEqual({ phone: "+14045559999", scope });
+      // The first line's extension goes with it.
+      expect(out.contactBody).toMatchObject({ phones: ["+14045559999"], phoneExtensions: { "+14045559999": "7" } });
+    }
+  });
+
+  it("opens clean on a job with its own first number, and never writes it into the profile", () => {
+    const input = base({ deal: { clientPhone: "+12035550123" } });
+    const clientDraft = clientDraftFromContact(input.contact, undefined, input.deal.clientPhone);
+    expect(planDetailsSave({ ...input, clientDraft })).toMatchObject({ dirty: false });
+
+    const withSecond = { ...clientDraft, phones: [...clientDraft.phones, "+12028398283"], phoneExts: ["", ""] };
+    const out = commitDetailsSave({ ...input, clientDraft: withSecond }, { applyToClient: true, address: "job-only" });
+    expect(out.phoneChange).toBeNull();
+    expect(out.contactBody).toMatchObject({ phones: ["+14045551234", "+12028398283"] });
+  });
+
+  it("the first number cannot be emptied once there is one", () => {
+    const input = base();
+    expect(planDetailsSave({ ...input, clientDraft: { ...input.clientDraft!, phones: [""] } }).phonesOk).toBe(false);
+  });
+
+  it("a masked viewer's draft never counts as a number change", () => {
+    const input = base({ contact: { phones: [], phonesMasked: true, phoneCount: 1 } });
+    expect(planDetailsSave({ ...input, clientDraft: { ...input.clientDraft!, phones: ["+14045559999"] } }).phoneChange).toBeUndefined();
   });
 
   it("keeps a half-typed phone off the Save", () => {
@@ -356,5 +419,36 @@ describe("Company name — the client's CRM company, by title", () => {
     });
 
     expect(plan).toMatchObject({ dirty: false, companyChanged: false });
+  });
+});
+
+/* ----------------------------------------------------------- job's number */
+
+describe("jobPhones / jobFirstPhone — the numbers a job shows", () => {
+  it("the client's numbers, the job's own first number in place of the first", () => {
+    const c = contact({ phones: ["+14045551234", "+12028398283"] });
+    expect(jobPhones(deal(), c)).toEqual(["+14045551234", "+12028398283"]);
+    expect(jobPhones(deal({ clientPhone: "+12035550123" }), c)).toEqual(["+12035550123", "+12028398283"]);
+    expect(jobFirstPhone(deal({ clientPhone: "+12035550123" }), c)).toBe("+12035550123");
+    expect(jobFirstPhone(deal(), c)).toBe("+14045551234");
+  });
+
+  it("nothing for a viewer crm masked the numbers from, or before the client has loaded", () => {
+    const d = deal({ clientPhone: "+12035550123" });
+    expect(jobPhones(d, contact({ phones: [], phonesMasked: true, phoneCount: 1 }))).toEqual([]);
+    expect(jobPhones(d, undefined)).toEqual([]);
+  });
+
+  it("every number the job itself carries, its own first number first", () => {
+    expect(jobOwnNumbers(deal({ clientPhone: "+12035550123", phones: ["+15715310137"] }))).toEqual([
+      "+12035550123",
+      "+15715310137",
+    ]);
+    expect(jobOwnNumbers(deal())).toEqual([]);
+  });
+
+  it("a client with no number: just the job's own, or none", () => {
+    expect(jobPhones(deal({ clientPhone: "+12035550123" }), contact({ phones: [] }))).toEqual(["+12035550123"]);
+    expect(jobFirstPhone(deal(), undefined)).toBeUndefined();
   });
 });

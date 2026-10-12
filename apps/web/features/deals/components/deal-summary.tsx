@@ -8,10 +8,10 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { workOrderHref } from "@/features/work-orders/lib";
 import { useCompany } from "@/features/clients/hooks";
-import { formatPhone, primaryPhone, clientTypeLabel } from "@/features/clients/lib";
+import { formatPhone, clientTypeLabel } from "@/features/clients/lib";
 import { useDealProducts, useUnassignTech, useUserMap } from "../hooks";
 import { useContact } from "@/features/clients/hooks";
-import { dealClientName, dealTotal, formatMoney, formatSchedule } from "../lib";
+import { dealClientName, dealTotal, formatMoney, formatSchedule, jobFirstPhone } from "../lib";
 import { useJobTypeName } from "@/features/job-types/lib";
 import { useJobSourceName } from "@/features/job-sources/lib";
 import { useExternalCompanyName } from "@/features/external-companies/lib";
@@ -77,7 +77,7 @@ export function DealSummary({ deal, canEdit }: { deal: Deal; canEdit: boolean })
             ) : (
               <div className="text-xs text-muted-foreground">{clientTypeLabel(deal.clientType)}</div>
             )}
-            {primaryPhone(contact) ? <div className="font-mono text-xs">{formatPhone(primaryPhone(contact)!)}</div> : null}
+            {jobFirstPhone(deal, contact) ? <div className="font-mono text-xs">{formatPhone(jobFirstPhone(deal, contact)!)}</div> : null}
           </div>
         ) : (
           <div className="text-sm text-muted-foreground">Contact {deal.contactId}</div>

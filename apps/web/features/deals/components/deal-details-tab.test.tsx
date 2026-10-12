@@ -15,14 +15,16 @@ import type { Contact, Deal } from "@bitcrm/types";
 /**
  * The job page's Details tab, laid out the way Workiz lays it out
  * (job_b_01_details_scroll0..3), with our rules underneath: one Save for the
- * whole form, the job's first number locked for good, a rename asking
- * "Change client", nothing here ever making a new client.
+ * whole form, the job's first number changed through "Apply these changes
+ * to…", a rename asking "Change client", nothing here ever making a new
+ * client.
  */
 
 const mocks = vi.hoisted(() => ({
   push: vi.fn(),
   updateDeal: vi.fn(),
   updateContact: vi.fn(),
+  changeClientPhone: vi.fn(async () => ({ deal: {}, otherJobsChanged: 0 })),
   assignTechs: vi.fn(),
   sendToTech: vi.fn(),
   perms: { deals: true, contacts: true, messages: true },
@@ -69,6 +71,7 @@ vi.mock("@/features/clients/api", () => ({ fetchAllCompanies: mocks.fetchAllComp
 
 vi.mock("../hooks", () => ({
   useUpdateDeal: () => ({ mutate: mocks.updateDeal, isPending: false }),
+  useChangeClientPhone: () => ({ mutateAsync: mocks.changeClientPhone, isPending: false }),
   useAssignTechs: () => ({ mutate: mocks.assignTechs, isPending: false }),
   useUserMap: () => ({ map: mocks.users, users: [], isLoading: false }),
   useSuggestedTechs: () => ({
@@ -223,7 +226,7 @@ beforeEach(() => {
   mocks.company = undefined;
   mocks.createCompany.mockClear();
   mocks.fetchAllCompanies.mockClear();
-  for (const f of [mocks.push, mocks.updateDeal, mocks.updateContact, mocks.assignTechs, mocks.sendToTech]) f.mockClear();
+  for (const f of [mocks.push, mocks.updateDeal, mocks.updateContact, mocks.changeClientPhone, mocks.assignTechs, mocks.sendToTech]) f.mockClear();
 });
 
 // Radix layers set pointer-events on <body> while open; skip the check in jsdom.
@@ -495,12 +498,115 @@ describe("DetailsTab — one Save", () => {
 });
 
 describe("DetailsTab — the client", () => {
-  it("locks the number the job was created with — no editing, no removing it", () => {
+  it("the first number can be edited, not removed", () => {
     renderTab();
 
-    expect(screen.getByLabelText("Phone")).toBeDisabled();
+    expect(screen.getByLabelText("Phone")).toBeEnabled();
     expect(screen.queryByRole("button", { name: /remove phone/i })).toBeNull();
     expect(screen.getByRole("button", { name: "Add Phone" })).toBeInTheDocument();
+  });
+
+  it("a changed first number asks 'Apply these changes to…'; Cancel saves nothing", async () => {
+    const u = user();
+    renderTab();
+
+    await u.clear(screen.getByLabelText("Phone"));
+    await u.type(screen.getByLabelText("Phone"), "4045559999");
+    await u.click(saveButton());
+
+    expect(screen.getByRole("dialog", { name: "Apply these changes to…" })).toBeInTheDocument();
+    expect(screen.getByText("Job #1042. The client profile keeps its current details.")).toBeInTheDocument();
+    expect(screen.queryByText("Change client")).toBeNull();
+    await u.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(mocks.changeClientPhone).not.toHaveBeenCalled();
+    expect(mocks.updateContact).not.toHaveBeenCalled();
+    expect(mocks.updateDeal).not.toHaveBeenCalled();
+  });
+
+  it("'This job only' gives the job the number and leaves the profile's", async () => {
+    const u = user();
+    renderTab();
+
+    await u.clear(screen.getByLabelText("Phone"));
+    await u.type(screen.getByLabelText("Phone"), "4045559999");
+    await u.click(saveButton());
+    await u.click(screen.getByRole("radio", { name: /^This job only/ }));
+    await u.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => expect(mocks.changeClientPhone).toHaveBeenCalledWith({ phone: "+14045559999", scope: "job" }));
+    expect(mocks.updateContact).not.toHaveBeenCalled();
+  });
+
+  it("'This job and the client profile' moves the job's side first, then the profile", async () => {
+    const u = user();
+    const order: string[] = [];
+    mocks.changeClientPhone.mockImplementationOnce(async () => {
+      order.push("job");
+      return { deal: {}, otherJobsChanged: 2 };
+    });
+    mocks.updateContact.mockImplementationOnce(() => order.push("contact"));
+    renderTab();
+
+    await u.clear(screen.getByLabelText("Phone"));
+    await u.type(screen.getByLabelText("Phone"), "4045559999");
+    await u.click(saveButton());
+    await u.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => expect(mocks.updateContact).toHaveBeenCalledTimes(1));
+    expect(mocks.changeClientPhone).toHaveBeenCalledWith({ phone: "+14045559999", scope: "client" });
+    expect(mocks.updateContact.mock.calls[0][0]).toMatchObject({ id: "c1", body: { phones: ["+14045559999"] } });
+    expect(order).toEqual(["job", "contact"]);
+  });
+
+  it("the profile is left alone when the job's side was refused", async () => {
+    const u = user();
+    mocks.changeClientPhone.mockRejectedValueOnce(new Error("nope"));
+    renderTab();
+
+    await u.clear(screen.getByLabelText("Phone"));
+    await u.type(screen.getByLabelText("Phone"), "4045559999");
+    await u.click(saveButton());
+    await u.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => expect(mocks.changeClientPhone).toHaveBeenCalled());
+    expect(mocks.updateContact).not.toHaveBeenCalled();
+  });
+
+  it("a number and a name changed together: the number's question, then 'Change client'", async () => {
+    const u = user();
+    renderTab();
+
+    await u.type(screen.getByLabelText("First Name"), "t");
+    await u.clear(screen.getByLabelText("Phone"));
+    await u.type(screen.getByLabelText("Phone"), "4045559999");
+    await u.click(saveButton());
+    await u.click(screen.getByRole("radio", { name: /^This job only/ }));
+    await u.click(screen.getByRole("button", { name: "Save changes" }));
+    expect(await screen.findByText("Change client")).toBeInTheDocument();
+    await u.click(screen.getByRole("button", { name: /just here/i }));
+
+    await waitFor(() => expect(mocks.changeClientPhone).toHaveBeenCalledWith({ phone: "+14045559999", scope: "job" }));
+    await waitFor(() =>
+      expect(mocks.updateDeal.mock.calls[0][0]).toMatchObject({ clientName: { firstName: "Janet", lastName: "Smith" } }),
+    );
+    expect(mocks.updateContact).not.toHaveBeenCalled();
+  });
+
+  it("a job with a number of its own shows it first, opens clean, and keeps the profile's number on the client", async () => {
+    const u = user();
+    renderTab({ ...deal, clientPhone: "+12035550123" });
+
+    expect(screen.getAllByLabelText("Phone")[0]).toHaveValue("(203) 555-0123");
+    expect(saveButton()).toBeDisabled();
+
+    await u.click(screen.getByRole("button", { name: "Add Phone" }));
+    await u.type(screen.getAllByLabelText("Phone")[1], "2028398283");
+    await u.click(saveButton());
+
+    await waitFor(() => expect(mocks.updateContact).toHaveBeenCalledTimes(1));
+    expect(mocks.updateContact.mock.calls[0][0].body).toMatchObject({ phones: ["+14045551234", "+12028398283"] });
+    expect(mocks.changeClientPhone).not.toHaveBeenCalled();
   });
 
   it("adds a second number straight to the client — phones never prompt", async () => {

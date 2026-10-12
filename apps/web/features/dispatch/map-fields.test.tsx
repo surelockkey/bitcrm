@@ -9,7 +9,7 @@ import {
   JobSuperStatus,
   type Deal,
 } from "@bitcrm/types";
-import { dealClientName, filterDeals } from "@/features/deals/lib";
+import { dealClientName, filterDeals, jobOwnNumbers } from "@/features/deals/lib";
 import { JobList } from "./components/job-list";
 import { JobPinCard } from "./components/job-pin-card";
 import { TechPinCard } from "./components/tech-pin-card";
@@ -90,6 +90,7 @@ const WHOLE: Required<Deal> = {
   phones: ["+12145550100"],
   phoneExtensions: { "+12145550100": "12" },
   clientName: { firstName: "Jo", lastName: "Override" },
+  clientPhone: "+12145550111",
   status: DealStatus.ACTIVE,
   createdBy: "u1",
   closedAt: "",
@@ -137,7 +138,7 @@ describe("a map row draws what the whole job draws", () => {
           deal={d as Parameters<typeof JobPinCard>[0]["deal"]}
           title={`Lockout - Job #${d.dealNumber}`}
           clientName={dealClientName(d, undefined)}
-          phone={d.phones?.[0]}
+          phone={jobOwnNumbers(d)[0]}
           techNames={d.assignedTechIds.join(", ")}
           sequence={d.sequences?.[d.assignedTechIds[0]]}
           canEdit

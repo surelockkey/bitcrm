@@ -6,13 +6,13 @@
  */
 
 import { DEFAULT_ADDRESS_COUNTRY } from "@bitcrm/types";
-import type { Address, Company, Contact, Deal } from "@bitcrm/types";
+import type { Address, ClientPhoneScope, Company, Contact, Deal } from "@bitcrm/types";
 import { addressInList } from "@/features/clients/lib";
 import type { UpdateContactValues } from "@/features/clients/schemas";
 import { isValidPhone } from "@/lib/phone";
 import type { ClientSaveDecision } from "./components/change-client-dialog";
 import { CA_PROVINCES, COUNTRIES, US_STATES } from "./components/workiz/options";
-import { buildContactBody, buildDealPatch, type ClientDraft, type DealDraft } from "./lib";
+import { buildContactBody, buildDealPatch, jobFirstPhone, type ClientDraft, type DealDraft } from "./lib";
 import type { UpdateDealValues } from "./schemas";
 
 /* ------------------------------------------------------------ address box */
@@ -48,29 +48,25 @@ export interface PhoneRow {
   index: number;
   value: string;
   ext: string;
-  /** The number the job was created with: never edited or removed here. */
-  locked: boolean;
   removable: boolean;
   /** Where the number sits on the client record (-1: not saved yet) — the call button dials that one. */
   fileIndex: number;
 }
 
 /**
- * One Phone | Ext row per draft number. The first number on file is bound to
- * the job for good; any other row can go while at least one stays.
+ * One Phone | Ext row per draft number. `onFile` is what the job shows
+ * (`jobPhones`): its own first number, else the client's, then the client's
+ * others. The first number can be changed — Save asks where the change goes —
+ * but not removed; any other row can go while at least one stays.
  */
 export function phoneRows(onFile: string[], draft: ClientDraft): PhoneRow[] {
-  return draft.phones.map((value, index) => {
-    const locked = index === 0 && onFile.length > 0;
-    return {
-      index,
-      value,
-      ext: draft.phoneExts[index] ?? "",
-      locked,
-      removable: !locked && draft.phones.length > 1,
-      fileIndex: value ? onFile.indexOf(value) : -1,
-    };
-  });
+  return draft.phones.map((value, index) => ({
+    index,
+    value,
+    ext: draft.phoneExts[index] ?? "",
+    removable: (index > 0 || onFile.length === 0) && draft.phones.length > 1,
+    fileIndex: value ? onFile.indexOf(value) : -1,
+  }));
 }
 
 /** Workiz's "Add Phone": one more empty row. */
@@ -115,18 +111,46 @@ export interface DetailsSavePlan {
   dirty: boolean;
   /** Save must ask first: a rename, or an address the client could keep. */
   ask: boolean;
-  /** Every phone row is empty or a whole number. */
+  /**
+   * The first number differs from the one the job shows: Save asks "Apply
+   * these changes to…" (this job, the profile, its open jobs) first.
+   */
+  phoneChange?: { from: string; to: string };
+  /** Every phone row is empty or a whole number, and the first is still there. */
   phonesOk: boolean;
   /** The Company name box says something else now (contacts.edit only). */
   companyChanged: boolean;
 }
 
 /**
+ * The draft as the client profile should take it: its first line the
+ * profile's own number unless the change goes to the profile — a job's own
+ * number ("This job only") never lands on the client.
+ */
+function profileDraft(contact: Contact, draft: ClientDraft, keepProfileFirst: boolean): ClientDraft {
+  if (!keepProfileFirst || !contact.phones[0]) return draft;
+  return { ...draft, phones: [contact.phones[0], ...draft.phones.slice(1)] };
+}
+
+/** The changed first number, when there is one to ask about. */
+function firstNumberChange(
+  deal: Deal,
+  contact: Contact | undefined,
+  draft: ClientDraft | null,
+  canEditClient: boolean,
+): { from: string; to: string } | undefined {
+  if (!canEditClient || !contact || contact.phonesMasked || !draft) return undefined;
+  const from = jobFirstPhone(deal, contact);
+  const to = draft.phones[0]?.trim() ?? "";
+  return from && to && to !== from ? { from, to } : undefined;
+}
+
+/**
  * What the single Save would write. A rename is measured against what the
  * job shows (its "Just here" name, else the contact's), so a job imported
- * with its own name for the client opens clean. Phones and the email live on
- * the client record alone and save straight through; only a rename or a new
- * address asks.
+ * with its own name for the client opens clean. The extra phones and the
+ * email live on the client record alone and save straight through; a changed
+ * first number, a rename or a new address asks.
  */
 export function planDetailsSave({ deal, contact, dealDraft, clientDraft, canEditClient, company }: DetailsSaveInput): DetailsSavePlan {
   const dealPatch = buildDealPatch(deal, dealDraft);
@@ -142,33 +166,46 @@ export function planDetailsSave({ deal, contact, dealDraft, clientDraft, canEdit
       : undefined;
   const contactBody =
     canEditClient && contact && clientDraft
-      ? buildContactBody(contact, clientDraft, dealPatch?.address ? dealDraft.address : undefined, {
+      ? buildContactBody(contact, profileDraft(contact, clientDraft, true), dealPatch?.address ? dealDraft.address : undefined, {
           includeName: nameChanged,
         })
       : null;
   const companyChanged =
     canEditClient && !!contact && !!company && company.typed.trim() !== company.base.trim();
+  const phoneChange = firstNumberChange(deal, contact, clientDraft, canEditClient);
+  const shownFirst = contact && !contact.phonesMasked ? jobFirstPhone(deal, contact) : undefined;
   return {
     dealPatch,
     nameChanged,
     newAddress,
     contactBody,
     companyChanged,
-    dirty: !!dealPatch || !!contactBody || (canEditClient && nameChanged) || companyChanged,
+    phoneChange,
+    dirty: !!dealPatch || !!contactBody || (canEditClient && nameChanged) || companyChanged || !!phoneChange,
     ask: canEditClient && !!contact && (nameChanged || !!newAddress),
-    phonesOk: !clientDraft || clientDraft.phones.every((p) => !p.trim() || isValidPhone(p)),
+    phonesOk:
+      !clientDraft ||
+      (clientDraft.phones.every((p) => !p.trim() || isValidPhone(p)) && !(shownFirst && !clientDraft.phones[0]?.trim())),
   };
 }
 
 /**
- * The writes once the question (if any) is answered. "Just here" pins the
+ * The writes once the questions (if any) are answered. "Just here" pins the
  * new name to this job; "Yes, make change" writes it to the client and drops
- * a stale per-job name. A new client is never made from here.
+ * a stale per-job name. A changed first number goes where `phoneScope` says —
+ * `phoneChange` is the job side (`PUT /deals/:id/client-phone`), sent BEFORE
+ * the contact, and the contact takes the number only when the scope is the
+ * profile's. A new client is never made from here.
  */
 export function commitDetailsSave(
   input: DetailsSaveInput,
   decision: ClientSaveDecision,
-): { dealPatch: UpdateDealValues | null; contactBody: UpdateContactValues | null } {
+  phoneScope?: ClientPhoneScope,
+): {
+  dealPatch: UpdateDealValues | null;
+  contactBody: UpdateContactValues | null;
+  phoneChange: { phone: string; scope: ClientPhoneScope } | null;
+} {
   const { deal, contact, clientDraft, canEditClient } = input;
   const plan = planDetailsSave(input);
   const renaming = canEditClient && !!contact && !!clientDraft && plan.nameChanged;
@@ -180,13 +217,18 @@ export function commitDetailsSave(
         : {}
       : { clientName: { firstName: clientDraft!.firstName.trim(), lastName: clientDraft!.lastName.trim() } };
   const patch = { ...(plan.dealPatch ?? {}), ...override };
+  const phoneChange = plan.phoneChange && phoneScope ? { phone: plan.phoneChange.to, scope: phoneScope } : null;
+  const toProfile = !!phoneChange && phoneChange.scope !== "job";
   const contactBody =
     canEditClient && contact && clientDraft
-      ? buildContactBody(contact, clientDraft, decision.address === "save" ? plan.newAddress : undefined, {
-          includeName: plan.nameChanged && decision.applyToClient,
-        })
+      ? buildContactBody(
+          contact,
+          profileDraft(contact, clientDraft, !toProfile),
+          decision.address === "save" ? plan.newAddress : undefined,
+          { includeName: plan.nameChanged && decision.applyToClient },
+        )
       : null;
-  return { dealPatch: Object.keys(patch).length ? patch : null, contactBody };
+  return { dealPatch: Object.keys(patch).length ? patch : null, contactBody, phoneChange };
 }
 
 /* ----------------------------------------------------------- company name */

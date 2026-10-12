@@ -1,4 +1,6 @@
 import type {
+  ClientPhoneChangeResult,
+  ClientPhoneScope,
   Deal,
   DealProduct,
   DocumentDiscount,
@@ -129,6 +131,16 @@ export const createDeal = (body: CreateDealValues): Promise<Deal> =>
 
 export const updateDeal = (id: string, body: UpdateDealValues): Promise<Deal> =>
   http.put<Deal>(`/deals/${id}`, body);
+
+/**
+ * The job side of a changed first number ("Apply these changes to…"): this
+ * job's own number, or the client's other jobs pinned / moved. Sent BEFORE
+ * the contact is written — the old number is read from crm while it stands.
+ */
+export const changeClientPhone = (
+  id: string,
+  body: { phone: string; scope: ClientPhoneScope },
+): Promise<ClientPhoneChangeResult> => http.put<ClientPhoneChangeResult>(`/deals/${id}/client-phone`, body);
 
 /** Move a job to a different client. Guarded by deals.edit. */
 export const changeDealClient = (id: string, contactId: string): Promise<Deal> =>

@@ -16,7 +16,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
-import { ClientType, DealPriority, type Contact, type Deal, type JobType } from "@bitcrm/types";
+import { ClientType, DealPriority, type ClientPhoneScope, type Contact, type Deal, type JobType } from "@bitcrm/types";
 import { WzActionBar, WzButton, WzSectionHeader, WzSelect } from "@/components/workiz";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { getApiErrorMessage } from "@/lib/api/errors";
@@ -29,9 +29,10 @@ import { jobTypeDurationMinutes } from "@/features/job-types/lib";
 import { WzCustomFields } from "@/features/custom-fields/components/wz-custom-fields";
 import { useResolvedServiceArea } from "@/features/service-areas/hooks";
 import { DEFAULT_TZ } from "@/lib/timezone";
-import { useAssignTechs, useUpdateDeal } from "../hooks";
+import { useAssignTechs, useChangeClientPhone, useUpdateDeal } from "../hooks";
 import { clientDraftFromContact, dealDraftFromDeal, type ClientDraft, type DealDraft } from "../lib";
 import { commitDetailsSave, contactBodyWithCompany, planDetailsSave, resolveCompanyName } from "../job-details-form";
+import { ApplyPhoneChangeDialog } from "./apply-phone-change-dialog";
 import { ChangeClientDialog, type ClientSaveDecision } from "./change-client-dialog";
 import { DetailsRow, JobClientSection } from "./job-client-section";
 import { JobNoteEditor } from "./job-note-editor";
@@ -103,6 +104,7 @@ export function DetailsTab({
   const { data: contact } = useContact(deal.contactId);
   const { data: customFieldDefs } = useCustomFields();
   const update = useUpdateDeal(deal.id);
+  const changePhone = useChangeClientPhone(deal.id);
   const assignTechs = useAssignTechs(deal.id);
   const updateContact = useUpdateContact();
   const createCompany = useCreateCompany();
@@ -118,7 +120,7 @@ export function DetailsTab({
   // and the single Save at the bottom persists whatever actually changed.
   const [dealDraft, setDealDraft] = useState<DealDraft>(() => dealDraftFromDeal(deal));
   const [clientDraft, setClientDraft] = useState<ClientDraft | null>(() =>
-    contact ? clientDraftFromContact(contact, deal.clientName) : null,
+    contact ? clientDraftFromContact(contact, deal.clientName, deal.clientPhone) : null,
   );
   const input = { deal, contact, dealDraft, clientDraft, canEditClient, company };
   const plan = planDetailsSave(input);
@@ -140,12 +142,14 @@ export function DetailsTab({
   useEffect(() => {
     // Same guarded re-sync as the deal draft: keep unsaved client edits across a
     // plain contact refetch; adopt server values only for a different contact.
+    // The job's own first number moving (a saved "This job only", or the
+    // profile taking it) re-syncs too, once the draft says the same.
     const freshContact = syncedContactId.current !== contact?.id;
     syncedContactId.current = contact?.id;
-    if (!freshContact && contact && clientDraft && (plan.contactBody || plan.nameChanged)) return;
-    setClientDraft(contact ? clientDraftFromContact(contact, deal.clientName) : null);
+    if (!freshContact && contact && clientDraft && (plan.contactBody || plan.nameChanged || plan.phoneChange)) return;
+    setClientDraft(contact ? clientDraftFromContact(contact, deal.clientName, deal.clientPhone) : null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [contact?.id, contact?.updatedAt]);
+  }, [contact?.id, contact?.updatedAt, deal.clientPhone]);
 
   const setDeal = (patch: Partial<DealDraft>) => setDealDraft((d) => ({ ...d, ...patch }));
   // Workiz: picking a job type ends the visit its Duration after the start
@@ -171,19 +175,43 @@ export function DetailsTab({
   const columns = workizGroupColumns(groups).map((col) => col.map((g) => g.group));
 
   const [savingCompany, setSavingCompany] = useState(false);
-  const pending = update.isPending || updateContact.isPending || savingCompany;
+  const pending = update.isPending || updateContact.isPending || changePhone.isPending || savingCompany;
   const { confirm } = useUnsavedChanges(plan.dirty);
   useEffect(() => {
     onDirtyChange?.(plan.dirty);
   }, [plan.dirty, onDirtyChange]);
-  const [asking, setAsking] = useState(false);
+  // The question Save is asking: a changed first number's ("Apply these
+  // changes to…"), then a rename's or a new address's ("Change client").
+  const [asking, setAsking] = useState<"phone" | "client" | null>(null);
+  const [phoneScope, setPhoneScope] = useState<ClientPhoneScope>();
+  const noQuestion: ClientSaveDecision = { applyToClient: true, address: "job-only" };
 
-  // A rename (or an address the client could keep) is the only thing worth
-  // asking about; everything else saves straight through.
-  const save = () => (plan.ask ? setAsking(true) : commit({ applyToClient: true, address: "job-only" }));
-  const commit = (decision: ClientSaveDecision) => {
-    setAsking(false);
-    const out = commitDetailsSave(input, decision);
+  // Those are the only things worth asking about; everything else saves
+  // straight through.
+  const save = () => {
+    if (plan.phoneChange) setAsking("phone");
+    else if (plan.ask) setAsking("client");
+    else void commit(noQuestion);
+  };
+  const pickPhoneScope = (scope: ClientPhoneScope) => {
+    setPhoneScope(scope);
+    if (plan.ask) setAsking("client");
+    else void commit(noQuestion, scope);
+  };
+  const commit = async (decision: ClientSaveDecision, scope = phoneScope) => {
+    setAsking(null);
+    setPhoneScope(undefined);
+    const out = commitDetailsSave(input, decision, scope);
+    // The job side first: it reads the client's old number from crm, so the
+    // contact may only change after it. Refused, nothing else is written
+    // (the hook says why).
+    if (out.phoneChange) {
+      try {
+        await changePhone.mutateAsync(out.phoneChange);
+      } catch {
+        return;
+      }
+    }
     if (out.dealPatch) update.mutate(out.dealPatch);
     if (!contact) return;
     if (plan.companyChanged) void saveWithCompany(contact, out.contactBody);
@@ -384,14 +412,27 @@ export function DetailsTab({
 
         {confirm}
 
-        {contact && clientDraft && asking ? (
+        {asking === "phone" ? (
+          <ApplyPhoneChangeDialog
+            open
+            jobNumber={deal.dealNumber}
+            pending={pending}
+            onCancel={() => setAsking(null)}
+            onConfirm={pickPhoneScope}
+          />
+        ) : null}
+
+        {contact && clientDraft && asking === "client" ? (
           <ChangeClientDialog
             open
             nameChanged={plan.nameChanged}
             newAddress={plan.newAddress}
             pending={pending}
-            onCancel={() => setAsking(false)}
-            onConfirm={commit}
+            onCancel={() => {
+              setAsking(null);
+              setPhoneScope(undefined);
+            }}
+            onConfirm={(decision) => void commit(decision)}
           />
         ) : null}
       </div>
