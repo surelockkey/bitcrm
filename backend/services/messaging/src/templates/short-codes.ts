@@ -149,12 +149,8 @@ export const SHORT_CODES: readonly ShortCodeDefinition[] = [
   def('zip_code', 'job', 'ZIP of the job address', '30301'),
   def('tech_assigned', 'technician', "Assigned technician's name (the sender, when they are on the job)", 'Mike Smith'),
   def('description', 'job', 'Job notes / description', 'Rekey front and back doors'),
-  def(
-    'confirm_link',
-    'links',
-    "The client's link to confirm the appointment (BitCRM's confirm page; a base URL in settings overrides it)",
-    'https://portal.example.com/confirm/…',
-  ),
+  // One line per def: the web app's recipe test reads the codes off `def('<code>'` lines.
+  def('confirm_link', 'links', "Client's link to confirm the appointment (our confirm page; a base URL in settings overrides it)", 'https://portal.example.com/confirm/…'),
   def('info_link', 'links', 'Job info link (base URL in settings)', 'https://book.example.com/job/…'),
   def('ad_group', 'job', 'Job source / ad group name', 'Google Ads'),
   def('referral_company_name', 'job', 'Referring external company', 'Roadside Partner LLC'),
