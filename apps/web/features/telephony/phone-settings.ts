@@ -5,7 +5,7 @@ import {
   type ResolvedCallGroupMember,
 } from "@bitcrm/types";
 import { formatPhone, normalizePhone } from "@/lib/phone";
-import { DEFAULT_TZ } from "@/lib/timezone";
+import { DEFAULT_TZ, withZone } from "@/lib/timezone";
 
 /*
  * The words and the wiring behind Workiz Phone's settings tabs — Phone
@@ -14,9 +14,10 @@ import { DEFAULT_TZ } from "@/lib/timezone";
  */
 
 /**
- * "Sun Sep 27, 2020 11:11 pm" — Workiz's Created cell on the numbers list:
- * the weekday, a two-digit day and hour, lower-case am/pm, on the account's
- * clock. Empty when the server does not say (an API from before
+ * "Sun Sep 27, 2020 11:11 pm EDT" — Workiz's Created cell on the numbers
+ * list: the weekday, a two-digit day and hour, lower-case am/pm, on the
+ * account's clock and naming it (2026-10-12, the owner: every web time says
+ * its zone). Empty when the server does not say (an API from before
  * `dateCreated`, or Twilio silent).
  */
 export function formatNumberCreated(iso: string | null | undefined, tz: string = DEFAULT_TZ): string {
@@ -36,7 +37,11 @@ export function formatNumberCreated(iso: string | null | undefined, tz: string =
       .formatToParts(d)
       .map((p) => [p.type, p.value]),
   );
-  return `${parts.weekday} ${parts.month} ${parts.day}, ${parts.year} ${parts.hour}:${parts.minute} ${String(parts.dayPeriod).toLowerCase()}`;
+  return withZone(
+    `${parts.weekday} ${parts.month} ${parts.day}, ${parts.year} ${parts.hour}:${parts.minute} ${String(parts.dayPeriod).toLowerCase()}`,
+    d,
+    tz,
+  );
 }
 
 const samePhone = (a: string, b: string) => (normalizePhone(a) ?? a) === (normalizePhone(b) ?? b);
