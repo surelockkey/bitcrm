@@ -120,3 +120,33 @@ export function weekStartSunday(day: string): string {
   const dow = new Date(`${day}T00:00:00.000Z`).getUTCDay();
   return shiftAccountDay(day, -dow);
 }
+
+/**
+ * The instant a stored wall clock is — a visit's `scheduledDate` + "HH:MM"
+ * in the zone it was booked in. Twice: the first guess can sit on the other
+ * side of a DST change.
+ */
+export function wallClockInstant(date: string, time: string, timeZone: string = DEFAULT_TIMEZONE): Date {
+  const [y, m, d] = date.split('-').map(Number);
+  const [h, min] = time.split(':').map(Number);
+  const naive = Date.UTC(y, m - 1, d, h, min);
+  const first = naive - zoneOffsetMs(naive, timeZone);
+  return new Date(naive - zoneOffsetMs(first, timeZone));
+}
+
+/**
+ * The zone's short name at an instant — "EDT" in summer, "EST" in winter
+ * (CDT, MST…); "" when unreadable. 2026-10-12: every time shown to a person
+ * says which zone it is in.
+ */
+export function zoneAbbr(at: Date | string | number | undefined | null, timeZone: string = DEFAULT_TIMEZONE): string {
+  if (at === undefined || at === null || at === '') return '';
+  const d = at instanceof Date ? at : new Date(at);
+  if (Number.isNaN(d.getTime())) return '';
+  return (
+    new Intl.DateTimeFormat('en-US', { timeZone, timeZoneName: 'short' })
+      .formatToParts(d)
+      .find((p) => p.type === 'timeZoneName')?.value ?? ''
+  );
+}
+

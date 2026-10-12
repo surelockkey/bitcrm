@@ -129,7 +129,9 @@ export {
   accountDaysBetween,
   accountWindowUtc,
   shiftAccountDay,
+  wallClockInstant,
   weekStartSunday,
+  zoneAbbr,
   zoneOffsetMs,
 } from './reports/account-clock';
 export { JobType } from './entities/job-type.entity';
