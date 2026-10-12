@@ -124,7 +124,7 @@ describe("PhoneNumbersPage — Workiz's numbers list", () => {
 
   it("writes when each number was bought as Workiz does", () => {
     render(<PhoneNumbersPage />);
-    expect(screen.getByText("Sun Sep 27, 2020 11:11 pm")).toBeInTheDocument();
+    expect(screen.getByText("Sun Sep 27, 2020 11:11 pm EDT")).toBeInTheDocument();
   });
 
   it("finds a number by what is typed in the Search box", async () => {

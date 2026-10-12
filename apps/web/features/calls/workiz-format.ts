@@ -1,5 +1,5 @@
 import { ordinal } from "@/components/workiz/dates";
-import { DEFAULT_TZ } from "@/lib/timezone";
+import { DEFAULT_TZ, withZone } from "@/lib/timezone";
 
 /**
  * The call log's Time column, word for word as Workiz prints it
@@ -25,8 +25,9 @@ function formatter(timeZone: string): Intl.DateTimeFormat {
 }
 
 /**
- * "Thu Oct 8th, 3:15PM": the start on the account's clock, no year (Workiz
- * never adds one). A missing or broken instant is blank.
+ * "Thu Oct 8th, 3:15PM EDT": the start on the account's clock, no year (Workiz
+ * never adds one), the zone named — 2026-10-12 the owner's rule: every time on
+ * the web is Connecticut's and says so. A missing or broken instant is blank.
  *
  * Workiz's live-updated rows print the hour padded ("03:15PM"); the rows its
  * server sends — every row on a fresh load — do not, and that is the form kept.
@@ -37,7 +38,7 @@ export function formatWzCallTime(iso: string | undefined, timeZone: string = DEF
   if (Number.isNaN(at.getTime())) return "";
   const p: Record<string, string> = {};
   for (const part of formatter(timeZone).formatToParts(at)) p[part.type] = part.value;
-  return `${p.weekday} ${p.month} ${ordinal(Number(p.day))}, ${p.hour}:${p.minute}${p.dayPeriod}`;
+  return withZone(`${p.weekday} ${p.month} ${ordinal(Number(p.day))}, ${p.hour}:${p.minute}${p.dayPeriod}`, at, timeZone);
 }
 
 /**

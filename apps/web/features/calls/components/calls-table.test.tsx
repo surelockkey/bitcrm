@@ -169,8 +169,8 @@ describe("CallsTable recording preview", () => {
     detail.mockReturnValue(rec);
     render(<CallsTable calls={[rec]} />);
 
-    // Workiz's Time column: 10:00 UTC is 6:00 AM in New York.
-    await user.click(screen.getByText("Tue Aug 11th, 6:00AM"));
+    // Workiz's Time column: 10:00 UTC is 6:00 AM in New York, zone named.
+    await user.click(screen.getByText("Tue Aug 11th, 6:00AM EDT"));
 
     expect(push).not.toHaveBeenCalled();
     const panel = await screen.findByRole("dialog");
@@ -265,7 +265,7 @@ describe("CallsTable recording preview", () => {
     detail.mockReturnValue(rec);
     render(<CallsTable calls={[rec]} />);
 
-    await user.click(screen.getByText("Tue Aug 11th, 6:00AM"));
+    await user.click(screen.getByText("Tue Aug 11th, 6:00AM EDT"));
     await screen.findByRole("dialog");
 
     await user.keyboard("{Escape}");

@@ -322,9 +322,13 @@ describe("sinceInstant", () => {
     expect(sinceInstant("14d", now)).toBe("2026-09-02T15:04:00.000Z");
   });
 
-  it("starts 'today' at the reader's own midnight", () => {
-    const midnight = new Date(sinceInstant("today", now) as string);
-    expect(midnight.getHours()).toBe(0);
-    expect(midnight.getDate()).toBe(now.getDate());
+  // 2026-10-12 the owner: "today" is Connecticut's day, never the reader's own.
+  it("starts 'today' at Connecticut's midnight", () => {
+    // 15:04 UTC on Sep 16 is 11:04 AM EDT → midnight EDT is 04:00 UTC.
+    expect(sinceInstant("today", now)).toBe("2026-09-16T04:00:00.000Z");
+    // 11:30 PM EDT on Sep 16 — the 17th in UTC and in Kyiv — is still Sep 16's today.
+    expect(sinceInstant("today", new Date("2026-09-17T03:30:00.000Z"))).toBe("2026-09-16T04:00:00.000Z");
+    // Winter: midnight EST is 05:00 UTC.
+    expect(sinceInstant("today", new Date("2026-01-15T17:00:00.000Z"))).toBe("2026-01-15T05:00:00.000Z");
   });
 });

@@ -18,6 +18,7 @@ import { getApiErrorMessage } from "@/lib/api/errors";
 import { pagedSource } from "@/lib/paging/paged-source";
 import { usePageSize } from "@/lib/paging/use-page-size";
 import { usePager } from "@/lib/paging/use-pager";
+import { DEFAULT_TZ, ctToday, zonedInstant } from "@/lib/timezone";
 import { settled, usePageReady } from "@/lib/use-page-ready";
 import { cn } from "@/lib/utils";
 import { useAutomations, useAutomationsAccess, useAutomationRunsFeed, useAutomationRunsFeedCount } from "../hooks";
@@ -48,13 +49,12 @@ export const SINCE_OPTIONS = [
   { value: "14d", label: "Last 14 days" },
 ] as const;
 
-/** `"7d"` → the ISO instant seven days back; `"all"` → no bound at all. */
+/**
+ * `"7d"` → the ISO instant seven days back; `"all"` → no bound at all;
+ * `"today"` → Connecticut's last midnight, never the reader's own (2026-10-12).
+ */
 export function sinceInstant(key: string, now: Date = new Date()): string | undefined {
-  if (key === "today") {
-    const midnight = new Date(now);
-    midnight.setHours(0, 0, 0, 0);
-    return midnight.toISOString();
-  }
+  if (key === "today") return zonedInstant(ctToday(now), "00:00", DEFAULT_TZ).toISOString();
   const days = key === "24h" ? 1 : key === "7d" ? 7 : key === "14d" ? 14 : 0;
   return days ? new Date(now.getTime() - days * 24 * 60 * 60 * 1000).toISOString() : undefined;
 }

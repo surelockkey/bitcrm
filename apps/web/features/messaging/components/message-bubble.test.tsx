@@ -51,6 +51,14 @@ describe("the outbound bubble", () => {
   });
 });
 
+describe("the stamp", () => {
+  it("is on Connecticut's day and clock with the zone named (owner, 2026-10-12)", () => {
+    renderBubble("inbound");
+    // 08:11 UTC on Sep 17 is 4:11 AM EDT.
+    expect(screen.getByText("Sep 17 2026 4:11 AM EDT")).toBeInTheDocument();
+  });
+});
+
 describe("a portal line — what the client did, written by the system (Workiz)", () => {
   const portal = (over: Record<string, unknown>) =>
     render(
@@ -85,6 +93,8 @@ describe("a portal line — what the client did, written by the system (Workiz)"
     expect(screen.getByRole("link", { name: "Open invoice" })).toHaveAttribute("href", "/invoices/d1");
     expect(screen.queryByText("System message")).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /edit job/i })).not.toBeInTheDocument();
+    // 14:05 UTC is 10:05 AM in Connecticut — said so.
+    expect(screen.getByText("10:05 AM EDT")).toBeInTheDocument();
   });
 
   it("opens an estimate on its own page, and a client's invoice (no job) on its page", () => {

@@ -12,6 +12,7 @@ import {
   type AutomationSpec,
   type AutomationTriggerKind,
 } from "@bitcrm/types";
+import { DEFAULT_TZ, withZone } from "@/lib/timezone";
 
 /**
  * What each super-status is called. A closed enum with no catalog behind it,
@@ -379,21 +380,27 @@ export function totalFirings(rules: AutomationRule[]): number {
   return rules.reduce((sum, rule) => sum + (firingCount(rule) ?? 0), 0);
 }
 
-/** `2026-09-16T15:04:05.000Z` → `Sep 16, 3:04 PM` in the reader's own zone. */
+/**
+ * `2026-09-16T15:04:05.000Z` → `Sep 16, 11:04 AM EDT`: Connecticut's clock,
+ * zone named — 2026-10-12 the owner's rule; the reader's own zone (Ukraine)
+ * never counts.
+ */
 export function formatFiredAt(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return iso;
-  return date.toLocaleString(undefined, {
+  const text = date.toLocaleString("en-US", {
+    timeZone: DEFAULT_TZ,
     month: "short",
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
   });
+  return withZone(text, date);
 }
 
-/** `2024-10-09T…` → `Oct 9, 2024` — the "edited" half of the card's stats. */
+/** `2024-10-09T…` → `Oct 9, 2024` on Connecticut's calendar — the "edited" half of the card's stats; a date alone, so no zone. */
 export function formatEditedAt(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return iso;
-  return date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  return date.toLocaleDateString("en-US", { timeZone: DEFAULT_TZ, month: "short", day: "numeric", year: "numeric" });
 }

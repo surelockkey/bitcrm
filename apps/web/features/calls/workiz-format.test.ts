@@ -7,28 +7,33 @@ import { formatWzCallDuration, formatWzCallTime } from "./workiz-format";
  * account's clock, "Thu Oct 8th, 3:15PM", over the length in words.
  */
 describe("formatWzCallTime", () => {
-  it("writes the start on the account's clock, Workiz's way", () => {
+  it("writes the start on the account's clock, Workiz's way, and says which clock", () => {
     // 19:15 UTC is 3:15 PM in New York (EDT).
-    expect(formatWzCallTime("2026-10-08T19:15:00.000Z")).toBe("Thu Oct 8th, 3:15PM");
-    expect(formatWzCallTime("2026-10-08T13:31:00.000Z")).toBe("Thu Oct 8th, 9:31AM");
+    expect(formatWzCallTime("2026-10-08T19:15:00.000Z")).toBe("Thu Oct 8th, 3:15PM EDT");
+    expect(formatWzCallTime("2026-10-08T13:31:00.000Z")).toBe("Thu Oct 8th, 9:31AM EDT");
+  });
+
+  it("says EST in winter", () => {
+    // 17:00 UTC in January is noon in New York (EST, -5).
+    expect(formatWzCallTime("2026-01-15T17:00:00.000Z")).toBe("Thu Jan 15th, 12:00PM EST");
   });
 
   it("keeps the minutes two digits and midnight / noon as 12", () => {
-    expect(formatWzCallTime("2026-10-02T04:05:00.000Z")).toBe("Fri Oct 2nd, 12:05AM");
-    expect(formatWzCallTime("2026-10-02T16:00:00.000Z")).toBe("Fri Oct 2nd, 12:00PM");
+    expect(formatWzCallTime("2026-10-02T04:05:00.000Z")).toBe("Fri Oct 2nd, 12:05AM EDT");
+    expect(formatWzCallTime("2026-10-02T16:00:00.000Z")).toBe("Fri Oct 2nd, 12:00PM EDT");
   });
 
   it("names the day the account saw, not the UTC one", () => {
     // 02:30 UTC on the 9th is still the evening of the 8th in New York.
-    expect(formatWzCallTime("2026-10-09T02:30:00.000Z")).toBe("Thu Oct 8th, 10:30PM");
+    expect(formatWzCallTime("2026-10-09T02:30:00.000Z")).toBe("Thu Oct 8th, 10:30PM EDT");
   });
 
   it("never adds a year — Workiz doesn't either", () => {
-    expect(formatWzCallTime("2018-06-30T18:28:36.000Z")).toBe("Sat Jun 30th, 2:28PM");
+    expect(formatWzCallTime("2018-06-30T18:28:36.000Z")).toBe("Sat Jun 30th, 2:28PM EDT");
   });
 
-  it("can read another zone", () => {
-    expect(formatWzCallTime("2026-10-08T19:15:00.000Z", "America/Chicago")).toBe("Thu Oct 8th, 2:15PM");
+  it("can read another zone, and labels it", () => {
+    expect(formatWzCallTime("2026-10-08T19:15:00.000Z", "America/Chicago")).toBe("Thu Oct 8th, 2:15PM CDT");
   });
 
   it("leaves a missing or broken instant blank", () => {

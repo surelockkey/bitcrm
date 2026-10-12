@@ -58,10 +58,30 @@ describe("formatDuration", () => {
 });
 
 describe("formatCallTime", () => {
+  const now = new Date("2026-10-12T16:00:00.000Z");
+
   it("renders a readable timestamp and dashes invalid input", () => {
-    expect(formatCallTime("2026-08-05T14:41:00.000Z")).toMatch(/Aug 5/);
+    expect(formatCallTime("2026-08-05T14:41:00.000Z", now)).toMatch(/Aug 5/);
     expect(formatCallTime("garbage")).toBe("—");
     expect(formatCallTime(undefined)).toBe("—");
+  });
+
+  // 2026-10-12 owner: every time on the web is Connecticut's and says so —
+  // staff reading it in Ukraine must not see their own clock.
+  it("reads on Connecticut's clock with the zone, EDT in summer and EST in winter", () => {
+    expect(formatCallTime("2026-08-05T14:41:00.000Z", now)).toBe("Aug 5, 10:41 AM EDT");
+    expect(formatCallTime("2026-01-15T17:00:00.000Z", now)).toBe("Jan 15, 12:00 PM EST");
+  });
+
+  it("names Connecticut's day, not the UTC one", () => {
+    // 03:30 UTC on Aug 6 is 11:30 PM on Aug 5 in Connecticut.
+    expect(formatCallTime("2026-08-06T03:30:00.000Z", now)).toBe("Aug 5, 11:30 PM EDT");
+  });
+
+  it("adds the year only when Connecticut's year differs from now's", () => {
+    // New Year's Eve, 10:30 PM EST — already 2027 in UTC (and in Kyiv).
+    expect(formatCallTime("2027-01-01T03:30:00.000Z", now)).toBe("Dec 31, 10:30 PM EST");
+    expect(formatCallTime("2025-08-05T14:41:00.000Z", now)).toBe("Aug 5, 2025, 10:41 AM EDT");
   });
 });
 
@@ -301,6 +321,13 @@ describe("formatCallAgo", () => {
   it("switches to a date once counting days stops helping", () => {
     expect(formatCallAgo(ago(40 * 86_400_000))).toMatch(/\d/);
     expect(formatCallAgo(ago(40 * 86_400_000))).not.toMatch(/ago/);
+  });
+
+  it("writes that date on Connecticut's clock, zone and all", () => {
+    const now = new Date("2026-10-12T16:00:00.000Z");
+    // 03:30 UTC on Aug 6 is 11:30 PM on Aug 5 in Connecticut.
+    expect(formatCallAgo("2026-08-06T03:30:00.000Z", now)).toBe("Aug 5, 11:30 PM EDT");
+    expect(formatCallAgo("2026-10-12T15:48:00.000Z", now)).toBe("12m ago");
   });
 
   it("renders a dash for nothing at all", () => {

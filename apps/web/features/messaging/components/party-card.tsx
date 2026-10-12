@@ -14,10 +14,9 @@ import { JobTagChips } from "@/features/job-tags/components/job-tag-chips";
 import { useJobTypes } from "@/features/job-types/hooks";
 import { CallClientButton } from "@/features/telephony/components/call-client-button";
 import { usePermissions } from "@/features/auth/use-permissions";
-import { formatDate } from "@/features/users/lib";
 import { formatPhone } from "@/lib/phone";
 import type { InboxConversation } from "../api";
-import { conversationAddress, KIND_LABEL } from "../lib";
+import { conversationAddress, formatScheduledDay, KIND_LABEL } from "../lib";
 
 /**
  * The thread's "Client info" panel (Workiz's person icon): who is on the
@@ -160,7 +159,7 @@ function JobsList({ source, newJobHref }: { source: JobsSource; newJobHref?: str
                   <StageBadge status={d.superStatus} />
                 </div>
                 <div className="mt-0.5 flex items-center gap-2 text-[12px] leading-[18px] text-wz-outline-label">
-                  <span>{d.scheduledDate ? formatDate(d.scheduledDate) : "Unscheduled"}</span>
+                  <span>{d.scheduledDate ? formatScheduledDay(d.scheduledDate) : "Unscheduled"}</span>
                   <JobTagChips ids={d.tagIds} max={2} className="ml-auto" />
                 </div>
               </Link>
