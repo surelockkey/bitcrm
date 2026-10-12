@@ -313,6 +313,47 @@ export interface JobsListIncluded {
 }
 
 /**
+ * The fields of a job on the dispatch map (`GET /deals/map`): every field a
+ * `Deal` must have, so a row is an honest `Deal`, plus what the board draws
+ * and searches — the pin, the job card and its Sent / Seen stamps, the pin
+ * card, a tech's day. deal-service projects its read to exactly these; the
+ * web's board is tested against them, so a new field a card starts to draw
+ * fails a test until it is added here. Anything else about a job is read by
+ * opening it (`GET /deals/:id`).
+ */
+export const DISPATCH_MAP_JOB_FIELDS = [
+  // Required on every `Deal`.
+  'id',
+  'dealNumber',
+  'contactId',
+  'clientType',
+  'serviceArea',
+  'address',
+  'jobTypeId',
+  'superStatus',
+  'assignedTechIds',
+  'assignedDispatcherId',
+  'priority',
+  'tagIds',
+  'status',
+  'createdBy',
+  'createdAt',
+  'updatedAt',
+  // What the board draws.
+  'scheduledDate',
+  'scheduledEndDate',
+  'scheduledTimeSlot',
+  'allDay',
+  'sequences',
+  'clientName',
+  'phones',
+  // The job card's Sent / Seen stamps.
+  'sentToTechAt',
+  'sentToTechVia',
+  'seenByTechAt',
+] as const satisfies readonly (keyof Deal)[];
+
+/**
  * A client of a job on the dispatch map (`GET /deals/map`): the name, and the
  * numbers and emails exactly as crm shows them to THE CALLER — deal-service
  * asks crm's own `POST /contacts/by-ids` with the caller's token, so a caller

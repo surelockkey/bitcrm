@@ -12,6 +12,7 @@ import {
 import { DynamoDbService, scanPage } from '@bitcrm/shared';
 import {
   DealStatus,
+  DISPATCH_MAP_JOB_FIELDS,
   JobSuperStatus,
   SUPER_STATUS_ORDER,
   STAGE_TO_SUPER_STATUS,
@@ -185,43 +186,11 @@ export type ReportWindowBy = 'created' | 'scheduled' | 'end';
 export const REPORT_WINDOW_MAX_ROWS = 150_000;
 
 /**
- * What a dispatch-map row carries (`readMapJobs`): every field a `Deal` must
- * have, so a row is an honest `Deal`, plus what the board draws and searches —
- * the pin, the job card, the pin card, a tech's day. A METADATA row is ~4 KB
+ * What a dispatch-map row carries (`readMapJobs`) — `DISPATCH_MAP_JOB_FIELDS`,
+ * the contract the web's board is tested against. A METADATA row is ~4 KB
  * (notes, money, custom answers, the search halves); this is a fraction of it.
- * Anything else about a job is read by opening it (`GET /deals/:id`).
  */
-export const DISPATCH_MAP_FIELDS = [
-  // Required on every `Deal`.
-  'id',
-  'dealNumber',
-  'contactId',
-  'clientType',
-  'serviceArea',
-  'address',
-  'jobTypeId',
-  'superStatus',
-  'assignedTechIds',
-  'assignedDispatcherId',
-  'priority',
-  'tagIds',
-  'status',
-  'createdBy',
-  'createdAt',
-  'updatedAt',
-  // What the board draws.
-  'scheduledDate',
-  'scheduledEndDate',
-  'scheduledTimeSlot',
-  'allDay',
-  'sequences',
-  'clientName',
-  'phones',
-  // The job card's Sent / Seen stamps.
-  'sentToTechAt',
-  'sentToTechVia',
-  'seenByTechAt',
-] as const;
+export const DISPATCH_MAP_FIELDS = DISPATCH_MAP_JOB_FIELDS;
 
 /** One part of the dispatch map's read: a status, its Done / Canceled ones only for these visit days. */
 export interface MapJobsRead {
