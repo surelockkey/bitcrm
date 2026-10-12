@@ -679,7 +679,7 @@ function ProposalCard({ proposal, selected, onOpen }: { proposal: PortalProposal
       </span>
       <span className="mt-0.5 block text-sm">Proposal #{proposal.number}</span>
       <span className={cx("mt-2.5 flex items-center gap-1.5 text-xs", SOFT)}>
-        <CalendarDays className="size-3.5" aria-hidden /> Sent {formatSentAt(proposal.sentAt)}
+        <CalendarDays className="size-3.5" aria-hidden /> Sent {formatSentAt(proposal.sentAt, proposal.timezone)}
       </span>
       <span className="mt-2.5 flex justify-end border-t border-[#e9ebec] pt-2.5 text-sm font-semibold">
         {n} estimate{n === 1 ? "" : "s"}
@@ -885,7 +885,7 @@ function ProposalDetail({
         <div>
           <h2 className="text-base font-semibold">Proposal #{proposal.number}</h2>
           <p className={cx("text-sm", SOFT)}>
-            Sent {formatSentAt(proposal.sentAt)} · {proposal.options.length} estimates
+            Sent {formatSentAt(proposal.sentAt, proposal.timezone)} · {proposal.options.length} estimates
           </p>
         </div>
         <Chip label={status.label} />
@@ -987,7 +987,7 @@ function JobList({ title, jobs, businessName, empty }: { title: string; jobs: Po
                 </p>
                 <p className="flex items-center gap-1.5 text-sm">
                   <CalendarDays className={cx("size-4 flex-none", SOFT)} aria-hidden />
-                  {formatJobWhen(j.scheduledDate, j.scheduledEndDate, j.timezone)}
+                  {formatJobWhen(j)}
                 </p>
                 {j.address ? (
                   <p className={cx("flex items-start gap-1.5 text-sm", SOFT)}>
@@ -1076,7 +1076,7 @@ function PaymentRow({ payment: p }: { payment: PortalPaymentLine }) {
       <span className="min-w-0">
         <span className="block font-medium">{what}</span>
         <span className={cx("block text-xs", SOFT)}>
-          {formatSentAt(p.takenAt)} · {how}
+          {formatSentAt(p.takenAt, p.timezone)} · {how}
         </span>
       </span>
       <span className="text-right">

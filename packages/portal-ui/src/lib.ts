@@ -1,4 +1,4 @@
-import { PORTAL_INBOX_SHOW, portalInboxCompare } from "@bitcrm/types";
+import { DEFAULT_TIMEZONE, PORTAL_INBOX_SHOW, portalInboxCompare, wallClockInstant, zoneAbbr } from "@bitcrm/types";
 import type {
   Address,
   EstimateStatus,
@@ -6,6 +6,7 @@ import type {
   PortalDocumentSummary,
   PortalInboxPage,
   PortalInboxShow,
+  PortalJob,
   PortalProposalSummary,
   PortalView,
 } from "@bitcrm/types";
@@ -191,12 +192,16 @@ export function statusMeta(doc: Pick<PortalDocumentSummary, "kind" | "status">):
 
 /* ------------------------------------------------------------ Workiz inbox */
 
-/** "Sep 30, 2026" for an ISO instant (the portal's "Sent …" lines). */
-export function formatSentAt(iso: string | undefined): string {
+/**
+ * "Sep 30, 2026" for an ISO instant (the portal's "Sent …" and payment
+ * lines) — the day on the job's clock (`timezone`, else New York), never the
+ * phone's (owner, 2026-10-12). A day, so no zone label.
+ */
+export function formatSentAt(iso: string | undefined, timezone?: string): string {
   if (!iso) return "—";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: jobClock(timezone) });
 }
 
 /**
@@ -245,23 +250,113 @@ export function clientInitials(client: PortalView["client"]): string {
   return i || "•";
 }
 
-/** "Tue, Oct 5 · 10:00 AM – 12:00 PM" in the job's zone. */
-export function formatJobWhen(start: string | undefined, end: string | undefined, timezone: string | undefined): string {
-  if (!start) return "Date to be confirmed";
-  const s = new Date(start);
-  if (Number.isNaN(s.getTime())) return "Date to be confirmed";
-  const tz = timezone ? { timeZone: timezone } : {};
-  const day = s.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", ...tz });
-  const time = (d: Date) => d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", ...tz });
-  const e = end ? new Date(end) : null;
-  return e && !Number.isNaN(e.getTime()) ? `${day} · ${time(s)} – ${time(e)}` : `${day} · ${time(s)}`;
+/* ------------------------------------------------------- the job's clock */
+
+/**
+ * A job keeps its visit as a wall-clock day (`YYYY-MM-DD`) and slot
+ * (`HH:MM-HH:MM`) on its own clock, and the server sends that clock's zone.
+ * Owner, 2026-10-12: outside the office app a time is told on the JOB's clock
+ * — New York when the zone is unknown — and a clock time says which zone it is
+ * in ("10:00 AM CDT"); a day is printed as stored, never shifted through the
+ * phone's zone.
+ */
+export type VisitClock = Pick<PortalJob, "scheduledDate" | "scheduledEndDate" | "scheduledTimeSlot" | "allDay" | "timezone">;
+
+const HHMM = /^([01]?\d|2[0-3]):([0-5]\d)$/;
+
+/** The zone to read a job in: its own when readable, else New York. */
+function jobClock(timezone: string | undefined): string {
+  if (!timezone) return DEFAULT_TIMEZONE;
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: timezone });
+    return timezone;
+  } catch {
+    return DEFAULT_TIMEZONE;
+  }
 }
 
-/** An "Add to calendar" file for one job (RFC 5545), as a data URL. */
-export function calendarDataUrl(job: { number: string; jobType?: string; address?: string; scheduledDate?: string; scheduledEndDate?: string }, businessName: string): string | null {
-  if (!job.scheduledDate) return null;
-  const stamp = (iso: string) => iso.replace(/[-:]/g, "").replace(/\.\d{3}/, "");
-  const end = job.scheduledEndDate ?? new Date(new Date(job.scheduledDate).getTime() + 60 * 60_000).toISOString();
+/** The stored day (an older row may hold an instant: its first ten characters). */
+function storedDay(value: string | undefined): string | null {
+  const day = value?.slice(0, 10);
+  return day && YMD.test(day) && !Number.isNaN(Date.parse(`${day}T00:00:00Z`)) ? day : null;
+}
+
+/** The slot's two ends as readable "HH:MM", or nothing. */
+function slotEnds(slot: string | undefined): { start: string; end?: string } | null {
+  const [from, to] = (slot ?? "").split("-").map((t) => t.trim());
+  if (!from || !HHMM.test(from)) return null;
+  return { start: from, ...(to && HHMM.test(to) && { end: to }) };
+}
+
+const clockText = (hhmm: string) => {
+  const [h, m] = hhmm.split(":").map(Number);
+  return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`;
+};
+
+/**
+ * "10:00 AM – 12:00 PM CDT": the visit window as stored, with its zone named
+ * once after the end — or after each end when the clock changes between them
+ * ("9:00 AM CDT – 5:00 PM CST"). `null` for an all-day visit or no readable time.
+ */
+export function formatVisitTimes(visit: VisitClock): string | null {
+  const day = storedDay(visit.scheduledDate);
+  const slot = slotEnds(visit.scheduledTimeSlot);
+  if (visit.allDay || !day || !slot) return null;
+  const tz = jobClock(visit.timezone);
+  const endDay = storedDay(visit.scheduledEndDate) ?? day;
+  const startAbbr = zoneAbbr(wallClockInstant(day, slot.start, tz), tz);
+  const label = (text: string, abbr: string) => (abbr ? `${text} ${abbr}` : text);
+  if (!slot.end || (slot.end === slot.start && endDay === day)) return label(clockText(slot.start), startAbbr);
+  const endAbbr = zoneAbbr(wallClockInstant(endDay, slot.end, tz), tz);
+  return startAbbr === endAbbr
+    ? `${clockText(slot.start)} – ${label(clockText(slot.end), endAbbr)}`
+    : `${label(clockText(slot.start), startAbbr)} – ${label(clockText(slot.end), endAbbr)}`;
+}
+
+/** "Mon, Oct 12" of a stored day — read as a calendar date, never shifted. */
+const shortDay = (ymd: string) =>
+  new Date(`${ymd}T00:00:00.000Z`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
+
+/** "Tue, Jul 14 · 10:00 AM – 12:00 PM CDT" — My Booking's when; the date alone for an all-day visit. */
+export function formatJobWhen(job: VisitClock): string {
+  const day = storedDay(job.scheduledDate);
+  if (!day) return "Date to be confirmed";
+  const endDay = storedDay(job.scheduledEndDate);
+  const days = endDay && endDay !== day ? `${shortDay(day)} – ${shortDay(endDay)}` : shortDay(day);
+  const times = formatVisitTimes(job);
+  return times ? `${days} · ${times}` : days;
+}
+
+/** `YYYYMMDD` of a stored day plus `n` days (an all-day event's end is exclusive). */
+const icsDay = (ymd: string, n = 0) => {
+  const d = new Date(`${ymd}T00:00:00.000Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10).replace(/-/g, "");
+};
+
+/**
+ * An "Add to calendar" file for one job (RFC 5545), as a data URL. A timed
+ * visit is two UTC instants read on the job's clock (an hour when the slot
+ * has no end); an all-day visit, or one with no time, is a date event.
+ */
+export function calendarDataUrl(
+  job: { number: string; jobType?: string; address?: string } & VisitClock,
+  businessName: string,
+): string | null {
+  const day = storedDay(job.scheduledDate);
+  if (!day) return null;
+  const stamp = (d: Date) => d.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+  const endDay = storedDay(job.scheduledEndDate) ?? day;
+  const slot = job.allDay ? null : slotEnds(job.scheduledTimeSlot);
+  let when: string[];
+  if (slot) {
+    const tz = jobClock(job.timezone);
+    const start = wallClockInstant(day, slot.start, tz);
+    const end = slot.end ? wallClockInstant(endDay, slot.end, tz) : new Date(start.getTime() + 60 * 60_000);
+    when = [`DTSTART:${stamp(start)}`, `DTEND:${stamp(end > start ? end : new Date(start.getTime() + 60 * 60_000))}`];
+  } else {
+    when = [`DTSTART;VALUE=DATE:${icsDay(day)}`, `DTEND;VALUE=DATE:${icsDay(endDay > day ? endDay : day, 1)}`];
+  }
   const esc = (v: string) => v.replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\n/g, "\\n");
   const lines = [
     "BEGIN:VCALENDAR",
@@ -269,9 +364,8 @@ export function calendarDataUrl(job: { number: string; jobType?: string; address
     "PRODID:-//BitCRM//Client portal//EN",
     "BEGIN:VEVENT",
     `UID:job-${job.number}@bitcrm`,
-    `DTSTAMP:${stamp(new Date().toISOString())}`,
-    `DTSTART:${stamp(job.scheduledDate)}`,
-    `DTEND:${stamp(end)}`,
+    `DTSTAMP:${stamp(new Date())}`,
+    ...when,
     `SUMMARY:${esc(`${job.jobType ?? "Service"} — ${businessName}`)}`,
     ...(job.address ? [`LOCATION:${esc(job.address)}`] : []),
     "END:VEVENT",
