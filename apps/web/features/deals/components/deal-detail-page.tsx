@@ -170,6 +170,7 @@ export function DealDetailPage({
               canEdit={canEdit}
               canDelete={canDelete}
               canViewWorkOrders={can("work_orders", "view")}
+              canCreate={can("deals", "create")}
               invoice={invoicePill}
               invoicePending={createInvoice.isPending}
               onInvoice={onInvoice}

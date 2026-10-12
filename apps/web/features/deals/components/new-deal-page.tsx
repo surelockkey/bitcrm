@@ -16,7 +16,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { ClientType, ContactSource, DealPriority } from "@bitcrm/types";
-import type { Address, Contact, CustomFieldValue } from "@bitcrm/types";
+import type { Address, Contact, CustomFieldValue, Deal } from "@bitcrm/types";
 import {
   WzActionBar,
   WzButton,
@@ -57,7 +57,8 @@ import { applicableFields, missingRequiredCustomFields } from "@/features/custom
 import { useJobFieldSettings } from "@/features/job-field-settings/hooks";
 import { missingRequiredJobFields } from "@/features/job-field-settings/lib";
 import { useJobTags } from "@/features/job-tags/hooks";
-import { useCreateDeal } from "../hooks";
+import { useCreateDeal, useDeal } from "../hooks";
+import { duplicatePrefill } from "../duplicate-job";
 import { useNewJobPageData } from "../new-job-page-data";
 import { jobTypeDurationMinutes } from "@/features/job-types/lib";
 import { withDuration } from "./scheduled-block";
@@ -106,7 +107,11 @@ export function NewDealPage() {
   // The call's tracked number can also carry a job source; it lands on the
   // form so the created job keeps the call's attribution.
   const callSid = params.get("callSid") ?? undefined;
-  const prefillContactId = params.get("contactId") ?? undefined;
+  // Workiz's job Actions → Duplicate Job: the job to copy (`duplicate-job.ts`).
+  const duplicateId = params.get("duplicate") ?? "";
+  const copied = useDeal(duplicateId, Boolean(duplicateId));
+  const copyOf = duplicateId ? copied.data ?? null : null;
+  const prefillContactId = params.get("contactId") ?? copyOf?.contactId ?? undefined;
   // From the client card: which of its addresses the job is at (`address=1`,
   // or `new` for none), and where to go once the job exists — a new estimate
   // or the invoice, as Workiz's Create new → Estimate / Invoice do.
@@ -124,9 +129,10 @@ export function NewDealPage() {
   // the form waits behind one skeleton and then appears whole, for good.
   const page = useNewJobPageData({
     contactId: prefillContactId,
+    duplicateOf: duplicateId || undefined,
     callSid,
     phone: prefillPhone,
-    address: prefilledAddress(prefilled.data ?? null, prefillAddress),
+    address: copyOf ? copyOf.address : prefilledAddress(prefilled.data ?? null, prefillAddress),
   });
 
   return (
@@ -141,6 +147,7 @@ export function NewDealPage() {
           prefillAddress={prefillAddress}
           then={then}
           callSid={callSid}
+          copyOf={copyOf}
         />
       ) : (
         <div className="mx-auto w-full max-w-[1400px] px-9">
@@ -201,6 +208,7 @@ function DealForm({
   prefillAddress,
   then,
   callSid,
+  copyOf = null,
 }: {
   initialContact: Contact | null;
   prefillPhone?: string;
@@ -213,6 +221,8 @@ function DealForm({
   /** Where to go once the job exists: `estimate`, `invoice` or `copy-estimate:<id>`. */
   then?: string | null;
   callSid?: string;
+  /** Duplicate Job: the job whose details the form opens with. */
+  copyOf?: Deal | null;
 }) {
   const router = useRouter();
   const { can } = usePermissions();
@@ -224,6 +234,9 @@ function DealForm({
   const { map: companyMap, companies } = useCompanyMap();
   const { data: customFieldDefs } = useCustomFields();
   const { data: fieldSettings } = useJobFieldSettings();
+  const { data: jobTags } = useJobTags();
+  // Read once: the form is a draft from here on.
+  const [copy] = useState(() => (copyOf ? duplicatePrefill(copyOf, { customFieldDefs, jobTags }) : null));
   const required = (id: string) => Boolean(fieldSettings?.requiredFields[id]);
 
   /* ------------------------------------------------------------ the client */
@@ -276,7 +289,7 @@ function DealForm({
       jobTypeId: "",
       jobName: "",
       serviceArea: "",
-      address: jobAddress(prefilledAddress(initialContact, prefillAddress)),
+      address: copy ? copy.values.address : jobAddress(prefilledAddress(initialContact, prefillAddress)),
       scheduledDate: scheduleNow.date,
       scheduledEndDate: scheduleNow.date,
       scheduledTimeSlot: `${scheduleNow.start}-${scheduleNow.end}`,
@@ -287,6 +300,8 @@ function DealForm({
       externalCompanyId: "",
       notes: "",
       tagIds: [],
+      // Duplicate Job: the copied job's details over the blanks (never its visit).
+      ...(copy?.values ?? {}),
     },
   });
   const v = useWatch({ control: form.control }) as DealJobValues;
@@ -342,7 +357,7 @@ function DealForm({
   const businessProfileId = companyTouched
     ? v.businessProfileId || undefined
     : pickPrefillCompanyId({
-        queryId: prefillCompanyId,
+        queryId: copy?.businessProfileId ?? prefillCompanyId,
         areaDefaultId: effectiveArea.area?.defaultBusinessProfileId,
         companies: businessProfiles,
       });
@@ -350,7 +365,8 @@ function DealForm({
   // Answers live outside the zod form: applicability and required-ness are
   // data-driven from the catalog. Files picked before the job exists are held
   // here and uploaded right after create; techs are assigned then too.
-  const [customFields, setCustomFields] = useState<Record<string, CustomFieldValue>>({});
+  const [customFields, setCustomFields] = useState<Record<string, CustomFieldValue>>(() => copy?.customFields ?? {});
+  const [initialCustomFields] = useState(() => JSON.stringify(customFields));
   const [pendingFiles, setPendingFiles] = useState<Record<string, File[]>>({});
   const setPendingFilesFor = (fieldId: string, files: File[]) =>
     setPendingFiles((prev) => {
@@ -360,8 +376,7 @@ function DealForm({
       return next;
     });
   const [assignTechIds, setAssignTechIds] = useState<string[]>([]);
-  const [tagIds, setTagIds] = useState<string[]>([]);
-  const { data: jobTags } = useJobTags();
+  const [tagIds, setTagIds] = useState<string[]>(() => copy?.tagIds ?? []);
   const [callsToLink, setCallsToLink] = useState<string[]>(callSid ? [callSid] : []);
 
   /* ------------------------------------------------------- what is missing */
@@ -440,7 +455,7 @@ function DealForm({
     (form.formState.isDirty ||
       JSON.stringify(clientForm) !== initialClient ||
       contact?.id !== initialContact?.id ||
-      Object.keys(customFields).length > 0 ||
+      JSON.stringify(customFields) !== initialCustomFields ||
       Object.keys(pendingFiles).length > 0 ||
       assignTechIds.length > 0);
   const { confirm } = useUnsavedChanges(dirty);

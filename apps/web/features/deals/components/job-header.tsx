@@ -3,7 +3,7 @@
 import { useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Building, Check, ListOrdered, Loader2, Pencil, ThumbsUp, Trash2, X } from "lucide-react";
+import { Building, Check, Copy, ListOrdered, Loader2, Pencil, ThumbsUp, Trash2, X } from "lucide-react";
 import { JobSuperStatus, type Deal } from "@bitcrm/types";
 import { toast } from "sonner";
 import {
@@ -25,6 +25,7 @@ import { useDeleteDeal, useMoveStatus, useSetDealTags, useUpdateDeal } from "../
 import { isUrgent } from "../lib";
 import { dealJobName, jobActions, jobNamePatch, storedTagOrder, type JobAction, type JobInvoicePill } from "../job-shell";
 import { workOrderHref } from "@/features/work-orders/lib";
+import { duplicateJobHref } from "../duplicate-job";
 import { invoiceStatusLabel } from "@/features/invoices/lib";
 import { PriorityFlag } from "./deal-badges";
 
@@ -43,6 +44,7 @@ export function JobHeader({
   canEdit,
   canDelete,
   canViewWorkOrders = false,
+  canCreate = false,
   invoice,
   invoicePending = false,
   onInvoice,
@@ -55,6 +57,8 @@ export function JobHeader({
   canDelete: boolean;
   /** `work_orders.view` — "View Work Order" for a job a work order authorized. */
   canViewWorkOrders?: boolean;
+  /** `deals.create` — "Duplicate Job". */
+  canCreate?: boolean;
   /**
    * The yellow pill (`jobInvoicePill`): "View Invoice" once the job has one,
    * "Create Invoice" while it has none (greyed, with the reason, while it
@@ -74,6 +78,7 @@ export function JobHeader({
     canDelete,
     workOrderId: deal.workOrderId,
     canViewWorkOrders,
+    canCreate,
   });
 
   return (
@@ -273,6 +278,8 @@ const ACTION_META: Record<JobAction, { label: string; icon: typeof ThumbsUp }> =
   done: { label: "Job Done", icon: ThumbsUp },
   // Workiz's `lnr-numbers`.
   work_order: { label: "View Work Order", icon: ListOrdered },
+  // Workiz's `wfi-copy`.
+  duplicate: { label: "Duplicate Job", icon: Copy },
   delete: { label: "Delete Job", icon: Trash2 },
 };
 
@@ -280,8 +287,8 @@ const ACTION_META: Record<JobAction, { label: string; icon: typeof ThumbsUp }> =
  * "Actions ▾" (job_b_02_actions_open): the kit's `WzActionsMenu` — the white
  * 216px card under the pill with its caret, one 50px row per action with
  * its icon, ruled apart. View Work Order opens the work order that
- * authorized the job; Workiz's Duplicate Job is not in BitCRM, so it is not
- * listed. Delete Job stays slate like the rest, as Workiz keeps it.
+ * authorized the job; Duplicate Job opens New Job filled in from it
+ * (`duplicate-job.ts`). Delete Job stays slate like the rest, as Workiz keeps it.
  */
 function ActionsMenu({ deal, actions, onDone }: { deal: Deal; actions: JobAction[]; onDone: () => void }) {
   const router = useRouter();
@@ -294,6 +301,7 @@ function ActionsMenu({ deal, actions, onDone }: { deal: Deal; actions: JobAction
     onSelect: () => {
       if (a === "done") onDone();
       else if (a === "work_order") router.push(workOrderHref(deal.workOrderId as string));
+      else if (a === "duplicate") router.push(duplicateJobHref(deal.id));
       else setConfirmDelete(true);
     },
   }));

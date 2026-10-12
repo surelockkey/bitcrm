@@ -78,6 +78,22 @@ describe("Actions menu — Workiz's Job Done / View Work Order / Duplicate Job /
     expect(jobActions({ ...base, workOrderId: "wo-1", canViewWorkOrders: false })).toEqual(["done", "delete"]);
     expect(jobActions({ ...base, canViewWorkOrders: true })).toEqual(["done", "delete"]);
   });
+
+  // C2 (2026-10-12): Workiz's third item (job_b_02_actions_open), to someone who may create jobs.
+  it("lists Duplicate Job in Workiz's place, after View Work Order, to someone who may create jobs", () => {
+    const base = { superStatus: JobSuperStatus.SUBMITTED, canEdit: true, canDelete: true };
+    expect(jobActions({ ...base, workOrderId: "wo-1", canViewWorkOrders: true, canCreate: true })).toEqual([
+      "done",
+      "work_order",
+      "duplicate",
+      "delete",
+    ]);
+    expect(jobActions({ ...base, canCreate: false })).toEqual(["done", "delete"]);
+    // A done job can still be copied.
+    expect(jobActions({ superStatus: JobSuperStatus.DONE, canEdit: false, canDelete: false, canCreate: true })).toEqual([
+      "duplicate",
+    ]);
+  });
 });
 
 describe("the header's Tags row: shown in catalog order, stored in the order added", () => {

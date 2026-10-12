@@ -30,6 +30,8 @@ const mocks = vi.hoisted(() => ({
   searchHits: [] as unknown[],
   phoneOwner: null as unknown,
   perms: { custom_fields: true } as Record<string, boolean>,
+  /** The job `?duplicate=` copies (Workiz's Duplicate Job). */
+  sourceDeal: undefined as unknown,
   companies: [
     { id: "bp-default", name: "SureLock", isDefault: true, active: true },
     { id: "bp-2", name: "KeyPro", isDefault: false, active: true },
@@ -84,6 +86,7 @@ vi.mock("@/features/clients/hooks", () => ({
 }));
 vi.mock("../hooks", () => ({
   useCreateDeal: () => ({ mutate: mocks.createDeal, isPending: false }),
+  useDeal: (id: string) => ({ data: id ? mocks.sourceDeal : undefined }),
 }));
 // Every hook the form reads is stubbed, so the form is up from the first
 // render (the load itself is covered by new-deal-page.loading.test.tsx).
@@ -99,7 +102,12 @@ vi.mock("@/features/job-field-settings/hooks", () => ({
   useJobFieldSettings: () => ({ data: { requiredFields: mocks.requiredFields }, isLoading: false }),
 }));
 vi.mock("@/features/job-tags/hooks", () => ({
-  useJobTags: () => ({ data: [{ id: "t-vip", name: "VIP" }] }),
+  useJobTags: () => ({
+    data: [
+      { id: "t-vip", name: "VIP", active: true },
+      { id: "t-old", name: "Old", active: false },
+    ],
+  }),
 }));
 vi.mock("../attachments-api", () => ({
   requestAttachmentUpload: (...args: unknown[]) => mocks.requestUpload(...args),
@@ -191,6 +199,7 @@ const def = (id: string, name: string, group: string, over: Record<string, unkno
 
 beforeEach(() => {
   mocks.searchParams = "contactId=c1&callSid=CA1";
+  mocks.sourceDeal = undefined;
   mocks.customFieldDefs = [];
   mocks.requiredFields = {};
   mocks.effectiveArea = null;
@@ -900,5 +909,79 @@ describe("NewDealPage — the job type's duration", () => {
     await pickJobType(u);
     await u.click(submit());
     expect(lengthOf(lastDeal().scheduledTimeSlot)).toBe(60);
+  });
+});
+
+/**
+ * Workiz's job Actions → Duplicate Job (C2): New Job opens filled in from the
+ * job — its client, place, type, source, company, words, tags and custom
+ * answers — for the dispatcher to look over and Create. The visit, the team
+ * and the files stay with the old job.
+ */
+describe("NewDealPage — Duplicate Job", () => {
+  const source = {
+    id: "deal-1",
+    dealNumber: "5TU7ZA",
+    contactId: "c1",
+    address: { street: "1 Main", unit: "", city: "Phoenix", state: "AZ", zip: "85001", country: "US" },
+    jobTypeId: "jt-lockout",
+    jobName: "Front door",
+    serviceAreaId: "sa-phx",
+    priority: "urgent",
+    sourceId: "src-google",
+    businessProfileId: "bp-2",
+    notes: "<p>Gate code 1234</p>",
+    tagIds: ["t-vip", "t-old"],
+    customFields: { "cf-vendor": "Platinum", "cf-photos": ["att-1"] },
+    scheduledDate: "2020-01-02",
+    scheduledEndDate: "2020-01-02",
+    scheduledTimeSlot: "08:00-09:00",
+    assignedTechIds: ["tech-1"],
+  };
+
+  beforeEach(() => {
+    mocks.searchParams = "duplicate=deal-1";
+    mocks.sourceDeal = source;
+    mocks.customFieldDefs = [
+      def("cf-vendor", "Vendor", "Platinum"),
+      def("cf-photos", "Photos", "Tech", { type: "file" }),
+    ];
+  });
+
+  it("opens on the job's client, place, source, company, name and custom answers", () => {
+    render(<NewDealPage />);
+    expect(screen.getByRole("link", { name: "Jane Smith" })).toHaveAttribute("href", "/contacts/c1");
+    expect(screen.getByLabelText("street")).toHaveValue("1 Main");
+    expect(screen.getByTestId("job-source-select")).toHaveTextContent("src-google");
+    expect(screen.getByTestId("company-select")).toHaveTextContent("bp-2");
+    expect(screen.getByRole("textbox", { name: "Job name" })).toHaveValue("Front door");
+    expect(screen.getByRole("textbox", { name: "Vendor" })).toHaveValue("Platinum");
+  });
+
+  it("creates the copy for the same client, never the old visit, team or files", async () => {
+    mocks.createDeal.mockImplementation((_b: unknown, opts?: { onSuccess?: (d: unknown) => void }) =>
+      opts?.onSuccess?.({ id: "d-copy" }),
+    );
+    const u = user();
+    render(<NewDealPage />);
+    await u.click(submit());
+
+    expect(mocks.createContact).not.toHaveBeenCalled();
+    expect(mocks.updateContact).not.toHaveBeenCalled();
+    expect(lastDeal()).toMatchObject({
+      contactId: "c1",
+      jobTypeId: "jt-lockout",
+      jobName: "Front door",
+      priority: "urgent",
+      sourceId: "src-google",
+      businessProfileId: "bp-2",
+      notes: "<p>Gate code 1234</p>",
+      tagIds: ["t-vip"],
+      customFields: { "cf-vendor": "Platinum" },
+      address: expect.objectContaining({ street: "1 Main", city: "Phoenix" }),
+    });
+    expect(lastDeal().scheduledDate).not.toBe("2020-01-02");
+    expect(mocks.updateDealApi).not.toHaveBeenCalled();
+    await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/deals/d-copy"));
   });
 });

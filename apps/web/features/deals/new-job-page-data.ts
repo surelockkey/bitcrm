@@ -12,7 +12,7 @@ import { useActiveJobSources } from "@/features/job-sources/active-hooks";
 import { useJobTags } from "@/features/job-tags/hooks";
 import { useActiveJobTypes } from "@/features/job-types/active-hooks";
 import { useEffectiveServiceArea, useServiceAreas } from "@/features/service-areas/hooks";
-import { useSuggestedTechs } from "./hooks";
+import { useDeal, useSuggestedTechs } from "./hooks";
 
 /** What the client picker needs typed before it searches, and how much it asks for. */
 const SEARCH_MIN = 3;
@@ -41,12 +41,15 @@ const SEARCH_LIMIT = 16;
  */
 export function useNewJobPageData({
   contactId,
+  duplicateOf,
   callSid,
   phone,
   address,
 }: {
   /** `?contactId=` — the client the call or the client card already knows. */
   contactId?: string;
+  /** `?duplicate=` — the job Duplicate Job copies; its client and place come with it. */
+  duplicateOf?: string;
   /** `?callSid=` — the call the job is being made from. */
   callSid?: string;
   /** `?phone=` — an unknown caller's number, searched in the client book. */
@@ -70,6 +73,7 @@ export function useNewJobPageData({
   ];
 
   // What the link brought.
+  const copied = useDeal(duplicateOf ?? "", Boolean(duplicateOf));
   const contact = useContact(contactId ?? "");
   const call = useCallDetail(callSid ?? "");
   const query = phone?.trim() ?? "";
@@ -90,7 +94,7 @@ export function useNewJobPageData({
 
   const allIn =
     !permsLoading &&
-    [...catalogs, contact, call, owner, suggestions].every(settled) &&
+    [...catalogs, copied, contact, call, owner, suggestions].every(settled) &&
     !search.isLoading &&
     !area.isFetching;
 
