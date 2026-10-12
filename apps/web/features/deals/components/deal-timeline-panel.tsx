@@ -92,10 +92,12 @@ import {
 import {
   collapseReschedules,
   entryRowText,
+  workizScheduleText,
   type RowIcon,
   type ScheduleState,
   type TimelineRowText,
 } from "../timeline-wording";
+import { personName } from "../person-name";
 import { workizStamp } from "../schedule-cell";
 
 /* ----------------------------------------------------------- event meta */
@@ -175,6 +177,7 @@ const FIELD_LABEL: Record<string, string> = {
   contactId: "Client",
   subStatusId: "Sub-status",
   jobName: "Job name",
+  schedule: "Schedule",
 };
 
 /** A signature the client gave on the portal (actor "client") reads as Workiz's "Client signed invoice". */
@@ -234,11 +237,8 @@ export function useTimelineLookups(contactIds: string[]): Lookups {
     const named = (list: { id: string; name: string }[] | undefined) =>
       new Map((list ?? []).map((x) => [x.id, x.name]));
     return {
-      userName: (id) => {
-        const u = typeof id === "string" ? userMap.get(id) : undefined;
-        const name = u ? `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() : "";
-        return name || null;
-      },
+      // Workiz's whole name for someone imported ("(2) TX - Daniel Munoz"), else first + last.
+      userName: (id) => (typeof id === "string" ? personName(userMap.get(id)) ?? null : null),
       contactName: (id) => {
         const c = typeof id === "string" ? contactMap.get(id) : undefined;
         const name = c ? `${c.firstName} ${c.lastName}`.trim() : "";
@@ -359,6 +359,11 @@ function resolveFieldValue(field: string, v: unknown, lk: Lookups): string {
     case "clientType":
     case "paymentStatus":
       return humanizeEnum(v);
+    // A reschedule saved as one entry: the visit, as Workiz writes it.
+    case "schedule": {
+      const o = (typeof v === "object" ? v : {}) as { date?: string | null; slot?: string | null; allDay?: boolean | null };
+      return workizScheduleText({ date: o.date ?? null, slot: o.slot ?? null, allDay: o.allDay ?? null });
+    }
     default:
       return fmtValue(v);
   }
@@ -518,11 +523,10 @@ export function mentionedContactIds(entries: TimelineEntry[]): string[] {
  */
 export function actorLabel(
   e: TimelineEntry,
-  userMap: Map<string, { firstName?: string; lastName?: string }>,
+  userMap: Map<string, { firstName?: string; lastName?: string; workizName?: string }>,
 ): string {
-  const u = userMap.get(e.actorId);
-  const name = u ? `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() : "";
-  return name || e.actorName;
+  // Workiz names the row's author its own way too: "(1) (Bella) 3 Dispatcher".
+  return personName(userMap.get(e.actorId)) || e.actorName;
 }
 
 /* ------------------------------------------------------------------ rail */
@@ -740,10 +744,8 @@ function PanelBody({
       fieldDetail: (e: TimelineEntry) => detail(e, lookups),
       clientName: client?.name,
     };
-    return (e: TimelineEntry) => {
-      const t = entryRowText(e, lookups, { ...extras, reschedule: reschedules.get(e.id) });
-      return { ...t, lines: [...t.lines, ...itemChangeLines(e)] };
-    };
+    // An item edit's numbers come with its own lines (`entryRowText`).
+    return (e: TimelineEntry) => entryRowText(e, lookups, { ...extras, reschedule: reschedules.get(e.id) });
   }, [lookups, client?.name, reschedules]);
   const phonesKey = client?.phones.join("|") ?? "";
   const messageCtx = useMemo(

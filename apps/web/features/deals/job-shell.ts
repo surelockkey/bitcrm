@@ -50,11 +50,11 @@ export function jobNamePatch(current: string, draft: string): { jobName: string 
 
 /**
  * Workiz's menu holds Job Done, View Work Order, Duplicate Job and Delete
- * Job. "View Work Order" opens the work order that authorized the job, when
- * one did; BitCRM has no duplicate, so that one is not offered at all rather
- * than shown dead.
+ * Job, in that order. "View Work Order" opens the work order that authorized
+ * the job, when one did; "Duplicate Job" opens New Job filled from this one
+ * (`duplicate-job.ts`), for whoever may create jobs.
  */
-export type JobAction = "done" | "work_order" | "delete";
+export type JobAction = "done" | "work_order" | "duplicate" | "delete";
 
 export function jobActions({
   superStatus,
@@ -62,6 +62,7 @@ export function jobActions({
   canDelete,
   workOrderId,
   canViewWorkOrders = false,
+  canCreate = false,
 }: {
   superStatus: JobSuperStatus;
   /** The same right the status picker needs. */
@@ -71,10 +72,13 @@ export function jobActions({
   workOrderId?: string;
   /** `work_orders.view`. */
   canViewWorkOrders?: boolean;
+  /** `deals.create` — Duplicate Job makes a new job. */
+  canCreate?: boolean;
 }): JobAction[] {
   const actions: JobAction[] = [];
   if (canEdit && superStatus !== JobSuperStatus.DONE) actions.push("done");
   if (workOrderId && canViewWorkOrders) actions.push("work_order");
+  if (canCreate) actions.push("duplicate");
   if (canDelete) actions.push("delete");
   return actions;
 }

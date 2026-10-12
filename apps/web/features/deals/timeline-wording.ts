@@ -2,7 +2,7 @@ import { TimelineEventType } from "@bitcrm/types";
 import type { SendToTechChannel, TimelineEntry } from "@bitcrm/types";
 import { formatPhone } from "@/lib/phone";
 import { formatDuration } from "@/features/calls/lib";
-import { SEND_TO_TECH_CHANNEL_LABEL, superStatusLabel } from "./lib";
+import { SEND_TO_TECH_CHANNEL_LABEL } from "./lib";
 
 /**
  * What a row of the job's Timeline says, in the words Workiz's activity log
@@ -106,21 +106,103 @@ const amount = (v: unknown): string => {
 /** "<head> - <what>", or just the head when there is nothing to name. */
 const named = (head: string, what: string | null | undefined): string => (what ? `${head} - ${what}` : head);
 
-const str = (v: unknown): string | undefined => (typeof v === "string" && v ? v : undefined);
+const str = (v: unknown): string | undefined => (typeof v === "string" && v.trim() ? v.trim() : undefined);
+
+/** "433", "378.81" — Workiz prints deleted and refunded amounts as they are. */
+const plainAmount = (v: unknown): string => {
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? String(n) : "";
+};
+
+/**
+ * The statuses as Workiz's log spells them ("In progress", "done pending
+ * approval" — not our labels' casing).
+ */
+const WORKIZ_STATUS: Record<string, string> = {
+  submitted: "Submitted",
+  in_progress: "In progress",
+  done: "Done",
+  pending: "Pending",
+  done_pending_approval: "done pending approval",
+  canceled: "Canceled",
+};
+
+/** "Added payment 349.89 in …" (Workiz: Cash, Check, Credit charge). */
+const PAYMENT_METHOD: Record<string, string> = {
+  card: "Credit charge",
+  cash: "Cash",
+  check: "Check",
+  bank: "Bank transfer",
+  other: "Other",
+};
+
+/** "Deleted payment 433 …" (Workiz: cash, check, credit — only offline payments are deleted). */
+const DELETED_METHOD: Record<string, string> = { card: "credit", cash: "cash", check: "check", bank: "bank", other: "other" };
+
+/** An item edit's numbers: Workiz writes prices without a "$". */
+const ITEM_CHANGE: Record<string, { label: string; money: boolean }> = {
+  priceClient: { label: "Price", money: true },
+  costCompany: { label: "Cost (company)", money: true },
+  costForTech: { label: "Cost (tech)", money: true },
+  quantity: { label: "Qty", money: false },
+};
+
+/**
+ * Workiz logs a new price on a line as "Item price updated: Service Call —
+ * 45.00 → 35.00" and any other edit of it as its catch-all "Update job
+ * details"; what else changed (quantity, costs, the name) rides on the lines
+ * under it.
+ */
+function itemUpdateLines(d: Record<string, unknown>): string[] {
+  const name = str(d.productName);
+  const prev = str(d.previousProductName);
+  const changes = (d.changes ?? {}) as Record<string, { from?: unknown; to?: unknown }>;
+  const price = changes.priceClient;
+  const priced = Boolean(name && price && amount(price.from) && amount(price.to));
+  const lines = [priced ? `Item price updated: ${name} — ${amount(price!.from)} → ${amount(price!.to)}` : "Update job details"];
+  if (prev && name && prev !== name) lines.push(`Item: ${prev} → ${name}`);
+  for (const [key, change] of Object.entries(changes)) {
+    const meta = ITEM_CHANGE[key];
+    if (!meta || (key === "priceClient" && priced)) continue;
+    const fmt = (v: unknown) => (meta.money ? amount(v) || "—" : v === null || v === undefined || v === "" ? "—" : String(v));
+    const what = `${meta.label}: ${fmt(change?.from)} → ${fmt(change?.to)}`;
+    lines.push(name ? `${name} — ${what}` : what);
+  }
+  return lines;
+}
+
+/** "Status Updated - Canceled - Cant Do - tech said cant do"; no sub-status → "Status Updated - Done - ". */
+function statusLine(d: Record<string, unknown>, lk: WordingLookups): string {
+  const to = str(d.toStatus);
+  if (!to) return "Status Updated";
+  const sub = str(d.subStatusName) ?? (typeof d.subStatusId === "string" ? lk.subStatuses.get(d.subStatusId) : undefined) ?? "";
+  const reason = str(d.cancellationReason);
+  const parts = ["Status Updated", WORKIZ_STATUS[to] ?? humanize(to), sub || reason || ""];
+  // A Canceled sub-status is the reason when none was typed — said once.
+  if (sub && reason && reason !== sub) parts.push(reason);
+  return parts.join(" - ");
+}
 
 function tagNames(ids: unknown, lk: WordingLookups): string[] {
   return Array.isArray(ids) ? ids.map((id) => (typeof id === "string" ? lk.tags.get(id) ?? id : String(id))) : [];
 }
 
+/**
+ * Workiz's tag lines: "Added tag" (one), "Added tag(s)" (several), "Remove
+ * tag from job", and "Updated tags" when some came and some went — the
+ * tags named after it, ours.
+ */
 function tagLines(d: Record<string, unknown>, lk: WordingLookups): string[] {
   const before = new Set(Array.isArray(d.oldValue) ? (d.oldValue as unknown[]) : []);
   const after = new Set(Array.isArray(d.newValue) ? (d.newValue as unknown[]) : []);
   const added = tagNames([...after].filter((t) => !before.has(t)), lk);
   const removed = tagNames([...before].filter((t) => !after.has(t)), lk);
-  const lines: string[] = [];
-  if (added.length) lines.push(named("Added tag", added.join(", ")));
-  if (removed.length) lines.push(named("Remove tag from job", removed.join(", ")));
-  return lines.length ? lines : ["Update job details"];
+  const addedLine = named(added.length > 1 ? "Added tag(s)" : "Added tag", added.join(", "));
+  const removedLine = named("Remove tag from job", removed.join(", "));
+  if (added.length && removed.length) return ["Updated tags", named("Added tag", added.join(", ")), removedLine];
+  if (added.length) return [addedLine];
+  if (removed.length) return [removedLine];
+  return ["Update job details"];
 }
 
 function callLines(e: TimelineEntry, extras: WordingExtras): TimelineRowText {
@@ -163,23 +245,24 @@ export function entryRowText(e: TimelineEntry, lk: WordingLookups, extras: Wordi
   if (plain) return one(plain);
 
   switch (e.eventType) {
-    case TimelineEventType.STATUS_CHANGED: {
-      const to = str(d.toStatus);
-      if (!to) return one("Status Updated");
-      const sub = typeof d.subStatusId === "string" ? lk.subStatuses.get(d.subStatusId) ?? "" : "";
-      return one(`Status Updated - ${superStatusLabel(to as never)} - ${sub}`);
-    }
+    case TimelineEventType.STATUS_CHANGED:
+      return one(statusLine(d, lk));
     case TimelineEventType.STAGE_CHANGED:
       return one(d.toStage ? `Stage Updated - ${humanize(d.toStage)}` : "Stage Updated");
     case TimelineEventType.FIELD_UPDATED: {
       if (d.field === "tagIds") return { lines: tagLines(d, lk), icon };
+      // A reschedule saved as one entry: the whole visit before and after.
+      if (d.field === "schedule") return one(rescheduleSentence(d.oldValue, d.newValue));
+      if (d.field === "paymentStatus") return one(named("Payment status updated", humanize(d.newValue)));
+      const head = d.field === "jobName" ? "Job name changed" : "Update job details";
       const more = extras.fieldDetail?.(e);
-      return { lines: more ? ["Update job details", more] : ["Update job details"], icon };
+      return { lines: more ? [head, more] : [head], icon };
     }
+    // The directory's name for them (Workiz's whole name), else the one written with the event.
     case TimelineEventType.TECH_ASSIGNED:
-      return one(named("Tech Assigned", lk.userName(d.techId)));
+      return one(named("Tech Assigned", lk.userName(d.techId) ?? str(d.techName)));
     case TimelineEventType.TECH_UNASSIGNED:
-      return one(named("Tech Unassigned", lk.userName(d.previousTechId ?? d.techId)));
+      return one(named("Tech Unassigned", lk.userName(d.previousTechId ?? d.techId) ?? str(d.techName)));
     case TimelineEventType.SENT_TO_TECH: {
       const channels = Array.isArray(d.channels) ? (d.channels as SendToTechChannel[]) : [];
       const via = channels.map((c) => SEND_TO_TECH_CHANNEL_LABEL[c] ?? humanize(c)).join(" & ");
@@ -200,36 +283,39 @@ export function entryRowText(e: TimelineEntry, lk: WordingLookups, extras: Wordi
       const price = amount(d.priceClient);
       return one(name ? `Added item ${name}${price ? ` (${price})` : ""}` : "Added item");
     }
-    case TimelineEventType.PRODUCT_UPDATED: {
-      const name = str(d.productName);
-      const prev = str(d.previousProductName);
-      return one(name ? `Updated item ${prev && prev !== name ? `${prev} → ${name}` : name}` : "Updated item");
-    }
+    case TimelineEventType.PRODUCT_UPDATED:
+      return { lines: itemUpdateLines(d), icon };
     case TimelineEventType.PRODUCT_REMOVED: {
       const name = str(d.productName ?? d.name);
-      return one(name ? `Removed item ${name}` : "Removed item");
+      const price = amount(d.priceClient);
+      return one(name ? `Removed item ${name}${price ? ` (${price})` : ""}` : "Removed item");
     }
     case TimelineEventType.ESTIMATE_CREATED:
       return one(d.number ? `Created estimate #${d.number}` : "Created estimate");
     case TimelineEventType.INVOICE_CREATED:
       return one(d.number ? `Created invoice #${d.number}` : "Created invoice");
     case TimelineEventType.ESTIMATE_STATUS_CHANGED: {
+      if (d.signed) return one("Client signed estimate");
       const to = d.to ?? d.status;
-      if (!to) return one("Updated estimate status");
-      return one(`Updated estimate ${d.number ? `${d.number} ` : ""}status to ${humanize(to)}`);
+      if (!to) return one("Estimate status updated");
+      return one(d.number ? `Updated estimate ${d.number} status to ${humanize(to)}` : `Estimate status updated - ${humanize(to)}`);
     }
-    case TimelineEventType.INVOICE_SIGNED: {
-      const head = e.actorId === "client" ? "Client signed invoice" : "Invoice signed";
-      return one(d.number ? `${head} #${d.number}` : head);
-    }
+    // The signature is the client's whoever held the phone — Workiz logs "Client signed invoice" either way.
+    case TimelineEventType.INVOICE_SIGNED:
+      return one(d.number ? `Client signed invoice #${d.number}` : "Client signed invoice");
     case TimelineEventType.PAYMENT_RECEIVED: {
       const sum = amount(d.amount);
       if (!sum) return one("Added payment");
-      return one(d.method ? `Added payment ${sum} in ${humanize(d.method)}` : `Added payment ${sum}`);
+      const method = str(d.method);
+      return one(method ? `Added payment ${sum} in ${PAYMENT_METHOD[method] ?? humanize(method)}` : `Added payment ${sum}`);
     }
     case TimelineEventType.PAYMENT_REFUNDED: {
-      const sum = amount(d.amount);
-      return one(sum ? `Refunded payment ${sum}` : "Refunded payment");
+      const sum = plainAmount(d.amount);
+      const method = str(d.method) ?? "";
+      // A mis-keyed offline payment is deleted, not refunded — "Deleted payment 433 cash".
+      if (d.deleted) return one(["Deleted payment", sum, DELETED_METHOD[method] ?? method.replace(/_/g, " ")].filter(Boolean).join(" "));
+      // Only a card payment is refunded (through the processor): "Refunded payment 109.54 charge".
+      return one(sum ? `Refunded payment ${sum} charge` : "Refunded payment");
     }
   }
 
@@ -275,6 +361,26 @@ const SCHEDULE_FIELD: Record<string, keyof ScheduleState> = {
   allDay: "allDay",
 };
 const SCHEDULE_FIELDS = new Set(["scheduledDate", "scheduledTimeSlot", "scheduledEndDate", "allDay"]);
+
+/** A visit as a one-entry reschedule stores it (`{ date, endDate, slot, allDay }`). */
+function visitOf(v: unknown): ScheduleState {
+  const o = (v && typeof v === "object" ? v : {}) as Record<string, unknown>;
+  return {
+    date: typeof o.date === "string" ? o.date : null,
+    slot: typeof o.slot === "string" ? o.slot : null,
+    allDay: typeof o.allDay === "boolean" ? o.allDay : null,
+  };
+}
+
+/** "Rescheduled job from Wed Oct 07 2026 5:00 pm - 6:00 pm to Thu Oct 08 2026 8:00 am - 9:00 am". */
+function rescheduleSentence(from: unknown, to: unknown): string {
+  return `Rescheduled job from ${workizScheduleText(visitOf(from))} to ${workizScheduleText(visitOf(to))}`;
+}
+
+const isOneEntryReschedule = (e: TimelineEntry) =>
+  e.eventType === TimelineEventType.FIELD_UPDATED &&
+  (e.details as { field?: unknown } | undefined)?.field === "schedule" &&
+  !isImportedEntry(e);
 /** Fields one save logs land within moments of each other. */
 const SAME_SAVE_MS = 5000;
 
@@ -293,7 +399,9 @@ const isScheduleChange = (e: TimelineEntry) =>
  *
  * Imported rows are left alone — Workiz already wrote their sentence — and
  * past one the walk no longer knows the visit, so older saves are worded
- * from their own values only.
+ * from their own values only. A save written as one `schedule` entry (since
+ * C8) carries the whole visit before and after: it is its own sentence, and
+ * the walk carries on from the visit it started from.
  */
 export function collapseReschedules(
   entries: TimelineEntry[],
@@ -309,6 +417,12 @@ export function collapseReschedules(
     const head = newestFirst[i];
     if (head.eventType === TimelineEventType.FIELD_UPDATED && isImportedEntry(head)) {
       if (SCHEDULE_FIELDS.has(String((head.details as { field?: unknown } | undefined)?.field))) state = null;
+      continue;
+    }
+    if (isOneEntryReschedule(head)) {
+      const d = head.details as { oldValue?: unknown; newValue?: unknown };
+      text.set(head.id, rescheduleSentence(d.oldValue, d.newValue));
+      state = visitOf(d.oldValue);
       continue;
     }
     if (!isScheduleChange(head)) continue;

@@ -126,6 +126,23 @@ const routes: FakeRoute[] = [
   // the number already belongs to a client.
   { match: /\/search$/, reply: () => ({ hits: [], total: 0 }), delayMs: 30 },
   { match: /\/crm\/contacts\/search\/by-phone$/, reply: () => contact, delayMs: 60 },
+  // Duplicate Job: the job being copied, then its client (asked only once the job says who).
+  {
+    match: /\/deals\/deal-1$/,
+    reply: () => ({
+      id: "deal-1",
+      dealNumber: "5TU7ZA",
+      contactId: "c1",
+      address: { street: "77 Oak St", unit: "", city: "Testville", state: "GA", zip: "30001", lat: 33.92, lng: -84.42 },
+      jobTypeId: "jt-lockout",
+      priority: "normal",
+      sourceId: "src-web",
+      tagIds: [],
+      customFields: { "cf-gate": "4321" },
+      assignedTechIds: [],
+    }),
+    delayMs: 90,
+  },
 ];
 
 let server: FakeServer;
@@ -243,6 +260,23 @@ describe("NewDealPage — one load, not waves", () => {
     observer.disconnect();
 
     expect(lost).toBe(false);
+  });
+
+  it("Duplicate Job: the copied job, its client and its answers are all there in the first frame", async () => {
+    nav.params = "duplicate=deal-1";
+    const watch = watchFirstFrame(formIsUp, () => ({
+      clientName: screen.queryAllByDisplayValue("Ivy Quill").length > 0,
+      street: screen.queryAllByDisplayValue("77 Oak St").length > 0,
+      gateCode: screen.queryAllByDisplayValue("4321").length > 0,
+      skeletons: skeletonCount(),
+    }));
+    renderWithClient(<NewDealPage />);
+    await screen.findByRole("button", { name: "Create" }, { timeout: 3000 });
+    watch.stop();
+    await settle();
+
+    expect(watch.frame()).toEqual({ clientName: true, street: true, gateCode: true, skeletons: 0 });
+    expect(duplicates(server.requests)).toEqual([]);
   });
 
   it("a request that fails does not hold the form off the screen", async () => {

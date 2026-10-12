@@ -57,6 +57,9 @@ const historyEntries: TimelineEntry[] = [
 
 const roman = { id: "u1", firstName: "Roman", lastName: "Senyshyn" } as User;
 const olha = { id: "u-olha", firstName: "Olha", lastName: "Datsiuk" } as User;
+// Imported from Workiz: named the way Workiz names them (`workizName`).
+const daniel = { id: "u-daniel", firstName: "Daniel", lastName: "Munoz", workizName: "(2) TX - Daniel Munoz" } as User;
+const bella = { id: "u-bella", firstName: "Bella", lastName: "Stone", workizName: "(1) (Bella) 3 Dispatcher" } as User;
 
 vi.mock("../hooks", () => ({
   useDealTimeline: () => ({
@@ -69,7 +72,14 @@ vi.mock("../hooks", () => ({
   useAddNote: () => ({ mutate: vi.fn(), isPending: false }),
   useUpdateNote: () => ({ mutate: updateNoteMutate, isPending: false }),
   useDeleteNote: () => ({ mutate: deleteNoteMutate, isPending: false }),
-  useUserMap: () => ({ map: new Map([[roman.id, roman], [olha.id, olha]]) }),
+  useUserMap: () => ({
+    map: new Map([
+      [roman.id, roman],
+      [olha.id, olha],
+      [daniel.id, daniel],
+      [bella.id, bella],
+    ]),
+  }),
 }));
 vi.mock("@/features/clients/hooks", () => ({
   // Only the clients the entries mention are asked for.
@@ -281,7 +291,7 @@ describe("DealTimelinePanel — history, filters, search", () => {
     expect(screen.queryByText("Field updated")).not.toBeInTheDocument();
 
     // status change, actor unknown to the map → stored label
-    expect(screen.getByText(/Status Updated - In Progress -/)).toBeInTheDocument();
+    expect(screen.getByText(/Status Updated - In progress -/)).toBeInTheDocument();
     expect(screen.getByText(/Max K\./)).toBeInTheDocument();
   });
 
@@ -423,7 +433,7 @@ describe("DealTimelinePanel — history, filters, search", () => {
 
     expect(screen.getByRole("combobox", { name: /timeline filter/i })).toHaveTextContent("Activities (2)");
     expect(screen.getByText(/normal → urgent/i)).toBeInTheDocument();
-    expect(screen.getByText(/Status Updated - In Progress -/)).toBeInTheDocument();
+    expect(screen.getByText(/Status Updated - In progress -/)).toBeInTheDocument();
     expect(screen.queryByText(/Called the client/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Incoming/)).not.toBeInTheDocument();
   });
@@ -436,7 +446,7 @@ describe("DealTimelinePanel — history, filters, search", () => {
     await userEvent.type(screen.getByPlaceholderText("Search activities"), "priority");
 
     expect(screen.getByText(/normal → urgent/i)).toBeInTheDocument();
-    expect(screen.queryByText(/Status Updated - In Progress -/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Status Updated - In progress -/)).not.toBeInTheDocument();
   });
 
   it("lets an editor add a note: 'Add note' opens the box, Save posts it", async () => {
@@ -569,8 +579,11 @@ describe("DealTimelinePanel — notes editing and actor names", () => {
     render(<DealTimelinePanel dealId="d1" canEdit />);
     openPanel();
 
-    expect(screen.getByText(/Price: \$45\.00 → \$60\.00/)).toBeInTheDocument();
-    expect(screen.getByText(/Cost \(company\): \$15\.00 → \$18\.00/)).toBeInTheDocument();
+    // Workiz's "Item price updated: <item> — 45.00 → 60.00"; the other numbers under it.
+    expect(
+      screen.getByText(/Item price updated: Deadbolt — 45\.00 → 60\.00\s+Deadbolt — Cost \(company\): 15\.00 → 18\.00/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Price: \$45/)).not.toBeInTheDocument();
   });
 });
 
@@ -617,7 +630,7 @@ describe("DealTimelinePanel — every event reads human", () => {
         },
       }),
     );
-    expect(screen.getByText("Status Updated - In Progress - Waiting for parts")).toBeInTheDocument();
+    expect(screen.getByText("Status Updated - In progress - Waiting for parts")).toBeInTheDocument();
   });
 
   it("resolves catalog ids in field changes to their names", () => {
@@ -808,8 +821,33 @@ describe("DealTimelinePanel — what the client did on the portal reads like Wor
     expect(screen.getByText("Client signed invoice #O8E9NQ")).toBeInTheDocument();
   });
 
-  it("a staff-collected signature", () => {
+  // Workiz logs "Client signed invoice" for a signature taken on the tech's phone too (C8).
+  it("a staff-collected signature is the client's as well", () => {
     show(entry({ eventType: TimelineEventType.INVOICE_SIGNED, actorId: "u-olha", details: { invoiceId: "d1", number: "O8E9NQ", signedBy: "Josh W" } }));
-    expect(screen.getByText("Invoice signed #O8E9NQ")).toBeInTheDocument();
+    expect(screen.getByText("Client signed invoice #O8E9NQ")).toBeInTheDocument();
+  });
+
+  // C8: Workiz names people its own way — "Tech Assigned - (2) TX - Daniel Munoz" under
+  // "(1) (Bella) 3 Dispatcher" (job_b_03_rail0).
+  it("names an imported technician and the dispatcher who assigned them as Workiz does", () => {
+    show(entry({ eventType: TimelineEventType.TECH_ASSIGNED, actorId: "u-bella", actorName: "bella@x.com", details: { techId: "u-daniel" } }));
+    expect(screen.getByText("Tech Assigned - (2) TX - Daniel Munoz")).toBeInTheDocument();
+    expect(screen.getByText("(1) (Bella) 3 Dispatcher")).toBeInTheDocument();
+  });
+
+  it("a reschedule saved as one entry is one Workiz sentence", () => {
+    show(
+      entry({
+        eventType: TimelineEventType.FIELD_UPDATED,
+        details: {
+          field: "schedule",
+          oldValue: { date: "2026-10-07", endDate: "2026-10-07", slot: "17:00-18:00", allDay: null },
+          newValue: { date: "2026-10-08", endDate: "2026-10-08", slot: "08:00-09:00", allDay: null },
+        },
+      }),
+    );
+    expect(
+      screen.getByText("Rescheduled job from Wed Oct 07 2026 5:00 pm - 6:00 pm to Thu Oct 08 2026 8:00 am - 9:00 am"),
+    ).toBeInTheDocument();
   });
 });

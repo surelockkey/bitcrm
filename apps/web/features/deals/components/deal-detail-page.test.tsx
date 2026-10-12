@@ -473,13 +473,13 @@ describe("DealDetailPage — the header, as Workiz lays it out", () => {
     expect(screen.queryByRole("button", { name: "Edit job name" })).toBeNull();
   });
 
-  it("Actions holds Job Done and Delete Job; Job Done moves the job to Done", async () => {
+  it("Actions holds Job Done, Duplicate Job and Delete Job; Job Done moves the job to Done", async () => {
     mocks.perms.deals = true;
     render(<DealDetailPage dealId="d1" />);
 
     await user().click(screen.getByRole("button", { name: "Actions" }));
     const items = screen.getAllByRole("menuitem").map((i) => i.textContent);
-    expect(items).toEqual(["Job Done", "Delete Job"]);
+    expect(items).toEqual(["Job Done", "Duplicate Job", "Delete Job"]);
 
     await user().click(screen.getByRole("menuitem", { name: "Job Done" }));
     expect(mocks.moveStatus).toHaveBeenCalledWith({ superStatus: JobSuperStatus.DONE }, expect.anything());
@@ -505,9 +505,33 @@ describe("DealDetailPage — the header, as Workiz lays it out", () => {
     render(<DealDetailPage dealId="d1" />);
 
     await user().click(screen.getByRole("button", { name: "Actions" }));
-    expect(screen.getAllByRole("menuitem").map((i) => i.textContent)).toEqual(["Job Done", "View Work Order", "Delete Job"]);
+    expect(screen.getAllByRole("menuitem").map((i) => i.textContent)).toEqual([
+      "Job Done",
+      "View Work Order",
+      "Duplicate Job",
+      "Delete Job",
+    ]);
     await user().click(screen.getByRole("menuitem", { name: "View Work Order" }));
     expect(mocks.push).toHaveBeenCalledWith("/work-orders?id=wo-7");
+  });
+
+  // C2: Workiz's Duplicate Job — New Job, filled in from this job, to look over and Create.
+  it("Duplicate Job opens New Job filled in from the job", async () => {
+    mocks.perms.deals = true;
+    render(<DealDetailPage dealId="d1" />);
+
+    await user().click(screen.getByRole("button", { name: "Actions" }));
+    await user().click(screen.getByRole("menuitem", { name: "Duplicate Job" }));
+    expect(mocks.push).toHaveBeenCalledWith("/deals/new?duplicate=d1");
+  });
+
+  it("keeps Duplicate Job from someone without deals.create", async () => {
+    mocks.perms.deals = true;
+    mocks.denied = new Set(["deals.create"]);
+    render(<DealDetailPage dealId="d1" />);
+
+    await user().click(screen.getByRole("button", { name: "Actions" }));
+    expect(screen.getAllByRole("menuitem").map((i) => i.textContent)).toEqual(["Job Done", "Delete Job"]);
   });
 
   it("Delete Job asks first", async () => {
@@ -525,7 +549,7 @@ describe("DealDetailPage — the header, as Workiz lays it out", () => {
     render(<DealDetailPage dealId="d1" />);
 
     await user().click(screen.getByRole("button", { name: "Actions" }));
-    expect(screen.getAllByRole("menuitem").map((i) => i.textContent)).toEqual(["Job Done"]);
+    expect(screen.getAllByRole("menuitem").map((i) => i.textContent)).toEqual(["Job Done", "Duplicate Job"]);
   });
 
   it("has no Actions at all for a viewer", () => {
