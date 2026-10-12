@@ -1,11 +1,13 @@
 "use client";
 
+import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import type { ServiceArea } from "@bitcrm/types";
 import { queryKeys } from "@/lib/query-keys";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import * as api from "./api";
+import { jobZoneResolver } from "./lib";
 
 /* --------------------------------------------------------------- queries */
 
@@ -17,6 +19,12 @@ export function useServiceAreas(enabled = true) {
     // A catalog, like the job types and sources beside it.
     staleTime: 5 * 60_000,
   });
+}
+
+/** `(job) => zone` its visit was booked in — see `jobZoneResolver`; Connecticut until the areas load. */
+export function useJobZoneOf() {
+  const { data: areas } = useServiceAreas();
+  return useMemo(() => jobZoneResolver(areas), [areas]);
 }
 
 export function useServiceArea(id: string, enabled = true) {

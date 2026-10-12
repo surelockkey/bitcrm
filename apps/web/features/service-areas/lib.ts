@@ -1,4 +1,5 @@
 import { ServiceAreaType, type ServiceArea, type CoverageShape } from "@bitcrm/types";
+import { DEFAULT_TZ } from "@/lib/timezone";
 
 /**
  * Workiz's service-area colours, in its "Choose Color" order
@@ -68,3 +69,17 @@ export function circleToPath(
     return { lat: lat + dLat * Math.sin(t), lng: lng + dLng * Math.cos(t) };
   });
 }
+
+/**
+ * The zone a job's stored visit was booked in: the job's own (`jobTimezone`,
+ * from Workiz), else its service area's, else Connecticut. The web converts
+ * that wall clock to Connecticut's for display (2026-10-12 owner rule).
+ */
+export function jobZoneResolver(
+  areas: Pick<ServiceArea, "id" | "timezone">[] | undefined,
+): (job: { jobTimezone?: string; serviceAreaId?: string | null }) => string {
+  const zones = new Map((areas ?? []).map((a) => [a.id, a.timezone]));
+  return (job) =>
+    job.jobTimezone || (job.serviceAreaId ? zones.get(job.serviceAreaId) : undefined) || DEFAULT_TZ;
+}
+

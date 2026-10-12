@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { ServiceAreaType, type ServiceArea } from "@bitcrm/types";
-import { describeArea, coverageCenter, circleToPath } from "./lib";
+import { describeArea, coverageCenter, circleToPath, jobZoneResolver } from "./lib";
 
 function area(overrides: Partial<ServiceArea>): ServiceArea {
   return {
@@ -67,5 +67,27 @@ describe("circleToPath", () => {
     for (const p of path) {
       expect(Math.abs(p.lat - 33.75)).toBeLessThan(0.1);
     }
+  });
+});
+
+/** The zone a job's stored visit was booked in — what the web converts to Connecticut. */
+describe("jobZoneResolver", () => {
+  const zoneOf = jobZoneResolver([
+    area({ id: "tx", timezone: "America/Chicago" }),
+    area({ id: "az", timezone: "America/Phoenix" }),
+  ]);
+
+  it("the job's own zone (Workiz) wins", () => {
+    expect(zoneOf({ jobTimezone: "America/Denver", serviceAreaId: "tx" })).toBe("America/Denver");
+  });
+
+  it("else its service area's", () => {
+    expect(zoneOf({ serviceAreaId: "tx" })).toBe("America/Chicago");
+  });
+
+  it("else Connecticut — no area, an unknown area, or no catalog yet", () => {
+    expect(zoneOf({})).toBe("America/New_York");
+    expect(zoneOf({ serviceAreaId: "gone" })).toBe("America/New_York");
+    expect(jobZoneResolver(undefined)({ serviceAreaId: "tx" })).toBe("America/New_York");
   });
 });

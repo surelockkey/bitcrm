@@ -12,37 +12,11 @@
  * stored time as it is.
  */
 
+import { offsetAt, zonedInstant } from "@/lib/timezone";
+
 const pad = (n: number) => String(n).padStart(2, "0");
 
-/** How far `zone` is ahead of UTC at `instant`, in ms. */
-function offsetAt(instant: number, zone: string): number {
-  const parts = Object.fromEntries(
-    new Intl.DateTimeFormat("en-US", {
-      timeZone: zone,
-      hourCycle: "h23",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    })
-      .formatToParts(new Date(instant))
-      .map((p) => [p.type, p.value]),
-  );
-  const asUtc = Date.UTC(+parts.year, +parts.month - 1, +parts.day, +parts.hour % 24, +parts.minute, +parts.second);
-  return asUtc - instant;
-}
-
-/** The instant a wall clock in `zone` reads `date` `time` (HH:MM). */
-export function zonedInstant(date: string, time: string, zone: string): Date {
-  const [y, m, d] = date.split("-").map(Number);
-  const [h, min] = time.split(":").map(Number);
-  const naive = Date.UTC(y, m - 1, d, h, min);
-  // Twice: the first guess can sit on the other side of a DST change.
-  const first = naive - offsetAt(naive, zone);
-  return new Date(naive - offsetAt(first, zone));
-}
+export { zonedInstant } from "@/lib/timezone";
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
