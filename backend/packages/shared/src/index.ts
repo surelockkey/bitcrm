@@ -154,3 +154,12 @@ export type {
   TwilioSignatureOptions,
   TwilioSignedRequest,
 } from './twilio/twilio-signature.guard';
+
+// ---------- Client links (Workiz {{confirm_link}}: messaging mints, billing verifies) ----------
+export {
+  clientConfirmPortalBase,
+  clientConfirmSecret,
+  clientConfirmUrl,
+  signClientConfirmToken,
+  verifyClientConfirmToken,
+} from './links/client-confirm-link';
