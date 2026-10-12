@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronDown, CreditCard, FileSpreadsheet, FileText, Home, MessageSquareText, Wrench } from "lucide-react";
 import type { Deal } from "@bitcrm/types";
@@ -12,7 +12,7 @@ import { usePermissions } from "@/features/auth/use-permissions";
 import { useCreateClientEstimate, useEstimatesForContacts } from "@/features/estimates/hooks";
 import { useCreateClientInvoice, useInvoicesForContacts } from "@/features/invoices/hooks";
 import { accountToday } from "@/features/reports/report-dates";
-import { useServiceAreas } from "@/features/service-areas/hooks";
+import { useJobZoneOf } from "@/features/service-areas/hooks";
 import { amountDueByDeal, byJobDateDesc, clientAddressRows, clientKpis, pastDueByDeal } from "../client-page";
 import { countSoFar, useClientJobs, useClientPageData, useClientPayments } from "../client-page-data";
 import { useCompany, useContact, useDeleteContact } from "../hooks";
@@ -85,11 +85,9 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
   // (no job — "either a job or a client") and open it on its own page.
   const createEstimate = useCreateClientEstimate();
   const createInvoice = useCreateClientInvoice();
-  // The Job Date column is on the account's clock: a visit is stored on the
+  // The Job Date column is on Connecticut's clock: a visit is stored on the
   // clock of the zone it was booked in — the job's own, else its area's.
-  const { data: serviceAreas } = useServiceAreas();
-  const areaZone = useMemo(() => new Map((serviceAreas ?? []).map((a) => [a.id, a.timezone])), [serviceAreas]);
-  const zoneOf = useCallback((d: Deal) => d.jobTimezone || (d.serviceAreaId ? areaZone.get(d.serviceAreaId) : undefined), [areaZone]);
+  const zoneOf = useJobZoneOf();
 
   const today = accountToday();
   const kpis = useMemo(

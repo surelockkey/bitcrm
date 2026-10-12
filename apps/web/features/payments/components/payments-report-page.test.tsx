@@ -5,7 +5,7 @@ import { http, HttpResponse } from "msw";
 import type { PaymentReportRow } from "@bitcrm/types";
 import { server } from "@/test/msw/server";
 import { renderWithClient } from "@/test/render-with-client";
-import { viewerToday } from "@/features/reports/jobs/lib";
+import { ctToday } from "@/lib/timezone";
 
 const mocks = vi.hoisted(() => ({ canView: true, money: true, toast: { warning: vi.fn(), error: vi.fn() } }));
 vi.mock("sonner", () => ({ toast: mocks.toast }));
@@ -101,7 +101,8 @@ describe("PaymentsReportPage", () => {
   it("opens on This month to today, newest first, 10 a page — Workiz's defaults", async () => {
     renderWithClient(<PaymentsReportPage />);
     await screen.findByText("6563K8 (Job)");
-    const today = viewerToday();
+    // Connecticut's today, not the browser's (2026-10-12 owner rule).
+    const today = ctToday();
     const first = calls[0];
     expect(first.get("from")).toBe(`${today.slice(0, 7)}-01`);
     expect(first.get("to")).toBe(today);
@@ -109,6 +110,20 @@ describe("PaymentsReportPage", () => {
     expect(first.get("limit")).toBe("10");
     expect(box()).toHaveTextContent("This month");
     expect(screen.getByRole("heading", { name: "Payments report" })).toBeInTheDocument();
+  });
+
+  it("counts the presets from Connecticut's today, not the browser's", async () => {
+    // 23:30 EDT on Sep 30 — a Kyiv (or UTC) browser is already in October.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-01T03:30:00.000Z"));
+    try {
+      renderWithClient(<PaymentsReportPage />);
+      await screen.findByText("6563K8 (Job)");
+      expect(calls[0].get("from")).toBe("2026-09-01");
+      expect(calls[0].get("to")).toBe("2026-09-30");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("shows the two cards and the lines as Workiz prints them", async () => {

@@ -72,7 +72,7 @@ describe("CompaniesTable — the Workiz Clients grid for companies", () => {
     const links = screen.getAllByRole("link", { name: "(404) 555-1234" });
     expect(links).toHaveLength(2);
     for (const a of links) expect(a).toHaveAttribute("href", "tel:+14045551234");
-    expect(screen.getByText("Thu Oct 08, 2026 01:26 PM")).toBeInTheDocument();
+    expect(screen.getByText("Thu Oct 08, 2026 01:26 PM PDT")).toBeInTheDocument();
     expect(screen.getByText("1 Main St, Phoenix, AZ 85001")).toBeInTheDocument();
   });
 

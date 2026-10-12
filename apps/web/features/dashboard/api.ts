@@ -21,6 +21,8 @@ import { personName } from "@/features/deals/person-name";
 import { getPaymentReportTotals } from "@/features/payments/api";
 import { getEstimateReportSummary, getInvoiceReportSummary } from "@/features/reports/billing/api";
 import { getUserNames } from "@/features/users/api";
+import { listServiceAreas } from "@/features/service-areas/api";
+import { jobZoneResolver } from "@/features/service-areas/lib";
 import { COMING_UP_COUNT, comingUp } from "./coming-up";
 
 export interface DayWindow {
@@ -103,6 +105,11 @@ export interface ComingUpData {
   deals: Deal[];
   /** The clients' names by contact id, from the list's side-load. */
   clients: Record<string, string>;
+  /**
+   * The zone each visit was booked in, by job id — its time is on that clock
+   * (2026-10-12 owner rule); absent = Connecticut.
+   */
+  zones?: Record<string, string>;
 }
 
 const shiftDay = (day: string, days: number): string => {
@@ -119,6 +126,10 @@ const COMING_STATUSES = [JobSuperStatus.SUBMITTED, JobSuperStatus.PENDING, JobSu
  * page of four per open status in visit order, merged (`deals.view`).
  */
 export async function getComingUp(day: string): Promise<ComingUpData> {
+  // The areas' zones, read alongside the visits so the card is right in its
+  // first frame. Someone who may not read them still gets the visits — a
+  // job's own zone (`jobTimezone`) counts without them.
+  const areasRead = listServiceAreas().catch(() => undefined);
   const pages = await Promise.all(
     COMING_STATUSES.map((superStatus) =>
       listDeals({
@@ -131,11 +142,17 @@ export async function getComingUp(day: string): Promise<ComingUpData> {
       }),
     ),
   );
+  const areas = await areasRead;
   const clients: Record<string, string> = {};
   for (const page of pages) {
     for (const c of page.included?.clients ?? []) clients[c.id] = `${c.firstName} ${c.lastName}`.trim();
   }
-  return { deals: comingUp(pages.map((p) => p.data)), clients };
+  const zoneOf = jobZoneResolver(areas);
+  const deals = comingUp(
+    pages.map((p) => p.data),
+    zoneOf,
+  );
+  return { deals, clients, zones: Object.fromEntries(deals.map((d) => [d.id, zoneOf(d)])) };
 }
 
 export interface RecentActivityRow extends ActivityRow {

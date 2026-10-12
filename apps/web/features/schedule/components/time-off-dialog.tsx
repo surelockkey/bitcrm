@@ -6,7 +6,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { WzButton, WzCheckbox, WzDateField, WzOutlinedSelect, WzTimeSelect } from "@/components/workiz";
 import { useCreateCalendarEvent } from "../hooks";
 import { calendarEventSchema, toEventInput } from "../schemas";
-import { eventLabel } from "../lib";
+import { eventLabel, timeOffDefaultTimes } from "../lib";
 import type { DirectoryUser } from "@/features/deals/hooks";
 import { personName } from "@/features/deals/person-name";
 
@@ -16,14 +16,6 @@ const TYPES = [
   CalendarEventType.BREAK,
   CalendarEventType.APPOINTMENT,
 ];
-
-const hhmm = (m: number) => `${String(Math.floor(m / 60) % 24).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
-
-/** The next half hour by the browser's clock and an hour after it, as Workiz fills Starts / Ends. */
-function defaultTimes(now = new Date()): { start: string; end: string } {
-  const next = Math.min(Math.ceil((now.getHours() * 60 + now.getMinutes() + 1) / 30) * 30, 23 * 60);
-  return { start: hhmm(next), end: hhmm(Math.min(next + 60, 23 * 60 + 45)) };
-}
 
 /**
  * Workiz's "Add time off" (pg_schedule_wz_13_timeoff_open): a 440px modal —
@@ -48,7 +40,8 @@ export function TimeOffDialog({
   defaultDate: string;
 }) {
   const create = useCreateCalendarEvent();
-  const [times] = useState(defaultTimes);
+  // Connecticut's next half hour — the calendar's clock, not the browser's.
+  const [times] = useState(() => timeOffDefaultTimes());
   const [techId, setTechId] = useState(defaultTechId ?? "");
   const [type, setType] = useState<CalendarEventType | "">("");
   const [startDate, setStartDate] = useState(defaultDate);

@@ -13,6 +13,14 @@ import {
 import type { Contact, Deal, User } from "@bitcrm/types";
 import { DEFAULT_VISIBLE, JOB_FIELDS, JOB_NUMBER_WIDTH, type VisibleFields } from "../fields";
 import { DealsTable, DealsTableSkeleton } from "./deals-table";
+import { ctToday, DEFAULT_TZ, zonedInstant } from "@/lib/timezone";
+
+/**
+ * Today in Connecticut at that Connecticut clock time — the web's clock
+ * (2026-10-12 owner rule), whatever the machine running the suite says.
+ */
+const ctAt = (h: number, m: number) =>
+  zonedInstant(ctToday(), `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`, DEFAULT_TZ).toISOString();
 
 // Resolve job-type ids to names without a QueryClient/live catalog.
 vi.mock("@/features/job-types/lib", () => ({
@@ -375,14 +383,10 @@ describe("DealsTable", () => {
    * before they existed is unchanged.
    */
   describe("Sent / Seen columns", () => {
-    // Today at that clock time. The stamp a dispatcher reads is the time alone
-    // only while it happened today (`formatStamp`), so a fixture pinned to a
-    // calendar date stops matching the day after it was written.
-    const at = (h: number, m: number) => {
-      const d = new Date();
-      d.setHours(h, m, 0, 0);
-      return d.toISOString();
-    };
+    // Today (Connecticut's) at that clock time. The stamp a dispatcher reads is
+    // the time alone only while it happened today (`formatStamp`), so a
+    // fixture pinned to a calendar date stops matching the day after it was written.
+    const at = ctAt;
     const sentSeen: VisibleFields = { ...DEFAULT_VISIBLE, sent: true, seen: true };
 
     it("is off by default", () => {
@@ -413,9 +417,10 @@ describe("DealsTable", () => {
       );
       expect(within(gridHead()).getByRole("columnheader", { name: "Sent" })).toBeInTheDocument();
       expect(within(gridHead()).getByRole("columnheader", { name: "Seen" })).toBeInTheDocument();
-      expect(screen.getByText("12:10 PM")).toBeInTheDocument();
+      // On Connecticut's clock, its zone named (EDT in summer, EST in winter).
+      expect(screen.getByText(/^12:10 PM E[DS]T$/)).toBeInTheDocument();
       expect(screen.getByText("SMS & Email")).toBeInTheDocument();
-      expect(screen.getByText("12:14 PM")).toBeInTheDocument();
+      expect(screen.getByText(/^12:14 PM E[DS]T$/)).toBeInTheDocument();
     });
 
     it("leaves a dash on a job nobody has been sent or has opened", () => {
@@ -438,11 +443,7 @@ describe("DealsTable", () => {
 
   /** B12: the client confirmed the visit through {{confirm_link}} — opt-in, like Sent / Seen. */
   describe("Confirmed column", () => {
-    const at = (h: number, m: number) => {
-      const d = new Date();
-      d.setHours(h, m, 0, 0);
-      return d.toISOString();
-    };
+    const at = ctAt;
     const withConfirmed: VisibleFields = { ...DEFAULT_VISIBLE, clientConfirmed: true };
     const scheduled = { scheduledDate: "2026-10-14", scheduledTimeSlot: "09:00-11:00" };
 
@@ -478,7 +479,7 @@ describe("DealsTable", () => {
       expect(col).toBeGreaterThan(-1);
       const rows = screen.getAllByText("Jane Smith").map((n) => n.closest("tr")!);
       const cell = (row: HTMLElement) => [...row.querySelectorAll("td")][col];
-      expect(cell(rows[0]).textContent).toBe("3:05 PM");
+      expect(cell(rows[0]).textContent).toMatch(/^3:05 PM E[DS]T$/);
       expect(within(cell(rows[0])).getByLabelText("Confirmed by client")).toBeInTheDocument();
       expect(cell(rows[1]).textContent).toBe("—");
     });
@@ -809,5 +810,60 @@ describe("DealsTable — scrolls sideways in its own box, the header pinned", ()
     const block = screen.getByRole("heading", { name: "No Jobs Found" }).parentElement!;
     expect(block.className).not.toMatch(/\bsticky\b/);
     expect(block.style.width).toBe("");
+  });
+});
+
+/**
+ * 2026-10-12 owner rule: the list says every time on Connecticut's clock and
+ * names its zone — the staff read it from Ukraine. A visit is stored on the
+ * clock of the zone it was booked in; the Scheduled cell's second block (the
+ * job's own clock, with its city) stays, and names its own zone.
+ */
+describe("DealsTable — Connecticut time, labelled", () => {
+  const cols: VisibleFields = { ...DEFAULT_VISIBLE, scheduled: true, end: true, createdAt: true };
+  const texas = deal({
+    scheduledDate: "2026-10-08",
+    scheduledTimeSlot: "08:00-09:00",
+    address: { street: "1 Main", city: "Princeton", state: "TX", zip: "75407" },
+    createdAt: "2026-10-09T02:30:00.000Z",
+  });
+  const cellOf = (column: string) => {
+    const headers = gridHeaders().map((h) => h.textContent);
+    const row = screen.getByText("Jane Smith").closest("tr")!;
+    return [...row.querySelectorAll("td")][headers.indexOf(column)] as HTMLElement;
+  };
+  const renderRow = (d: Deal, zone?: string) =>
+    render(
+      <DealsTable
+        deals={[d]}
+        contactMap={contactMap}
+        userMap={userMap}
+        onOpen={vi.fn()}
+        visibleFields={cols}
+        zoneOf={() => zone}
+      />,
+    );
+
+  it("Scheduled: Connecticut's clock with EDT, then the job's city and its own clock with CDT", () => {
+    renderRow(texas, "America/Chicago");
+    const cell = cellOf("Scheduled");
+    expect(within(cell).getByText("Thu Oct 08, 2026 09:00 am EDT")).toBeInTheDocument();
+    expect(within(cell).getByText("Princeton:")).toBeInTheDocument();
+    expect(within(cell).getByText("Thu Oct 08, 2026 08:00 am CDT")).toBeInTheDocument();
+  });
+
+  it("Scheduled in winter reads EST", () => {
+    renderRow(deal({ scheduledDate: "2026-12-01", scheduledTimeSlot: "10:00-11:00" }));
+    expect(within(cellOf("Scheduled")).getByText("Tue Dec 01, 2026 10:00 am EST")).toBeInTheDocument();
+  });
+
+  it("End: the visit's close on Connecticut's clock, labelled", () => {
+    renderRow(texas, "America/Chicago");
+    expect(cellOf("End").textContent).toBe("Thu Oct 08, 2026 10:00 am EDT");
+  });
+
+  it("Created: Connecticut's day, labelled — not the viewer's", () => {
+    renderRow(texas, "America/Chicago");
+    expect(cellOf("Created").textContent).toBe("Oct 8, 2026 EDT");
   });
 });

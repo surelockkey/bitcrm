@@ -61,10 +61,15 @@ const ctx = (users: User[], extra: Partial<Parameters<typeof teamRows>[1]> = {})
 });
 
 describe("formatTeamCreated — Workiz's Created column", () => {
-  it("prints 'Fri Nov 04, 2022 07:16 am' in the business's zone", () => {
+  // 2026-10-12: the owner could not tell which clock "Mon Oct 12, 2026 09:34 am"
+  // was on — the cell now says it.
+  it("prints 'Fri Nov 04, 2022 07:16 am EDT' on Connecticut's clock, with the zone", () => {
     // 11:16 UTC on Nov 4 2022 is 07:16 in New York (EDT).
-    expect(formatTeamCreated("2022-11-04T11:16:00.000Z")).toBe("Fri Nov 04, 2022 07:16 am");
-    expect(formatTeamCreated("2026-02-12T18:29:00.000Z")).toBe("Thu Feb 12, 2026 01:29 pm");
+    expect(formatTeamCreated("2022-11-04T11:16:00.000Z")).toBe("Fri Nov 04, 2022 07:16 am EDT");
+    expect(formatTeamCreated("2026-02-12T18:29:00.000Z")).toBe("Thu Feb 12, 2026 01:29 pm EST");
+    expect(formatTeamCreated("2026-10-12T13:34:39.000Z")).toBe("Mon Oct 12, 2026 09:34 am EDT");
+    // 03:30 UTC on Oct 13 is still Oct 12 in Connecticut.
+    expect(formatTeamCreated("2026-10-13T03:30:00.000Z")).toBe("Mon Oct 12, 2026 11:30 pm EDT");
   });
 
   it("prints nothing for nothing", () => {

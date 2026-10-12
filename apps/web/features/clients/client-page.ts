@@ -1,6 +1,7 @@
 import { COUNTED_PAYMENT_STATUSES, type Address, type Contact, type Deal, type Estimate, type Invoice, type Payment } from "@bitcrm/types";
 import { formatPhoneWithExtension } from "@/lib/phone";
-import { workizScheduleCell } from "@/features/deals/schedule-cell";
+import { wallToCt } from "@/lib/timezone";
+import { workizDate, workizDateTime } from "@/features/reports/billing/lib";
 import { addressKey } from "./lib";
 
 /** Workiz's four cards over the client's documents: Past due, Due, Total revenue, Estimates. */
@@ -48,10 +49,27 @@ export function wzMoney(n: number): string {
   return GROUPED.format(Math.round((n + Number.EPSILON) * 100) / 100);
 }
 
-/** Workiz's Due By column: a calendar day as "Thu Nov 05, 2026 12:00 am"; "" for nothing or junk. */
+const YMD = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * Workiz's Due By column: a calendar day as "Thu Nov 05, 2026 12:00 am"; ""
+ * for nothing or junk. A due date is a day, not a moment — never shifted and
+ * never given a zone; the "12:00 am" is Workiz's own text for it.
+ */
 export function wzDayStart(ymd: string | undefined): string {
-  if (!ymd || !/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return "";
-  return `${workizScheduleCell({ scheduledDate: ymd }, "UTC").when} 12:00 am`;
+  if (!ymd || !YMD.test(ymd)) return "";
+  return `${workizDate(ymd)} 12:00 am`;
+}
+
+/**
+ * A stored moment in the client tabs (an estimate's or invoice's Created and
+ * Sent, a payment's Date, a call's Time, a document's Uploaded):
+ * "Tue Sep 29, 2026 09:36 am EDT" — Connecticut's clock, saying so; "" for
+ * nothing or junk.
+ */
+export function wzWhen(iso: string | undefined): string {
+  if (!iso || Number.isNaN(Date.parse(iso))) return "";
+  return workizDateTime(iso);
 }
 
 /**
@@ -161,16 +179,21 @@ export function pastDueByDeal(invoices: Invoice[], today: string): Map<string, n
 }
 
 /**
- * Workiz's Job Date column: the visit on the account's clock ("Mon Sep 21,
- * 2026 08:00 pm") — a visit is stored on the clock of the zone it was booked
- * in (`zone`: the job's own, else its service area's; absent = the
- * account's), the same conversion as the jobs list's Scheduled cell.
+ * Workiz's Job Date column: the visit on Connecticut's clock, saying so
+ * ("Mon Sep 21, 2026 08:00 pm EDT") — a visit is stored on the clock of the
+ * zone it was booked in (`zone`: the job's own, else its service area's;
+ * absent = Connecticut), so a Pacific 17:00 reads 08:00 pm EDT. An all-day
+ * visit is a day, shown as booked; no date reads "Unscheduled".
  */
-export function clientJobDate(deal: Pick<Deal, "scheduledDate" | "scheduledTimeSlot" | "allDay">, zone: string | undefined, accountZone: string): string {
-  return workizScheduleCell(
-    { scheduledDate: deal.scheduledDate, scheduledTimeSlot: deal.allDay ? undefined : deal.scheduledTimeSlot, zone },
-    accountZone,
-  ).when;
+export function clientJobDate(deal: Pick<Deal, "scheduledDate" | "scheduledTimeSlot" | "allDay">, zone: string | undefined): string {
+  const date = deal.scheduledDate;
+  if (!date || !YMD.test(date)) return "Unscheduled";
+  const start = deal.allDay ? undefined : deal.scheduledTimeSlot?.split("-")[0]?.trim();
+  if (!start || !/^\d{2}:\d{2}$/.test(start)) return workizDate(date);
+  const ct = wallToCt(date, start, zone);
+  const [h, m] = ct.time.split(":").map(Number);
+  const clock = `${String(h % 12 === 0 ? 12 : h % 12).padStart(2, "0")}:${String(m).padStart(2, "0")} ${h < 12 ? "am" : "pm"}`;
+  return `${workizDate(ct.date)} ${clock} ${ct.abbr}`;
 }
 
 /**

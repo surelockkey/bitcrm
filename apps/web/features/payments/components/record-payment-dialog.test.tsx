@@ -9,7 +9,7 @@ const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), message: vi.
 vi.mock("sonner", () => ({ toast }));
 
 import { RecordPaymentDialog } from "./record-payment-dialog";
-import { todayYmd } from "@/features/billing/dates";
+import { ctToday } from "@/lib/timezone";
 
 const user = () => userEvent.setup({ pointerEventsCheck: 0 });
 let posted: Record<string, unknown> | undefined;
@@ -58,8 +58,20 @@ describe("RecordPaymentDialog", () => {
     open();
     expect(await screen.findByLabelText("Amount")).toHaveValue("240.50");
     expect(screen.getByLabelText("Date received")).toHaveValue(
-      todayYmd(),
+      ctToday(),
     );
+  });
+
+  it("fills in Connecticut's today, not the browser's", async () => {
+    // 23:30 EDT on Oct 12 — a Kyiv (or UTC) browser is already on the 13th.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-13T03:30:00.000Z"));
+    try {
+      open();
+      expect(await screen.findByLabelText("Date received")).toHaveValue("2026-10-12");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("records a cheque with its number and a note", async () => {

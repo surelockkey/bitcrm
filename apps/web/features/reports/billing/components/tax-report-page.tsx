@@ -14,12 +14,12 @@ import { WzListToolbar, WzPageSizeSelect, WzSearchBox, WzToolbarButton } from "@
 import { usePageHistoryLabel } from "@/components/shell/page-history";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getApiErrorMessage } from "@/lib/api/errors";
+import { ctToday } from "@/lib/timezone";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { settled, usePageReady } from "@/lib/use-page-ready";
 import { useDenied, usePermissions } from "@/features/auth/use-permissions";
 import { NoAccess } from "@/features/billing/components/list-bits";
 import { DEFAULT_REPORT_PAGE_SIZE, REPORT_PAGE_SIZES, paymentsCustomCheck } from "@/features/payments/report";
-import { viewerToday } from "@/features/reports/jobs/lib";
 import { exportTaxReport } from "../api";
 import { agingPager } from "../aging";
 import { useTaxReport } from "../hooks";
@@ -86,8 +86,8 @@ export function TaxReportPage({ today: todayProp }: { today?: string } = {}) {
   const denied = useDenied();
   usePageHistoryLabel("Tax Report");
   const canView = can("reports", "view") && can("financials", "view");
-  // Workiz counts its presets from the viewer's own clock (moment()).
-  const [today] = useState(() => todayProp ?? viewerToday());
+  // The presets count from Connecticut's today (2026-10-12 owner rule), not the browser's as Workiz does.
+  const [today] = useState(() => todayProp ?? ctToday());
   const [basis, setBasis] = useState<TaxReportBasis>("accrual");
 
   const accrual = useTaxReport(defaultTaxParams("accrual", today), canView);

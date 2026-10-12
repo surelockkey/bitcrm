@@ -29,7 +29,7 @@ import { MapFiltersPanel } from "./map-filters-panel";
 import { MapSidebar, MapToggleRow, type MapTab } from "./map-sidebar";
 import { splitByLocation, techJobsToday, todayISO, type LocatedDeal } from "../lib";
 import { useDispatchBoard, type DispatchBoard } from "../use-dispatch-board";
-import { localToday, mapRangeWindow, shiftMapRange, type MapRange } from "../map-range";
+import { mapRangeWindow, mapToday, shiftMapRange, type MapRange } from "../map-range";
 import {
   EMPTY_MAP_FILTERS,
   MAP_CLOSED_STATUSES,
@@ -39,7 +39,8 @@ import {
   sortByName,
   type MapFilters,
 } from "../map-filters";
-import { jobCardTitle } from "../map-words";
+import { jobCardTitle, lastUpdatedText } from "../map-words";
+import { jobZoneResolver } from "@/features/service-areas/lib";
 
 /**
  * What the board reads: every open job, whatever its date — Workiz's
@@ -125,7 +126,7 @@ function DispatchBoardPage() {
 
   const [tab, setTab] = useState<MapTab>("jobs");
   const [prefs, setPrefs] = useState<MapPrefs>(loadPrefs);
-  const [anchor, setAnchor] = useState(() => localToday());
+  const [anchor, setAnchor] = useState(() => mapToday());
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -198,6 +199,10 @@ function DispatchBoardPage() {
     areas: serviceAreasData,
   } = board ?? NO_BOARD;
   const reorder = useReorderDeals();
+  // The zone each job was booked in — the cards show its visit on Connecticut's
+  // clock (2026-10-12 owner rule). The areas are read only for whoever may see
+  // them; without them a job's own `jobTimezone` still counts.
+  const zoneOf = useMemo(() => jobZoneResolver(serviceAreasData), [serviceAreasData]);
 
   const nameOf = useCallback((id: string) => personName(users.get(id)) ?? "Technician", [users]);
   const clientOf = useCallback((d: Deal) => dealClientName(d, contacts.get(d.contactId)), [contacts]);
@@ -311,6 +316,7 @@ function DispatchBoardPage() {
       phone={jobOwnNumbers(deal)[0] ?? contacts.get(deal.contactId)?.phones?.[0]}
       techNames={deal.assignedTechIds.length ? deal.assignedTechIds.map(nameOf).join(", ") : undefined}
       sequence={deal.assignedTechIds[0] ? deal.sequences?.[deal.assignedTechIds[0]] : undefined}
+      zoneOf={zoneOf}
       canEdit={canEdit}
       onEdit={() => setEditing(true)}
       onView={() => router.push(`/deals/${deal.id}`)}
@@ -325,6 +331,7 @@ function DispatchBoardPage() {
       name={nameOf(position.userId)}
       address={addresses.get(position.userId)}
       jobs={techJobsToday(deals, position.userId, todayISO())}
+      zoneOf={zoneOf}
       title={titleOf}
       clientName={clientOf}
       canReorder={canEdit}
@@ -376,7 +383,7 @@ function DispatchBoardPage() {
         found={found}
         onRefresh={() => query.refetch()}
         refreshing={query.isFetching}
-        refreshTitle={board.updatedAt ? `Last updated ${new Date(board.updatedAt).toLocaleTimeString()}` : undefined}
+        refreshTitle={board.updatedAt ? lastUpdatedText(board.updatedAt) : undefined}
         toggles={
           <>
             {canSeeTechs ? (
@@ -448,7 +455,7 @@ function DispatchBoardPage() {
                 anchor={anchor}
                 onRange={(r) => patch({ range: r })}
                 onStep={(step) => setAnchor((a) => shiftMapRange(range, a, step))}
-                onReset={() => setAnchor(localToday())}
+                onReset={() => setAnchor(mapToday())}
               />
             ) : null}
             <ServiceAreaLegend areas={mapAreas} />

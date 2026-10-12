@@ -11,6 +11,7 @@ import { WzPager, type WzPagerState } from "@/components/workiz/pager";
 import { WzListToolbar, WzPageSizeSelect, WzSearchBox, WzToolbarButton } from "@/components/workiz/toolbar";
 import { WzTotalCard } from "@/components/workiz/total-card";
 import { getApiErrorMessage } from "@/lib/api/errors";
+import { ctToday } from "@/lib/timezone";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { settled, usePageReady } from "@/lib/use-page-ready";
 import { useDenied, usePermissions } from "@/features/auth/use-permissions";
@@ -19,7 +20,6 @@ import { useUserMap } from "@/features/deals/hooks";
 import { orderTechs } from "@/features/deals/job-filters";
 import { personName } from "@/features/deals/person-name";
 import { useAllTechnicians } from "@/features/technicians/hooks";
-import { viewerToday } from "@/features/reports/jobs/lib";
 import { useServiceAreas } from "@/features/service-areas/hooks";
 import { exportPaymentReport } from "../api";
 import { usePaymentReport } from "../hooks";
@@ -62,8 +62,8 @@ export function PaymentsReportPage() {
   // before they answer: the report itself is not asked for until then.
   const money = permsLoading || can("financials");
 
-  // Workiz counts its presets from the viewer's own clock (moment()).
-  const [today] = useState(() => viewerToday());
+  // The presets count from Connecticut's today (2026-10-12 owner rule), not the browser's as Workiz does.
+  const [today] = useState(() => ctToday());
   const [range, setRange] = useState<WzDateRange>(() => ({
     preset: DEFAULT_PAYMENTS_REPORT_PRESET,
     ...paymentsReportRange(DEFAULT_PAYMENTS_REPORT_PRESET, today),

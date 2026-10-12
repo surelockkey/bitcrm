@@ -4,10 +4,9 @@ import { useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { WzLocalGrid, type WzGridColumn } from "@/components/workiz/local-grid";
 import { formatPhone } from "@/lib/phone";
-import { DEFAULT_TZ } from "@/lib/timezone";
 import { useCallsForParty } from "@/features/calls/hooks";
 import { callParty, type CallRecord } from "@/features/calls/lib";
-import { workizDateTime } from "@/features/deals/schedule-cell";
+import { wzWhen } from "../client-page";
 import { openRow } from "./client-jobs-tab";
 
 /** A side of the call as Workiz's From / To cell: the name over the number. */
@@ -43,7 +42,7 @@ export function ClientCallsTab({ contactId }: { contactId: string }) {
       const p = callParty(c, s);
       return `${p.name ?? ""} ${p.number ?? ""}`;
     };
-    const time = (c: CallRecord) => workizDateTime(c.startedAt, DEFAULT_TZ);
+    const time = (c: CallRecord) => wzWhen(c.startedAt);
     return [
       { id: "from", label: "From", sortValue: (c) => side(c, "from"), searchText: (c) => side(c, "from"), render: (c) => <Party call={c} side="from" /> },
       { id: "to", label: "To", sortValue: (c) => side(c, "to"), searchText: (c) => side(c, "to"), render: (c) => <Party call={c} side="to" /> },

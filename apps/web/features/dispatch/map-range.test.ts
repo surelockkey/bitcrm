@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { MAP_RANGES, localToday, mapRangeLabel, mapRangeWindow, shiftMapRange } from "./map-range";
+import { MAP_RANGES, mapRangeLabel, mapRangeWindow, mapToday, shiftMapRange } from "./map-range";
 
 // Friday 9 October 2026 — the day the Workiz captures were taken.
 const FRI = "2026-10-09";
@@ -72,11 +72,15 @@ describe("Any date (ours — Workiz's box has Day / Week / Month only)", () => {
   });
 });
 
-describe("localToday", () => {
-  // Workiz's date box follows the viewer's clock, not UTC: late evening in
-  // the US is already tomorrow in UTC.
-  it("is the viewer's own calendar day", () => {
-    expect(localToday(new Date(2026, 9, 9, 23, 30))).toBe("2026-10-09");
-    expect(localToday(new Date(2026, 0, 1, 0, 5))).toBe("2026-01-01");
+describe("mapToday", () => {
+  // The date box opens on Connecticut's day (2026-10-12 owner rule) — not
+  // UTC's, which late evening in the US is already tomorrow, and not the
+  // viewer's, which in Ukraine is tomorrow before Connecticut's evening.
+  it("is Connecticut's calendar day, whatever the browser's", () => {
+    // Sat Oct 17, 10:30 PM EDT — Sunday morning in Kyiv, a new week there.
+    expect(mapToday(new Date("2026-10-18T02:30:00Z"))).toBe("2026-10-17");
+    // Dec 31, 11:30 PM EST.
+    expect(mapToday(new Date("2026-01-01T04:30:00Z"))).toBe("2025-12-31");
+    expect(mapToday(new Date("2026-10-09T14:00:00Z"))).toBe("2026-10-09");
   });
 });

@@ -18,14 +18,9 @@ import { Label } from "@/components/ui/label";
 import { WzButton } from "@/components/workiz/button";
 import { WzDocSectionHead } from "@/components/workiz/document-parts";
 import { cn } from "@/lib/utils";
+import { formatSignedAt } from "../lib";
 
 const SOURCE_LABEL = { portal: "Client portal", app: "In person" } as const;
-
-function formatSignedAt(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
-}
 
 /**
  * Workiz "Signatures": every signature the document collected — on the

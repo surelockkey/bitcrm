@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import type { CallFlow, CallFlowNode } from "@bitcrm/types";
 import { blankStep, exitsOf, orderedSteps, removeStep } from "./flow-graph";
 
@@ -107,6 +107,24 @@ describe("flow-graph", () => {
 
     // An option pointing nowhere would be refused by the server anyway.
     expect(menu.options).toEqual([]);
+  });
+
+  // 2026-10-12: a dispatcher in Ukraine adding an Hours step must not set the
+  // business hours to Kyiv — a new step opens on Connecticut's clock.
+  it("opens a new Hours step on Connecticut's clock, whatever the browser's zone", async () => {
+    const original = Intl.DateTimeFormat.prototype.resolvedOptions;
+    const spy = vi
+      .spyOn(Intl.DateTimeFormat.prototype, "resolvedOptions")
+      .mockImplementation(function (this: Intl.DateTimeFormat) {
+        return { ...original.call(this), timeZone: "Europe/Kyiv" };
+      });
+    try {
+      vi.resetModules();
+      const fresh = await import("./flow-graph");
+      expect(fresh.blankStep("hours")).toMatchObject({ type: "hours", timezone: "America/New_York" });
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it("gives every new step its own id", () => {

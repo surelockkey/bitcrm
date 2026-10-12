@@ -17,6 +17,7 @@ import { useDealPayments } from "@/features/payments/hooks";
 import { useCreateInvoice, useInvoiceByDeal } from "@/features/invoices/hooks";
 import { invoiceHref } from "@/features/invoices/lib";
 import { usePageHistoryLabel } from "@/components/shell/page-history";
+import { useJobZoneOf } from "@/features/service-areas/hooks";
 import { useDeal, useMarkSeenOnOpen } from "../hooks";
 import { useJobPageData } from "../job-page-data";
 import { useAttachments } from "../attachments-hooks";
@@ -106,6 +107,8 @@ export function DealDetailPage({
   // Workiz "Viewed job in app": an assigned technician opening the job is what
   // marks it seen — the dispatcher who sent it then sees the eye light up.
   useMarkSeenOnOpen(deal, me?.id);
+  // The zone the visit is booked in: the rail writes a reschedule on Connecticut's clock.
+  const zoneOf = useJobZoneOf();
 
   // One skeleton, then the page: showing each field the moment its own data
   // lands is what made the job look like it was still loading.
@@ -247,6 +250,7 @@ export function DealDetailPage({
             : undefined
         }
         schedule={{ date: deal.scheduledDate, slot: deal.scheduledTimeSlot, allDay: deal.allDay }}
+        zone={zoneOf(deal)}
       />
     </div>
   );

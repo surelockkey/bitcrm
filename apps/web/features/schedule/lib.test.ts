@@ -13,6 +13,7 @@ import {
   outOfHoursRanges,
   dealConflicts,
   filterTechnicians,
+  timeOffDefaultTimes,
 } from "./lib";
 
 function deal(over: Partial<Deal>): Deal {
@@ -168,5 +169,19 @@ describe("dealConflicts", () => {
   it("returns no conflicts for a clean in-hours slot", () => {
     const d = deal({ id: "a", scheduledTimeSlot: "09:00-10:00" });
     expect(dealConflicts(d, [], [], wh)).toEqual([]);
+  });
+});
+
+describe("timeOffDefaultTimes — Add time off's Starts / Ends", () => {
+  // 2026-10-12 owner rule: the calendar is Connecticut's, so is "the next half hour".
+  it("is the next half hour on Connecticut's clock and an hour after it, whatever the browser's", () => {
+    // 13:10Z = 09:10 EDT (16:10 in Kyiv).
+    expect(timeOffDefaultTimes(new Date("2026-10-12T13:10:00Z"))).toEqual({ start: "09:30", end: "10:30" });
+    // 15:00Z = 10:00 EST in winter.
+    expect(timeOffDefaultTimes(new Date("2026-12-01T15:00:00Z"))).toEqual({ start: "10:30", end: "11:30" });
+  });
+  it("stays inside the day late at night", () => {
+    // 03:40Z on the 13th = 23:40 EDT on the 12th.
+    expect(timeOffDefaultTimes(new Date("2026-10-13T03:40:00Z"))).toEqual({ start: "23:00", end: "23:45" });
   });
 });

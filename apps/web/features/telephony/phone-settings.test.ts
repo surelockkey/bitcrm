@@ -25,10 +25,14 @@ const flow = (id: string, numbers: string[], over: Partial<CallFlow> = {}): Call
   }) as CallFlow;
 
 describe("formatNumberCreated", () => {
-  it("reads like Workiz's Created cell — weekday, 12-hour clock, lower-case am/pm", () => {
+  it("reads like Workiz's Created cell — weekday, 12-hour clock, lower-case am/pm — and names the zone", () => {
     // 2020-09-28 03:11 UTC is Sun Sep 27, 11:11 pm in New York (pg_settings_phone_wz_numbers).
-    expect(formatNumberCreated("2020-09-28T03:11:00.000Z", "America/New_York")).toBe("Sun Sep 27, 2020 11:11 pm");
-    expect(formatNumberCreated("2018-06-10T09:38:00.000Z", "America/New_York")).toBe("Sun Jun 10, 2018 05:38 am");
+    expect(formatNumberCreated("2020-09-28T03:11:00.000Z", "America/New_York")).toBe("Sun Sep 27, 2020 11:11 pm EDT");
+    expect(formatNumberCreated("2018-06-10T09:38:00.000Z", "America/New_York")).toBe("Sun Jun 10, 2018 05:38 am EDT");
+  });
+
+  it("is on Connecticut's clock by default, EST in winter", () => {
+    expect(formatNumberCreated("2021-01-15T17:00:00.000Z")).toBe("Fri Jan 15, 2021 12:00 pm EST");
   });
 
   it("is empty when the server does not say (an older API, or Twilio silent)", () => {

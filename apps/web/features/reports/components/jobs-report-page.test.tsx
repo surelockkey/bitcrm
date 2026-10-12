@@ -134,7 +134,10 @@ describe("JobsReportPage", () => {
     ]);
     const first = within(document.querySelector("[data-slot=wz-scroll-grid-body]") as HTMLElement).getAllByRole("row")[1];
     expect(first).toHaveTextContent("C0TCAE");
-    expect(first).toHaveTextContent("Tue Sep 29, 2026 02:35 pm");
+    // 2026-10-12 owner rule: on Connecticut's clock, and saying so.
+    expect(first).toHaveTextContent("Tue Sep 29, 2026 02:35 pm EDT");
+    expect(first).toHaveTextContent("Tue Sep 29, 2026 03:00 pm EDT");
+    expect(first).toHaveTextContent("Tue Sep 29, 2026 04:00 pm EDT");
     expect(first).toHaveTextContent("(580) 555-1234");
     expect(first).toHaveTextContent("$697.95");
     expect(first).toHaveTextContent("Paid");

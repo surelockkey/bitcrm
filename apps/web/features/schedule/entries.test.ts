@@ -105,3 +105,21 @@ describe("buildEntries — what the calendar draws", () => {
     expect(entries.find((e) => e.kind === "job")?.conflict).toBe(true);
   });
 });
+
+describe("buildEntries — Connecticut's grid (2026-10-12 owner rule)", () => {
+  it("places each job on Connecticut's clock, from the zone it was booked in", () => {
+    const zoneOf = (d: Pick<Deal, "serviceAreaId">) => (d.serviceAreaId === "tx" ? "America/Chicago" : "America/New_York");
+    const [tx, ct] = buildEntries(
+      [deal("tx", { serviceAreaId: "tx", scheduledTimeSlot: "10:00-11:00" }), deal("ct", { scheduledTimeSlot: "10:00-11:00" })],
+      [],
+      { ...ctx, zoneOf },
+    );
+    expect(tx).toMatchObject({ startDate: "2026-10-09", startMin: 660, endMin: 720, abbr: "EDT" });
+    expect(ct).toMatchObject({ startDate: "2026-10-09", startMin: 600, endMin: 660, abbr: "EDT" });
+  });
+  it("time off is entered on Connecticut's grid and stays there, labelled", () => {
+    const [e] = buildEntries([], [off({ allDay: false, timeSlot: "12:00-13:00", startDate: "2026-12-01", endDate: "2026-12-01" })], ctx);
+    expect(e).toMatchObject({ startMin: 720, endMin: 780, abbr: "EST" });
+    expect(buildEntries([], [off()], ctx)[0].abbr).toBe("");
+  });
+});

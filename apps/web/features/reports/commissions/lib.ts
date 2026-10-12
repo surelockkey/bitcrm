@@ -1,12 +1,12 @@
-import {
-  DEFAULT_TIMEZONE,
-  type CommissionReport,
-  type CommissionReportBy,
-  type CommissionReportMode,
-  type CommissionReportRow,
-  type CommissionReportTechSummary,
-  type CommissionReportTotalKey,
+import type {
+  CommissionReport,
+  CommissionReportBy,
+  CommissionReportMode,
+  CommissionReportRow,
+  CommissionReportTechSummary,
+  CommissionReportTotalKey,
 } from "@bitcrm/types";
+import { DEFAULT_TZ, wallToCt, withZone } from "@/lib/timezone";
 import { personName } from "@/features/deals/person-name";
 import { LEGACY_REPORT_PRESETS, type LegacyReportPreset } from "../legacy-presets";
 
@@ -219,13 +219,19 @@ export function formatDayTime(day?: string, time?: string): string {
   return `${date} ${String(h12).padStart(2, "0")}:${String(mm).padStart(2, "0")} ${hh < 12 ? "AM" : "PM"}`;
 }
 
-/** An instant on the business's clock (Workiz's account zone), "09/24/2026 03:06 PM". */
+/*
+ * 2026-10-12 owner rule: every time on the web is on Connecticut's clock and
+ * says so — "09/24/2026 03:06 PM EDT", EST in winter. A day without a time is
+ * printed as it is, with no label.
+ */
+
+/** An instant on Connecticut's clock (Workiz's account zone), "09/24/2026 03:06 PM EDT". */
 function businessDayTime(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
   const parts = Object.fromEntries(
     new Intl.DateTimeFormat("en-US", {
-      timeZone: DEFAULT_TIMEZONE,
+      timeZone: DEFAULT_TZ,
       year: "numeric",
       month: "2-digit",
       day: "2-digit",
@@ -237,7 +243,19 @@ function businessDayTime(iso: string): string {
       .map((p) => [p.type, p.value]),
   );
   const hour = parts.hour === "24" ? "00" : parts.hour;
-  return formatDayTime(`${parts.year}-${parts.month}-${parts.day}`, `${hour}:${parts.minute}`);
+  return withZone(formatDayTime(`${parts.year}-${parts.month}-${parts.day}`, `${hour}:${parts.minute}`), d);
+}
+
+/**
+ * A visit's `day` and `HH:MM` — already on Connecticut's clock: deal-service
+ * converts each job's own wall clock before it sends the row (2026-10-12) —
+ * labelled ("… 11:00 AM EDT"). A day without a time is the day as booked.
+ */
+function visitDayTime(day: string | undefined, time: string | undefined): string {
+  const hm = time?.slice(0, 5);
+  if (!day || !hm || !/^\d{4}-\d{2}-\d{2}$/.test(day) || !/^\d{2}:\d{2}$/.test(hm)) return formatDayTime(day, time);
+  const ct = wallToCt(day, hm, DEFAULT_TZ);
+  return ct.abbr ? `${formatDayTime(ct.date, ct.time)} ${ct.abbr}` : formatDayTime(day, time);
 }
 
 /** A row's cell as text (the grid and print). */
@@ -246,9 +264,9 @@ export function cellText(row: CommissionReportRow, columnId: string): string {
     case "createdAt":
       return row.createdAt ? businessDayTime(row.createdAt) : "";
     case "scheduledDate":
-      return formatDayTime(row.scheduledDate, row.scheduledTimeSlot?.slice(0, 5));
+      return visitDayTime(row.scheduledDate, row.scheduledTimeSlot?.slice(0, 5));
     case "closedDate":
-      return formatDayTime(row.closedDate, row.closedTime);
+      return visitDayTime(row.closedDate, row.closedTime);
     case "rate":
       return rateLabel(row);
     case "externalBalance":

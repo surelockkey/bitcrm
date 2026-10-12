@@ -67,8 +67,9 @@ describe("UsersTable — Workiz's Team grid", () => {
     expect(screen.getByText("Dispatcher")).toBeInTheDocument();
     expect(screen.getByText("no")).toBeInTheDocument();
     expect(screen.getByText("Phoenix")).toBeInTheDocument();
-    // Workiz's "Fri Nov 04, 2022 07:16 am", on the business's clock.
-    expect(screen.getByText(/^Fri Nov 04, 2022 \d\d:16 (am|pm)$/)).toBeInTheDocument();
+    // Workiz's "Fri Nov 04, 2022 07:16 am", on the business's clock — and
+    // saying which (2026-10-12 owner rule): 15:16 UTC is 11:16 am EDT.
+    expect(screen.getByText("Fri Nov 04, 2022 11:16 am EDT")).toBeInTheDocument();
   });
 
   it("chips under the email: 2FA, Inactive, and ours — Custom permissions", () => {

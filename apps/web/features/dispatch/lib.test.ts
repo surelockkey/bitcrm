@@ -17,6 +17,7 @@ import {
   technicianAvailability,
   techJobProgress,
   isInTimeOrder,
+  todayISO,
   type TechnicianPosition,
 } from "./lib";
 
@@ -377,5 +378,15 @@ describe("isInTimeOrder", () => {
   it("is trivially true for zero or one job", () => {
     expect(isInTimeOrder([])).toBe(true);
     expect(isInTimeOrder([j("09:00")])).toBe(true);
+  });
+});
+
+describe("todayISO — the day a tech's jobs are 'today'", () => {
+  // It was UTC: after 8 PM EDT that is already tomorrow, and a tech's day went
+  // empty for the evening. Connecticut's day (2026-10-12 owner rule).
+  it("is Connecticut's day, not UTC's", () => {
+    expect(todayISO(new Date("2026-10-13T01:30:00Z"))).toBe("2026-10-12"); // 9:30 PM EDT
+    expect(todayISO(new Date("2026-12-02T04:30:00Z"))).toBe("2026-12-01"); // 11:30 PM EST
+    expect(todayISO(new Date("2026-10-12T14:00:00Z"))).toBe("2026-10-12");
   });
 });

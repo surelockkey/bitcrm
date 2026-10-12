@@ -324,16 +324,32 @@ describe("firing counts and outcomes", () => {
 });
 
 describe("formatFiredAt", () => {
-  it("shows a short local date and time, and passes anything unreadable through", () => {
+  it("shows a short date and time, and passes anything unreadable through", () => {
     expect(formatFiredAt("2026-09-16T15:04:00.000Z")).toMatch(/Sep 16/);
     expect(formatFiredAt("not a date")).toBe("not a date");
+  });
+
+  // 2026-10-12 the owner: every web time is Connecticut's and names its zone.
+  it("reads on Connecticut's clock with the zone, EDT in summer and EST in winter", () => {
+    expect(formatFiredAt("2026-09-16T15:04:00.000Z")).toBe("Sep 16, 11:04 AM EDT");
+    expect(formatFiredAt("2026-01-15T17:00:00.000Z")).toBe("Jan 15, 12:00 PM EST");
+  });
+
+  it("names Connecticut's day, not the UTC one", () => {
+    // 03:30 UTC on Sep 17 is 11:30 PM on Sep 16 in Connecticut.
+    expect(formatFiredAt("2026-09-17T03:30:00.000Z")).toBe("Sep 16, 11:30 PM EDT");
   });
 });
 
 describe("formatEditedAt", () => {
   it("shows a short date with the year, and passes anything unreadable through", () => {
-    expect(formatEditedAt("2024-10-09T12:00:00.000Z")).toMatch(/Oct 9, 2024/);
+    expect(formatEditedAt("2024-10-09T12:00:00.000Z")).toBe("Oct 9, 2024");
     expect(formatEditedAt("not a date")).toBe("not a date");
+  });
+
+  it("names Connecticut's day — a date alone, so no zone", () => {
+    // 02:30 UTC on Oct 10 is 10:30 PM on Oct 9 in Connecticut (EDT).
+    expect(formatEditedAt("2024-10-10T02:30:00.000Z")).toBe("Oct 9, 2024");
   });
 });
 

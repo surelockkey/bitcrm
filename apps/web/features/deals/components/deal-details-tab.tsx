@@ -27,7 +27,7 @@ import { useCustomFields } from "@/features/custom-fields/hooks";
 import { applicableFields, workizGroupColumns, workizOrderedGroups } from "@/features/custom-fields/lib";
 import { jobTypeDurationMinutes } from "@/features/job-types/lib";
 import { WzCustomFields } from "@/features/custom-fields/components/wz-custom-fields";
-import { useResolvedServiceArea } from "@/features/service-areas/hooks";
+import { useJobZoneOf, useResolvedServiceArea } from "@/features/service-areas/hooks";
 import { DEFAULT_TZ } from "@/lib/timezone";
 import { useAssignTechs, useChangeClientPhone, useUpdateDeal } from "../hooks";
 import { clientDraftFromContact, dealDraftFromDeal, type ClientDraft, type DealDraft } from "../lib";
@@ -163,9 +163,15 @@ export function DetailsTab({
       return { ...d, jobTypeId, scheduledEndDate: s.endDate, scheduledTimeSlot: s.slot };
     });
 
-  // The job's timezone: its resolved service area's, else Connecticut.
+  // The zone the visit is stored in — what the schedule inputs show, unconverted:
+  // the job's own (`jobTimezone`, else its service area's); a job with no area
+  // yet takes the area its address falls in, else Connecticut.
+  const zoneOf = useJobZoneOf();
   const { data: jobArea } = useResolvedServiceArea(dealDraft.address.lat, dealDraft.address.lng);
-  const jobTz = jobArea?.timezone ?? DEFAULT_TZ;
+  const jobTz =
+    deal.jobTimezone || dealDraft.serviceAreaId
+      ? zoneOf({ jobTimezone: deal.jobTimezone, serviceAreaId: dealDraft.serviceAreaId })
+      : (jobArea?.timezone ?? DEFAULT_TZ);
 
   // Workiz's group order, each group at its Workiz side (job_b_01_details_scroll1:
   // Extra Info, Dispatchers, Platinum down the left; Other Contact, Tech down

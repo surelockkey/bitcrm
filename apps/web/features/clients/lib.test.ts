@@ -174,7 +174,13 @@ describe("address helpers", () => {
 });
 
 describe("coiStatus", () => {
-  const now = new Date("2026-07-24T00:00:00Z");
+  const now = new Date("2026-07-24T12:00:00Z"); // Jul 24 in Connecticut
+  it("counts from Connecticut's today, not UTC's", () => {
+    // 23:30 on Jul 24 in Connecticut — UTC (and Kyiv) are already on the 25th.
+    const lateEvening = new Date("2026-07-25T03:30:00Z");
+    expect(coiStatus("2026-07-24", lateEvening)).toBe("expiring"); // expires today: not yet expired
+    expect(coiStatus("2026-08-23", lateEvening)).toBe("expiring"); // 30 days out
+  });
   it("is 'none' when no expiry is set", () => {
     expect(coiStatus(undefined, now)).toBe("none");
     expect(coiStatus("", now)).toBe("none");

@@ -5,6 +5,7 @@ import { forwardRef, type ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
 import { server } from "@/test/msw/server";
+import { ctToday } from "@/lib/timezone";
 import { DispatchPage } from "./dispatch-page";
 import { mapRangeWindow } from "../map-range";
 
@@ -90,11 +91,11 @@ vi.mock("@/features/auth/use-permissions", () => ({
   usePermissions: () => permissions.value,
 }));
 
-/** Today as the page reads it — the viewer's own calendar day. */
+/** Today as the page reads it — Connecticut's calendar day (2026-10-12 owner rule). */
 function localDay(offset = 0): string {
-  const d = new Date();
-  d.setDate(d.getDate() + offset);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const d = new Date(`${ctToday()}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + offset);
+  return d.toISOString().slice(0, 10);
 }
 
 const LOCATED = {
@@ -255,6 +256,21 @@ describe("DispatchPage — Workiz's Map", () => {
     expect(screen.getByText("All open jobs, any date")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Next" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Previous" })).not.toBeInTheDocument();
+  });
+
+  // 2026-10-12 owner rule: the web's day and clock are Connecticut's.
+  it("opens the date box on Connecticut's week, whatever the browser's clock says, and labels Last updated", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    // Sat Oct 17, 10:30 PM EDT — already Sunday, a new week, in Kyiv and in UTC.
+    vi.setSystemTime(new Date("2026-10-18T02:30:00Z"));
+    try {
+      render(<DispatchPage />, { wrapper });
+      expect(await screen.findByText(/Sun, Oct 11, 2026/)).toBeInTheDocument();
+      expect(screen.getByText("Sat, Oct 17, 2026")).toBeInTheDocument();
+      expect(screen.getByTitle(/^Last updated/)).toHaveAttribute("title", "Last updated 10:30:00 PM EDT");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("› steps a week on; Reset date comes back to today", async () => {

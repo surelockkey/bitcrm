@@ -20,6 +20,7 @@ import {
 import { outOfHoursRanges, type WorkingHours } from "../lib";
 import type { DragSource, DropZone } from "../reschedule";
 import { Draggable, EventBar } from "./event-block";
+import { ZoneCorner } from "./time-grid";
 import { useElementWidth } from "./use-element-width";
 
 /** One Timeline row: a technician, or (id null) the Unassigned jobs. */
@@ -50,12 +51,16 @@ interface Placed {
  * jobs as 22px bars on 23px lanes along 70px hours (Timeline) or whole days
  * (Timeline Week); the current time as a red line. A bar dropped on another
  * row changes who is on the job.
+ *
+ * The hours, today and the red line are Connecticut's (2026-10-12 owner
+ * rule), and the empty corner says so ("EDT").
  */
 export function TimelineGrid({
   mode,
   date,
   days,
   today,
+  zone,
   nowMin,
   rows,
   entries,
@@ -69,7 +74,9 @@ export function TimelineGrid({
   /** Timeline Week: Sunday … Saturday. */
   days: string[];
   today: string;
-  /** Minutes since midnight now (browser clock), for the red line. */
+  /** The hours' zone, "EDT" / "EST" — Connecticut's. */
+  zone: string;
+  /** Minutes since Connecticut's midnight now, for the red line. */
   nowMin: number;
   rows: TimelineRow[];
   entries: CalendarEntry[];
@@ -129,12 +136,14 @@ export function TimelineGrid({
   return (
     <div ref={scrollRef} data-schedule-scroll className="relative min-h-0 flex-1 overflow-auto">
       <div className="relative" style={{ width: dataWidth ? section + dataWidth : "100%" }}>
-        {/* The header: an empty corner (Workiz's "Edit Order" — we have no row order to edit) and the scale. */}
+        {/* The header: a corner (Workiz's "Edit Order" — we have no row order to edit; ours: the hours' zone) and the scale. */}
         <div
           className="sticky top-0 z-30 flex border-b border-[#cecece] bg-white"
           style={{ height: mode === "day" ? TL_HEADER_PX : TLW_HEADER_PX }}
         >
-          <div className="sticky left-0 z-10 shrink-0 border-r border-[#cecece] bg-white" style={{ width: section }} />
+          <div className="sticky left-0 z-10 flex shrink-0 items-end justify-center border-r border-[#cecece] bg-white pb-[2px]" style={{ width: section }}>
+            <ZoneCorner zone={zone} />
+          </div>
           {mode === "day"
             ? HOURS.map((h) => (
                 <div
@@ -196,8 +205,8 @@ export function TimelineGrid({
                 }
                 const source: DragSource =
                   mode === "day"
-                    ? { kind: "tl-time", deal: entry.deal, startMin: entry.startMin, fromTechId: row.id }
-                    : { kind: "tl-days", deal: entry.deal, dayPx: dayPx || 1, fromTechId: row.id };
+                    ? { kind: "tl-time", deal: entry.deal, startMin: entry.startMin, fromTechId: row.id, startDate: entry.startDate }
+                    : { kind: "tl-days", deal: entry.deal, dayPx: dayPx || 1, fromTechId: row.id, startDate: entry.startDate };
                 return (
                   <Draggable
                     key={entry.id}

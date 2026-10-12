@@ -36,7 +36,8 @@ import { applicableFields } from "@/features/custom-fields/lib";
 import { useDeal, useDealProducts, useMoveStatus, useSetDealTags, useUserMap } from "../hooks";
 import { useContact } from "@/features/clients/hooks";
 import { dealClientName, dealTotal, formatMoney, isUrgent, jobFirstPhone } from "../lib";
-import { workizScheduleCell } from "../schedule-cell";
+import { labelled, workizScheduleCell } from "../schedule-cell";
+import { useJobZoneOf } from "@/features/service-areas/hooks";
 import type { Deal } from "@bitcrm/types";
 import { DEFAULT_TZ } from "@/lib/timezone";
 import { PriorityFlag } from "./deal-badges";
@@ -62,24 +63,28 @@ export function DealQuickView({
 }
 
 /**
- * The visit as the jobs list prints it (audit L18): "Mon Nov 16, 2026 04:30 pm"
- * on the account's clock, then — when the job keeps its own zone — the place
- * and its own clock. Never the stored "15:30-15:30".
+ * The visit as the jobs list prints it (audit L18): "Mon Nov 16, 2026 04:30 pm
+ * EST" on the account's (Connecticut's) clock, then — when the job keeps its
+ * own zone (its `jobTimezone`, else its service area's) — the place and its
+ * own clock, each naming its zone. Never the stored "15:30-15:30".
  */
 function QuickViewSchedule({ deal }: { deal: Deal }) {
+  const zoneOf = useJobZoneOf();
   const c = workizScheduleCell(
     {
       scheduledDate: deal.scheduledDate,
       scheduledTimeSlot: deal.allDay ? undefined : deal.scheduledTimeSlot,
       city: deal.address?.city,
-      zone: deal.jobTimezone,
+      zone: zoneOf(deal),
     },
     DEFAULT_TZ,
   );
   return (
     <div className="text-sm">
-      <div>{c.when}</div>
-      {c.area ? <div className="text-xs text-muted-foreground">{`${c.area.place}: ${c.area.when}`}</div> : null}
+      <div>{labelled(c.when, c.abbr)}</div>
+      {c.area ? (
+        <div className="text-xs text-muted-foreground">{`${c.area.place}: ${labelled(c.area.when, c.area.abbr)}`}</div>
+      ) : null}
     </div>
   );
 }

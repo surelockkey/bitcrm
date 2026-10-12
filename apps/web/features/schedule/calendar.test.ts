@@ -3,10 +3,10 @@ import { JobSuperStatus, type Deal } from "@bitcrm/types";
 import {
   WZ_EVENT_COLORS,
   clockLabel,
+  gridZoneAbbr,
   hourLabel,
   layoutColumn,
   layoutLanes,
-  localTodayISO,
   monthWeeks,
   ordinal,
   scheduleColor,
@@ -147,10 +147,19 @@ describe("hour and clock labels", () => {
   });
 });
 
-describe("localTodayISO", () => {
-  it("is the browser's own date, as Workiz's calendar uses", () => {
-    expect(localTodayISO(new Date(2026, 9, 9, 1, 30))).toBe("2026-10-09");
-    expect(localTodayISO(new Date(2026, 0, 2, 23, 59))).toBe("2026-01-02");
+/**
+ * 2026-10-12 owner rule: the web's calendar is Connecticut's, and says so.
+ * Today, the red line and the gutter are on its clock (`ctToday`,
+ * `ctMinutesOfDay` in @/lib/timezone), whatever the viewer's browser says.
+ */
+describe("gridZoneAbbr — the zone a Connecticut day's hours are in", () => {
+  it("is EDT in summer and EST in winter", () => {
+    expect(gridZoneAbbr("2026-10-12")).toBe("EDT");
+    expect(gridZoneAbbr("2026-12-01")).toBe("EST");
+  });
+  it("names the zone the day spends its hours in on the night the clocks change", () => {
+    // 2026-11-01: EDT until 2 AM, EST for the rest of the day.
+    expect(gridZoneAbbr("2026-11-01")).toBe("EST");
   });
 });
 
@@ -176,6 +185,46 @@ describe("scheduleItem — a job as the calendar places it", () => {
   });
   it("a zero-length slot keeps its start", () => {
     expect(scheduleItem(deal({ scheduledTimeSlot: "16:30-16:30" }))).toMatchObject({ startMin: 990, endMin: 990, bar: false });
+  });
+});
+
+/**
+ * A visit is stored on the clock of the zone it was booked in; the grid is
+ * Connecticut's (2026-10-12 owner rule). 12 of the 28 areas are Central.
+ */
+describe("scheduleItem — on Connecticut's grid", () => {
+  const tx = (over: Partial<Deal>) => scheduleItem(deal(over), "America/Chicago");
+  it("a Texas visit booked for 10:00 CDT sits at 11:00, labelled EDT", () => {
+    expect(tx({ scheduledDate: "2026-10-12", scheduledTimeSlot: "10:00-12:00" })).toMatchObject({
+      startDate: "2026-10-12", endDate: "2026-10-12", startMin: 660, endMin: 780, bar: false, abbr: "EDT",
+    });
+  });
+  it("in winter the label is EST", () => {
+    expect(tx({ scheduledDate: "2026-12-01", scheduledTimeSlot: "09:00-10:00" })).toMatchObject({
+      startDate: "2026-12-01", startMin: 600, endMin: 660, abbr: "EST",
+    });
+  });
+  it("a late Arizona visit moves onto Connecticut's next day", () => {
+    expect(scheduleItem(deal({ scheduledDate: "2026-10-12", scheduledTimeSlot: "22:30-23:30" }), "America/Phoenix")).toMatchObject({
+      startDate: "2026-10-13", endDate: "2026-10-13", startMin: 90, endMin: 150, bar: false,
+    });
+  });
+  it("a one-day visit running past Connecticut's midnight stays a box, to the bottom of its day", () => {
+    expect(tx({ scheduledDate: "2026-10-12", scheduledTimeSlot: "22:30-23:30" })).toMatchObject({
+      startDate: "2026-10-12", endDate: "2026-10-12", startMin: 1410, endMin: 1440, bar: false,
+    });
+  });
+  it("a Connecticut job — or one with no zone — stays where it is", () => {
+    expect(scheduleItem(deal(), "America/New_York")).toMatchObject({ startDate: "2026-10-09", startMin: 540, endMin: 660, abbr: "EDT" });
+    expect(scheduleItem(deal())).toMatchObject({ startDate: "2026-10-09", startMin: 540, endMin: 660, abbr: "EDT" });
+  });
+  it("an all-day job keeps its days and has no time to label", () => {
+    expect(tx({ allDay: true, scheduledTimeSlot: undefined })).toMatchObject({ startDate: "2026-10-09", bar: true, abbr: "" });
+  });
+  it("a job over several days runs from its Connecticut start to its Connecticut end", () => {
+    expect(tx({ scheduledDate: "2026-10-12", scheduledEndDate: "2026-10-14", scheduledTimeSlot: "12:15-14:15" })).toMatchObject({
+      bar: true, startDate: "2026-10-12", endDate: "2026-10-14", startMin: 795, endMin: 915, abbr: "EDT",
+    });
   });
 });
 

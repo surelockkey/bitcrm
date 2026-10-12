@@ -89,8 +89,9 @@ describe("TechActions — the Visit row", () => {
 
     expect(screen.queryByRole("button", { name: /^Confirm receipt/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^Arrived/ })).not.toBeInTheDocument();
-    expect(screen.getByText(/^Confirmed at /)).toBeInTheDocument();
-    expect(screen.getByText(/^Arrived at /)).toBeInTheDocument();
+    // On Connecticut's clock, its zone named (2026-10-12 owner rule).
+    expect(screen.getByText("Confirmed at 9:05 AM EDT")).toBeInTheDocument();
+    expect(screen.getByText("Arrived at 9:40 AM EDT")).toBeInTheDocument();
     // In progress is where Workiz's "Job Done" becomes the next thing to do.
     expect(screen.getByRole("button", { name: /^Job Done/ })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^Start job/ })).not.toBeInTheDocument();
@@ -104,10 +105,11 @@ describe("TechActions — the Visit row", () => {
   });
 
   it("keeps only the stamps on a closed job", () => {
-    render(<TechActions deal={deal({ superStatus: JobSuperStatus.DONE, arrivedAt: "2026-09-16T13:40:00.000Z" })} />);
+    // Winter: 15:40Z is 10:40 AM EST.
+    render(<TechActions deal={deal({ superStatus: JobSuperStatus.DONE, arrivedAt: "2026-12-01T15:40:00.000Z" })} />);
 
     expect(screen.getByText("Visit:")).toBeInTheDocument();
-    expect(screen.getByText(/^Arrived at /)).toBeInTheDocument();
+    expect(screen.getByText("Arrived at 10:40 AM EST")).toBeInTheDocument();
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 

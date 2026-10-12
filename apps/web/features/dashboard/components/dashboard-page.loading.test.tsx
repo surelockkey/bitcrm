@@ -127,6 +127,8 @@ const routes: FakeRoute[] = [
         : { success: true, data: [], pagination: {} },
     delayMs: 30,
   },
+  // Coming up reads the areas' zones with its visits (2026-10-12 owner rule).
+  { match: /\/deals\/service-areas$/, reply: () => [{ id: "sa-ct", name: "Bethel", timezone: "America/New_York" }], delayMs: 25 },
   {
     match: /\/deals\/activity$/,
     raw: true,
@@ -256,10 +258,12 @@ describe("the dashboard — no jumping", () => {
         "/api/billing/estimates/report/summary",
         "/api/billing/invoices/report/summary",
         "/api/billing/payments/report/totals",
-        // Coming up: one page per open status, in visit order.
+        // Coming up: one page per open status, in visit order — and the
+        // areas' zones, each visit's clock (2026-10-12 owner rule).
         "/api/deals",
         "/api/deals",
         "/api/deals",
+        "/api/deals/service-areas",
         "/api/deals/activity",
         "/api/deals/stats/dashboard",
         "/api/telephony/calls/stats/dashboard",

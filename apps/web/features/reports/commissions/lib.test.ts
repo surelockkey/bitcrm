@@ -145,12 +145,38 @@ describe("cells — as Workiz prints them", () => {
     expect(rateLabel({})).toBe("");
   });
 
-  it("days: MM/DD/YYYY hh:mm AM, Created on the business's clock", () => {
+  // 2026-10-12 owner rule: every time on Connecticut's clock, and it says so.
+  it("days: MM/DD/YYYY hh:mm AM on Connecticut's clock, with the zone", () => {
     expect(formatDayTime("2026-09-02", "19:00")).toBe("09/02/2026 07:00 PM");
     expect(formatDayTime("2026-09-02", "00:30")).toBe("09/02/2026 12:30 AM");
-    expect(cellText(row, "closedDate")).toBe("09/02/2026 07:00 PM");
-    expect(cellText(row, "scheduledDate")).toBe("09/02/2026 06:00 PM");
-    expect(cellText(row, "createdAt")).toBe("09/24/2026 03:06 PM");
+    // A Connecticut job (no zone given = Connecticut): the visit as booked.
+    expect(cellText(row, "closedDate")).toBe("09/02/2026 07:00 PM EDT");
+    expect(cellText(row, "scheduledDate")).toBe("09/02/2026 06:00 PM EDT");
+    expect(cellText(row, "createdAt")).toBe("09/24/2026 03:06 PM EDT");
+  });
+
+  it("Created is an instant: Connecticut's day, not UTC's, and EST in winter", () => {
+    // 03:30 UTC on Oct 13 is Oct 12, 11:30 pm EDT.
+    expect(cellText({ ...row, createdAt: "2026-10-13T03:30:00.000Z" }, "createdAt")).toBe("10/12/2026 11:30 PM EDT");
+    expect(cellText({ ...row, createdAt: "2026-12-01T15:00:00.000Z" }, "createdAt")).toBe("12/01/2026 10:00 AM EST");
+  });
+
+  // deal-service converts every visit to Connecticut's wall clock before it
+  // sends the row (2026-10-12), so the web only labels it — converting again
+  // would move a Texas 10:00 (sent as 11:00) to 12:00.
+  it("Scheduled and Closed arrive on Connecticut's clock: labelled, never shifted again", () => {
+    const tx = { ...row, serviceAreaId: "area-tx", scheduledDate: "2026-10-12", scheduledTimeSlot: "11:00-12:00", closedDate: "2026-10-13", closedTime: "00:30" };
+    expect(cellText(tx, "scheduledDate")).toBe("10/12/2026 11:00 AM EDT");
+    expect(cellText(tx, "closedDate")).toBe("10/13/2026 12:30 AM EDT");
+    const winter = { ...row, scheduledDate: "2026-12-01", scheduledTimeSlot: "09:00-10:00" };
+    expect(cellText(winter, "scheduledDate")).toBe("12/01/2026 09:00 AM EST");
+  });
+
+  it("a day without a time is the day as booked: never shifted, no label", () => {
+    const allDay = { ...row, scheduledDate: "2026-10-12", scheduledTimeSlot: undefined, closedDate: "2026-10-12", closedTime: undefined };
+    expect(cellText(allDay, "scheduledDate")).toBe("10/12/2026");
+    expect(cellText(allDay, "closedDate")).toBe("10/12/2026");
+    expect(cellText({ ...row, scheduledDate: undefined }, "scheduledDate")).toBe("");
   });
 
   it("money: thousands, two decimals unless whole; empty text is empty", () => {

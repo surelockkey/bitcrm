@@ -20,13 +20,12 @@ const msg = (id: string, createdAt: string, extra: Partial<FeedMessage> = {}): F
   ...extra,
 });
 
-const today = (h: number) => new Date(new Date().setHours(h, 0, 0, 0)).toISOString();
-const yesterday = (h: number) => {
-  const d = new Date();
-  d.setDate(d.getDate() - 1);
-  d.setHours(h, 0, 0, 0);
-  return d.toISOString();
-};
+/**
+ * Fixed instants on Connecticut's clock (EDT, UTC−4) — the thread's days are
+ * Connecticut's, so the fixtures must not ride on the machine's own zone.
+ */
+const today = (h: number) => new Date(Date.UTC(2026, 8, 15, h + 4)).toISOString();
+const yesterday = (h: number) => new Date(Date.UTC(2026, 8, 14, h + 4)).toISOString();
 
 function renderFeed(props: Partial<React.ComponentProps<typeof MessageFeed>> = {}) {
   return render(

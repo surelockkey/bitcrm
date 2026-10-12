@@ -93,7 +93,9 @@ describe("ProfilePage — a technician's own user page", () => {
     expect(within(work).getByRole("textbox", { name: "Role" })).toBeDisabled();
     expect(within(work).getByRole("textbox", { name: "Department" })).toHaveValue("Field");
     expect(within(work).getByRole("textbox", { name: "Department" })).toBeDisabled();
-    expect(within(work).getByText("Member since Jan 2, 2026")).toBeInTheDocument();
+    // On Connecticut's calendar (2026-10-12 owner rule): 00:00 UTC on Jan 2 is
+    // still Jan 1 there (7 pm EST), whatever the browser's clock.
+    expect(within(work).getByText("Member since Jan 1, 2026")).toBeInTheDocument();
   });
 
   it("makes Two-factor authentication their own switch — not the admin's greyed one", async () => {

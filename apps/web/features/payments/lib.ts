@@ -16,7 +16,8 @@ import {
   type PaymentStatus,
 } from "@bitcrm/types";
 import { formatMoney } from "@/features/billing/lib";
-import { isYmd, todayYmd } from "@/features/billing/dates";
+import { isYmd } from "@/features/billing/dates";
+import { DEFAULT_TZ, ctToday, withZone, zonedInstant } from "@/lib/timezone";
 import { toneClasses } from "@/lib/theme/tone";
 
 /* --------------------------------------------------------------- money */
@@ -163,14 +164,25 @@ export function sameMethods(
 /* ---------------------------------------------------------------- dates */
 
 /**
- * When a payment was taken, as an instant. Today keeps the clock time; a
- * back-dated day is pinned to local midday so no timezone pushes it to the
- * day before.
+ * When a payment was taken, as an instant. Connecticut's today keeps the
+ * clock time; a back-dated day is pinned to Connecticut's midday — not the
+ * browser's (a Kyiv noon is 5 am in Connecticut) — so the day never slips.
  */
 export function takenAtIso(day: string, now: Date = new Date()): string {
-  if (!isYmd(day) || day === todayYmd(now)) return now.toISOString();
-  const [y, m, d] = day.split("-").map(Number);
-  return new Date(y, m - 1, d, 12, 0, 0).toISOString();
+  if (!isYmd(day) || day === ctToday(now)) return now.toISOString();
+  return zonedInstant(day, "12:00", DEFAULT_TZ).toISOString();
+}
+
+/**
+ * "5/4/2026 at 8:59 PM EDT" — a payment's Date in Workiz's payments table:
+ * Connecticut's clock, saying so; "" for nothing or junk.
+ */
+export function paymentTakenAt(iso: string | undefined | null): string {
+  const d = iso ? new Date(iso) : null;
+  if (!d || Number.isNaN(d.getTime())) return "";
+  const day = d.toLocaleDateString("en-US", { timeZone: DEFAULT_TZ, month: "numeric", day: "numeric", year: "numeric" });
+  const time = d.toLocaleTimeString("en-US", { timeZone: DEFAULT_TZ, hour: "numeric", minute: "2-digit" });
+  return withZone(`${day} at ${time}`, d);
 }
 
 /* ------------------------------------------------------------ list/query */

@@ -18,6 +18,7 @@ import {
   remainingRefundable,
   sameMethods,
   takenAtIso,
+  paymentTakenAt,
 } from "./lib";
 
 function payment(over: Partial<Payment> = {}): Payment {
@@ -138,19 +139,37 @@ describe("applyAmountPaid", () => {
 });
 
 describe("takenAtIso", () => {
-  it("keeps the clock time when the payment is recorded for today", () => {
-    const now = new Date(2026, 8, 20, 9, 30);
+  it("keeps the clock time when the payment is recorded for Connecticut's today", () => {
+    const now = new Date("2026-09-20T13:30:00.000Z"); // 09:30 EDT on the 20th
     expect(takenAtIso("2026-09-20", now)).toBe(now.toISOString());
+    // 23:30 EDT on the 20th — UTC (and Kyiv) already say the 21st, Connecticut does not.
+    const late = new Date("2026-09-21T03:30:00.000Z");
+    expect(takenAtIso("2026-09-20", late)).toBe(late.toISOString());
   });
 
-  it("uses local midday for a back-dated payment so the day never slips", () => {
-    const now = new Date(2026, 8, 20, 9, 30);
-    expect(takenAtIso("2026-09-18", now)).toBe(new Date(2026, 8, 18, 12, 0, 0).toISOString());
+  it("pins a back-dated payment to Connecticut's midday so the day never slips", () => {
+    const now = new Date("2026-09-20T13:30:00.000Z");
+    expect(takenAtIso("2026-09-18", now)).toBe("2026-09-18T16:00:00.000Z"); // 12:00 EDT
+    expect(takenAtIso("2026-12-01", now)).toBe("2026-12-01T17:00:00.000Z"); // 12:00 EST
   });
 
   it("falls back to now for a day it cannot read", () => {
-    const now = new Date(2026, 8, 20, 9, 30);
+    const now = new Date("2026-09-20T13:30:00.000Z");
     expect(takenAtIso("nonsense", now)).toBe(now.toISOString());
+  });
+});
+
+describe("paymentTakenAt — Workiz's payments table Date cell", () => {
+  it("is the moment on Connecticut's clock with its zone: '5/4/2026 at 8:59 PM EDT'", () => {
+    expect(paymentTakenAt("2026-05-05T00:59:00.000Z")).toBe("5/4/2026 at 8:59 PM EDT");
+    expect(paymentTakenAt("2026-12-01T15:00:00.000Z")).toBe("12/1/2026 at 10:00 AM EST");
+    // 23:30 EDT on Oct 12 — still the 12th in Connecticut.
+    expect(paymentTakenAt("2026-10-13T03:30:00.000Z")).toBe("10/12/2026 at 11:30 PM EDT");
+  });
+
+  it("is empty for nothing or junk", () => {
+    expect(paymentTakenAt(undefined)).toBe("");
+    expect(paymentTakenAt("nope")).toBe("");
   });
 });
 

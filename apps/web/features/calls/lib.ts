@@ -1,6 +1,7 @@
 /** Shared call-domain helpers: types, status presentation, formatters. */
 
 import { formatPhone } from "@/lib/phone";
+import { DEFAULT_TZ, ctToday, withZone } from "@/lib/timezone";
 
 export type CallStatus =
   | "queued"
@@ -192,27 +193,33 @@ export function formatDuration(seconds?: number): string {
     : `${m}:${String(rest).padStart(2, "0")}`;
 }
 
-/** ISO → "Aug 5, 2:41 PM" (adds the year when it isn't the current one). */
-export function formatCallTime(iso?: string): string {
+/**
+ * ISO → "Aug 5, 2:41 PM EDT": Connecticut's clock with its zone named, the
+ * year added when it isn't Connecticut's current one. 2026-10-12 the owner's
+ * rule — staff read the web from Ukraine, so the browser's clock never counts.
+ */
+export function formatCallTime(iso?: string, now: Date = new Date()): string {
   if (!iso) return "—";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "—";
-  const sameYear = d.getFullYear() === new Date().getFullYear();
-  return d.toLocaleString("en-US", {
+  const sameYear = ctToday(d).slice(0, 4) === ctToday(now).slice(0, 4);
+  const text = d.toLocaleString("en-US", {
+    timeZone: DEFAULT_TZ,
     month: "short",
     day: "numeric",
     ...(sameYear ? {} : { year: "numeric" }),
     hour: "numeric",
     minute: "2-digit",
   });
+  return withZone(text, d);
 }
 
-/** ISO → "12m ago" / "yesterday" / "5d ago"; older than a fortnight reads as a date. */
-export function formatCallAgo(iso?: string): string {
+/** ISO → "12m ago" / "yesterday" / "5d ago"; older than a fortnight reads as a Connecticut date and time. */
+export function formatCallAgo(iso?: string, now: Date = new Date()): string {
   if (!iso) return "—";
   const then = new Date(iso).getTime();
   if (Number.isNaN(then)) return "—";
-  const mins = Math.floor((Date.now() - then) / 60_000);
+  const mins = Math.floor((now.getTime() - then) / 60_000);
   if (mins < 1) return "just now";
   if (mins < 60) return `${mins}m ago`;
   const hours = Math.floor(mins / 60);

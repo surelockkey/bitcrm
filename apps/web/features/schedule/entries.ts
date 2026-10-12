@@ -1,4 +1,5 @@
 import { JobSuperStatus, type CalendarEvent, type Deal } from "@bitcrm/types";
+import { DEFAULT_TZ, zoneAbbr, zonedInstant } from "@/lib/timezone";
 import { WZ_DEFAULT_EVENT_COLOR, scheduleColor, scheduleItem, scheduleText } from "./calendar";
 import { dealConflicts, eventLabel, eventOnDate, parseSlot, type WorkingHours } from "./lib";
 
@@ -24,6 +25,8 @@ export interface CalendarEntry {
   techIds: string[];
   /** Overlaps another job, time off, or falls outside working hours (our warning). */
   conflict: boolean;
+  /** Connecticut's zone at its start ("EDT" / "EST") — printed after its time; "" when it has none. */
+  abbr: string;
 }
 
 export interface EntryContext {
@@ -34,6 +37,8 @@ export interface EntryContext {
   areaColor?: (name: string) => string | undefined;
   /** The job's client, named under the job id (ours); "" leaves the line out. */
   clientName?: (deal: Deal) => string;
+  /** The zone a job's visit was booked in (`jobZoneResolver`); Connecticut when left out. */
+  zoneOf?: (deal: Deal) => string;
 }
 
 /**
@@ -41,11 +46,15 @@ export interface EntryContext {
  * template and coloured by its service area (its stored colour, else one its
  * name picks), Done ones striped; each time off
  * in Workiz's default event colour on its technician's row.
+ *
+ * All on Connecticut's clock (2026-10-12 owner rule): a job is moved there
+ * from the zone it was booked in; time off is entered on this grid, so it is
+ * already there.
  */
 export function buildEntries(deals: Deal[], events: CalendarEvent[], ctx: EntryContext): CalendarEntry[] {
   const out: CalendarEntry[] = [];
   for (const deal of deals) {
-    const item = scheduleItem(deal);
+    const item = scheduleItem(deal, ctx.zoneOf?.(deal));
     if (!item) continue;
     const conflict = deal.assignedTechIds.some((tech) => {
       const sameTech = deals.filter((d) => d.scheduledDate === deal.scheduledDate && d.assignedTechIds.includes(tech));
@@ -73,6 +82,7 @@ export function buildEntries(deals: Deal[], events: CalendarEvent[], ctx: EntryC
       done: deal.superStatus === JobSuperStatus.DONE,
       techIds: deal.assignedTechIds,
       conflict,
+      abbr: item.abbr,
     });
   }
   for (const ev of events) {
@@ -93,6 +103,7 @@ export function buildEntries(deals: Deal[], events: CalendarEvent[], ctx: EntryC
       done: false,
       techIds: [ev.technicianId],
       conflict: false,
+      abbr: slot ? zoneAbbr(zonedInstant(ev.startDate, ev.timeSlot!.slice(0, 5), DEFAULT_TZ)) : "",
     });
   }
   return out;

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 
+import { ctToday } from "@/lib/timezone";
 import { cn } from "@/lib/utils";
 import { MuiArrowDropDownIcon, MuiArrowLeftIcon, MuiArrowRightIcon } from "./icons";
 
@@ -44,9 +45,9 @@ export function splitIso(iso: string | undefined | null): [number, number, numbe
   return [y, mo, d];
 }
 
+/** Today, ringed on the grid: Connecticut's, never the browser's (2026-10-12 owner rule). */
 function todayIso() {
-  const t = new Date();
-  return isoOf(t.getFullYear(), t.getMonth(), t.getDate());
+  return ctToday();
 }
 
 /** Shift an ISO date by whole days (local calendar, no timezone drift). */

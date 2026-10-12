@@ -1,5 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { axisDayLabel, seriesTotals } from "./jobs-by-status";
+import { axisDayLabel, seriesTotals, updatedAtLabel } from "./jobs-by-status";
+
+// 2026-10-12 owner rule: the web's clock is Connecticut's, and it says so.
+describe("updatedAtLabel — a card's 'updated 3:08 AM EDT'", () => {
+  it("is Connecticut's time with its zone, whatever the browser's", () => {
+    expect(updatedAtLabel(new Date("2026-10-06T07:08:00Z"))).toBe("3:08 AM EDT"); // 10:08 AM in Kyiv
+    expect(updatedAtLabel(new Date("2026-12-01T08:08:00Z"))).toBe("3:08 AM EST");
+  });
+});
 
 describe("seriesTotals", () => {
   it("adds each state across the window", () => {

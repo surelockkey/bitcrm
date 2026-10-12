@@ -16,6 +16,8 @@ import {
   formatDayLabel,
   formatListTime,
   formatMessageStamp,
+  formatMessageTime,
+  formatScheduledDay,
   groupByDay,
   hasShortCodes,
   initialsOf,
@@ -185,13 +187,64 @@ describe("day labels", () => {
 
   // pg_messages_wz_01_list: "2:18 AM" for today, "Oct 08" for every day before it
   // (yesterday included — no weekday names), the day padded to two digits.
+  // 2026-10-12 the owner: "today", the day and the time are Connecticut's, the
+  // time with its zone — never the reader's own (staff sit in Ukraine).
   it("formats list times as Workiz does: the time today, else the month and a two-digit day", () => {
-    expect(formatListTime(new Date(2026, 8, 15, 9, 5).toISOString(), now)).toBe("9:05 AM");
-    expect(formatListTime(new Date(2026, 8, 14, 23, 50).toISOString(), now)).toBe("Sep 14");
-    expect(formatListTime(new Date(2026, 8, 13, 9).toISOString(), now)).toBe("Sep 13");
-    expect(formatListTime(new Date(2026, 7, 1).toISOString(), now)).toBe("Aug 01");
-    expect(formatListTime(new Date(2025, 11, 31).toISOString(), now)).toBe("Dec 31 2025");
-    expect(formatListTime(undefined, now)).toBe("");
+    const noonEdt = new Date("2026-09-15T16:00:00.000Z"); // Sep 15, 12:00 PM EDT
+    expect(formatListTime("2026-09-15T13:05:00.000Z", noonEdt)).toBe("9:05 AM EDT");
+    expect(formatListTime("2026-09-13T13:00:00.000Z", noonEdt)).toBe("Sep 13");
+    expect(formatListTime("2026-08-01T16:00:00.000Z", noonEdt)).toBe("Aug 01");
+    expect(formatListTime("2025-12-31T17:00:00.000Z", noonEdt)).toBe("Dec 31 2025");
+    expect(formatListTime(undefined, noonEdt)).toBe("");
+  });
+
+  it("decides 'today' on Connecticut's calendar", () => {
+    const noonEdt = new Date("2026-09-15T16:00:00.000Z");
+    // 03:50 UTC on the 15th is still 11:50 PM on the 14th in Connecticut.
+    expect(formatListTime("2026-09-15T03:50:00.000Z", noonEdt)).toBe("Sep 14");
+    // At 11:45 PM EDT on the 15th (already the 16th in UTC and Kyiv) the morning is still today.
+    expect(formatListTime("2026-09-15T13:05:00.000Z", new Date("2026-09-16T03:45:00.000Z"))).toBe("9:05 AM EDT");
+    // New Year's Eve 2026, 10:30 PM EST — already 2027 in UTC: day and year are Connecticut's.
+    expect(formatListTime("2027-01-01T03:30:00.000Z", new Date("2027-03-01T17:00:00.000Z"))).toBe("Dec 31 2026");
+  });
+
+  it("says EST in winter", () => {
+    expect(formatListTime("2026-01-15T17:00:00.000Z", new Date("2026-01-15T20:00:00.000Z"))).toBe("12:00 PM EST");
+  });
+});
+
+describe("message times", () => {
+  it("prints a message's time on Connecticut's clock with its zone", () => {
+    expect(formatMessageTime("2026-09-15T16:10:00.000Z")).toBe("12:10 PM EDT");
+    expect(formatMessageTime("2026-01-15T17:00:00.000Z")).toBe("12:00 PM EST");
+    expect(formatMessageTime("not a date")).toBe("");
+  });
+
+  it("stamps a message on Connecticut's day and clock, zone named", () => {
+    expect(formatMessageStamp("2026-09-15T16:10:00.000Z")).toBe("Sep 15 2026 12:10 PM EDT");
+    expect(formatMessageStamp("2026-01-15T17:00:00.000Z")).toBe("Jan 15 2026 12:00 PM EST");
+    // 03:30 UTC on New Year's Day is still New Year's Eve in Connecticut.
+    expect(formatMessageStamp("2027-01-01T03:30:00.000Z")).toBe("Dec 31 2026 10:30 PM EST");
+  });
+
+  it("names the day chip by Connecticut's day", () => {
+    expect(formatDayChip("2026-09-15T16:00:00.000Z")).toBe("Tuesday,September 15 2026");
+    // 11:30 PM EDT on the 15th — the 16th in UTC.
+    expect(formatDayChip("2026-09-16T03:30:00.000Z")).toBe("Tuesday,September 15 2026");
+  });
+});
+
+/** A job's scheduled day is a calendar day ("YYYY-MM-DD"), not an instant: never shifted. */
+describe("formatScheduledDay", () => {
+  it("writes the stored day as it is, whatever the reader's zone", () => {
+    expect(formatScheduledDay("2026-10-12")).toBe("Oct 12, 2026");
+    expect(formatScheduledDay("2026-01-01")).toBe("Jan 1, 2026");
+  });
+
+  it("dashes anything that is not a day", () => {
+    expect(formatScheduledDay("")).toBe("—");
+    expect(formatScheduledDay("soon")).toBe("—");
+    expect(formatScheduledDay("2026-13-40")).toBe("—");
   });
 });
 
@@ -204,20 +257,21 @@ describe("feed reducers", () => {
     expect(flattenFeed(pages).map((m) => m.id)).toEqual(["m3", "m2", "m1"]);
   });
 
-  it("groups by day, oldest first, reading downwards, labelled like Workiz's day chips", () => {
+  it("groups by Connecticut's day, oldest first, reading downwards, labelled like Workiz's day chips", () => {
     const feed = [
-      msg("m3", new Date(2026, 8, 15, 10).toISOString()),
-      msg("m2", new Date(2026, 8, 14, 10).toISOString()),
-      msg("m1", new Date(2026, 8, 14, 9).toISOString()),
+      msg("m3", "2026-09-15T14:00:00.000Z"), // Sep 15, 10:00 AM EDT
+      msg("m2", "2026-09-15T03:30:00.000Z"), // Sep 14, 11:30 PM EDT — the 15th in UTC
+      msg("m1", "2026-09-14T13:00:00.000Z"), // Sep 14, 9:00 AM EDT
     ];
     const groups = groupByDay(feed);
     expect(groups.map((g) => g.label)).toEqual(["Monday,September 14 2026", "Tuesday,September 15 2026"]);
     expect(groups[0].messages.map((m) => m.id)).toEqual(["m1", "m2"]);
+    expect(groups[1].messages.map((m) => m.id)).toEqual(["m3"]);
   });
 
   it("stamps a message the Workiz way", () => {
-    expect(formatMessageStamp(new Date(2026, 8, 15, 12, 10).toISOString())).toBe("Sep 15 2026 12:10 PM");
-    expect(formatDayChip(new Date(2026, 8, 15).toISOString())).toBe("Tuesday,September 15 2026");
+    expect(formatMessageStamp("2026-09-15T16:10:00.000Z")).toBe("Sep 15 2026 12:10 PM EDT");
+    expect(formatDayChip("2026-09-15T16:00:00.000Z")).toBe("Tuesday,September 15 2026");
   });
 
   it("inserts a new message at the top of page one and replaces a known one in place", () => {

@@ -11,6 +11,7 @@ import type {
 import { formatMoney, type DocumentPresetId } from "@bitcrm/document-renderer";
 import { http } from "@/lib/api/http";
 import { ApiError } from "@/lib/api/errors";
+import { DEFAULT_TZ } from "@/lib/timezone";
 import type { NewTemplateValues } from "./schemas";
 
 const T = "/billing/templates";
@@ -158,7 +159,11 @@ interface BillingDocLite {
 function toOption(kind: PreviewSource["kind"], d: BillingDocLite): PreviewSourceOption {
   const title = kind === "invoice" ? "Invoice" : "Estimate";
   const total = typeof d.totals?.total === "number" ? formatMoney(d.totals.total) : undefined;
-  const date = d.createdAt && !Number.isNaN(Date.parse(d.createdAt)) ? new Date(d.createdAt).toLocaleDateString() : undefined;
+  // The day it was made on Connecticut's calendar, never the browser's.
+  const date =
+    d.createdAt && !Number.isNaN(Date.parse(d.createdAt))
+      ? new Date(d.createdAt).toLocaleDateString("en-US", { timeZone: DEFAULT_TZ })
+      : undefined;
   return {
     kind,
     id: d.id,

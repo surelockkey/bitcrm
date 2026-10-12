@@ -36,6 +36,7 @@ vi.mock("../hooks", () => ({
 }));
 
 import { SendToTechCard } from "./send-to-tech-card";
+import { ctToday, DEFAULT_TZ, zonedInstant } from "@/lib/timezone";
 
 function deal(over: Partial<Deal> = {}): Deal {
   return {
@@ -59,14 +60,12 @@ function deal(over: Partial<Deal> = {}): Deal {
   };
 }
 
-// Today at that clock time. The stamp a dispatcher reads is the time alone
-// only while it happened today (`formatStamp`), so a fixture pinned to a
-// calendar date stops matching the day after it was written.
-const at = (h: number, m: number) => {
-  const d = new Date();
-  d.setHours(h, m, 0, 0);
-  return d.toISOString();
-};
+// Today (Connecticut's — the web's clock since 2026-10-12) at that clock time.
+// The stamp a dispatcher reads is the time alone only while it happened today
+// (`formatStamp`), so a fixture pinned to a calendar date stops matching the
+// day after it was written.
+const at = (h: number, m: number) =>
+  zonedInstant(ctToday(), `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`, DEFAULT_TZ).toISOString();
 
 beforeEach(() => {
   mocks.send.mockReset();
@@ -126,7 +125,7 @@ describe("SendToTechCard", () => {
         canEdit
       />,
     );
-    expect(screen.getByText("Sent · 12:10 PM via SMS & Email")).toBeInTheDocument();
+    expect(screen.getByText(/^Sent · 12:10 PM E[DS]T via SMS & Email$/)).toBeInTheDocument();
     // Workiz lets a dispatcher press again — the button relabels, it does not vanish.
     expect(screen.getByRole("button", { name: /resend/i })).toBeEnabled();
     expect(screen.getByText(/not seen yet/i)).toBeInTheDocument();
@@ -139,7 +138,7 @@ describe("SendToTechCard", () => {
         canEdit
       />,
     );
-    expect(screen.getByText("Seen · 12:14 PM")).toBeInTheDocument();
+    expect(screen.getByText(/^Seen · 12:14 PM E[DS]T$/)).toBeInTheDocument();
     expect(screen.queryByText(/not seen yet/i)).toBeNull();
   });
 
@@ -169,7 +168,7 @@ describe("SendToTechCard", () => {
     expect(screen.getByText("Ann Lee")).toBeInTheDocument();
     expect(screen.getByText("SMS · sent")).toBeInTheDocument();
     expect(screen.getByText(/Email · skipped: no email on file/)).toBeInTheDocument();
-    expect(screen.getByText(/seen 12:14 PM/)).toBeInTheDocument();
+    expect(screen.getByText(/seen 12:14 PM E[DS]T/)).toBeInTheDocument();
   });
 
   it("says a channel is still on its way while messaging has not reported back", () => {

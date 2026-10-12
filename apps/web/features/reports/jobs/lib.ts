@@ -1,12 +1,11 @@
 import {
-  DASHBOARD_TIMEZONE,
-  dashboardDay,
   JobSuperStatus,
   JOBS_REPORT_COLUMNS,
   type JobsReportBy,
   type JobsReportColumnId,
   type JobsReportFilters,
 } from "@bitcrm/types";
+import { DEFAULT_TZ, ctToday, wallToCt, zoneAbbr } from "@/lib/timezone";
 
 /*
  * The Workiz Jobs report, web side: what the toolbar holds, the request it
@@ -40,19 +39,21 @@ export type JobsReportPreset = (typeof JOBS_REPORT_PRESETS)[number]["id"];
 /** Workiz opens its report on this week, Monday to today. */
 export const DEFAULT_PRESET: Exclude<JobsReportPreset, "custom"> = "this_week_mon";
 
-/** Today on the account's calendar (America/New_York). */
+/** Today on the account's calendar — Connecticut's (`ctToday`). */
 export function accountToday(now: Date = new Date()): string {
-  return dashboardDay(now, DASHBOARD_TIMEZONE);
+  return ctToday(now);
 }
 
 /**
- * Today on the viewer's own clock — the day Workiz's presets count from
- * (`moment()` in its datepicker; read live 2026-10-09: at 00:01 in Kyiv,
- * 17:01 the day before in New York, its "Today" was already the 9th).
+ * The day the presets count from. Workiz counts from the viewer's own clock
+ * (`moment()`: at 00:01 in Kyiv its "Today" was already the next day); the
+ * owner's rule of 2026-10-12 puts the web on Connecticut's calendar instead,
+ * so this is `ctToday` now — the name stays for the pages that import it.
+ *
+ * @deprecated Use `ctToday` from `@/lib/timezone`.
  */
 export function viewerToday(now: Date = new Date()): string {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+  return ctToday(now);
 }
 
 const shift = (day: string, days: number): string => {
@@ -275,7 +276,7 @@ export function workizDate(wall: string | undefined): string {
 }
 
 const wallFormat = new Intl.DateTimeFormat("en-CA", {
-  timeZone: DASHBOARD_TIMEZONE,
+  timeZone: DEFAULT_TZ,
   year: "numeric",
   month: "2-digit",
   day: "2-digit",
@@ -284,13 +285,39 @@ const wallFormat = new Intl.DateTimeFormat("en-CA", {
   hourCycle: "h23",
 });
 
-/** An ISO instant on the account's wall clock (`YYYY-MM-DDTHH:MM`). */
+/** An ISO instant on the account's (Connecticut's) wall clock (`YYYY-MM-DDTHH:MM`). */
 export function accountWall(iso: string | undefined): string | undefined {
   if (!iso) return undefined;
   const t = Date.parse(iso);
   if (Number.isNaN(t)) return undefined;
   const p = Object.fromEntries(wallFormat.formatToParts(new Date(t)).map((x) => [x.type, x.value]));
   return `${p.year}-${p.month}-${p.day}T${p.hour === "24" ? "00" : p.hour}:${p.minute}`;
+}
+
+/*
+ * 2026-10-12 owner rule: every time the web shows is on Connecticut's clock
+ * and says so ("… 02:35 pm EDT", EST in winter); a bare day stays as it is.
+ */
+
+/** An instant (Job Created, Lead Created) as Workiz's cell on Connecticut's clock, labelled. */
+export function workizInstant(iso: string | undefined): string {
+  const wall = accountWall(iso);
+  return wall ? `${workizDate(wall)} ${zoneAbbr(iso)}` : "";
+}
+
+/**
+ * A visit's wall clock (`YYYY-MM-DDTHH:MM`) read in `fromTz` — Connecticut's
+ * unless said otherwise, which is what the Jobs and Items reports send — as
+ * Workiz's cell on Connecticut's clock, labelled. A bare day (an all-day
+ * visit) is never moved and has no label.
+ */
+export function workizWall(wall: string | undefined, fromTz: string = DEFAULT_TZ): string {
+  if (!wall) return "";
+  const time = wall.slice(11, 16);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(wall.slice(0, 10)) || !/^\d{2}:\d{2}$/.test(time)) return workizDate(wall);
+  const ct = wallToCt(wall.slice(0, 10), time, fromTz);
+  if (!ct.abbr) return workizDate(wall);
+  return `${workizDate(`${ct.date}T${ct.time}`)} ${ct.abbr}`;
 }
 
 export const money = (n: number | undefined): string =>

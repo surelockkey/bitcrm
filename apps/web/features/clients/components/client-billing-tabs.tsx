@@ -7,13 +7,11 @@ import { CreditCard } from "lucide-react";
 import type { Address, Deal, Estimate, Invoice, Payment } from "@bitcrm/types";
 import { WzLocalGrid, type WzGridColumn } from "@/components/workiz/local-grid";
 import { getApiErrorMessage } from "@/lib/api/errors";
-import { DEFAULT_TZ } from "@/lib/timezone";
-import { workizDateTime } from "@/features/deals/schedule-cell";
 import { estimateStatusLabel } from "@/features/estimates/lib";
 // Where an invoice lives: its own page — a job's too ("← Job ID" back to the job).
 import { invoiceHref } from "@/features/invoices/lib";
 import { paymentMethodLabel, paymentStatusLabel } from "@/features/payments/lib";
-import { wzDayStart, wzMoney } from "../client-page";
+import { wzDayStart, wzMoney, wzWhen } from "../client-page";
 import { openRow, PLAIN_LINK } from "./client-jobs-tab";
 
 
@@ -45,7 +43,7 @@ export function ClientEstimatesTab({
   const router = useRouter();
   const columns = useMemo<WzGridColumn<Estimate>[]>(() => {
     const address = (e: Estimate) => oneLine((e.dealId ? dealsById.get(e.dealId)?.address : undefined) ?? serviceAddress);
-    const created = (e: Estimate) => workizDateTime(e.createdAt, DEFAULT_TZ);
+    const created = (e: Estimate) => wzWhen(e.createdAt);
     const job = (e: Estimate) => e.dealNumber ?? (e.dealId ? dealsById.get(e.dealId)?.dealNumber : undefined) ?? "";
     return [
       {
@@ -124,8 +122,8 @@ export function ClientInvoicesTab({
     const balance = (i: Invoice) => Math.max(0, i.totals?.balanceDue ?? 0);
     const past = (i: Invoice) => (i.dueDate < today ? balance(i) : 0);
     const figure = (n: number) => (money ? wzMoney(n) : "");
-    const created = (i: Invoice) => workizDateTime(i.createdAt, DEFAULT_TZ);
-    const sent = (i: Invoice) => workizDateTime(i.sentAt, DEFAULT_TZ);
+    const created = (i: Invoice) => wzWhen(i.createdAt);
+    const sent = (i: Invoice) => wzWhen(i.sentAt);
     return [
       {
         id: "id",
@@ -192,7 +190,7 @@ export function ClientPaymentsTab({
 }) {
   const columns = useMemo<WzGridColumn<Payment>[]>(() => {
     const job = (p: Payment) => dealsById.get(p.dealId)?.dealNumber ?? p.dealId.slice(0, 8);
-    const date = (p: Payment) => workizDateTime(p.takenAt, DEFAULT_TZ);
+    const date = (p: Payment) => wzWhen(p.takenAt);
     return [
       {
         id: "job",

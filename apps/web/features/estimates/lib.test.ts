@@ -115,9 +115,12 @@ describe("misc", () => {
 });
 
 describe("formatEstimateCreated — Workiz's Created column", () => {
-  it("reads like Workiz: weekday, month, day, year, 12-hour time in the account's zone", () => {
-    expect(formatEstimateCreated("2026-10-01T15:03:00.000Z", "America/New_York")).toBe("Thu Oct 01, 2026 11:03 am");
-    expect(formatEstimateCreated("2026-10-01T18:13:00.000Z", "America/New_York")).toBe("Thu Oct 01, 2026 02:13 pm");
+  it("reads like Workiz: weekday, month, day, year, 12-hour time on Connecticut's clock, then its zone", () => {
+    expect(formatEstimateCreated("2026-10-01T15:03:00.000Z")).toBe("Thu Oct 01, 2026 11:03 am EDT");
+    expect(formatEstimateCreated("2026-10-01T18:13:00.000Z")).toBe("Thu Oct 01, 2026 02:13 pm EDT");
+    expect(formatEstimateCreated("2026-12-01T15:00:00.000Z")).toBe("Tue Dec 01, 2026 10:00 am EST");
+    // 23:30 in Connecticut, already the next day in UTC.
+    expect(formatEstimateCreated("2026-10-13T03:30:00.000Z")).toBe("Mon Oct 12, 2026 11:30 pm EDT");
   });
   it("is empty for a missing or broken date", () => {
     expect(formatEstimateCreated("")).toBe("");

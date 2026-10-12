@@ -124,7 +124,7 @@ describe("EstimatesPage — Workiz's /root/estimates/", () => {
       "1042-1",
       "Front door rekey",
       "Jane Smithjane@x.test",
-      "Wed Sep 16, 2026 06:00 amAdded by Kris Support Manager",
+      "Wed Sep 16, 2026 06:00 am EDTAdded by Kris Support Manager",
       "$3,968.40",
       "Pending",
       "Job - 1042",

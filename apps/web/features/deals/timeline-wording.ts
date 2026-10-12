@@ -2,6 +2,7 @@ import { TimelineEventType } from "@bitcrm/types";
 import type { SendToTechChannel, TimelineEntry } from "@bitcrm/types";
 import { formatPhone } from "@/lib/phone";
 import { formatDuration } from "@/features/calls/lib";
+import { wallToCt } from "@/lib/timezone";
 import { SEND_TO_TECH_CHANNEL_LABEL } from "./lib";
 
 /**
@@ -43,6 +44,8 @@ export interface WordingExtras {
   clientName?: string;
   /** The sentence `collapseReschedules` worked out for this row. */
   reschedule?: string;
+  /** The zone the job's visit is booked in (absent = Connecticut): its times are written on Connecticut's clock. */
+  zone?: string;
 }
 
 interface WorkizStamp {
@@ -254,7 +257,7 @@ export function entryRowText(e: TimelineEntry, lk: WordingLookups, extras: Wordi
     case TimelineEventType.FIELD_UPDATED: {
       if (d.field === "tagIds") return { lines: tagLines(d, lk), icon };
       // A reschedule saved as one entry: the whole visit before and after.
-      if (d.field === "schedule") return one(rescheduleSentence(d.oldValue, d.newValue));
+      if (d.field === "schedule") return one(rescheduleSentence(d.oldValue, d.newValue, extras.zone));
       if (d.field === "paymentStatus") return one(named("Payment status updated", humanize(d.newValue)));
       const head = d.field === "jobName" ? "Job name changed" : "Update job details";
       const more = extras.fieldDetail?.(e);
@@ -346,15 +349,32 @@ function clock(hhmm: string): string | null {
   return `${h % 12 === 0 ? 12 : h % 12}:${m[2]} ${h < 12 ? "am" : "pm"}`;
 }
 
-/** "Thu Oct 08 2026 6:00 pm - 7:00 pm" — Workiz's activity-log way of writing a visit. */
-export function workizScheduleText(s: ScheduleState): string {
+/** "Thu Oct 08 2026" for a "YYYY-MM-DD" day. */
+function dayText(date: string): string {
+  const [y, mo, d] = date.split("-").map(Number);
+  return `${WEEKDAYS[new Date(Date.UTC(y, mo - 1, d)).getUTCDay()]} ${MONTHS[mo - 1]} ${date.slice(8, 10)} ${y}`;
+}
+
+const HHMM = /^\d{1,2}:\d{2}$/;
+
+/**
+ * "Thu Oct 08 2026 6:00 pm - 7:00 pm EDT" — Workiz's activity-log way of
+ * writing a visit, on Connecticut's clock with its zone named (2026-10-12
+ * owner rule). The visit is stored as the wall clock of `zone`, the zone it
+ * was booked in (absent = Connecticut): a Texas 17:00 is written 6:00 pm EDT,
+ * and a late Arizona visit on Connecticut's next day. A day without a time is
+ * a calendar day — written as stored, no label.
+ */
+export function workizScheduleText(s: ScheduleState, zone?: string): string {
   const m = s.date ? /^(\d{4})-(\d{2})-(\d{2})/.exec(s.date) : null;
   if (!m) return "Unscheduled";
-  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
-  const day = `${WEEKDAYS[new Date(Date.UTC(y, mo - 1, d)).getUTCDay()]} ${MONTHS[mo - 1]} ${m[3]} ${y}`;
-  if (s.allDay || !s.slot) return day;
-  const [from, to] = s.slot.split("-").map((t) => clock(t));
-  return from && to ? `${day} ${from} - ${to}` : day;
+  const date = `${m[1]}-${m[2]}-${m[3]}`;
+  if (s.allDay || !s.slot) return dayText(date);
+  const [start, end] = s.slot.split("-").map((t) => t.trim());
+  if (!start || !end || !HHMM.test(start) || !HHMM.test(end) || !clock(start) || !clock(end)) return dayText(date);
+  const from = wallToCt(date, start.padStart(5, "0"), zone);
+  const to = wallToCt(date, end.padStart(5, "0"), zone);
+  return `${dayText(from.date)} ${clock(from.time)} - ${clock(to.time)} ${from.abbr}`;
 }
 
 const SCHEDULE_FIELD: Record<string, keyof ScheduleState> = {
@@ -375,8 +395,8 @@ function visitOf(v: unknown): ScheduleState {
 }
 
 /** "Rescheduled job from Wed Oct 07 2026 5:00 pm - 6:00 pm to Thu Oct 08 2026 8:00 am - 9:00 am". */
-function rescheduleSentence(from: unknown, to: unknown): string {
-  return `Rescheduled job from ${workizScheduleText(visitOf(from))} to ${workizScheduleText(visitOf(to))}`;
+function rescheduleSentence(from: unknown, to: unknown, zone?: string): string {
+  return `Rescheduled job from ${workizScheduleText(visitOf(from), zone)} to ${workizScheduleText(visitOf(to), zone)}`;
 }
 
 const isOneEntryReschedule = (e: TimelineEntry) =>
@@ -409,6 +429,8 @@ export function collapseReschedules(
   entries: TimelineEntry[],
   /** The visit as it stands now; `null` when unknown. */
   current: ScheduleState | null,
+  /** The zone the job's visit is booked in (absent = Connecticut) — the sentences are on Connecticut's clock. */
+  zone?: string,
 ): { hidden: Set<string>; text: Map<string, string> } {
   const hidden = new Set<string>();
   const text = new Map<string, string>();
@@ -423,7 +445,7 @@ export function collapseReschedules(
     }
     if (isOneEntryReschedule(head)) {
       const d = head.details as { oldValue?: unknown; newValue?: unknown };
-      text.set(head.id, rescheduleSentence(d.oldValue, d.newValue));
+      text.set(head.id, rescheduleSentence(d.oldValue, d.newValue, zone));
       state = visitOf(d.oldValue);
       continue;
     }
@@ -447,7 +469,7 @@ export function collapseReschedules(
       if (!state) (after as Record<string, unknown>)[key] = d.newValue ?? null;
       (before as Record<string, unknown>)[key] = d.oldValue ?? null;
     }
-    text.set(head.id, `Rescheduled job from ${workizScheduleText(before)} to ${workizScheduleText(after)}`);
+    text.set(head.id, `Rescheduled job from ${workizScheduleText(before, zone)} to ${workizScheduleText(after, zone)}`);
     for (const e of group.slice(1)) hidden.add(e.id);
     if (state) state = before;
   }

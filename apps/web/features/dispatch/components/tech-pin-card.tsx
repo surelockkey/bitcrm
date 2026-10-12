@@ -29,7 +29,7 @@ import {
   type TechAvailability,
   type TechnicianPosition,
 } from "../lib";
-import { lastSeenText, pinCardWhen } from "../map-words";
+import { JOB_ZONE, lastSeenText, pinCardWhen, type JobZoneOf } from "../map-words";
 
 const AVAILABILITY_LABEL: Record<TechAvailability, string> = {
   on_job: "On a job",
@@ -47,6 +47,7 @@ function JobRow({
   index,
   title,
   clientName,
+  zone,
   canReorder,
   onSelectJob,
 }: {
@@ -54,6 +55,8 @@ function JobRow({
   index: number;
   title: string;
   clientName: string;
+  /** The zone the visit was booked in — shown on Connecticut's clock (2026-10-12 owner rule). */
+  zone: string;
   canReorder: boolean;
   onSelectJob: (dealId: string) => void;
 }) {
@@ -61,7 +64,7 @@ function JobRow({
     id: deal.id,
     disabled: !canReorder,
   });
-  const when = pinCardWhen(deal);
+  const when = pinCardWhen(deal, zone);
   return (
     <li
       ref={setNodeRef}
@@ -110,6 +113,7 @@ export function TechPinCard({
   name,
   address,
   jobs,
+  zoneOf = JOB_ZONE,
   title,
   clientName,
   canReorder,
@@ -123,6 +127,8 @@ export function TechPinCard({
   address?: string;
   /** Their jobs today, in their order. */
   jobs: Deal[];
+  /** The zone each visit was booked in (`jobZoneResolver` over the areas); its own `jobTimezone` when left out. */
+  zoneOf?: JobZoneOf;
   title: (deal: Deal) => string;
   clientName: (deal: Deal) => string;
   /** Whether the viewer may drag to re-sequence (deals.edit). */
@@ -211,6 +217,7 @@ export function TechPinCard({
                     index={i}
                     title={title(deal)}
                     clientName={clientName(deal)}
+                    zone={zoneOf(deal)}
                     canReorder={canReorder}
                     onSelectJob={onSelectJob}
                   />

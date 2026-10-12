@@ -8,6 +8,7 @@ import {
   type RingNode,
 } from "@bitcrm/types";
 import { formatPhone } from "@/lib/phone";
+import { DEFAULT_TZ } from "@/lib/timezone";
 
 /** Who to call a target's id by — the groups, teammates and devices on hand. */
 export interface TargetNames {
@@ -105,11 +106,13 @@ export function newStepId(type: CallFlowNodeType): string {
   return `${type}-${Date.now().toString(36)}${counter}`;
 }
 
+/**
+ * A new Hours step opens on Connecticut's clock — the business's, never the
+ * browser's: staff set flows up from Ukraine, and a Kyiv default would close
+ * the line seven hours early (2026-10-12).
+ */
 const DEFAULT_HOURS: Omit<HoursNode, "id" | "type"> = {
-  timezone:
-    typeof Intl !== "undefined"
-      ? Intl.DateTimeFormat().resolvedOptions().timeZone
-      : "America/New_York",
+  timezone: DEFAULT_TZ,
   windows: [1, 2, 3, 4, 5].map((day) => ({ day, open: "08:00", close: "18:00" })),
   holidays: [],
 };

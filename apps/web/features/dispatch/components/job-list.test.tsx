@@ -9,6 +9,7 @@ import {
 } from "@bitcrm/types";
 
 import { JobList } from "./job-list";
+import { ctToday, DEFAULT_TZ, zonedInstant } from "@/lib/timezone";
 
 function deal(over: Partial<Deal> = {}): Deal {
   return {
@@ -32,14 +33,12 @@ function deal(over: Partial<Deal> = {}): Deal {
   };
 }
 
-// Today at that clock time. The stamp a dispatcher reads is the time alone
-// only while it happened today (`formatStamp`), so a fixture pinned to a
-// calendar date stops matching the day after it was written.
-const at = (h: number, m: number) => {
-  const d = new Date();
-  d.setHours(h, m, 0, 0);
-  return d.toISOString();
-};
+// Today (Connecticut's — the web's clock since 2026-10-12) at that clock time.
+// The stamp a dispatcher reads is the time alone only while it happened today
+// (`formatStamp`), so a fixture pinned to a calendar date stops matching the
+// day after it was written.
+const at = (h: number, m: number) =>
+  zonedInstant(ctToday(), `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`, DEFAULT_TZ).toISOString();
 
 const renderList = (d: Deal) =>
   render(
@@ -76,7 +75,7 @@ describe("JobList — Sent / Seen chips", () => {
 
   it("marks a sent job, and says what it was sent by on hover", () => {
     renderList(deal({ sentToTechAt: at(12, 10), sentToTechVia: ["sms"] }));
-    expect(screen.getByText("Sent")).toHaveAttribute("title", "Sent · 12:10 PM via SMS");
+    expect(screen.getByText("Sent").getAttribute("title")).toMatch(/^Sent · 12:10 PM E[DS]T via SMS$/);
     // Sent but not opened: the chip a dispatcher is looking for is absent.
     expect(screen.queryByText("Seen")).toBeNull();
   });
@@ -84,6 +83,6 @@ describe("JobList — Sent / Seen chips", () => {
   it("adds the eye once the technician has opened it", () => {
     renderList(deal({ sentToTechAt: at(12, 10), sentToTechVia: ["sms"], seenByTechAt: at(12, 14) }));
     expect(screen.getByText("Sent")).toBeInTheDocument();
-    expect(screen.getByText("Seen")).toHaveAttribute("title", "Seen · 12:14 PM");
+    expect(screen.getByText("Seen").getAttribute("title")).toMatch(/^Seen · 12:14 PM E[DS]T$/);
   });
 });
