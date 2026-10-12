@@ -1,4 +1,4 @@
-import type { Address } from '@bitcrm/types';
+import { wallClockInstant, zoneAbbr, type Address } from '@bitcrm/types';
 import { formatDate, formatTime, resolveTimezone, splitTimeSlot } from './date-format';
 import type { RenderCall, RenderContext, RenderPerson } from './render-context';
 
@@ -74,8 +74,41 @@ const CALL_STATUS_TEXT: Record<NonNullable<RenderCall['outcome']>, string> = {
 const callerNumber = (c?: RenderCall) => (c ? formatPhone(c.direction === 'outbound' ? c.to : c.from) : undefined);
 /** Our own end: the line the call came through. */
 const ourLine = (c?: RenderCall) => (c ? formatPhone(c.direction === 'outbound' ? c.from : c.to) : undefined);
+/**
+ * The zone a code is told in: the loader's (the job's own clock), else the
+ * job's `jobTimezone`, else — only for a message with no job — the company's;
+ * Connecticut last.
+ */
 const zone = (ctx: RenderContext) =>
-  resolveTimezone(ctx.timezone ?? ctx.deal?.jobTimezone ?? ctx.settings?.timezone ?? ctx.settings?.quietHours?.timezone);
+  resolveTimezone(
+    ctx.timezone ??
+      ctx.deal?.jobTimezone ??
+      (ctx.deal ? undefined : ctx.settings?.timezone ?? ctx.settings?.quietHours?.timezone),
+  );
+
+const YMD = /^\d{4}-\d{2}-\d{2}$/;
+const HHMM = /^([01]?\d|2[0-3]):[0-5]\d$/;
+
+/**
+ * One end of the visit window, as the client reads it: "10:00 AM CDT" —
+ * the stored wall clock, never shifted, plus the zone's name on that day
+ * (owner, 2026-10-12: a clock time says which zone it is in). The end is
+ * labelled on its own day, so a window across the clock change reads
+ * "9:00 AM CDT … 5:00 PM CST". `labelled: false` drops the name — the start
+ * of a window whose end already carries it. An all-day job has no clock.
+ */
+export function visitTime(ctx: RenderContext, which: 'start' | 'end', labelled = true): string | undefined {
+  const deal = ctx.deal;
+  if (deal?.allDay) return 'All day';
+  const time = splitTimeSlot(deal?.scheduledTimeSlot)[which];
+  const tz = zone(ctx);
+  const text = formatTime(time, tz);
+  if (!text || !labelled || !time) return text;
+  const day = which === 'end' ? deal?.scheduledEndDate ?? deal?.scheduledDate : deal?.scheduledDate;
+  const at = HHMM.test(time) ? (day && YMD.test(day) ? wallClockInstant(day, time, tz) : new Date()) : time;
+  const abbr = zoneAbbr(at, tz);
+  return abbr ? `${text} ${abbr}` : text;
+}
 
 const RESOLVERS: Record<string, Resolver> = {
   // --- client (party) ---
@@ -89,10 +122,8 @@ const RESOLVERS: Record<string, Resolver> = {
   job_id: (ctx) => ctx.deal?.dealNumber,
   job_type: (ctx) => ctx.deal?.jobTypeName,
   job_date: (ctx) => formatDate(ctx.deal?.scheduledDate, zone(ctx)),
-  appointment_time: (ctx) =>
-    ctx.deal?.allDay ? 'All day' : formatTime(splitTimeSlot(ctx.deal?.scheduledTimeSlot).start, zone(ctx)),
-  job_end_time: (ctx) =>
-    ctx.deal?.allDay ? 'All day' : formatTime(splitTimeSlot(ctx.deal?.scheduledTimeSlot).end, zone(ctx)),
+  appointment_time: (ctx) => visitTime(ctx, 'start'),
+  job_end_time: (ctx) => visitTime(ctx, 'end'),
   full_address: (ctx) => formatFullAddress(jobAddress(ctx)),
   address: (ctx) => streetLine(jobAddress(ctx)),
   city: (ctx) => jobAddress(ctx)?.city?.trim() || undefined,
@@ -140,8 +171,8 @@ export const SHORT_CODES: readonly ShortCodeDefinition[] = [
   def('job_type', 'job', 'Job type name from the catalog', 'Lock change'),
   def('client_email', 'client', "Client's primary email", 'jane@example.com'),
   def('job_date', 'job', "Job's scheduled date", 'Sep 15, 2026'),
-  def('appointment_time', 'job', 'Scheduled start time ("All day" for all-day jobs)', '2:30 PM'),
-  def('job_end_time', 'job', 'Scheduled end time', '4:00 PM'),
+  def('appointment_time', 'job', "Scheduled start time with the job's zone (\"All day\" for all-day jobs)", '2:30 PM EDT'),
+  def('job_end_time', 'job', "Scheduled end time with the job's zone", '4:00 PM EDT'),
   def('full_address', 'job', "Job address, one line (falls back to the client's address)", '12 Main St Apt 3, Atlanta, GA 30301'),
   def('address', 'job', 'Street and unit only', '12 Main St Apt 3'),
   def('city', 'job', 'City of the job address', 'Atlanta'),
@@ -176,6 +207,24 @@ export const SHORT_CODES: readonly ShortCodeDefinition[] = [
 const BY_CODE = new Map(SHORT_CODES.map((d) => [d.code, d]));
 
 export const isKnownShortCode = (code: string): boolean => BY_CODE.has(code);
+
+/**
+ * A visit window written as two codes — `{{appointment_time}} - {{job_end_time}}`,
+ * "from … to …", "between … and …" — says its zone once, after the end:
+ * "10:00 AM – 12:00 PM CDT". Only when both ends come from the job and share
+ * the zone's name; otherwise (a caller-supplied value, an all-day job, a
+ * window across the clock change) each code renders on its own.
+ */
+export function resolveVisitWindow(ctx: RenderContext): { start: string; end: string } | undefined {
+  if (ctx.deal?.allDay) return undefined;
+  if (ctx.values?.appointment_time || ctx.values?.job_end_time) return undefined;
+  const start = visitTime(ctx, 'start');
+  const end = visitTime(ctx, 'end');
+  const bare = visitTime(ctx, 'start', false);
+  if (!start || !end || !bare || start === bare) return undefined;
+  const label = start.slice(bare.length);
+  return end.endsWith(label) ? { start: bare, end } : undefined;
+}
 
 /** `undefined` when the code is unknown or its inputs are absent from the context. */
 export function resolveShortCode(code: string, ctx: RenderContext): string | undefined {

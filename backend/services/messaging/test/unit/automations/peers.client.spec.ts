@@ -26,6 +26,28 @@ describe('AutomationPeersClient', () => {
     expect(fetchImpl.mock.calls[0][1]?.headers).toHaveProperty('x-internal-secret');
   });
 
+  it("carries the job's own zone when it has one", async () => {
+    const client = new AutomationPeersClient(fakeFetch(async () => response(200, { id: 'd1', jobTimezone: 'America/Chicago' })));
+    expect(await client.deal('d1')).toMatchObject({ jobTimezone: 'America/Chicago' });
+  });
+
+  it("answers a service area's zone from the internal list, cached; a failure is not cached and not thrown", async () => {
+    let up = false;
+    const fetchImpl = fakeFetch(async () =>
+      up
+        ? response(200, [{ id: 'sa-tx', name: 'Dallas', timezone: 'America/Chicago' }, { id: 'sa-x', name: 'No zone' }])
+        : response(503),
+    );
+    const client = new AutomationPeersClient(fetchImpl);
+    expect(await client.serviceAreaTimezone('sa-tx')).toBeUndefined();
+    up = true;
+    expect(await client.serviceAreaTimezone('sa-tx')).toBe('America/Chicago');
+    expect(await client.serviceAreaTimezone('sa-x')).toBeUndefined();
+    expect(await client.serviceAreaTimezone('sa-gone')).toBeUndefined();
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(fetchImpl.mock.calls[1][0]).toMatch(/\/api\/deals\/service-areas\/internal$/);
+  });
+
   it('reads the user slice and treats a blank phone or email as absent', async () => {
     const fetchImpl = fakeFetch(async () => response(200, { id: 'u1', firstName: 'Ann', lastName: 'Lee', phone: '', email: '', status: 'active' }));
     const client = new AutomationPeersClient(fetchImpl);

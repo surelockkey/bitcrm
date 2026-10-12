@@ -10,6 +10,7 @@ import {
   type MessagingSettings,
 } from '@bitcrm/types';
 import { MessagingSettingsService } from '../../settings/messaging-settings.service';
+import { isValidTimezone, jobZone } from '../../templates/date-format';
 import { dueMinuteOf } from '../automations.constants';
 import { AutomationsService } from '../automations.service';
 import { AutomationPeersClient, type AutomationDeal } from '../internal/peers.client';
@@ -96,7 +97,7 @@ export class AutomationRuleEngine {
         );
       }
     }
-    await this.armRelative(rules, enriched, resolved, settings, now);
+    await this.armRelative(rules, enriched, resolved, now);
     return out;
   }
 
@@ -223,11 +224,12 @@ export class AutomationRuleEngine {
     rules: AutomationRule[],
     event: AutomationEvent,
     facts: AutomationFacts,
-    settings: MessagingSettings,
     now: Date,
   ): Promise<void> {
     if (!facts.deal || event.kind === 'schedule.relative') return;
-    const timezone = this.timezone(settings);
+    if (!rules.some((r) => r.spec?.trigger.kind === 'schedule.relative')) return;
+    // "An hour before the job" is an hour before the JOB's 9:00 — on its own clock.
+    const timezone = await this.jobTimezone(facts.deal);
 
     for (const rule of rules) {
       const spec = rule.spec;
@@ -359,7 +361,7 @@ export class AutomationRuleEngine {
 
     // A reminder whose job has moved since is stale: the reschedule armed a new one.
     if (firing.anchorAt && facts.deal) {
-      const due = dueInstant(rule.spec.trigger, facts.deal, this.timezone(settings));
+      const due = dueInstant(rule.spec.trigger, facts.deal, await this.jobTimezone(facts.deal));
       if (!due || due.anchorAt.toISOString() !== firing.anchorAt) {
         // Nothing ran, so the occurrence goes back: a job moved away from
         // this date and back to it again must arm its reminder afresh.
@@ -534,6 +536,7 @@ export class AutomationRuleEngine {
       sourceId: deal.sourceId,
       jobTypeId: deal.jobTypeId,
       serviceAreaId: deal.serviceAreaId,
+      ...(deal.jobTimezone ? { jobTimezone: deal.jobTimezone } : {}),
       assignedTechIds: deal.assignedTechIds ?? [],
       assignedDispatcherId: deal.assignedDispatcherId,
       priority: deal.priority,
@@ -571,7 +574,21 @@ export class AutomationRuleEngine {
     }
   }
 
+  /** The account's zone: a rule's working-hours window is the office's clock. */
   private timezone(settings: MessagingSettings): string {
     return settings.timezone || settings.quietHours?.timezone || DEFAULT_TIMEZONE;
+  }
+
+  /**
+   * A job's own clock (owner, 2026-10-12): its `jobTimezone`, else its
+   * service area's, else Connecticut — never the account's zone. An area
+   * list that cannot be read is not fatal.
+   */
+  private async jobTimezone(deal: AutomationDealFacts): Promise<string> {
+    if (deal.jobTimezone && isValidTimezone(deal.jobTimezone)) return deal.jobTimezone;
+    const area = deal.serviceAreaId
+      ? await this.peers.serviceAreaTimezone(deal.serviceAreaId).catch(() => undefined)
+      : undefined;
+    return jobZone(deal.jobTimezone, area);
   }
 }

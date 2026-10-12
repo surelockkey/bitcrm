@@ -3,7 +3,7 @@ import { clientConfirmUrl } from '@bitcrm/shared';
 import type { Address, CustomFieldValue, MessagingSettings } from '@bitcrm/types';
 import { ConversationsRepository } from '../conversations/conversations.repository';
 import { MessagingSettingsRepository } from '../settings/messaging-settings.repository';
-import { resolveTimezone } from './date-format';
+import { isValidTimezone, jobZone, resolveTimezone } from './date-format';
 import type { RenderContact, RenderContext, RenderDeal, RenderPerson, RenderRefs } from './render-context';
 
 const USER_SERVICE_URL = process.env.USER_SERVICE_URL || 'http://localhost:4001';
@@ -26,6 +26,8 @@ interface CatalogRow {
   id: string;
   name: string;
   active?: boolean;
+  /** Service areas only: the area's IANA zone. */
+  timezone?: string;
 }
 export interface CustomFieldRow extends CatalogRow {
   type?: string;
@@ -46,13 +48,17 @@ export interface CustomFieldRow extends CatalogRow {
  *         GET /api/deals/job-types/internal            `{{job_type}}`
  *         GET /api/deals/job-sources/internal          `{{ad_group}}`
  *         GET /api/deals/external-companies/internal   `{{referral_company_name}}`
+ *         GET /api/deals/service-areas/internal        the job's area zone, when the job has none of its own
  *   crm   GET /api/crm/contacts/internal/:id           the party
  *         GET /api/crm/companies/internal/:id          `{{company_name}}`
  *   user  GET /api/users/internal/:id                  `{{tech_assigned}}`, `{{tech_phone}}`, team-chat party
  *
  * TODO(M11): nothing serves the business profile (`{{biz_*}}`) or the link
- * base URLs — they are messaging settings; `Deal` has no `jobTimezone`, so
- * the company default applies until deal-service adds one.
+ * base URLs — they are messaging settings.
+ *
+ * The zone (owner, 2026-10-12): a job's times are told on the JOB's clock —
+ * `jobTimezone`, else its service area's, else Connecticut. The company
+ * setting is only for a message with no job.
  */
 @Injectable()
 export class ContextLoader {
@@ -101,7 +107,9 @@ export class ContextLoader {
 
     const customFields = deal?.customFields ? await this.nameCustomFields(deal.customFields) : undefined;
 
-    const timezone = resolveTimezone(deal?.jobTimezone ?? settings?.timezone ?? settings?.quietHours?.timezone);
+    const timezone = deal
+      ? await this.jobTimezone(deal)
+      : resolveTimezone(settings?.timezone ?? settings?.quietHours?.timezone);
 
     // The job's signed confirm page (B12): computed here from the shared secret
     // and the portal origin — billing verifies the same token; no call per text.
@@ -135,6 +143,19 @@ export class ContextLoader {
     return rows.filter((r) => r.active !== false && r.entityType !== 'client');
   }
 
+  /**
+   * The job's own zone: its `jobTimezone`, else its service area's (the
+   * cached area list — read only when the job has no zone of its own), else
+   * Connecticut. An unreadable area list is never fatal.
+   */
+  private async jobTimezone(deal: RenderDeal): Promise<string> {
+    if (deal.jobTimezone && isValidTimezone(deal.jobTimezone)) return deal.jobTimezone;
+    const area = deal.serviceAreaId
+      ? (await this.catalog('service-areas')).find((row) => row.id === deal.serviceAreaId)
+      : undefined;
+    return jobZone(deal.jobTimezone, area?.timezone);
+  }
+
   /** The sender when they are on the roster, else the first assigned tech; without a job, the sender. */
   private pickTechnician(deal: RenderDeal | undefined, userId?: string): string | undefined {
     if (!deal) return userId;
@@ -166,6 +187,7 @@ export class ContextLoader {
       clientName: raw.clientName as RenderDeal['clientName'],
       customFields: raw.customFields as Record<string, CustomFieldValue> | undefined,
       jobTimezone: raw.jobTimezone as string | undefined,
+      serviceAreaId: raw.serviceAreaId as string | undefined,
     };
     const [jobTypeName, jobSourceName, externalCompanyName] = await Promise.all([
       deal.jobTypeId ? this.catalogName('job-types', deal.jobTypeId) : undefined,

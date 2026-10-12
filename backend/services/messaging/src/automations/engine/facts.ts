@@ -20,6 +20,8 @@ export interface AutomationDealFacts {
   sourceId?: string;
   jobTypeId?: string;
   serviceAreaId?: string;
+  /** The job's own IANA zone; a reminder reads its wall clock in it (else its area's, else Connecticut). */
+  jobTimezone?: string;
   assignedTechIds?: string[];
   assignedDispatcherId?: string;
   priority?: string;

@@ -18,9 +18,57 @@ describe('TemplateRenderer', () => {
         fullContext(),
       );
       expect(out).toEqual({
-        body: 'Hi Jane, Mike Smith arrives Sep 15, 2026 at 2:30 PM. Job #K4T9ZW',
+        body: 'Hi Jane, Mike Smith arrives Sep 15, 2026 at 2:30 PM EDT. Job #K4T9ZW',
         subject: undefined,
         missing: [],
+      });
+    });
+
+    describe('a visit window says its zone once, after the end (owner, 2026-10-12)', () => {
+      const chicago = () => {
+        const ctx = fullContext();
+        ctx.timezone = 'America/Chicago';
+        ctx.deal = { ...ctx.deal!, scheduledDate: '2026-07-14', scheduledTimeSlot: '10:00-12:00' };
+        return ctx;
+      };
+
+      it.each([
+        ['from {{appointment_time}} to {{job_end_time}}', 'from 10:00 AM to 12:00 PM CDT'],
+        ['{{appointment_time}} - {{job_end_time}}', '10:00 AM - 12:00 PM CDT'],
+        ['{{appointment_time}}–{{job_end_time}}', '10:00 AM–12:00 PM CDT'],
+        ['between {{ appointment_time }} and {{job_end_time}}', 'between 10:00 AM and 12:00 PM CDT'],
+      ])('%s', (body, expected) => {
+        const { renderer } = makeRenderer();
+        expect(renderer.renderWithContext({ body }, chicago()).body).toBe(expected);
+      });
+
+      it('labels each time when they stand apart', () => {
+        const { renderer } = makeRenderer();
+        const out = renderer.renderWithContext({ body: 'Starts {{appointment_time}}. Ends {{job_end_time}}.' }, chicago());
+        expect(out.body).toBe('Starts 10:00 AM CDT. Ends 12:00 PM CDT.');
+      });
+
+      it('keeps both labels when the window crosses a clock change', () => {
+        const { renderer } = makeRenderer();
+        const ctx = chicago();
+        ctx.deal = { ...ctx.deal!, scheduledDate: '2026-10-31', scheduledEndDate: '2026-11-02', scheduledTimeSlot: '09:00-17:00' };
+        expect(renderer.renderWithContext({ body: '{{appointment_time}} - {{job_end_time}}' }, ctx).body).toBe(
+          '9:00 AM CDT - 5:00 PM CST',
+        );
+      });
+
+      it('an all-day job is not a window', () => {
+        const { renderer } = makeRenderer();
+        const ctx = chicago();
+        ctx.deal!.allDay = true;
+        expect(renderer.renderWithContext({ body: '{{appointment_time}} - {{job_end_time}}' }, ctx).body).toBe('All day - All day');
+      });
+
+      it('escapes nothing it should not in an html body', () => {
+        const { renderer } = makeRenderer();
+        expect(
+          renderer.renderWithContext({ body: '<p>{{appointment_time}} to {{job_end_time}}</p>', format: 'html' }, chicago()).body,
+        ).toBe('<p>10:00 AM to 12:00 PM CDT</p>');
       });
     });
 
