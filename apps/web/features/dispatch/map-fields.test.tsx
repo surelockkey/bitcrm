@@ -103,6 +103,10 @@ const WHOLE: Required<Deal> = {
   arrivedAt: `${TODAY}T16:00:00.000Z`,
   arrivedBy: "t1",
   arrivedLocation: { lat: 32.78, lng: -96.8 },
+  clientConfirmedAt: `${TODAY}T14:00:00.000Z`,
+  clientConfirmedVia: "link",
+  clientConfirmedBy: "c1",
+  clientConfirmedFor: `${TODAY}|09:00-11:00`,
   createdAt: "2026-09-30T10:00:00.000Z",
   updatedAt: "2026-10-01T10:00:00.000Z",
 };
