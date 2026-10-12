@@ -3,6 +3,7 @@ import { TelephonyController } from './telephony.controller';
 import { TelephonyService } from './telephony.service';
 import { TelephonySettingsService } from './telephony-settings.service';
 import { MainNumberService } from './main-number.service';
+import { IceServersService } from './ice-servers.service';
 import { TELEPHONY_CONFIG, loadTelephonyConfig } from './telephony.config';
 import { NumbersModule } from '../numbers/numbers.module';
 
@@ -16,6 +17,7 @@ import { NumbersModule } from '../numbers/numbers.module';
     TelephonyService,
     TelephonySettingsService,
     MainNumberService,
+    IceServersService,
     { provide: TELEPHONY_CONFIG, useFactory: loadTelephonyConfig },
   ],
   exports: [TelephonyService, TelephonySettingsService, TELEPHONY_CONFIG],
