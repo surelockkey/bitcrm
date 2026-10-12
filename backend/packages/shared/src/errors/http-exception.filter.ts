@@ -6,7 +6,9 @@ import {
   HttpStatus,
   Logger,
 } from '@nestjs/common';
-import { Response } from 'express';
+import { Request, Response } from 'express';
+import { describeError } from './describe-error';
+import { getTraceId } from '../logger/trace-storage';
 
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
@@ -16,9 +18,8 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
 
-    let status = HttpStatus.INTERNAL_SERVER_ERROR;
-    let message = 'Internal server error';
-    let code = 'INTERNAL_SERVER_ERROR';
+    let status: number;
+    let message: string;
 
     if (exception instanceof HttpException) {
       status = exception.getStatus();
@@ -27,18 +28,26 @@ export class HttpExceptionFilter implements ExceptionFilter {
         typeof exceptionResponse === 'string'
           ? exceptionResponse
           : (exceptionResponse as Record<string, unknown>).message as string || exception.message;
-      code = HttpStatus[status] || 'UNKNOWN_ERROR';
-
-      if (status >= 500) {
-        this.logger.error(`${code}: ${message}`, exception.stack);
-      } else if (status >= 400) {
-        this.logger.warn(`${code}: ${message}`);
-      }
     } else {
+      // Not ours: an SDK, a peer service, a bug. Say what it was, not "Internal server error".
+      ({ status, message } = describeError(exception));
+    }
+    const code = HttpStatus[status] || 'UNKNOWN_ERROR';
+
+    // The trace id names the request in the logs — on a 5xx it is how a report gets found.
+    const ref =
+      status >= 500
+        ? (ctx.getRequest?.() as (Request & { id?: string }) | undefined)?.id ?? getTraceId()
+        : undefined;
+    if (ref && typeof message === 'string') message = `${message} (ref ${ref})`;
+
+    if (status >= 500) {
       this.logger.error(
-        'Unhandled exception',
+        exception instanceof HttpException ? `${code}: ${message}` : 'Unhandled exception',
         exception instanceof Error ? exception.stack : exception,
       );
+    } else if (status >= 400) {
+      this.logger.warn(`${code}: ${message}`);
     }
 
     response.status(status).json({
@@ -46,6 +55,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
       error: {
         code,
         message,
+        ...(ref ? { ref } : {}),
       },
     });
   }
