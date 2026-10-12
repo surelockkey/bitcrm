@@ -311,3 +311,27 @@ export interface JobsListIncluded {
   /** Clients of the jobs on this page. */
   clients: PersonName[];
 }
+
+/**
+ * A client of a job on the dispatch map (`GET /deals/map`): the name, and the
+ * numbers and emails exactly as crm shows them to THE CALLER — deal-service
+ * asks crm's own `POST /contacts/by-ids` with the caller's token, so a caller
+ * without `contacts.view_numbers` gets `phones: []` with `phonesMasked`, as on
+ * every crm screen. A client crm would not show the caller at all still comes
+ * with its name (crm's internal names route) and no numbers.
+ */
+export interface DispatchMapClient extends PersonName {
+  phones: string[];
+  emails: string[];
+  phonesMasked?: true;
+}
+
+/**
+ * What the dispatch map's jobs refer to, sent with them so the board needs no
+ * second round trip: the technicians on them (names only, as on the jobs
+ * list) and their clients (`DispatchMapClient`).
+ */
+export interface DispatchMapIncluded {
+  technicians: TechnicianName[];
+  clients: DispatchMapClient[];
+}

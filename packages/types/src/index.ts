@@ -59,6 +59,8 @@ export type {
   PersonName,
   TechnicianName,
   JobsListIncluded,
+  DispatchMapClient,
+  DispatchMapIncluded,
 } from './entities/deal.entity';
 export { DealAttachment, DealAttachmentMeta, ContactAttachment, ContactFileListItem } from './entities/deal-attachment.entity';
 export {
