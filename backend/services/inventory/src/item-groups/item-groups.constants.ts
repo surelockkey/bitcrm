@@ -1,6 +1,6 @@
 /**
  * Item groups live in the shared BitCRM_Inventory table beside the products —
- * the rows the Workiz import writes, the members inline:
+ * the rows the Workiz import writes and the Price book makes, the members inline:
  *   PK = ITEM_GROUP#<id>, SK = METADATA, members = [...]
  *   GSI1PK = CATALOG#ITEM_GROUP, GSI1SK = <name lowercased>
  */

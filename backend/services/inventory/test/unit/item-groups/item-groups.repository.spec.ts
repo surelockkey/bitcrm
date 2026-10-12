@@ -101,6 +101,8 @@ describe('ItemGroupsRepository', () => {
       id: 'group-1',
       name: '7QUO80 ESTIMATE',
       description: '',
+      groupType: 'separate_items',
+      active: true,
       total: 550,
       externalId: 'workiz:item_group:336916',
       createdBy: 'workiz-import',
@@ -115,6 +117,7 @@ describe('ItemGroupsRepository', () => {
           taxable: true,
           description: 'Retractable, 59.25 x 79.5',
           customAttributes: { 'In Store Location': 'Aisle 4' },
+          cost: 120,
         },
         {
           productId: 'prod-labor',
@@ -124,20 +127,128 @@ describe('ItemGroupsRepository', () => {
           taxable: false,
           description: '',
           customAttributes: {},
+          cost: 0,
         },
       ],
     });
   });
 
-  it('never carries a member cost — a technician reads groups without financials.view', async () => {
+  it("carries the group's own member cost (the controller hides it without financials.view), never the importer's other extras", async () => {
     dynamoDb.client.send.mockResolvedValueOnce({ Item: importedRow });
 
     const group = await repository.get('group-1');
 
+    expect(group!.members.map((m) => m.cost)).toEqual([120, 0]);
     for (const member of group!.members) {
-      expect(member).not.toHaveProperty('cost');
       expect(member).not.toHaveProperty('workizItemId');
+      expect(member).not.toHaveProperty('manageStock');
     }
+  });
+
+  it('leaves the cost off a member that has none stored', async () => {
+    dynamoDb.client.send.mockResolvedValueOnce({
+      Item: { ...importedRow, members: [{ productId: 'p', name: 'Pin', quantity: 1, priceClient: 5 }] },
+    });
+
+    expect((await repository.get('group-1'))!.members[0]).not.toHaveProperty('cost');
+  });
+
+  it("reads Workiz's group type, status and category: separate_items / isEnabled from the import, active from BitCRM", async () => {
+    dynamoDb.client.send
+      .mockResolvedValueOnce({ Item: { ...importedRow, groupType: 'flat_rate', isEnabled: false, categoryId: 'cat-1' } })
+      .mockResolvedValueOnce({ Item: { ...importedRow, groupType: undefined, isEnabled: undefined } })
+      // BitCRM's own `active` wins over the importer's `isEnabled`.
+      .mockResolvedValueOnce({ Item: { ...importedRow, isEnabled: true, active: false, categoryId: '' } });
+
+    const flat = await repository.get('group-1');
+    expect(flat).toMatchObject({ groupType: 'flat_rate', active: false, categoryId: 'cat-1' });
+    const bare = await repository.get('group-1');
+    expect(bare).toMatchObject({ groupType: 'separate_items', active: true });
+    expect(bare).not.toHaveProperty('categoryId');
+    const disabled = await repository.get('group-1');
+    expect(disabled!.active).toBe(false);
+    expect(disabled).not.toHaveProperty('categoryId');
+  });
+
+  it('getRow() answers the stored row as it is — the importer extras on the members included', async () => {
+    dynamoDb.client.send.mockResolvedValueOnce({ Item: importedRow }).mockResolvedValueOnce({});
+
+    expect(await repository.getRow('group-1')).toBe(importedRow);
+    await expect(repository.getRow('nope')).resolves.toBeNull();
+    expect(dynamoDb.client.send.mock.calls[0][0].input.Key).toEqual({ PK: 'ITEM_GROUP#group-1', SK: 'METADATA' });
+  });
+
+  it('create() puts ITEM_GROUP#<id> / METADATA on the catalog partition, refusing an id already there', async () => {
+    dynamoDb.client.send.mockResolvedValueOnce({});
+    const members = [{ productId: 'p', name: 'Pin', quantity: 1, priceClient: 5, taxable: true, cost: 2 }];
+
+    await repository.create({
+      id: 'g-new',
+      name: 'Storm Door 36" x 80"',
+      description: 'Door + labor',
+      groupType: 'separate_items',
+      categoryId: 'cat-1',
+      active: true,
+      members,
+      createdBy: 'user-1',
+      createdAt: '2026-10-12T10:00:00.000Z',
+      updatedAt: '2026-10-12T10:00:00.000Z',
+    });
+
+    const cmd = dynamoDb.client.send.mock.calls[0][0];
+    expect(cmd.constructor.name).toBe('PutCommand');
+    expect(cmd.input.ConditionExpression).toBe('attribute_not_exists(PK)');
+    expect(cmd.input.Item).toEqual({
+      PK: 'ITEM_GROUP#g-new',
+      SK: 'METADATA',
+      GSI1PK: 'CATALOG#ITEM_GROUP',
+      GSI1SK: 'storm door 36" x 80"',
+      id: 'g-new',
+      name: 'Storm Door 36" x 80"',
+      description: 'Door + labor',
+      groupType: 'separate_items',
+      categoryId: 'cat-1',
+      active: true,
+      members,
+      createdBy: 'user-1',
+      createdAt: '2026-10-12T10:00:00.000Z',
+      updatedAt: '2026-10-12T10:00:00.000Z',
+    });
+  });
+
+  it("update() SETs only what changed, renames the sort key with the name, and keeps the importer's attributes", async () => {
+    dynamoDb.client.send.mockResolvedValueOnce({ Attributes: { ...importedRow, name: 'Screen door', active: false } });
+    const members = [{ productId: 'p', name: 'Pin', quantity: 2, priceClient: 5, taxable: true }];
+
+    const group = await repository.update(
+      'group-1',
+      { name: 'Screen door', description: 'x', members, active: false, categoryId: 'cat-2' },
+      { updatedAt: '2026-10-12T11:00:00.000Z', updatedBy: 'user-1' },
+    );
+
+    const cmd = dynamoDb.client.send.mock.calls[0][0];
+    expect(cmd.constructor.name).toBe('UpdateCommand');
+    expect(cmd.input.Key).toEqual({ PK: 'ITEM_GROUP#group-1', SK: 'METADATA' });
+    expect(cmd.input.ConditionExpression).toBe('attribute_exists(PK)');
+    expect(cmd.input.ReturnValues).toBe('ALL_NEW');
+    const values = cmd.input.ExpressionAttributeValues;
+    expect(Object.values(values)).toEqual(
+      expect.arrayContaining(['Screen door', 'screen door', 'x', members, false, 'cat-2', '2026-10-12T11:00:00.000Z', 'user-1']),
+    );
+    // Workiz's comma list of member names goes stale with new members: dropped.
+    expect(cmd.input.UpdateExpression).toMatch(/REMOVE .*#itemNames/);
+    expect(group).toMatchObject({ id: 'group-1', name: 'Screen door', active: false });
+  });
+
+  it('update() REMOVEs the category when it is cleared, and leaves the members and name alone when not sent', async () => {
+    dynamoDb.client.send.mockResolvedValueOnce({ Attributes: importedRow });
+
+    await repository.update('group-1', { categoryId: null }, { updatedAt: 't', updatedBy: 'u' });
+
+    const cmd = dynamoDb.client.send.mock.calls[0][0];
+    expect(cmd.input.UpdateExpression).toMatch(/REMOVE .*#categoryId/);
+    expect(cmd.input.UpdateExpression).not.toMatch(/#members|#name\b|#itemNames/);
+    expect(Object.values(cmd.input.ExpressionAttributeNames)).not.toContain('GSI1SK');
   });
 
   it('leaves out a member whose Workiz item has no product here — it could not become a job line', async () => {

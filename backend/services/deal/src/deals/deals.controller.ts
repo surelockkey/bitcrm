@@ -577,7 +577,8 @@ export class DealsController {
       'container); a product whose stock is not counted is `sourced` without a deduction. Source: a ' +
       "technician's own container; the office's `sourceTechId` (an assigned technician, 400 otherwise), " +
       'else the caller when on the job, else none (products `to_order`). 404 unknown group, 400 empty ' +
-      'group or a member whose product is gone — before any stock moves. One timeline entry. 201 ' +
+      'group, a disabled group (`active: false`), a Flat rate group, or a member whose product is gone — ' +
+      'before any stock moves. One timeline entry. 201 ' +
       '`{ added, lines }` — the lines as written.',
   })
   async addItemGroup(

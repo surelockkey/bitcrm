@@ -2616,6 +2616,13 @@ export class DealsService {
 
     const group = await this.internalHttp.getItemGroup(groupId);
     if (!group) throw new NotFoundException(`Item group ${groupId} not found`);
+    // An inventory older than the Price book's Item groups tab sends neither: on, Individual items.
+    if (group.active === false) {
+      throw new BadRequestException(`Item group "${group.name}" is disabled`);
+    }
+    if (group.groupType === 'flat_rate') {
+      throw new BadRequestException(`Item group "${group.name}" is a Flat rate group, which cannot be added yet`);
+    }
     if (group.members.length === 0) {
       throw new BadRequestException(`Item group "${group.name}" has no items`);
     }
