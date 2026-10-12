@@ -137,7 +137,7 @@ describe("softphone-manager — TURN servers from the voice token", () => {
     const device = await freshManager({ ...TOKEN, iceServers: ICE });
     const call = fakeCall({ From: "+12125550123" });
     device.handlers.incoming(call);
-    m.acceptIncoming();
+    await m.acceptIncoming();
     expect(call.accept).toHaveBeenCalledWith({ rtcConfiguration: { iceServers: ICE } });
   });
 
