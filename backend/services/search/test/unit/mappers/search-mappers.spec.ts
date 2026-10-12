@@ -178,6 +178,15 @@ describe('search-mappers', () => {
       );
     });
 
+    it('finds the job by the first number it was given as its own ("This job only")', () => {
+      const doc = mapDeal({ ...deal, clientPhone: '+12035550123' } as Deal, 'Install', [], [], {
+        name: 'Jane Smith',
+        phones: ['+14045550100'],
+        emails: [],
+      });
+      expect(doc.keywords).toEqual(expect.arrayContaining(['2035550123', '4045550100']));
+    });
+
     it('stamps contactId and companyId so client edits can reindex their deals', () => {
       const doc = mapDeal(deal);
       expect(doc.contactId).toBe('c1');

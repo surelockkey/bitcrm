@@ -98,6 +98,14 @@ describe('DealsRepository', () => {
       expect(result!.clientName).toEqual({ firstName: 'Janet', lastName: 'Poole' });
     });
 
+    it('reads back the job’s own first number', async () => {
+      dynamoDb.client.send.mockResolvedValue({
+        Item: { PK: 'DEAL#deal-1', SK: 'METADATA', ...createMockDeal(), clientPhone: '+12035550123' },
+      });
+
+      expect((await repository.findById('deal-1'))!.clientPhone).toBe('+12035550123');
+    });
+
     it('reads back the billing fields (tax snapshot, discount, itemCount, invoiceId)', async () => {
       const deal = createMockDeal({
         taxRateId: 'tax-1',

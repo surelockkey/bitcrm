@@ -11,10 +11,12 @@ import {
   BadRequestException,
   NotFoundException,
   HttpCode,
+  UseInterceptors,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { RequirePermission, CurrentUser, hasPermission } from '@bitcrm/shared';
 import { type JwtUser, type ResolvedPermissions } from '@bitcrm/types';
+import { JobNumberInterceptor } from './job-number.interceptor';
 import { DealsService } from './deals.service';
 import { CreateDealDto } from './dto/create-deal.dto';
 import { UpdateDealDto } from './dto/update-deal.dto';
@@ -39,6 +41,7 @@ import { SendToTechDto } from './dto/send-to-tech.dto';
 import { RecordSentToTechDto } from './dto/record-sent-to-tech.dto';
 import { ResolvedPerms } from '../common/decorators/resolved-permissions.decorator';
 
+@UseInterceptors(JobNumberInterceptor)
 @ApiTags('Deals')
 @ApiBearerAuth()
 @Controller()

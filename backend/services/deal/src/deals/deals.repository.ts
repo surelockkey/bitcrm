@@ -1871,6 +1871,8 @@ export class DealsRepository {
       clientCompanyName: item.clientCompanyName as string | undefined,
       phones: item.phones as string[] | undefined,
       phoneExtensions: item.phoneExtensions as Record<string, string> | undefined,
+      // The job's own first number — read back, or every write of it is lost on the way out.
+      clientPhone: item.clientPhone as string | undefined,
       // Rows written before "Send to tech" existed simply have none of these.
       sentToTechAt: item.sentToTechAt as string | undefined,
       sentToTechVia: item.sentToTechVia as SendToTechChannel[] | undefined,

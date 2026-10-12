@@ -128,7 +128,8 @@ export class BridgeService {
 
     const client = await this.contacts.phonesOf(req.contactId);
     const index = req.phoneIndex ?? 0;
-    const to = client?.phones?.[index];
+    // The first number is the job's own when it has one; the rest are the client's.
+    const to = (index === 0 && deal.clientPhone) || client?.phones?.[index];
     if (!to) {
       throw new BadRequestException(
         client?.phones?.length

@@ -145,6 +145,20 @@ describe('BridgeService.prepare', () => {
     expect(ctx.to).toBe('+14045555678');
   });
 
+  it('dials the job’s own first number when it has one ("This job only")', async () => {
+    const { service, redis } = makeService({ deal: { ...DEAL, clientPhone: '+12035550123' } });
+
+    const first = await service.prepare(TECH, { dealId: 'deal-1', contactId: 'contact-1' });
+    const second = await service.prepare(
+      { ...TECH, id: 'tech-2' },
+      { dealId: 'deal-1', contactId: 'contact-1', phoneIndex: 1 },
+    );
+
+    expect(redis.hashes.get(`telephony:bridge:${first.bridgeId}`)!.to).toBe('+12035550123');
+    // The other numbers are the client's own, as before.
+    expect(redis.hashes.get(`telephony:bridge:${second.bridgeId}`)!.to).toBe('+14045555678');
+  });
+
   it('stamps the market caller id on the context', async () => {
     const { service, redis } = makeService();
 

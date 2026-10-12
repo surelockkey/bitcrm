@@ -82,6 +82,12 @@ describe('dealSearchAttributes — the job’s own half', () => {
     expect(searchDigits.split('\n').sort()).toEqual(['14693961234', '8175550199']);
   });
 
+  it('finds the job by the first number it was given as its own ("This job only")', () => {
+    const { searchDigits } = dealSearchAttributes({ clientPhone: '+12035550123' });
+    expect(searchDigits.split('\n')).toEqual(['12035550123']);
+    expect(DEAL_SEARCH_INPUTS.has('clientPhone')).toBe(true);
+  });
+
   it('a job with nothing searchable has empty halves, not missing ones', () => {
     expect(dealSearchAttributes({})).toEqual({ searchText: '', searchDigits: '' });
   });

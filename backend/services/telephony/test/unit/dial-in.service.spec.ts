@@ -93,6 +93,14 @@ describe('DialInService.resolve', () => {
     });
   });
 
+  it('connects to the job’s own first number when it has one ("This job only")', async () => {
+    const { service } = makeService({ deal: { ...DEAL, clientPhone: '+12035550123' } });
+
+    const out = await service.resolve('4729', '+14045550134');
+
+    expect(out).toMatchObject({ to: '+12035550123', clientName: 'Maria Alvarez' });
+  });
+
   /**
    * The code says which job; it does not say who is calling. Their number
    * does, when we recognise it — that is what puts a name on the call log

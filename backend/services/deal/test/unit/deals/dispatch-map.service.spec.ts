@@ -103,6 +103,16 @@ describe('DispatchMapService.read', () => {
     expect(masked.deals[0].id).toBe('d1');
   });
 
+  it('a job’s own first number ("This job only") likewise', async () => {
+    repository.readMapJobs.mockResolvedValue([createMockDeal({ id: 'd1', clientPhone: '+12035550123' })]);
+
+    const shown = await service.read({}, caller, 'all', allowed);
+    const masked = await service.read({}, caller, 'all', { ...allowed, numbers: false });
+
+    expect(shown.deals[0].clientPhone).toBe('+12035550123');
+    expect(masked.deals[0]).not.toHaveProperty('clientPhone');
+  });
+
   it('carries the clients as crm shows them to the caller — names, numbers, emails, masked as crm masks', async () => {
     repository.readMapJobs.mockResolvedValue([
       createMockDeal({ id: 'd1', contactId: 'c1' }),

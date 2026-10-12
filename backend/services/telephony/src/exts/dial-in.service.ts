@@ -113,7 +113,8 @@ export class DialInService {
     );
 
     const client = await this.contacts.phonesOf(deal.contactId);
-    const to = client?.phones?.[0];
+    // The job's own first number when it has one ("This job only").
+    const to = deal.clientPhone || client?.phones?.[0];
     if (!to) return null;
 
     const { callerId, source } = await this.callerIds.forServerLeg(deal);

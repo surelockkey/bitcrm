@@ -50,6 +50,8 @@ import { ContactAttachmentsController } from '../contacts/contact-attachments.co
 import { ContactAttachmentsService } from '../contacts/contact-attachments.service';
 import { DispatchMapController } from './map/dispatch-map.controller';
 import { DispatchMapService } from './map/dispatch-map.service';
+import { ClientPhoneController } from './client-phone/client-phone.controller';
+import { ClientPhoneService } from './client-phone/client-phone.service';
 
 @Module({
   imports: [ServiceAreasModule, JobTypesModule, JobSourcesModule, ExternalCompaniesModule, JobTagsModule, JobStatusesModule, JobFieldSettingsModule, JobRulesModule, CustomFieldsModule, TechnicianEligibilityModule, TaxRatesModule, BusinessProfilesClientModule, CommissionReportModule],
@@ -72,10 +74,12 @@ import { DispatchMapService } from './map/dispatch-map.service';
     JobStatisticsController,
     // `GET /map` (the dispatch map) ahead of `GET /:id`.
     DispatchMapController,
+    ClientPhoneController,
     DealsController,
   ],
   providers: [
     DealsService,
+    ClientPhoneService,
     DealsRepository,
     DealsCacheService,
     DealEventsBus,
