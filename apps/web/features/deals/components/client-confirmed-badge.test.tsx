@@ -3,22 +3,23 @@ import { render, screen } from "@testing-library/react";
 import type { Deal } from "@bitcrm/types";
 import { ClientConfirmedBadge } from "./client-confirmed-badge";
 
-const NOW = new Date("2026-10-13T12:00:00");
+const NOW = new Date("2026-10-13T16:00:00.000Z");
 const job = (over: Partial<Deal> = {}) =>
   ({
     scheduledDate: "2026-10-14",
     scheduledTimeSlot: "09:00-11:00",
-    clientConfirmedAt: new Date("2026-10-12T15:05:00").toISOString(),
+    // 3:05 PM in Connecticut (EDT).
+    clientConfirmedAt: "2026-10-12T19:05:00.000Z",
     clientConfirmedFor: "2026-10-14 09:00-11:00",
     ...over,
   }) as Deal;
 
 /** B12: the job header says the client confirmed the visit through {{confirm_link}}. */
 describe("ClientConfirmedBadge", () => {
-  it("says the client confirmed, and when", () => {
+  it("says the client confirmed, and when — on Connecticut's clock, labelled", () => {
     render(<ClientConfirmedBadge deal={job()} now={NOW} />);
     const badge = screen.getByText(/Confirmed by client/);
-    expect(badge).toHaveTextContent("Confirmed by client · Oct 12, 3:05 PM");
+    expect(badge).toHaveTextContent("Confirmed by client · Oct 12, 3:05 PM EDT");
     expect(badge.closest("[title]")).toHaveAttribute("title", "The client confirmed this visit through the confirm link");
   });
 

@@ -32,7 +32,10 @@ export type FieldIcon =
  * no column for.
  *
  * `width` (px) is what the table lays each column out at — Workiz's own for
- * the columns it has (Client 160, Tech 200, Scheduled 220, Job Type 200…).
+ * the columns it has (Client 160, Tech 200, Job Type 200…). Scheduled and End
+ * are 30px wider than Workiz's 220, and Sent / Seen / Confirmed 180, since
+ * 2026-10-12: every time names its zone ("… 09:00 am EDT"), and a clipped
+ * label is no label.
  * The Jobs table is `table-fixed` on purpose: client and technician names
  * arrive in a later frame than the jobs themselves, and an auto-layout table
  * re-measures every column when they land — the whole grid visibly jumps.
@@ -49,7 +52,7 @@ export const JOB_FIELDS = [
   { id: "tags", label: "Tags", width: 160, icon: "tag" },
   { id: "city", label: "City", width: 160, icon: "location" },
   { id: "state", label: "State", width: 160, icon: "location" },
-  { id: "scheduled", label: "Scheduled", width: 220, icon: "calendar" },
+  { id: "scheduled", label: "Scheduled", width: 250, icon: "calendar" },
   { id: "jobType", label: "Job Type", width: 200, icon: "job" },
   { id: "zip", label: "Zip code", width: 100, icon: "location" },
   { id: "total", label: "Total Price", width: 120, icon: "money" },
@@ -57,7 +60,7 @@ export const JOB_FIELDS = [
   { id: "source", label: "Source", width: 150, icon: "source" },
   { id: "address", label: "Address", width: 260, icon: "location" },
   { id: "createdBy", label: "Created by", width: 150, icon: "users" },
-  { id: "end", label: "End", width: 220, icon: "calendar" },
+  { id: "end", label: "End", width: 250, icon: "calendar" },
   { id: "phone", label: "Phone", width: 150, icon: "phone" },
   { id: "email", label: "Email", width: 210, icon: "email" },
   { id: "serviceArea", label: "Service area", width: 160, icon: "map" },
@@ -68,10 +71,10 @@ export const JOB_FIELDS = [
   { id: "dispatcher", label: "Dispatcher", width: 150, icon: "users" },
   { id: "status", label: "Status", width: 140, icon: "job" },
   { id: "priority", label: "Priority", width: 110, icon: "job" },
-  { id: "sent", label: "Sent", width: 150, icon: "calendar" },
-  { id: "seen", label: "Seen", width: 150, icon: "calendar" },
+  { id: "sent", label: "Sent", width: 180, icon: "calendar" },
+  { id: "seen", label: "Seen", width: 180, icon: "calendar" },
   // B12: when the client confirmed the visit through {{confirm_link}} (Workiz `client_confirmed`).
-  { id: "clientConfirmed", label: "Confirmed", width: 150, icon: "calendar" },
+  { id: "clientConfirmed", label: "Confirmed", width: 180, icon: "calendar" },
   { id: "poNumber", label: "PO number", width: 130, icon: "job" },
   { id: "paymentStatus", label: "Payment status", width: 150, icon: "money" },
   { id: "notes", label: "Notes", width: 240, icon: "job" },

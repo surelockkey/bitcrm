@@ -169,10 +169,10 @@ describe("DealAttachmentsTab — Workiz's tab", () => {
     expect(screen.queryByRole("button", { name: "Upload" })).not.toBeInTheDocument();
   });
 
-  it("stamps each file the Workiz way: 8/1/2026 at 6:00 AM", () => {
+  it("stamps each file the Workiz way, its zone named: 8/1/2026 at 6:00 AM EDT", () => {
     render(<DealAttachmentsTab dealId="d1" canEdit={false} />);
     // 10:00 UTC is 6:00 AM on business (New York) time.
-    expect(screen.getByText("8/1/2026 at 6:00 AM")).toBeInTheDocument();
+    expect(screen.getByText("8/1/2026 at 6:00 AM EDT")).toBeInTheDocument();
   });
 
   it("invites '+ Upload files' on a job with no files", () => {

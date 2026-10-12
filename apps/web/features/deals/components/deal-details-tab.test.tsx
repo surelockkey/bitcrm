@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {
@@ -85,12 +85,22 @@ vi.mock("../hooks", () => ({
   useDealAssignments: () => ({ data: [] }),
 }));
 
-vi.mock("@/features/service-areas/hooks", () => ({
-  useResolvedServiceArea: () => ({ data: undefined }),
-  useServiceAreas: () => ({ data: [{ id: "sa-north", name: "North GA", active: true, priority: 1 }] }),
-  useEffectiveServiceArea: () => ({ submitId: "sa-north", source: "resolved", area: { id: "sa-north", name: "North GA" }, resolvedArea: { id: "sa-north", name: "North GA" }, isFetching: false }),
-  useNearestServiceArea: () => ({ data: undefined }),
-}));
+const areaAt = vi.hoisted(() => ({ current: undefined as { id: string; timezone: string } | undefined }));
+vi.mock("@/features/service-areas/hooks", async () => {
+  const { jobZoneResolver } = await import("@/features/service-areas/lib");
+  return {
+    // The area the address geometry falls in — `areaAt` per test.
+    useResolvedServiceArea: () => ({ data: areaAt.current }),
+    useServiceAreas: () => ({ data: [{ id: "sa-north", name: "North GA", active: true, priority: 1 }] }),
+    useEffectiveServiceArea: () => ({ submitId: "sa-north", source: "resolved", area: { id: "sa-north", name: "North GA" }, resolvedArea: { id: "sa-north", name: "North GA" }, isFetching: false }),
+    useNearestServiceArea: () => ({ data: undefined }),
+    useJobZoneOf: () =>
+      jobZoneResolver([
+        { id: "sa-north", timezone: "America/New_York" },
+        { id: "sa-tx", timezone: "America/Chicago" },
+      ]),
+  };
+});
 
 vi.mock("@/features/job-types/active-hooks", () => ({
   useActiveJobTypes: () => ({
@@ -398,6 +408,44 @@ describe("DetailsTab — one Save", () => {
     await u.click(saveButton());
 
     expect(mocks.updateDeal.mock.calls[0][0]).toEqual({ jobTypeId: "jt-safe", scheduledTimeSlot: "08:00-12:00" });
+  });
+
+  /**
+   * 2026-10-12: the inputs hold the visit as stored — on the clock of the
+   * zone it was booked in, the job's (`jobTimezone`, else its area's), not
+   * whatever area the address geometry falls in — and say so when that is
+   * not Connecticut's. Nothing is converted.
+   */
+  describe("the zone the schedule inputs are in", () => {
+    const visit = { scheduledDate: "2026-10-08", scheduledEndDate: "2026-10-08", scheduledTimeSlot: "08:00-09:00" };
+    afterEach(() => {
+      areaAt.current = undefined;
+    });
+
+    it("a job in a Texas area says its times are Central, whatever the geometry says", () => {
+      areaAt.current = { id: "sa-north", timezone: "America/New_York" };
+      renderTab({ ...deal, ...visit, serviceAreaId: "sa-tx" });
+      expect(within(section("Schedule")).getByTestId("wz-zone-notice")).toHaveTextContent("Times in CDT");
+      // The stored 08:00 stays 08:00 in the input.
+      expect(section("Schedule")).toHaveTextContent("08:00 AM");
+    });
+
+    it("the job's own zone wins over its area's", () => {
+      renderTab({ ...deal, ...visit, serviceAreaId: "sa-north", jobTimezone: "America/Chicago" });
+      expect(within(section("Schedule")).getByTestId("wz-zone-notice")).toHaveTextContent("Times in CDT");
+    });
+
+    it("a job with no area yet takes the zone its address falls in", () => {
+      areaAt.current = { id: "sa-tx", timezone: "America/Chicago" };
+      renderTab({ ...deal, ...visit, serviceAreaId: undefined });
+      expect(within(section("Schedule")).getByTestId("wz-zone-notice")).toHaveTextContent("Times in CDT");
+    });
+
+    it("a Connecticut job needs no note", () => {
+      areaAt.current = { id: "sa-tx", timezone: "America/Chicago" };
+      renderTab({ ...deal, ...visit, serviceAreaId: "sa-north" });
+      expect(within(section("Schedule")).queryByTestId("wz-zone-notice")).not.toBeInTheDocument();
+    });
   });
 
   it("unschedules with the Schedule switch: the job goes back to Unscheduled on Save", async () => {

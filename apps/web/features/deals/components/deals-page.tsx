@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Plus, TriangleAlert } from "lucide-react";
@@ -22,7 +22,7 @@ import { mergeIncluded } from "../included";
 import { personName } from "../person-name";
 import { useContactsByIds } from "@/features/clients/hooks";
 import { useAllTechnicians } from "@/features/technicians/hooks";
-import { useServiceAreas } from "@/features/service-areas/hooks";
+import { useJobZoneOf, useServiceAreas } from "@/features/service-areas/hooks";
 import {
   EMPTY_JOBS_LIST_STATE,
   JOBS_LIST_CAPS,
@@ -177,12 +177,8 @@ export function DealsPage() {
     [technicians, directory, jobTagsQuery.data, jobTypesQuery.data, serviceAreas, companies],
   );
 
-  // The zone a visit was booked in: the job's own (Workiz), else its area's.
-  const areaZone = useMemo(() => new Map((serviceAreas ?? []).map((a) => [a.id, a.timezone])), [serviceAreas]);
-  const zoneOf = useCallback(
-    (d: Deal) => d.jobTimezone || (d.serviceAreaId ? areaZone.get(d.serviceAreaId) : undefined),
-    [areaZone],
-  );
+  // The zone a visit was booked in: the job's own (Workiz), else its area's, else Connecticut.
+  const zoneOf = useJobZoneOf();
 
   // The server orders the rows (by visit, either way — the Scheduled header);
   // the hour sorts (ours, the header's menu) are settled on the rows in hand.

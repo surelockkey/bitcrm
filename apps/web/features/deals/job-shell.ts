@@ -1,6 +1,6 @@
 import { JobSuperStatus } from "@bitcrm/types";
 import type { Contact, Deal, InvoiceStatus } from "@bitcrm/types";
-import { DEFAULT_TZ } from "@/lib/timezone";
+import { DEFAULT_TZ, withZone } from "@/lib/timezone";
 import { canCreateInvoice, invoiceHref } from "@/features/invoices/lib";
 import type { DealTab } from "./deal-tabs";
 import { formatMoney } from "./lib";
@@ -209,13 +209,16 @@ export function workizDate(value: string | undefined | null): string {
   return m ? `${Number(m[2])}/${Number(m[3])}/${m[1]}` : "";
 }
 
-/** "5/4/2026 at 8:59 PM" — a moment on business time (payments, files). */
+/**
+ * "5/4/2026 at 8:59 PM EDT" — a moment on business time (payments, files),
+ * its zone named (2026-10-12 owner rule).
+ */
 export function workizDateTime(iso: string | undefined | null): string {
   const d = iso ? new Date(iso) : null;
   if (!d || Number.isNaN(d.getTime())) return "";
   const day = d.toLocaleDateString("en-US", { timeZone: DEFAULT_TZ, month: "numeric", day: "numeric", year: "numeric" });
   const time = d.toLocaleTimeString("en-US", { timeZone: DEFAULT_TZ, hour: "numeric", minute: "2-digit" });
-  return `${day} at ${time}`;
+  return withZone(`${day} at ${time}`, d);
 }
 
 /* -------------------------------------------------------------- tab bar */

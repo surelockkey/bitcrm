@@ -11,7 +11,7 @@ import {
   WzTimeSelect,
 } from "@/components/workiz";
 import { cn } from "@/lib/utils";
-import { clockInTz, DEFAULT_TZ } from "@/lib/timezone";
+import { clockInTz, DEFAULT_TZ, withZone, zoneAbbr, zonedInstant } from "@/lib/timezone";
 import {
   slotTimes,
   withAllDay,
@@ -141,9 +141,16 @@ export function WzScheduleBlock({
     );
   }
 
+  const inputZone = scheduled ? inputZoneLabel(value, tz) : "";
   return (
     <section className={className} aria-label={title}>
       <WzSectionHeader action={toggle}>{title}</WzSectionHeader>
+      {inputZone ? (
+        // The time notice's type (11px/16px), under the header: which clock the inputs are on.
+        <p data-testid="wz-zone-notice" className="-mt-3 mb-3 text-[11px] leading-4 text-foreground">
+          Times in {inputZone}
+        </p>
+      ) : null}
       {fields}
     </section>
   );
@@ -167,9 +174,24 @@ export function WzTimeNotice({ tz = DEFAULT_TZ, place }: { tz?: string; place: s
       data-testid="wz-time-notice"
       className="inline-flex items-center gap-1 pt-1 pl-3 align-top text-[11px] leading-4 font-normal text-foreground"
     >
-      It&apos;s <b className="font-bold">{clockInTz(now, tz)}</b> in {place}
+      It&apos;s <b className="font-bold">{withZone(clockInTz(now, tz), now, tz)}</b> in {place}
     </span>
   );
+}
+
+/**
+ * The zone a job's schedule inputs are on, when it is not Connecticut's
+ * ("CDT"), else "". The inputs hold the visit as stored — the wall clock of
+ * the zone it was booked in — while every other time on the web is
+ * Connecticut's (2026-10-12 owner rule), so a job booked elsewhere says so.
+ * Read at the visit's own start, so a winter visit says CST.
+ */
+export function inputZoneLabel(value: ScheduledValue, tz: string | undefined): string {
+  if (!tz || !value.date || !/^\d{4}-\d{2}-\d{2}$/.test(value.date)) return "";
+  const [start] = slotTimes(value.slot);
+  const at = zonedInstant(value.date, /^\d{2}:\d{2}$/.test(start) ? start : "12:00", tz);
+  const abbr = zoneAbbr(at, tz);
+  return abbr && abbr !== zoneAbbr(at, DEFAULT_TZ) ? abbr : "";
 }
 
 /**

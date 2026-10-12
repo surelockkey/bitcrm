@@ -176,16 +176,37 @@ describe("timeline rows in Workiz's words (rail_history)", () => {
   });
 });
 
-describe("workizScheduleText — 'Thu Oct 08 2026 6:00 pm - 7:00 pm'", () => {
-  it("writes a timed visit the way Workiz's activity log does", () => {
-    expect(workizScheduleText({ date: "2026-10-08", slot: "18:00-19:00" })).toBe("Thu Oct 08 2026 6:00 pm - 7:00 pm");
-    expect(workizScheduleText({ date: "2026-10-07", slot: "08:30-09:00" })).toBe("Wed Oct 07 2026 8:30 am - 9:00 am");
-    expect(workizScheduleText({ date: "2026-10-07", slot: "12:00-00:00" })).toBe("Wed Oct 07 2026 12:00 pm - 12:00 am");
+describe("workizScheduleText — 'Thu Oct 08 2026 6:00 pm - 7:00 pm EDT'", () => {
+  it("writes a timed visit the way Workiz's activity log does, its zone named", () => {
+    expect(workizScheduleText({ date: "2026-10-08", slot: "18:00-19:00" })).toBe("Thu Oct 08 2026 6:00 pm - 7:00 pm EDT");
+    expect(workizScheduleText({ date: "2026-10-07", slot: "08:30-09:00" })).toBe("Wed Oct 07 2026 8:30 am - 9:00 am EDT");
+    expect(workizScheduleText({ date: "2026-10-07", slot: "12:00-00:00" })).toBe("Wed Oct 07 2026 12:00 pm - 12:00 am EDT");
+    expect(workizScheduleText({ date: "2026-12-01", slot: "09:00-10:00" })).toBe("Tue Dec 01 2026 9:00 am - 10:00 am EST");
   });
 
-  it("an all-day or untimed visit is the day alone; no day at all is Unscheduled", () => {
+  /**
+   * 2026-10-12 owner rule: the visit is stored on the clock of the zone it
+   * was booked in; the web writes it on Connecticut's.
+   */
+  it("a visit booked in another zone is written on Connecticut's clock", () => {
+    // Texas 17:00–18:00 CDT is 6:00–7:00 pm EDT.
+    expect(workizScheduleText({ date: "2026-10-08", slot: "17:00-18:00" }, "America/Chicago")).toBe(
+      "Thu Oct 08 2026 6:00 pm - 7:00 pm EDT",
+    );
+    // Winter: 08:00 CST is 9:00 am EST.
+    expect(workizScheduleText({ date: "2026-12-01", slot: "08:00-09:00" }, "America/Chicago")).toBe(
+      "Tue Dec 01 2026 9:00 am - 10:00 am EST",
+    );
+    // A late Arizona visit lands on Connecticut's next day.
+    expect(workizScheduleText({ date: "2026-10-12", slot: "22:30-23:00" }, "America/Phoenix")).toBe(
+      "Tue Oct 13 2026 1:30 am - 2:00 am EDT",
+    );
+  });
+
+  it("an all-day or untimed visit is the day alone (a calendar day: not shifted, no label); no day at all is Unscheduled", () => {
     expect(workizScheduleText({ date: "2026-10-08", allDay: true, slot: "18:00-19:00" })).toBe("Thu Oct 08 2026");
     expect(workizScheduleText({ date: "2026-10-08" })).toBe("Thu Oct 08 2026");
+    expect(workizScheduleText({ date: "2026-10-08" }, "America/Phoenix")).toBe("Thu Oct 08 2026");
     expect(workizScheduleText({})).toBe("Unscheduled");
   });
 });
@@ -204,8 +225,14 @@ describe("collapseReschedules — one 'Rescheduled job from … to …' per save
     const out = collapseReschedules(entries, { date: "2026-10-08", slot: "18:00-19:00" });
 
     expect([...out.hidden]).toEqual(["b"]);
-    expect(out.text.get("a")).toBe("Rescheduled job from Wed Oct 07 2026 8:30 am - 9:00 am to Thu Oct 08 2026 6:00 pm - 7:00 pm");
-    expect(out.text.get("c")).toBe("Rescheduled job from Wed Oct 07 2026 8:00 am - 9:00 am to Wed Oct 07 2026 8:30 am - 9:00 am");
+    expect(out.text.get("a")).toBe("Rescheduled job from Wed Oct 07 2026 8:30 am - 9:00 am EDT to Thu Oct 08 2026 6:00 pm - 7:00 pm EDT");
+    expect(out.text.get("c")).toBe("Rescheduled job from Wed Oct 07 2026 8:00 am - 9:00 am EDT to Wed Oct 07 2026 8:30 am - 9:00 am EDT");
+  });
+
+  it("a Texas job's saves are written on Connecticut's clock", () => {
+    const entries = [field("a", "2026-10-08T15:00:01.000Z", "scheduledTimeSlot", "08:00-09:00", "17:00-18:00")];
+    const out = collapseReschedules(entries, { date: "2026-10-08", slot: "17:00-18:00" }, "America/Chicago");
+    expect(out.text.get("a")).toBe("Rescheduled job from Thu Oct 08 2026 9:00 am - 10:00 am EDT to Thu Oct 08 2026 6:00 pm - 7:00 pm EDT");
   });
 
   it("keeps two people's saves apart, and leaves imported rows (Workiz already wrote them) alone", () => {
@@ -222,8 +249,8 @@ describe("collapseReschedules — one 'Rescheduled job from … to …' per save
     const out = collapseReschedules(entries, { date: "2026-10-08", slot: "09:00-10:00" });
 
     expect(out.hidden.size).toBe(0);
-    expect(out.text.get("a")).toBe("Rescheduled job from Thu Oct 08 2026 8:00 am - 9:00 am to Thu Oct 08 2026 9:00 am - 10:00 am");
-    expect(out.text.get("b")).toBe("Rescheduled job from Wed Oct 07 2026 8:00 am - 9:00 am to Thu Oct 08 2026 8:00 am - 9:00 am");
+    expect(out.text.get("a")).toBe("Rescheduled job from Thu Oct 08 2026 8:00 am - 9:00 am EDT to Thu Oct 08 2026 9:00 am - 10:00 am EDT");
+    expect(out.text.get("b")).toBe("Rescheduled job from Wed Oct 07 2026 8:00 am - 9:00 am EDT to Thu Oct 08 2026 8:00 am - 9:00 am EDT");
     expect(out.text.has("w")).toBe(false);
   });
 
@@ -233,7 +260,7 @@ describe("collapseReschedules — one 'Rescheduled job from … to …' per save
       field("b", "2026-10-08T15:00:00.000Z", "scheduledDate", "2026-10-07", "2026-10-08"),
     ];
     const out = collapseReschedules(entries, null);
-    expect(out.text.get("a")).toBe("Rescheduled job from Wed Oct 07 2026 8:00 am - 9:00 am to Thu Oct 08 2026 6:00 pm - 7:00 pm");
+    expect(out.text.get("a")).toBe("Rescheduled job from Wed Oct 07 2026 8:00 am - 9:00 am EDT to Thu Oct 08 2026 6:00 pm - 7:00 pm EDT");
   });
 
   it("an unscheduled job reads Unscheduled on the empty side", () => {
@@ -300,7 +327,11 @@ describe("timeline rows — the rest of Workiz's sentences (C8)", () => {
       },
     });
     expect(text(e).lines).toEqual([
-      "Rescheduled job from Wed Oct 07 2026 5:00 pm - 6:00 pm to Thu Oct 08 2026 8:00 am - 9:00 am",
+      "Rescheduled job from Wed Oct 07 2026 5:00 pm - 6:00 pm EDT to Thu Oct 08 2026 8:00 am - 9:00 am EDT",
+    ]);
+    // A Texas job's: on Connecticut's clock.
+    expect(text(e, { zone: "America/Chicago" }).lines).toEqual([
+      "Rescheduled job from Wed Oct 07 2026 6:00 pm - 7:00 pm EDT to Thu Oct 08 2026 9:00 am - 10:00 am EDT",
     ]);
   });
 
@@ -366,7 +397,7 @@ describe("collapseReschedules — with reschedules saved as one entry", () => {
     const out = collapseReschedules(entries, { date: "2026-10-08", slot: "18:00-19:00" });
 
     expect(out.hidden.size).toBe(0);
-    expect(out.text.get("a")).toBe("Rescheduled job from Wed Oct 07 2026 8:30 am - 9:00 am to Thu Oct 08 2026 6:00 pm - 7:00 pm");
-    expect(out.text.get("c")).toBe("Rescheduled job from Wed Oct 07 2026 8:00 am - 9:00 am to Wed Oct 07 2026 8:30 am - 9:00 am");
+    expect(out.text.get("a")).toBe("Rescheduled job from Wed Oct 07 2026 8:30 am - 9:00 am EDT to Thu Oct 08 2026 6:00 pm - 7:00 pm EDT");
+    expect(out.text.get("c")).toBe("Rescheduled job from Wed Oct 07 2026 8:00 am - 9:00 am EDT to Wed Oct 07 2026 8:30 am - 9:00 am EDT");
   });
 });

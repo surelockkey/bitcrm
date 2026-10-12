@@ -48,6 +48,11 @@ vi.mock("@/features/job-statuses/components/job-status-select", () => ({ JobStat
 // read-only custom-fields row stays hidden) so the drawer renders sans QueryClient.
 const qv = vi.hoisted(() => ({ fields: [] as unknown[], deal: null as unknown }));
 vi.mock("@/features/custom-fields/hooks", () => ({ useCustomFields: () => ({ data: qv.fields }) }));
+// The zone a visit was booked in: the job's own, else its area's (one Texas area here).
+vi.mock("@/features/service-areas/hooks", async () => {
+  const { jobZoneResolver } = await import("@/features/service-areas/lib");
+  return { useJobZoneOf: () => jobZoneResolver([{ id: "sa-tx", timezone: "America/Chicago" }]) };
+});
 // Calling the client goes through the masked bridge, which queries telephony
 // for the workspace's numbers. This test is about the client LINK; the button
 // has its own tests.
@@ -140,13 +145,29 @@ describe("DealQuickView", () => {
    * to end — where the list says "Mon Nov 16, 2026 04:30 pm". It now reads
    * like the list: the account's clock, then the place and its own.
    */
-  it("reads the visit the way the list does", () => {
+  it("reads the visit the way the list does — each clock naming its zone", () => {
     qv.deal = { ...deal, scheduledDate: "2026-11-16", scheduledTimeSlot: "15:30-15:30", jobTimezone: "America/Chicago" };
     try {
       render(<DealQuickView dealId="d1" open onOpenChange={() => {}} />);
-      expect(screen.getByText("Mon Nov 16, 2026 04:30 pm")).toBeInTheDocument();
-      expect(screen.getByText("Phoenix: Mon Nov 16, 2026 03:30 pm")).toBeInTheDocument();
+      expect(screen.getByText("Mon Nov 16, 2026 04:30 pm EST")).toBeInTheDocument();
+      expect(screen.getByText("Phoenix: Mon Nov 16, 2026 03:30 pm CST")).toBeInTheDocument();
       expect(screen.queryByText(/15:30-15:30/)).toBeNull();
+    } finally {
+      qv.deal = null;
+    }
+  });
+
+  /**
+   * 2026-10-12: a visit is stored on its own zone's clock — the job's
+   * `jobTimezone`, else its service area's. A job that only has an area in
+   * Texas is converted too (the drawer read `jobTimezone` alone).
+   */
+  it("converts a visit booked on its service area's clock, labelled", () => {
+    qv.deal = { ...deal, scheduledDate: "2026-10-08", scheduledTimeSlot: "08:00-09:00", jobTimezone: undefined, serviceAreaId: "sa-tx" };
+    try {
+      render(<DealQuickView dealId="d1" open onOpenChange={() => {}} />);
+      expect(screen.getByText("Thu Oct 08, 2026 09:00 am EDT")).toBeInTheDocument();
+      expect(screen.getByText("Phoenix: Thu Oct 08, 2026 08:00 am CDT")).toBeInTheDocument();
     } finally {
       qv.deal = null;
     }

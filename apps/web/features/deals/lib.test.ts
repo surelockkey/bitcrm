@@ -39,6 +39,7 @@ import {
   jobHourKey,
   dealClientName,
   formatStamp,
+  formatCreatedDay,
   sentToTechLabel,
   seenByTechLabel,
   deliveryReasonLabel,
@@ -949,33 +950,30 @@ describe("jobDayKey / jobHourKey — one basis for both filters", () => {
     expect(jobHourKey(d, "scheduledDate")).toBe("14:00");
   });
 
-  it("created basis: day and hour are LOCAL, not the UTC string slice", () => {
-    // A fixed instant; compare against what the viewer's own clock shows.
-    const iso = "2026-08-20T14:00:00.000Z";
-    const local = new Date(iso);
-    const dd = String(local.getDate()).padStart(2, "0");
-    const mm = String(local.getMonth() + 1).padStart(2, "0");
-    const hh = String(local.getHours()).padStart(2, "0");
-    const min = String(local.getMinutes()).padStart(2, "0");
-    const d = deal({ createdAt: iso });
-    expect(jobDayKey(d, "createdAt")).toBe(`${local.getFullYear()}-${mm}-${dd}`);
-    expect(jobHourKey(d, "createdAt")).toBe(`${hh}:${min}`);
+  it("created basis: day and hour are Connecticut's, not the UTC slice nor the viewer's clock", () => {
+    // 14:00Z is 10:00 EDT on the 20th (2026-10-12 owner rule: the web runs on Connecticut time).
+    const d = deal({ createdAt: "2026-08-20T14:00:00.000Z" });
+    expect(jobDayKey(d, "createdAt")).toBe("2026-08-20");
+    expect(jobHourKey(d, "createdAt")).toBe("10:00");
+    // 02:30Z on the 21st is still the 20th in Connecticut (22:30 EDT).
+    const late = deal({ createdAt: "2026-08-21T02:30:00.000Z" });
+    expect(jobDayKey(late, "createdAt")).toBe("2026-08-20");
+    expect(jobHourKey(late, "createdAt")).toBe("22:30");
+    // Winter: 03:15Z on Dec 2 is 22:15 EST on Dec 1.
+    const winter = deal({ createdAt: "2026-12-02T03:15:00.000Z" });
+    expect(jobDayKey(winter, "createdAt")).toBe("2026-12-01");
+    expect(jobHourKey(winter, "createdAt")).toBe("22:15");
   });
 
   it("returns empty hour key for a slotless scheduled job", () => {
     expect(jobHourKey(deal({ scheduledDate: "2026-08-20", scheduledTimeSlot: undefined }), "scheduledDate")).toBe("");
   });
 
-  it("closed basis: day and hour are LOCAL from closedAt, empty when open", () => {
-    const iso = "2026-08-22T09:45:00.000Z";
-    const local = new Date(iso);
-    const closed = deal({ closedAt: iso });
-    expect(jobDayKey(closed, "closedAt")).toBe(
-      `${local.getFullYear()}-${String(local.getMonth() + 1).padStart(2, "0")}-${String(local.getDate()).padStart(2, "0")}`,
-    );
-    expect(jobHourKey(closed, "closedAt")).toBe(
-      `${String(local.getHours()).padStart(2, "0")}:${String(local.getMinutes()).padStart(2, "0")}`,
-    );
+  it("closed basis: day and hour are Connecticut's from closedAt, empty when open", () => {
+    // 03:45Z on the 22nd is 23:45 EDT on the 21st.
+    const closed = deal({ closedAt: "2026-08-22T03:45:00.000Z" });
+    expect(jobDayKey(closed, "closedAt")).toBe("2026-08-21");
+    expect(jobHourKey(closed, "closedAt")).toBe("23:45");
     // A job that isn't closed has no closed day/hour.
     expect(jobDayKey(deal({ closedAt: undefined }), "closedAt")).toBe("");
     expect(jobHourKey(deal({ closedAt: undefined }), "closedAt")).toBe("");
@@ -1049,29 +1047,49 @@ describe("buildContactBody — phone extensions", () => {
 /* ------------------------------------------------------- send to tech / seen */
 
 describe("send-to-tech stamps", () => {
-  // Built in local time so the assertions hold in any TZ the suite runs under.
+  // Fixed instants, read on Connecticut's clock whatever the viewer's is
+  // (2026-10-12 owner rule): 16:10Z on Sep 16 is 12:10 PM EDT.
   const at = (h: number, m: number, dayOffset = 0) =>
-    new Date(2026, 8, 16 + dayOffset, h, m).toISOString();
-  const now = new Date(2026, 8, 16, 15, 0);
+    new Date(Date.UTC(2026, 8, 16 + dayOffset, h + 4, m)).toISOString();
+  const now = new Date("2026-09-16T19:00:00.000Z"); // 3:00 PM EDT
 
-  it("shows the clock alone for today and puts the day in front once it is not", () => {
-    expect(formatStamp(at(12, 10), now)).toBe("12:10 PM");
-    expect(formatStamp(at(12, 10, -2), now)).toBe("Sep 14, 12:10 PM");
+  it("shows the clock alone for today and puts the day in front once it is not — on Connecticut's clock, labelled", () => {
+    expect(formatStamp(at(12, 10), now)).toBe("12:10 PM EDT");
+    expect(formatStamp(at(12, 10, -2), now)).toBe("Sep 14, 12:10 PM EDT");
+  });
+
+  it("'today' is Connecticut's day: 10:30 PM EDT is still today there, whatever the browser's date", () => {
+    // 02:30Z on the 17th — already the 17th in Kyiv and in UTC.
+    expect(formatStamp("2026-09-17T02:30:00.000Z", now)).toBe("10:30 PM EDT");
+  });
+
+  it("a winter stamp reads EST", () => {
+    expect(formatStamp("2026-12-01T15:05:00.000Z", new Date("2026-12-03T15:00:00.000Z"))).toBe("Dec 1, 10:05 AM EST");
   });
 
   it("hands back unparseable input rather than rendering 'Invalid Date'", () => {
     expect(formatStamp("not-a-date", now)).toBe("not-a-date");
   });
 
-  it("reads 'Sent · 12:10 PM via SMS', naming every channel the dispatcher ticked", () => {
+  it("the jobs list's Created: the day the job was made on Connecticut's calendar, labelled", () => {
+    // 02:30Z on Oct 9 is still Oct 8 in Connecticut (10:30 PM EDT).
+    expect(formatCreatedDay("2026-10-09T02:30:00.000Z")).toBe("Oct 8, 2026 EDT");
+    // 03:30Z on Dec 2 is Dec 1, 10:30 PM EST.
+    expect(formatCreatedDay("2026-12-02T03:30:00.000Z")).toBe("Dec 1, 2026 EST");
+    expect(formatCreatedDay("")).toBe("—");
+    expect(formatCreatedDay(undefined)).toBe("—");
+    expect(formatCreatedDay("not-a-date")).toBe("—");
+  });
+
+  it("reads 'Sent · 12:10 PM EDT via SMS', naming every channel the dispatcher ticked", () => {
     expect(sentToTechLabel({ sentToTechAt: at(12, 10), sentToTechVia: ["sms"] }, now)).toBe(
-      "Sent · 12:10 PM via SMS",
+      "Sent · 12:10 PM EDT via SMS",
     );
     expect(
       sentToTechLabel({ sentToTechAt: at(12, 10), sentToTechVia: ["sms", "email"] }, now),
-    ).toBe("Sent · 12:10 PM via SMS & Email");
+    ).toBe("Sent · 12:10 PM EDT via SMS & Email");
     // An imported job may carry the stamp without the channels.
-    expect(sentToTechLabel({ sentToTechAt: at(12, 10) }, now)).toBe("Sent · 12:10 PM");
+    expect(sentToTechLabel({ sentToTechAt: at(12, 10) }, now)).toBe("Sent · 12:10 PM EDT");
   });
 
   it("says nothing at all about a job that was never sent or never opened", () => {
@@ -1079,8 +1097,8 @@ describe("send-to-tech stamps", () => {
     expect(seenByTechLabel({}, now)).toBeNull();
   });
 
-  it("reads 'Seen · 12:14 PM' once a technician has opened the job", () => {
-    expect(seenByTechLabel({ seenByTechAt: at(12, 14) }, now)).toBe("Seen · 12:14 PM");
+  it("reads 'Seen · 12:14 PM EDT' once a technician has opened the job", () => {
+    expect(seenByTechLabel({ seenByTechAt: at(12, 14) }, now)).toBe("Seen · 12:14 PM EDT");
   });
 
   it("turns a delivery reason into something a dispatcher can act on", () => {
