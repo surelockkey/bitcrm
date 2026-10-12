@@ -8,6 +8,7 @@ import type {
   PaginatedResponse,
 } from "@bitcrm/types";
 import { formatPhone } from "@/lib/phone";
+import { DEFAULT_TZ, ctToday, withZone } from "@/lib/timezone";
 import type {
   ConversationListFilter,
   FeedMessage,
@@ -439,11 +440,22 @@ export function initialsOf(title: string): string {
 
 /* ----------------------------------------------------------------- time */
 
+/*
+ * 2026-10-12 the owner's rule: every time the web shows is on Connecticut's
+ * clock (America/New_York) and names its zone — staff read the inbox from
+ * Ukraine, so the browser's own clock and calendar never count. "Today", the
+ * day chips and the stamps all go by Connecticut's day.
+ */
+
 const sameDay = (a: Date, b: Date) =>
   a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 
-const dayKey = (d: Date) =>
-  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+/** An instant's day ("YYYY-MM-DD") on Connecticut's calendar. */
+const ctDayKey = (d: Date): string => ctToday(d);
+
+/** A part of an instant's date ("September", "Tuesday") as Connecticut reads it. */
+const ctDatePart = (d: Date, options: Intl.DateTimeFormatOptions): string =>
+  d.toLocaleDateString("en-US", { timeZone: DEFAULT_TZ, ...options });
 
 /** "Today", "Yesterday", "Mon, Sep 14", or "Sep 14, 2025" for older years. */
 export function formatDayLabel(iso: string, now = new Date()): string {
@@ -459,40 +471,58 @@ export function formatDayLabel(iso: string, now = new Date()): string {
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
+/** "12:10 PM EDT" — the time of a message on Connecticut's clock, zone named. */
 export function formatMessageTime(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  return withZone(d.toLocaleTimeString("en-US", { timeZone: DEFAULT_TZ, hour: "numeric", minute: "2-digit" }), d);
 }
 
-/** The day chip in the thread, spelled as Workiz spells it: "Tuesday,September 15 2026". */
+/** The day chip in the thread, spelled as Workiz spells it: "Tuesday,September 15 2026" — Connecticut's day. */
 export function formatDayChip(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
-  const weekday = d.toLocaleDateString("en-US", { weekday: "long" });
-  const month = d.toLocaleDateString("en-US", { month: "long" });
-  return `${weekday},${month} ${d.getDate()} ${d.getFullYear()}`;
+  const [year, , day] = ctDayKey(d).split("-");
+  return `${ctDatePart(d, { weekday: "long" })},${ctDatePart(d, { month: "long" })} ${Number(day)} ${year}`;
 }
 
-/** The stamp under a bubble: "Sep 15 2026 12:10 PM". */
+/** The stamp under a bubble: "Sep 15 2026 12:10 PM EDT", on Connecticut's day and clock. */
 export function formatMessageStamp(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
-  const month = d.toLocaleDateString("en-US", { month: "short" });
-  return `${month} ${d.getDate()} ${d.getFullYear()} ${formatMessageTime(iso)}`;
+  const [year, , day] = ctDayKey(d).split("-");
+  return `${ctDatePart(d, { month: "short" })} ${Number(day)} ${year} ${formatMessageTime(iso)}`;
 }
 
 /**
- * List-row timestamp as Workiz prints it (pg_messages_wz_01_list): "2:18 AM"
- * today, "Oct 08" on any earlier day of the year, "Dec 31 2025" before that.
+ * List-row timestamp as Workiz prints it (pg_messages_wz_01_list): "2:18 AM
+ * EDT" today, "Oct 08" on any earlier day of the year, "Dec 31 2025" before
+ * that — "today" and the year being Connecticut's.
  */
 export function formatListTime(iso: string | undefined, now = new Date()): string {
   if (!iso) return "";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
-  if (sameDay(d, now)) return formatMessageTime(iso);
-  const day = `${d.toLocaleDateString("en-US", { month: "short" })} ${String(d.getDate()).padStart(2, "0")}`;
-  return d.getFullYear() === now.getFullYear() ? day : `${day} ${d.getFullYear()}`;
+  const key = ctDayKey(d);
+  const today = ctDayKey(now);
+  if (key === today) return formatMessageTime(iso);
+  const [year, , dd] = key.split("-");
+  const day = `${ctDatePart(d, { month: "short" })} ${dd}`;
+  return year === today.slice(0, 4) ? day : `${day} ${year}`;
+}
+
+/**
+ * A job's scheduled day ("YYYY-MM-DD", a calendar day — not an instant) as
+ * "Oct 12, 2026", never shifted: read through `new Date()` it is UTC midnight,
+ * the previous evening anywhere in the US. "—" for anything else.
+ */
+export function formatScheduledDay(day: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day);
+  if (!m) return "—";
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const at = new Date(Date.UTC(y, mo - 1, d));
+  if (at.getUTCFullYear() !== y || at.getUTCMonth() !== mo - 1 || at.getUTCDate() !== d) return "—";
+  return at.toLocaleDateString("en-US", { timeZone: "UTC", month: "short", day: "numeric", year: "numeric" });
 }
 
 /* ------------------------------------------------------------ the feed */
@@ -528,7 +558,7 @@ export function groupByDay(newestFirst: FeedMessage[]): DayGroup[] {
   for (let i = newestFirst.length - 1; i >= 0; i--) {
     const m = newestFirst[i];
     const d = new Date(m.createdAt);
-    const key = Number.isNaN(d.getTime()) ? "unknown" : dayKey(d);
+    const key = Number.isNaN(d.getTime()) ? "unknown" : ctDayKey(d);
     let group = byKey.get(key);
     if (!group) {
       group = { key, label: formatDayChip(m.createdAt), messages: [] };
