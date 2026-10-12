@@ -1,6 +1,6 @@
 import type { Address, Contact } from "@bitcrm/types";
 import type { WzPagerState } from "@/components/workiz/pager";
-import { DEFAULT_TZ } from "@/lib/timezone";
+import { DEFAULT_TZ, withZone } from "@/lib/timezone";
 
 /**
  * The Clients list as Workiz draws it (`/root/clients/`, captures
@@ -85,7 +85,10 @@ export function clientSubline(c: Pick<Contact, "emails" | "phones">): ClientSubl
   return null;
 }
 
-/** "Thu Oct 08, 2026 04:26 PM" — the Created cell, on the account's clock. Empty for a bad date. */
+/**
+ * "Thu Oct 08, 2026 04:26 PM EDT" — the Created cell, on Connecticut's clock
+ * and saying so (2026-10-12 owner rule). Empty for a bad date.
+ */
 export function formatClientCreated(iso: string | undefined, tz: string = DEFAULT_TZ): string {
   const d = iso ? new Date(iso) : null;
   if (!d || Number.isNaN(d.getTime())) return "";
@@ -103,7 +106,11 @@ export function formatClientCreated(iso: string | undefined, tz: string = DEFAUL
       .formatToParts(d)
       .map((p) => [p.type, p.value]),
   );
-  return `${parts.weekday} ${parts.month} ${parts.day}, ${parts.year} ${parts.hour}:${parts.minute} ${String(parts.dayPeriod).toUpperCase()}`;
+  return withZone(
+    `${parts.weekday} ${parts.month} ${parts.day}, ${parts.year} ${parts.hour}:${parts.minute} ${String(parts.dayPeriod).toUpperCase()}`,
+    d,
+    tz,
+  );
 }
 
 /** "$495,463.7" — Workiz's card money: thousands separators, at most two decimals, no trailing zero. */

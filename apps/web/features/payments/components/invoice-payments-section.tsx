@@ -15,7 +15,6 @@ import { WzButton } from "@/components/workiz/button";
 import { WZ_MENU_POPUP, WZ_MENU_POPUP_ITEM } from "@/components/workiz/menu-popup";
 import { cn } from "@/lib/utils";
 import { PaymentsArt } from "@/features/deals/components/job-empty-art";
-import { workizDateTime } from "@/features/deals/job-shell";
 import {
   Table,
   TableBody,
@@ -37,6 +36,7 @@ import {
   canRefund,
   isPartiallyPaid,
   paymentMethodLabel,
+  paymentTakenAt,
 } from "../lib";
 import { PartiallyPaidBadge, PaymentStatusBadge } from "./payment-status-badge";
 import { RecordPaymentDialog } from "./record-payment-dialog";
@@ -309,7 +309,7 @@ function WorkizPayments({
                         <span className="block text-[12px] text-wz-text">−{formatMoney(p.refundedAmount)} refunded</span>
                       ) : null}
                     </td>
-                    <td className={WZ_TD}>{workizDateTime(p.takenAt) || formatYmd(p.takenAt)}</td>
+                    <td className={WZ_TD}>{paymentTakenAt(p.takenAt) || formatYmd(p.takenAt)}</td>
                     <td className={cn(WZ_TD, "pl-2.5")}>
                       <span className={cn("inline-flex rounded-[4px] px-1 py-1.5 text-[13px] leading-4 text-white", WZ_TAG[p.status] ?? "bg-wz-outline")}>
                         {PAYMENT_STATUS_META[p.status]?.label ?? p.status}

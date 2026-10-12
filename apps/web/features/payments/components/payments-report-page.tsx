@@ -19,7 +19,7 @@ import { useUserMap } from "@/features/deals/hooks";
 import { orderTechs } from "@/features/deals/job-filters";
 import { personName } from "@/features/deals/person-name";
 import { useAllTechnicians } from "@/features/technicians/hooks";
-import { viewerToday } from "@/features/reports/jobs/lib";
+import { ctToday } from "@/lib/timezone";
 import { useServiceAreas } from "@/features/service-areas/hooks";
 import { exportPaymentReport } from "../api";
 import { usePaymentReport } from "../hooks";
@@ -62,8 +62,8 @@ export function PaymentsReportPage() {
   // before they answer: the report itself is not asked for until then.
   const money = permsLoading || can("financials");
 
-  // Workiz counts its presets from the viewer's own clock (moment()).
-  const [today] = useState(() => viewerToday());
+  // The presets count from Connecticut's today, never the browser's (2026-10-12 owner rule).
+  const [today] = useState(() => ctToday());
   const [range, setRange] = useState<WzDateRange>(() => ({
     preset: DEFAULT_PAYMENTS_REPORT_PRESET,
     ...paymentsReportRange(DEFAULT_PAYMENTS_REPORT_PRESET, today),

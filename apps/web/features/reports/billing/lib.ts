@@ -7,6 +7,7 @@ import type {
   TaxReportBasis,
   TaxReportBy,
 } from "@bitcrm/types";
+import { DEFAULT_TZ, withZone } from "@/lib/timezone";
 import { PAYMENT_DATE_PRESETS, type PaymentDatePreset } from "@/features/payments/report";
 
 /**
@@ -140,7 +141,7 @@ export function downloadCsv(filename: string, csv: string): void {
 }
 
 /** "Thu Jan 19, 2023" — how Workiz prints a date in these reports. */
-export function workizDate(value: string | undefined, tz = "America/New_York"): string {
+export function workizDate(value: string | undefined, tz = DEFAULT_TZ): string {
   if (!value) return "";
   const ymd = /^\d{4}-\d{2}-\d{2}$/.test(value);
   const d = new Date(ymd ? `${value}T12:00:00.000Z` : value);
@@ -151,13 +152,17 @@ export function workizDate(value: string | undefined, tz = "America/New_York"): 
   return `${wd} ${md}`;
 }
 
-/** "Fri Sep 11, 2026 03:39 am" — Workiz's Created cell, on the business clock. */
-export function workizDateTime(iso: string | undefined, tz = "America/New_York"): string {
+/**
+ * "Fri Sep 11, 2026 03:39 am EDT" — Workiz's Created cell on the business
+ * clock, then the zone's name (2026-10-12 owner: every time the web shows is
+ * Connecticut's and says so — staff abroad read a bare "03:39 am" as theirs).
+ */
+export function workizDateTime(iso: string | undefined, tz = DEFAULT_TZ): string {
   if (!iso) return "";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
   const time = d
     .toLocaleTimeString("en-US", { timeZone: tz, hour: "2-digit", minute: "2-digit", hour12: true })
     .toLowerCase();
-  return `${workizDate(iso, tz)} ${time}`;
+  return withZone(`${workizDate(iso, tz)} ${time}`, d, tz);
 }

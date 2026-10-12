@@ -130,7 +130,7 @@ describe("InvoicesPage — Workiz's /root/invoices/", () => {
     expect(c[0]).toHaveTextContent(/^1042$/);
     expect(within(c[2]).getByText("Jane Smith")).toBeInTheDocument();
     expect(within(c[2]).getByText("jane@client.test")).toBeInTheDocument();
-    expect(c[3]).toHaveTextContent("Wed Sep 16, 2026 06:00 am");
+    expect(c[3]).toHaveTextContent("Wed Sep 16, 2026 06:00 am EDT");
     expect(c[4]).toHaveTextContent("$100.00");
     expect(c[6]).toHaveTextContent("0.00%");
     expect(within(c[9]).getByText("Due")).toHaveClass("text-[#f5ad0b]");

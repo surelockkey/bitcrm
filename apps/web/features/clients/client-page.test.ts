@@ -11,6 +11,7 @@ import {
   wzMoney,
   wzPhone,
   wzDayStart,
+  wzWhen,
 } from "./client-page";
 
 const addr = (street: string, city = "Dallas", zip = "75201", unit?: string): Address => ({
@@ -169,18 +170,44 @@ describe("pastDueByDeal — Workiz's Past Due column", () => {
   });
 });
 
-describe("clientJobDate — the Job Date column on the account's clock", () => {
-  it("converts a visit booked on the job's own clock to the account's, zero-padded", () => {
+describe("clientJobDate — the Job Date column on Connecticut's clock, labelled", () => {
+  it("converts a visit booked on the job's own clock to Connecticut's, zero-padded, with the zone", () => {
     const d = { scheduledDate: "2026-09-21", scheduledTimeSlot: "17:00-19:00" } as Deal;
-    expect(clientJobDate(d, "America/Los_Angeles", "America/New_York")).toBe("Mon Sep 21, 2026 08:00 pm");
-    expect(clientJobDate(d, undefined, "America/New_York")).toBe("Mon Sep 21, 2026 05:00 pm");
+    expect(clientJobDate(d, "America/Los_Angeles")).toBe("Mon Sep 21, 2026 08:00 pm EDT");
+    expect(clientJobDate(d, undefined)).toBe("Mon Sep 21, 2026 05:00 pm EDT");
+    expect(clientJobDate({ scheduledDate: "2026-12-01", scheduledTimeSlot: "09:00-10:00" } as Deal, "America/Chicago")).toBe(
+      "Tue Dec 01, 2026 10:00 am EST",
+    );
   });
 
-  it("an all-day visit keeps the day alone; no date reads Unscheduled", () => {
-    expect(clientJobDate({ scheduledDate: "2026-10-09", scheduledTimeSlot: "08:00-09:00", allDay: true } as Deal, undefined, "America/New_York")).toBe(
+  it("a late Arizona visit lands on Connecticut's next day", () => {
+    // 22:30 MST = 01:30 EDT the next morning.
+    expect(clientJobDate({ scheduledDate: "2026-10-12", scheduledTimeSlot: "22:30-23:30" } as Deal, "America/Phoenix")).toBe(
+      "Tue Oct 13, 2026 01:30 am EDT",
+    );
+  });
+
+  it("an all-day visit keeps the day alone, unlabelled; no date reads Unscheduled", () => {
+    expect(clientJobDate({ scheduledDate: "2026-10-09", scheduledTimeSlot: "08:00-09:00", allDay: true } as Deal, undefined)).toBe(
       "Fri Oct 09, 2026",
     );
-    expect(clientJobDate({} as Deal, undefined, "America/New_York")).toBe("Unscheduled");
+    expect(clientJobDate({ scheduledDate: "2026-10-09" } as Deal, "America/Phoenix")).toBe("Fri Oct 09, 2026");
+    expect(clientJobDate({} as Deal, undefined)).toBe("Unscheduled");
+  });
+});
+
+describe("wzWhen — a stored moment in the client tabs (Created, Sent, Date, Time, Uploaded)", () => {
+  it("is Connecticut's clock with its zone, Workiz's way", () => {
+    expect(wzWhen("2026-09-29T13:36:00.000Z")).toBe("Tue Sep 29, 2026 09:36 am EDT");
+    expect(wzWhen("2026-01-15T17:05:00.000Z")).toBe("Thu Jan 15, 2026 12:05 pm EST");
+    // 23:30 in Connecticut is already the 13th in UTC (and in Kyiv).
+    expect(wzWhen("2026-10-13T03:30:00.000Z")).toBe("Mon Oct 12, 2026 11:30 pm EDT");
+  });
+
+  it("is empty for nothing or junk", () => {
+    expect(wzWhen(undefined)).toBe("");
+    expect(wzWhen("")).toBe("");
+    expect(wzWhen("soon")).toBe("");
   });
 });
 

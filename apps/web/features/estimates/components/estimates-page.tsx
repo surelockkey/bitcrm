@@ -27,7 +27,7 @@ import { NoAccess } from "@/features/billing/components/list-bits";
 import { estimateHref } from "@/features/billing/components/client-documents";
 import { formatMoney } from "@/features/billing/lib";
 import { DEFAULT_REPORT_PAGE_SIZE, REPORT_PAGE_SIZES } from "@/features/payments/report";
-import { viewerToday } from "@/features/reports/jobs/lib";
+import { ctToday } from "@/lib/timezone";
 import { exportEstimateReport } from "@/features/reports/billing/api";
 import { useEstimateReport, useEstimateReportCount, useEstimateReportSummary } from "@/features/reports/billing/hooks";
 import { downloadCsv, type EstimateReportParams } from "@/features/reports/billing/lib";
@@ -91,7 +91,7 @@ export function EstimatesPage() {
   const search = searchText.trim() ? settledSearch : "";
   const [exporting, setExporting] = useState(false);
   const [adding, setAdding] = useState(false);
-  const today = viewerToday();
+  const today = ctToday(); // Connecticut's, never the browser's
   // The days asked for; null while a Custom span is refused.
   const { window: days, error: rangeError } = estimatesWindow(range);
 

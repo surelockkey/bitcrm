@@ -20,8 +20,8 @@ const note = (over: Partial<ContactNote>): ContactNote => ({
   actorId: "u-betty",
   actorName: "betty@slk.com",
   pinned: false,
-  createdAt: "2025-07-24T18:19:00",
-  updatedAt: "2025-07-24T18:19:00",
+  createdAt: "2025-07-24T22:19:00.000Z",
+  updatedAt: "2025-07-24T22:19:00.000Z",
   ...over,
 });
 
@@ -35,23 +35,23 @@ describe("ClientNotesPanel — Workiz's Notes rail", () => {
     calls.length = 0;
     notes = [
       note({ id: "n1" }),
-      note({ id: "n2", note: LONG, actorId: "u-unknown", actorName: "Piper CSR", createdAt: "2025-07-02T09:00:00", updatedAt: "2025-07-02T09:00:00" }),
-      note({ id: "n3", note: "Pinned: call before arriving", pinned: true, createdAt: "2025-03-01T09:00:00", updatedAt: "2025-03-01T09:00:00" }),
-      note({ id: "n4", note: "June visit went fine", createdAt: "2025-06-30T09:00:00", updatedAt: "2025-06-30T09:00:00" }),
+      note({ id: "n2", note: LONG, actorId: "u-unknown", actorName: "Piper CSR", createdAt: "2025-07-02T13:00:00.000Z", updatedAt: "2025-07-02T13:00:00.000Z" }),
+      note({ id: "n3", note: "Pinned: call before arriving", pinned: true, createdAt: "2025-03-01T14:00:00.000Z", updatedAt: "2025-03-01T14:00:00.000Z" }),
+      note({ id: "n4", note: "June visit went fine", createdAt: "2025-06-30T13:00:00.000Z", updatedAt: "2025-06-30T13:00:00.000Z" }),
     ];
     server.use(
       http.get("*/crm/contacts/c1/notes", ({ request }) => {
         const url = new URL(request.url);
         calls.push({ method: "GET", url: url.pathname.slice(url.pathname.indexOf("/crm/")) + url.search });
         if (url.searchParams.get("cursor") === "page-2") {
-          return HttpResponse.json({ success: true, data: [note({ id: "n5", note: "From the second page", createdAt: "2025-01-05T09:00:00" })], pagination: { count: 1 } });
+          return HttpResponse.json({ success: true, data: [note({ id: "n5", note: "From the second page", createdAt: "2025-01-05T14:00:00.000Z" })], pagination: { count: 1 } });
         }
         return HttpResponse.json({ success: true, data: notes, pagination: { count: notes.length, nextCursor: "page-2", notesCount: 5 } });
       }),
       http.post("*/crm/contacts/c1/notes", async ({ request }) => {
         const body = (await request.json()) as { note: string };
         calls.push({ method: "POST", url: "/crm/contacts/c1/notes", body });
-        const created = note({ id: "n-new", note: body.note, createdAt: "2025-10-01T12:00:00", updatedAt: "2025-10-01T12:00:00" });
+        const created = note({ id: "n-new", note: body.note, createdAt: "2025-10-01T16:00:00.000Z", updatedAt: "2025-10-01T16:00:00.000Z" });
         notes = [created, ...notes];
         return HttpResponse.json({ success: true, data: created });
       }),
@@ -91,7 +91,7 @@ describe("ClientNotesPanel — Workiz's Notes rail", () => {
     expect(within(cards[1]).getByRole("button", { name: "Unpin note" })).toBeInTheDocument();
     // The author comes from the user directory when it knows the id, else the stored name.
     expect(cards[2]).toHaveTextContent("Betty Platinum");
-    expect(cards[2]).toHaveTextContent("Jul 24 2025 • 6:19 PM");
+    expect(cards[2]).toHaveTextContent("Jul 24 2025 • 6:19 PM EDT");
     expect(within(cards[2]).getByText("BP")).toBeInTheDocument();
     expect(cards[3]).toHaveTextContent("Piper CSR");
   });

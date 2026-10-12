@@ -4,6 +4,7 @@ import {
   discountLabel,
   formatBoxAmount,
   formatPercent,
+  formatSignedAt,
   isAutoTaxSource,
   normalizeDiscount,
   serviceAreaTaxLabel,
@@ -109,5 +110,18 @@ describe("formatBoxAmount (Workiz's totals boxes)", () => {
     expect(formatBoxAmount(1003.39)).toBe("1,003.39");
     expect(formatBoxAmount(0)).toBe("0.00");
     expect(formatBoxAmount(91.2)).toBe("91.20");
+  });
+});
+
+describe("formatSignedAt — when a document was signed", () => {
+  it("is Connecticut's clock with its zone, whatever the browser's", () => {
+    expect(formatSignedAt("2026-09-29T13:52:00.000Z")).toBe("Sep 29, 2026, 9:52 AM EDT");
+    expect(formatSignedAt("2026-12-01T15:00:00.000Z")).toBe("Dec 1, 2026, 10:00 AM EST");
+    // 23:30 EDT on Oct 12 — the 13th in UTC and in Kyiv.
+    expect(formatSignedAt("2026-10-13T03:30:00.000Z")).toBe("Oct 12, 2026, 11:30 PM EDT");
+  });
+
+  it("leaves a stamp it cannot read as it is", () => {
+    expect(formatSignedAt("whenever")).toBe("whenever");
   });
 });

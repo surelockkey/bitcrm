@@ -4,6 +4,7 @@ import type { Contact, Company, Address } from "@bitcrm/types";
 // The canonical phone formatter lives in lib/phone; re-exported so existing
 // `@/features/clients/lib` imports render the same `+1 404 555 1234` everywhere.
 import { formatPhone, formatPhoneWithExtension, normalizeExtension } from "@/lib/phone";
+import { ctToday } from "@/lib/timezone";
 export { formatPhone, formatPhoneWithExtension };
 
 /* --------------------------------------------------------- phone extensions */
@@ -195,11 +196,11 @@ export function findDuplicateGroups(list: Contact[], by: DuplicateCriterion): Du
 
 export type CoiStatus = "none" | "valid" | "expiring" | "expired";
 
-/** COI status derived from its expiry date; "expiring" ≤ 30 days out. */
+/** COI status derived from its expiry date, counted from Connecticut's today; "expiring" ≤ 30 days out. */
 export function coiStatus(coiExpiration: string | undefined, now = new Date()): CoiStatus {
   if (!coiExpiration) return "none";
   const expiry = Date.parse(`${coiExpiration}T00:00:00Z`);
-  const today = Date.parse(`${now.toISOString().slice(0, 10)}T00:00:00Z`);
+  const today = Date.parse(`${ctToday(now)}T00:00:00Z`);
   const days = Math.round((expiry - today) / 86_400_000);
   if (days < 0) return "expired";
   if (days <= 30) return "expiring";

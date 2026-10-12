@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addDaysYmd, formatWzDocDate, formatYmd, isYmd, todayYmd, ymdOf } from "./dates";
+import { addDaysYmd, formatWzDocDate, formatYmd, isYmd, ymdOf } from "./dates";
 
 describe("billing dates", () => {
   it("validates YYYY-MM-DD", () => {
@@ -22,13 +22,16 @@ describe("billing dates", () => {
     expect(formatYmd(undefined)).toBe("—");
   });
 
-  it("formats an ISO instant as its date", () => {
-    expect(formatYmd("2026-09-01T10:00:00.000Z")).toMatch(/Sep \d, 2026/);
+  it("formats an ISO instant as its day on Connecticut's calendar, whatever the browser's", () => {
+    expect(formatYmd("2026-09-01T10:00:00.000Z")).toBe("Sep 1, 2026");
+    // 23:30 EDT on Oct 12 — UTC and Kyiv are already on the 13th.
+    expect(formatYmd("2026-10-13T03:30:00.000Z")).toBe("Oct 12, 2026");
+    // Winter: 23:30 EST on Dec 1.
+    expect(formatYmd("2026-12-02T04:30:00.000Z")).toBe("Dec 1, 2026");
   });
 
-  it("gives today's local day key", () => {
+  it("gives a Date's local day key", () => {
     const d = new Date(2026, 8, 16, 23, 30);
-    expect(todayYmd(d)).toBe("2026-09-16");
     expect(ymdOf(d)).toBe("2026-09-16");
   });
 

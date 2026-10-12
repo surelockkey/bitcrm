@@ -1,5 +1,6 @@
 import type { DocumentDiscount, DocumentTaxSource, ServiceAreaTax, TaxRate } from "@bitcrm/types";
 import { formatMoney } from "@/features/deals/lib";
+import { DEFAULT_TZ, withZone } from "@/lib/timezone";
 
 export { formatMoney };
 
@@ -87,3 +88,17 @@ export const TAX_EXEMPT_REASONS = [
   "Resale",
   "Other",
 ] as const;
+
+/**
+ * When a document was signed: "Sep 29, 2026, 9:52 AM EDT" — Connecticut's
+ * clock, saying so, whatever the browser's (2026-10-12 owner rule). A stamp
+ * it cannot read is left as it is.
+ */
+export function formatSignedAt(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return withZone(
+    d.toLocaleString("en-US", { timeZone: DEFAULT_TZ, month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }),
+    d,
+  );
+}

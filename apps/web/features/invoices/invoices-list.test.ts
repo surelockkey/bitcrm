@@ -89,7 +89,7 @@ describe("invoiceStatusCell — Workiz's _invStatusCell", () => {
       word: "Paid",
       className: "text-[#9bc91a]",
       partial: false,
-      sent: "sent on Thu Oct 08, 2026 10:34 pm",
+      sent: "sent on Thu Oct 08, 2026 10:34 pm EDT",
     });
     expect(invoiceStatusCell({ status: "due", balance: 5 }, totals, undefined)).toMatchObject({
       word: "Due",

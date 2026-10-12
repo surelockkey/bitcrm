@@ -47,7 +47,7 @@ import {
   paymentsReportRange,
   type PaymentsReportPreset,
 } from "@/features/payments/report";
-import { viewerToday } from "@/features/reports/jobs/lib";
+import { ctToday } from "@/lib/timezone";
 import { exportInvoiceReport } from "@/features/reports/billing/api";
 import { useInvoiceReport, useInvoiceReportCount, useInvoiceReportSummary } from "@/features/reports/billing/hooks";
 import { downloadCsv, workizDateTime, type InvoiceReportParams } from "@/features/reports/billing/lib";
@@ -94,10 +94,10 @@ export function InvoicesPage() {
   const denied = useDenied();
   const canView = can("invoices", "view");
 
-  // The date box counts its presets from the viewer's own clock, as Workiz's
-  // datepicker does (rep_payments, checked live). A Custom range Workiz would
+  // The date box counts its presets from Connecticut's today, never the
+  // browser's (2026-10-12 owner rule). A Custom range Workiz would
   // refuse — or one still missing a day — keeps asking for the last good one.
-  const [today] = useState(() => viewerToday());
+  const [today] = useState(() => ctToday());
   const [range, setRange] = useState<WzDateRange>(() => ({ preset: DEFAULT_PRESET, ...paymentsReportRange(DEFAULT_PRESET, today) }));
   const custom = paymentsCustomCheck(range);
   const [applied, setApplied] = useState(range);

@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { getApiErrorMessage } from "@/lib/api/errors";
-import { todayYmd } from "@/features/billing/dates";
+import { ctToday } from "@/lib/timezone";
 import { useRecordPayment, type RecordPaymentTarget } from "../hooks";
 import { OFFLINE_METHOD_LABEL, OFFLINE_PAYMENT_METHODS, parseMoney, takenAtIso } from "../lib";
 import { recordPaymentSchema, type RecordPaymentValues } from "../schemas";
@@ -94,7 +94,7 @@ function RecordPaymentForm({
 }) {
   const record = useRecordPayment(invoiceId, dealId, target);
   const [error, setError] = useState<string | null>(null);
-  const today = todayYmd();
+  const today = ctToday();
 
   const form = useForm<RecordPaymentValues>({
     resolver: zodResolver(recordPaymentSchema),

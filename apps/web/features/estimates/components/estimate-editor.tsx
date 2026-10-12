@@ -61,7 +61,8 @@ import { formatPhone } from "@/lib/phone";
 import { cn } from "@/lib/utils";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { SyncToJobDialog } from "./sync-to-job-dialog";
-import { formatWzDocDate, todayYmd } from "@/features/billing/dates";
+import { formatWzDocDate } from "@/features/billing/dates";
+import { ctToday } from "@/lib/timezone";
 import { formatBoxAmount } from "@/features/billing/lib";
 import { useOpenPdf } from "@/features/billing/open-pdf";
 import { CommitInput, CommitTextarea } from "@/features/billing/components/document-field";
@@ -854,7 +855,7 @@ function EstimateDateField({
         <Popover.Content align="start" sideOffset={10} className="z-50 outline-none">
           <WzDayPicker
             value={value}
-            today={todayYmd()}
+            today={ctToday()}
             onSelect={(day) => {
               setOpen(false);
               onChange(day);
