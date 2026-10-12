@@ -26,13 +26,26 @@ export interface ClientPhoneRow {
 export interface ClientForm {
   name: string;
   company: string;
-  /** One row, two once "Add phone" was used (Workiz offers one more). */
+  /** One row, one more each time "Add phone" is used. */
   phones: ClientPhoneRow[];
   email: string;
 }
 
-/** Workiz's "Add phone" adds one more row; then the link goes away. */
-export const MAX_CLIENT_PHONES = 2;
+/**
+ * "Add phone" adds a row until the client has this many; then the link goes
+ * away. Workiz stops at two — we take as many as the CRM keeps (2026-10-12).
+ */
+export const MAX_CLIENT_PHONES = 10;
+
+/**
+ * "Add phone": empty rows until the card has `count` — one past the boxes it
+ * shows, which can be a row more than typed when a required Secondary Phone
+ * brought its box up on its own. Never past MAX_CLIENT_PHONES.
+ */
+export function growPhoneRows(rows: ClientPhoneRow[], count: number): ClientPhoneRow[] {
+  const target = Math.min(count, MAX_CLIENT_PHONES);
+  return [...rows, ...Array.from({ length: Math.max(0, target - rows.length) }, () => ({ phone: "", ext: "" }))];
+}
 
 /**
  * "Client name" as our first and last name: the first word, then the rest
@@ -65,7 +78,7 @@ export function emptyClientForm(phone = ""): ClientForm {
   return { name: "", company: "", phones: [{ phone, ext: "" }], email: "" };
 }
 
-/** A picked client as the card shows them (their first two numbers). */
+/** A picked client as the card shows them: every number on file. */
 export function clientFormFromContact(contact: Contact, companyTitle: string | undefined): ClientForm {
   const shown = contact.phones.slice(0, MAX_CLIENT_PHONES);
   return {
@@ -120,7 +133,7 @@ export type ClientExtras = Pick<UpdateContactValues, "phones" | "phoneExtensions
  * their line — so it is the question ClientSaveDialog asks (`asks`, with the
  * `edits` it shows). An email, an extension, another number or the company
  * are plain corrections, written to the client with the job (`extras`, the
- * full lists to send, or null when nothing moved). Numbers past the two the
+ * full lists to send, or null when nothing moved). Numbers past the ones the
  * card shows, and emails past the first, are kept.
  */
 export function pickedClientChanges(

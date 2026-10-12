@@ -411,12 +411,48 @@ describe("NewDealPage — a new client, typed in", () => {
     });
   });
 
-  it("'Add phone' adds a second number and goes away", async () => {
+  // 2026-10-12: more than Workiz's two — the link stays until the CRM's ten.
+  it("'Add phone' keeps adding numbers, a third and on, up to ten", async () => {
     const u = user();
     render(<NewDealPage />);
-    await u.click(screen.getByRole("button", { name: "Add phone" }));
-    expect(screen.getByRole("textbox", { name: "Phone 2" })).toBeInTheDocument();
+    for (let n = 2; n <= 10; n++) {
+      await u.click(screen.getByRole("button", { name: "Add phone" }));
+      expect(screen.getByRole("textbox", { name: `Phone ${n}` })).toBeInTheDocument();
+    }
+    expect(screen.getAllByRole("textbox", { name: /^Phone( \d+)?$/ })).toHaveLength(10);
     expect(screen.queryByRole("button", { name: "Add phone" })).not.toBeInTheDocument();
+  });
+
+  it("sends every number typed — the third with its extension too", async () => {
+    const u = user();
+    render(<NewDealPage />);
+    await fill(u, "Nova Client");
+    await u.type(screen.getByRole("textbox", { name: "Phone" }), "4045550123");
+    await u.click(screen.getByRole("button", { name: "Add phone" }));
+    await u.type(screen.getByRole("textbox", { name: "Phone 2" }), "4045550124");
+    await u.click(screen.getByRole("button", { name: "Add phone" }));
+    await u.type(screen.getByRole("textbox", { name: "Phone 3" }), "4045550125");
+    await u.type(screen.getByRole("textbox", { name: "Ext 3" }), "7");
+    await u.click(submit());
+    expect(mocks.createContact.mock.calls[0][0]).toMatchObject({
+      phones: ["+14045550123", "+14045550124", "+14045550125"],
+      phoneExtensions: { "+14045550125": "7" },
+    });
+  });
+
+  it("a half-typed number is marked on its own box, not on the first", async () => {
+    const u = user();
+    render(<NewDealPage />);
+    await fill(u, "Nova Client");
+    await u.type(screen.getByRole("textbox", { name: "Phone" }), "4045550123");
+    await u.click(screen.getByRole("button", { name: "Add phone" }));
+    await u.click(screen.getByRole("button", { name: "Add phone" }));
+    await u.type(screen.getByRole("textbox", { name: "Phone 3" }), "404555");
+    await u.click(submit());
+    expect(mocks.createContact).not.toHaveBeenCalled();
+    expect(screen.getByRole("textbox", { name: "Phone 3" })).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByRole("textbox", { name: "Phone" })).not.toHaveAttribute("aria-invalid");
+    expect(screen.getByRole("textbox", { name: "Phone 2" })).not.toHaveAttribute("aria-invalid");
   });
 
   it("files the client under the company named — an existing one, matched by title", async () => {
@@ -882,6 +918,9 @@ describe("NewDealPage — Workiz's Field Validation rows", () => {
     expect(screen.getByRole("textbox", { name: "Company name" })).toHaveAttribute("aria-invalid", "true");
     // The second number's box is brought up so it can be typed, marked like the rest.
     expect(screen.getByRole("textbox", { name: "Phone 2" })).toHaveAttribute("aria-invalid", "true");
+    // …and "Add phone" under it still brings up a third.
+    await u.click(screen.getByRole("button", { name: "Add phone" }));
+    expect(screen.getByRole("textbox", { name: "Phone 3" })).toBeInTheDocument();
   });
 });
 
