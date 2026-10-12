@@ -4,6 +4,7 @@ import { useState, type ReactNode } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { WzWidget, type WzWidgetMenuItem } from "@/components/workiz/widget";
 import { usePermissions } from "@/features/auth/use-permissions";
+import { getApiErrorMessage } from "@/lib/api/errors";
 import { cn } from "@/lib/utils";
 import { updatedAtLabel } from "../jobs-by-status";
 import { ManageWidgetPermissionsDialog } from "./manage-widget-permissions-dialog";
@@ -13,6 +14,7 @@ export interface WidgetQuery<T> {
   data: T | undefined;
   isLoading: boolean;
   isError: boolean;
+  error?: unknown;
   isFetching: boolean;
   dataUpdatedAt: number;
   refetch: () => unknown;
@@ -82,7 +84,10 @@ export function DashboardCard<T>({
       {query.isLoading ? (
         <Skeleton data-testid="widget-skeleton" className={cn("w-full", skeletonClassName)} />
       ) : query.isError || query.data == null ? (
-        <p className="pt-10 text-center text-sm text-wz-dash-label">Couldn&apos;t load this widget.</p>
+        <div className="pt-10 text-center text-sm text-wz-dash-label">
+          <p>Couldn&apos;t load this widget.</p>
+          {query.isError ? <p className="text-xs">{getApiErrorMessage(query.error)}</p> : null}
+        </div>
       ) : (
         children(query.data)
       )}

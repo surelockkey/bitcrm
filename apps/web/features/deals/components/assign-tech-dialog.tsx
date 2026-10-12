@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
+import { getApiErrorMessage } from "@/lib/api/errors";
 import { cn } from "@/lib/utils";
 import { initials } from "@/features/clients/lib";
 import { useAssignTechs, useQualifiedTechs } from "../hooks";
@@ -264,7 +265,12 @@ function TechItems({ techId, enabled }: { techId: string; enabled: boolean }) {
     );
   }
   if (stock.isError) {
-    return <p className="border-t px-3 py-2 text-xs text-muted-foreground">Couldn&apos;t load this technician&apos;s items.</p>;
+    return (
+      <div className="border-t px-3 py-2 text-xs text-muted-foreground">
+        <p>Couldn&apos;t load this technician&apos;s items.</p>
+        <p>{getApiErrorMessage(stock.error)}</p>
+      </div>
+    );
   }
   if (rows.length === 0) {
     return <p className="border-t px-3 py-2 text-xs text-muted-foreground">Carries no stock right now.</p>;

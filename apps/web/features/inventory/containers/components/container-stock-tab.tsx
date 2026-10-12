@@ -5,6 +5,7 @@ import { TableCell, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ListPagination } from "@/components/ui/list-pagination";
+import { getApiErrorMessage } from "@/lib/api/errors";
 import { arraySource } from "@/lib/paging/array-source";
 import { usePageSize } from "@/lib/paging/use-page-size";
 import { usePager } from "@/lib/paging/use-pager";
@@ -40,7 +41,7 @@ const SHELF_ROW = "h-[3.25rem]";
  * panel as every list, and its first frame is the table itself.
  */
 export function ContainerStockTab({ containerId }: { containerId: string }) {
-  const { rows, summary, isLoading, isError } = useContainerStockView(containerId);
+  const { rows, summary, isLoading, isError, error } = useContainerStockView(containerId);
   const [pageSize, setPageSize] = usePageSize(TABLE_KEY);
   const pager = usePager(arraySource(rows, pageSize), {
     total: rows.length,
@@ -50,7 +51,7 @@ export function ContainerStockTab({ containerId }: { containerId: string }) {
   // What the next visit's skeleton starts from.
   useSkeletonRows(TABLE_KEY, pageSize, undefined, isLoading ? undefined : pager.items.length);
 
-  if (isError) return <Empty title="Couldn't load stock" body="Try again shortly." />;
+  if (isError) return <Empty title="Couldn't load stock" body={`${getApiErrorMessage(error)} — try again shortly.`} />;
   if (isLoading) return <ContainerStockSkeleton />;
   if (!isLoading && rows.length === 0) {
     return <Empty title="Empty van" body="No stock on this truck. Restock it with a transfer from a warehouse." />;

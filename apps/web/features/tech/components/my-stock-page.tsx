@@ -6,6 +6,7 @@ import { FileText, Truck } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { WzLocalGrid, type WzGridColumn } from "@/components/workiz/local-grid";
 import { WzToolbarButton } from "@/components/workiz/toolbar";
+import { getApiErrorMessage } from "@/lib/api/errors";
 import { usePageReady } from "@/lib/use-page-ready";
 import { useDenied, usePermissions } from "@/features/auth/use-permissions";
 import { NoAccess } from "@/features/clients/components/contacts-page";
@@ -132,7 +133,7 @@ export function MyStockPage() {
         {stock.isError ? (
           <div className="flex flex-col items-center gap-2 border border-wz-frame py-16 text-center">
             <p className="text-[15px] font-medium text-[#404040]">Couldn&apos;t load your stock</p>
-            <p className="text-[13px] text-wz-outline-label">Check your connection and try again.</p>
+            <p className="text-[13px] text-wz-outline-label">{getApiErrorMessage(stock.error)}</p>
           </div>
         ) : (
           <WzLocalGrid

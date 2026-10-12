@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { WZ_GRID_PAGE_SIZES } from "@/components/workiz/local-grid";
 import { WzPager } from "@/components/workiz/pager";
 import { WzListToolbar, WzPageSizeSelect, WzSearchBox } from "@/components/workiz/toolbar";
+import { getApiErrorMessage } from "@/lib/api/errors";
 import { arraySource } from "@/lib/paging/array-source";
 import { usePageSize } from "@/lib/paging/use-page-size";
 import { usePager } from "@/lib/paging/use-pager";
@@ -116,7 +117,10 @@ function Templates() {
 
       {failed ? (
         <div className="border border-wz-frame px-5 py-10 text-center text-sm">
-          <p role="alert">Couldn&apos;t load templates</p>
+          <div role="alert">
+            <p>Couldn&apos;t load templates</p>
+            <p className="text-xs text-muted-foreground">{getApiErrorMessage(query.error)}</p>
+          </div>
           <Button variant="outline" size="sm" className="mt-3" onClick={() => query.refetch()}>
             Retry
           </Button>

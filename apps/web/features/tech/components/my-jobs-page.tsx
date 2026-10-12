@@ -10,6 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { WzPager, wzPagerCanNext } from "@/components/workiz/pager";
 import { WzTabBar } from "@/components/workiz/tab-bar";
 import { WzListToolbar, WzPageSizeSelect, WzSearchBox } from "@/components/workiz/toolbar";
+import { getApiErrorMessage } from "@/lib/api/errors";
 import { cn } from "@/lib/utils";
 import { pagedSource } from "@/lib/paging/paged-source";
 import { usePageSize } from "@/lib/paging/use-page-size";
@@ -353,7 +354,7 @@ export function MyJobsPage() {
         ) : firstPaintPending ? (
           <DealsTableSkeleton visibleFields={visibleFields} order={fieldOrder} />
         ) : dealsQuery.isError ? (
-          <ListError onRetry={() => void refetchRows()} retrying={dealsQuery.isFetching} />
+          <ListError error={dealsQuery.error} onRetry={() => void refetchRows()} retrying={dealsQuery.isFetching} />
         ) : (
           <>
             <DealsTable deals={routed} contactMap={contactMap} clientNames={names.clients} {...tableProps} />
@@ -373,14 +374,14 @@ function MyJobsPager({ pager }: { pager: Pager<Deal> }) {
 }
 
 /** The jobs list's own failure block, in its words. */
-function ListError({ onRetry, retrying }: { onRetry: () => void; retrying: boolean }) {
+function ListError({ error, onRetry, retrying }: { error?: unknown; onRetry: () => void; retrying: boolean }) {
   return (
     <div className="flex flex-col items-center justify-center gap-2 border-y border-[#dddddd] py-16 text-center">
       <div className="flex size-11 items-center justify-center rounded-full bg-destructive/10 text-destructive">
         <TriangleAlert className="size-6" />
       </div>
       <div className="font-medium">Couldn&apos;t load your jobs</div>
-      <p className="max-w-xs text-sm text-wz-outline-label">Check your connection and try again.</p>
+      <p className="max-w-xs text-sm text-wz-outline-label">{getApiErrorMessage(error)}</p>
       <Button variant="outline" size="sm" className="mt-2" onClick={onRetry} disabled={retrying}>
         {retrying ? "Retrying…" : "Try again"}
       </Button>

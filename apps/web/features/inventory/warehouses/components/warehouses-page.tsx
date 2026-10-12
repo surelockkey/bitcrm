@@ -14,6 +14,7 @@ import { useInventoryPageReady } from "@/features/inventory/components/inventory
 import { LocationsBand } from "@/features/inventory/components/locations-grid";
 import { LocationStockDialog } from "@/features/inventory/stock/components/location-stock-dialog";
 import { usePopup } from "@/features/inventory/use-popup";
+import { getApiErrorMessage } from "@/lib/api/errors";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { settled } from "@/lib/use-page-ready";
 import { pagedSource } from "@/lib/paging/paged-source";
@@ -112,7 +113,10 @@ export function WarehousesPage() {
 
       {failed ? (
         <div className="border border-wz-frame px-5 py-10 text-center text-sm">
-          <p role="alert">Couldn&apos;t load warehouses</p>
+          <div role="alert">
+            <p>Couldn&apos;t load warehouses</p>
+            <p className="text-xs text-muted-foreground">{getApiErrorMessage(query.error)}</p>
+          </div>
           <Button variant="outline" size="sm" className="mt-3" onClick={() => query.refetch()}>
             Try again
           </Button>

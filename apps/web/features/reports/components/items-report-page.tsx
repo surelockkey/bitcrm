@@ -10,6 +10,7 @@ import { WzDateRangePicker, type WzDateRange } from "@/components/workiz/date-ra
 import { WzGroupedFilter } from "@/components/workiz/grouped-filter";
 import { WzPager } from "@/components/workiz/pager";
 import { WzListToolbar, WzPageSizeSelect, WzSearchBox, WzToolbarButton } from "@/components/workiz/toolbar";
+import { getApiErrorMessage } from "@/lib/api/errors";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { useDenied, usePermissions } from "@/features/auth/use-permissions";
 import { NoAccess } from "@/features/clients/components/contacts-page";
@@ -152,7 +153,7 @@ export function ItemsReportPage({ today: todayProp }: { today?: string } = {}) {
       <div className="shrink-0">
         {report.error ? (
           <div className="border border-wz-frame px-5 py-10 text-center text-sm">
-            <p role="alert">{report.error instanceof Error ? report.error.message : "Could not load the report."}</p>
+            <p role="alert">{getApiErrorMessage(report.error, "Could not load the report.")}</p>
             <Button variant="outline" size="sm" className="mt-3" onClick={() => void report.refetch()}>
               Try again
             </Button>

@@ -20,6 +20,7 @@ import { WzTagFilter } from "@/components/workiz/tag-filter";
 import { WzStatList } from "@/components/workiz/stat-list";
 import { WzBarChart, WzPieChart } from "@/components/workiz/charts";
 import { WzDataTable } from "@/components/workiz/data-table";
+import { getApiErrorMessage } from "@/lib/api/errors";
 import { settled, usePageReady } from "@/lib/use-page-ready";
 import { useDenied } from "@/features/auth/use-permissions";
 import { NoAccess } from "@/features/clients/components/contacts-page";
@@ -275,9 +276,7 @@ export function JobStatisticsPage({
 
             {stats.error ? (
               <p role="alert" className="px-5 pb-5 text-sm text-destructive">
-                {stats.error instanceof Error
-                  ? stats.error.message
-                  : "Could not load the report."}
+                {getApiErrorMessage(stats.error, "Could not load the report.")}
               </p>
             ) : !data ? (
               <div role="status" aria-label="Loading report" className="px-5">

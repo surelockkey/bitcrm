@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { CreditCard } from "lucide-react";
 import type { Address, Deal, Estimate, Invoice, Payment } from "@bitcrm/types";
 import { WzLocalGrid, type WzGridColumn } from "@/components/workiz/local-grid";
+import { getApiErrorMessage } from "@/lib/api/errors";
 import { DEFAULT_TZ } from "@/lib/timezone";
 import { workizDateTime } from "@/features/deals/schedule-cell";
 import { estimateStatusLabel } from "@/features/estimates/lib";
@@ -178,7 +179,17 @@ export function ClientInvoicesTab({
  * Payment Status (its rows could not be captured — the read-only guard blocks
  * Workiz's payments report), newest first; ours adds the Tip at the end.
  */
-export function ClientPaymentsTab({ rows, dealsById, isError }: { rows: Payment[]; dealsById: Map<string, Deal>; isError: boolean }) {
+export function ClientPaymentsTab({
+  rows,
+  dealsById,
+  isError,
+  error,
+}: {
+  rows: Payment[];
+  dealsById: Map<string, Deal>;
+  isError: boolean;
+  error?: unknown;
+}) {
   const columns = useMemo<WzGridColumn<Payment>[]>(() => {
     const job = (p: Payment) => dealsById.get(p.dealId)?.dealNumber ?? p.dealId.slice(0, 8);
     const date = (p: Payment) => workizDateTime(p.takenAt, DEFAULT_TZ);
@@ -216,6 +227,12 @@ export function ClientPaymentsTab({ rows, dealsById, isError }: { rows: Payment[
     ];
   }, [dealsById]);
 
-  if (isError) return <p className="p-6 text-sm text-wz-danger">Couldn&apos;t load the payments.</p>;
+  if (isError)
+    return (
+      <div className="p-6 text-sm text-wz-danger">
+        <p>Couldn&apos;t load the payments.</p>
+        <p className="text-xs text-muted-foreground">{getApiErrorMessage(error)}</p>
+      </div>
+    );
   return <WzLocalGrid label="Payments" searchLabel="Search payments" columns={columns} rows={rows} rowKey={(p) => p.id} defaultSort={{ id: "date", dir: "desc" }} />;
 }

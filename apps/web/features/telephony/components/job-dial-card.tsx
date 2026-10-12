@@ -1,6 +1,7 @@
 "use client";
 
 import { Phone } from "lucide-react";
+import { getApiErrorMessage } from "@/lib/api/errors";
 import { formatPhone } from "@/lib/phone";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { useJobCode, useTelephonyConfig } from "../config-hooks";
@@ -47,10 +48,11 @@ export function JobDialCard({
   const {
     data: config,
     isError: configFailed,
+    error: configError,
     isLoading: configLoading,
   } = useTelephonyConfig();
   const technicianLine = config?.technicianLine;
-  const { data: ext, isError } = useJobCode(dealId);
+  const { data: ext, isError, error: codeError } = useJobCode(dealId);
   // Only somebody who can actually designate a line is worth sending to the
   // settings page; for everybody else that is a dead end.
   const { can } = usePermissions();
@@ -62,7 +64,7 @@ export function JobDialCard({
 
   if (variant === "workiz") {
     const note = configFailed
-      ? "Could not load the dial-in settings — reload the job to try again."
+      ? `Could not load the dial-in settings: ${getApiErrorMessage(configError)} — reload the job to try again.`
       : !technicianLine
         ? canConfigure
           ? "Dial-in is not set up yet. Designate one of the workspace numbers as the technician line under Settings → Phone numbers."
@@ -85,7 +87,9 @@ export function JobDialCard({
             {ext ? (
               `#${ext.code}`
             ) : isError ? (
-              <span className="text-[12px] text-wz-error">Code could not be issued — reload the job</span>
+              <span className="text-[12px] text-wz-error">
+                Code could not be issued: {getApiErrorMessage(codeError)} — reload the job
+              </span>
             ) : (
               "#…"
             )}
@@ -102,7 +106,7 @@ export function JobDialCard({
           <Phone className="size-3.5" /> Call from any phone
         </div>
         <p className="text-xs text-muted-foreground">
-          Could not load the dial-in settings — reload the job to try again.
+          Could not load the dial-in settings: {getApiErrorMessage(configError)} — reload the job to try again.
         </p>
       </div>
     );

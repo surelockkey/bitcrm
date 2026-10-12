@@ -7,6 +7,7 @@ import { WzPager } from "@/components/workiz/pager";
 import { WzReportGrid, type WzReportColumn } from "@/components/workiz/report-grid";
 import { personName } from "@/features/deals/person-name";
 import { useUserMap } from "@/features/deals/hooks";
+import { getApiErrorMessage } from "@/lib/api/errors";
 import { workizDate } from "../../jobs/lib";
 import { useItemsReportJobs } from "../hooks";
 import {
@@ -255,7 +256,7 @@ function ItemJobs({ item, state, money }: { item: ItemsReportRow; state: ItemsRe
     <div className="border-t border-black/5 p-2.5" aria-label={`Jobs of ${item.name}`} role="region">
       {query.error ? (
         <p role="alert" className="p-5 text-sm text-destructive">
-          {query.error instanceof Error ? query.error.message : "Could not load the jobs."}
+          {getApiErrorMessage(query.error, "Could not load the jobs.")}
         </p>
       ) : (
         <WzReportGrid<ItemsReportJobRow>

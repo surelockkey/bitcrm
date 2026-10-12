@@ -17,6 +17,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { getApiErrorMessage } from "@/lib/api/errors";
 import { cn } from "@/lib/utils";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { formatYmd } from "@/features/billing/dates";
@@ -31,7 +32,7 @@ import { RegenerateLinkDialog } from "./regenerate-link-dialog";
 export function PortalLinkCard({ contactId, className }: { contactId: string; className?: string }) {
   const { can } = usePermissions();
   const canManage = can("invoices", "send") || can("estimates", "send");
-  const { data: link, isLoading, isError } = usePortalLink(contactId);
+  const { data: link, isLoading, isError, error } = usePortalLink(contactId);
   const url = usePortalUrlStore((s) => s.urls[contactId]);
   const create = useCreatePortalLink(contactId);
   const ensure = usePortalLinkUrl(contactId);
@@ -68,7 +69,10 @@ export function PortalLinkCard({ contactId, className }: { contactId: string; cl
       {isLoading ? (
         <Skeleton className="h-10 w-full" />
       ) : isError ? (
-        <p className="text-xs text-destructive">Couldn&apos;t load the portal link.</p>
+        <div className="text-xs text-destructive">
+          <p>Couldn&apos;t load the portal link.</p>
+          <p className="text-muted-foreground">{getApiErrorMessage(error)}</p>
+        </div>
       ) : !link ? (
         <div className="space-y-2">
           <p className="text-xs text-muted-foreground">No portal link yet.</p>

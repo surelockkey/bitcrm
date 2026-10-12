@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { getApiErrorMessage } from "@/lib/api/errors";
 import { cn } from "@/lib/utils";
 import { queryKeys } from "@/lib/query-keys";
 import { fetchAllProducts } from "@/features/inventory/warehouses/api";
@@ -158,7 +159,10 @@ export function ProductPickerDialog({
                   <Loader2 className="size-4 animate-spin" /> Loading catalog…
                 </div>
               ) : catalog.isError ? (
-                <p className="py-3 text-sm text-destructive">Couldn&apos;t load the catalog.</p>
+                <div className="py-3 text-sm text-destructive">
+                  <p>Couldn&apos;t load the catalog.</p>
+                  <p className="text-xs text-muted-foreground">{getApiErrorMessage(catalog.error)}</p>
+                </div>
               ) : products.length === 0 ? (
                 <p className="py-3 text-sm text-muted-foreground">No products found.</p>
               ) : (

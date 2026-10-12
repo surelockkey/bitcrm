@@ -7,6 +7,7 @@ import { Plus, TriangleAlert } from "lucide-react";
 import type { Contact, Deal, PersonName } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
 import { WzListToolbar, WzPageSizeSelect, WzPager, WzSearchBox, WzTabBar, wzPagerCanNext } from "@/components/workiz";
+import { getApiErrorMessage } from "@/lib/api/errors";
 import { cn } from "@/lib/utils";
 import { usePermissions, useDenied } from "@/features/auth/use-permissions";
 import { NoAccess } from "@/features/clients/components/contacts-page";
@@ -332,7 +333,7 @@ export function DealsPage() {
         ) : firstPaintPending ? (
           <DealsTableSkeleton visibleFields={visibleFields} order={fieldOrder} />
         ) : isError ? (
-          <DealsError onRetry={() => dealsQuery.refetch()} isRetrying={dealsQuery.isFetching} />
+          <DealsError error={dealsQuery.error} onRetry={() => dealsQuery.refetch()} isRetrying={dealsQuery.isFetching} />
         ) : (
           <>
             <DealsTable deals={visible} contactMap={contactMap} clientNames={names.clients} {...tableProps} />
@@ -346,16 +347,14 @@ export function DealsPage() {
   );
 }
 
-function DealsError({ onRetry, isRetrying }: { onRetry: () => void; isRetrying: boolean }) {
+function DealsError({ error, onRetry, isRetrying }: { error?: unknown; onRetry: () => void; isRetrying: boolean }) {
   return (
     <div className="flex flex-col items-center justify-center gap-2 border-y border-[#dddddd] py-16 text-center">
       <div className="flex size-11 items-center justify-center rounded-full bg-destructive/10 text-destructive">
         <TriangleAlert className="size-6" />
       </div>
       <div className="font-medium">Couldn&apos;t load jobs</div>
-      <p className="max-w-xs text-sm text-muted-foreground">
-        Something went wrong fetching the jobs. Check your connection and try again.
-      </p>
+      <p className="max-w-xs text-sm text-muted-foreground">{getApiErrorMessage(error)}</p>
       <Button variant="outline" size="sm" className="mt-2" onClick={onRetry} disabled={isRetrying}>
         {isRetrying ? "Retrying…" : "Try again"}
       </Button>

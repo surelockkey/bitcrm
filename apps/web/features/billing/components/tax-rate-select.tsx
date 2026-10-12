@@ -8,6 +8,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { getApiErrorMessage } from "@/lib/api/errors";
 import { cn } from "@/lib/utils";
 import { useActiveTaxRates } from "@/features/tax-rates/hooks";
 import { formatPercent, taxRateLabel } from "../lib";
@@ -56,7 +57,7 @@ export function TaxRateSelect({
   size = "default",
   "aria-label": ariaLabel = "Tax rate",
 }: TaxRateSelectProps) {
-  const { active, isLoading, isError } = useActiveTaxRates();
+  const { active, isLoading, isError, error } = useActiveTaxRates();
   const current = value ?? (allowNone ? NONE : undefined);
   const missing = Boolean(value) && !active.some((r: TaxRate) => r.id === value);
 
@@ -86,7 +87,7 @@ export function TaxRateSelect({
           </SelectItem>
         ))}
         {isError ? (
-          <div className="px-2 py-1.5 text-xs text-destructive">Couldn&apos;t load tax rates</div>
+          <div className="px-2 py-1.5 text-xs text-destructive">Couldn&apos;t load tax rates: {getApiErrorMessage(error)}</div>
         ) : !isLoading && active.length === 0 ? (
           <div className="px-2 py-1.5 text-xs text-muted-foreground">
             No service area charges tax — set one in Settings → Service Areas

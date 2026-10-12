@@ -8,6 +8,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { getApiErrorMessage } from "@/lib/api/errors";
 import { cn } from "@/lib/utils";
 import { useDocumentTemplatesOfKind } from "../templates-api";
 
@@ -33,7 +34,7 @@ export function DocumentTemplateSelect({
   id?: string;
   className?: string;
 }) {
-  const { templates, isLoading, isError } = useDocumentTemplatesOfKind(kind);
+  const { templates, isLoading, isError, error } = useDocumentTemplatesOfKind(kind);
   const missing = Boolean(value) && !isLoading && !templates.some((t) => t.id === value);
 
   return (
@@ -55,7 +56,7 @@ export function DocumentTemplateSelect({
           </SelectItem>
         ))}
         {isError ? (
-          <div className="px-2 py-1.5 text-xs text-destructive">Couldn&apos;t load templates</div>
+          <div className="px-2 py-1.5 text-xs text-destructive">Couldn&apos;t load templates: {getApiErrorMessage(error)}</div>
         ) : null}
       </SelectContent>
     </Select>

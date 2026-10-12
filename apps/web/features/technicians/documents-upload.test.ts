@@ -38,9 +38,16 @@ describe("uploadDocumentBytes", () => {
   });
 
   it("throws when S3 rejects the upload", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false }));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response("<Error><Code>AccessDenied</Code><Message>Request has expired</Message></Error>", {
+          status: 403,
+        }),
+      ),
+    );
     await expect(uploadDocumentBytes("https://s3/upload", file)).rejects.toThrow(
-      "Document upload failed",
+      "Document upload failed (HTTP 403: Request has expired)",
     );
   });
 });

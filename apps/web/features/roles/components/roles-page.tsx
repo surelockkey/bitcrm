@@ -11,6 +11,7 @@ import type { WzRowOpenEvent } from "@/components/workiz/report-grid";
 import { WzSettingsExplain } from "@/components/workiz/settings-explain";
 import { WzListToolbar, WzPageSizeSelect, WzSearchBox } from "@/components/workiz/toolbar";
 import { usePermissions } from "@/features/auth/use-permissions";
+import { getApiErrorMessage } from "@/lib/api/errors";
 import { usePageSize } from "@/lib/paging/use-page-size";
 import { settled, usePageReady } from "@/lib/use-page-ready";
 import { useRoles, useRoleMemberCounts } from "../hooks";
@@ -124,7 +125,10 @@ export function RolesPage() {
 
       {ready && rolesQuery.isError ? (
         <div className="border border-wz-frame px-5 py-10 text-center text-sm text-wz-strong">
-          <p role="alert">Couldn&apos;t load roles</p>
+          <div role="alert">
+            <p>Couldn&apos;t load roles</p>
+            <p className="text-xs text-muted-foreground">{getApiErrorMessage(rolesQuery.error)}</p>
+          </div>
           <WzButton variant="secondary" size="regular" className="mt-3" onClick={() => rolesQuery.refetch()}>
             Try again
           </WzButton>

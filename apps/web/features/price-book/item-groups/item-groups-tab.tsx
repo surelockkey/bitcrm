@@ -10,6 +10,7 @@ import { WzOutlinedSelect } from "@/components/workiz/outlined-select";
 import { WzPager } from "@/components/workiz/pager";
 import { WzReportGrid, type WzReportColumn } from "@/components/workiz/report-grid";
 import { WzListToolbar, WzPageSizeSelect, WzSearchBox, WzToolbarButton } from "@/components/workiz/toolbar";
+import { getApiErrorMessage } from "@/lib/api/errors";
 import { cn } from "@/lib/utils";
 import { useDenied, usePermissions } from "@/features/auth/use-permissions";
 import { formatMoney } from "@/features/deals/lib";
@@ -180,7 +181,10 @@ export function ItemGroupsTab() {
 
       {groups.isError && !groups.data ? (
         <div className="border border-wz-frame px-5 py-10 text-center text-sm">
-          <p role="alert">Couldn&apos;t load item groups</p>
+          <div role="alert">
+            <p>Couldn&apos;t load item groups</p>
+            <p className="text-xs text-muted-foreground">{getApiErrorMessage(groups.error)}</p>
+          </div>
         </div>
       ) : (
         <WzReportGrid

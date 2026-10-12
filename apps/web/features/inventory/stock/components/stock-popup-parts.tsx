@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { WZ_GRID_PAGE_SIZES } from "@/components/workiz/local-grid";
 import { WzPager } from "@/components/workiz/pager";
 import { WzPageSizeSelect, WzSearchBox } from "@/components/workiz/toolbar";
+import { getApiErrorMessage } from "@/lib/api/errors";
 import { usePageSize } from "@/lib/paging/use-page-size";
 import { cn } from "@/lib/utils";
 import type { pageSlice } from "../lib";
@@ -182,11 +183,14 @@ export function StockSectionLoading({
   );
 }
 
-export function PanelError({ onRetry }: { onRetry: () => void }) {
+export function PanelError({ error, onRetry }: { error?: unknown; onRetry: () => void }) {
   return (
     <div className="flex flex-col items-center justify-center gap-3 rounded-[8px] bg-wz-band py-16 text-center">
       <TriangleAlert className="size-6 text-wz-danger" />
-      <div className="text-sm font-medium">Couldn&apos;t load stock</div>
+      <div>
+        <div className="text-sm font-medium">Couldn&apos;t load stock</div>
+        <p className="text-xs text-muted-foreground">{getApiErrorMessage(error)}</p>
+      </div>
       <Button variant="outline" onClick={onRetry}>
         Retry
       </Button>
