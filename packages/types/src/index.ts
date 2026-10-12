@@ -58,7 +58,7 @@ export { WorkOrder } from './entities/work-order.entity';
 export { CompanyDocument } from './entities/company-document.entity';
 export { Address, DEFAULT_ADDRESS_COUNTRY, ADDRESS_COUNTRY_PATTERN } from './entities/address.entity';
 export { Deal, SEND_TO_TECH_CHANNELS } from './entities/deal.entity';
-export { DISPATCH_MAP_JOB_FIELDS } from './entities/deal.entity';
+export { DISPATCH_MAP_JOB_FIELDS, CLIENT_PHONE_SCOPES } from './entities/deal.entity';
 export type {
   SendToTechChannel,
   DealTotalsSnapshot,
@@ -69,6 +69,8 @@ export type {
   JobsListIncluded,
   DispatchMapClient,
   DispatchMapIncluded,
+  ClientPhoneScope,
+  ClientPhoneChangeResult,
 } from './entities/deal.entity';
 export { DealAttachment, DealAttachmentMeta, ContactAttachment, ContactFileListItem } from './entities/deal-attachment.entity';
 export {

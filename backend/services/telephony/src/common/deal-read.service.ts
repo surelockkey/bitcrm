@@ -24,6 +24,8 @@ export interface DealForCall {
   assignedDispatcherId?: string;
   superStatus?: string;
   closedAt?: string;
+  /** The job's own first number ("This job only") — dialled instead of the client's first. */
+  clientPhone?: string;
 }
 
 /**

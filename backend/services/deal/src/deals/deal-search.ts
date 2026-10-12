@@ -52,6 +52,7 @@ export const DEAL_SEARCH_INPUTS: ReadonlySet<string> = new Set([
   'primaryPhone',
   'secondaryPhone',
   'phones',
+  'clientPhone',
 ]);
 
 export interface DealSearchAttributes {
@@ -129,7 +130,7 @@ export function dealSearchAttributes(row: Record<string, unknown>): DealSearchAt
   const phones = Array.isArray(row.phones) ? row.phones : [];
   return {
     searchText: text.join(SEARCH_FIELD_SEPARATOR),
-    searchDigits: digitsOf([row.primaryPhone, row.secondaryPhone, ...phones]),
+    searchDigits: digitsOf([row.clientPhone, row.primaryPhone, row.secondaryPhone, ...phones]),
   };
 }
 

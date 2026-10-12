@@ -139,6 +139,6 @@ export class DispatchMapService {
 
 /** The row without the job's own numbers — for a caller without `contacts.view_numbers`. */
 function withoutNumbers(deal: Deal): Deal {
-  const { phones: _phones, phoneExtensions: _extensions, ...rest } = deal;
+  const { phones: _phones, phoneExtensions: _extensions, clientPhone: _clientPhone, ...rest } = deal;
   return rest;
 }

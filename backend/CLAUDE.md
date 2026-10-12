@@ -660,6 +660,16 @@ tests, and — if it emits events — the types in `@bitcrm/types` plus a row in
   (`CONFIG#JOB_FIELDS`); the client-owned rows (names, numbers, email, company, the
   client's address) are judged against crm's contact, read only when one of them is on,
   and a crm that cannot be read leaves them to the form. `PUT /deals/:id` is not gated.
+- **A job can have a first number of its own (`Deal.clientPhone`).** The job page's
+  "Apply these changes to…" (`PUT /deals/:id/client-phone`, `deals/client-phone/`):
+  `job` gives this job the number; `client` / `open_jobs` make it follow the profile
+  and pin the OLD profile number (read from crm before the page writes the contact)
+  onto the client's other jobs that showed it — `open_jobs` moves the open, unpaid
+  ones to the new number instead. Absent = the client's first number. Telephony's
+  bridge (phoneIndex 0) and dial-in dial it; the jobs search, global search and Jobs
+  report read it. It is a client's number, so `JobNumberInterceptor` strips it from
+  `DealsController` / `DealBillingController` answers without `contacts.view_numbers`
+  (the dispatch map strips it with `phones`); `@Internal` reads keep it.
 - **Redis DB 0 is dev, DB 15 is tests.** Don't flush the wrong one.
 - **Taxes live on service areas.** There is no tax-rate catalog: `ServiceArea.tax`
   (`{name, ratePercent}`) is the rate, exposed read-only as a `TaxRate` whose id is

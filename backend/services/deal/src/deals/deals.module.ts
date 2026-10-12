@@ -50,6 +50,8 @@ import { ContactAttachmentsController } from '../contacts/contact-attachments.co
 import { ContactAttachmentsService } from '../contacts/contact-attachments.service';
 import { DispatchMapController } from './map/dispatch-map.controller';
 import { DispatchMapService } from './map/dispatch-map.service';
+import { ClientPhoneController } from './client-phone/client-phone.controller';
+import { ClientPhoneService } from './client-phone/client-phone.service';
 
 import { ClientConfirmController } from './client-confirm/client-confirm.controller';
 import { ClientConfirmService } from './client-confirm/client-confirm.service';
@@ -78,10 +80,12 @@ import { ClientConfirmService } from './client-confirm/client-confirm.service';
 
     // The client's {{confirm_link}} (B12): `internal/:id/client-confirm`, for billing.
     ClientConfirmController,
+    ClientPhoneController,
     DealsController,
   ],
   providers: [
     DealsService,
+    ClientPhoneService,
     DealsRepository,
     DealsCacheService,
     DealEventsBus,

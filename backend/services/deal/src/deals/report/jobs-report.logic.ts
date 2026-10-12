@@ -47,6 +47,7 @@ export const REPORT_PROJECTION: readonly string[] = [
   'jobDateUtc',
   'jobEndDateUtc',
   'jobTimezone',
+  'clientPhone',
   'primaryPhone',
   'phones',
   'emailAddress',
@@ -140,7 +141,8 @@ export function toReportDeal(item: Record<string, unknown>): ReportDeal {
     created: createdWall(dates),
     scheduled: jobStartAt(dates),
     end: jobEndAt(dates),
-    phone: str(item.primaryPhone) ?? str(phones[0]),
+    // The job's own first number ("This job only") over the ones Workiz carried.
+    phone: str(item.clientPhone) ?? str(item.primaryPhone) ?? str(phones[0]),
     email: str(item.emailAddress),
     superStatus:
       (item.superStatus as JobSuperStatus | undefined) ??

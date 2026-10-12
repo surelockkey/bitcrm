@@ -133,7 +133,8 @@ export function mapDeal(
       client?.companyName,
       externalCompanyName,
       ...(client?.emails ?? []),
-      ...withPhoneVariants(client?.phones),
+      // The job's own first number ("This job only") finds it as well as the client's.
+      ...withPhoneVariants([...(deal.clientPhone ? [deal.clientPhone] : []), ...(client?.phones ?? [])]),
       ...tagNames,
       ...customFieldKeywords(deal.customFields, customFieldDefs),
     ]),

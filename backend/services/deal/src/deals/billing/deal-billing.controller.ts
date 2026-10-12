@@ -1,11 +1,12 @@
 import {
-  Body, Controller, Get, HttpCode, HttpStatus, Param, Patch, Post, Put,
+  Body, Controller, Get, HttpCode, HttpStatus, Param, Patch, Post, Put, UseInterceptors,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, RequirePermission } from '@bitcrm/shared';
 import { type JwtUser, type ResolvedPermissions } from '@bitcrm/types';
 import { Internal } from '../../common/decorators/internal.decorator';
 import { ResolvedPerms } from '../../common/decorators/resolved-permissions.decorator';
+import { JobNumberInterceptor } from '../job-number.interceptor';
 import { DealBillingService } from './deal-billing.service';
 import { SetDealTaxDto } from './dto/set-deal-tax.dto';
 import { SetDealDiscountDto } from './dto/set-deal-discount.dto';
@@ -20,6 +21,7 @@ import { InternalTimelineDto } from './dto/internal-timeline.dto';
  * path here carries a literal segment, so nothing shadows DealsController, and
  * DealsController's `GET internal/:id` can't swallow these three-segment paths.
  */
+@UseInterceptors(JobNumberInterceptor)
 @ApiTags('Deals — Billing')
 @ApiBearerAuth()
 @Controller()

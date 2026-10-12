@@ -203,6 +203,15 @@ export interface Deal {
    * record. Absent = the job shows the contact's own name.
    */
   clientName?: { firstName: string; lastName: string };
+  /**
+   * The job's own first number, when it is not the client's: set by a first
+   * number changed on the job with "This job only", and pinned to the number
+   * the job had when the client's profile number changes without it ("This
+   * job and the client profile"). Absent = the job shows and dials the
+   * client's first number. Deal-service hands it only to a caller with
+   * `contacts.view_numbers`, as crm does the client's own numbers.
+   */
+  clientPhone?: string;
   status: DealStatus;
   createdBy: string;
   /**
@@ -262,6 +271,25 @@ export interface Deal {
   clientConfirmedFor?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+/**
+ * Where a first number changed on the job goes — the job page's "Apply these
+ * changes to…":
+ *
+ * - `job` — this job only; the client profile keeps its number;
+ * - `client` — this job and the client profile; the client's other jobs keep
+ *   the number they had (future jobs get the new one);
+ * - `open_jobs` — this job, the profile, and the client's open, unpaid jobs
+ *   that had the old number; paid and closed jobs never change.
+ */
+export type ClientPhoneScope = 'job' | 'client' | 'open_jobs';
+export const CLIENT_PHONE_SCOPES = ['job', 'client', 'open_jobs'] as const satisfies readonly ClientPhoneScope[];
+
+/** `PUT /deals/:id/client-phone`'s answer: the job as it now stands, and how many other jobs moved. */
+export interface ClientPhoneChangeResult {
+  deal: Deal;
+  otherJobsChanged: number;
 }
 
 /**
@@ -361,6 +389,7 @@ export const DISPATCH_MAP_JOB_FIELDS = [
   'allDay',
   'sequences',
   'clientName',
+  'clientPhone',
   'phones',
   // The job card's Sent / Seen stamps.
   'sentToTechAt',

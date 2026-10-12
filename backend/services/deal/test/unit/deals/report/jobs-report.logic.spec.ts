@@ -10,6 +10,7 @@ import {
   matchesFilters,
   matchesSearch,
   paginate,
+  REPORT_PROJECTION,
   sortRows,
   toReportDeal,
   toRow,
@@ -105,6 +106,11 @@ describe('Jobs report logic', () => {
       expect(d.origin).toBe('lead');
       expect(d.phone).toBe('+12035551234');
       expect(d.clientName).toBe('Ann Lee');
+    });
+
+    it('shows the job’s own first number ahead of the numbers Workiz carried', () => {
+      expect(toReportDeal(imported({ clientPhone: '+12035550123', phones: ['+12035551234'] })).phone).toBe('+12035550123');
+      expect(REPORT_PROJECTION).toContain('clientPhone');
     });
 
     it('derives the super-status of a legacy row from its stage', () => {
