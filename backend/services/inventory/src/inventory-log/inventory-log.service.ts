@@ -2,6 +2,9 @@ import { BadRequestException, Injectable, Logger, Optional } from '@nestjs/commo
 import { randomUUID } from 'crypto';
 import { RedisService, cachedCount, countCacheKey, type CountRowsResult } from '@bitcrm/shared';
 import {
+  AccountClock,
+  accountDayStartUtc,
+  shiftAccountDay,
   type InventoryLogAction,
   type InventoryLogEntry,
   type ListCount,
@@ -14,9 +17,13 @@ import {
 import { invlogMonth, monthsDescending } from './inventory-log.constants';
 
 export interface InventoryLogQuery {
-  /** ISO 8601; inclusive. Defaults to the first day of the UTC month of `to`. */
+  /**
+   * ISO 8601; inclusive — a date alone starts at that Connecticut day's
+   * midnight (the office's day, America/New_York). Defaults to the first day
+   * of the Connecticut month of `to`.
+   */
   from?: string;
-  /** ISO 8601; inclusive — a date alone means the whole of that UTC day. Defaults to now. */
+  /** ISO 8601; inclusive — a date alone means the whole of that Connecticut day. Defaults to now. */
   to?: string;
   productId?: string;
   userId?: string;
@@ -243,11 +250,15 @@ export class InventoryLogService {
    * Both bounds canonicalised to ISO timestamps: they are compared against
    * the sort key as strings, so a date-only value must gain its time part —
    * the start of the day for `from`, the end of it for `to`, since both are
-   * inclusive and "to the 10th" means the whole of the 10th.
+   * inclusive and "to the 10th" means the whole of the 10th. A day is the
+   * office's — Connecticut's (2026-10-12) — so its bounds are that day's
+   * instants, not the UTC day's; the partitions walked stay UTC months.
    */
   private windowOf(query: InventoryLogQuery): InventoryLogWindow {
     const to = query.to ? this.toIso(query.to, 'to') : new Date().toISOString();
-    const from = query.from ? this.toIso(query.from, 'from') : `${to.slice(0, 7)}-01T00:00:00.000Z`;
+    const from = query.from
+      ? this.toIso(query.from, 'from')
+      : accountDayStartUtc(`${new AccountClock().local(to).month}-01`);
     return this.assertWindow({ from, to });
   }
 
@@ -271,9 +282,10 @@ export class InventoryLogService {
     if (Number.isNaN(date.getTime())) {
       throw new BadRequestException(`\`${name}\` is not a valid date`);
     }
-    const iso = date.toISOString();
-    if (name === 'to' && DATE_ONLY.test(value)) return `${iso.slice(0, 10)}T23:59:59.999Z`;
-    return iso;
+    if (!DATE_ONLY.test(value)) return date.toISOString();
+    // A day alone: its Connecticut midnight, or — for `to` — the last millisecond before the next one.
+    if (name === 'from') return accountDayStartUtc(value);
+    return new Date(Date.parse(accountDayStartUtc(shiftAccountDay(value, 1))) - 1).toISOString();
   }
 
   private filtersOf(query: InventoryLogQuery): InventoryLogFilters {

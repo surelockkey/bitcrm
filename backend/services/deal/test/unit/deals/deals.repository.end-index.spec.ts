@@ -145,7 +145,7 @@ describe('DealsRepository.readReportWindow', () => {
     ]);
   });
 
-  it('by end: one query per month on the EndIndex, walked to the end of each', async () => {
+  it('by end: one query per month on the EndIndex, a day either side, walked to the end of each', async () => {
     dynamoDb.client.send
       .mockResolvedValueOnce({ Items: [{ id: 'a' }], LastEvaluatedKey: { PK: 'x' } })
       .mockResolvedValue({ Items: [{ id: 'b' }] });
@@ -153,8 +153,9 @@ describe('DealsRepository.readReportWindow', () => {
     const q = inputs();
     expect(q.map((i: any) => i.IndexName)).toEqual(['EndIndex', 'EndIndex', 'EndIndex']);
     expect(q.map((i: any) => i.ExpressionAttributeValues[':pk']).sort()).toEqual(['END#2026-08', 'END#2026-08', 'END#2026-09']);
-    expect(q[0].ExpressionAttributeValues[':from']).toBe('2026-08-20');
-    expect(q[0].ExpressionAttributeValues[':to']).toBe('2026-09-27~');
+    // A job booked in another zone is keyed on its own slot — at most a day off the Eastern one.
+    expect(q[0].ExpressionAttributeValues[':from']).toBe('2026-08-19');
+    expect(q[0].ExpressionAttributeValues[':to']).toBe('2026-09-28~');
     expect(rows.map((r) => r.id).sort()).toEqual(['a', 'b', 'b']);
   });
 

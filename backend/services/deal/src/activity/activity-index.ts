@@ -1,6 +1,10 @@
 import {
   AccountClock,
+  DEFAULT_TIMEZONE,
   TimelineEventType,
+  wallClockInstant,
+  zoneAbbr,
+  zoneOffsetMs,
   type ActivityRow,
   type ActivitySource,
 } from '@bitcrm/types';
@@ -133,20 +137,57 @@ function clock(hhmm: string): string | null {
   return `${h % 12 === 0 ? 12 : h % 12}:${m[2]} ${h < 12 ? 'am' : 'pm'}`;
 }
 
+const pad2 = (n: number): string => String(n).padStart(2, '0');
+
+/** "Thu Oct 08 2026" of a `YYYY-MM-DD`. */
+function dayText(date: string): string | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(date);
+  if (!m) return null;
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  return `${WEEKDAYS[new Date(Date.UTC(y, mo - 1, d)).getUTCDay()]} ${MONTHS[mo - 1]} ${m[3]} ${y}`;
+}
+
+/** `date` + "HH:MM" on `timeZone`'s clock → the same moment on Connecticut's: its day, its "HH:MM", its zone. */
+function onOfficeClock(date: string, hhmm: string, timeZone: string): { date: string; time: string; abbr: string } | null {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(hhmm.trim());
+  if (!m || !/^\d{4}-\d{2}-\d{2}$/.test(date.slice(0, 10))) return null;
+  let at: Date;
+  try {
+    at = wallClockInstant(date.slice(0, 10), `${pad2(Number(m[1]))}:${m[2]}`, timeZone);
+  } catch {
+    return null;
+  }
+  if (Number.isNaN(at.getTime())) return null;
+  const wall = new Date(at.getTime() + zoneOffsetMs(at.getTime(), DEFAULT_TIMEZONE)).toISOString();
+  return { date: wall.slice(0, 10), time: wall.slice(11, 16), abbr: zoneAbbr(at, DEFAULT_TIMEZONE) };
+}
+
 /**
  * A visit as Workiz's log writes it: "Thu Oct 08 2026 6:00 pm - 7:00 pm" (the
  * day alone when it is all-day or has no slot), "Unscheduled" without a day.
  * The web's `workizScheduleText` says the same.
+ *
+ * A visit written with its clock (`timezone`, 2026-10-12 on) is read onto
+ * Connecticut's — the office's — and says its zone: a Chicago 8:00 is
+ * "9:00 am - 10:00 am EDT". One written before carries no zone and reads as
+ * it always did (stored rows are never rewritten).
  */
 export function workizVisitText(v: unknown): string {
-  const visit = (v && typeof v === 'object' ? v : {}) as { date?: unknown; slot?: unknown; allDay?: unknown };
-  const m = typeof visit.date === 'string' ? /^(\d{4})-(\d{2})-(\d{2})/.exec(visit.date) : null;
-  if (!m) return 'Unscheduled';
-  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
-  const day = `${WEEKDAYS[new Date(Date.UTC(y, mo - 1, d)).getUTCDay()]} ${MONTHS[mo - 1]} ${m[3]} ${y}`;
+  const visit = (v && typeof v === 'object' ? v : {}) as { date?: unknown; slot?: unknown; allDay?: unknown; timezone?: unknown };
+  const day = typeof visit.date === 'string' ? dayText(visit.date) : null;
+  if (!day) return 'Unscheduled';
   if (visit.allDay === true || typeof visit.slot !== 'string' || !visit.slot) return day;
-  const [from, to] = visit.slot.split('-').map((t) => clock(t));
-  return from && to ? `${day} ${from} - ${to}` : day;
+  const [start, end] = visit.slot.split('-');
+  if (typeof visit.timezone === 'string' && visit.timezone && start && end) {
+    const from = onOfficeClock(visit.date as string, start, visit.timezone);
+    const to = onOfficeClock(visit.date as string, end, visit.timezone);
+    const officeDay = from && dayText(from.date);
+    if (from && to && officeDay) {
+      return `${officeDay} ${clock(from.time)} - ${clock(to.time)}${from.abbr ? ` ${from.abbr}` : ''}`;
+    }
+  }
+  const [a, b] = [start, end].map((t) => (t ? clock(t) : null));
+  return a && b ? `${day} ${a} - ${b}` : day;
 }
 
 /** "Status Updated - Canceled - Cant Do - tech said cant do"; no sub-status → "Status Updated - Done - ". */

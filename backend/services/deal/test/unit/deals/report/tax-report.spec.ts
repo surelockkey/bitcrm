@@ -153,8 +153,9 @@ describe('TaxReportService', () => {
     const repo = { window: jest.fn(async () => windowRows), byIds: jest.fn(async () => byIds) };
     const billing = { paidByJob: jest.fn(async () => paid) };
     const rates = { listAll: jest.fn(async () => accountRates) };
+    const areas = { list: jest.fn(async () => [{ id: 'sa-tx', name: 'TX', timezone: 'America/Chicago' }]) };
     return {
-      service: new TaxReportService(repo as unknown as TaxReportRepository, billing as never, rates as never),
+      service: new TaxReportService(repo as unknown as TaxReportRepository, billing as never, rates as never, areas as never),
       repo,
       billing,
       rates,
@@ -178,6 +179,17 @@ describe('TaxReportService', () => {
     expect(repo.window).toHaveBeenCalledWith('end', '2026-09-01', '2026-09-27');
     expect(r).toMatchObject({ basis: 'accrual', by: 'end', totalAmount: 14.29, taxes: [{ key: 'CT|6.35', name: 'CT', rate: 6.35 }] });
     expect(r.rows).toHaveLength(1);
+    expect(r.rows[0].jobs).toBe(1);
+  });
+
+  it('windows a job booked in a Central area on the Eastern clock', async () => {
+    const native = { jobDateUtc: undefined, jobEndDateUtc: undefined, jobTimezone: undefined, serviceAreaId: 'sa-tx' };
+    const { service } = make([
+      // Ends 23:30 in Texas on the 27th = 00:30 on the 28th in Connecticut — outside 1–27.
+      imported({ id: 'late', ...native, scheduledDate: '2026-09-27', scheduledEndDate: '2026-09-27', scheduledTimeSlot: '22:00-23:30' }),
+      imported({ id: 'kept', ...native, scheduledDate: '2026-09-27', scheduledEndDate: '2026-09-27', scheduledTimeSlot: '20:00-21:30' }),
+    ]);
+    const r = await service.report({ from: '2026-09-01', to: '2026-09-27' }, owner);
     expect(r.rows[0].jobs).toBe(1);
   });
 

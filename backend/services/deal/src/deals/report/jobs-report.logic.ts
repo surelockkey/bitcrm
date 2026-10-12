@@ -11,7 +11,8 @@ import {
   type JobsReportPagination,
   type JobsReportRow,
 } from '@bitcrm/types';
-import { createdAt as createdWall, jobEndAt, jobStartAt, type ReportDateSource } from './report-dates';
+import { wallClockInstant, zoneAbbr } from '@bitcrm/types';
+import { REPORT_TIMEZONE, createdAt as createdWall, jobEndAt, jobStartAt, type ReportDateSource } from './report-dates';
 
 /**
  * The Jobs report's own logic — pure, so the endpoint, the CSV export and
@@ -120,8 +121,10 @@ const str = (v: unknown): string | undefined => (typeof v === 'string' && v !== 
 const num = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
 
 /** A window row (any subset of a deal METADATA item) → the report's compact job. */
-export function toReportDeal(item: Record<string, unknown>): ReportDeal {
-  const dates = item as ReportDateSource;
+export function toReportDeal(item: Record<string, unknown>, areaZones?: ReadonlyMap<string, string>): ReportDeal {
+  const areaTimezone = areaZones && typeof item.serviceAreaId === 'string' ? areaZones.get(item.serviceAreaId) : undefined;
+  // A job booked here keeps its slot on its area's clock; the dates read it onto the account's.
+  const dates: ReportDateSource = areaTimezone ? { ...(item as ReportDateSource), areaTimezone } : (item as ReportDateSource);
   const address = (item.address ?? {}) as Record<string, unknown>;
   const totals = (item.totals ?? {}) as Record<string, unknown>;
   const clientName = item.clientName as { firstName?: string; lastName?: string } | undefined;
@@ -231,6 +234,8 @@ export interface ReportLookups {
   tags: Map<string, { name: string; color?: JobTagColor }>;
   subStatuses: Map<string, string>;
   serviceAreas: Map<string, string>;
+  /** Each service area's zone — the clock a job booked here keeps its slot on. */
+  serviceAreaZones: Map<string, string>;
   externalCompanies: Map<string, string>;
   /** Users (technicians and creators) by id. */
   users: Map<string, string>;
@@ -245,6 +250,7 @@ export const emptyLookups = (): ReportLookups => ({
   tags: new Map(),
   subStatuses: new Map(),
   serviceAreas: new Map(),
+  serviceAreaZones: new Map(),
   externalCompanies: new Map(),
   users: new Map(),
   clients: new Map(),
@@ -413,8 +419,10 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 /**
- * Workiz's date cell: `Tue Sep 29, 2026 02:35 pm` from an account wall clock
- * (`YYYY-MM-DDTHH:MM`), or `Tue Sep 29, 2026` for a bare day.
+ * Workiz's date cell: `Tue Sep 29, 2026 02:35 pm EDT` from an account wall
+ * clock (`YYYY-MM-DDTHH:MM`), or `Tue Sep 29, 2026` for a bare day. The zone
+ * (EDT / EST) follows every clock time (2026-10-12: the office reads every
+ * time in Connecticut, and says so).
  */
 export function workizDate(wall: string | undefined): string {
   if (!wall || !/^\d{4}-\d{2}-\d{2}/.test(wall)) return '';
@@ -425,7 +433,9 @@ export function workizDate(wall: string | undefined): string {
   if (!/^\d{2}:\d{2}$/.test(time)) return day;
   const [h, min] = time.split(':').map(Number);
   const h12 = h % 12 === 0 ? 12 : h % 12;
-  return `${day} ${String(h12).padStart(2, '0')}:${String(min).padStart(2, '0')} ${h < 12 ? 'am' : 'pm'}`;
+  const abbr = zoneAbbr(wallClockInstant(wall.slice(0, 10), time, REPORT_TIMEZONE), REPORT_TIMEZONE);
+  const clock = `${String(h12).padStart(2, '0')}:${String(min).padStart(2, '0')} ${h < 12 ? 'am' : 'pm'}`;
+  return `${day} ${clock}${abbr ? ` ${abbr}` : ''}`;
 }
 
 /** A US number as people read it; anything else as stored. */

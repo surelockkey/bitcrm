@@ -59,11 +59,13 @@ describe('callStatusWords — the Status glyph’s tooltip, in words', () => {
 });
 
 describe('formatWzCallTime', () => {
-  it('prints Workiz’s "Thu Oct 8th, 3:15PM" on the account clock', () => {
-    expect(formatWzCallTime('2026-10-08T19:15:00.000Z')).toBe('Thu Oct 8th, 3:15PM');
-    expect(formatWzCallTime('2026-10-01T04:05:00.000Z')).toBe('Thu Oct 1st, 12:05AM');
-    expect(formatWzCallTime('2026-10-22T16:00:00.000Z')).toBe('Thu Oct 22nd, 12:00PM');
-    expect(formatWzCallTime('2026-10-13T16:00:00.000Z')).toBe('Tue Oct 13th, 12:00PM');
+  it('prints Workiz’s "Thu Oct 8th, 3:15PM" on the account clock, with its zone (2026-10-12)', () => {
+    expect(formatWzCallTime('2026-10-08T19:15:00.000Z')).toBe('Thu Oct 8th, 3:15PM EDT');
+    expect(formatWzCallTime('2026-10-01T04:05:00.000Z')).toBe('Thu Oct 1st, 12:05AM EDT');
+    expect(formatWzCallTime('2026-10-22T16:00:00.000Z')).toBe('Thu Oct 22nd, 12:00PM EDT');
+    expect(formatWzCallTime('2026-10-13T16:00:00.000Z')).toBe('Tue Oct 13th, 12:00PM EDT');
+    // Winter: EST — and 03:30 UTC on Jan 16 is still the 15th in Connecticut.
+    expect(formatWzCallTime('2026-01-16T03:30:00.000Z')).toBe('Thu Jan 15th, 10:30PM EST');
   });
 
   it('a broken instant is blank', () => {
@@ -119,7 +121,7 @@ describe('callCsvRow', () => {
     );
 
     expect(row).toBe(
-      'Incoming call,Client 9311 (857) 294-9311,(1) (Amber) 19 Dispatcher (203) 403-6303,"Thu Oct 8th, 3:15PM",' +
+      'Incoming call,Client 9311 (857) 294-9311,(1) (Amber) 19 Dispatcher (203) 403-6303,"Thu Oct 8th, 3:15PM EDT",' +
         '(2-CT-GMB) SURE CT GMB,SURE CT NEW HAVEN GMB,"WRONG NUMBER, Tech Call",(1) (Amber) 19 Dispatcher,Job 375982,692.80',
     );
   });

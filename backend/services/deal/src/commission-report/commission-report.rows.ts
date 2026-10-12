@@ -1,6 +1,7 @@
 import {
   COMMISSION_REPORT_TOTAL_KEYS,
-  DEFAULT_TIMEZONE,
+  wallClockInstant,
+  zoneAbbr,
   type CommissionConfig,
   type CommissionReportBy,
   type CommissionReportExternalSummary,
@@ -11,6 +12,7 @@ import {
   type WorkizCommissionSnapshot,
 } from '@bitcrm/types';
 import type { CommissionDealItem, CommissionReportSortKey } from './commission-report.types';
+import { REPORT_TIMEZONE, jobEndAt, jobStartAt, wallClock, type ReportDateSource } from '../deals/report/report-dates';
 import {
   calculateWorkizCommission,
   configInForce,
@@ -35,35 +37,51 @@ export function endDayOf(item: Pick<CommissionDealItem, 'scheduledEndDate' | 'sc
   return item.scheduledEndDate || item.scheduledDate || undefined;
 }
 
-/** `HH:MM` the window ends: the snapshot's local end, else the slot's second half. */
-export function closedTimeOf(item: CommissionDealItem): string | undefined {
+/*
+ * Every day and time here is the office's — Connecticut's (America/New_York,
+ * 2026-10-12), as Workiz prints this report on the account's clock (its
+ * "Closed" is `closedLocal`, account time). A visit is held on the job's own
+ * clock (`jobTimezone`, else its service area's — `areaTimezone`, resolved by
+ * the caller — else New York) and read onto Connecticut's by `report-dates`;
+ * the instants an imported job carries are read directly.
+ */
+
+const datesOf = (item: CommissionDealItem, areaTimezone?: string): ReportDateSource =>
+  areaTimezone ? { ...item, areaTimezone } : item;
+
+/** The visit's start on the office's clock (`YYYY-MM-DDTHH:MM`, or a bare day). */
+export function scheduledAtOf(item: CommissionDealItem, areaTimezone?: string): string | undefined {
+  return item.scheduledDate ? jobStartAt(datesOf(item, areaTimezone)) : undefined;
+}
+
+/**
+ * Workiz's "Closed" on the office's clock: the end of the visit window
+ * (`YYYY-MM-DDTHH:MM`), or a bare day — then the snapshot's own end
+ * (`closedLocal`, account time) when the import brought one.
+ */
+export function closedAtOf(item: CommissionDealItem, areaTimezone?: string): string | undefined {
+  if (!endDayOf(item)) return undefined;
+  const at = jobEndAt(datesOf(item, areaTimezone));
+  if (at && at.length >= 16) return at;
   const local = item.commissionSnapshot?.closedLocal;
-  if (local && local.length >= 16) return local.slice(11, 16);
-  if (item.allDay || !item.scheduledTimeSlot) return undefined;
-  const end = item.scheduledTimeSlot.split('-')[1];
-  return end && /^\d{2}:\d{2}$/.test(end) ? end : undefined;
+  return local && local.length >= 16 ? local.slice(0, 16) : at;
 }
 
-/** The calendar day an instant falls on in a zone (`YYYY-MM-DD`). */
-export function localDay(iso: string, timeZone: string): string {
-  try {
-    return new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(
-      new Date(iso),
-    );
-  } catch {
-    return iso.slice(0, 10);
-  }
+/**
+ * The day a job counts on for the chosen "By Time", on the office's
+ * calendar. Created is the Connecticut day of the moment it was created,
+ * whatever the job's own zone (it used to be the job's local day: a Chicago
+ * job created at 23:30 there counted on the day before the one the office
+ * and Workiz's account clock see).
+ */
+export function reportDayOf(item: CommissionDealItem, by: CommissionReportBy, areaTimezone?: string): string | undefined {
+  if (by === 'closed') return closedAtOf(item, areaTimezone)?.slice(0, 10);
+  if (by === 'scheduled') return scheduledAtOf(item, areaTimezone)?.slice(0, 10);
+  return item.createdAt ? wallClock(item.createdAt)?.slice(0, 10) : undefined;
 }
 
-/** The day a job counts on for the chosen "By Time" — Created is the local day in the job's zone. */
-export function reportDayOf(item: CommissionDealItem, by: CommissionReportBy): string | undefined {
-  if (by === 'closed') return endDayOf(item);
-  if (by === 'scheduled') return item.scheduledDate || undefined;
-  return item.createdAt ? localDay(item.createdAt, item.jobTimezone || DEFAULT_TIMEZONE) : undefined;
-}
-
-export function inPeriod(item: CommissionDealItem, by: CommissionReportBy, from: string, to: string): boolean {
-  const day = reportDayOf(item, by);
+export function inPeriod(item: CommissionDealItem, by: CommissionReportBy, from: string, to: string, areaTimezone?: string): boolean {
+  const day = reportDayOf(item, by, areaTimezone);
   return Boolean(day) && day! >= from && day! <= to;
 }
 
@@ -94,6 +112,8 @@ export interface RowContext {
   payments: Map<string, LedgerPayment[]>;
   /** Commission version histories of their technicians. */
   configs: Map<string, CommissionConfig[]>;
+  /** Each service area's zone — the clock a job booked here keeps its slot on. */
+  areaZones?: ReadonlyMap<string, string>;
 }
 
 function baseRow(item: CommissionDealItem, ctx: RowContext): Omit<
@@ -104,6 +124,11 @@ function baseRow(item: CommissionDealItem, ctx: RowContext): Omit<
 > {
   const techId = primaryTechOf(item);
   const others = (item.assignedTechIds ?? []).filter((t) => t !== techId);
+  const areaTimezone = item.serviceAreaId ? ctx.areaZones?.get(item.serviceAreaId) : undefined;
+  const start = item.allDay ? undefined : scheduledAtOf(item, areaTimezone);
+  const closed = closedAtOf(item, areaTimezone);
+  const startTime = start?.slice(11, 16) || undefined;
+  const endTime = item.allDay ? undefined : jobEndAt(datesOf(item, areaTimezone))?.slice(11, 16) || undefined;
   return {
     dealId: item.id,
     dealNumber: String(item.dealNumber ?? ''),
@@ -111,10 +136,17 @@ function baseRow(item: CommissionDealItem, ctx: RowContext): Omit<
     ...(techId && { techId, techName: ctx.techNames.get(techId) }),
     techIds: techId ? [techId, ...others] : others,
     createdAt: item.createdAt ?? '',
-    scheduledDate: item.scheduledDate,
-    scheduledTimeSlot: item.allDay ? undefined : item.scheduledTimeSlot,
-    closedDate: endDayOf(item),
-    closedTime: closedTimeOf(item),
+    // The visit on the office's clock: a Chicago 10:00–11:00 prints 11:00–12:00.
+    scheduledDate: scheduledAtOf(item, areaTimezone)?.slice(0, 10) ?? item.scheduledDate,
+    scheduledTimeSlot: item.allDay
+      ? undefined
+      : startTime
+        ? endTime
+          ? `${startTime}-${endTime}`
+          : startTime
+        : item.scheduledTimeSlot,
+    closedDate: closed?.slice(0, 10),
+    closedTime: closed?.slice(11, 16) || undefined,
     jobTypeId: item.jobTypeId,
     jobTypeName: item.jobTypeId ? ctx.jobTypeNames.get(item.jobTypeId) : undefined,
     address: addressLine(item.address),
@@ -404,7 +436,18 @@ type CsvColumn = { header: string; value: (r: CommissionReportRow) => string | n
 const money = (n: number): string => n.toFixed(2);
 const rateLabel = (r: CommissionReportRow): string =>
   r.rate === undefined ? '' : r.rateUnit === '$' ? `${r.rate}$` : `${r.rate}%`;
-const when = (day?: string, time?: string): string => [day, time].filter(Boolean).join(' ');
+/** `YYYY-MM-DD HH:MM EDT` — a day and time on the office's clock, the zone after the time; a bare day alone. */
+const when = (day?: string, time?: string): string => {
+  if (!day) return '';
+  if (!time || !/^\d{2}:\d{2}$/.test(time)) return day;
+  const abbr = zoneAbbr(wallClockInstant(day, time, REPORT_TIMEZONE), REPORT_TIMEZONE);
+  return `${day} ${time}${abbr ? ` ${abbr}` : ''}`;
+};
+/** The moment the job was created, on the office's clock. */
+const created = (r: CommissionReportRow): string => {
+  const at = wallClock(r.createdAt);
+  return at ? when(at.slice(0, 10), at.slice(11, 16)) : '';
+};
 
 const COMMON_HEAD: CsvColumn[] = [
   { header: 'Job Id', value: (r) => r.dealNumber },
@@ -432,11 +475,11 @@ function csvMoneyColumns(mode: CommissionReportMode): CsvColumn[] {
   const dates: CsvColumn[] =
     mode === 'tech'
       ? [
-          { header: 'Created', value: (r) => r.createdAt.slice(0, 16).replace('T', ' ') },
+          { header: 'Created', value: created },
           { header: 'Closed', value: (r) => when(r.closedDate, r.closedTime) },
         ]
       : [
-          { header: 'Created', value: (r) => r.createdAt.slice(0, 16).replace('T', ' ') },
+          { header: 'Created', value: created },
           { header: 'Scheduled', value: (r) => when(r.scheduledDate, r.scheduledTimeSlot?.slice(0, 5)) },
           { header: 'Closed', value: (r) => when(r.closedDate, r.closedTime) },
         ];

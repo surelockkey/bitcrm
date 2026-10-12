@@ -1,4 +1,5 @@
 import {
+  AccountClock,
   JobSuperStatus,
   type Deal,
   type DealStats,
@@ -16,11 +17,16 @@ const cents = (n: number | undefined): number =>
   typeof n === 'number' && Number.isFinite(n) ? Math.round(n * 100) : 0;
 const dollars = (c: number): number => Math.round(c) / 100;
 
-/** The day a job sits on in a window "by" that date. */
-function dayOf(deal: Deal, by: DealStatsBy): string | undefined {
+/**
+ * The day a job sits on in a window "by" that date — the visit's own day, or
+ * the Connecticut day (the office's, America/New_York) of the moment it was
+ * created or closed: never a UTC prefix, which put an evening job on the next
+ * day's bar.
+ */
+function dayOf(deal: Deal, by: DealStatsBy, clock: AccountClock): string | undefined {
   if (by === 'scheduled') return deal.scheduledDate;
-  if (by === 'closed') return deal.closedAt?.slice(0, 10);
-  return deal.createdAt?.slice(0, 10);
+  const at = by === 'closed' ? deal.closedAt : deal.createdAt;
+  return at ? clock.day(at) : undefined;
 }
 
 function daysOf(window: DealStatsWindow): string[] {
@@ -91,6 +97,7 @@ export function aggregateDealStats(
     Object.values(JobSuperStatus).map((s) => [s, 0]),
   ) as Record<JobSuperStatus, number>;
   const days = daysOf(window);
+  const clock = new AccountClock();
   const series = new Map(days.map((d) => [d, { jobs: 0, canceled: 0, sales: 0, profit: 0 }]));
   const byTech = new Buckets();
   const byCreator = new Buckets();
@@ -119,7 +126,7 @@ export function aggregateDealStats(
       cost += dealCost;
     }
 
-    const day = series.get(dayOf(deal, window.by) ?? '');
+    const day = series.get(dayOf(deal, window.by, clock) ?? '');
     if (day) {
       if (outcome === 'canceled') day.canceled++;
       else day.jobs++;

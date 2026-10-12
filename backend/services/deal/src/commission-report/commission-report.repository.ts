@@ -66,6 +66,9 @@ const PROJECTED = [
   'techSpecialRate',
   'techSpecialRateUnit',
   'jobTimezone',
+  // An imported job's visit instants — its Closed on the office's clock.
+  'jobDateUtc',
+  'jobEndDateUtc',
   'commissionSnapshot',
   'clientName',
   'clientCompanyName',

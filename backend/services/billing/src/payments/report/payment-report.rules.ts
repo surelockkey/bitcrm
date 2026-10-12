@@ -7,6 +7,7 @@ import {
   type PaymentRefund,
   type PaymentReportStatus,
   type PaymentReportTotals,
+  zoneAbbr,
 } from '@bitcrm/types';
 
 /**
@@ -588,12 +589,17 @@ const csvCell = (v: string): string => (/[",\n\r]/.test(v) ? `"${v.replace(/"/g,
 
 const money2 = (n: number | undefined): string => (typeof n === 'number' ? n.toFixed(2) : '');
 
-/** MM/DD/YYYY and h:mm AM/PM on the business clock, as Workiz writes them. */
+/**
+ * MM/DD/YYYY and h:mm AM/PM on the business clock, as Workiz writes them —
+ * the time followed by its zone ("9:30 PM EDT"; 2026-10-12: the office reads
+ * every time in Connecticut, and says so).
+ */
 export function csvDateTime(iso: string, tz: string = PAYMENT_REPORT_TZ): { date: string; time: string } {
   const d = new Date(iso);
   const date = d.toLocaleDateString('en-US', { timeZone: tz, month: '2-digit', day: '2-digit', year: 'numeric' });
-  const time = d.toLocaleTimeString('en-US', { timeZone: tz, hour: 'numeric', minute: '2-digit' });
-  return { date, time };
+  const clock = d.toLocaleTimeString('en-US', { timeZone: tz, hour: 'numeric', minute: '2-digit' });
+  const abbr = zoneAbbr(d, tz);
+  return { date, time: abbr ? `${clock} ${abbr}` : clock };
 }
 
 /** Workiz writes "Paid" where the table says Succeeded; offline lines are paid too. */

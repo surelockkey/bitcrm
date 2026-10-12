@@ -141,7 +141,7 @@ describe('aggregateJobStatistics', () => {
       row({ superStatus: 'pending', commissionSnapshot: undefined, parts: 0, scheduledDate: '2026-09-05', scheduledEndDate: '2026-09-05', jobDateUtc: undefined, jobEndDateUtc: undefined, scheduledTimeSlot: '10:00-12:00' }),
       row({ superStatus: 'submitted', commissionSnapshot: undefined, parts: 0, serviceAreaId: undefined, serviceArea: '' }),
       row({ superStatus: 'in_progress', commissionSnapshot: undefined, parts: 0, sourceId: 's2' }),
-    ].map(toStatsDeal);
+    ].map((r) => toStatsDeal(r));
 
   it('counts every job and sells only the Done ones — Workiz’s KPIs', () => {
     const s = aggregateJobStatistics(deals(), window, lookups(), ALL);
@@ -188,7 +188,7 @@ describe('aggregateJobStatistics', () => {
       row({ superStatus: 'canceled', commissionSnapshot: undefined }),
       row({ superStatus: 'pending', commissionSnapshot: undefined }),
       row(),
-    ].map(toStatsDeal);
+    ].map((r) => toStatsDeal(r));
     const s = aggregateJobStatistics(d, window, lookups(), ALL);
     // 1 canceled of 2 closed (Workiz Platinum_IL: 10 of 26, not of 27).
     expect(s.area!.metro.rows[0].canceledPct).toBe(50);

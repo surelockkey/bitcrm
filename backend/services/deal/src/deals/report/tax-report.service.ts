@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, Optional, ServiceUnavailableException } from '@nestjs/common';
 import { hasPermission } from '@bitcrm/shared';
 import {
   JOBS_REPORT_MAX_DAYS,
@@ -11,6 +11,7 @@ import {
 } from '@bitcrm/types';
 import { BillingReportsClient } from '../../common/services/billing-reports.client';
 import { TaxRatesService } from '../../tax-rates/tax-rates.service';
+import { ServiceAreasService } from '../../service-areas/service-areas.service';
 import { ReportWindowTooLargeError } from '../deals.repository';
 import { reportDay, type ReportDateSource } from './report-dates';
 import { TaxReportRepository } from './tax-report.repository';
@@ -60,6 +61,7 @@ export class TaxReportService {
     private readonly repo: TaxReportRepository,
     private readonly billing: BillingReportsClient,
     private readonly taxRates: TaxRatesService,
+    @Optional() private readonly serviceAreas?: ServiceAreasService,
   ) {}
 
   async report(q: TaxReportQuery, caller: TaxReportCaller): Promise<TaxReport> {
@@ -85,6 +87,17 @@ export class TaxReportService {
       totalAmount: sumAmount(rows),
       taxes: taxOptions(all, accountRates),
     };
+  }
+
+  /** Each service area's zone; none (every slot read as Eastern) when the areas cannot be read. */
+  private async areaZones(): Promise<Map<string, string>> {
+    if (!this.serviceAreas) return new Map();
+    try {
+      return new Map((await this.serviceAreas.list()).filter((a) => a.timezone).map((a) => [a.id, a.timezone]));
+    } catch (err) {
+      this.logger.warn(`Tax report: service areas unavailable (${(err as Error).message}) — slots read on the Eastern clock`);
+      return new Map();
+    }
   }
 
   /** Every tax the account has (archived areas too) — the "Tax to show" list; the window's rates alone if unreadable. */
@@ -122,10 +135,14 @@ export class TaxReportService {
       }
       throw err;
     }
+    const zones = await this.areaZones();
     const jobs: DealTaxFigures[] = [];
     for (const row of this.scoped(rows as unknown as TaxDealRow[], caller)) {
-      // The indexes hold the window plus its edges; the account-calendar day decides.
-      const day = reportDay(row as ReportDateSource, by);
+      // The indexes hold the window plus its edges; the account-calendar day decides —
+      // a job booked here read on its area's clock first (`areaTimezone`).
+      const dates = row as ReportDateSource & { serviceAreaId?: string };
+      const areaTimezone = dates.serviceAreaId ? zones.get(dates.serviceAreaId) : undefined;
+      const day = reportDay(areaTimezone ? { ...dates, areaTimezone } : dates, by);
       if (!day || day < from || day > to) continue;
       const f = dealTaxFigures(row);
       if (f) jobs.push(f);

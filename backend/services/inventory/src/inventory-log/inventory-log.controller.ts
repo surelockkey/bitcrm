@@ -17,8 +17,8 @@ export class InventoryLogController {
     description:
       '**Guard:** `reports.view` permission required. Item edits, stock movements and user ' +
       'container assignments (`container_assigned`: no product, `subjectUser*`, `access`), newest ' +
-      'first, inside `from`/`to` (default: the current UTC month up to now; at most 24 months; ' +
-      'a date-only `to` is the whole day). `productId` reads ' +
+      'first, inside `from`/`to` (default: the current Connecticut month up to now; at most 24 months; ' +
+      'a date-only bound is a Connecticut day, a date-only `to` the whole of it). `productId` reads ' +
       "one item's history; `userId`, `action` and `search` (product name / SKU) filter on top. " +
       'Pages with `cursor`, which pins the window page one was read under. `unitCost` is left out ' +
       'without `financials.view` (`unitPrice` stays).',

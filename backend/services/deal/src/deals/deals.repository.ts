@@ -11,6 +11,8 @@ import {
 } from '@aws-sdk/lib-dynamodb';
 import { DynamoDbService, scanPage } from '@bitcrm/shared';
 import {
+  AccountClock,
+  accountWindowUtc,
   DealStatus,
   DISPATCH_MAP_JOB_FIELDS,
   JobSuperStatus,
@@ -74,6 +76,23 @@ interface IndexRead {
   /** With `#pk` / `#sk` for the attribute names and `:pk` for the partition value. */
   keyCondition: string;
   keyValues: Record<string, unknown>;
+}
+
+/**
+ * A span of the office's days (Connecticut, America/New_York) as the instants
+ * it covers — its first, and its last millisecond — for a sort key that is an
+ * ISO instant (`createdAt`, `closedAt`). A day there is never the UTC one: an
+ * evening job's instant already carries tomorrow's UTC date.
+ */
+export function accountDayInstants(window: DayWindow): DayWindow {
+  const from = window.from ?? window.to;
+  const to = window.to ?? window.from;
+  if (!from || !to) return window;
+  const { start, end } = accountWindowUtc(from, to);
+  return {
+    ...(window.from && { from: start }),
+    ...(window.to && { to: new Date(Date.parse(end) - 1).toISOString() }),
+  };
 }
 
 /** The `YYYY-MM` months a span of days touches, first to last (at most twenty years). */
@@ -750,7 +769,9 @@ export class DealsRepository {
    *   Eastern day is at most one away from it, so a day either side is read
    *   and the caller windows exactly (`reportDay`). Undated jobs report on
    *   their creation (Workiz's hidden slot), read off the `UNSCHED` keys.
-   * - `end` — the EndIndex (`END#<YYYY-MM>` / `<jobEndAt>#…`), exact.
+   * - `end` — the EndIndex (`END#<YYYY-MM>` / `<jobEndAt>#…`), a day either
+   *   side: a job booked here in another zone is keyed on its own slot, and
+   *   the caller windows exactly.
    *
    * Deleted rows never come back. Throws `ReportWindowTooLargeError` past
    * `REPORT_WINDOW_MAX_ROWS`.
@@ -805,13 +826,17 @@ export class DealsRepository {
         ),
       ]);
     } else {
+      // A day either side: the key of a job booked here is its slot as written
+      // (the repository has no area zones), and an Eastern day is at most one
+      // away from it. The caller windows exactly (`reportDay`).
+      const [lo, hi] = [shiftDay(from, -1), shiftDay(to, 1)];
       await read.partitions(
         DEALS_GSI7_NAME,
         'GSI7PK',
         'GSI7SK',
-        monthsOf({ from, to }).map((m) => `END#${m}`),
+        monthsOf({ from: lo, to: hi }).map((m) => `END#${m}`),
         range,
-        { ':from': from, ':to': `${to}~` },
+        { ':from': lo, ':to': `${hi}~` },
       );
     }
     return read.items;
@@ -915,8 +940,10 @@ export class DealsRepository {
    *
    * The created index is already shaped like the question: partition
    * `STATUS#<status>`, sort key `<createdAt>#DEAL#<id>`. So one Query per
-   * status answers a whole window, and the day comes off the key's own
-   * prefix — six queries for the chart, not six per day.
+   * status answers a whole window — six queries for the chart, not six per
+   * day. The window's days are the office's (Connecticut): read as their
+   * instants, and each key's instant put on its Connecticut day — never the
+   * key's UTC prefix, which moved every evening job onto the next day.
    *
    * Only the sort key is projected: days are being tallied, not rows, and a
    * fortnight of deal bodies has no business crossing the wire. The walk is
@@ -927,7 +954,8 @@ export class DealsRepository {
     superStatus: JobSuperStatus,
     window: DayWindow,
   ): Promise<{ byDay: Record<string, number>; atLeast: boolean }> {
-    const values = this.dayRangeValues(window);
+    const values = this.dayRangeValues(accountDayInstants(window));
+    const clock = new AccountClock();
     const byDay: Record<string, number> = {};
     let startKey: Record<string, unknown> | undefined;
     let reads = 0;
@@ -949,9 +977,11 @@ export class DealsRepository {
       );
 
       for (const item of res.Items ?? []) {
-        // `<createdAt>#DEAL#<id>` — the day is the first ten characters.
-        const day = String((item as { GSI1SK?: unknown }).GSI1SK ?? '').slice(0, 10);
-        if (day) byDay[day] = (byDay[day] ?? 0) + 1;
+        // `<createdAt>#DEAL#<id>` — the instant before the first '#', on Connecticut's calendar.
+        const createdAt = String((item as { GSI1SK?: unknown }).GSI1SK ?? '').split('#')[0];
+        if (!createdAt || Number.isNaN(Date.parse(createdAt))) continue;
+        const day = clock.day(createdAt);
+        byDay[day] = (byDay[day] ?? 0) + 1;
       }
 
       if (!res.LastEvaluatedKey) return { byDay, atLeast: false };

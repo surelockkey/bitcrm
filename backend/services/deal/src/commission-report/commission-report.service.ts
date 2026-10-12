@@ -1,8 +1,9 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, Optional } from '@nestjs/common';
 import {
   COMMISSION_REPORT_BY,
   COMMISSION_REPORT_MODES,
   DataScope,
+  accountWindowUtc,
   type CommissionReport,
   type CommissionReportBy,
   type CommissionReportMode,
@@ -14,6 +15,7 @@ import { JobTypesRepository } from '../job-types/job-types.repository';
 import { JobSourcesRepository } from '../job-sources/job-sources.repository';
 import { ExternalCompaniesRepository } from '../external-companies/external-companies.repository';
 import { CustomFieldsRepository } from '../custom-fields/custom-fields.repository';
+import { ServiceAreasRepository } from '../service-areas/service-areas.repository';
 import { CommissionReportRepository, shiftDay, type ItemsRead } from './commission-report.repository';
 import { CommissionReportClient } from './commission-report.client';
 import {
@@ -90,6 +92,7 @@ export class CommissionReportService {
     private readonly jobSources: JobSourcesRepository,
     private readonly externalCompanies: ExternalCompaniesRepository,
     private readonly customFields: CustomFieldsRepository,
+    @Optional() private readonly serviceAreas?: ServiceAreasRepository,
   ) {}
 
   /**
@@ -222,9 +225,12 @@ export class CommissionReportService {
     const hit = this.cache.get(key);
     if (hit && !fresh && Date.now() - hit.at < CACHE_TTL_MS) return hit;
 
-    const read = await this.read(q, ownTech);
-    const items = read.items.filter((i) => inPeriod(i, q.by, q.from, q.to) && (!ownTech || primaryTechOf(i) === ownTech));
-    const { rows, warnings } = await this.build(items);
+    const [read, zones] = await Promise.all([this.read(q, ownTech), this.areaZones()]);
+    const zoneOf = (i: CommissionDealItem) => (i.serviceAreaId ? zones.get(i.serviceAreaId) : undefined);
+    const items = read.items.filter(
+      (i) => inPeriod(i, q.by, q.from, q.to, zoneOf(i)) && (!ownTech || primaryTechOf(i) === ownTech),
+    );
+    const { rows, warnings } = await this.build(items, zones);
     const entry: PeriodRows = { at: Date.now(), rows, truncated: read.truncated, warnings, clientNames: new Map() };
     if (read.truncated) warnings.push('The period holds more jobs than one read allows — the figures are a floor.');
 
@@ -234,16 +240,32 @@ export class CommissionReportService {
     return entry;
   }
 
-  /** The index read for the period's "By Time" (a technician's own period off the tech index). */
+  /**
+   * The index read for the period's "By Time" (a technician's own period off
+   * the tech index). The period is Connecticut's days: Created is exactly
+   * their instants; the visit indexes hold the job's own day, at most one
+   * away from Connecticut's, so a day either side is read and `inPeriod`
+   * keeps the exact ones.
+   */
   private read(q: CommissionReportQuery, ownTech?: string): Promise<ItemsRead> {
     if (q.by === 'created') {
-      // Local days, any zone: a day either side covers every offset.
-      return this.repository.findDoneByCreated(shiftDay(q.from, -1), `${shiftDay(q.to, 1)}T23:59:59.999Z`);
+      const { start, end } = accountWindowUtc(q.from, q.to);
+      return this.repository.findDoneByCreated(start, new Date(Date.parse(end) - 1).toISOString());
     }
-    const from = q.by === 'closed' ? shiftDay(q.from, -CLOSED_LOOKBACK_DAYS) : q.from;
-    return ownTech
-      ? this.repository.findDoneByTech(ownTech, from, q.to)
-      : this.repository.findDoneByVisitStart(from, q.to);
+    const from = shiftDay(q.from, q.by === 'closed' ? -CLOSED_LOOKBACK_DAYS : -1);
+    const to = shiftDay(q.to, 1);
+    return ownTech ? this.repository.findDoneByTech(ownTech, from, to) : this.repository.findDoneByVisitStart(from, to);
+  }
+
+  /** Each service area's zone — what a job booked here keeps its slot on; none when the areas cannot be read. */
+  private async areaZones(): Promise<Map<string, string>> {
+    if (!this.serviceAreas) return new Map();
+    try {
+      return new Map((await this.serviceAreas.listAll()).filter((a) => a.timezone).map((a) => [a.id, a.timezone]));
+    } catch (error) {
+      this.logger.warn(`Service areas could not be read for the commissions report — slots read as Eastern: ${(error as Error).message}`);
+      return new Map();
+    }
   }
 
   /**
@@ -251,13 +273,16 @@ export class CommissionReportService {
    * jobs done here. Public for Job Statistics, whose Profit is these rows'
    * Company Profit.
    */
-  async build(items: CommissionDealItem[]): Promise<{ rows: CommissionReportRow[]; warnings: string[] }> {
+  async build(
+    items: CommissionDealItem[],
+    areaZones?: Map<string, string>,
+  ): Promise<{ rows: CommissionReportRow[]; warnings: string[] }> {
     const warnings: string[] = [];
     const computed = items.filter(needsCompute);
     const techIds = [...new Set(items.map(primaryTechOf).filter((t): t is string => Boolean(t)))];
     const computedTechs = [...new Set(computed.map(primaryTechOf).filter((t): t is string => Boolean(t)))];
 
-    const [techNames, jobTypes, sources, companies, fields, ledgers, configs] = await Promise.all([
+    const [techNames, jobTypes, sources, companies, fields, ledgers, configs, zones] = await Promise.all([
       this.client.userNames(techIds),
       this.catalog(() => this.jobTypes.listAll()),
       this.catalog(() => this.jobSources.listAll()),
@@ -265,6 +290,7 @@ export class CommissionReportService {
       this.customFields.listAll().catch(() => []),
       computed.length ? this.client.ledgers(computed.map((i) => i.id)) : Promise.resolve(new Map()),
       computedTechs.length ? this.client.commissionHistories(computedTechs) : Promise.resolve(new Map()),
+      areaZones ?? this.areaZones(),
     ]);
     if (!ledgers) warnings.push(`Payments could not be read for ${computed.length} job(s) done in BitCRM — their Cash, Credit and Check show 0.`);
     if (!configs) warnings.push(`Technician rates could not be read for ${computed.length} job(s) done in BitCRM — their Tech Profit shows the tip only.`);
@@ -280,6 +306,7 @@ export class CommissionReportService {
       partsFields: { tech: fieldId('tech parts cost'), company: fieldId('company parts cost') },
       payments: ledgers ?? new Map(),
       configs: configs ?? new Map(),
+      areaZones: zones,
     };
     const rows = items.map((item) => {
       const row = buildRow(item, ctx);

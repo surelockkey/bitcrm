@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { GetCommand, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { AccountClock, accountWindowUtc } from '@bitcrm/types';
 import {
   DynamoDbService,
   type CountRowsResult,
@@ -875,20 +876,25 @@ export class CallsRepository {
    * calls that entered a flow are read (outbound calls never do), and the
    * internal leg is left out as it is everywhere. Bounded like `count`; out of
    * budget the tally is a floor.
+   *
+   * The window's days are the office's (Connecticut, America/New_York): read
+   * as the instants they cover — so the UTC months walked are the instants'
+   * (an evening on the 30th is already next month) — and each call put on
+   * its Connecticut day, never on its UTC prefix.
    */
   async flowCallsByDay(window: {
     from: string;
     to: string;
   }): Promise<{ byFlow: Record<string, Record<string, number>>; atLeast: boolean }> {
-    const { keyCondition, filterExpression, names, values } = this.buildListQuery({
-      dateFrom: window.from,
-      dateTo: window.to,
-    });
+    const { start, end } = accountWindowUtc(window.from, window.to);
+    const last = new Date(Date.parse(end) - 1).toISOString();
+    const { keyCondition, filterExpression, names, values } = this.buildListQuery({ dateFrom: start, dateTo: last });
     const filter = ['attribute_exists(flowName)', filterExpression].filter(Boolean).join(' AND ');
+    const clock = new AccountClock();
     const byFlow: Record<string, Record<string, number>> = {};
     let queries = 0;
 
-    for (const month of monthsDescending(window.from, window.to)) {
+    for (const month of monthsDescending(start, last)) {
       let exclusiveStartKey: Record<string, unknown> | undefined;
 
       for (;;) {
@@ -910,8 +916,9 @@ export class CallsRepository {
 
         for (const item of res.Items ?? []) {
           const flow = typeof item.flowName === 'string' ? item.flowName : '';
-          const day = typeof item.startedAt === 'string' ? item.startedAt.slice(0, 10) : '';
-          if (!flow || !day) continue;
+          const startedAt = typeof item.startedAt === 'string' ? item.startedAt : '';
+          if (!flow || !startedAt || Number.isNaN(Date.parse(startedAt))) continue;
+          const day = clock.day(startedAt);
           const row = (byFlow[flow] ??= {});
           row[day] = (row[day] ?? 0) + 1;
         }

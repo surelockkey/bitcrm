@@ -111,6 +111,18 @@ describe('DealsRepository.findByClosed', () => {
     expect(seen).toEqual(['CLOSED#2026-08', 'CLOSED#2026-09', 'CLOSED#2026-10']);
   });
 
+  it('a window of Connecticut days as instants reaches into the UTC month its last evening falls in', async () => {
+    const dynamoDb = createMockDynamoDbService();
+    const repository = new DealsRepository(dynamoDb as any);
+    dynamoDb.client.send.mockResolvedValue({ Items: [] });
+    // Sep 1–30 Eastern ends at 03:59:59.999 UTC on Oct 1 — a job closed at 23:30 on Sep 30 sits in CLOSED#2026-10.
+    await repository.findByClosed({ from: '2026-09-01T04:00:00.000Z', to: '2026-10-01T03:59:59.999Z' }, 50);
+    const inputs = dynamoDb.client.send.mock.calls.map((c: any) => c[0].input);
+    expect(inputs.map((i: any) => i.ExpressionAttributeValues[':pk'])).toEqual(['CLOSED#2026-09', 'CLOSED#2026-10']);
+    expect(inputs[0].ExpressionAttributeValues[':from']).toBe('2026-09-01T04:00:00.000Z');
+    expect(inputs[0].ExpressionAttributeValues[':to']).toBe('2026-10-01T03:59:59.999Z~');
+  });
+
   it('a status narrows the closed rows with a filter, not a key', async () => {
     const dynamoDb = createMockDynamoDbService();
     const repository = new DealsRepository(dynamoDb as any);
@@ -138,7 +150,8 @@ describe('DealsService.list — the report windows', () => {
     await serviceWith(repo).list({ createdFrom: '2026-09-01', createdTo: '2026-09-30' } as any, caller);
     expect((repo as any).findByCreated).toHaveBeenCalledWith(
       expect.arrayContaining([JobSuperStatus.SUBMITTED, JobSuperStatus.CANCELED]),
-      { from: '2026-09-01', to: '2026-09-30' },
+      // The office's days (Connecticut, EDT) as instants — never the UTC days.
+      { from: '2026-09-01T04:00:00.000Z', to: '2026-10-01T03:59:59.999Z' },
       20,
       undefined,
       expect.any(Object),
@@ -147,9 +160,10 @@ describe('DealsService.list — the report windows', () => {
   });
 
   it('closedFrom/To reads the closed index, with the status as a filter', async () => {
-    await serviceWith(repo).list({ closedFrom: '2026-09-01', closedTo: '2026-09-30', superStatus: JobSuperStatus.DONE } as any, caller);
+    await serviceWith(repo).list({ closedFrom: '2026-01-15', closedTo: '2026-01-15', superStatus: JobSuperStatus.DONE } as any, caller);
     expect((repo as any).findByClosed).toHaveBeenCalledWith(
-      { from: '2026-09-01', to: '2026-09-30' },
+      // Winter: EST, five hours behind.
+      { from: '2026-01-15T05:00:00.000Z', to: '2026-01-16T04:59:59.999Z' },
       20,
       undefined,
       expect.objectContaining({ superStatus: JobSuperStatus.DONE }),

@@ -15,6 +15,7 @@ import {
   type InvoiceDaysDue,
   type InvoiceReportStatus,
   type ReportCard,
+  zoneAbbr,
 } from '@bitcrm/types';
 import { addDays, businessDay, dayStartUtc, isDay } from '../../payments/report/payment-report.rules';
 
@@ -269,7 +270,11 @@ const money = (n: number | undefined): string => (typeof n === 'number' ? n.toFi
 export const csvRow = (cells: Array<string | number | undefined>): string =>
   cells.map((c) => csvCell(c === undefined ? '' : String(c))).join(',');
 
-/** `2026-07-15 18:42:42` — an instant on the business clock, as Workiz writes raw dates. */
+/**
+ * `2026-07-15 18:42:42 EDT` — an instant on the business clock, as Workiz
+ * writes raw dates, followed by its zone (2026-10-12: every time the office
+ * reads says which zone it is in). A bare day (the Due Date) is not this.
+ */
 export function csvInstant(iso: string | undefined, tz: string = BILLING_REPORT_TZ): string {
   if (!iso) return '';
   const d = new Date(iso);
@@ -288,7 +293,8 @@ export function csvInstant(iso: string | undefined, tz: string = BILLING_REPORT_
       .formatToParts(d)
       .map((x) => [x.type, x.value]),
   );
-  return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}:${p.second}`;
+  const abbr = zoneAbbr(d, tz);
+  return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}:${p.second}${abbr ? ` ${abbr}` : ''}`;
 }
 
 /** Workiz's Aging CSV: the table's columns, raw dates, and "Days By" for Days Late. */

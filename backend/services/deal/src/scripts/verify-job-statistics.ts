@@ -145,7 +145,7 @@ async function readPackage(dir: string, usersDir: string | undefined, from: stri
       lookups.users.set(u.id, u.workizName || own);
     }
   }
-  return { rows, deals: rows.map(toStatsDeal), workizIdOf, lookups, bitcrmNames };
+  return { rows, deals: rows.map((r) => toStatsDeal(r)), workizIdOf, lookups, bitcrmNames };
 }
 
 /* ------------------------------------------------------------------ print */

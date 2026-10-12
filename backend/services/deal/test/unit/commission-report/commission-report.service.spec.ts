@@ -95,6 +95,7 @@ function build(items: CommissionDealItem[] = [IMPORTED_ANN, IMPORTED_BOB, MULTI_
   const companies = createMockExternalCompaniesRepository();
   const fields = createMockCustomFieldsRepository();
   fields.listAll.mockResolvedValue([createMockCustomField({ id: 'cf-parts', name: 'Tech Parts cost' } as never)]);
+  const areas = { listAll: jest.fn().mockResolvedValue([{ id: 'area-tx', name: 'TX', timezone: 'America/Chicago' }]) };
   const service = new CommissionReportService(
     repository as never,
     client as never,
@@ -102,8 +103,9 @@ function build(items: CommissionDealItem[] = [IMPORTED_ANN, IMPORTED_BOB, MULTI_
     sources as never,
     companies as never,
     fields as never,
+    areas as never,
   );
-  return { service, repository, client, fields };
+  return { service, repository, client, fields, areas };
 }
 
 const office = createMockJwtUser({ id: 'office-1' });
@@ -148,7 +150,8 @@ describe('CommissionReportService.report', () => {
   it('Closed reads visit starts from 31 days back and keeps the jobs whose window ENDS in the period', async () => {
     const { service, repository } = build();
     const r = await service.report(sept, office, 'all');
-    expect(repository.findDoneByVisitStart).toHaveBeenCalledWith('2026-08-01', '2026-09-27');
+    // A day past the end too: the index holds the job's own day, the period Connecticut's.
+    expect(repository.findDoneByVisitStart).toHaveBeenCalledWith('2026-08-01', '2026-09-28');
     expect(r.rows.map((x) => x.dealNumber).sort()).toEqual(['A1', 'B1', 'M1', 'N1']);
     expect(r.count).toBe(4);
     expect(r.window).toEqual({ by: 'closed', ...sept });
@@ -157,15 +160,27 @@ describe('CommissionReportService.report', () => {
   it('Scheduled reads the period itself and keys on the visit start', async () => {
     const { service, repository } = build();
     const r = await service.report({ ...sept, by: 'scheduled' }, office, 'all');
-    expect(repository.findDoneByVisitStart).toHaveBeenCalledWith('2026-09-01', '2026-09-27');
+    // A day either side: the index holds the job's own day, the period Connecticut's.
+    expect(repository.findDoneByVisitStart).toHaveBeenCalledWith('2026-08-31', '2026-09-28');
     expect(r.rows.map((x) => x.dealNumber).sort()).toEqual(['A1', 'B1', 'N1']);
   });
 
-  it('Created reads a day either side and keeps the local days', async () => {
+  it('Created reads the Connecticut days as instants, exactly', async () => {
     const { service, repository } = build([deal('c1', { createdAt: '2026-09-01T03:00:00.000Z', commissionSnapshot: snapshot({}) }), deal('c2', { createdAt: '2026-09-01T12:00:00.000Z', commissionSnapshot: snapshot({}) })]);
     const r = await service.report({ ...sept, by: 'created' }, office, 'all');
-    expect(repository.findDoneByCreated).toHaveBeenCalledWith('2026-08-31', '2026-09-28T23:59:59.999Z');
+    // Sep 1 00:00 EDT .. the last millisecond of Sep 27 EDT — never a UTC day.
+    expect(repository.findDoneByCreated).toHaveBeenCalledWith('2026-09-01T04:00:00.000Z', '2026-09-28T03:59:59.999Z');
     expect(r.rows.map((x) => x.dealNumber)).toEqual(['C2']);
+  });
+
+  it('keeps a job booked in a Central area on its Connecticut day, its area’s zone read once', async () => {
+    const native = (id: string, slot: string) =>
+      deal(id, { serviceAreaId: 'area-tx', scheduledDate: '2026-09-27', scheduledEndDate: '2026-09-27', scheduledTimeSlot: slot, commissionSnapshot: snapshot({}) });
+    const { service, areas } = build([native('in', '20:00-21:00'), native('out', '22:30-23:30')]);
+    const r = await service.report(sept, office, 'all');
+    expect(r.rows.map((x) => x.dealNumber)).toEqual(['IN']);
+    expect(r.rows[0]).toMatchObject({ closedDate: '2026-09-27', closedTime: '22:00' });
+    expect(areas.listAll).toHaveBeenCalledTimes(1);
   });
 
   it('computes only the jobs done here: their ledgers and their technicians’ rates', async () => {
@@ -237,7 +252,7 @@ describe('CommissionReportService.report', () => {
   it('a technician (assigned_only) reads their own period off the tech index, primary jobs only', async () => {
     const { service, repository } = build();
     const r = await service.report(sept, createMockJwtUser({ id: 'ann' }), 'assigned_only');
-    expect(repository.findDoneByTech).toHaveBeenCalledWith('ann', '2026-08-01', '2026-09-27');
+    expect(repository.findDoneByTech).toHaveBeenCalledWith('ann', '2026-08-01', '2026-09-28');
     expect(repository.findDoneByVisitStart).not.toHaveBeenCalled();
     expect(r.rows.map((x) => x.dealNumber).sort()).toEqual(['A1', 'M1']);
     expect(r.techs.map((t) => t.techId)).toEqual(['ann']);

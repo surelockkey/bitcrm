@@ -52,6 +52,7 @@ import {
   type DealUpdate,
   type ScheduleWindow,
   type SortDir,
+  accountDayInstants,
   type DayWindow,
 } from './deals.repository';
 import {
@@ -163,6 +164,7 @@ import { type UpdateNoteDto } from './dto/update-note.dto';
 import { JobFieldSettingsService } from '../job-field-settings/job-field-settings.service';
 import { JobRulesService } from '../job-rules/job-rules.service';
 import { closeEndPatch } from './close-end-time';
+import { REPORT_TIMEZONE } from './report/report-dates';
 import { type AddDealProductDto } from './dto/add-deal-product.dto';
 import { type AddItemGroupDto } from './dto/add-item-group.dto';
 import { type UpdatePaymentStatusDto } from './dto/update-payment-status.dto';
@@ -189,19 +191,29 @@ const COMPANY_KEYS = new Set(['businessProfileId', 'businessProfileName']);
 const VISIT_KEYS = new Set(['scheduledDate', 'scheduledEndDate', 'scheduledTimeSlot', 'allDay']);
 const VISIT_INSTANT_KEYS = new Set(['jobDateUtc', 'jobEndDateUtc']);
 
-/** The visit as a `schedule` entry writes it; `null` where a part is absent. */
+/**
+ * The visit as a `schedule` entry writes it; `null` where a part is absent.
+ * `timezone` — the clock the date and slot are on (the job's zone, else its
+ * area's, else New York), on a dated visit only — is what lets the Activity
+ * text read it onto Connecticut's clock with its zone (2026-10-12).
+ */
 interface VisitSnapshot {
   date: string | null;
   endDate: string | null;
   slot: string | null;
   allDay: boolean | null;
+  timezone?: string;
 }
 
-const visitOf = (d: Partial<Record<'scheduledDate' | 'scheduledEndDate' | 'scheduledTimeSlot' | 'allDay', unknown>>): VisitSnapshot => ({
+const visitOf = (
+  d: Partial<Record<'scheduledDate' | 'scheduledEndDate' | 'scheduledTimeSlot' | 'allDay', unknown>>,
+  timezone?: string,
+): VisitSnapshot => ({
   date: (d.scheduledDate as string | undefined) ?? null,
   endDate: (d.scheduledEndDate as string | undefined) ?? null,
   slot: (d.scheduledTimeSlot as string | undefined) ?? null,
   allDay: (d.allDay as boolean | undefined) ?? null,
+  ...(d.scheduledDate && timezone ? { timezone } : {}),
 });
 
 interface CompanyRef {
@@ -1136,15 +1148,17 @@ export class DealsService {
    * The report's creation or closing window, or undefined when neither is
    * asked for. A quarter at most: the page cost does not grow with the span,
    * but the counts read every row in it. Two different dates at once is a
-   * contradiction and is refused.
+   * contradiction and is refused. The days are the office's (Connecticut):
+   * both indexes are keyed by an ISO instant, so the window goes to them as
+   * the instants those days cover, never as UTC days.
    */
   private parseReportWindows(query: ListDealsQueryDto): { created?: DayWindow; closed?: DayWindow } | undefined {
     const created = this.parseDayWindow(query.createdFrom, query.createdTo, 'created');
     const closed = this.parseDayWindow(query.closedFrom, query.closedTo, 'closed');
     const asked = [created && 'created', closed && 'closed', query.scheduledFrom && 'scheduled'].filter(Boolean);
     if (asked.length > 1) throw new BadRequestException(`One date window at a time: ${asked.join(', ')} were given`);
-    if (created) return { created };
-    if (closed) return { closed };
+    if (created) return { created: accountDayInstants(created) };
+    if (closed) return { closed: accountDayInstants(closed) };
     return undefined;
   }
 
@@ -1359,14 +1373,18 @@ export class DealsService {
 
     if (visitMoved) {
       const after: Record<string, unknown> = {};
-      for (const key of VISIT_KEYS) {
+      for (const key of [...VISIT_KEYS, 'jobTimezone', 'serviceAreaId']) {
         const next = (updates as Record<string, unknown>)[key];
         after[key] = next === undefined ? (existing as unknown as Record<string, unknown>)[key] : next;
       }
+      const [zoneBefore, zoneAfter] = await Promise.all([
+        this.visitTimezoneOf(existing),
+        this.visitTimezoneOf(after as Partial<Deal>),
+      ]);
       await this.addTimelineEntry(id, TimelineEventType.FIELD_UPDATED, caller, {
         field: 'schedule',
-        oldValue: visitOf(existing),
-        newValue: visitOf(after),
+        oldValue: visitOf(existing, zoneBefore),
+        newValue: visitOf(after, zoneAfter),
       });
     }
 
@@ -1609,6 +1627,12 @@ export class DealsService {
       this.logger.warn(`Job rules unavailable, closing with the default: ${(error as Error).message}`);
       return true;
     }
+  }
+
+  /** The clock a job's visit is written on: its own zone, else its service area's, else New York. */
+  private async visitTimezoneOf(deal: Partial<Deal>): Promise<string> {
+    if (deal.jobTimezone) return deal.jobTimezone;
+    return (await this.areaTimezoneOf(deal as Deal)) || REPORT_TIMEZONE;
   }
 
   /** The zone of the job's service area, when it has one and the area can be read. */

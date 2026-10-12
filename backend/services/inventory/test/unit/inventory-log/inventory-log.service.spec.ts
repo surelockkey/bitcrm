@@ -93,7 +93,8 @@ describe('InventoryLogService', () => {
   describe('list', () => {
     const window = { from: '2026-08-01T00:00:00.000Z', to: '2026-09-29T12:00:00.000Z' };
 
-    it('defaults the window to the current UTC month up to now', async () => {
+    // 2026-10-12: the office's days are Connecticut's (America/New_York), never UTC's.
+    it('defaults the window to the current Connecticut month up to now', async () => {
       jest.useFakeTimers().setSystemTime(new Date('2026-09-29T12:00:00.000Z'));
 
       await service.list({});
@@ -101,22 +102,33 @@ describe('InventoryLogService', () => {
       expect(repository.queryMonth).toHaveBeenCalledTimes(1);
       expect(repository.queryMonth).toHaveBeenCalledWith(
         '2026-09',
-        { from: '2026-09-01T00:00:00.000Z', to: '2026-09-29T12:00:00.000Z' },
+        { from: '2026-09-01T04:00:00.000Z', to: '2026-09-29T12:00:00.000Z' },
         {},
         20,
         undefined,
         expect.any(Number),
       );
+    });
+
+    it('is still last month in Connecticut on the evening of its last day', async () => {
+      // 22:00 EDT on Sep 30 is already October in UTC.
+      jest.useFakeTimers().setSystemTime(new Date('2026-10-01T02:00:00.000Z'));
+
+      await service.list({});
+
+      expect(repository.queryMonth.mock.calls.map((c: unknown[]) => c[0])).toEqual(['2026-10', '2026-09']);
+      expect(repository.queryMonth.mock.calls[0][1]).toEqual({ from: '2026-09-01T04:00:00.000Z', to: '2026-10-01T02:00:00.000Z' });
     });
 
     // `to` включний, як каже DTO: дата без часу — це весь той день, а не
     // його перша мілісекунда (інакше вибір "по 10 вересня" губив 10 вересня).
-    it('normalises date-only bounds: from at the start of its day, to at the end of its day', async () => {
+    // День — коннектикутський: його миттєвості, а не UTC-доба.
+    it('normalises date-only bounds: from at the start of its Connecticut day, to at the end of it', async () => {
       await service.list({ from: '2026-08-15', to: '2026-09-10' });
 
       expect(repository.queryMonth).toHaveBeenCalledWith(
         '2026-09',
-        { from: '2026-08-15T00:00:00.000Z', to: '2026-09-10T23:59:59.999Z' },
+        { from: '2026-08-15T04:00:00.000Z', to: '2026-09-11T03:59:59.999Z' },
         {},
         20,
         undefined,
@@ -124,17 +136,23 @@ describe('InventoryLogService', () => {
       );
     });
 
-    it('spans the whole day when from and to are the same date', async () => {
-      await service.list({ from: '2026-09-10', to: '2026-09-10' });
+    it('spans the whole day when from and to are the same date — EST in winter', async () => {
+      await service.list({ from: '2026-01-15', to: '2026-01-15' });
 
       expect(repository.queryMonth).toHaveBeenCalledWith(
-        '2026-09',
-        { from: '2026-09-10T00:00:00.000Z', to: '2026-09-10T23:59:59.999Z' },
+        '2026-01',
+        { from: '2026-01-15T05:00:00.000Z', to: '2026-01-16T04:59:59.999Z' },
         {},
         20,
         undefined,
         expect.any(Number),
       );
+    });
+
+    it('reads the evening of the last day of a month from the next UTC month', async () => {
+      await service.list({ from: '2026-09-30', to: '2026-09-30' });
+
+      expect(repository.queryMonth.mock.calls.map((c: unknown[]) => c[0])).toEqual(['2026-10', '2026-09']);
     });
 
     it('keeps a timestamped `to` as given', async () => {
@@ -240,7 +258,8 @@ describe('InventoryLogService', () => {
       expect(decode(first.nextCursor!)).toEqual({
         month: '2026-09',
         lastKey: { PK: 'INVLOG#2026-09', SK: 'b' },
-        from: '2026-09-01T00:00:00.000Z',
+        // The default window opens at Connecticut's Sep 1, not UTC's.
+        from: '2026-09-01T04:00:00.000Z',
         to: '2026-09-30T23:58:00.000Z',
       });
 
@@ -251,7 +270,7 @@ describe('InventoryLogService', () => {
       expect(second.items.map((i) => i.id)).toEqual(['c']);
       expect(repository.queryMonth).toHaveBeenLastCalledWith(
         '2026-09',
-        { from: '2026-09-01T00:00:00.000Z', to: '2026-09-30T23:58:00.000Z' },
+        { from: '2026-09-01T04:00:00.000Z', to: '2026-09-30T23:58:00.000Z' },
         {},
         2,
         { PK: 'INVLOG#2026-09', SK: 'b' },
@@ -494,12 +513,12 @@ describe('InventoryLogService', () => {
       expect(repository.countMonth).not.toHaveBeenCalled();
     });
 
-    it('treats a date-only `to` as the whole day', async () => {
+    it('treats a date-only `to` as the whole Connecticut day', async () => {
       await service.count({ from: '2026-09-10', to: '2026-09-10' });
 
       expect(repository.countMonth).toHaveBeenCalledWith(
         '2026-09',
-        { from: '2026-09-10T00:00:00.000Z', to: '2026-09-10T23:59:59.999Z' },
+        { from: '2026-09-10T04:00:00.000Z', to: '2026-09-11T03:59:59.999Z' },
         {},
       );
     });
