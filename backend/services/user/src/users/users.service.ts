@@ -876,7 +876,7 @@ export class UsersService implements OnModuleInit {
       'custom:user_id': user.id,
     });
     const cognitoSub = result.User?.Attributes?.find((a) => a.Name === 'sub')?.Value;
-    if (cognitoSub) await this.repository.update(user.id, { cognitoSub });
+    if (cognitoSub) await this.repository.attachSignInAccount(user.id, cognitoSub);
     await this.cache.invalidateUser(user.id);
     this.logger.log(`Made the sign-in account of ${user.id}, imported without one`);
   }

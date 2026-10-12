@@ -316,6 +316,26 @@ export class UsersRepository {
   }
 
   /**
+   * The sign-in account made for a user who had none (imported from Workiz).
+   * `update` never writes `cognitoSub`, and this never replaces one.
+   */
+  async attachSignInAccount(id: string, cognitoSub: string): Promise<void> {
+    await this.dynamoDb.client.send(
+      new UpdateCommand({
+        TableName: USERS_TABLE,
+        Key: { PK: `USER#${id}`, SK: 'METADATA' },
+        UpdateExpression: 'SET #cognitoSub = :cognitoSub, #updatedAt = :updatedAt',
+        ExpressionAttributeNames: { '#cognitoSub': 'cognitoSub', '#updatedAt': 'updatedAt' },
+        ExpressionAttributeValues: {
+          ':cognitoSub': cognitoSub,
+          ':updatedAt': new Date().toISOString(),
+        },
+        ConditionExpression: 'attribute_exists(PK) AND attribute_not_exists(cognitoSub)',
+      }),
+    );
+  }
+
+  /**
    * Every user holding a role — paged to exhaustion, not to DynamoDB's 1MB.
    *
    * A truncated answer here is not a short list, it is a wrong one, and the
