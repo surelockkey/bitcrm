@@ -1,12 +1,13 @@
-import { ACTIVITY_FIRST_DAY, DASHBOARD_TIMEZONE, dashboardDay } from "@bitcrm/types";
-import { presetRange, viewerToday } from "./jobs/lib";
+import { ACTIVITY_FIRST_DAY } from "@bitcrm/types";
+import { ctToday } from "@/lib/timezone";
+import { presetRange } from "./jobs/lib";
 
 /*
  * Workiz's report date picker, for the reports that use its long list
  * (Activity, Call Tracking) and the call log: the presets in Workiz's order,
- * and the days each one covers, counted from the viewer's today as Workiz
- * does. The servers read those days on the business's calendar
- * (America/New_York).
+ * and the days each one covers, counted from Connecticut's today (Workiz
+ * counts from the viewer's; the owner's rule of 2026-10-12 does not). The
+ * servers read those days on the same calendar (America/New_York).
  */
 
 export type ReportPreset =
@@ -83,19 +84,20 @@ export const CALL_TRACKING_PRESETS: ReportPreset[] = ACTIVITY_PRESETS.filter(
   (p) => !["last_3_months", "last_6_months", "last_12_months", "all_time"].includes(p),
 );
 
-/** Today on the account's calendar. */
+/** Today on the account's calendar — Connecticut's (`ctToday`). */
 export function accountToday(now: Date = new Date()): string {
-  return dashboardDay(now, DASHBOARD_TIMEZONE);
+  return ctToday(now);
 }
 
 /**
- * The day the presets count from: the viewer's own today, as Workiz's
- * datepicker counts from `moment()` (rep_activity, 2026-10-09: at 01:25 in
- * Kyiv — 18:25 the day before in New York — its "Today" asked for Oct 9).
- * The server still reads the days it is given on the account's calendar.
+ * The day the presets count from. Workiz's datepicker counts from the
+ * viewer's `moment()` (rep_activity, 2026-10-09: at 01:25 in Kyiv — 18:25 the
+ * day before in New York — its "Today" asked for Oct 9); the owner's rule of
+ * 2026-10-12 counts from Connecticut's today, the calendar the server reads
+ * the days on.
  */
 export function reportToday(now: Date = new Date()): string {
-  return viewerToday(now);
+  return ctToday(now);
 }
 
 const shift = (day: string, n: number): string => {

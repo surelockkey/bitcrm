@@ -11,6 +11,7 @@ import { WzGroupedFilter } from "@/components/workiz/grouped-filter";
 import { WzPager } from "@/components/workiz/pager";
 import { WzListToolbar, WzPageSizeSelect, WzSearchBox, WzToolbarButton } from "@/components/workiz/toolbar";
 import { getApiErrorMessage } from "@/lib/api/errors";
+import { ctToday } from "@/lib/timezone";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { useDenied, usePermissions } from "@/features/auth/use-permissions";
 import { NoAccess } from "@/features/clients/components/contacts-page";
@@ -18,7 +19,6 @@ import { useUserMap } from "@/features/deals/hooks";
 import { personName } from "@/features/deals/person-name";
 import { useItemCategories } from "@/features/inventory/products/hooks";
 import { useJobTypes } from "@/features/job-types/hooks";
-import { viewerToday } from "../jobs/lib";
 import { downloadItemsReportCsv } from "../items/api";
 import { useItemsReport } from "../items/hooks";
 import {
@@ -58,8 +58,8 @@ export function ItemsReportPage({ today: todayProp }: { today?: string } = {}) {
   usePageHistoryLabel("Items Report");
   const denied = useDenied();
   const { can, isLoading: permsLoading } = usePermissions();
-  // Workiz counts its presets from the viewer's own clock (moment()).
-  const [today] = useState(() => todayProp ?? viewerToday());
+  // The presets count from Connecticut's today (2026-10-12 owner rule), not the browser's as Workiz does.
+  const [today] = useState(() => todayProp ?? ctToday());
 
   const [range, setRange] = useState<WzDateRange>(() => ({ preset: DEFAULT_ITEMS_PRESET, ...itemsPresetRange(DEFAULT_ITEMS_PRESET, today) }));
   const [filters, setFilters] = useState<ItemsReportFilters>({});

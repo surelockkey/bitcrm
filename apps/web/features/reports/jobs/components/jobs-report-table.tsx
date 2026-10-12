@@ -10,7 +10,7 @@ import { useColumnWidths } from "@/lib/table/use-column-widths";
 import { formatPhone } from "@/features/clients/lib";
 import { tagSolidClasses } from "@/features/job-tags/lib";
 import { cn } from "@/lib/utils";
-import { COLUMN_LABEL, accountWall, money, workizDate, workizStatusLabel } from "../lib";
+import { COLUMN_LABEL, money, workizInstant, workizStatusLabel, workizWall } from "../lib";
 
 /*
  * Workiz's Jobs report grid, measured off rep_jobs_wz_01_default /
@@ -150,12 +150,14 @@ function Cell({ row, column, addFilter }: { row: JobsReportRow; column: JobsRepo
       ) : (
         <span className="block truncate">{row.type}</span>
       );
+    // Connecticut's clock, labelled (2026-10-12 owner rule). Scheduled and End
+    // come from the server already on the account's (Connecticut's) wall clock.
     case "created":
-      return <span className="block truncate">{workizDate(accountWall(row.createdAt))}</span>;
+      return <span className="block truncate">{workizInstant(row.createdAt)}</span>;
     case "scheduled":
-      return <span className="block truncate">{workizDate(row.scheduled)}</span>;
+      return <span className="block truncate">{workizWall(row.scheduled)}</span>;
     case "end":
-      return <span className="block truncate">{workizDate(row.end)}</span>;
+      return <span className="block truncate">{workizWall(row.end)}</span>;
     case "phone":
       return row.phone ? (
         <a href={`tel:${row.phone}`} className="block truncate text-wz-link no-underline hover:underline">
@@ -234,7 +236,7 @@ function Cell({ row, column, addFilter }: { row: JobsReportRow; column: JobsRepo
         <FilterValue onClick={() => addFilter("externalCompanyId", row.externalCompanyId!)}>{row.externalCompany}</FilterValue>
       ) : null;
     case "leadCreated":
-      return <span className="block truncate">{workizDate(accountWall(row.leadCreated))}</span>;
+      return <span className="block truncate">{workizInstant(row.leadCreated)}</span>;
     case "origin":
       return <>{row.origin === "lead" ? "Lead" : "New"}</>;
     default:

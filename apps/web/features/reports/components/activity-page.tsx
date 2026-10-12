@@ -44,8 +44,10 @@ type TeamKey = "uid";
  * (rep_activity_wz_*): no title — "Filter results" across the top with the
  * date box at its right (no "By:" row); the list strip (Search, page size,
  * Export); the four-column grid; the pager. Who did what and when, today by
- * default, newest first. The presets count from the viewer's own today and
- * the server reads those days on the account's calendar, as Workiz's do.
+ * default, newest first. The presets count from Connecticut's today (Workiz
+ * counts from the viewer's; the owner's rule of 2026-10-12 does not) and the
+ * server reads those days on the same calendar. Times print on Connecticut's
+ * clock with the zone ("… 05:54 pm EDT"), the CSV too.
  * "Filter results" narrows to current teammates (Workiz's own list), the
  * search matches the action and the Job Id, the Time header sorts, and
  * Export writes the four columns as CSV (at most 10,000 rows, as Workiz).

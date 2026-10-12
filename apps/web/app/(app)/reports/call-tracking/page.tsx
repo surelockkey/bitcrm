@@ -4,6 +4,6 @@ import { CallTrackingPage } from "@/features/reports/components/call-tracking-pa
 import { reportToday } from "@/features/reports/report-dates";
 
 export default function Page() {
-  // The presets count from the viewer's own today, as Workiz's datepicker does.
+  // The presets count from Connecticut's today, not the browser's (2026-10-12 owner rule).
   return <CallTrackingPage today={reportToday()} />;
 }

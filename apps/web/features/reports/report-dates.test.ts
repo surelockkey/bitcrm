@@ -67,9 +67,11 @@ describe("Workiz's report date presets", () => {
   });
 
   // At 01:25 in Kyiv on Oct 9 (18:25 on Oct 8 in New York) Workiz's "Today"
-  // asked for 9.10.26 — the presets count from the viewer's own clock.
-  it("counts the presets from the viewer's own today", () => {
-    expect(reportToday(new Date(2026, 9, 9, 1, 25))).toBe("2026-10-09");
+  // asked for 9.10.26; the owner's rule of 2026-10-12 counts the web's
+  // presets from Connecticut's today instead.
+  it("counts the presets from Connecticut's today, whatever the browser's", () => {
+    expect(reportToday(new Date("2026-10-08T22:25:00Z"))).toBe("2026-10-08");
+    expect(reportToday(new Date("2026-10-13T03:30:00Z"))).toBe("2026-10-12");
   });
 
   it("still knows the account's (New York) today", () => {

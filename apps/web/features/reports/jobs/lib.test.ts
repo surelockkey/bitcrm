@@ -5,6 +5,8 @@ import {
   accountToday,
   accountWall,
   viewerToday,
+  workizInstant,
+  workizWall,
   addFilter,
   exportParams,
   filterCount,
@@ -103,12 +105,15 @@ describe("jobs report — presets", () => {
     expect(accountToday(new Date("2026-09-30T02:30:00Z"))).toBe("2026-09-29");
   });
 
-  // Workiz's presets count from moment(): the viewer's own clock. At 00:01 in
-  // Kyiv on Oct 9 (17:01 in New York, Oct 8) its "Today" read Oct 9th.
-  it("counts the presets from the viewer's own today, as Workiz does", () => {
-    const at = new Date(2026, 9, 9, 0, 1); // local wall clock
-    expect(viewerToday(at)).toBe("2026-10-09");
-    expect(viewerToday(new Date(2026, 0, 5, 23, 59))).toBe("2026-01-05");
+  // Workiz counts its presets from the viewer's own clock (moment()); the
+  // owner's rule of 2026-10-12 puts the web on Connecticut's instead — staff
+  // sit in Ukraine, where Today turns over at 17:00 New York time.
+  it("counts the presets from Connecticut's today, whatever the browser's", () => {
+    // 21:01 UTC on Oct 8 is 00:01 on Oct 9 in Kyiv, still Oct 8 (17:01) in Connecticut.
+    expect(viewerToday(new Date("2026-10-08T21:01:00Z"))).toBe("2026-10-08");
+    // 03:30 UTC on Oct 13 is Oct 12, 23:30 EDT.
+    expect(viewerToday(new Date("2026-10-13T03:30:00Z"))).toBe("2026-10-12");
+    expect(viewerToday(new Date("2026-01-06T04:59:00Z"))).toBe("2026-01-05");
   });
 });
 
@@ -160,6 +165,34 @@ describe("jobs report — cells", () => {
     expect(workizDate(undefined)).toBe("");
     expect(accountWall("2026-09-29T18:35:00.000Z")).toBe("2026-09-29T14:35");
     expect(accountWall("2026-01-15T04:10:00.000Z")).toBe("2026-01-14T23:10");
+  });
+
+  // 2026-10-12 owner rule: every time says which clock it is on.
+  it("an instant (Created, Lead created) on Connecticut's clock, labelled EDT / EST", () => {
+    expect(workizInstant("2026-09-29T18:35:00.000Z")).toBe("Tue Sep 29, 2026 02:35 pm EDT");
+    expect(workizInstant("2026-01-15T04:10:00.000Z")).toBe("Wed Jan 14, 2026 11:10 pm EST");
+    // 11:30 pm EDT is already the 13th in UTC — the cell keeps Connecticut's 12th.
+    expect(workizInstant("2026-10-13T03:30:00.000Z")).toBe("Mon Oct 12, 2026 11:30 pm EDT");
+    expect(workizInstant(undefined)).toBe("");
+    expect(workizInstant("not a date")).toBe("");
+  });
+
+  it("a visit's wall clock (Scheduled, End) the server sends on Connecticut's clock gets its label", () => {
+    expect(workizWall("2026-09-29T14:35")).toBe("Tue Sep 29, 2026 02:35 pm EDT");
+    expect(workizWall("2026-12-01T09:00")).toBe("Tue Dec 01, 2026 09:00 am EST");
+    expect(workizWall(undefined)).toBe("");
+  });
+
+  it("a wall clock of another zone is moved onto Connecticut's — a Chicago 10:00 is 11:00 EDT", () => {
+    expect(workizWall("2026-10-12T10:00", "America/Chicago")).toBe("Mon Oct 12, 2026 11:00 am EDT");
+    // A late Chicago visit is on Connecticut's next day.
+    expect(workizWall("2026-10-12T23:30", "America/Chicago")).toBe("Tue Oct 13, 2026 12:30 am EDT");
+    expect(workizWall("2026-12-01T08:00", "America/Chicago")).toBe("Tue Dec 01, 2026 09:00 am EST");
+  });
+
+  it("an all-day visit is a bare day: never shifted, no label", () => {
+    expect(workizWall("2026-10-12")).toBe("Mon Oct 12, 2026");
+    expect(workizWall("2026-10-12", "America/Phoenix")).toBe("Mon Oct 12, 2026");
   });
 });
 
