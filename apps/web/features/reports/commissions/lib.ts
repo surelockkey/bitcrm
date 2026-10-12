@@ -247,30 +247,26 @@ function businessDayTime(iso: string): string {
 }
 
 /**
- * A visit's stored wall clock — `day` and `HH:MM` as booked in the job's own
- * zone (`fromTz`) — on Connecticut's clock, labelled: a Chicago 10:00 is
- * "… 11:00 AM EDT". A day without a time is the day as booked.
+ * A visit's `day` and `HH:MM` — already on Connecticut's clock: deal-service
+ * converts each job's own wall clock before it sends the row (2026-10-12) —
+ * labelled ("… 11:00 AM EDT"). A day without a time is the day as booked.
  */
-function visitDayTime(day: string | undefined, time: string | undefined, fromTz: string): string {
+function visitDayTime(day: string | undefined, time: string | undefined): string {
   const hm = time?.slice(0, 5);
   if (!day || !hm || !/^\d{4}-\d{2}-\d{2}$/.test(day) || !/^\d{2}:\d{2}$/.test(hm)) return formatDayTime(day, time);
-  const ct = wallToCt(day, hm, fromTz);
+  const ct = wallToCt(day, hm, DEFAULT_TZ);
   return ct.abbr ? `${formatDayTime(ct.date, ct.time)} ${ct.abbr}` : formatDayTime(day, time);
 }
 
-/**
- * A row's cell as text (the grid and print). `visitZone` is the zone the
- * job's visit is stored in — `jobZoneResolver(areas)(row)`, its service
- * area's; Connecticut when not given.
- */
-export function cellText(row: CommissionReportRow, columnId: string, visitZone: string = DEFAULT_TZ): string {
+/** A row's cell as text (the grid and print). */
+export function cellText(row: CommissionReportRow, columnId: string): string {
   switch (columnId) {
     case "createdAt":
       return row.createdAt ? businessDayTime(row.createdAt) : "";
     case "scheduledDate":
-      return visitDayTime(row.scheduledDate, row.scheduledTimeSlot?.slice(0, 5), visitZone);
+      return visitDayTime(row.scheduledDate, row.scheduledTimeSlot?.slice(0, 5));
     case "closedDate":
-      return visitDayTime(row.closedDate, row.closedTime, visitZone);
+      return visitDayTime(row.closedDate, row.closedTime);
     case "rate":
       return rateLabel(row);
     case "externalBalance":

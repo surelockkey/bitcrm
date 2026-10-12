@@ -145,16 +145,17 @@ describe("CommissionsPage — Workiz's Finance Reporting", () => {
     expect(screen.getByText("Showing 1 to 1 of 1 entries")).toBeInTheDocument();
   });
 
-  // 2026-10-12 owner rule: a Texas visit is booked on Central time and shown on Connecticut's.
-  it("a job in a Central-time area shows its visit on Connecticut's clock, labelled", () => {
+  // deal-service sends a Texas visit already on Connecticut's clock (10:00 CDT
+  // arrives as 11:00); the page labels it and must not shift it again.
+  it("a job in a Central-time area keeps the Connecticut time the server sent, labelled", () => {
     useCommissionReport.mockImplementation(() => ({
-      data: report({ rows: [row({ serviceAreaId: "area-tx", scheduledTimeSlot: "10:00-11:00", closedTime: "23:30" })] }),
+      data: report({ rows: [row({ serviceAreaId: "area-tx", scheduledTimeSlot: "11:00-12:00", closedTime: "23:30" })] }),
       error: null,
     }));
     render(<CommissionsPage today="2026-09-29" />);
     const rows = within(grid()).getAllByRole("row");
     expect(rows[2]).toHaveTextContent("09/02/2026 11:00 AM EDT");
-    expect(rows[2]).toHaveTextContent("09/03/2026 12:30 AM EDT");
+    expect(rows[2]).toHaveTextContent("09/02/2026 11:30 PM EDT");
   });
 
   it("Total Profits and Total by type under the grid, the numbers as they are", () => {
