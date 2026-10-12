@@ -23,7 +23,27 @@ Publishers and consumers import these so the wire format can't drift; the
 `deal.created`, `deal.updated`, `deal.status_changed`, `deal.completed`, `deal.deleted`,
 `deal.tech_assigned`, `deal.tech_unassigned`, `deal.product_added`, `deal.product_updated`,
 `deal.product_removed`, `deal.products_replaced`, `deal.tech_confirmed`, `deal.tech_arrived`,
-`deal.sent_to_tech`.
+`deal.sent_to_tech`, `deal.client_confirmed`.
+
+### `deal.client_confirmed` — the client confirmed the visit (typed: `DealClientConfirmedEvent` in `@bitcrm/types`)
+
+| Field | Meaning |
+|---|---|
+| `dealId`, `dealNumber?`, `contactId?` | the job and its client |
+| `confirmedAt` | ISO-8601, equals the deal's `clientConfirmedAt`; **the idempotency key** (automation occurrence `client_confirmed:<confirmedAt>`) |
+| `via` | `'link'` — the page `{{confirm_link}}` opens (`apps/portal` `/confirm/<token>`) |
+| `visit?` | the visit confirmed (`clientConfirmScheduleKey`: `"<date> <slot>"` / `"<date> all-day"`, empty when unscheduled) |
+
+Published by `POST /api/deals/internal/:id/client-confirm` (called by billing's public
+`POST /api/billing/public/confirm/:token`) **after** the conditional write of
+`clientConfirmedAt` / `clientConfirmedVia` / `clientConfirmedBy` / `clientConfirmedFor` and the
+`client_confirmed` timeline entry ("Client Confirmed job", actor `client`). Once per confirmed
+visit: a repeat tap, the loser of a race, a closed job and a visit that is over publish nothing; a
+confirmation of a NEW time after a reschedule publishes again. No sub-status is set (Workiz sets
+none). Consumed by **messaging** (queue `deal-events-to-messaging`, `AutomationDealEventsHandler.
+onClientConfirmed`) as the automation trigger `deal.client_confirmed` ("When the client confirms
+the appointment" — e.g. text the dispatcher, or `change_sub_status`). Not in the search document,
+so search's shared consumer logs "No handler" and deletes it.
 
 ### `deal.sent_to_tech` — Workiz "Send to tech" (typed: `DealSentToTechEvent` in `@bitcrm/types`)
 
