@@ -87,6 +87,11 @@ describe('DealsRepository.readMapJobs', () => {
       'sentToTechAt', 'sentToTechVia', 'seenByTechAt']) {
       expect(DISPATCH_MAP_FIELDS).toContain(f);
     }
+    // The zone the visit was booked in — the web shows a pin's time on
+    // Connecticut's clock (2026-10-12), so it must know a Texas job is Central.
+    for (const f of ['serviceAreaId', 'jobTimezone']) {
+      expect(DISPATCH_MAP_FIELDS).toContain(f);
+    }
     // …and every field a `Deal` must have, so a row is an honest `Deal`.
     for (const f of ['clientType', 'assignedDispatcherId', 'priority', 'tagIds', 'status', 'createdBy', 'createdAt',
       'updatedAt']) {

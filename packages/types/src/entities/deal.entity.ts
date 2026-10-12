@@ -395,6 +395,10 @@ export const DISPATCH_MAP_JOB_FIELDS = [
   'sentToTechAt',
   'sentToTechVia',
   'seenByTechAt',
+  // The zone the visit was booked in — the web shows pin times on
+  // Connecticut's clock and converts a Texas (Central) job's slot.
+  'serviceAreaId',
+  'jobTimezone',
 ] as const satisfies readonly (keyof Deal)[];
 
 /**
