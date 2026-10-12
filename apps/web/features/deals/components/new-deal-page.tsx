@@ -71,6 +71,7 @@ import {
   MAX_CLIENT_PHONES,
   clientFormFromContact,
   emptyClientForm,
+  growPhoneRows,
   jobClientType,
   matchCompany,
   newContactBody,
@@ -759,11 +760,15 @@ function DealForm({
                 email={clientForm.email}
                 onPhone={setPhone}
                 onEmail={(email) => setClient({ email })}
-                onAddPhone={() => setClient({ phones: [...clientForm.phones, { phone: "", ext: "" }] })}
-                phoneError={
-                  errorFor("phone") ?? (missingNow?.ids.includes("phoneInvalid") ? "Invalid phone number" : undefined)
-                }
-                secondaryPhoneError={errorFor("secondaryPhone")}
+                onAddPhone={(count) => setClient({ phones: growPhoneRows(clientForm.phones, count) })}
+                phoneError={(i) => {
+                  const typed = clientForm.phones[i]?.phone ?? "";
+                  const invalid = missingNow?.ids.includes("phoneInvalid") && typed && !isValidPhone(typed);
+                  return (
+                    (i === 0 ? errorFor("phone") : i === 1 ? errorFor("secondaryPhone") : undefined) ??
+                    (invalid ? "Invalid phone number" : undefined)
+                  );
+                }}
                 emailError={errorFor("email") ?? (missingNow?.ids.includes("emailInvalid") ? "Invalid email" : undefined)}
                 owner={phoneOwner}
                 onUseOwner={pick}
@@ -1000,8 +1005,9 @@ function Verified() {
 
 /**
  * Phone | Ext (one seamless box) beside Email, "Add phone" under the phone
- * (new_01_empty); with a second number the two phones share the row and
- * Email takes its own (new_08_add_phone), and the link goes.
+ * (new_01_empty); with a second number the phones fill rows of two and Email
+ * takes its own (new_08_add_phone). Workiz stops at two; ours keeps "Add
+ * phone" under the last number until MAX_CLIENT_PHONES (2026-10-12).
  */
 function ClientPhones({
   rows,
@@ -1010,7 +1016,6 @@ function ClientPhones({
   onEmail,
   onAddPhone,
   phoneError,
-  secondaryPhoneError,
   emailError,
   owner,
   onUseOwner,
@@ -1019,10 +1024,13 @@ function ClientPhones({
   email: string;
   onPhone: (i: number, patch: Partial<ClientPhoneRow>) => void;
   onEmail: (email: string) => void;
-  onAddPhone: () => void;
-  phoneError?: string;
-  /** "Required field" for a Secondary Phone an admin made required: the second box comes up with it. */
-  secondaryPhoneError?: string;
+  /** Grow the card to `count` numbers. */
+  onAddPhone: (count: number) => void;
+  /**
+   * What to say under box `i`. A required Secondary Phone that is missing
+   * brings the second box up with its "Required field".
+   */
+  phoneError: (i: number) => string | undefined;
   emailError?: string;
   /** A client the typed number already belongs to. */
   owner: Contact | null;
@@ -1030,13 +1038,13 @@ function ClientPhones({
 }) {
   const EMPTY_ROW: ClientPhoneRow = { phone: "", ext: "" };
   const phone = (i: number) => (
-    <div className="relative min-w-0">
+    <div key={i} className="relative min-w-0">
       <WzFieldGroup join="seamless">
         <WzPhoneField
           aria-label={i === 0 ? "Phone" : `Phone ${i + 1}`}
           value={(rows[i] ?? EMPTY_ROW).phone}
           onChange={(p) => onPhone(i, { phone: p })}
-          error={i === 0 ? phoneError : secondaryPhoneError}
+          error={phoneError(i)}
         />
         <WzTextField
           label="Ext"
@@ -1071,27 +1079,32 @@ function ClientPhones({
     />
   );
 
-  // The second box shows once "Add phone" was used — or on its own when a
-  // Secondary Phone is required and missing, so the number can be typed.
-  if (rows.length >= MAX_CLIENT_PHONES || secondaryPhoneError) {
+  // A box per number, and the second on its own when a required Secondary
+  // Phone is missing, so the number can be typed.
+  const count = Math.max(rows.length, phoneError(1) ? 2 : 1);
+  const boxes = Array.from({ length: count }, (_, i) =>
+    i === count - 1 && count < MAX_CLIENT_PHONES ? (
+      <div key={i} className="min-w-0">
+        {phone(i)}
+        <WzLink tone="bold" className="mt-[5px]" onClick={() => onAddPhone(count + 1)}>
+          Add phone
+        </WzLink>
+      </div>
+    ) : (
+      phone(i)
+    ),
+  );
+  if (count > 1) {
     return (
       <>
-        <div className="grid grid-cols-2 gap-x-5">
-          {phone(0)}
-          {phone(1)}
-        </div>
+        <div className="grid grid-cols-2 gap-x-5 gap-y-2.5">{boxes}</div>
         {emailBox}
       </>
     );
   }
   return (
     <div className="grid grid-cols-2 gap-x-5">
-      <div className="min-w-0">
-        {phone(0)}
-        <WzLink tone="bold" className="mt-[5px]" onClick={onAddPhone}>
-          Add phone
-        </WzLink>
-      </div>
+      {boxes}
       {emailBox}
     </div>
   );

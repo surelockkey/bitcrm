@@ -3,7 +3,9 @@ import { ClientType, ContactSource, ContactType, CrmStatus, type Company, type C
 import {
   clientFormFromContact,
   emptyClientForm,
+  growPhoneRows,
   jobClientType,
+  MAX_CLIENT_PHONES,
   matchCompany,
   newContactBody,
   pickedClientChanges,
@@ -83,6 +85,32 @@ describe("the client form", () => {
 
   it("a client with no phone on file still gets one row", () => {
     expect(clientFormFromContact({ ...contact, phones: [] }, undefined).phones).toEqual([{ phone: "", ext: "" }]);
+  });
+
+  // 2026-10-12: a job takes more than Workiz's two numbers.
+  it("shows every number the client has on file, a third one too", () => {
+    const three = { ...contact, phones: [...contact.phones, "+14695552222"] };
+    expect(clientFormFromContact(three, undefined).phones.map((r) => r.phone)).toEqual([
+      "+14693968179",
+      "+14695550000",
+      "+14695552222",
+    ]);
+  });
+});
+
+describe("growPhoneRows — what 'Add phone' does", () => {
+  const row = (phone: string) => ({ phone, ext: "" });
+
+  it("adds empty rows up to the count asked for, keeping what was typed", () => {
+    expect(growPhoneRows([row("+14045550123")], 2)).toEqual([row("+14045550123"), row("")]);
+    // A box the card brought up on its own (a required Secondary Phone) counts too.
+    expect(growPhoneRows([row("+14045550123")], 3)).toEqual([row("+14045550123"), row(""), row("")]);
+  });
+
+  it("never past the CRM's cap, never shrinks", () => {
+    const ten = Array.from({ length: MAX_CLIENT_PHONES }, () => row(""));
+    expect(growPhoneRows(ten, MAX_CLIENT_PHONES + 1)).toHaveLength(MAX_CLIENT_PHONES);
+    expect(growPhoneRows([row("a"), row("b")], 1)).toEqual([row("a"), row("b")]);
   });
 });
 
