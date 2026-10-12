@@ -333,7 +333,7 @@ function ItemGroupForm({
                     {line.name}
                   </span>
                   {line.type ? (
-                    <span className="mt-1.5 inline-block rounded-chip bg-[#d36ff0] px-2 text-[11px] leading-[18px] font-medium tracking-[0.4px] text-white uppercase data-[service=true]:bg-[#6aa8ee]" data-service={line.type !== "product" || undefined}>
+                    <span className="mt-1.5 inline-block rounded-pill bg-[#d36ff0] px-2 text-[11px] leading-[18px] font-medium tracking-[0.4px] text-white uppercase data-[service=true]:bg-[#6aa8ee]" data-service={line.type !== "product" || undefined}>
                       {typeLabel(line.type as Product["type"])}
                     </span>
                   ) : null}

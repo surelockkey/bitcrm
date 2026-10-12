@@ -24,7 +24,7 @@ export function ItemGroupChoices({
   const shown = limit !== undefined ? groups.slice(0, limit) : groups;
   const rest = groups.length - shown.length;
   return (
-    <div data-testid="item-group-choices" className="space-y-1.5">
+    <div data-testid="item-group-choices" className="min-w-0 space-y-1.5">
       <p className="text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">Item groups</p>
       {shown.map((g) => (
         <button
@@ -71,7 +71,7 @@ export function ItemGroupConfirm({
   onSubmit: () => void;
 }) {
   return (
-    <div data-testid="item-group-confirm" className="space-y-3">
+    <div data-testid="item-group-confirm" className="min-w-0 space-y-3">
       <div className="flex items-center gap-2.5">
         <span className="grid size-8 flex-none place-items-center rounded-md border bg-muted text-muted-foreground">
           <Layers className="size-4" />
@@ -81,7 +81,7 @@ export function ItemGroupConfirm({
           {group.description ? <div className="truncate text-xs text-muted-foreground">{group.description}</div> : null}
         </div>
       </div>
-      <ul className="divide-y rounded-lg border">
+      <ul className="min-w-0 divide-y rounded-lg border">
         {group.members.map((m, i) => (
           <li key={`${m.productId}-${i}`} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
             <span className="min-w-0 truncate">{m.name}</span>

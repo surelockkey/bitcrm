@@ -124,7 +124,7 @@ export function ItemGroupsTab() {
     <div className="flex flex-col">
       {/* The sentence 20px under the tab rule and 20px in; Add New level with it, 20px off the edge. */}
       <div className="flex h-[117px] shrink-0 items-start justify-between gap-5 px-5 pt-5">
-        <p className="max-w-[317px] text-sm leading-4 text-foreground">
+        <p className="max-w-[317px] text-sm leading-4 text-wz-strong">
           Item groups help you add multiple items to invoices and estimates
         </p>
         {canCreate ? (
