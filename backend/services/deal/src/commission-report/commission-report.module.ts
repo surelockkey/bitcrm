@@ -3,6 +3,7 @@ import { JobTypesRepository } from '../job-types/job-types.repository';
 import { JobSourcesRepository } from '../job-sources/job-sources.repository';
 import { ExternalCompaniesRepository } from '../external-companies/external-companies.repository';
 import { CustomFieldsRepository } from '../custom-fields/custom-fields.repository';
+import { ServiceAreasRepository } from '../service-areas/service-areas.repository';
 import { CommissionReportController } from './commission-report.controller';
 import { CommissionReportService } from './commission-report.service';
 import { CommissionReportRepository } from './commission-report.repository';
@@ -23,6 +24,7 @@ import { CommissionReportClient } from './commission-report.client';
     JobSourcesRepository,
     ExternalCompaniesRepository,
     CustomFieldsRepository,
+    ServiceAreasRepository,
   ],
   // Job Statistics (DealsModule) takes its Profit from the same rows.
   exports: [CommissionReportService],

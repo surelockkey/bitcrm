@@ -44,6 +44,9 @@ export interface CommissionDealItem {
   techSpecialRate?: number;
   techSpecialRateUnit?: CommissionRateUnit;
   jobTimezone?: string;
+  /** The visit as instants (an imported job): read on the office's clock while they still describe it. */
+  jobDateUtc?: string;
+  jobEndDateUtc?: string;
   /** Workiz's own report row for this job, frozen at import. */
   commissionSnapshot?: WorkizCommissionSnapshot;
   clientName?: { firstName?: string; lastName?: string };

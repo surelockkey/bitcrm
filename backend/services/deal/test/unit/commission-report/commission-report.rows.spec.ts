@@ -109,10 +109,63 @@ describe('which Done jobs a period holds', () => {
     expect(reportDayOf(item({ createdAt: '2026-09-01T02:30:00.000Z', jobTimezone: undefined }), 'created')).toBe('2026-08-31');
   });
 
+  it('Created is the office’s (Connecticut) day whatever the job’s zone — 2026-10-12', () => {
+    // 23:30 in Chicago on Aug 31 is 00:30 on Sep 1 in Connecticut.
+    const chicago = item({ createdAt: '2026-09-01T04:30:00.000Z', jobTimezone: 'America/Chicago' });
+    expect(reportDayOf(chicago, 'created')).toBe('2026-09-01');
+    // Winter: 23:10 EST on Jan 15 is 04:10 UTC on the 16th.
+    expect(reportDayOf(item({ createdAt: '2026-01-16T04:10:00.000Z' }), 'created')).toBe('2026-01-15');
+  });
+
+  it('a job booked in a Central area is scheduled and closed on its Connecticut day', () => {
+    const late = item({
+      jobTimezone: undefined,
+      serviceAreaId: 'area-tx',
+      scheduledDate: '2026-09-27',
+      scheduledEndDate: '2026-09-27',
+      scheduledTimeSlot: '22:30-23:30',
+    });
+    // 22:30 Central is 23:30 Eastern — still the 27th; 23:30 Central ends at 00:30 on the 28th.
+    expect(reportDayOf(late, 'scheduled', 'America/Chicago')).toBe('2026-09-27');
+    expect(reportDayOf(late, 'closed', 'America/Chicago')).toBe('2026-09-28');
+    expect(inPeriod(late, 'closed', '2026-09-01', '2026-09-27', 'America/Chicago')).toBe(false);
+    // Without its area's zone the slot reads as Eastern.
+    expect(reportDayOf(late, 'closed')).toBe('2026-09-27');
+  });
+
   it('a job shared by several technicians is its primary’s', () => {
     expect(primaryTechOf(item({ assignedTechIds: ['a', 'b'] }))).toBe('a');
     expect(primaryTechOf(item({ assignedTechIds: ['b', 'a'], commissionSnapshot: { ...TGQ6NS_SNAPSHOT, techId: 'a' } }))).toBe('a');
     expect(primaryTechOf(item({ assignedTechIds: [] }))).toBeUndefined();
+  });
+});
+
+describe('the office’s clock — every day and time on Connecticut’s (2026-10-12)', () => {
+  it('a job booked in a Central area prints its visit on the Eastern clock', () => {
+    const row = buildRow(
+      item({ jobTimezone: undefined, serviceAreaId: 'area-tx', scheduledTimeSlot: '10:00-11:00' }),
+      ctx({ areaZones: new Map([['area-tx', 'America/Chicago']]) }),
+    );
+    expect(row).toMatchObject({ scheduledDate: '2026-09-02', scheduledTimeSlot: '11:00-12:00', closedDate: '2026-09-02', closedTime: '12:00' });
+  });
+
+  it('the CSV prints Created, Scheduled and Closed in Connecticut, each time with its zone', () => {
+    // Created 15:48 UTC = 11:48 EDT; the visit 18:00–19:00 Eastern.
+    const summer = buildRow(item({ commissionSnapshot: TGQ6NS_SNAPSHOT }), ctx());
+    expect(commissionReportCsv([summer], totalsOf([summer]), 'standard').split('\r\n')[2]).toMatch(
+      /^TGQ6NS,Moshe Szender,2026-07-28 11:48 EDT,2026-09-02 18:00 EDT,2026-09-02 19:00 EDT,/,
+    );
+    // Created 03:10 UTC on Jan 16 = 22:10 EST on the 15th.
+    const winter = buildRow(
+      item({ createdAt: '2026-01-16T03:10:00.000Z', scheduledDate: '2026-01-20', scheduledEndDate: '2026-01-20', scheduledTimeSlot: '09:00-10:00' }),
+      ctx(),
+    );
+    expect(commissionReportCsv([winter], totalsOf([winter]), 'tech').split('\r\n')[2]).toMatch(
+      /^TGQ6NS,Moshe Szender,2026-01-15 22:10 EST,2026-01-20 10:00 EST,/,
+    );
+    // A day without a time says no zone.
+    const allDay = buildRow(item({ allDay: true }), ctx());
+    expect(commissionReportCsv([allDay], totalsOf([allDay]), 'standard').split('\r\n')[2]).toContain(',2026-09-02,2026-09-02,');
   });
 });
 

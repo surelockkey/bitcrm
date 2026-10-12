@@ -682,8 +682,11 @@ tests, and — if it emits events — the types in `@bitcrm/types` plus a row in
   read off EXISTING keys — GSI5 `STATUS#done` by visit start for Closed /
   Scheduled (Workiz's "Closed" is the END of the visit window,
   `scheduledEndDate`, so the start range reaches 31 days back and the end day is
-  filtered on), GSI1 `STATUS#done` by `createdAt` for Created (the local day in
-  `jobTimezone`), the tech index for an `assigned_only` caller. It never reads
+  filtered on), GSI1 `STATUS#done` by `createdAt` for Created, the tech index
+  for an `assigned_only` caller. Every day and time is Connecticut's (the
+  office's, Workiz's account clock): Created is the New York day, a visit is
+  read off the job's own clock (`jobTimezone`, else its area's) onto New York
+  (`report-dates`), and the visit indexes are read a day either side. It never reads
   GSI6: `closedAt` is when the job turned Done, not Workiz's "Closed". An
   imported job shows Workiz's frozen `commissionSnapshot`; a job done here is
   computed by `calculateWorkizCommission` (`commission-report/`) from billing's
