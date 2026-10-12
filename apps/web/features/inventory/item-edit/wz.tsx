@@ -414,11 +414,14 @@ export function CategoryField({
   value,
   onBrowse,
   disabled = false,
+  onClear,
 }: {
   label: string;
   value: string;
   onBrowse: () => void;
   disabled?: boolean;
+  /** Given, a set value gets a × before Browse that empties it (an optional category). */
+  onClear?: () => void;
 }) {
   const hasValue = value !== "";
   return (
@@ -445,10 +448,24 @@ export function CategoryField({
         className={cn(
           "pointer-events-none absolute top-1/2 right-[90px] left-11 -translate-y-1/2 truncate text-[13px] leading-4 tracking-[0.4px]",
           hasValue ? "text-[#3b4b52]" : "text-[#768287]",
+          onClear && hasValue && !disabled && "right-[116px]",
         )}
       >
         {hasValue ? value : label}
       </span>
+      {onClear && hasValue && !disabled ? (
+        <button
+          type="button"
+          aria-label={`Clear — ${label}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            onClear();
+          }}
+          className="absolute top-1/2 right-[88px] flex size-6 -translate-y-1/2 items-center justify-center text-[#ccc] outline-none hover:text-[#999] focus-visible:ring-2 focus-visible:ring-[#6aa8ee]/50"
+        >
+          <X className="size-4" strokeWidth={2} />
+        </button>
+      ) : null}
       <button
         type="button"
         disabled={disabled}

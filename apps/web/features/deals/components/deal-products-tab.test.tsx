@@ -24,6 +24,7 @@ const mocks = vi.hoisted(() => ({
   payProps: [] as Array<{ open: boolean; target?: string; balanceDue: number; invoiceId: string }>,
   scheduleDialogProps: [] as Array<{ open: boolean; total: number; amountPaid: number; view: unknown }>,
   scheduleTableProps: [] as Array<{ invoiceId?: string; canCollect: boolean; canViewPdf: boolean }>,
+  groupDialogProps: [] as Array<{ mode: string; initialLines?: Array<{ productId: string; cost: string }> }>,
 }));
 
 vi.mock("@/features/payments/schedule-hooks", () => ({
@@ -88,6 +89,14 @@ vi.mock("./add-product-dialog", () => ({
   AddProductDialog: (props: { open: boolean; editing?: DealProduct }) => {
     mocks.dialogProps.push({ open: props.open, editing: props.editing });
     return props.open ? <div data-testid="product-dialog" /> : null;
+  },
+}));
+
+// Workiz's save-as-group icon opens Create item group (its own tests cover the window).
+vi.mock("@/features/price-book/item-groups/item-group-dialog", () => ({
+  ItemGroupDialog: (p: { mode: string; initialLines?: Array<{ productId: string; cost: string }>; onClose: () => void }) => {
+    mocks.groupDialogProps.push(p);
+    return <div role="dialog" aria-label="Create item group" />;
   },
 }));
 
@@ -303,6 +312,29 @@ describe("DealProductsTab (job variant — Workiz's Items tab)", () => {
       "Amount",
       "Taxable",
     ]);
+  });
+
+  it("offers Workiz's save-as-group icon after Job Items, which opens Create item group on the job's lines", async () => {
+    mocks.groupDialogProps.length = 0;
+    render(<DealProductsTab deal={deal} canEdit variant="job" showCost canSaveGroup balance={0} />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Save items as an item group" }));
+
+    expect(screen.getByRole("dialog", { name: "Create item group" })).toBeInTheDocument();
+    expect(mocks.groupDialogProps.at(-1)).toMatchObject({
+      mode: "new",
+      initialLines: [expect.objectContaining({ productId: "p1", cost: "10" })],
+    });
+  });
+
+  it("offers no save-as-group icon without products.create, or on a job without items", () => {
+    const { unmount } = render(<DealProductsTab deal={deal} canEdit variant="job" showCost balance={0} />);
+    expect(screen.queryByRole("button", { name: "Save items as an item group" })).toBeNull();
+    unmount();
+
+    mocks.products = [];
+    render(<DealProductsTab deal={deal} canEdit variant="job" showCost canSaveGroup balance={0} />);
+    expect(screen.queryByRole("button", { name: "Save items as an item group" })).toBeNull();
   });
 
   it("fills a row as Workiz does: 2.00, $45.00, $10.00, $90.00", () => {

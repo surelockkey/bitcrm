@@ -7,13 +7,16 @@ import type { DealProduct, Product } from "@bitcrm/types";
 const mocks = vi.hoisted(() => ({
   add: vi.fn(),
   replace: vi.fn(),
+  addGroup: vi.fn(),
   catalog: [] as unknown[],
+  groups: [] as unknown[],
   stock: new Map<string, number>(),
 }));
 
 vi.mock("../hooks", () => ({
   useAddProduct: () => ({ mutate: mocks.add, isPending: false }),
   useReplaceProduct: () => ({ mutate: mocks.replace, isPending: false }),
+  useAddItemGroup: () => ({ mutate: mocks.addGroup, isPending: false }),
   useUserMap: () => ({
     map: new Map([["t1", { id: "t1", firstName: "Bob", lastName: "Wrench" }]]),
     users: [],
@@ -27,7 +30,9 @@ vi.mock("@tanstack/react-query", () => ({
   useQuery: (opts: { queryKey: readonly unknown[] }) =>
     opts.queryKey[0] === "deal-tech-stock"
       ? { data: mocks.stock, isSuccess: true, isLoading: false, isError: false }
-      : { data: mocks.catalog, isLoading: false },
+      : opts.queryKey[0] === "item-groups"
+        ? { data: mocks.groups, isLoading: false }
+        : { data: mocks.catalog, isLoading: false },
 }));
 
 import { AddProductDialog } from "./add-product-dialog";
@@ -70,6 +75,8 @@ const editingLine: DealProduct = {
 beforeEach(() => {
   mocks.add.mockClear();
   mocks.replace.mockClear();
+  mocks.addGroup.mockClear();
+  mocks.groups = [];
   mocks.catalog = [deadbolt, schlage];
   mocks.stock = new Map([
     ["p1", 5],
@@ -266,5 +273,54 @@ describe("AddProductDialog (add mode regression)", () => {
       sourceTechId: "t1",
     });
     expect(mocks.replace).not.toHaveBeenCalled();
+  });
+});
+
+describe("AddProductDialog — item groups (Workiz: Add item, then the group)", () => {
+  const spring = {
+    id: "g1",
+    name: "spring adjustment",
+    description: "",
+    groupType: "separate_items",
+    active: true,
+    total: 270,
+    members: [
+      { productId: "p1", name: "Service Trip Charge", quantity: 1, priceClient: 45, taxable: true, description: "", customAttributes: {} },
+      { productId: "p2", name: "Labor for Spring Adjustment", quantity: 1, priceClient: 225, taxable: true, description: "", customAttributes: {} },
+    ],
+  };
+  const disabled = { ...spring, id: "g2", name: "Metal Door", active: false };
+
+  it("offers the active groups beside the catalog, matched by what is typed", async () => {
+    mocks.groups = [spring, disabled];
+    const u = user();
+    render(dialog());
+
+    expect(screen.getByRole("button", { name: /spring adjustment/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Metal Door/ })).toBeNull();
+    await u.type(screen.getByPlaceholderText(/search catalog/i), "kwik");
+    expect(screen.queryByRole("button", { name: /spring adjustment/ })).toBeNull();
+  });
+
+  it("shows the group's lines, then adds the whole group from the chosen technician's van", async () => {
+    mocks.groups = [spring];
+    const u = user();
+    render(dialog());
+
+    await u.click(screen.getByRole("button", { name: /spring adjustment/ }));
+    expect(screen.getByText("Labor for Spring Adjustment")).toBeInTheDocument();
+    expect(screen.getByText("$270.00")).toBeInTheDocument();
+    await u.click(screen.getByRole("button", { name: "Add group" }));
+
+    expect(mocks.addGroup).toHaveBeenCalledTimes(1);
+    expect(mocks.addGroup.mock.calls[0][0]).toEqual({ groupId: "g1", sourceTechId: "t1" });
+    expect(mocks.add).not.toHaveBeenCalled();
+  });
+
+  it("offers no groups while a line is being edited", () => {
+    mocks.groups = [spring];
+    render(dialog(editingLine));
+
+    expect(screen.queryByRole("button", { name: /spring adjustment/ })).toBeNull();
   });
 });

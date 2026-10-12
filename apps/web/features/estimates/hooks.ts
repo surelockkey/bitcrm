@@ -241,6 +241,17 @@ export function useAddEstimateItem(id: string, dealId?: string) {
   });
 }
 
+/** An item group's lines on the estimate, one after another; the list is asked for again either way. */
+export function useAddEstimateItemGroup(id: string, dealId?: string) {
+  const invalidate = useInvalidateEstimates();
+  return useMutation({
+    mutationFn: (lines: EstimateItemBody[]) => api.addEstimateItems(id, lines),
+    onSuccess: (n) => toast.success(`Item group added — ${n} ${n === 1 ? "item" : "items"}`),
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+    onSettled: () => invalidate(dealId),
+  });
+}
+
 export function useUpdateEstimateItem(id: string, dealId?: string) {
   const invalidate = useInvalidateEstimates();
   return useMutation({

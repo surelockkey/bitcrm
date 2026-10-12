@@ -7,11 +7,13 @@ import { usePermissions } from "@/features/auth/use-permissions";
 
 /**
  * Workiz's tabs we have, in its order and words (pg_pricebook_wz_01_default):
- * "Items & products", "Item categories", "Item brands". Its "Item groups"
- * and "Catalogs" (Price Book Pro) are not BitCRM's.
+ * "Items & products", "Item groups" (the items' permission — groups sit in
+ * the price book), "Item categories", "Item brands". Its "Catalogs" (Price
+ * Book Pro) is not BitCRM's.
  */
 const TABS: { id: string; label: string; href: string; resource: Resource }[] = [
   { id: "items", label: "Items & products", href: "/price-book/items", resource: "products" },
+  { id: "groups", label: "Item groups", href: "/price-book/groups", resource: "products" },
   { id: "categories", label: "Item categories", href: "/price-book/categories", resource: "product_categories" },
   { id: "brands", label: "Item brands", href: "/price-book/brands", resource: "brands" },
 ];

@@ -134,6 +134,7 @@ describe("labelForPath", () => {
     expect(labelForPath("/price-book/items")).toBe("Price book");
     expect(labelForPath("/price-book/categories")).toBe("Price book Categories");
     expect(labelForPath("/price-book/brands")).toBe("Price book Brands");
+    expect(labelForPath("/price-book/groups")).toBe("Price book Item groups");
   });
 
   it("titles the Phone section's tabs as Workiz's breadcrumb does, not as a call", () => {

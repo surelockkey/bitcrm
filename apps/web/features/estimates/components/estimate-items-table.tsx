@@ -6,6 +6,7 @@ import { DocumentItemsTable } from "@/features/billing/components/document-items
 import { usePermissions } from "@/features/auth/use-permissions";
 import {
   useAddEstimateItem,
+  useAddEstimateItemGroup,
   useDeleteEstimateItem,
   useReorderEstimateItems,
   useSetEstimateItemTaxable,
@@ -35,6 +36,7 @@ export function EstimateItemsTable({
 }) {
   const { can } = usePermissions();
   const add = useAddEstimateItem(estimateId, dealId);
+  const addGroup = useAddEstimateItemGroup(estimateId, dealId);
   const update = useUpdateEstimateItem(estimateId, dealId);
   const remove = useDeleteEstimateItem(estimateId, dealId);
   const reorder = useReorderEstimateItems(estimateId, dealId);
@@ -53,8 +55,11 @@ export function EstimateItemsTable({
         add: add.isPending,
         update: update.isPending,
         removingLineId: remove.isPending ? remove.variables : undefined,
+        addGroup: addGroup.isPending,
       }}
       onAdd={(body, done) => add.mutate(body, { onSuccess: done })}
+      // Workiz: an item group goes on an estimate in one click (needs the price book's view).
+      onAddGroup={can("products", "view") ? (lines, done) => addGroup.mutate(lines, { onSettled: done }) : undefined}
       onUpdate={(lineId, body, done) => update.mutate({ lineId, body }, { onSuccess: done })}
       onRemove={(lineId) => remove.mutate(lineId)}
       onReorder={(lineIds) => reorder.mutate(lineIds)}

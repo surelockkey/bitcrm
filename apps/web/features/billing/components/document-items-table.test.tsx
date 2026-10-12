@@ -5,6 +5,15 @@ import { ProductType } from "@bitcrm/types";
 import { renderWithClient } from "@/test/render-with-client";
 
 vi.mock("@/features/inventory/warehouses/api", () => ({ fetchAllProducts: () => Promise.resolve([]) }));
+vi.mock("@/features/price-book/item-groups/api", () => ({
+  listItemGroups: () =>
+    Promise.resolve([
+      {
+        id: "g1", name: "Door kit", description: "", groupType: "separate_items", active: true, total: 300,
+        members: [{ productId: "p9", name: "Door", quantity: 1, priceClient: 300, taxable: true, description: "", customAttributes: {} }],
+      },
+    ]),
+}));
 
 import { DocumentItemsTable, type DocumentItemsTableProps, type DocumentLineItem } from "./document-items-table";
 
@@ -110,6 +119,20 @@ describe("DocumentItemsTable — variant workiz", () => {
    * own — so the page opens its window, and the grid neither drags nor edits
    * numbers in place.
    */
+  it("adds an item group's lines through the page when it takes groups (Workiz: groups on estimates)", async () => {
+    const onAddGroup = vi.fn();
+    setup({ onAddGroup });
+    const u = user();
+    await u.click(screen.getByRole("button", { name: /add item/i }));
+    await u.click(await screen.findByRole("button", { name: /Door kit/ }));
+    await u.click(screen.getByRole("button", { name: "Add group" }));
+
+    expect(onAddGroup).toHaveBeenCalledWith(
+      [expect.objectContaining({ productId: "p9", name: "Door", quantity: 1, priceClient: 300 })],
+      expect.any(Function),
+    );
+  });
+
   it("hands Add item and a line to the page's own item window when it has one", async () => {
     const onOpenLine = vi.fn();
     setup({ onOpenLine, reorderable: false, inlineEdit: false, emptyAction: "Add line items" });

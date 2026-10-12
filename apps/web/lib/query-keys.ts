@@ -227,6 +227,11 @@ export const queryKeys = {
       all: () => ["brands"] as const,
       list: () => ["brands", "list"] as const,
     },
+    /** Workiz "Item groups" (`GET /inventory/item-groups?status=`). */
+    itemGroups: {
+      all: () => ["item-groups"] as const,
+      list: (status?: string) => ["item-groups", "list", status ?? "all"] as const,
+    },
     /** Workiz "User containers": which van each user works from. */
     userContainers: {
       all: () => ["user-containers"] as const,

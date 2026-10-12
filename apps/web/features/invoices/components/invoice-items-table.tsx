@@ -10,6 +10,7 @@ import {
 import { usePermissions } from "@/features/auth/use-permissions";
 import {
   useAddInvoiceItem,
+  useAddInvoiceItemGroup,
   useDeleteInvoiceItem,
   useReorderInvoiceItems,
   useSetInvoiceItemTaxable,
@@ -37,8 +38,10 @@ export function toLineItems(items: BillingLine[]): DocumentLineItem[] {
 /** What the items grid needs to edit a CLIENT invoice's own lines: the mutations behind its callbacks. */
 export function useClientInvoiceLines(
   invoiceId: string,
-): Pick<DocumentItemsTableProps, "pending" | "onAdd" | "onUpdate" | "onRemove" | "onReorder" | "onTaxable"> {
+): Pick<DocumentItemsTableProps, "pending" | "onAdd" | "onUpdate" | "onRemove" | "onReorder" | "onTaxable" | "onAddGroup"> {
+  const { can } = usePermissions();
   const add = useAddInvoiceItem(invoiceId);
+  const addGroup = useAddInvoiceItemGroup(invoiceId);
   const update = useUpdateInvoiceItem(invoiceId);
   const remove = useDeleteInvoiceItem(invoiceId);
   const reorder = useReorderInvoiceItems(invoiceId);
@@ -48,12 +51,15 @@ export function useClientInvoiceLines(
       add: add.isPending,
       update: update.isPending,
       removingLineId: remove.isPending ? remove.variables : undefined,
+      addGroup: addGroup.isPending,
     },
     onAdd: (body, done) => add.mutate(body, { onSuccess: done }),
     onUpdate: (lineId, body, done) => update.mutate({ lineId, body }, { onSuccess: done }),
     onRemove: (lineId) => remove.mutate(lineId),
     onReorder: (lineIds) => reorder.mutate(lineIds),
     onTaxable: (lineId, taxable) => setTaxable.mutate({ lineId, taxable }),
+    // Workiz: "Item groups help you add multiple items to invoices and estimates".
+    onAddGroup: can("products", "view") ? (lines, done) => addGroup.mutate(lines, { onSettled: done }) : undefined,
   };
 }
 

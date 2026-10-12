@@ -67,6 +67,7 @@ export function WorkizDocumentItems({
   inlineEdit = true,
   emptyAction = "Add items",
   addHeightClassName = "h-[34px]",
+  onAddGroup,
 }: DocumentItemsTableProps) {
   const [addingHere, setAdding] = useState(false);
   const [editingHere, setEditing] = useState<DocumentLineItem | null>(null);
@@ -183,11 +184,12 @@ export function WorkizDocumentItems({
           if (!v) close();
         }}
         editing={editing ?? undefined}
-        pending={pending.add || pending.update}
+        pending={pending.add || pending.update || pending.addGroup}
         onSubmit={(body) => {
           if (editing) onUpdate(editing.lineId, body, close);
           else onAdd(body, close);
         }}
+        onAddGroup={onAddGroup ? (lines) => onAddGroup(lines, close) : undefined}
       />
     </div>
   );

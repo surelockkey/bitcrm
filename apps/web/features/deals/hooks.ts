@@ -545,6 +545,21 @@ export function useAddProduct(id: string) {
   });
 }
 
+/** Workiz "Add group": the group's items, each its own line, in one call. */
+export function useAddItemGroup(id: string) {
+  const invalidate = useInvalidateDealBilling(id);
+  return useMutation({
+    mutationFn: ({ groupId, sourceTechId }: { groupId: string; sourceTechId?: string }) =>
+      api.addDealItemGroup(id, groupId, sourceTechId ? { sourceTechId } : {}),
+    onSuccess: (result) => {
+      invalidate();
+      const n = result?.lines?.length ?? 0;
+      toast.success(n ? `Item group added — ${n} ${n === 1 ? "item" : "items"}` : "Item group added");
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+}
+
 export function useReplaceProduct(id: string) {
   const invalidate = useInvalidateDealBilling(id);
   return useMutation({
