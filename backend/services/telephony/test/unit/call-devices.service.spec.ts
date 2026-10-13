@@ -34,6 +34,17 @@ const device = (over: Partial<CallDevice> = {}): CallDevice => ({
 });
 
 describe('CallDevicesService', () => {
+  describe('list', () => {
+    it('sorts by name and survives a row with no name instead of failing the whole list', async () => {
+      const nameless = { ...device({ id: 'd3' }), name: undefined } as unknown as CallDevice;
+      const { service } = build([device({ id: 'd1', name: 'Zeta line' }), nameless, device({ id: 'd2', name: 'Alpha line' })]);
+
+      const listed = await service.list();
+
+      expect(listed.map((d) => d.id)).toEqual(['d3', 'd2', 'd1']);
+    });
+  });
+
   describe('create', () => {
     it('stores the number in E.164 whatever way it was typed, desk phone by default', async () => {
       const { service, store } = build();

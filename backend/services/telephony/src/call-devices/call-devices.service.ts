@@ -50,7 +50,7 @@ export class CallDevicesService {
 
   async list(): Promise<CallDevice[]> {
     const devices = await this.repository.listAll();
-    return devices.sort((a, b) => a.name.localeCompare(b.name));
+    return devices.sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''));
   }
 
   async findById(id: string): Promise<CallDevice> {

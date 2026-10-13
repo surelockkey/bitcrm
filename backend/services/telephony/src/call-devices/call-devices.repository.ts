@@ -21,10 +21,18 @@ export class CallDevicesRepository {
     return { PK: CALL_DEVICE_PK, SK: callDeviceSk(device.id), ...device };
   }
 
-  /** The stored shape without its keys — what the API returns. */
+  /**
+   * The stored shape without its keys — what the API returns. Devices imported
+   * from Workiz were written in the import's shape (`friendlyName`, `phone`),
+   * so a missing `name`/`number` is read from those. Only the display fields
+   * are filled in: `active` and `type` decide routing and stay as stored.
+   */
   private entity(item: Record<string, unknown>): CallDevice {
     const { PK: _pk, SK: _sk, ...rest } = item;
-    return rest as unknown as CallDevice;
+    const device = rest as unknown as CallDevice & { friendlyName?: string; phone?: string };
+    if (!device.name) device.name = device.friendlyName || device.phone || device.id;
+    if (!device.number && !device.sipAddress && device.phone) device.number = device.phone;
+    return device;
   }
 
   async listAll(): Promise<CallDevice[]> {
