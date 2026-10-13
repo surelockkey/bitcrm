@@ -1,4 +1,7 @@
 import { BadRequestException, UnauthorizedException } from '@nestjs/common';
+import type { SecuritySettings } from '@bitcrm/types';
+import { MfaService } from '../../../src/mfa/mfa.service';
+import { SecurityService } from '../../../src/security/security.service';
 import { make, tokens, user } from './mfa.harness';
 
 /**
@@ -9,6 +12,51 @@ import { make, tokens, user } from './mfa.harness';
  */
 
 describe('MfaService.gate — after the password', () => {
+  it('reads the user and the security settings side by side, the settings fresh', async () => {
+    const { svc, repository, security } = make(user({ smsMfaEnabled: false }));
+    let releaseUser!: () => void;
+    repository.findById.mockImplementation(
+      () => new Promise((resolve) => (releaseUser = () => resolve(user({ smsMfaEnabled: false })))),
+    );
+
+    const answer = svc.gate(tokens());
+    await new Promise((r) => setImmediate(r));
+    expect(security.getSettings).toHaveBeenCalledTimes(1);
+    releaseUser();
+
+    await expect(answer).resolves.toEqual(tokens());
+  });
+
+  it('"Require 2FA" switched on through another task holds on the very next sign-in here', async () => {
+    // One stored row, two tasks' SecurityServices over it.
+    let row: SecuritySettings = { requireMfa: false, loginCodeByEmail: false, otpByEmail: false };
+    const settingsRepo = () => ({
+      get: jest.fn(async () => ({ ...row })),
+      put: jest.fn(async (next: SecuritySettings) => void (row = next)),
+      recordChange: jest.fn(async () => undefined),
+      listChanges: jest.fn(async () => []),
+    });
+    const thisTask = new SecurityService(settingsRepo() as never, { available: true } as never);
+    const otherTask = new SecurityService(settingsRepo() as never, { available: true } as never);
+    const { repository, cache, verify, usersService, emailCodes, redis } = make(user({ smsMfaEnabled: false }));
+    const svc = new MfaService(
+      { client: redis } as never,
+      repository as never,
+      cache as never,
+      verify as never,
+      thisTask,
+      usersService as never,
+      emailCodes as never,
+    );
+
+    await expect(svc.gate(tokens())).resolves.toEqual(tokens());
+
+    await otherTask.updateSettings({ requireMfa: true }, 'u-admin');
+
+    await expect(svc.gate(tokens())).resolves.toMatchObject({ challengeName: 'SMS_MFA' });
+    expect(verify.send).toHaveBeenCalledTimes(1);
+  });
+
   it('hands the tokens straight back when the account has no second step', async () => {
     const { svc, verify } = make(user({ smsMfaEnabled: false }));
 

@@ -15,8 +15,10 @@ import { ServiceAreasService } from '../../service-areas/service-areas.service';
 import { ReportWindowTooLargeError } from '../deals.repository';
 import { reportDay, type ReportDateSource } from './report-dates';
 import { TaxReportRepository } from './tax-report.repository';
+import { ReportWindowCache, shapeTag } from '../../common/cache/report-window-cache';
 import {
   TAX_CSV_HEADERS,
+  TAX_REPORT_PROJECTION,
   accrualRows,
   dealTaxFigures,
   filterTaxRows,
@@ -45,6 +47,7 @@ export interface TaxReportCaller {
 }
 
 const DAY_MS = 86_400_000;
+const TAX_SHAPE = shapeTag(TAX_REPORT_PROJECTION);
 const days = (from: string, to: string) => Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / DAY_MS) + 1;
 
 /**
@@ -62,6 +65,7 @@ export class TaxReportService {
     private readonly billing: BillingReportsClient,
     private readonly taxRates: TaxRatesService,
     @Optional() private readonly serviceAreas?: ServiceAreasService,
+    @Optional() private readonly windowCache?: ReportWindowCache,
   ) {}
 
   async report(q: TaxReportQuery, caller: TaxReportCaller): Promise<TaxReport> {
@@ -125,7 +129,7 @@ export class TaxReportService {
   private async accrual(by: TaxReportBy, from: string, to: string, caller: TaxReportCaller) {
     let rows: Record<string, unknown>[];
     try {
-      rows = await this.repo.window(by, from, to);
+      rows = await this.readWindow(by, from, to);
     } catch (err) {
       if (err instanceof ReportWindowTooLargeError) throw new BadRequestException(`${err.message} — choose a shorter period`);
       const e = err as { name?: string; message?: string };
@@ -160,6 +164,22 @@ export class TaxReportService {
       if (f) jobs.push({ figures: f, collected: byDeal.get(row.id) ?? 0 });
     }
     return paidRows(jobs);
+  }
+
+  /**
+   * The Accrual window's rows, shared by every task through Redis
+   * (`ReportWindowCache`: 5 min while it reaches today, 30 min just after, a
+   * day once settled). Paid is not a window of jobs — it asks billing.
+   */
+  private readWindow(by: TaxReportBy, from: string, to: string, fresh = false): Promise<Record<string, unknown>[]> {
+    const read = () => this.repo.window(by, from, to);
+    if (!this.windowCache) return read();
+    return this.windowCache.read({ kind: 'tax', from, to, parts: [by, TAX_SHAPE] }, read, { fresh });
+  }
+
+  /** The nightly warm: re-reads one Accrual window into the shared cache (`ReportWindowWarmer`). */
+  async warmWindow(by: TaxReportBy, from: string, to: string): Promise<void> {
+    await this.readWindow(by, from, to, true);
   }
 
   // -------------------------------------------------------------- access

@@ -42,6 +42,8 @@ export const SUMMARY_ATTRIBUTES: (keyof SummaryCall)[] = [
   'status',
   'answeredAt',
   'dealId',
+  'dealTotal',
+  'dealTotalAt',
   'workizJobId',
   'externalId',
   'dialCallStatus',

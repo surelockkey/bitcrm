@@ -53,6 +53,9 @@ const KNOWN_PRODUCT_TYPES: readonly string[] = Object.values(ProductType);
 /** How long a list count stays good enough. Matches the deals tab counts. */
 const COUNT_TTL_SECONDS = 30;
 
+/** Contract C2: distinct ids one `POST /products/internal/by-ids` may ask for. */
+export const PRODUCTS_BY_IDS_MAX = 500;
+
 /**
  * Workiz item types BitCRM has no equivalent for. Both are non-stockable, so
  * they become `service` and the original word is kept in `workizType` — the
@@ -299,6 +302,41 @@ export class ProductsService {
 
     await this.cache.set(id, product);
     return product;
+  }
+
+  /**
+   * Many products at once for a peer service (contract C2,
+   * `POST /products/internal/by-ids`): the same item as `findById`, in the
+   * order asked, duplicates dropped, unknown ids left out. Read-through the
+   * per-product cache — one MGET for the hits, one BatchGet (chunks of 100,
+   * unprocessed keys retried) for the misses, which are then cached. A cache
+   * failure only costs the cache.
+   */
+  async findByIdsInternal(ids: string[]): Promise<Product[]> {
+    const unique = [...new Set(ids.filter((id) => typeof id === 'string' && id !== ''))];
+    if (unique.length > PRODUCTS_BY_IDS_MAX) {
+      throw new BadRequestException(`At most ${PRODUCTS_BY_IDS_MAX} distinct product ids per request`);
+    }
+    if (unique.length === 0) return [];
+
+    const found = await this.cache.getMany(unique).catch((err: Error) => {
+      this.logger.warn(`Product cache read failed (by-ids): ${err?.message}`);
+      return new Map<string, Product>();
+    });
+    const misses = unique.filter((id) => !found.has(id));
+    if (misses.length > 0) {
+      const loaded = await this.repository.findByIds(misses);
+      for (const p of loaded) found.set(p.id, p);
+      if (loaded.length > 0) {
+        await this.cache.setMany(loaded).catch((err: Error) =>
+          this.logger.warn(`Product cache write failed (by-ids): ${err?.message}`),
+        );
+      }
+    }
+    return unique.flatMap((id) => {
+      const p = found.get(id);
+      return p ? [p] : [];
+    });
   }
 
   /**

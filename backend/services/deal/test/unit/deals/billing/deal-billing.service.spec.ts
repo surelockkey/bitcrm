@@ -209,10 +209,11 @@ describe('DealBillingService', () => {
     it('bundles deal, items, totals, job type and tech names', async () => {
       current = createMockDeal({ assignedTechIds: ['t1', 't2', 't3'] });
       products.findByDeal.mockResolvedValue([createMockDealProduct()]);
-      eligibility.get.mockImplementation(async (id: string) =>
-        id === 't1' ? { technicianId: 't1', firstName: 'Ann', lastName: 'Lee' }
-          : id === 't2' ? { technicianId: 't2', firstName: 'Bo' } : null,
-      );
+      // BatchGet answers in any order — the names keep the job's own order.
+      eligibility.getMany.mockResolvedValue([
+        { technicianId: 't2', firstName: 'Bo' },
+        { technicianId: 't1', firstName: 'Ann', lastName: 'Lee' },
+      ]);
 
       const view = await service.getBillingView('deal-1');
 
@@ -221,6 +222,43 @@ describe('DealBillingService', () => {
       expect(view.totals.subtotal).toBe(45);
       expect(view.jobTypeName).toBe('Lockout');
       expect(view.technicianNames).toEqual(['Ann Lee', 'Bo']);
+      // One BatchGet for the whole roster, not one Get per technician.
+      expect(eligibility.getMany).toHaveBeenCalledWith(['t1', 't2', 't3']);
+      expect(eligibility.get).not.toHaveBeenCalled();
+    });
+
+    it('reads products, job type and technicians side by side once the deal is known', async () => {
+      current = createMockDeal({ assignedTechIds: ['t1'] });
+      const order: string[] = [];
+      let release!: () => void;
+      const gate = new Promise<void>((r) => (release = r));
+      products.findByDeal.mockImplementation(async () => {
+        order.push('products:start');
+        await gate;
+        return [];
+      });
+      jobTypes.findById.mockImplementation(async () => {
+        order.push('jobType:start');
+        return createMockJobType({ name: 'Lockout' });
+      });
+      eligibility.getMany.mockImplementation(async () => {
+        order.push('techs:start');
+        return [];
+      });
+
+      const view = service.getBillingView('deal-1');
+      await new Promise((r) => setImmediate(r));
+      // All three started while the products read is still waiting.
+      expect(order).toEqual(expect.arrayContaining(['products:start', 'jobType:start', 'techs:start']));
+      release();
+      await view;
+    });
+
+    it('a failed technician read costs the names, never the view', async () => {
+      current = createMockDeal({ assignedTechIds: ['t1'] });
+      eligibility.getMany.mockRejectedValue(new Error('throttled'));
+      const view = await service.getBillingView('deal-1');
+      expect(view.technicianNames).toEqual([]);
     });
 
     it("exposes the job's company", async () => {
@@ -234,6 +272,61 @@ describe('DealBillingService', () => {
       jobTypes.findById.mockRejectedValue(new NotFoundException());
       const view = await service.getBillingView('deal-1');
       expect(view.jobTypeName).toBeUndefined();
+    });
+  });
+
+  describe('needs invoice (billing internal)', () => {
+    it('counts off the index once, then serves the count from Redis for thirty seconds', async () => {
+      repo.countNeedsInvoice.mockResolvedValue(57);
+
+      expect(await service.needsInvoiceCount()).toBe(57);
+
+      expect(cache.setJson).toHaveBeenCalledWith('deal:needs-invoice:count', 57, 30);
+      cache.getJson.mockResolvedValueOnce(57);
+      expect(await service.needsInvoiceCount()).toBe(57);
+      expect(repo.countNeedsInvoice).toHaveBeenCalledTimes(1);
+    });
+
+    it('a Redis that cannot answer costs the cache, never the count', async () => {
+      cache.getJson.mockRejectedValueOnce(new Error('ECONNREFUSED'));
+      cache.setJson.mockRejectedValueOnce(new Error('ECONNREFUSED'));
+      repo.countNeedsInvoice.mockResolvedValue(3);
+      expect(await service.needsInvoiceCount()).toBe(3);
+    });
+
+    it('not ready yet (no NEEDSINVOICEINDEX / STATE): both answer 404, so billing falls back', async () => {
+      repo.needsInvoiceIndexReady.mockResolvedValue(false);
+      await expect(service.needsInvoiceCount()).rejects.toBeInstanceOf(NotFoundException);
+      await expect(service.listNeedsInvoice('10', undefined)).rejects.toBeInstanceOf(NotFoundException);
+      expect(repo.countNeedsInvoice).not.toHaveBeenCalled();
+      expect(repo.findNeedsInvoice).not.toHaveBeenCalled();
+      expect(cache.setJson).not.toHaveBeenCalled();
+    });
+
+    it('a GSI the table does not have is "not ready" too — 404, never a 500', async () => {
+      const missing = Object.assign(new Error('The table does not have the specified index: NeedsInvoiceIndex'), { name: 'ValidationException' });
+      repo.countNeedsInvoice.mockRejectedValue(missing);
+      repo.findNeedsInvoice.mockRejectedValue(missing);
+      await expect(service.needsInvoiceCount()).rejects.toBeInstanceOf(NotFoundException);
+      await expect(service.listNeedsInvoice(undefined, undefined)).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('any other failure is still an error', async () => {
+      repo.countNeedsInvoice.mockRejectedValue(new Error('throttled'));
+      await expect(service.needsInvoiceCount()).rejects.toThrow('throttled');
+    });
+
+    it('lists a page off the index, the limit defaulted and clamped', async () => {
+      repo.findNeedsInvoice.mockResolvedValue({ items: [createMockDeal({ id: 'd1', itemCount: 2 })], nextCursor: 'n' });
+
+      const page = await service.listNeedsInvoice(undefined, undefined);
+      expect(repo.findNeedsInvoice).toHaveBeenLastCalledWith(100, undefined);
+      expect(page).toEqual({ items: [expect.objectContaining({ id: 'd1', itemCount: 2 })], nextCursor: 'n' });
+
+      await service.listNeedsInvoice('5000', 'c');
+      expect(repo.findNeedsInvoice).toHaveBeenLastCalledWith(500, 'c');
+      await service.listNeedsInvoice('abc', undefined);
+      expect(repo.findNeedsInvoice).toHaveBeenLastCalledWith(100, undefined);
     });
   });
 

@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, OnModuleInit, Optional } from '@nestjs/common';
 import {
   DynamoDbModule,
   RedisModule,
@@ -7,7 +7,8 @@ import {
   LoggerModule,
   MetricsModule,
   HealthModule,
-  ConnectivityModule, StorageModule } from '@bitcrm/shared';
+  ConnectivityModule, StorageModule,
+  SqsConsumerService } from '@bitcrm/shared';
 import { AppController } from './app.controller';
 import { TelephonyModule } from './telephony/telephony.module';
 import { PresenceModule } from './presence/presence.module';
@@ -25,6 +26,15 @@ import { DbSetupService } from './common/db-setup.service';
 import { CALLS_TABLE } from './common/constants/dynamo.constants';
 import { CALL_GROUPS_TABLE } from './call-groups/call-groups.constants';
 import { CALL_FLOWS_TABLE } from './call-flows/call-flows.constants';
+
+const AWS_REGION = process.env.AWS_REGION || 'us-east-1';
+const AWS_ENDPOINT = process.env.AWS_ENDPOINT;
+/**
+ * deal-events → `dealTotal` on linked calls (CallDealEventsHandler). Unset,
+ * nothing is consumed and the reports fall back to asking deal-service for
+ * the rows that carry no total.
+ */
+const DEAL_EVENTS_QUEUE_URL = process.env.DEAL_EVENTS_TO_TELEPHONY_QUEUE_URL;
 
 @Module({
   imports: [
@@ -46,6 +56,7 @@ import { CALL_FLOWS_TABLE } from './call-flows/call-flows.constants';
       sns: process.env.CALL_EVENTS_TOPIC_ARN
         ? { topics: [process.env.CALL_EVENTS_TOPIC_ARN] }
         : undefined,
+      sqs: DEAL_EVENTS_QUEUE_URL ? { queues: [DEAL_EVENTS_QUEUE_URL] } : undefined,
       httpServices: [
         { name: 'user', url: (process.env.USER_SERVICE_URL ?? 'http://localhost:4001') + '/api/users/health' },
         { name: 'crm', url: (process.env.CRM_SERVICE_URL ?? 'http://localhost:4002') + '/api/crm/health' },
@@ -64,6 +75,15 @@ import { CALL_FLOWS_TABLE } from './call-flows/call-flows.constants';
           ? { 'call-events': process.env.CALL_EVENTS_TOPIC_ARN }
           : {},
       },
+      consumer: DEAL_EVENTS_QUEUE_URL
+        ? {
+            region: AWS_REGION,
+            endpoint: AWS_ENDPOINT,
+            queueUrl: DEAL_EVENTS_QUEUE_URL,
+            waitTimeSeconds: 20,
+            maxMessages: 10,
+          }
+        : undefined,
     }),
     TelephonyModule,
     PresenceModule,
@@ -85,4 +105,14 @@ import { CALL_FLOWS_TABLE } from './call-flows/call-flows.constants';
   controllers: [AppController],
   providers: [DbSetupService],
 })
-export class AppModule {}
+export class AppModule implements OnModuleInit {
+  constructor(@Optional() private readonly sqsConsumer?: SqsConsumerService) {}
+
+  onModuleInit() {
+    if (!this.sqsConsumer) return;
+    // deal-events handlers are registered by CallDealEventsHandler.onModuleInit.
+    if (process.env.ENABLE_SQS_CONSUMER === 'true') {
+      this.sqsConsumer.start();
+    }
+  }
+}

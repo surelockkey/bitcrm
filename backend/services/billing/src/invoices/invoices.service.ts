@@ -1,4 +1,4 @@
-import { RedisService, cachedCount, countCacheKey } from '@bitcrm/shared';
+import { RedisService, cachedCount, countCacheKey, getDataScopeFilter } from '@bitcrm/shared';
 import {
   BadRequestException,
   ConflictException,
@@ -14,6 +14,7 @@ import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import {
   BillingEventType,
+  DataScope,
   PaymentTerms,
   TimelineEventType,
   effectiveTaxRatePercent,
@@ -42,7 +43,7 @@ import { SignaturesService } from '../signatures/signatures.service';
 import { displayOverrides, reorderPositions, sortItems } from '../estimates/estimate-rules';
 import { BillingEventsPublisher } from '../integrations/billing-events.publisher';
 import { CrmClient } from '../integrations/crm.client';
-import { DealClient, type DealBillingView } from '../integrations/deal.client';
+import { DealClient, type DealBillingView, type NeedsInvoiceDeal } from '../integrations/deal.client';
 import { NumberingService } from '../numbering/numbering.service';
 import {
   computeClientInvoiceTotals,
@@ -209,6 +210,57 @@ const COUNT_TTL_SECONDS = 30;
 
 /** How many of one client's documents the portal reads to build its inbox. */
 const CONTACT_DOCUMENTS_CAP = 1000;
+
+/**
+ * deal-service's account-wide "jobs needing an invoice" count (C1), shared by
+ * both invoice summaries across tasks. Not invalidated: a summary card that
+ * is half a minute behind a new job is fine.
+ */
+export const NEEDS_INVOICE_COUNT_KEY = 'billing:needs-invoice:count';
+const NEEDS_INVOICE_COUNT_TTL_SECONDS = 30;
+/** The needing-invoice list stays one page, as the public list it replaces was. */
+const NEEDS_INVOICE_LIST_LIMIT = 100;
+
+/**
+ * The paid / unsent part of `GET /invoices/summary` (everything else reads
+ * UnpaidIndex): the only figures that still need every invoice, read off a
+ * slim projection and kept 60 s for an unscoped caller.
+ */
+export const INVOICE_SUMMARY_SETTLED_KEY = 'billing:invoice-summary:settled';
+const INVOICE_SUMMARY_SETTLED_TTL_SECONDS = 60;
+
+type SettledFigures = Pick<InvoiceSummary, 'unsentCount' | 'paidAmount' | 'paidCount'>;
+
+/** A deal-service needs-invoice row → the list row billing answers (jobs with no items dropped). */
+function toNeedingRows(deals: NeedsInvoiceDeal[]): NeedingInvoiceRow[] {
+  return deals
+    .filter((d) => (d.itemCount ?? 0) > 0)
+    .map((d) => ({
+      id: d.id,
+      dealNumber: d.dealNumber,
+      contactId: d.contactId,
+      ...(d.clientName && { clientName: `${d.clientName.firstName} ${d.clientName.lastName}`.trim() }),
+      itemCount: d.itemCount ?? 0,
+      total: d.actualTotal ?? d.estimatedTotal ?? 0,
+      createdAt: d.createdAt,
+    }));
+}
+
+/**
+ * Whether the caller's `deals` scope narrows the job list (a technician's
+ * `assigned_only`). deal-service's internal routes answer for the whole
+ * account, so such a caller keeps the bearer-forwarded public list. No
+ * resolved permissions → treat as narrowed (the old, scoped path).
+ */
+function dealsScopeIsNarrowed(caller?: Caller): boolean {
+  if (!caller?.perms) return true;
+  const filter = getDataScopeFilter(
+    { id: caller.user.id, department: caller.user.department },
+    'deals',
+    caller.perms,
+  );
+  return filter.scope === DataScope.ASSIGNED_ONLY;
+}
 
 @Injectable()
 export class InvoicesService {
@@ -554,46 +606,92 @@ export class InvoicesService {
     );
   }
 
+  /**
+   * The invoice cards. Due / overdue (amounts, counts, owing clients) are the
+   * open invoices off UnpaidIndex — exactly `balances` — so this no longer
+   * reads every invoice for them; paid / unsent still need the whole list,
+   * read projected (`settledFigures`). The jobs-needing-an-invoice number is
+   * deal-service's count (`needsInvoiceCount`). The three run side by side.
+   */
   async summary(caller: Caller, authorization?: string): Promise<InvoiceSummary> {
-    const all = await this.visible(await this.repo.listAll(), caller);
-    const s: InvoiceSummary = {
-      dueAmount: 0,
-      dueCount: 0,
-      overdueAmount: 0,
-      overdueCount: 0,
-      unsentCount: 0,
-      paidAmount: 0,
-      paidCount: 0,
-      needsInvoiceCount: 0,
-      dueClientCount: 0,
-      overdueClientCount: 0,
+    const [balances, settled, needsInvoiceCount] = await Promise.all([
+      this.balances(caller),
+      this.settledFigures(caller),
+      this.needsInvoiceCount(caller, authorization),
+    ]);
+    return {
+      dueAmount: balances.dueAmount,
+      dueCount: balances.dueCount,
+      overdueAmount: balances.overdueAmount,
+      overdueCount: balances.overdueCount,
+      unsentCount: settled.unsentCount,
+      paidAmount: settled.paidAmount,
+      paidCount: settled.paidCount,
+      needsInvoiceCount,
+      dueClientCount: balances.dueClientCount,
+      overdueClientCount: balances.overdueClientCount,
     };
-    const owing = new Set<string>();
-    const pastDue = new Set<string>();
-    for (const inv of all) {
-      const balance = inv.totals?.balanceDue ?? 0;
-      if (inv.status === 'due') {
-        s.dueCount++;
-        s.dueAmount += balance;
-        owing.add(inv.contactId);
-      } else if (inv.status === 'overdue') {
-        s.overdueCount++;
-        s.overdueAmount += balance;
-        owing.add(inv.contactId);
-        pastDue.add(inv.contactId);
-      } else if (inv.status === 'paid') {
-        s.paidCount++;
-        s.paidAmount += inv.totals?.amountPaid ?? inv.totals?.total ?? 0;
+  }
+
+  /** Paid amount + count and the unsent count, over every invoice the caller sees. */
+  private async settledFigures(caller: Caller): Promise<SettledFigures> {
+    const scoped = isAssignedOnly(caller, 'invoices');
+    if (!scoped && this.redis) {
+      try {
+        const hit = await this.redis.client.get(INVOICE_SUMMARY_SETTLED_KEY);
+        if (hit) return JSON.parse(hit) as SettledFigures;
+      } catch {
+        // Redis down: compute it.
       }
-      if (!inv.sentAt) s.unsentCount++;
     }
-    s.dueClientCount = owing.size;
-    s.overdueClientCount = pastDue.size;
-    s.dueAmount = round2(s.dueAmount);
-    s.overdueAmount = round2(s.overdueAmount);
-    s.paidAmount = round2(s.paidAmount);
-    s.needsInvoiceCount = (await this.needingInvoice(authorization)).length;
-    return s;
+    const f: SettledFigures = { unsentCount: 0, paidAmount: 0, paidCount: 0 };
+    for (const inv of await this.visible(await this.repo.listAllForSummary(), caller)) {
+      if (inv.status === 'paid') {
+        f.paidCount++;
+        f.paidAmount += inv.totals?.amountPaid ?? inv.totals?.total ?? 0;
+      }
+      if (!inv.sentAt) f.unsentCount++;
+    }
+    f.paidAmount = round2(f.paidAmount);
+    if (!scoped && this.redis) {
+      await this.redis.client
+        .set(INVOICE_SUMMARY_SETTLED_KEY, JSON.stringify(f), 'EX', INVOICE_SUMMARY_SETTLED_TTL_SECONDS)
+        .catch(() => undefined);
+    }
+    return f;
+  }
+
+  /**
+   * "Need invoices": how many jobs have items and no invoice. deal-service's
+   * internal count (C1, account-wide, cached 30 s in Redis) for a caller who
+   * sees every job; a technician — or a deal-service without the route (404)
+   * — gets the old bearer-scoped public list's length. Never throws: the
+   * number is worth less than the cards around it.
+   */
+  async needsInvoiceCount(caller: Caller | undefined, authorization?: string): Promise<number> {
+    if (dealsScopeIsNarrowed(caller)) return (await this.needingInvoiceLegacy(authorization)).length;
+    if (this.redis) {
+      try {
+        const hit = await this.redis.client.get(NEEDS_INVOICE_COUNT_KEY);
+        if (hit !== null && hit !== undefined && hit !== '') return Number(hit) || 0;
+      } catch {
+        // Redis down: ask deal-service.
+      }
+    }
+    let count: number | null;
+    try {
+      count = await this.deal.countNeedsInvoice();
+    } catch (err) {
+      this.logger.warn(`needs-invoice count unavailable: ${(err as Error).message}`);
+      return 0;
+    }
+    if (count === null) return (await this.needingInvoiceLegacy(authorization)).length;
+    if (this.redis) {
+      await this.redis.client
+        .set(NEEDS_INVOICE_COUNT_KEY, String(count), 'EX', NEEDS_INVOICE_COUNT_TTL_SECONDS)
+        .catch(() => undefined);
+    }
+    return count;
   }
 
   /**
@@ -638,23 +736,31 @@ export class InvoicesService {
     return b;
   }
 
-  /** Jobs with items and no invoice (the caller's `deals` scope applies). */
-  async needingInvoice(authorization?: string): Promise<NeedingInvoiceRow[]> {
+  /**
+   * Jobs with items and no invoice, one page of 100. A caller who sees every
+   * job reads deal-service's internal list (C1); a technician (their `deals`
+   * scope applies) — or a deal-service without that route (404) — the public
+   * list on their own bearer, as before.
+   */
+  async needingInvoice(authorization?: string, caller?: Caller): Promise<NeedingInvoiceRow[]> {
+    if (dealsScopeIsNarrowed(caller)) return this.needingInvoiceLegacy(authorization);
+    const deals = await this.deal
+      .listNeedsInvoiceInternal(NEEDS_INVOICE_LIST_LIMIT)
+      .catch((err: Error) => {
+        this.logger.warn(`needs-invoice list unavailable: ${err.message}`);
+        return [] as NeedsInvoiceDeal[];
+      });
+    if (deals === null) return this.needingInvoiceLegacy(authorization);
+    return toNeedingRows(deals);
+  }
+
+  /** The public `GET /deals?needsInvoice=true` on the caller's bearer (their scope applies). */
+  private async needingInvoiceLegacy(authorization?: string): Promise<NeedingInvoiceRow[]> {
     const deals = await this.deal.listNeedsInvoice(authorization).catch((err: Error) => {
       this.logger.warn(`needs-invoice list unavailable: ${err.message}`);
-      return [];
+      return [] as NeedsInvoiceDeal[];
     });
-    return deals
-      .filter((d) => (d.itemCount ?? 0) > 0)
-      .map((d) => ({
-        id: d.id,
-        dealNumber: d.dealNumber,
-        contactId: d.contactId,
-        ...(d.clientName && { clientName: `${d.clientName.firstName} ${d.clientName.lastName}`.trim() }),
-        itemCount: d.itemCount ?? 0,
-        total: d.actualTotal ?? d.estimatedTotal ?? 0,
-        createdAt: d.createdAt,
-      }));
+    return toNeedingRows(deals);
   }
 
   // ----------------------------------------------------------------- write

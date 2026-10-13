@@ -124,7 +124,11 @@ const CATALOG_TTL_MS = 60_000;
  *   GET   /api/deals/custom-fields/internal          (existing — id → name)
  *   GET   /api/deals/job-types/internal              (existing — id → name; the Payments report)
  *   POST  /api/deals/by-ids                          (public; the caller's bearer — the Payments report)
- *   GET   /api/deals?needsInvoice=true               (public; the caller's bearer is forwarded)
+ *   GET   /api/deals/internal/needs-invoice/count    (C1 — the summaries' "needs invoice" count)
+ *   GET   /api/deals/internal/needs-invoice          (C1 — the needing-invoice list, one page)
+ *   GET   /api/deals?needsInvoice=true               (public; the caller's bearer is forwarded —
+ *                                                     a technician's scope, and the fallback
+ *                                                     while deal-service lacks the C1 routes)
  */
 @Injectable()
 export class DealClient {
@@ -291,6 +295,32 @@ export class DealClient {
         headers: { authorization },
       })) ?? []
     );
+  }
+
+  /**
+   * How many jobs have items and no invoice — account-wide, no data scope
+   * (contract C1). `null` when deal-service answers 404: a deal-service from
+   * before the route, and the caller falls back to `listNeedsInvoice`.
+   */
+  async countNeedsInvoice(): Promise<number | null> {
+    const res = await this.http.request<{ count: number }>('/api/deals/internal/needs-invoice/count', {
+      operation: 'countNeedsInvoice',
+      nullOn404: true,
+      timeoutMs: 5_000,
+    });
+    return res ? Number(res.count) || 0 : null;
+  }
+
+  /**
+   * One page of the jobs with items and no invoice — account-wide (contract
+   * C1), same row shape as the public list. `null` on 404, as above.
+   */
+  listNeedsInvoiceInternal(limit = 100, cursor?: string): Promise<NeedsInvoiceDeal[] | null> {
+    const qs = `limit=${limit}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`;
+    return this.http.request<NeedsInvoiceDeal[]>(`/api/deals/internal/needs-invoice?${qs}`, {
+      operation: 'listNeedsInvoiceInternal',
+      nullOn404: true,
+    });
   }
 
   /**

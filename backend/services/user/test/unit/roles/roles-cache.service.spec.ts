@@ -67,12 +67,52 @@ describe('RolesCacheService', () => {
   });
 
   describe('invalidateRole', () => {
-    it('should delete the role permissions key', async () => {
-      redisClient.del.mockResolvedValue(1);
+    it('bumps the generation and deletes the permissions key and the cached role, in one MULTI', async () => {
+      const tx = { incr: jest.fn(), del: jest.fn(), exec: jest.fn(async () => []) };
+      tx.incr.mockReturnValue(tx);
+      tx.del.mockReturnValue(tx);
+      (redisClient as any).multi = jest.fn(() => tx);
 
       await service.invalidateRole('role-1');
 
-      expect(redisClient.del).toHaveBeenCalledWith('role:permissions:role-1');
+      expect(tx.incr).toHaveBeenCalledWith('role:entity:role-1:gen');
+      expect(tx.del).toHaveBeenCalledWith('role:permissions:role-1', 'role:entity:role-1');
+      expect(tx.exec).toHaveBeenCalled();
+    });
+  });
+
+  describe('role entity cache (generation-checked)', () => {
+    it('readRole reads the entry and the generation in one MGET; a current entry is a hit', async () => {
+      const role = createMockRole({ id: 'role-1' });
+      (redisClient as any).mget = jest.fn(async () => [JSON.stringify({ v: role, gen: '3' }), '3']);
+
+      await expect(service.readRole('role-1')).resolves.toEqual({ role, gen: '3' });
+      expect((redisClient as any).mget).toHaveBeenCalledWith('role:entity:role-1', 'role:entity:role-1:gen');
+    });
+
+    it('an entry from another generation is a miss', async () => {
+      const role = createMockRole({ id: 'role-1' });
+      (redisClient as any).mget = jest.fn(async () => [JSON.stringify({ v: role, gen: '2' }), '3']);
+      await expect(service.readRole('role-1')).resolves.toEqual({ role: null, gen: '3' });
+    });
+
+    it('no generation yet reads as "0"; no entry is a miss', async () => {
+      (redisClient as any).mget = jest.fn(async () => [null, null]);
+      await expect(service.readRole('role-1')).resolves.toEqual({ role: null, gen: '0' });
+    });
+
+    it('writeRole stores the role tagged with its generation for 5 minutes', async () => {
+      const role = createMockRole({ id: 'role-1' });
+      redisClient.set.mockResolvedValue('OK');
+
+      await service.writeRole(role, '4');
+
+      expect(redisClient.set).toHaveBeenCalledWith(
+        'role:entity:role-1',
+        JSON.stringify({ v: role, gen: '4' }),
+        'EX',
+        300,
+      );
     });
   });
 

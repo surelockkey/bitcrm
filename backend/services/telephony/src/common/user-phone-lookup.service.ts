@@ -1,12 +1,14 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
+import { RedisService } from '@bitcrm/shared';
+import { RedisBatchCache } from './redis-batch-cache';
 
 const USER_SERVICE_URL =
   process.env.USER_SERVICE_URL || 'http://localhost:4001';
 const INTERNAL_SECRET = process.env.INTERNAL_SERVICE_SECRET || '';
-const CACHE_TTL_MS = 5 * 60_000;
-/** Misses expire sooner — a teammate can add their number at any moment and
- *  the call log should reflect it on the next refresh, not minutes later. */
-const MISS_TTL_MS = 20_000;
+const CACHE_TTL_MS = 10 * 60_000;
+/** Misses expire sooner — most numbers on a call belong to nobody here, and a
+ *  teammate adding their number shows through within five minutes. */
+const MISS_TTL_MS = 5 * 60_000;
 const MAX_BATCH = 100;
 
 /** One of our own people, matched by their personal number. */
@@ -14,12 +16,6 @@ export interface CallUserPhone {
   id: string;
   name: string;
   roleId?: string;
-}
-
-interface CacheEntry {
-  /** null caches a miss — most numbers on a call belong to nobody here. */
-  user: CallUserPhone | null;
-  expiresAt: number;
 }
 
 /**
@@ -34,38 +30,30 @@ interface CacheEntry {
 @Injectable()
 export class UserPhoneLookupService {
   private readonly logger = new Logger(UserPhoneLookupService.name);
-  private readonly cache = new Map<string, CacheEntry>();
+  /** By number, shared through Redis; `null` caches a miss. */
+  private readonly cache: RedisBatchCache<CallUserPhone>;
+
+  constructor(@Optional() redis?: RedisService) {
+    this.cache = new RedisBatchCache<CallUserPhone>(redis, 'telephony:names:user-phone:v1', {
+      hitTtlMs: CACHE_TTL_MS,
+      missTtlMs: MISS_TTL_MS,
+    });
+  }
 
   async resolve(phones: string[]): Promise<Record<string, CallUserPhone>> {
     const unique = [...new Set(phones.filter((p) => p && p.startsWith('+')))];
-    const out: Record<string, CallUserPhone> = {};
-    const misses: string[] = [];
-
-    const now = Date.now();
-    for (const phone of unique) {
-      const hit = this.cache.get(phone);
-      if (hit && hit.expiresAt > now) {
-        if (hit.user) out[phone] = hit.user;
-      } else {
-        misses.push(phone);
+    if (!unique.length) return {};
+    const found = await this.cache.getMany(unique, async (misses) => {
+      const loaded = new Map<string, CallUserPhone | null>();
+      for (let i = 0; i < misses.length; i += MAX_BATCH) {
+        const batch = misses.slice(i, i + MAX_BATCH);
+        const answer = await this.fetchBatch(batch);
+        if (!answer) continue; // user-service unreachable — retry next time
+        for (const phone of batch) loaded.set(phone, answer[phone] ?? null);
       }
-    }
-    if (misses.length === 0) return out;
-
-    for (let i = 0; i < misses.length; i += MAX_BATCH) {
-      const batch = misses.slice(i, i + MAX_BATCH);
-      const found = await this.fetchBatch(batch);
-      if (!found) continue; // user-service unreachable — retry next time
-      for (const phone of batch) {
-        const user = found[phone] ?? null;
-        this.cache.set(phone, {
-          user,
-          expiresAt: now + (user ? CACHE_TTL_MS : MISS_TTL_MS),
-        });
-        if (user) out[phone] = user;
-      }
-    }
-    return out;
+      return loaded;
+    });
+    return Object.fromEntries(found);
   }
 
   private async fetchBatch(

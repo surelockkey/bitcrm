@@ -6,7 +6,7 @@ import {
   NotFoundException,
   Optional,
 } from '@nestjs/common';
-import { BusinessMetricsService } from '@bitcrm/shared';
+import { BusinessMetricsService, RedisService } from '@bitcrm/shared';
 import { SMS_BODY_MAX_LENGTH, type MessageTemplate } from '@bitcrm/types';
 import { randomUUID } from 'crypto';
 import { MessageTemplatesRepository } from './message-templates.repository';
@@ -15,6 +15,12 @@ import { type UpdateMessageTemplateDto } from './dto/update-message-template.dto
 import { type TemplatePickerChannel } from './dto/list-message-templates-query.dto';
 import { isConditionalCheckFailed } from '../common/dynamo-errors';
 import { htmlToText } from './html-text';
+import { RedisCachedValue } from '../common/redis-cached-value';
+
+/** Every template row, archived included, in Redis for every task; dropped by every write here. */
+export const MESSAGE_TEMPLATES_CACHE_KEY = 'messaging:templates:list:v1';
+/** Safety net for writes that bypass this service (an import straight into DynamoDB). */
+export const MESSAGE_TEMPLATES_CACHE_TTL_SECONDS = 5 * 60;
 
 export interface ListTemplatesOptions {
   channel?: TemplatePickerChannel;
@@ -30,11 +36,15 @@ export interface ListTemplatesOptions {
 @Injectable()
 export class MessageTemplatesService {
   private readonly logger = new Logger(MessageTemplatesService.name);
+  private readonly listCache: RedisCachedValue<MessageTemplate[]>;
 
   constructor(
     private readonly repository: MessageTemplatesRepository,
     @Optional() private readonly businessMetrics?: BusinessMetricsService,
-  ) {}
+    @Optional() redis?: RedisService,
+  ) {
+    this.listCache = new RedisCachedValue(redis, MESSAGE_TEMPLATES_CACHE_KEY, MESSAGE_TEMPLATES_CACHE_TTL_SECONDS);
+  }
 
   async create(dto: CreateMessageTemplateDto, caller: { id: string }): Promise<MessageTemplate> {
     this.assertSmsBodyFits(dto.channel, dto.messageTemplate);
@@ -57,6 +67,7 @@ export class MessageTemplatesService {
     };
     await this.repository.create(template);
     if (template.isDefault) await this.clearOtherDefaults(template);
+    await this.listCache.invalidate();
     this.businessMetrics?.entityCreated?.inc({ entity_type: 'message_template' });
     this.logger.log(`Created message template ${template.id} "${template.messageTemplateTitle}"`);
     return template;
@@ -65,10 +76,13 @@ export class MessageTemplatesService {
   /**
    * Alphabetical by title (case-insensitive, then id so the order is stable).
    * `channel: sms` returns `sms` + `any`, `channel: email` returns `email` + `any`.
+   * Every view is cut from one cached read of the whole catalog
+   * (`MESSAGE_TEMPLATES_CACHE_KEY`, 5 min, dropped by every write here).
    */
   async list(opts: ListTemplatesOptions = {}): Promise<MessageTemplate[]> {
-    const templates = await this.repository.list({ includeInactive: opts.includeInactive });
+    const templates = await this.listCache.get(() => this.repository.list({ includeInactive: true }));
     return templates
+      .filter((t) => opts.includeInactive || t.active)
       .filter((t) => !opts.channel || t.channel === 'any' || t.channel === opts.channel)
       .sort(
         (a, b) =>
@@ -104,6 +118,7 @@ export class MessageTemplatesService {
     if (updated.isDefault && (!existing.isDefault || updated.channel !== existing.channel)) {
       await this.clearOtherDefaults(updated);
     }
+    await this.listCache.invalidate();
     this.businessMetrics?.entityUpdated?.inc({ entity_type: 'message_template' });
     this.logger.log(`Updated message template ${id} by ${caller.id}`);
     return updated;
@@ -119,6 +134,7 @@ export class MessageTemplatesService {
         if (isConditionalCheckFailed(err)) throw new NotFoundException(`Message template ${id} not found`);
         throw err;
       }
+      await this.listCache.invalidate();
       this.logger.log(`Archived message template ${id} by ${caller.id}`);
     }
     return { ...existing, active: false };
@@ -135,6 +151,7 @@ export class MessageTemplatesService {
       throw new ConflictException(`Archive message template ${id} before deleting it permanently`);
     }
     await this.repository.remove(id);
+    await this.listCache.invalidate();
     this.businessMetrics?.entityDeleted?.inc({ entity_type: 'message_template' });
     this.logger.log(`Deleted message template ${id} by ${caller.id}`);
   }

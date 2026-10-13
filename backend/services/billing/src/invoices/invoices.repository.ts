@@ -387,6 +387,40 @@ export class InvoicesRepository {
     return out;
   }
 
+  /**
+   * Every invoice, projected to what `GET /invoices/summary`'s paid / unsent
+   * figures and the `assigned_only` filter read (`id, dealId, contactId,
+   * status, sentAt, totals`). Same GSI1 walk as `listAll`, a fraction of the
+   * bytes on the wire.
+   */
+  async listAllForSummary(): Promise<Invoice[]> {
+    const out: Invoice[] = [];
+    let ExclusiveStartKey: Record<string, unknown> | undefined;
+    do {
+      const res = await this.db.client.send(
+        new QueryCommand({
+          TableName: BILLING_TABLE,
+          IndexName: BILLING_GSI1_NAME,
+          KeyConditionExpression: 'GSI1PK = :pk',
+          ExpressionAttributeValues: { ':pk': INVOICES_GSI1PK },
+          ProjectionExpression: '#id, #dealId, #contactId, #status, #sentAt, #totals',
+          ExpressionAttributeNames: {
+            '#id': 'id',
+            '#dealId': 'dealId',
+            '#contactId': 'contactId',
+            '#status': 'status',
+            '#sentAt': 'sentAt',
+            '#totals': 'totals',
+          },
+          ExclusiveStartKey,
+        }),
+      );
+      for (const i of res.Items ?? []) out.push(i as Invoice);
+      ExclusiveStartKey = res.LastEvaluatedKey;
+    } while (ExclusiveStartKey);
+    return out;
+  }
+
   async listByContact(contactId: string): Promise<Invoice[]> {
     const { items } = await this.list({ contactId, limit: 500 });
     return items;

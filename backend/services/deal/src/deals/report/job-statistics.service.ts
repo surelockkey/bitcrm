@@ -13,6 +13,7 @@ import { DealsRepository } from '../deals.repository';
 import { CommissionReportService } from '../../commission-report/commission-report.service';
 import type { CommissionDealItem } from '../../commission-report/commission-report.types';
 import { JobsReportService, windowReadError, type ReportCaller } from './jobs-report.service';
+import { ReportWindowCache, shapeTag } from '../../common/cache/report-window-cache';
 import { parseJobsReportQuery, type JobsReportQueryDto } from './jobs-report.query';
 import { emptyLookups, inWindow, isReportable, matchesFilters } from './jobs-report.logic';
 import {
@@ -24,9 +25,17 @@ import {
   type StatsOptions,
 } from './job-statistics.logic';
 
-/** A window is read once and kept a minute per (date, days) — switching tabs or filters does not read it again. */
+/**
+ * The window's rows are shared by every task through Redis
+ * (`ReportWindowCache`, keyed by date, days and projection). The profit on
+ * top — Commissions (Legacy) rows built from billing's ledger, which moves
+ * after a job is Done — is NOT shared: this task keeps the finished window a
+ * minute per (date, days), so switching tabs or filters costs nothing, and a
+ * payment shows within that minute.
+ */
 const WINDOW_TTL_MS = 60_000;
 const WINDOW_CACHE_MAX = 3;
+const STATS_SHAPE = shapeTag(STATS_PROJECTION);
 
 interface StatsWindow {
   deals: StatsDeal[];
@@ -75,6 +84,7 @@ export class JobStatisticsService {
     private readonly repository: DealsRepository,
     private readonly jobsReport: JobsReportService,
     @Optional() private readonly commissions?: CommissionReportService,
+    @Optional() private readonly windowCache?: ReportWindowCache,
   ) {}
 
   async statistics(dto: JobsReportQueryDto, caller: ReportCaller): Promise<JobStatistics> {
@@ -108,7 +118,7 @@ export class JobStatisticsService {
 
     // The areas' zones put a job booked here on the account's clock, as in the Jobs report.
     const catalogs = this.jobsReport.catalogLookups().catch(() => emptyLookups());
-    const read = Promise.all([this.repository.readReportWindow(by, from, to, STATS_PROJECTION), catalogs])
+    const read = Promise.all([this.readWindow(by, from, to), catalogs])
       .then(([items, lk]) =>
         items.map((item) => toStatsDeal(item, lk.serviceAreaZones)).filter((d) => isReportable(d) && inWindow(d, by, from, to)),
       )
@@ -124,6 +134,18 @@ export class JobStatisticsService {
       this.windows.delete(k);
     }
     return read;
+  }
+
+  /** The window's rows — through the shared Redis cache when it is wired. */
+  private readWindow(by: JobStatisticsBy, from: string, to: string, fresh = false): Promise<Record<string, unknown>[]> {
+    const read = () => this.repository.readReportWindow(by, from, to, STATS_PROJECTION);
+    if (!this.windowCache) return read();
+    return this.windowCache.read({ kind: 'stats', from, to, parts: [by, STATS_SHAPE] }, read, { fresh });
+  }
+
+  /** The nightly warm: re-reads one window into the shared cache (`ReportWindowWarmer`). */
+  async warmWindow(by: JobStatisticsBy, from: string, to: string): Promise<void> {
+    await this.readWindow(by, from, to, true);
   }
 
   /**

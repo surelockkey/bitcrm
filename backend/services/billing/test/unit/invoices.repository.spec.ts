@@ -95,3 +95,23 @@ describe('InvoicesRepository — client invoices', () => {
     });
   });
 });
+
+describe('InvoicesRepository — listAllForSummary', () => {
+  it('walks the list index projected to the summary fields', async () => {
+    let page = 0;
+    const db = fakeDb(() =>
+      page++ === 0
+        ? { Items: [{ id: 'a', status: 'paid', totals: { total: 5 } }], LastEvaluatedKey: { PK: 'k' } }
+        : { Items: [{ id: 'b', status: 'due' }] },
+    );
+
+    const rows = await new InvoicesRepository(db as never).listAllForSummary();
+
+    expect(rows.map((r) => r.id)).toEqual(['a', 'b']);
+    expect(db.sent).toHaveLength(2);
+    const input = db.sent[0].input as { ProjectionExpression: string; ExpressionAttributeNames: Record<string, string> };
+    const fields = input.ProjectionExpression.split(',').map((n) => input.ExpressionAttributeNames[n.trim()]).sort();
+    expect(fields).toEqual(['contactId', 'dealId', 'id', 'sentAt', 'status', 'totals']);
+    expect(db.sent[1].input.ExclusiveStartKey).toEqual({ PK: 'k' });
+  });
+});

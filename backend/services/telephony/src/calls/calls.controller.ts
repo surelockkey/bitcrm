@@ -33,28 +33,19 @@ import {
   type ListCallsFilter,
 } from './calls.repository';
 import { callsFilterFromQuery, type CallsQueryParams } from './call-query';
-import { partyNamesText } from './call-search';
 import { CallsExportService } from './calls-export.service';
 import { ConferenceService, type MonitorMode } from '../voice/conference.service';
-import { UserNamesService, type UserSummary } from '../common/user-names.service';
+import { UserNamesService } from '../common/user-names.service';
 import {
   identifyNumber,
   partyStorage,
-  resolveParties,
   storedParties,
-  type CallPartyRef,
   type EnrichedCall,
-  type PartyLookups,
-  type ResolvedParties,
 } from './party-resolver';
-import {
-  ContactLookupService,
-  type CallContact,
-} from '../common/contact-lookup.service';
-import {
-  UserPhoneLookupService,
-  type CallUserPhone,
-} from '../common/user-phone-lookup.service';
+import { CallNamer, withoutStoredExtras } from './call-namer';
+import { RecentCallsStore } from './recent-calls.store';
+import { ContactLookupService } from '../common/contact-lookup.service';
+import { UserPhoneLookupService } from '../common/user-phone-lookup.service';
 import { UserDirectoryService } from '../common/user-directory.service';
 import { PermissionLookupService } from '../common/permission-lookup.service';
 import { BridgeService } from '../common/bridge.service';
@@ -132,15 +123,49 @@ class UpdateCallTagsDto {
   remove?: string[];
 }
 
-/** A record without its search attribute — `partyNames` never leaves the service. */
-function withoutSearchText(call: CallRecord): CallRecord {
-  if (call.partyNames === undefined) return call;
-  const { partyNames: _drop, ...rest } = call;
-  return rest;
-}
-
 /** Rows on the dashboard's "Recent Calls" — Workiz shows four. */
 const DASHBOARD_RECENT_CALLS = 4;
+
+/** Lifetime of a presigned recording URL: long enough to start playing, short enough not to share. */
+const RECORDING_URL_SECONDS = 300;
+
+/**
+ * Answer a whole object from memory, or the one `Range` it asks for (206) —
+ * what lets a player seek. Only `bytes=a-b`, `bytes=a-` and `bytes=-n`; a
+ * range past the end is 416, anything unparseable is ignored (whole object).
+ */
+function sendBuffer(res: Response, body: Buffer, contentType: string, range?: string): void {
+  const size = body.length;
+  const m = range ? /^bytes=(\d*)-(\d*)$/.exec(range.trim()) : null;
+  if (m && (m[1] || m[2])) {
+    let start: number;
+    let end: number;
+    if (!m[1]) {
+      start = Math.max(0, size - Number(m[2]));
+      end = size - 1;
+    } else {
+      start = Number(m[1]);
+      end = m[2] ? Math.min(Number(m[2]), size - 1) : size - 1;
+    }
+    if (start >= size || start > end) {
+      res.status(416);
+      res.set({ 'Content-Range': `bytes */${size}`, 'Accept-Ranges': 'bytes' });
+      res.end();
+      return;
+    }
+    res.status(206);
+    res.set({
+      'Content-Type': contentType,
+      'Content-Range': `bytes ${start}-${end}/${size}`,
+      'Content-Length': String(end - start + 1),
+      'Accept-Ranges': 'bytes',
+    });
+    res.end(body.subarray(start, end + 1));
+    return;
+  }
+  res.set({ 'Content-Type': contentType, 'Content-Length': String(size), 'Accept-Ranges': 'bytes' });
+  res.end(body);
+}
 
 /** The filters the list, its count, the cards and the export share (docs). */
 const CALL_FILTERS_HELP =
@@ -173,7 +198,13 @@ export class CallsController {
     // without storage configured must still boot.
     @Optional() private readonly s3?: S3Service,
     @Optional() private readonly exporter?: CallsExportService,
-  ) {}
+    /** The dashboard's "Recent Calls", kept in Redis by CallFinalizer. */
+    @Optional() private readonly recentCalls?: RecentCallsStore,
+  ) {
+    this.namer = new CallNamer(userNames, contacts, userPhones);
+  }
+
+  private readonly namer: CallNamer;
 
   /**
    * Name both sides of every call. Three lookups, all batched across the page
@@ -195,132 +226,13 @@ export class CallsController {
     return this.permissions.maySeeClientNumbers(user);
   }
 
+  /**
+   * Name both sides of every call (CallNamer — batched, best-effort lookups).
+   * Read-only: freezing the parties and stamping the search names happen once
+   * on the write path, when the call ends (CallFinalizer), never here.
+   */
   private async withNames(records: CallRecord[]): Promise<EnrichedCall[]> {
-    const ids = records.flatMap((r) => [
-      ...(r.agentId ? [r.agentId] : []),
-      ...(r.participants?.map((p) => p.userId) ?? []),
-    ]);
-    const phones = records.flatMap((r) => [
-      ...(r.from ? [r.from] : []),
-      ...(r.to ? [r.to] : []),
-    ]);
-    if (ids.length === 0 && phones.length === 0) return records.map(withoutSearchText);
-
-    const [users, contacts, personals] = await Promise.all([
-      ids.length
-        ? this.userNames.resolve(ids)
-        : Promise.resolve<Record<string, UserSummary>>({}),
-      phones.length
-        ? this.contacts.resolve(phones)
-        : Promise.resolve<Record<string, CallContact>>({}),
-      phones.length
-        ? this.userPhones.resolve(phones)
-        : Promise.resolve<Record<string, CallUserPhone>>({}),
-    ]);
-
-    const lookups: PartyLookups = { users, personals, contacts };
-
-    // Frozen client associations carry only an id; fetch their current names
-    // so a renamed client reads correctly on calls from years ago.
-    const parties = records.map((r) => this.partiesFor(r, lookups));
-    const refs = parties.flatMap((p) =>
-      [p.from, p.to].flatMap((party) =>
-        party && party.kind !== 'user' && !party.name
-          ? [{ kind: party.kind, id: party.id }]
-          : [],
-      ),
-    );
-    const refNames = refs.length ? await this.contacts.resolveRefs(refs) : {};
-    const withName = (party?: CallPartyRef) =>
-      party && !party.name && party.kind !== 'user'
-        ? { ...party, name: refNames[`${party.kind}:${party.id}`] }
-        : party;
-
-    return records.map((rec, i) => {
-      const r = withoutSearchText(rec);
-      const agent = r.agentId ? users[r.agentId] : undefined;
-      const from = withName(parties[i].from);
-      const to = withName(parties[i].to);
-      this.keepSearchNames(rec, from, to, users);
-
-      return {
-        ...r,
-        ...(agent ? { agentName: agent.name, agentRoleId: agent.roleId } : {}),
-        ...(from ? { fromParty: from } : {}),
-        ...(to ? { toParty: to } : {}),
-        ...(r.participants
-          ? {
-              participants: r.participants.map((p) => {
-                const u = users[p.userId];
-                return u ? { ...p, name: u.name, roleId: u.roleId } : p;
-              }),
-            }
-          : {}),
-      };
-    });
-  }
-
-  /**
-   * Keep the row's `partyNames` — what the Search box matches — in step with
-   * the names just resolved for it: a finished call nobody has stamped yet,
-   * or a client renamed since. Fire-and-forget like `freezeParties`, and only
-   * from a whole answer: a side whose name did not resolve (user-service or
-   * the CRM blinking) means nothing is written, or a blip would erase names.
-   */
-  private keepSearchNames(
-    call: CallRecord,
-    from: CallPartyRef | undefined,
-    to: CallPartyRef | undefined,
-    users: Record<string, UserSummary>,
-  ): void {
-    if (call.status && LIVE_STATUSES.includes(call.status)) return;
-    const named = (party?: CallPartyRef) =>
-      !party ||
-      (party.kind === 'user'
-        ? !!users[party.id]?.name || (!!party.personal && !!party.name)
-        : !!party.name);
-    if (!named(from) || !named(to)) return;
-
-    const text = partyNamesText([from?.name, to?.name]);
-    if (text === (call.partyNames ?? '')) return;
-    void this.callsService.stampPartyNames(call.callSid, text).catch(() => undefined);
-  }
-
-  /**
-   * The parties for one record: the frozen association when there is one,
-   * otherwise resolved from the numbers — and, once the call has ended,
-   * written back so the next read and the party index use the settled answer.
-   * Fire-and-forget: naming a call must never fail on a write.
-   */
-  private partiesFor(call: CallRecord, lookups: PartyLookups): ResolvedParties {
-    const stored = storedParties(call);
-    if (stored.from || stored.to) return this.nameStored(stored, lookups);
-
-    const resolved = resolveParties(call, lookups);
-    const live = !!call.status && LIVE_STATUSES.includes(call.status);
-    if (!live && (resolved.from || resolved.to)) {
-      void this.callsService
-        .freezeParties(
-          call.callSid,
-          { from: partyStorage(resolved.from), to: partyStorage(resolved.to) },
-          call.startedAt,
-        )
-        .catch(() => undefined);
-    }
-    return resolved;
-  }
-
-  /** Put today's names on a frozen association. */
-  private nameStored(
-    stored: ResolvedParties,
-    lookups: PartyLookups,
-  ): ResolvedParties {
-    const named = (party?: CallPartyRef): CallPartyRef | undefined => {
-      if (!party || party.kind !== 'user') return party;
-      const user = lookups.users[party.id];
-      return user ? { ...party, name: user.name, roleId: user.roleId } : party;
-    };
-    return { from: named(stored.from), to: named(stored.to) };
+    return (await this.namer.name(records)).map((n) => n.call);
   }
 
   /* NOTE: static routes are declared before ':sid' so they aren't swallowed. */
@@ -605,7 +517,7 @@ export class CallsController {
         // A failed lookup must not fall through to the unmasked event.
         .catch(() =>
           res.write(
-            `data: ${JSON.stringify({ ...event, call: maskCall(event.call as never, false) })}\n\n`,
+            `data: ${JSON.stringify({ ...event, call: maskCall(withoutStoredExtras(event.call) as never, false) })}\n\n`,
           ),
         );
     });
@@ -689,16 +601,25 @@ export class CallsController {
   @Get('stats/recent')
   @RequirePermission('dashboard', 'view_recent_calls')
   @ApiOperation({
-    summary: '"Recent Calls" — the newest four calls of the whole log',
+    summary: '"Recent Calls" — the four most recent finished calls',
     description:
-      '**Guard:** `dashboard.view_recent_calls`. The global log\'s first four rows, named the way the ' +
-      'log names them; client numbers are masked without `contacts.view_numbers`, as in the log.',
+      '**Guard:** `dashboard.view_recent_calls`. The newest four of the last twenty finished calls, kept in ' +
+      'Redis as each call ends and named then; until that list holds four (just after a deploy) the global ' +
+      'log\'s first four rows. Client numbers are masked without `contacts.view_numbers`, as in the log.',
   })
   async recentForDashboard(@CurrentUser() user: JwtUser) {
-    const { items } = await this.callsService.list({}, undefined, DASHBOARD_RECENT_CALLS);
+    // The last finished calls, named when they ended (Redis, CallFinalizer).
+    // Until it holds a full widget's worth — just after a deploy — the log.
+    const cached = (await this.recentCalls?.read(DASHBOARD_RECENT_CALLS)) ?? [];
+    const named =
+      cached.length >= DASHBOARD_RECENT_CALLS
+        ? cached.map((c) => withoutStoredExtras(c) as EnrichedCall)
+        : await this.withNames(
+            (await this.callsService.list({}, undefined, DASHBOARD_RECENT_CALLS)).items,
+          );
     return {
       success: true,
-      data: maskCalls(await this.withNames(items), await this.maySeeNumbers(user)),
+      data: maskCalls(named, await this.maySeeNumbers(user)),
     };
   }
 
@@ -718,26 +639,57 @@ export class CallsController {
     };
   }
 
+  @Get(':sid/recording/url')
+  @RequirePermission('calls', 'view')
+  @ApiOperation({
+    summary: "A short-lived URL to a call's recording in our bucket",
+    description:
+      '**Guard:** `calls.view` permission required. `{ url, expiresIn }` — a presigned S3 GET (five minutes) ' +
+      'that an `<audio>` element can stream and seek directly (S3 answers Range requests with the stored ' +
+      'content type). Only for recordings in our bucket: imported calls, and Twilio recordings once copied ' +
+      'after the recording-status webhook. 404 otherwise — play `GET /calls/:sid/recording` instead.',
+  })
+  async recordingUrl(@Param('sid') sid: string) {
+    const call = await this.callsService.getBySid(sid);
+    if (!call?.recordingKey || !this.s3) throw new NotFoundException('No recording in storage for this call');
+    const url = await this.s3.getPresignedDownloadUrl(call.recordingKey, { expiresIn: RECORDING_URL_SECONDS });
+    return { success: true, data: { url, expiresIn: RECORDING_URL_SECONDS } };
+  }
+
   @Get(':sid/recording')
   @RequirePermission('calls', 'view')
   @ApiOperation({
-    summary: "Stream a call's recording (mp3)",
+    summary: "A call's recording",
     description:
-      '**Guard:** `calls.view` permission required. Proxies the media from ' +
-      'Twilio with server-side auth; the browser plays it via a blob URL.',
+      '**Guard:** `calls.view` permission required. A recording in our bucket (imported, or a Twilio ' +
+      'recording copied after its webhook) is served from S3 — with `Range` support (206), or with ' +
+      '`redirect=1` as a 302 to a five-minute presigned URL. A Twilio recording not copied yet is proxied ' +
+      'from Twilio with server-side auth. NOTE: a cross-origin `fetch` cannot follow the 302 (the redirected ' +
+      'request carries `Origin: null`, which the bucket\'s CORS rule does not allow) — such a client uses ' +
+      '`GET /calls/:sid/recording/url` and plays the URL itself.',
   })
-  async recording(@Param('sid') sid: string, @Res() res: Response) {
+  async recording(
+    @Param('sid') sid: string,
+    @Res() res: Response,
+    @Query('redirect') redirect?: string,
+    @Headers('range') range?: string,
+  ) {
     const call = await this.callsService.getBySid(sid);
 
-    // A call imported from Workiz has no Twilio recording — its audio was
-    // pulled into our own bucket, and that is what gets played.
-    if (call?.recordingKey) {
-      const object = await this.s3?.getObjectBuffer(call.recordingKey);
+    // In our bucket: an imported Workiz call's audio (Twilio never had it),
+    // or a Twilio recording RecordingArchiveService has copied.
+    if (call?.recordingKey && this.s3) {
+      if (redirect === '1' || redirect === 'true') {
+        const url = await this.s3.getPresignedDownloadUrl(call.recordingKey, { expiresIn: RECORDING_URL_SECONDS });
+        res.redirect(302, url);
+        return;
+      }
+      const object = await this.s3.getObjectBuffer(call.recordingKey);
       if (!object) throw new NotFoundException('No recording for this call');
-      res.set({ 'Content-Type': object.contentType ?? 'audio/wav', 'Content-Length': String(object.body.length) });
-      res.end(object.body);
+      sendBuffer(res, object.body, object.contentType ?? 'audio/wav', range);
       return;
     }
+    if (call?.recordingKey) throw new NotFoundException('No recording for this call');
 
     if (!call?.recordingSid) {
       throw new NotFoundException('No recording for this call');

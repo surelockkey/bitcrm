@@ -20,8 +20,9 @@ run_for crm
 run_for deal
 run_for inventory
 run_for search
-# telephony provisions DynamoDB rather than SNS/SQS; its topic is optional.
-run_for telephony setup:dynamodb
+# telephony: its DynamoDB tables, plus the deal-events-to-telephony queue
+# (subscribed to deal-events — dealTotal on linked calls); its topic is optional.
+run_for telephony setup
 # messaging: one table with six GSIs + TTL; topic/queues are optional (M7/M9).
 run_for messaging setup:dynamodb
 # billing: one table with three GSIs, plus billing-events and the

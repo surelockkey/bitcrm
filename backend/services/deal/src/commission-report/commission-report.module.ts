@@ -8,6 +8,7 @@ import { CommissionReportController } from './commission-report.controller';
 import { CommissionReportService } from './commission-report.service';
 import { CommissionReportRepository } from './commission-report.repository';
 import { CommissionReportClient } from './commission-report.client';
+import { ReportWindowCache } from '../common/cache/report-window-cache';
 
 /**
  * The commissions report. Read-only: it writes nothing and owns no rows —
@@ -25,8 +26,10 @@ import { CommissionReportClient } from './commission-report.client';
     ExternalCompaniesRepository,
     CustomFieldsRepository,
     ServiceAreasRepository,
+    ReportWindowCache,
   ],
-  // Job Statistics (DealsModule) takes its Profit from the same rows.
-  exports: [CommissionReportService],
+  // Job Statistics (DealsModule) takes its Profit from the same rows; the
+  // reports there share this one window cache (one single-flight map).
+  exports: [CommissionReportService, ReportWindowCache],
 })
 export class CommissionReportModule {}

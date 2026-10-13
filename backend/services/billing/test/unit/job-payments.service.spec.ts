@@ -374,6 +374,23 @@ describe('PaymentsService.accessibleJob / ledgerForJob — the access check with
     await expect(service.accessibleJob('deal-1', tech)).resolves.toBeTruthy();
   });
 
+  it('ledgerForJob reads the invoice and the ledger side by side', async () => {
+    const { service, ledger, invoices } = build({ seed: [imported()], withInvoice: true });
+    const view = await service.accessibleJob('deal-1', caller());
+    let releaseInvoice!: () => void;
+    const original = invoices.getStored.getMockImplementation()!;
+    invoices.getStored.mockImplementation(async (id: string) => {
+      await new Promise<void>((r) => (releaseInvoice = r));
+      return original(id);
+    });
+
+    const answer = service.ledgerForJob(view);
+    await new Promise((r) => setImmediate(r));
+    expect(ledger.listByInvoice).toHaveBeenCalledWith('deal-1');
+    releaseInvoice();
+    await expect(answer).resolves.toMatchObject({ dealId: 'deal-1', invoiceId: 'deal-1' });
+  });
+
   it('ledgerForJob(accessibleJob(...)) is listForDeal', async () => {
     const { service } = build({ seed: [imported()], withInvoice: true });
     const composed = await service.ledgerForJob(await service.accessibleJob('deal-1', caller()));
@@ -402,8 +419,26 @@ describe('PaymentsService.ledgersByDeals — the commissions report (internal)',
     expect(await service.ledgersByDeals('deal-1' as any)).toEqual({});
   });
 
+  it('a slow ledger does not hold back the rest (a pool, not waves)', async () => {
+    const { service, ledger } = build();
+    let releaseSlow!: () => void;
+    const started = new Set<string>();
+    ledger.listByInvoice.mockImplementation(async (id: string) => {
+      started.add(id);
+      if (id === 'deal-0') await new Promise<void>((r) => (releaseSlow = r));
+      else await new Promise((r) => setImmediate(r));
+      return [];
+    });
+    const done = service.ledgersByDeals(Array.from({ length: 100 }, (_, i) => `deal-${i}`));
+    for (let i = 0; i < 50 && started.size < 100; i++) await new Promise((r) => setImmediate(r));
+    // With waves, deal-50…99 would wait for deal-0; with a pool they all start.
+    expect(started.size).toBe(100);
+    releaseSlow();
+    expect(Object.keys(await done)).toHaveLength(100);
+  });
+
   it(`keeps ${LEDGER_READ_CONCURRENCY} ledger reads in flight at once, never more`, async () => {
-    expect(LEDGER_READ_CONCURRENCY).toBe(40);
+    expect(LEDGER_READ_CONCURRENCY).toBe(50);
     const { service, ledger } = build();
     let inFlight = 0;
     let peak = 0;

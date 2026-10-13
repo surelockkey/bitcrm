@@ -16,7 +16,8 @@ import { JobSourcesRepository } from '../job-sources/job-sources.repository';
 import { ExternalCompaniesRepository } from '../external-companies/external-companies.repository';
 import { CustomFieldsRepository } from '../custom-fields/custom-fields.repository';
 import { ServiceAreasRepository } from '../service-areas/service-areas.repository';
-import { CommissionReportRepository, shiftDay, type ItemsRead } from './commission-report.repository';
+import { COMMISSION_ITEMS_SHAPE, CommissionReportRepository, shiftDay, type ItemsRead } from './commission-report.repository';
+import { ReportWindowCache } from '../common/cache/report-window-cache';
 import { CommissionReportClient } from './commission-report.client';
 import {
   buildRow,
@@ -52,7 +53,13 @@ export const CLOSED_LOOKBACK_DAYS = 31;
 export const MAX_PERIOD_DAYS = 186;
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 500;
-/** Paging, sorting and switching technicians re-use one read of the period for a minute. */
+/**
+ * Paging, sorting and switching technicians re-use one build of the period
+ * for a minute in this task. Beneath it, the period's index read is shared by
+ * every task through Redis (`ReportWindowCache`: 5 min while the period
+ * reaches today, 30 min just after, a day once settled); the ledgers and
+ * rates the rows are built from are NOT — a payment shows within the minute.
+ */
 const CACHE_TTL_MS = 60_000;
 const CACHE_MAX_ENTRIES = 8;
 
@@ -93,6 +100,7 @@ export class CommissionReportService {
     private readonly externalCompanies: ExternalCompaniesRepository,
     private readonly customFields: CustomFieldsRepository,
     @Optional() private readonly serviceAreas?: ServiceAreasRepository,
+    @Optional() private readonly windowCache?: ReportWindowCache,
   ) {}
 
   /**
@@ -225,7 +233,7 @@ export class CommissionReportService {
     const hit = this.cache.get(key);
     if (hit && !fresh && Date.now() - hit.at < CACHE_TTL_MS) return hit;
 
-    const [read, zones] = await Promise.all([this.read(q, ownTech), this.areaZones()]);
+    const [read, zones] = await Promise.all([this.read(q, ownTech, fresh), this.areaZones()]);
     const zoneOf = (i: CommissionDealItem) => (i.serviceAreaId ? zones.get(i.serviceAreaId) : undefined);
     const items = read.items.filter(
       (i) => inPeriod(i, q.by, q.from, q.to, zoneOf(i)) && (!ownTech || primaryTechOf(i) === ownTech),
@@ -247,7 +255,22 @@ export class CommissionReportService {
    * away from Connecticut's, so a day either side is read and `inPeriod`
    * keeps the exact ones.
    */
-  private read(q: CommissionReportQuery, ownTech?: string): Promise<ItemsRead> {
+  private read(q: CommissionReportQuery, ownTech: string | undefined, fresh = false): Promise<ItemsRead> {
+    const load = () => this.readIndex(q, ownTech);
+    if (!this.windowCache) return load();
+    return this.windowCache.read(
+      { kind: 'commissions', from: q.from, to: q.to, parts: [q.by, ownTech ?? '*', COMMISSION_ITEMS_SHAPE] },
+      load,
+      { fresh },
+    );
+  }
+
+  /** The nightly warm: re-reads one office-wide period into the shared cache (`ReportWindowWarmer`). */
+  async warmPeriod(by: CommissionReportBy, from: string, to: string): Promise<void> {
+    await this.read({ from, to, by } as CommissionReportQuery, undefined, true);
+  }
+
+  private readIndex(q: CommissionReportQuery, ownTech?: string): Promise<ItemsRead> {
     if (q.by === 'created') {
       const { start, end } = accountWindowUtc(q.from, q.to);
       return this.repository.findDoneByCreated(start, new Date(Date.parse(end) - 1).toISOString());

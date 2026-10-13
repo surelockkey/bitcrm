@@ -6,7 +6,7 @@ import {
   NotFoundException,
   Optional,
 } from '@nestjs/common';
-import { SnsPublisherService } from '@bitcrm/shared';
+import { RedisService, SnsPublisherService } from '@bitcrm/shared';
 import {
   isAssignable,
   TechChangedField,
@@ -26,6 +26,15 @@ import { ReviewAssignmentDto } from './dto/assignment.dto';
 
 const USER_EVENTS_TOPIC = 'user-events';
 
+/**
+ * Every technician's approved job types + service areas (`GET
+ * /technicians/assignments/approved`), shared across tasks. Deleted by every
+ * write in this service (propose / assign / approve / reject / revoke); the
+ * TTL is the backstop for a write made outside it (`migrate-technician-skills`).
+ */
+export const APPROVED_ASSIGNMENTS_CACHE_KEY = 'technicians:assignments:approved';
+const APPROVED_ASSIGNMENTS_TTL_SECONDS = 300;
+
 export interface TechnicianAssignments {
   jobTypes: TechnicianJobType[];
   serviceAreas: TechnicianServiceArea[];
@@ -39,6 +48,7 @@ export class TechnicianAssignmentsService {
     private readonly repository: TechnicianAssignmentsRepository,
     private readonly rolesService: RolesService,
     @Optional() private readonly snsPublisher?: SnsPublisherService,
+    @Optional() private readonly redis?: RedisService,
   ) {}
 
   // --- reads ---
@@ -58,11 +68,36 @@ export class TechnicianAssignmentsService {
     if (!(await this.isPrivileged(caller))) {
       throw new ForbiddenException("Only managers can view every technician's assignments");
     }
+    const hit = await this.readApprovedCache();
+    if (hit) return hit;
+
     const [jobTypes, serviceAreas] = await Promise.all([
       this.repository.listAllApproved('job_type'),
       this.repository.listAllApproved('service_area'),
     ]);
-    return { jobTypes: jobTypes.map(toJobType), serviceAreas: serviceAreas.map(toServiceArea) };
+    const answer = { jobTypes: jobTypes.map(toJobType), serviceAreas: serviceAreas.map(toServiceArea) };
+    await this.redis?.client
+      .set(APPROVED_ASSIGNMENTS_CACHE_KEY, JSON.stringify(answer), 'EX', APPROVED_ASSIGNMENTS_TTL_SECONDS)
+      .catch((err: Error) => this.logger.warn(`approved-assignments cache write failed: ${err?.message}`));
+    return answer;
+  }
+
+  private async readApprovedCache(): Promise<TechnicianAssignments | null> {
+    if (!this.redis) return null;
+    try {
+      const raw = await this.redis.client.get(APPROVED_ASSIGNMENTS_CACHE_KEY);
+      return raw ? (JSON.parse(raw) as TechnicianAssignments) : null;
+    } catch (err) {
+      this.logger.warn(`approved-assignments cache read failed: ${(err as Error)?.message}`);
+      return null;
+    }
+  }
+
+  /** Called after every assignment write — the approved set may have changed. */
+  private async invalidateApproved(): Promise<void> {
+    await this.redis?.client
+      .del(APPROVED_ASSIGNMENTS_CACHE_KEY)
+      .catch((err: Error) => this.logger.warn(`approved-assignments cache delete failed: ${err?.message}`));
   }
 
   async listPending(caller: JwtUser) {
@@ -153,6 +188,7 @@ export class TechnicianAssignmentsService {
     }
 
     if (created.length > 0) {
+      await this.invalidateApproved();
       this.logger.log(
         `${created.length} ${kind} assignment(s) ${status === 'approved' ? 'granted to' : 'proposed by'} ${userId}`,
       );
@@ -178,6 +214,7 @@ export class TechnicianAssignmentsService {
       reviewedAt: new Date().toISOString(),
       comments: dto.comments,
     });
+    await this.invalidateApproved();
     this.logger.log(`${kind} ${catalogId} approved for ${userId} by ${caller.id}`);
 
     await this.publishIfNewlyAssignable(userId, before);
@@ -203,6 +240,7 @@ export class TechnicianAssignmentsService {
       reviewedAt: new Date().toISOString(),
       comments: dto.comments,
     });
+    await this.invalidateApproved();
     this.logger.log(`${kind} ${catalogId} rejected for ${userId} by ${caller.id}`);
     this.publishUpdated(userId);
     return updated;
@@ -217,6 +255,7 @@ export class TechnicianAssignmentsService {
     await this.assertManager(caller);
     await this.requireAll(userId, kind, catalogId);
     await this.repository.delete(userId, kind, catalogId);
+    await this.invalidateApproved();
     this.logger.log(`${kind} ${catalogId} revoked for ${userId} by ${caller.id}`);
     this.publishUpdated(userId);
   }
@@ -304,9 +343,14 @@ export class TechnicianAssignmentsService {
 
   private async isPrivileged(caller: JwtUser): Promise<boolean> {
     if (!caller.roleId) throw new ForbiddenException('User has no roleId assigned');
+    // The reference role is asked for alongside the caller's, but only awaited
+    // where the old sequential code read it: a Super Admin never depends on it
+    // (a missing reference role must not 404 them), anyone else gets its error.
+    const techRoleRead = this.rolesService.findById(TECHNICIAN_ROLE_ID);
+    techRoleRead.catch(() => undefined);
     const callerRole = await this.rolesService.findById(caller.roleId);
     if (callerRole.isSystem && callerRole.name === 'Super Admin') return true;
-    const techRole = await this.rolesService.findById(TECHNICIAN_ROLE_ID);
+    const techRole = await techRoleRead;
     return callerRole.priority > techRole.priority;
   }
 

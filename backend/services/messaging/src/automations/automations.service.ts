@@ -21,7 +21,9 @@ import { AutomationsRepository } from './automations.repository';
 import { BUILTIN_RULES, isBuiltinRuleId } from './builtin-rules';
 import { type CreateAutomationDto } from './dto/create-automation.dto';
 import { type UpdateAutomationDto } from './dto/update-automation.dto';
-import { TRANSLATOR_VERSION, translateWorkizRule } from './translator/workiz-translator';
+import { TRANSLATOR_VERSION } from './translator/workiz-translator';
+import { withTranslatedSpec } from './translator/automation-spec-backfill';
+import { RedisCachedValue } from '../common/redis-cached-value';
 
 /**
  * Raised when a rule the engine has no spec for is switched on: an imported
@@ -69,6 +71,15 @@ export interface AutomationMigrationRow {
 /** How long a list count stays good enough. Matches the deals tab counts. */
 const COUNT_TTL_SECONDS = 30;
 
+/**
+ * The composed catalog `GET /automations` answers, in Redis for every task.
+ * The translator version is in the key: a deploy with a better translator
+ * never serves the previous one's translations out of the cache.
+ */
+export const AUTOMATIONS_LIST_CACHE_KEY = `messaging:automations:list:t${TRANSLATOR_VERSION}`;
+/** Safety net for writes that bypass this service (an import straight into DynamoDB). */
+export const AUTOMATIONS_LIST_CACHE_TTL_SECONDS = 5 * 60;
+
 /** `GET /automations?category=` — the Notifications page reads its own rows through this. */
 export interface AutomationListFilter {
   /** Only rules filed under this category; absent = every rule (the Automation Center). */
@@ -86,12 +97,15 @@ export interface AutomationListFilter {
 @Injectable()
 export class AutomationsService {
   private readonly logger = new Logger(AutomationsService.name);
+  private readonly listCache: RedisCachedValue<AutomationRule[]>;
 
   constructor(
     private readonly repository: AutomationsRepository,
     @Optional() private readonly runs?: AutomationRunsRepository,
     @Optional() private readonly redis?: RedisService,
-  ) {}
+  ) {
+    this.listCache = new RedisCachedValue(redis, AUTOMATIONS_LIST_CACHE_KEY, AUTOMATIONS_LIST_CACHE_TTL_SECONDS);
+  }
 
   /**
    * How many firings the activity feed holds — the number behind
@@ -121,15 +135,26 @@ export class AutomationsService {
    * name. `category` narrows the answer server-side — the Notifications page
    * lists `notification` rows only; the catalog is tens of rows, so this is a
    * filter over the one Query, not a second index.
+   *
+   * The composed list (translations included) is cached in Redis for every
+   * task (`AUTOMATIONS_LIST_CACHE_KEY`, 5 min) and dropped by every write
+   * this service makes, so an outdated row is translated once per write or
+   * TTL, not once per request — until `backfill:automation-specs` has saved
+   * the translations and there is nothing left to translate.
    */
   async list(filter: AutomationListFilter = {}): Promise<AutomationRule[]> {
+    const rules = await this.listCache.get(() => this.readAll());
+    return filter.category ? rules.filter((r) => r.category === filter.category) : rules;
+  }
+
+  /** The catalog straight from the table: stored rows overlaid, unstored built-ins added, by name. */
+  private async readAll(): Promise<AutomationRule[]> {
     const stored = await this.repository.list();
     const seen = new Set(stored.map((r) => r.id));
     const builtins = Object.values(BUILTIN_RULES).filter((r) => !seen.has(r.id));
-    const rules = [...stored.map((r) => this.overlay(r)), ...builtins].sort((a, b) =>
+    return [...stored.map((r) => this.overlay(r)), ...builtins].sort((a, b) =>
       a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }) || a.id.localeCompare(b.id),
     );
-    return filter.category ? rules.filter((r) => r.category === filter.category) : rules;
   }
 
   /** Stored row over the built-in default; 404 for anything else. */
@@ -190,6 +215,7 @@ export class AutomationsService {
       createdBy: caller.id,
       updatedBy: caller.id,
     });
+    await this.listCache.invalidate();
     this.logger.log(`Automation rule ${id} "${saved.name}" created by ${caller.id} (enabled=${saved.enabled})`);
     return saved;
   }
@@ -234,6 +260,7 @@ export class AutomationsService {
       updatedBy: caller.id,
       createdBy: current.createdBy ?? caller.id,
     });
+    await this.listCache.invalidate();
     this.logger.log(`Automation rule ${id} updated by ${caller.id}: ${Object.keys(dto).join(', ')}`);
     return saved;
   }
@@ -250,7 +277,8 @@ export class AutomationsService {
    */
   async duplicate(id: string, name: string | undefined, caller: { id: string }): Promise<AutomationRule> {
     const source = await this.get(id);
-    const rules = await this.list();
+    // Fresh from the table: the name must not collide with a copy another task just made.
+    const rules = await this.readAll();
     const at = new Date().toISOString();
     const copyId = randomUUID();
     const runnable = hasExecutableAction(source.spec?.actions);
@@ -277,6 +305,7 @@ export class AutomationsService {
       createdBy: caller.id,
       updatedBy: caller.id,
     });
+    await this.listCache.invalidate();
     this.logger.log(`Automation rule ${id} duplicated to ${copyId} "${saved.name}" by ${caller.id}`);
     return saved;
   }
@@ -290,6 +319,7 @@ export class AutomationsService {
     const rule = await this.get(id);
     if (rule.builtin || isBuiltinRuleId(id)) throw new BuiltinRuleNotDeletableException(id);
     await this.repository.delete(id);
+    await this.listCache.invalidate();
     this.logger.log(`Automation rule ${id} "${rule.name}" deleted by ${caller.id}`);
     return { id };
   }
@@ -323,6 +353,7 @@ export class AutomationsService {
         written,
       });
     }
+    if (rows.some((r) => r.written)) await this.listCache.invalidate();
     this.logger.log(
       `Automation migration by ${caller.id}: ${rows.filter((r) => r.runnable).length}/${rows.length} runnable` +
         `${opts.dryRun ? ' (dry run)' : ''}`,
@@ -362,22 +393,6 @@ export class AutomationsService {
 
   /** The translation, unless the row already carries a current or hand-written one. */
   private withSpec(rule: AutomationRule): AutomationRule {
-    // A hand-written spec and an imported Notification Center row are both
-    // already specs; running the translator over either would replace a rule
-    // that works with one built from Workiz fields these rows do not have.
-    if (isOwnAutomationSpec(rule.specSource)) return rule;
-    if (rule.specSource === 'workiz-translator' && rule.specVersion === TRANSLATOR_VERSION) return rule;
-    if (!rule.events && !rule.conditions && !rule.spec) return rule;
-
-    const { spec, runnable, notRunnableReason, notes } = translateWorkizRule(rule);
-    return {
-      ...rule,
-      ...(spec ? { spec } : {}),
-      specSource: 'workiz-translator',
-      specVersion: TRANSLATOR_VERSION,
-      runnable,
-      ...(notRunnableReason ? { notRunnableReason } : {}),
-      ...(notes.length ? { specNotes: notes } : {}),
-    };
+    return withTranslatedSpec(rule);
   }
 }

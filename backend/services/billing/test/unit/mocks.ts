@@ -120,6 +120,8 @@ export function mockDealClient() {
     listServiceAreas: jest.fn(async (..._a: any[]): Promise<any> => [{ id: 'sa-1', name: 'Hartford', timezone: 'America/New_York' }]),
     listCustomFields: jest.fn(async (..._a: any[]): Promise<any> => []),
     listNeedsInvoice: jest.fn(async (..._a: any[]): Promise<any> => []),
+    countNeedsInvoice: jest.fn(async (..._a: any[]): Promise<any> => 0),
+    listNeedsInvoiceInternal: jest.fn(async (..._a: any[]): Promise<any> => []),
     listByContact: jest.fn(async (..._a: any[]): Promise<any> => []),
     setPaymentStatus: jest.fn(async (..._a: any[]): Promise<any> => undefined),
   };

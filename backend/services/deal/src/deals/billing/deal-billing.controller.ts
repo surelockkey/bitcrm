@@ -1,5 +1,5 @@
 import {
-  Body, Controller, Get, HttpCode, HttpStatus, Param, Patch, Post, Put, UseInterceptors,
+  Body, Controller, Get, HttpCode, HttpStatus, Param, Patch, Post, Put, Query, UseInterceptors,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, RequirePermission } from '@bitcrm/shared';
@@ -115,6 +115,34 @@ export class DealBillingController {
   }
 
   // Internal endpoints (billing service)
+
+  // `internal/needs-invoice[/count]` are static: declared here, in a controller
+  // registered before DealsController, so `internal/:id` never takes them.
+  @Get('internal/needs-invoice/count')
+  @Internal()
+  @ApiOperation({
+    summary: 'Internal: how many jobs need an invoice',
+    description:
+      '**Guard:** internal secret (`x-internal-secret`). `{ count }` — live jobs with at least one line and ' +
+      'no invoice, counted off the sparse NeedsInvoiceIndex (GSI11) and cached 30 s in Redis.',
+  })
+  async needsInvoiceCount() {
+    return { success: true, data: { count: await this.service.needsInvoiceCount() } };
+  }
+
+  @Get('internal/needs-invoice')
+  @Internal()
+  @ApiOperation({
+    summary: 'Internal: the jobs that need an invoice, newest first',
+    description:
+      '**Guard:** internal secret (`x-internal-secret`). `?limit=` (default 100, max 500) and `?cursor=`; ' +
+      'the same `Deal` rows as `GET /deals?needsInvoice=true`, with `pagination.nextCursor`. No data scope — ' +
+      'the caller scopes.',
+  })
+  async listNeedsInvoice(@Query('limit') limit?: string, @Query('cursor') cursor?: string) {
+    const page = await this.service.listNeedsInvoice(limit, cursor);
+    return { success: true, data: page.items, pagination: { nextCursor: page.nextCursor, count: page.items.length } };
+  }
 
   @Get('internal/by-contact/:contactId')
   @Internal()

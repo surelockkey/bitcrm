@@ -50,6 +50,12 @@ locals {
       # "By: Job end date" (Workiz report_by=3). Rows written before it existed
       # need `npm run backfill:end-index -w backend/services/deal -- --apply`.
       { name = "EndIndex", n = 7 },
+      # NeedsInvoiceIndex is sparse — the jobs that still need an invoice (live,
+      # itemCount > 0, no invoiceId): NEEDS_INVOICE / <createdAt>#DEAL#<id>.
+      # Billing's "needs invoice" count and list, without a Scan. Rows written
+      # before it need `npm run backfill:needs-invoice-index -w
+      # backend/services/deal -- --apply` (it reconciles: sets and removes).
+      { name = "NeedsInvoiceIndex", n = 11 },
     ] }
     # One item per call (PK=CALL#<sid>, SK=METADATA). AgentIndex is an agent's
     # own history; AllCallsIndex is the global time-ordered log the calls page
@@ -345,6 +351,18 @@ module "sns_sqs" {
     # removes the job's invoice and estimates.
     billing-deal-events = {
       topic_subscriptions = ["deal-events"]
+    }
+
+    # ---- telephony-service (SSM /sqs/<key>/url -> <KEY>_QUEUE_URL) ----
+    # telephony's one queue (the consumer takes a single URL, hence the name,
+    # like user-events-to-deal): deal.product_* / deal.updated /
+    # deal.status_changed / deal.deleted restamp `dealTotal` on the calls
+    # linked to that job (found through the DEALCALLS#<dealId> rows), so the
+    # call reports never re-read job totals; contact.* / company.* drop a
+    # client's numbers from the shared caller-name cache, so "Add client" on a
+    # call shows the client at once.
+    deal-events-to-telephony = {
+      topic_subscriptions = ["deal-events", "contact-events"]
     }
   }
 }

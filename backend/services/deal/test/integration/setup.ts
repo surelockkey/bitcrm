@@ -41,6 +41,8 @@ export async function createTestTables(): Promise<void> {
           { AttributeName: 'GSI3SK', AttributeType: 'S' },
           { AttributeName: 'GSI4PK', AttributeType: 'S' },
           { AttributeName: 'GSI4SK', AttributeType: 'S' },
+          { AttributeName: 'GSI11PK', AttributeType: 'S' },
+          { AttributeName: 'GSI11SK', AttributeType: 'S' },
         ],
         GlobalSecondaryIndexes: [
           {
@@ -72,6 +74,15 @@ export async function createTestTables(): Promise<void> {
             KeySchema: [
               { AttributeName: 'GSI4PK', KeyType: 'HASH' },
               { AttributeName: 'GSI4SK', KeyType: 'RANGE' },
+            ],
+            Projection: { ProjectionType: 'ALL' },
+          },
+          {
+            // `GET /deals?needsInvoice=true` and billing's internal count/list read it.
+            IndexName: 'NeedsInvoiceIndex',
+            KeySchema: [
+              { AttributeName: 'GSI11PK', KeyType: 'HASH' },
+              { AttributeName: 'GSI11SK', KeyType: 'RANGE' },
             ],
             Projection: { ProjectionType: 'ALL' },
           },

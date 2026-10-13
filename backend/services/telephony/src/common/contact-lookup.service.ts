@@ -1,16 +1,19 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
+import { RedisService } from '@bitcrm/shared';
+import { RedisBatchCache } from './redis-batch-cache';
 
 const CRM_SERVICE_URL = process.env.CRM_SERVICE_URL || 'http://localhost:4002';
 const INTERNAL_SECRET = process.env.INTERNAL_SERVICE_SECRET || '';
-const CACHE_TTL_MS = 5 * 60_000;
+/** A known name: ten minutes (a rename is pushed by contact-events anyway). */
+const CACHE_TTL_MS = 10 * 60_000;
 /**
- * Misses expire far sooner than hits. An unknown number becomes a client the
- * moment someone clicks "Add client" on that very call — caching the miss for
- * minutes makes the feature look broken, since the UI refetches immediately
- * and gets the stale nothing back. Still long enough to absorb the burst of
- * lookups from one page render.
+ * An unknown number: five minutes. An unknown number becomes a client the
+ * moment someone clicks "Add client" on that very call — so contact.created /
+ * contact.updated (telephony's deal-events-to-telephony queue, which also
+ * carries contact-events) drop the new client's numbers from the cache
+ * (`forgetContact`), and the UI's refetch sees the client.
  */
-const MISS_TTL_MS = 20_000;
+const MISS_TTL_MS = 5 * 60_000;
 /** The CRM endpoint caps the batch; stay under it. */
 const MAX_BATCH = 100;
 
@@ -20,13 +23,6 @@ export interface CallContact {
   id: string;
   name: string;
   companyId?: string;
-}
-
-interface CacheEntry {
-  /** null caches a miss — unknown numbers are the common case and re-asking
-   *  the CRM for every one of them on every page render is pure waste. */
-  contact: CallContact | null;
-  expiresAt: number;
 }
 
 /**
@@ -39,11 +35,41 @@ interface CacheEntry {
 @Injectable()
 export class ContactLookupService {
   private readonly logger = new Logger(ContactLookupService.name);
-  private readonly cache = new Map<string, CacheEntry>();
-  private readonly nameCache = new Map<
-    string,
-    { name: string | null; expiresAt: number }
-  >();
+  /**
+   * By number; `null` caches a miss — unknown numbers are the common case and
+   * re-asking the CRM for every one of them on every page render is waste.
+   */
+  private readonly byPhone: RedisBatchCache<CallContact>;
+  /** By identity (`contact:<id>` / `company:<id>`) → current name. */
+  private readonly byRef: RedisBatchCache<string>;
+
+  constructor(@Optional() redis?: RedisService) {
+    this.byPhone = new RedisBatchCache<CallContact>(redis, 'telephony:names:contact-phone:v1', {
+      hitTtlMs: CACHE_TTL_MS,
+      missTtlMs: MISS_TTL_MS,
+    });
+    this.byRef = new RedisBatchCache<string>(redis, 'telephony:names:contact-ref:v1', {
+      hitTtlMs: CACHE_TTL_MS,
+      missTtlMs: MISS_TTL_MS,
+    });
+  }
+
+  /**
+   * A contact was created, edited or merged: drop its numbers (a cached miss
+   * would hide the new client for minutes) and its name from every task's
+   * cache. Its numbers are read from the CRM — the event carries none.
+   */
+  async forgetContact(contactId: string): Promise<void> {
+    const keys = [`contact:${contactId}`];
+    await this.byRef.invalidate(keys);
+    const found = await this.phonesOf(contactId);
+    if (found?.phones?.length) await this.byPhone.invalidate(found.phones);
+  }
+
+  /** A company was created or edited: drop its name from every task's cache. */
+  async forgetCompany(companyId: string): Promise<void> {
+    await this.byRef.invalidate([`company:${companyId}`]);
+  }
 
   /**
    * The numbers on one client record, read live at dial time.
@@ -89,37 +115,19 @@ export class ContactLookupService {
 
   async resolve(phones: string[]): Promise<Record<string, CallContact>> {
     // `client:<id>` legs and blanks aren't numbers — never ask about them.
-    const unique = [
-      ...new Set(phones.filter((p) => p && p.startsWith('+'))),
-    ];
-    const out: Record<string, CallContact> = {};
-    const misses: string[] = [];
-
-    const now = Date.now();
-    for (const phone of unique) {
-      const hit = this.cache.get(phone);
-      if (hit && hit.expiresAt > now) {
-        if (hit.contact) out[phone] = hit.contact;
-      } else {
-        misses.push(phone);
+    const unique = [...new Set(phones.filter((p) => p && p.startsWith('+')))];
+    if (!unique.length) return {};
+    const found = await this.byPhone.getMany(unique, async (misses) => {
+      const loaded = new Map<string, CallContact | null>();
+      for (let i = 0; i < misses.length; i += MAX_BATCH) {
+        const batch = misses.slice(i, i + MAX_BATCH);
+        const answer = await this.fetchBatch(batch);
+        if (!answer) continue; // CRM unreachable — leave these uncached, retry next time
+        for (const phone of batch) loaded.set(phone, answer[phone] ?? null);
       }
-    }
-    if (misses.length === 0) return out;
-
-    for (let i = 0; i < misses.length; i += MAX_BATCH) {
-      const batch = misses.slice(i, i + MAX_BATCH);
-      const found = await this.fetchBatch(batch);
-      if (!found) continue; // CRM unreachable — leave these uncached, retry next time
-      for (const phone of batch) {
-        const contact = found[phone] ?? null;
-        this.cache.set(phone, {
-          contact,
-          expiresAt: now + (contact ? CACHE_TTL_MS : MISS_TTL_MS),
-        });
-        if (contact) out[phone] = contact;
-      }
-    }
-    return out;
+      return loaded;
+    });
+    return Object.fromEntries(found);
   }
 
   /**
@@ -130,49 +138,39 @@ export class ContactLookupService {
   async resolveRefs(
     refs: Array<{ kind: 'contact' | 'company'; id: string }>,
   ): Promise<Record<string, string>> {
-    const out: Record<string, string> = {};
-    const misses: Array<{ kind: 'contact' | 'company'; id: string }> = [];
-
-    const now = Date.now();
-    for (const ref of refs) {
-      const key = `${ref.kind}:${ref.id}`;
-      const hit = this.nameCache.get(key);
-      if (hit && hit.expiresAt > now) {
-        if (hit.name) out[key] = hit.name;
-      } else {
-        misses.push(ref);
-      }
-    }
-    if (!misses.length) return out;
-
-    try {
-      const res = await fetch(
-        `${CRM_SERVICE_URL}/api/crm/contacts/internal/by-ids`,
-        {
+    const keys = [...new Set(refs.map((r) => `${r.kind}:${r.id}`))];
+    if (!keys.length) return {};
+    const found = await this.byRef.getMany(keys, async (misses) => {
+      const loaded = new Map<string, string | null>();
+      try {
+        const asked = misses.slice(0, 200).map((key) => {
+          const [kind, ...rest] = key.split(':');
+          return { kind, id: rest.join(':') };
+        });
+        const res = await fetch(`${CRM_SERVICE_URL}/api/crm/contacts/internal/by-ids`, {
           method: 'POST',
           headers: {
             'content-type': 'application/json',
             'x-internal-secret': INTERNAL_SECRET,
           },
-          body: JSON.stringify({ refs: misses.slice(0, 200) }),
-        },
-      );
-      if (!res.ok) return out;
-      const body = (await res.json()) as {
-        data?: Record<string, { name?: string }>;
-      };
-      for (const ref of misses) {
-        const key = `${ref.kind}:${ref.id}`;
-        const name = body.data?.[key]?.name ?? null;
-        this.nameCache.set(key, { name, expiresAt: now + CACHE_TTL_MS });
-        if (name) out[key] = name;
+          body: JSON.stringify({ refs: asked }),
+        });
+        if (!res.ok) return loaded;
+        const body = (await res.json()) as {
+          data?: Record<string, { name?: string }>;
+        };
+        for (const ref of asked) {
+          const key = `${ref.kind}:${ref.id}`;
+          loaded.set(key, body.data?.[key]?.name ?? null);
+        }
+      } catch (error) {
+        this.logger.warn(
+          `party name lookup failed: ${error instanceof Error ? error.message : error}`,
+        );
       }
-    } catch (error) {
-      this.logger.warn(
-        `party name lookup failed: ${error instanceof Error ? error.message : error}`,
-      );
-    }
-    return out;
+      return loaded;
+    });
+    return Object.fromEntries(found);
   }
 
   private async fetchBatch(

@@ -72,7 +72,7 @@ describe('planPartyNames', () => {
     });
   });
 
-  it('a row with no frozen association waits for its first read (which resolves by number)', () => {
+  it('a row with no frozen association is left alone (it is named by number on read)', () => {
     expect(planPartyNames({ PK: 'CALL#CA1', from: '+14045551234' }, book())).toEqual({ action: 'unfrozen' });
   });
 

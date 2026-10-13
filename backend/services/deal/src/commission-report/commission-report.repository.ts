@@ -9,6 +9,7 @@ import {
   DEALS_GSI5_NAME,
 } from '../common/constants/dynamo.constants';
 import type { CommissionDealItem } from './commission-report.types';
+import { shapeTag } from '../common/cache/report-window-cache';
 
 /**
  * The Done jobs of a commissions-report period, read off the deal table's
@@ -75,6 +76,8 @@ const PROJECTED = [
 ] as const;
 
 const PROJECTION_NAMES: Record<string, string> = Object.fromEntries(PROJECTED.map((a, i) => [`#p${i}`, a]));
+/** The projection's name in the shared window cache's key — a new attribute is a new entry. */
+export const COMMISSION_ITEMS_SHAPE = shapeTag(PROJECTED);
 const PROJECTION = Object.keys(PROJECTION_NAMES).join(', ');
 
 export interface ItemsRead {

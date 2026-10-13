@@ -42,6 +42,7 @@ import { ItemsReportController } from './report/items-report.controller';
 import { ItemsReportService } from './report/items-report.service';
 import { ItemsReportRepository } from './report/items-report.repository';
 import { JobStatisticsController } from './report/job-statistics.controller';
+import { ReportWindowWarmer } from './report/report-window-warmer';
 import { JobStatisticsService } from './report/job-statistics.service';
 import { CommissionReportModule } from '../commission-report/commission-report.module';
 import { ContactHistoryController } from '../contacts/contact-history.controller';
@@ -110,6 +111,7 @@ import { ClientConfirmService } from './client-confirm/client-confirm.service';
     TaxReportService,
     BillingReportsClient,
     JobStatisticsService,
+    ReportWindowWarmer,
     DispatchMapService,
 
     ClientConfirmService,

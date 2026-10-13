@@ -264,3 +264,18 @@ describe('ContactEventsHandler.onContactUpdated', () => {
     expect(conversations.update).not.toHaveBeenCalled();
   });
 });
+
+describe('ContactEventsHandler — the inbox name cache (B5)', () => {
+  it('contact.updated drops the contact\'s cached name, thread or not, so a rename shows on the next page', async () => {
+    const { FakeRedis, fakeRedisService } = await import('../fake-redis');
+    const { partyNameKey } = await import('../../../src/api/access/party-names.service');
+    const redis = new FakeRedis();
+    redis.write(partyNameKey('contact', 'ct1'), JSON.stringify({ n: 'Old Name' }), 'EX', 600);
+    const { conversations, pointers, crm } = makeHandler();
+    const handler = new ContactEventsHandler(conversations as any, pointers as any, crm as any, fakeRedisService(redis));
+
+    await handler.onContactUpdated({ contactId: 'ct1' });
+
+    expect(redis.peek(partyNameKey('contact', 'ct1'))).toBeNull();
+  });
+});

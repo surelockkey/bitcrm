@@ -51,7 +51,11 @@ function make(open: Invoice[], opts: { indexReady?: boolean; mine?: string[] } =
     contactNamesByIds: jest.fn(async (ids: string[]) => ids.map((id) => ({ id, firstName: 'Only', lastName: id }))),
   };
   const deal = { listDealIdsByTech: jest.fn(async () => new Set(opts.mine ?? [])) };
-  const invoices = { needingInvoice: jest.fn(async () => [{ id: 'j1' }, { id: 'j2' }]) };
+  const invoices = {
+    needingInvoice: jest.fn(async () => [{ id: 'j1' }, { id: 'j2' }]),
+    // C1: the cards read deal-service's count, never the list.
+    needsInvoiceCount: jest.fn(async () => 2),
+  };
   const service = new InvoiceReportService(unpaid as any, listRepo as any, crm as any, deal as any, invoices as any);
   return { service, unpaid, listRepo, crm, deal, invoices };
 }
@@ -133,6 +137,14 @@ describe('InvoiceReportService', () => {
       });
       const all = await service.summary({}, caller(), 'Bearer t');
       expect(all.due).toEqual({ count: 3, amount: 70 });
+    });
+
+    it('takes Need invoices from the count, with the caller and bearer, never the list', async () => {
+      const { service, invoices } = make([]);
+      const who = caller();
+      await service.summary({}, who, 'Bearer t');
+      expect(invoices.needsInvoiceCount).toHaveBeenCalledWith(who, 'Bearer t');
+      expect(invoices.needingInvoice).not.toHaveBeenCalled();
     });
   });
 
