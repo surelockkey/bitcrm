@@ -8,6 +8,7 @@ import {
 import { SnsPublisherService, BusinessMetricsService } from '@bitcrm/shared';
 import { type ClientTag } from '@bitcrm/types';
 import { randomUUID } from 'crypto';
+import { CatalogCache } from '../common/cache/catalog-cache';
 import { ClientTagsRepository } from './client-tags.repository';
 import { type CreateClientTagDto } from './dto/create-client-tag.dto';
 import { type UpdateClientTagDto } from './dto/update-client-tag.dto';
@@ -15,6 +16,13 @@ import { type UpdateClientTagDto } from './dto/update-client-tag.dto';
 @Injectable()
 export class ClientTagsService {
   private readonly logger = new Logger(ClientTagsService.name);
+
+  /** The full list, sorted as `list()` answers it — see `CatalogCache` (60 s, local invalidation). */
+  private readonly catalog = new CatalogCache<ClientTag>(async () =>
+    (await this.repository.listAll()).sort(
+      (a, b) => b.priority - a.priority || a.name.localeCompare(b.name),
+    ),
+  );
 
   constructor(
     private readonly repository: ClientTagsRepository,
@@ -54,16 +62,14 @@ export class ClientTagsService {
     };
 
     await this.repository.create(clientTag);
+    this.catalog.invalidate();
     this.businessMetrics?.entityCreated?.inc({ entity_type: 'client_tag' });
     this.publishEvent('client-tag.created', { clientTagId: clientTag.id, name: clientTag.name });
     return clientTag;
   }
 
   async list(): Promise<ClientTag[]> {
-    const clientTags = await this.repository.listAll();
-    return clientTags.sort(
-      (a, b) => b.priority - a.priority || a.name.localeCompare(b.name),
-    );
+    return this.catalog.get();
   }
 
   async findById(id: string): Promise<ClientTag> {
@@ -88,6 +94,7 @@ export class ClientTagsService {
     };
 
     await this.repository.put(updated);
+    this.catalog.invalidate();
     this.publishEvent('client-tag.updated', { clientTagId: id, name: updated.name });
     return updated;
   }
@@ -102,6 +109,7 @@ export class ClientTagsService {
     const existing = await this.findById(id);
     if (existing.active) {
       await this.repository.put({ ...existing, active: false, updatedAt: new Date().toISOString() });
+      this.catalog.invalidate();
     }
     this.publishEvent('client-tag.archived', { clientTagId: id, archivedBy: caller.id });
     this.logger.log(`Archived client tag ${id}`);

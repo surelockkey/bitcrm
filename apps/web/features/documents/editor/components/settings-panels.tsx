@@ -6,7 +6,7 @@ import type { DocumentVisibility } from "@bitcrm/types";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useJobTypes } from "@/features/job-types/hooks";
+import { useActiveJobTypes } from "@/features/job-types/active-hooks";
 import { useServiceAreas } from "@/features/service-areas/hooks";
 import { useActiveBusinessProfiles } from "@/features/business-profiles/hooks";
 import { kindHasDefault } from "../../lib";
@@ -115,7 +115,9 @@ function MultiPicker({
 export function SettingsPanel() {
   const kind = useEditorStore((s) => s.draft?.kind ?? "invoice");
   const autoApply = useEditorStore((s) => s.draft?.autoApply);
-  const jobTypes = useJobTypes();
+  // A picker: active types only. A saved id that is now archived is counted
+  // in MultiPicker's "+N archived or unavailable", as before.
+  const jobTypes = useActiveJobTypes();
   const serviceAreas = useServiceAreas();
   const companies = useActiveBusinessProfiles();
   const update = (patch: Partial<AutoApply>) => useEditorStore.getState().updateAutoApply(patch);

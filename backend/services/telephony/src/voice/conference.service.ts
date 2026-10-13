@@ -20,6 +20,7 @@ import {
   type TwilioStatusParams,
 } from '../calls/calls.service';
 import { BridgeService } from '../common/bridge.service';
+import { WebhookQueue } from '../common/webhook-queue';
 
 export type MonitorMode = 'listen' | 'join';
 
@@ -89,8 +90,38 @@ export class ConferenceService {
     // presence we simply can't check whether a softphone is registered.
     @Optional() private readonly presence?: PresenceService,
     @Optional() private readonly bridge?: BridgeService,
+    // The per-call serial queue the webhooks use; absent (specs), deferred
+    // bookkeeping runs inline instead.
+    @Optional() private readonly queue?: WebhookQueue,
   ) {
     this.rest = new TwilioRest(config);
+  }
+
+  /**
+   * Write a conference's meta hash and its TTL in ONE round trip (MULTI/EXEC)
+   * — it sits on the path of the TwiML Twilio is waiting for.
+   */
+  private async writeMeta(name: string, fields: Record<string, string>): Promise<void> {
+    const key = this.metaKey(name);
+    const results = await this.redis.client
+      .multi()
+      .hset(key, fields)
+      .expire(key, CONF_TTL_SECONDS)
+      .exec();
+    const failed = results?.find(([error]) => error);
+    if (failed) throw failed[0];
+  }
+
+  /**
+   * Bookkeeping nothing reads during the call, run after the webhook replies,
+   * on the call's serial queue (`call:<primary sid>`, the key the voice
+   * webhooks use) so it stays ordered with the call's later events on this
+   * task. Failures are logged by the queue.
+   */
+  private afterReply(primarySid: string, label: string, job: () => Promise<unknown>): Promise<void> {
+    if (!this.queue) return job().then(() => undefined);
+    this.queue.enqueue(`call:${primarySid}`, label, job);
+    return Promise.resolve();
   }
 
   /* ------------------------------------------------------------- keys */
@@ -139,7 +170,9 @@ export class ConferenceService {
     options: InitOutboundOptions = {},
   ): Promise<void> {
     const name = confName(agentCallSid);
-    await this.redis.client.hset(this.metaKey(name), {
+    // What the TwiML's conference depends on: onParticipantJoin reads this
+    // meta to dial the customer. Must exist before the reply.
+    await this.writeMeta(name, {
       type: 'outbound',
       primarySid: agentCallSid,
       to,
@@ -148,8 +181,13 @@ export class ConferenceService {
       ...(options.dealId && { dealId: options.dealId }),
       ...(options.origin && { origin: options.origin }),
     });
-    await this.redis.client.expire(this.metaKey(name), CONF_TTL_SECONDS);
 
+    // Also before the reply, deliberately. The webhooks that follow this
+    // TwiML can land on ANY task, and they lean on this row existing:
+    // `recordStatus` keeps its hands off a row with a `conferenceName` (it
+    // would otherwise rewrite it as an inbound client: leg), and an internal
+    // call's receiving side finds its caller through `listLive`. A per-task
+    // queue cannot order those across tasks, so the write stays here.
     await this.calls.applyLifecycle({
       callSid: agentCallSid,
       direction: 'outbound',
@@ -170,11 +208,14 @@ export class ConferenceService {
         .catch(() => undefined);
     }
     if (agentId) {
-      await this.calls.appendParticipant(agentCallSid, {
-        userId: agentId,
-        role: 'caller',
-        at: new Date().toISOString(),
-      });
+      const at = new Date().toISOString();
+      await this.afterReply(agentCallSid, `outbound participant ${agentCallSid}`, () =>
+        this.calls.appendParticipant(agentCallSid, {
+          userId: agentId,
+          role: 'caller',
+          at,
+        }),
+      );
     }
     this.logger.log(`Outbound call ${agentCallSid} → ${to} (conf ${name})`);
   }
@@ -203,7 +244,7 @@ export class ConferenceService {
   ): Promise<void> {
     const { internalLegOf, ringSeconds = 25, noAnswerUrl } = options;
     const name = confName(customerCallSid);
-    await this.redis.client.hset(this.metaKey(name), {
+    await this.writeMeta(name, {
       type: 'inbound',
       primarySid: customerCallSid,
       from,
@@ -213,7 +254,6 @@ export class ConferenceService {
       // handler can send them on without knowing anything about call flows.
       ...(noAnswerUrl && { noAnswerUrl }),
     });
-    await this.redis.client.expire(this.metaKey(name), CONF_TTL_SECONDS);
 
     await this.calls.applyLifecycle({
       callSid: customerCallSid,

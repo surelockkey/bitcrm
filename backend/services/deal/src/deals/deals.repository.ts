@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import {
   GetCommand,
   PutCommand,
@@ -720,15 +720,58 @@ export class DealsRepository {
    * range. It reads every row of the range, so the caller keeps the range
    * bounded (a closed status without a window is never counted).
    */
-  /** `cap` — стеля: набравши стільки, лічильник спиняється, і число означає «не менше». */
   countBySchedule(
     superStatus: JobSuperStatus,
     window: ScheduleWindow,
     filters?: DealFilters,
-    cap?: number,
   ): Promise<number> {
     const key = this.scheduleKeyCondition(window);
-    return this.countOn(DEALS_GSI5_NAME, 'GSI5PK', 'GSI5SK', [`STATUS#${superStatus}`], key.expression, key.values, filters, cap);
+    return this.countOn(DEALS_GSI5_NAME, 'GSI5PK', 'GSI5SK', [`STATUS#${superStatus}`], key.expression, key.values, filters);
+  }
+
+  /**
+   * The same COUNT, bounded twice — for a closed status without a window,
+   * whose partition is the whole history (Canceled ≈ 246 k rows). It stops
+   * at `maxMatches` matches, and never reads more than `maxScanned` rows: a
+   * selective filter (a technician's own jobs, a rare tag) would otherwise
+   * walk the whole partition to find its few matches. `atLeast` says the
+   * number is a floor — either bound was hit with rows still unread.
+   */
+  async countByScheduleBounded(
+    superStatus: JobSuperStatus,
+    window: ScheduleWindow,
+    filters: DealFilters | undefined,
+    limits: { maxMatches: number; maxScanned: number },
+  ): Promise<{ count: number; atLeast: boolean }> {
+    const key = this.scheduleKeyCondition(window);
+    const f = this.dealFilterExpression(filters);
+    let count = 0;
+    let scanned = 0;
+    let lastKey: Record<string, unknown> | undefined;
+    do {
+      const result = await this.dynamoDb.client.send(
+        new QueryCommand({
+          TableName: this.tableName,
+          IndexName: DEALS_GSI5_NAME,
+          KeyConditionExpression: key.expression,
+          FilterExpression: f.expression,
+          ExpressionAttributeNames: this.expressionNames(key.expression, f.names, 'GSI5PK', 'GSI5SK'),
+          ExpressionAttributeValues: { ':pk': `STATUS#${superStatus}`, ...key.values, ...f.values },
+          Select: 'COUNT',
+          // The first read asks no more rows than the ceiling (an unfiltered
+          // count is done in it); later ones what is left of the budget.
+          Limit: scanned === 0 ? Math.min(limits.maxMatches, limits.maxScanned) : limits.maxScanned - scanned,
+          ExclusiveStartKey: lastKey,
+        }),
+      );
+      count += result.Count ?? 0;
+      scanned += result.ScannedCount ?? result.Count ?? 0;
+      lastKey = result.LastEvaluatedKey;
+      if (lastKey && (count >= limits.maxMatches || scanned >= limits.maxScanned)) {
+        return { count, atLeast: true };
+      }
+    } while (lastKey);
+    return { count, atLeast: false };
   }
 
   /** How many deals of one status were created in a span of days, under the list's filters. */
@@ -1114,7 +1157,6 @@ export class DealsRepository {
     keyCondition: string,
     keyValues: Record<string, unknown>,
     filters?: DealFilters,
-    cap?: number,
   ): Promise<number> {
     const f = this.dealFilterExpression(filters);
     const counts = await Promise.all(
@@ -1136,8 +1178,6 @@ export class DealsRepository {
           );
           count += result.Count ?? 0;
           lastKey = result.LastEvaluatedKey;
-          // Стеля перетнута — далі гортати нема сенсу: відповідь уже «не менше».
-          if (cap !== undefined && count >= cap) break;
         } while (lastKey);
         return count;
       }),
@@ -1265,6 +1305,101 @@ export class DealsRepository {
       items: page.items.map((i) => this.toDeal(i)),
       nextCursor: this.encodeCursor(page.lastKey),
     };
+  }
+
+  /**
+   * Every live deal, a page at a time — `GET /deals/internal/all`, read by the
+   * search backfill and billing's `rebuild:payment-report`.
+   *
+   * Walks the StageIndex (GSI1) partitions `STATUS#<superStatus>` in
+   * `SUPER_STATUS_ORDER`, one after the other, instead of Scanning a table
+   * that is mostly line items, assignments, timeline rows and catalogs. Every
+   * METADATA row carries GSI1PK (`create`, `update` on a status move, and the
+   * importer); a deal row WITHOUT GSI1PK is not on the index and is skipped
+   * here. Deleted deals are filtered out, as the Scan did (`status = active`).
+   *
+   * The cursor is opaque to callers: base64url JSON `{ s, k? }` — the index
+   * into `SUPER_STATUS_ORDER` and, mid-partition, the DynamoDB key to resume
+   * from. A cursor of any other shape (the old Scan's key) is refused rather
+   * than silently restarting the walk.
+   */
+  async listAllForIndex(limit: number, cursor?: string): Promise<PaginatedResult> {
+    const start = this.decodeIndexWalkCursor(cursor);
+    const f = this.dealFilterExpression();
+    const items: Record<string, unknown>[] = [];
+    let status = start.s;
+    let key = start.k;
+
+    while (status < SUPER_STATUS_ORDER.length && items.length < limit) {
+      const want = limit - items.length;
+      const page = await this.fillPartition(
+        {
+          TableName: this.tableName,
+          IndexName: DEALS_GSI1_NAME,
+          KeyConditionExpression: 'GSI1PK = :pk',
+          FilterExpression: f.expression,
+          ExpressionAttributeNames: f.names,
+          ExpressionAttributeValues: { ':pk': `STATUS#${SUPER_STATUS_ORDER[status]}`, ...f.values },
+        },
+        want,
+        key,
+      );
+
+      if (page.items.length > want) {
+        // Overshot: keep the page, resume right after its last row.
+        const kept = page.items.slice(0, want);
+        items.push(...kept);
+        const last = kept[kept.length - 1];
+        return {
+          items: items.map((i) => this.toDeal(i)),
+          nextCursor: this.encodeIndexWalkCursor(status, {
+            PK: last.PK, SK: last.SK, GSI1PK: last.GSI1PK, GSI1SK: last.GSI1SK,
+          }),
+        };
+      }
+
+      items.push(...page.items);
+      if (page.lastEvaluatedKey) {
+        // The partition goes on (the page is full, or the read budget ran out).
+        return {
+          items: items.map((i) => this.toDeal(i)),
+          nextCursor: this.encodeIndexWalkCursor(status, page.lastEvaluatedKey),
+        };
+      }
+      status += 1;
+      key = undefined;
+    }
+
+    return {
+      items: items.map((i) => this.toDeal(i)),
+      nextCursor: status < SUPER_STATUS_ORDER.length ? this.encodeIndexWalkCursor(status) : undefined,
+    };
+  }
+
+  private encodeIndexWalkCursor(status: number, key?: Record<string, unknown>): string {
+    return Buffer.from(JSON.stringify(key ? { s: status, k: key } : { s: status })).toString('base64url');
+  }
+
+  private decodeIndexWalkCursor(cursor?: string): { s: number; k?: Record<string, unknown> } {
+    if (!cursor) return { s: 0 };
+    let decoded: unknown;
+    try {
+      decoded = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf-8'));
+    } catch {
+      decoded = undefined;
+    }
+    const c = decoded as { s?: unknown; k?: unknown } | undefined;
+    if (
+      !c ||
+      typeof c !== 'object' ||
+      !Number.isInteger(c.s) ||
+      (c.s as number) < 0 ||
+      (c.s as number) > SUPER_STATUS_ORDER.length ||
+      (c.k !== undefined && (typeof c.k !== 'object' || c.k === null))
+    ) {
+      throw new BadRequestException('Invalid cursor');
+    }
+    return { s: c.s as number, k: c.k as Record<string, unknown> | undefined };
   }
 
   // ------------------------------------------------------------- assignments

@@ -31,10 +31,16 @@ export class PaymentScheduleService {
     @Optional() private readonly today: () => string = businessToday,
   ) {}
 
+  /**
+   * Most jobs have no schedule, so the row is read before the ledger — but
+   * only after the ledger's own access check (`accessibleJob`): a caller who
+   * may not see the job learns nothing, not even whether it has a schedule.
+   */
   async get(dealId: string, caller: Caller): Promise<PaymentScheduleView | null> {
-    const ledger = await this.payments.listForDeal(dealId, caller);
-    const schedule = await this.repo.get(ledger.dealId);
-    return schedule ? this.view(schedule, ledger) : null;
+    const job = await this.payments.accessibleJob(dealId, caller);
+    const schedule = await this.repo.get(job.deal.id);
+    if (!schedule) return null;
+    return this.view(schedule, await this.payments.ledgerForJob(job));
   }
 
   /** The whole schedule, replaced. Payments keep their ids; new ones get one. */

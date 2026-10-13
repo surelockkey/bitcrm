@@ -1,5 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import {
+  BatchGetCommand,
   DeleteCommand,
   GetCommand,
   PutCommand,
@@ -21,8 +22,24 @@ interface PaginatedResult {
   nextCursor?: string;
 }
 
+/** The projection `findNamesByIds` reads — a name join and nothing more. */
+export interface UserNameRow {
+  id: string;
+  firstName: string;
+  lastName: string;
+  workizName?: string;
+}
+
+/** BatchGetItem's hard limit on keys per request. */
+const BATCH_GET_MAX_KEYS = 100;
+/** Re-asks for `UnprocessedKeys` before a chunk settles for what it has. */
+const BATCH_GET_MAX_RETRIES = 5;
+const BATCH_GET_BACKOFF_MS = 20;
+
 @Injectable()
 export class UsersRepository {
+  private readonly logger = new Logger(UsersRepository.name);
+
   constructor(private readonly dynamoDb: DynamoDbService) {}
 
   async create(user: User): Promise<void> {
@@ -53,6 +70,66 @@ export class UsersRepository {
 
     if (!result.Item) return null;
     return this.toUser(result.Item);
+  }
+
+  /**
+   * Names for a set of ids: `USER#<id> / METADATA`, BatchGetItem in chunks of
+   * 100 run in parallel, projected to `id, firstName, lastName, workizName`.
+   *
+   * Answers in no particular order and simply leaves out ids with no row.
+   * Throttled keys (`UnprocessedKeys`) are re-asked with a short exponential
+   * backoff; a chunk that still has some after the retries, or that throws,
+   * costs only its own names — one bad read must not cost the caller every
+   * other teammate's name.
+   */
+  async findNamesByIds(ids: string[]): Promise<UserNameRow[]> {
+    const chunks: string[][] = [];
+    for (let i = 0; i < ids.length; i += BATCH_GET_MAX_KEYS) {
+      chunks.push(ids.slice(i, i + BATCH_GET_MAX_KEYS));
+    }
+    const answers = await Promise.all(
+      chunks.map((chunk) =>
+        this.batchGetNames(chunk).catch((err: Error) => {
+          this.logger.warn(`names-by-ids: a chunk of ${chunk.length} failed (${err.message})`);
+          return [] as UserNameRow[];
+        }),
+      ),
+    );
+    return answers.flat();
+  }
+
+  private async batchGetNames(ids: string[]): Promise<UserNameRow[]> {
+    const rows: UserNameRow[] = [];
+    let keys: Record<string, unknown>[] = ids.map((id) => ({ PK: `USER#${id}`, SK: 'METADATA' }));
+
+    for (let attempt = 0; keys.length > 0; attempt++) {
+      if (attempt > 0) {
+        if (attempt > BATCH_GET_MAX_RETRIES) {
+          this.logger.warn(`names-by-ids: ${keys.length} key(s) still unprocessed, left out`);
+          break;
+        }
+        await new Promise((r) => setTimeout(r, BATCH_GET_BACKOFF_MS * 2 ** (attempt - 1)));
+      }
+      const result = await this.dynamoDb.client.send(
+        new BatchGetCommand({
+          RequestItems: {
+            [USERS_TABLE]: {
+              Keys: keys,
+              ProjectionExpression: '#id, #fn, #ln, #wn',
+              ExpressionAttributeNames: {
+                '#id': 'id',
+                '#fn': 'firstName',
+                '#ln': 'lastName',
+                '#wn': 'workizName',
+              },
+            },
+          },
+        }),
+      );
+      rows.push(...((result.Responses?.[USERS_TABLE] ?? []) as UserNameRow[]));
+      keys = result.UnprocessedKeys?.[USERS_TABLE]?.Keys ?? [];
+    }
+    return rows;
   }
 
   async findByRole(

@@ -34,8 +34,10 @@ npm run backfill -w backend/services/search -- deal contact    # any subset of S
 
 Alternatives to the CLI: `POST /api/search/internal/reindex` with the
 `x-internal-secret` header (fire-and-forget, all types), or
-`ENABLE_SEARCH_BACKFILL=true` on exactly one task, which runs it on boot
-(`render-taskdef.sh` sets it for the search task).
+`ENABLE_SEARCH_BACKFILL=true` on exactly one task, which runs it on boot.
+`render-taskdef.sh` deliberately does NOT set it: a boot re-index on every
+deploy flooded the other services' internal list routes. Run the backfill by
+hand after a Workiz import or an index mapping change.
 
 Sources are the internal list routes (`BackfillService.SOURCES`). The
 conversation source is

@@ -103,7 +103,7 @@ export class PermissionGuard implements CanActivate {
 
   /**
    * Resolve permissions straight from user-service, used on every Redis cache
-   * miss (60s TTL) and for tokens minted before `roleId` was a claim.
+   * miss (PERMISSION_CACHE_TTL_SECONDS, default 600s) and for tokens minted before `roleId` was a claim.
    *
    * Delegates to the shared helper so the internal-secret header lives in one
    * place — ungated handlers elsewhere resolve permissions the same way.

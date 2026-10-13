@@ -15,6 +15,7 @@ import {
   isOptionCustomFieldType,
 } from '@bitcrm/types';
 import { randomUUID } from 'crypto';
+import { CatalogCache } from '../common/cache/catalog-cache';
 import { CustomFieldsRepository } from './custom-fields.repository';
 import { InternalHttpService } from '../common/services/internal-http.service';
 import { type CreateCustomFieldDto } from './dto/create-custom-field.dto';
@@ -23,6 +24,13 @@ import { type UpdateCustomFieldDto } from './dto/update-custom-field.dto';
 @Injectable()
 export class CustomFieldsService {
   private readonly logger = new Logger(CustomFieldsService.name);
+
+  /** The full list, sorted as `list()` answers it — see `CatalogCache` (60 s, local invalidation). */
+  private readonly catalog = new CatalogCache<CustomFieldDefinition>(async () =>
+    (await this.repository.listAll()).sort(
+      (a, b) => b.priority - a.priority || a.name.localeCompare(b.name),
+    ),
+  );
 
   constructor(
     private readonly repository: CustomFieldsRepository,
@@ -119,6 +127,7 @@ export class CustomFieldsService {
     };
 
     await this.repository.create(field);
+    this.catalog.invalidate();
     this.businessMetrics?.entityCreated?.inc({ entity_type: 'custom_field' });
     // Nobody has answered a new field yet: nothing for search to rebuild.
     this.publishEvent('custom-field.created', {
@@ -131,10 +140,7 @@ export class CustomFieldsService {
   }
 
   async list(): Promise<CustomFieldDefinition[]> {
-    const fields = await this.repository.listAll();
-    return fields.sort(
-      (a, b) => b.priority - a.priority || a.name.localeCompare(b.name),
-    );
+    return this.catalog.get();
   }
 
   async findById(id: string): Promise<CustomFieldDefinition> {
@@ -170,6 +176,7 @@ export class CustomFieldsService {
     };
 
     await this.repository.put(updated);
+    this.catalog.invalidate();
     // Search rebuilds the answers' docs only when what is searchable changed —
     // not for a rename or a drag in Settings (one event per moved row).
     this.publishEvent('custom-field.updated', {
@@ -198,6 +205,7 @@ export class CustomFieldsService {
           active: false,
           updatedAt: new Date().toISOString(),
         });
+        this.catalog.invalidate();
       }
       this.publishEvent('custom-field.archived', {
         customFieldId: id,
@@ -209,6 +217,7 @@ export class CustomFieldsService {
     }
 
     await this.repository.remove(id);
+    this.catalog.invalidate();
     this.publishEvent('custom-field.deleted', {
       customFieldId: id,
       deletedBy: caller.id,

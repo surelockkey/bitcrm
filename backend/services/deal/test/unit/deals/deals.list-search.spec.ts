@@ -268,8 +268,10 @@ describe('counts under q and the lists', () => {
   it('without q nothing changes: the closed statuses are counted up to their ceiling', async () => {
     const { service, repo } = makeService();
     repo.countBySchedule.mockResolvedValue(2);
+    repo.countByScheduleBounded.mockResolvedValue({ count: 2, atLeast: false });
     const counts = await service.counts({} as any, caller);
     expect(counts.done).toBe(2);
+    expect(repo.countByScheduleBounded).toHaveBeenCalledWith(JobSuperStatus.DONE, {}, expect.any(Object), expect.any(Object));
   });
 });
 

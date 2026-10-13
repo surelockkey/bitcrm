@@ -32,6 +32,7 @@ describe('DealDashboardService', () => {
         submitted: 2, pending: 3, in_progress: 1, done_pending_approval: 4, done: 50, canceled: 6,
         unscheduled: 0, total: 66, atLeast: [],
       })),
+      openCounts: jest.fn(async () => ({ submitted: 2, pending: 3, in_progress: 1, done_pending_approval: 4 })),
     };
     const store = new Map<string, string>();
     const cache = {
@@ -195,8 +196,16 @@ describe('DealDashboardService', () => {
 
       const out = await service.jobsNow(caller);
 
-      expect(deals.counts).toHaveBeenCalledWith({}, caller, 'all');
+      expect(deals.openCounts).toHaveBeenCalledWith(caller);
       expect(out.byStatus).toEqual({ submitted: 2, pending: 3, in_progress: 1, done_pending_approval: 4 });
+    });
+
+    it('never runs the Done / Canceled counts it would throw away', async () => {
+      const { service, deals } = make();
+
+      await service.jobsNow(caller);
+
+      expect(deals.counts).not.toHaveBeenCalled();
     });
   });
 

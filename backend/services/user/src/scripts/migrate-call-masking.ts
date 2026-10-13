@@ -119,7 +119,7 @@ async function main(): Promise<void> {
   );
   if (migrated > 0 && APPLY) {
     console.log(
-      'Flush user:permissions:* in Redis, or wait 60s for the caches to expire.',
+      'Flush user:permissions:* in Redis, or wait PERMISSION_CACHE_TTL_SECONDS (default 600s) for the caches to expire.',
     );
   }
 }

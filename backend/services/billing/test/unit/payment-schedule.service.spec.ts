@@ -33,7 +33,12 @@ function setup(opts: { ledger?: JobPaymentLedger; schedule?: PaymentSchedule | n
     put: jest.fn().mockImplementation(async (s: PaymentSchedule) => s),
     delete: jest.fn().mockResolvedValue(undefined),
   };
-  const payments = { listForDeal: jest.fn().mockResolvedValue(opts.ledger ?? ledger()) };
+  const job = { deal: { id: 'd1', assignedTechIds: ['tech-1'] } };
+  const payments = {
+    listForDeal: jest.fn().mockResolvedValue(opts.ledger ?? ledger()),
+    accessibleJob: jest.fn().mockResolvedValue(job),
+    ledgerForJob: jest.fn().mockResolvedValue(opts.ledger ?? ledger()),
+  };
   const invoices = { pdf: jest.fn().mockResolvedValue({ url: 'https://s3/doc.pdf' }) };
   const service = new PaymentScheduleService(repo as never, payments as never, invoices as never, () => '2026-10-06');
   return { service, repo, payments, invoices };
@@ -46,10 +51,12 @@ function setup(opts: { ledger?: JobPaymentLedger; schedule?: PaymentSchedule | n
  */
 describe('PaymentScheduleService', () => {
   it("reads the job's schedule against its ledger", async () => {
-    const { service, payments } = setup();
+    const { service, payments, repo } = setup();
     const view = await service.get('d1', caller());
 
-    expect(payments.listForDeal).toHaveBeenCalledWith('d1', expect.anything());
+    expect(payments.accessibleJob).toHaveBeenCalledWith('d1', expect.anything());
+    expect(repo.get).toHaveBeenCalledWith('d1');
+    expect(payments.ledgerForJob).toHaveBeenCalledWith({ deal: { id: 'd1', assignedTechIds: ['tech-1'] } });
     expect(view).toMatchObject({ dealId: 'd1', method: 'percent', total: 584.93, balanceDue: 584.93 });
     expect(view!.lines.map((l) => [l.amount, l.status])).toEqual([
       [292.47, 'due'],
@@ -58,15 +65,28 @@ describe('PaymentScheduleService', () => {
     expect(view!.lines[1].note).toBe('Balance');
   });
 
-  it('answers nothing for a job without a schedule', async () => {
-    const { service } = setup({ schedule: null });
+  it('answers nothing for a job without a schedule — after the access check, without building the ledger', async () => {
+    const { service, payments } = setup({ schedule: null });
     expect(await service.get('d1', caller())).toBeNull();
+    expect(payments.accessibleJob).toHaveBeenCalledWith('d1', expect.anything());
+    expect(payments.ledgerForJob).not.toHaveBeenCalled();
+    expect(payments.listForDeal).not.toHaveBeenCalled();
   });
 
-  it("refuses a job the caller may not see — the ledger's own check", async () => {
-    const { service, payments } = setup();
-    payments.listForDeal.mockRejectedValue(new ForbiddenException('You are not assigned to this job'));
-    await expect(service.get('d1', caller())).rejects.toBeInstanceOf(ForbiddenException);
+  it("refuses a job the caller may not see — the ledger's own check — even when it has no schedule", async () => {
+    for (const schedule of [stored(), null]) {
+      const { service, payments, repo } = setup({ schedule });
+      payments.accessibleJob.mockRejectedValue(new ForbiddenException('You are not assigned to this job'));
+      await expect(service.get('d1', caller())).rejects.toBeInstanceOf(ForbiddenException);
+      // Not even whether a schedule exists is read for a caller who may not see the job.
+      expect(repo.get).not.toHaveBeenCalled();
+    }
+  });
+
+  it('404s for a job that does not exist', async () => {
+    const { service, payments } = setup({ schedule: null });
+    payments.accessibleJob.mockRejectedValue(new NotFoundException('Job not found'));
+    await expect(service.get('nope', caller())).rejects.toBeInstanceOf(NotFoundException);
   });
 
   it('saves a schedule that adds up to the job, numbering new payments', async () => {

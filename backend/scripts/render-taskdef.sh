@@ -210,8 +210,11 @@ EXTRA_ENV_JSON=$(jq -n \
     else [] end)
   # SQS consumers only poll when explicitly enabled.
   + (if ($service == "deal" or $service == "inventory" or $service == "search" or $service == "messaging" or $service == "billing") then [{name: "ENABLE_SQS_CONSUMER", value: "true"}] else [] end)
-  # search runs an idempotent index backfill on boot.
-  + (if ($service == "search") then [{name: "ENABLE_SEARCH_BACKFILL", value: "true"}] else [] end)
+  # search does NOT re-index on boot (ENABLE_SEARCH_BACKFILL is left unset):
+  # a full backfill walks every other service internal list route, and running it
+  # on every task start (~every deploy) flooded them. The SQS indexer keeps the
+  # index fresh; run `npm run backfill -w backend/services/search` or
+  # POST /api/search/internal/reindex after imports and mapping changes.
   # messaging runs the automation minute poller: without it a rule with a
   # delay, a held quiet-hours firing and every "1 hour before the job"
   # reminder is armed and never fires. Safe on both messaging tasks — each
@@ -299,8 +302,8 @@ jq --argjson env "$ALL_ENV_JSON" --argjson side "$SIDECAR_JSON" \
   '.containerDefinitions[0].environment = $env | .containerDefinitions += $side')
 
 # Alloy wants ~128MB on top of the app, and the tasks are already at 1GB. 2048
-# is the next valid size at cpu 256 (Fargate 0.25 vCPU allows 0.5/1/2 GB), and
-# it is only spent when the sidecar is actually present.
+# is the next valid size at cpu 512 (Fargate 0.5 vCPU allows 1-4 GB in 1 GB
+# steps), and it is only spent when the sidecar is actually present.
 if [[ "$BUMP_MEMORY" == true ]]; then
   RENDERED=$(echo "$RENDERED" | jq '.memory = "2048"')
 fi

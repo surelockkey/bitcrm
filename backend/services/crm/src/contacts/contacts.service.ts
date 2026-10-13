@@ -22,6 +22,7 @@ import {
   isCustomFieldValueEmpty,
   isCustomFieldValueValid,
   type Address,
+  type Company,
   type Contact,
   type CustomFieldValue,
   type JwtUser,
@@ -59,6 +60,29 @@ export interface ContactPhoneMatch {
 
 /** How long a list count stays good enough. Matches the deals tab counts. */
 const COUNT_TTL_SECONDS = 30;
+
+/**
+ * Distinct refs one `internal/by-ids` body may name. Callers send at most 200
+ * (telephony's call log, messaging's party names); the headroom is so a
+ * caller raising its page never breaks, the cap so nobody fans out unbounded
+ * — crm runs no ValidationPipe, so the DTO's `ArrayMaxSize` is inert.
+ */
+export const MAX_PARTY_REFS = 500;
+
+/** Distinct numbers one `internal/by-phones` body may name (callers send ≤ 100). */
+export const MAX_PHONE_LOOKUPS = 500;
+
+/** Pointer-row reads by-phones keeps in flight at once. */
+const PHONE_LOOKUP_CONCURRENCY = 50;
+
+/** Run `tasks` with at most `limit` in flight; rejects on the first failure. */
+async function runBounded(tasks: Array<() => Promise<void>>, limit: number): Promise<void> {
+  let next = 0;
+  const worker = async () => {
+    while (next < tasks.length) await tasks[next++]();
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, tasks.length) }, worker));
+}
 
 /**
  * An address with its `country` as stored: ISO 3166-1 alpha-2, upper case,
@@ -523,38 +547,60 @@ export class ContactsService {
   async findManyByRef(
     refs: Array<{ kind: 'contact' | 'company'; id: string }>,
   ): Promise<Record<string, { kind: string; id: string; name: string }>> {
-    const unique = new Map(refs.map((r) => [`${r.kind}:${r.id}`, r]));
+    // crm runs no ValidationPipe, so the DTO's caps are documentation only.
+    if (!Array.isArray(refs)) throw new BadRequestException('refs must be an array');
+    const unique = new Map<string, { kind: 'contact' | 'company'; id: string }>();
+    for (const r of refs) {
+      // An empty or non-string id would fail the whole BatchGet, not just itself.
+      if (!r || typeof r.id !== 'string' || !r.id) continue;
+      unique.set(`${r.kind}:${r.id}`, r);
+    }
+    if (unique.size > MAX_PARTY_REFS) {
+      throw new BadRequestException(`At most ${MAX_PARTY_REFS} distinct refs per request`);
+    }
 
-    const found = await Promise.all(
-      [...unique.entries()].map(async ([key, ref]) => {
-        try {
-          if (ref.kind === 'company') {
-            const company = await this.companies?.findById(ref.id);
-            return company
-              ? { key, value: { kind: ref.kind, id: ref.id, name: company.title } }
-              : null;
-          }
-          const contact = await this.repository.findById(ref.id);
-          return contact
-            ? {
-                key,
-                value: {
-                  kind: ref.kind,
-                  id: ref.id,
-                  name: `${contact.firstName} ${contact.lastName}`.trim(),
-                },
-              }
-            : null;
-        } catch {
-          // A deleted client shouldn't blank the whole page.
-          return null;
-        }
-      }),
-    );
+    const contactIds: string[] = [];
+    const companyIds: string[] = [];
+    for (const ref of unique.values()) {
+      if (ref.kind === 'company') companyIds.push(ref.id);
+      else contactIds.push(ref.id);
+    }
 
+    // One BatchGet per kind, in parallel. A failed read blanks its kind only —
+    // a deleted or unreadable client shouldn't blank the whole page.
+    const [contacts, companies] = await Promise.all([
+      contactIds.length
+        ? this.repository.findByIds(contactIds).catch((err) => {
+            this.logger.warn(`by-ids: contact batch read failed: ${err?.message ?? err}`);
+            return [] as Contact[];
+          })
+        : Promise.resolve([] as Contact[]),
+      companyIds.length && this.companies
+        ? this.companies.findByIds(companyIds).catch((err) => {
+            this.logger.warn(`by-ids: company batch read failed: ${err?.message ?? err}`);
+            return [] as Company[];
+          })
+        : Promise.resolve([] as Company[]),
+    ]);
+    const contactById = new Map(contacts.map((c) => [c.id, c]));
+    const companyById = new Map(companies.map((c) => [c.id, c]));
+
+    // Keys in the order asked, as before.
     const out: Record<string, { kind: string; id: string; name: string }> = {};
-    for (const entry of found) {
-      if (entry) out[entry.key] = entry.value;
+    for (const [key, ref] of unique) {
+      if (ref.kind === 'company') {
+        const company = companyById.get(ref.id);
+        if (company) out[key] = { kind: ref.kind, id: ref.id, name: company.title };
+        continue;
+      }
+      const contact = contactById.get(ref.id);
+      if (contact) {
+        out[key] = {
+          kind: ref.kind,
+          id: ref.id,
+          name: `${contact.firstName} ${contact.lastName}`.trim(),
+        };
+      }
     }
     return out;
   }
@@ -570,6 +616,9 @@ export class ContactsService {
   async findManyByPhone(
     phones: string[],
   ): Promise<Record<string, ContactPhoneMatch>> {
+    // crm runs no ValidationPipe, so the DTO's caps are documentation only.
+    if (!Array.isArray(phones)) throw new BadRequestException('phones must be an array');
+
     // Grouped by canonical form, not by the raw string: `+14045551234` and
     // `(404) 555-1234` are one number and deserve one lookup. Each group
     // carries every form it might be stored under — records written before
@@ -577,53 +626,82 @@ export class ContactsService {
     // (`+3800958601427`), which no longer matches what we'd derive now.
     const wanted = new Map<string, { raws: string[]; variants: string[] }>();
     for (const raw of new Set(phones)) {
+      if (typeof raw !== 'string') continue;
       const variants = phoneMatchVariants(raw);
       if (!variants.length) continue;
       const group = wanted.get(variants[0]) ?? { raws: [], variants };
       group.raws.push(raw);
       wanted.set(variants[0], group);
     }
+    if (wanted.size > MAX_PHONE_LOOKUPS) {
+      throw new BadRequestException(`At most ${MAX_PHONE_LOOKUPS} distinct numbers per request`);
+    }
 
-    const found = await Promise.all(
-      [...wanted.values()].map(async ({ raws, variants }) => {
-        for (const variant of variants) {
-          // A person owns the number before a company does: reaching Jane on
-          // the office line is still reaching Jane.
-          const contact = await this.repository.findByPhone(variant);
-          if (contact) {
-            return {
-              raws,
-              variants,
-              match: {
-                kind: 'contact' as const,
-                id: contact.id,
-                firstName: contact.firstName,
-                lastName: contact.lastName,
-                companyId: contact.companyId,
-              },
-            };
-          }
-          const company = await this.companies?.findByPhone(variant);
-          if (company) {
-            return {
-              raws,
-              variants,
-              match: {
-                kind: 'company' as const,
-                id: company.id,
-                firstName: company.title,
-                lastName: '',
-                companyId: company.id,
-              },
-            };
-          }
-        }
-        return { raws, variants, match: null };
-      }),
-    );
+    // Phase 1 — every pointer row of every variant, person and company, in
+    // parallel (bounded). Phase 2 — one BatchGet per kind for what matched.
+    const allVariants = [...new Set([...wanted.values()].flatMap((g) => g.variants))];
+    const contactIdOf = new Map<string, string>();
+    const companyIdOf = new Map<string, string>();
+    const lookups: Array<() => Promise<void>> = [];
+    for (const variant of allVariants) {
+      lookups.push(async () => {
+        const id = await this.repository.findIdByPhone(variant);
+        if (id) contactIdOf.set(variant, id);
+      });
+      if (this.companies) {
+        const companies = this.companies;
+        lookups.push(async () => {
+          const id = await companies.findIdByPhone(variant);
+          if (id) companyIdOf.set(variant, id);
+        });
+      }
+    }
+    await runBounded(lookups, PHONE_LOOKUP_CONCURRENCY);
+
+    const contactIds = [...new Set(contactIdOf.values())];
+    const companyIds = [...new Set(companyIdOf.values())];
+    const [contacts, companies] = await Promise.all([
+      contactIds.length ? this.repository.findByIds(contactIds) : Promise.resolve([] as Contact[]),
+      companyIds.length && this.companies
+        ? this.companies.findByIds(companyIds)
+        : Promise.resolve([] as Company[]),
+    ]);
+    const contactById = new Map(contacts.map((c) => [c.id, c]));
+    const companyById = new Map(companies.map((c) => [c.id, c]));
 
     const out: Record<string, ContactPhoneMatch> = {};
-    for (const { raws, variants, match } of found) {
+    for (const { raws, variants } of wanted.values()) {
+      let match: ContactPhoneMatch | null = null;
+      // Same precedence as ever: variants in order, and within one variant a
+      // person owns the number before a company does — reaching Jane on the
+      // office line is still reaching Jane. A pointer whose row is gone
+      // doesn't count.
+      for (const variant of variants) {
+        const contactId = contactIdOf.get(variant);
+        const contact = contactId ? contactById.get(contactId) : undefined;
+        if (contact) {
+          match = {
+            kind: 'contact',
+            id: contact.id,
+            firstName: contact.firstName,
+            lastName: contact.lastName,
+            companyId: contact.companyId,
+          };
+          break;
+        }
+        const companyId = companyIdOf.get(variant);
+        const company = companyId ? companyById.get(companyId) : undefined;
+        if (company) {
+          match = {
+            kind: 'company',
+            id: company.id,
+            firstName: company.title,
+            lastName: '',
+            companyId: company.id,
+          };
+          break;
+        }
+      }
       if (!match) continue;
       // Keyed by what each caller sent and by the canonical form, so either
       // side of the lookup can find it again.

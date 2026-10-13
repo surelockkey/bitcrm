@@ -113,3 +113,54 @@ describe('NumberSettingsRepository', () => {
     ]);
   });
 });
+
+/**
+ * `GET /numbers/settings` and the internal owned-numbers read list the whole
+ * partition on every request; it is cached in process for 30 s and dropped
+ * by this task's own writes.
+ */
+describe('NumberSettingsRepository — list cache', () => {
+  const listed = { Items: [{ phoneNumber: '+15412830739', sourceId: 'src-1' }] };
+
+  it('lists once within the TTL, single-flight', async () => {
+    const { repo, sent } = makeRepo([listed]);
+    const [a, b] = await Promise.all([repo.list(), repo.list()]);
+    await repo.list();
+    expect(sent).toHaveLength(1);
+    expect(b).toEqual(a);
+  });
+
+  it('a write drops the cache — the next list reads again', async () => {
+    const { repo, sent } = makeRepo([listed, {}, listed]);
+    await repo.list();
+    await repo.put('+15412830739', { sourceId: 'src-2' }, 'u1');
+    await repo.list();
+    expect(sent.map((c) => Object.keys(c.input).includes('KeyConditionExpression'))).toEqual([
+      true,
+      false,
+      true,
+    ]);
+  });
+
+  it('reloads after 30 s', async () => {
+    jest.useFakeTimers({ now: 0 });
+    try {
+      const { repo, sent } = makeRepo([listed]);
+      await repo.list();
+      jest.setSystemTime(30_001);
+      await repo.list();
+      expect(sent).toHaveLength(2);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('callers cannot mutate the cached list', async () => {
+    const { repo, sent } = makeRepo([listed]);
+    const first = await repo.list();
+    first[0].sourceId = 'tampered';
+    first.push({ phoneNumber: '+1' });
+    expect(await repo.list()).toEqual([{ phoneNumber: '+15412830739', sourceId: 'src-1' }]);
+    expect(sent).toHaveLength(1);
+  });
+});

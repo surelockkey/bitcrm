@@ -15,6 +15,7 @@ import { ServiceAreaNumbersService } from '../common/service-area-numbers.servic
 import { DealReadService } from '../common/deal-read.service';
 import { ExtsModule } from '../exts/exts.module';
 import { BlockedCallersModule } from '../blocked-callers/blocked-callers.module';
+import { WebhookQueue } from '../common/webhook-queue';
 
 @Module({
   // TelephonyModule exports TELEPHONY_CONFIG (= the shared TWILIO_CONFIG the
@@ -43,6 +44,10 @@ import { BlockedCallersModule } from '../blocked-callers/blocked-callers.module'
     CallerIdResolver,
     ServiceAreaNumbersService,
     DealReadService,
+    // One per process: the serial per-call queue behind the reply-first
+    // status webhooks (VoiceController) and ConferenceService's deferred
+    // bookkeeping. Must be a single instance for the ordering to hold.
+    WebhookQueue,
   ],
   // CallerIdResolver and DealReadService are exported for the bridge, which
   // lives on CallsController but places legs the way the voice side does.

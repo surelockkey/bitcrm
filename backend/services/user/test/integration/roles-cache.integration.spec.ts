@@ -79,13 +79,13 @@ describe('RolesCacheService (integration)', () => {
     it('should set TTL on cached role permissions', async () => {
       await service.setRolePermissions('role-1', mockResolvedPermissions);
 
-      // Check that a TTL is set (expected ~60s)
+      // Check that a TTL is set (expected ~600s, PERMISSION_CACHE_TTL_SECONDS default)
       const keys = await redis.keys('*role*');
       expect(keys.length).toBeGreaterThan(0);
 
       const ttl = await redis.ttl(keys[0]);
       expect(ttl).toBeGreaterThan(0);
-      expect(ttl).toBeLessThanOrEqual(60);
+      expect(ttl).toBeLessThanOrEqual(600);
     });
   });
 

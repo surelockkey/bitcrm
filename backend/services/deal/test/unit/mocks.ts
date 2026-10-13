@@ -231,6 +231,7 @@ export function createMockDealsRepository() {
     findByCreated: jest.fn().mockResolvedValue({ items: [], nextCursor: undefined }),
     findByClosed: jest.fn().mockResolvedValue({ items: [], nextCursor: undefined }),
     findAll: jest.fn(),
+    listAllForIndex: jest.fn(),
     update: jest.fn(),
     reassignContact: jest.fn(),
     // The client's half of the jobs-list search (deal-search.ts).
@@ -258,6 +259,7 @@ export function createMockDealsRepository() {
     findByIds: jest.fn(),
     findBySchedule: jest.fn(),
     countBySchedule: jest.fn(),
+    countByScheduleBounded: jest.fn().mockResolvedValue({ count: 0, atLeast: false }),
   };
 }
 

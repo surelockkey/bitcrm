@@ -15,7 +15,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { TAX_EXEMPT_REASONS } from "@/features/billing/lib";
-import { useJobSources } from "@/features/job-sources/hooks";
+import { useJobSource } from "@/features/job-sources/hooks";
+import { useActiveJobSources } from "@/features/job-sources/active-hooks";
 import { activeJobSources } from "@/features/job-sources/lib";
 import {
   Select,
@@ -101,7 +102,14 @@ export function ContactForm({
           customTermsDays: undefined,
         },
   });
-  const { data: jobSources } = useJobSources();
+  // A picker: only the sources it can offer (the full catalog is ~690 Workiz
+  // rows, mostly archived). A client still pointing at an archived source gets
+  // that one row fetched on its own so the field shows its name.
+  const { data: jobSources } = useActiveJobSources();
+  const watchedSourceId = useWatch({ control: form.control, name: "sourceId" });
+  const needsArchivedSource =
+    Boolean(watchedSourceId) && jobSources !== undefined && !jobSources.some((j) => j.id === watchedSourceId);
+  const { data: archivedSource } = useJobSource(watchedSourceId ?? "", needsArchivedSource);
   const paymentTerms = useWatch({ control: form.control, name: "paymentTerms" });
 
   const watchedPhone = useWatch({ control: form.control, name: "phones.0" });
@@ -499,7 +507,7 @@ export function ContactForm({
                 render={({ field }) => {
                   // Active sources, plus the client's own even when archived.
                   const list = activeJobSources(jobSources);
-                  const own = field.value ? (jobSources ?? []).find((j) => j.id === field.value) : undefined;
+                  const own = field.value && archivedSource?.id === field.value ? archivedSource : undefined;
                   const options = own && !list.some((j) => j.id === own.id) ? [own, ...list] : list;
                   return (
                     <Select value={field.value || "none"} onValueChange={(v) => field.onChange(v === "none" ? "" : v)}>

@@ -2,8 +2,28 @@ import { Injectable } from '@nestjs/common';
 import { RedisService } from '@bitcrm/shared';
 import { type ResolvedPermissions } from '@bitcrm/types';
 
+/**
+ * How long a resolved permission set lives in Redis. Every path that changes
+ * effective permissions (role edit, boot-time reconcile, role assignment,
+ * per-user overrides set/clear) deletes the affected keys explicitly, so the
+ * TTL is only a backstop — long enough that the guards in every service rarely
+ * miss and fall through to the internal API. Deactivation does not ride on it
+ * either: `user:disabled:<id>` is written without a TTL and checked first.
+ */
+const DEFAULT_PERMISSION_TTL_SECONDS = 600;
+
+/** Keys per DEL — one round trip per chunk instead of one per user. */
+const INVALIDATE_CHUNK = 500;
+
+function permissionTtlSeconds(): number {
+  const parsed = Number(process.env.PERMISSION_CACHE_TTL_SECONDS);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : DEFAULT_PERMISSION_TTL_SECONDS;
+}
+
 @Injectable()
 export class RolesCacheService {
+  private readonly ttlSeconds = permissionTtlSeconds();
+
   constructor(private readonly redis: RedisService) {}
 
   async getRolePermissions(roleId: string): Promise<any | null> {
@@ -17,7 +37,7 @@ export class RolesCacheService {
       `role:permissions:${roleId}`,
       JSON.stringify(data),
       'EX',
-      60,
+      this.ttlSeconds,
     );
   }
 
@@ -36,7 +56,7 @@ export class RolesCacheService {
       `user:permissions:${userId}`,
       JSON.stringify(data),
       'EX',
-      60,
+      this.ttlSeconds,
     );
   }
 
@@ -45,9 +65,11 @@ export class RolesCacheService {
   }
 
   async invalidateAllUsersWithRole(roleId: string, userIds: string[]): Promise<void> {
-    if (userIds.length === 0) return;
-    for (const userId of userIds) {
-      await this.redis.client.del(`user:permissions:${userId}`);
+    for (let i = 0; i < userIds.length; i += INVALIDATE_CHUNK) {
+      const keys = userIds
+        .slice(i, i + INVALIDATE_CHUNK)
+        .map((userId) => `user:permissions:${userId}`);
+      await this.redis.client.del(...keys);
     }
   }
 }
