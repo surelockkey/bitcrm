@@ -122,6 +122,22 @@ describe('RolesService', () => {
       expect(rolesCache.invalidateAllUsersWithRole).toHaveBeenCalledWith('role-1', []);
     });
 
+    // The permission cache lives 10 minutes; a role edit that missed user
+    // #1001 would leave them on the old matrix for that long.
+    it('invalidates EVERY user of the role, not the first page', async () => {
+      rolesRepository.findById.mockResolvedValue(createMockRole({ id: 'role-1' }));
+      const users = Array.from({ length: 1500 }, (_, i) => ({ id: `u-${i}` }));
+      usersRepository.findByRoleId.mockResolvedValue(users);
+
+      await service.update('role-1', { description: 'x' });
+
+      expect(usersRepository.findByRoleId).toHaveBeenCalledWith('role-1');
+      expect(rolesCache.invalidateAllUsersWithRole).toHaveBeenCalledWith(
+        'role-1',
+        users.map((u) => u.id),
+      );
+    });
+
     it('should reject ALL edits to the system Super Admin role', async () => {
       const superAdminRole = createMockRole({
         id: 'role-super-admin',
@@ -262,6 +278,29 @@ describe('RolesService', () => {
       expect(rolesCache.invalidateAllUsersWithRole).toHaveBeenCalledWith(
         'role-super-admin',
         expect.any(Array),
+      );
+    });
+
+    it('reconcile invalidates every user of the role (paginated read)', async () => {
+      const stale = createMockRole({
+        id: 'role-super-admin',
+        name: 'Super Admin',
+        isSystem: true,
+        priority: 100,
+        permissions: { deals: { view: true, create: true, edit: true, delete: true } },
+        dataScope: { deals: 'all' as never },
+      });
+      rolesRepository.findByName.mockImplementation((name: string) =>
+        name === 'Super Admin' ? Promise.resolve(stale) : Promise.resolve(null),
+      );
+      const users = Array.from({ length: 1200 }, (_, i) => ({ id: `u-${i}` }));
+      usersRepository.findByRoleId.mockResolvedValue(users);
+
+      await service.seedDefaults();
+
+      expect(rolesCache.invalidateAllUsersWithRole).toHaveBeenCalledWith(
+        'role-super-admin',
+        users.map((u) => u.id),
       );
     });
 

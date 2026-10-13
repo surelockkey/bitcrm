@@ -35,6 +35,47 @@ groups:
         annotations:
           summary: 'P99 latency > 2s on {{ $labels.service }}'
 
+      # Per-route budgets (perf Phase A). A screen is as slow as its slowest
+      # call, so a service-wide percentile hides the one route that hurts.
+      # Report routes — Workiz reports, dashboard stats, activity, aging and
+      # every CSV export — read whole periods and get 1s; everything else 300ms.
+      # Health, docs and the SSE streams (open for minutes by design) are out.
+      # The histogram has no 0.3 bucket, so 300ms is interpolated between 0.25
+      # and 0.5 — good enough for a 10-minute alert. The `and` guard (about 3
+      # requests per 5m) keeps a single slow call on an idle route from firing.
+      - alert: RouteLatencyP95High
+        expr: >
+          histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{route!~".*/(health|docs|openapi|metrics).*|.*/stream|.*/(reports?|stats|statistics|activity|aging)(/.*)?|.*export.*"}[5m])) by (le, service, route)) > 0.3
+          and on (service, route)
+          sum(rate(http_request_duration_seconds_count{route!~".*/(health|docs|openapi|metrics).*|.*/stream|.*/(reports?|stats|statistics|activity|aging)(/.*)?|.*export.*"}[5m])) by (service, route) > 0.01
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'P95 latency > 300ms on {{ $labels.service }} {{ $labels.route }}'
+
+      - alert: ReportRouteLatencyP95High
+        expr: >
+          histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{route=~".*/(reports?|stats|statistics|activity|aging)(/.*)?|.*export.*"}[5m])) by (le, service, route)) > 1
+          and on (service, route)
+          sum(rate(http_request_duration_seconds_count{route=~".*/(reports?|stats|statistics|activity|aging)(/.*)?|.*export.*"}[5m])) by (service, route) > 0.01
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'P95 latency > 1s on report route {{ $labels.service }} {{ $labels.route }}'
+
+      # The direct signal for "requests are queueing on the event loop": p99
+      # lag sits near 10ms on an idle task. 100ms sustained means every request
+      # on that task waits that long before any of its own code runs.
+      - alert: EventLoopLagP99High
+        expr: nodejs_eventloop_lag_p99_seconds > 0.1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Event loop p99 lag > 100ms on {{ $labels.service }}'
+
       - alert: HighEventLoopLag
         expr: nodejs_eventloop_lag_seconds > 0.5
         for: 2m

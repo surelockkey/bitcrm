@@ -8,7 +8,7 @@ import {
 } from '../constants/dynamo.constants';
 
 /** How many technicians' histories are read at once for the commissions report. */
-const HISTORY_READ_CONCURRENCY = 10;
+const HISTORY_READ_CONCURRENCY = 40;
 
 /**
  * PK = USER#<userId>, SK = COMMISSION#<effectiveDate> — one row per version,

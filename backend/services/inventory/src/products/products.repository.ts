@@ -482,10 +482,7 @@ export class ProductsRepository {
     return this.queryIndex(GSI2_NAME, 'GSI2PK', `TYPE#${type}`, limit, cursor, filters);
   }
 
-  /**
-   * The Scan that selects products, shared by the list and its count so the
-   * two can never answer about different populations.
-   */
+  /** The Scan that selects products — what `countAll` counts. */
   private listFilter(filters?: ProductListFilters) {
     const f = this.filterParts(filters);
     return {
@@ -495,42 +492,27 @@ export class ProductsRepository {
     };
   }
 
-  async findAll(
+  /**
+   * Every product, for the search indexer's internal walk
+   * (`GET /products/internal/all`, paged by `nextCursor`, which callers treat
+   * as opaque). It reads the GSI4 `PRODUCTS#ALL` partition — the Price Book's,
+   * via `findCatalog` — in name order, any given filters on top.
+   *
+   * It used to be a filtered Scan of the whole table, where most rows are not
+   * products (SKU#, STOCK#, CONTAINER#, …), so each page read far more than it
+   * kept; a search re-index on every boot made that thousands of Scans a week.
+   *
+   * Depends on `backfill:product-catalog-index` having run on the environment
+   * (it already must, or the Price Book is empty): a product row without the
+   * GSI4 keys is invisible here. Cursors handed out by the old Scan carry no
+   * GSI4 keys and are refused with a 400 — restart the walk.
+   */
+  findAll(
     limit: number,
     cursor?: string,
     filters?: ProductListFilters,
   ): Promise<PaginatedResult> {
-    const f = this.listFilter(filters);
-    // Decoded before any read: a garbage cursor is a 400, not a 500.
-    const startKey = decodeIndexCursor(cursor, ['PK', 'SK']);
-
-    // The table holds far more than products — every SKU#, STOCK#, CONTAINER#
-    // and WAREHOUSE# row shares it — so a filtered Scan reads mostly rows it
-    // throws away, and `Limit` counts what was read, not what survived. Asking
-    // for fifty returned four products (two with a status filter), so the
-    // inventory page opened nearly empty. `fillPage` keeps reading until the
-    // page is full.
-    const page = await fillPage<Record<string, unknown>>(
-      (input) =>
-        this.dynamoDb.client.send(
-          new ScanCommand({
-            TableName: INVENTORY_TABLE,
-            FilterExpression: f.expression,
-            ExpressionAttributeValues: f.values,
-            ...(Object.keys(f.names).length > 0 && {
-              ExpressionAttributeNames: f.names,
-            }),
-            ...input,
-          }),
-        ),
-      limit,
-      { startKey, keyOf: (i) => ({ PK: i.PK, SK: i.SK }) },
-    );
-
-    return {
-      items: page.items.map(this.toProduct),
-      nextCursor: encodeIndexCursor(page.lastKey),
-    };
+    return this.findCatalog(limit, cursor, filters);
   }
 
   /**

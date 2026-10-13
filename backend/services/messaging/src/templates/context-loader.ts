@@ -64,6 +64,8 @@ export interface CustomFieldRow extends CatalogRow {
 export class ContextLoader {
   private readonly logger = new Logger(ContextLoader.name);
   private readonly catalogs = new Map<string, { rows: CatalogRow[]; expiresAt: number }>();
+  /** Catalog reads in flight, so concurrent misses share one request. */
+  private readonly catalogFlights = new Map<string, Promise<CatalogRow[]>>();
 
   constructor(
     private readonly conversations: ConversationsRepository,
@@ -235,12 +237,30 @@ export class ContextLoader {
     return (await this.catalog(kind)).find((row) => row.id === id)?.name;
   }
 
+  /**
+   * A deal-service catalog, cached `CATALOG_TTL_MS`. Any successful answer is
+   * cached — an EMPTY list too: a workspace with no custom fields would
+   * otherwise ask deal-service on every text. A failure is not cached (the
+   * stale rows, or `[]`, answer meanwhile). Single-flight: misses that arrive
+   * while a read is in flight wait for it.
+   */
   private async catalog(kind: string): Promise<CatalogRow[]> {
     const hit = this.catalogs.get(kind);
     if (hit && hit.expiresAt > Date.now()) return hit.rows;
-    const rows = (await this.fetchJson<CatalogRow[]>(`${DEAL_SERVICE_URL}/api/deals/${kind}/internal`)) ?? [];
-    if (rows.length) this.catalogs.set(kind, { rows, expiresAt: Date.now() + CATALOG_TTL_MS });
-    return rows;
+    const pending = this.catalogFlights.get(kind);
+    if (pending) return pending;
+    const flight = (async () => {
+      try {
+        const rows = await this.fetchJson<CatalogRow[]>(`${DEAL_SERVICE_URL}/api/deals/${kind}/internal`);
+        if (!Array.isArray(rows)) return this.catalogs.get(kind)?.rows ?? [];
+        this.catalogs.set(kind, { rows, expiresAt: Date.now() + CATALOG_TTL_MS });
+        return rows;
+      } finally {
+        this.catalogFlights.delete(kind);
+      }
+    })();
+    this.catalogFlights.set(kind, flight);
+    return flight;
   }
 
   /** `data` of the envelope, or `undefined` on any failure (logged, never thrown). */

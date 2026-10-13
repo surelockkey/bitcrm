@@ -8,6 +8,7 @@ import {
 import { SnsPublisherService, BusinessMetricsService } from '@bitcrm/shared';
 import { type ExternalCompany } from '@bitcrm/types';
 import { randomUUID } from 'crypto';
+import { CatalogCache } from '../common/cache/catalog-cache';
 import { ExternalCompaniesRepository } from './external-companies.repository';
 import { type CreateExternalCompanyDto } from './dto/create-external-company.dto';
 import { type UpdateExternalCompanyDto } from './dto/update-external-company.dto';
@@ -15,6 +16,13 @@ import { type UpdateExternalCompanyDto } from './dto/update-external-company.dto
 @Injectable()
 export class ExternalCompaniesService {
   private readonly logger = new Logger(ExternalCompaniesService.name);
+
+  /** The full list, sorted as `list()` answers it — see `CatalogCache` (60 s, local invalidation). */
+  private readonly catalog = new CatalogCache<ExternalCompany>(async () =>
+    (await this.repository.listAll()).sort(
+      (a, b) => a.name.localeCompare(b.name),
+    ),
+  );
 
   constructor(
     private readonly repository: ExternalCompaniesRepository,
@@ -51,14 +59,14 @@ export class ExternalCompaniesService {
     };
 
     await this.repository.create(company);
+    this.catalog.invalidate();
     this.businessMetrics?.entityCreated?.inc({ entity_type: 'external_company' });
     this.publishEvent('external-company.created', { externalCompanyId: company.id, name: company.name });
     return company;
   }
 
   async list(): Promise<ExternalCompany[]> {
-    const companies = await this.repository.listAll();
-    return companies.sort((a, b) => a.name.localeCompare(b.name));
+    return this.catalog.get();
   }
 
   async findById(id: string): Promise<ExternalCompany> {
@@ -92,6 +100,7 @@ export class ExternalCompaniesService {
     };
 
     await this.repository.put(updated);
+    this.catalog.invalidate();
     this.publishEvent('external-company.updated', { externalCompanyId: id, name: updated.name });
     return updated;
   }
@@ -111,6 +120,7 @@ export class ExternalCompaniesService {
           active: false,
           updatedAt: new Date().toISOString(),
         });
+        this.catalog.invalidate();
       }
       this.publishEvent('external-company.archived', { externalCompanyId: id, archivedBy: caller.id });
       this.logger.log(`Archived external company ${id} — still referenced by at least one deal`);
@@ -118,6 +128,7 @@ export class ExternalCompaniesService {
     }
 
     await this.repository.remove(id);
+    this.catalog.invalidate();
     this.publishEvent('external-company.deleted', { externalCompanyId: id, deletedBy: caller.id });
     return { archived: false };
   }

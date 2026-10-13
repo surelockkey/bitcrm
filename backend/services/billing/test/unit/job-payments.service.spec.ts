@@ -2,7 +2,7 @@
 import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { BillingEventType, DataScope, type Estimate } from '@bitcrm/types';
 import { InvoicesService } from 'src/invoices/invoices.service';
-import { PaymentsService } from 'src/payments/payments.service';
+import { LEDGER_READ_CONCURRENCY, PaymentsService } from 'src/payments/payments.service';
 import { PaymentSettingsService } from 'src/payments/payment-settings.service';
 import { summarizePayments } from 'src/payments/payment-rules';
 import { depositLedger } from 'src/payments/portal-payments.service';
@@ -355,6 +355,32 @@ describe('InvoicesService.create — picks up a ledger that already exists', () 
   });
 });
 
+describe('PaymentsService.accessibleJob / ledgerForJob — the access check without the ledger', () => {
+  it("decides access from the job alone: no invoice, no ledger read", async () => {
+    const { service, ledger, invoices } = build({ seed: [imported()] });
+    const view = await service.accessibleJob('deal-1', caller());
+    expect(view.deal.id).toBe('deal-1');
+    expect(ledger.listByInvoice).not.toHaveBeenCalled();
+    expect(invoices.getStored).not.toHaveBeenCalled();
+  });
+
+  it('keeps assigned_only and the 404, exactly as listForDeal does', async () => {
+    const { service } = build();
+    await expect(service.accessibleJob('deal-1', caller(DataScope.ASSIGNED_ONLY, { id: 'tech-9' }))).rejects.toThrow(
+      ForbiddenException,
+    );
+    await expect(service.accessibleJob('nope', caller())).rejects.toThrow(NotFoundException);
+    const tech = caller(DataScope.ASSIGNED_ONLY, { id: 'tech-1' });
+    await expect(service.accessibleJob('deal-1', tech)).resolves.toBeTruthy();
+  });
+
+  it('ledgerForJob(accessibleJob(...)) is listForDeal', async () => {
+    const { service } = build({ seed: [imported()], withInvoice: true });
+    const composed = await service.ledgerForJob(await service.accessibleJob('deal-1', caller()));
+    expect(composed).toEqual(await service.listForDeal('deal-1', caller()));
+  });
+});
+
 describe('PaymentsService.ledgersByDeals — the commissions report (internal)', () => {
   it('reads each job once, with or without an invoice, and maps a job with no payments to []', async () => {
     const { service, ledger } = build({
@@ -374,5 +400,22 @@ describe('PaymentsService.ledgersByDeals — the commissions report (internal)',
     expect(Object.keys(await service.ledgersByDeals(many))).toHaveLength(100);
     expect(ledger.listByInvoice).toHaveBeenCalledTimes(100);
     expect(await service.ledgersByDeals('deal-1' as any)).toEqual({});
+  });
+
+  it(`keeps ${LEDGER_READ_CONCURRENCY} ledger reads in flight at once, never more`, async () => {
+    expect(LEDGER_READ_CONCURRENCY).toBe(40);
+    const { service, ledger } = build();
+    let inFlight = 0;
+    let peak = 0;
+    ledger.listByInvoice.mockImplementation(async () => {
+      inFlight++;
+      peak = Math.max(peak, inFlight);
+      await new Promise((r) => setImmediate(r));
+      inFlight--;
+      return [];
+    });
+    const out = await service.ledgersByDeals(Array.from({ length: 100 }, (_, i) => `deal-${i}`));
+    expect(Object.keys(out)).toHaveLength(100);
+    expect(peak).toBe(LEDGER_READ_CONCURRENCY);
   });
 });

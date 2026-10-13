@@ -52,6 +52,23 @@ describe("ContactForm layouts", () => {
     expect(screen.getByRole("combobox", { name: "Tax exempt reason" })).toHaveTextContent("Resale");
   });
 
+  it("the Ad source picker asks for active sources only and still shows the client's archived one", async () => {
+    const listed: string[] = [];
+    server.use(
+      http.get("*/crm/companies", () => HttpResponse.json({ success: true, data: [], pagination: {} })),
+      http.get("*/deals/job-sources", ({ request }) => {
+        listed.push(new URL(request.url).search);
+        return HttpResponse.json({ success: true, data: [JOB_SOURCES[1]] });
+      }),
+      http.get("*/deals/job-sources/src-tx-platinum", () =>
+        HttpResponse.json({ success: true, data: { ...JOB_SOURCES[0], active: false } }),
+      ),
+    );
+    renderWithClient(<ContactForm contact={CONTACT} layout="dialog" />);
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Ad source" })).toHaveTextContent("SURE TX PLATINUM"));
+    expect(listed).toEqual(["?active=true"]);
+  });
+
   it("the Tax exempt reason list is Workiz's", async () => {
     const { TAX_EXEMPT_REASONS } = await import("@/features/billing/lib");
     expect([...TAX_EXEMPT_REASONS]).toEqual([

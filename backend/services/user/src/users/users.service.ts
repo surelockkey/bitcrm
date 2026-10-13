@@ -726,16 +726,14 @@ export class UsersService implements OnModuleInit {
       .slice(0, MAX_NAME_LOOKUP);
     if (wanted.length === 0) return [];
 
-    const found = await Promise.all(
-      wanted.map((id) =>
-        this.repository
-          .findById(id)
-          // One unreadable row must not cost the caller every other name.
-          .catch(() => null),
-      ),
+    // One BatchGetItem per 100 ids, answered in no particular order — put the
+    // names back in the order the caller asked for.
+    const byId = new Map(
+      (await this.repository.findNamesByIds(wanted)).map((u) => [u.id, u]),
     );
 
-    return found
+    return wanted
+      .map((id) => byId.get(id))
       .filter((u): u is NonNullable<typeof u> => Boolean(u))
       .map((u) => ({
         id: u.id,

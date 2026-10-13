@@ -131,6 +131,8 @@ export class DealClient {
   private readonly logger = new Logger(DealClient.name);
   private readonly http: InternalHttp;
   private readonly catalogs = new Map<string, { rows: unknown[]; expiresAt: number }>();
+  /** The catalog reads in flight, so concurrent misses share one request. */
+  private readonly catalogFlights = new Map<string, Promise<unknown[]>>();
 
   constructor(
     @Optional() @Inject(INTERNAL_FETCH) fetchImpl?: FetchLike,
@@ -291,16 +293,30 @@ export class DealClient {
     );
   }
 
+  /**
+   * A deal-service catalog, cached `CATALOG_TTL_MS`. Single-flight: misses
+   * that arrive while a read is in flight wait for it instead of each asking
+   * deal-service. A failure is never cached — the waiters of that flight get
+   * the stale rows (or `[]`), and the next caller tries again.
+   */
   private async cachedCatalog<T>(key: string, path: string): Promise<T[]> {
     const hit = this.catalogs.get(key);
     if (hit && hit.expiresAt > Date.now()) return hit.rows as T[];
-    try {
-      const rows = (await this.http.request<T[]>(path, { operation: `catalog:${key}` })) ?? [];
-      this.catalogs.set(key, { rows, expiresAt: Date.now() + CATALOG_TTL_MS });
-      return rows;
-    } catch (err) {
-      this.logger.warn(`catalog ${key} unavailable: ${(err as Error).message}`);
-      return (hit?.rows as T[]) ?? [];
-    }
+    const pending = this.catalogFlights.get(key);
+    if (pending) return pending as Promise<T[]>;
+    const flight = (async () => {
+      try {
+        const rows = (await this.http.request<T[]>(path, { operation: `catalog:${key}` })) ?? [];
+        this.catalogs.set(key, { rows, expiresAt: Date.now() + CATALOG_TTL_MS });
+        return rows;
+      } catch (err) {
+        this.logger.warn(`catalog ${key} unavailable: ${(err as Error).message}`);
+        return (this.catalogs.get(key)?.rows as T[]) ?? [];
+      } finally {
+        this.catalogFlights.delete(key);
+      }
+    })();
+    this.catalogFlights.set(key, flight);
+    return flight;
   }
 }

@@ -17,8 +17,12 @@ describe('UsersService.namesByIds', () => {
       'u-2': { id: 'u-2', firstName: 'bob', lastName: 'tech', email: 'b@x.com', phone: '+14045550112', roleId: 'role-technician', department: 'tech', status: 'active' },
     },
   ) {
+    // The batch read answers in no particular order — reversed here so the
+    // service has to put the names back in the caller's order itself.
     const repository = {
-      findById: jest.fn(async (id: string) => users[id] ?? null),
+      findNamesByIds: jest.fn(async (ids: string[]) =>
+        ids.map((id) => users[id]).filter(Boolean).reverse(),
+      ),
     };
     const service = new UsersService(
       repository as never,
@@ -87,7 +91,7 @@ describe('UsersService.namesByIds', () => {
     const { service, repository } = makeService();
 
     await expect(service.namesByIds([])).resolves.toEqual([]);
-    expect(repository.findById).not.toHaveBeenCalled();
+    expect(repository.findNamesByIds).not.toHaveBeenCalled();
   });
 
   it('de-duplicates repeated ids', async () => {
@@ -96,7 +100,7 @@ describe('UsersService.namesByIds', () => {
     const out = await service.namesByIds(['u-1', 'u-1', 'u-1']);
 
     expect(out).toHaveLength(1);
-    expect(repository.findById).toHaveBeenCalledTimes(1);
+    expect(repository.findNamesByIds).toHaveBeenCalledWith(['u-1']);
   });
 
   /**
@@ -109,7 +113,8 @@ describe('UsersService.namesByIds', () => {
 
     await service.namesByIds(many);
 
-    expect(repository.findById.mock.calls.length).toBeLessThanOrEqual(200);
+    expect(repository.findNamesByIds).toHaveBeenCalledTimes(1);
+    expect(repository.findNamesByIds.mock.calls[0][0]).toHaveLength(200);
   });
 
   it('tolerates blank and non-string ids', async () => {
@@ -120,15 +125,20 @@ describe('UsersService.namesByIds', () => {
     ).resolves.toEqual([{ id: 'u-1', firstName: 'Nazarii', lastName: 'Tech' }]);
   });
 
-  it('survives a lookup that throws, without failing the whole batch', async () => {
-    const { service, repository } = makeService();
-    repository.findById.mockImplementation(async (id: string) => {
-      if (id === 'u-2') throw new Error('dynamo blip');
-      return { id, firstName: 'Nazarii', lastName: 'Tech' };
-    });
+  it('answers in the order the ids were asked for', async () => {
+    const { service } = makeService();
 
-    await expect(service.namesByIds(['u-1', 'u-2'])).resolves.toEqual([
-      { id: 'u-1', firstName: 'Nazarii', lastName: 'Tech' },
-    ]);
+    const out = await service.namesByIds(['u-2', 'nope', 'u-1']);
+
+    expect(out.map((u) => u.id)).toEqual(['u-2', 'u-1']);
+  });
+
+  it('resolves all ids in ONE repository batch call, not one read per id', async () => {
+    const { service, repository } = makeService();
+
+    await service.namesByIds(['u-1', 'u-2']);
+
+    expect(repository.findNamesByIds).toHaveBeenCalledTimes(1);
+    expect(repository.findNamesByIds).toHaveBeenCalledWith(['u-1', 'u-2']);
   });
 });

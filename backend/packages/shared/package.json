@@ -47,6 +47,7 @@
     "@opentelemetry/sdk-node": "^0.57.0",
     "@opentelemetry/sdk-trace-node": "^1.30.0",
     "@opentelemetry/semantic-conventions": "^1.30.0",
+    "@smithy/node-http-handler": "^4.12.1",
     "aws-jwt-verify": "^4.0.1",
     "compression": "^1.8.2",
     "ioredis": "^5.4.0",

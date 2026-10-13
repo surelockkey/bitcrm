@@ -41,6 +41,100 @@ describe('UsersRepository', () => {
     });
   });
 
+  describe('findNamesByIds', () => {
+    const row = (id: string) => ({ id, firstName: `F-${id}`, lastName: `L-${id}` });
+    /** Answers every key it is asked for, unless `unprocessed` says otherwise. */
+    const answerAll = () =>
+      dbClient.send.mockImplementation(async (cmd: any) => {
+        const keys = cmd.input.RequestItems.BitCRM_Users.Keys as { PK: string }[];
+        return {
+          Responses: { BitCRM_Users: keys.map((k) => row(k.PK.slice('USER#'.length))) },
+        };
+      });
+
+    it('reads with BatchGetItem, projecting only the name fields', async () => {
+      answerAll();
+
+      const out = await repository.findNamesByIds(['u-1', 'u-2']);
+
+      expect(dbClient.send).toHaveBeenCalledTimes(1);
+      const input = dbClient.send.mock.calls[0][0].input;
+      const req = input.RequestItems.BitCRM_Users;
+      expect(req.Keys).toEqual([
+        { PK: 'USER#u-1', SK: 'METADATA' },
+        { PK: 'USER#u-2', SK: 'METADATA' },
+      ]);
+      const projected = req.ProjectionExpression.split(',')
+        .map((p: string) => req.ExpressionAttributeNames[p.trim()])
+        .sort();
+      expect(projected).toEqual(['firstName', 'id', 'lastName', 'workizName']);
+      expect(out).toEqual([row('u-1'), row('u-2')]);
+    });
+
+    it('splits more than 100 ids into chunks of at most 100', async () => {
+      answerAll();
+      const ids = Array.from({ length: 200 }, (_, i) => `u-${i}`);
+
+      const out = await repository.findNamesByIds(ids);
+
+      expect(dbClient.send).toHaveBeenCalledTimes(2);
+      for (const [cmd] of dbClient.send.mock.calls) {
+        expect(cmd.input.RequestItems.BitCRM_Users.Keys.length).toBeLessThanOrEqual(100);
+      }
+      expect(out.map((u) => u.id).sort()).toEqual([...ids].sort());
+    });
+
+    it('retries UnprocessedKeys until every key is answered', async () => {
+      dbClient.send
+        .mockResolvedValueOnce({
+          Responses: { BitCRM_Users: [row('u-1')] },
+          UnprocessedKeys: {
+            BitCRM_Users: { Keys: [{ PK: 'USER#u-2', SK: 'METADATA' }] },
+          },
+        })
+        .mockResolvedValueOnce({ Responses: { BitCRM_Users: [row('u-2')] } });
+
+      const out = await repository.findNamesByIds(['u-1', 'u-2']);
+
+      expect(dbClient.send).toHaveBeenCalledTimes(2);
+      const retry = dbClient.send.mock.calls[1][0].input.RequestItems.BitCRM_Users;
+      expect(retry.Keys).toEqual([{ PK: 'USER#u-2', SK: 'METADATA' }]);
+      expect(retry.ProjectionExpression).toBeDefined();
+      expect(out.map((u) => u.id)).toEqual(['u-1', 'u-2']);
+    });
+
+    it('gives up on keys DynamoDB keeps refusing, returning what it has', async () => {
+      dbClient.send.mockResolvedValue({
+        Responses: { BitCRM_Users: [] },
+        UnprocessedKeys: { BitCRM_Users: { Keys: [{ PK: 'USER#u-1', SK: 'METADATA' }] } },
+      });
+
+      await expect(repository.findNamesByIds(['u-1'])).resolves.toEqual([]);
+      expect(dbClient.send.mock.calls.length).toBeGreaterThan(1);
+      expect(dbClient.send.mock.calls.length).toBeLessThanOrEqual(6);
+    });
+
+    it('one failed chunk costs only its own names', async () => {
+      let call = 0;
+      dbClient.send.mockImplementation(async (cmd: any) => {
+        call += 1;
+        if (call === 1) throw new Error('dynamo blip');
+        const keys = cmd.input.RequestItems.BitCRM_Users.Keys as { PK: string }[];
+        return { Responses: { BitCRM_Users: keys.map((k) => row(k.PK.slice(5))) } };
+      });
+      const ids = Array.from({ length: 150 }, (_, i) => `u-${i}`);
+
+      const out = await repository.findNamesByIds(ids);
+
+      expect(out).toHaveLength(50);
+    });
+
+    it('does not call DynamoDB for an empty list', async () => {
+      await expect(repository.findNamesByIds([])).resolves.toEqual([]);
+      expect(dbClient.send).not.toHaveBeenCalled();
+    });
+  });
+
   describe('findById', () => {
     it('should return mapped user when item exists', async () => {
       const user = createMockUser();

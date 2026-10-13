@@ -119,69 +119,82 @@ describe('ProductsRepository', () => {
     });
   });
 
+  /**
+   * The search indexer's internal walk (`GET /products/internal/all`). It used
+   * to be a filtered Scan of the whole ~46k-row table — every SKU#, STOCK#,
+   * CONTAINER# row read and thrown away — and a search boot re-index called it
+   * thousands of times. It now Queries the GSI4 `PRODUCTS#ALL` partition, which
+   * holds every product and nothing else.
+   */
   describe('findAll', () => {
-    it('should return paginated results', async () => {
-      const product = createMockProduct();
-      dynamoDb.client.send.mockResolvedValue({
-        Items: [{ ...product, PK: 'PRODUCT#prod-1', SK: 'METADATA' }],
-        LastEvaluatedKey: undefined,
-      });
+    const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString('base64url');
+    const product = createMockProduct();
+    const row = (id: string) => ({
+      ...product,
+      id,
+      PK: `PRODUCT#${id}`,
+      SK: 'METADATA',
+      GSI4PK: 'PRODUCTS#ALL',
+      GSI4SK: `${id}#${id}`,
+    });
+
+    it('Queries the PRODUCTS#ALL partition — never a Scan — one read per page', async () => {
+      dynamoDb.client.send.mockResolvedValue({ Items: [row('p1')], LastEvaluatedKey: undefined });
 
       const result = await repository.findAll(20);
 
-      expect(result.items).toHaveLength(1);
+      expect(dynamoDb.client.send).toHaveBeenCalledTimes(1);
+      const command = dynamoDb.client.send.mock.calls[0][0];
+      expect(command.constructor.name).toBe('QueryCommand');
+      expect(command.input.IndexName).toBe('TransferEntityIndex');
+      expect(command.input.KeyConditionExpression).toBe('GSI4PK = :pk');
+      expect(command.input.ExpressionAttributeValues[':pk']).toBe('PRODUCTS#ALL');
+      expect(command.input.FilterExpression).toBeUndefined();
+      expect(command.input.Limit).toBe(20);
+      expect(result.items.map((p) => p.id)).toEqual(['p1']);
       expect(result.nextCursor).toBeUndefined();
     });
 
-    it('fills the page across reads instead of returning what one scan left', async () => {
-      // Таблиця інвентарю тримає не лише товари: SKU#, STOCK#, CONTAINER#,
-      // WAREHOUSE# — усе це Scan читає й викидає фільтром. `Limit` рахує
-      // прочитане, тож на 50 приходило 4 товари, а зі статусом — 2, і сторінка
-      // інвентарю відкривалась майже порожньою.
-      const product = createMockProduct();
-      const row = (id: string) => ({ ...product, id, PK: `PRODUCT#${id}`, SK: 'METADATA' });
+    it('hands back an opaque cursor carrying the GSI4 keys, and resumes from it', async () => {
+      const lastKey = { PK: 'PRODUCT#p1', SK: 'METADATA', GSI4PK: 'PRODUCTS#ALL', GSI4SK: 'p1#p1' };
+      dynamoDb.client.send.mockResolvedValueOnce({ Items: [row('p1')], LastEvaluatedKey: lastKey });
+
+      const first = await repository.findAll(1);
+      expect(typeof first.nextCursor).toBe('string');
+
+      dynamoDb.client.send.mockResolvedValueOnce({ Items: [row('p2')] });
+      const second = await repository.findAll(1, first.nextCursor);
+
+      expect(dynamoDb.client.send.mock.calls[1][0].input.ExclusiveStartKey).toEqual(lastKey);
+      expect(second.items.map((p) => p.id)).toEqual(['p2']);
+      expect(second.nextCursor).toBeUndefined();
+    });
+
+    it('refuses a Scan-era cursor (table keys only) or a foreign partition with a 400 before any read', async () => {
+      await expect(repository.findAll(20, encode({ PK: 'PRODUCT#p-1', SK: 'METADATA' }))).rejects.toThrow(
+        BadRequestException,
+      );
+      await expect(
+        repository.findAll(20, encode({ PK: 'TRANSFER#t', SK: 'METADATA', GSI4PK: 'ENTITY#x', GSI4SK: 'y' })),
+      ).rejects.toThrow(BadRequestException);
+      expect(dynamoDb.client.send).not.toHaveBeenCalled();
+    });
+
+    it('applies the filters it is given on top of the partition and still fills the page', async () => {
       dynamoDb.client.send
-        .mockResolvedValueOnce({ Items: [row('p1')], LastEvaluatedKey: { PK: 'X#1', SK: 'METADATA' } })
-        .mockResolvedValueOnce({ Items: [row('p2')], LastEvaluatedKey: { PK: 'X#2', SK: 'METADATA' } })
-        .mockResolvedValueOnce({ Items: [row('p3')], LastEvaluatedKey: undefined });
+        .mockResolvedValueOnce({
+          Items: [row('p1')],
+          LastEvaluatedKey: { PK: 'PRODUCT#p1', SK: 'METADATA', GSI4PK: 'PRODUCTS#ALL', GSI4SK: 'p1#p1' },
+        })
+        .mockResolvedValueOnce({ Items: [row('p2')] });
 
-      const result = await repository.findAll(3);
+      const result = await repository.findAll(2, undefined, { status: 'active' });
 
-      expect(result.items.map((p) => p.id)).toEqual(['p1', 'p2', 'p3']);
-      expect(dynamoDb.client.send).toHaveBeenCalledTimes(3);
-      // Таблиця скінчилась — курсора нема, хоч би якою короткою була остання читка.
-      expect(result.nextCursor).toBeUndefined();
-    });
-
-    it('stops once the page is full, and points the cursor at the last row kept', async () => {
-      const product = createMockProduct();
-      const row = (id: string) => ({ ...product, id, PK: `PRODUCT#${id}`, SK: 'METADATA' });
-      dynamoDb.client.send.mockResolvedValueOnce({
-        Items: [row('p1'), row('p2'), row('p3')],
-        LastEvaluatedKey: { PK: 'X#9', SK: 'METADATA' },
-      });
-
-      const result = await repository.findAll(2);
-
+      const input = dynamoDb.client.send.mock.calls[0][0].input;
+      expect(input.IndexName).toBe('TransferEntityIndex');
+      expect(input.FilterExpression).toContain(':status');
+      expect(input.FilterExpression).not.toContain('begins_with');
       expect(result.items.map((p) => p.id)).toEqual(['p1', 'p2']);
-      // Наступна сторінка має початися з p3, а не з того, де спинився Scan.
-      expect(JSON.parse(Buffer.from(result.nextCursor!, 'base64').toString())).toEqual({
-        PK: 'PRODUCT#p2',
-        SK: 'METADATA',
-      });
-    });
-
-    it('should return nextCursor when there are more results', async () => {
-      const product = createMockProduct();
-      const lastKey = { PK: 'PRODUCT#prod-1', SK: 'METADATA' };
-      dynamoDb.client.send.mockResolvedValue({
-        Items: [{ ...product, PK: 'PRODUCT#prod-1', SK: 'METADATA' }],
-        LastEvaluatedKey: lastKey,
-      });
-
-      const result = await repository.findAll(1);
-
-      expect(result.nextCursor).toBeDefined();
     });
   });
 
@@ -242,13 +255,14 @@ describe('ProductsRepository', () => {
 
     it('still resumes from the cursors it hands out', async () => {
       const key = { PK: 'PRODUCT#p-1', SK: 'METADATA', GSI1PK: 'CATEGORY#Locks', GSI1SK: 'PRODUCT#p-1' };
+      const catalogKey = { PK: 'PRODUCT#p-1', SK: 'METADATA', GSI4PK: 'PRODUCTS#ALL', GSI4SK: 'lock#p-1' };
       dynamoDb.client.send.mockResolvedValue({ Items: [] });
 
       await repository.findByCategory('Locks', 20, encode(key));
-      await repository.findAll(20, encode({ PK: 'PRODUCT#p-1', SK: 'METADATA' }));
+      await repository.findAll(20, encode(catalogKey));
 
       expect(dynamoDb.client.send.mock.calls[0][0].input.ExclusiveStartKey).toEqual(key);
-      expect(dynamoDb.client.send.mock.calls[1][0].input.ExclusiveStartKey).toEqual({ PK: 'PRODUCT#p-1', SK: 'METADATA' });
+      expect(dynamoDb.client.send.mock.calls[1][0].input.ExclusiveStartKey).toEqual(catalogKey);
     });
   });
 
@@ -781,15 +795,13 @@ describe('ProductsRepository', () => {
       await repository.findAll(20, undefined, { manageStock: true });
 
       const input = sentInput();
-      expect(input.IndexName).toBeUndefined();
+      expect(input.IndexName).toBe('TransferEntityIndex');
       expect(input.FilterExpression).toBe(
-        'begins_with(PK, :pk) AND SK = :sk AND ' +
-          '#type = :productType AND (attribute_not_exists(manageStock) OR manageStock = :true)',
+        '#type = :productType AND (attribute_not_exists(manageStock) OR manageStock = :true)',
       );
       expect(input.ExpressionAttributeNames).toEqual({ '#type': 'type' });
       expect(input.ExpressionAttributeValues).toMatchObject({
-        ':pk': 'PRODUCT#',
-        ':sk': 'METADATA',
+        ':pk': 'PRODUCTS#ALL',
         ':productType': 'product',
         ':true': true,
       });
@@ -801,9 +813,7 @@ describe('ProductsRepository', () => {
       await repository.findAll(20, undefined, { manageStock: false });
 
       const input = sentInput();
-      expect(input.FilterExpression).toBe(
-        'begins_with(PK, :pk) AND SK = :sk AND manageStock = :false',
-      );
+      expect(input.FilterExpression).toBe('manageStock = :false');
       expect(input.ExpressionAttributeValues[':false']).toBe(false);
       expect(input.ExpressionAttributeNames).toBeUndefined();
     });
@@ -827,9 +837,7 @@ describe('ProductsRepository', () => {
       await repository.findAll(20, undefined, { brandId: 'brand-1' });
 
       const input = sentInput();
-      expect(input.FilterExpression).toBe(
-        'begins_with(PK, :pk) AND SK = :sk AND brandId = :brandId',
-      );
+      expect(input.FilterExpression).toBe('brandId = :brandId');
       expect(input.ExpressionAttributeValues[':brandId']).toBe('brand-1');
     });
 

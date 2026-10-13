@@ -206,6 +206,27 @@ describe('ContextLoader', () => {
     expect(calls.filter((c) => c.path === '/api/deals/internal/d1')).toHaveLength(2);
   });
 
+  it('caches an EMPTY catalog too — a workspace with no custom fields asks once a minute, not once a text', async () => {
+    const { loader, calls } = makeLoader({ '/api/deals/custom-fields/internal': { data: [] } });
+    expect(await loader.listCustomFields()).toEqual([]);
+    expect(await loader.listCustomFields()).toEqual([]);
+    await loader.load({ dealId: 'd1' });
+    expect(calls.filter((c) => c.path === '/api/deals/custom-fields/internal')).toHaveLength(1);
+  });
+
+  it('does not cache a failed catalog read — the next text asks again', async () => {
+    const { loader, calls } = makeLoader({ '/api/deals/custom-fields/internal': { status: 500 } });
+    expect(await loader.listCustomFields()).toEqual([]);
+    expect(await loader.listCustomFields()).toEqual([]);
+    expect(calls.filter((c) => c.path === '/api/deals/custom-fields/internal')).toHaveLength(2);
+  });
+
+  it('concurrent misses share one catalog request (single-flight)', async () => {
+    const { loader, calls } = makeLoader();
+    await Promise.all([loader.listCustomFields(), loader.listCustomFields(), loader.load({ dealId: 'd1' })]);
+    expect(calls.filter((c) => c.path === '/api/deals/custom-fields/internal')).toHaveLength(1);
+  });
+
   it('lists active JOB custom fields for the short-code picker', async () => {
     const { loader } = makeLoader();
     expect((await loader.listCustomFields()).map((f) => f.name)).toEqual(['Manager Note', 'Choose Company ']);

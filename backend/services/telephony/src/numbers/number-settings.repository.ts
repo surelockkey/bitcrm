@@ -6,6 +6,7 @@ import {
 } from '@aws-sdk/lib-dynamodb';
 import { DynamoDbService } from '@bitcrm/shared';
 import { CALLS_TABLE } from '../common/constants/dynamo.constants';
+import { LocalTtlCache } from '../common/local-ttl-cache';
 
 /**
  * Per-number configuration — the job source the number is tracked as
@@ -29,10 +30,19 @@ export interface NumberSettingsUpdate {
 }
 
 const SETTINGS_PK = 'NUMSET#ALL';
+/** How long another task may serve a list from before this one's write. */
+export const NUMBER_SETTINGS_CACHE_TTL_MS = 30_000;
 
 @Injectable()
 export class NumberSettingsRepository {
   private tableName = CALLS_TABLE;
+  /**
+   * `list()` in process, 30 s, single-flight; `put` drops it. Another task
+   * sees a change within the TTL. `get` stays a direct read.
+   */
+  private readonly listCache = new LocalTtlCache<NumberSettings[]>(
+    NUMBER_SETTINGS_CACHE_TTL_MS,
+  );
 
   constructor(private readonly dynamoDb: DynamoDbService) {}
 
@@ -48,14 +58,18 @@ export class NumberSettingsRepository {
   }
 
   async list(): Promise<NumberSettings[]> {
-    const res = await this.dynamoDb.client.send(
-      new QueryCommand({
-        TableName: this.tableName,
-        KeyConditionExpression: 'PK = :pk',
-        ExpressionAttributeValues: { ':pk': SETTINGS_PK },
-      }),
-    );
-    return (res.Items ?? []).map((item) => this.toSettings(item));
+    const all = await this.listCache.get(async () => {
+      const res = await this.dynamoDb.client.send(
+        new QueryCommand({
+          TableName: this.tableName,
+          KeyConditionExpression: 'PK = :pk',
+          ExpressionAttributeValues: { ':pk': SETTINGS_PK },
+        }),
+      );
+      return (res.Items ?? []).map((item) => this.toSettings(item));
+    });
+    // Copies: a caller editing its answer must not edit the cache.
+    return all.map((s) => ({ ...s }));
   }
 
   /**
@@ -100,16 +114,22 @@ export class NumberSettingsRepository {
       `SET ${sets.join(', ')}` +
       (removes.length ? ` REMOVE ${removes.join(', ')}` : '');
 
-    const res = await this.dynamoDb.client.send(
-      new UpdateCommand({
-        TableName: this.tableName,
-        Key: { PK: SETTINGS_PK, SK: phoneNumber },
-        UpdateExpression: expression,
-        ExpressionAttributeNames: names,
-        ExpressionAttributeValues: values,
-        ReturnValues: 'ALL_NEW',
-      }),
-    );
+    let res;
+    try {
+      res = await this.dynamoDb.client.send(
+        new UpdateCommand({
+          TableName: this.tableName,
+          Key: { PK: SETTINGS_PK, SK: phoneNumber },
+          UpdateExpression: expression,
+          ExpressionAttributeNames: names,
+          ExpressionAttributeValues: values,
+          ReturnValues: 'ALL_NEW',
+        }),
+      );
+    } finally {
+      // Also on failure: the write may have landed before the error.
+      this.listCache.invalidate();
+    }
     if (res?.Attributes) return this.toSettings(res.Attributes);
     const clean = (v: string | null | undefined) =>
       typeof v === 'string' && v.trim() ? v.trim() : undefined;

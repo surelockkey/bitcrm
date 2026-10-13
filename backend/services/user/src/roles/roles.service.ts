@@ -88,10 +88,13 @@ export class RolesService implements OnModuleInit {
     // Invalidate role cache
     await this.rolesCache.invalidateRole(id);
 
-    // Invalidate all users with this role
-    const { items: users } = await this.usersRepository.findByRole(id, 1000);
-    const userIds = users.map((u: { id: string }) => u.id);
-    await this.rolesCache.invalidateAllUsersWithRole(id, userIds);
+    // Invalidate all users with this role — every page of them: the cache
+    // lives for minutes, so a user past a page cap would keep the old matrix.
+    const users = await this.usersRepository.findByRoleId(id);
+    await this.rolesCache.invalidateAllUsersWithRole(
+      id,
+      users.map((u) => u.id),
+    );
 
     return updated;
   }
@@ -151,10 +154,7 @@ export class RolesService implements OnModuleInit {
       if (changed) {
         await this.rolesRepository.update(existing.id, { permissions, dataScope });
         await this.rolesCache.invalidateRole(existing.id);
-        const { items: users } = await this.usersRepository.findByRole(
-          existing.id,
-          1000,
-        );
+        const users = await this.usersRepository.findByRoleId(existing.id);
         await this.rolesCache.invalidateAllUsersWithRole(
           existing.id,
           users.map((u) => u.id),

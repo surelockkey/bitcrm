@@ -112,6 +112,15 @@ export class ContactsRepository {
   }
 
   async findByPhone(normalizedPhone: string): Promise<Contact | null> {
+    const contactId = await this.findIdByPhone(normalizedPhone);
+    return contactId ? this.findById(contactId) : null;
+  }
+
+  /**
+   * The contact id a `PHONE#<e164>` pointer row names, without reading the
+   * contact — batch callers collect the ids first and BatchGet them once.
+   */
+  async findIdByPhone(normalizedPhone: string): Promise<string | null> {
     const result = await this.dynamoDb.client.send(
       new QueryCommand({
         TableName: this.tableName,
@@ -123,9 +132,7 @@ export class ContactsRepository {
 
     const items = result.Items || [];
     if (items.length === 0) return null;
-
-    const contactId = items[0].contactId as string;
-    return this.findById(contactId);
+    return (items[0].contactId as string) || null;
   }
 
   async findByCompany(

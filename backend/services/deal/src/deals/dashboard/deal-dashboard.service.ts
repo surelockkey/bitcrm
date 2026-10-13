@@ -8,7 +8,6 @@ import type {
   DashboardToday,
   DealDashboardBundle,
   DealStats,
-  JobSuperStatus,
   JwtUser,
 } from '@bitcrm/types';
 import { DealsService } from '../deals.service';
@@ -143,10 +142,12 @@ export class DealDashboardService {
     return todayOf(closed.stats, created.stats);
   }
 
-  /** Right now, not a window: the same counts the jobs board's tabs show. */
+  /**
+   * Right now, not a window: the same numbers the jobs board's open tabs show.
+   * Only the four open statuses are counted — never the Done / Canceled walks.
+   */
   async jobsNow(caller: JwtUser): Promise<DashboardJobsNow> {
-    const counts = await this.deals.counts({} as ListDealsQueryDto, caller, 'all');
-    return jobsNowOf(counts as unknown as Record<JobSuperStatus, number | null>);
+    return jobsNowOf(await this.deals.openCounts(caller));
   }
 
   /**

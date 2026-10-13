@@ -3,7 +3,7 @@
 import { Loader2 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
-import { useJobTypes } from "../hooks";
+import { useActiveJobTypes } from "../active-hooks";
 import { activeJobTypes } from "../lib";
 
 /**
@@ -18,7 +18,8 @@ export function JobTypePicker({
   value: string[];
   onChange: (ids: string[]) => void;
 }) {
-  const { data, isLoading } = useJobTypes();
+  // Offers active types only (the full catalog is ~900 Workiz rows, 21 active).
+  const { data, isLoading } = useActiveJobTypes();
   const active = activeJobTypes(data);
 
   const toggle = (id: string) =>

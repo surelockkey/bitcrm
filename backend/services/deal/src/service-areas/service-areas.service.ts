@@ -18,6 +18,7 @@ import {
   type ServiceAreaTax,
 } from '@bitcrm/types';
 import { randomUUID } from 'crypto';
+import { CatalogCache } from '../common/cache/catalog-cache';
 import { ServiceAreasRepository } from './service-areas.repository';
 import { deriveCoverage, type ZipGeocoder } from './service-areas.coverage';
 import { pointInCoverage } from './geo/point-in-area';
@@ -38,6 +39,13 @@ interface GeometryInput {
 @Injectable()
 export class ServiceAreasService {
   private readonly logger = new Logger(ServiceAreasService.name);
+
+  /**
+   * The full list in repository order — `list()` sorts its copy, resolve /
+   * nearest walk it as they always did. See `CatalogCache` (60 s, local
+   * invalidation). The overlap check at write time reads the repository.
+   */
+  private readonly catalog = new CatalogCache<ServiceArea>(() => this.repository.listAll());
 
   constructor(
     private readonly repository: ServiceAreasRepository,
@@ -108,13 +116,14 @@ export class ServiceAreasService {
     };
 
     await this.repository.create(area);
+    this.catalog.invalidate();
     this.businessMetrics?.entityCreated?.inc({ entity_type: 'service_area' });
     this.publishEvent('service-area.created', { serviceAreaId: area.id, name: area.name });
     return area;
   }
 
   async list(): Promise<ServiceArea[]> {
-    const areas = await this.repository.listAll();
+    const areas = await this.catalog.get();
     return areas.sort(
       (a, b) => b.priority - a.priority || a.name.localeCompare(b.name),
     );
@@ -187,6 +196,7 @@ export class ServiceAreasService {
     }
 
     await this.repository.put(updated);
+    this.catalog.invalidate();
     this.publishEvent('service-area.updated', { serviceAreaId: id, name: updated.name });
     return updated;
   }
@@ -264,6 +274,7 @@ export class ServiceAreasService {
   async remove(id: string, caller: { id: string }): Promise<void> {
     await this.findById(id);
     await this.repository.remove(id);
+    this.catalog.invalidate();
     this.publishEvent('service-area.deleted', { serviceAreaId: id, deletedBy: caller.id });
   }
 
@@ -275,7 +286,7 @@ export class ServiceAreasService {
 
   /** The single active area containing `point`, or null. */
   async resolvePoint(point: GeoPoint): Promise<ServiceArea | null> {
-    const areas = await this.repository.listAll();
+    const areas = await this.catalog.get();
     const matches = areas
       .filter((a) => a.active && pointInCoverage(point, a.coverage))
       .sort((a, b) => b.priority - a.priority);
@@ -299,7 +310,7 @@ export class ServiceAreasService {
   ): Promise<{ area: ServiceArea; distanceMiles: number } | null> {
     const point = await this.pointFromInput(dto);
     if (!point) return null;
-    const areas = await this.repository.listAll();
+    const areas = await this.catalog.get();
     const ranked = areas
       .filter((a) => a.active)
       .map((area) => ({ area, distanceMiles: distanceToCoverageMiles(point, area.coverage) }))

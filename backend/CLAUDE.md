@@ -83,7 +83,9 @@ browser → nginx :4000 → service :400x
                      email, roleId, department} from custom: claims
           ↓
   PermissionGuard    reads @RequirePermission(resource, action); resolves the
-                     user's permissions from Redis (60s TTL) or, on a miss,
+                     user's permissions from Redis (`PERMISSION_CACHE_TTL_SECONDS`,
+                     default 600 s — every permission change deletes the key
+                     explicitly, so the TTL is only a safety net) or, on a miss,
                      from user-service's internal API; stores them on
                      req.resolvedPermissions; Super Admin bypasses
           ↓
@@ -343,6 +345,11 @@ Rules:
 - The document client sets `removeUndefinedValues` and
   `convertClassInstanceToMap` — the latter because `ValidationPipe({transform})`
   hands services class instances that the marshaller would otherwise reject.
+  Its HTTP handler keeps sockets alive with `DYNAMODB_MAX_SOCKETS` (default 200,
+  the SDK's own default is 50) and a 3 s connect / 10 s request timeout.
+- Lookups that receive a list of ids use BatchGetItem (chunks of 100, retry
+  `UnprocessedKeys`), never one GetItem per id — per-item fan-out queued behind
+  the socket limit and was a top source of p95 latency (Phase A audit, Oct 2026).
 - Local table creation is `services/<svc>/src/scripts/setup-dynamodb.ts`
   (`npm run setup:db` / `setup:dynamodb` in that workspace); `npm run setup:aws`
   from `backend/` runs all of them plus SNS/SQS. Production tables are Terraform
@@ -395,6 +402,13 @@ Live UI updates deliberately do **not** go through SNS. Telephony streams call
 events over SSE (`GET /api/telephony/calls/stream`) fed by Redis pub/sub, so
 every instance sees every webhook.
 
+Twilio status callbacks (`/voice/conference-events`, `/voice/status`) reply
+`<Response/>` first and do their work afterwards on `WebhookQueue`, a per-process
+serial queue keyed `call:<primary sid>`. It orders one call's events within a
+task only; across tasks, safety still rests on `applyLifecycle`'s monotonic
+status guard and the Redis `SET NX` claims. `/voice/outbound` still writes the
+call record before returning TwiML — later webhooks on other tasks depend on it.
+
 ### Search (CQRS read model)
 
 `EVENT_ROUTES` in `services/search/src/indexer/event-routes.ts` maps each event
@@ -402,7 +416,13 @@ type to `{ SearchType, upsert|delete, idField }`. An upsert re-fetches the
 authoritative entity over the internal HTTP API and reindexes it; a delete
 removes the doc. The **backfill** (`npm run backfill -w backend/services/search`,
 reading the services' internal list endpoints) is the authoritative populator —
-events only keep the index fresh. Index name is versioned (`bitcrm-search-v3`)
+events only keep the index fresh. It does **not** run on boot in deployed
+environments (`ENABLE_SEARCH_BACKFILL` is unset; it used to re-index everything
+on every deploy, 31 times in one week). Run it by hand — `npm run backfill` or
+`POST /api/search/internal/reindex` — after every Workiz import, after a mapping
+change, and on a new environment. Its deal pages walk StageIndex `STATUS#`
+partitions and its product pages Query GSI4 `PRODUCTS#ALL`, so both depend on
+those keys being present (`backfill:product-catalog-index` for products). Index name is versioned (`bitcrm-search-v3`)
 behind the alias `bitcrm-search`; changing the mapping means a new version plus
 `npm run create-index` and a reindex. The `conversation` document (messaging
 inbox threads, `message-events`) is assembled from three internal reads —
@@ -687,6 +707,29 @@ tests, and — if it emits events — the types in `@bitcrm/types` plus a row in
   user's `lastSeenAt` and `online` (within `USER_ONLINE_WINDOW_SECONDS`, 5 min); stamps older
   than half a year are pruned on read. A Redis flush only forgets "Last seen".
 - **Redis DB 0 is dev, DB 15 is tests.** Don't flush the wrong one.
+- **Deal catalogs are cached in process for 60 s** (`common/cache/catalog-cache.ts`:
+  job types, sources, tags, client tags, custom fields, statuses, service areas,
+  external companies). A write clears the cache only in the task that took it, so
+  other tasks can serve the old list for up to 60 s; uniqueness and overlap checks
+  still read the repository. Catalog list Queries follow `LastEvaluatedKey`
+  (`common/utils/query-all-pages.ts`) — the Workiz import made job types 898 rows.
+- **Telephony caches:** the Twilio owned-number list and Messaging Service
+  membership live in Redis (fresh 5 min, served stale up to 1 h while one reload
+  runs; buy/release invalidate), so Twilio-console changes take up to 5 min to
+  show. Call flows and number settings are cached in process for 30 s.
+- **Closed-status counts are bounded.** `/deals/counts` stops a Done/Canceled
+  count at 1,000 matches or 3,000 rows read and reports `atLeast` (the tabs show
+  "1,000+"); jobs-now counts only the four open statuses.
+- **crm caps its batch lookups in the service** (no ValidationPipe): 500 distinct
+  refs on `contacts/internal/by-ids`, 500 numbers on `contacts/internal/by-phones`.
+- **Task sizing comes from `services/<svc>/taskdef.json`** (cpu 512 for every
+  service since Phase A) plus the 2048 MB bump `render-taskdef.sh` adds with the
+  Alloy sidecar — not from Terraform, whose task definition is a placeholder.
+  Capacity provider and task count are per service in `service_sizing`
+  (`infra/dev/compute.tf`); dev runs every service as one Spot task. Raising
+  deal/user/crm to two tasks for real users is a one-line override there — keep
+  new boot jobs and timers idempotent or behind a Redis lock (see
+  `DashboardSnapshotScheduler`) so that stays safe.
 - **Taxes live on service areas.** There is no tax-rate catalog: `ServiceArea.tax`
   (`{name, ratePercent}`) is the rate, exposed read-only as a `TaxRate` whose id is
   the area id (`GET /api/deals/tax-rates`). Job resolution is exempt client → the

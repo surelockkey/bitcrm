@@ -42,6 +42,8 @@ export function createMockContactsRepository() {
     findById: jest.fn(),
     findByIds: jest.fn(),
     findByPhone: jest.fn(),
+    // The PHONE# pointer alone — by-phones reads the contacts in one BatchGet after.
+    findIdByPhone: jest.fn().mockResolvedValue(null),
     findByCompany: jest.fn(),
     findAll: jest.fn(),
     update: jest.fn(),
@@ -65,6 +67,7 @@ export function createMockCompaniesRepository() {
     // Phone index for company main lines, so calls can resolve to them.
     syncPhoneIndex: jest.fn().mockResolvedValue(undefined),
     findByPhone: jest.fn().mockResolvedValue(null),
+    findIdByPhone: jest.fn().mockResolvedValue(null),
   };
 }
 

@@ -3,12 +3,12 @@ import {
   GetCommand,
   PutCommand,
   DeleteCommand,
-  QueryCommand,
   ScanCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { DynamoDbService } from '@bitcrm/shared';
 import { type ExternalCompany } from '@bitcrm/types';
 import { DEALS_TABLE, DEALS_GSI1_NAME } from '../common/constants/dynamo.constants';
+import { queryAllPages } from '../common/utils/query-all-pages';
 import {
   EXTERNAL_COMPANY_PK_PREFIX,
   EXTERNAL_COMPANY_SK,
@@ -77,15 +77,13 @@ export class ExternalCompaniesRepository {
   }
 
   async listAll(): Promise<ExternalCompany[]> {
-    const result = await this.dynamoDb.client.send(
-      new QueryCommand({
-        TableName: DEALS_TABLE,
-        IndexName: DEALS_GSI1_NAME,
-        KeyConditionExpression: 'GSI1PK = :pk',
-        ExpressionAttributeValues: { ':pk': EXTERNAL_COMPANY_GSI1PK },
-      }),
-    );
-    return (result.Items || []).map((i) => this.toEntity(i));
+    const items = await queryAllPages(this.dynamoDb.client, {
+      TableName: DEALS_TABLE,
+      IndexName: DEALS_GSI1_NAME,
+      KeyConditionExpression: 'GSI1PK = :pk',
+      ExpressionAttributeValues: { ':pk': EXTERNAL_COMPANY_GSI1PK },
+    });
+    return items.map((i) => this.toEntity(i));
   }
 
   /**

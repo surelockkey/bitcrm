@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { type DealSubStatus, type JobSuperStatus } from '@bitcrm/types';
 import { randomUUID } from 'crypto';
+import { CatalogCache } from '../common/cache/catalog-cache';
 import { JobStatusesRepository } from './job-statuses.repository';
 import { type CreateJobStatusDto } from './dto/create-job-status.dto';
 import { type UpdateJobStatusDto } from './dto/update-job-status.dto';
@@ -13,6 +14,13 @@ import { type UpdateJobStatusDto } from './dto/update-job-status.dto';
 @Injectable()
 export class JobStatusesService {
   private readonly logger = new Logger(JobStatusesService.name);
+
+  /** The full list, sorted as `list()` answers it — see `CatalogCache` (60 s, local invalidation). */
+  private readonly catalog = new CatalogCache<DealSubStatus>(async () =>
+    (await this.repository.listAll()).sort(
+      (a, b) => b.priority - a.priority || a.name.localeCompare(b.name),
+    ),
+  );
 
   constructor(private readonly repository: JobStatusesRepository) {}
 
@@ -58,14 +66,12 @@ export class JobStatusesService {
     };
 
     await this.repository.create(status);
+    this.catalog.invalidate();
     return status;
   }
 
   async list(): Promise<DealSubStatus[]> {
-    const statuses = await this.repository.listAll();
-    return statuses.sort(
-      (a, b) => b.priority - a.priority || a.name.localeCompare(b.name),
-    );
+    return this.catalog.get();
   }
 
   async findById(id: string): Promise<DealSubStatus> {
@@ -99,6 +105,7 @@ export class JobStatusesService {
     };
 
     await this.repository.put(updated);
+    this.catalog.invalidate();
     return updated;
   }
 
@@ -118,12 +125,14 @@ export class JobStatusesService {
           active: false,
           updatedAt: new Date().toISOString(),
         });
+        this.catalog.invalidate();
       }
       this.logger.log(`Archived job status ${id} — still referenced by at least one deal`);
       return { archived: true };
     }
 
     await this.repository.remove(id);
+    this.catalog.invalidate();
     return { archived: false };
   }
 }

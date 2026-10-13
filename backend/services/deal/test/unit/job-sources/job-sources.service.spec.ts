@@ -99,16 +99,23 @@ describe('JobSourcesService', () => {
 
   describe('list, for a picker', () => {
     /** 690 sources came over from Workiz; 239 are still offered. */
-    it('asks the table for only the active ones when that is all the caller needs', async () => {
-      repo.listAll.mockResolvedValue([]);
-      await service.list({ activeOnly: true });
-      expect(repo.listAll).toHaveBeenCalledWith({ activeOnly: true });
+    it('derives the active ones from the cached full list instead of asking the table again', async () => {
+      repo.listAll.mockResolvedValue([
+        { id: 'on', name: 'A', priority: 0, active: true },
+        { id: 'off', name: 'B', priority: 0, active: false },
+      ]);
+      const active = await service.list({ activeOnly: true });
+      expect(active.map((r: { id: string }) => r.id)).toEqual(['on']);
+      expect(repo.listAll).toHaveBeenCalledWith();
     });
 
     it('still lists everything when nothing is asked of it', async () => {
-      repo.listAll.mockResolvedValue([]);
-      await service.list();
-      expect(repo.listAll).toHaveBeenCalledWith({ activeOnly: false });
+      repo.listAll.mockResolvedValue([
+        { id: 'on', name: 'A', priority: 0, active: true },
+        { id: 'off', name: 'B', priority: 0, active: false },
+      ]);
+      const all = await service.list();
+      expect(all.map((r: { id: string }) => r.id)).toEqual(['on', 'off']);
     });
   });
 });
